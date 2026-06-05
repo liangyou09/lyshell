@@ -1,0 +1,87 @@
+appId: com.novashell.app
+productName: NovaShell
+copyright: Copyright © 2026 NovaShell Team
+
+directories:
+  output: release/${version}
+  buildResources: build
+
+files:
+  - dist/**/*
+  - resources/**/*
+  - package.json
+  - "!**/*.map"
+  - "!**/node_modules/.cache/**/*"
+
+extraResources:
+  - from: resources/fonts
+    to: fonts
+  - from: resources/icons
+    to: icons
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  sign: null
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: NovaShell
+  displayLanguageSelector: true
+  installerLanguages:
+    - zh_CN
+    - en_US
+  language: 2052
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: resources/icons/icon.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+dmg:
+  artifactName: ${productName}-${version}.${ext}
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  icon: resources/icons/
+  category: Utilities
+  synopsis: 智能终端软件
+  description: NovaShell - SSH/Telnet/串口终端 + Python脚本 + AI辅助
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+publish:
+  provider: github
+  owner: novashell
+  repo: novashell
+  releaseType: release

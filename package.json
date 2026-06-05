@@ -1,0 +1,89 @@
+{
+  "name": "novashell",
+  "version": "1.0.1",
+  "description": "智能终端软件 - SSH/Telnet/串口连接 + Python脚本 + AI辅助",
+  "main": "dist/main/index.js",
+  "author": "NovaShell Team",
+  "license": "MIT",
+  "homepage": "https://github.com/novashell/novashell#readme",
+  "bugs": {
+    "url": "https://github.com/novashell/novashell/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/novashell/novashell.git"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "start": "electron .",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "rebuild": "electron-rebuild -f -w serialport",
+    "postinstall": "electron-builder install-app-deps",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "clean": "rimraf dist release",
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "classnames": "^2.5.1",
+    "dayjs": "^1.11.10",
+    "lodash-es": "^4.17.21",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.0",
+    "serialport": "^12.0.0",
+    "ssh2": "^1.15.0",
+    "uuid": "^9.0.1",
+    "xterm": "^5.3.0",
+    "xterm-addon-fit": "^0.8.0",
+    "xterm-addon-search": "^0.13.0",
+    "xterm-addon-unicode11": "^0.6.0",
+    "xterm-addon-webgl": "^0.16.0",
+    "zustand": "^4.5.0"
+  },
+  "devDependencies": {
+    "@electron-toolkit/preload": "^3.0.1",
+    "@electron-toolkit/tsconfig": "^1.0.1",
+    "@electron-toolkit/utils": "^3.0.0",
+    "@types/lodash-es": "^4.17.12",
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.2.48",
+    "@types/react-dom": "^18.2.18",
+    "@types/uuid": "^9.0.7",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "@vitest/ui": "^1.2.0",
+    "autoprefixer": "^10.4.17",
+    "electron": "^28.3.3",
+    "electron-builder": "^24.12.0",
+    "electron-log": "^5.1.0",
+    "electron-rebuild": "^3.2.9",
+    "electron-updater": "^6.1.7",
+    "electron-vite": "^2.0.0",
+    "esbuild": "^0.20.0",
+    "eslint": "^8.56.0",
+    "eslint-plugin-react": "^7.33.2",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "postcss": "^8.4.35",
+    "rimraf": "^5.0.5",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.3.3",
+    "vite": "^5.1.0",
+    "vitest": "^1.2.0"
+  },
+  "electronRebuild": {
+    "only": [
+      "serialport"
+    ],
+    "force": true
+  }
+}

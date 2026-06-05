@@ -1,0 +1,117 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 全局样式 */
+:root {
+  --color-bg-primary: #1E1E1E;
+  --color-bg-secondary: #252526;
+  --color-bg-card: #2D2D30;
+  --color-bg-input: #3C3C3C;
+  --color-bg-selected: #264F78;
+  --color-text-primary: #E0E0E0;
+  --color-text-secondary: #808080;
+  --color-accent: #0078D4;
+  --font-family-terminal: 'Lucida Console', 'Consolas', 'Courier New', monospace;
+}
+
+/* 基础样式 */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  user-select: none;
+}
+
+/* 侧边栏、标签栏、状态栏完全禁止选择 */
+.sidebar-container,
+.tab-bar-container,
+.status-bar-container {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  margin: 0;
+  padding: 0;
+}
+
+/* 终端容器 */
+.terminal-wrapper {
+  overflow: hidden;
+  position: relative;
+}
+
+/* xterm 终端填满容器 */
+.xterm,
+.xterm-screen,
+.xterm-viewport,
+.xterm-rows,
+.xterm-helpers {
+  padding: 0 !important;
+  margin: 0 !important;
+  height: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.xterm-viewport::-webkit-scrollbar {
+  width: 12px;
+}
+
+
+/* 滚动条 - 始终显示 */
+.xterm-viewport::-webkit-scrollbar {
+  width: 12px;
+}
+
+.xterm-viewport::-webkit-scrollbar-track {
+  background: rgba(60, 60, 60, 0.5);
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 0;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+/* 通用滚动条样式 - 用于侧边栏、文件管理器等 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(60, 60, 60, 0.3);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 隐藏滚动条但保持滚动功能 */
+.scrollbar-hide {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Opera */
+}
+
+/* 无障碍 */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
