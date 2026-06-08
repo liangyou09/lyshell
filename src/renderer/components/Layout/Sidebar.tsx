@@ -239,7 +239,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
   const pinnedSessions = filteredSessions.filter(s => s.tags?.includes('pinned')).sort(sortByPinOrder)
   const unpinnedSessions = filteredSessions.filter(s => !s.tags?.includes('pinned'))
 
-  // 按 IP 分组其他会话
+  // 按 IP 分组其他会话，并按最近更新时间排序分组
   const groupedByIP = unpinnedSessions.reduce((acc, session) => {
     if (!session) return acc
     const host = getHostIP(session)
@@ -247,6 +247,17 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
     acc[host].push(session)
     return acc
   }, {} as Record<string, SessionConfig[]>)
+
+  // IP分组按该分组内最新会话的更新时间排序
+  const sortedIPGroups = Object.entries(groupedByIP).sort(([, aSessions], [, bSessions]) => {
+    const getLatestTime = (sessions: SessionConfig[]) => {
+      return sessions.reduce((max, s) => {
+        const t = s.updatedAt ? new Date(s.updatedAt).getTime() : 0
+        return Math.max(max, t)
+      }, 0)
+    }
+    return getLatestTime(bSessions) - getLatestTime(aSessions)
+  })
 
   // IP 分组展开状态
   const [expandedIPs, setExpandedIPs] = useState<Record<string, boolean>>({})
@@ -360,43 +371,32 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
         className="bg-[#252526] border-r border-[#3C3C3C] flex flex-col h-full"
         style={{ width: `${width}px`, pointerEvents: 'auto' }}
       >
-        {/* 折叠按钮 */}
-        <div className="flex items-center justify-center h-[36px] border-b border-[#3C3C3C]">
-          <button onClick={onToggle} className="text-gray-400 hover:text-white transition-colors">
-            = NovaShell
-          </button>
-        </div>
-
-        {/* 顶部操作按钮 */}
-        <div className="flex justify-center gap-2 px-2 py-2 border-b border-[#3C3C3C]">
+        {/* 搜索栏和操作按钮 */}
+        <div className="flex items-center gap-2 px-2 py-2 border-b border-[#3C3C3C]">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="搜索..."
+            className="flex-1 px-2 py-1 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
+          />
           <button
             onClick={handleNewSession}
             title="新建会话"
-            className="w-[32px] h-[32px] flex items-center justify-center bg-[#0078D4] text-white rounded hover:bg-[#006CBD] transition-colors"
+            className="w-[28px] h-[28px] flex items-center justify-center bg-[#0078D4] text-white rounded hover:bg-[#006CBD] transition-colors"
           >
             +
           </button>
           <button
             onClick={handleOpenExportImport}
-            title="导出/导入配置"
-            className="w-[32px] h-[32px] flex items-center justify-center bg-[#3C3C3C] text-gray-300 rounded hover:bg-[#555] hover:text-white transition-colors"
+            title="导出/导入"
+            className="w-[28px] h-[28px] flex items-center justify-center bg-[#3C3C3C] text-gray-300 rounded hover:bg-[#555] hover:text-white transition-colors"
           >
             ⬇
           </button>
         </div>
 
-        {/* 搜索栏 */}
-        <div className="px-2 py-2 border-b border-[#3C3C3C]">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="搜索名称或IP..."
-            className="w-full px-2 py-1 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
-          />
-        </div>
-
-        {/* 会话列表 - 可滚动，占据剩余空间 */}
+        {/* 会话列表 */}
         <div className="flex-1 overflow-y-auto min-h-[100px]">
           {/* 置顶会话区域 */}
           {pinnedSessions.length > 0 && (
@@ -447,43 +447,70 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
           )}
 
           {/* 其他会话 - 按 IP 分组显示 */}
-          {Object.entries(groupedByIP).length > 0 && (
-            <div>
-              {Object.entries(groupedByIP).map(([ip, sessions]) => (
-                <div key={ip}>
-                  <div
-                    onClick={() => toggleIPGroup(ip)}
-                    className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-[#2D2D30] transition-colors bg-[#1E1E1E]"
-                  >
-                    <span className="text-xs text-gray-400">{expandedIPs[ip] ? '▼' : '▶'}</span>
-                    <span className="text-xs text-gray-300 flex-1 truncate">{ip}</span>
-                    <span className="text-xs text-gray-500">({sessions.length})</span>
-                  </div>
-                  {expandedIPs[ip] && (
-                    <div className="space-y-1 px-2 py-1 border-l-2 border-[#3C3C3C] ml-3">
-                      {sessions.sort(sortByPinOrder).map((config) => (
-                        <div
-                          key={config.id}
-                          onClick={() => handleSessionClick(config)}
-                          className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-[#3C3C3C] cursor-pointer transition-colors group"
-                        >
-                          <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${getTypeColor(config.type)}`}>
-                            {getTypeLabel(config.type)}
-                          </span>
-                          <span className="text-sm text-gray-200 flex-1 truncate">{config.name}</span>
-                          <span className="text-xs text-gray-500">{getPort(config)}</span>
-                          <div className="hidden group-hover:flex gap-1">
-                            <button onClick={(e) => handleEditSession(config, e)} title="编辑会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#555] rounded">✎</button>
-                            <button onClick={(e) => handleCopySession(config, e)} title="复制会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#555] rounded">⎘</button>
-                            <button onClick={(e) => handleTogglePin(config, e)} title="置顶会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-[#0078D4] hover:bg-[#555] rounded">📌</button>
-                            <button onClick={(e) => handleDeleteSession(config.id, e)} title="删除会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-red-400 hover:bg-[#555] rounded">✕</button>
-                          </div>
-                        </div>
-                      ))}
+          {sortedIPGroups.length > 0 && (
+            <div className="space-y-[2px]">
+              {sortedIPGroups.map(([ip, sessions]) => {
+                // 单个会话不折叠，直接显示
+                if (sessions.length === 1) {
+                  const config = sessions[0]
+                  return (
+                    <div
+                      key={config.id}
+                      onClick={() => handleSessionClick(config)}
+                      className="flex items-center gap-2 px-3 py-[5px] rounded hover:bg-[#3C3C3C] cursor-pointer transition-colors group bg-[#3C3C3C]/30"
+                    >
+                      <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${getTypeColor(config.type)}`}>
+                        {getTypeLabel(config.type)}
+                      </span>
+                      <span className="text-xs text-gray-400 truncate max-w-[80px]">{ip}</span>
+                      <span className="text-sm text-gray-200 flex-1 truncate">{config.name}</span>
+                      <span className="text-xs text-gray-500">{getPort(config)}</span>
+                      <div className="hidden group-hover:flex gap-1">
+                        <button onClick={(e) => handleEditSession(config, e)} title="编辑会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#555] rounded">✎</button>
+                        <button onClick={(e) => handleCopySession(config, e)} title="复制会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#555] rounded">⎘</button>
+                        <button onClick={(e) => handleTogglePin(config, e)} title="置顶会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-[#0078D4] hover:bg-[#555] rounded">📌</button>
+                        <button onClick={(e) => handleDeleteSession(config.id, e)} title="删除会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-red-400 hover:bg-[#555] rounded">✕</button>
+                      </div>
                     </div>
-                  )}
-                </div>
-              ))}
+                  )
+                }
+                // 多个会话才折叠显示
+                return (
+                  <div key={ip}>
+                    <div
+                      onClick={() => toggleIPGroup(ip)}
+                      className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-[#2D2D30] transition-colors bg-[#1E1E1E]"
+                    >
+                      <span className="text-xs text-gray-400">{expandedIPs[ip] ? '▼' : '▶'}</span>
+                      <span className="text-xs text-gray-300 flex-1 truncate">{ip}</span>
+                      <span className="text-xs text-gray-500">({sessions.length})</span>
+                    </div>
+                    {expandedIPs[ip] && (
+                      <div className="space-y-[2px] px-2 py-1 border-l-2 border-[#3C3C3C] ml-3">
+                        {sessions.sort(sortByPinOrder).map((config) => (
+                          <div
+                            key={config.id}
+                            onClick={() => handleSessionClick(config)}
+                            className="flex items-center gap-2 px-2 py-[5px] rounded hover:bg-[#3C3C3C] cursor-pointer transition-colors group"
+                          >
+                            <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${getTypeColor(config.type)}`}>
+                              {getTypeLabel(config.type)}
+                            </span>
+                            <span className="text-sm text-gray-200 flex-1 truncate">{config.name}</span>
+                            <span className="text-xs text-gray-500">{getPort(config)}</span>
+                            <div className="hidden group-hover:flex gap-1">
+                              <button onClick={(e) => handleEditSession(config, e)} title="编辑会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#555] rounded">✎</button>
+                              <button onClick={(e) => handleCopySession(config, e)} title="复制会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#555] rounded">⎘</button>
+                              <button onClick={(e) => handleTogglePin(config, e)} title="置顶会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-[#0078D4] hover:bg-[#555] rounded">📌</button>
+                              <button onClick={(e) => handleDeleteSession(config.id, e)} title="删除会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-red-400 hover:bg-[#555] rounded">✕</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
 
