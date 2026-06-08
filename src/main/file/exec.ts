@@ -267,40 +267,68 @@ export class ExecFileConnector extends BaseFileConnector {
       log.debug('Entering shell with commands')
       for (const cmd of this.shellEnterCommands) {
         stream.write(`${cmd}\n`)
+        // 每个命令后等待一段时间
+        await new Promise(r => setTimeout(r, this.shellEnterWait))
       }
-      stream.write('\n')  // 发送回车
     }
 
-    // 检测 shell 是否就绪
+    // 发送回车触发提示符
+    stream.write('\n')
+
+    // 检测 shell 是否就绪 - 等待提示符或 echo 响应
     const readyMarker = `__READY_${Date.now()}__`
-    const maxWaitTime = this.shellEnterWait * 3  // 给予足够时间
+    const maxWaitTime = 10000  // 最大等待 10 秒
     const startTime = Date.now()
 
     log.debug(`Waiting for shell ready (max ${maxWaitTime}ms)`)
 
+    // 发送就绪检测命令
+    stream.write(`echo "${readyMarker}"\n`)
+
     // 设置临时监听器检测就绪
     const checkReady = () => {
       if (this.outputBuffer.includes(readyMarker)) {
-        log.debug('Shell ready detected')
+        log.info('Shell ready detected')
+        // 清空 outputBuffer，避免影响后续命令
+        this.outputBuffer = ''
+        resolve()
+        return
+      }
+
+      // 检测是否有提示符出现（常见的提示符模式）
+      if (this.outputBuffer.match(/[#$>]\s*$/) || this.outputBuffer.includes('#') || this.outputBuffer.includes('$')) {
+        log.info('Shell prompt detected, assuming ready')
+        this.outputBuffer = ''
         resolve()
         return
       }
 
       const elapsed = Date.now() - startTime
       if (elapsed >= maxWaitTime) {
-        log.debug(`Shell ready timeout after ${elapsed}ms, assuming ready`)
-        resolve()
+        log.warn(`Shell ready timeout after ${elapsed}ms`)
+        // 超时后发送回车再试一次
+        stream.write('\n')
+        // 等待 500ms 再检测
+        setTimeout(() => {
+          if (this.outputBuffer.includes(readyMarker) || this.outputBuffer.match(/[#$>]\s*$/)) {
+            log.info('Shell ready after retry')
+            this.outputBuffer = ''
+            resolve()
+          } else {
+            // 最终超时，仍然 resolve 但清空 buffer
+            log.warn('Shell still not ready, clearing buffer and proceeding')
+            this.outputBuffer = ''
+            resolve()
+          }
+        }, 500)
         return
       }
 
       // 继续等待
-      setTimeout(checkReady, 100)
+      setTimeout(checkReady, 200)
     }
 
-    // 发送就绪检测命令
-    stream.write(`echo "${readyMarker}"\n`)
-
-    // 开始等待
+    // 开始等待（先等待 shellEnterWait 时间）
     setTimeout(checkReady, this.shellEnterWait)
   }
 
