@@ -38,6 +38,9 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
   const [serialPath, setSerialPath] = useState('COM1')
   const [serialBaudRate, setSerialBaudRate] = useState('9600')
 
+  // 终端配置
+  const [encoding, setEncoding] = useState<'utf-8' | 'gbk' | 'gb2312'>('utf-8')
+
   // 检测是否像IP地址（边输入边检测，支持部分IP和末尾的点）
   const isIPLike = (text: string): boolean => {
     // 匹配正在输入的IP格式: 数字.数字... 或带端口，末尾可以有待输入的点
@@ -95,6 +98,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       setTelnetPort(initialConfig.telnet?.port?.toString() || '23')
       setSerialPath(initialConfig.serial?.path || 'COM1')
       setSerialBaudRate(initialConfig.serial?.baudRate?.toString() || '9600')
+      setEncoding(initialConfig.terminal?.encoding || 'utf-8')
     } else {
       // 新建时清空
       setName('')
@@ -112,6 +116,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       setTelnetPort('23')
       setSerialPath('COM1')
       setSerialBaudRate('9600')
+      setEncoding('utf-8')
     }
   }, [initialConfig, open])
 
@@ -138,14 +143,16 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       type,
       tags: tags.split(',').map(t => t.trim()).filter(Boolean),
       startupCommands: startupCommands.split('\n').filter(Boolean),
-      terminal: initialConfig?.terminal || {
-        fontSize: 14,
-        fontFamily: 'Consolas, Monaco, monospace',
-        theme: DEFAULT_THEME_DARK,
-        cursorStyle: 'block',
-        cursorBlink: true,
-        scrollback: 10000,
-        encoding: 'utf-8'
+      terminal: {
+        ...initialConfig?.terminal || {
+          fontSize: 14,
+          fontFamily: 'Consolas, Monaco, monospace',
+          theme: DEFAULT_THEME_DARK,
+          cursorStyle: 'block',
+          cursorBlink: true,
+          scrollback: 10000
+        },
+        encoding: encoding
       },
       createdAt: initialConfig?.createdAt || new Date(),
       updatedAt: new Date()
@@ -354,6 +361,19 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
 
           {/* 其他设置 */}
           <div className="space-y-3 pt-2 border-t border-[#3C3C3C]">
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-400 w-16 shrink-0">编码</label>
+              <select
+                value={encoding}
+                onChange={(e) => setEncoding(e.target.value as 'utf-8' | 'gbk' | 'gb2312')}
+                className="flex-1 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white focus:outline-none focus:border-[#0078D4]"
+              >
+                <option value="utf-8">UTF-8</option>
+                <option value="gbk">GBK</option>
+                <option value="gb2312">GB2312</option>
+              </select>
+            </div>
+
             <div className="flex items-center gap-2">
               <label className="text-xs text-gray-400 w-16 shrink-0">标签</label>
               <input

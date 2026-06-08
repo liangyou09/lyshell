@@ -132,13 +132,22 @@ export class SessionManager extends EventEmitter {
       // 根据类型创建连接器
       switch (session.config.type) {
         case ConnectionType.SSH:
-          session.connector = new SSHConnector(id, session.config.ssh as SSHConfig)
+          session.connector = new SSHConnector(id, {
+            ...session.config.ssh as SSHConfig,
+            encoding: session.config.terminal?.encoding
+          })
           break
         case ConnectionType.TELNET:
-          session.connector = new TelnetConnector(id, session.config.telnet as TelnetConfig)
+          session.connector = new TelnetConnector(id, {
+            ...session.config.telnet as TelnetConfig,
+            encoding: session.config.terminal?.encoding
+          })
           break
         case ConnectionType.SERIAL:
-          session.connector = new SerialConnector(id, session.config.serial as SerialConfig)
+          session.connector = new SerialConnector(id, {
+            ...session.config.serial as SerialConfig,
+            encoding: session.config.terminal?.encoding
+          })
           break
         default:
           throw new Error(`Unknown connection type: ${session.config.type}`)

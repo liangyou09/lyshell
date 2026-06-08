@@ -1,5 +1,6 @@
 import { SerialPort } from 'serialport'
 import log from 'electron-log'
+import iconv from 'iconv-lite'
 import { BaseConnector } from './base'
 
 /**
@@ -11,6 +12,7 @@ export interface SerialConfig {
   dataBits?: 5 | 6 | 7 | 8
   stopBits?: 1 | 2
   parity?: 'none' | 'even' | 'odd' | 'mark' | 'space'
+  encoding?: 'utf-8' | 'gbk' | 'gb2312'
 }
 
 /**
@@ -23,6 +25,19 @@ export class SerialConnector extends BaseConnector {
   constructor(sessionId: string, config: SerialConfig) {
     super(sessionId)
     this.config = config
+  }
+
+  /**
+   * 解码数据（根据配置的编码）
+   */
+  private decodeData(data: Buffer): string {
+    const encoding = this.config.encoding || 'utf-8'
+    try {
+      return iconv.decode(data, encoding)
+    } catch (e) {
+      log.warn('Serial decode error:', e)
+      return data.toString('binary')
+    }
   }
 
   /**
@@ -59,7 +74,7 @@ export class SerialConnector extends BaseConnector {
       })
 
       this.port!.on('data', (data: Buffer) => {
-        this.emitData(data.toString())
+        this.emitData(this.decodeData(data))
       })
 
       this.port!.on('error', (err) => {

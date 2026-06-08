@@ -1,6 +1,7 @@
 import { Client, ClientChannel } from 'ssh2'
 import { EventEmitter } from 'events'
 import log from 'electron-log'
+import iconv from 'iconv-lite'
 import { BaseConnector, ConnectionStatus } from './base'
 
 /**
@@ -15,6 +16,7 @@ export interface SSHConfig {
   passphrase?: string
   keepaliveInterval?: number
   readyTimeout?: number
+  encoding?: 'utf-8' | 'gbk' | 'gb2312'
 }
 
 /**
@@ -29,6 +31,19 @@ export class SSHConnector extends BaseConnector {
   constructor(sessionId: string, config: SSHConfig) {
     super(sessionId)
     this.config = config
+  }
+
+  /**
+   * 解码数据（根据配置的编码）
+   */
+  private decodeData(data: Buffer): string {
+    const encoding = this.config.encoding || 'utf-8'
+    try {
+      return iconv.decode(data, encoding)
+    } catch (e) {
+      log.warn('SSH decode error:', e)
+      return data.toString('binary')
+    }
   }
 
   /**
@@ -69,7 +84,7 @@ export class SSHConnector extends BaseConnector {
 
         // 接收数据
         channel.on('data', (data: Buffer) => {
-          this.emitData(data.toString())
+          this.emitData(this.decodeData(data))
         })
 
         // Shell 关闭
@@ -169,7 +184,7 @@ export class SSHConnector extends BaseConnector {
 
       // 接收数据
       channel.on('data', (data: Buffer) => {
-        this.emitData(data.toString())
+        this.emitData(this.decodeData(data))
       })
 
       // Shell 关闭
