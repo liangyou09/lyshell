@@ -91,10 +91,29 @@ const DownloadProgressBar: React.FC = () => {
       const direction = data.direction || 'download'
 
       if (data.failed) {
-        // 失败
-        setDownloads(prev => prev.map(d =>
-          d.taskId === taskId ? { ...d, status: 'failed', error: data.error } : d
-        ))
+        // 失败 - 如果任务不存在则添加，否则更新状态
+        setDownloads(prev => {
+          const existing = prev.find(d => d.taskId === taskId)
+          if (existing) {
+            return prev.map(d =>
+              d.taskId === taskId ? { ...d, status: 'failed', error: data.error } : d
+            )
+          } else {
+            // 任务不存在，添加新的失败任务
+            return [{
+              taskId,
+              fileName,
+              progress: 0,
+              transferredSize: 0,
+              fileSize: 0,
+              speed: 0,
+              status: 'failed',
+              error: data.error,
+              direction,
+              localPath
+            }, ...prev]
+          }
+        })
         fileNameStore.delete(taskId)
         localPathStore.delete(taskId)
       } else if (data.completed) {

@@ -62,6 +62,7 @@ const IPC_CHANNELS = {
   FILE_CONNECTOR_TYPE: 'file:connector-type',
   FILE_OPEN_FOLDER: 'file:open-folder',
   FILE_MD5: 'file:md5',
+  FILE_PWD: 'file:pwd',
 
   // 下载记录
   DOWNLOAD_HISTORY_LIST: 'download-history:list',
@@ -72,7 +73,14 @@ const IPC_CHANNELS = {
   DOWNLOAD_DIR_GET: 'download-dir:get',
 
   // Dialog API
-  WINDOW_GET_BOUNDS: 'window:get-bounds'
+  WINDOW_GET_BOUNDS: 'window:get-bounds',
+
+  // 快速命令
+  COMMAND_LIST: 'command:list',
+  COMMAND_SAVE_ALL: 'command:save-all',
+  COMMAND_ADD: 'command:add',
+  COMMAND_UPDATE: 'command:update',
+  COMMAND_DELETE: 'command:delete'
 }
 
 // 暴露给渲染进程的 API
@@ -144,6 +152,13 @@ const electronAPI = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.FLOAT_TOGGLE, callback)
   },
 
+  // 快速命令
+  getQuickCommands: () => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_LIST),
+  saveQuickCommands: (commands: unknown) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_SAVE_ALL, commands),
+  addQuickCommand: (command: unknown) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_ADD, command),
+  updateQuickCommand: (command: unknown) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_UPDATE, command),
+  deleteQuickCommand: (commandId: string) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_DELETE, commandId),
+
   // 窗口
   getWindowBounds: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_GET_BOUNDS),
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
@@ -171,6 +186,7 @@ const electronAPI = {
   getFileConnectorType: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_CONNECTOR_TYPE, sessionId),
   openFolder: (filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_OPEN_FOLDER, filePath),
   fileMd5: (sessionId: string, filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_MD5, sessionId, filePath),
+  filePwd: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_PWD, sessionId),
   onFileProgress: (callback: (event: IpcRendererEvent, progress: unknown) => void) => {
     ipcRenderer.on(IPC_CHANNELS.FILE_PROGRESS, callback)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.FILE_PROGRESS, callback)

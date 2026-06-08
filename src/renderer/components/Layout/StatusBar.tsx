@@ -10,37 +10,36 @@ interface QuickCommand {
 interface StatusBarProps {
   sessionId: string | null
   onExecuteCommand: (content: string) => void
+  refreshKey?: number  // 用于触发刷新
 }
 
 /**
  * 状态栏组件 - 包含快速命令
  */
-const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand }) => {
+const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refreshKey }) => {
   const [commands, setCommands] = useState<QuickCommand[]>([])
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [editCommand, setEditCommand] = useState<QuickCommand | undefined>(undefined)
   const [newName, setNewName] = useState('')
   const [newContent, setNewContent] = useState('')
 
-  // 加载保存的快速命令
+  // 加载保存的快速命令（从配置文件）
   useEffect(() => {
-    const saved = localStorage.getItem('quickCommands')
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved)
-        if (Array.isArray(parsed)) {
-          setCommands(parsed)
-        }
-      } catch {
-        setCommands([])
+    window.electronAPI?.getQuickCommands().then((cmds: any[]) => {
+      if (Array.isArray(cmds)) {
+        setCommands(cmds)
       }
-    }
-  }, [])
+    }).catch(err => {
+      console.error('Failed to load quick commands:', err)
+    })
+  }, [refreshKey])  // refreshKey 变化时重新加载
 
-  // 保存命令到 localStorage
+  // 保存命令到配置文件
   const saveCommands = (cmds: QuickCommand[]) => {
     setCommands(cmds)
-    localStorage.setItem('quickCommands', JSON.stringify(cmds))
+    window.electronAPI?.saveQuickCommands(cmds).catch(err => {
+      console.error('Failed to save quick commands:', err)
+    })
   }
 
   // 双击添加命令

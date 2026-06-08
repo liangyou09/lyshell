@@ -410,7 +410,31 @@ python3 /tmp/nvsh_ul.py || python /tmp/nvsh_ul.py || echo "PYTHON_FAILED"`
 
       stream.on('close', () => {
         log('info', `Shell closed`)
-        finishUpload()
+        // 检测是否有 Python 错误
+        if (shellOutput.includes('PYTHON_FAILED')) {
+          log('error', `Python execution failed`)
+          sendMessage({ type: 'error', taskId, sessionId, error: 'Python execution failed' })
+          client.end()
+          reject(new Error('Python execution failed'))
+        } else if (shellOutput.includes('Traceback (most recent call last)')) {
+          // 提取错误信息
+          const lines = shellOutput.split('\n')
+          let errorMsg = 'Python script error'
+          for (const line of lines) {
+            const errorMatch = line.match(/(?:OSError|PermissionError|IOError|Error):\s*(.+)$/)
+            if (errorMatch) {
+              errorMsg = errorMatch[1].trim()
+              break
+            }
+          }
+          log('error', `Python error: ${errorMsg}`)
+          sendMessage({ type: 'error', taskId, sessionId, error: errorMsg })
+          client.end()
+          reject(new Error(errorMsg))
+        } else if (!uploadFinished) {
+          // 正常关闭但未收到完成标志
+          finishUpload()
+        }
       })
 
       // 发送进入命令
@@ -440,6 +464,7 @@ python3 /tmp/nvsh_ul.py || python /tmp/nvsh_ul.py || echo "PYTHON_FAILED"`
       let execOutput = ''
       let pythonPort = 0
       let phase = 'waiting_port'
+      let uploadFinished = false
 
       stream.on('data', (data: Buffer) => {
         const output = data.toString()
@@ -460,8 +485,9 @@ python3 /tmp/nvsh_ul.py || python /tmp/nvsh_ul.py || echo "PYTHON_FAILED"`
           }
 
           const doneMatch = execOutput.match(/===NOVASHELL_DONE:(\d+)===/)
-          if (doneMatch) {
+          if (doneMatch && !uploadFinished) {
             log('info', `Python done: ${doneMatch[1]} bytes received`)
+            uploadFinished = true
             finishUpload()
           }
         }
@@ -473,7 +499,31 @@ python3 /tmp/nvsh_ul.py || python /tmp/nvsh_ul.py || echo "PYTHON_FAILED"`
 
       stream.on('close', () => {
         log('info', `Exec stream closed`)
-        finishUpload()
+        // 检测是否有 Python 错误
+        if (execOutput.includes('PYTHON_FAILED')) {
+          log('error', `Python execution failed`)
+          sendMessage({ type: 'error', taskId, sessionId, error: 'Python execution failed' })
+          client.end()
+          reject(new Error('Python execution failed'))
+        } else if (execOutput.includes('Traceback (most recent call last)')) {
+          // 提取错误信息
+          const lines = execOutput.split('\n')
+          let errorMsg = 'Python script error'
+          for (const line of lines) {
+            const errorMatch = line.match(/(?:OSError|PermissionError|IOError|Error):\s*(.+)$/)
+            if (errorMatch) {
+              errorMsg = errorMatch[1].trim()
+              break
+            }
+          }
+          log('error', `Python error: ${errorMsg}`)
+          sendMessage({ type: 'error', taskId, sessionId, error: errorMsg })
+          client.end()
+          reject(new Error(errorMsg))
+        } else if (!uploadFinished) {
+          // 正常关闭但未收到完成标志
+          finishUpload()
+        }
       })
     })
   }

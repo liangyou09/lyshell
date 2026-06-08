@@ -6,7 +6,7 @@ import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypt
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 import { sessionManager } from '../terminal/session-manager'
-import { sessionRepository, preferencesRepository } from '../storage/repository'
+import { sessionRepository, preferencesRepository, quickCommandsRepository } from '../storage/repository'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { pythonEngine } from '../python/engine'
 import { ConnectionStatus, SSHConnector } from '../connectors'
@@ -82,7 +82,9 @@ export const IPC_CHANNELS = {
 
   // 快速命令
   COMMAND_LIST: 'command:list',
+  COMMAND_SAVE_ALL: 'command:save-all',
   COMMAND_ADD: 'command:add',
+  COMMAND_UPDATE: 'command:update',
   COMMAND_DELETE: 'command:delete',
 
   // 浮窗
@@ -109,6 +111,7 @@ export const IPC_CHANNELS = {
   FILE_CONNECTOR_TYPE: 'file:connector-type',
   FILE_OPEN_FOLDER: 'file:open-folder',  // 打开文件夹
   FILE_MD5: 'file:md5',  // 计算远程文件MD5
+  FILE_PWD: 'file:pwd',  // 获取当前工作目录
 
   // 下载记录
   DOWNLOAD_HISTORY_LIST: 'download-history:list',
@@ -348,22 +351,30 @@ export function registerIPCHandlers(): void {
 
   // ========== 快速命令 ==========
 
-  let quickCommands: any[] = []
+  // ========== 快速命令 ==========
 
   ipcMain.handle(IPC_CHANNELS.COMMAND_LIST, async () => {
-    return quickCommands
+    return quickCommandsRepository.getAll()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.COMMAND_SAVE_ALL, async (_event, commands: any[]) => {
+    quickCommandsRepository.saveAll(commands)
+    return { success: true }
   })
 
   ipcMain.handle(IPC_CHANNELS.COMMAND_ADD, async (_event, command) => {
-    command.id = Date.now().toString()
-    command.createdAt = new Date()
-    quickCommands.push(command)
-    return command
+    const saved = quickCommandsRepository.add(command)
+    return saved
+  })
+
+  ipcMain.handle(IPC_CHANNELS.COMMAND_UPDATE, async (_event, command) => {
+    const success = quickCommandsRepository.update(command)
+    return { success }
   })
 
   ipcMain.handle(IPC_CHANNELS.COMMAND_DELETE, async (_event, commandId: string) => {
-    quickCommands = quickCommands.filter(c => c.id !== commandId)
-    return { success: true }
+    const success = quickCommandsRepository.delete(commandId)
+    return { success }
   })
 
   // ========== Python 执行 ==========
@@ -722,6 +733,23 @@ export function registerIPCHandlers(): void {
     }
   })
 
+  // 获取当前工作目录（home 目录）
+  ipcMain.handle(IPC_CHANNELS.FILE_PWD, async (_event, sessionId: string) => {
+    log.debug('File pwd:', sessionId)
+    try {
+      // 通过获取 connector 来执行 pwd 命令
+      const connector = await fileManager.getConnector(sessionId)
+      if (connector && connector.execRaw) {
+        const pwd = await connector.execRaw('pwd')
+        return { success: true, data: pwd.trim() }
+      }
+      return { success: false, error: 'Cannot execute command' }
+    } catch (error) {
+      log.error('File pwd error:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
   ipcMain.handle(IPC_CHANNELS.FILE_STAT, async (_event, sessionId: string, path: string) => {
     log.debug('File stat:', sessionId, path)
     try {
@@ -740,12 +768,30 @@ export function registerIPCHandlers(): void {
     const session = sessionManager.getSession(sessionId)
     if (!session) {
       log.error('Session not found:', sessionId)
+      // 发送错误进度消息
+      sendToAllWindows(IPC_CHANNELS.FILE_PROGRESS, {
+        taskId,
+        sessionId,
+        failed: true,
+        error: 'Session not found',
+        progress: 0,
+        direction: 'upload'
+      })
       return { success: false, error: 'Session not found' }
     }
 
     const sshConfig = session.config.ssh
     if (!sshConfig) {
       log.error('SSH config not found:', sessionId)
+      // 发送错误进度消息
+      sendToAllWindows(IPC_CHANNELS.FILE_PROGRESS, {
+        taskId,
+        sessionId,
+        failed: true,
+        error: 'SSH config not found',
+        progress: 0,
+        direction: 'upload'
+      })
       return { success: false, error: 'SSH config not found' }
     }
 
@@ -756,6 +802,15 @@ export function registerIPCHandlers(): void {
       fileSize = stat.size
     } catch (err) {
       log.error('Local file not found:', localPath)
+      // 发送错误进度消息
+      sendToAllWindows(IPC_CHANNELS.FILE_PROGRESS, {
+        taskId,
+        sessionId,
+        failed: true,
+        error: 'Local file not found',
+        progress: 0,
+        direction: 'upload'
+      })
       return { success: false, error: 'Local file not found' }
     }
 
@@ -790,6 +845,15 @@ export function registerIPCHandlers(): void {
     } catch (err) {
       const error = err as Error
       log.error('Failed to start upload:', error.message)
+      // 发送错误进度消息
+      sendToAllWindows(IPC_CHANNELS.FILE_PROGRESS, {
+        taskId,
+        sessionId,
+        failed: true,
+        error: error.message,
+        progress: 0,
+        direction: 'upload'
+      })
       return { success: false, error: error.message }
     }
   })

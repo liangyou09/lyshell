@@ -16,6 +16,7 @@ interface SidebarProps {
   collapsed: boolean
   onToggle: () => void
   onConnect?: (sessionId: string, config: SessionConfig) => void
+  onQuickCommandsChange?: () => void  // 快速命令变化时通知父组件刷新 StatusBar
 }
 
 // 辅助函数
@@ -56,7 +57,7 @@ const getTypeColor = (type: string) => {
  * 侧边栏组件 - 左侧会话列表 + 底部嵌入文件管理器
  * 支持宽度调整（右边缘拖动）和文件管理器高度调整（分割线拖动）
  */
-const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect }) => {
+const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQuickCommandsChange }) => {
   const [showDialog, setShowDialog] = useState(false)
   const [editConfig, setEditConfig] = useState<SessionConfig | undefined>(undefined)
   const [searchQuery, setSearchQuery] = useState('')
@@ -74,17 +75,15 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect }) => 
   const [isResizingHeight, setIsResizingHeight] = useState(false)
   const sidebarRef = useRef<HTMLDivElement>(null)
 
-  // 加载快速命令
+  // 加载快速命令（从配置文件）
   useEffect(() => {
-    const saved = localStorage.getItem('quickCommands')
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved)
-        if (Array.isArray(parsed)) setQuickCommands(parsed)
-      } catch {
-        setQuickCommands([])
+    window.electronAPI?.getQuickCommands().then((cmds: any[]) => {
+      if (Array.isArray(cmds)) {
+        setQuickCommands(cmds)
       }
-    }
+    }).catch(err => {
+      console.error('Failed to load quick commands:', err)
+    })
   }, [])
 
   // 监听新建会话事件
@@ -198,15 +197,18 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect }) => 
     setShowExportImport(true)
   }
 
-  const handleImportComplete = (_sessions: SessionConfig[], commands: QuickCommand[]) => {
-    const existingIds = new Set(quickCommands.map(c => c.id))
-    const newCommands = commands.filter(c => !existingIds.has(c.id)).map(c => ({
-      ...c,
-      id: Date.now().toString() + Math.random().toString(36).slice(2)
-    }))
-    const merged = [...quickCommands, ...newCommands]
-    setQuickCommands(merged)
-    localStorage.setItem('quickCommands', JSON.stringify(merged))
+  const handleImportComplete = async (_sessions: SessionConfig[], _commands: QuickCommand[]) => {
+    // 导入已完成，刷新快速命令列表（从配置文件重新加载）
+    try {
+      const cmds = await window.electronAPI?.getQuickCommands()
+      if (Array.isArray(cmds)) {
+        setQuickCommands(cmds)
+      }
+      // 通知父组件刷新 StatusBar
+      onQuickCommandsChange?.()
+    } catch (err) {
+      console.error('Failed to refresh quick commands:', err)
+    }
     refreshSavedSessions()
   }
 

@@ -400,3 +400,98 @@ export class PreferencesRepository {
 // 单例 - 可以在模块加载时创建，因为使用了延迟初始化
 export const sessionRepository = new SessionRepository()
 export const preferencesRepository = new PreferencesRepository()
+
+/**
+ * 快速命令存储
+ */
+export interface QuickCommand {
+  id: string
+  name: string
+  content: string
+}
+
+export class QuickCommandsRepository {
+  private filePath: string | null = null
+  private commands: QuickCommand[] = []
+  private loaded: boolean = false
+
+  private ensureInitialized(): void {
+    if (!this.filePath) {
+      this.filePath = join(getConfigDir(), 'quickCommands.json')
+      this.load()
+    }
+  }
+
+  private load(): void {
+    if (!this.filePath || this.loaded) return
+
+    if (!existsSync(this.filePath)) {
+      log.info('No quickCommands file found, starting fresh')
+      this.loaded = true
+      return
+    }
+
+    try {
+      const content = readFileSync(this.filePath, 'utf-8')
+      this.commands = JSON.parse(content) as QuickCommand[]
+      log.info(`Loaded ${this.commands.length} quick commands from storage`)
+      this.loaded = true
+    } catch (error) {
+      log.error('Failed to load quick commands:', error)
+      this.commands = []
+      this.loaded = true
+    }
+  }
+
+  private save(): void {
+    if (!this.filePath) return
+
+    try {
+      writeFileSync(this.filePath, JSON.stringify(this.commands, null, 2), 'utf-8')
+      log.info(`Saved ${this.commands.length} quick commands to storage`)
+    } catch (error) {
+      log.error('Failed to save quick commands:', error)
+    }
+  }
+
+  getAll(): QuickCommand[] {
+    this.ensureInitialized()
+    return [...this.commands]
+  }
+
+  saveAll(commands: QuickCommand[]): void {
+    this.ensureInitialized()
+    this.commands = commands
+    this.save()
+  }
+
+  add(command: QuickCommand): QuickCommand {
+    this.ensureInitialized()
+    if (!command.id) {
+      command.id = uuidv4()
+    }
+    this.commands.push(command)
+    this.save()
+    return command
+  }
+
+  update(command: QuickCommand): boolean {
+    this.ensureInitialized()
+    const index = this.commands.findIndex(c => c.id === command.id)
+    if (index === -1) return false
+    this.commands[index] = command
+    this.save()
+    return true
+  }
+
+  delete(id: string): boolean {
+    this.ensureInitialized()
+    const index = this.commands.findIndex(c => c.id === id)
+    if (index === -1) return false
+    this.commands.splice(index, 1)
+    this.save()
+    return true
+  }
+}
+
+export const quickCommandsRepository = new QuickCommandsRepository()

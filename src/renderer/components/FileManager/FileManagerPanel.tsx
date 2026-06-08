@@ -20,6 +20,9 @@ interface ServerIdentity {
   username: string
 }
 
+// 服务器路径持久化 key
+const SERVER_PATHS_STORAGE_KEY = 'novashell_server_paths'
+
 // 获取服务器标识
 function getServerIdentity(session: any): ServerIdentity | null {
   const ssh = session?.config?.ssh
@@ -36,6 +39,27 @@ function serverKey(identity: ServerIdentity): string {
   return `${identity.host}:${identity.port}:${identity.username}`
 }
 
+// 从 localStorage 加载服务器路径
+function loadServerPaths(): Record<string, string> {
+  try {
+    const saved = localStorage.getItem(SERVER_PATHS_STORAGE_KEY)
+    if (!saved) return {}
+    return JSON.parse(saved)
+  } catch (e) {
+    console.warn('Failed to load server paths:', e)
+    return {}
+  }
+}
+
+// 保存服务器路径到 localStorage
+function saveServerPaths(paths: Record<string, string>): void {
+  try {
+    localStorage.setItem(SERVER_PATHS_STORAGE_KEY, JSON.stringify(paths))
+  } catch (e) {
+    console.warn('Failed to save server paths:', e)
+  }
+}
+
 /**
  * 嵌入式文件管理器 - 用于侧边栏底部
  * 基于服务器（host:port:user），一个服务器只有一个文件会话
@@ -48,9 +72,14 @@ const FileManagerPanel: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [filterPattern, setFilterPattern] = useState('')
   const [isDragging, setIsDragging] = useState(false)
+  const [error, setError] = useState<string | null>(null)  // 错误信息
 
-  // 每个服务器保存的路径
-  const serverPathsRef = useRef<Record<string, string>>({})
+  // 每个服务器保存的路径（从 localStorage 加载）
+  const serverPathsRef = useRef<Record<string, string>>(loadServerPaths())
+  // 已获取 home 目录的服务器
+  const homeDirsRef = useRef<Record<string, string>>({})
+  // 已初始化的服务器（有保存路径或已获取 home 目录）
+  const initializedServersRef = useRef<Set<string>>(new Set())
 
   // 获取所有会话和终端
   const { layout, getAllLeafPanes } = usePaneStore()
@@ -76,15 +105,55 @@ const FileManagerPanel: React.FC = () => {
       return identity && serverKey(identity) === currentServerKey
     }) : false
 
-  // 当服务器真正切换时，恢复路径
+  // 当服务器真正切换时，恢复路径或获取 home 目录
   const prevServerKeyRef = useRef<string | null>(null)
   useEffect(() => {
     if (currentServerKey && currentServerKey !== prevServerKeyRef.current) {
       prevServerKeyRef.current = currentServerKey
+
+      // 检查是否有保存的有效路径（不是根目录）
       const savedPath = serverPathsRef.current[currentServerKey]
-      setCurrentPath(savedPath || '/')
+      if (savedPath && savedPath !== '/') {
+        setCurrentPath(savedPath)
+        initializedServersRef.current.add(currentServerKey)
+      } else if (currentSessionId && !initializedServersRef.current.has(currentServerKey)) {
+        // 没有保存的路径或保存的是根目录，获取用户的 home 目录
+        fetchHomeDirectory(currentServerKey, currentSessionId)
+      }
     }
-  }, [currentServerKey])
+  }, [currentServerKey, currentSessionId])
+
+  // 获取用户的 home 目录
+  const fetchHomeDirectory = async (serverKey: string, sessionId: string) => {
+    try {
+      // 使用 pwd 命令获取当前目录（home 目录）
+      const pwdResult = await window.electronAPI.filePwd(sessionId)
+      if (pwdResult.success && pwdResult.data) {
+        const homeDir = pwdResult.data
+        homeDirsRef.current[serverKey] = homeDir
+        setCurrentPath(homeDir)
+        initializedServersRef.current.add(serverKey)
+        // 加载 home 目录的文件列表
+        loadFiles(sessionId, homeDir)
+      } else {
+        // 失败时使用根目录
+        setCurrentPath('/')
+        initializedServersRef.current.add(serverKey)
+      }
+    } catch (err) {
+      console.error('Failed to fetch home directory:', err)
+      setCurrentPath('/')
+      initializedServersRef.current.add(serverKey)
+    }
+  }
+
+  // 当路径变化时，保存到 localStorage
+  useEffect(() => {
+    if (currentServerKey && currentPath) {
+      serverPathsRef.current[currentServerKey] = currentPath
+      saveServerPaths(serverPathsRef.current)
+    }
+  }, [currentServerKey, currentPath])
 
   // 当服务器断开时，清空状态
   useEffect(() => {
@@ -136,9 +205,10 @@ const FileManagerPanel: React.FC = () => {
     }
   }
 
-  // 加载文件列表 - 只在服务器或路径变化时加载
+  // 加载文件列表 - 只在服务器或路径变化时加载（且已初始化）
   useEffect(() => {
-    if (currentServerKey && activeTab === 'files' && currentSessionId) {
+    if (currentServerKey && activeTab === 'files' && currentSessionId &&
+        initializedServersRef.current.has(currentServerKey)) {
       loadFiles(currentSessionId, currentPath)
     }
   }, [currentServerKey, currentPath, activeTab])
@@ -165,13 +235,20 @@ const FileManagerPanel: React.FC = () => {
 
   const loadFiles = async (sessionId: string, path: string) => {
     setLoading(true)
+    setError(null)  // 清除之前的错误
     try {
       const result = await window.electronAPI.fileList(sessionId, path)
       if (result.success) {
         setFiles(result.data || [])
+      } else {
+        // 显示错误信息，不弹窗
+        setError(result.error || '加载失败')
+        setFiles([])
       }
     } catch (err) {
       console.error('Failed to load files:', err)
+      setError('加载失败')
+      setFiles([])
     }
     setLoading(false)
   }
@@ -215,6 +292,7 @@ const FileManagerPanel: React.FC = () => {
     if (result.success) {
       setTimeout(() => currentSessionId && loadFiles(currentSessionId, currentPath), 2000)
     }
+    // 错误已通过 file:progress 事件发送，进度条会显示
   }
 
   // 获取当前会话名称
@@ -270,19 +348,33 @@ const FileManagerPanel: React.FC = () => {
       <div className="flex-1 overflow-auto min-h-0">
         {activeTab === 'files' ? (
           hasFileSession ? (
-            <FileBrowser
-              files={filteredFiles}
-              currentPath={currentPath}
-              loading={loading}
-              hasSession={true}
-              sessionId={currentSessionId}
-              filterPattern={filterPattern}
-              onFilterChange={setFilterPattern}
-              onEnterDir={handleEnterDir}
-              onGoUp={handleGoUp}
-              onDownload={handleDownload}
-              onRefresh={() => currentSessionId && loadFiles(currentSessionId, currentPath)}
-            />
+            <>
+              {/* 错误提示 */}
+              {error && (
+                <div className="px-2 py-1 bg-red-900/30 border-b border-red-800/50 text-red-400 text-xs flex items-center justify-between">
+                  <span className="truncate">{error}</span>
+                  <button
+                    onClick={() => setError(null)}
+                    className="text-red-400 hover:text-white ml-2"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+              <FileBrowser
+                files={filteredFiles}
+                currentPath={currentPath}
+                loading={loading}
+                hasSession={true}
+                sessionId={currentSessionId}
+                filterPattern={filterPattern}
+                onFilterChange={setFilterPattern}
+                onEnterDir={handleEnterDir}
+                onGoUp={handleGoUp}
+                onDownload={handleDownload}
+                onRefresh={() => currentSessionId && loadFiles(currentSessionId, currentPath)}
+              />
+            </>
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-gray-500">
               <div className="text-xl mb-1">🔗</div>

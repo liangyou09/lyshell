@@ -246,7 +246,20 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
         await window.electronAPI?.createSession(newSession)
       }
 
-      // 返回导入的数据给父组件处理（快速命令存储在localStorage）
+      // 导入快速命令（直接保存到配置文件）
+      if (selectedImportCommands.length > 0) {
+        // 获取现有命令
+        const existingCommands = await window.electronAPI?.getQuickCommands() || []
+        // 合并导入的命令（重新生成ID避免冲突）
+        const newCommands = selectedImportCommands.map(cmd => ({
+          ...cmd,
+          id: '' // 清空ID，让系统生成新ID
+        }))
+        // 保存合并后的命令
+        await window.electronAPI?.saveQuickCommands([...existingCommands, ...newCommands])
+      }
+
+      // 返回导入的数据给父组件处理（刷新UI）
       onImportComplete(selectedImportSessions, selectedImportCommands)
 
       setMessage({ type: 'success', text: `导入成功: ${selectedImportSessions.length} 个会话, ${selectedImportCommands.length} 个快速命令` })

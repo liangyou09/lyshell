@@ -60,10 +60,11 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
       if (result.success && result.data) {
         setMd5Values(prev => ({ ...prev, [file.path]: result.data }))
       } else {
-        alert('获取MD5失败: ' + (result.error || '未知错误'))
+        // 显示错误信息在 MD5 位置，不弹窗
+        setMd5Values(prev => ({ ...prev, [file.path]: '获取失败' }))
       }
     } catch (err) {
-      alert('获取MD5失败')
+      setMd5Values(prev => ({ ...prev, [file.path]: '获取失败' }))
     }
     setMd5Loading(prev => ({ ...prev, [file.path]: false }))
   }

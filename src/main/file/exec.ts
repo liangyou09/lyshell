@@ -658,7 +658,19 @@ export class ExecFileConnector extends BaseFileConnector {
    * 使用 ls -la 命令
    */
   async listDir(dirPath: string): Promise<FileInfo[]> {
-    const command = `ls -la ${this.quotePath(dirPath)}`
+    // 如果是相对路径，先获取绝对路径
+    let absolutePath = dirPath
+    if (dirPath === '.' || dirPath.startsWith('./') || !dirPath.startsWith('/')) {
+      try {
+        const pwdOutput = await this.execShellCommand('pwd')
+        absolutePath = pwdOutput.trim()
+        log.debug(`Resolved relative path '${dirPath}' to '${absolutePath}'`)
+      } catch (e) {
+        log.warn(`Failed to get pwd, using '${dirPath}' as is`)
+      }
+    }
+
+    const command = `ls -la ${this.quotePath(absolutePath)}`
     log.debug(`Exec listDir command: ${command}`)
 
     const output = await this.execShellCommand(command)
@@ -669,13 +681,13 @@ export class ExecFileConnector extends BaseFileConnector {
     // 跳过第一行（total xxx）
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i]
-      const parsed = this.parseLsLine(line, dirPath)
+      const parsed = this.parseLsLine(line, absolutePath)
       if (parsed) {
         files.push(parsed)
       }
     }
 
-    log.info(`Exec listed ${files.length} items in ${dirPath}`)
+    log.info(`Exec listed ${files.length} items in ${absolutePath}`)
     return files
   }
 

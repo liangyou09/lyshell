@@ -16,6 +16,7 @@ const MainWindow: React.FC = () => {
   const [floatCollapsed, setFloatCollapsed] = useState(false) // 浮窗缩小状态
   const [isMaximized, setIsMaximized] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [quickCommandsRefreshKey, setQuickCommandsRefreshKey] = useState(0)  // 用于刷新 StatusBar
   const [scrollbackLines, setScrollbackLines] = useState(() => {
     const saved = localStorage.getItem('terminalScrollback')
     return saved ? parseInt(saved) : 10000
@@ -364,6 +365,7 @@ const MainWindow: React.FC = () => {
           collapsed={sidebarCollapsed}
           onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
           onConnect={handleConnect}
+          onQuickCommandsChange={() => setQuickCommandsRefreshKey(k => k + 1)}
         />
 
         {/* 终端内容区 */}
@@ -394,7 +396,7 @@ const MainWindow: React.FC = () => {
           </div>
 
           {/* 状态栏 */}
-          <StatusBar sessionId={activeSessionIdForStatusBar} onExecuteCommand={handleExecuteCommand} />
+          <StatusBar sessionId={activeSessionIdForStatusBar} onExecuteCommand={handleExecuteCommand} refreshKey={quickCommandsRefreshKey} />
         </div>
       </div>
     </div>
