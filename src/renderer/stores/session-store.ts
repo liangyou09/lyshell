@@ -13,6 +13,7 @@ interface SessionState {
   lastError?: string
   isTemporary?: boolean // 临时会话标记
   skipAutoAddToPane?: boolean // 跳过自动添加到分屏（用于克隆）
+  hasActivity?: boolean // 有新输出活动（用于标签高亮提示）
 }
 
 /**
@@ -61,6 +62,9 @@ interface SessionStore {
 
   // 清除跳过自动添加标记
   clearSkipAutoAddToPane: (id: string) => void
+
+  // 设置/清除会话活动状态
+  setSessionActivity: (id: string, hasActivity: boolean) => void
 }
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
@@ -276,6 +280,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set(state => ({
       sessions: state.sessions.map(s =>
         s.id === id ? { ...s, skipAutoAddToPane: false } : s
+      )
+    }))
+  },
+
+  // 设置/清除会话活动状态
+  setSessionActivity: (id, hasActivity) => {
+    set(state => ({
+      sessions: state.sessions.map(s =>
+        s.id === id ? { ...s, hasActivity } : s
       )
     }))
   }

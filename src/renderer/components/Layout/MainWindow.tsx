@@ -39,6 +39,31 @@ const MainWindow: React.FC = () => {
     loadSessions()
   }, [loadSessions])
 
+  // 全局监听终端数据，设置活动状态（用于标签高亮提示）
+  useEffect(() => {
+    if (!window.electronAPI) return
+
+    const cleanup = window.electronAPI.onTerminalData((_event, sessionId, _data) => {
+      const { sessions, setSessionActivity } = useSessionStore.getState()
+      const { getPaneBySessionId } = usePaneStore.getState()
+
+      // 找到该会话所在的pane
+      const pane = getPaneBySessionId(sessionId)
+      if (pane && pane.type === 'leaf') {
+        // 如果该会话不是该pane的活跃会话，设置活动状态
+        if (pane.activeSessionId !== sessionId) {
+          const session = sessions.find(s => s.id === sessionId)
+          // 只有当前没有活动状态时才设置（避免频繁更新）
+          if (session && !session.hasActivity) {
+            setSessionActivity(sessionId, true)
+          }
+        }
+      }
+    })
+
+    return cleanup
+  }, [])
+
   // 加载下载配置
   useEffect(() => {
     const loadDownloadConfig = async () => {

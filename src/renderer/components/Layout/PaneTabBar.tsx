@@ -53,6 +53,8 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
   // 点击标签时切换会话
   const handleTabClick = (sessionId: string) => {
     setActiveSessionInPane(pane.id, sessionId)
+    // 清除活动状态
+    useSessionStore.getState().setSessionActivity(sessionId, false)
     scrollToTab(sessionId)
   }
 
@@ -302,7 +304,9 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
               'flex items-center gap-1 px-2 h-full border-r border-[#3C3C3C] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
               pane.activeSessionId === session.id
                 ? 'bg-[#0C0C0C] text-white border-b-2 border-b-[#0078D4]'
-                : 'bg-[#252526] text-gray-400 hover:bg-[#2D2D30]',
+                : session.hasActivity
+                  ? 'bg-[#0078D4]/40 text-white hover:bg-[#0078D4]/50' // 有活动时高亮蓝色背景
+                  : 'bg-[#252526] text-gray-400 hover:bg-[#2D2D30]',
               draggingSessionId === session.id && 'opacity-50'
             )}
           >
