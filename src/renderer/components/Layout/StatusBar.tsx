@@ -34,6 +34,21 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     })
   }, [refreshKey])  // refreshKey 变化时重新加载
 
+  // ESC键关闭快速命令对话框
+  useEffect(() => {
+    if (!showAddDialog) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowAddDialog(false)
+        setEditCommand(undefined)
+        setNewName('')
+        setNewContent('')
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [showAddDialog])
+
   // 保存命令到配置文件
   const saveCommands = (cmds: QuickCommand[]) => {
     setCommands(cmds)

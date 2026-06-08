@@ -38,6 +38,21 @@ const QuickCommands: React.FC<QuickCommandsProps> = ({ onExecute }) => {
     // 默认不加命令，让用户自己添加
   }, [])
 
+  // ESC键关闭快速命令对话框
+  useEffect(() => {
+    if (!showAddDialog) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowAddDialog(false)
+        setEditCommand(undefined)
+        setNewName('')
+        setNewContent('')
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [showAddDialog])
+
   // 保存命令到 localStorage
   const saveCommands = (cmds: QuickCommand[]) => {
     setCommands(cmds)

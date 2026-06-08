@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import type { SessionConfig } from '@shared/types'
 
 interface QuickCommand {
@@ -39,6 +39,18 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
   const [_importFilePath, setImportFilePath] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'warning', text: string } | null>(null)
+
+  // ESC键关闭弹窗
+  useEffect(() => {
+    if (!open) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [open, onClose])
 
   if (!open) return null
 

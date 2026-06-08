@@ -50,6 +50,18 @@ const FileTree: React.FC<FileTreeProps> = ({
     loading: boolean
   } | null>(null)
 
+  // ESC键关闭MD5对话框
+  useEffect(() => {
+    if (!md5Dialog) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMd5Dialog(null)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [md5Dialog])
+
   const root = fileTrees[sessionId]
   const isLoading = loading[sessionId]
   const error = errors[sessionId]

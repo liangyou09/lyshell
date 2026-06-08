@@ -31,6 +31,26 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
   const [renameFile, setRenameFile] = useState<FileInfo | null>(null)
   const [newFileName, setNewFileName] = useState('')
 
+  // ESC键关闭弹窗
+  useEffect(() => {
+    if (!mkdirDialogOpen && !renameDialogOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (mkdirDialogOpen) {
+          setMkdirDialogOpen(false)
+          setNewDirName('')
+        }
+        if (renameDialogOpen) {
+          setRenameDialogOpen(false)
+          setRenameFile(null)
+          setNewFileName('')
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [mkdirDialogOpen, renameDialogOpen])
+
   const root = fileTrees[sessionId]
   const currentPath = currentPaths[sessionId] || '/'
 
