@@ -337,6 +337,20 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
     setShowDialog(true)
   }
 
+  const handleCopySession = (config: SessionConfig, e: React.MouseEvent) => {
+    e.stopPropagation()
+    // 复制配置，清空id让它生成新id，名字加上"副本"后缀
+    const copiedConfig: SessionConfig = {
+      ...config,
+      id: undefined as any,  // 清空id，提交时会生成新id
+      name: config.name ? `${config.name} 副本` : '',
+      createdAt: undefined as any,
+      updatedAt: undefined as any
+    }
+    setEditConfig(copiedConfig)
+    setShowDialog(true)
+  }
+
   if (collapsed) return null
 
   return (
@@ -421,6 +435,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
                       <span className="text-xs text-gray-500">{getPort(config)}</span>
                       <div className="hidden group-hover:flex gap-1">
                         <button onClick={(e) => handleEditSession(config, e)} title="编辑会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#555] rounded">✎</button>
+                        <button onClick={(e) => handleCopySession(config, e)} title="复制会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#555] rounded">⎘</button>
                         <button onClick={(e) => handleTogglePin(config, e)} title="取消置顶" className="w-[20px] h-[20px] flex items-center justify-center text-[#0078D4] hover:bg-[#0078D4]/20 rounded">📌</button>
                         <button onClick={(e) => handleDeleteSession(config.id, e)} title="删除会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-red-400 hover:bg-[#555] rounded">✕</button>
                       </div>
@@ -459,6 +474,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
                           <span className="text-xs text-gray-500">{getPort(config)}</span>
                           <div className="hidden group-hover:flex gap-1">
                             <button onClick={(e) => handleEditSession(config, e)} title="编辑会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#555] rounded">✎</button>
+                            <button onClick={(e) => handleCopySession(config, e)} title="复制会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#555] rounded">⎘</button>
                             <button onClick={(e) => handleTogglePin(config, e)} title="置顶会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-[#0078D4] hover:bg-[#555] rounded">📌</button>
                             <button onClick={(e) => handleDeleteSession(config.id, e)} title="删除会话" className="w-[20px] h-[20px] flex items-center justify-center text-gray-400 hover:text-red-400 hover:bg-[#555] rounded">✕</button>
                           </div>

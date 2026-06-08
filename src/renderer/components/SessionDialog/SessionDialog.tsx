@@ -38,11 +38,11 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
   const [serialPath, setSerialPath] = useState('COM1')
   const [serialBaudRate, setSerialBaudRate] = useState('9600')
 
-  // 检测是否像IP地址（边输入边检测，支持部分IP）
+  // 检测是否像IP地址（边输入边检测，支持部分IP和末尾的点）
   const isIPLike = (text: string): boolean => {
-    // 匹配正在输入的IP格式: 数字.数字... 或带端口
-    // 例如: 192, 192.168, 192.168.1, 192.168.1.1, 192.168.1.1:22
-    const ipPattern = /^(\d{1,3}(\.\d{1,3}){0,3})(:(\d+))?$/
+    // 匹配正在输入的IP格式: 数字.数字... 或带端口，末尾可以有待输入的点
+    // 例如: 192, 192., 192.168, 192.168., 192.168.1, 192.168.1.1, 192.168.1.1:22
+    const ipPattern = /^(\d{1,3}(\.\d{1,3}){0,3}\.?)(:(\d+))?$/
     return ipPattern.test(text.trim())
   }
 
@@ -55,11 +55,12 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       const trimmed = value.trim()
       if (isIPLike(trimmed)) {
         // 提取IP部分（去掉端口）
-        const ipMatch = trimmed.match(/^(\d{1,3}(\.\d{1,3}){0,3})/)
+        // 同步显示输入进度，包括末尾的点（用户正在输入）
+        const ipMatch = trimmed.match(/^(\d{1,3}(\.\d{1,3}){0,3}\.?)/)
         const portMatch = trimmed.match(/:(\d+)$/)
 
         if (ipMatch) {
-          const host = ipMatch[1]
+          const host = ipMatch[1]  // 保留末尾的点，实时同步显示
           const port = portMatch ? portMatch[1] : null
 
           if (type === ConnectionType.SSH) {
@@ -70,16 +71,9 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
             if (port) setTelnetPort(port)
           }
         }
-      } else {
-        // 不再匹配IP格式时，清空主机地址（用户删除了名称）
-        if (type === ConnectionType.SSH) {
-          setSshHost('')
-          setSshPort('22')
-        } else if (type === ConnectionType.TELNET) {
-          setTelnetHost('')
-          setTelnetPort('23')
-        }
       }
+      // 注意：不再匹配IP格式时不清空主机地址，避免输入过程中清空
+      // 用户可以手动修改主机地址
     }
   }
 
@@ -159,7 +153,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
 
     if (type === ConnectionType.SSH) {
       config.ssh = {
-        host: sshHost,
+        host: sshHost.replace(/\.$/, ''),  // 去掉末尾的点
         port: parseInt(sshPort) || 22,
         username: sshUser,
         password: sshPassword || undefined,
@@ -169,7 +163,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       }
     } else if (type === ConnectionType.TELNET) {
       config.telnet = {
-        host: telnetHost,
+        host: telnetHost.replace(/\.$/, ''),  // 去掉末尾的点
         port: parseInt(telnetPort) || 23,
       }
     } else if (type === ConnectionType.SERIAL) {
@@ -188,7 +182,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-[#2D2D30] rounded-lg shadow-xl w-[500px] overflow-hidden">
+      <div className="bg-[#2D2D30] rounded-lg shadow-xl w-[420px] overflow-hidden">
         {/* 标题栏 */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[#3C3C3C]">
           <span className="text-white font-medium">
@@ -205,115 +199,101 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
         {/* 表单 */}
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           {/* 基本信息 */}
-          <div className="space-y-3">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">会话名称 (留空则使用IP)</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => handleNameChange(e.target.value)}
-                placeholder="例如: 生产服务器 (留空则使用IP)"
-                className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">连接类型</label>
-              <select
-                value={type}
-                onChange={(e) => setType(e.target.value as ConnectionType)}
-                className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white focus:outline-none focus:border-[#0078D4]"
-              >
-                <option value={ConnectionType.SSH}>SSH</option>
-                <option value={ConnectionType.TELNET}>Telnet</option>
-                <option value={ConnectionType.SERIAL}>Serial (串口)</option>
-              </select>
-            </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-400 w-16 shrink-0">会话名称</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => handleNameChange(e.target.value)}
+              placeholder="留空则使用IP"
+              className="flex-1 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
+            />
+            <label className="text-xs text-gray-400 w-10 shrink-0">类型</label>
+            <select
+              value={type}
+              onChange={(e) => setType(e.target.value as ConnectionType)}
+              className="w-20 px-2 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white focus:outline-none focus:border-[#0078D4]"
+            >
+              <option value={ConnectionType.SSH}>SSH</option>
+              <option value={ConnectionType.TELNET}>Telnet</option>
+              <option value={ConnectionType.SERIAL}>Serial</option>
+            </select>
           </div>
 
           {/* SSH 配置 */}
           {type === ConnectionType.SSH && (
             <div className="space-y-3 pt-2 border-t border-[#3C3C3C]">
-              <div className="grid grid-cols-3 gap-2">
-                <div className="col-span-2">
-                  <label className="block text-xs text-gray-400 mb-1">主机地址</label>
-                  <input
-                    type="text"
-                    value={sshHost}
-                    onChange={(e) => setSshHost(e.target.value)}
-                    placeholder="192.168.1.1"
-                    className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">端口</label>
-                  <input
-                    type="number"
-                    value={sshPort}
-                    onChange={(e) => setSshPort(e.target.value)}
-                    placeholder="22"
-                    className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
-                  />
-                </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-400 w-16 shrink-0">主机地址</label>
+                <input
+                  type="text"
+                  value={sshHost}
+                  onChange={(e) => setSshHost(e.target.value)}
+                  placeholder="192.168.1.1"
+                  className="flex-1 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
+                  required
+                />
+                <label className="text-xs text-gray-400 w-10 shrink-0">端口</label>
+                <input
+                  type="number"
+                  value={sshPort}
+                  onChange={(e) => setSshPort(e.target.value)}
+                  placeholder="22"
+                  className="w-20 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
+                />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">用户名</label>
-                  <input
-                    type="text"
-                    value={sshUser}
-                    onChange={(e) => setSshUser(e.target.value)}
-                    placeholder="root"
-                    className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">密码</label>
-                  <input
-                    type="password"
-                    value={sshPassword}
-                    onChange={(e) => setSshPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
-                  />
-                </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-400 w-16 shrink-0">用户名</label>
+                <input
+                  type="text"
+                  value={sshUser}
+                  onChange={(e) => setSshUser(e.target.value)}
+                  placeholder="root"
+                  className="flex-1 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
+                  required
+                />
               </div>
 
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">私钥文件路径 (可选)</label>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-400 w-16 shrink-0">密码</label>
+                <input
+                  type="password"
+                  value={sshPassword}
+                  onChange={(e) => setSshPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="flex-1 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
+                />
+              </div>
+
+              <div className="flex items-start gap-2">
+                <label className="text-xs text-gray-400 w-16 shrink-0 pt-1.5">Shell命令</label>
+                <textarea
+                  value={sshShellEnterCommands}
+                  onChange={(e) => setSshShellEnterCommands(e.target.value)}
+                  placeholder="进入Shell的命令，多行每行一个"
+                  rows={2}
+                  className="flex-1 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4] resize-none"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-400 w-16 shrink-0">私钥路径</label>
                 <input
                   type="text"
                   value={sshPrivateKey}
                   onChange={(e) => setSshPrivateKey(e.target.value)}
-                  placeholder="C:\Users\xxx\.ssh\id_rsa"
-                  className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
+                  placeholder="可选"
+                  className="flex-1 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
                 />
-              </div>
-
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">进入 Shell 命令 (多行，每行一个命令)</label>
-                <textarea
-                  value={sshShellEnterCommands}
-                  onChange={(e) => setSshShellEnterCommands(e.target.value)}
-                  placeholder="例如:&#10;shell&#10;或&#10;enable&#10;shell"
-                  rows={3}
-                  className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4] resize-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">进入 Shell 等待时间 (毫秒)</label>
+                <label className="text-xs text-gray-400 w-10 shrink-0">等待</label>
                 <input
                   type="number"
                   value={sshShellEnterWait}
                   onChange={(e) => setSshShellEnterWait(e.target.value)}
                   placeholder="1000"
-                  className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
+                  className="w-20 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
                 />
-                <p className="text-xs text-gray-500 mt-1">发送进入命令后等待的时间，默认 1000ms</p>
               </div>
             </div>
           )}
@@ -321,28 +301,24 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
           {/* Telnet 配置 */}
           {type === ConnectionType.TELNET && (
             <div className="space-y-3 pt-2 border-t border-[#3C3C3C]">
-              <div className="grid grid-cols-3 gap-2">
-                <div className="col-span-2">
-                  <label className="block text-xs text-gray-400 mb-1">主机地址</label>
-                  <input
-                    type="text"
-                    value={telnetHost}
-                    onChange={(e) => setTelnetHost(e.target.value)}
-                    placeholder="192.168.1.1"
-                    className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">端口</label>
-                  <input
-                    type="number"
-                    value={telnetPort}
-                    onChange={(e) => setTelnetPort(e.target.value)}
-                    placeholder="23"
-                    className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
-                  />
-                </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-400 w-16 shrink-0">主机地址</label>
+                <input
+                  type="text"
+                  value={telnetHost}
+                  onChange={(e) => setTelnetHost(e.target.value)}
+                  placeholder="192.168.1.1"
+                  className="flex-1 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
+                  required
+                />
+                <label className="text-xs text-gray-400 w-10 shrink-0">端口</label>
+                <input
+                  type="number"
+                  value={telnetPort}
+                  onChange={(e) => setTelnetPort(e.target.value)}
+                  placeholder="23"
+                  className="w-20 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
+                />
               </div>
             </div>
           )}
@@ -350,57 +326,53 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
           {/* Serial 配置 */}
           {type === ConnectionType.SERIAL && (
             <div className="space-y-3 pt-2 border-t border-[#3C3C3C]">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">串口路径</label>
-                  <input
-                    type="text"
-                    value={serialPath}
-                    onChange={(e) => setSerialPath(e.target.value)}
-                    placeholder="COM1"
-                    className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">波特率</label>
-                  <select
-                    value={serialBaudRate}
-                    onChange={(e) => setSerialBaudRate(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white focus:outline-none focus:border-[#0078D4]"
-                  >
-                    <option value="9600">9600</option>
-                    <option value="19200">19200</option>
-                    <option value="38400">38400</option>
-                    <option value="57600">57600</option>
-                    <option value="115200">115200</option>
-                  </select>
-                </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-400 w-16 shrink-0">串口路径</label>
+                <input
+                  type="text"
+                  value={serialPath}
+                  onChange={(e) => setSerialPath(e.target.value)}
+                  placeholder="COM1"
+                  className="flex-1 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
+                  required
+                />
+                <label className="text-xs text-gray-400 w-10 shrink-0">波特率</label>
+                <select
+                  value={serialBaudRate}
+                  onChange={(e) => setSerialBaudRate(e.target.value)}
+                  className="w-20 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white focus:outline-none focus:border-[#0078D4]"
+                >
+                  <option value="9600">9600</option>
+                  <option value="19200">19200</option>
+                  <option value="38400">38400</option>
+                  <option value="57600">57600</option>
+                  <option value="115200">115200</option>
+                </select>
               </div>
             </div>
           )}
 
           {/* 其他设置 */}
           <div className="space-y-3 pt-2 border-t border-[#3C3C3C]">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">标签 (逗号分隔)</label>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-400 w-16 shrink-0">标签</label>
               <input
                 type="text"
                 value={tags}
                 onChange={(e) => setTags(e.target.value)}
-                placeholder="例如: favorite, production"
-                className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
+                placeholder="逗号分隔，如: favorite, production"
+                className="flex-1 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
               />
             </div>
 
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">连接后自动执行 (每行一条命令)</label>
+            <div className="flex items-start gap-2">
+              <label className="text-xs text-gray-400 w-16 shrink-0 pt-1.5">自动执行</label>
               <textarea
                 value={startupCommands}
                 onChange={(e) => setStartupCommands(e.target.value)}
-                placeholder="例如:&#10;cd /var/www&#10;ls -la"
+                placeholder="每行一条命令，如:&#10;cd /var/www&#10;ls -la"
                 rows={3}
-                className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4] resize-none"
+                className="flex-1 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4] resize-none"
               />
             </div>
           </div>
