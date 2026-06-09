@@ -128,6 +128,15 @@ export class SessionManager extends EventEmitter {
     session.status = ConnectionStatus.CONNECTING
     this.emit('session:status', { id, status: ConnectionStatus.CONNECTING })
 
+    // 发送连接开始信息到终端
+    const host = session.config.ssh?.host || session.config.telnet?.host || session.config.serial?.path || 'unknown'
+    const port = session.config.ssh?.port || session.config.telnet?.port || ''
+    const typeLabel = session.config.type?.toUpperCase() || 'SSH'
+    this.emit('terminal:data', {
+      sessionId: id,
+      data: `\x1b[36m正在连接 ${typeLabel} ${host}${port ? ':' + port : ''}...\x1b[0m\r\n`
+    })
+
     try {
       // 根据类型创建连接器
       switch (session.config.type) {
@@ -155,6 +164,12 @@ export class SessionManager extends EventEmitter {
 
       // 连接
       await session.connector.connect()
+
+      // 发送连接成功信息
+      this.emit('terminal:data', {
+        sessionId: id,
+        data: `\x1b[32m连接成功!\x1b[0m\r\n\r\n`
+      })
 
       // 监听数据
       session.connector.on('data', (data: string) => {

@@ -92,14 +92,19 @@ const MainWindow: React.FC = () => {
         // 从后端获取会话配置并添加
         window.electronAPI?.getSession(data.id).then(config => {
           if (config) {
-            // 不跳过自动添加，让所有会话都能显示在分屏中
-            // PaneTabBar 的克隆逻辑会自行检查并处理分屏添加
             store.addTemporarySession({
               id: data.id,
               config,
               status: data.status,
               skipAutoAddToPane: false
             })
+
+            // 立即添加到当前分屏（即使是 connecting 状态）
+            const paneStore = usePaneStore.getState()
+            const activePaneId = paneStore.layout.activePaneId
+            if (activePaneId) {
+              paneStore.addSessionToPane(activePaneId, data.id)
+            }
           }
         })
         return
@@ -187,6 +192,7 @@ const MainWindow: React.FC = () => {
       })
       await refreshSavedSessions()
 
+      // 调用后端连接（后端会立即返回 sessionId，前端显示终端）
       await window.electronAPI?.connect({
         ...config,
         id: '' // 后端会自动处理

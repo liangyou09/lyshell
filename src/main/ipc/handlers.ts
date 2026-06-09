@@ -164,11 +164,22 @@ export function registerIPCHandlers(): void {
         config.createdAt = new Date()
         config.updatedAt = new Date()
         const session = await sessionManager.createSession(config)
-        await sessionManager.connectSession(session.id)
+
+        // 立即返回会话ID，让前端先显示终端
+        // 然后异步执行连接
+        const sessionId = session.id
+
+        // 发送连接开始状态（前端收到后立即显示终端）
+        sendToAllWindows(IPC_CHANNELS.CONNECTION_STATUS, { id: sessionId, status: ConnectionStatus.CONNECTING })
+
+        // 异步连接，不阻塞返回
+        sessionManager.connectSession(sessionId).catch(err => {
+          log.error('Async connection failed:', extractErrorMessage(err))
+        })
 
         return {
-          id: session.id,
-          status: session.status,
+          id: sessionId,
+          status: ConnectionStatus.CONNECTING,
           config: session.config
         }
       }
@@ -187,17 +198,24 @@ export function registerIPCHandlers(): void {
       }
 
       const session = await sessionManager.createSession(savedConfig)
-      await sessionManager.connectSession(session.id)
+      const sessionId = session.id
+
+      // 立即返回会话ID，让前端先显示终端
+      sendToAllWindows(IPC_CHANNELS.CONNECTION_STATUS, { id: sessionId, status: ConnectionStatus.CONNECTING })
+
+      // 异步连接，不阻塞返回
+      sessionManager.connectSession(sessionId).catch(err => {
+        log.error('Async connection failed:', extractErrorMessage(err))
+      })
 
       return {
-        id: session.id,
-        status: session.status,
+        id: sessionId,
+        status: ConnectionStatus.CONNECTING,
         config: session.config
       }
     } catch (error) {
       log.error('Connection failed:', extractErrorMessage(error as Error))
       // 返回错误状态，让前端处理
-      // 注意：session:status 事件已经在 sessionManager.connectSession 的 catch 中发出
       return {
         id: config.id || 'temp',
         status: ConnectionStatus.ERROR,
