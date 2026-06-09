@@ -27,6 +27,8 @@ export class SSHConnector extends BaseConnector {
   private client: Client | null = null
   private channel: ClientChannel | null = null
   private sharedClient: Client | null = null  // 共享的 SSH client
+  private _connecting: boolean = false  // 是否正在连接中
+  private _connectReject: ((error: Error) => void) | null = null  // 连接 Promise 的 reject 函数
 
   constructor(sessionId: string, config: SSHConfig) {
     super(sessionId)
@@ -115,9 +117,12 @@ export class SSHConnector extends BaseConnector {
     log.info(`SSH connecting to ${this.config.host}:${this.config.port}`)
 
     this.client = new Client()
+    this._connecting = true
 
     this.client.on('ready', () => {
       log.info('SSH connection ready')
+      this._connecting = false
+      this._connectReject = null
       this.connected = true
       this.emit('connected')
 
@@ -129,12 +134,16 @@ export class SSHConnector extends BaseConnector {
       // 提取关键错误信息（去掉堆栈）
       const errMsg = err.message?.split('\n')[0]?.replace(/^Error:\s*/, '') || err.toString()
       log.error(`SSH connection error: ${errMsg}`)
+      this._connecting = false
+      this._connectReject = null
       this.connected = false
       this.emitError(err)
     })
 
     this.client.on('close', () => {
       log.info('SSH connection closed')
+      this._connecting = false
+      this._connectReject = null
       this.connected = false
       this.emitClose()
     })
@@ -160,8 +169,28 @@ export class SSHConnector extends BaseConnector {
     }
 
     return new Promise((resolve, reject) => {
-      this.client!.on('ready', () => resolve())
-      this.client!.on('error', (err) => reject(err))
+      this._connectReject = reject  // 保存 reject 函数，以便 disconnect 时调用
+
+      // 使用 once 确保只触发一次，避免重复 reject
+      this.client!.once('ready', () => {
+        this._connecting = false
+        this._connectReject = null
+        resolve()
+      })
+      this.client!.once('error', (err) => {
+        if (this._connecting) {
+          this._connecting = false
+          this._connectReject = null
+          reject(err)
+        }
+      })
+      this.client!.once('close', () => {
+        if (this._connecting) {
+          this._connecting = false
+          this._connectReject = null
+          reject(new Error('Connection closed'))
+        }
+      })
 
       this.client!.connect(connectionConfig)
     })
@@ -203,6 +232,13 @@ export class SSHConnector extends BaseConnector {
    */
   async disconnect(): Promise<void> {
     log.info('SSH disconnecting')
+
+    // 如果正在连接中，主动取消连接
+    if (this._connecting && this._connectReject) {
+      this._connectReject(new Error('Connection cancelled by user'))
+      this._connectReject = null
+      this._connecting = false
+    }
 
     if (this.channel) {
       this.channel.close()

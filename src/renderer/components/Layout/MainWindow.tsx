@@ -86,10 +86,15 @@ const MainWindow: React.FC = () => {
     const cleanup = window.electronAPI.onConnectionStatus((_event, data) => {
       const store = useSessionStore.getState()
 
-      // 如果会话不在 store 中，添加它
+      // 如果会话不在 store 中，检查状态
       const existingSession = store.sessions.find(s => s.id === data.id)
       if (!existingSession) {
-        // 从后端获取会话配置并添加
+        // 对于断开或错误状态的会话，不要重新添加（可能是用户关闭后被移除的临时会话）
+        if (data.status === 'disconnected' || data.status === 'error') {
+          return
+        }
+
+        // 从后端获取会话配置并添加（仅对于 connecting/connected 状态）
         window.electronAPI?.getSession(data.id).then(config => {
           if (config) {
             store.addTemporarySession({
@@ -157,6 +162,18 @@ const MainWindow: React.FC = () => {
     })
     return cleanup
   }, [])
+
+  // ESC 键关闭设置面板
+  useEffect(() => {
+    if (!showSettings) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowSettings(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [showSettings])
 
   // 窗口控制
   const handleMinimize = () => {

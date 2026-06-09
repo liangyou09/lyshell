@@ -169,8 +169,8 @@ export function registerIPCHandlers(): void {
         // 然后异步执行连接
         const sessionId = session.id
 
-        // 发送连接开始状态（前端收到后立即显示终端）
-        sendToAllWindows(IPC_CHANNELS.CONNECTION_STATUS, { id: sessionId, status: ConnectionStatus.CONNECTING })
+        // 注意：CONNECTING 状态由 connectSession 内部通过 session:status 事件发送
+        // 避免重复发送导致前端竞态条件
 
         // 异步连接，不阻塞返回
         sessionManager.connectSession(sessionId).catch(err => {
@@ -200,8 +200,8 @@ export function registerIPCHandlers(): void {
       const session = await sessionManager.createSession(savedConfig)
       const sessionId = session.id
 
-      // 立即返回会话ID，让前端先显示终端
-      sendToAllWindows(IPC_CHANNELS.CONNECTION_STATUS, { id: sessionId, status: ConnectionStatus.CONNECTING })
+      // 注意：CONNECTING 状态由 connectSession 内部通过 session:status 事件发送
+      // 避免重复发送导致前端竞态条件
 
       // 异步连接，不阻塞返回
       sessionManager.connectSession(sessionId).catch(err => {

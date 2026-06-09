@@ -5,6 +5,8 @@ import { SearchAddon } from 'xterm-addon-search'
 import 'xterm/css/xterm.css'
 import { DEFAULT_THEME_DARK, DEFAULT_FONT_FAMILY } from '@shared/constants'
 import { useTerminalStore } from '../../stores/terminal-store'
+import { useSessionStore } from '../../stores/session-store'
+import { ConnectionStatus } from '@shared/types'
 
 interface TerminalViewProps {
   sessionId: string
@@ -21,6 +23,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   const searchAddonRef = useRef<SearchAddon | null>(null)
   const resizeTimeoutRef = useRef<number | null>(null)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
+  const connectionStatusRef = useRef<ConnectionStatus | null>(null) // 记录连接状态
   const [showSearch, setShowSearch] = useState(false)
   const [searchText, setSearchText] = useState('')
   const [searchDirection, setSearchDirection] = useState<'next' | 'prev'>('next')
@@ -39,6 +42,9 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   const cursorBlink = localStorage.getItem('terminalCursorBlink') !== 'false'  // 默认开启，设为 'false' 才关闭
 
   const { getTerminal, registerTerminal } = useTerminalStore()
+  const { sessions } = useSessionStore()
+  const session = sessions.find(s => s.id === sessionId)
+  const sessionConfig = session?.config
 
   // 初始化或获取终端实例
   useEffect(() => {
@@ -123,9 +129,14 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
 
       terminal.open(containerRef.current)
 
-      // 显示欢迎信息
+      // 显示欢迎信息和 Xshell 风格的连接信息
       const buildDate = new Date().toISOString().split('T')[0]
-      terminal.writeln(`\x1b[1;36mNovaShell v1.0.1\x1b[0m \x1b[90mBuild: ${buildDate} by LiangYou\x1b[0m`)
+      terminal.writeln(`\x1b[1;36mNovaShell v1.0.1\x1b[0m \x1b[90mBuild: ${buildDate}\x1b[0m`)
+      terminal.writeln('')
+      const sshConfig = sessionConfig?.ssh
+      const host = sshConfig?.host || 'unknown'
+      const port = sshConfig?.port || 22
+      terminal.writeln(`Connecting to ${host}:${port}...`)
 
       // 注册到 store
       registerTerminal(sessionId, terminal, fitAddon)
@@ -377,6 +388,43 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
 
     return cleanup
   }, [sessionId, getTerminal])
+
+  // 监听连接状态变化（显示连接错误信息 + 连接成功后 resize）
+  useEffect(() => {
+    if (!window.electronAPI) return
+
+    const cleanup = window.electronAPI.onConnectionStatus((_event, data) => {
+      if (data.id === sessionId) {
+        const instance = getTerminal(sessionId)
+        if (instance) {
+          if (data.status === ConnectionStatus.CONNECTED) {
+            // 连接成功后再次 fit 和 resize，确保终端尺寸正确
+            setTimeout(() => {
+              try {
+                instance.fitAddon.fit()
+                if (instance.terminal.cols && instance.terminal.rows) {
+                  window.electronAPI?.terminalResize(sessionId, instance.terminal.cols, instance.terminal.rows)
+                }
+              } catch {
+                // 忽略错误
+              }
+            }, 100)
+          } else if (data.status === ConnectionStatus.ERROR) {
+            // 显示 Xshell 风格的错误信息
+            const sshConfig = sessionConfig?.ssh
+            const host = sshConfig?.host || 'unknown'
+            const port = sshConfig?.port || 22
+            instance.terminal.writeln('')
+            instance.terminal.writeln(`\x1b[31mCould not connect to '${host}' (port ${port}): ${data.error || 'Connection failed.'}\x1b[0m`)
+            instance.terminal.writeln('')
+            instance.terminal.writeln('\x1b[90mType `help\' to learn how to use NovaShell prompt.\x1b[0m')
+          }
+        }
+      }
+    })
+
+    return cleanup
+  }, [sessionId, getTerminal, sessionConfig])
 
   // 执行搜索
   const doSearch = (direction: 'next' | 'prev') => {

@@ -552,9 +552,11 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
 
         {/* 文件管理器分割线 - 可拖动调整高度 */}
         <div
-          className="h-[4px] bg-[#3C3C3C] cursor-row-resize hover:bg-[#0078D4] transition-colors flex items-center justify-center"
+          className="h-[4px] bg-[#3C3C3C] cursor-row-resize hover:bg-[#0078D4] transition-colors flex items-center justify-center relative"
           onMouseDown={() => setIsResizingHeight(true)}
         >
+          {/* 上方透明区域，增加点击范围 */}
+          <div className="absolute -top-[4px] left-0 right-0 h-[4px] cursor-row-resize" onMouseDown={() => setIsResizingHeight(true)} />
           <div className="w-[30px] h-[2px] bg-gray-500 rounded"></div>
         </div>
 
@@ -566,9 +568,12 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
 
       {/* 右边缘宽度调整条 */}
       <div
-        className="w-[4px] bg-[#3C3C3C] cursor-col-resize hover:bg-[#0078D4] transition-colors flex-shrink-0"
+        className="w-[4px] bg-[#3C3C3C] cursor-col-resize hover:bg-[#0078D4] transition-colors flex-shrink-0 relative"
         onMouseDown={() => setIsResizingWidth(true)}
-      />
+      >
+        {/* 左侧透明区域，增加点击范围 */}
+        <div className="absolute -left-[4px] top-0 bottom-0 w-[4px] cursor-col-resize" onMouseDown={() => setIsResizingWidth(true)} />
+      </div>
 
       {/* 会话对话框 */}
       <SessionDialog

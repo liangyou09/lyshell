@@ -39,6 +39,8 @@ export interface Session {
   lastActiveAt: Date
   welcomeSent?: boolean
   sourceSessionId?: string  // 克隆来源（用于共享 SSH client）
+  pendingCols?: number  // 等待应用的终端宽度
+  pendingRows?: number  // 等待应用的终端高度
 }
 
 /**
@@ -128,14 +130,8 @@ export class SessionManager extends EventEmitter {
     session.status = ConnectionStatus.CONNECTING
     this.emit('session:status', { id, status: ConnectionStatus.CONNECTING })
 
-    // 发送连接开始信息到终端
-    const host = session.config.ssh?.host || session.config.telnet?.host || session.config.serial?.path || 'unknown'
-    const port = session.config.ssh?.port || session.config.telnet?.port || ''
-    const typeLabel = session.config.type?.toUpperCase() || 'SSH'
-    this.emit('terminal:data', {
-      sessionId: id,
-      data: `\x1b[36m正在连接 ${typeLabel} ${host}${port ? ':' + port : ''}...\x1b[0m\r\n`
-    })
+    // 连接信息由前端 TerminalView 显示（Xshell 风格）
+    // 不再在终端发送中文连接信息
 
     try {
       // 根据类型创建连接器
@@ -165,11 +161,7 @@ export class SessionManager extends EventEmitter {
       // 连接
       await session.connector.connect()
 
-      // 发送连接成功信息
-      this.emit('terminal:data', {
-        sessionId: id,
-        data: `\x1b[32m连接成功!\x1b[0m\r\n\r\n`
-      })
+      // 连接成功后，shell 会自动输出欢迎信息，不需要额外显示
 
       // 监听数据
       session.connector.on('data', (data: string) => {
@@ -191,6 +183,14 @@ export class SessionManager extends EventEmitter {
 
       session.status = ConnectionStatus.CONNECTED
       session.lastActiveAt = new Date()
+
+      // 应用 pending 的终端尺寸（如果在连接前已经发送了 resize）
+      if (session.pendingCols && session.pendingRows) {
+        session.connector.resize(session.pendingCols, session.pendingRows)
+        log.debug(`Applied pending resize for session ${id}: ${session.pendingCols}x${session.pendingRows}`)
+        session.pendingCols = undefined
+        session.pendingRows = undefined
+      }
 
       // 增加连接计数
       session.config.connectCount = (session.config.connectCount || 0) + 1
@@ -214,11 +214,8 @@ export class SessionManager extends EventEmitter {
       session.status = ConnectionStatus.ERROR
       const errorMsg = extractErrorMessage(error as Error)
 
-      // 发送错误信息到终端显示，让用户看到具体错误
-      this.emit('terminal:data', {
-        sessionId: id,
-        data: `\r\n\x1b[31m\x1b[1m连接失败: ${errorMsg}\x1b[0m\r\n`
-      })
+      // 错误信息由前端 TerminalView 显示（Xshell 风格）
+      // 不再在终端发送中文错误信息
 
       this.emit('session:status', { id, status: ConnectionStatus.ERROR, error: errorMsg })
       throw error
@@ -267,8 +264,16 @@ export class SessionManager extends EventEmitter {
    */
   resizeSession(id: string, cols: number, rows: number): void {
     const session = this.sessions.get(id)
-    if (!session || !session.connector) {
+    if (!session) {
       log.warn(`Cannot resize session: ${id}`)
+      return
+    }
+
+    // 如果 connector 还没准备好，保存 pending 尺寸，连接成功后应用
+    if (!session.connector) {
+      session.pendingCols = cols
+      session.pendingRows = rows
+      log.debug(`Pending resize saved for session ${id}: ${cols}x${rows}`)
       return
     }
 
