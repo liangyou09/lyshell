@@ -13,6 +13,22 @@ import { setMainWindow, setMainWindowForUpload, cleanupAllWorkers, cleanupAllUpl
 log.transports.file.level = 'info'
 log.transports.console.level = 'debug'
 
+// 全局错误处理 - 避免SSH超时等错误弹出对话框
+process.on('uncaughtException', (error) => {
+  // SSH handshake timeout 等连接相关错误，只记录日志不弹出
+  const msg = error.message || error.toString()
+  if (msg.includes('handshake') || msg.includes('SSH') || msg.includes('connection') || msg.includes('timeout')) {
+    log.error('Connection error (suppressed dialog):', msg)
+    return
+  }
+  // 其他错误仍然记录但也不弹出对话框
+  log.error('Uncaught exception:', error)
+})
+
+process.on('unhandledRejection', (reason) => {
+  log.error('Unhandled rejection:', reason)
+})
+
 let mainWindow: BrowserWindow | null = null
 let isDev = false
 
