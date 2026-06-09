@@ -8,7 +8,7 @@ import type { SessionConfig, SSHConfig, TelnetConfig, SerialConfig } from '@shar
 /**
  * 提取错误关键信息（去掉堆栈）
  */
-function extractErrorMessage(error: Error | string): string {
+export function extractErrorMessage(error: Error | string): string {
   const msg = typeof error === 'string' ? error : error.message || error.toString()
 
   // 去掉 Error: 前缀

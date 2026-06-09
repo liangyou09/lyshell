@@ -5,7 +5,7 @@ import * as fs from 'fs'
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypto'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
-import { sessionManager } from '../terminal/session-manager'
+import { sessionManager, extractErrorMessage } from '../terminal/session-manager'
 import { sessionRepository, preferencesRepository, quickCommandsRepository } from '../storage/repository'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { pythonEngine } from '../python/engine'
@@ -157,12 +157,36 @@ export function registerIPCHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.CONNECTION_CONNECT, async (_event, config: SessionConfig) => {
     log.debug('Connection request:', config.id, 'name:', config.name)
 
-    // 空 id 表示临时会话，直接创建新连接
-    if (!config.id || config.id.trim() === '') {
-      // 设置创建时间用于前端排序编号
-      config.createdAt = new Date()
-      config.updatedAt = new Date()
-      const session = await sessionManager.createSession(config)
+    try {
+      // 空 id 表示临时会话，直接创建新连接
+      if (!config.id || config.id.trim() === '') {
+        // 设置创建时间用于前端排序编号
+        config.createdAt = new Date()
+        config.updatedAt = new Date()
+        const session = await sessionManager.createSession(config)
+        await sessionManager.connectSession(session.id)
+
+        return {
+          id: session.id,
+          status: session.status,
+          config: session.config
+        }
+      }
+
+      // 有有效 id，保存并连接
+      const savedConfig = sessionRepository.saveSession(config)
+
+      const existingSession = sessionManager.getSession(config.id)
+      if (existingSession && existingSession.status === ConnectionStatus.CONNECTED) {
+        log.debug('Session already connected:', config.id)
+        return {
+          id: existingSession.id,
+          status: existingSession.status,
+          config: existingSession.config
+        }
+      }
+
+      const session = await sessionManager.createSession(savedConfig)
       await sessionManager.connectSession(session.id)
 
       return {
@@ -170,28 +194,16 @@ export function registerIPCHandlers(): void {
         status: session.status,
         config: session.config
       }
-    }
-
-    // 有有效 id，保存并连接
-    const savedConfig = sessionRepository.saveSession(config)
-
-    const existingSession = sessionManager.getSession(config.id)
-    if (existingSession && existingSession.status === ConnectionStatus.CONNECTED) {
-      log.debug('Session already connected:', config.id)
+    } catch (error) {
+      log.error('Connection failed:', extractErrorMessage(error as Error))
+      // 返回错误状态，让前端处理
+      // 注意：session:status 事件已经在 sessionManager.connectSession 的 catch 中发出
       return {
-        id: existingSession.id,
-        status: existingSession.status,
-        config: existingSession.config
+        id: config.id || 'temp',
+        status: ConnectionStatus.ERROR,
+        error: extractErrorMessage(error as Error),
+        config
       }
-    }
-
-    const session = await sessionManager.createSession(savedConfig)
-    await sessionManager.connectSession(session.id)
-
-    return {
-      id: session.id,
-      status: session.status,
-      config: session.config
     }
   })
 
