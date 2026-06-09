@@ -197,7 +197,15 @@ export class SessionManager extends EventEmitter {
 
     } catch (error) {
       session.status = ConnectionStatus.ERROR
-      this.emit('session:status', { id, status: ConnectionStatus.ERROR, error: extractErrorMessage(error as Error) })
+      const errorMsg = extractErrorMessage(error as Error)
+
+      // 发送错误信息到终端显示，让用户看到具体错误
+      this.emit('terminal:data', {
+        sessionId: id,
+        data: `\r\n\x1b[31m\x1b[1m连接失败: ${errorMsg}\x1b[0m\r\n`
+      })
+
+      this.emit('session:status', { id, status: ConnectionStatus.ERROR, error: errorMsg })
       throw error
     }
   }
