@@ -83,7 +83,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
         >
           ⬆
         </button>
-        <span className="text-sm text-gray-300 flex-1 truncate font-mono">{currentPath}</span>
+        <span className="text-sm text-gray-300 flex-1 truncate font-mono" title={currentPath}>{currentPath}</span>
         {/* 筛选按钮 */}
         <button
           onClick={() => setShowFilter(!showFilter)}

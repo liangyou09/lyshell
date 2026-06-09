@@ -640,17 +640,20 @@ export class ExecFileConnector extends BaseFileConnector {
       if (!trimmed) continue
 
       // 跳过 marker 行（使用新的 UUID 格式）
-      if (trimmed.includes('___END_MARKER_UUID_')) continue
+      if (trimmed.includes('END_MARKER_UUID')) continue
 
-      // 跳过 marker 残留（部分 marker 文本）
-      // marker 格式: ___END_MARKER_UUID_xxxxx-xxxx-xxxx___
-      if (trimmed.match(/[a-f0-9]{8}_[a-f0-9]{4}_[a-f0-9]{4}___/) || trimmed.endsWith("___'")) continue
+      // 跳过 marker 残留（部分 marker 文本，可能格式不完整）
+      // marker 格式: ___END_MARKER_UUID_xxxxx-xxxx-xxxx___ 或 _END_MARKER_UUID_xxxxx
+      if (trimmed.match(/[a-f0-9]{8}[-_][a-f0-9]{4}[-_][a-f0-9]{4}/) ||
+          trimmed.match(/END_MARKER_UUID/i) ||
+          trimmed.endsWith("___'") ||
+          trimmed.match(/_[a-f0-9]{8}/)) continue
 
       // 跳过提示符行（包含 ]# 或 # 或 $）
       if (trimmed.match(/\[.*\]#/) || trimmed.match(/^#\s*$/) || trimmed.match(/^\$\s*$/)) continue
 
-      // 跳过命令回显（包含 ls -la 或 ; echo）
-      if (trimmed.includes('ls -la') || trimmed.includes('; echo')) continue
+      // 跳过命令回显（包含 ls -la 或 echo 或 pwd）
+      if (trimmed.includes('ls -la') || trimmed.includes('echo') || trimmed.includes('pwd')) continue
 
       // 跳过 Password: 等交互提示
       if (trimmed.includes('Password:') || trimmed.includes('password:')) continue
@@ -669,11 +672,16 @@ export class ExecFileConnector extends BaseFileConnector {
         continue
       }
 
+      // 保留路径行（以 / 开头，用于 pwd 命令）
+      if (trimmed.startsWith('/')) {
+        resultLines.push(trimmed)
+        continue
+      }
+
       // 保留可能的文件列表行
-      // 以权限字符开头：d, -, l
-      // 或者 total 行
-      // 或者符合 ls 输出格式的行
-      if (trimmed.match(/^[d\-l][rwx\-stST]/) || trimmed.startsWith('total ') || trimmed.match(/^[\d\-\+\s]+/)) {
+      // 必须以权限字符开头：d, -, l（文件/目录/链接）
+      // 或者 total 行（ls 输出的汇总行）
+      if (trimmed.match(/^[d\-l][rwx\-stST]{9}/) || trimmed.startsWith('total ')) {
         resultLines.push(trimmed)
       }
     }

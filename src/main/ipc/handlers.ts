@@ -770,8 +770,25 @@ export function registerIPCHandlers(): void {
       // 通过获取 connector 来执行 pwd 命令
       const connector = await fileManager.getConnector(sessionId)
       if (connector && connector.execRaw) {
-        const pwd = await connector.execRaw('pwd')
-        return { success: true, data: pwd.trim() }
+        const pwdRaw = await connector.execRaw('pwd')
+        // 清理输出：只保留最后一行以 / 开头的路径
+        const lines = pwdRaw.split('\n')
+        let pwd = ''
+        for (let i = lines.length - 1; i >= 0; i--) {
+          const line = lines[i].trim()
+          if (line.startsWith('/')) {
+            pwd = line
+            break
+          }
+        }
+        // 如果没找到，尝试匹配路径格式
+        if (!pwd) {
+          const pathMatch = pwdRaw.match(/\/[\w\-._\/]+/)
+          if (pathMatch) {
+            pwd = pathMatch[0].trim()
+          }
+        }
+        return { success: true, data: pwd || pwdRaw.trim() }
       }
       return { success: false, error: 'Cannot execute command' }
     } catch (error) {
