@@ -67,6 +67,9 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const isUpdating = useRef(false)
+  const [isConnecting, setIsConnecting] = useState(false)
+  const [connectingSessionId, setConnectingSessionId] = useState<string | null>(null)
+  const [connectionError, setConnectionError] = useState<string | null>(null)
 
   // 宽度状态
   const [width, setWidth] = useState(240)
@@ -95,6 +98,31 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
     window.addEventListener('newSession', handleNewSession)
     return () => window.removeEventListener('newSession', handleNewSession)
   }, [])
+
+  // 监听连接状态变化，用于处理新建会话的连接结果
+  useEffect(() => {
+    if (!isConnecting || !connectingSessionId) return
+
+    const cleanup = window.electronAPI?.onConnectionStatus((_event, data: { id: string; status: string; error?: string }) => {
+      if (data.id !== connectingSessionId) return
+
+      if (data.status === 'connected') {
+        // 连接成功，关闭对话框
+        setIsConnecting(false)
+        setConnectingSessionId(null)
+        setConnectionError(null)
+        setShowDialog(false)
+        setEditConfig(undefined)
+      } else if (data.status === 'error') {
+        // 连接失败，显示错误信息，保持对话框打开
+        setIsConnecting(false)
+        setConnectingSessionId(null)
+        setConnectionError(data.error || '连接失败')
+      }
+    })
+
+    return cleanup
+  }, [isConnecting, connectingSessionId])
 
   // 加载保存的会话列表
   useEffect(() => {
@@ -545,14 +573,31 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
       {/* 会话对话框 */}
       <SessionDialog
         open={showDialog}
-        onClose={() => { setShowDialog(false); setEditConfig(undefined) }}
+        onClose={() => {
+          if (isConnecting) return // 连接中不允许关闭
+          setShowDialog(false)
+          setEditConfig(undefined)
+          setConnectionError(null)
+        }}
         initialConfig={editConfig}
+        isConnecting={isConnecting}
+        connectionError={connectionError}
+        onClearError={() => setConnectionError(null)}
         onSubmit={async (config) => {
           if (editConfig) {
+            // 编辑模式：直接更新，关闭对话框
             await window.electronAPI?.updateSession(config)
+            setShowDialog(false)
+            setEditConfig(undefined)
           } else {
-            await window.electronAPI?.createSession(config)
-            onConnect?.(config.id, config)
+            // 新建模式：创建会话并尝试连接，等待连接结果
+            setConnectionError(null)
+            setIsConnecting(true)
+            const newConfig = await window.electronAPI?.createSession(config)
+            if (newConfig?.id) {
+              setConnectingSessionId(newConfig.id)
+              onConnect?.(newConfig.id, newConfig)
+            }
           }
           refreshSavedSessions()
         }}

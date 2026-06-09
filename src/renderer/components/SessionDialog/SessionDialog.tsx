@@ -8,13 +8,19 @@ interface SessionDialogProps {
   onClose: () => void
   onSubmit: (config: SessionConfig) => void
   initialConfig?: SessionConfig
+  isConnecting?: boolean
+  connectionError?: string | null
+  onClearError?: () => void
 }
 
 const SessionDialog: React.FC<SessionDialogProps> = ({
   open,
   onClose,
   onSubmit,
-  initialConfig
+  initialConfig,
+  isConnecting = false,
+  connectionError = null,
+  onClearError
 }) => {
   const [name, setName] = useState('')
   const [type, setType] = useState<ConnectionType>(ConnectionType.SSH)
@@ -196,7 +202,10 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
     }
 
     onSubmit(config)
-    onClose()
+    // 编辑模式下直接关闭，新建模式由 Sidebar 根据连接结果决定
+    if (initialConfig) {
+      onClose()
+    }
   }
 
   return (
@@ -205,15 +214,37 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
         {/* 标题栏 */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[#3C3C3C]">
           <span className="text-white font-medium">
-            {initialConfig ? '编辑会话' : '新建会话'}
+            {isConnecting ? '正在连接...' : initialConfig ? '编辑会话' : '新建会话'}
           </span>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white transition-colors"
+            disabled={isConnecting}
+            className={`text-gray-400 hover:text-white transition-colors ${isConnecting ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             ✕
           </button>
         </div>
+
+        {/* 连接错误提示 */}
+        {connectionError && (
+          <div className="mx-4 mt-3 px-3 py-2 bg-red-500/20 border border-red-500/50 rounded text-sm text-red-400 flex items-center justify-between">
+            <span className="truncate">{connectionError}</span>
+            <button
+              onClick={onClearError}
+              className="text-red-400 hover:text-red-300 ml-2"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* 连接中提示 */}
+        {isConnecting && (
+          <div className="mx-4 mt-3 px-3 py-2 bg-[#0078D4]/20 border border-[#0078D4]/50 rounded text-sm text-[#0078D4] flex items-center gap-2">
+            <span className="animate-spin">⏳</span>
+            <span>正在尝试连接，请稍候...</span>
+          </div>
+        )}
 
         {/* 表单 */}
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
@@ -414,15 +445,17 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-1.5 text-sm text-gray-400 hover:text-white transition-colors"
+              disabled={isConnecting}
+              className={`px-4 py-1.5 text-sm text-gray-400 hover:text-white transition-colors ${isConnecting ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              取消
+              {isConnecting ? '连接中...' : '取消'}
             </button>
             <button
               type="submit"
-              className="px-4 py-1.5 text-sm bg-[#0078D4] text-white rounded hover:bg-[#006CBD] transition-colors"
+              disabled={isConnecting}
+              className={`px-4 py-1.5 text-sm bg-[#0078D4] text-white rounded hover:bg-[#006CBD] transition-colors ${isConnecting ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              {initialConfig ? '保存' : '创建'}
+              {isConnecting ? '连接中...' : initialConfig ? '保存' : '创建并连接'}
             </button>
           </div>
         </form>
