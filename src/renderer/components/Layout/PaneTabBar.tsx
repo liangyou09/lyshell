@@ -15,16 +15,17 @@ interface PaneTabBarProps {
 const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [draggingSessionId, setDraggingSessionIdLocal] = useState<string | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)  // 悬停位置索引
   const { sessions } = useSessionStore()
-  const { setActiveSessionInPane, removeSessionFromPane, addSessionToPane } = usePaneStore()
+  const { setActiveSessionInPane, removeSessionFromPane, addSessionToPane, reorderSessionsInPane } = usePaneStore()
 
   // 防止重复双击
   const isCloning = useRef(false)
 
-  // 获取该分屏内的会话（包括断开的，方便重连）
-  const paneSessions = sessions.filter(s =>
-    pane.sessions.includes(s.id)
-  )
+  // 获取该分屏内的会话（按照 pane.sessions 的顺序）
+  const paneSessions = pane.sessions
+    .map(sessionId => sessions.find(s => s.id === sessionId))
+    .filter((s): s is typeof sessions[0] => s !== undefined)
 
   // 获取所有分屏内的活跃会话（用于全局编号计算，只统计活跃的）
   const allPaneSessions = sessions.filter(s =>
@@ -162,6 +163,39 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
   const handleDragEnd = () => {
     setGlobalDraggingId(null)
     setDraggingSessionIdLocal(null)
+    setDragOverIndex(null)
+  }
+
+  // 拖拽悬停在标签上
+  const handleDragOverTab = (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    // 不阻止传播，让事件正常流动
+    setDragOverIndex(index)
+  }
+
+  // 拖拽离开标签
+  const handleDragLeaveTab = () => {
+    setDragOverIndex(null)
+  }
+
+  // 拖拽放下到标签上
+  const handleDropOnTab = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    const dragSessionId = e.dataTransfer.getData('text/plain')
+    if (!dragSessionId) return
+
+    // 找到拖拽会话的当前索引
+    const dragIndex = paneSessions.findIndex(s => s.id === dragSessionId)
+    if (dragIndex === -1 || dragIndex === targetIndex) {
+      setDragOverIndex(null)
+      return
+    }
+
+    // 重排序
+    reorderSessionsInPane(pane.id, dragIndex, targetIndex)
+    setDragOverIndex(null)
   }
 
   // 向左滚动
@@ -286,10 +320,13 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
       {/* 标签容器 */}
       <div
         ref={scrollRef}
-        onDragOver={(e) => e.preventDefault()} // 允许拖拽事件传播到 PaneView
+        onDragOver={(e) => {
+          e.preventDefault()
+          // 不阻止传播，让终端区域也能接收 dragover
+        }}
         className="flex flex-nowrap items-center h-full overflow-x-auto scrollbar-hide overflow-y-hidden flex-1"
       >
-        {paneSessions.map((session) => (
+        {paneSessions.map((session, index) => (
           <div
             key={session.id}
             data-tab-id={session.id}
@@ -299,6 +336,9 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
             draggable
             onDragStart={(e) => handleDragStart(e, session.id)}
             onDragEnd={handleDragEnd}
+            onDragOver={(e) => handleDragOverTab(e, index)}
+            onDragLeave={handleDragLeaveTab}
+            onDrop={(e) => handleDropOnTab(e, index)}
             title="单击切换 | 双击左键克隆会话 | 双击右键克隆渠道(SSH)"
             className={cn(
               'flex items-center gap-1 px-2 h-full border-r border-[#3C3C3C] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
@@ -307,7 +347,8 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
                 : session.hasActivity
                   ? 'bg-[#0078D4]/40 text-white hover:bg-[#0078D4]/50' // 有活动时高亮蓝色背景
                   : 'bg-[#252526] text-gray-400 hover:bg-[#2D2D30]',
-              draggingSessionId === session.id && 'opacity-50'
+              draggingSessionId === session.id && 'opacity-50',
+              dragOverIndex === index && draggingSessionId !== session.id && 'border-l-2 border-l-[#0078D4]'  // 拖拽位置指示器
             )}
           >
             <span className="text-xs text-gray-400">{getTypeLabel(session.config.type)}</span>

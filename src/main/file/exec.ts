@@ -173,6 +173,7 @@ export class ExecFileConnector extends BaseFileConnector {
   private shellEnterCommands?: string[]
   private shellEnterWait: number
   private shellChannel: ClientChannel | null = null
+  private shellReady: boolean = false  // shell 是否已准备好（执行了 enter commands）
   private outputBuffer: string = ''
   private pendingResolve: ((output: string) => void) | null = null
   private pendingReject: ((error: Error) => void) | null = null
@@ -210,35 +211,54 @@ export class ExecFileConnector extends BaseFileConnector {
    * 改进版本：添加就绪检测机制，确保 shell 真正可用
    */
   private async initShellChannel(): Promise<void> {
-    if (this.shellChannel) return
+    // 如果 shell channel 存在且已准备好，直接返回
+    if (this.shellChannel && this.shellReady) {
+      log.debug('[FileManager] shell channel already exists and ready')
+      return
+    }
+
+    // 如果 shell channel 存在但未准备好，需要关闭并重新创建
+    if (this.shellChannel && !this.shellReady) {
+      log.debug('[FileManager] shell channel exists but not ready, re-initializing...')
+      this.shellChannel.close()
+      this.shellChannel = null
+    }
 
     const client = await this.getClient()
 
+    log.debug('[FileManager] creating new shell channel...')
     return new Promise((resolve, reject) => {
-      log.debug('Initializing shell channel')
+      log.debug('[FileManager] Initializing shell channel')
 
       client.shell((err, stream) => {
         if (err) {
-          log.error(`Shell channel error: ${err.message}`)
+          log.error(`[FileManager] Shell channel error: ${err.message}`)
           reject(err)
           return
         }
 
         this.shellChannel = stream
-        log.debug('Shell channel created')
+        this.shellReady = false  // 初始化为未准备好
+        log.debug('[FileManager] Shell channel created')
 
         // 收集输出
         stream.on('data', (data: Buffer) => {
           const chunk = data.toString()
           this.outputBuffer += chunk
+          log.debug(`[FileManager] Shell data received: ${chunk.length} bytes`)
+          // 只打印前 100 字符，避免太多日志
+          if (chunk.length < 100) {
+            log.debug(`[FileManager] Shell data content: "${chunk.replace(/\n/g, '\\n').replace(/\r/g, '\\r')}"`)
+          }
 
           // 检查是否有 marker（表示命令完成）
           this.checkForMarker()
         })
 
         stream.on('close', () => {
-          log.debug('Shell channel closed')
+          log.debug('[FileManager] Shell channel closed')
           this.shellChannel = null
+          this.shellReady = false
           this.currentMarker = null
           // 拒绝所有等待中的命令
           if (this.pendingReject) {
@@ -249,87 +269,37 @@ export class ExecFileConnector extends BaseFileConnector {
         })
 
         // 初始化流程
+        log.debug('[FileManager] Starting shell initialization...')
         this.initializeShell(stream, resolve, reject)
       })
     })
   }
 
   /**
-   * 初始化 shell（发送进入命令并检测就绪）
+   * 初始化 shell（和终端一样，不等待）
    */
   private async initializeShell(
     stream: ClientChannel,
     resolve: () => void,
     reject: (error: Error) => void
   ): Promise<void> {
-    // 如果需要进入 shell，发送进入命令
+    // 一次性发送所有进入命令
     if (this.shellEnterCommands && this.shellEnterCommands.length > 0) {
-      log.debug('Entering shell with commands')
+      log.debug(`[FileManager] Entering shell with commands: ${this.shellEnterCommands.join(', ')}`)
       for (const cmd of this.shellEnterCommands) {
+        log.debug(`[FileManager] Sending shell enter command: "${cmd}"`)
         stream.write(`${cmd}\n`)
-        // 每个命令后等待一段时间
-        await new Promise(r => setTimeout(r, this.shellEnterWait))
       }
     }
 
     // 发送回车触发提示符
     stream.write('\n')
 
-    // 检测 shell 是否就绪 - 等待提示符或 echo 响应
-    const readyMarker = `__READY_${Date.now()}__`
-    const maxWaitTime = 10000  // 最大等待 10 秒
-    const startTime = Date.now()
-
-    log.debug(`Waiting for shell ready (max ${maxWaitTime}ms)`)
-
-    // 发送就绪检测命令
-    stream.write(`echo "${readyMarker}"\n`)
-
-    // 设置临时监听器检测就绪
-    const checkReady = () => {
-      if (this.outputBuffer.includes(readyMarker)) {
-        log.info('Shell ready detected')
-        // 清空 outputBuffer，避免影响后续命令
-        this.outputBuffer = ''
-        resolve()
-        return
-      }
-
-      // 检测是否有提示符出现（常见的提示符模式）
-      if (this.outputBuffer.match(/[#$>]\s*$/) || this.outputBuffer.includes('#') || this.outputBuffer.includes('$')) {
-        log.info('Shell prompt detected, assuming ready')
-        this.outputBuffer = ''
-        resolve()
-        return
-      }
-
-      const elapsed = Date.now() - startTime
-      if (elapsed >= maxWaitTime) {
-        log.warn(`Shell ready timeout after ${elapsed}ms`)
-        // 超时后发送回车再试一次
-        stream.write('\n')
-        // 等待 500ms 再检测
-        setTimeout(() => {
-          if (this.outputBuffer.includes(readyMarker) || this.outputBuffer.match(/[#$>]\s*$/)) {
-            log.info('Shell ready after retry')
-            this.outputBuffer = ''
-            resolve()
-          } else {
-            // 最终超时，仍然 resolve 但清空 buffer
-            log.warn('Shell still not ready, clearing buffer and proceeding')
-            this.outputBuffer = ''
-            resolve()
-          }
-        }, 500)
-        return
-      }
-
-      // 继续等待
-      setTimeout(checkReady, 200)
-    }
-
-    // 开始等待（先等待 shellEnterWait 时间）
-    setTimeout(checkReady, this.shellEnterWait)
+    // 直接标记为已准备好（和终端一样，不等待）
+    log.debug('[FileManager] Shell initialized')
+    this.shellReady = true
+    this.outputBuffer = ''
+    resolve()
   }
 
   /**
@@ -572,6 +542,10 @@ export class ExecFileConnector extends BaseFileConnector {
    */
   async preStartAgent(): Promise<void> {
     log.info(`Pre-starting Python agent for session: ${this.sessionId}`)
+
+    // 等待 shell 稳定后再上传（延迟 1 秒，减少等待时间）
+    await new Promise(resolve => setTimeout(resolve, 1000))
+
     try {
       // 只上传脚本，不启动 agent 进程
       await this.uploadAgentScript()
@@ -864,10 +838,13 @@ export class ExecFileConnector extends BaseFileConnector {
    * 执行命令并返回原始输出（用于 MD5 计算，不做行过滤）
    */
   async execRaw(command: string, timeout = 30000): Promise<string> {
+    log.debug(`[FileManager] execRaw called: "${command}", timeout: ${timeout}ms`)
     await this.initShellChannel()
+    log.debug(`[FileManager] shell channel ready, executing command`)
 
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
+        log.error(`[FileManager] execRaw timeout after ${timeout}ms for command: "${command}"`)
         this.currentMarker = null
         this.pendingResolve = null
         this.pendingReject = null
@@ -886,21 +863,33 @@ export class ExecFileConnector extends BaseFileConnector {
       }, timeout)
 
       // 添加到队列，设置 rawMode: true
+      log.debug(`[FileManager] adding command to queue, rawMode: true`)
       this.commandQueue.push({
         command,
         rawMode: true,
         resolve: (output) => {
           clearTimeout(timer)
+          log.debug(`[FileManager] execRaw success, output length: ${output.length}`)
+          // 打印输出的前 200 字符
+          if (output.length < 200) {
+            log.debug(`[FileManager] execRaw output: "${output.replace(/\n/g, '\\n').replace(/\r/g, '\\r')}"`)
+          } else {
+            log.debug(`[FileManager] execRaw output (first 200): "${output.substring(0, 200).replace(/\n/g, '\\n').replace(/\r/g, '\\r')}"`)
+          }
           resolve(output)
         },
         reject: (error) => {
           clearTimeout(timer)
+          log.error(`[FileManager] execRaw error: ${error.message}`)
           reject(error)
         }
       })
 
       if (!this.isProcessing) {
+        log.debug(`[FileManager] starting to process command queue`)
         this.processNextCommand()
+      } else {
+        log.debug(`[FileManager] already processing, command queued`)
       }
     })
   }

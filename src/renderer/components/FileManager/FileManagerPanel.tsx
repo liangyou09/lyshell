@@ -62,24 +62,26 @@ function saveServerPaths(paths: Record<string, string>): void {
 
 /**
  * 嵌入式文件管理器 - 用于侧边栏底部
- * 基于服务器（host:port:user），一个服务器只有一个文件会话
- * 只有该服务器所有终端都关闭才清空
+ * 每个服务器的文件列表独立缓存在内存中
+ * 切换会话时直接从缓存读取，不重新请求
  */
 const FileManagerPanel: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'files' | 'history'>('files')
-  const [files, setFiles] = useState<FileInfo[]>([])
-  const [currentPath, setCurrentPath] = useState('/')
-  const [loading, setLoading] = useState(false)
   const [filterPattern, setFilterPattern] = useState('')
   const [isDragging, setIsDragging] = useState(false)
-  const [error, setError] = useState<string | null>(null)  // 错误信息
+  const [error, setError] = useState<string | null>(null)
 
-  // 每个服务器保存的路径（从 localStorage 加载）
-  const serverPathsRef = useRef<Record<string, string>>(loadServerPaths())
-  // 已获取 home 目录的服务器
-  const homeDirsRef = useRef<Record<string, string>>({})
-  // 已初始化的服务器（有保存路径或已获取 home 目录）
-  const initializedServersRef = useRef<Set<string>>(new Set())
+  // 每个服务器的缓存数据
+  const filesCacheRef = useRef<{ [key: string]: FileInfo[] }>({})  // 文件列表缓存
+  const pathsCacheRef = useRef<{ [key: string]: string }>(loadServerPaths())  // 路径缓存（从 localStorage 加载）
+  const loadingCacheRef = useRef<{ [key: string]: boolean }>({})  // 加载状态
+  const initializedRef = useRef<Set<string>>(new Set())  // 已初始化的服务器
+  const homeDirsRef = useRef<{ [key: string]: string }>({})  // home 目录
+
+  // 当前显示的数据（从缓存中读取）
+  const [displayFiles, setDisplayFiles] = useState<FileInfo[]>([])
+  const [displayPath, setDisplayPath] = useState('/')
+  const [displayLoading, setDisplayLoading] = useState(false)
 
   // 获取所有会话和终端
   const { layout, getAllLeafPanes } = usePaneStore()
@@ -105,64 +107,143 @@ const FileManagerPanel: React.FC = () => {
       return identity && serverKey(identity) === currentServerKey
     }) : false
 
-  // 当服务器真正切换时，恢复路径或获取 home 目录
-  const prevServerKeyRef = useRef<string | null>(null)
+  // 切换服务器时，从缓存读取数据
   useEffect(() => {
-    if (currentServerKey && currentServerKey !== prevServerKeyRef.current) {
-      prevServerKeyRef.current = currentServerKey
+    if (currentServerKey && currentSessionId) {
+      // 从缓存读取当前服务器的数据
+      const cachedFiles = filesCacheRef.current[currentServerKey] || []
+      const cachedPath = pathsCacheRef.current[currentServerKey] || '/'
+      const cachedLoading = loadingCacheRef.current[currentServerKey] || false
 
-      // 检查是否有保存的有效路径（不是根目录）
-      const savedPath = serverPathsRef.current[currentServerKey]
-      if (savedPath && savedPath !== '/') {
-        setCurrentPath(savedPath)
-        initializedServersRef.current.add(currentServerKey)
-      } else if (currentSessionId && !initializedServersRef.current.has(currentServerKey)) {
-        // 没有保存的路径或保存的是根目录，获取用户的 home 目录
-        fetchHomeDirectory(currentServerKey, currentSessionId)
+      setDisplayFiles(cachedFiles)
+      setDisplayPath(cachedPath)
+      setDisplayLoading(cachedLoading)
+
+      // 如果没有初始化且没有正在加载，才加载文件列表
+      if (!initializedRef.current.has(currentServerKey) && !loadingCacheRef.current[currentServerKey]) {
+        // 如果有保存的路径且不是根目录，直接加载
+        if (cachedPath && cachedPath !== '/' && cachedPath !== '') {
+          initializedRef.current.add(currentServerKey)
+          loadFiles(currentServerKey, currentSessionId, cachedPath)
+        } else {
+          // 没有保存的路径，获取 home 目录
+          fetchHomeDirectory(currentServerKey, currentSessionId)
+        }
       }
+    } else {
+      setDisplayFiles([])
+      setDisplayPath('/')
+      setDisplayLoading(false)
     }
   }, [currentServerKey, currentSessionId])
 
   // 获取用户的 home 目录
-  const fetchHomeDirectory = async (serverKey: string, sessionId: string) => {
+  const fetchHomeDirectory = async (key: string, sessionId: string) => {
+    loadingCacheRef.current[key] = true
+    initializedRef.current.add(key)  // 标记为已初始化，防止重复调用
+    setDisplayLoading(true)
+
     try {
-      // 使用 pwd 命令获取当前目录（home 目录）
       const pwdResult = await window.electronAPI.filePwd(sessionId)
       if (pwdResult.success && pwdResult.data) {
         const homeDir = pwdResult.data
-        homeDirsRef.current[serverKey] = homeDir
-        setCurrentPath(homeDir)
-        initializedServersRef.current.add(serverKey)
+        homeDirsRef.current[key] = homeDir
+        pathsCacheRef.current[key] = homeDir
+        saveServerPaths(pathsCacheRef.current)
+        setDisplayPath(homeDir)
+
         // 加载 home 目录的文件列表
-        loadFiles(sessionId, homeDir)
+        loadFiles(key, sessionId, homeDir)
       } else {
-        // 失败时使用根目录
-        setCurrentPath('/')
-        initializedServersRef.current.add(serverKey)
+        pathsCacheRef.current[key] = '/'
+        setDisplayPath('/')
+        loadingCacheRef.current[key] = false
+        setDisplayLoading(false)
       }
     } catch (err) {
       console.error('Failed to fetch home directory:', err)
-      setCurrentPath('/')
-      initializedServersRef.current.add(serverKey)
+      pathsCacheRef.current[key] = '/'
+      setDisplayPath('/')
+      loadingCacheRef.current[key] = false
+      setDisplayLoading(false)
     }
   }
 
-  // 当路径变化时，保存到 localStorage
-  useEffect(() => {
-    if (currentServerKey && currentPath) {
-      serverPathsRef.current[currentServerKey] = currentPath
-      saveServerPaths(serverPathsRef.current)
+  // 加载文件列表 - 存入对应服务器的缓存，不管是否切换
+  const loadFiles = async (key: string, sessionId: string, path: string) => {
+    loadingCacheRef.current[key] = true
+    // 只有当前显示的是这个服务器时才更新 loading 状态
+    if (currentServerKey === key) {
+      setDisplayLoading(true)
     }
-  }, [currentServerKey, currentPath])
+    setError(null)
 
-  // 当服务器断开时，清空状态
-  useEffect(() => {
-    if (prevServerKeyRef.current && !serverHasConnections && currentServerKey === null) {
-      prevServerKeyRef.current = null
-      setFiles([])
-      setCurrentPath('/')
+    try {
+      const result = await window.electronAPI.fileList(sessionId, path)
+      if (result.success) {
+        const files = result.data || []
+        // 存入缓存，不管是否切换
+        filesCacheRef.current[key] = files
+        loadingCacheRef.current[key] = false
+
+        // 只有当前显示的还是这个服务器时才更新显示
+        if (currentServerKey === key) {
+          setDisplayFiles(files)
+          setDisplayLoading(false)
+        }
+      } else {
+        loadingCacheRef.current[key] = false
+        if (currentServerKey === key) {
+          setError(result.error || '加载失败')
+          setDisplayFiles([])
+          setDisplayLoading(false)
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load files:', err)
+      loadingCacheRef.current[key] = false
+      if (currentServerKey === key) {
+        setError('加载失败')
+        setDisplayFiles([])
+        setDisplayLoading(false)
+      }
     }
-  }, [serverHasConnections, currentServerKey])
+  }
+
+  // 刷新当前目录
+  const handleRefresh = () => {
+    if (currentServerKey && currentSessionId) {
+      loadFiles(currentServerKey, currentSessionId, displayPath)
+    }
+  }
+
+  // 进入目录 - 更新路径缓存
+  const handleEnterDir = (file: FileInfo) => {
+    if (file.isDir && currentServerKey) {
+      pathsCacheRef.current[currentServerKey] = file.path
+      saveServerPaths(pathsCacheRef.current)
+      setDisplayPath(file.path)
+
+      // 加载新目录的文件列表
+      if (currentSessionId) {
+        loadFiles(currentServerKey, currentSessionId, file.path)
+      }
+    }
+  }
+
+  // 返回上级 - 更新路径缓存
+  const handleGoUp = () => {
+    if (displayPath === '/' || !currentServerKey) return
+    const parent = displayPath.substring(0, displayPath.lastIndexOf('/')) || '/'
+    pathsCacheRef.current[currentServerKey] = parent
+    saveServerPaths(pathsCacheRef.current)
+    setDisplayPath(parent)
+
+    // 加载上级目录的文件列表
+    if (currentSessionId) {
+      loadFiles(currentServerKey, currentSessionId, parent)
+    }
+  }
 
   // 拖放处理
   const handleDragEnter = (e: React.DragEvent) => {
@@ -191,7 +272,7 @@ const FileManagerPanel: React.FC = () => {
     e.stopPropagation()
     setIsDragging(false)
 
-    if (!currentSessionId) {
+    if (!currentSessionId || !currentServerKey) {
       alert('请先连接终端')
       return
     }
@@ -203,68 +284,6 @@ const FileManagerPanel: React.FC = () => {
       const localPath = (file as any).path
       if (localPath) handleUpload(localPath, file.name)
     }
-  }
-
-  // 加载文件列表 - 只在服务器或路径变化时加载（且已初始化）
-  useEffect(() => {
-    if (currentServerKey && activeTab === 'files' && currentSessionId &&
-        initializedServersRef.current.has(currentServerKey)) {
-      loadFiles(currentSessionId, currentPath)
-    }
-  }, [currentServerKey, currentPath, activeTab])
-
-  // 通配符匹配函数
-  const matchPattern = (filename: string, pattern: string): boolean => {
-    if (!pattern.trim()) return true
-
-    // 转换通配符为正则表达式
-    // * 匹配任意字符，? 匹配单个字符
-    const regexPattern = pattern
-      .replace(/\./g, '\\.')
-      .replace(/\*/g, '.*')
-      .replace(/\?/g, '.')
-
-    const regex = new RegExp(`^${regexPattern}$`, 'i')  // 不区分大小写
-    return regex.test(filename)
-  }
-
-  // 筛选后的文件列表
-  const filteredFiles = filterPattern.trim()
-    ? files.filter(f => matchPattern(f.name, filterPattern))
-    : files
-
-  const loadFiles = async (sessionId: string, path: string) => {
-    setLoading(true)
-    setError(null)  // 清除之前的错误
-    try {
-      const result = await window.electronAPI.fileList(sessionId, path)
-      if (result.success) {
-        setFiles(result.data || [])
-      } else {
-        // 显示错误信息，不弹窗
-        setError(result.error || '加载失败')
-        setFiles([])
-      }
-    } catch (err) {
-      console.error('Failed to load files:', err)
-      setError('加载失败')
-      setFiles([])
-    }
-    setLoading(false)
-  }
-
-  // 进入目录
-  const handleEnterDir = (file: FileInfo) => {
-    if (file.isDir) {
-      setCurrentPath(file.path)
-    }
-  }
-
-  // 返回上级
-  const handleGoUp = () => {
-    if (currentPath === '/') return
-    const parent = currentPath.substring(0, currentPath.lastIndexOf('/')) || '/'
-    setCurrentPath(parent)
   }
 
   // 下载文件
@@ -282,18 +301,38 @@ const FileManagerPanel: React.FC = () => {
 
   // 上传文件（拖放）
   const handleUpload = async (localPath: string, fileName: string) => {
-    if (!currentSessionId) return
+    if (!currentSessionId || !currentServerKey) return
 
-    const remotePath = `${currentPath}/${fileName}`
+    const remotePath = `${displayPath}/${fileName}`
     const taskId = Date.now().toString()
     registerDownloadFileName(taskId, fileName, localPath)
 
     const result = await window.electronAPI.fileUpload(currentSessionId, localPath, remotePath, taskId)
     if (result.success) {
-      setTimeout(() => currentSessionId && loadFiles(currentSessionId, currentPath), 2000)
+      // 上传完成后刷新文件列表
+      setTimeout(() => {
+        if (currentSessionId && currentServerKey) {
+          loadFiles(currentServerKey, currentSessionId, displayPath)
+        }
+      }, 2000)
     }
-    // 错误已通过 file:progress 事件发送，进度条会显示
   }
+
+  // 通配符匹配函数
+  const matchPattern = (filename: string, pattern: string): boolean => {
+    if (!pattern.trim()) return true
+    const regexPattern = pattern
+      .replace(/\./g, '\\.')
+      .replace(/\*/g, '.*')
+      .replace(/\?/g, '.')
+    const regex = new RegExp(`^${regexPattern}$`, 'i')
+    return regex.test(filename)
+  }
+
+  // 筛选后的文件列表
+  const filteredFiles = filterPattern.trim()
+    ? displayFiles.filter(f => matchPattern(f.name, filterPattern))
+    : displayFiles
 
   // 获取当前会话名称
   const activeSession = sessions.find(s => s.id === currentSessionId)
@@ -316,7 +355,7 @@ const FileManagerPanel: React.FC = () => {
           <div className="text-center bg-[#1E1E1E]/90 px-6 py-4 rounded-lg">
             <div className="text-4xl mb-2">📤</div>
             <div className="text-sm text-[#0078D4] font-medium">拖放文件上传</div>
-            <div className="text-xs text-gray-400 mt-1">上传到: {currentPath}</div>
+            <div className="text-xs text-gray-400 mt-1">上传到: {displayPath}</div>
           </div>
         </div>
       )}
@@ -363,8 +402,8 @@ const FileManagerPanel: React.FC = () => {
               )}
               <FileBrowser
                 files={filteredFiles}
-                currentPath={currentPath}
-                loading={loading}
+                currentPath={displayPath}
+                loading={displayLoading}
                 hasSession={true}
                 sessionId={currentSessionId}
                 filterPattern={filterPattern}
@@ -372,7 +411,7 @@ const FileManagerPanel: React.FC = () => {
                 onEnterDir={handleEnterDir}
                 onGoUp={handleGoUp}
                 onDownload={handleDownload}
-                onRefresh={() => currentSessionId && loadFiles(currentSessionId, currentPath)}
+                onRefresh={handleRefresh}
               />
             </>
           ) : (

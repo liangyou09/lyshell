@@ -39,23 +39,29 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
         return
       }
 
-      e.preventDefault()
-      e.dataTransfer.dropEffect = 'move'
-
       const rect = dropRef.current?.getBoundingClientRect()
       if (!rect) return
 
       const x = e.clientX - rect.left
       const y = e.clientY - rect.top
+
+      // 如果光标不在终端区域内，不处理（比如在标签栏上）
+      if (x < 0 || x > rect.width || y < 0 || y > rect.height) {
+        setDropZone(null)
+        setDropAction(null)
+        return
+      }
+
+      // 只有光标在终端区域内才调用 preventDefault
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+
       const xPos = x / rect.width
       const yPos = y / rect.height
 
-      // 标签栏高度约 28px，调整上边缘检测阈值
-      const tabBarHeightRatio = 28 / rect.height
-      const topThreshold = Math.max(0.3, tabBarHeightRatio + 0.1) // 至少 10% 余量
-
+      // 判断拖拽位置
       const isHorizontalEdge = xPos < 0.3 || xPos > 0.7
-      const isVerticalEdge = yPos < topThreshold || yPos > 0.7
+      const isVerticalEdge = yPos < 0.25 || yPos > 0.7
       const isCenter = !isHorizontalEdge && !isVerticalEdge
 
       // 如果是自己的会话拖到中心区域，不显示drop提示
@@ -159,17 +165,18 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
       const xPos = x / rect.width
       const yPos = y / rect.height
 
-      // 标签栏高度约 28px，调整上边缘检测阈值
-      const tabBarHeightRatio = 28 / rect.height
-      const topThreshold = Math.max(0.3, tabBarHeightRatio + 0.1)
+      // 如果光标不在终端区域内，不处理
+      if (x < 0 || x > rect.width || y < 0 || y > rect.height) {
+        return
+      }
 
-      // 允许拖到自己的分屏边缘触发分屏
-      const isOwnSession = node.sessions.includes(sessionId)
+      // 使用与 handleDragOver 一致的判断逻辑
       const isHorizontalEdge = xPos < 0.3 || xPos > 0.7
-      const isVerticalEdge = yPos < topThreshold || yPos > 0.7
+      const isVerticalEdge = yPos < 0.25 || yPos > 0.7
       const isCenter = !isHorizontalEdge && !isVerticalEdge
 
       // 如果是自己的会话拖到中心区域，不处理
+      const isOwnSession = node.sessions.includes(sessionId)
       if (isOwnSession && isCenter) return
 
       // 如果是自己的会话拖到边缘，或者是别人的会话，都处理
@@ -205,7 +212,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
               if (targetLeft && sourcePosition === 'second') needSwap = true
               if (targetRight && sourcePosition === 'first') needSwap = true
             } else {
-              const targetTop = yPos < 0.3
+              const targetTop = yPos < 0.25
               const targetBottom = yPos > 0.7
               if (targetTop && sourcePosition === 'second') needSwap = true
               if (targetBottom && sourcePosition === 'first') needSwap = true
@@ -218,7 +225,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
               const nestedDirection: SplitDirection = parentDirection === 'horizontal' ? 'vertical' : 'horizontal'
               const position: 'first' | 'second' = isHorizontalEdge
                 ? (xPos < 0.3 ? 'first' : 'second')
-                : (yPos < topThreshold ? 'first' : 'second')
+                : (yPos < 0.25 ? 'first' : 'second')
               splitPaneWithPosition(node.id, nestedDirection, sessionId, position)
             }
           } else {
@@ -226,7 +233,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
             const nestedDirection: SplitDirection = isHorizontalEdge ? 'horizontal' : 'vertical'
             const position: 'first' | 'second' = isHorizontalEdge
               ? (xPos < 0.3 ? 'first' : 'second')
-              : (yPos < topThreshold ? 'first' : 'second')
+              : (yPos < 0.25 ? 'first' : 'second')
             splitPaneWithPosition(node.id, nestedDirection, sessionId, position)
           }
         } else {
@@ -234,7 +241,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
           const direction: SplitDirection = isHorizontalEdge ? 'horizontal' : 'vertical'
           const position: 'first' | 'second' = isHorizontalEdge
             ? (xPos < 0.3 ? 'first' : 'second')
-            : (yPos < topThreshold ? 'first' : 'second')
+            : (yPos < 0.25 ? 'first' : 'second')
           splitPaneWithPosition(node.id, direction, sessionId, position)
         }
       }
@@ -276,11 +283,11 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
         case 'right':
           return { ...baseStyle, right: 0, top: 0, width: '30%', height: '100%', label: `${label}右侧` }
         case 'top':
-          return { ...baseStyle, left: 0, top: 0, width: '100%', height: '30%', label: `${label}上方` }
+          return { ...baseStyle, left: 0, top: 0, width: '100%', height: '25%', label: `${label}上方` }
         case 'bottom':
-          return { ...baseStyle, left: 0, bottom: 0, width: '100%', height: '30%', label: `${label}下方` }
+          return { ...baseStyle, left: 0, bottom: 0, width: '100%', height: '25%', label: `${label}下方` }
         case 'center':
-          return { ...baseStyle, left: '30%', top: '30%', width: '40%', height: '40%', label: '合并' }
+          return { ...baseStyle, left: '30%', top: '25%', width: '40%', height: '50%', label: '合并' }
         default:
           return null
       }
@@ -288,12 +295,8 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
 
     return (
       <div
-        ref={dropRef}
         data-pane-id={node.id}
         onClick={handleClick}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
         className={`
           relative w-full h-full flex flex-col
           ${isActive ? 'ring-1 ring-[#0078D4]' : ''}
@@ -301,10 +304,27 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
       >
         <PaneTabBar pane={node} />
 
-        <div className="flex-1 flex overflow-hidden">
-          {/* 终端视图 */}
-          {node.activeSessionId ? (
-            <TerminalView sessionId={node.activeSessionId} paneId={node.id} />
+        <div
+          ref={dropRef}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className="flex-1 flex overflow-hidden relative"
+        >
+          {/* 渲染所有 session 的终端，非活跃的用 CSS 隐藏，确保持续接收数据 */}
+          {node.sessions.length > 0 ? (
+            node.sessions.map(sessionId => (
+              <div
+                key={sessionId}
+                className="absolute inset-0"
+                style={{
+                  visibility: sessionId === node.activeSessionId ? 'visible' : 'hidden',
+                  zIndex: sessionId === node.activeSessionId ? 1 : 0
+                }}
+              >
+                <TerminalView sessionId={sessionId} paneId={node.id} />
+              </div>
+            ))
           ) : (
             <div className="flex items-center justify-center flex-1 bg-[#0C0C0C] text-gray-500">
               <div className="text-center">
@@ -313,13 +333,14 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
               </div>
             </div>
           )}
-        </div>
 
-        {dropZone && getDropZoneStyle(dropZone, dropAction) && (
-          <div style={getDropZoneStyle(dropZone, dropAction) as React.CSSProperties}>
-            {getDropZoneStyle(dropZone, dropAction)?.label}
-          </div>
-        )}
+          {/* 分屏指示器 */}
+          {dropZone && getDropZoneStyle(dropZone, dropAction) && (
+            <div style={getDropZoneStyle(dropZone, dropAction) as React.CSSProperties}>
+              {getDropZoneStyle(dropZone, dropAction)?.label}
+            </div>
+          )}
+        </div>
       </div>
     )
   }

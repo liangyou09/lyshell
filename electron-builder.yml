@@ -28,6 +28,7 @@ win:
       arch:
         - x64
   artifactName: ${productName}-${version}-${arch}.${ext}
+  icon: resources/icons/icon.ico
   sign: null
 
 nsis:

@@ -34,6 +34,7 @@ interface PaneStore {
   addSessionToPane: (paneId: string, sessionId: string) => void
   removeSessionFromPane: (paneId: string, sessionId: string) => void
   setActiveSessionInPane: (paneId: string, sessionId: string | null) => void
+  reorderSessionsInPane: (paneId: string, fromIndex: number, toIndex: number) => void
   swapPanePosition: (paneId: string) => void  // 交换分屏位置
   changeSplitDirection: (paneId: string) => void  // 改变分屏方向
   saveLayout: () => void  // 保存布局
@@ -662,6 +663,30 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     const updatedPane: PaneLeaf = {
       ...pane,
       activeSessionId: sessionId
+    }
+
+    set({
+      layout: {
+        root: replacePane(layout.root, paneId, updatedPane),
+        activePaneId: paneId
+      }
+    })
+  },
+
+  // 重排序分屏中的会话（拖拽排序）
+  reorderSessionsInPane: (paneId, fromIndex, toIndex) => {
+    const layout = get().layout
+    const pane = findPane(layout.root, paneId) as PaneLeaf | undefined
+
+    if (!pane || pane.type !== 'leaf') return
+
+    const sessions = [...pane.sessions]
+    const [removed] = sessions.splice(fromIndex, 1)
+    sessions.splice(toIndex, 0, removed)
+
+    const updatedPane: PaneLeaf = {
+      ...pane,
+      sessions
     }
 
     set({

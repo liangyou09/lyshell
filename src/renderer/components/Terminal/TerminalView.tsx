@@ -116,7 +116,8 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         cursorBlink: cursorBlink,
         scrollback: scrollbackLines,
         allowTransparency: false,
-        logLevel: 'off'
+        logLevel: 'off',
+        convertEol: true  // 正确处理换行和回显
       })
 
       fitAddon = new FitAddon()
