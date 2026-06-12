@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { PaneNode, PaneLeaf, PaneSplit, PaneLayout, SplitDirection } from '@shared/types'
 
 // 布局持久化 key
-const LAYOUT_STORAGE_KEY = 'novashell_pane_layout'
+const LAYOUT_STORAGE_KEY = 'lyshell_pane_layout'
 
 // 自动保存布局的订阅函数
 const subscribeToLayoutChanges = (store: any) => {

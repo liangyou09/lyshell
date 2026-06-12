@@ -585,7 +585,7 @@ export function registerIPCHandlers(): void {
 
     const result = await dialog.showSaveDialog({
       title: '导出配置数据',
-      defaultPath: `novashell-config-${new Date().toISOString().slice(0, 10)}.json`,
+      defaultPath: `lyshell-config-${new Date().toISOString().slice(0, 10)}.json`,
       filters: [
         { name: 'JSON 文件', extensions: ['json'] },
         { name: '所有文件', extensions: ['*'] }

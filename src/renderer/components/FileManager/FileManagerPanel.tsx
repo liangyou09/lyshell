@@ -21,7 +21,7 @@ interface ServerIdentity {
 }
 
 // 服务器路径持久化 key
-const SERVER_PATHS_STORAGE_KEY = 'novashell_server_paths'
+const SERVER_PATHS_STORAGE_KEY = 'lyshell_server_paths'
 
 // 获取服务器标识
 function getServerIdentity(session: any): ServerIdentity | null {

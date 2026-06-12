@@ -257,7 +257,7 @@ const MainWindow: React.FC = () => {
             <span className="text-gray-400/50 text-xs group-hover:text-white transition-colors">+</span>
           </div>
           {/* 标题 */}
-          <span className="text-xs text-gray-400 pl-2">NovaShell</span>
+          <span className="text-xs text-gray-400 pl-2">LyShell</span>
 
           {/* 设置面板 */}
           {showSettings && (

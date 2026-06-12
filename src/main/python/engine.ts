@@ -41,11 +41,11 @@ export interface PythonEnvironment {
 }
 
 /**
- * NovaShell Python API
+ * LyShell Python API
  */
-const NOVASHELL_API = `
-class NovaShell:
-    """NovaShell Python API"""
+const LYSHELL_API = `
+class LyShell:
+    """LyShell Python API"""
 
     def __init__(self):
         self._session = None
@@ -60,19 +60,19 @@ class NovaShell:
 
     def execute(self, command):
         """在会话中执行命令（需要主进程支持）"""
-        print(f"[NovaShell] Execute: {command}")
+        print(f"[LyShell] Execute: {command}")
         return {"command": command, "status": "pending"}
 
     def send(self, data):
         """发送数据到会话"""
-        print(f"[NovaShell] Send: {data}")
+        print(f"[LyShell] Send: {data}")
 
     def wait_for(self, pattern, timeout=30):
         """等待特定输出"""
-        print(f"[NovaShell] Wait for: {pattern}")
+        print(f"[LyShell] Wait for: {pattern}")
         return None
 
-novashell = NovaShell()
+lyshell = LyShell()
 `
 
 /**
@@ -158,14 +158,14 @@ export class PythonEngine extends EventEmitter {
     const env = {
       ...process.env,
       ...context?.env,
-      NOVASHELL_SESSION_ID: context?.session?.id || '',
-      NOVASHELL_SESSION_TYPE: context?.session?.type || '',
-      NOVASHELL_HOST: context?.session?.host || '',
-      NOVASHELL_PORT: String(context?.session?.port || ''),
+      LYSHELL_SESSION_ID: context?.session?.id || '',
+      LYSHELL_SESSION_TYPE: context?.session?.type || '',
+      LYSHELL_HOST: context?.session?.host || '',
+      LYSHELL_PORT: String(context?.session?.port || ''),
     }
 
-    // 添加 NovaShell API
-    const fullCode = NOVASHELL_API + '\n' + code
+    // 添加 LyShell API
+    const fullCode = LYSHELL_API + '\n' + code
 
     log.info(`Executing Python code (${executionId})`)
 

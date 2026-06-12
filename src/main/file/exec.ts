@@ -188,7 +188,7 @@ export class ExecFileConnector extends BaseFileConnector {
   // Python Agent 相关
   private agentChannel: ClientChannel | null = null
   private agentReady: boolean = false
-  private agentPath: string = '/tmp/novashell_agent.py'
+  private agentPath: string = '/tmp/lyshell_agent.py'
   private agentBuffer: Buffer = Buffer.alloc(0)
 
   constructor(sessionId: string, sshFileClient: SSHFileClient, shellEnterCommands?: string, shellEnterWait?: number) {
@@ -1145,7 +1145,7 @@ export class ExecFileConnector extends BaseFileConnector {
    */
   async checkRemoteAgentProcess(): Promise<boolean> {
     try {
-      const result = await this.execShellCommand(`ps aux | grep -v grep | grep novashell_agent || echo NOT_FOUND`)
+      const result = await this.execShellCommand(`ps aux | grep -v grep | grep lyshell_agent || echo NOT_FOUND`)
       return !result.includes('NOT_FOUND')
     } catch {
       return false

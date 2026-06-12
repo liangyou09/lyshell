@@ -132,7 +132,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
 
       // 显示欢迎信息和 Xshell 风格的连接信息
       const buildDate = new Date().toISOString().split('T')[0]
-      terminal.writeln(`\x1b[1;36mNovaShell v1.0.1\x1b[0m \x1b[90mBuild: ${buildDate}\x1b[0m`)
+      terminal.writeln(`\x1b[1;36mLyShell v1.0.1\x1b[0m \x1b[90mBuild: ${buildDate}\x1b[0m`)
       terminal.writeln('')
       const sshConfig = sessionConfig?.ssh
       const host = sshConfig?.host || 'unknown'
@@ -455,7 +455,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
             instance.terminal.writeln('')
             instance.terminal.writeln(`\x1b[31mCould not connect to '${host}' (port ${port}): ${data.error || 'Connection failed.'}\x1b[0m`)
             instance.terminal.writeln('')
-            instance.terminal.writeln('\x1b[90mType `help\' to learn how to use NovaShell prompt.\x1b[0m')
+            instance.terminal.writeln('\x1b[90mType `help\' to learn how to use LyShell prompt.\x1b[0m')
           }
         }
       }

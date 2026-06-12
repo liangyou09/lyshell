@@ -5,8 +5,8 @@ import * as fs from 'fs'
 
 // 导入模块
 import { registerIPCHandlers } from './ipc/handlers'
-import { sessionManager } from './terminal/session-manager'
 import { downloadHistory } from './storage'
+import { sessionManager } from './terminal/session-manager'
 import { setMainWindow, setMainWindowForUpload, cleanupAllWorkers, cleanupAllUploadWorkers } from './file'
 
 // 日志配置
@@ -40,7 +40,7 @@ function createMainWindow(): void {
     minWidth: 800,
     minHeight: 600,
     show: false,
-    title: 'NovaShell',
+    title: 'LyShell',
     icon: join(process.resourcesPath, 'icons', 'icon.png'),
     autoHideMenuBar: true,
     frame: false, // 无边框窗口，自定义标题栏
@@ -93,7 +93,7 @@ app.whenReady().then(async () => {
   isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
   // 设置应用ID
-  app.setAppUserModelId('com.novashell.app')
+  app.setAppUserModelId('com.lyshell.app')
 
   // 初始化下载历史存储
   await downloadHistory.init()
@@ -165,7 +165,7 @@ app.whenReady().then(async () => {
     }
   })
 
-  log.info('NovaShell started successfully')
+  log.info('LyShell started successfully')
 })
 
 // 应用退出前注销快捷键

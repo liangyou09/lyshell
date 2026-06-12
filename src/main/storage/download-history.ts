@@ -43,40 +43,51 @@ export interface DownloadDirConfig {
 
 /**
  * 下载历史存储
+ * 使用延迟初始化，避免在 app ready 前调用 app.getPath
  */
 class DownloadHistoryStorage {
-  private dataDir: string
-  private historyFile: string
-  private configFile: string
+  private dataDir: string | null = null
+  private historyFile: string | null = null
+  private configFile: string | null = null
   private records: DownloadRecord[] = []
-  private config: DownloadDirConfig
+  private config: DownloadDirConfig | null = null
+  private initialized: boolean = false
 
-  constructor() {
+  /**
+   * 确保已初始化（延迟初始化，在 app ready 后调用）
+   */
+  private ensureInitialized(): void {
+    if (this.initialized) return
+
     this.dataDir = join(app.getPath('userData'), 'data')
     this.historyFile = join(this.dataDir, 'download-history.json')
     this.configFile = join(this.dataDir, 'download-config.json')
 
     // 默认配置
     this.config = {
-      defaultDir: join(app.getPath('downloads'), 'NovaShell'),
+      defaultDir: join(app.getPath('downloads'), 'LyShell'),
       serverDirs: {},
       autoCreateServerSubdir: true
     }
+
+    this.initialized = true
   }
 
   /**
-   * 初始化（加载数据）
+   * 初始化（加载数据）- 在 app ready 后调用
    */
   async init(): Promise<void> {
+    this.ensureInitialized()
+
     // 确保数据目录存在
-    if (!existsSync(this.dataDir)) {
-      await mkdir(this.dataDir, { recursive: true })
+    if (!existsSync(this.dataDir!)) {
+      await mkdir(this.dataDir!, { recursive: true })
     }
 
     // 加载历史记录
     try {
-      if (existsSync(this.historyFile)) {
-        const data = await readFile(this.historyFile, 'utf-8')
+      if (existsSync(this.historyFile!)) {
+        const data = await readFile(this.historyFile!, 'utf-8')
         this.records = JSON.parse(data)
         // 转换日期字段
         this.records = this.records.map(r => ({
@@ -93,9 +104,9 @@ class DownloadHistoryStorage {
 
     // 加载配置
     try {
-      if (existsSync(this.configFile)) {
-        const data = await readFile(this.configFile, 'utf-8')
-        this.config = { ...this.config, ...JSON.parse(data) }
+      if (existsSync(this.configFile!)) {
+        const data = await readFile(this.configFile!, 'utf-8')
+        this.config = { ...this.config!, ...JSON.parse(data) }
         log.info('Loaded download config')
       }
     } catch (error) {
@@ -103,9 +114,9 @@ class DownloadHistoryStorage {
     }
 
     // 确保默认下载目录存在
-    if (!existsSync(this.config.defaultDir)) {
-      await mkdir(this.config.defaultDir, { recursive: true })
-      log.info(`Created default download dir: ${this.config.defaultDir}`)
+    if (!existsSync(this.config!.defaultDir)) {
+      await mkdir(this.config!.defaultDir, { recursive: true })
+      log.info(`Created default download dir: ${this.config!.defaultDir}`)
     }
   }
 
@@ -113,8 +124,9 @@ class DownloadHistoryStorage {
    * 保存数据
    */
   private async save(): Promise<void> {
+    this.ensureInitialized()
     try {
-      await writeFile(this.historyFile, JSON.stringify(this.records, null, 2), 'utf-8')
+      await writeFile(this.historyFile!, JSON.stringify(this.records, null, 2), 'utf-8')
     } catch (error) {
       log.error('Failed to save download history:', error)
     }
@@ -124,8 +136,9 @@ class DownloadHistoryStorage {
    * 保存配置
    */
   private async saveConfig(): Promise<void> {
+    this.ensureInitialized()
     try {
-      await writeFile(this.configFile, JSON.stringify(this.config, null, 2), 'utf-8')
+      await writeFile(this.configFile!, JSON.stringify(this.config, null, 2), 'utf-8')
     } catch (error) {
       log.error('Failed to save download config:', error)
     }
@@ -214,14 +227,16 @@ class DownloadHistoryStorage {
    * 获取下载目录配置
    */
   getConfig(): DownloadDirConfig {
-    return this.config
+    this.ensureInitialized()
+    return this.config!
   }
 
   /**
    * 更新下载目录配置
    */
   async updateConfig(updates: Partial<DownloadDirConfig>): Promise<void> {
-    this.config = { ...this.config, ...updates }
+    this.ensureInitialized()
+    this.config = { ...this.config!, ...updates }
     await this.saveConfig()
   }
 
@@ -230,34 +245,36 @@ class DownloadHistoryStorage {
    * 优先级：服务器配置 > 全局默认 + 服务器子目录 > 全局默认
    */
   getDownloadDir(sessionId: string, sessionName: string, host: string, port: number): string {
+    this.ensureInitialized()
     // 1. 检查是否有服务器特定配置
     const serverKey = sessionId
-    if (this.config.serverDirs[serverKey]) {
-      return this.config.serverDirs[serverKey]
+    if (this.config!.serverDirs[serverKey]) {
+      return this.config!.serverDirs[serverKey]
     }
 
     // 2. 检查 host:port 配置
     const hostKey = `${host}:${port}`
-    if (this.config.serverDirs[hostKey]) {
-      return this.config.serverDirs[hostKey]
+    if (this.config!.serverDirs[hostKey]) {
+      return this.config!.serverDirs[hostKey]
     }
 
     // 3. 如果启用自动子目录，使用服务器名称创建子目录
-    if (this.config.autoCreateServerSubdir && sessionName) {
+    if (this.config!.autoCreateServerSubdir && sessionName) {
       // 清理服务器名称，移除特殊字符
       const safeName = sessionName.replace(/[<>:"/\\|?*]/g, '_').trim()
-      return join(this.config.defaultDir, safeName)
+      return join(this.config!.defaultDir, safeName)
     }
 
     // 4. 使用全局默认目录
-    return this.config.defaultDir
+    return this.config!.defaultDir
   }
 
   /**
    * 设置服务器下载目录
    */
   async setServerDownloadDir(sessionId: string, dir: string): Promise<void> {
-    this.config.serverDirs[sessionId] = dir
+    this.ensureInitialized()
+    this.config!.serverDirs[sessionId] = dir
     await this.saveConfig()
   }
 
@@ -265,7 +282,8 @@ class DownloadHistoryStorage {
    * 删除服务器下载目录配置
    */
   async removeServerDownloadDir(sessionId: string): Promise<void> {
-    delete this.config.serverDirs[sessionId]
+    this.ensureInitialized()
+    delete this.config!.serverDirs[sessionId]
     await this.saveConfig()
   }
 }

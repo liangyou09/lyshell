@@ -1,6 +1,6 @@
-appId: com.novashell.app
-productName: NovaShell
-copyright: Copyright © 2026 NovaShell Team
+appId: com.lyshell.app
+productName: LyShell
+copyright: Copyright © 2026 LyShell Team
 
 directories:
   output: release/${version}
@@ -37,7 +37,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: always
   createStartMenuShortcut: true
-  shortcutName: NovaShell
+  shortcutName: LyShell
   displayLanguageSelector: true
   installerLanguages:
     - zh_CN
@@ -78,11 +78,11 @@ linux:
   icon: resources/icons/
   category: Utilities
   synopsis: 智能终端软件
-  description: NovaShell - SSH/Telnet/串口终端 + Python脚本 + AI辅助
+  description: LyShell - SSH/Telnet/串口终端 + Python脚本 + AI辅助
   artifactName: ${productName}-${version}-${arch}.${ext}
 
 publish:
   provider: github
-  owner: novashell
-  repo: novashell
+  owner: lyshell
+  repo: lyshell
   releaseType: release

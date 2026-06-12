@@ -1,17 +1,17 @@
 {
-  "name": "novashell",
+  "name": "lyshell",
   "version": "1.0.1",
   "description": "智能终端软件 - SSH/Telnet/串口连接 + Python脚本 + AI辅助",
   "main": "dist/main/index.js",
-  "author": "NovaShell Team",
+  "author": "LyShell Team",
   "license": "MIT",
-  "homepage": "https://github.com/novashell/novashell#readme",
+  "homepage": "https://github.com/lyshell/lyshell#readme",
   "bugs": {
-    "url": "https://github.com/novashell/novashell/issues"
+    "url": "https://github.com/lyshell/lyshell/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/novashell/novashell.git"
+    "url": "https://github.com/lyshell/lyshell.git"
   },
   "scripts": {
     "dev": "electron-vite dev",
@@ -35,6 +35,7 @@
   "dependencies": {
     "classnames": "^2.5.1",
     "dayjs": "^1.11.10",
+    "electron": "^28.3.3",
     "iconv-lite": "^0.7.2",
     "lodash-es": "^4.17.21",
     "react": "^18.2.0",
@@ -64,7 +65,6 @@
     "@vitejs/plugin-react": "^4.2.0",
     "@vitest/ui": "^1.2.0",
     "autoprefixer": "^10.4.17",
-    "electron": "^28.3.3",
     "electron-builder": "^24.12.0",
     "electron-log": "^5.1.0",
     "electron-rebuild": "^3.2.9",
