@@ -57,6 +57,10 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
     // 清除活动状态
     useSessionStore.getState().setSessionActivity(sessionId, false)
     scrollToTab(sessionId)
+    // 通知终端重新 fit + resize
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('terminal-tab-switched'))
+    }, 50)
   }
 
   // 双击左键：断开状态重连，已连接状态克隆会话

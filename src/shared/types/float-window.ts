@@ -33,22 +33,34 @@ export enum FloatTabType {
 }
 
 /**
+ * 快速命令分组（存储结构）
+ */
+export interface QuickCommandGroup {
+  id: string
+  name: string
+  color?: string    // 分组颜色
+  order: number     // 排序顺序
+}
+
+/**
  * 快速命令
  */
 export interface QuickCommand {
   id: string
   name: string
   content: string
-  group: string
+  groupId?: string  // 所属分组ID
+  group?: string    // 兼容旧字段
   variables?: Record<string, string>
-  createdAt: Date
-  isFavorite: boolean
+  createdAt?: Date
+  isFavorite?: boolean
+  order?: number    // 显示顺序（用于快捷键绑定）
 }
 
 /**
- * 命令分组
+ * 命令分组显示结构（用于浮窗 UI）
  */
-export interface CommandGroup {
+export interface CommandGroupDisplay {
   id: string
   name: string
   icon: string

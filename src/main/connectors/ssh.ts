@@ -29,6 +29,8 @@ export class SSHConnector extends BaseConnector {
   private sharedClient: Client | null = null  // 共享的 SSH client
   private _connecting: boolean = false  // 是否正在连接中
   private _connectReject: ((error: Error) => void) | null = null  // 连接 Promise 的 reject 函数
+  private _cols: number = 80  // 终端列数
+  private _rows: number = 24  // 终端行数
 
   constructor(sessionId: string, config: SSHConfig) {
     super(sessionId)
@@ -73,8 +75,14 @@ export class SSHConnector extends BaseConnector {
       throw new Error('SSH client not available')
     }
 
+    // 传入终端窗口尺寸，避免默认 80x24
+    const windowOpts = {
+      rows: this._rows || 24,
+      cols: this._cols || 80
+    }
+
     return new Promise((resolve, reject) => {
-      client.shell((err, channel) => {
+      client.shell({ term: 'xterm-256color', ...windowOpts }, (err, channel) => {
         if (err) {
           log.error('SSH shell error:', err)
           reject(err)
@@ -202,7 +210,13 @@ export class SSHConnector extends BaseConnector {
   private startShell(): void {
     if (!this.client) return
 
-    this.client.shell((err, channel) => {
+    // 传入终端窗口尺寸，避免默认 80x24
+    const windowOpts = {
+      rows: this._rows || 24,
+      cols: this._cols || 80
+    }
+
+    this.client.shell({ term: 'xterm-256color', ...windowOpts }, (err, channel) => {
       if (err) {
         log.error('SSH shell error:', err)
         this.emitError(err)
@@ -270,6 +284,10 @@ export class SSHConnector extends BaseConnector {
    * 调整终端尺寸
    */
   resize(cols: number, rows: number): void {
+    // 保存尺寸，用于后续 shell 创建
+    this._cols = cols
+    this._rows = rows
+
     if (!this.channel) {
       log.warn('SSH channel not available')
       return

@@ -402,17 +402,37 @@ export const sessionRepository = new SessionRepository()
 export const preferencesRepository = new PreferencesRepository()
 
 /**
- * 快速命令存储
+ * 快速命令分组
+ */
+export interface QuickCommandGroup {
+  id: string
+  name: string
+  color?: string    // 分组颜色（可选）
+  order: number     // 排序顺序
+}
+
+/**
+ * 快速命令
  */
 export interface QuickCommand {
   id: string
   name: string
   content: string
+  groupId?: string  // 所属分组ID（可选）
+}
+
+/**
+ * 快速命令数据（包含命令和分组）
+ */
+interface QuickCommandsData {
+  commands: QuickCommand[]
+  groups: QuickCommandGroup[]
 }
 
 export class QuickCommandsRepository {
   private filePath: string | null = null
   private commands: QuickCommand[] = []
+  private groups: QuickCommandGroup[] = []
   private loaded: boolean = false
 
   private ensureInitialized(): void {
@@ -433,12 +453,29 @@ export class QuickCommandsRepository {
 
     try {
       const content = readFileSync(this.filePath, 'utf-8')
-      this.commands = JSON.parse(content) as QuickCommand[]
-      log.info(`Loaded ${this.commands.length} quick commands from storage`)
+      const data = JSON.parse(content) as QuickCommandsData | QuickCommand[]
+
+      // 支持旧格式（只有命令数组）和新格式（包含命令和分组）
+      if (Array.isArray(data)) {
+        this.commands = data.map(cmd => ({
+          ...cmd,
+          groupId: cmd.groupId || undefined  // 空字符串转为 undefined
+        }))
+        this.groups = []
+      } else {
+        this.commands = (data.commands || []).map(cmd => ({
+          ...cmd,
+          groupId: cmd.groupId || undefined  // 空字符串转为 undefined
+        }))
+        this.groups = data.groups || []
+      }
+
+      log.info(`Loaded ${this.commands.length} quick commands and ${this.groups.length} groups from storage`)
       this.loaded = true
     } catch (error) {
       log.error('Failed to load quick commands:', error)
       this.commands = []
+      this.groups = []
       this.loaded = true
     }
   }
@@ -447,12 +484,18 @@ export class QuickCommandsRepository {
     if (!this.filePath) return
 
     try {
-      writeFileSync(this.filePath, JSON.stringify(this.commands, null, 2), 'utf-8')
-      log.info(`Saved ${this.commands.length} quick commands to storage`)
+      const data: QuickCommandsData = {
+        commands: this.commands,
+        groups: this.groups
+      }
+      writeFileSync(this.filePath, JSON.stringify(data, null, 2), 'utf-8')
+      log.info(`Saved ${this.commands.length} quick commands and ${this.groups.length} groups to storage`)
     } catch (error) {
       log.error('Failed to save quick commands:', error)
     }
   }
+
+  // ========== 命令操作 ==========
 
   getAll(): QuickCommand[] {
     this.ensureInitialized()
@@ -491,6 +534,61 @@ export class QuickCommandsRepository {
     this.commands.splice(index, 1)
     this.save()
     return true
+  }
+
+  // ========== 分组操作 ==========
+
+  getAllGroups(): QuickCommandGroup[] {
+    this.ensureInitialized()
+    return [...this.groups].sort((a, b) => a.order - b.order)
+  }
+
+  addGroup(group: QuickCommandGroup): QuickCommandGroup {
+    this.ensureInitialized()
+    if (!group.id) {
+      group.id = uuidv4()
+    }
+    if (group.order === undefined) {
+      group.order = this.groups.length
+    }
+    this.groups.push(group)
+    this.save()
+    return group
+  }
+
+  updateGroup(group: QuickCommandGroup): boolean {
+    this.ensureInitialized()
+    const index = this.groups.findIndex(g => g.id === group.id)
+    if (index === -1) return false
+    this.groups[index] = group
+    this.save()
+    return true
+  }
+
+  deleteGroup(id: string): boolean {
+    this.ensureInitialized()
+    const index = this.groups.findIndex(g => g.id === id)
+    if (index === -1) return false
+    this.groups.splice(index, 1)
+    // 同时删除该分组下的命令的 groupId
+    this.commands.forEach(c => {
+      if (c.groupId === id) {
+        c.groupId = undefined
+      }
+    })
+    this.save()
+    return true
+  }
+
+  reorderGroups(groupIds: string[]): void {
+    this.ensureInitialized()
+    groupIds.forEach((id, order) => {
+      const group = this.groups.find(g => g.id === id)
+      if (group) {
+        group.order = order
+      }
+    })
+    this.save()
   }
 }
 

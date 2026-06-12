@@ -80,7 +80,14 @@ const IPC_CHANNELS = {
   COMMAND_SAVE_ALL: 'command:save-all',
   COMMAND_ADD: 'command:add',
   COMMAND_UPDATE: 'command:update',
-  COMMAND_DELETE: 'command:delete'
+  COMMAND_DELETE: 'command:delete',
+
+  // 快速命令分组
+  COMMAND_GROUP_LIST: 'command-group:list',
+  COMMAND_GROUP_ADD: 'command-group:add',
+  COMMAND_GROUP_UPDATE: 'command-group:update',
+  COMMAND_GROUP_DELETE: 'command-group:delete',
+  COMMAND_GROUP_REORDER: 'command-group:reorder'
 }
 
 // 暴露给渲染进程的 API
@@ -158,6 +165,19 @@ const electronAPI = {
   addQuickCommand: (command: unknown) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_ADD, command),
   updateQuickCommand: (command: unknown) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_UPDATE, command),
   deleteQuickCommand: (commandId: string) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_DELETE, commandId),
+
+  // 快速命令（简化名称）
+  commandList: () => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_LIST),
+  commandAdd: (command: unknown) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_ADD, command),
+  commandUpdate: (command: unknown) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_UPDATE, command),
+  commandDelete: (commandId: string) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_DELETE, commandId),
+
+  // 快速命令分组
+  commandGroupList: () => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_GROUP_LIST),
+  commandGroupAdd: (group: unknown) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_GROUP_ADD, group),
+  commandGroupUpdate: (group: unknown) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_GROUP_UPDATE, group),
+  commandGroupDelete: (groupId: string) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_GROUP_DELETE, groupId),
+  commandGroupReorder: (groupIds: string[]) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_GROUP_REORDER, groupIds),
 
   // 窗口
   getWindowBounds: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_GET_BOUNDS),

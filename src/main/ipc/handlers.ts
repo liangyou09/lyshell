@@ -87,6 +87,13 @@ export const IPC_CHANNELS = {
   COMMAND_UPDATE: 'command:update',
   COMMAND_DELETE: 'command:delete',
 
+  // 快速命令分组
+  COMMAND_GROUP_LIST: 'command-group:list',
+  COMMAND_GROUP_ADD: 'command-group:add',
+  COMMAND_GROUP_UPDATE: 'command-group:update',
+  COMMAND_GROUP_DELETE: 'command-group:delete',
+  COMMAND_GROUP_REORDER: 'command-group:reorder',
+
   // 浮窗
   FLOAT_SHOW: 'float:show',
   FLOAT_HIDE: 'float:hide',
@@ -405,6 +412,32 @@ export function registerIPCHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.COMMAND_DELETE, async (_event, commandId: string) => {
     const success = quickCommandsRepository.delete(commandId)
     return { success }
+  })
+
+  // ========== 快速命令分组 ==========
+
+  ipcMain.handle(IPC_CHANNELS.COMMAND_GROUP_LIST, async () => {
+    return quickCommandsRepository.getAllGroups()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.COMMAND_GROUP_ADD, async (_event, group) => {
+    const saved = quickCommandsRepository.addGroup(group)
+    return saved
+  })
+
+  ipcMain.handle(IPC_CHANNELS.COMMAND_GROUP_UPDATE, async (_event, group) => {
+    const success = quickCommandsRepository.updateGroup(group)
+    return { success }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.COMMAND_GROUP_DELETE, async (_event, groupId: string) => {
+    const success = quickCommandsRepository.deleteGroup(groupId)
+    return { success }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.COMMAND_GROUP_REORDER, async (_event, groupIds: string[]) => {
+    quickCommandsRepository.reorderGroups(groupIds)
+    return { success: true }
   })
 
   // ========== Python 执行 ==========

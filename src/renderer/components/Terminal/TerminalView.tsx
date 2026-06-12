@@ -374,6 +374,36 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
     return () => window.removeEventListener('pane-resize', handlePaneResize)
   }, [sessionId, paneId, getTerminal])
 
+  // 标签页切换后重新 fit + resize（终端可能从隐藏变为可见）
+  useEffect(() => {
+    const handleTabSwitch = () => {
+      const instance = getTerminal(sessionId)
+      if (instance && containerRef.current) {
+        try {
+          const rect = containerRef.current.getBoundingClientRect()
+          if (rect.width > 0 && rect.height > 0) {
+            setTimeout(() => {
+              try {
+                instance.fitAddon.fit()
+                const cols = instance.terminal.cols
+                const rows = instance.terminal.rows
+                if (cols && rows) {
+                  window.electronAPI?.terminalResize(sessionId, cols, rows)
+                }
+              } catch {
+                // 忽略错误
+              }
+            }, 50)
+          }
+        } catch {
+          // 忽略错误
+        }
+      }
+    }
+    window.addEventListener('terminal-tab-switched', handleTabSwitch)
+    return () => window.removeEventListener('terminal-tab-switched', handleTabSwitch)
+  }, [sessionId, getTerminal])
+
   // 监听终端数据
   useEffect(() => {
     if (!window.electronAPI) return
@@ -399,17 +429,24 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         const instance = getTerminal(sessionId)
         if (instance) {
           if (data.status === ConnectionStatus.CONNECTED) {
-            // 连接成功后再次 fit 和 resize，确保终端尺寸正确
-            setTimeout(() => {
+            // 连接成功后多次 fit + resize，确保终端尺寸同步到服务器
+            const doFitResize = () => {
               try {
                 instance.fitAddon.fit()
-                if (instance.terminal.cols && instance.terminal.rows) {
-                  window.electronAPI?.terminalResize(sessionId, instance.terminal.cols, instance.terminal.rows)
+                const cols = instance.terminal.cols
+                const rows = instance.terminal.rows
+                if (cols && rows) {
+                  window.electronAPI?.terminalResize(sessionId, cols, rows)
                 }
               } catch {
                 // 忽略错误
               }
-            }, 100)
+            }
+            // SSH channel 可能还没完全准备好，多次重试确保同步
+            setTimeout(doFitResize, 100)
+            setTimeout(doFitResize, 500)
+            setTimeout(doFitResize, 1000)
+            setTimeout(doFitResize, 2000)
           } else if (data.status === ConnectionStatus.ERROR) {
             // 显示 Xshell 风格的错误信息
             const sshConfig = sessionConfig?.ssh
@@ -522,7 +559,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   }
 
   return (
-    <div className="flex-1 bg-[#0C0C0C] relative min-h-0 overflow-hidden">
+    <div className="w-full h-full bg-[#0C0C0C] relative overflow-hidden">
       {/* 终端容器 */}
       <div
         ref={containerRef}
