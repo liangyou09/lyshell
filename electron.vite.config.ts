@@ -22,6 +22,7 @@ export default defineConfig({
         },
         external: [
           'electron',
+          'electron-log',
           'node-pty',
           'serialport',
           'better-sqlite3',
