@@ -173,6 +173,12 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   cleanupAllWorkers()  // 清理所有下载 Worker
   cleanupAllUploadWorkers()  // 清理所有上传 Worker
+  // 断开所有本地终端 PTY 进程
+  for (const session of sessionManager.getAllSessions()) {
+    if (session.connector && session.status === 'connected') {
+      session.connector.disconnect().catch(() => {})
+    }
+  }
 })
 
 // 所有窗口关闭时退出（Windows/Linux）

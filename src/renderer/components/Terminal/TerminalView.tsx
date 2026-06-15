@@ -134,10 +134,14 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       const buildDate = new Date().toISOString().split('T')[0]
       terminal.writeln(`\x1b[1;36mLyShell v1.0.1\x1b[0m \x1b[90mBuild: ${buildDate}\x1b[0m`)
       terminal.writeln('')
-      const sshConfig = sessionConfig?.ssh
-      const host = sshConfig?.host || 'unknown'
-      const port = sshConfig?.port || 22
-      terminal.writeln(`Connecting to ${host}:${port}...`)
+      if (sessionConfig?.type === 'local') {
+        terminal.writeln('Starting local terminal...')
+      } else {
+        const sshConfig = sessionConfig?.ssh
+        const host = sshConfig?.host || 'unknown'
+        const port = sshConfig?.port || 22
+        terminal.writeln(`Connecting to ${host}:${port}...`)
+      }
 
       // 注册到 store
       registerTerminal(sessionId, terminal, fitAddon)
@@ -404,20 +408,44 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
     return () => window.removeEventListener('terminal-tab-switched', handleTabSwitch)
   }, [sessionId, getTerminal])
 
-  // 监听终端数据
+  // 监听终端数据（带缓冲，防止 xterm 未就绪时丢失数据）
   useEffect(() => {
     if (!window.electronAPI) return
+
+    let pendingData: string = ''
+    let flushTimer: ReturnType<typeof setTimeout> | null = null
+
+    const flushPending = () => {
+      flushTimer = null
+      const instance = getTerminal(sessionId)
+      if (instance && pendingData) {
+        instance.terminal.write(pendingData)
+        pendingData = ''
+      } else if (pendingData) {
+        // terminal 还没创建，等下一次 flush
+        flushTimer = setTimeout(flushPending, 50)
+      }
+    }
 
     const cleanup = window.electronAPI.onTerminalData((_event, id, data) => {
       if (id === sessionId) {
         const instance = getTerminal(sessionId)
         if (instance) {
           instance.terminal.write(data)
+        } else {
+          // terminal 未就绪，缓冲数据
+          pendingData += data
+          if (!flushTimer) {
+            flushTimer = setTimeout(flushPending, 50)
+          }
         }
       }
     })
 
-    return cleanup
+    return () => {
+      if (flushTimer) clearTimeout(flushTimer)
+      cleanup()
+    }
   }, [sessionId, getTerminal])
 
   // 监听连接状态变化（显示连接错误信息 + 连接成功后 resize）
@@ -429,24 +457,27 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         const instance = getTerminal(sessionId)
         if (instance) {
           if (data.status === ConnectionStatus.CONNECTED) {
-            // 连接成功后多次 fit + resize，确保终端尺寸同步到服务器
-            const doFitResize = () => {
-              try {
-                instance.fitAddon.fit()
-                const cols = instance.terminal.cols
-                const rows = instance.terminal.rows
-                if (cols && rows) {
-                  window.electronAPI?.terminalResize(sessionId, cols, rows)
+            if (sessionConfig?.type === 'local') {
+              // 本地终端：pending resize 机制已在 connectSession 中处理，无需额外 fit
+            } else {
+              // SSH channel 可能还没完全准备好，多次重试确保同步
+              const doFitResize = () => {
+                try {
+                  instance.fitAddon.fit()
+                  const cols = instance.terminal.cols
+                  const rows = instance.terminal.rows
+                  if (cols && rows) {
+                    window.electronAPI?.terminalResize(sessionId, cols, rows)
+                  }
+                } catch {
+                  // 忽略错误
                 }
-              } catch {
-                // 忽略错误
               }
+              setTimeout(doFitResize, 100)
+              setTimeout(doFitResize, 500)
+              setTimeout(doFitResize, 1000)
+              setTimeout(doFitResize, 2000)
             }
-            // SSH channel 可能还没完全准备好，多次重试确保同步
-            setTimeout(doFitResize, 100)
-            setTimeout(doFitResize, 500)
-            setTimeout(doFitResize, 1000)
-            setTimeout(doFitResize, 2000)
           } else if (data.status === ConnectionStatus.ERROR) {
             // 显示 Xshell 风格的错误信息
             const sshConfig = sessionConfig?.ssh

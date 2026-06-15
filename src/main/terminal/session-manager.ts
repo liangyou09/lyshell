@@ -2,8 +2,8 @@ import { v4 as uuidv4 } from 'uuid'
 import { EventEmitter } from 'events'
 import log from 'electron-log'
 import { app } from 'electron'
-import { SSHConnector, TelnetConnector, SerialConnector, ConnectionStatus, ConnectionType } from '../connectors'
-import type { SessionConfig, SSHConfig, TelnetConfig, SerialConfig } from '@shared/types'
+import { SSHConnector, TelnetConnector, SerialConnector, LocalConnector, ConnectionStatus, ConnectionType } from '../connectors'
+import type { SessionConfig, SSHConfig, TelnetConfig, SerialConfig, LocalConfig } from '@shared/types'
 
 /**
  * 提取错误关键信息（去掉堆栈）
@@ -33,7 +33,7 @@ export function extractErrorMessage(error: Error | string): string {
 export interface Session {
   id: string
   config: SessionConfig
-  connector?: SSHConnector | TelnetConnector | SerialConnector
+  connector?: SSHConnector | TelnetConnector | SerialConnector | LocalConnector
   status: ConnectionStatus
   createdAt: Date
   lastActiveAt: Date
@@ -154,6 +154,12 @@ export class SessionManager extends EventEmitter {
             encoding: session.config.terminal?.encoding
           })
           break
+        case ConnectionType.LOCAL:
+          session.connector = new LocalConnector(id, {
+            ...session.config.local as LocalConfig,
+            encoding: session.config.terminal?.encoding
+          })
+          break
         default:
           throw new Error(`Unknown connection type: ${session.config.type}`)
       }
@@ -165,7 +171,6 @@ export class SessionManager extends EventEmitter {
 
       // 监听数据
       session.connector.on('data', (data: string) => {
-        log.debug(`Terminal data received for ${id}: ${data.length} bytes`)
         this.emit('terminal:data', { sessionId: id, data })
       })
 
@@ -200,12 +205,13 @@ export class SessionManager extends EventEmitter {
 
       // 发送启动命令（如果有）
       if (session.config.startupCommands && session.config.startupCommands.length > 0) {
-        // 延迟发送启动命令，等待终端稳定
+        // 本地终端启动快，200ms；远程连接需等待 shell 就绪，500ms
+        const delay = session.config.type === ConnectionType.LOCAL ? 200 : 500
         setTimeout(() => {
           for (const cmd of session.config.startupCommands!) {
             this.writeToSession(id, cmd + '\r')
           }
-        }, 500)
+        }, delay)
       }
 
       return session

@@ -87,7 +87,14 @@ const IPC_CHANNELS = {
   COMMAND_GROUP_ADD: 'command-group:add',
   COMMAND_GROUP_UPDATE: 'command-group:update',
   COMMAND_GROUP_DELETE: 'command-group:delete',
-  COMMAND_GROUP_REORDER: 'command-group:reorder'
+  COMMAND_GROUP_REORDER: 'command-group:reorder',
+
+  // AI Agent
+  AGENT_LIST: 'agent:list',
+  AGENT_ADD: 'agent:add',
+  AGENT_UPDATE: 'agent:update',
+  AGENT_DELETE: 'agent:delete',
+  AGENT_LAUNCH: 'agent:launch'
 }
 
 // 暴露给渲染进程的 API
@@ -178,6 +185,13 @@ const electronAPI = {
   commandGroupUpdate: (group: unknown) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_GROUP_UPDATE, group),
   commandGroupDelete: (groupId: string) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_GROUP_DELETE, groupId),
   commandGroupReorder: (groupIds: string[]) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_GROUP_REORDER, groupIds),
+
+  // AI Agent
+  listAgents: () => ipcRenderer.invoke(IPC_CHANNELS.AGENT_LIST),
+  addAgent: (agent: unknown) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_ADD, agent),
+  updateAgent: (agent: unknown) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_UPDATE, agent),
+  deleteAgent: (agentId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_DELETE, agentId),
+  launchAgent: (agentId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_LAUNCH, agentId),
 
   // 窗口
   getWindowBounds: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_GET_BOUNDS),

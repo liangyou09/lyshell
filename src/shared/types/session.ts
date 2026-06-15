@@ -13,6 +13,7 @@ export interface SessionConfig {
   ssh?: SSHConfig
   telnet?: TelnetConfig
   serial?: SerialConfig
+  local?: LocalConfig
 
   // 终端配置
   terminal: TerminalConfig
@@ -40,7 +41,8 @@ export interface SessionConfig {
 export enum ConnectionType {
   SSH = 'ssh',
   TELNET = 'telnet',
-  SERIAL = 'serial'
+  SERIAL = 'serial',
+  LOCAL = 'local'
 }
 
 /**
@@ -80,6 +82,15 @@ export interface SerialConfig {
   dataBits?: 5 | 6 | 7 | 8
   stopBits?: 1 | 2
   parity?: 'none' | 'even' | 'odd' | 'mark' | 'space'
+}
+
+/**
+ * 本地终端配置
+ */
+export interface LocalConfig {
+  shell?: string
+  cwd?: string
+  env?: Record<string, string>
 }
 
 /**

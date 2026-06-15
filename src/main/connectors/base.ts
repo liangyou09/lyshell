@@ -87,5 +87,6 @@ export enum ConnectionStatus {
 export enum ConnectionType {
   SSH = 'ssh',
   TELNET = 'telnet',
-  SERIAL = 'serial'
+  SERIAL = 'serial',
+  LOCAL = 'local'
 }

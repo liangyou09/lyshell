@@ -44,6 +44,10 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
   const [serialPath, setSerialPath] = useState('COM1')
   const [serialBaudRate, setSerialBaudRate] = useState('9600')
 
+  // Local 配置
+  const [localShell, setLocalShell] = useState('')
+  const [localCwd, setLocalCwd] = useState('')
+
   // 终端配置
   const [encoding, setEncoding] = useState<'utf-8' | 'gbk' | 'gb2312'>('utf-8')
 
@@ -104,6 +108,8 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       setTelnetPort(initialConfig.telnet?.port?.toString() || '23')
       setSerialPath(initialConfig.serial?.path || 'COM1')
       setSerialBaudRate(initialConfig.serial?.baudRate?.toString() || '9600')
+      setLocalShell(initialConfig.local?.shell || '')
+      setLocalCwd(initialConfig.local?.cwd || '')
       setEncoding(initialConfig.terminal?.encoding || 'utf-8')
     } else {
       // 新建时清空
@@ -122,6 +128,8 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       setTelnetPort('23')
       setSerialPath('COM1')
       setSerialBaudRate('9600')
+      setLocalShell('')
+      setLocalCwd('')
       setEncoding('utf-8')
     }
   }, [initialConfig, open])
@@ -152,6 +160,8 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
         sessionName = telnetHost
       } else if (type === ConnectionType.SERIAL) {
         sessionName = serialPath
+      } else if (type === ConnectionType.LOCAL) {
+        sessionName = 'Local Terminal'
       }
     }
 
@@ -198,6 +208,11 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
         dataBits: 8,
         stopBits: 1,
         parity: 'none',
+      }
+    } else if (type === ConnectionType.LOCAL) {
+      config.local = {
+        shell: localShell || undefined,
+        cwd: localCwd || undefined,
       }
     }
 
@@ -267,6 +282,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
               <option value={ConnectionType.SSH}>SSH</option>
               <option value={ConnectionType.TELNET}>Telnet</option>
               <option value={ConnectionType.SERIAL}>Serial</option>
+              <option value={ConnectionType.LOCAL}>Local</option>
             </select>
           </div>
 
@@ -398,6 +414,32 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                   <option value="57600">57600</option>
                   <option value="115200">115200</option>
                 </select>
+              </div>
+            </div>
+          )}
+
+          {/* Local 配置 */}
+          {type === ConnectionType.LOCAL && (
+            <div className="space-y-3 pt-2 border-t border-[#3C3C3C]">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-400 w-16 shrink-0">Shell路径</label>
+                <input
+                  type="text"
+                  value={localShell}
+                  onChange={(e) => setLocalShell(e.target.value)}
+                  placeholder="留空使用默认 (cmd.exe / PowerShell)"
+                  className="flex-1 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-400 w-16 shrink-0">工作目录</label>
+                <input
+                  type="text"
+                  value={localCwd}
+                  onChange={(e) => setLocalCwd(e.target.value)}
+                  placeholder="留空使用用户目录"
+                  className="flex-1 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
+                />
               </div>
             </div>
           )}

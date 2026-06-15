@@ -7,6 +7,7 @@ import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 import { sessionManager, extractErrorMessage } from '../terminal/session-manager'
 import { sessionRepository, preferencesRepository, quickCommandsRepository } from '../storage/repository'
+import { agentRepository } from '../storage/agent-repository'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { pythonEngine } from '../python/engine'
 import { ConnectionStatus, SSHConnector } from '../connectors'
@@ -271,10 +272,23 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  // 监听终端数据，发送到所有窗口
+  // 监听终端数据，批量发送到所有窗口（减少 IPC 频率）
+  const dataBuffers = new Map<string, string>()
+  let dataFlushTimer: ReturnType<typeof setTimeout> | null = null
+
   sessionManager.on('terminal:data', (data) => {
-    log.debug(`Sending terminal data to windows: ${data.sessionId}, ${data.data.length} bytes`)
-    sendToAllWindows(IPC_CHANNELS.TERMINAL_DATA, data.sessionId, data.data)
+    const existing = dataBuffers.get(data.sessionId) || ''
+    dataBuffers.set(data.sessionId, existing + data.data)
+
+    if (!dataFlushTimer) {
+      dataFlushTimer = setTimeout(() => {
+        for (const [sessionId, bufferedData] of dataBuffers) {
+          sendToAllWindows(IPC_CHANNELS.TERMINAL_DATA, sessionId, bufferedData)
+        }
+        dataBuffers.clear()
+        dataFlushTimer = null
+      }, 16)
+    }
   })
 
   // ========== 会话管理 ==========
@@ -339,12 +353,10 @@ export function registerIPCHandlers(): void {
   // ========== 终端操作 ==========
 
   ipcMain.on(IPC_CHANNELS.TERMINAL_WRITE, (event, sessionId: string, data: string) => {
-    log.debug('Terminal write:', sessionId, data.length)
     sessionManager.writeToSession(sessionId, data)
   })
 
   ipcMain.on(IPC_CHANNELS.TERMINAL_RESIZE, (event, sessionId: string, cols: number, rows: number) => {
-    log.debug('Terminal resize:', sessionId, cols, rows)
     sessionManager.resizeSession(sessionId, cols, rows)
   })
 
@@ -1171,6 +1183,96 @@ export function registerIPCHandlers(): void {
     } catch (error) {
       log.error('Get download dir error:', error)
       return { success: false, error: (error as Error).message }
+    }
+  })
+
+  // ========== AI Agent ==========
+
+  ipcMain.handle('agent:list', async () => {
+    return agentRepository.getAll()
+  })
+
+  ipcMain.handle('agent:add', async (_event, agent) => {
+    return agentRepository.add(agent)
+  })
+
+  ipcMain.handle('agent:update', async (_event, agent) => {
+    const success = agentRepository.update(agent)
+    return { success }
+  })
+
+  ipcMain.handle('agent:delete', async (_event, agentId: string) => {
+    const success = agentRepository.delete(agentId)
+    return { success }
+  })
+
+  ipcMain.handle('agent:launch', async (_event, agentId: string) => {
+    const agent = agentRepository.get(agentId)
+    if (!agent) return { success: false, error: 'Agent not found' }
+
+    // 创建 LOCAL 会话配置
+    const config: SessionConfig = {
+      id: '',
+      name: agent.name,
+      type: ConnectionType.LOCAL,
+      local: {
+        shell: undefined,
+        cwd: agent.cwd,
+        env: agent.env
+      },
+      terminal: {
+        fontSize: 14,
+        fontFamily: 'Consolas, Monaco, monospace',
+        theme: {
+          foreground: '#D4D4D4',
+          background: '#1E1E1E',
+          cursor: '#D4D4D4',
+          selection: '#264F78',
+          black: '#000000',
+          red: '#CD3131',
+          green: '#0DBC79',
+          yellow: '#E5E510',
+          blue: '#2472C8',
+          magenta: '#BC3FBC',
+          cyan: '#11A8CD',
+          white: '#E5E5E5',
+          brightBlack: '#666666',
+          brightRed: '#F14C4C',
+          brightGreen: '#23D18B',
+          brightYellow: '#F5F543',
+          brightBlue: '#3B8EEA',
+          brightMagenta: '#D670D6',
+          brightCyan: '#29B8DB',
+          brightWhite: '#E5E5E5'
+        },
+        cursorStyle: 'bar',
+        cursorBlink: true,
+        scrollback: 10000,
+        encoding: 'utf-8'
+      },
+      tags: [`agent:${agentId}`],
+      startupCommands: [agent.command],
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }
+
+    // 先创建会话并返回 ID，让前端先初始化终端
+    const session = await sessionManager.createSession(config)
+
+    // 延迟连接，给前端时间创建 xterm 实例
+    setTimeout(() => {
+      // 连接前保存会话（同步操作）
+      sessionRepository.saveSession(config)
+      sessionManager.connectSession(session.id).catch(err => {
+        log.error('Agent launch failed:', extractErrorMessage(err))
+      })
+    }, 100)
+
+    return {
+      success: true,
+      id: session.id,
+      status: ConnectionStatus.CONNECTING,
+      config: session.config
     }
   })
 

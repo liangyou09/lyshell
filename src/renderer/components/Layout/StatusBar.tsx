@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
 import cn from 'classnames'
-import type { QuickCommand, QuickCommandGroup } from '@shared/types'
+import type { QuickCommand, QuickCommandGroup, SessionConfig } from '@shared/types'
 import { useTerminalStore } from '../../stores/terminal-store'
+import { useSessionStore } from '../../stores/session-store'
 
 /**
  * 终端尺寸显示组件
@@ -42,6 +43,7 @@ interface StatusBarProps {
  */
 const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refreshKey }) => {
   const [commands, setCommands] = useState<QuickCommand[]>([])
+  const { sessions } = useSessionStore()
   const [groups, setGroups] = useState<QuickCommandGroup[]>([])
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
   const [showAddDialog, setShowAddDialog] = useState(false)
@@ -496,7 +498,11 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
         {sessionId ? (
           <>
             <span className="text-green-400">OK</span>
-            <span>SSH</span>
+            <span>{(() => {
+              const s = sessions.find(s => s.id === sessionId)
+              const t = s?.config?.type
+              return t === 'ssh' ? 'SSH' : t === 'telnet' ? 'TEL' : t === 'serial' ? 'SER' : t === 'local' ? 'LOC' : ''
+            })()}</span>
             <TerminalSize sessionId={sessionId} />
             <span>UTF-8</span>
           </>

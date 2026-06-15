@@ -5,6 +5,7 @@ import { useSessionStore } from '../../stores/session-store'
 import SessionDialog from '../SessionDialog/SessionDialog'
 import ExportImportDialog from '../ExportImportDialog/ExportImportDialog'
 import FileManagerPanel from '../FileManager/FileManagerPanel'
+import AgentBar from '../AgentBar/AgentBar'
 
 interface QuickCommand {
   id: string
@@ -25,6 +26,7 @@ const getHostIP = (config: SessionConfig) => {
   if (config.ssh) return config.ssh.host
   if (config.telnet) return config.telnet.host
   if (config.serial) return config.serial.path
+  if (config.local) return config.local.cwd || 'local'
   return 'unknown'
 }
 
@@ -40,6 +42,7 @@ const getTypeLabel = (type: string) => {
     case 'ssh': return 'SSH'
     case 'telnet': return 'TEL'
     case 'serial': return 'SER'
+    case 'local': return 'LOC'
     default: return type?.toUpperCase() || ''
   }
 }
@@ -49,6 +52,7 @@ const getTypeColor = (type: string) => {
     case 'ssh': return 'bg-blue-600 text-white'
     case 'telnet': return 'bg-green-600 text-white'
     case 'serial': return 'bg-yellow-600 text-white'
+    case 'local': return 'bg-purple-600 text-white'
     default: return 'bg-gray-600 text-white'
   }
 }
@@ -370,6 +374,12 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
     setShowDialog(true)
   }
 
+  const handleLaunchAgent = async (agentId: string) => {
+    await window.electronAPI?.launchAgent(agentId)
+    // 不调用 onConnect，agent:launch 已在后端创建并连接会话
+    // 连接成功后 MainWindow 会通过 connection:status 事件自动添加到面板
+  }
+
   const handleEditSession = (config: SessionConfig, e: React.MouseEvent) => {
     e.stopPropagation()
     setEditConfig(config)
@@ -423,6 +433,9 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
             ⬇
           </button>
         </div>
+
+        {/* AI Agent 快捷启动 */}
+        <AgentBar onLaunchAgent={handleLaunchAgent} />
 
         {/* 会话列表 */}
         <div className="flex-1 overflow-y-auto min-h-[100px]">

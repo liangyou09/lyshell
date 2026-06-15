@@ -9,7 +9,7 @@ import type { SessionConfig } from '@shared/types'
  * 配置存储路径 - 延迟获取
  */
 let configDirCache: string | null = null
-const getConfigDir = (): string => {
+export const getConfigDir = (): string => {
   if (!configDirCache) {
     const userDataPath = app.getPath('userData')
     const configDir = join(userDataPath, 'config')
@@ -143,6 +143,14 @@ export class SessionRepository {
       if (a.serial.path !== b.serial.path ||
           a.serial.baudRate !== b.serial.baudRate) return false
     } else if (a.serial || b.serial) {
+      return false
+    }
+
+    // 比较 Local 配置
+    if (a.local && b.local) {
+      if (a.local.shell !== b.local.shell ||
+          a.local.cwd !== b.local.cwd) return false
+    } else if (a.local || b.local) {
       return false
     }
 
@@ -326,6 +334,8 @@ export class SessionRepository {
       parts.push(session.telnet.host, String(session.telnet.port))
     } else if (session.serial) {
       parts.push(session.serial.path, String(session.serial.baudRate))
+    } else if (session.local) {
+      parts.push(session.local.shell || 'default', session.local.cwd || 'default')
     }
 
     return parts.join('|')
