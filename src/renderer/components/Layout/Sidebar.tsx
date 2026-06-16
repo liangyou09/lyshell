@@ -71,9 +71,6 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const isUpdating = useRef(false)
-  const [isConnecting, setIsConnecting] = useState(false)
-  const [connectingSessionId, setConnectingSessionId] = useState<string | null>(null)
-  const [connectionError, setConnectionError] = useState<string | null>(null)
 
   // 宽度状态
   const [width, setWidth] = useState(240)
@@ -102,31 +99,6 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
     window.addEventListener('newSession', handleNewSession)
     return () => window.removeEventListener('newSession', handleNewSession)
   }, [])
-
-  // 监听连接状态变化，用于处理新建会话的连接结果
-  useEffect(() => {
-    if (!isConnecting || !connectingSessionId) return
-
-    const cleanup = window.electronAPI?.onConnectionStatus((_event, data: { id: string; status: string; error?: string }) => {
-      if (data.id !== connectingSessionId) return
-
-      if (data.status === 'connected') {
-        // 连接成功，关闭对话框
-        setIsConnecting(false)
-        setConnectingSessionId(null)
-        setConnectionError(null)
-        setShowDialog(false)
-        setEditConfig(undefined)
-      } else if (data.status === 'error') {
-        // 连接失败，显示错误信息，保持对话框打开
-        setIsConnecting(false)
-        setConnectingSessionId(null)
-        setConnectionError(data.error || '连接失败')
-      }
-    })
-
-    return cleanup
-  }, [isConnecting, connectingSessionId])
 
   // 加载保存的会话列表
   useEffect(() => {
@@ -380,6 +352,31 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
     // 连接成功后 MainWindow 会通过 connection:status 事件自动添加到面板
   }
 
+  const handleQuickLocal = async (shell: string, startupCommands?: string[]) => {
+    const shellName = shell === 'powershell' ? 'PowerShell' : shell === 'pwsh' ? 'PowerShell 7' : 'CMD'
+    const name = startupCommands ? `${shellName} (Admin)` : shellName
+    const config: SessionConfig = {
+      id: '',
+      name,
+      type: 'local' as any,
+      local: { shell },
+      terminal: {
+        fontSize: 14,
+        fontFamily: 'Consolas, Monaco, monospace',
+        theme: {
+          foreground: '#D4D4D4', background: '#1E1E1E', cursor: '#D4D4D4', selection: '#264F78',
+          black: '#000000', red: '#CD3131', green: '#0DBC79', yellow: '#E5E510', blue: '#2472C8',
+          magenta: '#BC3FBC', cyan: '#11A8CD', white: '#E5E5E5',
+          brightBlack: '#666666', brightRed: '#F14C4C', brightGreen: '#23D18B', brightYellow: '#F5F543',
+          brightBlue: '#3B8EEA', brightMagenta: '#D670D6', brightCyan: '#29B8DB', brightWhite: '#E5E5E5'
+        },
+        cursorStyle: 'bar', cursorBlink: true, scrollback: 10000, encoding: 'utf-8'
+      },
+      tags: [], startupCommands, createdAt: new Date(), updatedAt: new Date()
+    }
+    onConnect?.('', config)
+  }
+
   const handleEditSession = (config: SessionConfig, e: React.MouseEvent) => {
     e.stopPropagation()
     setEditConfig(config)
@@ -431,6 +428,38 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
             className="w-[28px] h-[28px] flex items-center justify-center bg-[#3C3C3C] text-gray-300 rounded hover:bg-[#555] hover:text-white transition-colors"
           >
             ⬇
+          </button>
+        </div>
+
+        {/* 本地终端快捷按钮 */}
+        <div className="flex items-center gap-1 px-2 py-1.5 border-b border-[#3C3C3C]">
+          <button
+            onClick={() => handleQuickLocal('')}
+            className="flex items-center gap-1 px-2 py-0.5 text-xs bg-[#3C3C3C] text-gray-300 hover:bg-[#555] hover:text-white cursor-pointer transition-colors rounded"
+            title="CMD"
+          >
+            <span>⬛</span><span>CMD</span>
+          </button>
+          <button
+            onClick={() => handleQuickLocal('powershell')}
+            className="flex items-center gap-1 px-2 py-0.5 text-xs bg-[#3C3C3C] text-blue-400 hover:bg-[#555] hover:text-blue-300 cursor-pointer transition-colors rounded"
+            title="PowerShell"
+          >
+            <span>🔷</span><span>PS</span>
+          </button>
+          <button
+            onClick={() => handleQuickLocal('powershell', ['gsudo'])}
+            className="flex items-center gap-1 px-2 py-0.5 text-xs bg-[#3C3C3C] text-red-400 hover:bg-[#555] hover:text-red-300 cursor-pointer transition-colors rounded"
+            title="PowerShell (管理员) - 需要 gsudo"
+          >
+            <span>🛡️</span><span>PS+</span>
+          </button>
+          <button
+            onClick={() => handleQuickLocal('pwsh')}
+            className="flex items-center gap-1 px-2 py-0.5 text-xs bg-[#3C3C3C] text-purple-400 hover:bg-[#555] hover:text-purple-300 cursor-pointer transition-colors rounded"
+            title="PowerShell 7"
+          >
+            <span>🔷</span><span>PS7</span>
           </button>
         </div>
 
@@ -592,15 +621,10 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
       <SessionDialog
         open={showDialog}
         onClose={() => {
-          if (isConnecting) return // 连接中不允许关闭
           setShowDialog(false)
           setEditConfig(undefined)
-          setConnectionError(null)
         }}
         initialConfig={editConfig}
-        isConnecting={isConnecting}
-        connectionError={connectionError}
-        onClearError={() => setConnectionError(null)}
         onSubmit={async (config) => {
           if (editConfig) {
             // 编辑模式：直接更新，关闭对话框
@@ -608,14 +632,13 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQui
             setShowDialog(false)
             setEditConfig(undefined)
           } else {
-            // 新建模式：创建会话并尝试连接，等待连接结果
-            setConnectionError(null)
-            setIsConnecting(true)
+            // 新建会话：创建并连接，状态在终端中反馈
             const newConfig = await window.electronAPI?.createSession(config)
             if (newConfig?.id) {
-              setConnectingSessionId(newConfig.id)
               onConnect?.(newConfig.id, newConfig)
             }
+            setShowDialog(false)
+            setEditConfig(undefined)
           }
           refreshSavedSessions()
         }}

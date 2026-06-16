@@ -35,7 +35,7 @@ export class LocalConnector extends BaseConnector {
       this.config = config
     }
 
-    const shell = this.config.shell || this.getDefaultShell()
+    const shell = this.resolveShell(this.config.shell || this.getDefaultShell())
     log.info(`Local terminal spawning: ${shell}`)
 
     this.ptyProcess = spawn(shell, [], {
@@ -100,5 +100,21 @@ export class LocalConnector extends BaseConnector {
       return process.env.COMSPEC || 'cmd.exe'
     }
     return process.env.SHELL || '/bin/bash'
+  }
+
+  /**
+   * 解析 shell 名称为完整路径
+   */
+  private resolveShell(shell: string): string {
+    if (process.platform !== 'win32') return shell
+    // Windows: 解析简称
+    const lower = shell.toLowerCase()
+    if (lower === 'powershell') {
+      return 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
+    }
+    if (lower === 'pwsh') {
+      return 'C:\\Program Files\\PowerShell\\7\\pwsh.exe'
+    }
+    return shell
   }
 }

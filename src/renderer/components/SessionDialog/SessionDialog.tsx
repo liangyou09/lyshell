@@ -211,7 +211,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       }
     } else if (type === ConnectionType.LOCAL) {
       config.local = {
-        shell: localShell || undefined,
+        shell: (localShell && localShell !== ' ') ? localShell : undefined,
         cwd: localCwd || undefined,
       }
     }
@@ -422,14 +422,32 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
           {type === ConnectionType.LOCAL && (
             <div className="space-y-3 pt-2 border-t border-[#3C3C3C]">
               <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-400 w-16 shrink-0">Shell路径</label>
-                <input
-                  type="text"
-                  value={localShell}
-                  onChange={(e) => setLocalShell(e.target.value)}
-                  placeholder="留空使用默认 (cmd.exe / PowerShell)"
-                  className="flex-1 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
-                />
+                <label className="text-xs text-gray-400 w-16 shrink-0">Shell</label>
+                <select
+                  value={localShell === '' ? '' : localShell === 'powershell' ? 'powershell' : localShell === 'pwsh' ? 'pwsh' : localShell === ' ' ? 'custom' : 'custom'}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    if (val === '') setLocalShell('')
+                    else if (val === 'powershell') setLocalShell('powershell')
+                    else if (val === 'pwsh') setLocalShell('pwsh')
+                    else setLocalShell(' ')
+                  }}
+                  className="w-32 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white focus:outline-none focus:border-[#0078D4]"
+                >
+                  <option value="">cmd.exe (默认)</option>
+                  <option value="powershell">PowerShell</option>
+                  <option value="pwsh">PowerShell 7</option>
+                  <option value="custom">自定义...</option>
+                </select>
+                {(localShell === ' ' || (localShell !== '' && localShell !== 'powershell' && localShell !== 'pwsh')) && (
+                  <input
+                    type="text"
+                    value={localShell === ' ' ? '' : localShell}
+                    onChange={(e) => setLocalShell(e.target.value || ' ')}
+                    placeholder="C:\path\to\shell.exe"
+                    className="flex-1 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
+                  />
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs text-gray-400 w-16 shrink-0">工作目录</label>
