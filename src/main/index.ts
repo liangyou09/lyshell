@@ -8,6 +8,7 @@ import { registerIPCHandlers } from './ipc/handlers'
 import { downloadHistory } from './storage'
 import { sessionManager } from './terminal/session-manager'
 import { setMainWindow, setMainWindowForUpload, cleanupAllWorkers, cleanupAllUploadWorkers } from './file'
+import { startMcpHttpServer, stopMcpHttpServer } from './mcp/http-server'
 
 // 日志配置
 log.transports.file.level = 'info'
@@ -108,6 +109,13 @@ app.whenReady().then(async () => {
   // 注册 IPC 处理器
   registerIPCHandlers()
 
+  // 启动 MCP HTTP 服务器
+  try {
+    await startMcpHttpServer()
+  } catch (err) {
+    log.error('Failed to start MCP HTTP server:', err)
+  }
+
   // 注册窗口相关 IPC 处理器
   ipcMain.handle('window:get-bounds', async () => {
     return mainWindow?.getBounds() || null
@@ -173,6 +181,7 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   cleanupAllWorkers()  // 清理所有下载 Worker
   cleanupAllUploadWorkers()  // 清理所有上传 Worker
+  stopMcpHttpServer()  // 停止 MCP HTTP 服务器
   // 断开所有本地终端 PTY 进程
   for (const session of sessionManager.getAllSessions()) {
     if (session.connector && session.status === 'connected') {

@@ -46,6 +46,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
 
   // Local 配置
   const [localShell, setLocalShell] = useState('')
+  const [isCustomShell, setIsCustomShell] = useState(false)
   const [localCwd, setLocalCwd] = useState('')
 
   // 终端配置
@@ -108,7 +109,9 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       setTelnetPort(initialConfig.telnet?.port?.toString() || '23')
       setSerialPath(initialConfig.serial?.path || 'COM1')
       setSerialBaudRate(initialConfig.serial?.baudRate?.toString() || '9600')
-      setLocalShell(initialConfig.local?.shell || '')
+      const shell = initialConfig.local?.shell || ''
+      setLocalShell(shell)
+      setIsCustomShell(!!shell && shell !== 'powershell' && shell !== 'pwsh')
       setLocalCwd(initialConfig.local?.cwd || '')
       setEncoding(initialConfig.terminal?.encoding || 'utf-8')
     } else {
@@ -211,7 +214,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       }
     } else if (type === ConnectionType.LOCAL) {
       config.local = {
-        shell: (localShell && localShell !== ' ') ? localShell : undefined,
+        shell: localShell || undefined,
         cwd: localCwd || undefined,
       }
     }
@@ -424,13 +427,13 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
               <div className="flex items-center gap-2">
                 <label className="text-xs text-gray-400 w-16 shrink-0">Shell</label>
                 <select
-                  value={localShell === '' ? '' : localShell === 'powershell' ? 'powershell' : localShell === 'pwsh' ? 'pwsh' : localShell === ' ' ? 'custom' : 'custom'}
+                  value={isCustomShell ? 'custom' : localShell}
                   onChange={(e) => {
                     const val = e.target.value
-                    if (val === '') setLocalShell('')
-                    else if (val === 'powershell') setLocalShell('powershell')
-                    else if (val === 'pwsh') setLocalShell('pwsh')
-                    else setLocalShell(' ')
+                    if (val === '') { setLocalShell(''); setIsCustomShell(false) }
+                    else if (val === 'powershell') { setLocalShell('powershell'); setIsCustomShell(false) }
+                    else if (val === 'pwsh') { setLocalShell('pwsh'); setIsCustomShell(false) }
+                    else { setIsCustomShell(true); setLocalShell('') }
                   }}
                   className="w-32 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white focus:outline-none focus:border-[#0078D4]"
                 >
@@ -439,11 +442,11 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                   <option value="pwsh">PowerShell 7</option>
                   <option value="custom">自定义...</option>
                 </select>
-                {(localShell === ' ' || (localShell !== '' && localShell !== 'powershell' && localShell !== 'pwsh')) && (
+                {isCustomShell && (
                   <input
                     type="text"
-                    value={localShell === ' ' ? '' : localShell}
-                    onChange={(e) => setLocalShell(e.target.value || ' ')}
+                    value={localShell}
+                    onChange={(e) => setLocalShell(e.target.value)}
                     placeholder="C:\path\to\shell.exe"
                     className="flex-1 px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
                   />

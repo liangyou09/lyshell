@@ -12,7 +12,8 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           worker: resolve(__dirname, 'src/main/file/download-worker.ts'),
-          uploadWorker: resolve(__dirname, 'src/main/file/upload-worker.ts')
+          uploadWorker: resolve(__dirname, 'src/main/file/upload-worker.ts'),
+          mcpServer: resolve(__dirname, 'src/main/mcp-server/index.ts')
         },
         output: {
           format: 'cjs',

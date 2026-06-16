@@ -33,6 +33,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "classnames": "^2.5.1",
     "dayjs": "^1.11.10",
     "electron-log": "^5.1.0",
