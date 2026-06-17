@@ -120,11 +120,15 @@ export class LyShellHttpClient {
 
   /**
    * POST 请求
-   * 文件操作（download/upload）使用较长超时，其他操作使用较短超时
+   * 文件操作（download/upload）使用较长超时
+   * send_and_wait 等待响应可能耗时较长，使用 60s 超时
+   * 其他操作使用较短超时
    */
   async post(apiPath: string, body?: any): Promise<any> {
     const isFileTransfer = apiPath.includes('/files/download') || apiPath.includes('/files/upload')
-    return this.request('POST', apiPath, body, isFileTransfer ? 120000 : 30000)
+    const isLongWait = apiPath.includes('/send-and-wait')
+    const timeout = isFileTransfer ? 120000 : isLongWait ? 60000 : 30000
+    return this.request('POST', apiPath, body, timeout)
   }
 
   /**

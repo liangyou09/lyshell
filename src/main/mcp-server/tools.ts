@@ -11,13 +11,37 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'list_sessions',
     description:
-      'List all terminal sessions in LyShell with their connection status. ' +
-      'Returns session ID, name, type (ssh/telnet/serial/local), status, host, and port. ' +
+      'List all terminal sessions in LyShell with their connection status and capabilities. ' +
+      'Returns session ID, name, type (ssh/telnet/serial/local), status, host, port, and capabilities. ' +
+      'Check capabilities before calling other tools: sendInput (all types), executeCommand (SSH/Local), fileOperations (SSH only). ' +
       'Use the session ID in other tools to target a specific session.',
     inputSchema: {
       type: 'object' as const,
       properties: {},
       required: [] as string[]
+    }
+  },
+  {
+    name: 'send_input',
+    description:
+      'Send text input directly to an interactive terminal session, as if the user typed it. ' +
+      'Works with ALL session types (SSH, Telnet, Serial, Local). ' +
+      'Use this to interact with interactive CLI programs like codex, vim, htop, gdb, etc. ' +
+      'Supports escape sequences: \\n for Enter, \\r for carriage return, \\x03 for Ctrl+C, \\x1a for Ctrl+Z, \\t for Tab. ' +
+      'For non-interactive commands where you need the output, use execute_command instead.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: {
+          type: 'string',
+          description: 'The session ID to send input to'
+        },
+        text: {
+          type: 'string',
+          description: 'The text to send. Use \\n for Enter, \\x03 for Ctrl+C, \\x1a for Ctrl+Z, \\t for Tab.'
+        }
+      },
+      required: ['sessionId', 'text'] as string[]
     }
   },
   {
@@ -45,6 +69,76 @@ export const TOOL_DEFINITIONS = [
         }
       },
       required: ['sessionId', 'command'] as string[]
+    }
+  },
+  {
+    name: 'read_output',
+    description:
+      'Read recent output from an interactive terminal session. ' +
+      'Returns the most recent terminal output with ANSI escape codes stripped by default (clean readable text). ' +
+      'Works with ALL session types (SSH, Local, Telnet, Serial) when connected. ' +
+      'Use this after send_input to see what the terminal responded, or to inspect current terminal state. ' +
+      'The output buffer captures all terminal data; returns the most recent N lines (default 100).',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: {
+          type: 'string',
+          description: 'The session ID to read output from'
+        },
+        lines: {
+          type: 'number',
+          description: 'Number of recent lines to return (default 100, max 1000)'
+        },
+        raw: {
+          type: 'boolean',
+          description: 'Return raw ANSI data instead of clean text (default false)'
+        }
+      },
+      required: ['sessionId'] as string[]
+    }
+  },
+  {
+    name: 'send_and_wait',
+    description:
+      'Send input to an interactive terminal and wait for the response, returning the captured output. ' +
+      'Works with ALL session types (SSH, Local, Telnet, Serial). ' +
+      'Supports escape sequences: \\n for Enter, \\r for carriage return, \\x03 for Ctrl+C, \\x1a for Ctrl+Z, \\t for Tab. ' +
+      'Returns the terminal output produced after the input was sent, with ANSI codes stripped. ' +
+      'The tool waits until output settles (no new data for idleMs) or until a timeout. ' +
+      'Optionally returns early when a regex pattern (waitForPattern) appears in the output. ' +
+      'Prefer this over send_input + read_output when you need the terminal response. ' +
+      'Note: the returned output includes the echoed input (terminals echo what you type). ' +
+      'Best for line-oriented programs; full-screen apps (vim/htop) may produce garbled output.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: {
+          type: 'string',
+          description: 'The session ID to send input to'
+        },
+        text: {
+          type: 'string',
+          description: 'The text to send. Use \\n for Enter, \\x03 for Ctrl+C, \\x1a for Ctrl+Z, \\t for Tab.'
+        },
+        waitMs: {
+          type: 'number',
+          description: 'Minimum time to wait for output to settle in ms (default 2000)'
+        },
+        idleMs: {
+          type: 'number',
+          description: 'Idle threshold in ms: no new output for this long means settled (default 300)'
+        },
+        maxWaitMs: {
+          type: 'number',
+          description: 'Maximum time to wait in ms regardless of idle detection (default 10000)'
+        },
+        waitForPattern: {
+          type: 'string',
+          description: 'Regex pattern to wait for in output. Returns immediately when matched.'
+        }
+      },
+      required: ['sessionId', 'text'] as string[]
     }
   },
   {

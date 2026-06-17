@@ -4,6 +4,49 @@ import log from 'electron-log'
 import { app } from 'electron'
 import { SSHConnector, TelnetConnector, SerialConnector, LocalConnector, ConnectionStatus, ConnectionType } from '../connectors'
 import type { SessionConfig, SSHConfig, TelnetConfig, SerialConfig, LocalConfig } from '@shared/types'
+import { OutputBuffer } from './output-buffer'
+
+/** read_output 读取选项 */
+export interface ReadOutputOptions {
+  lines?: number
+  raw?: boolean
+}
+
+/** read_output 读取结果 */
+export interface ReadOutputResult {
+  output: string
+  lines: number
+  totalBufferSize: number
+}
+
+/** send_and_wait 选项 */
+export interface SendAndWaitOptions {
+  text: string
+  waitMs?: number
+  idleMs?: number
+  maxWaitMs?: number
+  waitForPattern?: string
+}
+
+/** send_and_wait 结果 */
+export interface SendAndWaitResult {
+  output: string
+  settled: boolean
+  patternMatched: boolean
+  elapsedMs: number
+}
+
+/**
+ * 解析输入文本中的转义序列
+ * \n -> 换行, \r -> 回车, \xHH -> 对应字符, \t -> Tab
+ */
+export function processInputEscapeSequences(text: string): string {
+  return text
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\x([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\\t/g, '\t')
+}
 
 /**
  * 提取错误关键信息（去掉堆栈）
@@ -41,6 +84,8 @@ export interface Session {
   sourceSessionId?: string  // 克隆来源（用于共享 SSH client）
   pendingCols?: number  // 等待应用的终端宽度
   pendingRows?: number  // 等待应用的终端高度
+  outputBuffer?: OutputBuffer  // 终端输出缓冲区（用于 MCP 读取输出）
+  pendingWaitLock?: boolean  // send_and_wait 并发锁
 }
 
 /**
@@ -114,6 +159,10 @@ export class SessionManager extends EventEmitter {
       await session.connector.disconnect()
     }
 
+    // 立即销毁输出缓冲
+    session.outputBuffer?.clear()
+    session.outputBuffer = undefined
+
     this.sessions.delete(id)
     log.info(`Session deleted: ${id}`)
     this.emit('session:deleted', id)
@@ -169,9 +218,13 @@ export class SessionManager extends EventEmitter {
 
       // 连接成功后，shell 会自动输出欢迎信息，不需要额外显示
 
+      // 创建输出缓冲区
+      session.outputBuffer = new OutputBuffer()
+
       // 监听数据
       session.connector.on('data', (data: string) => {
         this.emit('terminal:data', { sessionId: id, data })
+        session.outputBuffer?.append(data)
       })
 
       // 监听关闭
@@ -242,6 +295,13 @@ export class SessionManager extends EventEmitter {
     session.status = ConnectionStatus.DISCONNECTED
     log.info(`Session disconnected: ${id}`)
     this.emit('session:status', { id, status: ConnectionStatus.DISCONNECTED })
+
+    // 保留输出缓冲 30 秒，便于 MCP 读取最后输出后销毁
+    const bufferToClean = session.outputBuffer
+    if (bufferToClean) {
+      session.outputBuffer = undefined
+      setTimeout(() => bufferToClean.clear(), 30000)
+    }
   }
 
   /**
@@ -376,9 +436,13 @@ export class SessionManager extends EventEmitter {
     try {
       await newConnector.startShellOnly()
 
+      // 创建输出缓冲区
+      newSession.outputBuffer = new OutputBuffer()
+
       // 监听数据
       newConnector.on('data', (data: string) => {
         this.emit('terminal:data', { sessionId: newId, data })
+        newSession.outputBuffer?.append(data)
       })
 
       // 监听关闭
@@ -409,6 +473,114 @@ export class SessionManager extends EventEmitter {
       log.error(`Failed to start shell for cloned channel: ${error}`)
       this.sessions.delete(newId)
       return null
+    }
+  }
+
+  /**
+   * 读取会话的最近终端输出（用于 MCP read_output）
+   */
+  readOutput(id: string, options: ReadOutputOptions = {}): ReadOutputResult | null {
+    const session = this.sessions.get(id)
+    if (!session || !session.outputBuffer) {
+      return null
+    }
+
+    const lines = Math.min(Math.max(options.lines ?? 100, 1), 1000)
+    const raw = options.raw ?? false
+    const result = session.outputBuffer.getRecentLines(lines, !raw)
+
+    return {
+      output: result.text,
+      lines: result.lines,
+      totalBufferSize: session.outputBuffer.size()
+    }
+  }
+
+  /**
+   * 发送输入并等待响应（用于 MCP send_and_wait）
+   * 通过空闲检测/模式匹配/最大超时判断命令完成
+   */
+  async sendAndWait(id: string, options: SendAndWaitOptions): Promise<SendAndWaitResult> {
+    const session = this.sessions.get(id)
+    if (!session || !session.connector || session.status !== ConnectionStatus.CONNECTED) {
+      throw new Error(`Session not connected: ${id}`)
+    }
+    if (!session.outputBuffer) {
+      throw new Error(`Output buffer not available for session: ${id}`)
+    }
+
+    // 并发锁：同一会话同时只能有一个 send_and_wait
+    if (session.pendingWaitLock) {
+      throw new Error(`A send_and_wait is already in progress for session: ${id}`)
+    }
+
+    // 先校验正则、计算参数，再获取锁、再 write —— 避免校验失败导致锁泄漏或输入已发送
+    const waitMs = options.waitMs ?? 2000
+    const idleMs = options.idleMs ?? 300
+    // maxWaitMs 上限钳制：客户端 HTTP 超时 60s，留 5s 余量，防止客户端先超时、服务端仍占用锁
+    const maxWaitMs = Math.min(options.maxWaitMs ?? 10000, 55000)
+    const pattern = options.waitForPattern
+
+    let patternRegex: RegExp | null = null
+    if (pattern) {
+      try {
+        patternRegex = new RegExp(pattern)
+      } catch (e) {
+        throw new Error(`Invalid waitForPattern regex: ${pattern}`)
+      }
+    }
+
+    const processedText = processInputEscapeSequences(options.text)
+
+    session.pendingWaitLock = true
+    const connector = session.connector
+    const dataListener = () => { lastDataTime = Date.now() }
+    let lastDataTime: number
+
+    try {
+      const buffer = session.outputBuffer!
+      const startCursor = buffer.getWriteCursor()
+
+      // 发送输入（在锁保护范围内，确保 write 抛错也能释放锁）
+      connector.write(processedText)
+
+      // 事件驱动更新最近数据时间
+      lastDataTime = Date.now()
+      connector.on('data', dataListener)
+
+      const startTime = Date.now()
+      while (true) {
+        const now = Date.now()
+        const elapsed = now - startTime
+        const idleSince = now - lastDataTime
+
+        // 模式匹配检测（在原始数据上匹配，避免清洗影响）
+        if (patternRegex) {
+          const rawOutput = buffer.getOutputSince(startCursor, false).text
+          if (patternRegex.test(rawOutput)) {
+            const cleanOutput = buffer.getOutputSince(startCursor, true).text
+            return { output: cleanOutput, settled: true, patternMatched: true, elapsedMs: elapsed }
+          }
+        }
+
+        // 空闲检测：超过 waitMs 且空闲超过 idleMs
+        if (elapsed >= waitMs && idleSince >= idleMs) {
+          const cleanOutput = buffer.getOutputSince(startCursor, true).text
+          return { output: cleanOutput, settled: true, patternMatched: false, elapsedMs: elapsed }
+        }
+
+        // 最大超时
+        if (elapsed >= maxWaitMs) {
+          const cleanOutput = buffer.getOutputSince(startCursor, true).text
+          return { output: cleanOutput, settled: false, patternMatched: false, elapsedMs: elapsed }
+        }
+
+        // 50ms 轮询
+        await new Promise(resolve => setTimeout(resolve, 50))
+      }
+    } finally {
+      connector.off('data', dataListener)
+      session.pendingWaitLock = false
     }
   }
 }

@@ -24,6 +24,21 @@ export interface SessionInfo {
   port?: number
   group?: string
   tags: string[]
+  capabilities: SessionCapabilities
+}
+
+/**
+ * 会话能力（该会话支持哪些操作）
+ */
+export interface SessionCapabilities {
+  /** 支持向交互式终端发送输入（所有类型） */
+  sendInput: boolean
+  /** 支持非交互式命令执行并获取输出（SSH/Local） */
+  executeCommand: boolean
+  /** 支持文件操作（SSH only） */
+  fileOperations: boolean
+  /** 支持读取终端输出（所有已连接会话） */
+  readOutput: boolean
 }
 
 /**
@@ -108,6 +123,61 @@ export interface RenameFileRequest {
 export interface FileMd5Request {
   sessionId: string
   path: string
+}
+
+/**
+ * 发送输入请求（向交互式终端写入数据）
+ */
+export interface SendInputRequest {
+  sessionId: string
+  text: string
+}
+
+/**
+ * 读取终端输出请求
+ */
+export interface ReadOutputRequest {
+  sessionId: string
+  /** 返回最近 N 行（默认 100，最大 1000） */
+  lines?: number
+  /** 是否返回原始 ANSI 数据（默认 false，返回清洗后文本） */
+  raw?: boolean
+}
+
+/**
+ * 读取终端输出响应
+ */
+export interface ReadOutputResponse {
+  output: string
+  lines: number
+  totalBufferSize: number
+}
+
+/**
+ * 发送输入并等待响应请求
+ */
+export interface SendAndWaitRequest {
+  sessionId: string
+  /** 发送文本（支持 \n \r \xHH \t 转义） */
+  text: string
+  /** 最少等待时间 ms（默认 2000） */
+  waitMs?: number
+  /** 空闲检测阈值 ms（默认 300），无新输出即认为完成 */
+  idleMs?: number
+  /** 最大等待时间 ms（默认 10000） */
+  maxWaitMs?: number
+  /** 正则表达式，匹配后立即返回 */
+  waitForPattern?: string
+}
+
+/**
+ * 发送输入并等待响应结果
+ */
+export interface SendAndWaitResult {
+  output: string
+  settled: boolean
+  patternMatched: boolean
+  elapsedMs: number
 }
 
 /**

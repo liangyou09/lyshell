@@ -14,7 +14,7 @@ import { app } from 'electron'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 
-import { sessionManager } from '../terminal/session-manager'
+import { sessionManager, processInputEscapeSequences } from '../terminal/session-manager'
 import { fileManager } from '../file/manager'
 import { ConnectionType, ConnectionStatus } from '@shared/types'
 import type {
@@ -30,7 +30,12 @@ import type {
   FileOperationRequest,
   RenameFileRequest,
   FileMd5Request,
-  McpPortInfo
+  McpPortInfo,
+  SendInputRequest,
+  ReadOutputRequest,
+  ReadOutputResponse,
+  SendAndWaitRequest,
+  SendAndWaitResult
 } from './types'
 
 let server: http.Server | null = null
@@ -298,6 +303,12 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         switch (url.pathname) {
           case '/api/execute':
             return handleExecuteCommand(data, res)
+          case '/api/send-input':
+            return handleSendInput(data, res)
+          case '/api/read-output':
+            return handleReadOutput(data, res)
+          case '/api/send-and-wait':
+            return handleSendAndWait(data, res)
           case '/api/files/list':
             return handleListFiles(data, res)
           case '/api/files/read':
@@ -349,7 +360,13 @@ function handleListSessions(res: http.ServerResponse): void {
       host: s.config.ssh?.host || s.config.telnet?.host,
       port: s.config.ssh?.port || s.config.telnet?.port,
       group: s.config.group,
-      tags: s.config.tags
+      tags: s.config.tags,
+      capabilities: {
+        sendInput: true, // 所有连接类型都支持
+        executeCommand: s.config.type === ConnectionType.SSH || s.config.type === ConnectionType.LOCAL,
+        fileOperations: s.config.type === ConnectionType.SSH,
+        readOutput: s.status === ConnectionStatus.CONNECTED // 已连接会话可读取输出
+      }
     }))
     sendJson(res, 200, { success: true, data: result })
   } catch (err: any) {
@@ -402,6 +419,119 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
     sendJson(res, 200, { success: true, data: result })
   } catch (err: any) {
     log.error('[MCP] Execute command error:', err)
+    sendJson(res, 500, { success: false, error: err.message })
+  }
+}
+
+/**
+ * POST /api/send-input - 向交互式终端发送输入
+ */
+function handleSendInput(data: SendInputRequest, res: http.ServerResponse): void {
+  try {
+    const { sessionId, text } = data
+
+    if (!sessionId || text === undefined) {
+      sendJson(res, 400, { success: false, error: 'sessionId and text are required' })
+      return
+    }
+
+    const session = sessionManager.getSession(sessionId)
+    if (!session) {
+      sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
+      return
+    }
+
+    if (session.status !== ConnectionStatus.CONNECTED) {
+      sendJson(res, 400, { success: false, error: `Session not connected (status: ${session.status})` })
+      return
+    }
+
+    // 解析转义字符：\n -> 换行, \r -> 回车, \x03 -> Ctrl+C 等
+    const processedText = processInputEscapeSequences(text)
+
+    sessionManager.writeToSession(sessionId, processedText)
+
+    log.info(`[MCP] Send input to session ${sessionId}: ${text.length} chars`)
+    sendJson(res, 200, { success: true, data: { sent: true } })
+  } catch (err: any) {
+    log.error('[MCP] Send input error:', err)
+    sendJson(res, 500, { success: false, error: err.message })
+  }
+}
+
+/**
+ * POST /api/read-output — 读取交互式终端的最近输出
+ */
+function handleReadOutput(data: ReadOutputRequest, res: http.ServerResponse): void {
+  try {
+    const { sessionId } = data
+    if (!sessionId) {
+      sendJson(res, 400, { success: false, error: 'sessionId is required' })
+      return
+    }
+
+    const session = sessionManager.getSession(sessionId)
+    if (!session) {
+      sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
+      return
+    }
+
+    const result = sessionManager.readOutput(sessionId, {
+      lines: data.lines,
+      raw: data.raw
+    })
+
+    if (!result) {
+      sendJson(res, 400, { success: false, error: 'Output buffer not available (session may be disconnected)' })
+      return
+    }
+
+    const response: ReadOutputResponse = {
+      output: result.output,
+      lines: result.lines,
+      totalBufferSize: result.totalBufferSize
+    }
+    sendJson(res, 200, { success: true, data: response })
+  } catch (err: any) {
+    log.error('[MCP] Read output error:', err)
+    sendJson(res, 500, { success: false, error: err.message })
+  }
+}
+
+/**
+ * POST /api/send-and-wait — 发送输入并等待响应
+ */
+async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerResponse): Promise<void> {
+  try {
+    const { sessionId, text } = data
+    if (!sessionId || text === undefined) {
+      sendJson(res, 400, { success: false, error: 'sessionId and text are required' })
+      return
+    }
+
+    const session = sessionManager.getSession(sessionId)
+    if (!session) {
+      sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
+      return
+    }
+
+    if (session.status !== ConnectionStatus.CONNECTED) {
+      sendJson(res, 400, { success: false, error: `Session not connected (status: ${session.status})` })
+      return
+    }
+
+    const result: SendAndWaitResult = await sessionManager.sendAndWait(sessionId, {
+      text,
+      waitMs: data.waitMs,
+      idleMs: data.idleMs,
+      maxWaitMs: data.maxWaitMs,
+      waitForPattern: data.waitForPattern
+    })
+
+    log.info(`[MCP] Send-and-wait to session ${sessionId}: settled=${result.settled} elapsed=${result.elapsedMs}ms`)
+    sendJson(res, 200, { success: true, data: result })
+  } catch (err: any) {
+    log.error('[MCP] Send-and-wait error:', err)
     sendJson(res, 500, { success: false, error: err.message })
   }
 }

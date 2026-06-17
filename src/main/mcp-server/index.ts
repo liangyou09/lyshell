@@ -41,9 +41,13 @@ async function main(): Promise<void> {
         tools: {}
       },
       instructions:
-        'LyShell MCP Server - Provides terminal session management and remote file operations. ' +
-        'Use list_sessions to discover available sessions, then use session IDs to execute commands, ' +
-        'list/read/download/upload files on remote servers.'
+        'LyShell MCP Server - Provides terminal session management, interactive input, and remote file operations. ' +
+        'Use list_sessions to discover available sessions. ' +
+        'Use send_input to send text to interactive terminals (works with all session types: SSH, Local, Telnet, Serial). ' +
+        'Use execute_command for non-interactive command execution with output capture (SSH/Local only). ' +
+        'Use send_and_wait to send input to an interactive terminal and read back the response (all session types). ' +
+        'Use read_output to inspect the recent terminal output of a session (all session types). ' +
+        'Use file tools for remote file operations (SSH only).'
     }
   )
 
@@ -102,7 +106,10 @@ async function main(): Promise<void> {
  */
 function getApiPath(toolName: string): string | null {
   const map: Record<string, string> = {
+    send_input: '/api/send-input',
     execute_command: '/api/execute',
+    read_output: '/api/read-output',
+    send_and_wait: '/api/send-and-wait',
     list_files: '/api/files/list',
     read_file: '/api/files/read',
     download_file: '/api/files/download',
