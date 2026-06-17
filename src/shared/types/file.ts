@@ -66,6 +66,7 @@ export interface TransferProgress {
   fileSize: number
   progress: number
   speed: number  // bytes/s
+  direction?: 'upload' | 'download'
 }
 
 /**

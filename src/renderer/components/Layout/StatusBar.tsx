@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import cn from 'classnames'
-import type { QuickCommand, QuickCommandGroup, SessionConfig } from '@shared/types'
+import type { QuickCommand, QuickCommandGroup } from '@shared/types'
 import { useTerminalStore } from '../../stores/terminal-store'
 import { useSessionStore } from '../../stores/session-store'
 

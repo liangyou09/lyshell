@@ -107,4 +107,18 @@ export interface SecuritySettings {
   lockTimeout: number
   clearClipboard: boolean
   clearClipboardDelay: number
+  mcp?: McpSecuritySettings
+}
+
+export interface McpSecuritySettings {
+  enabled: boolean
+  allowRead: boolean
+  allowInteractiveInput: boolean
+  allowSshExecute: boolean
+  allowLocalExecute: boolean
+  allowFileWrite: boolean
+  allowFileDelete: boolean
+  requireConfirmation: boolean
+  allowedSessionIds: string[]
+  deniedSessionIds: string[]
 }

@@ -1,4 +1,5 @@
 import { ipcMain, BrowserWindow, dialog, shell } from 'electron'
+import type { MessageBoxOptions, OpenDialogOptions, SaveDialogOptions } from 'electron'
 import { writeFile, readFile } from 'fs/promises'
 import * as path from 'path'
 import * as fs from 'fs'
@@ -8,12 +9,20 @@ import { v4 as uuidv4 } from 'uuid'
 import { sessionManager, extractErrorMessage } from '../terminal/session-manager'
 import { sessionRepository, preferencesRepository, quickCommandsRepository } from '../storage/repository'
 import { agentRepository } from '../storage/agent-repository'
+import type { AgentConfig } from '../storage/agent-repository'
 import { downloadHistory, DownloadRecord } from '../storage'
-import { pythonEngine } from '../python/engine'
-import { ConnectionStatus, SSHConnector } from '../connectors'
+import { ConnectionStatus } from '../connectors'
 import { ConnectionType } from '@shared/types'
-import { fileManager, downloadQueue, startDownloadWorker, registerTaskMeta, startUploadWorker } from '../file'
+import { fileManager, startDownloadWorker, registerTaskMeta, startUploadWorker } from '../file'
 import type { SessionConfig } from '@shared/types'
+import {
+  assertNumber,
+  assertObject,
+  assertString,
+  assertStringArray,
+  assertStringRecord,
+  validationFailure
+} from './validation'
 
 /**
  * 任务元信息（用于保存下载记录）
@@ -154,6 +163,66 @@ function sendToAllWindows(channel: string, ...args: any[]): void {
   }
 }
 
+const allowedOpenDialogProperties = new Set<NonNullable<OpenDialogOptions['properties']>[number]>([
+  'openFile',
+  'openDirectory',
+  'multiSelections'
+])
+
+function sanitizeDialogFilters(filters: unknown): Electron.FileFilter[] | undefined {
+  if (!Array.isArray(filters)) return undefined
+  return filters.slice(0, 10).map((filter) => {
+    const item = assertObject(filter, 'filter')
+    return {
+      name: assertString(item.name, 'filter.name', { maxLength: 80 }),
+      extensions: assertStringArray(item.extensions, 'filter.extensions', { maxItems: 20, maxItemLength: 20 })
+    }
+  })
+}
+
+function sanitizeOpenDialogOptions(options: unknown): OpenDialogOptions {
+  const source = assertObject(options || {}, 'options')
+  const sanitized: OpenDialogOptions = {}
+  if (source.title !== undefined) sanitized.title = assertString(source.title, 'title', { maxLength: 120 })
+  if (source.defaultPath !== undefined) sanitized.defaultPath = assertString(source.defaultPath, 'defaultPath', { maxLength: 4096 })
+  if (source.buttonLabel !== undefined) sanitized.buttonLabel = assertString(source.buttonLabel, 'buttonLabel', { maxLength: 80 })
+  if (source.properties !== undefined) {
+    const properties = assertStringArray(source.properties, 'properties', { maxItems: 8, maxItemLength: 32 })
+    sanitized.properties = properties.filter((property): property is NonNullable<OpenDialogOptions['properties']>[number] =>
+      allowedOpenDialogProperties.has(property as NonNullable<OpenDialogOptions['properties']>[number])
+    )
+  }
+  const filters = sanitizeDialogFilters(source.filters)
+  if (filters) sanitized.filters = filters
+  return sanitized
+}
+
+function sanitizeSaveDialogOptions(options: unknown): SaveDialogOptions {
+  const source = assertObject(options || {}, 'options')
+  const sanitized: SaveDialogOptions = {}
+  if (source.title !== undefined) sanitized.title = assertString(source.title, 'title', { maxLength: 120 })
+  if (source.defaultPath !== undefined) sanitized.defaultPath = assertString(source.defaultPath, 'defaultPath', { maxLength: 4096 })
+  if (source.buttonLabel !== undefined) sanitized.buttonLabel = assertString(source.buttonLabel, 'buttonLabel', { maxLength: 80 })
+  if (source.nameFieldLabel !== undefined) sanitized.nameFieldLabel = assertString(source.nameFieldLabel, 'nameFieldLabel', { maxLength: 80 })
+  const filters = sanitizeDialogFilters(source.filters)
+  if (filters) sanitized.filters = filters
+  return sanitized
+}
+
+function sanitizeMessageBoxOptions(options: unknown): MessageBoxOptions {
+  const source = assertObject(options || {}, 'options')
+  const sanitized: MessageBoxOptions = {
+    type: ['none', 'info', 'error', 'question', 'warning'].includes(String(source.type)) ? source.type as MessageBoxOptions['type'] : 'none',
+    message: assertString(source.message || '', 'message', { maxLength: 1000, allowEmpty: true })
+  }
+  if (source.title !== undefined) sanitized.title = assertString(source.title, 'title', { maxLength: 120 })
+  if (source.detail !== undefined) sanitized.detail = assertString(source.detail, 'detail', { maxLength: 2000 })
+  if (source.buttons !== undefined) sanitized.buttons = assertStringArray(source.buttons, 'buttons', { maxItems: 4, maxItemLength: 40 })
+  if (source.defaultId !== undefined) sanitized.defaultId = assertNumber(source.defaultId, 'defaultId', { min: 0, max: 3, integer: true })
+  if (source.cancelId !== undefined) sanitized.cancelId = assertNumber(source.cancelId, 'cancelId', { min: 0, max: 3, integer: true })
+  return sanitized
+}
+
 /**
  * 注册所有 IPC 处理器
  */
@@ -166,6 +235,11 @@ export function registerIPCHandlers(): void {
     log.debug('Connection request:', config.id, 'name:', config.name)
 
     try {
+      assertObject(config, 'config')
+      if (config.id !== undefined) assertString(config.id, 'config.id', { maxLength: 128, allowEmpty: true })
+      assertString(config.name, 'config.name', { maxLength: 200 })
+      assertString(config.type, 'config.type', { maxLength: 32 })
+
       // 空 id 表示临时会话，直接创建新连接
       if (!config.id || config.id.trim() === '') {
         // 设置创建时间用于前端排序编号
@@ -222,6 +296,16 @@ export function registerIPCHandlers(): void {
         config: session.config
       }
     } catch (error) {
+      const validationError = validationFailure(error)
+      if (validationError) {
+        return {
+          id: 'temp',
+          status: ConnectionStatus.ERROR,
+          error: validationError.error,
+          config
+        }
+      }
+
       log.error('Connection failed:', extractErrorMessage(error as Error))
       // 返回错误状态，让前端处理
       return {
@@ -233,26 +317,40 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.CONNECTION_DISCONNECT, async (_event, sessionId: string) => {
-    log.debug('Disconnect request:', sessionId)
-    await sessionManager.disconnectSession(sessionId)
-    return { success: true }
+  ipcMain.handle(IPC_CHANNELS.CONNECTION_DISCONNECT, async (_event, _sessionId: string) => {
+    try {
+      const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+      log.debug('Disconnect request:', sessionId)
+      await sessionManager.disconnectSession(sessionId)
+      return { success: true }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
+    }
   })
 
-  ipcMain.handle(IPC_CHANNELS.CONNECTION_RECONNECT, async (_event, sessionId: string) => {
-    log.debug('Reconnect request:', sessionId)
-    const session = await sessionManager.reconnectSession(sessionId)
-    return {
-      id: session.id,
-      status: session.status
+  ipcMain.handle(IPC_CHANNELS.CONNECTION_RECONNECT, async (_event, _sessionId: string) => {
+    try {
+      const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+      log.debug('Reconnect request:', sessionId)
+      const session = await sessionManager.reconnectSession(sessionId)
+      return {
+        id: session.id,
+        status: session.status
+      }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
     }
   })
 
   // 克隆渠道（在现有 SSH 连接上创建新 shell channel）
   ipcMain.handle(IPC_CHANNELS.CONNECTION_CLONE_CHANNEL, async (_event, sourceSessionId: string) => {
-    log.debug('Clone channel request:', sourceSessionId)
-    const result = await sessionManager.cloneChannel(sourceSessionId)
-    return result
+    try {
+      const sessionId = assertString(sourceSessionId, 'sourceSessionId', { maxLength: 128 })
+      log.debug('Clone channel request:', sessionId)
+      return await sessionManager.cloneChannel(sessionId)
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
+    }
   })
 
   // 监听会话状态变化，发送到所有窗口
@@ -294,28 +392,46 @@ export function registerIPCHandlers(): void {
   // ========== 会话管理 ==========
 
   ipcMain.handle(IPC_CHANNELS.SESSION_CREATE, async (_event, config: SessionConfig) => {
-    log.debug('Create session:', config.name)
-    const saved = sessionRepository.saveSession(config)
-    return saved
+    try {
+      assertObject(config, 'config')
+      assertString(config.name, 'config.name', { maxLength: 200 })
+      assertString(config.type, 'config.type', { maxLength: 32 })
+      log.debug('Create session:', config.name)
+      return sessionRepository.saveSession(config)
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
+    }
   })
 
   ipcMain.handle(IPC_CHANNELS.SESSION_UPDATE, async (_event, config: SessionConfig) => {
-    log.debug('Update session:', config.id)
-    const saved = sessionRepository.saveSession(config)
-    return saved
+    try {
+      assertObject(config, 'config')
+      assertString(config.id, 'config.id', { maxLength: 128 })
+      assertString(config.name, 'config.name', { maxLength: 200 })
+      assertString(config.type, 'config.type', { maxLength: 32 })
+      log.debug('Update session:', config.id)
+      return sessionRepository.saveSession(config)
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
+    }
   })
 
-  ipcMain.handle(IPC_CHANNELS.SESSION_DELETE, async (_event, sessionId: string) => {
-    log.debug('Delete session:', sessionId)
-    // 先断开连接
+  ipcMain.handle(IPC_CHANNELS.SESSION_DELETE, async (_event, _sessionId: string) => {
     try {
-      await sessionManager.disconnectSession(sessionId)
-    } catch (e) {
-      // 忽略错误
+      const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+      log.debug('Delete session:', sessionId)
+      // 先断开连接
+      try {
+        await sessionManager.disconnectSession(sessionId)
+      } catch (e) {
+        // 忽略错误
+      }
+      // 删除存储
+      sessionRepository.delete(sessionId)
+      return { success: true }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
     }
-    // 删除存储
-    sessionRepository.delete(sessionId)
-    return { success: true }
   })
 
   ipcMain.handle(IPC_CHANNELS.SESSION_LIST, async () => {
@@ -323,14 +439,19 @@ export function registerIPCHandlers(): void {
     return sessionRepository.getAll()
   })
 
-  ipcMain.handle(IPC_CHANNELS.SESSION_GET, async (_event, sessionId: string) => {
-    log.debug('Get session:', sessionId)
-    // 先从存储获取，如果没有则从 sessionManager 获取（临时会话）
-    const stored = sessionRepository.get(sessionId)
-    if (stored) return stored
+  ipcMain.handle(IPC_CHANNELS.SESSION_GET, async (_event, _sessionId: string) => {
+    try {
+      const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+      log.debug('Get session:', sessionId)
+      // 先从存储获取，如果没有则从 sessionManager 获取（临时会话）
+      const stored = sessionRepository.get(sessionId)
+      if (stored) return stored
 
-    const session = sessionManager.getSession(sessionId)
-    return session?.config || null
+      const session = sessionManager.getSession(sessionId)
+      return session?.config || null
+    } catch (error) {
+      return validationFailure(error) || null
+    }
   })
 
   ipcMain.handle(IPC_CHANNELS.SESSION_FAVORITES, async () => {
@@ -339,8 +460,13 @@ export function registerIPCHandlers(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.SESSION_RECENT, async (_event, limit?: number) => {
-    log.debug('Get recent sessions')
-    return sessionRepository.getRecent(limit || 10)
+    try {
+      log.debug('Get recent sessions')
+      const safeLimit = limit === undefined ? 10 : assertNumber(limit, 'limit', { min: 1, max: 100, integer: true })
+      return sessionRepository.getRecent(safeLimit)
+    } catch (error) {
+      return validationFailure(error) || []
+    }
   })
 
   // 会话去重
@@ -352,12 +478,25 @@ export function registerIPCHandlers(): void {
 
   // ========== 终端操作 ==========
 
-  ipcMain.on(IPC_CHANNELS.TERMINAL_WRITE, (event, sessionId: string, data: string) => {
-    sessionManager.writeToSession(sessionId, data)
+  ipcMain.on(IPC_CHANNELS.TERMINAL_WRITE, (_event, _sessionId: string, data: string) => {
+    try {
+      const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+      const safeData = assertString(data, 'data', { maxLength: 1024 * 1024, allowEmpty: true })
+      sessionManager.writeToSession(sessionId, safeData)
+    } catch (error) {
+      validationFailure(error) || log.warn('Rejected terminal write:', extractErrorMessage(error as Error))
+    }
   })
 
-  ipcMain.on(IPC_CHANNELS.TERMINAL_RESIZE, (event, sessionId: string, cols: number, rows: number) => {
-    sessionManager.resizeSession(sessionId, cols, rows)
+  ipcMain.on(IPC_CHANNELS.TERMINAL_RESIZE, (_event, _sessionId: string, cols: number, rows: number) => {
+    try {
+      const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+      const safeCols = assertNumber(cols, 'cols', { min: 1, max: 1000, integer: true })
+      const safeRows = assertNumber(rows, 'rows', { min: 1, max: 1000, integer: true })
+      sessionManager.resizeSession(sessionId, safeCols, safeRows)
+    } catch (error) {
+      validationFailure(error) || log.warn('Rejected terminal resize:', extractErrorMessage(error as Error))
+    }
   })
 
   // ========== 命令历史 ==========
@@ -407,23 +546,45 @@ export function registerIPCHandlers(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.COMMAND_SAVE_ALL, async (_event, commands: any[]) => {
-    quickCommandsRepository.saveAll(commands)
-    return { success: true }
+    try {
+      if (!Array.isArray(commands) || commands.length > 500) {
+        throw new Error('commands must be an array with at most 500 items')
+      }
+      commands.forEach((command, index) => assertObject(command, `commands[${index}]`))
+      quickCommandsRepository.saveAll(commands)
+      return { success: true }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
+    }
   })
 
   ipcMain.handle(IPC_CHANNELS.COMMAND_ADD, async (_event, command) => {
-    const saved = quickCommandsRepository.add(command)
-    return saved
+    try {
+      assertObject(command, 'command')
+      return quickCommandsRepository.add(command)
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
+    }
   })
 
   ipcMain.handle(IPC_CHANNELS.COMMAND_UPDATE, async (_event, command) => {
-    const success = quickCommandsRepository.update(command)
-    return { success }
+    try {
+      assertObject(command, 'command')
+      const success = quickCommandsRepository.update(command)
+      return { success }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
+    }
   })
 
   ipcMain.handle(IPC_CHANNELS.COMMAND_DELETE, async (_event, commandId: string) => {
-    const success = quickCommandsRepository.delete(commandId)
-    return { success }
+    try {
+      const safeCommandId = assertString(commandId, 'commandId', { maxLength: 128 })
+      const success = quickCommandsRepository.delete(safeCommandId)
+      return { success }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
+    }
   })
 
   // ========== 快速命令分组 ==========
@@ -433,74 +594,70 @@ export function registerIPCHandlers(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.COMMAND_GROUP_ADD, async (_event, group) => {
-    const saved = quickCommandsRepository.addGroup(group)
-    return saved
+    try {
+      assertObject(group, 'group')
+      return quickCommandsRepository.addGroup(group)
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
+    }
   })
 
   ipcMain.handle(IPC_CHANNELS.COMMAND_GROUP_UPDATE, async (_event, group) => {
-    const success = quickCommandsRepository.updateGroup(group)
-    return { success }
+    try {
+      assertObject(group, 'group')
+      const success = quickCommandsRepository.updateGroup(group)
+      return { success }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
+    }
   })
 
   ipcMain.handle(IPC_CHANNELS.COMMAND_GROUP_DELETE, async (_event, groupId: string) => {
-    const success = quickCommandsRepository.deleteGroup(groupId)
-    return { success }
+    try {
+      const safeGroupId = assertString(groupId, 'groupId', { maxLength: 128 })
+      const success = quickCommandsRepository.deleteGroup(safeGroupId)
+      return { success }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
+    }
   })
 
   ipcMain.handle(IPC_CHANNELS.COMMAND_GROUP_REORDER, async (_event, groupIds: string[]) => {
-    quickCommandsRepository.reorderGroups(groupIds)
-    return { success: true }
+    try {
+      const safeGroupIds = assertStringArray(groupIds, 'groupIds', { maxItems: 200, maxItemLength: 128 })
+      quickCommandsRepository.reorderGroups(safeGroupIds)
+      return { success: true }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
+    }
   })
 
   // ========== Python 执行 ==========
 
-  ipcMain.handle(IPC_CHANNELS.PYTHON_EXECUTE, async (_event, code: string, context?: any) => {
-    log.debug('Python execute:', code.substring(0, 50))
+  const pythonExecutionDisabled = { success: false, error: 'Python execution is disabled for security reasons' }
 
-    const result = await pythonEngine.execute(code, context)
-
-    // 发送输出事件
-    if (result.stdout) {
-      sendToAllWindows(IPC_CHANNELS.PYTHON_OUTPUT, {
-        type: 'stdout',
-        data: result.stdout
-      })
-    }
-
-    return result
+  ipcMain.handle(IPC_CHANNELS.PYTHON_EXECUTE, async () => {
+    log.warn('Blocked disabled Python execute IPC request')
+    return pythonExecutionDisabled
   })
 
-  ipcMain.handle(IPC_CHANNELS.PYTHON_SCRIPT, async (_event, path: string, args?: string[]) => {
-    log.debug('Python script:', path, args)
-
-    const result = await pythonEngine.runScript(path, args)
-    return result
+  ipcMain.handle(IPC_CHANNELS.PYTHON_SCRIPT, async () => {
+    log.warn('Blocked disabled Python script IPC request')
+    return pythonExecutionDisabled
   })
 
-  ipcMain.handle(IPC_CHANNELS.PYTHON_TERMINATE, async (_event, executionId: string) => {
-    log.debug('Python terminate:', executionId)
-    pythonEngine.terminate(executionId)
-    return { success: true }
+  ipcMain.handle(IPC_CHANNELS.PYTHON_TERMINATE, async () => {
+    log.warn('Blocked disabled Python terminate IPC request')
+    return pythonExecutionDisabled
   })
 
   // ========== AI 功能 ==========
 
-  ipcMain.handle(IPC_CHANNELS.AI_QUERY, async (_event, request: any) => {
-    log.debug('AI query:', request)
-    // TODO: 实现 AI 查询
-    throw new Error('AI agent not implemented yet')
-  })
+  const aiDisabled = { success: false, error: 'AI agent is not implemented' }
 
-  ipcMain.handle(IPC_CHANNELS.AI_STREAM, async (event, request: any) => {
-    log.debug('AI stream:', request)
-    // TODO: 实现流式响应
-    throw new Error('AI agent not implemented yet')
-  })
-
-  ipcMain.handle(IPC_CHANNELS.AI_CANCEL, async () => {
-    log.debug('AI cancel')
-    // TODO: 实现取消
-  })
+  ipcMain.handle(IPC_CHANNELS.AI_QUERY, async () => aiDisabled)
+  ipcMain.handle(IPC_CHANNELS.AI_STREAM, async () => aiDisabled)
+  ipcMain.handle(IPC_CHANNELS.AI_CANCEL, async () => aiDisabled)
 
   // ========== 配置管理 ==========
 
@@ -523,48 +680,63 @@ export function registerIPCHandlers(): void {
 
   // ========== 窗口操作 ==========
 
-  ipcMain.handle(IPC_CHANNELS.WINDOW_SEND_TO_SESSION, async (_event, sessionId: string, data: string) => {
+  ipcMain.handle(IPC_CHANNELS.WINDOW_SEND_TO_SESSION, async (_event, _sessionId: string, data: string) => {
+    const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+    const safeData = assertString(data, 'data', { maxLength: 1024 * 1024, allowEmpty: true })
     log.debug('Send to session:', sessionId)
-    sessionManager.writeToSession(sessionId, data)
+    sessionManager.writeToSession(sessionId, safeData)
     return { success: true }
   })
 
   // ========== 数据导出导入 ==========
 
-  // 加密敏感字段
+  // 加密敏感字段（AES-GCM，带完整性校验）
   const encryptField = (text: string, password: string): string => {
     if (!text) return text
     const salt = randomBytes(16)
     const key = scryptSync(password, salt, 32)
-    const iv = randomBytes(16)
-    const cipher = createCipheriv('aes-256-cbc', key, iv)
+    const iv = randomBytes(12)
+    const cipher = createCipheriv('aes-256-gcm', key, iv)
     let encrypted = cipher.update(text, 'utf8', 'hex')
     encrypted += cipher.final('hex')
-    return `enc:${salt.toString('hex')}:${iv.toString('hex')}:${encrypted}`
+    const tag = cipher.getAuthTag()
+    return `enc:v2:${salt.toString('hex')}:${iv.toString('hex')}:${tag.toString('hex')}:${encrypted}`
   }
 
-  // 解密敏感字段
+  // 解密敏感字段。失败必须抛错，避免错误密码/篡改文件被静默导入。
   const decryptField = (text: string, password: string): string => {
     if (!text || !text.startsWith('enc:')) return text
-    try {
-      const parts = text.split(':')
-      if (parts.length !== 4) return text
-      const salt = Buffer.from(parts[1], 'hex')
-      const iv = Buffer.from(parts[2], 'hex')
-      const encrypted = parts[3]
+
+    const parts = text.split(':')
+    if (parts[1] === 'v2') {
+      if (parts.length !== 6) throw new Error('加密字段格式无效')
+      const salt = Buffer.from(parts[2], 'hex')
+      const iv = Buffer.from(parts[3], 'hex')
+      const tag = Buffer.from(parts[4], 'hex')
+      const encrypted = parts[5]
       const key = scryptSync(password, salt, 32)
-      const decipher = createDecipheriv('aes-256-cbc', key, iv)
+      const decipher = createDecipheriv('aes-256-gcm', key, iv)
+      decipher.setAuthTag(tag)
       let decrypted = decipher.update(encrypted, 'hex', 'utf8')
       decrypted += decipher.final('utf8')
       return decrypted
-    } catch {
-      return text // 解密失败返回原文
     }
+
+    // 兼容旧版 CBC 导出，但不再吞掉解密错误。
+    if (parts.length !== 4) throw new Error('加密字段格式无效')
+    const salt = Buffer.from(parts[1], 'hex')
+    const iv = Buffer.from(parts[2], 'hex')
+    const encrypted = parts[3]
+    const key = scryptSync(password, salt, 32)
+    const decipher = createDecipheriv('aes-256-cbc', key, iv)
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8')
+    decrypted += decipher.final('utf8')
+    return decrypted
   }
 
   // 加密会话中的敏感字段
   const encryptSession = (session: any, password: string): any => {
-    const encrypted = { ...session }
+    const encrypted = { ...session, ssh: session.ssh ? { ...session.ssh } : undefined }
     if (encrypted.ssh?.password) {
       encrypted.ssh.password = encryptField(encrypted.ssh.password, password)
     }
@@ -579,7 +751,7 @@ export function registerIPCHandlers(): void {
 
   // 解密会话中的敏感字段
   const decryptSession = (session: any, password: string): any => {
-    const decrypted = { ...session }
+    const decrypted = { ...session, ssh: session.ssh ? { ...session.ssh } : undefined }
     if (decrypted.ssh?.password) {
       decrypted.ssh.password = decryptField(decrypted.ssh.password, password)
     }
@@ -592,8 +764,9 @@ export function registerIPCHandlers(): void {
     return decrypted
   }
 
-  ipcMain.handle(IPC_CHANNELS.DATA_EXPORT, async (_event, data: { sessions: any[], quickCommands: any[], encryptPassword?: string }) => {
-    log.debug('Export data:', data.sessions?.length, 'sessions,', data.quickCommands?.length, 'commands, encrypted:', !!data.encryptPassword)
+  ipcMain.handle(IPC_CHANNELS.DATA_EXPORT, async (_event, data: { sessions: any[], quickCommands: any[], encryptPassword?: string }, encryptPasswordArg?: string) => {
+    const encryptPassword = data.encryptPassword || encryptPasswordArg
+    log.debug('Export data:', data.sessions?.length, 'sessions,', data.quickCommands?.length, 'commands, encrypted:', !!encryptPassword)
 
     const result = await dialog.showSaveDialog({
       title: '导出配置数据',
@@ -610,45 +783,53 @@ export function registerIPCHandlers(): void {
 
     try {
       // 如果有加密密码，加密敏感字段
-      const sessions = data.encryptPassword
-        ? data.sessions.map(s => encryptSession(s, data.encryptPassword!))
+      const sessions = encryptPassword
+        ? data.sessions.map(s => encryptSession(s, encryptPassword))
         : data.sessions
 
       const exportData = {
         version: '1.0',
-        encrypted: !!data.encryptPassword,
+        encrypted: !!encryptPassword,
         exportedAt: new Date().toISOString(),
         sessions: sessions || [],
         quickCommands: data.quickCommands || []
       }
 
       await writeFile(result.filePath, JSON.stringify(exportData, null, 2), 'utf-8')
-      log.info('Data exported to:', result.filePath, 'encrypted:', !!data.encryptPassword)
-      return { success: true, path: result.filePath, encrypted: !!data.encryptPassword }
+      log.info('Data exported to:', result.filePath, 'encrypted:', !!encryptPassword)
+      return { success: true, path: result.filePath, encrypted: !!encryptPassword }
     } catch (error) {
       log.error('Export failed:', error)
       return { success: false, message: (error as Error).message }
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.DATA_IMPORT, async (_event, decryptPassword?: string) => {
+  ipcMain.handle(IPC_CHANNELS.DATA_IMPORT, async (_event, decryptPassword?: string, existingPath?: string) => {
     log.debug('Import data, decrypt password provided:', !!decryptPassword)
 
-    const result = await dialog.showOpenDialog({
-      title: '导入配置数据',
-      filters: [
-        { name: 'JSON 文件', extensions: ['json'] },
-        { name: '所有文件', extensions: ['*'] }
-      ],
-      properties: ['openFile']
-    })
+    let filePath = existingPath
+    if (!filePath) {
+      const result = await dialog.showOpenDialog({
+        title: '导入配置数据',
+        filters: [
+          { name: 'JSON 文件', extensions: ['json'] },
+          { name: '所有文件', extensions: ['*'] }
+        ],
+        properties: ['openFile']
+      })
 
-    if (result.canceled || result.filePaths.length === 0) {
-      return { success: false, message: '用户取消导入' }
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, message: '用户取消导入' }
+      }
+      filePath = result.filePaths[0]
+    }
+
+    if (!filePath) {
+      return { success: false, message: '导入文件路径无效' }
     }
 
     try {
-      const content = await readFile(result.filePaths[0], 'utf-8')
+      const content = await readFile(filePath, 'utf-8')
       const importData = JSON.parse(content)
 
       // 验证格式
@@ -658,19 +839,23 @@ export function registerIPCHandlers(): void {
 
       // 检查是否需要解密
       if (importData.encrypted && !decryptPassword) {
-        return { success: true, needPassword: true, path: result.filePaths[0] }
+        return { success: true, needPassword: true, path: filePath }
       }
 
       // 解密会话数据
       let sessions = importData.sessions
       if (importData.encrypted && decryptPassword) {
-        sessions = sessions.map(s => decryptSession(s, decryptPassword))
+        try {
+          sessions = sessions.map(s => decryptSession(s, decryptPassword))
+        } catch {
+          return { success: false, message: '解密失败，密码可能错误或文件已被篡改' }
+        }
       }
 
-      log.info('Data imported from:', result.filePaths[0])
+      log.info('Data imported from:', filePath)
       return {
         success: true,
-        path: result.filePaths[0],
+        path: filePath,
         encrypted: importData.encrypted,
         data: {
           sessions: sessions,
@@ -705,7 +890,7 @@ export function registerIPCHandlers(): void {
     }
 
     // 返回 SSH 配置，FileManager 会建立独立的 SSH 连接
-    const sshConfig = session.config.ssh
+    const sshConfig = session.config.ssh || null
     log.debug(`Got SSH config for ${sessionId}:`, sshConfig ? 'found' : 'not found')
     return sshConfig
   })
@@ -797,21 +982,24 @@ export function registerIPCHandlers(): void {
 
   // ========== 文件操作 ==========
 
-  ipcMain.handle(IPC_CHANNELS.FILE_LIST, async (_event, sessionId: string, path: string) => {
-    log.debug('File list:', sessionId, path)
+  ipcMain.handle(IPC_CHANNELS.FILE_LIST, async (_event, _sessionId: string, path: string) => {
     try {
-      const files = await fileManager.listDir(sessionId, path)
+      const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+      const safePath = assertString(path, 'path', { maxLength: 4096 })
+      log.debug('File list:', sessionId, safePath)
+      const files = await fileManager.listDir(sessionId, safePath)
       return { success: true, data: files }
     } catch (error) {
       log.error('File list error:', error)
-      return { success: false, error: (error as Error).message }
+      return validationFailure(error) || { success: false, error: (error as Error).message }
     }
   })
 
   // 获取当前工作目录（home 目录）
-  ipcMain.handle(IPC_CHANNELS.FILE_PWD, async (_event, sessionId: string) => {
-    log.debug('File pwd:', sessionId)
+  ipcMain.handle(IPC_CHANNELS.FILE_PWD, async (_event, _sessionId: string) => {
     try {
+      const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+      log.debug('File pwd:', sessionId)
       // 通过获取 connector 来执行 pwd 命令
       const connector = await fileManager.getConnector(sessionId)
       if (connector && connector.execRaw) {
@@ -828,7 +1016,7 @@ export function registerIPCHandlers(): void {
         }
         // 如果没找到，尝试匹配路径格式
         if (!pwd) {
-          const pathMatch = pwdRaw.match(/\/[\w\-._\/]+/)
+          const pathMatch = pwdRaw.match(/\/[\w._/-]+/)
           if (pathMatch) {
             pwd = pathMatch[0].trim()
           }
@@ -838,83 +1026,79 @@ export function registerIPCHandlers(): void {
       return { success: false, error: 'Cannot execute command' }
     } catch (error) {
       log.error('File pwd error:', error)
-      return { success: false, error: (error as Error).message }
+      return validationFailure(error) || { success: false, error: (error as Error).message }
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_STAT, async (_event, sessionId: string, path: string) => {
-    log.debug('File stat:', sessionId, path)
+  ipcMain.handle(IPC_CHANNELS.FILE_STAT, async (_event, _sessionId: string, path: string) => {
     try {
-      const info = await fileManager.stat(sessionId, path)
+      const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+      const safePath = assertString(path, 'path', { maxLength: 4096 })
+      log.debug('File stat:', sessionId, safePath)
+      const info = await fileManager.stat(sessionId, safePath)
       return { success: true, data: info }
     } catch (error) {
       log.error('File stat error:', error)
-      return { success: false, error: (error as Error).message }
+      return validationFailure(error) || { success: false, error: (error as Error).message }
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_UPLOAD, async (_event, sessionId: string, localPath: string, remotePath: string, taskId: string) => {
-    log.debug('File upload:', sessionId, localPath, '->', remotePath)
-
-    // 获取会话
-    const session = sessionManager.getSession(sessionId)
-    if (!session) {
-      log.error('Session not found:', sessionId)
-      // 发送错误进度消息
-      sendToAllWindows(IPC_CHANNELS.FILE_PROGRESS, {
-        taskId,
-        sessionId,
-        failed: true,
-        error: 'Session not found',
-        progress: 0,
-        direction: 'upload'
-      })
-      return { success: false, error: 'Session not found' }
-    }
-
-    const sshConfig = session.config.ssh
-    if (!sshConfig) {
-      log.error('SSH config not found:', sessionId)
-      // 发送错误进度消息
-      sendToAllWindows(IPC_CHANNELS.FILE_PROGRESS, {
-        taskId,
-        sessionId,
-        failed: true,
-        error: 'SSH config not found',
-        progress: 0,
-        direction: 'upload'
-      })
-      return { success: false, error: 'SSH config not found' }
-    }
-
-    // 获取本地文件大小
-    let fileSize = 0
+  ipcMain.handle(IPC_CHANNELS.FILE_UPLOAD, async (_event, _sessionId: string, localPath: string, remotePath: string, _taskId: string) => {
     try {
-      const stat = fs.statSync(localPath)
-      fileSize = stat.size
-    } catch (err) {
-      log.error('Local file not found:', localPath)
-      // 发送错误进度消息
-      sendToAllWindows(IPC_CHANNELS.FILE_PROGRESS, {
-        taskId,
-        sessionId,
-        failed: true,
-        error: 'Local file not found',
-        progress: 0,
-        direction: 'upload'
-      })
-      return { success: false, error: 'Local file not found' }
-    }
+      const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+      const safeLocalPath = assertString(localPath, 'localPath', { maxLength: 4096 })
+      const safeRemotePath = assertString(remotePath, 'remotePath', { maxLength: 4096 })
+      const taskId = assertString(_taskId, 'taskId', { maxLength: 128 })
+      log.debug('File upload:', sessionId, safeLocalPath, '->', safeRemotePath)
 
-    // 获取 connector 类型
-    try {
+      const session = sessionManager.getSession(sessionId)
+      if (!session) {
+        sendToAllWindows(IPC_CHANNELS.FILE_PROGRESS, {
+          taskId: taskId,
+          sessionId: sessionId,
+          failed: true,
+          error: 'Session not found',
+          progress: 0,
+          direction: 'upload'
+        })
+        return { success: false, error: 'Session not found' }
+      }
+
+      const sshConfig = session.config.ssh
+      if (!sshConfig) {
+        sendToAllWindows(IPC_CHANNELS.FILE_PROGRESS, {
+          taskId: taskId,
+          sessionId: sessionId,
+          failed: true,
+          error: 'SSH config not found',
+          progress: 0,
+          direction: 'upload'
+        })
+        return { success: false, error: 'SSH config not found' }
+      }
+
+      let fileSize = 0
+      try {
+        const stat = fs.statSync(safeLocalPath)
+        fileSize = stat.size
+      } catch (err) {
+        sendToAllWindows(IPC_CHANNELS.FILE_PROGRESS, {
+          taskId: taskId,
+          sessionId: sessionId,
+          failed: true,
+          error: 'Local file not found',
+          progress: 0,
+          direction: 'upload'
+        })
+        return { success: false, error: 'Local file not found' }
+      }
+
       const connectorType = await fileManager.getConnectorType(sessionId)
       log.debug(`Connector type for upload: ${connectorType}`)
 
-      // 使用 Worker 线程上传（不阻塞主进程）
       await startUploadWorker({
-        taskId,
-        sessionId,
+        taskId: taskId,
+        sessionId: sessionId,
         method: connectorType === 'sftp' ? 'sftp' : 'exec',
         sshConfig: {
           host: sshConfig.host,
@@ -928,65 +1112,56 @@ export function registerIPCHandlers(): void {
           shellEnterCommands: sshConfig.shellEnterCommands,
           shellEnterWait: sshConfig.shellEnterWait
         },
-        localPath,
-        remotePath,
+        localPath: safeLocalPath,
+        remotePath: safeRemotePath,
         fileSize
       })
-      log.info(`Upload worker started for ${path.basename(localPath)} (${connectorType})`)
+      log.info(`Upload worker started for ${path.basename(safeLocalPath)} (${connectorType})`)
       return { success: true, started: true, method: connectorType }
-    } catch (err) {
-      const error = err as Error
-      log.error('Failed to start upload:', error.message)
-      // 发送错误进度消息
-      sendToAllWindows(IPC_CHANNELS.FILE_PROGRESS, {
-        taskId,
-        sessionId,
-        failed: true,
-        error: error.message,
-        progress: 0,
-        direction: 'upload'
-      })
-      return { success: false, error: error.message }
+    } catch (error) {
+      const message = (error as Error).message
+      log.error('Failed to start upload:', message)
+      return validationFailure(error) || { success: false, error: message }
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_DOWNLOAD, async (_event, sessionId: string, remotePath: string, localPath: string, taskId: string, fileName: string, fileSize: number) => {
-    log.debug('File download:', sessionId, remotePath, '->', localPath)
-
-    // 获取会话
-    const session = sessionManager.getSession(sessionId)
-    if (!session) {
-      log.error('Session not found:', sessionId)
-      return { success: false, error: 'Session not found' }
-    }
-
-    const sshConfig = session.config.ssh
-    if (!sshConfig) {
-      log.error('SSH config not found:', sessionId)
-      return { success: false, error: 'SSH config not found' }
-    }
-
-    // 获取 connector 类型
+  ipcMain.handle(IPC_CHANNELS.FILE_DOWNLOAD, async (_event, _sessionId: string, remotePath: string, localPath: string, _taskId: string, fileName: string, fileSize: number) => {
     try {
+      const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+      const safeRemotePath = assertString(remotePath, 'remotePath', { maxLength: 4096 })
+      const safeLocalPath = assertString(localPath, 'localPath', { maxLength: 4096 })
+      const taskId = assertString(_taskId, 'taskId', { maxLength: 128 })
+      const safeFileName = assertString(fileName, 'fileName', { maxLength: 255 })
+      const safeFileSize = assertNumber(fileSize, 'fileSize', { min: 0, max: Number.MAX_SAFE_INTEGER, integer: true })
+      log.debug('File download:', sessionId, safeRemotePath, '->', safeLocalPath)
+
+      const session = sessionManager.getSession(sessionId)
+      if (!session) {
+        return { success: false, error: 'Session not found' }
+      }
+
+      const sshConfig = session.config.ssh
+      if (!sshConfig) {
+        return { success: false, error: 'SSH config not found' }
+      }
+
       const connectorType = await fileManager.getConnectorType(sessionId)
       log.debug(`Connector type for session ${sessionId}: ${connectorType}`)
 
-      // 注册任务元信息（用于保存下载记录）
       registerTaskMeta(taskId, {
-        taskId,
-        sessionId,
-        remotePath,
-        localPath,
-        fileName,
-        fileSize,
+        taskId: taskId,
+        sessionId: sessionId,
+        remotePath: safeRemotePath,
+        localPath: safeLocalPath,
+        fileName: safeFileName,
+        fileSize: safeFileSize,
         startTime: new Date(),
         sessionName: session.config.name
       })
 
-      // SFTP 和 EXEC 都使用 Worker 线程（不阻塞主进程）
       await startDownloadWorker({
-        taskId,
-        sessionId,
+        taskId: taskId,
+        sessionId: sessionId,
         method: connectorType === 'sftp' ? 'sftp' : 'exec',
         sshConfig: {
           host: sshConfig.host,
@@ -1000,92 +1175,111 @@ export function registerIPCHandlers(): void {
           shellEnterCommands: sshConfig.shellEnterCommands,
           shellEnterWait: sshConfig.shellEnterWait
         },
-        remotePath,
-        localPath,
-        fileSize
+        remotePath: safeRemotePath,
+        localPath: safeLocalPath,
+        fileSize: safeFileSize
       })
-      log.info(`Download worker started for ${fileName} (${connectorType})`)
+      log.info(`Download worker started for ${safeFileName} (${connectorType})`)
       return { success: true, started: true, method: connectorType }
-    } catch (err) {
-      const error = err as Error
-      log.error('Failed to start download:', error.message)
-      return { success: false, error: error.message }
+    } catch (error) {
+      const message = (error as Error).message
+      log.error('Failed to start download:', message)
+      return validationFailure(error) || { success: false, error: message }
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_DELETE, async (_event, sessionId: string, path: string) => {
-    log.debug('File delete:', sessionId, path)
+  ipcMain.handle(IPC_CHANNELS.FILE_DELETE, async (_event, _sessionId: string, path: string) => {
     try {
-      await fileManager.delete(sessionId, path)
+      const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+      const safePath = assertString(path, 'path', { maxLength: 4096 })
+      log.debug('File delete:', sessionId, safePath)
+      await fileManager.delete(sessionId, safePath)
       return { success: true }
     } catch (error) {
       log.error('File delete error:', error)
-      return { success: false, error: (error as Error).message }
+      return validationFailure(error) || { success: false, error: (error as Error).message }
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_RENAME, async (_event, sessionId: string, oldPath: string, newPath: string) => {
-    log.debug('File rename:', sessionId, oldPath, '->', newPath)
+  ipcMain.handle(IPC_CHANNELS.FILE_RENAME, async (_event, _sessionId: string, oldPath: string, newPath: string) => {
     try {
-      await fileManager.rename(sessionId, oldPath, newPath)
+      const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+      const safeOldPath = assertString(oldPath, 'oldPath', { maxLength: 4096 })
+      const safeNewPath = assertString(newPath, 'newPath', { maxLength: 4096 })
+      log.debug('File rename:', sessionId, safeOldPath, '->', safeNewPath)
+      await fileManager.rename(sessionId, safeOldPath, safeNewPath)
       return { success: true }
     } catch (error) {
       log.error('File rename error:', error)
-      return { success: false, error: (error as Error).message }
+      return validationFailure(error) || { success: false, error: (error as Error).message }
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_MKDIR, async (_event, sessionId: string, path: string) => {
-    log.debug('File mkdir:', sessionId, path)
+  ipcMain.handle(IPC_CHANNELS.FILE_MKDIR, async (_event, _sessionId: string, path: string) => {
     try {
-      await fileManager.mkdir(sessionId, path)
+      const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+      const safePath = assertString(path, 'path', { maxLength: 4096 })
+      log.debug('File mkdir:', sessionId, safePath)
+      await fileManager.mkdir(sessionId, safePath)
       return { success: true }
     } catch (error) {
       log.error('File mkdir error:', error)
-      return { success: false, error: (error as Error).message }
+      return validationFailure(error) || { success: false, error: (error as Error).message }
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_CONNECTOR_TYPE, async (_event, sessionId: string) => {
-    log.debug('Get file connector type:', sessionId)
+  ipcMain.handle(IPC_CHANNELS.FILE_CONNECTOR_TYPE, async (_event, _sessionId: string) => {
     try {
+      const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+      log.debug('Get file connector type:', sessionId)
       const type = await fileManager.getConnectorType(sessionId)
       return { success: true, data: type }
     } catch (error) {
       log.error('Get connector type error:', error)
-      return { success: false, error: (error as Error).message }
+      return validationFailure(error) || { success: false, error: (error as Error).message }
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_MD5, async (_event, sessionId: string, filePath: string) => {
-    log.debug('Calculate file MD5:', sessionId, filePath)
+  ipcMain.handle(IPC_CHANNELS.FILE_MD5, async (_event, _sessionId: string, filePath: string) => {
     try {
-      const md5 = await fileManager.calculateRemoteMD5(sessionId, filePath)
+      const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+      const safeFilePath = assertString(filePath, 'filePath', { maxLength: 4096 })
+      log.debug('Calculate file MD5:', sessionId, safeFilePath)
+      const md5 = await fileManager.calculateRemoteMD5(sessionId, safeFilePath)
       return { success: true, data: md5 }
     } catch (error) {
       log.error('Calculate MD5 error:', error)
-      return { success: false, error: (error as Error).message }
+      return validationFailure(error) || { success: false, error: (error as Error).message }
     }
   })
 
   // ========== Dialog API ==========
 
-  ipcMain.handle('dialog:open', async (_event, options: any) => {
-    log.debug('Show open dialog')
-    const result = await dialog.showOpenDialog(options)
-    return result
+  ipcMain.handle('dialog:open', async (_event, options: unknown) => {
+    try {
+      log.debug('Show open dialog')
+      return await dialog.showOpenDialog(sanitizeOpenDialogOptions(options))
+    } catch (error) {
+      return validationFailure(error) || { canceled: true, filePaths: [] }
+    }
   })
 
-  ipcMain.handle('dialog:save', async (_event, options: any) => {
-    log.debug('Show save dialog')
-    const result = await dialog.showSaveDialog(options)
-    return result
+  ipcMain.handle('dialog:save', async (_event, options: unknown) => {
+    try {
+      log.debug('Show save dialog')
+      return await dialog.showSaveDialog(sanitizeSaveDialogOptions(options))
+    } catch (error) {
+      return validationFailure(error) || { canceled: true }
+    }
   })
 
-  ipcMain.handle('dialog:message', async (_event, options: any) => {
-    log.debug('Show message box')
-    const result = await dialog.showMessageBox(options)
-    return result
+  ipcMain.handle('dialog:message', async (_event, options: unknown) => {
+    try {
+      log.debug('Show message box')
+      return await dialog.showMessageBox(sanitizeMessageBoxOptions(options))
+    } catch (error) {
+      return validationFailure(error) || { response: 0 }
+    }
   })
 
   // 打开路径：目录在资源管理器中打开，文件在资源管理器中定位并选中
@@ -1170,7 +1364,8 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.DOWNLOAD_DIR_GET, async (_event, sessionId: string) => {
+  ipcMain.handle(IPC_CHANNELS.DOWNLOAD_DIR_GET, async (_event, _sessionId: string) => {
+    const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
     log.debug('Get download dir for session:', sessionId)
     try {
       const session = sessionManager.getSession(sessionId)
@@ -1203,86 +1398,134 @@ export function registerIPCHandlers(): void {
   })
 
   ipcMain.handle('agent:add', async (_event, agent) => {
-    return agentRepository.add(agent)
+    try {
+      const safeAgent = assertObject(agent, 'agent')
+      const newAgent: Omit<AgentConfig, 'id'> = {
+        name: assertString(safeAgent.name, 'agent.name', { maxLength: 120 }),
+        command: assertString(safeAgent.command, 'agent.command', { maxLength: 1000 }),
+        order: safeAgent.order === undefined ? 0 : assertNumber(safeAgent.order, 'agent.order', { min: 0, max: 10000, integer: true })
+      }
+      if (safeAgent.icon !== undefined) newAgent.icon = assertString(safeAgent.icon, 'agent.icon', { maxLength: 20 })
+      if (safeAgent.cwd !== undefined) newAgent.cwd = assertString(safeAgent.cwd, 'agent.cwd', { maxLength: 4096 })
+      if (safeAgent.env !== undefined) newAgent.env = assertStringRecord(safeAgent.env, 'agent.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
+      return agentRepository.add(newAgent)
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
   })
 
   ipcMain.handle('agent:update', async (_event, agent) => {
-    const success = agentRepository.update(agent)
-    return { success }
+    try {
+      const safeAgent = assertObject(agent, 'agent')
+      const updatedAgent: AgentConfig = {
+        id: assertString(safeAgent.id, 'agent.id', { maxLength: 128 }),
+        name: assertString(safeAgent.name, 'agent.name', { maxLength: 120 }),
+        command: assertString(safeAgent.command, 'agent.command', { maxLength: 1000 }),
+        order: safeAgent.order === undefined ? 0 : assertNumber(safeAgent.order, 'agent.order', { min: 0, max: 10000, integer: true })
+      }
+      if (safeAgent.icon !== undefined) updatedAgent.icon = assertString(safeAgent.icon, 'agent.icon', { maxLength: 20 })
+      if (safeAgent.cwd !== undefined) updatedAgent.cwd = assertString(safeAgent.cwd, 'agent.cwd', { maxLength: 4096 })
+      if (safeAgent.env !== undefined) updatedAgent.env = assertStringRecord(safeAgent.env, 'agent.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
+      const success = agentRepository.update(updatedAgent)
+      return { success }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
   })
 
   ipcMain.handle('agent:delete', async (_event, agentId: string) => {
-    const success = agentRepository.delete(agentId)
-    return { success }
+    try {
+      const safeAgentId = assertString(agentId, 'agentId', { maxLength: 128 })
+      const success = agentRepository.delete(safeAgentId)
+      return { success }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
   })
 
   ipcMain.handle('agent:launch', async (_event, agentId: string) => {
-    const agent = agentRepository.get(agentId)
-    if (!agent) return { success: false, error: 'Agent not found' }
+    try {
+      const safeAgentId = assertString(agentId, 'agentId', { maxLength: 128 })
+      const agent = agentRepository.get(safeAgentId)
+      if (!agent) return { success: false, error: 'Agent not found' }
 
-    // 创建 LOCAL 会话配置
-    const config: SessionConfig = {
-      id: '',
-      name: agent.name,
-      type: ConnectionType.LOCAL,
-      local: {
-        shell: undefined,
-        cwd: agent.cwd,
-        env: agent.env
-      },
-      terminal: {
-        fontSize: 14,
-        fontFamily: 'Consolas, Monaco, monospace',
-        theme: {
-          foreground: '#D4D4D4',
-          background: '#1E1E1E',
-          cursor: '#D4D4D4',
-          selection: '#264F78',
-          black: '#000000',
-          red: '#CD3131',
-          green: '#0DBC79',
-          yellow: '#E5E510',
-          blue: '#2472C8',
-          magenta: '#BC3FBC',
-          cyan: '#11A8CD',
-          white: '#E5E5E5',
-          brightBlack: '#666666',
-          brightRed: '#F14C4C',
-          brightGreen: '#23D18B',
-          brightYellow: '#F5F543',
-          brightBlue: '#3B8EEA',
-          brightMagenta: '#D670D6',
-          brightCyan: '#29B8DB',
-          brightWhite: '#E5E5E5'
-        },
-        cursorStyle: 'bar',
-        cursorBlink: true,
-        scrollback: 10000,
-        encoding: 'utf-8'
-      },
-      tags: [`agent:${agentId}`],
-      startupCommands: [agent.command],
-      createdAt: new Date(),
-      updatedAt: new Date()
-    }
-
-    // 先创建会话并返回 ID，让前端先初始化终端
-    const session = await sessionManager.createSession(config)
-
-    // 延迟连接，给前端时间创建 xterm 实例
-    setTimeout(() => {
-      // 连接前保存会话（同步操作）
-      sessionRepository.saveSession(config)
-      sessionManager.connectSession(session.id).catch(err => {
-        log.error('Agent launch failed:', extractErrorMessage(err))
+      const confirm = await dialog.showMessageBox({
+        type: 'warning',
+        buttons: ['取消', '启动'],
+        defaultId: 0,
+        cancelId: 0,
+        title: '启动 Agent 确认',
+        message: `启动 Agent “${agent.name}”？`,
+        detail: `将创建本地终端并执行命令：\n${agent.command}`
       })
-    }, 100)
+      if (confirm.response !== 1) return { success: false, error: '用户取消启动 Agent' }
 
-    return {
-      success: true,
-      id: session.id,
-      status: ConnectionStatus.CONNECTING,
-      config: session.config
+      // 创建 LOCAL 会话配置
+      const config: SessionConfig = {
+        id: '',
+        name: agent.name,
+        type: ConnectionType.LOCAL,
+        local: {
+          shell: undefined,
+          cwd: agent.cwd,
+          env: agent.env
+        },
+        terminal: {
+          fontSize: 14,
+          fontFamily: 'Consolas, Monaco, monospace',
+          theme: {
+            foreground: '#D4D4D4',
+            background: '#1E1E1E',
+            cursor: '#D4D4D4',
+            selection: '#264F78',
+            black: '#000000',
+            red: '#CD3131',
+            green: '#0DBC79',
+            yellow: '#E5E510',
+            blue: '#2472C8',
+            magenta: '#BC3FBC',
+            cyan: '#11A8CD',
+            white: '#E5E5E5',
+            brightBlack: '#666666',
+            brightRed: '#F14C4C',
+            brightGreen: '#23D18B',
+            brightYellow: '#F5F543',
+            brightBlue: '#3B8EEA',
+            brightMagenta: '#D670D6',
+            brightCyan: '#29B8DB',
+            brightWhite: '#E5E5E5'
+          },
+          cursorStyle: 'bar',
+          cursorBlink: true,
+          scrollback: 10000,
+          encoding: 'utf-8'
+        },
+        tags: [`agent:${safeAgentId}`],
+        startupCommands: [agent.command],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }
+
+      // 先创建会话并返回 ID，让前端先初始化终端
+      const session = await sessionManager.createSession(config)
+
+      // 延迟连接，给前端时间创建 xterm 实例
+      setTimeout(() => {
+        // 连接前保存会话（同步操作）
+        sessionRepository.saveSession(config)
+        sessionManager.connectSession(session.id).catch(err => {
+          log.error('Agent launch failed:', extractErrorMessage(err))
+        })
+      }, 100)
+
+      return {
+        success: true,
+        id: session.id,
+        status: ConnectionStatus.CONNECTING,
+        config: session.config
+      }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
     }
   })
 

@@ -124,8 +124,8 @@ const removeSessionFromAllPanes = (root: PaneNode, sessionId: string): PaneNode 
 const removeEmptyPanes = (root: PaneNode): PaneNode => {
   // 先递归处理子节点
   if (root.type === 'split') {
-    let newFirstChild = removeEmptyPanes(root.firstChild)
-    let newSecondChild = removeEmptyPanes(root.secondChild)
+    const newFirstChild = removeEmptyPanes(root.firstChild)
+    const newSecondChild = removeEmptyPanes(root.secondChild)
 
     // 检查子节点是否是空叶子
     const firstEmpty = newFirstChild.type === 'leaf' && newFirstChild.sessions.length === 0

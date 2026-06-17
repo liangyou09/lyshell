@@ -1,6 +1,7 @@
 import { Client } from 'ssh2'
-import type { SFTPWrapper } from 'ssh2-streams'
+import type { ConnectConfig } from 'ssh2'
 import { EventEmitter } from 'events'
+import type { SFTPWrapper } from '../types/global'
 import log from 'electron-log'
 import type { SSHConfig } from '@shared/types'
 
@@ -107,7 +108,7 @@ export class SSHFileClient extends EventEmitter {
       this.client = new Client()
 
       // 连接配置
-      const connectionConfig: ssh2.ConnectConfig = {
+      const connectionConfig: ConnectConfig = {
         host: this.sshConfig.host,
         port: this.sshConfig.port,
         username: this.sshConfig.username,

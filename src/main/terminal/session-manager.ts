@@ -1,7 +1,6 @@
 import { v4 as uuidv4 } from 'uuid'
 import { EventEmitter } from 'events'
 import log from 'electron-log'
-import { app } from 'electron'
 import { SSHConnector, TelnetConnector, SerialConnector, LocalConnector, ConnectionStatus, ConnectionType } from '../connectors'
 import type { SessionConfig, SSHConfig, TelnetConfig, SerialConfig, LocalConfig } from '@shared/types'
 import { OutputBuffer } from './output-buffer'
@@ -549,6 +548,7 @@ export class SessionManager extends EventEmitter {
       connector.on('data', dataListener)
 
       const startTime = Date.now()
+      // eslint-disable-next-line no-constant-condition
       while (true) {
         const now = Date.now()
         const elapsed = now - startTime

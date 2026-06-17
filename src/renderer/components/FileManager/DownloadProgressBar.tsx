@@ -74,15 +74,9 @@ const DownloadProgressBar: React.FC = () => {
     }
   }
 
-  // 清理所有任务
-  const removeAllDownloads = () => {
-    setDownloads([])
-    fileNameStore.clear()
-  }
-
   // 监听下载进度
   useEffect(() => {
-    const cleanup = window.electronAPI.onFileProgress((event, data: any) => {
+    const cleanup = window.electronAPI.onFileProgress((data: any) => {
       if (data.md5Update) return  // 忽略 MD5 更新
 
       const taskId = data.taskId

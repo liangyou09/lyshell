@@ -115,7 +115,7 @@ export function startUploadWorker(task: UploadTaskData): Promise<void> {
  * 处理 Worker 发来的消息
  */
 function handleWorkerMessage(msg: any, task: UploadTaskData) {
-  const { taskId, sessionId } = task
+  const { taskId } = task
 
   switch (msg.type) {
     case 'progress':

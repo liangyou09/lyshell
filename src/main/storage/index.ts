@@ -1,1 +1,2 @@
-export { downloadHistory, DownloadRecord, DownloadDirConfig } from './download-history'
+export { downloadHistory } from './download-history'
+export type { DownloadRecord, DownloadDirConfig } from './download-history'

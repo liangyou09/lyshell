@@ -214,7 +214,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
     setMessage(null)
 
     try {
-      const result = await window.electronAPI?.importData(decryptPassword)
+      const result = await window.electronAPI?.importData(decryptPassword, _importFilePath)
 
       if (result?.success && result.data) {
         setImportSessions(result.data.sessions || [])

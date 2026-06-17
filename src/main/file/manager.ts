@@ -1,11 +1,10 @@
 import { EventEmitter } from 'events'
-import type { Client } from 'ssh2'
 import log from 'electron-log'
 import { BaseFileConnector } from './base'
 import { SFTPFileConnector } from './sftp'
 import { ExecFileConnector } from './exec'
 import { SSHFileClient } from './ssh-file-client'
-import type { FileInfo, TransferProgress, FileConnectorType, SSHConfig } from '@shared/types'
+import type { FileInfo, TransferProgress, SSHConfig } from '@shared/types'
 import { FileConnectorType } from '@shared/types'
 
 /**

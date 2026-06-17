@@ -13,6 +13,7 @@ import { v4 as uuidv4 } from 'uuid'
 interface DownloadTaskData {
   taskId: string
   sessionId: string
+  method: 'sftp' | 'exec'
   sshConfig: {
     host: string
     port: number
@@ -20,6 +21,10 @@ interface DownloadTaskData {
     password?: string
     privateKey?: string
     passphrase?: string
+    readyTimeout?: number
+    keepaliveInterval?: number
+    shellEnterCommands?: string
+    shellEnterWait?: number
   }
   remotePath: string
   localPath: string

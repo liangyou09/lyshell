@@ -246,7 +246,6 @@ function uploadViaExecPython(
 
   let transferred = 0
   let lastProgressSent = 0
-  let transferComplete = false
   let uploadResolved = false  // 防止多次 resolve
 
   const sendProgress = () => {
@@ -533,8 +532,6 @@ python3 /tmp/nvsh_ul.py || python /tmp/nvsh_ul.py || echo "PYTHON_FAILED"`
     log('info', `Connecting to ${serverIP}:${port} for upload`)
 
     const tcpClient = new net.Socket()
-    let sendComplete = false
-    let receivedConfirm = false
 
     tcpClient.on('error', (err) => {
       log('error', `TCP connection error: ${err.message}`)
@@ -545,7 +542,7 @@ python3 /tmp/nvsh_ul.py || python /tmp/nvsh_ul.py || echo "PYTHON_FAILED"`
     })
 
     // 接收远程确认
-    tcpClient.on('data', (data: Buffer) => {
+    tcpClient.on('data', () => {
       // 检查是否有完成确认（通过 shell 输出的 NOVASHELL_DONE）
       // TCP socket 本身不接收数据，确认通过 shell 输出
     })
@@ -570,11 +567,12 @@ python3 /tmp/nvsh_ul.py || python /tmp/nvsh_ul.py || echo "PYTHON_FAILED"`
       // 发送文件内容
       const readStream = fs.createReadStream(localPath, { highWaterMark: 65536 })
 
-      readStream.on('data', (chunk: Buffer) => {
-        transferred += chunk.length
+      readStream.on('data', (chunk: string | Buffer) => {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+        transferred += buffer.length
         sendProgress()
         // 等待写入完成
-        const canContinue = tcpClient.write(chunk)
+        const canContinue = tcpClient.write(buffer)
         if (!canContinue) {
           // 缓冲区满了，暂停读取
           readStream.pause()
@@ -586,7 +584,6 @@ python3 /tmp/nvsh_ul.py || python /tmp/nvsh_ul.py || echo "PYTHON_FAILED"`
 
       readStream.on('end', () => {
         log('info', `File read complete, transferred: ${transferred}`)
-        sendComplete = true
         // 不立即关闭，等待远程确认（通过 shell 的 NOVASHELL_DONE）
         // 保持连接，让 finishUpload 处理关闭
       })
@@ -602,9 +599,6 @@ python3 /tmp/nvsh_ul.py || python /tmp/nvsh_ul.py || echo "PYTHON_FAILED"`
 
     tcpClient.on('close', () => {
       log('info', `TCP connection closed`)
-      if (sendComplete && receivedConfirm) {
-        transferComplete = true
-      }
     })
   }
 

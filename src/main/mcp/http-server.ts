@@ -10,12 +10,13 @@ import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
 import { exec, execSync } from 'child_process'
-import { app } from 'electron'
+import { app, dialog } from 'electron'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 
 import { sessionManager, processInputEscapeSequences } from '../terminal/session-manager'
 import { fileManager } from '../file/manager'
+import { preferencesRepository } from '../storage/repository'
 import { ConnectionType, ConnectionStatus } from '@shared/types'
 import type {
   ApiResponse,
@@ -41,6 +42,49 @@ import type {
 let server: http.Server | null = null
 let authToken: string | null = null
 const PORT_FILE_NAME = 'mcp-server.json'
+const MAX_COMMAND_TIMEOUT_MS = 120000
+const MAX_READ_FILE_BYTES = 1048576
+const MAX_TEXT_LENGTH = 1024 * 1024
+
+type McpCapability = 'read' | 'interactiveWrite' | 'execute' | 'localExecute' | 'fileWrite' | 'fileDelete'
+
+interface McpSecuritySettings {
+  enabled?: boolean
+  allowRead?: boolean
+  allowInteractiveInput?: boolean
+  allowSshExecute?: boolean
+  allowLocalExecute?: boolean
+  allowFileWrite?: boolean
+  allowFileDelete?: boolean
+  requireConfirmation?: boolean
+  allowedSessionIds?: string[]
+  deniedSessionIds?: string[]
+}
+
+interface McpAuditEvent {
+  operation: string
+  capability: McpCapability | 'auth'
+  sessionId?: string
+  sessionName?: string
+  sessionType?: string
+  allowed: boolean
+  reason?: string
+  summary?: string
+  durationMs?: number
+}
+
+const DEFAULT_MCP_SECURITY: Required<McpSecuritySettings> = {
+  enabled: true,
+  allowRead: true,
+  allowInteractiveInput: false,
+  allowSshExecute: false,
+  allowLocalExecute: false,
+  allowFileWrite: false,
+  allowFileDelete: false,
+  requireConfirmation: true,
+  allowedSessionIds: [],
+  deniedSessionIds: []
+}
 
 /**
  * 启动 MCP HTTP 服务端
@@ -66,7 +110,12 @@ export async function startMcpHttpServer(): Promise<void> {
     pid: process.pid,
     version: 1
   }
-  fs.writeFileSync(portFilePath, JSON.stringify(portInfo, null, 2), 'utf-8')
+  const tempPortFilePath = `${portFilePath}.${process.pid}.tmp`
+  fs.writeFileSync(tempPortFilePath, JSON.stringify(portInfo, null, 2), { encoding: 'utf-8', mode: 0o600 })
+  if (process.platform !== 'win32') {
+    fs.chmodSync(tempPortFilePath, 0o600)
+  }
+  fs.renameSync(tempPortFilePath, portFilePath)
 
   // 不再自动改写用户外部配置（~/.claude/mcp.json）。
   // 输出 claude mcp add 命令，由用户自行添加。
@@ -194,14 +243,14 @@ function logMcpAddCommand(): void {
  * 请求处理器
  */
 function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
-  // CORS 支持
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-LyShell-Token')
+  const origin = req.headers.origin
+  if (origin) {
+    sendJson(res, 403, { success: false, error: 'Browser origins are not allowed for this local MCP API' })
+    return
+  }
 
   if (req.method === 'OPTIONS') {
-    res.writeHead(204)
-    res.end()
+    sendJson(res, 403, { success: false, error: 'CORS preflight is not allowed for this local MCP API' })
     return
   }
 
@@ -209,7 +258,8 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   const url = new URL(req.url || '/', `http://127.0.0.1`)
   if (url.pathname !== '/api/health') {
     const token = req.headers['x-lyshell-token']
-    if (token !== authToken) {
+    if (!isValidAuthToken(token)) {
+      auditMcpOperation({ operation: 'http', capability: 'auth', allowed: false, reason: 'invalid token' })
       sendJson(res, 401, { success: false, error: 'Unauthorized' })
       return
     }
@@ -315,6 +365,11 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
   try {
     const { sessionId, command, timeout = 30000 } = data
 
+    if (typeof command === 'string' && command.length > MAX_TEXT_LENGTH) {
+      sendJson(res, 400, { success: false, error: `Command too large (max ${MAX_TEXT_LENGTH} chars)` })
+      return
+    }
+
     if (!sessionId || !command) {
       sendJson(res, 400, { success: false, error: 'sessionId and command are required' })
       return
@@ -331,6 +386,14 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
       return
     }
 
+    const safeTimeout = clampNumber(timeout, 1, MAX_COMMAND_TIMEOUT_MS, 30000)
+    const capability: McpCapability = session.config.type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
+    const auth = await authorizeMcpOperation('execute_command', capability, sessionId, summarizeText(command))
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+
     let result: ExecuteResponse
 
     if (session.config.type === ConnectionType.SSH) {
@@ -340,11 +403,11 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
         sendJson(res, 500, { success: false, error: 'Connector does not support command execution' })
         return
       }
-      const output = await connector.execRaw(command, timeout)
+      const output = await connector.execRaw(command, safeTimeout)
       result = { output, exitCode: 0 }
     } else if (session.config.type === ConnectionType.LOCAL) {
       // 本地会话：使用 child_process.exec
-      result = await executeLocalCommand(command, session.config.local?.cwd, session.config.local?.env, timeout)
+      result = await executeLocalCommand(command, session.config.local?.cwd, session.config.local?.env, safeTimeout)
     } else {
       sendJson(res, 400, { success: false, error: `Command execution not supported for session type: ${session.config.type}` })
       return
@@ -360,7 +423,7 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
 /**
  * POST /api/send-input - 向交互式终端发送输入
  */
-function handleSendInput(data: SendInputRequest, res: http.ServerResponse): void {
+async function handleSendInput(data: SendInputRequest, res: http.ServerResponse): Promise<void> {
   try {
     const { sessionId, text } = data
 
@@ -380,6 +443,17 @@ function handleSendInput(data: SendInputRequest, res: http.ServerResponse): void
       return
     }
 
+    if (text.length > MAX_TEXT_LENGTH) {
+      sendJson(res, 400, { success: false, error: 'text is too large' })
+      return
+    }
+
+    const auth = await authorizeMcpOperation('send_input', 'interactiveWrite', sessionId, `${text.length} chars`)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+
     // 解析转义字符：\n -> 换行, \r -> 回车, \x03 -> Ctrl+C 等
     const processedText = processInputEscapeSequences(text)
 
@@ -396,7 +470,7 @@ function handleSendInput(data: SendInputRequest, res: http.ServerResponse): void
 /**
  * POST /api/read-output — 读取交互式终端的最近输出
  */
-function handleReadOutput(data: ReadOutputRequest, res: http.ServerResponse): void {
+async function handleReadOutput(data: ReadOutputRequest, res: http.ServerResponse): Promise<void> {
   try {
     const { sessionId } = data
     if (!sessionId) {
@@ -410,9 +484,15 @@ function handleReadOutput(data: ReadOutputRequest, res: http.ServerResponse): vo
       return
     }
 
+    const auth = await authorizeMcpOperation('read_output', 'read', sessionId)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+
     const result = sessionManager.readOutput(sessionId, {
-      lines: data.lines,
-      raw: data.raw
+      lines: clampNumber(data.lines, 1, 1000, 100),
+      raw: data.raw === true
     })
 
     if (!result) {
@@ -454,12 +534,23 @@ async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerRespo
       return
     }
 
+    if (text.length > MAX_TEXT_LENGTH) {
+      sendJson(res, 400, { success: false, error: 'text is too large' })
+      return
+    }
+
+    const auth = await authorizeMcpOperation('send_and_wait', 'interactiveWrite', sessionId, `${text.length} chars`)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+
     const result: SendAndWaitResult = await sessionManager.sendAndWait(sessionId, {
       text,
-      waitMs: data.waitMs,
-      idleMs: data.idleMs,
-      maxWaitMs: data.maxWaitMs,
-      waitForPattern: data.waitForPattern
+      waitMs: clampNumber(data.waitMs, 0, MAX_COMMAND_TIMEOUT_MS, 2000),
+      idleMs: clampNumber(data.idleMs, 50, 10000, 300),
+      maxWaitMs: clampNumber(data.maxWaitMs, 100, MAX_COMMAND_TIMEOUT_MS, 10000),
+      waitForPattern: data.waitForPattern ? summarizeText(data.waitForPattern, 500) : undefined
     })
 
     log.info(`[MCP] Send-and-wait to session ${sessionId}: settled=${result.settled} elapsed=${result.elapsedMs}ms`)
@@ -480,6 +571,11 @@ async function handleListFiles(data: FileOperationRequest, res: http.ServerRespo
       sendJson(res, 400, { success: false, error: 'sessionId and path are required' })
       return
     }
+    const auth = await authorizeMcpOperation('list_files', 'read', sessionId, dirPath)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
     const files = await fileManager.listDir(sessionId, dirPath)
     sendJson(res, 200, { success: true, data: files })
   } catch (err: any) {
@@ -498,6 +594,13 @@ async function handleReadFile(data: ReadFileRequest, res: http.ServerResponse): 
       return
     }
 
+    const safeMaxSize = clampNumber(maxSize, 1, MAX_READ_FILE_BYTES, MAX_READ_FILE_BYTES)
+    const auth = await authorizeMcpOperation('read_file', 'read', sessionId, filePath)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+
     const connector = await fileManager.getConnector(sessionId)
 
     // 先检查文件信息
@@ -506,8 +609,8 @@ async function handleReadFile(data: ReadFileRequest, res: http.ServerResponse): 
       sendJson(res, 400, { success: false, error: 'Path is a directory, not a file' })
       return
     }
-    if (stat.size > maxSize) {
-      sendJson(res, 400, { success: false, error: `File too large (${stat.size} bytes, max ${maxSize} bytes). Use download_file instead.` })
+    if (stat.size > safeMaxSize) {
+      sendJson(res, 400, { success: false, error: `File too large (${stat.size} bytes, max ${safeMaxSize} bytes). Use download_file instead.` })
       return
     }
 
@@ -517,8 +620,7 @@ async function handleReadFile(data: ReadFileRequest, res: http.ServerResponse): 
       return
     }
 
-    const safePath = filePath.includes("'") ? `"${filePath}"` : `'${filePath}'`
-    const content = await connector.execRaw(`cat ${safePath}`)
+    const content = await connector.execRaw(`cat -- ${quotePosixPath(filePath)}`)
 
     const result: ReadFileResponse = { content, size: stat.size }
     sendJson(res, 200, { success: true, data: result })
@@ -537,6 +639,11 @@ async function handleStatFile(data: FileOperationRequest, res: http.ServerRespon
       sendJson(res, 400, { success: false, error: 'sessionId and path are required' })
       return
     }
+    const auth = await authorizeMcpOperation('stat_file', 'read', sessionId, filePath)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
     const stat = await fileManager.stat(sessionId, filePath)
     sendJson(res, 200, { success: true, data: stat })
   } catch (err: any) {
@@ -552,6 +659,11 @@ async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerRes
     const { sessionId, remotePath, localPath } = data
     if (!sessionId || !remotePath || !localPath) {
       sendJson(res, 400, { success: false, error: 'sessionId, remotePath, and localPath are required' })
+      return
+    }
+    const auth = await authorizeMcpOperation('download_file', 'fileWrite', sessionId, `${remotePath} -> ${localPath}`)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
     const taskId = uuidv4()
@@ -573,6 +685,11 @@ async function handleUploadFile(data: UploadFileRequest, res: http.ServerRespons
       sendJson(res, 400, { success: false, error: 'sessionId, localPath, and remotePath are required' })
       return
     }
+    const auth = await authorizeMcpOperation('upload_file', 'fileWrite', sessionId, `${localPath} -> ${remotePath}`)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
     const taskId = uuidv4()
     await fileManager.upload(sessionId, localPath, remotePath, taskId)
     sendJson(res, 200, { success: true, data: {} })
@@ -589,6 +706,11 @@ async function handleDeleteFile(data: FileOperationRequest, res: http.ServerResp
     const { sessionId, path: filePath } = data
     if (!sessionId || !filePath) {
       sendJson(res, 400, { success: false, error: 'sessionId and path are required' })
+      return
+    }
+    const auth = await authorizeMcpOperation('delete_file', 'fileDelete', sessionId, filePath)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
     await fileManager.delete(sessionId, filePath)
@@ -608,6 +730,11 @@ async function handleRenameFile(data: RenameFileRequest, res: http.ServerRespons
       sendJson(res, 400, { success: false, error: 'sessionId, oldPath, and newPath are required' })
       return
     }
+    const auth = await authorizeMcpOperation('rename_file', 'fileWrite', sessionId, `${oldPath} -> ${newPath}`)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
     await fileManager.rename(sessionId, oldPath, newPath)
     sendJson(res, 200, { success: true, data: {} })
   } catch (err: any) {
@@ -623,6 +750,11 @@ async function handleCreateDirectory(data: FileOperationRequest, res: http.Serve
     const { sessionId, path: dirPath } = data
     if (!sessionId || !dirPath) {
       sendJson(res, 400, { success: false, error: 'sessionId and path are required' })
+      return
+    }
+    const auth = await authorizeMcpOperation('create_directory', 'fileWrite', sessionId, dirPath)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
     await fileManager.mkdir(sessionId, dirPath)
@@ -642,6 +774,11 @@ async function handleGetFileMd5(data: FileMd5Request, res: http.ServerResponse):
       sendJson(res, 400, { success: false, error: 'sessionId and path are required' })
       return
     }
+    const auth = await authorizeMcpOperation('get_file_md5', 'read', sessionId, filePath)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
     const md5 = await fileManager.calculateRemoteMD5(sessionId, filePath)
     sendJson(res, 200, { success: true, data: { md5 } })
   } catch (err: any) {
@@ -650,6 +787,106 @@ async function handleGetFileMd5(data: FileMd5Request, res: http.ServerResponse):
 }
 
 // ========== 工具函数 ==========
+
+function getMcpSecuritySettings(): Required<McpSecuritySettings> {
+  const security = preferencesRepository.get('security') as { mcp?: McpSecuritySettings } | undefined
+  const legacy = preferencesRepository.get('mcpSecurity') as McpSecuritySettings | undefined
+  return { ...DEFAULT_MCP_SECURITY, ...(security?.mcp || legacy || {}) }
+}
+
+function getSessionSummary(sessionId?: string): Pick<McpAuditEvent, 'sessionId' | 'sessionName' | 'sessionType'> {
+  if (!sessionId) return {}
+  const session = sessionManager.getSession(sessionId)
+  return {
+    sessionId,
+    sessionName: session?.config.name,
+    sessionType: session?.config.type
+  }
+}
+
+function summarizeText(value: unknown, maxLength: number = 200): string {
+  const text = String(value ?? '').replace(/[\r\n\t]+/g, ' ')
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text
+}
+
+function auditMcpOperation(event: McpAuditEvent): void {
+  log.info('[MCP][audit]', {
+    ...event,
+    timestamp: new Date().toISOString(),
+    summary: event.summary ? summarizeText(event.summary) : undefined
+  })
+}
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.max(min, Math.min(max, Math.trunc(value)))
+}
+
+function quotePosixPath(filePath: string): string {
+  return `'${filePath.replace(/'/g, `'\\''`)}'`
+}
+
+function isValidAuthToken(token: string | string[] | undefined): boolean {
+  if (!authToken || typeof token !== 'string') return false
+  const expected = Buffer.from(authToken, 'utf8')
+  const actual = Buffer.from(token, 'utf8')
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual)
+}
+
+async function authorizeMcpOperation(
+  operation: string,
+  capability: McpCapability,
+  sessionId?: string,
+  summary?: string
+): Promise<{ allowed: boolean; reason?: string }> {
+  const settings = getMcpSecuritySettings()
+  const session = sessionId ? sessionManager.getSession(sessionId) : undefined
+  const sessionSummary = getSessionSummary(sessionId)
+
+  const deny = (reason: string) => {
+    auditMcpOperation({ operation, capability, ...sessionSummary, allowed: false, reason, summary })
+    return { allowed: false, reason }
+  }
+
+  if (!settings.enabled) return deny('MCP access is disabled')
+  if (sessionId && settings.deniedSessionIds.includes(sessionId)) return deny('Session is denied for MCP')
+  if (sessionId && settings.allowedSessionIds.length > 0 && !settings.allowedSessionIds.includes(sessionId)) {
+    return deny('Session is not allowed for MCP')
+  }
+
+  const capabilityAllowed =
+    capability === 'read' ? settings.allowRead :
+      capability === 'interactiveWrite' ? settings.allowInteractiveInput :
+        capability === 'execute' ? settings.allowSshExecute :
+          capability === 'localExecute' ? settings.allowLocalExecute :
+            capability === 'fileWrite' ? settings.allowFileWrite :
+              capability === 'fileDelete' ? settings.allowFileDelete : false
+
+  if (!capabilityAllowed) return deny(`MCP capability ${capability} is disabled`)
+
+  if (capability === 'localExecute' && session?.config.type === ConnectionType.LOCAL && !settings.allowLocalExecute) {
+    return deny('Local command execution is disabled')
+  }
+
+  if (settings.requireConfirmation && capability !== 'read') {
+    const result = await dialog.showMessageBox({
+      type: 'warning',
+      buttons: ['拒绝', '允许一次'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'MCP 高风险操作确认',
+      message: `允许 MCP 执行 ${operation}？`,
+      detail: [
+        session ? `会话: ${session.config.name} (${session.config.type})` : undefined,
+        summary ? `内容: ${summarizeText(summary)}` : undefined
+      ].filter(Boolean).join('\n')
+    })
+    if (result.response !== 1) return deny('User denied MCP operation')
+  }
+
+  auditMcpOperation({ operation, capability, ...sessionSummary, allowed: true, summary })
+  return { allowed: true }
+}
 
 /**
  * 执行本地命令

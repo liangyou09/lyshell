@@ -16,34 +16,17 @@ const IPC_CHANNELS = {
   SESSION_DELETE: 'session:delete',
   SESSION_LIST: 'session:list',
   SESSION_GET: 'session:get',
-  SESSION_RECENT: 'session:recent',
-  SESSION_DEDUPLICATE: 'session:deduplicate',
 
   // 终端操作
   TERMINAL_WRITE: 'terminal:write',
   TERMINAL_RESIZE: 'terminal:resize',
   TERMINAL_DATA: 'terminal:data',
-  TERMINAL_EXIT: 'terminal:exit',
-
-  // Python 执行
-  PYTHON_EXECUTE: 'python:execute',
-  PYTHON_SCRIPT: 'python:script',
-  PYTHON_TERMINATE: 'python:terminate',
-  PYTHON_OUTPUT: 'python:output',
-
-  // AI 功能
-  AI_QUERY: 'ai:query',
-  AI_STREAM: 'ai:stream',
-  AI_CANCEL: 'ai:cancel',
 
   // 配置管理
   CONFIG_GET: 'config:get',
   CONFIG_SET: 'config:set',
-  CONFIG_RESET: 'config:reset',
 
   // 浮窗
-  FLOAT_SHOW: 'float:show',
-  FLOAT_HIDE: 'float:hide',
   FLOAT_TOGGLE: 'float:toggle',
 
   // 数据导出导入
@@ -71,9 +54,6 @@ const IPC_CHANNELS = {
   DOWNLOAD_CONFIG_GET: 'download-config:get',
   DOWNLOAD_CONFIG_SET: 'download-config:set',
   DOWNLOAD_DIR_GET: 'download-dir:get',
-
-  // Dialog API
-  WINDOW_GET_BOUNDS: 'window:get-bounds',
 
   // 快速命令
   COMMAND_LIST: 'command:list',
@@ -104,9 +84,10 @@ const electronAPI = {
   disconnect: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION_DISCONNECT, sessionId),
   reconnect: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION_RECONNECT, sessionId),
   cloneChannel: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION_CLONE_CHANNEL, sessionId),
-  onConnectionStatus: (callback: (event: IpcRendererEvent, status: unknown) => void) => {
-    ipcRenderer.on(IPC_CHANNELS.CONNECTION_STATUS, callback)
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.CONNECTION_STATUS, callback)
+  onConnectionStatus: (callback: (status: unknown) => void) => {
+    const listener = (_event: IpcRendererEvent, status: unknown) => callback(status)
+    ipcRenderer.on(IPC_CHANNELS.CONNECTION_STATUS, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.CONNECTION_STATUS, listener)
   },
 
   // 会话管理
@@ -115,55 +96,27 @@ const electronAPI = {
   deleteSession: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.SESSION_DELETE, sessionId),
   listSessions: () => ipcRenderer.invoke(IPC_CHANNELS.SESSION_LIST),
   getSession: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.SESSION_GET, sessionId),
-  getRecentSessions: (limit?: number) => ipcRenderer.invoke(IPC_CHANNELS.SESSION_RECENT, limit),
-  deduplicateSessions: () => ipcRenderer.invoke(IPC_CHANNELS.SESSION_DEDUPLICATE),
 
   // 终端操作
   terminalWrite: (sessionId: string, data: string) =>
     ipcRenderer.send(IPC_CHANNELS.TERMINAL_WRITE, sessionId, data),
   terminalResize: (sessionId: string, cols: number, rows: number) =>
     ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESIZE, sessionId, cols, rows),
-  onTerminalData: (callback: (event: IpcRendererEvent, sessionId: string, data: string) => void) => {
-    ipcRenderer.on(IPC_CHANNELS.TERMINAL_DATA, callback)
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_DATA, callback)
+  onTerminalData: (callback: (sessionId: string, data: string) => void) => {
+    const listener = (_event: IpcRendererEvent, sessionId: string, data: string) => callback(sessionId, data)
+    ipcRenderer.on(IPC_CHANNELS.TERMINAL_DATA, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_DATA, listener)
   },
-  onTerminalExit: (callback: (event: IpcRendererEvent, sessionId: string) => void) => {
-    ipcRenderer.on(IPC_CHANNELS.TERMINAL_EXIT, callback)
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_EXIT, callback)
-  },
-
-  // Python 执行
-  pythonExecute: (code: string, context?: unknown) =>
-    ipcRenderer.invoke(IPC_CHANNELS.PYTHON_EXECUTE, code, context),
-  pythonScript: (path: string, args?: string[]) =>
-    ipcRenderer.invoke(IPC_CHANNELS.PYTHON_SCRIPT, path, args),
-  pythonTerminate: (executionId: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.PYTHON_TERMINATE, executionId),
-  onPythonOutput: (callback: (event: IpcRendererEvent, output: unknown) => void) => {
-    ipcRenderer.on(IPC_CHANNELS.PYTHON_OUTPUT, callback)
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.PYTHON_OUTPUT, callback)
-  },
-
-  // AI 功能
-  aiQuery: (request: unknown) => ipcRenderer.invoke(IPC_CHANNELS.AI_QUERY, request),
-  aiStream: (request: unknown, onChunk: (chunk: string) => void) => {
-    ipcRenderer.on(IPC_CHANNELS.AI_STREAM, (_, chunk) => onChunk(chunk))
-    return ipcRenderer.invoke(IPC_CHANNELS.AI_STREAM, request)
-  },
-  aiCancel: () => ipcRenderer.invoke(IPC_CHANNELS.AI_CANCEL),
 
   // 配置管理
   getConfig: (key: string) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET, key),
   setConfig: (key: string, value: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_SET, key, value),
-  resetConfig: () => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_RESET),
 
   // 浮窗
-  floatShow: () => ipcRenderer.invoke(IPC_CHANNELS.FLOAT_SHOW),
-  floatHide: () => ipcRenderer.invoke(IPC_CHANNELS.FLOAT_HIDE),
-  floatToggle: () => ipcRenderer.invoke(IPC_CHANNELS.FLOAT_TOGGLE),
-  onFloatToggle: (callback: (event: IpcRendererEvent) => void) => {
-    ipcRenderer.on(IPC_CHANNELS.FLOAT_TOGGLE, callback)
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.FLOAT_TOGGLE, callback)
+  onFloatToggle: (callback: () => void) => {
+    const listener = () => callback()
+    ipcRenderer.on(IPC_CHANNELS.FLOAT_TOGGLE, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.FLOAT_TOGGLE, listener)
   },
 
   // 快速命令
@@ -194,17 +147,15 @@ const electronAPI = {
   launchAgent: (agentId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_LAUNCH, agentId),
 
   // 窗口
-  getWindowBounds: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_GET_BOUNDS),
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
   maximizeWindow: () => ipcRenderer.invoke('window:maximize'),
   closeWindow: () => ipcRenderer.invoke('window:close'),
   isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
   selectDirectory: () => ipcRenderer.invoke('window:select-directory'),
-  listLocalDirectories: (path: string) => ipcRenderer.invoke('window:list-local-directories', path),
 
   // 数据导出导入
   exportData: (data: unknown, encryptPassword?: string) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_DATA, data, encryptPassword),
-  importData: (decryptPassword?: string) => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_DATA, decryptPassword),
+  importData: (decryptPassword?: string, filePath?: string) => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_DATA, decryptPassword, filePath),
 
   // 文件操作
   fileList: (sessionId: string, path: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST, sessionId, path),
@@ -221,9 +172,10 @@ const electronAPI = {
   openFolder: (filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_OPEN_FOLDER, filePath),
   fileMd5: (sessionId: string, filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_MD5, sessionId, filePath),
   filePwd: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_PWD, sessionId),
-  onFileProgress: (callback: (event: IpcRendererEvent, progress: unknown) => void) => {
-    ipcRenderer.on(IPC_CHANNELS.FILE_PROGRESS, callback)
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.FILE_PROGRESS, callback)
+  onFileProgress: (callback: (progress: unknown) => void) => {
+    const listener = (_event: IpcRendererEvent, progress: unknown) => callback(progress)
+    ipcRenderer.on(IPC_CHANNELS.FILE_PROGRESS, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.FILE_PROGRESS, listener)
   },
 
   // 下载记录

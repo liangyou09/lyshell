@@ -281,7 +281,7 @@ export class ExecFileConnector extends BaseFileConnector {
   private async initializeShell(
     stream: ClientChannel,
     resolve: () => void,
-    reject: (error: Error) => void
+    _reject: (error: Error) => void
   ): Promise<void> {
     // 一次性发送所有进入命令
     if (this.shellEnterCommands && this.shellEnterCommands.length > 0) {
@@ -387,7 +387,9 @@ export class ExecFileConnector extends BaseFileConnector {
     if (this.rawMode) {
       // 原始模式：只去掉控制字符和 marker，不做行过滤
       cleanOutput = output
+        // eslint-disable-next-line no-control-regex
         .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+        // eslint-disable-next-line no-control-regex
         .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
         .trim()
       this.rawMode = false  // 重置标志
@@ -597,8 +599,10 @@ export class ExecFileConnector extends BaseFileConnector {
    */
   private cleanShellOutput(output: string): string {
     // 去掉 ANSI 控制字符
+    // eslint-disable-next-line no-control-regex
     let cleaned = output.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
     // 去掉其他控制字符（保留换行）
+    // eslint-disable-next-line no-control-regex
     cleaned = cleaned.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
     // 去掉 [DATA] 这样的日志前缀（如果有）
     cleaned = cleaned.replace(/\[DATA\]/g, '')
@@ -717,7 +721,7 @@ export class ExecFileConnector extends BaseFileConnector {
 
     // 使用正则表达式匹配，更灵活
     // 格式: 权限 链接数 [用户] [组] 大小 日期 时间/年份 文件名
-    const regex = /^([d\-l][rwx\-stST]{9}[+\.]?)\s+(\d+)\s+(\S+)?\s+(\S+)?\s+(\d+)\s+(\S+)\s+(\d+)\s+(\S+)\s+(.+)$/
+    const regex = /^([dl-][rwxstST-]{9}[+.]?)\s+(\d+)\s+(\S+)?\s+(\S+)?\s+(\d+)\s+(\S+)\s+(\d+)\s+(\S+)\s+(.+)$/
     const match = trimmed.match(regex)
 
     if (match) {
@@ -758,7 +762,7 @@ export class ExecFileConnector extends BaseFileConnector {
 
     // 备用解析：处理更简化的格式（某些嵌入式设备）
     // 格式: 权限 [链接数] [大小] 日期 文件名
-    const simpleRegex = /^([d\-l][rwx\-]{9})\s+(\d+)?\s*(\d+)?\s+(\S+)\s+(\d+)\s+(\S+)\s+(.+)$/
+    const simpleRegex = /^([dl-][rwx-]{9})\s+(\d+)?\s*(\d+)?\s+(\S+)\s+(\d+)\s+(\S+)\s+(.+)$/
     const simpleMatch = trimmed.match(simpleRegex)
 
     if (simpleMatch) {
@@ -957,7 +961,9 @@ export class ExecFileConnector extends BaseFileConnector {
       if (test3.includes('___PYTHON_TEST_OK___')) {
         pythonCmd = 'python3'
       }
-    } catch {}
+    } catch {
+      // python3 不可用，继续尝试 python
+    }
 
     // 直接测试 python 是否能运行
     if (!pythonCmd) {
@@ -966,7 +972,9 @@ export class ExecFileConnector extends BaseFileConnector {
         if (testPy.includes('___PYTHON_TEST_OK___')) {
           pythonCmd = 'python'
         }
-      } catch {}
+      } catch {
+        // python 不可用，后续抛出未找到错误
+      }
     }
 
     if (!pythonCmd) {
@@ -1059,7 +1067,7 @@ export class ExecFileConnector extends BaseFileConnector {
             this.agentReady = false
             reject(error)
           }
-        }, 1000)  // 增加等待时间到 1 秒
+        }, waitTime)  // 等待 shell 初始化后再验证
       })
     })
   }
@@ -1174,53 +1182,6 @@ export class ExecFileConnector extends BaseFileConnector {
   }
 
   /**
-   * 接收 Agent 响应（二进制协议 - 旧方法）
-   */
-  private async recvAgentResponse(timeout = 30000): Promise<object> {
-    const startTime = Date.now()
-
-    while (Date.now() - startTime < timeout) {
-      // 检查是否有完整的响应（至少 4 字节长度 + 数据）
-      if (this.agentBuffer.length >= 4) {
-        const length = this.agentBuffer.readUInt32BE(0)
-        if (this.agentBuffer.length >= 4 + length) {
-          const data = this.agentBuffer.subarray(4, 4 + length)
-          // 移除已处理的数据
-          this.agentBuffer = this.agentBuffer.subarray(4 + length)
-          return JSON.parse(data.toString('utf-8'))
-        }
-      }
-
-      // 等待数据
-      await new Promise(resolve => setImmediate(resolve))
-    }
-
-    throw new Error('Agent response timeout')
-  }
-
-  /**
-   * 接收 Agent 二进制数据
-   */
-  private async recvAgentBinary(timeout = 60000): Promise<Buffer> {
-    const startTime = Date.now()
-
-    while (Date.now() - startTime < timeout) {
-      if (this.agentBuffer.length >= 4) {
-        const length = this.agentBuffer.readUInt32BE(0)
-        if (this.agentBuffer.length >= 4 + length) {
-          const data = this.agentBuffer.subarray(4, 4 + length)
-          this.agentBuffer = this.agentBuffer.subarray(4 + length)
-          return data
-        }
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 10))  // 10ms polling for faster response
-    }
-
-    throw new Error('Agent binary data timeout')
-  }
-
-  /**
    * 使用 Agent 上传文件（高效二进制传输）
    */
   async uploadWithAgent(
@@ -1266,7 +1227,7 @@ export class ExecFileConnector extends BaseFileConnector {
       this.agentChannel.write(base64Chunk)
 
       // 等待进度响应
-      const progressResp = await this.recvAgentResponseText()
+      await this.recvAgentResponseText()
       transferred += chunk.length
 
       // 定期采样计算速度

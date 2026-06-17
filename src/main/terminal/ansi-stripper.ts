@@ -1,3 +1,4 @@
+/* eslint-disable no-control-regex */
 /**
  * ANSI 转义序列清洗工具
  * 将终端原始输出（含 ANSI 转义、控制字符）转换为可读的纯文本

@@ -50,7 +50,7 @@ class DownloadQueue {
   /**
    * 处理下一个任务
    */
-  private async processNext(): void {
+  private async processNext(): Promise<void> {
     if (this.paused) {
       this.processing = false
       return

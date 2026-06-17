@@ -43,7 +43,7 @@ const MainWindow: React.FC = () => {
   useEffect(() => {
     if (!window.electronAPI) return
 
-    const cleanup = window.electronAPI.onTerminalData((_event, sessionId, _data) => {
+    const cleanup = window.electronAPI.onTerminalData((sessionId, _data) => {
       const { sessions, setSessionActivity } = useSessionStore.getState()
       const { getPaneBySessionId } = usePaneStore.getState()
 
@@ -83,7 +83,7 @@ const MainWindow: React.FC = () => {
   useEffect(() => {
     if (!window.electronAPI) return
 
-    const cleanup = window.electronAPI.onConnectionStatus((_event, data) => {
+    const cleanup = window.electronAPI.onConnectionStatus((data) => {
       const store = useSessionStore.getState()
 
       // 如果会话不在 store 中，检查状态

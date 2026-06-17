@@ -1,8 +1,8 @@
 import { Client, ClientChannel } from 'ssh2'
-import { EventEmitter } from 'events'
+import type { ConnectConfig } from 'ssh2'
 import log from 'electron-log'
 import iconv from 'iconv-lite'
-import { BaseConnector, ConnectionStatus } from './base'
+import { BaseConnector } from './base'
 
 /**
  * SSH 配置
@@ -157,7 +157,7 @@ export class SSHConnector extends BaseConnector {
     })
 
     // 连接配置
-    const connectionConfig: ssh2.ConnectConfig = {
+    const connectionConfig: ConnectConfig = {
       host: this.config.host,
       port: this.config.port,
       username: this.config.username,

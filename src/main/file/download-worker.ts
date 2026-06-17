@@ -329,9 +329,6 @@ print("===NOVASHELL_DONE:" + str(file_size) + "===")
 sys.stdout.flush()
 `
 
-  // Base64 编码 Python 脚本
-  const scriptBase64 = Buffer.from(pythonCode).toString('base64')
-
   // 执行命令：用 heredoc 写入 Python 脚本，直接执行
   const pythonScript = `cat > /tmp/nvsh_dl.py << 'ENDSCRIPT'
 ${pythonCode}
@@ -370,9 +367,6 @@ python3 /tmp/nvsh_dl.py || python /tmp/nvsh_dl.py || echo "PYTHON_FAILED"`
       let shellOutput = ''
       let pythonPort = 0
       let phase = 'waiting_port'
-      let buf = Buffer.alloc(0)
-      let fileNameLen = 0
-      let fileName = ''
 
       stream.on('data', (data: Buffer) => {
         const output = data.toString()

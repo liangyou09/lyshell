@@ -33,6 +33,7 @@ const FileManagerFloat: React.FC<FileManagerFloatProps> = ({ visible, onClose, s
   const [files, setFiles] = useState<FileInfo[]>([])
   const [currentPath, setCurrentPath] = useState('/')
   const [loading, setLoading] = useState(false)
+  const [filterPattern, setFilterPattern] = useState('')
 
   // 选择第一个已连接的会话
   useEffect(() => {
@@ -96,6 +97,22 @@ const FileManagerFloat: React.FC<FileManagerFloatProps> = ({ visible, onClose, s
     window.electronAPI.fileDownload(selectedSessionId, file.path, localPath, taskId, file.name, file.size)
   }
 
+  // 通配符匹配函数
+  const matchPattern = (filename: string, pattern: string): boolean => {
+    if (!pattern.trim()) return true
+    const regexPattern = pattern
+      .replace(/\./g, '\\.')
+      .replace(/\*/g, '.*')
+      .replace(/\?/g, '.')
+    const regex = new RegExp(`^${regexPattern}$`, 'i')
+    return regex.test(filename)
+  }
+
+  // 筛选后的文件列表
+  const filteredFiles = filterPattern.trim()
+    ? files.filter(f => matchPattern(f.name, filterPattern))
+    : files
+
   if (!visible) return null
 
   return (
@@ -133,12 +150,13 @@ const FileManagerFloat: React.FC<FileManagerFloatProps> = ({ visible, onClose, s
       <div className="flex-1 overflow-auto min-h-0">
         {activeTab === 'files' ? (
           <FileBrowser
-            sessions={sessions}
-            selectedSessionId={selectedSessionId}
-            onSelectSession={setSelectedSessionId}
-            files={files}
+            files={filteredFiles}
             currentPath={currentPath}
             loading={loading}
+            hasSession={!!selectedSessionId}
+            sessionId={selectedSessionId}
+            filterPattern={filterPattern}
+            onFilterChange={setFilterPattern}
             onEnterDir={handleEnterDir}
             onGoUp={handleGoUp}
             onDownload={handleDownload}

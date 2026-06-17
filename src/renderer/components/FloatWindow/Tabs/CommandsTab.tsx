@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import cn from 'classnames'
-import { QuickCommand, CommandGroup } from '@shared/types'
+import type { QuickCommand, CommandGroupDisplay } from '@shared/types'
 import { DEFAULT_COMMAND_GROUPS } from '@shared/constants'
 
 interface CommandsTabProps {
@@ -14,7 +14,7 @@ const CommandsTab: React.FC<CommandsTabProps> = ({ searchQuery }) => {
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['system', 'network'])
 
   // 模拟数据（使用预置命令）
-  const groups: CommandGroup[] = DEFAULT_COMMAND_GROUPS.map((g, i) => ({
+  const groups: CommandGroupDisplay[] = DEFAULT_COMMAND_GROUPS.map((g, i) => ({
     id: g.id,
     name: g.name,
     icon: g.icon,

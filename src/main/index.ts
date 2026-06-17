@@ -1,5 +1,5 @@
-import { app, BrowserWindow, ipcMain, globalShortcut, dialog } from 'electron'
-import { join } from 'path'
+import { app, BrowserWindow, ipcMain, globalShortcut, dialog, shell } from 'electron'
+import { join, resolve } from 'path'
 import log from 'electron-log'
 import * as fs from 'fs'
 
@@ -58,7 +58,9 @@ function createMainWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false
     }
   })
 
@@ -74,6 +76,29 @@ function createMainWindow(): void {
     setMainWindow(null)  // 清除窗口引用
     setMainWindowForUpload(null)
     mainWindow = null
+  })
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    try {
+      const target = new URL(url)
+      const allowed = isDev && process.env['ELECTRON_RENDERER_URL']
+        ? target.origin === new URL(process.env['ELECTRON_RENDERER_URL']).origin
+        : target.href === new URL(`file://${resolve(__dirname, '../renderer/index.html')}`).href
+      if (!allowed) {
+        event.preventDefault()
+        log.warn('Blocked unexpected navigation:', url)
+      }
+    } catch (error) {
+      event.preventDefault()
+      log.warn('Blocked malformed navigation URL:', url, error)
+    }
+  })
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      shell.openExternal(url).catch(err => log.warn('Failed to open external URL:', err))
+    }
+    return { action: 'deny' }
   })
 
   if (isDev && process.env['ELECTRON_RENDERER_URL']) {

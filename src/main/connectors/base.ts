@@ -1,5 +1,4 @@
 import { EventEmitter } from 'events'
-import log from 'electron-log'
 
 /**
  * 连接器基类

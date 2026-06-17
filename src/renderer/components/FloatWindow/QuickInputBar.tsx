@@ -8,7 +8,7 @@ interface QuickInputBarProps {}
 const QuickInputBar: React.FC<QuickInputBarProps> = () => {
   const [command, setCommand] = useState('')
   const [targetSession, setTargetSession] = useState<string>('current')
-  const [_showDropdown, setShowDropdown] = useState(false)
+  const [, setShowDropdown] = useState(false)
   const [historyDropdown, setHistoryDropdown] = useState(false)
 
   // 模拟历史命令
@@ -24,8 +24,7 @@ const QuickInputBar: React.FC<QuickInputBarProps> = () => {
     if (!command.trim()) return
 
     console.log('Execute:', command, 'to', targetSession)
-    // TODO: 发送到主进程执行
-    // window.electronAPI?.pythonExecute(command)
+    // TODO: 发送到当前终端会话
 
     // 清空输入
     setCommand('')

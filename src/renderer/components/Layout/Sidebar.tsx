@@ -61,13 +61,13 @@ const getTypeColor = (type: string) => {
  * 侧边栏组件 - 左侧会话列表 + 底部嵌入文件管理器
  * 支持宽度调整（右边缘拖动）和文件管理器高度调整（分割线拖动）
  */
-const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggle, onConnect, onQuickCommandsChange }) => {
+const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommandsChange }) => {
   const [showDialog, setShowDialog] = useState(false)
   const [editConfig, setEditConfig] = useState<SessionConfig | undefined>(undefined)
   const [searchQuery, setSearchQuery] = useState('')
   const [showExportImport, setShowExportImport] = useState(false)
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([])
-  const { savedSessions, refreshSavedSessions, sessions } = useSessionStore()
+  const { savedSessions, refreshSavedSessions } = useSessionStore()
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const isUpdating = useRef(false)

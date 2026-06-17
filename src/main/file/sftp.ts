@@ -1,10 +1,9 @@
-import type { Client } from 'ssh2'
-import type { SFTPWrapper, Stats } from 'ssh2-streams'
 import log from 'electron-log'
 import { BaseFileConnector } from './base'
 import { SSHFileClient } from './ssh-file-client'
-import type { FileInfo, TransferProgress, FileConnectorType } from '@shared/types'
+import type { FileInfo, TransferProgress } from '@shared/types'
 import { FileConnectorType } from '@shared/types'
+import type { SFTPWrapper } from '../types/global'
 import * as fs from 'fs'
 import * as path from 'path'
 import { v4 as uuidv4 } from 'uuid'
@@ -41,21 +40,18 @@ export class SFTPFileConnector extends BaseFileConnector {
         }
 
         let output = ''
-        let stderr = ''
 
         stream.on('data', (data: Buffer) => {
           output += data.toString()
-        })
-
-        stream.stderr?.on('data', (data: Buffer) => {
-          stderr += data.toString()
         })
 
         stream.on('close', () => {
           clearTimeout(timer)
           // 只去掉控制字符
           const cleaned = output
+            // eslint-disable-next-line no-control-regex
             .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+            // eslint-disable-next-line no-control-regex
             .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
             .trim()
           resolve(cleaned)
@@ -180,7 +176,7 @@ export class SFTPFileConnector extends BaseFileConnector {
 
     return new Promise((resolve, reject) => {
       let transferred = 0
-      let startTime = Date.now()
+      const startTime = Date.now()
 
       // 使用更大的缓冲区
       const readStream = fs.createReadStream(localPath, {
@@ -220,9 +216,10 @@ export class SFTPFileConnector extends BaseFileConnector {
       writeStream.on('error', (err) => handleError(err, 'write'))
 
       // 手动处理数据流，不使用 pipe
-      readStream.on('data', (chunk: Buffer) => {
-        transferred += chunk.length
-        const canContinue = writeStream.write(chunk)
+      readStream.on('data', (chunk: string | Buffer) => {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+        transferred += buffer.length
+        const canContinue = writeStream.write(buffer)
         if (!canContinue) {
           readStream.pause()
         }
@@ -281,7 +278,7 @@ export class SFTPFileConnector extends BaseFileConnector {
 
     return new Promise((resolve, reject) => {
       let transferred = 0
-      let startTime = Date.now()
+      const startTime = Date.now()
 
       // 使用更大的缓冲区减少事件触发次数
       const readStream = sftp.createReadStream(remotePath, {
@@ -323,9 +320,10 @@ export class SFTPFileConnector extends BaseFileConnector {
       writeStream.on('error', (err) => handleError(err, 'write'))
 
       // 手动处理数据流，不使用 pipe
-      readStream.on('data', (chunk: Buffer) => {
-        transferred += chunk.length
-        const canContinue = writeStream.write(chunk)
+      readStream.on('data', (chunk: string | Buffer) => {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+        transferred += buffer.length
+        const canContinue = writeStream.write(buffer)
         if (!canContinue) {
           readStream.pause()
         }
@@ -466,7 +464,7 @@ export class SFTPFileConnector extends BaseFileConnector {
    * 格式化权限字符串
    */
   private formatPermissions(mode: number): string {
-    const perms = []
+    const perms: string[] = []
     perms.push(mode & 0o400 ? 'r' : '-')
     perms.push(mode & 0o200 ? 'w' : '-')
     perms.push(mode & 0o100 ? 'x' : '-')

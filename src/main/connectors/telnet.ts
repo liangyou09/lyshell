@@ -77,10 +77,10 @@ export class TelnetConnector extends BaseConnector {
     })
 
     return new Promise((resolve, reject) => {
+      this.socket!.setTimeout(this.config.timeout || 10000)
       this.socket!.connect({
         host: this.config.host,
-        port: this.config.port,
-        timeout: this.config.timeout || 10000
+        port: this.config.port
       })
 
       this.socket!.on('connect', () => resolve())

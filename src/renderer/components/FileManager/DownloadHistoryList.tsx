@@ -21,12 +21,6 @@ const formatSize = (bytes: number) => {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
 }
 
-// 格式化时间
-const formatTime = (date: Date) => {
-  const d = new Date(date)
-  return `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${d.getMinutes().toString().padStart(2,'0')}`
-}
-
 interface DownloadHistoryListProps {
   sessionId?: string | null
 }

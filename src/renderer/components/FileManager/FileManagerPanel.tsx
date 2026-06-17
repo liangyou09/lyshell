@@ -87,9 +87,6 @@ const FileManagerPanel: React.FC = () => {
   const { layout, getAllLeafPanes } = usePaneStore()
   const { sessions } = useSessionStore()
 
-  // 获取所有已连接的会话
-  const connectedSessions = sessions.filter(s => s.status === 'connected')
-
   // 获取活动终端的会话
   const activePane = getAllLeafPanes().find(p => p.id === layout.activePaneId)
   const paneSessionId = activePane?.activeSessionId || null
@@ -99,13 +96,6 @@ const FileManagerPanel: React.FC = () => {
   const paneServerIdentity = paneSession?.status === 'connected' ? getServerIdentity(paneSession) : null
   const currentServerKey = paneServerIdentity ? serverKey(paneServerIdentity) : null
   const currentSessionId = paneSessionId
-
-  // 检查当前服务器是否还有连接
-  const serverHasConnections = currentServerKey ?
-    connectedSessions.some(s => {
-      const identity = getServerIdentity(s)
-      return identity && serverKey(identity) === currentServerKey
-    }) : false
 
   // 切换服务器时，从缓存读取数据
   useEffect(() => {

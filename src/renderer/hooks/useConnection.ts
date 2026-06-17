@@ -31,7 +31,7 @@ export function useConnection(sessionId: string | null) {
   useEffect(() => {
     if (!window.electronAPI) return
 
-    const cleanup = window.electronAPI.onConnectionStatus((_event, data) => {
+    const cleanup = window.electronAPI.onConnectionStatus((data) => {
       if (data.id === sessionId) {
         updateSessionStatus(data.id, data.status, data.error)
       }
@@ -63,7 +63,7 @@ export function useTerminalData(sessionId: string) {
   useEffect(() => {
     if (!window.electronAPI || !sessionId) return
 
-    const cleanup = window.electronAPI.onTerminalData((_event, id, _data) => {
+    const cleanup = window.electronAPI.onTerminalData((id, _data) => {
       if (id === sessionId) {
         // Data handling is done directly in TerminalView component
       }

@@ -1,4 +1,5 @@
 import { SerialPort } from 'serialport'
+import type { PortInfo } from '@serialport/bindings-interface'
 import log from 'electron-log'
 import iconv from 'iconv-lite'
 import { BaseConnector } from './base'
@@ -130,7 +131,7 @@ export class SerialConnector extends BaseConnector {
   /**
    * 获取可用串口列表
    */
-  static async listPorts(): Promise<SerialPort.PortInfo[]> {
+  static async listPorts(): Promise<PortInfo[]> {
     return SerialPort.list()
   }
 }

@@ -30,7 +30,17 @@ export function readPortFile(): McpPortInfo | null {
 
   try {
     const content = fs.readFileSync(portFilePath, 'utf-8')
-    const info: McpPortInfo = JSON.parse(content)
+    const info = JSON.parse(content) as McpPortInfo
+
+    if (!isValidPortInfo(info)) {
+      console.error('Invalid LyShell MCP port file format')
+      return null
+    }
+
+    if (!isPortFilePermissionSafe(portFilePath)) {
+      console.error('LyShell MCP port file permissions are too broad')
+      return null
+    }
 
     // 检查 PID 是否仍在运行
     if (!isProcessRunning(info.pid)) {
@@ -48,6 +58,23 @@ export function readPortFile(): McpPortInfo | null {
 /**
  * 获取 LyShell 用户数据目录
  */
+function isValidPortInfo(info: McpPortInfo): boolean {
+  return Number.isInteger(info.port) &&
+    info.port > 0 &&
+    info.port <= 65535 &&
+    Number.isInteger(info.pid) &&
+    info.pid > 0 &&
+    info.version === 1 &&
+    typeof info.token === 'string' &&
+    /^[a-f0-9]{64}$/i.test(info.token)
+}
+
+function isPortFilePermissionSafe(portFilePath: string): boolean {
+  if (process.platform === 'win32') return true
+  const mode = fs.statSync(portFilePath).mode & 0o777
+  return (mode & 0o077) === 0
+}
+
 function getUserDataDir(): string | null {
   // 优先使用环境变量（由 MCP 配置注入）
   const envDir = process.env.LYSHELL_USER_DATA
@@ -76,7 +103,7 @@ function isProcessRunning(pid: number): boolean {
   try {
     if (process.platform === 'win32') {
       // Windows: 使用 tasklist 命令检查进程
-      const output = execSync(`tasklist /NH /FI \"PID eq ${pid}\"`, { encoding: 'utf-8', timeout: 5000 })
+      const output = execSync(`tasklist /NH /FI "PID eq ${pid}"`, { encoding: 'utf-8', timeout: 5000 })
       return output.includes(String(pid))
     }
     // POSIX: 向进程发送信号0（不实际杀死，只检查是否存在）

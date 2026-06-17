@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react'
-import { dialog } from 'electron'
 
 interface DownloadConfig {
   defaultDir: string
@@ -112,7 +111,7 @@ const DownloadConfigPanel: React.FC = () => {
               按服务器自动创建子目录
             </label>
             <p className="text-xs text-gray-500">
-              启用后，下载文件会自动保存到 "默认目录/服务器名称/" 子目录中
+              启用后，下载文件会自动保存到 &quot;默认目录/服务器名称/&quot; 子目录中
             </p>
           </div>
 

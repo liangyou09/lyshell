@@ -91,11 +91,8 @@ export default defineConfig({
       },
       cssCodeSplit: false,
       assetsInlineLimit: 4096,
-      minify: 'esbuild',
-      esbuildOptions: {
-        target: 'es2022',
-        drop: ['console', 'debugger']
-      }
+      target: 'es2022',
+      minify: 'esbuild'
     },
     css: {
       postcss: {

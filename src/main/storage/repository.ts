@@ -1,9 +1,71 @@
-import { app } from 'electron'
+import { app, safeStorage } from 'electron'
 import { join } from 'path'
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'fs'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 import type { SessionConfig } from '@shared/types'
+
+const SAFE_STORAGE_PREFIX = 'safe:v1:'
+const SENSITIVE_SSH_FIELDS = ['password', 'privateKey', 'passphrase'] as const
+
+const cloneSession = (session: SessionConfig): SessionConfig => ({
+  ...session,
+  ssh: session.ssh ? { ...session.ssh } : undefined,
+  telnet: session.telnet ? { ...session.telnet } : undefined,
+  serial: session.serial ? { ...session.serial } : undefined,
+  local: session.local ? { ...session.local, env: session.local.env ? { ...session.local.env } : undefined } : undefined,
+  terminal: session.terminal ? { ...session.terminal, theme: { ...session.terminal.theme } } : session.terminal,
+  tags: [...(session.tags || [])],
+  startupCommands: session.startupCommands ? [...session.startupCommands] : undefined
+})
+
+const isEncryptedSecret = (value: string): boolean => value.startsWith(SAFE_STORAGE_PREFIX)
+
+const encryptSecretForDisk = (value: string | undefined): string | undefined => {
+  if (!value || isEncryptedSecret(value)) return value
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('系统安全存储不可用，无法安全保存 SSH 凭据。请启用系统凭据存储后重试，或移除密码/私钥/口令后保存。')
+  }
+  return `${SAFE_STORAGE_PREFIX}${safeStorage.encryptString(value).toString('base64')}`
+}
+
+const decryptSecretFromDisk = (value: string | undefined): string | undefined => {
+  if (!value || !isEncryptedSecret(value)) return value
+  if (!safeStorage.isEncryptionAvailable()) {
+    log.warn('safeStorage is unavailable, cannot decrypt SSH secret from sessions.json')
+    return undefined
+  }
+  const encrypted = Buffer.from(value.slice(SAFE_STORAGE_PREFIX.length), 'base64')
+  return safeStorage.decryptString(encrypted)
+}
+
+const hasPlaintextSshSecret = (session: SessionConfig): boolean => {
+  if (!session.ssh) return false
+  return SENSITIVE_SSH_FIELDS.some(field => {
+    const value = session.ssh?.[field]
+    return !!value && !isEncryptedSecret(value)
+  })
+}
+
+const decryptSessionFromDisk = (session: SessionConfig): SessionConfig => {
+  const decrypted = cloneSession(session)
+  if (decrypted.ssh) {
+    for (const field of SENSITIVE_SSH_FIELDS) {
+      decrypted.ssh[field] = decryptSecretFromDisk(decrypted.ssh[field])
+    }
+  }
+  return decrypted
+}
+
+const encryptSessionForDisk = (session: SessionConfig): SessionConfig => {
+  const encrypted = cloneSession(session)
+  if (encrypted.ssh) {
+    for (const field of SENSITIVE_SSH_FIELDS) {
+      encrypted.ssh[field] = encryptSecretForDisk(encrypted.ssh[field])
+    }
+  }
+  return encrypted
+}
 
 /**
  * 配置存储路径 - 延迟获取
@@ -59,7 +121,13 @@ export class SessionRepository {
       const content = readFileSync(this.filePath, 'utf-8')
       const data = JSON.parse(content) as SessionConfig[]
 
-      for (const session of data) {
+      let shouldMigrateSecrets = false
+      for (const storedSession of data) {
+        if (hasPlaintextSshSecret(storedSession)) {
+          shouldMigrateSecrets = true
+        }
+
+        const session = decryptSessionFromDisk(storedSession)
         // 转换日期
         session.createdAt = new Date(session.createdAt)
         session.updatedAt = new Date(session.updatedAt)
@@ -75,6 +143,9 @@ export class SessionRepository {
       }
 
       this.loaded = true
+      if (shouldMigrateSecrets || dupResult.removed > 0) {
+        this.save()
+      }
 
     } catch (error) {
       log.error('Failed to load sessions:', error)
@@ -89,11 +160,15 @@ export class SessionRepository {
     if (!this.filePath) return
 
     try {
-      const data = Array.from(this.sessions.values())
-      writeFileSync(this.filePath, JSON.stringify(data, null, 2), 'utf-8')
+      const data = Array.from(this.sessions.values()).map(encryptSessionForDisk)
+      writeFileSync(this.filePath, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 })
+      if (process.platform !== 'win32') {
+        chmodSync(this.filePath, 0o600)
+      }
       log.info(`Saved ${data.length} sessions to storage`)
     } catch (error) {
       log.error('Failed to save sessions:', error)
+      throw error
     }
   }
 

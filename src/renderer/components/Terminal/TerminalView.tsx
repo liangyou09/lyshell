@@ -23,7 +23,6 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   const searchAddonRef = useRef<SearchAddon | null>(null)
   const resizeTimeoutRef = useRef<number | null>(null)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
-  const connectionStatusRef = useRef<ConnectionStatus | null>(null) // 记录连接状态
   const [showSearch, setShowSearch] = useState(false)
   const [searchText, setSearchText] = useState('')
   const [searchDirection, setSearchDirection] = useState<'next' | 'prev'>('next')
@@ -427,7 +426,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       }
     }
 
-    const cleanup = window.electronAPI.onTerminalData((_event, id, data) => {
+    const cleanup = window.electronAPI.onTerminalData((id, data) => {
       if (id === sessionId) {
         const instance = getTerminal(sessionId)
         if (instance) {
@@ -452,7 +451,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   useEffect(() => {
     if (!window.electronAPI) return
 
-    const cleanup = window.electronAPI.onConnectionStatus((_event, data) => {
+    const cleanup = window.electronAPI.onConnectionStatus((data) => {
       if (data.id === sessionId) {
         const instance = getTerminal(sessionId)
         if (instance) {
