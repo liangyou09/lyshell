@@ -14,6 +14,9 @@ import { startMcpHttpServer, stopMcpHttpServer } from './mcp/http-server'
 log.transports.file.level = 'info'
 log.transports.console.level = 'debug'
 
+// 开发环境标志（app.isPackaged 在 app.ready 前即可同步读取，供早期错误处理使用）
+const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
+
 // 全局错误处理 - 避免SSH超时等错误弹出对话框
 process.on('uncaughtException', (error) => {
   // SSH handshake timeout 等连接相关错误，只记录日志不弹出
@@ -22,16 +25,22 @@ process.on('uncaughtException', (error) => {
     log.error('Connection error (suppressed dialog):', msg)
     return
   }
-  // 其他错误仍然记录但也不弹出对话框
+  // 其他错误：开发环境下快速失败（崩溃退出）以暴露 bug；生产环境只记日志避免影响用户
   log.error('Uncaught exception:', error)
+  if (isDev) {
+    process.exit(1)
+  }
 })
 
 process.on('unhandledRejection', (reason) => {
   log.error('Unhandled rejection:', reason)
+  // 开发环境下快速失败，避免 Promise 异常被静默吞掉
+  if (isDev) {
+    process.exit(1)
+  }
 })
 
 let mainWindow: BrowserWindow | null = null
-let isDev = false
 
 // 创建主窗口
 function createMainWindow(): void {
@@ -90,9 +99,6 @@ function registerGlobalShortcuts(): void {
 
 // 应用启动
 app.whenReady().then(async () => {
-  // 设置开发环境标志
-  isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
-
   // 设置应用ID
   app.setAppUserModelId('com.lyshell.app')
 

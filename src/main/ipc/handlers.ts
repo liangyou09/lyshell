@@ -1088,15 +1088,25 @@ export function registerIPCHandlers(): void {
     return result
   })
 
-  // 打开文件夹（直接打开目录，而不是打开父目录并选中）
+  // 打开路径：目录在资源管理器中打开，文件在资源管理器中定位并选中
   ipcMain.handle(IPC_CHANNELS.FILE_OPEN_FOLDER, async (_event, filePath: string) => {
-    log.debug('Open folder:', filePath)
+    log.debug('Open path:', filePath)
     try {
-      // shell.openPath 直接打开目录/文件
-      shell.openPath(filePath)
+      // 安全校验：仅对目录调用 openPath（在资源管理器中打开）；
+      // 对文件改用 showItemInFolder（在资源管理器中定位并选中，不会用默认程序执行，
+      // 避免传入 .exe 等可执行文件被直接运行）
+      const stat = fs.statSync(filePath)
+      if (stat.isDirectory()) {
+        const openErr = await shell.openPath(filePath)
+        if (openErr) {
+          return { success: false, error: openErr }
+        }
+      } else {
+        shell.showItemInFolder(filePath)
+      }
       return { success: true }
     } catch (error) {
-      log.error('Open folder error:', error)
+      log.error('Open path error:', error)
       return { success: false, error: (error as Error).message }
     }
   })

@@ -154,9 +154,14 @@ function resolveNodePath(): string {
     if (fs.existsSync(p)) return p
   }
 
-  // ���ջ��ˣ�ʹ�� Electron ����� Node ����
-  log.warn('[MCP] Could not find system Node.js, falling back to process.execPath')
-  return process.execPath
+  // 找不到系统 Node.js：Electron 的 process.execPath 指向 Electron 二进制，
+  // 无法用来启动 MCP Server 子进程。直接报错并提示安装 Node.js，
+  // 而非静默写入一个无法工作的配置。
+  throw new Error(
+    '[MCP] System Node.js not found. The MCP Server requires a standalone Node.js ' +
+    'installation to run (Electron\'s bundled binary cannot spawn it). ' +
+    'Please install Node.js from https://nodejs.org/ and restart LyShell.'
+  )
 }
 /**
  * 写入 Claude Code MCP 配置
@@ -210,7 +215,8 @@ async function writeClaudeMcpConfig(_port: number): Promise<void> {
     fs.writeFileSync(mcpConfigPath, JSON.stringify(config, null, 2), 'utf-8')
     log.info(`[MCP] Claude Code config written to ${mcpConfigPath}`)
   } catch (err) {
-    log.warn('[MCP] Failed to write Claude Code MCP config:', err)
+    // 配置写入失败（如未安装系统 Node.js）需明确报错，而非静默 warn
+    log.error('[MCP] Failed to write Claude Code MCP config:', err)
   }
 }
 
