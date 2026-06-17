@@ -1,6 +1,6 @@
 ﻿/**
- * MCP HTTP API 服务�?
- * 运行�?LyShell 主进程中，提�?HTTP API �?MCP Server 进程调用
+ * MCP HTTP API 服务端
+ * 运行于 LyShell 主进程中，提供 HTTP API 供 MCP Server 进程调用
  * 监听 127.0.0.1:0（随机端口），通过端口文件通知 MCP Server
  */
 
@@ -43,7 +43,7 @@ let authToken: string | null = null
 const PORT_FILE_NAME = 'mcp-server.json'
 
 /**
- * 启动 MCP HTTP 服务�?
+ * 启动 MCP HTTP 服务端
  */
 export async function startMcpHttpServer(): Promise<void> {
   authToken = crypto.randomBytes(32).toString('hex')
@@ -76,10 +76,10 @@ export async function startMcpHttpServer(): Promise<void> {
 }
 
 /**
- * 停止 MCP HTTP 服务�?
+ * 停止 MCP HTTP 服务端
  */
 export async function stopMcpHttpServer(): Promise<void> {
-  // 关闭 HTTP 服务�?
+   // 关闭 HTTP 服务端
   if (server) {
     await new Promise<void>(resolve => {
       server!.close(() => resolve())
@@ -108,22 +108,22 @@ function getPortFilePath(): string {
 }
 
 /**
- * 获取 MCP Server 脚本的绝对路�?
+ * 获取 MCP Server 脚本的绝对路径
  */
 function getMcpServerScriptPath(): string {
   if (app.isPackaged) {
-    // 生产环境：asar 包内�?dist/main/mcpServer.js
+     // 生产环境：asar 包内含 dist/main/mcpServer.js
     return path.join(process.resourcesPath, 'app', 'dist', 'main', 'mcpServer.js')
   }
-  // 开发环境：__dirname �?dist/main/，mcpServer.js 也在 dist/main/ �?
+   // 开发环境：__dirname 是 dist/main/，mcpServer.js 也在 dist/main/ 中
   return path.join(__dirname, 'mcpServer.js')
 }
 
 
 /**
- * ���� Node.js ��ִ���ļ�·��
- * Electron ��������� process.execPath ָ�� Electron �����ƣ�����ֱ��������� MCP Server �ӽ���
- * ��Ҫ����ϵͳ��װ�� Node.js
+ * 解析 Node.js 可执行文件路径
+ * Electron 的 process.execPath 指向 Electron 二进制，不能直接启动 MCP Server 子进程
+ * 需要系统安装的 Node.js
  */
 function resolveNodePath(): string {
   // 优先查找系统 Node.js（Electron 的 process.execPath 指向 Electron 二进制，
@@ -133,10 +133,10 @@ function resolveNodePath(): string {
     const candidates = result.split(/\r?\n/).map(p => p.trim()).filter(Boolean)
     if (candidates.length > 0) return candidates[0]
   } catch {
-    // where ����ʧ�ܣ����Գ���·��
+    // where 命令失败，尝试常见路径
   }
 
-  // Windows ����·��
+  // Windows 常见路径
   if (process.platform === 'win32') {
     const commonPaths = [
       path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe'),
@@ -191,7 +191,7 @@ function logMcpAddCommand(): void {
 // ========== HTTP 请求处理 ==========
 
 /**
- * 请求处理�?
+ * 请求处理器
  */
 function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
   // CORS 支持
@@ -205,7 +205,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     return
   }
 
-  // 鉴权检查（health 端点除外�?
+  // 鉴权检查（health 端点除外）
   const url = new URL(req.url || '/', `http://127.0.0.1`)
   if (url.pathname !== '/api/health') {
     const token = req.headers['x-lyshell-token']
@@ -281,7 +281,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 // ========== API 端点实现 ==========
 
 /**
- * GET /api/sessions �?列出所有会�?
+ * GET /api/sessions — 列出所有会话
  */
 function handleListSessions(res: http.ServerResponse): void {
   try {
@@ -309,7 +309,7 @@ function handleListSessions(res: http.ServerResponse): void {
 }
 
 /**
- * POST /api/execute �?执行命令
+ * POST /api/execute — 执行命令
  */
 async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerResponse): Promise<void> {
   try {
@@ -334,7 +334,7 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
     let result: ExecuteResponse
 
     if (session.config.type === ConnectionType.SSH) {
-      // SSH 会话：使�?fileManager �?connector（独�?SSH exec 通道�?
+      // SSH 会话：使用 fileManager 的 connector（独立 SSH exec 通道）
       const connector = await fileManager.getConnector(sessionId)
       if (!connector.execRaw) {
         sendJson(res, 500, { success: false, error: 'Connector does not support command execution' })
@@ -343,7 +343,7 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
       const output = await connector.execRaw(command, timeout)
       result = { output, exitCode: 0 }
     } else if (session.config.type === ConnectionType.LOCAL) {
-      // 本地会话：使�?child_process.exec
+      // 本地会话：使用 child_process.exec
       result = await executeLocalCommand(command, session.config.local?.cwd, session.config.local?.env, timeout)
     } else {
       sendJson(res, 400, { success: false, error: `Command execution not supported for session type: ${session.config.type}` })
@@ -471,7 +471,7 @@ async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerRespo
 }
 
 /**
- * POST /api/files/list �?列出目录内容
+ * POST /api/files/list — 列出目录内容
  */
 async function handleListFiles(data: FileOperationRequest, res: http.ServerResponse): Promise<void> {
   try {
@@ -488,7 +488,7 @@ async function handleListFiles(data: FileOperationRequest, res: http.ServerRespo
 }
 
 /**
- * POST /api/files/read �?读取远程文件内容
+ * POST /api/files/read — 读取远程文件内容
  */
 async function handleReadFile(data: ReadFileRequest, res: http.ServerResponse): Promise<void> {
   try {
@@ -500,7 +500,7 @@ async function handleReadFile(data: ReadFileRequest, res: http.ServerResponse): 
 
     const connector = await fileManager.getConnector(sessionId)
 
-    // 先检查文件信�?
+    // 先检查文件信息
     const stat = await connector.stat(filePath)
     if (stat.isDir) {
       sendJson(res, 400, { success: false, error: 'Path is a directory, not a file' })
@@ -528,7 +528,7 @@ async function handleReadFile(data: ReadFileRequest, res: http.ServerResponse): 
 }
 
 /**
- * POST /api/files/stat �?获取文件元信�?
+ * POST /api/files/stat — 获取文件元信息
  */
 async function handleStatFile(data: FileOperationRequest, res: http.ServerResponse): Promise<void> {
   try {
@@ -545,7 +545,7 @@ async function handleStatFile(data: FileOperationRequest, res: http.ServerRespon
 }
 
 /**
- * POST /api/files/download �?下载远程文件
+ * POST /api/files/download — 下载远程文件
  */
 async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerResponse): Promise<void> {
   try {
@@ -564,7 +564,7 @@ async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerRes
 }
 
 /**
- * POST /api/files/upload �?上传本地文件
+ * POST /api/files/upload — 上传本地文件
  */
 async function handleUploadFile(data: UploadFileRequest, res: http.ServerResponse): Promise<void> {
   try {
@@ -582,7 +582,7 @@ async function handleUploadFile(data: UploadFileRequest, res: http.ServerRespons
 }
 
 /**
- * POST /api/files/delete �?删除远程文件/目录
+ * POST /api/files/delete — 删除远程文件/目录
  */
 async function handleDeleteFile(data: FileOperationRequest, res: http.ServerResponse): Promise<void> {
   try {
@@ -599,7 +599,7 @@ async function handleDeleteFile(data: FileOperationRequest, res: http.ServerResp
 }
 
 /**
- * POST /api/files/rename �?重命�?移动远程文件
+ * POST /api/files/rename — 重命名/移动远程文件
  */
 async function handleRenameFile(data: RenameFileRequest, res: http.ServerResponse): Promise<void> {
   try {
@@ -616,7 +616,7 @@ async function handleRenameFile(data: RenameFileRequest, res: http.ServerRespons
 }
 
 /**
- * POST /api/files/mkdir �?创建远程目录
+ * POST /api/files/mkdir — 创建远程目录
  */
 async function handleCreateDirectory(data: FileOperationRequest, res: http.ServerResponse): Promise<void> {
   try {
@@ -633,7 +633,7 @@ async function handleCreateDirectory(data: FileOperationRequest, res: http.Serve
 }
 
 /**
- * POST /api/files/md5 �?计算远程文件 MD5
+ * POST /api/files/md5 — 计算远程文件 MD5
  */
 async function handleGetFileMd5(data: FileMd5Request, res: http.ServerResponse): Promise<void> {
   try {
@@ -664,7 +664,7 @@ function executeLocalCommand(
     const execEnv = { ...process.env, ...env } as Record<string, string>
     const execCwd = cwd || process.env.USERPROFILE || process.env.HOME || ''
 
-    // �����־����¼ͨ�� MCP ִ�еı�������
+    // 记录通过 MCP 执行的本地命令
     log.info(`[MCP] Executing local command: ${command} (cwd: ${execCwd})`)
 
     exec(command, { cwd: execCwd, env: execEnv, timeout, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
@@ -698,7 +698,7 @@ function readBody(req: http.IncomingMessage, maxSize: number = 10 * 1024 * 1024)
 }
 
 /**
- * 发�?JSON 响应
+ * 发送 JSON 响应
  */
 function sendJson(res: http.ServerResponse, statusCode: number, data: ApiResponse): void {
   res.writeHead(statusCode, { 'Content-Type': 'application/json' })
