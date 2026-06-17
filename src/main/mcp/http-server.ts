@@ -58,7 +58,7 @@ export async function startMcpHttpServer(): Promise<void> {
   const address = server!.address() as net.AddressInfo
   const port = address.port
 
-  // 写入端口文件
+  // 写入端口文件（供 MCP Server 进程回连发现端口/token）
   const portFilePath = getPortFilePath()
   const portInfo: McpPortInfo = {
     port,
@@ -68,8 +68,9 @@ export async function startMcpHttpServer(): Promise<void> {
   }
   fs.writeFileSync(portFilePath, JSON.stringify(portInfo, null, 2), 'utf-8')
 
-  // 写入 Claude Code MCP 配置
-  await writeClaudeMcpConfig(port)
+  // 不再自动改写用户外部配置（~/.claude/mcp.json）。
+  // 输出 claude mcp add 命令，由用户自行添加。
+  logMcpAddCommand()
 
   log.info(`[MCP] HTTP server started on port ${port}`)
 }
@@ -94,8 +95,7 @@ export async function stopMcpHttpServer(): Promise<void> {
     // 忽略删除失败
   }
 
-  // 清理 Claude Code MCP 配置
-  await removeClaudeMcpConfig()
+  // 不再自动清理用户外部配置；如需移除，用户自行执行 claude mcp remove lyshell
 
   log.info('[MCP] HTTP server stopped')
 }
@@ -164,100 +164,28 @@ function resolveNodePath(): string {
   )
 }
 /**
- * 写入 Claude Code MCP 配置
+ * 输出 claude mcp add 命令，供用户自行注册 LyShell MCP Server
+ * 不再自动改写用户外部配置文件（~/.claude/mcp.json），避免崩溃残留与未授权改写。
  */
-async function writeClaudeMcpConfig(_port: number): Promise<void> {
+function logMcpAddCommand(): void {
+  let nodePath: string
   try {
-    const mcpConfigPath = await getClaudeMcpConfigPath()
-    if (!mcpConfigPath) return
-
-    // 读取现有配置（如果存在）
-    let config: any = {}
-    try {
-      const content = fs.readFileSync(mcpConfigPath, 'utf-8')
-      config = JSON.parse(content)
-    } catch {
-      // 文件不存在或格式错误，使用空配置
-    }
-
-    // 确保 mcpServers 对象存在
-    if (!config.mcpServers) {
-      config.mcpServers = {}
-    }
-
-    // ��ȡ node ·����Electron ��������� process.execPath ָ�� Electron ���� Node.js��
-    const nodePath = resolveNodePath()
-
-    // 获取 mcpServer.js 路径
-    const scriptPath = getMcpServerScriptPath()
-
-    // 写入 lyshell 配置
-    config.mcpServers.lyshell = {
-      command: nodePath,
-      args: [scriptPath],
-      env: {
-        LYSHELL_USER_DATA: app.getPath('userData')
-      }
-    }
-
-    // 确保目录存在
-    const configDir = path.dirname(mcpConfigPath)
-    if (!fs.existsSync(configDir)) {
-      fs.mkdirSync(configDir, { recursive: true })
-    }
-
-
-    // ����ԭ�����ã���ֹд��ʧ�ܵ��������ļ���
-    if (fs.existsSync(mcpConfigPath)) {
-      const backupPath = mcpConfigPath + '.bak'
-      fs.copyFileSync(mcpConfigPath, backupPath)
-    }
-    fs.writeFileSync(mcpConfigPath, JSON.stringify(config, null, 2), 'utf-8')
-    log.info(`[MCP] Claude Code config written to ${mcpConfigPath}`)
+    nodePath = resolveNodePath()
   } catch (err) {
-    // 配置写入失败（如未安装系统 Node.js）需明确报错，而非静默 warn
-    log.error('[MCP] Failed to write Claude Code MCP config:', err)
+    log.error(`[MCP] Cannot generate 'claude mcp add' command: ${(err as Error).message}`)
+    return
   }
-}
 
-/**
- * 移除 Claude Code MCP 配置中的 lyshell 条目
- */
-async function removeClaudeMcpConfig(): Promise<void> {
-  try {
-    const mcpConfigPath = await getClaudeMcpConfigPath()
-    if (!mcpConfigPath) return
+  const scriptPath = getMcpServerScriptPath()
+  const userDataDir = app.getPath('userData')
 
-    if (!fs.existsSync(mcpConfigPath)) return
+  // 构造 claude mcp add 命令（带 LYSHELL_USER_DATA 环境变量，路径加双引号）
+  const cmd =
+    `claude mcp add lyshell -e LYSHELL_USER_DATA="${userDataDir}" -- "${nodePath}" "${scriptPath}"`
 
-    const content = fs.readFileSync(mcpConfigPath, 'utf-8')
-    const config = JSON.parse(content)
-
-    if (config.mcpServers && config.mcpServers.lyshell) {
-      delete config.mcpServers.lyshell
-
-      // 如果 mcpServers 为空，删除整个键
-      if (Object.keys(config.mcpServers).length === 0) {
-        delete config.mcpServers
-      }
-
-      fs.writeFileSync(mcpConfigPath, JSON.stringify(config, null, 2), 'utf-8')
-      log.info('[MCP] Claude Code config cleaned up')
-    }
-  } catch (err) {
-    log.warn('[MCP] Failed to remove Claude Code MCP config:', err)
-  }
-}
-
-/**
- * 获取 Claude Code MCP 配置文件路径
- */
-async function getClaudeMcpConfigPath(): Promise<string | null> {
-  // Windows: %USERPROFILE%\.claude\mcp.json
-  // macOS/Linux: ~/.claude/mcp.json
-  const homeDir = process.env.USERPROFILE || process.env.HOME
-  if (!homeDir) return null
-  return path.join(homeDir, '.claude', 'mcp.json')
+  log.info('[MCP] To register LyShell with Claude Code, run the following command:')
+  log.info(`[MCP]   ${cmd}`)
+  log.info('[MCP] To remove later: claude mcp remove lyshell')
 }
 
 // ========== HTTP 请求处理 ==========
