@@ -6,7 +6,6 @@
 
 import * as http from 'http'
 import * as net from 'net'
-import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
 import { exec, execSync } from 'child_process'
@@ -18,6 +17,8 @@ import { sessionManager, processInputEscapeSequences } from '../terminal/session
 import { fileManager } from '../file/manager'
 import { preferencesRepository } from '../storage/repository'
 import { ConnectionType, ConnectionStatus } from '@shared/types'
+import * as mcpAuth from './auth'
+import type { TokenBinding, TokenKind } from './auth'
 import type {
   ApiResponse,
   SessionInfo,
@@ -40,7 +41,7 @@ import type {
 } from './types'
 
 let server: http.Server | null = null
-let authToken: string | null = null
+let httpPort: number | null = null
 const PORT_FILE_NAME = 'mcp-server.json'
 const MAX_COMMAND_TIMEOUT_MS = 120000
 const MAX_READ_FILE_BYTES = 1048576
@@ -59,6 +60,7 @@ interface McpSecuritySettings {
   requireConfirmation?: boolean
   allowedSessionIds?: string[]
   deniedSessionIds?: string[]
+  allowExternalMcpClients?: boolean
 }
 
 interface McpAuditEvent {
@@ -71,6 +73,10 @@ interface McpAuditEvent {
   reason?: string
   summary?: string
   durationMs?: number
+  /** token 来源：global = 端口文件外部接入；session = LyShell 内部 PTY env 注入 */
+  tokenSource?: TokenKind
+  /** 当 tokenSource === 'session' 时，签发该 token 的 PTY 会话 ID */
+  originSessionId?: string
 }
 
 const DEFAULT_MCP_SECURITY: Required<McpSecuritySettings> = {
@@ -83,14 +89,31 @@ const DEFAULT_MCP_SECURITY: Required<McpSecuritySettings> = {
   allowFileDelete: false,
   requireConfirmation: true,
   allowedSessionIds: [],
-  deniedSessionIds: []
+  deniedSessionIds: [],
+  // 默认关闭外部接入：只对 LyShell 自身孵化的本地 PTY（per-session token）开放
+  allowExternalMcpClients: false
+}
+
+/**
+ * 返回 MCP HTTP 服务端监听的端口（未启动时为 null）。
+ * session-manager 创建本地 PTY 时需要把端口经环境变量注入。
+ */
+export function getMcpHttpPort(): number | null {
+  return httpPort
 }
 
 /**
  * 启动 MCP HTTP 服务端
  */
 export async function startMcpHttpServer(): Promise<void> {
-  authToken = crypto.randomBytes(32).toString('hex')
+  // 全局 token 仅在用户开启外部 MCP 接入时才生成；否则 resolveToken 永不命中 'global' 分支。
+  // 即使全局 token 已生成，端口文件落盘后再切换 allowExternalMcpClients=false 仍能即时拒绝
+  // 外部接入 —— authorizeMcpOperation 在每次请求中实时复查该开关。
+  const settings = getMcpSecuritySettings()
+  const externalAccess = settings.allowExternalMcpClients === true
+  if (externalAccess) {
+    mcpAuth.rotateGlobalToken()
+  }
 
   server = http.createServer(handleRequest)
 
@@ -100,15 +123,17 @@ export async function startMcpHttpServer(): Promise<void> {
   })
 
   const address = server!.address() as net.AddressInfo
-  const port = address.port
+  httpPort = address.port
 
   // 写入端口文件（供 MCP Server 进程回连发现端口/token）
+  // token 在外部访问关闭时为 null，外部进程读到也无法接入
   const portFilePath = getPortFilePath()
   const portInfo: McpPortInfo = {
-    port,
-    token: authToken,
+    port: httpPort,
+    token: externalAccess ? mcpAuth.getGlobalToken() : null,
     pid: process.pid,
-    version: 1
+    version: 2,
+    externalAccess
   }
   const tempPortFilePath = `${portFilePath}.${process.pid}.tmp`
   fs.writeFileSync(tempPortFilePath, JSON.stringify(portInfo, null, 2), { encoding: 'utf-8', mode: 0o600 })
@@ -119,9 +144,9 @@ export async function startMcpHttpServer(): Promise<void> {
 
   // 不再自动改写用户外部配置（~/.claude/mcp.json）。
   // 输出 claude mcp add 命令，由用户自行添加。
-  logMcpAddCommand()
+  logMcpAddCommand(externalAccess)
 
-  log.info(`[MCP] HTTP server started on port ${port}`)
+  log.info(`[MCP] HTTP server started on port ${httpPort} (externalAccess=${externalAccess})`)
 }
 
 /**
@@ -134,7 +159,11 @@ export async function stopMcpHttpServer(): Promise<void> {
       server!.close(() => resolve())
     })
     server = null
+    httpPort = null
   }
+
+  // 清空所有 token（全局 + per-session），防止泄漏的 token 在重启后还能使用
+  mcpAuth.clearAllTokens()
 
   // 清理端口文件
   const portFilePath = getPortFilePath()
@@ -215,8 +244,10 @@ function resolveNodePath(): string {
 /**
  * 输出 claude mcp add 命令，供用户自行注册 LyShell MCP Server
  * 不再自动改写用户外部配置文件（~/.claude/mcp.json），避免崩溃残留与未授权改写。
+ *
+ * @param externalAccess 当前是否允许外部 MCP 客户端通过端口文件接入
  */
-function logMcpAddCommand(): void {
+function logMcpAddCommand(externalAccess: boolean): void {
   let nodePath: string
   try {
     nodePath = resolveNodePath()
@@ -235,6 +266,10 @@ function logMcpAddCommand(): void {
   log.info('[MCP] To register LyShell with Claude Code, run the following command:')
   log.info(`[MCP]   ${cmd}`)
   log.info('[MCP] To remove later: claude mcp remove lyshell')
+  if (!externalAccess) {
+    log.info('[MCP] External access is OFF (default). Run claude inside a LyShell-spawned local terminal,')
+    log.info('[MCP]   or enable security.mcp.allowExternalMcpClients in preferences to allow external connections.')
+  }
 }
 
 // ========== HTTP 请求处理 ==========
@@ -255,10 +290,15 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   }
 
   // 鉴权检查（health 端点除外）
+  // 解析 token 同时区分两类：
+  //   - global  -> 端口文件外部接入，沿用保守 allow* 策略
+  //   - session -> LyShell 自身 PTY 注入，已经过孵化关系信任，享受宽松策略
   const url = new URL(req.url || '/', `http://127.0.0.1`)
+  let binding: TokenBinding | null = null
   if (url.pathname !== '/api/health') {
     const token = req.headers['x-lyshell-token']
-    if (!isValidAuthToken(token)) {
+    binding = mcpAuth.resolveToken(token)
+    if (!binding) {
       auditMcpOperation({ operation: 'http', capability: 'auth', allowed: false, reason: 'invalid token' })
       sendJson(res, 401, { success: false, error: 'Unauthorized' })
       return
@@ -270,6 +310,9 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     if (req.method === 'GET' && url.pathname === '/api/health') {
       return sendJson(res, 200, { success: true, data: { status: 'ok' } })
     }
+
+    // 非 health 端点必有 binding（鉴权已通过）
+    const ctxBinding = binding!
 
     if (req.method === 'GET' && url.pathname === '/api/sessions') {
       return handleListSessions(res)
@@ -286,31 +329,31 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         }
         switch (url.pathname) {
           case '/api/execute':
-            return handleExecuteCommand(data, res)
+            return handleExecuteCommand(data, res, ctxBinding)
           case '/api/send-input':
-            return handleSendInput(data, res)
+            return handleSendInput(data, res, ctxBinding)
           case '/api/read-output':
-            return handleReadOutput(data, res)
+            return handleReadOutput(data, res, ctxBinding)
           case '/api/send-and-wait':
-            return handleSendAndWait(data, res)
+            return handleSendAndWait(data, res, ctxBinding)
           case '/api/files/list':
-            return handleListFiles(data, res)
+            return handleListFiles(data, res, ctxBinding)
           case '/api/files/read':
-            return handleReadFile(data, res)
+            return handleReadFile(data, res, ctxBinding)
           case '/api/files/stat':
-            return handleStatFile(data, res)
+            return handleStatFile(data, res, ctxBinding)
           case '/api/files/download':
-            return handleDownloadFile(data, res)
+            return handleDownloadFile(data, res, ctxBinding)
           case '/api/files/upload':
-            return handleUploadFile(data, res)
+            return handleUploadFile(data, res, ctxBinding)
           case '/api/files/delete':
-            return handleDeleteFile(data, res)
+            return handleDeleteFile(data, res, ctxBinding)
           case '/api/files/rename':
-            return handleRenameFile(data, res)
+            return handleRenameFile(data, res, ctxBinding)
           case '/api/files/mkdir':
-            return handleCreateDirectory(data, res)
+            return handleCreateDirectory(data, res, ctxBinding)
           case '/api/files/md5':
-            return handleGetFileMd5(data, res)
+            return handleGetFileMd5(data, res, ctxBinding)
           default:
             sendJson(res, 404, { success: false, error: 'Not found' })
             return
@@ -361,7 +404,7 @@ function handleListSessions(res: http.ServerResponse): void {
 /**
  * POST /api/execute — 执行命令
  */
-async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerResponse): Promise<void> {
+async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
     const { sessionId, command, timeout = 30000 } = data
 
@@ -388,7 +431,7 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
 
     const safeTimeout = clampNumber(timeout, 1, MAX_COMMAND_TIMEOUT_MS, 30000)
     const capability: McpCapability = session.config.type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
-    const auth = await authorizeMcpOperation('execute_command', capability, sessionId, summarizeText(command))
+    const auth = await authorizeMcpOperation('execute_command', capability, sessionId, summarizeText(command), binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -423,7 +466,7 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
 /**
  * POST /api/send-input - 向交互式终端发送输入
  */
-async function handleSendInput(data: SendInputRequest, res: http.ServerResponse): Promise<void> {
+async function handleSendInput(data: SendInputRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
     const { sessionId, text } = data
 
@@ -448,7 +491,7 @@ async function handleSendInput(data: SendInputRequest, res: http.ServerResponse)
       return
     }
 
-    const auth = await authorizeMcpOperation('send_input', 'interactiveWrite', sessionId, `${text.length} chars`)
+    const auth = await authorizeMcpOperation('send_input', 'interactiveWrite', sessionId, `${text.length} chars`, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -470,7 +513,7 @@ async function handleSendInput(data: SendInputRequest, res: http.ServerResponse)
 /**
  * POST /api/read-output — 读取交互式终端的最近输出
  */
-async function handleReadOutput(data: ReadOutputRequest, res: http.ServerResponse): Promise<void> {
+async function handleReadOutput(data: ReadOutputRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
     const { sessionId } = data
     if (!sessionId) {
@@ -484,7 +527,7 @@ async function handleReadOutput(data: ReadOutputRequest, res: http.ServerRespons
       return
     }
 
-    const auth = await authorizeMcpOperation('read_output', 'read', sessionId)
+    const auth = await authorizeMcpOperation('read_output', 'read', sessionId, undefined, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -515,7 +558,7 @@ async function handleReadOutput(data: ReadOutputRequest, res: http.ServerRespons
 /**
  * POST /api/send-and-wait — 发送输入并等待响应
  */
-async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerResponse): Promise<void> {
+async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
     const { sessionId, text } = data
     if (!sessionId || text === undefined) {
@@ -539,7 +582,7 @@ async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerRespo
       return
     }
 
-    const auth = await authorizeMcpOperation('send_and_wait', 'interactiveWrite', sessionId, `${text.length} chars`)
+    const auth = await authorizeMcpOperation('send_and_wait', 'interactiveWrite', sessionId, `${text.length} chars`, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -564,14 +607,14 @@ async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerRespo
 /**
  * POST /api/files/list — 列出目录内容
  */
-async function handleListFiles(data: FileOperationRequest, res: http.ServerResponse): Promise<void> {
+async function handleListFiles(data: FileOperationRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
     const { sessionId, path: dirPath } = data
     if (!sessionId || !dirPath) {
       sendJson(res, 400, { success: false, error: 'sessionId and path are required' })
       return
     }
-    const auth = await authorizeMcpOperation('list_files', 'read', sessionId, dirPath)
+    const auth = await authorizeMcpOperation('list_files', 'read', sessionId, dirPath, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -586,7 +629,7 @@ async function handleListFiles(data: FileOperationRequest, res: http.ServerRespo
 /**
  * POST /api/files/read — 读取远程文件内容
  */
-async function handleReadFile(data: ReadFileRequest, res: http.ServerResponse): Promise<void> {
+async function handleReadFile(data: ReadFileRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
     const { sessionId, path: filePath, maxSize = 1048576 } = data
     if (!sessionId || !filePath) {
@@ -595,7 +638,7 @@ async function handleReadFile(data: ReadFileRequest, res: http.ServerResponse): 
     }
 
     const safeMaxSize = clampNumber(maxSize, 1, MAX_READ_FILE_BYTES, MAX_READ_FILE_BYTES)
-    const auth = await authorizeMcpOperation('read_file', 'read', sessionId, filePath)
+    const auth = await authorizeMcpOperation('read_file', 'read', sessionId, filePath, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -632,14 +675,14 @@ async function handleReadFile(data: ReadFileRequest, res: http.ServerResponse): 
 /**
  * POST /api/files/stat — 获取文件元信息
  */
-async function handleStatFile(data: FileOperationRequest, res: http.ServerResponse): Promise<void> {
+async function handleStatFile(data: FileOperationRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
     const { sessionId, path: filePath } = data
     if (!sessionId || !filePath) {
       sendJson(res, 400, { success: false, error: 'sessionId and path are required' })
       return
     }
-    const auth = await authorizeMcpOperation('stat_file', 'read', sessionId, filePath)
+    const auth = await authorizeMcpOperation('stat_file', 'read', sessionId, filePath, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -654,14 +697,14 @@ async function handleStatFile(data: FileOperationRequest, res: http.ServerRespon
 /**
  * POST /api/files/download — 下载远程文件
  */
-async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerResponse): Promise<void> {
+async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
     const { sessionId, remotePath, localPath } = data
     if (!sessionId || !remotePath || !localPath) {
       sendJson(res, 400, { success: false, error: 'sessionId, remotePath, and localPath are required' })
       return
     }
-    const auth = await authorizeMcpOperation('download_file', 'fileWrite', sessionId, `${remotePath} -> ${localPath}`)
+    const auth = await authorizeMcpOperation('download_file', 'fileWrite', sessionId, `${remotePath} -> ${localPath}`, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -678,14 +721,14 @@ async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerRes
 /**
  * POST /api/files/upload — 上传本地文件
  */
-async function handleUploadFile(data: UploadFileRequest, res: http.ServerResponse): Promise<void> {
+async function handleUploadFile(data: UploadFileRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
     const { sessionId, localPath, remotePath } = data
     if (!sessionId || !localPath || !remotePath) {
       sendJson(res, 400, { success: false, error: 'sessionId, localPath, and remotePath are required' })
       return
     }
-    const auth = await authorizeMcpOperation('upload_file', 'fileWrite', sessionId, `${localPath} -> ${remotePath}`)
+    const auth = await authorizeMcpOperation('upload_file', 'fileWrite', sessionId, `${localPath} -> ${remotePath}`, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -701,14 +744,14 @@ async function handleUploadFile(data: UploadFileRequest, res: http.ServerRespons
 /**
  * POST /api/files/delete — 删除远程文件/目录
  */
-async function handleDeleteFile(data: FileOperationRequest, res: http.ServerResponse): Promise<void> {
+async function handleDeleteFile(data: FileOperationRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
     const { sessionId, path: filePath } = data
     if (!sessionId || !filePath) {
       sendJson(res, 400, { success: false, error: 'sessionId and path are required' })
       return
     }
-    const auth = await authorizeMcpOperation('delete_file', 'fileDelete', sessionId, filePath)
+    const auth = await authorizeMcpOperation('delete_file', 'fileDelete', sessionId, filePath, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -723,14 +766,14 @@ async function handleDeleteFile(data: FileOperationRequest, res: http.ServerResp
 /**
  * POST /api/files/rename — 重命名/移动远程文件
  */
-async function handleRenameFile(data: RenameFileRequest, res: http.ServerResponse): Promise<void> {
+async function handleRenameFile(data: RenameFileRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
     const { sessionId, oldPath, newPath } = data
     if (!sessionId || !oldPath || !newPath) {
       sendJson(res, 400, { success: false, error: 'sessionId, oldPath, and newPath are required' })
       return
     }
-    const auth = await authorizeMcpOperation('rename_file', 'fileWrite', sessionId, `${oldPath} -> ${newPath}`)
+    const auth = await authorizeMcpOperation('rename_file', 'fileWrite', sessionId, `${oldPath} -> ${newPath}`, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -745,14 +788,14 @@ async function handleRenameFile(data: RenameFileRequest, res: http.ServerRespons
 /**
  * POST /api/files/mkdir — 创建远程目录
  */
-async function handleCreateDirectory(data: FileOperationRequest, res: http.ServerResponse): Promise<void> {
+async function handleCreateDirectory(data: FileOperationRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
     const { sessionId, path: dirPath } = data
     if (!sessionId || !dirPath) {
       sendJson(res, 400, { success: false, error: 'sessionId and path are required' })
       return
     }
-    const auth = await authorizeMcpOperation('create_directory', 'fileWrite', sessionId, dirPath)
+    const auth = await authorizeMcpOperation('create_directory', 'fileWrite', sessionId, dirPath, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -767,14 +810,14 @@ async function handleCreateDirectory(data: FileOperationRequest, res: http.Serve
 /**
  * POST /api/files/md5 — 计算远程文件 MD5
  */
-async function handleGetFileMd5(data: FileMd5Request, res: http.ServerResponse): Promise<void> {
+async function handleGetFileMd5(data: FileMd5Request, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
     const { sessionId, path: filePath } = data
     if (!sessionId || !filePath) {
       sendJson(res, 400, { success: false, error: 'sessionId and path are required' })
       return
     }
-    const auth = await authorizeMcpOperation('get_file_md5', 'read', sessionId, filePath)
+    const auth = await authorizeMcpOperation('get_file_md5', 'read', sessionId, filePath, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -826,34 +869,71 @@ function quotePosixPath(filePath: string): string {
   return `'${filePath.replace(/'/g, `'\\''`)}'`
 }
 
-function isValidAuthToken(token: string | string[] | undefined): boolean {
-  if (!authToken || typeof token !== 'string') return false
-  const expected = Buffer.from(authToken, 'utf8')
-  const actual = Buffer.from(token, 'utf8')
-  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual)
-}
-
 async function authorizeMcpOperation(
   operation: string,
   capability: McpCapability,
-  sessionId?: string,
-  summary?: string
+  sessionId: string | undefined,
+  summary: string | undefined,
+  binding: TokenBinding
 ): Promise<{ allowed: boolean; reason?: string }> {
   const settings = getMcpSecuritySettings()
   const session = sessionId ? sessionManager.getSession(sessionId) : undefined
   const sessionSummary = getSessionSummary(sessionId)
 
+  const auditBase: Omit<McpAuditEvent, 'allowed'> = {
+    operation,
+    capability,
+    ...sessionSummary,
+    summary,
+    tokenSource: binding.kind,
+    originSessionId: binding.originSessionId
+  }
+
   const deny = (reason: string) => {
-    auditMcpOperation({ operation, capability, ...sessionSummary, allowed: false, reason, summary })
+    auditMcpOperation({ ...auditBase, allowed: false, reason })
     return { allowed: false, reason }
   }
 
+  // 全局开关 + sessionId 黑/白名单（两类 token 共同受约束）
   if (!settings.enabled) return deny('MCP access is disabled')
   if (sessionId && settings.deniedSessionIds.includes(sessionId)) return deny('Session is denied for MCP')
   if (sessionId && settings.allowedSessionIds.length > 0 && !settings.allowedSessionIds.includes(sessionId)) {
     return deny('Session is not allowed for MCP')
   }
 
+  // session token 来自 LyShell 自身孵化的 PTY（经 LYSHELL_MCP_TOKEN env 注入），
+  // 持有该 token 即等同于"由 LyShell 直接信任"。默认放开非删除类操作并跳过弹窗。
+  //
+  // 跨会话目标限制：session token 可驱动的目标会话受限，避免 PTY-A 内被 prompt-injection
+  // 的 Claude 偷窥/操纵 PTY-B 的用户交互 shell（后者可能持有 sudo 缓存、密钥环境变量等）。
+  // 允许目标：
+  //   ① 该 token 自身的 originSessionId（自驱）
+  //   ② 任意非 LOCAL 会话（SSH / Telnet / Serial）—— agent 终端驱动远程节点是核心用例
+  // 禁止目标：
+  //   - 其它 LOCAL 会话
+  //   - 不带 sessionId 的全局操作（理论上当前路由没有此类，未来扩展防御性处理）
+  //
+  // 删除类操作对 session token 一律拒绝 —— 即使用户开了 allowFileDelete 也不放行。
+  // 删文件是不可逆操作，必须走外部通道（global token + allowFileDelete=true + 弹窗）。
+  if (binding.kind === 'session') {
+    if (capability === 'fileDelete') {
+      return deny('fileDelete is not allowed via session token; use an external MCP client with allowFileDelete enabled')
+    }
+    if (sessionId && session && session.config.type === ConnectionType.LOCAL && sessionId !== binding.originSessionId) {
+      return deny('session token cannot drive other LOCAL terminals; only its own PTY or remote (SSH/Telnet/Serial) sessions are allowed')
+    }
+    auditMcpOperation({ ...auditBase, allowed: true })
+    return { allowed: true }
+  }
+
+  // global token：来自端口文件，外部进程也可能持有 → 沿用保守的 allow* 策略。
+  // 实时复查 allowExternalMcpClients：用户即使在运行中关闭外部接入，已发出的全局 token
+  // 也立即失效；从关→开方向需重启（端口文件不会被回填 token）。
+  if (settings.allowExternalMcpClients !== true) {
+    return deny('External MCP access is disabled')
+  }
+
+  // global token：来自端口文件，外部进程也可能持有 → 沿用保守的 allow* 策略
   const capabilityAllowed =
     capability === 'read' ? settings.allowRead :
       capability === 'interactiveWrite' ? settings.allowInteractiveInput :
@@ -884,7 +964,7 @@ async function authorizeMcpOperation(
     if (result.response !== 1) return deny('User denied MCP operation')
   }
 
-  auditMcpOperation({ operation, capability, ...sessionSummary, allowed: true, summary })
+  auditMcpOperation({ ...auditBase, allowed: true })
   return { allowed: true }
 }
 

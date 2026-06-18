@@ -131,6 +131,14 @@ app.whenReady().then(async () => {
   await downloadHistory.init()
   log.info('Download history initialized')
 
+  // 启动 MCP HTTP 服务器（必须在创建任何会话/窗口前完成，
+  // 否则用户在窗口中开本地终端时端口尚未就绪，session-token env 无法注入）
+  try {
+    await startMcpHttpServer()
+  } catch (err) {
+    log.error('Failed to start MCP HTTP server:', err)
+  }
+
   // 创建主窗口
   createMainWindow()
 
@@ -139,13 +147,6 @@ app.whenReady().then(async () => {
 
   // 注册 IPC 处理器
   registerIPCHandlers()
-
-  // 启动 MCP HTTP 服务器
-  try {
-    await startMcpHttpServer()
-  } catch (err) {
-    log.error('Failed to start MCP HTTP server:', err)
-  }
 
   // 注册窗口相关 IPC 处理器
   ipcMain.handle('window:get-bounds', async () => {

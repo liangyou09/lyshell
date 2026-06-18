@@ -121,4 +121,11 @@ export interface McpSecuritySettings {
   requireConfirmation: boolean
   allowedSessionIds: string[]
   deniedSessionIds: string[]
+  /**
+   * 是否允许 LyShell 进程外的 MCP 客户端通过端口文件接入。
+   * 默认 false：MCP 仅对 LyShell 自身孵化的本地 PTY 开放（per-session token 经
+   * 环境变量注入），LyShell 关闭或 PTY 退出后 token 自动失效。
+   * 开启后端口文件含全局 token，任何能读到该文件的本机进程都可接入，仍受 allow* 策略约束。
+   */
+  allowExternalMcpClients?: boolean
 }

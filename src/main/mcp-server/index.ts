@@ -10,19 +10,21 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 
-import { readPortFile, LyShellHttpClient } from './http-client'
+import { discoverLyshell, LyShellHttpClient } from './http-client'
 import { TOOL_DEFINITIONS } from './tools'
 
 async function main(): Promise<void> {
-  // 1. 读取端口文件，发现 LyShell
-  const portInfo = readPortFile()
-  if (!portInfo) {
-    console.error('LyShell is not running. Please start LyShell first.')
+  // 1. 发现 LyShell
+  //    优先从 LYSHELL_MCP_PORT/TOKEN 环境变量取（PTY 内运行的常规路径），
+  //    否则回退到端口文件（仅当用户启用外部 MCP 接入时可用）。
+  const conn = discoverLyshell()
+  if (!conn) {
+    console.error('LyShell is not running, or external MCP access is disabled.')
     process.exit(1)
   }
 
   // 2. 创建 HTTP 客户端
-  const httpClient = new LyShellHttpClient(portInfo.port, portInfo.token)
+  const httpClient = new LyShellHttpClient(conn.port, conn.token)
 
   // 3. 健康检查
   const healthy = await httpClient.healthCheck()
@@ -31,7 +33,7 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  console.error(`[lyshell-mcp] Connected to LyShell on port ${portInfo.port}`)
+  console.error(`[lyshell-mcp] Connected to LyShell on port ${conn.port}`)
 
   // 4. 创建 MCP Server（使用底层 Server 类，支持原始 JSON Schema）
   const server = new Server(

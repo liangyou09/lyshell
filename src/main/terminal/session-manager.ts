@@ -1,9 +1,13 @@
 import { v4 as uuidv4 } from 'uuid'
 import { EventEmitter } from 'events'
 import log from 'electron-log'
+import { app } from 'electron'
 import { SSHConnector, TelnetConnector, SerialConnector, LocalConnector, ConnectionStatus, ConnectionType } from '../connectors'
 import type { SessionConfig, SSHConfig, TelnetConfig, SerialConfig, LocalConfig } from '@shared/types'
 import { OutputBuffer } from './output-buffer'
+import * as mcpAuth from '../mcp/auth'
+import { getMcpHttpPort } from '../mcp/http-server'
+import { LYSHELL_MCP_ENV } from '../mcp/types'
 
 /** read_output 读取选项 */
 export interface ReadOutputOptions {
@@ -162,6 +166,9 @@ export class SessionManager extends EventEmitter {
     session.outputBuffer?.clear()
     session.outputBuffer = undefined
 
+    // 撤销可能存在的 per-session MCP token（仅 LOCAL 会话会持有，但调用幂等）
+    mcpAuth.revokeSessionToken(id)
+
     this.sessions.delete(id)
     log.info(`Session deleted: ${id}`)
     this.emit('session:deleted', id)
@@ -202,12 +209,33 @@ export class SessionManager extends EventEmitter {
             encoding: session.config.terminal?.encoding
           })
           break
-        case ConnectionType.LOCAL:
+        case ConnectionType.LOCAL: {
+          // 为本地 PTY 生成 per-session MCP token，注入到 PTY env。
+          // PTY 内孵化的 Claude Code / MCP Server 子进程将自动继承，
+          // 外部进程拿不到 -> 实现"MCP 仅对 LyShell 内部终端开放"。
+          // 端口未就绪（HTTP 服务尚未启动）则跳过注入，PTY 仍可正常运行，只是无法连 MCP。
+          const sessionToken = mcpAuth.bindSessionToken(id)
+          const port = getMcpHttpPort()
+          const extraEnv: Record<string, string> = {}
+          if (port !== null) {
+            extraEnv[LYSHELL_MCP_ENV.PORT] = String(port)
+            extraEnv[LYSHELL_MCP_ENV.TOKEN] = sessionToken
+            extraEnv[LYSHELL_MCP_ENV.SESSION_ID] = id
+            try {
+              extraEnv[LYSHELL_MCP_ENV.USER_DATA] = app.getPath('userData')
+            } catch {
+              // 极少数测试环境下 app 不可用，忽略
+            }
+          } else {
+            log.warn(`[MCP] HTTP server not ready when spawning local session ${id}; MCP env will not be injected`)
+          }
+
           session.connector = new LocalConnector(id, {
             ...session.config.local as LocalConfig,
             encoding: session.config.terminal?.encoding
-          })
+          }, extraEnv)
           break
+        }
         default:
           throw new Error(`Unknown connection type: ${session.config.type}`)
       }
@@ -290,6 +318,10 @@ export class SessionManager extends EventEmitter {
     if (session.connector) {
       await session.connector.disconnect()
     }
+
+    // 撤销 per-session MCP token：PTY 已退出，env 注入的 token 不应再有效。
+    // 重连会在 connectSession 中重新 bind 一个新 token，旧的不会被复用。
+    mcpAuth.revokeSessionToken(id)
 
     session.status = ConnectionStatus.DISCONNECTED
     log.info(`Session disconnected: ${id}`)

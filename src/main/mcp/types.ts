@@ -182,10 +182,31 @@ export interface SendAndWaitResult {
 
 /**
  * MCP 端口信息文件格式
+ *
+ * v1: 单一全局 token，外部 MCP 客户端读取该文件即可接入。
+ * v2: token 字段可为 null —— 表示外部访问已关闭，
+ *     仅 LyShell 自身 PTY 通过 LYSHELL_MCP_TOKEN 环境变量注入的 per-session token 可接入。
  */
 export interface McpPortInfo {
   port: number
-  token: string
+  /** 全局 token；为 null 时表示禁用外部接入（仅 PTY 内 env 注入的 session token 有效）。 */
+  token: string | null
   pid: number
   version: number
+  /** v2 字段，标记当前是否允许外部 MCP 客户端通过端口文件接入。 */
+  externalAccess?: boolean
 }
+
+/**
+ * 注入到 LyShell 本地 PTY 的环境变量名。
+ *
+ * LyShell 启动 LOCAL 类型会话时，会为该 PTY 生成一个仅在该会话生命周期内有效的 token，
+ * 经下列环境变量注入。运行在该 PTY 内的 Claude Code / MCP Server 子进程会继承这些变量
+ * 并据此连接 LyShell HTTP API —— 进程不在该 PTY 子树中即拿不到 token。
+ */
+export const LYSHELL_MCP_ENV = {
+  PORT: 'LYSHELL_MCP_PORT',
+  TOKEN: 'LYSHELL_MCP_TOKEN',
+  SESSION_ID: 'LYSHELL_MCP_SESSION_ID',
+  USER_DATA: 'LYSHELL_USER_DATA',
+} as const

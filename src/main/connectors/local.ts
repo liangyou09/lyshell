@@ -18,13 +18,20 @@ export interface LocalConfig {
  */
 export class LocalConnector extends BaseConnector {
   private config: LocalConfig
+  /**
+   * 由调用方注入、不持久化到用户配置的额外环境变量。
+   * 用于 MCP per-session token 等会话生命周期内有效的运行时变量。
+   * 优先级高于 config.env，避免被持久化配置遮蔽。
+   */
+  private extraEnv: Record<string, string>
   private ptyProcess: IPty | null = null
   private _cols: number = 80
   private _rows: number = 24
 
-  constructor(sessionId: string, config: LocalConfig) {
+  constructor(sessionId: string, config: LocalConfig, extraEnv: Record<string, string> = {}) {
     super(sessionId)
     this.config = config
+    this.extraEnv = extraEnv
   }
 
   /**
@@ -43,7 +50,7 @@ export class LocalConnector extends BaseConnector {
       cols: this._cols,
       rows: this._rows,
       cwd: this.config.cwd || process.env.USERPROFILE || process.env.HOME,
-      env: { ...process.env, ...this.config.env } as Record<string, string>
+      env: { ...process.env, ...this.config.env, ...this.extraEnv } as Record<string, string>
     })
 
     this.ptyProcess.onData((data: string) => {

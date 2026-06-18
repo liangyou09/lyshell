@@ -11,7 +11,55 @@ import { execSync } from 'child_process'
 import type { McpPortInfo } from '../mcp/types'
 
 /**
+ * 发现 LyShell HTTP API 的连接信息
+ *
+ * 优先级：
+ *   1. LYSHELL_MCP_PORT + LYSHELL_MCP_TOKEN 环境变量
+ *      —— LyShell 启动本地 PTY 时直接注入，进程在该 PTY 子树内继承。
+ *      这是默认且推荐路径："只对 LyShell 内部终端开放"。
+ *      env 存在但格式无效一律视为致命错误：调用方明显期望走 env 通道，
+ *      此时回退到端口文件只会让用户看到误导性的"外部访问已禁用"提示。
+ *   2. 端口文件 mcp-server.json
+ *      —— 仅当用户开启 security.mcp.allowExternalMcpClients 时端口文件含 token，
+ *      否则 token 为 null，本路径接入失败。
+ */
+export function discoverLyshell(): { port: number; token: string } | null {
+  // 1. env 注入（PTY 内运行）
+  const envPortRaw = process.env.LYSHELL_MCP_PORT
+  const envToken = process.env.LYSHELL_MCP_TOKEN
+  const envProvided = envPortRaw !== undefined || envToken !== undefined
+  if (envProvided) {
+    if (envPortRaw === undefined || envToken === undefined) {
+      console.error('LYSHELL_MCP_PORT/LYSHELL_MCP_TOKEN env vars must be set together; saw only one')
+      return null
+    }
+    const envPort = parseInt(envPortRaw, 10)
+    if (!(Number.isInteger(envPort) && envPort > 0 && envPort <= 65535)) {
+      console.error(`Invalid LYSHELL_MCP_PORT="${envPortRaw}" (expected integer 1-65535)`)
+      return null
+    }
+    if (!/^[a-f0-9]{64}$/i.test(envToken)) {
+      console.error('Invalid LYSHELL_MCP_TOKEN format (expected 64 hex chars)')
+      return null
+    }
+    return { port: envPort, token: envToken }
+  }
+
+  // 2. 端口文件兜底（无 env 时）
+  const info = readPortFile()
+  if (!info) return null
+  if (!info.token) {
+    console.error('LyShell external MCP access is disabled (port file token is null).')
+    console.error('Either run `claude` inside a LyShell-spawned local terminal,')
+    console.error('or enable security.mcp.allowExternalMcpClients in LyShell preferences.')
+    return null
+  }
+  return { port: info.port, token: info.token }
+}
+
+/**
  * 读取端口文件，获取 LyShell HTTP API 的连接信息
+ * 返回的 token 可能为 null（外部访问已关闭）—— 调用方需通过 discoverLyshell() 处理。
  */
 export function readPortFile(): McpPortInfo | null {
   const userDataDir = getUserDataDir()
@@ -56,17 +104,18 @@ export function readPortFile(): McpPortInfo | null {
 }
 
 /**
- * 获取 LyShell 用户数据目录
+ * 端口文件格式校验。token 可为 null —— v2 表示外部访问关闭。
  */
 function isValidPortInfo(info: McpPortInfo): boolean {
+  const tokenOk = info.token === null
+    || (typeof info.token === 'string' && /^[a-f0-9]{64}$/i.test(info.token))
   return Number.isInteger(info.port) &&
     info.port > 0 &&
     info.port <= 65535 &&
     Number.isInteger(info.pid) &&
     info.pid > 0 &&
-    info.version === 1 &&
-    typeof info.token === 'string' &&
-    /^[a-f0-9]{64}$/i.test(info.token)
+    (info.version === 1 || info.version === 2) &&
+    tokenOk
 }
 
 function isPortFilePermissionSafe(portFilePath: string): boolean {
