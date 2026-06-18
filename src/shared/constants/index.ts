@@ -107,6 +107,18 @@ export const DEFAULT_THEME_LIGHT = {
 export const DEFAULT_FONT_FAMILY = "'Lucida Console', 'Consolas', 'Courier New', monospace"
 
 /**
+ * 默认光标闪烁设置：关闭。减少持续输出时的光标闪烁，用户可在设置面板中手动开启
+ */
+export const DEFAULT_CURSOR_BLINK = false
+
+export function isCursorBlinkEnabled(): boolean {
+  if (typeof localStorage === 'undefined') return DEFAULT_CURSOR_BLINK
+  const saved = localStorage.getItem('terminalCursorBlink')
+  if (saved === null) return DEFAULT_CURSOR_BLINK
+  return saved === 'true'
+}
+
+/**
  * 预置命令分组
  */
 export const DEFAULT_COMMAND_GROUPS = [

@@ -2,8 +2,9 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import { SearchAddon } from 'xterm-addon-search'
+import { WebglAddon } from 'xterm-addon-webgl'
 import 'xterm/css/xterm.css'
-import { DEFAULT_THEME_DARK, DEFAULT_FONT_FAMILY } from '@shared/constants'
+import { DEFAULT_THEME_DARK, DEFAULT_FONT_FAMILY, isCursorBlinkEnabled } from '@shared/constants'
 import { useTerminalStore } from '../../stores/terminal-store'
 import { useSessionStore } from '../../stores/session-store'
 import { ConnectionStatus } from '@shared/types'
@@ -38,7 +39,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   const searchInputRef = useRef<HTMLTextAreaElement>(null)
   const scrollbackLines = parseInt(localStorage.getItem('terminalScrollback') || '10000')
   const fontSize = parseInt(localStorage.getItem('terminalFontSize') || '16')
-  const cursorBlink = localStorage.getItem('terminalCursorBlink') !== 'false'  // 默认开启，设为 'false' 才关闭
+  const cursorBlink = isCursorBlinkEnabled()
 
   const { getTerminal, registerTerminal } = useTerminalStore()
   const { sessions } = useSessionStore()
@@ -128,6 +129,18 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       terminal.loadAddon(searchAddon)
 
       terminal.open(containerRef.current)
+
+      // 尝试加载 WebGL renderer，提升大输出场景下的渲染性能；失败时静默降级到默认 canvas
+      try {
+        const webglAddon = new WebglAddon()
+        webglAddon.onContextLoss(() => {
+          // 上下文丢失时释放 addon，xterm 会自动回退到 canvas renderer
+          webglAddon.dispose()
+        })
+        terminal.loadAddon(webglAddon)
+      } catch {
+        // WebGL 不可用，使用默认 renderer
+      }
 
       // 显示欢迎信息和 Xshell 风格的连接信息
       const buildDate = new Date().toISOString().split('T')[0]

@@ -6,6 +6,7 @@ import FloatWindow from '../FloatWindow/FloatWindow'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import type { SessionConfig } from '@shared/types'
+import { isCursorBlinkEnabled } from '@shared/constants'
 
 /**
  * 主窗口布局组件
@@ -25,10 +26,7 @@ const MainWindow: React.FC = () => {
     const saved = localStorage.getItem('terminalFontSize')
     return saved ? parseInt(saved) : 16
   })
-  const [cursorBlink, setCursorBlink] = useState(() => {
-    const saved = localStorage.getItem('terminalCursorBlink')
-    return saved !== 'false'  // 默认开启
-  })
+  const [cursorBlink, setCursorBlink] = useState(() => isCursorBlinkEnabled())
   const [downloadDir, setDownloadDir] = useState('')
   const { loadSessions, refreshSavedSessions } = useSessionStore()
   const { getAllLeafPanes, layout } = usePaneStore()
