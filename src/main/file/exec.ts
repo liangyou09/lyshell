@@ -245,11 +245,6 @@ export class ExecFileConnector extends BaseFileConnector {
         stream.on('data', (data: Buffer) => {
           const chunk = data.toString()
           this.outputBuffer += chunk
-          log.debug(`[FileManager] Shell data received: ${chunk.length} bytes`)
-          // 只打印前 100 字符，避免太多日志
-          if (chunk.length < 100) {
-            log.debug(`[FileManager] Shell data content: "${chunk.replace(/\n/g, '\\n').replace(/\r/g, '\\r')}"`)
-          }
 
           // 检查是否有 marker（表示命令完成）
           this.checkForMarker()
