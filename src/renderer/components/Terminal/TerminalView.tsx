@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import { SearchAddon } from 'xterm-addon-search'
-import { WebglAddon } from 'xterm-addon-webgl'
 import 'xterm/css/xterm.css'
 import { DEFAULT_THEME_DARK, DEFAULT_FONT_FAMILY, isCursorBlinkEnabled } from '@shared/constants'
 import { useTerminalStore } from '../../stores/terminal-store'
@@ -130,17 +129,10 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
 
       terminal.open(containerRef.current)
 
-      // 尝试加载 WebGL renderer，提升大输出场景下的渲染性能；失败时静默降级到默认 canvas
-      try {
-        const webglAddon = new WebglAddon()
-        webglAddon.onContextLoss(() => {
-          // 上下文丢失时释放 addon，xterm 会自动回退到 canvas renderer
-          webglAddon.dispose()
-        })
-        terminal.loadAddon(webglAddon)
-      } catch {
-        // WebGL 不可用，使用默认 renderer
-      }
+      // 注意：此处曾尝试加载 WebglAddon 以提升渲染性能，但会导致
+      // xterm 的 .xterm-helper-textarea 不再跟随光标位置同步，
+      // 使输入法（IME）候选框漂到左上角或上次位置。默认 DOM renderer
+      // 对当前负载性能足够，故移除 WebGL renderer。
 
       // 显示欢迎信息和 Xshell 风格的连接信息
       const buildDate = new Date().toISOString().split('T')[0]
