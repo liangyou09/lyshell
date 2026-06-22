@@ -134,6 +134,27 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       // 使输入法（IME）候选框漂到左上角或上次位置。默认 DOM renderer
       // 对当前负载性能足够，故移除 WebGL renderer。
 
+      // 修复 IME 候选框漂出右边缘的问题：
+      // xterm CompositionHelper.updateCompositionElements() 同步把 .xterm-helper-textarea
+      // 的 left/width 设为预编辑文本的渲染尺寸，caret 位于文本末尾。Chromium/IMM 以 caret 屏幕
+      // 坐标定位候选框，因此拼音越长 caret 越靠右；在窄分屏 / 行尾输入时会冲出可视区。
+      // 解决：compositionupdate 之后同步把右边缘收回到容器内，且用下限避免冲出左边。
+      const helperTextarea = containerRef.current.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea')
+      if (helperTextarea) {
+        // 仅在右边缘溢出容器时纠正，避免覆盖 xterm 正常的光标跟随定位
+        helperTextarea.addEventListener('compositionupdate', () => {
+          const container = containerRef.current
+          if (!container) return
+          const containerRect = container.getBoundingClientRect()
+          const taRect = helperTextarea.getBoundingClientRect()
+          const overflow = taRect.right - containerRect.right
+          if (overflow > 0) {
+            const targetLeft = Math.max(containerRect.right - 4 - taRect.width, 0)
+            helperTextarea.style.left = `${targetLeft}px`
+          }
+        })
+      }
+
       // 显示欢迎信息和 Xshell 风格的连接信息
       const buildDate = new Date().toISOString().split('T')[0]
       terminal.writeln(`\x1b[1;36mLyShell v1.0.1\x1b[0m \x1b[90mBuild: ${buildDate}\x1b[0m`)

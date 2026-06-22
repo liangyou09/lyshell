@@ -83,7 +83,7 @@ export default defineConfig({
           assetFileNames: 'assets/[name]-[hash].[ext]',
           dir: 'dist/renderer',
           manualChunks: {
-            'xterm': ['xterm', 'xterm-addon-fit', 'xterm-addon-webgl', 'xterm-addon-search', 'xterm-addon-unicode11'],
+            'xterm': ['xterm', 'xterm-addon-fit', 'xterm-addon-search', 'xterm-addon-unicode11'],
             'react': ['react', 'react-dom'],
             'vendor': ['zustand', 'lodash-es', 'dayjs', 'classnames']
           }
