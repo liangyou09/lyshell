@@ -50,7 +50,7 @@ All renderer→main calls go through `src/main/ipc/handlers.ts` (~1500 LOC, the 
 
 LyShell exposes its sessions to external MCP clients in two layers:
 
-- `src/main/mcp/http-server.ts` runs an HTTP API on `127.0.0.1` at a random port inside the main process. It writes the port + auth tokens to a port file (`mcp-server.json` under userData) and gates each endpoint by capability (`read` / `interactiveWrite` / `execute` / `localExecute` / `fileWrite` / `fileDelete`) using `mcp/auth.ts`. Token kind determines capability set — see commit `93c86e6` for the per-session token model.
+- `src/main/mcp/http-server.ts` runs an HTTP API on `127.0.0.1` at a random port inside the main process. It writes the port + auth tokens to a port file (`mcp-server.json` under userData) and gates each endpoint by capability (`read` / `interactiveWrite` / `execute` / `localExecute` / `fileWrite` / `sessionControl`) using `mcp/auth.ts`. Token kind determines capability set — see commit `93c86e6` for the per-session token model.
 - `src/main/mcp-server/` is a separate child process bundled as `dist/main/mcpServer.js`. It speaks MCP over stdio to a client (e.g. Claude Code) and proxies tool calls into the local HTTP API via `http-client.ts`. Tool definitions live in `tools.ts`.
 
 Per-session tokens are injected into spawned PTYs via env (`LYSHELL_MCP_ENV` constant). Treat any HTTP/MCP input as untrusted — validation is enforced server-side.

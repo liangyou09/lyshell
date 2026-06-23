@@ -109,28 +109,27 @@ export interface FileOperationRequest {
 }
 
 /**
- * 重命名文件请求
- */
-export interface RenameFileRequest {
-  sessionId: string
-  oldPath: string
-  newPath: string
-}
-
-/**
- * 计算远程文件 MD5 请求
- */
-export interface FileMd5Request {
-  sessionId: string
-  path: string
-}
-
-/**
  * 发送输入请求（向交互式终端写入数据）
  */
 export interface SendInputRequest {
   sessionId: string
   text: string
+}
+
+/**
+ * 重连会话请求
+ */
+export interface ReconnectSessionRequest {
+  sessionId: string
+}
+
+/**
+ * 重连会话响应
+ */
+export interface ReconnectSessionResponse {
+  sessionId: string
+  /** 重连后的连接状态字符串 (ConnectionStatus enum 值) */
+  status: string
 }
 
 /**

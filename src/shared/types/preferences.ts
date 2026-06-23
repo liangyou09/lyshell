@@ -117,10 +117,16 @@ export interface McpSecuritySettings {
   allowSshExecute: boolean
   allowLocalExecute: boolean
   allowFileWrite: boolean
-  allowFileDelete: boolean
   requireConfirmation: boolean
   allowedSessionIds: string[]
   deniedSessionIds: string[]
+  /**
+   * 是否允许 MCP 客户端执行会话控制操作（目前仅 reconnect_session）。
+   * 默认对 session token 始终放行（属于"自驱"语义）；
+   * 对 global token (外部 MCP 客户端) 默认 false —— 需用户在此显式开启。
+   * undefined 视为 false（前向兼容旧偏好文件）。
+   */
+  allowSessionControl?: boolean
   /**
    * 是否允许 LyShell 进程外的 MCP 客户端通过端口文件接入。
    * 默认 false：MCP 仅对 LyShell 自身孵化的本地 PTY 开放（per-session token 经

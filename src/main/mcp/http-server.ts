@@ -15,7 +15,8 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { sessionManager, processInputEscapeSequences } from '../terminal/session-manager'
 import { fileManager } from '../file/manager'
-import { preferencesRepository } from '../storage/repository'
+import { preferencesRepository, quickCommandsRepository } from '../storage/repository'
+import { agentRepository } from '../storage/agent-repository'
 import { ConnectionType, ConnectionStatus } from '@shared/types'
 import * as mcpAuth from './auth'
 import type { TokenBinding, TokenKind } from './auth'
@@ -30,14 +31,14 @@ import type {
   DownloadFileResponse,
   UploadFileRequest,
   FileOperationRequest,
-  RenameFileRequest,
-  FileMd5Request,
   McpPortInfo,
   SendInputRequest,
   ReadOutputRequest,
   ReadOutputResponse,
   SendAndWaitRequest,
-  SendAndWaitResult
+  SendAndWaitResult,
+  ReconnectSessionRequest,
+  ReconnectSessionResponse
 } from './types'
 
 let server: http.Server | null = null
@@ -47,7 +48,7 @@ const MAX_COMMAND_TIMEOUT_MS = 120000
 const MAX_READ_FILE_BYTES = 1048576
 const MAX_TEXT_LENGTH = 1024 * 1024
 
-type McpCapability = 'read' | 'interactiveWrite' | 'execute' | 'localExecute' | 'fileWrite' | 'fileDelete'
+type McpCapability = 'read' | 'interactiveWrite' | 'execute' | 'localExecute' | 'fileWrite' | 'sessionControl'
 
 interface McpSecuritySettings {
   enabled?: boolean
@@ -56,7 +57,7 @@ interface McpSecuritySettings {
   allowSshExecute?: boolean
   allowLocalExecute?: boolean
   allowFileWrite?: boolean
-  allowFileDelete?: boolean
+  allowSessionControl?: boolean
   requireConfirmation?: boolean
   allowedSessionIds?: string[]
   deniedSessionIds?: string[]
@@ -86,7 +87,7 @@ const DEFAULT_MCP_SECURITY: Required<McpSecuritySettings> = {
   allowSshExecute: false,
   allowLocalExecute: false,
   allowFileWrite: false,
-  allowFileDelete: false,
+  allowSessionControl: false,
   requireConfirmation: true,
   allowedSessionIds: [],
   deniedSessionIds: [],
@@ -318,6 +319,24 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       return handleListSessions(res)
     }
 
+    // P1: 资源端点（read capability，纯只读，无副作用）
+    if (req.method === 'GET' && url.pathname === '/api/quick-commands') {
+      handleListQuickCommands(res, ctxBinding).catch(err => sendJson(res, 500, { success: false, error: err.message }))
+      return
+    }
+    if (req.method === 'GET' && url.pathname === '/api/agents') {
+      handleListAgents(res, ctxBinding).catch(err => sendJson(res, 500, { success: false, error: err.message }))
+      return
+    }
+    // GET /api/sessions/{id}/output?lines=200
+    {
+      const m = url.pathname.match(/^\/api\/sessions\/([^/]+)\/output$/)
+      if (req.method === 'GET' && m) {
+        handleSessionOutputResource(m[1], url, res, ctxBinding).catch(err => sendJson(res, 500, { success: false, error: err.message }))
+        return
+      }
+    }
+
     if (req.method === 'POST') {
       readBody(req).then(body => {
         let data: any
@@ -328,6 +347,8 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
           return
         }
         switch (url.pathname) {
+          case '/api/sessions':
+            return handleListSessionsFiltered(data, res)
           case '/api/execute':
             return handleExecuteCommand(data, res, ctxBinding)
           case '/api/send-input':
@@ -336,6 +357,8 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
             return handleReadOutput(data, res, ctxBinding)
           case '/api/send-and-wait':
             return handleSendAndWait(data, res, ctxBinding)
+          case '/api/sessions/reconnect':
+            return handleReconnectSession(data, res, ctxBinding)
           case '/api/files/list':
             return handleListFiles(data, res, ctxBinding)
           case '/api/files/read':
@@ -346,14 +369,13 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
             return handleDownloadFile(data, res, ctxBinding)
           case '/api/files/upload':
             return handleUploadFile(data, res, ctxBinding)
-          case '/api/files/delete':
-            return handleDeleteFile(data, res, ctxBinding)
-          case '/api/files/rename':
-            return handleRenameFile(data, res, ctxBinding)
-          case '/api/files/mkdir':
-            return handleCreateDirectory(data, res, ctxBinding)
-          case '/api/files/md5':
-            return handleGetFileMd5(data, res, ctxBinding)
+          // P1: 高层 workflow 工具
+          case '/api/wait-for-prompt':
+            return handleWaitForPrompt(data, res, ctxBinding)
+          case '/api/run-on-sessions':
+            return handleRunOnSessions(data, res, ctxBinding)
+          case '/api/tail-until':
+            return handleTailUntil(data, res, ctxBinding)
           default:
             sendJson(res, 404, { success: false, error: 'Not found' })
             return
@@ -396,6 +418,56 @@ function handleListSessions(res: http.ServerResponse): void {
       }
     }))
     sendJson(res, 200, { success: true, data: result })
+  } catch (err: any) {
+    sendJson(res, 500, { success: false, error: err.message })
+  }
+}
+
+/**
+ * POST /api/sessions — 列出会话（带过滤/分页）
+ * 兼容 GET：参数全部 undefined 时等价于 GET 全量。
+ * 返回 { sessions, total, offset, limit }。
+ */
+function handleListSessionsFiltered(
+  filter: { status?: string; type?: string; tag?: string; search?: string; limit?: number; offset?: number } | undefined,
+  res: http.ServerResponse
+): void {
+  try {
+    const all = sessionManager.getAllSessions()
+    let infos: SessionInfo[] = all.map(s => ({
+      id: s.id,
+      name: s.config.name,
+      type: s.config.type,
+      status: s.status,
+      host: s.config.ssh?.host || s.config.telnet?.host,
+      port: s.config.ssh?.port || s.config.telnet?.port,
+      group: s.config.group,
+      tags: s.config.tags,
+      capabilities: {
+        sendInput: true,
+        executeCommand: s.config.type === ConnectionType.SSH || s.config.type === ConnectionType.LOCAL,
+        fileOperations: s.config.type === ConnectionType.SSH,
+        readOutput: s.status === ConnectionStatus.CONNECTED
+      }
+    }))
+
+    const f = filter || {}
+    if (f.status) infos = infos.filter(i => i.status === f.status)
+    if (f.type) infos = infos.filter(i => i.type === f.type)
+    if (f.tag) infos = infos.filter(i => i.tags.includes(f.tag!))
+    if (f.search) {
+      const q = String(f.search).toLowerCase()
+      infos = infos.filter(i =>
+        i.name.toLowerCase().includes(q) || (i.host || '').toLowerCase().includes(q)
+      )
+    }
+
+    const total = infos.length
+    const offset = clampNumber(f.offset, 0, total, 0)
+    const limit = clampNumber(f.limit, 1, 500, 50)
+    const sliced = infos.slice(offset, offset + limit)
+
+    sendJson(res, 200, { success: true, data: { sessions: sliced, total, offset, limit } })
   } catch (err: any) {
     sendJson(res, 500, { success: false, error: err.message })
   }
@@ -605,6 +677,51 @@ async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerRespo
 }
 
 /**
+ * POST /api/sessions/reconnect — 重连指定会话
+ *
+ * session token：自驱（target == originSessionId）总是允许；
+ *               跨会话目标受 authorizeMcpOperation 的 LOCAL 限制；
+ *               session token 触发 reconnect 不弹窗（已经过孵化关系信任）。
+ * global token：需用户在偏好中开启 allowSessionControl。
+ */
+async function handleReconnectSession(
+  data: ReconnectSessionRequest,
+  res: http.ServerResponse,
+  binding: TokenBinding
+): Promise<void> {
+  try {
+    const { sessionId } = data
+    if (!sessionId) {
+      sendJson(res, 400, { success: false, error: 'sessionId is required' })
+      return
+    }
+
+    const session = sessionManager.getSession(sessionId)
+    if (!session) {
+      sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
+      return
+    }
+
+    const auth = await authorizeMcpOperation('reconnect_session', 'sessionControl', sessionId, undefined, binding)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+
+    const result = await sessionManager.reconnectSession(sessionId)
+    const response: ReconnectSessionResponse = {
+      sessionId: result.id,
+      status: result.status
+    }
+    log.info(`[MCP] Reconnected session ${sessionId}: status=${result.status}`)
+    sendJson(res, 200, { success: true, data: response })
+  } catch (err: any) {
+    log.error('[MCP] Reconnect session error:', err)
+    sendJson(res, 500, { success: false, error: err.message })
+  }
+}
+
+/**
  * POST /api/files/list — 列出目录内容
  */
 async function handleListFiles(data: FileOperationRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
@@ -741,94 +858,6 @@ async function handleUploadFile(data: UploadFileRequest, res: http.ServerRespons
   }
 }
 
-/**
- * POST /api/files/delete — 删除远程文件/目录
- */
-async function handleDeleteFile(data: FileOperationRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
-  try {
-    const { sessionId, path: filePath } = data
-    if (!sessionId || !filePath) {
-      sendJson(res, 400, { success: false, error: 'sessionId and path are required' })
-      return
-    }
-    const auth = await authorizeMcpOperation('delete_file', 'fileDelete', sessionId, filePath, binding)
-    if (!auth.allowed) {
-      sendJson(res, 403, { success: false, error: auth.reason })
-      return
-    }
-    await fileManager.delete(sessionId, filePath)
-    sendJson(res, 200, { success: true, data: {} })
-  } catch (err: any) {
-    sendJson(res, 500, { success: false, error: err.message })
-  }
-}
-
-/**
- * POST /api/files/rename — 重命名/移动远程文件
- */
-async function handleRenameFile(data: RenameFileRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
-  try {
-    const { sessionId, oldPath, newPath } = data
-    if (!sessionId || !oldPath || !newPath) {
-      sendJson(res, 400, { success: false, error: 'sessionId, oldPath, and newPath are required' })
-      return
-    }
-    const auth = await authorizeMcpOperation('rename_file', 'fileWrite', sessionId, `${oldPath} -> ${newPath}`, binding)
-    if (!auth.allowed) {
-      sendJson(res, 403, { success: false, error: auth.reason })
-      return
-    }
-    await fileManager.rename(sessionId, oldPath, newPath)
-    sendJson(res, 200, { success: true, data: {} })
-  } catch (err: any) {
-    sendJson(res, 500, { success: false, error: err.message })
-  }
-}
-
-/**
- * POST /api/files/mkdir — 创建远程目录
- */
-async function handleCreateDirectory(data: FileOperationRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
-  try {
-    const { sessionId, path: dirPath } = data
-    if (!sessionId || !dirPath) {
-      sendJson(res, 400, { success: false, error: 'sessionId and path are required' })
-      return
-    }
-    const auth = await authorizeMcpOperation('create_directory', 'fileWrite', sessionId, dirPath, binding)
-    if (!auth.allowed) {
-      sendJson(res, 403, { success: false, error: auth.reason })
-      return
-    }
-    await fileManager.mkdir(sessionId, dirPath)
-    sendJson(res, 200, { success: true, data: {} })
-  } catch (err: any) {
-    sendJson(res, 500, { success: false, error: err.message })
-  }
-}
-
-/**
- * POST /api/files/md5 — 计算远程文件 MD5
- */
-async function handleGetFileMd5(data: FileMd5Request, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
-  try {
-    const { sessionId, path: filePath } = data
-    if (!sessionId || !filePath) {
-      sendJson(res, 400, { success: false, error: 'sessionId and path are required' })
-      return
-    }
-    const auth = await authorizeMcpOperation('get_file_md5', 'read', sessionId, filePath, binding)
-    if (!auth.allowed) {
-      sendJson(res, 403, { success: false, error: auth.reason })
-      return
-    }
-    const md5 = await fileManager.calculateRemoteMD5(sessionId, filePath)
-    sendJson(res, 200, { success: true, data: { md5 } })
-  } catch (err: any) {
-    sendJson(res, 500, { success: false, error: err.message })
-  }
-}
-
 // ========== 工具函数 ==========
 
 function getMcpSecuritySettings(): Required<McpSecuritySettings> {
@@ -913,12 +942,9 @@ async function authorizeMcpOperation(
   //   - 其它 LOCAL 会话
   //   - 不带 sessionId 的全局操作（理论上当前路由没有此类，未来扩展防御性处理）
   //
-  // 删除类操作对 session token 一律拒绝 —— 即使用户开了 allowFileDelete 也不放行。
-  // 删文件是不可逆操作，必须走外部通道（global token + allowFileDelete=true + 弹窗）。
+  // 注：MCP 本身已不暴露 delete_file 工具。需要删除的请走 execute_command + rm，
+  //     由 allowSshExecute / allowLocalExecute 控制，并继承 SSH/PTY 自身的权限模型。
   if (binding.kind === 'session') {
-    if (capability === 'fileDelete') {
-      return deny('fileDelete is not allowed via session token; use an external MCP client with allowFileDelete enabled')
-    }
     if (sessionId && session && session.config.type === ConnectionType.LOCAL && sessionId !== binding.originSessionId) {
       return deny('session token cannot drive other LOCAL terminals; only its own PTY or remote (SSH/Telnet/Serial) sessions are allowed')
     }
@@ -940,7 +966,7 @@ async function authorizeMcpOperation(
         capability === 'execute' ? settings.allowSshExecute :
           capability === 'localExecute' ? settings.allowLocalExecute :
             capability === 'fileWrite' ? settings.allowFileWrite :
-              capability === 'fileDelete' ? settings.allowFileDelete : false
+              capability === 'sessionControl' ? (settings.allowSessionControl === true) : false
 
   if (!capabilityAllowed) return deny(`MCP capability ${capability} is disabled`)
 
@@ -966,6 +992,307 @@ async function authorizeMcpOperation(
 
   auditMcpOperation({ ...auditBase, allowed: true })
   return { allowed: true }
+}
+
+// ========== P1 资源端点 ==========
+
+/**
+ * GET /api/quick-commands — 返回快速命令列表（用于 MCP resource: lyshell://quick-commands）
+ */
+async function handleListQuickCommands(res: http.ServerResponse, binding: TokenBinding): Promise<void> {
+  try {
+    const auth = await authorizeMcpOperation('list_quick_commands', 'read', undefined, undefined, binding)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+    const commands = quickCommandsRepository.getAll()
+    const groups = quickCommandsRepository.getAllGroups()
+    sendJson(res, 200, { success: true, data: { commands, groups } })
+  } catch (err: any) {
+    sendJson(res, 500, { success: false, error: err.message })
+  }
+}
+
+/**
+ * GET /api/agents — 返回 AI Agent 配置（脱敏：env 中疑似密钥的字段以 [REDACTED] 替换）
+ */
+async function handleListAgents(res: http.ServerResponse, binding: TokenBinding): Promise<void> {
+  try {
+    const auth = await authorizeMcpOperation('list_agents', 'read', undefined, undefined, binding)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+    const agents = agentRepository.getAll().map(a => ({
+      id: a.id,
+      name: a.name,
+      command: a.command,
+      icon: a.icon,
+      cwd: a.cwd,
+      order: a.order,
+      env: a.env ? redactSecretEnv(a.env) : undefined
+    }))
+    sendJson(res, 200, { success: true, data: agents })
+  } catch (err: any) {
+    sendJson(res, 500, { success: false, error: err.message })
+  }
+}
+
+/**
+ * GET /api/sessions/{id}/output?lines=200 — 返回指定会话的最近输出（resource: lyshell://sessions/{id}/output）
+ */
+async function handleSessionOutputResource(
+  sessionId: string,
+  url: URL,
+  res: http.ServerResponse,
+  binding: TokenBinding
+): Promise<void> {
+  try {
+    const auth = await authorizeMcpOperation('read_output_resource', 'read', sessionId, undefined, binding)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+    const session = sessionManager.getSession(sessionId)
+    if (!session) {
+      sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
+      return
+    }
+    const rawLines = url.searchParams.get('lines')
+    const linesNum = rawLines ? Number(rawLines) : 200
+    const out = sessionManager.readOutput(sessionId, {
+      lines: clampNumber(linesNum, 1, 1000, 200),
+      raw: false
+    })
+    if (!out) {
+      sendJson(res, 400, { success: false, error: 'Output buffer not available (session may be disconnected)' })
+      return
+    }
+    sendJson(res, 200, { success: true, data: out })
+  } catch (err: any) {
+    sendJson(res, 500, { success: false, error: err.message })
+  }
+}
+
+/**
+ * 简单脱敏：env 中 key 含 token/secret/key/password 等关键字的值替换为 [REDACTED]。
+ * 列表大小写不敏感。
+ */
+function redactSecretEnv(env: Record<string, string>): Record<string, string> {
+  const SECRET_PATTERNS = /(token|secret|password|passwd|key|api[_-]?key)/i
+  const result: Record<string, string> = {}
+  for (const [k, v] of Object.entries(env)) {
+    result[k] = SECRET_PATTERNS.test(k) ? '[REDACTED]' : v
+  }
+  return result
+}
+
+// ========== P1 高层 workflow 工具 ==========
+
+/**
+ * POST /api/wait-for-prompt — 等待某模式在终端输出中出现（不发送任何输入）
+ */
+async function handleWaitForPrompt(
+  data: { sessionId: string; pattern: string; timeoutMs?: number; idleMs?: number },
+  res: http.ServerResponse,
+  binding: TokenBinding
+): Promise<void> {
+  try {
+    const { sessionId, pattern } = data
+    if (!sessionId || !pattern) {
+      sendJson(res, 400, { success: false, error: 'sessionId and pattern are required' })
+      return
+    }
+
+    const session = sessionManager.getSession(sessionId)
+    if (!session) {
+      sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
+      return
+    }
+    if (session.status !== ConnectionStatus.CONNECTED) {
+      sendJson(res, 400, { success: false, error: `Session not connected (status: ${session.status})` })
+      return
+    }
+
+    const auth = await authorizeMcpOperation('wait_for_prompt', 'read', sessionId, summarizeText(pattern, 200), binding)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+
+    // 复用 sendAndWait, 但 text='' 仅等待 —— 不写入任何字节
+    const result: SendAndWaitResult = await sessionManager.sendAndWait(sessionId, {
+      text: '',
+      waitMs: 0,
+      idleMs: clampNumber(data.idleMs, 50, 10000, 500),
+      maxWaitMs: clampNumber(data.timeoutMs, 100, MAX_COMMAND_TIMEOUT_MS, 30000),
+      waitForPattern: pattern
+    })
+
+    sendJson(res, 200, { success: true, data: result })
+  } catch (err: any) {
+    sendJson(res, 500, { success: false, error: err.message })
+  }
+}
+
+/**
+ * POST /api/run-on-sessions — 并发在多个会话上执行同一命令
+ * 单会话失败不影响其他会话；每个会话独立鉴权。
+ * 最大并发 = min(sessionIds.length, 10)
+ */
+async function handleRunOnSessions(
+  data: { sessionIds: string[]; command: string; timeout?: number },
+  res: http.ServerResponse,
+  binding: TokenBinding
+): Promise<void> {
+  try {
+    const { sessionIds, command, timeout = 30000 } = data
+    if (!Array.isArray(sessionIds) || sessionIds.length === 0) {
+      sendJson(res, 400, { success: false, error: 'sessionIds must be a non-empty array' })
+      return
+    }
+    if (sessionIds.length > 50) {
+      sendJson(res, 400, { success: false, error: 'sessionIds limited to 50 per call' })
+      return
+    }
+    if (typeof command !== 'string' || command.length === 0) {
+      sendJson(res, 400, { success: false, error: 'command is required' })
+      return
+    }
+    if (command.length > MAX_TEXT_LENGTH) {
+      sendJson(res, 400, { success: false, error: `Command too large (max ${MAX_TEXT_LENGTH} chars)` })
+      return
+    }
+
+    const safeTimeout = clampNumber(timeout, 100, MAX_COMMAND_TIMEOUT_MS, 30000)
+
+    // 单 session 的执行（含鉴权 + 类型路由），失败转为 result entry 而非抛出
+    const runOne = async (sid: string): Promise<{ sessionId: string; output?: string; exitCode?: number; error?: string }> => {
+      const session = sessionManager.getSession(sid)
+      if (!session) return { sessionId: sid, error: `Session not found: ${sid}` }
+      if (session.status !== ConnectionStatus.CONNECTED) {
+        return { sessionId: sid, error: `Session not connected (status: ${session.status})` }
+      }
+      const cap: McpCapability = session.config.type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
+      const auth = await authorizeMcpOperation('run_on_sessions', cap, sid, summarizeText(command), binding)
+      if (!auth.allowed) return { sessionId: sid, error: auth.reason }
+
+      try {
+        if (session.config.type === ConnectionType.SSH) {
+          const connector = await fileManager.getConnector(sid)
+          if (!connector.execRaw) {
+            return { sessionId: sid, error: 'Connector does not support execution' }
+          }
+          const output = await connector.execRaw(command, safeTimeout)
+          return { sessionId: sid, output, exitCode: 0 }
+        }
+        if (session.config.type === ConnectionType.LOCAL) {
+          const r = await executeLocalCommand(command, session.config.local?.cwd, session.config.local?.env, safeTimeout)
+          return { sessionId: sid, output: r.output, exitCode: r.exitCode }
+        }
+        return { sessionId: sid, error: `Command execution not supported for session type: ${session.config.type}` }
+      } catch (e: any) {
+        return { sessionId: sid, error: e.message || 'Unknown error' }
+      }
+    }
+
+    // 简单并发池：每次同时跑 min(remaining, 10)
+    const CONCURRENCY = Math.min(sessionIds.length, 10)
+    const queue = [...sessionIds]
+    const results: Array<{ sessionId: string; output?: string; exitCode?: number; error?: string }> = []
+    const workers: Promise<void>[] = []
+    for (let i = 0; i < CONCURRENCY; i++) {
+      workers.push((async () => {
+        while (queue.length > 0) {
+          const sid = queue.shift()!
+          results.push(await runOne(sid))
+        }
+      })())
+    }
+    await Promise.all(workers)
+
+    sendJson(res, 200, { success: true, data: { results } })
+  } catch (err: any) {
+    sendJson(res, 500, { success: false, error: err.message })
+  }
+}
+
+/**
+ * POST /api/tail-until — 循环检查会话输出，直到正则匹配或超时
+ * 比 wait_for_prompt 更适合"看着日志直到 X 出现"的语义；
+ * 内部按 idleMs 间隔轮询 readOutput 缓冲，避免和实时 send_and_wait 共享数据流冲突。
+ */
+async function handleTailUntil(
+  data: { sessionId: string; pattern: string; timeoutMs?: number; pollMs?: number },
+  res: http.ServerResponse,
+  binding: TokenBinding
+): Promise<void> {
+  try {
+    const { sessionId, pattern } = data
+    if (!sessionId || !pattern) {
+      sendJson(res, 400, { success: false, error: 'sessionId and pattern are required' })
+      return
+    }
+
+    const session = sessionManager.getSession(sessionId)
+    if (!session) {
+      sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
+      return
+    }
+    if (session.status !== ConnectionStatus.CONNECTED) {
+      sendJson(res, 400, { success: false, error: `Session not connected (status: ${session.status})` })
+      return
+    }
+
+    const auth = await authorizeMcpOperation('tail_until', 'read', sessionId, summarizeText(pattern, 200), binding)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+
+    let regex: RegExp
+    try {
+      regex = new RegExp(pattern)
+    } catch (e: any) {
+      sendJson(res, 400, { success: false, error: `Invalid pattern regex: ${e.message}` })
+      return
+    }
+
+    const timeoutMs = clampNumber(data.timeoutMs, 500, MAX_COMMAND_TIMEOUT_MS, 30000)
+    const pollMs = clampNumber(data.pollMs, 100, 5000, 500)
+    const start = Date.now()
+    let matched = false
+    let lastOutput = ''
+
+    while (Date.now() - start < timeoutMs) {
+      const out = sessionManager.readOutput(sessionId, { lines: 500, raw: false })
+      if (out) {
+        lastOutput = out.output
+        if (regex.test(lastOutput)) {
+          matched = true
+          break
+        }
+      }
+      // 注意：会话中途断开则放弃
+      const fresh = sessionManager.getSession(sessionId)
+      if (!fresh || fresh.status !== ConnectionStatus.CONNECTED) {
+        sendJson(res, 200, {
+          success: true,
+          data: { matched: false, elapsedMs: Date.now() - start, output: lastOutput, reason: 'session disconnected' }
+        })
+        return
+      }
+      await new Promise(r => setTimeout(r, pollMs))
+    }
+
+    sendJson(res, 200, {
+      success: true,
+      data: { matched, elapsedMs: Date.now() - start, output: lastOutput }
+    })
+  } catch (err: any) {
+    sendJson(res, 500, { success: false, error: err.message })
+  }
 }
 
 /**
