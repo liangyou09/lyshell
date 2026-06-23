@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { Terminal } from 'xterm'
 import type { FitAddon } from 'xterm-addon-fit'
+import type { SearchAddon } from 'xterm-addon-search'
 
 /**
  * 终端实例信息
@@ -9,6 +10,9 @@ interface TerminalInstance {
   sessionId: string
   terminal: Terminal
   fitAddon: FitAddon
+  // SearchAddon 也属于终端的"长生命周期"附件——必须随终端一起在 store 中保留,
+  // 否则切换 tab/分屏复用终端时,新挂载的 TerminalView 拿不到搜索能力。
+  searchAddon: SearchAddon
   cols: number
   rows: number
 }
@@ -21,7 +25,7 @@ interface TerminalStore {
   terminals: Map<string, TerminalInstance>
 
   // 注册终端
-  registerTerminal: (sessionId: string, terminal: Terminal, fitAddon: FitAddon) => void
+  registerTerminal: (sessionId: string, terminal: Terminal, fitAddon: FitAddon, searchAddon: SearchAddon) => void
 
   // 注销终端
   unregisterTerminal: (sessionId: string) => void
@@ -40,12 +44,13 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   terminals: new Map(),
 
   // 注册终端
-  registerTerminal: (sessionId, terminal, fitAddon) => {
+  registerTerminal: (sessionId, terminal, fitAddon, searchAddon) => {
     const terminals = new Map(get().terminals)
     terminals.set(sessionId, {
       sessionId,
       terminal,
       fitAddon,
+      searchAddon,
       cols: terminal.cols,
       rows: terminal.rows
     })

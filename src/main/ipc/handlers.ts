@@ -1449,17 +1449,6 @@ export function registerIPCHandlers(): void {
       const agent = agentRepository.get(safeAgentId)
       if (!agent) return { success: false, error: 'Agent not found' }
 
-      const confirm = await dialog.showMessageBox({
-        type: 'warning',
-        buttons: ['取消', '启动'],
-        defaultId: 0,
-        cancelId: 0,
-        title: '启动 Agent 确认',
-        message: `启动 Agent “${agent.name}”？`,
-        detail: `将创建本地终端并执行命令：\n${agent.command}`
-      })
-      if (confirm.response !== 1) return { success: false, error: '用户取消启动 Agent' }
-
       // 创建 LOCAL 会话配置
       const config: SessionConfig = {
         id: '',
@@ -1477,7 +1466,7 @@ export function registerIPCHandlers(): void {
             foreground: '#D4D4D4',
             background: '#1E1E1E',
             cursor: '#D4D4D4',
-            selection: '#264F78',
+            selectionBackground: '#264F78',
             black: '#000000',
             red: '#CD3131',
             green: '#0DBC79',

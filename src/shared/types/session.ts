@@ -115,7 +115,9 @@ export interface TerminalTheme {
   background: string
   cursor: string
   cursorAccent?: string
-  selection: string
+  selectionBackground: string
+  selectionInactiveBackground?: string
+  selectionForeground?: string
   black: string
   red: string
   green: string

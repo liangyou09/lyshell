@@ -148,5 +148,8 @@ release*
 # Claude Code 工作目录（per-用户/会话状态，不应入库）
 .claude/
 
-# codegraph �������ɵ���������
+# codegraph 工具生成的索引数据
 .codegraph/
+
+# 本地设计稿/原型 HTML（临时探索产物，不入库）
+design/

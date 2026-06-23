@@ -364,7 +364,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
         fontSize: 14,
         fontFamily: 'Consolas, Monaco, monospace',
         theme: {
-          foreground: '#D4D4D4', background: '#1E1E1E', cursor: '#D4D4D4', selection: '#264F78',
+          foreground: '#D4D4D4', background: '#1E1E1E', cursor: '#D4D4D4', selectionBackground: '#264F78',
           black: '#000000', red: '#CD3131', green: '#0DBC79', yellow: '#E5E510', blue: '#2472C8',
           magenta: '#BC3FBC', cyan: '#11A8CD', white: '#E5E5E5',
           brightBlack: '#666666', brightRed: '#F14C4C', brightGreen: '#23D18B', brightYellow: '#F5F543',
