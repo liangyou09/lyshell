@@ -54,7 +54,8 @@ export const DEFAULT_THEME_DARK = {
   background: '#0C0C0C',
   cursor: '#FFFFFF',
   cursorAccent: '#0C0C0C',
-  selection: '#FFFFFF',
+  selectionBackground: '#F8C156',         // 鲜黄底 + 下方黑字,统一搜索命中与鼠标划选样式
+  selectionInactiveBackground: '#C9A04A', // 终端失焦时的暗黄
   selectionForeground: '#000000',
   black: '#0C0C0C',
   red: '#C50F1F',
@@ -82,7 +83,8 @@ export const DEFAULT_THEME_LIGHT = {
   background: '#FFFFFF',
   cursor: '#333333',
   cursorAccent: '#FFFFFF',
-  selection: '#ADD6FF',
+  selectionBackground: '#ADD6FF',
+  selectionInactiveBackground: '#C9DDF2',
   black: '#333333',
   red: '#C50F1F',
   green: '#13A10E',

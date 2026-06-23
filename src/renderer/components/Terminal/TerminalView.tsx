@@ -14,6 +14,20 @@ interface TerminalViewProps {
   onSearchAllTabs?: (text: string, direction: 'next' | 'prev') => void
 }
 
+// SearchAddon 装饰配置:必传 matchOverviewRuler。
+// 没有它,SearchAddon 既不画高亮也不 fire onDidChangeResults,匹配计数永远是 0。
+// 配色策略:
+//   - 非活动匹配:只画边框 + 滚动条 ruler 小竖线,不涂 background。
+//     原因:decoration 是 DOM 覆盖层、改不了底层字色,任何 background 都会出现
+//     "黄底白字"读不清(终端字色固定是浅灰 #CCCCCC)。
+//     退而求其次,边框仍能勾出每条匹配的位置,搭配 ruler 不丢失全局感知。
+//   - 活动命中及一般鼠标划选:共用 DEFAULT_THEME_DARK 的 selection 值(黄底黑字)。
+const SEARCH_DECORATIONS = {
+  matchBorder: '#EAC54F',
+  matchOverviewRuler: '#EAC54F',
+  activeMatchColorOverviewRuler: '#FFD166'
+}
+
 /**
  * 终端视图组件
  * 终端实例存储在全局 store 中，与 sessionId 绑定，不受组件生命周期影响
@@ -25,16 +39,16 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const [showSearch, setShowSearch] = useState(false)
   const [searchText, setSearchText] = useState('')
-  const [searchDirection, setSearchDirection] = useState<'next' | 'prev'>('next')
   const [searchScope, setSearchScope] = useState<'current' | 'all'>('current')
   const [useRegex, setUseRegex] = useState(false)
   const [caseSensitive, setCaseSensitive] = useState(false)
-  const [loopSearch, setLoopSearch] = useState(true)
-  const [highlightOnType, setHighlightOnType] = useState(true)
-  const [clearOnClose, setClearOnClose] = useState(true)
-  const [searchBoxPos, setSearchBoxPos] = useState({ x: 0, y: 0 })
+  const [wholeWord, setWholeWord] = useState(false)
+  // 匹配计数:SearchAddon.onDidChangeResults 推送,resultIndex 从 0 开始;total = -1 表示超过 highlightLimit
+  const [matchInfo, setMatchInfo] = useState<{ idx: number; total: number }>({ idx: -1, total: 0 })
+  // 搜索面板位置 (相对容器右上角的偏移,负数表示更靠左/上)。null 表示用默认贴右上。
+  const [searchPos, setSearchPos] = useState<{ x: number; y: number } | null>(null)
   const [isDragging, setIsDragging] = useState(false)
-  const dragStartPos = useRef({ x: 0, y: 0 })
+  const dragOffsetRef = useRef({ x: 0, y: 0 })
   const searchInputRef = useRef<HTMLTextAreaElement>(null)
   const scrollbackLines = parseInt(localStorage.getItem('terminalScrollback') || '10000')
   const fontSize = parseInt(localStorage.getItem('terminalFontSize') || '16')
@@ -116,7 +130,11 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         scrollback: scrollbackLines,
         allowTransparency: false,
         logLevel: 'off',
-        convertEol: true  // 正确处理换行和回显
+        convertEol: true,  // 正确处理换行和回显
+        // 必须开 proposed api,否则 SearchAddon 的 decorations 选项无法使用,
+        // 而 SearchAddon 又只在传 decorations 时才 fire onDidChangeResults,
+        // 不传就拿不到匹配计数(显示 "no matches")。
+        allowProposedApi: true
       })
 
       fitAddon = new FitAddon()
@@ -124,7 +142,6 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
 
       // 加载 SearchAddon
       const searchAddon = new SearchAddon()
-      searchAddonRef.current = searchAddon
       terminal.loadAddon(searchAddon)
 
       terminal.open(containerRef.current)
@@ -169,7 +186,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       }
 
       // 注册到 store
-      registerTerminal(sessionId, terminal, fitAddon)
+      registerTerminal(sessionId, terminal, fitAddon, searchAddon)
 
       // 处理用户输入
       terminal.onData((data) => {
@@ -182,6 +199,19 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         if (selection) {
           navigator.clipboard.writeText(selection)
         }
+      })
+    }
+
+    // 把 searchAddon 同步到 ref:无论是新建还是复用终端,都必须拿到搜索器,
+    // 否则搜索框打开了但 findNext/clearDecorations 全打在 null 上。
+    // 订阅匹配计数(显示 "3/5");返回的 disposable 在清理函数里 dispose,
+    // 防止同一 SearchAddon 被多次挂载时回调叠加并保留旧组件的 setMatchInfo。
+    const currentInstance = getTerminal(sessionId)
+    let resultsDisposable: { dispose: () => void } | null = null
+    if (currentInstance?.searchAddon) {
+      searchAddonRef.current = currentInstance.searchAddon
+      resultsDisposable = currentInstance.searchAddon.onDidChangeResults(({ resultIndex, resultCount }) => {
+        setMatchInfo({ idx: resultIndex, total: resultCount })
       })
     }
 
@@ -222,18 +252,10 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       }
     }
 
-    // 鼠标滚轮点击（中键）打开查找
+    // 鼠标滚轮点击(中键)打开查找
     const handleMouseDown = (e: MouseEvent) => {
       if (e.button === 1) {
         e.preventDefault()
-        const container = containerRef.current
-        if (container) {
-          const rect = container.getBoundingClientRect()
-          setSearchBoxPos({
-            x: rect.width / 2 - 175,
-            y: rect.height / 2 - 20
-          })
-        }
         setShowSearch(true)
       }
     }
@@ -335,6 +357,10 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       containerRef.current?.removeEventListener('click', handleClick)
       window.removeEventListener('terminalFontSizeChanged', handleFontSizeChanged as EventListener)
       window.removeEventListener('terminalCursorBlinkChanged', handleCursorBlinkChanged as EventListener)
+      // 解绑搜索匹配计数订阅;否则切换 tab 时旧组件的回调还活在 SearchAddon 上,
+      // 并且会触发已卸载组件的 setState 警告。
+      resultsDisposable?.dispose()
+      searchAddonRef.current = null
       // 注意：不在这里 dispose 终端，终端实例保存在 store 中
       // 只有在 session 断开时才 dispose
     }
@@ -346,27 +372,24 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       if (e.ctrlKey && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault()
         e.stopPropagation()
-        // 初始化搜索框位置到中间
-        const container = containerRef.current
-        if (container) {
-          const rect = container.getBoundingClientRect()
-          setSearchBoxPos({
-            x: Math.max(10, rect.width / 2 - 160),
-            y: Math.max(10, rect.height / 2 - 80)
-          })
-        }
         setShowSearch(true)
+        // 唤出后聚焦输入框,选中已有文本方便重新键入
+        setTimeout(() => {
+          searchInputRef.current?.focus()
+          searchInputRef.current?.select()
+        }, 0)
       }
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && showSearch) {
         setShowSearch(false)
-        setSearchText('')
+        // 关闭时永远清掉装饰,避免遗留高亮干扰阅读
+        searchAddonRef.current?.clearDecorations()
       }
     }
 
     // 使用 capture 模式确保在其他处理器之前捕获
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [])
+  }, [showSearch])
 
   // 监听分屏 resize 事件（带防抖）
   useEffect(() => {
@@ -525,9 +548,10 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
     if (!searchText) return
 
     const searchOptions = {
-      caseSensitive: caseSensitive,
+      caseSensitive,
       regex: useRegex,
-      wholeWord: false
+      wholeWord,
+      decorations: SEARCH_DECORATIONS
     }
 
     if (searchScope === 'current') {
@@ -544,75 +568,102 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
     }
   }
 
-  // 清除搜索高亮
-  const clearSearchHighlight = () => {
-    if (searchAddonRef.current) {
-      // 通过搜索空字符串来清除高亮
-      searchAddonRef.current.clearDecorations()
-    }
-  }
-
-  // 搜索按钮点击
-  const handleSearchClick = (direction: 'next' | 'prev') => {
-    setSearchDirection(direction)
-    doSearch(direction)
-  }
-
-  // 关闭搜索框
+  // 关闭搜索框:始终清掉装饰,避免残留高亮干扰阅读
   const closeSearch = () => {
     setShowSearch(false)
-    setSearchText('')
-    if (clearOnClose) {
-      clearSearchHighlight()
-    }
+    searchAddonRef.current?.clearDecorations()
   }
 
-  // 开始拖动
-  const startDrag = (e: React.MouseEvent) => {
-    e.preventDefault()
-    setIsDragging(true)
-    dragStartPos.current = {
-      x: e.clientX - searchBoxPos.x,
-      y: e.clientY - searchBoxPos.y
-    }
-  }
-
-  // 拖动中
-  useEffect(() => {
-    if (!isDragging) return
-
-    const handleMouseMove = (e: MouseEvent) => {
-      setSearchBoxPos({
-        x: e.clientX - dragStartPos.current.x,
-        y: e.clientY - dragStartPos.current.y
-      })
-    }
-
-    const handleMouseUp = () => {
-      setIsDragging(false)
-    }
-
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mouseup', handleMouseUp)
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
-    }
-  }, [isDragging])
-
-  // 输入变化时自动搜索
+  // 输入变化时自动搜索(永远开启 — 这是搜索框该有的行为)
   const handleSearchChange = (text: string) => {
     setSearchText(text)
-    if (highlightOnType && text && searchScope === 'current' && searchAddonRef.current) {
-      // SearchAddon 会自动高亮所有匹配项
+    if (!text) {
+      // 清空时立即清掉高亮,匹配计数也归零
+      searchAddonRef.current?.clearDecorations()
+      setMatchInfo({ idx: -1, total: 0 })
+      return
+    }
+    if (searchScope === 'current' && searchAddonRef.current) {
       searchAddonRef.current.findNext(text, {
-        caseSensitive: caseSensitive,
+        caseSensitive,
         regex: useRegex,
-        wholeWord: false
+        wholeWord,
+        decorations: SEARCH_DECORATIONS
       })
     }
   }
+
+  // 输入框键盘:Enter=next, Shift+Enter=prev, Esc=close, Alt+A=切换 scope
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      doSearch(e.shiftKey ? 'prev' : 'next')
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      closeSearch()
+    } else if (e.altKey && (e.key === 'a' || e.key === 'A')) {
+      e.preventDefault()
+      setSearchScope(prev => prev === 'current' ? 'all' : 'current')
+    }
+  }
+
+  // 切换搜索范围时同步当前标签的搜索状态:
+  // 切到 all —— 清掉 current 留下的高亮与计数,避免显示过时的单标签结果;
+  // 切回 current —— 若已有搜索词,重新 findNext 恢复高亮与计数。
+  useEffect(() => {
+    if (searchScope === 'all') {
+      searchAddonRef.current?.clearDecorations()
+      setMatchInfo({ idx: -1, total: 0 })
+    } else if (searchText && searchAddonRef.current) {
+      searchAddonRef.current.findNext(searchText, {
+        caseSensitive,
+        regex: useRegex,
+        wholeWord,
+        decorations: SEARCH_DECORATIONS
+      })
+    }
+  }, [searchScope])
+
+  // 拖动开始:按下顶栏时记录指针在面板内的偏移
+  const startDrag = (e: React.MouseEvent) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    const panel = (e.currentTarget as HTMLElement).closest('[data-search-panel]') as HTMLElement | null
+    const container = containerRef.current
+    if (!panel || !container) return
+    const panelRect = panel.getBoundingClientRect()
+    dragOffsetRef.current = {
+      x: e.clientX - panelRect.left,
+      y: e.clientY - panelRect.top
+    }
+    setIsDragging(true)
+  }
+
+  // 拖动中:把指针位置换算成容器坐标系,并夹在容器范围内
+  useEffect(() => {
+    if (!isDragging) return
+    const SEARCH_W = 420
+
+    const handleMove = (e: MouseEvent) => {
+      const container = containerRef.current
+      if (!container) return
+      const cRect = container.getBoundingClientRect()
+      let x = e.clientX - cRect.left - dragOffsetRef.current.x
+      let y = e.clientY - cRect.top - dragOffsetRef.current.y
+      // 夹边:保证至少有顶栏可见可拖回来
+      x = Math.max(0, Math.min(x, cRect.width - SEARCH_W))
+      y = Math.max(0, Math.min(y, cRect.height - 32))
+      setSearchPos({ x, y })
+    }
+    const handleUp = () => setIsDragging(false)
+
+    window.addEventListener('mousemove', handleMove)
+    window.addEventListener('mouseup', handleUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMove)
+      window.removeEventListener('mouseup', handleUp)
+    }
+  }, [isDragging])
 
   return (
     <div className="w-full h-full bg-[#0C0C0C] relative overflow-hidden">
@@ -622,148 +673,129 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         className="w-full h-full overflow-hidden"
       />
 
-      {/* 查找对话框 - 可拖动 */}
+      {/* 查找面板 - 默认贴右上,可拖动 */}
       {showSearch && (
         <div
-          className="absolute bg-[#2D2D30] border border-[#3C3C3C] rounded shadow-lg p-4 z-50 min-w-[320px]"
-          style={{
-            left: searchBoxPos.x,
-            top: searchBoxPos.y,
-            cursor: isDragging ? 'move' : 'default'
-          }}
+          data-search-panel
+          className="absolute z-50 w-[420px] bg-[#2D2D30] border border-[#555] shadow-2xl"
+          style={
+            searchPos
+              ? { left: searchPos.x, top: searchPos.y }
+              : { right: 12, top: 8 }
+          }
         >
-          {/* 拖动标题栏 */}
+          {/* 拖动条:窄,左侧 ⌕ 图标兼做"拖把手"暗示 */}
           <div
-            className="flex items-center justify-between mb-3 cursor-move select-none border-b border-[#3C3C3C] pb-2"
             onMouseDown={startDrag}
+            className={`flex items-center gap-2 px-3 h-[10px] border-b border-[#555] bg-[#3C3C3C] ${isDragging ? 'cursor-grabbing' : 'cursor-grab'} select-none`}
+            title="Drag to move"
           >
-            <span className="text-sm text-white font-medium">在终端中查找</span>
-            <button
-              onClick={closeSearch}
-              className="text-gray-400 hover:text-white"
-            >
-              ✕
-            </button>
+            <div className="flex gap-[3px]">
+              <span className="w-[3px] h-[3px] bg-[#9CA3AF] rounded-full" />
+              <span className="w-[3px] h-[3px] bg-[#9CA3AF] rounded-full" />
+              <span className="w-[3px] h-[3px] bg-[#9CA3AF] rounded-full" />
+            </div>
           </div>
 
-          {/* 搜索输入 - 支持多行 */}
-          <div className="mb-3">
+          {/* 第一行:输入 + 上一个/下一个 + 关闭 (计数挪到第二行) */}
+          <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[#555]">
+            <span className="text-[#D1D5DB] text-center text-[16px] select-none">⌕</span>
             <textarea
               ref={searchInputRef}
               value={searchText}
               onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder="输入搜索内容（支持多行）..."
+              onKeyDown={handleSearchKeyDown}
+              placeholder="search…"
               autoFocus
-              rows={2}
-              className="w-full px-3 py-2 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4] resize-none"
+              rows={1}
+              className="flex-1 bg-transparent border-none text-white text-[15px] outline-none resize-none py-0.5 placeholder-[#9CA3AF] leading-[1.4]"
+              style={{ fontFamily: 'inherit' }}
             />
+            <button
+              onClick={() => doSearch('prev')}
+              className="w-[28px] h-[28px] grid place-items-center text-[#D1D5DB] hover:text-white hover:bg-[#555] rounded text-[15px] font-light"
+              title="Previous (Shift+Enter)"
+            >↑</button>
+            <button
+              onClick={() => doSearch('next')}
+              className="w-[28px] h-[28px] grid place-items-center text-[#D1D5DB] hover:text-white hover:bg-[#555] rounded text-[15px] font-light"
+              title="Next (Enter)"
+            >↓</button>
+            <button
+              onClick={closeSearch}
+              className="w-[28px] h-[28px] grid place-items-center text-[#9CA3AF] hover:text-[#FF6A3D] hover:bg-[#555] rounded text-[15px]"
+              title="Close (Esc)"
+            >✕</button>
           </div>
 
-          {/* 搜索方向 */}
-          <div className="flex items-center gap-2 mb-3">
-            <button
-              onClick={() => handleSearchClick('prev')}
-              className={`flex-1 px-3 py-1.5 text-sm rounded ${
-                searchDirection === 'prev'
-                  ? 'bg-[#0078D4] text-white'
-                  : 'bg-[#3C3C3C] text-gray-300 hover:bg-[#555]'
-              }`}
-            >
-              ↑ 查找上一个
-            </button>
-            <button
-              onClick={() => handleSearchClick('next')}
-              className={`flex-1 px-3 py-1.5 text-sm rounded ${
-                searchDirection === 'next'
-                  ? 'bg-[#0078D4] text-white'
-                  : 'bg-[#3C3C3C] text-gray-300 hover:bg-[#555]'
-              }`}
-            >
-              ↓ 查找下一个
-            </button>
+          {/* 第二行:开关 | 匹配计数 | 范围 (三段式,中间填充) */}
+          <div className="grid items-center border-b border-[#555]" style={{ gridTemplateColumns: '1fr auto 1fr' }}>
+            {/* 左:开关 */}
+            <div className="flex items-center pl-2">
+              <button
+                onClick={() => setCaseSensitive(!caseSensitive)}
+                className={`px-3 py-2 text-[14px] ${
+                  caseSensitive ? 'text-[#5AA8FF]' : 'text-[#D1D5DB] hover:text-white'
+                }`}
+                title="Match case"
+              >Aa</button>
+              <button
+                onClick={() => setUseRegex(!useRegex)}
+                className={`px-3 py-2 text-[14px] ${
+                  useRegex ? 'text-[#5AA8FF]' : 'text-[#D1D5DB] hover:text-white'
+                }`}
+                title="Regular expression"
+              >.*</button>
+              <button
+                onClick={() => setWholeWord(!wholeWord)}
+                className={`px-3 py-2 text-[14px] ${
+                  wholeWord ? 'text-[#5AA8FF]' : 'text-[#D1D5DB] hover:text-white'
+                }`}
+                title="Whole word"
+              >word</button>
+            </div>
+
+            {/* 中:匹配计数 (两侧分隔线,无内容时只显示横线占位) */}
+            <div className="flex items-center h-full border-x border-[#555]">
+              <span className="px-4 text-[14px] tabular-nums whitespace-nowrap min-w-[100px] text-center">
+                {searchScope === 'all'
+                  ? <span className="text-[#6B7280]" title="跨标签搜索时不显示单标签计数">—</span>
+                  : searchText
+                    ? matchInfo.total === -1
+                      ? <span className="text-[#E0A458] font-medium">1k+ matches</span>
+                      : matchInfo.total === 0
+                        ? <span className="text-[#9CA3AF]">no matches</span>
+                        : <><span className="text-white font-medium">{matchInfo.idx + 1}</span><span className="text-[#9CA3AF]"> / {matchInfo.total}</span></>
+                    : <span className="text-[#6B7280]">—</span>}
+              </span>
+            </div>
+
+            {/* 右:范围切换 - 同左侧一致的 underline 开关 */}
+            <div className="flex items-center justify-end pr-2">
+              <span className="text-[14px] text-[#9CA3AF] mr-1">scope:</span>
+              <button
+                onClick={() => setSearchScope('current')}
+                className={`px-2.5 py-2 text-[14px] ${
+                  searchScope === 'current' ? 'text-[#5AA8FF]' : 'text-[#D1D5DB] hover:text-white'
+                }`}
+                title="Search this tab (Alt+A)"
+              >Tab</button>
+              <button
+                onClick={() => setSearchScope('all')}
+                className={`px-2.5 py-2 text-[14px] ${
+                  searchScope === 'all' ? 'text-[#5AA8FF]' : 'text-[#D1D5DB] hover:text-white'
+                }`}
+                title="Search all tabs (Alt+A)"
+              >All</button>
+            </div>
           </div>
 
-          {/* 搜索范围 */}
-          <div className="flex items-center gap-2 mb-3">
-            <button
-              onClick={() => setSearchScope('current')}
-              className={`flex-1 px-3 py-1.5 text-sm rounded ${
-                searchScope === 'current'
-                  ? 'bg-[#0078D4] text-white'
-                  : 'bg-[#3C3C3C] text-gray-300 hover:bg-[#555]'
-              }`}
-            >
-              当前选项卡
-            </button>
-            <button
-              onClick={() => setSearchScope('all')}
-              className={`flex-1 px-3 py-1.5 text-sm rounded ${
-                searchScope === 'all'
-                  ? 'bg-[#0078D4] text-white'
-                  : 'bg-[#3C3C3C] text-gray-300 hover:bg-[#555]'
-              }`}
-            >
-              所有选项卡
-            </button>
-          </div>
-
-          {/* 搜索选项 - 两行排列 */}
-          <div className="grid grid-cols-5 gap-2">
-            <button
-              onClick={() => setCaseSensitive(!caseSensitive)}
-              className={`px-2 py-1.5 text-xs rounded text-center ${
-                caseSensitive
-                  ? 'bg-[#0078D4] text-white'
-                  : 'bg-[#3C3C3C] text-gray-300 hover:bg-[#555]'
-              }`}
-              title="区分大小写"
-            >
-              Aa
-            </button>
-            <button
-              onClick={() => setUseRegex(!useRegex)}
-              className={`px-2 py-1.5 text-xs rounded text-center ${
-                useRegex
-                  ? 'bg-[#0078D4] text-white'
-                  : 'bg-[#3C3C3C] text-gray-300 hover:bg-[#555]'
-              }`}
-              title="正则表达式"
-            >
-              .*
-            </button>
-            <button
-              onClick={() => setLoopSearch(!loopSearch)}
-              className={`px-2 py-1.5 text-xs rounded text-center ${
-                loopSearch
-                  ? 'bg-[#0078D4] text-white'
-                  : 'bg-[#3C3C3C] text-gray-300 hover:bg-[#555]'
-              }`}
-              title="循环查找"
-            >
-              ↻
-            </button>
-            <button
-              onClick={() => setHighlightOnType(!highlightOnType)}
-              className={`px-2 py-1.5 text-xs rounded text-center ${
-                highlightOnType
-                  ? 'bg-[#0078D4] text-white'
-                  : 'bg-[#3C3C3C] text-gray-300 hover:bg-[#555]'
-              }`}
-              title="输入时高亮"
-            >
-              高亮
-            </button>
-            <button
-              onClick={() => setClearOnClose(!clearOnClose)}
-              className={`px-2 py-1.5 text-xs rounded text-center ${
-                clearOnClose
-                  ? 'bg-[#0078D4] text-white'
-                  : 'bg-[#3C3C3C] text-gray-300 hover:bg-[#555]'
-              }`}
-              title="关闭时清除"
-            >
-              清除
-            </button>
+          {/* 第三行:快捷键提示 */}
+          <div className="flex gap-4 px-3 py-2 text-[12px] text-[#9CA3AF]">
+            <span><kbd className="border border-[#6B7280] text-[#D1D5DB] px-1.5 rounded text-[11px] mr-1">↵</kbd>next</span>
+            <span><kbd className="border border-[#6B7280] text-[#D1D5DB] px-1.5 rounded text-[11px] mr-1">⇧↵</kbd>prev</span>
+            <span><kbd className="border border-[#6B7280] text-[#D1D5DB] px-1.5 rounded text-[11px] mr-1">⌥A</kbd>scope</span>
+            <span><kbd className="border border-[#6B7280] text-[#D1D5DB] px-1.5 rounded text-[11px] mr-1">esc</kbd>close</span>
           </div>
         </div>
       )}
