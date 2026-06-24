@@ -294,9 +294,11 @@ const FloatWindow: React.FC<FloatWindowProps> = ({ onConnect, onCollapse }) => {
         onSubmit={async (config) => {
           const saved = await window.electronAPI?.createSession(config)
           if (saved) {
+            // 触发连接；dialog 内部监听 onConnectionStatus 自动决定关闭/留在 FAULT
             handleConnect(saved)
           }
           refreshSavedSessions()
+          return saved?.id
         }}
       />
     </div>

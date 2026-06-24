@@ -35,7 +35,7 @@ const SessionsTab: React.FC<SessionsTabProps> = ({ searchQuery }) => {
   // 其他会话
   const others = filteredSessions.filter(s => !s.config.tags.includes('favorite'))
 
-  // 连接会话
+  // 点击已存在会话 = 触发连接
   const handleConnect = async (session: SessionConfig) => {
     try {
       await quickConnect(session)
@@ -46,13 +46,16 @@ const SessionsTab: React.FC<SessionsTabProps> = ({ searchQuery }) => {
     }
   }
 
-  // 创建新会话
-  const handleCreateSession = async (config: SessionConfig) => {
+  // 新建会话：浮窗里只入库、不自动连接。
+  // 返回 null 告诉 dialog 跳过 linking 等待，直接关闭。
+  // 用户之后从侧边栏或这里再点一次会话项触发连接。
+  const handleCreateSession = async (config: SessionConfig): Promise<null> => {
     try {
       await createSession(config)
     } catch (error) {
       console.error('Create session failed:', error)
     }
+    return null
   }
 
   return (

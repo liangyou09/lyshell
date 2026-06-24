@@ -627,20 +627,18 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
         initialConfig={editConfig}
         onSubmit={async (config) => {
           if (editConfig) {
-            // 编辑模式：直接更新，关闭对话框
+            // 编辑模式：直接更新；dialog 内部会立即关闭
             await window.electronAPI?.updateSession(config)
-            setShowDialog(false)
-            setEditConfig(undefined)
-          } else {
-            // 新建会话：创建并连接，状态在终端中反馈
-            const newConfig = await window.electronAPI?.createSession(config)
-            if (newConfig?.id) {
-              onConnect?.(newConfig.id, newConfig)
-            }
-            setShowDialog(false)
-            setEditConfig(undefined)
+            refreshSavedSessions()
+            return config.id
+          }
+          // 新建模式：创建并触发连接；返回 sessionId 让 dialog 监听连接状态
+          const newConfig = await window.electronAPI?.createSession(config)
+          if (newConfig?.id) {
+            onConnect?.(newConfig.id, newConfig)
           }
           refreshSavedSessions()
+          return newConfig?.id
         }}
       />
 

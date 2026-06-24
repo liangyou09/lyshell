@@ -17,6 +17,9 @@ const IPC_CHANNELS = {
   SESSION_LIST: 'session:list',
   SESSION_GET: 'session:get',
 
+  // 串口
+  SERIAL_LIST_PORTS: 'serial:list-ports',
+
   // 终端操作
   TERMINAL_WRITE: 'terminal:write',
   TERMINAL_RESIZE: 'terminal:resize',
@@ -96,6 +99,9 @@ const electronAPI = {
   deleteSession: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.SESSION_DELETE, sessionId),
   listSessions: () => ipcRenderer.invoke(IPC_CHANNELS.SESSION_LIST),
   getSession: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.SESSION_GET, sessionId),
+
+  // 串口枚举
+  listSerialPorts: () => ipcRenderer.invoke(IPC_CHANNELS.SERIAL_LIST_PORTS),
 
   // 终端操作
   terminalWrite: (sessionId: string, data: string) =>

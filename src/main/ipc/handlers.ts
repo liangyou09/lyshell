@@ -61,6 +61,9 @@ export const IPC_CHANNELS = {
   SESSION_FAVORITES: 'session:favorites',
   SESSION_RECENT: 'session:recent',
 
+  // 串口
+  SERIAL_LIST_PORTS: 'serial:list-ports',
+
   // 终端操作
   TERMINAL_WRITE: 'terminal:write',
   TERMINAL_RESIZE: 'terminal:resize',
@@ -350,6 +353,28 @@ export function registerIPCHandlers(): void {
       return await sessionManager.cloneChannel(sessionId)
     } catch (error) {
       return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
+    }
+  })
+
+  // 枚举本机串口（供新建会话对话框使用）
+  ipcMain.handle(IPC_CHANNELS.SERIAL_LIST_PORTS, async () => {
+    try {
+      const { SerialConnector } = await import('../connectors')
+      const ports = await SerialConnector.listPorts()
+      // 只透出 UI 需要的字段，避免 PortInfo 内的额外信息穿越 IPC
+      return ports.map(p => ({
+        path: p.path,
+        manufacturer: p.manufacturer,
+        serialNumber: p.serialNumber,
+        pnpId: p.pnpId,
+        friendlyName: (p as { friendlyName?: string }).friendlyName,
+        vendorId: p.vendorId,
+        productId: p.productId
+      }))
+    } catch (error) {
+      // 驱动错误不影响 UI，返回空列表让 UI 仅显示手动输入行
+      log.warn('Failed to list serial ports:', (error as Error).message)
+      return []
     }
   })
 

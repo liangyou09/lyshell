@@ -85,6 +85,20 @@ export interface SerialConfig {
 }
 
 /**
+ * 串口设备扫描信息（main 进程 SerialPort.list() 的渲染层投影）
+ * 不直接复用 @serialport/bindings-interface 的 PortInfo，避免 shared 类型依赖 Node 包
+ */
+export interface SerialPortInfo {
+  path: string
+  manufacturer?: string
+  serialNumber?: string
+  pnpId?: string
+  friendlyName?: string
+  vendorId?: string
+  productId?: string
+}
+
+/**
  * 本地终端配置
  */
 export interface LocalConfig {
