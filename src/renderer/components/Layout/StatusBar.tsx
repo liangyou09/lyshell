@@ -47,16 +47,12 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
   const [groups, setGroups] = useState<QuickCommandGroup[]>([])
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
   const [showAddDialog, setShowAddDialog] = useState(false)
-  const [showGroupDialog, setShowGroupDialog] = useState(false)
   const [showBatchGroupDialog, setShowBatchGroupDialog] = useState(false)  // 批量编辑分组对话框
   const [batchGroups, setBatchGroups] = useState<{id: string, name: string, color: string}[]>([])  // 批量编辑的分组数据
   const [editCommand, setEditCommand] = useState<QuickCommand | undefined>(undefined)
-  const [editGroup, setEditGroup] = useState<QuickCommandGroup | undefined>(undefined)
   const [newName, setNewName] = useState('')
   const [newContent, setNewContent] = useState('')
   const [newGroupId, setNewGroupId] = useState<string>('')
-  const [newGroupName, setNewGroupName] = useState('')
-  const [newGroupColor, setNewGroupColor] = useState('')
 
   const dropdownRef = useRef<HTMLDivElement>(null)
   const groupButtonRef = useRef<HTMLButtonElement>(null)
@@ -131,7 +127,6 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setShowAddDialog(false)
-        setShowGroupDialog(false)
         setShowBatchGroupDialog(false)
         setActiveDropdown(null)
         resetDialogState()
@@ -180,12 +175,9 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
   // 重置对话框状态
   const resetDialogState = () => {
     setEditCommand(undefined)
-    setEditGroup(undefined)
     setNewName('')
     setNewContent('')
     setNewGroupId('')
-    setNewGroupName('')
-    setNewGroupColor('')
   }
 
   // 双击添加命令
@@ -283,34 +275,6 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     setShowBatchGroupDialog(true)
   }
 
-  // 保存分组
-  const handleSaveGroup = async () => {
-    if (!newGroupName.trim()) return
-
-    // 限制最多5个分组（包含默认分组，用户最多创建4个）
-    if (!editGroup && groups.length >= 4) {
-      alert('最多只能创建4个分组（已包含默认分组）')
-      return
-    }
-
-    const group: QuickCommandGroup = {
-      id: editGroup?.id || Date.now().toString(),
-      name: newGroupName.trim(),
-      color: newGroupColor || undefined,
-      order: editGroup?.order ?? groups.length + 1  // 默认分组order为0，用户分组从1开始
-    }
-
-    if (editGroup) {
-      await window.electronAPI?.commandGroupUpdate(group)
-    } else {
-      await window.electronAPI?.commandGroupAdd(group)
-    }
-
-    await loadGroups()
-    setShowGroupDialog(false)
-    resetDialogState()
-  }
-
   // 批量保存分组（只能编辑，不能新增或删除）
   const handleSaveBatchGroups = async () => {
     // 更新默认分组颜色（名称固定，不保存到数据库）
@@ -376,12 +340,15 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     return result
   }
 
+  // 当前分组颜色（用于键帽底部 2px 色条 + 分组键色点）
+  const currentGroupColor = currentGroup?.color || ''
+
   return (
     <div
-      className="flex items-center justify-between bg-[#252526] border-t border-[#3C3C3C] h-[28px] text-xs text-gray-400 relative"
+      className="flex items-stretch justify-between bg-[#1B1B1D] border-t border-[#2C2C30] h-[30px] text-xs text-gray-400 relative"
       ref={dropdownRef}
     >
-      {/* 分组选择按钮 - 最左侧 */}
+      {/* 分组选择键 - 最左侧 */}
       <button
         ref={groupButtonRef}
         onClick={(e) => {
@@ -404,28 +371,31 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
           handleOpenGroupDialog()
         }}
         className={cn(
-          'h-full flex items-center justify-center flex-shrink-0',
-          'bg-[#3C3C3C] text-gray-300 hover:bg-[#555] hover:text-white',
-          'cursor-pointer transition-colors',
-          activeDropdown === 'groups' && 'bg-[#555]',
-          'border-r border-l border-gray-600'  // 左右两侧暗灰色边框
+          'h-full flex items-center gap-1.5 flex-shrink-0',
+          'bg-[#232326] hover:bg-[#2A2A2E]',
+          'border-r border-[#2C2C30]',
+          'cursor-pointer transition-colors px-2.5',
+          activeDropdown === 'groups' && 'bg-[#2A2A2E]'
         )}
-        style={{
-          paddingLeft: '8px',
-          paddingRight: '8px',
-          width: '70px'
-        }}
-        title="单击切换分组 | 右键编辑所有分组"
+        title="单击切换分组 · 右键编辑所有分组"
       >
-        <span className="text-xs">{currentGroup ? currentGroup.name : '默认分组'}</span>
+        <span
+          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+          style={{
+            backgroundColor: currentGroupColor || '#6B6B73',
+            boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.4)'
+          }}
+        />
+        <span className="text-[11px] text-gray-200 font-medium">{currentGroup ? currentGroup.name : '默认'}</span>
+        <span className="text-[9px] text-gray-500 -translate-y-px">▾</span>
       </button>
 
-      {/* 中间：快速命令 */}
+      {/* 中间：键帽轨道 */}
       <div
-        className="flex items-center gap-1 overflow-x-auto scrollbar-thin flex-1 min-w-0 pl-1 pr-3"
+        className="flex items-center gap-1.5 overflow-x-auto scrollbar-thin flex-1 min-w-0 px-2"
         onDoubleClick={handleDoubleClick}
       >
-        {/* 当前显示的命令按钮 */}
+        {/* 当前显示的命令键帽 */}
         {displayCommands.map((cmd, index) => (
           <button
             key={cmd.id}
@@ -433,72 +403,155 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
             onClick={() => handleExecute(cmd)}
             onContextMenu={(e) => handleCommandContextMenu(cmd, e)}
             className={cn(
-              'px-2 py-0.5 text-xs whitespace-nowrap flex-shrink-0 relative',
-              'bg-[#3C3C3C] text-gray-300 hover:bg-[#555] hover:text-white',
-              'cursor-pointer transition-colors'
+              'group/key relative flex-shrink-0 h-[22px] rounded-[3px]',
+              'pl-2 pr-2.5 flex items-center',
+              'bg-[#2E2E33] hover:bg-[#3A3A41] active:bg-[#45454D]',
+              'text-gray-200 cursor-pointer transition-colors'
             )}
+            style={{
+              boxShadow:
+                'inset 0 1px 0 rgba(255,255,255,.045), inset 0 -1px 0 rgba(0,0,0,.35), 0 1px 0 rgba(0,0,0,.25)'
+            }}
             title={index < 12 ? `Ctrl+F${index + 1}` : undefined}
           >
-            {cmd.name}
+            {/* F 键丝印 — 左上 8.5px tabular-nums */}
             {index < 12 && (
-              <span className="absolute top-0 right-0 text-gray-400 text-[8px] leading-none">{index + 1}</span>
+              <span
+                className="absolute top-[1px] left-[4px] text-[8.5px] leading-none text-gray-500 pointer-events-none"
+                style={{
+                  fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace',
+                  fontFeatureSettings: '"tnum" 1',
+                  letterSpacing: '0.02em'
+                }}
+              >
+                F{index + 1}
+              </span>
+            )}
+            {/* 命令名 — 主字，向下让出丝印位置 */}
+            <span className="text-[11px] font-medium leading-none mt-1">{cmd.name}</span>
+
+            {/* 分组色底条 — 2px signature */}
+            {currentGroupColor && (
+              <span
+                className="absolute left-[2px] right-[2px] bottom-[1px] h-[2px] rounded-[1px] pointer-events-none"
+                style={{ backgroundColor: currentGroupColor, opacity: 0.92 }}
+              />
             )}
           </button>
         ))}
 
-        {/* 空状态提示 */}
+        {/* 空状态：虚线键帽，明示这是个槽位 */}
         {displayCommands.length === 0 && (
-          <span className="text-gray-500">双击添加快速命令</span>
+          <button
+            onClick={handleDoubleClick}
+            className={cn(
+              'flex-shrink-0 h-[22px] rounded-[3px] px-2.5 flex items-center gap-1.5',
+              'border border-dashed border-[#3A3A41] hover:border-gray-500',
+              'text-gray-500 hover:text-gray-300',
+              'cursor-pointer transition-colors'
+            )}
+          >
+            <span className="text-[11px] leading-none">+</span>
+            <span className="text-[10.5px] leading-none">添加命令</span>
+            <span
+              className="text-[9.5px] leading-none text-gray-600 ml-1"
+              style={{ fontFamily: 'ui-monospace, "JetBrains Mono", monospace' }}
+            >
+              双击此处
+            </span>
+          </button>
         )}
       </div>
 
       {/* 分组选择下拉菜单（使用 fixed 定位） */}
       {activeDropdown === 'groups' && (
         <div
-          className="fixed bg-[#2D2D30] border border-[#3C3C3C] rounded shadow-lg z-[100]"
+          className="fixed bg-[#232326] border border-[#2C2C30] rounded shadow-xl z-[100] p-1"
           style={{
             top: `${dropdownPosition.top}px`,
             left: `${dropdownPosition.left}px`,
-            width: '90px',
-            transform: 'translateY(-100%)'
+            width: '168px',
+            transform: 'translateY(-100%)',
+            boxShadow: '0 12px 28px rgba(0,0,0,.4), 0 2px 4px rgba(0,0,0,.3)'
           }}
         >
           {/* 分组列表（包含默认分组和用户分组） */}
           {allGroups.map(group => {
             const groupCommands = getCommandsByGroup(group.id)
+            const isActive = selectedGroupId === group.id
             return (
               <div
                 key={group.id}
                 className={cn(
-                  'flex items-center gap-2 px-3 py-1.5 text-xs',
-                  selectedGroupId === group.id ? 'bg-[#0078D4] text-white' : 'text-gray-300 hover:bg-[#3C3C3C]',
-                  'cursor-pointer'
+                  'flex items-center gap-2 px-2 py-1.5 text-[11.5px] rounded-[2px] cursor-pointer',
+                  isActive ? 'bg-[#2E2E33] text-gray-100' : 'text-gray-300 hover:bg-[#2C2C30]'
                 )}
-                style={{ borderLeft: group.color ? `3px solid ${group.color}` : undefined }}
                 onClick={(e) => {
                   e.stopPropagation()
                   setSelectedGroupId(group.id)
                   setActiveDropdown(null)
                 }}
                 onContextMenu={(e) => {
-                  // 禁用右键编辑，统一使用双击批量编辑
                   e.preventDefault()
                 }}
               >
+                <span
+                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{
+                    backgroundColor: group.color || '#6B6B73',
+                    boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.3)'
+                  }}
+                />
                 <span className="flex-1">{group.name}</span>
-                <span className="text-gray-400 text-[11px]">{groupCommands.length > 0 ? groupCommands.length : ''}</span>
+                <span
+                  className="text-gray-500 text-[10px]"
+                  style={{
+                    fontFamily: 'ui-monospace, "JetBrains Mono", monospace',
+                    fontFeatureSettings: '"tnum" 1'
+                  }}
+                >
+                  {groupCommands.length > 0 ? groupCommands.length : ''}
+                </span>
               </div>
             )
           })}
+          {/* 分隔 + 编辑入口（升格为明示项） */}
+          <div className="h-px bg-[#2C2C30] my-1 mx-1.5" />
+          <div
+            className="flex items-center gap-2 px-2 py-1.5 text-[11px] rounded-[2px] cursor-pointer text-gray-500 hover:text-gray-200 hover:bg-[#2C2C30]"
+            onClick={(e) => {
+              e.stopPropagation()
+              setActiveDropdown(null)
+              handleOpenGroupDialog()
+            }}
+          >
+            <span
+              className="w-2 h-2 rounded-full flex-shrink-0 border border-dashed border-gray-600"
+            />
+            <span className="flex-1">编辑分组…</span>
+          </div>
         </div>
       )}
 
-      {/* 右侧：连接状态和版本 */}
-      <div className="flex items-center gap-4 flex-shrink-0">
+      {/* 右侧：连接状态簇 — 等宽丝印风格 */}
+      <div
+        className="flex items-center gap-3.5 flex-shrink-0 px-3 bg-[#232326] border-l border-[#2C2C30] text-gray-500"
+        style={{
+          fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace',
+          fontSize: '10.5px',
+          fontFeatureSettings: '"tnum" 1'
+        }}
+      >
         {sessionId ? (
           <>
-            <span className="text-green-400">OK</span>
-            <span>{(() => {
+            <span className="flex items-center gap-1.5">
+              <span
+                className="w-1.5 h-1.5 rounded-full"
+                style={{ backgroundColor: '#4EC9B0', boxShadow: '0 0 6px rgba(78,201,176,.5)' }}
+              />
+              <span className="text-gray-300">OK</span>
+            </span>
+            <span className="text-gray-400">{(() => {
               const s = sessions.find(s => s.id === sessionId)
               const t = s?.config?.type
               return t === 'ssh' ? 'SSH' : t === 'telnet' ? 'TEL' : t === 'serial' ? 'SER' : t === 'local' ? 'LOC' : ''
@@ -509,7 +562,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
         ) : (
           <span>未连接</span>
         )}
-        <span className="text-gray-500">v1.0.1</span>
+        <span className="text-gray-600">v1.0.1</span>
       </div>
 
       {/* 添加/编辑命令对话框 */}
@@ -588,97 +641,32 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
         </div>
       )}
 
-      {/* 分组管理对话框 */}
-      {showGroupDialog && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-          <div className="bg-[#2D2D30] rounded-lg shadow-xl w-[400px] p-4">
-            <div className="text-sm text-white font-medium mb-3">
-              编辑分组
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">分组名称</label>
-                <input
-                  type="text"
-                  value={newGroupName}
-                  onChange={(e) => setNewGroupName(e.target.value)}
-                  placeholder="例如: 系统"
-                  autoFocus
-                  className="w-full px-2 py-1 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">分组颜色</label>
-                <div className="flex gap-2">
-                  {predefinedColors.map(color => (
-                    <button
-                      key={color}
-                      onClick={() => setNewGroupColor(color)}
-                      className={cn(
-                        'w-6 h-6 rounded transition-transform',
-                        newGroupColor === color && 'ring-2 ring-white scale-110'
-                      )}
-                      style={{ backgroundColor: color }}
-                    />
-                  ))}
-                  <button
-                    onClick={() => setNewGroupColor('')}
-                    className={cn(
-                      'w-6 h-6 rounded border border-[#555] text-xs text-gray-400',
-                      !newGroupColor && 'ring-2 ring-white'
-                    )}
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  onClick={() => setShowGroupDialog(false)}
-                  className="px-3 py-1 text-sm text-gray-400 hover:text-white transition-colors"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={handleSaveGroup}
-                  className="px-3 py-1 text-sm bg-[#0078D4] text-white rounded hover:bg-[#006CBD] transition-colors"
-                >
-                  保存
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* 批量编辑分组对话框 */}
       {showBatchGroupDialog && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
           <div className="bg-[#2D2D30] rounded-lg shadow-xl w-[320px] p-4">
-            {/* 标题栏：标题 + 感叹号提示 + 按钮 */}
+            {/* 标题栏：标题 + 说明提示 + 按钮 */}
             <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-1 text-sm text-white font-medium">
-                <span>编辑分组（共5个）</span>
+              <div className="flex items-center gap-1.5 text-sm text-white font-medium">
+                <span>编辑分组</span>
                 <span
-                  className="text-yellow-500 cursor-help"
-                  title="第1个为默认分组（名称固定不可编辑）\n名称为空的用户分组不会显示在下拉列表中\n最多可输入4个中文字符或8个英文字符"
+                  className="inline-flex items-center justify-center w-[14px] h-[14px] rounded-full border border-gray-500 text-gray-500 text-[9px] italic cursor-help"
+                  style={{ fontFamily: '"Times New Roman", serif' }}
+                  title={"第 1 个是默认分组，名称固定。\n其它分组留空则不显示。\n名称最多 4 字宽（自动按显示宽度截断）。"}
                 >
-                  !
+                  i
                 </span>
               </div>
               <div className="flex gap-2">
                 <button
                   onClick={() => setShowBatchGroupDialog(false)}
-                  className="px-3 py-1.5 text-xs bg-[#3C3C3C] text-gray-300 hover:bg-[#555] hover:text-white rounded transition-colors"
+                  className="px-3 py-1.5 text-xs bg-[#2E2E33] text-gray-300 hover:bg-[#3A3A41] hover:text-white rounded transition-colors"
                 >
                   取消
                 </button>
                 <button
                   onClick={handleSaveBatchGroups}
-                  className="px-3 py-1.5 text-xs bg-[#3C3C3C] text-gray-300 hover:bg-[#555] hover:text-white rounded transition-colors"
+                  className="px-3 py-1.5 text-xs bg-[#0078D4] text-white hover:bg-[#0086EF] rounded transition-colors"
                 >
                   保存
                 </button>
