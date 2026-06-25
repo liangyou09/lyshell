@@ -15,7 +15,7 @@ interface FileInfo {
   path: string
   isDir: boolean
   size: number
-  modifyTime: Date
+  modifyTime: Date | string
 }
 
 interface FileManagerFloatProps {
@@ -161,6 +161,7 @@ const FileManagerFloat: React.FC<FileManagerFloatProps> = ({ visible, onClose, s
             onGoUp={handleGoUp}
             onDownload={handleDownload}
             onRefresh={() => selectedSessionId && loadFiles(selectedSessionId, currentPath)}
+            onNavigateTo={(absPath) => setCurrentPath(absPath)}
           />
         ) : (
           <DownloadHistoryList sessionId={selectedSessionId} />

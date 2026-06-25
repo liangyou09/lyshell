@@ -311,12 +311,12 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
   }
 
   return (
-    <div className="flex items-center bg-[#252526] border-b border-[#3C3C3C] h-[28px]">
+    <div className="flex items-center bg-[var(--bg-rack)] border-b border-[var(--rule)] h-[28px]">
       {/* 左滚动按钮 */}
       <button
         onClick={scrollLeft}
         title="向左滚动"
-        className="w-[20px] h-full flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#3C3C3C] transition-colors"
+        className="w-[20px] h-full flex items-center justify-center text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-elev)] transition-colors"
       >
         ‹
       </button>
@@ -345,24 +345,24 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
             onDrop={(e) => handleDropOnTab(e, index)}
             title="单击切换 | 双击左键克隆会话 | 双击右键克隆渠道(SSH)"
             className={cn(
-              'flex items-center gap-1 px-2 h-full border-r border-[#3C3C3C] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
+              'flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
               pane.activeSessionId === session.id
-                ? 'bg-[#0C0C0C] text-white border-b-2 border-b-[#0078D4]'
+                ? 'bg-[#0C0C0C] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
                 : session.hasActivity
-                  ? 'bg-[#0078D4]/40 text-white hover:bg-[#0078D4]/50' // 有活动时高亮蓝色背景
-                  : 'bg-[#252526] text-gray-400 hover:bg-[#2D2D30]',
+                  ? 'bg-[var(--reachable)]/15 text-[var(--text-rack)] hover:bg-[var(--reachable)]/25' // 有未读输出：reachable 青调
+                  : 'bg-[var(--bg-rack)] text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)]',
               draggingSessionId === session.id && 'opacity-50',
-              dragOverIndex === index && draggingSessionId !== session.id && 'border-l-2 border-l-[#0078D4]'  // 拖拽位置指示器
+              dragOverIndex === index && draggingSessionId !== session.id && 'border-l-2 border-l-[var(--amber)]'  // 拖拽位置指示器
             )}
           >
-            <span className="text-xs text-gray-400">{getTypeLabel(session.config.type)}</span>
+            <span className="text-[10px] font-mono uppercase tracking-[.08em] text-[var(--text-rack-faint)]">{getTypeLabel(session.config.type)}</span>
             <span className="text-xs truncate max-w-[150px]">{getNameWithIndex(session)}</span>
             <span
               title={session.status === 'error' ? getFriendlyError(session.lastError) : undefined}
               className={cn(
                 'text-xs cursor-default',
-                session.status === 'connected' ? 'text-green-400' :
-                session.status === 'error' ? 'text-red-400 hover:text-red-300' : 'text-gray-400'
+                session.status === 'connected' ? 'text-[var(--live)]' :
+                session.status === 'error' ? 'text-[var(--error-rack)] hover:opacity-80' : 'text-[var(--text-rack-mute)]'
               )}
             >
               {getStatusLabel(session.status)}
@@ -375,7 +375,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
                 useSessionStore.getState().disconnectSession(session.id)
               }}
               title="关闭连接"
-              className="ml-1 w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[#C50F1F] hover:text-white rounded transition-colors"
+              className="ml-1 w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
             >
               ✕
             </button>
@@ -387,7 +387,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
       <button
         onClick={scrollRight}
         title="向右滚动"
-        className="w-[20px] h-full flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#3C3C3C] transition-colors"
+        className="w-[20px] h-full flex items-center justify-center text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-elev)] transition-colors"
       >
         ›
       </button>

@@ -12,6 +12,7 @@ import { agentRepository } from '../storage/agent-repository'
 import type { AgentConfig } from '../storage/agent-repository'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { ConnectionStatus } from '../connectors'
+import { reachabilityProber, type ReachabilityTarget } from '../reachability/reachability-prober'
 import { ConnectionType } from '@shared/types'
 import { fileManager, startDownloadWorker, registerTaskMeta, startUploadWorker } from '../file'
 import type { SessionConfig } from '@shared/types'
@@ -50,6 +51,8 @@ export const IPC_CHANNELS = {
   CONNECTION_DISCONNECT: 'connection:disconnect',
   CONNECTION_RECONNECT: 'connection:reconnect',
   CONNECTION_STATUS: 'connection:status',
+  CONNECTION_REACHABLE: 'connection:reachable',  // TCP 可达性探测结果推送
+  REACHABILITY_PROBE_NOW: 'reachability:probe-now',  // 手动刷新一次探测
   CONNECTION_CLONE_CHANNEL: 'connection:clone-channel',  // 克隆渠道
 
   // 会话管理
@@ -271,6 +274,7 @@ export function registerIPCHandlers(): void {
 
       // 有有效 id，保存并连接
       const savedConfig = sessionRepository.saveSession(config)
+      syncReachabilityTargets()
 
       const existingSession = sessionManager.getSession(config.id)
       if (existingSession && existingSession.status === ConnectionStatus.CONNECTED) {
@@ -395,6 +399,41 @@ export function registerIPCHandlers(): void {
     }
   })
 
+  // ===== TCP 可达性探测 =====
+  // 把所有保存的 SSH/Telnet 会话作为探测目标，每 30s 跑一遍，结果推到渲染层。
+  // 用 config.id 作为 key — 与 saved 行直接对齐，不受 name/host 变更影响，也能区分同 host 不同账号。
+  const syncReachabilityTargets = (): void => {
+    try {
+      const all = sessionRepository.getAll()
+      const targets: ReachabilityTarget[] = []
+      for (const cfg of all) {
+        if (cfg.type === 'ssh' && cfg.ssh) {
+          targets.push({ key: cfg.id, host: cfg.ssh.host, port: cfg.ssh.port })
+        } else if (cfg.type === 'telnet' && cfg.telnet) {
+          targets.push({ key: cfg.id, host: cfg.telnet.host, port: cfg.telnet.port })
+        }
+      }
+      reachabilityProber.setTargets(targets)
+    } catch (e) {
+      log.warn('Failed to sync reachability targets:', e)
+    }
+  }
+  // 幂等保护：registerIPCHandlers 理论上只调一次，但万一被二次调用，
+  // 不要重复挂监听 + 多套定时器。
+  reachabilityProber.removeAllListeners('result')
+  reachabilityProber.on('result', (data) => {
+    sendToAllWindows(IPC_CHANNELS.CONNECTION_REACHABLE, data)
+  })
+  reachabilityProber.stop()
+  syncReachabilityTargets()
+  reachabilityProber.start()
+
+  ipcMain.handle(IPC_CHANNELS.REACHABILITY_PROBE_NOW, async () => {
+    syncReachabilityTargets()
+    await reachabilityProber.probeNow()
+    return { success: true }
+  })
+
   // 监听终端数据，批量发送到所有窗口（减少 IPC 频率）
   const dataBuffers = new Map<string, string>()
   let dataFlushTimer: ReturnType<typeof setTimeout> | null = null
@@ -422,7 +461,9 @@ export function registerIPCHandlers(): void {
       assertString(config.name, 'config.name', { maxLength: 200 })
       assertString(config.type, 'config.type', { maxLength: 32 })
       log.debug('Create session:', config.name)
-      return sessionRepository.saveSession(config)
+      const saved = sessionRepository.saveSession(config)
+      syncReachabilityTargets()
+      return saved
     } catch (error) {
       return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
     }
@@ -435,7 +476,9 @@ export function registerIPCHandlers(): void {
       assertString(config.name, 'config.name', { maxLength: 200 })
       assertString(config.type, 'config.type', { maxLength: 32 })
       log.debug('Update session:', config.id)
-      return sessionRepository.saveSession(config)
+      const saved = sessionRepository.saveSession(config)
+      syncReachabilityTargets()
+      return saved
     } catch (error) {
       return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
     }
@@ -453,6 +496,7 @@ export function registerIPCHandlers(): void {
       }
       // 删除存储
       sessionRepository.delete(sessionId)
+      syncReachabilityTargets()
       return { success: true }
     } catch (error) {
       return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
@@ -498,6 +542,7 @@ export function registerIPCHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.SESSION_DEDUPLICATE, async () => {
     log.info('Deduplicating sessions...')
     const result = sessionRepository.deduplicate()
+    syncReachabilityTargets()
     return result
   })
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import cn from 'classnames'
 import DownloadHistoryList from './DownloadHistoryList'
 import FileBrowser from './FileBrowser'
 import DownloadProgressBar, { registerDownloadFileName } from './DownloadProgressBar'
@@ -10,7 +11,7 @@ interface FileInfo {
   path: string
   isDir: boolean
   size: number
-  modifyTime: Date
+  modifyTime: Date | string
 }
 
 // 服务器标识（用于区分不同服务器）
@@ -69,6 +70,7 @@ const FileManagerPanel: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'files' | 'history'>('files')
   const [filterPattern, setFilterPattern] = useState('')
   const [isDragging, setIsDragging] = useState(false)
+  const [dragFileCount, setDragFileCount] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
   // 每个服务器的缓存数据
@@ -221,6 +223,16 @@ const FileManagerPanel: React.FC = () => {
     }
   }
 
+  // 跳转到指定路径（面包屑点击）
+  const handleNavigateTo = (absPath: string) => {
+    if (!currentServerKey || !currentSessionId) return
+    if (!absPath) return
+    pathsCacheRef.current[currentServerKey] = absPath
+    saveServerPaths(pathsCacheRef.current)
+    setDisplayPath(absPath)
+    loadFiles(currentServerKey, currentSessionId, absPath)
+  }
+
   // 返回上级 - 更新路径缓存
   const handleGoUp = () => {
     if (displayPath === '/' || !currentServerKey) return
@@ -239,7 +251,10 @@ const FileManagerPanel: React.FC = () => {
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    if (currentSessionId) setIsDragging(true)
+    if (currentSessionId) {
+      setIsDragging(true)
+      setDragFileCount(e.dataTransfer.items?.length ?? 0)
+    }
   }
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -254,13 +269,17 @@ const FileManagerPanel: React.FC = () => {
     e.stopPropagation()
     const currentTarget = e.currentTarget as HTMLElement
     const relatedTarget = e.relatedTarget as HTMLElement
-    if (!currentTarget.contains(relatedTarget)) setIsDragging(false)
+    if (!currentTarget.contains(relatedTarget)) {
+      setIsDragging(false)
+      setDragFileCount(0)
+    }
   }
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
     setIsDragging(false)
+    setDragFileCount(0)
 
     if (!currentSessionId || !currentServerKey) {
       alert('请先连接终端')
@@ -271,6 +290,7 @@ const FileManagerPanel: React.FC = () => {
     if (droppedFiles.length === 0) return
 
     for (const file of droppedFiles) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const localPath = (file as any).path
       if (localPath) handleUpload(localPath, file.name)
     }
@@ -326,65 +346,99 @@ const FileManagerPanel: React.FC = () => {
 
   // 获取当前会话名称
   const activeSession = sessions.find(s => s.id === currentSessionId)
-  const sessionName = activeSession?.config?.name || '未连接'
+  const sessionName = activeSession?.config?.name || ''
+  const sessionUser = activeSession?.config?.ssh?.username ?? ''
+  const sessionType = activeSession?.config?.type || 'ssh'
+  const protoStripColor = (() => {
+    switch (sessionType) {
+      case 'ssh':    return 'var(--proto-ssh)'
+      case 'telnet': return 'var(--proto-tel)'
+      case 'serial': return 'var(--proto-ser)'
+      case 'local':  return 'var(--proto-loc)'
+      default:        return 'var(--text-rack-dim)'
+    }
+  })()
 
   // 是否有可用的文件会话
   const hasFileSession = currentServerKey && currentSessionId
 
   return (
     <div
-      className="flex flex-col h-full bg-[#252526] overflow-hidden relative"
+      className={cn(
+        'flex flex-col h-full overflow-hidden relative bg-[var(--bg-base)] transition-shadow',
+        isDragging && 'shadow-[inset_0_0_0_1px_var(--amber)]'
+      )}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* 拖动遮罩 */}
+      {/* 拖放提示条（替代原全屏遮罩）— 仅在面板顶部显示一条 24px */}
       {isDragging && (
-        <div className="absolute inset-0 bg-[#0078D4]/30 border-2 border-dashed border-[#0078D4] flex items-center justify-center z-30 pointer-events-none">
-          <div className="text-center bg-[#1E1E1E]/90 px-6 py-4 rounded-lg">
-            <div className="text-4xl mb-2">📤</div>
-            <div className="text-sm text-[#0078D4] font-medium">拖放文件上传</div>
-            <div className="text-xs text-gray-400 mt-1">上传到: {displayPath}</div>
-          </div>
+        <div className="flex items-center justify-between gap-2 px-2.5 py-1 bg-[var(--amber-soft)] border-b border-[var(--amber)] font-mono text-[12px] text-[var(--amber)] tracking-[.02em] pointer-events-none">
+          <span>release to upload{dragFileCount > 0 ? ` ${dragFileCount} file${dragFileCount > 1 ? 's' : ''}` : ' files'}</span>
+          <span className="text-[var(--text-rack-data)] truncate" title={displayPath}>→ {displayPath}</span>
         </div>
       )}
 
-      {/* 标题栏 */}
-      <div className="h-[28px] bg-[#1E1E1E] border-b border-[#3C3C3C] flex items-center justify-between px-2">
-        <span className="text-xs text-gray-300 truncate">{sessionName}</span>
-        <div className="flex items-center gap-1">
+      {/* 标题栏 — 协议色条 + 会话名 + uppercase 文字 tabs */}
+      <div className="h-[30px] bg-[var(--bg-strip)] border-b border-[var(--rule)] flex items-center justify-between px-2.5 gap-2">
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          <span
+            className="w-[3px] h-[14px] rounded-r-[1px] flex-shrink-0"
+            style={{ background: hasFileSession ? protoStripColor : 'var(--text-rack-faint)' }}
+          />
+          {hasFileSession ? (
+            <>
+              <span className="text-[13px] text-[var(--text-rack)] font-medium truncate" title={sessionName}>
+                {sessionName}
+              </span>
+              {sessionUser && (
+                <span className="font-mono text-[11.5px] text-[var(--text-rack-mute)] flex-shrink-0">{sessionUser}</span>
+              )}
+            </>
+          ) : (
+            <span className="text-[13px] text-[var(--text-rack-mute)] truncate">no active session</span>
+          )}
+        </div>
+        <div className="flex gap-0 flex-shrink-0">
           <button
             onClick={() => setActiveTab('files')}
-            className={`px-2 py-0.5 text-xs rounded ${
-              activeTab === 'files' ? 'bg-[#0078D4] text-white' : 'text-gray-400 hover:text-white'
-            }`}
+            className={cn(
+              'px-2 py-1 -mb-px font-semibold tracking-[.16em] text-[11px] uppercase bg-transparent border-none border-b cursor-pointer transition-colors',
+              activeTab === 'files'
+                ? 'text-[var(--text-rack)] border-[var(--amber)]'
+                : 'text-[var(--text-rack-mute)] border-transparent hover:text-[var(--text-rack)]'
+            )}
           >
-            文件
+            Files
           </button>
           <button
             onClick={() => setActiveTab('history')}
-            className={`px-2 py-0.5 text-xs rounded ${
-              activeTab === 'history' ? 'bg-[#0078D4] text-white' : 'text-gray-400 hover:text-white'
-            }`}
+            className={cn(
+              'px-2 py-1 -mb-px font-semibold tracking-[.16em] text-[11px] uppercase bg-transparent border-none border-b cursor-pointer transition-colors',
+              activeTab === 'history'
+                ? 'text-[var(--text-rack)] border-[var(--amber)]'
+                : 'text-[var(--text-rack-mute)] border-transparent hover:text-[var(--text-rack)]'
+            )}
           >
-            记录
+            History
           </button>
         </div>
       </div>
 
       {/* 内容区 */}
-      <div className="flex-1 overflow-auto min-h-0">
+      <div className="flex-1 overflow-auto min-h-0 rack-scroll">
         {activeTab === 'files' ? (
           hasFileSession ? (
             <>
-              {/* 错误提示 */}
+              {/* 错误提示 — fm-err */}
               {error && (
-                <div className="px-2 py-1 bg-red-900/30 border-b border-red-800/50 text-red-400 text-xs flex items-center justify-between">
+                <div className="px-2.5 py-1 bg-[#3a1a1a] border-b border-[var(--error-rack)] flex items-center justify-between font-mono text-[12px] text-[#ffb3b3] gap-2">
                   <span className="truncate">{error}</span>
                   <button
                     onClick={() => setError(null)}
-                    className="text-red-400 hover:text-white ml-2"
+                    className="text-[#ff8a8a] hover:opacity-100 opacity-70 flex-shrink-0 cursor-pointer bg-transparent border-none"
                   >
                     ✕
                   </button>
@@ -402,12 +456,14 @@ const FileManagerPanel: React.FC = () => {
                 onGoUp={handleGoUp}
                 onDownload={handleDownload}
                 onRefresh={handleRefresh}
+                onNavigateTo={handleNavigateTo}
               />
             </>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-gray-500">
-              <div className="text-xl mb-1">🔗</div>
-              <div className="text-xs">请连接服务器</div>
+            <div className="flex flex-col items-center justify-center h-full px-4 text-center gap-2">
+              <span className="font-mono text-[18px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
+              <span className="text-[13px] text-[var(--text-rack-mute)]">attach a remote session to browse</span>
+              <span className="font-mono text-[12px] text-[var(--text-rack-faint)]">click any session in the rack above</span>
             </div>
           )
         ) : (
@@ -415,7 +471,7 @@ const FileManagerPanel: React.FC = () => {
         )}
       </div>
 
-      {/* 进度条 */}
+      {/* 进度条 — 已重设计为 fm-foot 风格的 24px 行 */}
       <DownloadProgressBar />
     </div>
   )

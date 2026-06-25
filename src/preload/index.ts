@@ -8,6 +8,8 @@ const IPC_CHANNELS = {
   CONNECTION_DISCONNECT: 'connection:disconnect',
   CONNECTION_RECONNECT: 'connection:reconnect',
   CONNECTION_STATUS: 'connection:status',
+  CONNECTION_REACHABLE: 'connection:reachable',
+  REACHABILITY_PROBE_NOW: 'reachability:probe-now',
   CONNECTION_CLONE_CHANNEL: 'connection:clone-channel',  // 克隆渠道
 
   // 会话管理
@@ -92,6 +94,12 @@ const electronAPI = {
     ipcRenderer.on(IPC_CHANNELS.CONNECTION_STATUS, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.CONNECTION_STATUS, listener)
   },
+  onSessionReachable: (callback: (payload: { key: string; reachable: boolean; reason?: string }) => void) => {
+    const listener = (_event: IpcRendererEvent, payload: { key: string; reachable: boolean; reason?: string }) => callback(payload)
+    ipcRenderer.on(IPC_CHANNELS.CONNECTION_REACHABLE, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.CONNECTION_REACHABLE, listener)
+  },
+  probeReachabilityNow: (): Promise<{ success: true }> => ipcRenderer.invoke(IPC_CHANNELS.REACHABILITY_PROBE_NOW),
 
   // 会话管理
   createSession: (session: unknown) => ipcRenderer.invoke(IPC_CHANNELS.SESSION_CREATE, session),

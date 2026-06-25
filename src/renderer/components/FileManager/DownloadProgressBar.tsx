@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import cn from 'classnames'
 
 interface DownloadProgress {
   taskId: string
@@ -9,75 +10,60 @@ interface DownloadProgress {
   speed: number
   status: 'downloading' | 'uploading' | 'completed' | 'failed'
   error?: string
-  direction: 'download' | 'upload'  // 方向
-  localPath?: string  // 本地路径（用于打开文件夹）
-}
-
-// 格式化文件大小
-const formatSize = (bytes: number) => {
-  if (bytes < 1024) return `${bytes}B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`
+  direction: 'download' | 'upload'
+  localPath?: string
 }
 
 // 格式化速度
 const formatSpeed = (bytesPerSecond: number) => {
   if (bytesPerSecond < 1024) return `${bytesPerSecond}B/s`
-  if (bytesPerSecond < 1024 * 1024) return `${(bytesPerSecond / 1024).toFixed(1)}KB/s`
-  return `${(bytesPerSecond / (1024 * 1024)).toFixed(1)}MB/s`
+  if (bytesPerSecond < 1024 * 1024) return `${(bytesPerSecond / 1024).toFixed(1)}K/s`
+  return `${(bytesPerSecond / (1024 * 1024)).toFixed(1)}M/s`
 }
 
 // 全局文件名存储（用于进度条显示）
 const fileNameStore: Map<string, string> = new Map()
-// 本地路径存储（用于打开文件夹）
 const localPathStore: Map<string, string> = new Map()
 
-// 导出函数：注册文件名
 export const registerDownloadFileName = (taskId: string, fileName: string, localPath?: string) => {
   fileNameStore.set(taskId, fileName)
-  if (localPath) {
-    localPathStore.set(taskId, localPath)
-  }
+  if (localPath) localPathStore.set(taskId, localPath)
 }
 
-// 导出函数：清理所有下载进度
 export const clearAllDownloads = () => {
   fileNameStore.clear()
   localPathStore.clear()
 }
 
-// 导出函数：清理指定下载
 export const clearDownload = (taskId: string) => {
   fileNameStore.delete(taskId)
   localPathStore.delete(taskId)
 }
 
 /**
- * 进度条组件 - 显示在文件管理器最底部
- * 支持下载和上传进度显示
+ * 传输进度条 — 焊在文件管理器底部的 24px hairline 行
+ *  下载中：name ↓ ~/Downloads · 64% · 3.4M/s
+ *  上传中：name ↑ /var/log    · 64% · 3.4M/s
+ *  完成 / 失败：保留显示，可关闭
+ *  无任务：渲染 null
  */
 const DownloadProgressBar: React.FC = () => {
   const [downloads, setDownloads] = useState<DownloadProgress[]>([])
 
-  // 清理指定任务
   const removeDownload = (taskId: string) => {
     setDownloads(prev => prev.filter(d => d.taskId !== taskId))
     fileNameStore.delete(taskId)
     localPathStore.delete(taskId)
   }
 
-  // 打开文件夹
   const openFolder = (localPath?: string) => {
-    if (localPath) {
-      window.electronAPI.openFolder(localPath)
-    }
+    if (localPath) window.electronAPI.openFolder(localPath)
   }
 
-  // 监听下载进度
   useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cleanup = window.electronAPI.onFileProgress((data: any) => {
-      if (data.md5Update) return  // 忽略 MD5 更新
+      if (data.md5Update) return
 
       const taskId = data.taskId
       const fileName = fileNameStore.get(taskId) || '未知文件'
@@ -85,75 +71,49 @@ const DownloadProgressBar: React.FC = () => {
       const direction = data.direction || 'download'
 
       if (data.failed) {
-        // 失败 - 如果任务不存在则添加，否则更新状态
         setDownloads(prev => {
           const existing = prev.find(d => d.taskId === taskId)
           if (existing) {
             return prev.map(d =>
               d.taskId === taskId ? { ...d, status: 'failed', error: data.error } : d
             )
-          } else {
-            // 任务不存在，添加新的失败任务
-            return [{
-              taskId,
-              fileName,
-              progress: 0,
-              transferredSize: 0,
-              fileSize: 0,
-              speed: 0,
-              status: 'failed',
-              error: data.error,
-              direction,
-              localPath
-            }, ...prev]
           }
+          return [{
+            taskId, fileName, progress: 0,
+            transferredSize: 0, fileSize: 0, speed: 0,
+            status: 'failed', error: data.error, direction, localPath
+          }, ...prev]
         })
         fileNameStore.delete(taskId)
         localPathStore.delete(taskId)
       } else if (data.completed) {
-        // 完成 - 不自动消失
         setDownloads(prev => prev.map(d =>
-          d.taskId === taskId ? {
-            ...d,
-            status: 'completed',
-            progress: 100,
-            direction,
-            localPath
-          } : d
+          d.taskId === taskId ? { ...d, status: 'completed', progress: 100, direction, localPath } : d
         ))
         fileNameStore.delete(taskId)
         localPathStore.delete(taskId)
       } else {
-        // 进度更新
         setDownloads(prev => {
           const existing = prev.find(d => d.taskId === taskId)
           if (existing) {
             return prev.map(d =>
               d.taskId === taskId ? {
-                ...d,
-                fileName,
-                progress: data.progress,
-                transferredSize: data.transferredSize,
-                fileSize: data.fileSize,
-                speed: data.speed,
-                direction,
-                localPath
+                ...d, fileName,
+                progress: data.progress, transferredSize: data.transferredSize,
+                fileSize: data.fileSize, speed: data.speed,
+                direction, localPath
               } : d
             )
-          } else {
-            // 新任务 - 添加到数组开头
-            return [{
-              taskId,
-              fileName,
-              progress: data.progress || 0,
-              transferredSize: data.transferredSize || 0,
-              fileSize: data.fileSize || 0,
-              speed: data.speed || 0,
-              status: direction === 'upload' ? 'uploading' : 'downloading',
-              direction,
-              localPath
-            }, ...prev]
           }
+          return [{
+            taskId, fileName,
+            progress: data.progress || 0,
+            transferredSize: data.transferredSize || 0,
+            fileSize: data.fileSize || 0,
+            speed: data.speed || 0,
+            status: direction === 'upload' ? 'uploading' : 'downloading',
+            direction, localPath
+          }, ...prev]
         })
       }
     })
@@ -163,83 +123,93 @@ const DownloadProgressBar: React.FC = () => {
 
   if (downloads.length === 0) return null
 
-  // 显示最新的下载任务（数组第一个）
   const current = downloads[0]
-
-  // 如果有多个任务，显示数量
   const hasMultiple = downloads.length > 1
+  const isActive = current.status === 'downloading' || current.status === 'uploading'
+  const arrow = current.direction === 'upload' ? '↑' : '↓'
+
+  const arrowColor =
+    current.status === 'failed' ? 'text-[var(--error-rack)]' :
+    current.status === 'completed' ? 'text-[var(--live)]' :
+    'text-[var(--amber)]'
+
+  const nameColor =
+    current.status === 'failed' ? 'text-[var(--error-rack)]' :
+    current.status === 'completed' ? 'text-[var(--live)]' :
+    'text-[var(--text-rack)]'
+
+  const fillColor =
+    current.status === 'failed' ? 'bg-[var(--error-rack)]' :
+    current.status === 'completed' ? 'bg-[var(--live)]' :
+    'bg-[var(--amber)]'
 
   return (
-    <div
-      className="border-t border-[#3C3C3C] bg-[#1E1E1E] px-2 py-2 transition-colors"
-    >
-      {/* 文件名、状态和操作按钮 */}
-      <div className="flex items-center gap-2 mb-1">
-        <span className={`text-xs truncate flex-1 ${
-          current.status === 'failed' ? 'text-red-400' :
-          current.status === 'completed' ? 'text-green-400' : 'text-white'
-        }`} title={current.fileName}>
-          {current.status === 'uploading' ? '⬆ ' :
-           current.status === 'downloading' ? '⬇ ' :
-           current.status === 'completed' ? '✓ ' : '✕ '}
+    <div className="flex items-center gap-2 px-2.5 py-1 bg-[var(--bg-rack)] border-t border-[var(--rule)] font-mono text-[12px] text-[var(--text-rack-mute)] min-h-[28px]">
+      <div className="flex items-center gap-1.5 flex-1 min-w-0">
+        <span className={cn('text-[14px] flex-shrink-0', arrowColor)}>{arrow}</span>
+        <span className={cn('truncate flex-shrink min-w-0', nameColor)} title={current.fileName}>
           {current.fileName}
-          <span className="text-gray-500 ml-1">
-            ({current.direction === 'upload' ? '上传' : '下载'})
-          </span>
         </span>
-        <span className="text-xs text-gray-400">
-          {current.status === 'downloading' || current.status === 'uploading' ? `${current.progress}%` :
-           current.status === 'completed' ? '完成' : '失败'}
-          {hasMultiple && ` (+${downloads.length - 1})`}
-        </span>
-        {/* 打开文件夹按钮（仅下载完成时显示） */}
-        {current.status === 'completed' && current.direction === 'download' && current.localPath && (
-          <button
-            onClick={() => openFolder(current.localPath)}
-            className="text-xs text-gray-400 hover:text-white px-1"
-            title="打开文件夹"
-          >
-            📂
-          </button>
+        {hasMultiple && (
+          <span className="text-[var(--text-rack-mute)] flex-shrink-0">+{downloads.length - 1}</span>
         )}
-        {/* 关闭按钮 */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            removeDownload(current.taskId)
-          }}
-          className="text-xs text-gray-400 hover:text-white px-1"
-          title="关闭"
+      </div>
+
+      {isActive && (
+        <>
+          <span aria-hidden className="w-px h-[10px] bg-[var(--rule)] flex-shrink-0" />
+          <div className="flex-shrink-0 w-[80px] h-[4px] bg-[var(--bg-elev)] rounded-[1px] overflow-hidden">
+            <div className={cn('h-full transition-[width] duration-300', fillColor)} style={{ width: `${current.progress}%` }} />
+          </div>
+        </>
+      )}
+
+      {isActive && (
+        <span className={cn('flex-shrink-0 font-medium tracking-[-.02em] min-w-[32px] text-right tabular-nums', nameColor)}>
+          {`${current.progress}%`}
+        </span>
+      )}
+      {!isActive && current.status === 'failed' && (
+        <span
+          className="flex-shrink-0 font-medium tracking-[-.02em] text-[var(--error-rack)] cursor-help"
+          title={current.error || '传输失败'}
         >
-          ✕
+          err
+        </span>
+      )}
+      {/* 完成态：download 时显示主 CTA "reveal"；upload 时只是个静态 done */}
+      {!isActive && current.status === 'completed' && current.direction !== 'download' && (
+        <span className="flex-shrink-0 font-medium tracking-[-.02em] text-[var(--live)]">done</span>
+      )}
+
+      {isActive && current.fileSize > 0 && (
+        <>
+          <span aria-hidden className="w-px h-[10px] bg-[var(--rule)] flex-shrink-0" />
+          <span className="flex-shrink-0 text-[var(--text-rack-data)] tracking-[-.02em] tabular-nums">
+            {formatSpeed(current.speed)}
+          </span>
+        </>
+      )}
+
+      {/* 完成 · download · 有本地路径 → 主 CTA: reveal (按钮 = 状态 + 动作合一) */}
+      {current.status === 'completed' && current.direction === 'download' && current.localPath && (
+        <button
+          onClick={() => openFolder(current.localPath)}
+          title={`在资源管理器中显示 — ${current.localPath}`}
+          className="inline-flex items-center gap-1 px-1.5 h-[20px] flex-shrink-0 bg-[var(--amber-soft)] hover:bg-[var(--amber)] text-[var(--amber)] hover:text-[var(--bg-base)] border-none cursor-pointer rounded-[2px] font-mono text-[11.5px] font-semibold tracking-[.02em] transition-colors"
+        >
+          <svg width="10" height="10" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square"><path d="M3 8L8 3M8 3H4M8 3V7"/></svg>
+          reveal
         </button>
-      </div>
-
-      {/* 进度条 */}
-      <div className="h-2 bg-[#3C3C3C] rounded overflow-hidden">
-        <div
-          className={`h-full transition-all duration-300 ${
-            current.status === 'failed' ? 'bg-red-500' :
-            current.status === 'completed' ? 'bg-green-500' : 'bg-[#0078D4]'
-          }`}
-          style={{ width: `${current.progress}%` }}
-        />
-      </div>
-
-      {/* 速度和大小 */}
-      {(current.status === 'downloading' || current.status === 'uploading') && current.fileSize > 0 && (
-        <div className="flex justify-between text-xs text-gray-500 mt-1">
-          <span>{formatSize(current.transferredSize)} / {formatSize(current.fileSize)}</span>
-          <span>{current.speed > 0 ? formatSpeed(current.speed) : '计算中...'}</span>
-        </div>
       )}
 
-      {/* 错误信息 */}
-      {current.status === 'failed' && current.error && (
-        <div className="text-xs text-red-400 mt-1 truncate" title={current.error}>
-          {current.error}
-        </div>
-      )}
+      <button
+        onClick={(e) => { e.stopPropagation(); removeDownload(current.taskId) }}
+        title="关闭"
+        className="w-[18px] h-[18px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] flex-shrink-0 rounded-[2px] hover:bg-[var(--bg-slot)] transition-colors"
+      >
+        <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 2l6 6M8 2l-6 6"/></svg>
+      </button>
     </div>
   )
 }

@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 全局样式 */
+/* 全局样式 - 历史 token（终端基线），不受主题影响 */
 :root {
   --color-bg-primary: #1E1E1E;
   --color-bg-secondary: #252526;
@@ -13,6 +13,101 @@
   --color-text-secondary: #808080;
   --color-accent: #0078D4;
   --font-family-terminal: 'Lucida Console', 'Consolas', 'Courier New', monospace;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   主题系统
+   ──────────────
+   chrome（背景层级 + rule + 文字 5 阶 + amber 焦点）随主题切换；
+   semantic 颜色（live / reachable / error / 协议色 / 文件类型色）
+   跨主题保持一致——它们承载语义，不该被"心情"改变。
+   每个主题完整定义所有 token，便于一眼审计。
+   ───────────────────────────────────────────────────────────── */
+
+/* 默认 = Rack Graphite */
+:root,
+[data-theme="rack-graphite"] {
+  --bg-base:        #11151A;
+  --bg-rack:        #161B20;
+  --bg-slot:        #1C2228;
+  --bg-elev:        #1F262D;
+  --bg-strip:       #14181D;
+  --rule:           #232A31;
+  --rule-soft:      #1B2127;
+  --text-rack:      #E4E7EA;
+  --text-rack-mute: #6E767D;
+  --text-rack-data: #9AA3AB;
+  --text-rack-dim:  #4A5159;
+  --text-rack-faint:#353C42;
+  --amber:          #E8A33D;
+  --amber-soft:     #E8A33D22;
+  --amber-glow:     #E8A33D33;
+  --proto-ssh:      #4FA8FF;
+  --proto-tel:      #7CC576;
+  --proto-ser:      #E8A33D;
+  --proto-loc:      #B07CFF;
+  --ft-dir:         #4FA8FF;
+  --ft-src:         #7CC576;
+  --ft-log:         #E8A33D;
+  --ft-arch:        #FF6B6B;
+  --ft-img:         #6CD4FF;
+  --ft-bin:         #B07CFF;
+  --ft-other:       #4A5159;
+  --live:           #7CC576;
+  --reachable:      #6CD4FF;
+  --warn-rack:      #E8A33D;
+  --error-rack:     #FF6B6B;
+}
+
+/* Rack Slate — 偏蓝石板，amber 焦点不变 */
+[data-theme="rack-slate"] {
+  --bg-base:        #0E141B;
+  --bg-rack:        #131A23;
+  --bg-slot:        #18212C;
+  --bg-elev:        #1C2632;
+  --bg-strip:       #11181F;
+  --rule:           #232E39;
+  --rule-soft:      #1B232D;
+  --text-rack:      #E2E6EC;
+  --text-rack-mute: #6B7480;
+  --text-rack-data: #98A2AE;
+  --text-rack-dim:  #48515C;
+  --text-rack-faint:#333C46;
+  /* amber / semantic / proto / ft 全部继承默认 */
+}
+
+/* Rack Carbon — 中性炭灰，弱蓝，更冷峻 */
+[data-theme="rack-carbon"] {
+  --bg-base:        #131313;
+  --bg-rack:        #181818;
+  --bg-slot:        #1E1E1E;
+  --bg-elev:        #232323;
+  --bg-strip:       #161616;
+  --rule:           #2A2A2A;
+  --rule-soft:      #1F1F1F;
+  --text-rack:      #E6E6E6;
+  --text-rack-mute: #757575;
+  --text-rack-data: #A0A0A0;
+  --text-rack-dim:  #4E4E4E;
+  --text-rack-faint:#383838;
+}
+
+/* connecting 协议色条脉冲 */
+@keyframes pulse-amber {
+  0%, 100% { filter: brightness(.6); box-shadow: 0 0 0 var(--amber-glow); }
+  50%      { filter: brightness(1.4); box-shadow: 0 0 8px var(--amber-glow); }
+}
+.animate-pulse-amber {
+  animation: pulse-amber 1.4s ease-in-out infinite;
+}
+
+/* 底部 live 计数呼吸 */
+@keyframes breathe {
+  0%, 100% { opacity: .4; }
+  50%      { opacity: 1; }
+}
+.animate-breathe {
+  animation: breathe 2.4s ease-in-out infinite;
 }
 
 /* 基础样式 */
@@ -52,46 +147,45 @@ body {
   box-sizing: border-box !important;
 }
 
+/* 终端滚动条 — rack 调性 / 比 chrome 宽一档，因为是高频画布 */
 .xterm-viewport::-webkit-scrollbar {
-  width: 12px;
-}
-
-
-/* 滚动条 - 始终显示 */
-.xterm-viewport::-webkit-scrollbar {
-  width: 12px;
+  width: 10px;
 }
 
 .xterm-viewport::-webkit-scrollbar-track {
-  background: rgba(60, 60, 60, 0.5);
+  background: transparent;
 }
 
 .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--text-rack-faint);
   border-radius: 0;
 }
 
 .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
+  background: var(--text-rack-dim);
 }
 
-/* 通用滚动条样式 - 用于侧边栏、文件管理器等 */
+.xterm-viewport::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 通用滚动条样式 - 对话框 / 未挂 .rack-scroll 的兜底 */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(60, 60, 60, 0.3);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 2px;
+  background: var(--rule);
+  border-radius: 0;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--text-rack-dim);
 }
 
 ::-webkit-scrollbar-corner {
@@ -125,6 +219,29 @@ body {
 
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.3);
+}
+
+/* === Rack 滚动条 — 侧栏 / 文件管理器共享 === */
+.rack-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.rack-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rack-scroll::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border-radius: 0;
+}
+
+.rack-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--text-rack-dim);
+}
+
+.rack-scroll::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* 无障碍 */

@@ -26,6 +26,9 @@ interface SessionStore {
   // 所有会话（包括临时会话）
   sessions: SessionState[]
 
+  // 可达性映射：key = saved session.id（与 main/ipc/handlers.ts 中 syncReachabilityTargets 对齐）
+  reachability: Record<string, { reachable: boolean; at: number }>
+
   // 活动会话ID
   activeSessionId: string | null
 
@@ -54,6 +57,7 @@ interface SessionStore {
 
   // 状态更新
   updateSessionStatus: (id: string, status: ConnectionStatus, error?: string) => void
+  updateReachability: (key: string, reachable: boolean) => void
   setActiveSession: (id: string | null) => void
 
   // 获取方法
@@ -70,6 +74,7 @@ interface SessionStore {
 export const useSessionStore = create<SessionStore>((set, get) => ({
   savedSessions: [],
   sessions: [],
+  reachability: {},
   activeSessionId: null,
   loading: false,
 
@@ -255,6 +260,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       sessions: state.sessions.map(s =>
         s.id === id ? { ...s, status, lastError: error } : s
       )
+    }))
+  },
+
+  // 更新可达性
+  updateReachability: (key, reachable) => {
+    set(state => ({
+      reachability: { ...state.reachability, [key]: { reachable, at: Date.now() } }
     }))
   },
 

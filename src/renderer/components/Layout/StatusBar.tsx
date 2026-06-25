@@ -29,7 +29,17 @@ const TerminalSize: React.FC<{ sessionId: string }> = ({ sessionId }) => {
   }, [sessionId, getTerminal])
 
   if (!size) return null
-  return <span>{size.cols}x{size.rows} [{size.bufferLines}]</span>
+  const lines = size.bufferLines
+  const formattedLines = lines >= 10000 ? `${Math.floor(lines / 1000)}k`
+    : lines >= 1000 ? `${(lines / 1000).toFixed(1)}k`
+    : `${lines}`
+  return (
+    <>
+      <span>{size.cols}×{size.rows}</span>
+      <span aria-hidden className="w-px h-[10px] bg-[var(--rule)] flex-shrink-0" />
+      <span className="tabular-nums">{formattedLines}</span>
+    </>
+  )
 }
 
 interface StatusBarProps {
@@ -345,7 +355,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
 
   return (
     <div
-      className="flex items-stretch justify-between bg-[#1B1B1D] border-t border-[#2C2C30] h-[30px] text-xs text-gray-400 relative"
+      className="flex items-stretch justify-between bg-[var(--bg-base)] border-t border-[var(--rule)] h-[30px] text-xs text-[var(--text-rack-mute)] relative"
       ref={dropdownRef}
     >
       {/* 分组选择键 - 最左侧 */}
@@ -372,22 +382,22 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
         }}
         className={cn(
           'h-full flex items-center gap-1.5 flex-shrink-0',
-          'bg-[#232326] hover:bg-[#2A2A2E]',
-          'border-r border-[#2C2C30]',
+          'bg-[var(--bg-rack)] hover:bg-[var(--bg-slot)]',
+          'border-r border-[var(--rule)]',
           'cursor-pointer transition-colors px-2.5',
-          activeDropdown === 'groups' && 'bg-[#2A2A2E]'
+          activeDropdown === 'groups' && 'bg-[var(--bg-slot)]'
         )}
         title="单击切换分组 · 右键编辑所有分组"
       >
         <span
           className="w-1.5 h-1.5 rounded-full flex-shrink-0"
           style={{
-            backgroundColor: currentGroupColor || '#6B6B73',
+            backgroundColor: currentGroupColor || 'var(--text-rack-dim)',
             boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.4)'
           }}
         />
-        <span className="text-[11px] text-gray-200 font-medium">{currentGroup ? currentGroup.name : '默认'}</span>
-        <span className="text-[9px] text-gray-500 -translate-y-px">▾</span>
+        <span className="text-[11px] text-[var(--text-rack)] font-medium">{currentGroup ? currentGroup.name : '默认'}</span>
+        <span className="text-[9px] text-[var(--text-rack-dim)] -translate-y-px">▾</span>
       </button>
 
       {/* 中间：键帽轨道 */}
@@ -405,8 +415,8 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
             className={cn(
               'group/key relative flex-shrink-0 h-[22px] rounded-[3px]',
               'pl-2 pr-2.5 flex items-center',
-              'bg-[#2E2E33] hover:bg-[#3A3A41] active:bg-[#45454D]',
-              'text-gray-200 cursor-pointer transition-colors'
+              'bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)] active:bg-[var(--rule)]',
+              'text-[var(--text-rack)] cursor-pointer transition-colors'
             )}
             style={{
               boxShadow:
@@ -417,7 +427,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
             {/* F 键丝印 — 左上 8.5px tabular-nums */}
             {index < 12 && (
               <span
-                className="absolute top-[1px] left-[4px] text-[8.5px] leading-none text-gray-500 pointer-events-none"
+                className="absolute top-[1px] left-[4px] text-[8.5px] leading-none text-[var(--text-rack-dim)] pointer-events-none"
                 style={{
                   fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace',
                   fontFeatureSettings: '"tnum" 1',
@@ -446,15 +456,15 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
             onClick={handleDoubleClick}
             className={cn(
               'flex-shrink-0 h-[22px] rounded-[3px] px-2.5 flex items-center gap-1.5',
-              'border border-dashed border-[#3A3A41] hover:border-gray-500',
-              'text-gray-500 hover:text-gray-300',
+              'border border-dashed border-[var(--bg-elev)] hover:border-[var(--text-rack-dim)]',
+              'text-[var(--text-rack-dim)] hover:text-[var(--text-rack-data)]',
               'cursor-pointer transition-colors'
             )}
           >
             <span className="text-[11px] leading-none">+</span>
             <span className="text-[10.5px] leading-none">添加命令</span>
             <span
-              className="text-[9.5px] leading-none text-gray-600 ml-1"
+              className="text-[9.5px] leading-none text-[var(--text-rack-faint)] ml-1"
               style={{ fontFamily: 'ui-monospace, "JetBrains Mono", monospace' }}
             >
               双击此处
@@ -466,7 +476,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
       {/* 分组选择下拉菜单（使用 fixed 定位） */}
       {activeDropdown === 'groups' && (
         <div
-          className="fixed bg-[#232326] border border-[#2C2C30] rounded shadow-xl z-[100] p-1"
+          className="fixed bg-[var(--bg-rack)] border border-[var(--rule)] rounded-[2px] shadow-xl z-[100] p-1"
           style={{
             top: `${dropdownPosition.top}px`,
             left: `${dropdownPosition.left}px`,
@@ -484,7 +494,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                 key={group.id}
                 className={cn(
                   'flex items-center gap-2 px-2 py-1.5 text-[11.5px] rounded-[2px] cursor-pointer',
-                  isActive ? 'bg-[#2E2E33] text-gray-100' : 'text-gray-300 hover:bg-[#2C2C30]'
+                  isActive ? 'bg-[var(--bg-slot)] text-[var(--text-rack)]' : 'text-[var(--text-rack-data)] hover:bg-[var(--bg-slot)]'
                 )}
                 onClick={(e) => {
                   e.stopPropagation()
@@ -498,13 +508,13 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                 <span
                   className="w-2 h-2 rounded-full flex-shrink-0"
                   style={{
-                    backgroundColor: group.color || '#6B6B73',
+                    backgroundColor: group.color || 'var(--text-rack-dim)',
                     boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.3)'
                   }}
                 />
                 <span className="flex-1">{group.name}</span>
                 <span
-                  className="text-gray-500 text-[10px]"
+                  className="text-[var(--text-rack-dim)] text-[10px]"
                   style={{
                     fontFamily: 'ui-monospace, "JetBrains Mono", monospace',
                     fontFeatureSettings: '"tnum" 1'
@@ -516,9 +526,9 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
             )
           })}
           {/* 分隔 + 编辑入口（升格为明示项） */}
-          <div className="h-px bg-[#2C2C30] my-1 mx-1.5" />
+          <div className="h-px bg-[var(--rule)] my-1 mx-1.5" />
           <div
-            className="flex items-center gap-2 px-2 py-1.5 text-[11px] rounded-[2px] cursor-pointer text-gray-500 hover:text-gray-200 hover:bg-[#2C2C30]"
+            className="flex items-center gap-2 px-2 py-1.5 text-[11px] rounded-[2px] cursor-pointer text-[var(--text-rack-dim)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-slot)]"
             onClick={(e) => {
               e.stopPropagation()
               setActiveDropdown(null)
@@ -526,83 +536,101 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
             }}
           >
             <span
-              className="w-2 h-2 rounded-full flex-shrink-0 border border-dashed border-gray-600"
+              className="w-2 h-2 rounded-full flex-shrink-0 border border-dashed border-[var(--text-rack-dim)]"
             />
             <span className="flex-1">编辑分组…</span>
           </div>
         </div>
       )}
 
-      {/* 右侧：连接状态簇 — 等宽丝印风格 */}
+      {/* 右侧：连接状态簇 — 字段分色 + 1px 分隔条 */}
       <div
-        className="flex items-center gap-3.5 flex-shrink-0 px-3 bg-[#232326] border-l border-[#2C2C30] text-gray-500"
+        className="flex items-center gap-2.5 flex-shrink-0 px-3 bg-[var(--bg-rack)] border-l border-[var(--rule)] text-[var(--text-rack-data)]"
         style={{
           fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace',
-          fontSize: '10.5px',
+          fontSize: '11px',
           fontFeatureSettings: '"tnum" 1'
         }}
       >
         {sessionId ? (
           <>
-            <span className="flex items-center gap-1.5">
-              <span
-                className="w-1.5 h-1.5 rounded-full"
-                style={{ backgroundColor: '#4EC9B0', boxShadow: '0 0 6px rgba(78,201,176,.5)' }}
-              />
-              <span className="text-gray-300">OK</span>
-            </span>
-            <span className="text-gray-400">{(() => {
+            {/* 状态点 — 不再配冗余的 OK 字 */}
+            <span
+              className="w-[6px] h-[6px] rounded-full flex-shrink-0"
+              style={{ backgroundColor: 'var(--live)', boxShadow: '0 0 6px rgba(124,197,118,.5)' }}
+              title="connected"
+            />
+            <span aria-hidden className="w-px h-[10px] bg-[var(--rule)] flex-shrink-0" />
+            {/* 协议 — 用协议色，和会话行同语言 */}
+            {(() => {
               const s = sessions.find(s => s.id === sessionId)
               const t = s?.config?.type
-              return t === 'ssh' ? 'SSH' : t === 'telnet' ? 'TEL' : t === 'serial' ? 'SER' : t === 'local' ? 'LOC' : ''
-            })()}</span>
+              const code = t === 'ssh' ? 'SSH' : t === 'telnet' ? 'TEL' : t === 'serial' ? 'SER' : t === 'local' ? 'LOC' : ''
+              const color = t === 'ssh' ? 'var(--proto-ssh)'
+                : t === 'telnet' ? 'var(--proto-tel)'
+                : t === 'serial' ? 'var(--proto-ser)'
+                : t === 'local' ? 'var(--proto-loc)'
+                : 'var(--text-rack-data)'
+              return code ? <span style={{ color }} className="font-semibold tracking-[.08em]">{code}</span> : null
+            })()}
+            <span aria-hidden className="w-px h-[10px] bg-[var(--rule)] flex-shrink-0" />
             <TerminalSize sessionId={sessionId} />
-            <span>UTF-8</span>
+            <span aria-hidden className="w-px h-[10px] bg-[var(--rule)] flex-shrink-0" />
+            <span className="lowercase">utf-8</span>
           </>
         ) : (
-          <span>未连接</span>
+          <>
+            {/* 空心点 + 小写 mono "no session"，调子和上下文一致 */}
+            <span
+              className="w-[6px] h-[6px] rounded-full flex-shrink-0"
+              style={{ border: '1px solid var(--text-rack-dim)' }}
+              title="no session"
+            />
+            <span className="lowercase">no session</span>
+          </>
         )}
-        <span className="text-gray-600">v1.0.1</span>
+        <span aria-hidden className="w-px h-[10px] bg-[var(--rule)] flex-shrink-0" />
+        <span className="lowercase">v1.0.1</span>
       </div>
 
       {/* 添加/编辑命令对话框 */}
       {showAddDialog && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-          <div className="bg-[#2D2D30] rounded-lg shadow-xl w-[400px] p-4">
-            <div className="text-sm text-white font-medium mb-3">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] shadow-xl w-[400px] p-4">
+            <div className="text-[11px] uppercase tracking-[.16em] font-semibold text-[var(--text-rack)] mb-3">
               {editCommand ? '编辑命令' : '添加快速命令'}
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs text-gray-400 mb-1">名称</label>
+                <label className="block text-[10px] uppercase tracking-[.1em] text-[var(--text-rack-mute)] mb-1">名称</label>
                 <input
                   type="text"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder="例如: ls"
                   autoFocus
-                  className="w-full px-2 py-1 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
+                  className="w-full px-2 py-1 bg-[var(--bg-elev)] border border-[var(--rule)] rounded-[2px] text-sm text-[var(--text-rack)] placeholder-[var(--text-rack-faint)] focus:outline-none focus:border-[var(--amber)]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs text-gray-400 mb-1">命令内容（支持多行）</label>
+                <label className="block text-[10px] uppercase tracking-[.1em] text-[var(--text-rack-mute)] mb-1">命令内容（支持多行）</label>
                 <textarea
                   value={newContent}
                   onChange={(e) => setNewContent(e.target.value)}
                   placeholder="例如:\ncd /var/www\nls -la"
                   rows={4}
-                  className="w-full px-2 py-1 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4] resize-none"
+                  className="w-full px-2 py-1 bg-[var(--bg-elev)] border border-[var(--rule)] rounded-[2px] text-sm font-mono text-[var(--text-rack)] placeholder-[var(--text-rack-faint)] focus:outline-none focus:border-[var(--amber)] resize-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs text-gray-400 mb-1">所属分组</label>
+                <label className="block text-[10px] uppercase tracking-[.1em] text-[var(--text-rack-mute)] mb-1">所属分组</label>
                 <select
                   value={newGroupId}
                   onChange={(e) => setNewGroupId(e.target.value)}
-                  className="w-full px-2 py-1 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white focus:outline-none focus:border-[#0078D4]"
+                  className="w-full px-2 py-1 bg-[var(--bg-elev)] border border-[var(--rule)] rounded-[2px] text-sm text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
                 >
                   <option value="">默认</option>
                   {groups.map(g => (
@@ -615,7 +643,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                 {editCommand && (
                   <button
                     onClick={handleDeleteCommand}
-                    className="px-3 py-1 text-sm text-red-400 hover:text-red-300 transition-colors"
+                    className="px-3 py-1 text-sm text-[var(--error-rack)] hover:opacity-80 transition-opacity"
                   >
                     删除
                   </button>
@@ -625,13 +653,13 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                     setShowAddDialog(false)
                     resetDialogState()
                   }}
-                  className="px-3 py-1 text-sm text-gray-400 hover:text-white transition-colors"
+                  className="px-3 py-1 text-sm text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] transition-colors"
                 >
                   取消
                 </button>
                 <button
                   onClick={handleSaveCommand}
-                  className="px-3 py-1 text-sm bg-[#0078D4] text-white rounded hover:bg-[#006CBD] transition-colors"
+                  className="px-3 py-1 text-sm bg-[var(--amber)] text-[var(--bg-base)] font-semibold rounded-[2px] hover:brightness-110 transition-[filter]"
                 >
                   保存
                 </button>
@@ -643,14 +671,14 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
 
       {/* 批量编辑分组对话框 */}
       {showBatchGroupDialog && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-          <div className="bg-[#2D2D30] rounded-lg shadow-xl w-[320px] p-4">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] shadow-xl w-[320px] p-4">
             {/* 标题栏：标题 + 说明提示 + 按钮 */}
             <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-1.5 text-sm text-white font-medium">
+              <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[.16em] font-semibold text-[var(--text-rack)]">
                 <span>编辑分组</span>
                 <span
-                  className="inline-flex items-center justify-center w-[14px] h-[14px] rounded-full border border-gray-500 text-gray-500 text-[9px] italic cursor-help"
+                  className="inline-flex items-center justify-center w-[14px] h-[14px] rounded-full border border-[var(--text-rack-dim)] text-[var(--text-rack-dim)] text-[9px] italic cursor-help"
                   style={{ fontFamily: '"Times New Roman", serif' }}
                   title={"第 1 个是默认分组，名称固定。\n其它分组留空则不显示。\n名称最多 4 字宽（自动按显示宽度截断）。"}
                 >
@@ -660,13 +688,13 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
               <div className="flex gap-2">
                 <button
                   onClick={() => setShowBatchGroupDialog(false)}
-                  className="px-3 py-1.5 text-xs bg-[#2E2E33] text-gray-300 hover:bg-[#3A3A41] hover:text-white rounded transition-colors"
+                  className="px-3 py-1.5 text-xs bg-[var(--bg-elev)] text-[var(--text-rack-data)] hover:bg-[var(--rule)] hover:text-[var(--text-rack)] rounded-[2px] transition-colors"
                 >
                   取消
                 </button>
                 <button
                   onClick={handleSaveBatchGroups}
-                  className="px-3 py-1.5 text-xs bg-[#0078D4] text-white hover:bg-[#0086EF] rounded transition-colors"
+                  className="px-3 py-1.5 text-xs bg-[var(--amber)] text-[var(--bg-base)] font-semibold hover:brightness-110 rounded-[2px] transition-[filter]"
                 >
                   保存
                 </button>
@@ -678,11 +706,11 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                 const isDefault = index === 0
                 return (
                   <div key={index} className={cn(
-                    'flex items-center gap-2 p-2 bg-[#3C3C3C] rounded',
+                    'flex items-center gap-2 p-2 bg-[var(--bg-elev)] rounded-[2px]',
                     isDefault && 'opacity-80'
                   )}>
                     {/* 分组序号 */}
-                    <span className="text-xs text-gray-400 w-4">{index + 1}</span>
+                    <span className="text-[10px] font-mono text-[var(--text-rack-mute)] w-4">{index + 1}</span>
 
                     {/* 分组名称 */}
                     <input
@@ -697,8 +725,8 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                       placeholder={isDefault ? '默认分组' : '输入名称'}
                       disabled={isDefault}
                       className={cn(
-                        'px-2 py-1 bg-[#252526] border border-[#555] rounded text-sm text-white placeholder-gray-500 w-[100px]',
-                        isDefault ? 'cursor-not-allowed' : 'focus:outline-none focus:border-[#0078D4]'
+                        'px-2 py-1 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[2px] text-sm text-[var(--text-rack)] placeholder-[var(--text-rack-faint)] w-[100px]',
+                        isDefault ? 'cursor-not-allowed' : 'focus:outline-none focus:border-[var(--amber)]'
                       )}
                     />
 
@@ -713,8 +741,8 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                             setBatchGroups(newGroups)
                           }}
                           className={cn(
-                            'w-5 h-5 rounded transition-transform',
-                            bg.color === color && 'ring-2 ring-white scale-110'
+                            'w-5 h-5 rounded-[2px] transition-transform',
+                            bg.color === color && 'ring-2 ring-[var(--amber)] scale-110'
                           )}
                           style={{ backgroundColor: color }}
                         />
@@ -726,8 +754,8 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                           setBatchGroups(newGroups)
                         }}
                         className={cn(
-                          'w-5 h-5 rounded border border-[#555] text-xs text-gray-400',
-                          !bg.color && 'ring-2 ring-white'
+                          'w-5 h-5 rounded-[2px] border border-[var(--rule)] text-xs text-[var(--text-rack-mute)]',
+                          !bg.color && 'ring-2 ring-[var(--amber)]'
                         )}
                       >
                         ✕
