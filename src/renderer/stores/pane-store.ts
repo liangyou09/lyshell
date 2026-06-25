@@ -33,6 +33,7 @@ interface PaneStore {
   setSplitRatio: (paneId: string, ratio: number) => void
   addSessionToPane: (paneId: string, sessionId: string) => void
   removeSessionFromPane: (paneId: string, sessionId: string) => void
+  removeSessionFromAllPanes: (sessionId: string) => void
   setActiveSessionInPane: (paneId: string, sessionId: string | null) => void
   reorderSessionsInPane: (paneId: string, fromIndex: number, toIndex: number) => void
   swapPanePosition: (paneId: string) => void  // 交换分屏位置
@@ -651,6 +652,15 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
         }
       })
     }
+  },
+
+  // 从所有分屏移除指定 session(批量关闭,Sidebar LIVE 段的关闭按钮用)
+  removeSessionFromAllPanes: (sessionId) => {
+    // 先收集所有含此 sessionId 的 pane id —— removeSessionFromPane 会改 layout 树,所以不能边遍历边删
+    const targetIds = collectLeaves(get().layout.root)
+      .filter(p => p.sessions.includes(sessionId))
+      .map(p => p.id)
+    targetIds.forEach(pid => get().removeSessionFromPane(pid, sessionId))
   },
 
   // 设置分屏中的活动会话

@@ -54,6 +54,9 @@ interface SessionStore {
   connectSession: (id: string) => Promise<void>
   disconnectSession: (id: string, clearTerminal?: boolean) => Promise<void>
   reconnectSession: (id: string) => Promise<void>
+  // 从 sessions 数组移除一个 entry —— "真关闭"(不动 savedSessions / 不动后端 config)
+  // 用于 Sidebar LIVE 段:disconnect 只改 status,真要从 UI 摘掉得显式从 sessions 里清掉
+  removeLiveSession: (id: string) => void
 
   // 状态更新
   updateSessionStatus: (id: string, status: ConnectionStatus, error?: string) => void
@@ -203,6 +206,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   // 重连
   reconnectSession: async (id) => {
     await window.electronAPI.reconnect(id)
+  },
+
+  // 从 sessions 数组移除 entry —— Sidebar LIVE 段的"真关闭"用,即使已 disconnected 也能彻底摘掉
+  removeLiveSession: (id) => {
+    set(state => ({
+      sessions: state.sessions.filter(s => s.id !== id),
+      activeSessionId: state.activeSessionId === id ? null : state.activeSessionId
+    }))
   },
 
   // 克隆会话

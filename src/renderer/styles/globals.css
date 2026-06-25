@@ -53,7 +53,7 @@
   --ft-img:         #6CD4FF;
   --ft-bin:         #B07CFF;
   --ft-other:       #4A5159;
-  --live:           #7CC576;
+  --live:           #3DDC97;  /* 偏青绿,与 --proto-tel(#7CC576 草绿) 拉开 —— LIVE 段呼吸点不再被 TEL 协议色淹没 */
   --reachable:      #6CD4FF;
   --warn-rack:      #E8A33D;
   --error-rack:     #FF6B6B;

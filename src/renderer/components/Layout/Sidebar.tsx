@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import cn from 'classnames'
-import type { SessionConfig } from '@shared/types'
+import type { SessionConfig, PaneNode } from '@shared/types'
 import { useSessionStore } from '../../stores/session-store'
+import { usePaneStore } from '../../stores/pane-store'
 import SessionDialog from '../SessionDialog/SessionDialog'
 import ExportImportDialog from '../ExportImportDialog/ExportImportDialog'
 import FileManagerPanel from '../FileManager/FileManagerPanel'
@@ -44,6 +45,49 @@ const getHostIP = (config: SessionConfig) => {
   if (config.serial) return config.serial.path
   if (config.local) return config.local.cwd || 'local'
   return 'unknown'
+}
+
+// 子网分组键 —— IPv4 主机折成 /24,其余(主机名 / 串口路径 / local cwd)保持原值各自成组
+const IPV4_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}$/
+const getGroupKey = (config: SessionConfig): string => {
+  const host = getHostIP(config)
+  const m = host.match(IPV4_RE)
+  if (m) return `${m[1]}.${m[2]}.${m[3]}.0/24`
+  return host
+}
+
+// 四种协议的展示元信息 —— label / 完整 tailwind class(必须是字面量,Tailwind 才能扫到)
+type ProtoKind = 'ssh' | 'telnet' | 'serial' | 'local'
+const PROTO_KINDS: ProtoKind[] = ['ssh', 'telnet', 'serial', 'local']
+const PROTO_LABEL: Record<ProtoKind, string> = {
+  ssh: 'SSH', telnet: 'TEL', serial: 'SER', local: 'LOC'
+}
+// 顶部 2px 协议色条 —— 始终可见,告诉用户这块是哪个协议的开关
+const PROTO_STRIPE_CLS: Record<ProtoKind, string> = {
+  ssh:    'bg-[var(--proto-ssh)]',
+  telnet: 'bg-[var(--proto-tel)]',
+  serial: 'bg-[var(--proto-ser)]',
+  local:  'bg-[var(--proto-loc)]',
+}
+// 未激活时的"略带颜色"文字 —— 比纯灰更显眼,又不至于像激活态
+const PROTO_TEXT_DIM_CLS: Record<ProtoKind, string> = {
+  ssh:    'text-[var(--proto-ssh)]/80',
+  telnet: 'text-[var(--proto-tel)]/80',
+  serial: 'text-[var(--proto-ser)]/80',
+  local:  'text-[var(--proto-loc)]/80',
+}
+// 会话行内的协议标签文字色 —— 全饱和,跟左侧色条配合,文字本身也读得出"这是什么协议"
+const PROTO_TEXT_CLS: Record<ProtoKind, string> = {
+  ssh:    'text-[var(--proto-ssh)]',
+  telnet: 'text-[var(--proto-tel)]',
+  serial: 'text-[var(--proto-ser)]',
+  local:  'text-[var(--proto-loc)]',
+}
+const PROTO_ACTIVE_CLS: Record<ProtoKind, string> = {
+  ssh:    'bg-[var(--proto-ssh)]/20 text-[var(--proto-ssh)] ring-1 ring-inset ring-[var(--proto-ssh)]/55',
+  telnet: 'bg-[var(--proto-tel)]/20 text-[var(--proto-tel)] ring-1 ring-inset ring-[var(--proto-tel)]/55',
+  serial: 'bg-[var(--proto-ser)]/20 text-[var(--proto-ser)] ring-1 ring-inset ring-[var(--proto-ser)]/55',
+  local:  'bg-[var(--proto-loc)]/20 text-[var(--proto-loc)] ring-1 ring-inset ring-[var(--proto-loc)]/55',
 }
 
 const getPort = (config: SessionConfig): string => {
@@ -155,6 +199,21 @@ const IconRack = () => (
 const IconCaret = () => (
   <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><path d="M2 1l4 3-4 3z"/></svg>
 )
+const IconLive = () => (
+  <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><circle cx="5" cy="5" r="2.5"/></svg>
+)
+const IconClock = () => (
+  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2">
+    <circle cx="5" cy="5" r="3.5"/>
+    <path d="M5 3v2.2l1.5 1.2" strokeLinecap="square"/>
+  </svg>
+)
+const IconPower = () => (
+  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+    <path d="M5.5 1.5v3.5"/>
+    <path d="M3.3 3.2a3 3 0 1 0 4.4 0"/>
+  </svg>
+)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 内联子组件
@@ -264,18 +323,28 @@ const GroupHeader: React.FC<{
   label: string
   count: number
   amber?: boolean
+  tone?: 'amber' | 'live' | 'reach'
   monoLabel?: boolean
   /** 可折叠时传入；undefined 表示不可折叠 */
   collapsed?: boolean
   onToggle?: () => void
-}> = ({ icon, label, count, amber, monoLabel, collapsed, onToggle }) => {
+  /** 右侧可选 action 按钮(LIVE 段的 close-all 用) */
+  action?: React.ReactNode
+}> = ({ icon, label, count, amber, tone, monoLabel, collapsed, onToggle, action }) => {
   const collapsible = typeof collapsed === 'boolean' && !!onToggle
+  const effectiveTone = tone ?? (amber ? 'amber' : undefined)
+  const iconColorClass =
+    effectiveTone === 'amber' ? 'text-[var(--amber)]' :
+    effectiveTone === 'live'  ? 'text-[var(--live)]' :
+    effectiveTone === 'reach' ? 'text-[var(--reachable)]' :
+    'text-[var(--text-rack-dim)]'
   return (
     <div
       onClick={collapsible ? onToggle : undefined}
       className={cn(
-        'flex items-center gap-2.5 px-3 py-2 tracking-[.16em] text-[10px] uppercase text-[var(--text-rack-mute)]',
-        'bg-[var(--bg-strip)] border-b border-[var(--rule-soft)]',
+        'flex items-center gap-2.5 px-3 py-1.5 tracking-[.16em] text-[10px] uppercase text-[var(--text-rack-mute)]',
+        // 与 row 同 bg,通过 typography + flex-1 hairline 当分隔符,不再当 rail
+        'bg-[var(--bg-rack)] border-b border-[var(--rule-soft)]',
         collapsible && 'cursor-pointer hover:bg-[var(--bg-slot)]'
       )}
     >
@@ -289,7 +358,7 @@ const GroupHeader: React.FC<{
           <IconCaret />
         </span>
       )}
-      <span className={cn('inline-flex', amber ? 'text-[var(--amber)]' : 'text-[var(--text-rack-dim)]')}>{icon}</span>
+      <span className={cn('inline-flex', iconColorClass)}>{icon}</span>
       <span
         className={cn(
           'flex-shrink-0',
@@ -302,6 +371,7 @@ const GroupHeader: React.FC<{
       </span>
       <span className="flex-1 h-px bg-[var(--rule)]" />
       <span className="font-mono text-[10px] text-[var(--text-rack-data)] tracking-[.04em] normal-case">{count}</span>
+      {action}
     </div>
   )
 }
@@ -318,6 +388,11 @@ const SessionSlot: React.FC<{
   onCopy: (e: React.MouseEvent) => void
   onTogglePin: (e: React.MouseEvent) => void
   onDelete: (e: React.MouseEvent) => void
+  /** danger action 的图标重写,默认 IconX(删除语义)。LIVE 段会换成 IconPower(关闭终端语义) */
+  dangerIcon?: React.ReactNode
+  dangerTitle?: string
+  /** 紧凑 hover actions —— 只保留 pin + danger,隐藏 edit/copy。LIVE 段用 */
+  compactActions?: boolean
   onDragStart?: (e: React.DragEvent) => void
   onDragEnter?: (e: React.DragEvent) => void
   onDrop?: (e: React.DragEvent) => void
@@ -325,7 +400,7 @@ const SessionSlot: React.FC<{
   isDragOver?: boolean
 }> = ({
   config, status, reachable, active, isPinned, draggable,
-  onClick, onEdit, onCopy, onTogglePin, onDelete,
+  onClick, onEdit, onCopy, onTogglePin, onDelete, dangerIcon, dangerTitle, compactActions,
   onDragStart, onDragEnter, onDrop, isDragging, isDragOver
 }) => {
   const proto = mapProtocol(config.type)
@@ -343,28 +418,51 @@ const SessionSlot: React.FC<{
       data-reach={reachable === undefined ? 'unknown' : reachable ? 'up' : 'down'}
       title={visual.tooltip}
       className={cn(
-        'group relative grid items-center gap-2.5 pr-3 min-h-[32px] py-1.5 cursor-pointer transition-colors',
-        'grid-cols-[4px_16px_auto_1fr]',
-        'hover:bg-[var(--bg-rack)]',
-        active && 'bg-[var(--bg-slot)] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[2px] before:bg-[var(--amber)]',
+        'group relative grid items-center gap-2.5 pr-3 min-h-[34px] py-1.5 cursor-pointer transition-colors',
+        'grid-cols-[4px_16px_28px_auto_minmax(0,1fr)]',
+        // slot 面板基底 + 1U 之间的 hairline + 底沿凹陷阴影(slot 嵌入 rack 框架感)
+        'bg-[var(--bg-rack)] border-b border-[var(--rule-soft)]',
+        'shadow-[inset_0_-1px_0_var(--bg-base)]',
+        'hover:bg-[var(--bg-slot)]',
+        active && [
+          'bg-[var(--bg-slot)]',
+          // 2px amber 左边 + 软晕,像 active slot 在通电
+          'before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[2px] before:bg-[var(--amber)] before:shadow-[0_0_4px_var(--amber-glow)]',
+          // active 行被"拉出"——上下各一道 amber-soft hairline
+          'shadow-[inset_0_1px_0_var(--amber-soft),inset_0_-1px_0_var(--amber-soft)]'
+        ],
         isDragging && 'opacity-50',
         isDragOver && 'border-t border-[var(--amber)]'
       )}
     >
+      {/* 协议色条:贯通整行,作为 slot 的连接器边 */}
       <span
+        aria-hidden
         className={cn(
-          'h-[22px] w-[4px] rounded-r-[2px] transition-[filter]',
+          'absolute left-0 top-0 bottom-0 w-[4px] z-0 transition-[filter]',
           status === 'connecting' ? 'bg-[var(--amber)] animate-pulse-amber' : protoStripBg(proto),
           active && status !== 'connecting' && 'brightness-125'
         )}
       />
-      <span className={cn('w-[16px] h-[16px] inline-flex items-center justify-center font-mono text-[12px] leading-none', visual.glyphClass)}>
-        {visual.glyph}
+      {/* 状态字符进 LED 凹窗 — 16px 圆形,bg-base 底 + rule 描边 + 内阴影,像嵌进面板的指示灯 */}
+      <span className="col-start-2 w-[16px] h-[16px] inline-flex items-center justify-center rounded-full bg-[var(--bg-base)] ring-1 ring-[var(--rule)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.45)]">
+        <span className={cn('font-mono text-[11px] leading-none', visual.glyphClass)}>
+          {visual.glyph}
+        </span>
       </span>
-      <span className="text-[13.5px] text-[var(--text-rack)] font-medium truncate max-w-[140px] tracking-[.01em]">
+      {/* 协议文字标签 —— 显式 SSH/TEL/SER/LOC,跟左侧色条同色,色盲也读得出 */}
+      <span
+        className={cn(
+          'col-start-3 font-mono text-[10px] font-bold uppercase tracking-[.12em] tabular-nums text-center',
+          PROTO_TEXT_CLS[proto]
+        )}
+      >
+        {PROTO_LABEL[proto]}
+      </span>
+      <span className="text-[13.5px] text-[var(--text-rack)] font-semibold truncate max-w-[140px] tracking-[.01em]">
         {config.name}
       </span>
-      <span className="font-mono text-[11px] text-[var(--text-rack-mute)] truncate min-w-0">
+      <span className="font-mono text-[11px] text-[var(--text-rack-data)] truncate min-w-0">
         {formatMeta(config)}
       </span>
       {/* hover actions overlay */}
@@ -378,12 +476,14 @@ const SessionSlot: React.FC<{
                  : 'bg-gradient-to-l from-[var(--bg-rack)] from-[24%] to-transparent'
         )}
       >
-        <ActBtn onClick={onEdit} title="编辑会话"><IconEdit /></ActBtn>
-        <ActBtn onClick={onCopy} title="复制会话"><IconCopy /></ActBtn>
-        <ActBtn amber active={isPinned} onClick={onTogglePin} title={isPinned ? '取消置顶' : '置顶会话'}>
-          <IconStar filled={isPinned} />
-        </ActBtn>
-        <ActBtn danger onClick={onDelete} title="删除会话"><IconX /></ActBtn>
+        {!compactActions && <ActBtn onClick={onEdit} title="编辑会话"><IconEdit /></ActBtn>}
+        {!compactActions && <ActBtn onClick={onCopy} title="复制会话"><IconCopy /></ActBtn>}
+        {!compactActions && (
+          <ActBtn amber active={isPinned} onClick={onTogglePin} title={isPinned ? '取消置顶' : '置顶会话'}>
+            <IconStar filled={isPinned} />
+          </ActBtn>
+        )}
+        <ActBtn danger onClick={onDelete} title={dangerTitle ?? '删除会话'}>{dangerIcon ?? <IconX />}</ActBtn>
       </div>
     </div>
   )
@@ -426,7 +526,24 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
   const [searchQuery, setSearchQuery] = useState('')
   const [showExportImport, setShowExportImport] = useState(false)
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([])
-  const { savedSessions, sessions, reachability, refreshSavedSessions } = useSessionStore()
+  const { savedSessions, sessions, reachability, refreshSavedSessions, disconnectSession, removeLiveSession } = useSessionStore()
+  const removeSessionFromAllPanes = usePaneStore(s => s.removeSessionFromAllPanes)
+  // 订阅 layout —— LIVE 段需要按"在某个 pane 里(打开了 tab)"过滤,而不是按 sessions 数组(那里包含所有 saved 的 disconnected registry)
+  const layoutRoot = usePaneStore(s => s.layout.root)
+  const sessionIdsInPanes = useMemo<Set<string>>(() => {
+    const ids = new Set<string>()
+    const visit = (node: PaneNode | null | undefined): void => {
+      if (!node) return
+      if (node.type === 'leaf') {
+        for (const sid of node.sessions) ids.add(sid)
+      } else {
+        visit(node.firstChild)
+        visit(node.secondChild)
+      }
+    }
+    visit(layoutRoot)
+    return ids
+  }, [layoutRoot])
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const isUpdating = useRef(false)
@@ -450,6 +567,51 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
   // 分组折叠状态 — 放在顶部以维持"hooks 都在顶部"约定
   const [expandedIPs, setExpandedIPs] = useState<Record<string, boolean>>({})
   const [pinnedCollapsed, setPinnedCollapsed] = useState<boolean>(false)
+  const [liveCollapsed, setLiveCollapsed] = useState<boolean>(false)
+  const [recentCollapsed, setRecentCollapsed] = useState<boolean>(false)
+
+  // close-all 二次确认 —— 第一次点击进入 armed 态,2.5s 内再点才真执行
+  const [closeAllArmed, setCloseAllArmed] = useState(false)
+  const closeAllTimerRef = useRef<number | null>(null)
+  useEffect(() => () => {
+    if (closeAllTimerRef.current !== null) window.clearTimeout(closeAllTimerRef.current)
+  }, [])
+
+  // RECENT —— 纯渲染端原型,localStorage 持久化最近触碰的 saved session id
+  const [recents, setRecents] = useState<Record<string, number>>(() => {
+    try {
+      const raw = localStorage.getItem('lyshell.recents.v1')
+      return raw ? JSON.parse(raw) : {}
+    } catch { return {} }
+  })
+  const touchRecent = (id: string) => {
+    setRecents(prev => {
+      const next = { ...prev, [id]: Date.now() }
+      const entries = Object.entries(next).sort((a, b) => b[1] - a[1]).slice(0, 20)
+      const capped = Object.fromEntries(entries)
+      try { localStorage.setItem('lyshell.recents.v1', JSON.stringify(capped)) } catch { /* quota */ }
+      return capped
+    })
+  }
+
+  // 协议筛选 —— 多选 toggle,空集 = 全部显示。作用于 RECENT 下方的子网分组区域,不影响 LIVE/PINNED/RECENT
+  const [protoFilter, setProtoFilter] = useState<Set<ProtoKind>>(() => {
+    try {
+      const raw = localStorage.getItem('lyshell.protoFilter.v1')
+      if (!raw) return new Set()
+      const arr = JSON.parse(raw) as unknown
+      if (!Array.isArray(arr)) return new Set()
+      return new Set(arr.filter((p): p is ProtoKind => PROTO_KINDS.includes(p as ProtoKind)))
+    } catch { return new Set() }
+  })
+  const toggleProtoFilter = (p: ProtoKind) => {
+    setProtoFilter(prev => {
+      const next = new Set(prev)
+      if (next.has(p)) next.delete(p); else next.add(p)
+      try { localStorage.setItem('lyshell.protoFilter.v1', JSON.stringify([...next])) } catch { /* quota */ }
+      return next
+    })
+  }
 
   // 加载快速命令
   useEffect(() => {
@@ -601,15 +763,43 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
   const pinnedSessions = filteredSessions.filter(s => s.tags?.includes('pinned')).sort(sortByPinOrder)
   const unpinnedSessions = filteredSessions.filter(s => !s.tags?.includes('pinned'))
 
-  const groupedByIP = unpinnedSessions.reduce((acc, session) => {
+  // 协议筛选作用域 = 子网分组区域;chip 计数始终基于 unpinnedSessions(不被自身筛选影响,否则点开就归零)
+  const protoCounts: Record<ProtoKind, number> = { ssh: 0, telnet: 0, serial: 0, local: 0 }
+  for (const s of unpinnedSessions) {
+    const t = mapProtocol(s.type)
+    protoCounts[t] = (protoCounts[t] ?? 0) + 1
+  }
+  // 隐藏的 LOC/SER chip 若仍在选中态,自动清出 protoFilter —— 否则用户看不到 chip 也点不掉,被锁死筛掉自己
+  useEffect(() => {
+    const stale: ProtoKind[] = []
+    for (const p of ['local', 'serial'] as const) {
+      if (protoFilter.has(p) && protoCounts[p] === 0) stale.push(p)
+    }
+    if (stale.length > 0) {
+      setProtoFilter(prev => {
+        const next = new Set(prev)
+        for (const p of stale) next.delete(p)
+        try { localStorage.setItem('lyshell.protoFilter.v1', JSON.stringify([...next])) } catch { /* quota */ }
+        return next
+      })
+    }
+    // protoCounts 每次渲染都是新对象,整体进 deps 会无限循环;只追踪用到的两个字段
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [protoCounts.local, protoCounts.serial, protoFilter])
+  const filterActive = protoFilter.size > 0
+  const subnetCandidates = filterActive
+    ? unpinnedSessions.filter(s => protoFilter.has(mapProtocol(s.type)))
+    : unpinnedSessions
+
+  const groupedBySubnet = subnetCandidates.reduce((acc, session) => {
     if (!session) return acc
-    const host = getHostIP(session)
-    if (!acc[host]) acc[host] = []
-    acc[host].push(session)
+    const key = getGroupKey(session)
+    if (!acc[key]) acc[key] = []
+    acc[key].push(session)
     return acc
   }, {} as Record<string, SessionConfig[]>)
 
-  const sortedIPGroups = Object.entries(groupedByIP).sort(([, aSessions], [, bSessions]) => {
+  const sortedSubnetGroups = Object.entries(groupedBySubnet).sort(([, aSessions], [, bSessions]) => {
     const getLatestTime = (ss: SessionConfig[]) =>
       ss.reduce((max, s) => Math.max(max, s.updatedAt ? new Date(s.updatedAt).getTime() : 0), 0)
     return getLatestTime(bSessions) - getLatestTime(aSessions)
@@ -620,6 +810,12 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
     window.electronAPI?.getConfig('pinnedCollapsed').then((v: unknown) => {
       if (typeof v === 'boolean') setPinnedCollapsed(v)
     }).catch(() => {})
+    window.electronAPI?.getConfig('liveCollapsed').then((v: unknown) => {
+      if (typeof v === 'boolean') setLiveCollapsed(v)
+    }).catch(() => {})
+    window.electronAPI?.getConfig('recentCollapsed').then((v: unknown) => {
+      if (typeof v === 'boolean') setRecentCollapsed(v)
+    }).catch(() => {})
   }, [])
   useEffect(() => {
     const t = setTimeout(() => {
@@ -627,6 +823,18 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
     }, 500)
     return () => clearTimeout(t)
   }, [pinnedCollapsed])
+  useEffect(() => {
+    const t = setTimeout(() => {
+      window.electronAPI?.setConfig('liveCollapsed', liveCollapsed)
+    }, 500)
+    return () => clearTimeout(t)
+  }, [liveCollapsed])
+  useEffect(() => {
+    const t = setTimeout(() => {
+      window.electronAPI?.setConfig('recentCollapsed', recentCollapsed)
+    }, 500)
+    return () => clearTimeout(t)
+  }, [recentCollapsed])
   // 默认展开；首次点击后写入 false 收起，再点又置 true 展开
   const toggleIPGroup = (ip: string) => setExpandedIPs(prev => ({
     ...prev,
@@ -634,9 +842,9 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
   }))
 
   // 所有分组（含 PINNED + 全部子网）是否都已折叠
-  const ipsCollapsed = sortedIPGroups.length > 0 && sortedIPGroups.every(([ip]) => expandedIPs[ip] === false)
+  const ipsCollapsed = sortedSubnetGroups.length > 0 && sortedSubnetGroups.every(([key]) => expandedIPs[key] === false)
   const pinnedCollapsedOrAbsent = pinnedSessions.length === 0 || pinnedCollapsed
-  const allGroupsCollapsed = pinnedCollapsedOrAbsent && (sortedIPGroups.length === 0 || ipsCollapsed)
+  const allGroupsCollapsed = pinnedCollapsedOrAbsent && (sortedSubnetGroups.length === 0 || ipsCollapsed)
 
   // 一键折叠 / 展开所有分组
   const toggleAllGroups = () => {
@@ -645,7 +853,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
       setPinnedCollapsed(false)
       setExpandedIPs(prev => {
         const next = { ...prev }
-        for (const [ip] of sortedIPGroups) next[ip] = true
+        for (const [key] of sortedSubnetGroups) next[key] = true
         return next
       })
     } else {
@@ -653,7 +861,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
       if (pinnedSessions.length > 0) setPinnedCollapsed(true)
       setExpandedIPs(prev => {
         const next = { ...prev }
-        for (const [ip] of sortedIPGroups) next[ip] = false
+        for (const [key] of sortedSubnetGroups) next[key] = false
         return next
       })
     }
@@ -686,6 +894,71 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
     // 与 main/ipc/handlers.ts 中 syncReachabilityTargets 的 key 对齐 — 直接用 config.id
     return reachability[saved.id]?.reachable
   }
+
+  // LIVE 行的 danger action: 把对应 saved 的所有 live entry 全关掉(clone/多次 connect 产生的 N 个一并清)
+  // 已 disconnected 的 entry 也彻底摘掉
+  const handleCloseLive = async (config: SessionConfig, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const key = liveKey(config)
+    // 快照一份 id 列表,避免边遍历边改 store
+    const liveIds = sessions
+      .filter(s => s.config && liveKey(s.config) === key)
+      .map(s => s.id)
+      .filter(Boolean)
+    for (const liveId of liveIds) {
+      removeSessionFromAllPanes(liveId)
+      try { await disconnectSession(liveId) } catch { /* 已经断了也 OK */ }
+      removeLiveSession(liveId)
+    }
+  }
+
+  // LIVE 段 header 的 close-all: 遍历 liveSessions 走同一条 handleCloseLive 路径
+  const handleCloseAllLive = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    // 走 handleCloseLive 而不是直接调 bestSessionFor —— 同一 saved 的 N 个 clone 也会一并清
+    for (const config of liveSessions) {
+      await handleCloseLive(config, e)
+    }
+  }
+
+  // close-all 的点击 handler: 第一次进入 armed,第二次执行,2.5s 自动复位
+  const handleCloseAllClick = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (closeAllArmed) {
+      if (closeAllTimerRef.current !== null) {
+        window.clearTimeout(closeAllTimerRef.current)
+        closeAllTimerRef.current = null
+      }
+      setCloseAllArmed(false)
+      await handleCloseAllLive(e)
+      return
+    }
+    setCloseAllArmed(true)
+    if (closeAllTimerRef.current !== null) window.clearTimeout(closeAllTimerRef.current)
+    closeAllTimerRef.current = window.setTimeout(() => {
+      setCloseAllArmed(false)
+      closeAllTimerRef.current = null
+    }, 2500)
+  }
+
+  // ───── 三段头数据 ─────
+  // LIVE — saved session 的 live entry 必须出现在某个 pane 里才算"打开着的标签"
+  // 不能只看 sessions 数组:loadSessions 会把所有 saved 都塞进去做 disconnected registry,bestSessionFor 对所有 saved 都返回 truthy
+  const liveSessions = filteredSessions
+    .filter(s => {
+      const live = bestSessionFor(s)
+      return !!live && sessionIdsInPanes.has(live.id)
+    })
+    .sort(sortByUpdateTime)
+
+  // RECENT — 最近触碰过、非 pinned、非当下 live 的(展开后是"想再开的候选")
+  const liveIdSet = new Set(liveSessions.map(s => s.id))
+  const recentSessions = filteredSessions
+    .filter(s => !s.tags?.includes('pinned'))
+    .filter(s => !liveIdSet.has(s.id))
+    .filter(s => recents[s.id] !== undefined)
+    .sort((a, b) => (recents[b.id] || 0) - (recents[a.id] || 0))
+    .slice(0, 5)
 
   const handleTogglePin = async (config: SessionConfig, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -750,6 +1023,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
   }
 
   const handleSessionClick = (config: SessionConfig) => {
+    if (config.id) touchRecent(config.id)
     onConnect?.(config.id, config)
   }
 
@@ -934,6 +1208,56 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
 
         {/* ===== 列表 ===== */}
         <div className="flex-1 overflow-y-auto min-h-[100px] rack-scroll">
+          {/* LIVE — 当下已连接 */}
+          {liveSessions.length > 0 && (
+            <>
+              <GroupHeader
+                tone="live"
+                icon={<IconLive />}
+                label="Live"
+                count={liveSessions.length}
+                collapsed={liveCollapsed}
+                onToggle={() => setLiveCollapsed(c => !c)}
+                action={
+                  <button
+                    onClick={handleCloseAllClick}
+                    title={closeAllArmed
+                      ? `再点一次确认 · 将关闭全部 ${liveSessions.length} 个连接`
+                      : `关闭全部 ${liveSessions.length} 个连接`}
+                    className={cn(
+                      'ml-1.5 h-[18px] inline-flex items-center justify-center gap-[3px] rounded-[2px] cursor-pointer text-[10px] font-mono tracking-[.02em] transition-colors',
+                      closeAllArmed
+                        ? 'px-1.5 bg-[var(--error-rack)] text-[var(--bg-base)] font-semibold'
+                        : 'w-[18px] text-[var(--text-rack-mute)] hover:text-[var(--error-rack)] hover:bg-[var(--bg-elev)]'
+                    )}
+                  >
+                    {closeAllArmed && <span className="tabular-nums">{liveSessions.length}</span>}
+                    <IconPower />
+                  </button>
+                }
+              />
+              {!liveCollapsed && liveSessions.map(config => (
+                <SessionSlot
+                  key={`live-${config.id}`}
+                  config={config}
+                  status={statusFor(config)}
+                  reachable={reachabilityFor(config)}
+                  active={false}
+                  isPinned={!!config.tags?.includes('pinned')}
+                  compactActions
+                  onClick={() => handleSessionClick(config)}
+                  onEdit={(e) => handleEditSession(config, e)}
+                  onCopy={(e) => handleCopySession(config, e)}
+                  onTogglePin={(e) => handleTogglePin(config, e)}
+                  /* LIVE 行的 X 改成关闭终端,不动 saved config */
+                  onDelete={(e) => handleCloseLive(config, e)}
+                  dangerIcon={<IconPower />}
+                  dangerTitle="关闭终端"
+                />
+              ))}
+            </>
+          )}
+
           {/* PINNED */}
           {pinnedSessions.length > 0 && (
             <>
@@ -969,19 +1293,99 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
             </>
           )}
 
-          {/* 子网分组 — 单个/多个会话统一形态，均可折叠 */}
-          {sortedIPGroups.map(([ip, group]) => {
+          {/* RECENT — 非 pinned / 非 live 的最近触碰候选,最多 5 条 */}
+          {recentSessions.length > 0 && (
+            <>
+              <GroupHeader
+                tone="reach"
+                icon={<IconClock />}
+                label="Recent"
+                count={recentSessions.length}
+                collapsed={recentCollapsed}
+                onToggle={() => setRecentCollapsed(c => !c)}
+              />
+              {!recentCollapsed && recentSessions.map(config => (
+                <SessionSlot
+                  key={`recent-${config.id}`}
+                  config={config}
+                  status={statusFor(config)}
+                  reachable={reachabilityFor(config)}
+                  active={false}
+                  isPinned={false}
+                  onClick={() => handleSessionClick(config)}
+                  onEdit={(e) => handleEditSession(config, e)}
+                  onCopy={(e) => handleCopySession(config, e)}
+                  onTogglePin={(e) => handleTogglePin(config, e)}
+                  onDelete={(e) => handleDeleteSession(config.id, e)}
+                />
+              ))}
+            </>
+          )}
+
+          {/* 协议筛选 chips —— 4 颗带顶部色条的机柜按钮;多选 toggle,全空 = 显示全部 */}
+          <div className="flex items-stretch gap-[4px] px-2 py-2 bg-[var(--bg-strip)] border-y border-[var(--rule)]">
+            {PROTO_KINDS.map(p => {
+              const active = protoFilter.has(p)
+              const count = protoCounts[p]
+              // LOC 和 SER 是冷门协议,没会话时直接不渲染,避免占位干扰;SSH/TEL 始终保留(主流,占位有意义)
+              if ((p === 'local' || p === 'serial') && count === 0) return null
+              const disabled = count === 0
+              return (
+                <button
+                  key={p}
+                  onClick={() => !disabled && toggleProtoFilter(p)}
+                  disabled={disabled}
+                  title={disabled ? `无 ${PROTO_LABEL[p]} 会话` : (active ? `取消筛选 ${PROTO_LABEL[p]}` : `仅显示 ${PROTO_LABEL[p]}`)}
+                  className={cn(
+                    // 28px 高,比之前 20 高出近一半;round 仍是 2,机柜面板感
+                    'group relative flex-1 h-[28px] flex flex-col items-stretch justify-center gap-0 rounded-[2px] overflow-hidden transition-colors',
+                    disabled && 'opacity-25 cursor-not-allowed',
+                    !disabled && (active
+                      ? PROTO_ACTIVE_CLS[p]
+                      // 未激活: 浮在 bg-elev 上(比容器 bg-strip 高一档),自带浅色文字,一眼能看出是按钮
+                      : cn('bg-[var(--bg-elev)] hover:bg-[var(--bg-slot)]', PROTO_TEXT_DIM_CLS[p]))
+                  )}
+                >
+                  {/* 顶部 2px 协议色条 —— 始终可见的"协议指纹",不像 chip 那么藏 */}
+                  <span
+                    aria-hidden
+                    className={cn(
+                      'absolute top-0 left-0 right-0 h-[2px] transition-opacity',
+                      PROTO_STRIPE_CLS[p],
+                      disabled ? 'opacity-25' : active ? 'opacity-100' : 'opacity-50'
+                    )}
+                  />
+                  <span className="flex-1 flex items-center justify-center gap-1.5 pt-[1px]">
+                    <span className="font-mono text-[11px] font-extrabold tracking-[.1em]">{PROTO_LABEL[p]}</span>
+                    <span
+                      className={cn(
+                        'font-mono text-[10px] font-semibold tabular-nums px-[3px] py-[1px] rounded-[1px]',
+                        active
+                          ? 'bg-[var(--bg-base)]/55'
+                          : 'bg-[var(--bg-base)]/40 text-[var(--text-rack-data)]'
+                      )}
+                    >
+                      {count}
+                    </span>
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* 子网分组 — 按 /24 折叠 IPv4,非 IP host(主机名 / 串口 / local)各自成组,均可折叠 */}
+          {sortedSubnetGroups.map(([groupKey, group]) => {
             const sorted = group.length === 1 ? group : [...group].sort(sortByPinOrder)
-            const expanded = expandedIPs[ip] !== false  // 默认展开
+            const expanded = expandedIPs[groupKey] !== false  // 默认展开
             return (
-              <React.Fragment key={ip}>
+              <React.Fragment key={groupKey}>
                 <GroupHeader
                   icon={<IconRack />}
-                  label={ip}
+                  label={groupKey}
                   count={group.length}
                   monoLabel
                   collapsed={!expanded}
-                  onToggle={() => toggleIPGroup(ip)}
+                  onToggle={() => toggleIPGroup(groupKey)}
                 />
                 {expanded && sorted.map(config => (
                   <SessionSlot
