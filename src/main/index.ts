@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, globalShortcut, dialog, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
 import { join, resolve } from 'path'
 import log from 'electron-log'
 import * as fs from 'fs'
@@ -110,17 +110,20 @@ function createMainWindow(): void {
   }
 }
 
-// 注册全局快捷键
-function registerGlobalShortcuts(): void {
-  const ret = globalShortcut.register('CommandOrControl+Alt+F', () => {
-    log.info('Float toggle shortcut triggered')
-    mainWindow?.webContents.send('float:toggle')
+// 注册窗口级快捷键 —— 走 before-input-event,只在 LyShell 获得焦点时拦截,失焦不劫持系统其他 app
+// 之前用 globalShortcut.register('CommandOrControl+Alt+F') 是错的:那是 OS 级别拦截,LyShell 在后台时
+// 用户在别的 app 按 Ctrl+Alt+F 也会被吞掉
+function registerWindowShortcuts(): void {
+  if (!mainWindow) return
+  mainWindow.webContents.on('before-input-event', (_event, input) => {
+    // Ctrl+`(backquote)切换浮窗。键码用 `Backquote` 比 input.key 更稳:不同键盘布局上 `` ` `` 的 key 值可能不同
+    const isCtrl = input.control || input.meta  // mac 上 Cmd 等价
+    if (input.type === 'keyDown' && isCtrl && !input.shift && !input.alt && input.code === 'Backquote') {
+      log.info('Float toggle shortcut triggered (Ctrl+`)')
+      mainWindow?.webContents.send('float:toggle')
+      _event.preventDefault()
+    }
   })
-  if (ret) {
-    log.info('Float toggle shortcut registered successfully')
-  } else {
-    log.warn('Float toggle shortcut registration failed - key may be in use')
-  }
 }
 
 // 应用启动
@@ -143,8 +146,8 @@ app.whenReady().then(async () => {
   // 创建主窗口
   createMainWindow()
 
-  // 注册全局快捷键
-  registerGlobalShortcuts()
+  // 注册窗口级快捷键(必须在 createMainWindow 之后,因为依赖 mainWindow.webContents)
+  registerWindowShortcuts()
 
   // 注册 IPC 处理器
   registerIPCHandlers()
@@ -209,9 +212,8 @@ app.whenReady().then(async () => {
   log.info('LyShell started successfully')
 })
 
-// 应用退出前注销快捷键
+// 应用退出前清理资源 —— 窗口级快捷键随 webContents 一起销毁,不用单独 unregister
 app.on('will-quit', () => {
-  globalShortcut.unregisterAll()
   cleanupAllWorkers()  // 清理所有下载 Worker
   cleanupAllUploadWorkers()  // 清理所有上传 Worker
   stopMcpHttpServer()  // 停止 MCP HTTP 服务器

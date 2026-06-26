@@ -103,8 +103,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
   // 双击右键克隆渠道（共享 SSH 连接）
   const handleTabRightDoubleClick = async (sessionId: string, sessionType: string) => {
     if (sessionType !== 'ssh') {
-      // 非 SSH 会话不支持克隆渠道，提示用户
-      console.log('只有 SSH 会话支持克隆渠道')
+      // 非 SSH 会话不支持克隆渠道 —— 静默 return(TODO: 全局 toast 后接入提示)
       return
     }
 
@@ -217,6 +216,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
       case 'ssh': return 'SSH'
       case 'telnet': return 'TEL'
       case 'serial': return 'SER'
+      case 'local': return 'LOC'
       default: return 'SESSION'
     }
   }
@@ -349,10 +349,12 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
               pane.activeSessionId === session.id
                 ? 'bg-[#0C0C0C] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
                 : session.hasActivity
-                  ? 'bg-[var(--reachable)]/15 text-[var(--text-rack)] hover:bg-[var(--reachable)]/25' // 有未读输出：reachable 青调
+                  ? 'bg-[var(--reachable)]/25 text-[var(--text-rack)] hover:bg-[var(--reachable)]/35 shadow-[inset_2px_0_0_var(--reachable)]' // 有未读输出:reachable 青调底 + 左侧 stripe
                   : 'bg-[var(--bg-rack)] text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)]',
               draggingSessionId === session.id && 'opacity-50',
-              dragOverIndex === index && draggingSessionId !== session.id && 'border-l-2 border-l-[var(--amber)]'  // 拖拽位置指示器
+              // 拖拽位置指示器 —— amber border-l 与 activity 的 reachable inset stripe 共存,视觉上 amber 覆盖青色(border 渲染层 > inset shadow);
+              // 调整时不要改成 border-l-[var(--reachable)] 否则两态视觉无差
+              dragOverIndex === index && draggingSessionId !== session.id && 'border-l-2 border-l-[var(--amber)]'
             )}
           >
             <span className="text-[10px] font-mono uppercase tracking-[.08em] text-[var(--text-rack-faint)]">{getTypeLabel(session.config.type)}</span>

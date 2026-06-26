@@ -16,7 +16,6 @@ import { isCursorBlinkEnabled } from '@shared/constants'
 const MainWindow: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [floatVisible, setFloatVisible] = useState(false) // 浮窗默认隐藏
-  const [floatCollapsed, setFloatCollapsed] = useState(false) // 浮窗缩小状态
   const [isMaximized, setIsMaximized] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [quickCommandsRefreshKey, setQuickCommandsRefreshKey] = useState(0)  // 用于刷新 StatusBar
@@ -39,6 +38,15 @@ const MainWindow: React.FC = () => {
   useEffect(() => {
     initFromStorage()
   }, [initFromStorage])
+
+  // 一次性清理:RECENT 段已从 Sidebar 删除并搬到浮窗,旧 localStorage key 是死数据
+  // 几次启动后绝大多数客户端就清干净了;新装用户根本不会有这个 key,这段也会是 no-op
+  // 注:recentCollapsed 存在 main 的 preferences.json(非 localStorage),清理它需要新增 IPC delete 通道,
+  // 只为删一个 boolean 不值得 —— 残留几 bytes,忽略
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return
+    localStorage.removeItem('lyshell.recents.v1')
+  }, [])
 
   // 加载会话列表
   useEffect(() => {
@@ -169,11 +177,7 @@ const MainWindow: React.FC = () => {
   useEffect(() => {
     if (!window.electronAPI) return
     const cleanup = window.electronAPI.onFloatToggle(() => {
-      console.log('Float toggle event received')
-      setFloatVisible(prev => {
-        console.log('Setting floatVisible to:', !prev)
-        return !prev
-      })
+      setFloatVisible(prev => !prev)
     })
     return cleanup
   }, [])
@@ -447,7 +451,7 @@ const MainWindow: React.FC = () => {
                   ? 'bg-[var(--bg-elev)]'
                   : 'bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)]'
               )}
-              title="会话浮窗"
+              title="会话浮窗 (Ctrl+`)"
             >
               <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
                 <rect x="1" y="2.5" width="9" height="7" stroke="currentColor" strokeWidth="1.3"
@@ -534,22 +538,9 @@ const MainWindow: React.FC = () => {
             <SplitPaneContainer />
 
             {/* 右上角会话浮窗 */}
-            {floatVisible && !floatCollapsed && (
+            {floatVisible && (
               <div className="absolute top-[28px] right-[12px] z-50 w-[300px] h-[400px] bg-[var(--bg-slot)] border border-[var(--rule)] overflow-hidden shadow-lg">
-                <FloatWindow onConnect={handleConnect} onCollapse={() => setFloatCollapsed(true)} />
-              </div>
-            )}
-
-            {/* 浮窗缩小状态 - 右上角小图标 */}
-            {floatVisible && floatCollapsed && (
-              <div
-                onClick={() => setFloatCollapsed(false)}
-                className="absolute top-[32px] right-[12px] z-50 cursor-pointer group"
-                title="展开浮窗"
-              >
-                <div className="w-[12px] h-[48px] bg-[var(--bg-slot)] flex items-center justify-center shadow-sm group-hover:bg-[var(--bg-elev)] transition-colors">
-                  <span className="text-[var(--text-rack-mute)] text-xs group-hover:text-[var(--text-rack)] transition-colors">▶</span>
-                </div>
+                <FloatWindow onConnect={handleConnect} />
               </div>
             )}
           </div>

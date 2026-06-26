@@ -202,12 +202,6 @@ const IconCaret = () => (
 const IconLive = () => (
   <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><circle cx="5" cy="5" r="2.5"/></svg>
 )
-const IconClock = () => (
-  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2">
-    <circle cx="5" cy="5" r="3.5"/>
-    <path d="M5 3v2.2l1.5 1.2" strokeLinecap="square"/>
-  </svg>
-)
 const IconPower = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
     <path d="M5.5 1.5v3.5"/>
@@ -568,7 +562,6 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
   const [expandedIPs, setExpandedIPs] = useState<Record<string, boolean>>({})
   const [pinnedCollapsed, setPinnedCollapsed] = useState<boolean>(false)
   const [liveCollapsed, setLiveCollapsed] = useState<boolean>(false)
-  const [recentCollapsed, setRecentCollapsed] = useState<boolean>(false)
 
   // close-all 二次确认 —— 第一次点击进入 armed 态,2.5s 内再点才真执行
   const [closeAllArmed, setCloseAllArmed] = useState(false)
@@ -577,24 +570,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
     if (closeAllTimerRef.current !== null) window.clearTimeout(closeAllTimerRef.current)
   }, [])
 
-  // RECENT —— 纯渲染端原型,localStorage 持久化最近触碰的 saved session id
-  const [recents, setRecents] = useState<Record<string, number>>(() => {
-    try {
-      const raw = localStorage.getItem('lyshell.recents.v1')
-      return raw ? JSON.parse(raw) : {}
-    } catch { return {} }
-  })
-  const touchRecent = (id: string) => {
-    setRecents(prev => {
-      const next = { ...prev, [id]: Date.now() }
-      const entries = Object.entries(next).sort((a, b) => b[1] - a[1]).slice(0, 20)
-      const capped = Object.fromEntries(entries)
-      try { localStorage.setItem('lyshell.recents.v1', JSON.stringify(capped)) } catch { /* quota */ }
-      return capped
-    })
-  }
-
-  // 协议筛选 —— 多选 toggle,空集 = 全部显示。作用于 RECENT 下方的子网分组区域,不影响 LIVE/PINNED/RECENT
+  // 协议筛选 —— 多选 toggle,空集 = 全部显示。作用于子网分组区域,不影响 LIVE/PINNED
   const [protoFilter, setProtoFilter] = useState<Set<ProtoKind>>(() => {
     try {
       const raw = localStorage.getItem('lyshell.protoFilter.v1')
@@ -805,16 +781,13 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
     return getLatestTime(bSessions) - getLatestTime(aSessions)
   })
 
-  // 持久化 PINNED 折叠状态
+  // 持久化 PINNED / LIVE 折叠状态
   useEffect(() => {
     window.electronAPI?.getConfig('pinnedCollapsed').then((v: unknown) => {
       if (typeof v === 'boolean') setPinnedCollapsed(v)
     }).catch(() => {})
     window.electronAPI?.getConfig('liveCollapsed').then((v: unknown) => {
       if (typeof v === 'boolean') setLiveCollapsed(v)
-    }).catch(() => {})
-    window.electronAPI?.getConfig('recentCollapsed').then((v: unknown) => {
-      if (typeof v === 'boolean') setRecentCollapsed(v)
     }).catch(() => {})
   }, [])
   useEffect(() => {
@@ -829,12 +802,6 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
     }, 500)
     return () => clearTimeout(t)
   }, [liveCollapsed])
-  useEffect(() => {
-    const t = setTimeout(() => {
-      window.electronAPI?.setConfig('recentCollapsed', recentCollapsed)
-    }, 500)
-    return () => clearTimeout(t)
-  }, [recentCollapsed])
   // 默认展开；首次点击后写入 false 收起，再点又置 true 展开
   const toggleIPGroup = (ip: string) => setExpandedIPs(prev => ({
     ...prev,
@@ -941,7 +908,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
     }, 2500)
   }
 
-  // ───── 三段头数据 ─────
+  // ───── 两段头数据 ─────
   // LIVE — saved session 的 live entry 必须出现在某个 pane 里才算"打开着的标签"
   // 不能只看 sessions 数组:loadSessions 会把所有 saved 都塞进去做 disconnected registry,bestSessionFor 对所有 saved 都返回 truthy
   const liveSessions = filteredSessions
@@ -950,15 +917,6 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
       return !!live && sessionIdsInPanes.has(live.id)
     })
     .sort(sortByUpdateTime)
-
-  // RECENT — 最近触碰过、非 pinned、非当下 live 的(展开后是"想再开的候选")
-  const liveIdSet = new Set(liveSessions.map(s => s.id))
-  const recentSessions = filteredSessions
-    .filter(s => !s.tags?.includes('pinned'))
-    .filter(s => !liveIdSet.has(s.id))
-    .filter(s => recents[s.id] !== undefined)
-    .sort((a, b) => (recents[b.id] || 0) - (recents[a.id] || 0))
-    .slice(0, 5)
 
   const handleTogglePin = async (config: SessionConfig, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -1023,7 +981,6 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
   }
 
   const handleSessionClick = (config: SessionConfig) => {
-    if (config.id) touchRecent(config.id)
     onConnect?.(config.id, config)
   }
 
@@ -1283,35 +1240,6 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
                   onDrop={(e) => handleDrop(e, index)}
                   isDragging={draggedIndex === index}
                   isDragOver={dragOverIndex === index && draggedIndex !== index}
-                  onClick={() => handleSessionClick(config)}
-                  onEdit={(e) => handleEditSession(config, e)}
-                  onCopy={(e) => handleCopySession(config, e)}
-                  onTogglePin={(e) => handleTogglePin(config, e)}
-                  onDelete={(e) => handleDeleteSession(config.id, e)}
-                />
-              ))}
-            </>
-          )}
-
-          {/* RECENT — 非 pinned / 非 live 的最近触碰候选,最多 5 条 */}
-          {recentSessions.length > 0 && (
-            <>
-              <GroupHeader
-                tone="reach"
-                icon={<IconClock />}
-                label="Recent"
-                count={recentSessions.length}
-                collapsed={recentCollapsed}
-                onToggle={() => setRecentCollapsed(c => !c)}
-              />
-              {!recentCollapsed && recentSessions.map(config => (
-                <SessionSlot
-                  key={`recent-${config.id}`}
-                  config={config}
-                  status={statusFor(config)}
-                  reachable={reachabilityFor(config)}
-                  active={false}
-                  isPinned={false}
                   onClick={() => handleSessionClick(config)}
                   onEdit={(e) => handleEditSession(config, e)}
                   onCopy={(e) => handleCopySession(config, e)}

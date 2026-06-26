@@ -6,15 +6,13 @@ import SessionDialog from '../SessionDialog/SessionDialog'
 
 interface FloatWindowProps {
   onConnect?: (sessionId: string, config: SessionConfig) => void
-  onCollapse?: () => void
 }
 
 /**
  * 简化版浮窗 - 用于快速开启终端
  * 显示最近访问的会话，支持置顶和拖拽排序
  */
-const FloatWindow: React.FC<FloatWindowProps> = ({ onConnect, onCollapse }) => {
-  const [searchQuery, setSearchQuery] = useState('')
+const FloatWindow: React.FC<FloatWindowProps> = ({ onConnect }) => {
   const [showDialog, setShowDialog] = useState(false)
   const { savedSessions, refreshSavedSessions } = useSessionStore()
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
@@ -51,23 +49,22 @@ const FloatWindow: React.FC<FloatWindowProps> = ({ onConnect, onCollapse }) => {
   }
 
   // 分离置顶和非置顶会话，各自排序
+  // 总上限 16 条:pinned 全保留(用户主动置顶),剩余配额给最近的 unpinned
+  // pinned 超过 16 时仍全显 —— 用户置顶的不该被静默截断,宁可让 unpinned 段为空
+  // 16 这个数:浮窗 h-[400px] - 头/底 padding ≈ 13 行可见,16 留 3 行滚动余量,既不空也不需翻页(用户选定)
+  const TOTAL_LIMIT = 16
   const pinnedSessions = savedSessions
     .filter(s => s.tags?.includes('pinned'))
     .sort(sortByPinOrder)
 
+  const unpinnedQuota = Math.max(0, TOTAL_LIMIT - pinnedSessions.length)
   const unpinnedSessions = savedSessions
     .filter(s => !s.tags?.includes('pinned'))
     .sort(sortByTime)
-    .slice(0, 10)
+    .slice(0, unpinnedQuota)
 
   // 合并：置顶在前，非置顶在后
   const sortedSessions = [...pinnedSessions, ...unpinnedSessions]
-
-  // 过滤会话
-  const filteredSessions = sortedSessions.filter(s =>
-    !searchQuery ||
-    s.name.toLowerCase().includes(searchQuery.toLowerCase())
-  )
 
   // 点击会话开启终端
   const handleConnect = (config: SessionConfig) => {
@@ -138,8 +135,8 @@ const FloatWindow: React.FC<FloatWindowProps> = ({ onConnect, onCollapse }) => {
         return
       }
 
-      const draggedSession = filteredSessions[draggedIndex]
-      const targetSession = filteredSessions[targetIndex]
+      const draggedSession = sortedSessions[draggedIndex]
+      const targetSession = sortedSessions[targetIndex]
 
       // 两个都必须是置顶会话才能拖拽排序
       if (!draggedSession?.tags?.includes('pinned') || !targetSession?.tags?.includes('pinned')) {
@@ -149,7 +146,7 @@ const FloatWindow: React.FC<FloatWindowProps> = ({ onConnect, onCollapse }) => {
       }
 
       // 在置顶组内找到位置
-      const pinnedList = filteredSessions.filter(s => s.tags?.includes('pinned'))
+      const pinnedList = sortedSessions.filter(s => s.tags?.includes('pinned'))
       const draggedPos = pinnedList.findIndex(s => s.id === draggedSession.id)
       const targetPos = pinnedList.findIndex(s => s.id === targetSession.id)
 
@@ -191,44 +188,44 @@ const FloatWindow: React.FC<FloatWindowProps> = ({ onConnect, onCollapse }) => {
       case 'ssh': return 'SSH'
       case 'telnet': return 'TEL'
       case 'serial': return 'SER'
+      case 'local': return 'LOC'
       default: return ''
     }
   }
 
+  // 协议色 stripe + 文字色(与 sidebar 一致)
+  const PROTO_STRIPE: Record<string, string> = {
+    ssh: 'bg-[var(--proto-ssh)]',
+    telnet: 'bg-[var(--proto-tel)]',
+    serial: 'bg-[var(--proto-ser)]',
+    local: 'bg-[var(--proto-loc)]',
+  }
+  const PROTO_TEXT: Record<string, string> = {
+    ssh: 'text-[var(--proto-ssh)]',
+    telnet: 'text-[var(--proto-tel)]',
+    serial: 'text-[var(--proto-ser)]',
+    local: 'text-[var(--proto-loc)]',
+  }
+
   return (
-    <div className="flex flex-col h-screen bg-[#2D2D30] text-white select-none">
-      {/* 搜索栏 */}
-      <div className="pr-2 border-b border-[#3C3C3C] flex items-center h-[28px]">
-        {/* 缩小按钮 */}
-        <div
-          onClick={onCollapse}
-          className="w-[8px] h-full bg-gray-500/20 flex items-center justify-center hover:bg-gray-500/50 transition-colors cursor-pointer group flex-shrink-0"
-          title="缩小浮窗"
-        >
-          <span className="text-gray-400/50 text-xs group-hover:text-white transition-colors">◀</span>
-        </div>
-        {/* 搜索输入 */}
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="搜索会话..."
-          className="flex-1 h-full pl-2 bg-[#3C3C3C] border border-[#555] text-sm placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
-        />
-      </div>
+    <div className="relative flex flex-col h-screen bg-[var(--bg-rack)] text-[var(--text-rack)] select-none">
+      {/* 顶边 amber 高亮 — 标识"被召唤压在终端上的焦点面板",跟下层终端拉开层级 */}
+      <div aria-hidden className="absolute top-0 left-0 right-0 h-[1px] bg-[var(--amber)] opacity-80 z-10" />
 
       {/* 会话列表 */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        {filteredSessions.length === 0 ? (
-          <div className="text-center py-4 text-gray-500 text-sm">
-            <p>暂无会话</p>
-            <p className="mt-1">点击下方按钮创建</p>
+      <div className="flex-1 overflow-y-auto rack-scroll py-1">
+        {sortedSessions.length === 0 ? (
+          <div className="text-center py-6 text-[var(--text-rack-mute)] text-xs">
+            <p className="font-mono uppercase tracking-[.1em]">No sessions</p>
+            <p className="mt-1 text-[var(--text-rack-faint)]">点击下方按钮创建</p>
           </div>
         ) : (
-          filteredSessions.map((config, index) => {
+          sortedSessions.map((config, index) => {
             const isPinned = config.tags?.includes('pinned')
             const isDragging = draggedIndex === index
             const isDragOver = dragOverIndex === index
+            const protoStripe = PROTO_STRIPE[config.type] || 'bg-[var(--text-rack-faint)]'
+            const protoText = PROTO_TEXT[config.type] || 'text-[var(--text-rack-faint)]'
 
             return (
               <div
@@ -240,50 +237,57 @@ const FloatWindow: React.FC<FloatWindowProps> = ({ onConnect, onCollapse }) => {
                 onDragOver={isPinned ? (e) => e.preventDefault() : undefined}
                 onClick={() => handleConnect(config)}
                 className={cn(
-                  'px-3 py-2 rounded cursor-pointer transition-all',
-                  'hover:bg-[#3C3C3C] group',
-                  isDragging && 'opacity-50 bg-[#0078D4]',
-                  isDragOver && !isDragging && 'border-t-2 border-[#0078D4]',
-                  isPinned && 'bg-[#3C3C3C]/50'
+                  'relative grid grid-cols-[3px_28px_auto_minmax(0,1fr)_auto] items-center gap-2 pr-2 h-[26px] cursor-pointer transition-colors group',
+                  'hover:bg-[var(--bg-slot)]',
+                  isDragging && 'opacity-40 bg-[var(--amber-soft)]',
+                  isDragOver && !isDragging && 'border-t border-[var(--amber)]',
+                  isPinned && 'bg-[var(--bg-slot)]/60'
                 )}
               >
-                <div className="flex items-center gap-2">
-                  {isPinned && (
-                    <span className="text-xs text-[#0078D4]" title="已置顶">📌</span>
-                  )}
-                  <span className="text-xs text-gray-400">{getTypeLabel(config.type)}</span>
-                  <span className="flex-1 truncate">{config.name}</span>
-                  <span className="text-xs text-gray-500">
-                    {config.ssh?.host || config.telnet?.host || config.serial?.path}
+                {/* 协议色条 */}
+                <span aria-hidden className={cn('h-full', protoStripe, isPinned ? 'opacity-100' : 'opacity-60 group-hover:opacity-100')} />
+                {/* 协议文字 */}
+                <span className={cn('font-mono text-[10px] font-bold uppercase tracking-[.12em] tabular-nums text-center', protoText)}>
+                  {getTypeLabel(config.type)}
+                </span>
+                {/* 置顶图标 */}
+                <span className={cn('w-[10px] flex justify-center text-[10px]', isPinned ? 'text-[var(--amber)]' : 'text-transparent')} title={isPinned ? '已置顶' : undefined}>
+                  ◆
+                </span>
+                {/* 名称 + host */}
+                <span className="flex items-baseline gap-2 min-w-0">
+                  <span className="truncate text-sm text-[var(--text-rack)]">{config.name}</span>
+                  <span className="truncate text-[10px] font-mono text-[var(--text-rack-data)]">
+                    {config.ssh?.host || config.telnet?.host || config.serial?.path || ''}
                   </span>
-                  <button
-                    onClick={(e) => handleTogglePin(config, e)}
-                    title={isPinned ? '取消置顶' : '置顶'}
-                    className={cn(
-                      'w-[18px] h-[18px] flex items-center justify-center rounded transition-colors',
-                      'opacity-0 group-hover:opacity-100',
-                      isPinned
-                        ? 'text-[#0078D4] hover:bg-[#0078D4]/20'
-                        : 'text-gray-400 hover:text-[#0078D4] hover:bg-[#555]'
-                    )}
-                  >
-                    📌
-                  </button>
-                </div>
+                </span>
+                {/* pin 按钮 */}
+                <button
+                  onClick={(e) => handleTogglePin(config, e)}
+                  title={isPinned ? '取消置顶' : '置顶'}
+                  className={cn(
+                    'w-[16px] h-[16px] flex items-center justify-center text-[10px] transition-all rounded-[2px]',
+                    isPinned
+                      ? 'text-[var(--amber)] opacity-100 hover:bg-[var(--amber-soft)]'
+                      : 'text-[var(--text-rack-faint)] opacity-0 group-hover:opacity-100 hover:text-[var(--amber)] hover:bg-[var(--bg-elev)]'
+                  )}
+                >
+                  ◆
+                </button>
               </div>
             )
           })
         )}
       </div>
 
-      {/* 底部按钮 */}
-      <div className="p-2 border-t border-[#3C3C3C] flex gap-2">
+      {/* 底部按钮 — rack 风:elev 底 + amber 文字 + 边框 hover 亮 */}
+      <div className="p-2 border-t border-[var(--rule)] bg-[var(--bg-strip)]">
         <button
           onClick={handleNewSession}
-          className="flex-1 flex items-center justify-center gap-2 py-1.5 text-sm bg-[#0078D4] text-white rounded hover:bg-[#006CBD] transition-colors"
+          className="w-full flex items-center justify-center gap-2 h-[28px] text-xs font-mono uppercase tracking-[.12em] bg-[var(--bg-elev)] border border-[var(--rule)] text-[var(--amber)] hover:border-[var(--amber)] hover:bg-[var(--amber-soft)] transition-colors rounded-[2px]"
         >
-          <span>+</span>
-          <span>新建会话</span>
+          <span className="text-base leading-none">+</span>
+          <span>New Session</span>
         </button>
       </div>
 
