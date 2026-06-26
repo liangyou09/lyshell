@@ -8,23 +8,25 @@ interface SessionDialogProps {
   onClose: () => void
   /**
    * 提交回调。
-   *   - 编辑模式：返回值忽略，dialog 直接关闭。
+   *   - 编辑模式：返回值忽略。成功即关闭;抛错则进入 fault 态显示 err.message,用户可改参数 Retry(与新建模式一致)。
    *   - 新建模式：
-   *       返回 string  —— 调用方将触发连接，dialog 进入 linking 等待 onConnectionStatus；
-   *       返回 null    —— 调用方只创建不连接，dialog 立即关闭；
-   *       返回 undefined —— 兜底，沿用 config.id 等待连接事件（与现有 Sidebar 入口兼容）。
+   *       返回 string —— 调用方触发连接,session id 已落盘;dialog 立即关闭(不等连接事件)。
+   *       返回 null   —— 调用方只创建不连接,dialog 立即关闭。
+   *       返回 undefined —— 兜底,等同于 string(dialog 立即关闭,沿用 config.id)。
+   *       抛错        —— dialog 进入 'fault' 状态,显示 err.message,用户可改参数 Retry。
+   *
+   * 连接 connecting / connected / error 反馈由终端面板自己显示(状态条 + 输出区),
+   * 不再阻塞 dialog —— 避免串口/local 这种瞬时连接抢跑 React commit 导致 dialog 卡死。
    */
   onSubmit: (config: SessionConfig) => Promise<string | null | undefined> | string | null | undefined | void
   initialConfig?: SessionConfig
 }
 
-type LinkState = 'ready' | 'linking' | 'fault'
-
 const PROTO_ACCENT: Record<ConnectionType, string> = {
-  [ConnectionType.SSH]: '#4EC9B0',
-  [ConnectionType.TELNET]: '#DCDCAA',
-  [ConnectionType.SERIAL]: '#C586C0',
-  [ConnectionType.LOCAL]: '#B5CEA8'
+  [ConnectionType.SSH]: 'var(--proto-ssh)',
+  [ConnectionType.TELNET]: 'var(--proto-tel)',
+  [ConnectionType.SERIAL]: 'var(--proto-ser)',
+  [ConnectionType.LOCAL]: 'var(--proto-loc)'
 }
 
 const PROTO_LABEL: Record<ConnectionType, string> = {
@@ -78,12 +80,11 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
   const [serialScanning, setSerialScanning] = useState(false)
 
   // ─── 遥测状态 ─────────────────────────────────────────
-  const [linkState, setLinkState] = useState<LinkState>('ready')
-  const [faultMsg, setFaultMsg] = useState('')
-  const pendingIdRef = useRef<string | null>(null)
-  // 新建模式下被本 dialog 创建并落盘的会话 id；取消连接时一并清理，避免残留
-  const createdIdRef = useRef<string | null>(null)
-  // onClose 用 ref 包一层，避免父组件每次 render 传入新引用导致 onConnectionStatus 监听重订阅
+  // 错误就 string,否则 null —— 原 linkState 二态('ready' | 'fault')收进 faultMsg 单字段(null = ready)
+  const [faultMsg, setFaultMsg] = useState<string | null>(null)
+  // 防止 await onSubmit 期间用户连按 Enter 触发重复提交
+  const submittingRef = useRef(false)
+  // onClose 用 ref 包一层,避免父组件每次 render 传入新引用导致依赖该 ref 的回调重订阅
   const onCloseRef = useRef(onClose)
   useEffect(() => { onCloseRef.current = onClose }, [onClose])
 
@@ -193,10 +194,8 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       setLocalCwd('')
       setEncoding('utf-8')
     }
-    setLinkState('ready')
-    setFaultMsg('')
-    pendingIdRef.current = null
-    createdIdRef.current = null
+    setFaultMsg(null)
+    submittingRef.current = false
     setMacroTab('startup')
   }, [initialConfig, open])
 
@@ -219,27 +218,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
     scanSerialPorts()
   }, [open, type, scanSerialPorts])
 
-  // ─── 连接状态监听（仅 linking 期间） ────────────────────
-  useEffect(() => {
-    if (!open || linkState !== 'linking') return
-    if (!window.electronAPI) return
-    const off = window.electronAPI.onConnectionStatus((data: unknown) => {
-      const payload = data as { id: string; status: string; error?: string }
-      if (payload.id !== pendingIdRef.current) return
-      if (payload.status === 'connected') {
-        setLinkState('ready')
-        // 连接成功，dialog 关闭后这条会话应保留 —— 清空 createdIdRef 防止后续清理
-        createdIdRef.current = null
-        onCloseRef.current()
-      } else if (payload.status === 'error' || payload.status === 'disconnected') {
-        setLinkState('fault')
-        setFaultMsg(payload.error || '连接失败')
-      }
-    })
-    return off
-  }, [open, linkState])
-
-  // ─── ESC 关闭（linking 时改为取消连接） ────────────────
+  // ─── ESC 关闭 ─────────────────────────────────────────
   useEffect(() => {
     if (!open) return
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -248,20 +227,10 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, linkState])
+  }, [open])
 
   const handleCancel = () => {
-    if (linkState === 'linking' && pendingIdRef.current && window.electronAPI) {
-      // 中断未完成的连接尝试
-      window.electronAPI.disconnect(pendingIdRef.current).catch(() => undefined)
-    }
-    // 新建模式下：取消 == 丢弃本次尝试。删除 dialog 内部刚刚创建的会话，
-    // 避免列表里残留一条从未连接成功的记录。编辑模式 createdIdRef 始终为 null。
-    if (createdIdRef.current && window.electronAPI) {
-      const idToDelete = createdIdRef.current
-      createdIdRef.current = null
-      window.electronAPI.deleteSession(idToDelete).catch(() => undefined)
-    }
+    // 提交后 dialog 立即关闭,无 linking 中间态需要回滚 —— 直接关掉即可。
     onCloseRef.current()
   }
 
@@ -270,7 +239,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
   // ─── 提交 ────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (linkState === 'linking') return  // 已经在连接中，忽略重复提交
+    if (submittingRef.current) return  // 防止 await 期间 Enter 重复提交
 
     // 派生 session 名称
     let sessionName = name.trim()
@@ -332,34 +301,36 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       }
     }
 
-    // 编辑模式：直接交给父级处理，关闭对话框
+    // 编辑模式：成功即关闭;抛错则留 dialog 显示 err.message 让用户改参数 Retry —— 与新建模式失败 UX 统一
     if (isEdit) {
-      try { await onSubmit(config) } catch { /* 父级负责报错 */ }
-      onCloseRef.current()
+      setFaultMsg(null)
+      try {
+        await onSubmit(config)
+        onCloseRef.current()
+      } catch (err) {
+        setFaultMsg((err as Error)?.message || 'Failed to save session')
+      }
       return
     }
 
-    // 新建模式：先把 ref 占位为本地 config.id —— 即使 main 进程在 onSubmit 返回前
-    // 就抢先 emit 'connected'（LocalConnector/Telnet 极少数瞬时连接场景），
-    // onConnectionStatus 监听也能匹配上、不至于卡在"正在连接"。
-    pendingIdRef.current = config.id
-    setLinkState('linking')
-    setFaultMsg('')
+    // 新建模式：提交即关闭,不再等连接事件。
+    // 连接状态(connecting / connected / error)由终端面板自己反馈 —— 状态条 / 输出区
+    // 比 dialog 内的 "Connecting" 更准确,也避免串口这种瞬时连接抢跑 React commit 导致卡死
+    submittingRef.current = true
+    setFaultMsg(null)
     try {
       const id = await onSubmit(config)
       if (id === null) {
-        // 调用方约定：只创建不连接 —— 直接关闭，不再等待连接事件
-        setLinkState('ready')
+        // 调用方约定：只创建不连接 —— 直接关闭
         onCloseRef.current()
         return
       }
-      // 用真实落盘的 id 覆盖占位；同时记录到 createdIdRef，方便取消时清理
-      const realId = id || config.id
-      pendingIdRef.current = realId
-      createdIdRef.current = realId
+      // 提交成功 —— createdIdRef 不再需要(dialog 立即关闭,无 cancel 中断机会)
+      onCloseRef.current()
     } catch (err) {
-      setLinkState('fault')
-      setFaultMsg((err as Error)?.message || '创建会话失败')
+      setFaultMsg((err as Error)?.message || 'Failed to create session')
+    } finally {
+      submittingRef.current = false
     }
   }
 
@@ -375,7 +346,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
     const chipLabel: Record<AddrKind, string> = {
       ipv4: 'IPv4',
       ipv6: 'IPv6',
-      hostname: '主机名',
+      hostname: 'Host',
       unknown: ''
     }
     // 用户粘贴 "host:port" 时自动拆分到端口字段
@@ -393,10 +364,10 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       <div className="flex items-end">
         {/* 主机标签 */}
         <span
-          className="text-[13px] text-[#D8D8DE] font-medium flex-shrink-0 pb-1.5 w-[44px] mr-2"
+          className="text-[13px] text-[var(--text-rack)] font-medium flex-shrink-0 pb-1.5 w-[44px] mr-2"
           style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
         >
-          主机
+          Host
         </span>
         {/* 主输入框 */}
         <div className="flex-1 min-w-0 relative mr-4">
@@ -408,15 +379,15 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
-            className="lyshell-host-input w-full bg-transparent border-b text-[18px] font-medium text-[#E8E8EE] focus:outline-none pb-1.5 pr-16"
+            className="lyshell-host-input w-full bg-transparent border-b text-[18px] font-medium text-[var(--text-rack)] focus:outline-none pb-1.5 pr-16"
             style={{
               fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace',
-              borderBottomColor: host ? accent : '#2A2A2E',
+              borderBottomColor: host ? accent : 'var(--rule)',
               caretColor: accent,
               transition: 'border-bottom-color .15s'
             }}
             onFocus={e => { e.currentTarget.style.borderBottomColor = accent }}
-            onBlur={e => { e.currentTarget.style.borderBottomColor = host ? accent : '#2A2A2E' }}
+            onBlur={e => { e.currentTarget.style.borderBottomColor = host ? accent : 'var(--rule)' }}
           />
           {kind !== 'unknown' && (
             <span
@@ -424,8 +395,8 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
               style={{
                 fontFamily: 'ui-monospace, "JetBrains Mono", monospace',
                 color: accent,
-                borderColor: `${accent}55`,
-                background: `${accent}10`
+                borderColor: `color-mix(in srgb, ${accent} 33%, transparent)`,
+                background: `color-mix(in srgb, ${accent} 6%, transparent)`
               }}
             >
               {chipLabel[kind]}
@@ -435,21 +406,21 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
         {/* 端口 */}
         <div className="flex items-baseline flex-shrink-0">
           <span
-            className="text-[13px] text-[#D8D8DE] font-medium mr-2"
+            className="text-[13px] text-[var(--text-rack)] font-medium mr-2"
             style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
           >
-            端口
+            Port
           </span>
           <input
             value={port}
             onChange={e => setPort(e.target.value.replace(/\D/g, '').slice(0, 5))}
             onFocus={e => { e.target.select(); e.currentTarget.style.borderBottomColor = accent }}
-            onBlur={e => { e.currentTarget.style.borderBottomColor = port ? accent : '#2A2A2E' }}
+            onBlur={e => { e.currentTarget.style.borderBottomColor = port ? accent : 'var(--rule)' }}
             inputMode="numeric"
-            className="w-[52px] bg-transparent border-b text-[18px] font-medium text-[#E8E8EE] focus:outline-none pb-1.5 tabular-nums text-right"
+            className="w-[52px] bg-transparent border-b text-[18px] font-medium text-[var(--text-rack)] focus:outline-none pb-1.5 tabular-nums text-right"
             style={{
               fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace',
-              borderBottomColor: port ? accent : '#2A2A2E',
+              borderBottomColor: port ? accent : 'var(--rule)',
               caretColor: accent,
               transition: 'border-bottom-color .15s'
             }}
@@ -467,23 +438,23 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
     return (
       <>
         {/* tab bar */}
-        <div className="flex items-center border-b border-[#232327] mb-2 -mb-px">
+        <div className="flex items-center border-b border-[var(--rule-soft)] mb-2 -mb-px">
           {showShellTab && (
             <button
               type="button"
               onClick={() => setMacroTab('shell')}
               className="text-[13px] py-2 px-3 border-b cursor-pointer flex items-center gap-2"
               style={{
-                color: macroTab === 'shell' ? accent : '#C2C2C8',
+                color: macroTab === 'shell' ? accent : 'var(--text-rack-data)',
                 borderBottomColor: macroTab === 'shell' ? accent : 'transparent',
                 marginBottom: -1,
                 fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
               }}
             >
-              进入 Shell
+              Shell Init
               <span
-                className="text-[11px] px-1.5 py-px rounded-sm bg-[#121215] border border-[#2A2A2E] font-mono tabular-nums"
-                style={{ color: macroTab === 'shell' ? accent : '#9A9AA3', opacity: macroTab === 'shell' ? 0.7 : 1 }}
+                className="text-[11px] px-1.5 py-px rounded-sm bg-[var(--bg-base)] border border-[var(--rule)] font-mono tabular-nums"
+                style={{ color: macroTab === 'shell' ? accent : 'var(--text-rack-mute)', opacity: macroTab === 'shell' ? 0.7 : 1 }}
               >
                 {shellEnterLines.filter(Boolean).length}
               </span>
@@ -494,16 +465,16 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
             onClick={() => setMacroTab('startup')}
             className="text-[13px] py-2 px-3 border-b cursor-pointer flex items-center gap-2"
             style={{
-              color: macroTab === 'startup' ? accent : '#C2C2C8',
+              color: macroTab === 'startup' ? accent : 'var(--text-rack-data)',
               borderBottomColor: macroTab === 'startup' ? accent : 'transparent',
               marginBottom: -1,
               fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
             }}
           >
-            启动命令
+            Startup
             <span
-              className="text-[11px] px-1.5 py-px rounded-sm bg-[#121215] border border-[#2A2A2E] font-mono tabular-nums"
-              style={{ color: macroTab === 'startup' ? accent : '#9A9AA3', opacity: macroTab === 'startup' ? 0.7 : 1 }}
+              className="text-[11px] px-1.5 py-px rounded-sm bg-[var(--bg-base)] border border-[var(--rule)] font-mono tabular-nums"
+              style={{ color: macroTab === 'startup' ? accent : 'var(--text-rack-mute)', opacity: macroTab === 'startup' ? 0.7 : 1 }}
             >
               {startupLines.filter(Boolean).length}
             </span>
@@ -512,48 +483,48 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
             <span
               className="text-[13px] py-2 px-3 opacity-30 cursor-not-allowed flex items-center gap-2"
               style={{
-                color: '#9A9AA3',
+                color: 'var(--text-rack-mute)',
                 fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
               }}
-              title="进入 Shell 命令仅 SSH 协议可用"
+              title="Shell Init is only available for SSH"
             >
-              进入 Shell
-              <span className="text-[11px] px-1.5 py-px rounded-sm bg-[#121215] border border-[#2A2A2E] font-mono">仅 SSH</span>
+              Shell Init
+              <span className="text-[11px] px-1.5 py-px rounded-sm bg-[var(--bg-base)] border border-[var(--rule)] font-mono">SSH only</span>
             </span>
           )}
           {macroTab === 'shell' && (
             <div className="ml-auto flex items-baseline gap-1.5 pr-1">
               <span
-                className="text-[12px] text-[#9A9AA3]"
+                className="text-[12px] text-[var(--text-rack-mute)]"
                 style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
               >
-                等待
+                Wait
               </span>
               <input
                 value={sshShellEnterWait}
                 onChange={e => setSshShellEnterWait(e.target.value.replace(/\D/g, ''))}
                 inputMode="numeric"
-                className="w-[52px] bg-transparent border-none text-right text-[#E8E8EE] font-medium focus:outline-none tabular-nums font-mono text-[13px]"
+                className="w-[52px] bg-transparent border-none text-right text-[var(--text-rack)] font-medium focus:outline-none tabular-nums font-mono text-[13px]"
                 style={{ caretColor: accent }}
               />
-              <span className="text-[11px] text-[#9A9AA3] font-mono">ms</span>
+              <span className="text-[11px] text-[var(--text-rack-mute)] font-mono">ms</span>
             </div>
           )}
         </div>
 
         {/* line editor — 单个 textarea，跨行选择/复制/删除像普通编辑器 */}
-        <div className="bg-[#121215] border border-[#2A2A2E] rounded-sm relative overflow-hidden">
+        <div className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm relative overflow-hidden">
           {(() => {
             const text = lines.join('\n')
             const rowCount = Math.max(text.split('\n').length, 3)
             const placeholder = macroTab === 'shell'
-              ? '一行一条命令，按 Enter 换行；可直接粘贴多行'
-              : '一行一条命令，按 Enter 换行；可直接粘贴多行'
+              ? 'One command per line · Enter for newline · paste multi-line'
+              : 'One command per line · Enter for newline · paste multi-line'
             return (
               <div className="flex">
                 {/* 行号槽（不响应交互，跟随 textarea 滚动） */}
                 <div
-                  className="select-none pt-1.5 pb-1.5 pl-2.5 pr-2 text-right text-[11px] text-[#5A5A62] font-mono tabular-nums leading-[22px] bg-[#0E0E11] border-r border-[#1F1F22]"
+                  className="select-none pt-1.5 pb-1.5 pl-2.5 pr-2 text-right text-[11px] text-[var(--text-rack-dim)] font-mono tabular-nums leading-[22px] bg-[var(--bg-strip)] border-r border-[var(--rule-soft)]"
                   style={{ minWidth: 32 }}
                   aria-hidden
                 >
@@ -574,7 +545,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                   placeholder={placeholder}
                   spellCheck={false}
                   rows={Math.min(rowCount, 8)}
-                  className="lyshell-macro-area flex-1 min-w-0 bg-transparent border-none text-[#E8E8EE] focus:outline-none resize-none py-1.5 px-3 text-[13px] leading-[22px]"
+                  className="lyshell-macro-area flex-1 min-w-0 bg-transparent border-none text-[var(--text-rack)] focus:outline-none resize-none py-1.5 px-3 text-[13px] leading-[22px]"
                   style={{
                     caretColor: accent,
                     fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", monospace'
@@ -594,32 +565,32 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
     const ghost = !matched && serialPath ? { path: serialPath } as SerialPortInfo : null
 
     return (
-      <div className="border border-[#2A2A2E] bg-[#121215] rounded-sm overflow-hidden">
+      <div className="border border-[var(--rule)] bg-[var(--bg-base)] rounded-sm overflow-hidden">
         <div
-          className="flex items-center h-[30px] px-3 pl-3 border-b border-[#232327] bg-[#131316] text-[12px] text-[#C2C2C8]"
+          className="flex items-center h-[30px] px-3 pl-3 border-b border-[var(--rule-soft)] bg-[var(--bg-rack)] text-[12px] text-[var(--text-rack-data)]"
           style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
         >
           <span>
-            检测到的设备{' '}
+            Detected{' '}
             <span style={{ color: accent }} className="font-medium ml-0.5 font-mono tabular-nums">{serialPorts.length}</span>
           </span>
           <button
             type="button"
             onClick={scanSerialPorts}
             disabled={serialScanning}
-            className="ml-auto text-[#C2C2C8] hover:text-[#E8E8EE] cursor-pointer flex items-center gap-1.5 text-[12px] px-2 py-1 disabled:opacity-40"
+            className="ml-auto text-[var(--text-rack-data)] hover:text-[var(--text-rack)] cursor-pointer flex items-center gap-1.5 text-[12px] px-2 py-1 disabled:opacity-40"
           >
             <span className={serialScanning ? 'animate-spin inline-block' : ''}>↻</span>
-            {serialScanning ? '扫描中' : '重新扫描'}
+            {serialScanning ? 'Scanning' : 'Rescan'}
           </button>
         </div>
         <div className="max-h-[168px] overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
           {serialPorts.length === 0 && !ghost && !serialScanning && (
             <div
-              className="px-3 py-3.5 text-[12.5px] text-[#9A9AA3] text-center"
+              className="px-3 py-3.5 text-[12.5px] text-[var(--text-rack-mute)] text-center"
               style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
             >
-              未检测到串口设备，可在下方手动输入路径
+              No serial ports detected · type a path below to enter manually
             </div>
           )}
           {serialPorts.map(p => {
@@ -630,10 +601,10 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
               <div
                 key={p.path}
                 onClick={() => setSerialPath(p.path)}
-                className="grid items-center gap-3 px-3 pl-3 py-2 cursor-pointer border-b border-[#232327] hover:bg-white/[0.025] relative font-mono"
+                className="grid items-center gap-3 px-3 pl-3 py-2 cursor-pointer border-b border-[var(--rule-soft)] hover:bg-white/[0.025] relative font-mono"
                 style={{
                   gridTemplateColumns: '16px 76px 1fr auto',
-                  background: isOn ? 'rgba(197,134,192,0.08)' : undefined
+                  background: isOn ? 'color-mix(in srgb, var(--proto-ser) 8%, transparent)' : undefined
                 }}
               >
                 {isOn && (
@@ -645,21 +616,21 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                 <span
                   className="w-2 h-2 rounded-full justify-self-center"
                   style={{
-                    background: isOn ? accent : '#4EC9B0',
-                    boxShadow: `0 0 5px ${isOn ? accent : '#4EC9B0'}`
+                    background: isOn ? accent : 'var(--live)',
+                    boxShadow: `0 0 5px ${isOn ? accent : 'var(--live)'}`
                   }}
                 />
                 <span
                   className="text-[13px] font-medium tracking-[0.04em]"
-                  style={{ color: isOn ? accent : '#E8E8EE' }}
+                  style={{ color: isOn ? accent : 'var(--text-rack)' }}
                 >
                   {p.path}
                 </span>
-                <span className="text-[12px] text-[#C2C2C8] truncate" style={{ fontFamily: 'system-ui, sans-serif' }}>
+                <span className="text-[12px] text-[var(--text-rack-data)] truncate" style={{ fontFamily: 'system-ui, sans-serif' }}>
                   {label}
                 </span>
                 {vidPid && (
-                  <span className="text-[10.5px] tracking-[0.06em] text-[#9A9AA3] justify-self-end">
+                  <span className="text-[10.5px] tracking-[0.06em] text-[var(--text-rack-mute)] justify-self-end">
                     {vidPid}
                   </span>
                 )}
@@ -669,10 +640,10 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
           {ghost && (
             <div
               onClick={() => setSerialPath(ghost.path)}
-              className="grid items-center gap-3 px-3 pl-3 py-2 cursor-pointer border-b border-[#232327] hover:bg-white/[0.025] relative font-mono opacity-55"
+              className="grid items-center gap-3 px-3 pl-3 py-2 cursor-pointer border-b border-[var(--rule-soft)] hover:bg-white/[0.025] relative font-mono opacity-55"
               style={{
                 gridTemplateColumns: '16px 76px 1fr auto',
-                background: 'rgba(197,134,192,0.08)'
+                background: 'color-mix(in srgb, var(--proto-ser) 8%, transparent)'
               }}
             >
               <span
@@ -680,11 +651,11 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                 style={{ background: accent }}
               />
               <span
-                className="w-2 h-2 rounded-full justify-self-center border border-[#6B6B73]"
+                className="w-2 h-2 rounded-full justify-self-center border border-[var(--text-rack-faint)]"
               />
               <span className="text-[13px] font-medium tracking-[0.04em]" style={{ color: accent }}>{ghost.path}</span>
-              <span className="text-[12px] text-[#C2C2C8] truncate" style={{ fontFamily: 'system-ui, sans-serif' }}>
-                <span style={{ color: '#9A9AA3', fontSize: 12, fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}>设备未连接</span>
+              <span className="text-[12px] text-[var(--text-rack-data)] truncate" style={{ fontFamily: 'system-ui, sans-serif' }}>
+                <span style={{ color: 'var(--text-rack-mute)', fontSize: 12, fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}>Offline</span>
               </span>
               <span />
             </div>
@@ -695,13 +666,13 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
             style={{ gridTemplateColumns: '16px 1fr' }}
           >
             <span
-              className="w-2 h-2 rounded-full justify-self-center border border-dashed border-[#6B6B73]"
+              className="w-2 h-2 rounded-full justify-self-center border border-dashed border-[var(--text-rack-faint)]"
             />
             <input
               value={serialPorts.some(p => p.path === serialPath) ? '' : (ghost ? '' : serialPath)}
               onChange={e => setSerialPath(e.target.value)}
-              placeholder="或手动输入: COM5 / /dev/ttyUSB0"
-              className="bg-transparent border-b text-[13px] py-1 text-[#E8E8EE] focus:outline-none"
+              placeholder="Or type: COM5 / /dev/ttyUSB0"
+              className="bg-transparent border-b text-[13px] py-1 text-[var(--text-rack)] focus:outline-none"
               style={{ borderBottomColor: accent, caretColor: accent }}
             />
           </div>
@@ -711,12 +682,11 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
   }
 
   // ─── 主渲染 ──────────────────────────────────────────
-  const channelLabel = isEdit ? '编辑会话' : '新建会话'
+  const channelLabel = isEdit ? 'Edit Session' : 'New Session'
   const buttonLabel =
-    linkState === 'linking' ? '正在连接' :
-    linkState === 'fault' ? '重试' :
-    isEdit ? '保存' :
-    '连接'
+    faultMsg ? 'Retry' :
+    isEdit ? 'Save' :
+    'Connect'
 
   return (
     <div
@@ -724,7 +694,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       onMouseDown={e => { if (e.target === e.currentTarget) handleCancel() }}
     >
       <div
-        className="bg-[#16161A] border border-[#2A2A2E] w-[448px] overflow-hidden lyshell-session-dialog"
+        className="bg-[var(--bg-rack)] border border-[var(--rule)] w-[448px] overflow-hidden lyshell-session-dialog"
         style={{
           boxShadow: '0 0 0 1px rgba(0,0,0,.3), 0 24px 60px -12px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.02)'
         }}
@@ -732,20 +702,20 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
         {/* placeholder + selection 强制亮度（dialog 作用域，不污染全局） */}
         <style>{`
           .lyshell-session-dialog ::placeholder {
-            color: #7A7A82 !important;
+            color: var(--text-rack-dim) !important;
             opacity: 1;
           }
-          .lyshell-session-dialog ::-webkit-input-placeholder { color: #7A7A82 !important; }
-          .lyshell-session-dialog :-ms-input-placeholder { color: #7A7A82 !important; }
+          .lyshell-session-dialog ::-webkit-input-placeholder { color: var(--text-rack-dim) !important; }
+          .lyshell-session-dialog :-ms-input-placeholder { color: var(--text-rack-dim) !important; }
           /* 主机输入框：18px mono 太抢眼，placeholder 再压暗一档 + 字号缩小 */
           .lyshell-session-dialog .lyshell-host-input::placeholder {
-            color: #4A4A52 !important;
+            color: var(--text-rack-faint) !important;
             font-weight: 400;
             font-size: 13px;
             font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
           }
           .lyshell-session-dialog .lyshell-host-input::-webkit-input-placeholder {
-            color: #4A4A52 !important;
+            color: var(--text-rack-faint) !important;
             font-weight: 400;
             font-size: 13px;
             font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
@@ -753,35 +723,35 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
           /* 宏面板空态：placeholder 走 sans，input 自己仍是 mono 等输入命令 */
           .lyshell-session-dialog .lyshell-macro-empty::placeholder,
           .lyshell-session-dialog .lyshell-macro-area::placeholder {
-            color: #7A7A82 !important;
+            color: var(--text-rack-dim) !important;
             font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
             font-size: 12.5px;
           }
           .lyshell-session-dialog .lyshell-macro-empty::-webkit-input-placeholder,
           .lyshell-session-dialog .lyshell-macro-area::-webkit-input-placeholder {
-            color: #7A7A82 !important;
+            color: var(--text-rack-dim) !important;
             font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
             font-size: 12.5px;
           }
         `}</style>
         {/* TITLE STRIP */}
         <div
-          className="flex items-center h-10 px-3 pl-4 border-b border-[#2A2A2E] text-[13px] text-[#C2C2C8] gap-3"
+          className="flex items-center h-10 px-3 pl-4 border-b border-[var(--rule)] text-[13px] text-[var(--text-rack-data)] gap-3"
           style={{
-            background: 'linear-gradient(180deg, #1F1F23 0%, #18181B 100%)',
+            background: 'linear-gradient(180deg, var(--rule-soft) 0%, var(--bg-slot) 100%)',
             fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
           }}
         >
-          <span className="text-[#E8E8EE] font-medium flex-shrink-0 flex items-center">
+          <span className="text-[var(--text-rack)] font-medium flex-shrink-0 flex items-center">
             <span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: accent, boxShadow: `0 0 5px ${accent}` }} />
             {channelLabel}
           </span>
-          <span className="text-[#6B6B73] flex-shrink-0">·</span>
+          <span className="text-[var(--text-rack-faint)] flex-shrink-0">·</span>
           <input
             value={name}
             onChange={e => handleNameChange(e.target.value)}
-            placeholder="留空则使用 IP 作为会话名"
-            className="flex-1 min-w-0 bg-transparent border-none text-[#E8E8EE] text-[13px] tracking-[0.02em] normal-case py-0 outline-none border-b border-dashed border-transparent hover:border-[#2A2A2E] focus:border-[#2A2A2E]"
+            placeholder="Empty = use IP as session name"
+            className="flex-1 min-w-0 bg-transparent border-none text-[var(--text-rack)] text-[13px] tracking-[0.02em] normal-case py-0 outline-none border-b border-dashed border-transparent hover:border-[var(--rule)] focus:border-[var(--rule)]"
             style={{
               textTransform: 'none',
               letterSpacing: '0.02em',
@@ -791,8 +761,8 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
           <button
             type="button"
             onClick={handleCancel}
-            className="text-[#8E8E96] hover:text-[#E8E8EE] text-lg tracking-normal px-2 py-0.5 flex-shrink-0 cursor-pointer"
-            aria-label="关闭"
+            className="text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] text-lg tracking-normal px-2 py-0.5 flex-shrink-0 cursor-pointer"
+            aria-label="Close"
           >
             ✕
           </button>
@@ -800,7 +770,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
 
         <form onSubmit={handleSubmit}>
           {/* PROTOCOL */}
-          <div className="py-3.5 px-4 border-b border-[#2A2A2E]">
+          <div className="py-3.5 px-4 border-b border-[var(--rule)]">
             <div className="grid grid-cols-4 gap-2">
               {(Object.values(ConnectionType) as ConnectionType[]).map(p => {
                 const isOn = type === p
@@ -811,11 +781,11 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                     onClick={() => setType(p)}
                     className="h-10 rounded-sm flex items-center justify-center gap-2 cursor-pointer relative font-mono transition-transform"
                     style={{
-                      background: isOn ? '#1A1A1E' : '#2C2C32',
-                      borderTop: `1px solid ${isOn ? '#2A2A2E' : '#36363C'}`,
-                      borderRight: '1px solid #2A2A2E',
-                      borderBottom: '1px solid #2A2A2E',
-                      borderLeft: '1px solid #2A2A2E',
+                      background: isOn ? 'var(--bg-slot)' : 'var(--rule)',
+                      borderTop: `1px solid ${isOn ? 'var(--rule)' : 'var(--rule)'}`,
+                      borderRight: '1px solid var(--rule)',
+                      borderBottom: '1px solid var(--rule)',
+                      borderLeft: '1px solid var(--rule)',
                       boxShadow: isOn
                         ? 'inset 0 1px 6px rgba(0,0,0,.6)'
                         : '0 2px 0 #0B0B0D, inset 0 1px 0 rgba(255,255,255,.04)',
@@ -830,7 +800,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                     )}
                     <span
                       className="text-[14px] font-medium tracking-[0.1em]"
-                      style={{ color: isOn ? PROTO_ACCENT[p] : '#C2C2C8' }}
+                      style={{ color: isOn ? PROTO_ACCENT[p] : 'var(--text-rack-data)' }}
                     >
                       {PROTO_LABEL[p]}
                     </span>
@@ -842,22 +812,22 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
 
           {/* TARGET / PORT */}
           {(type === ConnectionType.SSH || type === ConnectionType.TELNET) && (
-            <div className="py-3.5 px-4 border-b border-[#2A2A2E]">
+            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
               {type === ConnectionType.SSH
-                ? renderHostRow(sshHost, setSshHost, sshPort, setSshPort, 'IP 或主机名')
-                : renderHostRow(telnetHost, setTelnetHost, telnetPort, setTelnetPort, 'IP 或主机名')}
+                ? renderHostRow(sshHost, setSshHost, sshPort, setSshPort, 'IP or hostname')
+                : renderHostRow(telnetHost, setTelnetHost, telnetPort, setTelnetPort, 'IP or hostname')}
             </div>
           )}
 
           {type === ConnectionType.SERIAL && (
-            <div className="py-3.5 px-4 border-b border-[#2A2A2E]">
+            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
               {renderSerialScanner()}
-              <div className="flex items-center mt-3 pt-2.5 border-t border-[#232327]">
+              <div className="flex items-center mt-3 pt-2.5 border-t border-[var(--rule-soft)]">
                 <span
-                  className="text-[13px] text-[#D8D8DE] font-medium w-[44px] mr-2 flex-shrink-0"
+                  className="text-[13px] text-[var(--text-rack)] font-medium w-[44px] mr-2 flex-shrink-0"
                   style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
                 >
-                  波特率
+                  Baud
                 </span>
                 <div className="flex gap-1.5 flex-wrap flex-1">
                   {BAUD_PRESETS.map(b => {
@@ -869,9 +839,9 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                         onClick={() => setSerialBaudRate(b)}
                         className="font-mono text-[12px] px-2.5 py-1 border rounded-sm cursor-pointer tracking-[0.04em]"
                         style={{
-                          color: isOn ? accent : '#C2C2C8',
-                          borderColor: isOn ? accent : '#2A2A2E',
-                          background: isOn ? 'rgba(197,134,192,0.06)' : '#121215'
+                          color: isOn ? accent : 'var(--text-rack-data)',
+                          borderColor: isOn ? accent : 'var(--rule)',
+                          background: isOn ? 'color-mix(in srgb, var(--proto-ser) 6%, transparent)' : 'var(--bg-base)'
                         }}
                       >
                         {b}
@@ -884,13 +854,13 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
           )}
 
           {type === ConnectionType.LOCAL && (
-            <div className="py-3.5 px-4 border-b border-[#2A2A2E]">
+            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
               <div className="flex items-center">
                 <span
-                  className="text-[13px] text-[#D8D8DE] font-medium w-[44px] mr-2 flex-shrink-0"
+                  className="text-[13px] text-[var(--text-rack)] font-medium w-[44px] mr-2 flex-shrink-0"
                   style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
                 >
-                  程序
+                  Shell
                 </span>
                 <select
                   value={isCustomShell ? 'custom' : localShell}
@@ -901,36 +871,36 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                     else if (val === 'pwsh') { setLocalShell('pwsh'); setIsCustomShell(false) }
                     else { setIsCustomShell(true); setLocalShell('') }
                   }}
-                  className="bg-[#121215] border border-[#2A2A2E] text-[#E8E8EE] text-[13px] py-1.5 px-2.5 rounded-sm focus:outline-none focus:border-[#5A5A62]"
+                  className="bg-[var(--bg-base)] border border-[var(--rule)] text-[var(--text-rack)] text-[13px] py-1.5 px-2.5 rounded-sm focus:outline-none focus:border-[var(--text-rack-dim)]"
                   style={{ fontFamily: 'ui-monospace, "JetBrains Mono", monospace' }}
                 >
-                  <option value="">cmd.exe (默认)</option>
+                  <option value="">cmd.exe (default)</option>
                   <option value="powershell">PowerShell</option>
                   <option value="pwsh">PowerShell 7</option>
-                  <option value="custom">自定义…</option>
+                  <option value="custom">Custom…</option>
                 </select>
                 {isCustomShell && (
                   <input
                     value={localShell}
                     onChange={e => setLocalShell(e.target.value)}
                     placeholder="C:\path\to\shell.exe"
-                    className="flex-1 bg-transparent border-b border-[#2A2A2E] text-[13px] py-1 text-[#E8E8EE] focus:outline-none font-mono ml-2"
+                    className="flex-1 bg-transparent border-b border-[var(--rule)] text-[13px] py-1 text-[var(--text-rack)] focus:outline-none font-mono ml-2"
                     style={{ caretColor: accent }}
                   />
                 )}
               </div>
               <div className="flex items-center mt-2.5">
                 <span
-                  className="text-[13px] text-[#D8D8DE] font-medium w-[44px] mr-2 flex-shrink-0"
+                  className="text-[13px] text-[var(--text-rack)] font-medium w-[44px] mr-2 flex-shrink-0"
                   style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
                 >
-                  目录
+                  Cwd
                 </span>
                 <input
                   value={localCwd}
                   onChange={e => setLocalCwd(e.target.value)}
-                  placeholder="留空使用用户目录"
-                  className="flex-1 bg-transparent border-b border-[#2A2A2E] text-[13px] py-1 text-[#E8E8EE] focus:outline-none font-mono"
+                  placeholder="Empty = home directory"
+                  className="flex-1 bg-transparent border-b border-[var(--rule)] text-[13px] py-1 text-[var(--text-rack)] focus:outline-none font-mono"
                   style={{ caretColor: accent }}
                 />
               </div>
@@ -939,69 +909,69 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
 
           {/* AUTH (SSH only) */}
           {type === ConnectionType.SSH && (
-            <div className="py-3.5 px-4 border-b border-[#2A2A2E]">
-              <FieldRow label="用户">
+            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+              <FieldRow label="User">
                 <input
                   value={sshUser}
                   onChange={e => setSshUser(e.target.value)}
                   placeholder="root"
-                  className="flex-1 bg-transparent border-b text-[14px] text-[#E8E8EE] focus:outline-none focus:text-white font-mono pb-1.5"
+                  className="flex-1 bg-transparent border-b text-[14px] text-[var(--text-rack)] focus:outline-none focus:text-white font-mono pb-1.5"
                   style={{
-                    borderBottomColor: sshUser ? accent : '#2A2A2E',
+                    borderBottomColor: sshUser ? accent : 'var(--rule)',
                     caretColor: accent,
                     transition: 'border-bottom-color .15s'
                   }}
                   onFocus={e => { e.currentTarget.style.borderBottomColor = accent }}
-                  onBlur={e => { e.currentTarget.style.borderBottomColor = sshUser ? accent : '#2A2A2E' }}
+                  onBlur={e => { e.currentTarget.style.borderBottomColor = sshUser ? accent : 'var(--rule)' }}
                   required
                 />
               </FieldRow>
-              <FieldRow label="密码">
+              <FieldRow label="Auth">
                 <input
                   type="password"
                   value={sshPassword}
                   onChange={e => setSshPassword(e.target.value)}
-                  placeholder="密码"
-                  className="flex-1 bg-transparent border-b text-[14px] text-[#E8E8EE] focus:outline-none focus:text-white font-mono pb-1.5"
+                  placeholder="Password"
+                  className="flex-1 bg-transparent border-b text-[14px] text-[var(--text-rack)] focus:outline-none focus:text-white font-mono pb-1.5"
                   style={{
-                    borderBottomColor: sshPassword ? accent : '#2A2A2E',
+                    borderBottomColor: sshPassword ? accent : 'var(--rule)',
                     caretColor: accent,
                     transition: 'border-bottom-color .15s'
                   }}
                   onFocus={e => { e.currentTarget.style.borderBottomColor = accent }}
-                  onBlur={e => { e.currentTarget.style.borderBottomColor = sshPassword ? accent : '#2A2A2E' }}
+                  onBlur={e => { e.currentTarget.style.borderBottomColor = sshPassword ? accent : 'var(--rule)' }}
                 />
                 <span
-                  className="text-[12px] text-[#9A9AA3] mx-3 self-center"
+                  className="text-[12px] text-[var(--text-rack-mute)] mx-3 self-center"
                   style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
                 >
-                  或
+                  or
                 </span>
                 <input
                   value={sshPrivateKey}
                   onChange={e => setSshPrivateKey(e.target.value)}
                   placeholder="~/.ssh/id_ed25519"
-                  className="flex-1 bg-transparent border-b text-[13px] text-[#E8E8EE] focus:outline-none font-mono pb-1.5"
+                  className="flex-1 bg-transparent border-b text-[13px] text-[var(--text-rack)] focus:outline-none font-mono pb-1.5"
                   style={{
-                    borderBottomColor: sshPrivateKey ? accent : '#2A2A2E',
+                    borderBottomColor: sshPrivateKey ? accent : 'var(--rule)',
                     caretColor: accent,
                     transition: 'border-bottom-color .15s'
                   }}
                   onFocus={e => { e.currentTarget.style.borderBottomColor = accent }}
-                  onBlur={e => { e.currentTarget.style.borderBottomColor = sshPrivateKey ? accent : '#2A2A2E' }}
+                  onBlur={e => { e.currentTarget.style.borderBottomColor = sshPrivateKey ? accent : 'var(--rule)' }}
                 />
               </FieldRow>
             </div>
           )}
 
           {/* MACROS */}
-          <div className="py-3.5 px-4 border-b border-[#2A2A2E]">
+          <div className="py-3.5 px-4 border-b border-[var(--rule)]">
             {renderMacroPanel()}
           </div>
 
           {/* META */}
           <div className="py-3.5 px-4">
-            <FieldRow label="编码" bare>
+            <FieldRow label="Charset" bare labelWidth="w-[56px]">
               <div className="flex gap-1 flex-1">
                 {(['utf-8', 'gbk', 'gb2312'] as const).map(enc => {
                   const isOn = encoding === enc
@@ -1012,9 +982,9 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                       onClick={() => setEncoding(enc)}
                       className="font-mono text-[12px] px-2.5 py-1 border rounded-sm cursor-pointer tracking-[0.04em]"
                       style={{
-                        color: isOn ? accent : '#C2C2C8',
-                        borderColor: isOn ? accent : '#2A2A2E',
-                        background: isOn ? `${accent}10` : '#121215'
+                        color: isOn ? accent : 'var(--text-rack-data)',
+                        borderColor: isOn ? accent : 'var(--rule)',
+                        background: isOn ? `color-mix(in srgb, ${accent} 6%, transparent)` : 'var(--bg-base)'
                       }}
                     >
                       {enc}
@@ -1027,7 +997,6 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
 
           {/* TELEMETRY STRIP */}
           <TelemetryStrip
-            linkState={linkState}
             faultMsg={faultMsg}
             isEdit={isEdit}
             accent={accent}
@@ -1041,12 +1010,12 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
 
 // ─── 小工具组件 ─────────────────────────────────────────
 
-const FieldRow: React.FC<{ label: string; bare?: boolean; children: React.ReactNode }> = ({
-  label, bare, children
+const FieldRow: React.FC<{ label: string; bare?: boolean; labelWidth?: string; children: React.ReactNode }> = ({
+  label, bare, labelWidth = 'w-[44px]', children
 }) => (
   <div className={`flex ${bare ? 'items-center py-2' : 'items-stretch py-2.5'}`}>
     <span
-      className="text-[13px] font-medium text-[#D8D8DE] w-[44px] mr-2 flex-shrink-0 self-center"
+      className={`text-[13px] font-medium text-[var(--text-rack)] ${labelWidth} mr-2 flex-shrink-0 self-center`}
       style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
     >
       {label}
@@ -1056,25 +1025,23 @@ const FieldRow: React.FC<{ label: string; bare?: boolean; children: React.ReactN
 )
 
 const TelemetryStrip: React.FC<{
-  linkState: LinkState
-  faultMsg: string
+  faultMsg: string | null
   isEdit: boolean
   accent: string
   buttonLabel: string
-}> = ({ linkState, faultMsg, isEdit, accent, buttonLabel }) => {
+}> = ({ faultMsg, isEdit, accent, buttonLabel }) => {
+  const isFault = !!faultMsg
   const stateColor =
-    linkState === 'linking' ? '#F8C156' :
-    linkState === 'fault' ? '#F48771' :
-    '#7A7A82'
+    isFault ? 'var(--error-rack)' :
+    'var(--text-rack-dim)'
   const stateMsg =
-    linkState === 'linking' ? '正在连接，请稍候…' :
-    linkState === 'fault' ? (faultMsg || '连接失败') :
-    isEdit ? '编辑模式 · 保存不会重新连接' : '准备就绪'
+    isFault ? (faultMsg || 'Connection failed') :
+    isEdit ? 'Edit mode · save will not reconnect' : 'Ready'
 
   return (
     <div
-      className="flex items-stretch h-[44px] border-t border-[#2A2A2E]"
-      style={{ background: 'linear-gradient(180deg, #161618 0%, #131316 100%)' }}
+      className="flex items-stretch h-[44px] border-t border-[var(--rule)]"
+      style={{ background: 'linear-gradient(180deg, var(--bg-rack) 0%, var(--bg-rack) 100%)' }}
     >
       <div
         className="flex-1 flex items-center px-4 gap-2.5 min-w-0 text-[13px]"
@@ -1087,31 +1054,27 @@ const TelemetryStrip: React.FC<{
           className="w-2 h-2 rounded-full border flex-shrink-0"
           style={{
             borderColor: stateColor,
-            background: linkState === 'ready' ? 'transparent' : stateColor,
-            boxShadow: linkState === 'ready' ? 'none' : `0 0 6px ${stateColor}`,
-            animation: linkState === 'linking' ? 'lyshell-pulse 1.1s ease-in-out infinite' : undefined
+            background: isFault ? stateColor : 'transparent',
+            boxShadow: isFault ? `0 0 6px ${stateColor}` : 'none'
           }}
         />
         <span className="truncate">{stateMsg}</span>
       </div>
       <button
         type="submit"
-        disabled={linkState === 'linking'}
-        className="flex items-center gap-2 px-6 bg-transparent border-l border-[#2A2A2E] text-[14px] font-medium cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+        className="flex items-center gap-2 px-6 bg-transparent border-l border-[var(--rule)] text-[14px] font-medium cursor-pointer transition-colors"
         style={{
-          color: linkState === 'fault' ? '#F48771' : accent,
+          color: isFault ? 'var(--error-rack)' : accent,
           fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
         }}
         onMouseEnter={e => {
-          if (linkState !== 'linking') {
-            (e.currentTarget as HTMLButtonElement).style.background = `${accent}14`
-          }
+          (e.currentTarget as HTMLButtonElement).style.background = `color-mix(in srgb, ${accent} 8%, transparent)`
         }}
         onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
       >
         {buttonLabel}
         <span className="opacity-70 text-[13px] font-mono" style={{ letterSpacing: 0 }}>
-          {linkState === 'linking' ? '···' : '↵'}
+          ↵
         </span>
       </button>
       <style>{`

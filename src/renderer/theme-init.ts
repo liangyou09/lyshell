@@ -8,12 +8,33 @@
  *   1. src/renderer/stores/theme-store.ts → AVAILABLE_THEMES
  *   2. 这里的 VALID_THEMES
  */
-const VALID_THEMES = ['rack-graphite', 'rack-slate', 'rack-carbon']
+const VALID_THEMES = ['rack-graphite', 'rack-slate', 'rack-carbon', 'rack-paper', 'rack-ember', 'rack-custom']
 
 try {
   const saved = localStorage.getItem('lyshell.theme')
   if (saved && VALID_THEMES.includes(saved)) {
     document.documentElement.dataset.theme = saved
+    // Custom 主题需要早期注入 inline 颜色 —— 否则会闪一帧 fallback(graphite)。
+    // 这里走最轻路径:解析 JSON + setProperty,不引入 HSL 派生(那部分代码在 theme-store)。
+    // 若 customColors 缺失或脏数据,store 挂载后会补一次完整 applyTheme。
+    if (saved === 'rack-custom') {
+      try {
+        const raw = localStorage.getItem('lyshell.theme.custom')
+        if (raw) {
+          const c = JSON.parse(raw)
+          if (
+            typeof c?.base === 'string' && /^#[0-9a-f]{6}$/i.test(c.base) &&
+            typeof c?.accent === 'string' && /^#[0-9a-f]{6}$/i.test(c.accent)
+          ) {
+            // 只设两个最显眼的变量做首帧防闪 —— 完整 13 阶在 store 挂载后注入
+            document.documentElement.style.setProperty('--bg-base', c.base)
+            document.documentElement.style.setProperty('--amber', c.accent)
+          }
+        }
+      } catch {
+        // 自定义色脏数据 —— 留给 store 修正
+      }
+    }
   }
   // 脏数据（旧版主题名 / 手改） — 保留 HTML 上的默认 data-theme，
   // theme-store.initFromStorage 会在挂载后纠正回 DEFAULT_THEME_ID

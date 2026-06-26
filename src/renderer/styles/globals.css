@@ -92,6 +92,63 @@
   --text-rack-faint:#383838;
 }
 
+/* Rack Paper — 工程稿纸:淡青灰绿底 + 铜调红铅笔焦点,
+   不是冷灰 SaaS 极简,也不是暖米黄 AI 默认;celadon 与机柜暗主题在材质上互补 */
+[data-theme="rack-paper"] {
+  --bg-base:        #DCE6E4;
+  --bg-rack:        #D2DDDB;
+  --bg-slot:        #C7D3D1;
+  --bg-elev:        #BCC9C7;
+  --bg-strip:       #D6E0DE;
+  --rule:           #91A4A1;
+  --rule-soft:      #B5C2C0;
+  --text-rack:      #14231F;
+  --text-rack-mute: #5A6764;
+  --text-rack-data: #2A3835;
+  --text-rack-dim:  #7A8784;
+  --text-rack-faint:#A6B0AD;
+  --amber:          #B8741D;
+  --amber-soft:     #B8741D22;
+  --amber-glow:     #B8741D33;
+  /* proto / ft / live / reachable / error 全部继承默认 —— 语义不该被主题改 */
+}
+
+/* Rack Ember — 暖色暗主题,胡桃木褐底,amber 更艳 */
+[data-theme="rack-ember"] {
+  --bg-base:        #1A140E;
+  --bg-rack:        #221A12;
+  --bg-slot:        #2A2018;
+  --bg-elev:        #34281E;
+  --bg-strip:       #1D1610;
+  --rule:           #3B2D20;
+  --rule-soft:      #2E2218;
+  --text-rack:      #EFE7DA;
+  --text-rack-mute: #826F58;
+  --text-rack-data: #A89476;
+  --text-rack-dim:  #5E4F3C;
+  --text-rack-faint:#3F3424;
+  --amber:          #F5B556;
+  --amber-soft:     #F5B55622;
+  --amber-glow:     #F5B55633;
+}
+
+/* Rack Custom — RGB 自定义,真值由 theme-store 通过 inline style 注入到 :root,
+   这里只保留一个 fallback(等同 graphite),防止用户清空 localStorage 后裸渲染 */
+[data-theme="rack-custom"] {
+  --bg-base:        #11151A;
+  --bg-rack:        #161B20;
+  --bg-slot:        #1C2228;
+  --bg-elev:        #1F262D;
+  --bg-strip:       #14181D;
+  --rule:           #232A31;
+  --rule-soft:      #1B2127;
+  --text-rack:      #E4E7EA;
+  --text-rack-mute: #6E767D;
+  --text-rack-data: #9AA3AB;
+  --text-rack-dim:  #4A5159;
+  --text-rack-faint:#353C42;
+}
+
 /* connecting 协议色条脉冲 */
 @keyframes pulse-amber {
   0%, 100% { filter: brightness(.6); box-shadow: 0 0 0 var(--amber-glow); }

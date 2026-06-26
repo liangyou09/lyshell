@@ -130,30 +130,30 @@ const isTcpProto = (proto: string): boolean => proto === 'ssh' || proto === 'tel
 const computeVisualStatus = (status: string, reachable: boolean | undefined, proto: string): VisualStatus => {
   // 活动连接覆盖一切
   if (status === 'connected') {
-    return { glyph: '◉', glyphClass: 'text-[var(--live)]', tooltip: '已连接' }
+    return { glyph: '◉', glyphClass: 'text-[var(--live)]', tooltip: 'Connected' }
   }
   if (status === 'connecting' || status === 'reconnecting') {
-    return { glyph: '⌖', glyphClass: 'text-[var(--amber)]', tooltip: '连接中' }
+    return { glyph: '⌖', glyphClass: 'text-[var(--amber)]', tooltip: 'Connecting' }
   }
   if (status === 'error') {
-    return { glyph: '⊘', glyphClass: 'text-[var(--error-rack)]', tooltip: '连接失败' }
+    return { glyph: '⊘', glyphClass: 'text-[var(--error-rack)]', tooltip: 'Connection failed' }
   }
 
   // 非 TCP 协议（serial/local）不做可达性探测，永远显示中性 ◎
   if (!isTcpProto(proto)) {
-    return { glyph: '◎', glyphClass: 'text-[var(--text-rack-dim)]', tooltip: '未连接' }
+    return { glyph: '◎', glyphClass: 'text-[var(--text-rack-dim)]', tooltip: 'Not connected' }
   }
 
   // 离线 + 可达性已知
   if (reachable === true) {
-    return { glyph: '◎', glyphClass: 'text-[var(--reachable)]', tooltip: 'TCP 可达 · 未连接' }
+    return { glyph: '◎', glyphClass: 'text-[var(--reachable)]', tooltip: 'TCP reachable · Not connected' }
   }
   if (reachable === false) {
-    return { glyph: '⊘', glyphClass: 'text-[var(--error-rack)] opacity-60', tooltip: 'TCP 不可达' }
+    return { glyph: '⊘', glyphClass: 'text-[var(--error-rack)] opacity-60', tooltip: 'TCP unreachable' }
   }
 
   // 还没探过
-  return { glyph: '◌', glyphClass: 'text-[var(--text-rack-faint)]', tooltip: '探测中' }
+  return { glyph: '◌', glyphClass: 'text-[var(--text-rack-faint)]', tooltip: 'Probing' }
 }
 
 const protoStripBg = (proto: string): string => {
@@ -234,7 +234,7 @@ const IconBtn: React.FC<{
 
 const StripRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="grid grid-cols-[52px_1fr] items-center gap-2 px-3 py-1.5 bg-[var(--bg-strip)] border-b border-[var(--rule-soft)]">
-    <span className="font-mono font-bold tracking-[.14em] text-[11px] uppercase text-[var(--text-rack)]">
+    <span className="font-mono font-bold text-[11px] text-[var(--text-rack)]">
       {label}
     </span>
     <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide min-w-0">
@@ -336,7 +336,7 @@ const GroupHeader: React.FC<{
     <div
       onClick={collapsible ? onToggle : undefined}
       className={cn(
-        'flex items-center gap-2.5 px-3 py-1.5 tracking-[.16em] text-[10px] uppercase text-[var(--text-rack-mute)]',
+        'flex items-center gap-2.5 px-3 py-1.5 text-[10px] text-[var(--text-rack-mute)]',
         // 与 row 同 bg,通过 typography + flex-1 hairline 当分隔符,不再当 rail
         'bg-[var(--bg-rack)] border-b border-[var(--rule-soft)]',
         collapsible && 'cursor-pointer hover:bg-[var(--bg-slot)]'
@@ -358,7 +358,7 @@ const GroupHeader: React.FC<{
           'flex-shrink-0',
           monoLabel
             ? 'font-mono normal-case tracking-[.04em] text-[var(--text-rack)] font-normal text-[10.5px]'
-            : 'font-mono font-bold tracking-[.14em] text-[11px] text-[var(--text-rack)]'
+            : 'font-mono font-bold text-[11px] text-[var(--text-rack)]'
         )}
       >
         {label}
@@ -470,14 +470,14 @@ const SessionSlot: React.FC<{
                  : 'bg-gradient-to-l from-[var(--bg-rack)] from-[24%] to-transparent'
         )}
       >
-        {!compactActions && <ActBtn onClick={onEdit} title="编辑会话"><IconEdit /></ActBtn>}
-        {!compactActions && <ActBtn onClick={onCopy} title="复制会话"><IconCopy /></ActBtn>}
+        {!compactActions && <ActBtn onClick={onEdit} title="Edit session"><IconEdit /></ActBtn>}
+        {!compactActions && <ActBtn onClick={onCopy} title="Copy session"><IconCopy /></ActBtn>}
         {!compactActions && (
-          <ActBtn amber active={isPinned} onClick={onTogglePin} title={isPinned ? '取消置顶' : '置顶会话'}>
+          <ActBtn amber active={isPinned} onClick={onTogglePin} title={isPinned ? 'Unpin' : 'Pin session'}>
             <IconStar filled={isPinned} />
           </ActBtn>
         )}
-        <ActBtn danger onClick={onDelete} title={dangerTitle ?? '删除会话'}>{dangerIcon ?? <IconX />}</ActBtn>
+        <ActBtn danger onClick={onDelete} title={dangerTitle ?? 'Delete session'}>{dangerIcon ?? <IconX />}</ActBtn>
       </div>
     </div>
   )
@@ -974,7 +974,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
 
   const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    if (confirm('确定删除该会话？')) {
+    if (confirm('Delete this session?')) {
       await window.electronAPI?.deleteSession(sessionId)
       refreshSavedSessions()
     }
@@ -1031,7 +1031,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
       ...config,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       id: undefined as any,
-      name: config.name ? `${config.name} 副本` : '',
+      name: config.name ? `${config.name} Copy` : '',
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       createdAt: undefined as any,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1104,8 +1104,8 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
             <span className="text-[var(--text-rack-mute)] font-medium">RACK</span>
           </span>
           <div className="flex gap-0.5">
-            <IconBtn amber onClick={handleNewSession} title="新建会话"><IconPlus /></IconBtn>
-            <IconBtn onClick={handleOpenExportImport} title="导出/导入"><IconDownload /></IconBtn>
+            <IconBtn amber onClick={handleNewSession} title="New session"><IconPlus /></IconBtn>
+            <IconBtn onClick={handleOpenExportImport} title="Export / Import"><IconDownload /></IconBtn>
           </div>
         </div>
 
@@ -1127,7 +1127,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
               onContextMenu={(e) => handleAgentContextMenu(a, e)}
             />
           ))}
-          <StripAdd onClick={handleAgentAdd} title="添加 Agent" />
+          <StripAdd onClick={handleAgentAdd} title="Add agent" />
         </StripRow>
 
         {/* ===== 过滤区 ===== */}
@@ -1146,7 +1146,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
           </div>
           <button
             onClick={toggleAllGroups}
-            title={allGroupsCollapsed ? '展开全部分组' : '折叠全部分组'}
+            title={allGroupsCollapsed ? 'Expand all groups' : 'Collapse all groups'}
             className="w-[26px] h-[26px] flex-shrink-0 flex items-center justify-center bg-transparent border border-[var(--rule)] rounded-[3px] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:border-[var(--text-rack-mute)] cursor-pointer transition-colors"
           >
             {allGroupsCollapsed ? (
@@ -1179,8 +1179,8 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
                   <button
                     onClick={handleCloseAllClick}
                     title={closeAllArmed
-                      ? `再点一次确认 · 将关闭全部 ${liveSessions.length} 个连接`
-                      : `关闭全部 ${liveSessions.length} 个连接`}
+                      ? `Click again to confirm · Close all ${liveSessions.length} connections`
+                      : `Close all ${liveSessions.length} connections`}
                     className={cn(
                       'ml-1.5 h-[18px] inline-flex items-center justify-center gap-[3px] rounded-[2px] cursor-pointer text-[10px] font-mono tracking-[.02em] transition-colors',
                       closeAllArmed
@@ -1209,7 +1209,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
                   /* LIVE 行的 X 改成关闭终端,不动 saved config */
                   onDelete={(e) => handleCloseLive(config, e)}
                   dangerIcon={<IconPower />}
-                  dangerTitle="关闭终端"
+                  dangerTitle="Close terminal"
                 />
               ))}
             </>
@@ -1263,7 +1263,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
                   key={p}
                   onClick={() => !disabled && toggleProtoFilter(p)}
                   disabled={disabled}
-                  title={disabled ? `无 ${PROTO_LABEL[p]} 会话` : (active ? `取消筛选 ${PROTO_LABEL[p]}` : `仅显示 ${PROTO_LABEL[p]}`)}
+                  title={disabled ? `No ${PROTO_LABEL[p]} sessions` : (active ? `Clear ${PROTO_LABEL[p]} filter` : `Show only ${PROTO_LABEL[p]}`)}
                   className={cn(
                     // 28px 高,比之前 20 高出近一半;round 仍是 2,机柜面板感
                     'group relative flex-1 h-[28px] flex flex-col items-stretch justify-center gap-0 rounded-[2px] overflow-hidden transition-colors',
@@ -1338,10 +1338,10 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
             <div className="text-center py-8 px-4 text-[var(--text-rack-dim)] flex flex-col items-center gap-2">
               <span className="font-mono text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
               <span className="text-[11.5px] text-[var(--text-rack-mute)]">
-                {searchQuery.trim() ? '无匹配结果' : '暂无会话'}
+                {searchQuery.trim() ? 'No matches' : 'No sessions yet'}
               </span>
               <span className="text-[10.5px] font-mono text-[var(--text-rack-faint)]">
-                {searchQuery.trim() ? '尝试其他关键词' : '点击顶部 + 创建'}
+                {searchQuery.trim() ? 'Try a different keyword' : 'Click + above to create'}
               </span>
             </div>
           )}
@@ -1425,11 +1425,11 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
           <div className="bg-[var(--bg-elev)] border border-[var(--rule)] rounded-md shadow-xl w-[380px] p-4">
             <div className="text-sm text-[var(--text-rack)] font-medium mb-3">
-              {editAgent ? '编辑 Agent' : '添加 Agent'}
+              {editAgent ? 'Edit Agent' : 'Add Agent'}
             </div>
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">名称</label>
+                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">Name</label>
                 <input
                   type="text"
                   value={agentName}
@@ -1440,7 +1440,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
                 />
               </div>
               <div className="flex items-center gap-2">
-                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">命令</label>
+                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">Command</label>
                 <input
                   type="text"
                   value={agentCommand}
@@ -1450,7 +1450,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
                 />
               </div>
               <div className="flex items-center gap-2">
-                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">图标</label>
+                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">Icon</label>
                 <input
                   type="text"
                   value={agentIcon}
@@ -1458,12 +1458,12 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
                   placeholder="🤖"
                   className="w-16 px-3 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded text-sm text-[var(--text-rack)] placeholder:text-[var(--text-rack-dim)] focus:outline-none focus:border-[var(--amber)]"
                 />
-                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">工作目录</label>
+                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">Workdir</label>
                 <input
                   type="text"
                   value={agentCwd}
                   onChange={(e) => setAgentCwd(e.target.value)}
-                  placeholder="可选"
+                  placeholder="Optional"
                   className="flex-1 px-3 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded text-sm text-[var(--text-rack)] placeholder:text-[var(--text-rack-dim)] focus:outline-none focus:border-[var(--amber)]"
                 />
               </div>
@@ -1473,20 +1473,20 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
                     onClick={handleAgentDelete}
                     className="px-3 py-1 text-sm text-[var(--error-rack)] hover:opacity-80 transition-opacity"
                   >
-                    删除
+                    Delete
                   </button>
                 )}
                 <button
                   onClick={() => setShowAgentDialog(false)}
                   className="px-3 py-1 text-sm text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] transition-colors"
                 >
-                  取消
+                  Cancel
                 </button>
                 <button
                   onClick={handleAgentSave}
                   className="px-3 py-1 text-sm bg-[var(--amber)] text-[var(--bg-base)] rounded hover:opacity-90 transition-opacity font-medium"
                 >
-                  保存
+                  Save
                 </button>
               </div>
             </div>

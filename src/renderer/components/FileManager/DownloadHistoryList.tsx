@@ -95,7 +95,7 @@ const DownloadHistoryList: React.FC<DownloadHistoryListProps> = ({ sessionId }) 
         </span>
         <button
           onClick={loadRecords}
-          title="刷新"
+          title="Refresh"
           className="w-[20px] h-[20px] inline-flex items-center justify-center bg-transparent border-none rounded-[2px] cursor-pointer text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)] transition-colors"
         >
           <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M1.5 3.5a4 4 0 1 1-.3 3.5M1.5 1v2.5h2.5"/></svg>
@@ -153,7 +153,7 @@ const DownloadHistoryList: React.FC<DownloadHistoryListProps> = ({ sessionId }) 
                         <span className="text-[var(--text-rack-data)] truncate">{record.md5}</span>
                         <button
                           onClick={() => navigator.clipboard?.writeText(record.md5!).catch(() => {})}
-                          title="复制"
+                          title="Copy"
                           className="w-[14px] h-[14px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer text-[var(--text-rack-mute)] hover:text-[var(--amber)] flex-shrink-0"
                         >
                           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><rect x="3" y="3" width="6" height="6"/><path d="M2 7V2h5"/></svg>
@@ -179,7 +179,7 @@ const DownloadHistoryList: React.FC<DownloadHistoryListProps> = ({ sessionId }) 
                     )}
                     <button
                       onClick={() => handleCopyPath(record.localPath)}
-                      title="复制本地路径"
+                      title="Copy Local Path"
                       className="w-[22px] h-[20px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)] transition-colors"
                     >
                       <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><rect x="3" y="3" width="6" height="6"/><path d="M2 7V2h5"/></svg>
@@ -187,7 +187,7 @@ const DownloadHistoryList: React.FC<DownloadHistoryListProps> = ({ sessionId }) 
                     {record.status === 'success' && (
                       <button
                         onClick={() => handleReveal(record.localPath)}
-                        title={`在资源管理器中显示 — ${record.localPath}`}
+                        title={`Reveal in Explorer — ${record.localPath}`}
                         className="inline-flex items-center gap-1 px-1.5 h-[20px] bg-transparent hover:bg-[var(--amber-soft)] border border-[var(--rule)] hover:border-[var(--amber)] text-[var(--text-rack-data)] hover:text-[var(--amber)] cursor-pointer rounded-[2px] font-mono text-[11.5px] tracking-[.02em] transition-colors"
                       >
                         <svg width="9" height="9" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square"><path d="M3 8L8 3M8 3H4M8 3V7"/></svg>

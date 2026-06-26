@@ -211,16 +211,6 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
     scrollRef.current?.scrollBy({ left: 150, behavior: 'smooth' })
   }
 
-  const getTypeLabel = (type: string) => {
-    switch (type) {
-      case 'ssh': return 'SSH'
-      case 'telnet': return 'TEL'
-      case 'serial': return 'SER'
-      case 'local': return 'LOC'
-      default: return 'SESSION'
-    }
-  }
-
   const getStatusLabel = (status: string) => {
     switch (status) {
       case 'connected': return 'OK'
@@ -357,7 +347,6 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
               dragOverIndex === index && draggingSessionId !== session.id && 'border-l-2 border-l-[var(--amber)]'
             )}
           >
-            <span className="text-[10px] font-mono uppercase tracking-[.08em] text-[var(--text-rack-faint)]">{getTypeLabel(session.config.type)}</span>
             <span className="text-xs truncate max-w-[150px]">{getNameWithIndex(session)}</span>
             <span
               title={session.status === 'error' ? getFriendlyError(session.lastError) : undefined}

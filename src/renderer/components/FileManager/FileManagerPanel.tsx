@@ -186,7 +186,7 @@ const FileManagerPanel: React.FC = () => {
       } else {
         loadingCacheRef.current[key] = false
         if (currentServerKey === key) {
-          setError(result.error || '加载失败')
+          setError(result.error || 'Load failed')
           setDisplayFiles([])
           setDisplayLoading(false)
         }
@@ -195,7 +195,7 @@ const FileManagerPanel: React.FC = () => {
       console.error('Failed to load files:', err)
       loadingCacheRef.current[key] = false
       if (currentServerKey === key) {
-        setError('加载失败')
+        setError('Load failed')
         setDisplayFiles([])
         setDisplayLoading(false)
       }
@@ -282,7 +282,7 @@ const FileManagerPanel: React.FC = () => {
     setDragFileCount(0)
 
     if (!currentSessionId || !currentServerKey) {
-      alert('请先连接终端')
+      alert('Please connect a terminal first')
       return
     }
 
@@ -405,7 +405,7 @@ const FileManagerPanel: React.FC = () => {
           <button
             onClick={() => setActiveTab('files')}
             className={cn(
-              'px-2 py-1 -mb-px font-semibold tracking-[.16em] text-[11px] uppercase bg-transparent border-none border-b cursor-pointer transition-colors',
+              'px-2 py-1 -mb-px font-semibold text-[11px] bg-transparent border-none border-b cursor-pointer transition-colors',
               activeTab === 'files'
                 ? 'text-[var(--text-rack)] border-[var(--amber)]'
                 : 'text-[var(--text-rack-mute)] border-transparent hover:text-[var(--text-rack)]'
@@ -416,7 +416,7 @@ const FileManagerPanel: React.FC = () => {
           <button
             onClick={() => setActiveTab('history')}
             className={cn(
-              'px-2 py-1 -mb-px font-semibold tracking-[.16em] text-[11px] uppercase bg-transparent border-none border-b cursor-pointer transition-colors',
+              'px-2 py-1 -mb-px font-semibold text-[11px] bg-transparent border-none border-b cursor-pointer transition-colors',
               activeTab === 'history'
                 ? 'text-[var(--text-rack)] border-[var(--amber)]'
                 : 'text-[var(--text-rack-mute)] border-transparent hover:text-[var(--text-rack)]'

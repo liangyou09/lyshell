@@ -100,7 +100,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
   // 默认分组（始终存在，不可删除，名称固定）
   const DEFAULT_GROUP: QuickCommandGroup = {
     id: 'default',
-    name: '默认分组',
+    name: 'Default',
     order: 0
   }
 
@@ -234,9 +234,9 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     // 编辑模式时不检查数量（因为只是修改，不增加）
     if (!editCommand && groupCommands.length >= 12) {
       const groupName = targetGroupId
-        ? groups.find(g => g.id === targetGroupId)?.name || '该分组'
-        : '默认分组'
-      alert(`${groupName}已达到最大12个命令限制`)
+        ? groups.find(g => g.id === targetGroupId)?.name || 'this group'
+        : 'Default'
+      alert(`${groupName} has reached the 12-command limit`)
       return
     }
 
@@ -273,7 +273,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
   const handleOpenGroupDialog = () => {
     // 初始化批量编辑数据：默认分组（固定名称） + 用户分组 + 空槽位（补齐到4个）
     const editGroups: {id: string, name: string, color: string}[] = [
-      { id: 'default', name: '默认分组', color: '' },  // 默认分组固定
+      { id: 'default', name: 'Default', color: '' },  // 默认分组固定
       ...groups.map(g => ({ id: g.id, name: g.name, color: g.color || '' }))
     ]
     // 补齐空槽位到4个用户分组
@@ -722,7 +722,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                         newGroups[index].name = limitVisualWidth(e.target.value, 4)  // 最多4个中文字符宽度
                         setBatchGroups(newGroups)
                       }}
-                      placeholder={isDefault ? '默认分组' : '输入名称'}
+                      placeholder={isDefault ? 'Default' : 'Group name'}
                       disabled={isDefault}
                       className={cn(
                         'px-2 py-1 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[2px] text-sm text-[var(--text-rack)] placeholder-[var(--text-rack-faint)] w-[100px]',

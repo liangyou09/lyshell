@@ -120,16 +120,16 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
       if (result.success && result.data) {
         setMd5Values(prev => ({ ...prev, [file.path]: result.data }))
       } else {
-        setMd5Values(prev => ({ ...prev, [file.path]: '获取失败' }))
+        setMd5Values(prev => ({ ...prev, [file.path]: 'Failed' }))
       }
     } catch {
-      setMd5Values(prev => ({ ...prev, [file.path]: '获取失败' }))
+      setMd5Values(prev => ({ ...prev, [file.path]: 'Failed' }))
     }
     setMd5Loading(prev => ({ ...prev, [file.path]: false }))
   }
 
   const handleCopyMd5 = (hash: string) => {
-    if (hash && hash !== '获取失败') {
+    if (hash && hash !== 'Failed') {
       navigator.clipboard?.writeText(hash).catch(() => {})
     }
   }
@@ -178,7 +178,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
         onClick={() => toggleSort(keyName)}
         className={cn(
           'bg-transparent border-none cursor-pointer p-0 inline-flex items-center gap-0.5',
-          'font-semibold tracking-[.14em] text-[10px] uppercase',
+          'font-semibold text-[10px]',
           align === 'right' ? 'justify-end' : '',
           active ? 'text-[var(--amber)]' : 'text-[var(--text-rack-mute)] hover:text-[var(--text-rack-data)]'
         )}
@@ -198,7 +198,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
         <button
           onClick={onGoUp}
           disabled={currentPath === '/'}
-          title="上级目录"
+          title="Up to parent"
           className={cn(
             'w-[18px] h-[18px] inline-flex items-center justify-center bg-transparent border-none rounded-[2px] mr-0.5',
             currentPath === '/'
@@ -233,7 +233,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
         <div className="flex flex-shrink-0">
           <button
             onClick={() => setShowFilter(!showFilter)}
-            title="筛选文件"
+            title="Filter files"
             className={cn(
               'w-[20px] h-[20px] inline-flex items-center justify-center bg-transparent border-none rounded-[2px] cursor-pointer transition-colors',
               (showFilter || filterPattern)
@@ -245,7 +245,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
           </button>
           <button
             onClick={onRefresh}
-            title="刷新"
+            title="Refresh"
             className="w-[20px] h-[20px] inline-flex items-center justify-center bg-transparent border-none rounded-[2px] cursor-pointer text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)] transition-colors"
           >
             <IconRefresh />
@@ -268,7 +268,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
             <button
               onClick={() => onFilterChange('')}
               className="text-[12.5px] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] px-1"
-              title="清除筛选"
+              title="Clear filter"
             >
               ✕
             </button>
@@ -281,8 +281,8 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
       {hasSession && !loading && files.length > 0 && (
         <div className="grid grid-cols-[3px_16px_1fr_64px_56px_36px] gap-2 pl-0 pr-2.5 py-1.5 border-b border-[var(--rule-soft)] items-center">
           <span /><span />
-          <SortableCol keyName="name">name</SortableCol>
-          <SortableCol keyName="size" align="right">size</SortableCol>
+          <SortableCol keyName="name">Name</SortableCol>
+          <SortableCol keyName="size" align="right">Size</SortableCol>
           <SortableCol keyName="mtime" align="right">mtime</SortableCol>
           <span />
         </div>
@@ -342,13 +342,13 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
                     {isExpanded && !file.isDir && (
                       <div className="font-mono text-[12px] text-[var(--text-rack-mute)] flex items-center gap-1.5 mt-px whitespace-nowrap min-w-0">
                         <span className="text-[var(--text-rack-faint)] flex-shrink-0">md5</span>
-                        <span className={cn('truncate', hash === '获取失败' ? 'text-[var(--error-rack)]' : 'text-[var(--text-rack-data)]')}>
+                        <span className={cn('truncate', hash === 'Failed' ? 'text-[var(--error-rack)]' : 'text-[var(--text-rack-data)]')}>
                           {md5Loading[file.path] ? '…' : (hash || '…')}
                         </span>
-                        {hash && hash !== '获取失败' && (
+                        {hash && hash !== 'Failed' && (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleCopyMd5(hash) }}
-                            title="复制"
+                            title="Copy"
                             className="w-[14px] h-[14px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer text-[var(--text-rack-mute)] hover:text-[var(--amber)] flex-shrink-0"
                           >
                             <IconCopy />
@@ -381,7 +381,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); onDownload(file) }}
-                        title="下载"
+                        title="Download"
                         className="w-[24px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] font-mono text-[12px] text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--amber)]"
                       >
                         ↓

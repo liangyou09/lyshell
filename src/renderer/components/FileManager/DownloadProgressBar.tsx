@@ -66,7 +66,7 @@ const DownloadProgressBar: React.FC = () => {
       if (data.md5Update) return
 
       const taskId = data.taskId
-      const fileName = fileNameStore.get(taskId) || '未知文件'
+      const fileName = fileNameStore.get(taskId) || 'unknown file'
       const localPath = localPathStore.get(taskId)
       const direction = data.direction || 'download'
 
@@ -172,7 +172,7 @@ const DownloadProgressBar: React.FC = () => {
       {!isActive && current.status === 'failed' && (
         <span
           className="flex-shrink-0 font-medium tracking-[-.02em] text-[var(--error-rack)] cursor-help"
-          title={current.error || '传输失败'}
+          title={current.error || 'Transfer failed'}
         >
           err
         </span>
@@ -195,7 +195,7 @@ const DownloadProgressBar: React.FC = () => {
       {current.status === 'completed' && current.direction === 'download' && current.localPath && (
         <button
           onClick={() => openFolder(current.localPath)}
-          title={`在资源管理器中显示 — ${current.localPath}`}
+          title={`Reveal in Explorer — ${current.localPath}`}
           className="inline-flex items-center gap-1 px-1.5 h-[20px] flex-shrink-0 bg-[var(--amber-soft)] hover:bg-[var(--amber)] text-[var(--amber)] hover:text-[var(--bg-base)] border-none cursor-pointer rounded-[2px] font-mono text-[11.5px] font-semibold tracking-[.02em] transition-colors"
         >
           <svg width="10" height="10" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square"><path d="M3 8L8 3M8 3H4M8 3V7"/></svg>
@@ -205,7 +205,7 @@ const DownloadProgressBar: React.FC = () => {
 
       <button
         onClick={(e) => { e.stopPropagation(); removeDownload(current.taskId) }}
-        title="关闭"
+        title="Close"
         className="w-[18px] h-[18px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] flex-shrink-0 rounded-[2px] hover:bg-[var(--bg-slot)] transition-colors"
       >
         <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 2l6 6M8 2l-6 6"/></svg>

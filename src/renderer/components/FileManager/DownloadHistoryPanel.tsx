@@ -69,7 +69,7 @@ const DownloadHistoryPanel: React.FC<DownloadHistoryPanelProps> = ({ sessionId }
 
   // 删除记录
   const handleDelete = async (recordId: string) => {
-    if (!confirm('确定删除此下载记录？')) return
+    if (!confirm('Delete this download record?')) return
     try {
       await window.electronAPI.deleteDownloadRecord(recordId)
       setRecords(records.filter(r => r.id !== recordId))
@@ -80,7 +80,7 @@ const DownloadHistoryPanel: React.FC<DownloadHistoryPanelProps> = ({ sessionId }
 
   // 清空所有记录
   const handleClearAll = async () => {
-    if (!confirm('确定清空所有下载记录？')) return
+    if (!confirm('Clear all download records?')) return
     try {
       await window.electronAPI.clearDownloadHistory()
       setRecords([])
@@ -106,7 +106,7 @@ const DownloadHistoryPanel: React.FC<DownloadHistoryPanelProps> = ({ sessionId }
     <div className="flex flex-col h-full">
       {/* 工具栏 */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[#3C3C3C] bg-[#252526]">
-        <span className="text-sm text-gray-300">下载记录 ({records.length})</span>
+        <span className="text-sm text-gray-300">History ({records.length})</span>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setGroupByServer(!groupByServer)}
@@ -114,19 +114,19 @@ const DownloadHistoryPanel: React.FC<DownloadHistoryPanelProps> = ({ sessionId }
               groupByServer ? 'bg-[#0078D4] text-white' : 'bg-[#3C3C3C] text-gray-400'
             }`}
           >
-            {groupByServer ? '按服务器分组' : '列表视图'}
+            {groupByServer ? 'Grouped by Server' : 'List View'}
           </button>
           <button
             onClick={handleClearAll}
             className="px-2 py-1 text-xs bg-[#3C3C3C] text-gray-400 hover:text-red-400 rounded"
           >
-            清空
+            Clear
           </button>
           <button
             onClick={loadRecords}
             className="px-2 py-1 text-xs bg-[#3C3C3C] text-gray-400 hover:text-white rounded"
           >
-            刷新
+            Refresh
           </button>
         </div>
       </div>
@@ -135,11 +135,11 @@ const DownloadHistoryPanel: React.FC<DownloadHistoryPanelProps> = ({ sessionId }
       <div className="flex-1 overflow-auto rack-scroll">
         {loading ? (
           <div className="flex items-center justify-center h-full text-gray-500">
-            加载中...
+            Loading...
           </div>
         ) : records.length === 0 ? (
           <div className="flex items-center justify-center h-full text-gray-500">
-            暂无下载记录
+            No download records
           </div>
         ) : groupByServer ? (
           // 按服务器分组显示
@@ -176,7 +176,7 @@ const DownloadHistoryPanel: React.FC<DownloadHistoryPanelProps> = ({ sessionId }
                         <button
                           onClick={() => handleOpenFolder(record.localPath)}
                           className="text-xs text-gray-400 hover:text-blue-400"
-                          title="打开文件夹"
+                          title="Open Folder"
                         >
                           📂
                         </button>
@@ -184,7 +184,7 @@ const DownloadHistoryPanel: React.FC<DownloadHistoryPanelProps> = ({ sessionId }
                       <button
                         onClick={() => handleDelete(record.id)}
                         className="text-xs text-gray-400 hover:text-red-400"
-                        title="删除记录"
+                        title="Delete Record"
                       >
                         ✕
                       </button>

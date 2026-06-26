@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import cn from 'classnames'
 import Sidebar from './Sidebar'
 import StatusBar from './StatusBar'
@@ -6,7 +6,7 @@ import SplitPaneContainer from './SplitPaneContainer'
 import FloatWindow from '../FloatWindow/FloatWindow'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
-import { useThemeStore, AVAILABLE_THEMES } from '../../stores/theme-store'
+import { useThemeStore, AVAILABLE_THEMES, CUSTOM_THEME_ID } from '../../stores/theme-store'
 import type { SessionConfig } from '@shared/types'
 import { isCursorBlinkEnabled } from '@shared/constants'
 
@@ -29,9 +29,22 @@ const MainWindow: React.FC = () => {
   })
   const [cursorBlink, setCursorBlink] = useState(() => isCursorBlinkEnabled())
   const [downloadDir, setDownloadDir] = useState('')
+  // 设置面板拖拽偏移 —— 持久化到 localStorage,关闭/重启都保留位置
+  const [settingsOffset, setSettingsOffset] = useState(() => {
+    try {
+      const saved = localStorage.getItem('settingsPanelOffset')
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (typeof parsed.x === 'number' && typeof parsed.y === 'number') return parsed
+      }
+    } catch { /* 坏数据忽略,落到默认 */ }
+    return { x: 0, y: 0 }
+  })
+  const settingsDragRef = useRef<{ startX: number; startY: number; offsetX: number; offsetY: number } | null>(null)
+  const settingsPanelRef = useRef<HTMLDivElement>(null)
   const { loadSessions, refreshSavedSessions } = useSessionStore()
   const { getAllLeafPanes, layout } = usePaneStore()
-  const { themeId, setTheme, initFromStorage } = useThemeStore()
+  const { themeId, setTheme, customColors, setCustomColors, initFromStorage } = useThemeStore()
   const terminalWrapperRef = useRef<HTMLDivElement>(null)
 
   // 加载主题（index.html 已早期应用，这里仅同步 store 状态）
@@ -194,6 +207,48 @@ const MainWindow: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [showSettings])
 
+  // 把 offset 夹紧到视口内 —— 面板锚点 (left:0, top:28px),translate(x,y) 后整体必须仍可见。
+  // 只读 refs / DOM 当下尺寸,无组件状态依赖,空 deps 让引用稳定供 effect 复用。
+  const clampSettingsOffset = useCallback((x: number, y: number) => {
+    const panel = settingsPanelRef.current
+    // 守卫只为类型收窄,语义上调用者(拖拽 / rAF 后的 effect)都在面板挂载后才触发
+    if (!panel) return { x, y }
+    const { width, height } = panel.getBoundingClientRect()
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    // panel 比视口大时,vw - width 会变负;Math.max 防止把"最大上界"拉到比"最小下界"(0 / -28)还小,
+    // 退化时区间塌缩为单点,面板贴左/贴顶,不会继续被推走。
+    const maxX = Math.max(0, vw - width)
+    const maxY = Math.max(-28, vh - 28 - height)
+    return {
+      x: Math.max(0, Math.min(maxX, x)),
+      y: Math.max(-28, Math.min(maxY, y)),
+    }
+  }, [])
+
+  // 面板打开 / 窗口 resize 后兜底夹紧 —— 救援 localStorage 里历史脏数据,以及窗口缩到比面板小的场景
+  useEffect(() => {
+    if (!showSettings) return
+    // 等浏览器把面板挂到 DOM,getBoundingClientRect 才有真值
+    const raf = requestAnimationFrame(() => {
+      setSettingsOffset(curr => {
+        const clamped = clampSettingsOffset(curr.x, curr.y)
+        if (clamped.x !== curr.x || clamped.y !== curr.y) {
+          try { localStorage.setItem('settingsPanelOffset', JSON.stringify(clamped)) } catch { /* 忽略 */ }
+        }
+        return clamped
+      })
+    })
+    const onResize = () => {
+      setSettingsOffset(curr => clampSettingsOffset(curr.x, curr.y))
+    }
+    window.addEventListener('resize', onResize)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', onResize)
+    }
+  }, [showSettings, clampSettingsOffset])
+
   // 窗口控制
   const handleMinimize = () => {
     window.electronAPI?.minimizeWindow()
@@ -207,6 +262,48 @@ const MainWindow: React.FC = () => {
 
   const handleClose = () => {
     window.electronAPI?.closeWindow()
+  }
+
+  // 设置面板拖拽 —— pointer capture 让拖出头条区域也能继续追踪;关闭按钮通过 closest('button') 跳过避免误触
+  const handleSettingsDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest('button')) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    settingsDragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      offsetX: settingsOffset.x,
+      offsetY: settingsOffset.y,
+    }
+  }
+
+  const handleSettingsDragMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = settingsDragRef.current
+    if (!drag) return
+    const rawX = drag.offsetX + (e.clientX - drag.startX)
+    const rawY = drag.offsetY + (e.clientY - drag.startY)
+    setSettingsOffset(clampSettingsOffset(rawX, rawY))
+  }
+
+  const handleSettingsDragEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (settingsDragRef.current) {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+      settingsDragRef.current = null
+      // 落盘:函数式读 state 保最新值(setSettingsOffset 是异步的,直接读 settingsOffset 可能是旧值)
+      setSettingsOffset(curr => {
+        try { localStorage.setItem('settingsPanelOffset', JSON.stringify(curr)) } catch { /* 满盘忽略 */ }
+        return curr
+      })
+    }
+  }
+
+  const handleCloseSettings = () => {
+    setShowSettings(false)
+  }
+
+  // 重置面板位置 —— 拖到屏外救援用,双击头条触发
+  const handleResetSettingsPosition = () => {
+    setSettingsOffset({ x: 0, y: 0 })
+    try { localStorage.removeItem('settingsPanelOffset') } catch { /* 忽略 */ }
   }
 
   // 选择下载目录（使用系统目录选择器）
@@ -260,7 +357,7 @@ const MainWindow: React.FC = () => {
           <div
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
             className="w-[24px] h-[24px] bg-[var(--bg-slot)] flex items-center justify-center rounded-[2px] hover:bg-[var(--bg-elev)] transition-colors cursor-pointer group"
-            title={sidebarCollapsed ? '展开会话栏' : '折叠会话栏'}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             <svg width="14" height="11" viewBox="0 0 14 11" fill="none"
               className="text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)] transition-colors">
@@ -278,16 +375,40 @@ const MainWindow: React.FC = () => {
           {/* 标题 */}
           <span className="text-[10px] uppercase tracking-[.18em] text-[var(--text-rack)] px-2 font-mono font-semibold">lyshell</span>
 
-          {/* 设置面板 */}
+          {/* 设置面板 —— 与 FloatWindow 同套"被召唤覆盖物"语言:amber 顶边线 + 双段式(strip 头 + elev 体) */}
+          {/* 之前用 bg-slot 单段,与 bg-rack 标题栏只差 ~6 亮度,在影子被深色界面吃掉时几乎贴在标题栏上看不出 */}
+          {/* shadow 用 color-mix(var(--bg-base)) 派生,carbon/slate/graphite 切换时影子调性也跟着变,不再是固定纯黑 */}
           {showSettings && (
-            <div className="absolute top-[28px] left-0 z-50 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] shadow-lg p-3 min-w-[260px]">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] uppercase tracking-[.16em] font-semibold text-[var(--text-rack)]">terminal · settings</span>
-                <button onClick={() => setShowSettings(false)} className="text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] text-sm leading-none">✕</button>
+            <div
+              ref={settingsPanelRef}
+              className="absolute top-[28px] left-0 z-50 bg-[var(--bg-elev)] border border-[var(--rule)] rounded-[2px] min-w-[280px] overflow-hidden"
+              style={{
+                transform: `translate(${settingsOffset.x}px, ${settingsOffset.y}px)`,
+                boxShadow: '0 10px 28px color-mix(in srgb, var(--bg-base) 70%, transparent), 0 2px 6px color-mix(in srgb, var(--bg-base) 55%, transparent)'
+              }}
+            >
+              {/* 顶边 amber 高亮 — 同 FloatWindow,标识"召出的焦点面板"(amber 跨主题不变,与 chrome 形成主题独立的 identity 信号) */}
+              <div aria-hidden className="h-[2px] bg-[var(--amber)]" />
+              {/* 头条:bg-strip 暗带 + amber 标题,与下方主体形成机柜两段式;同时作为拖拽把手(双击重置位置) */}
+              <div
+                onPointerDown={handleSettingsDragStart}
+                onPointerMove={handleSettingsDragMove}
+                onPointerUp={handleSettingsDragEnd}
+                onPointerCancel={handleSettingsDragEnd}
+                onDoubleClick={handleResetSettingsPosition}
+                title="Drag to move · Double-click to reset"
+                className="flex items-center justify-between px-3 h-[26px] bg-[var(--bg-strip)] border-b border-[var(--rule)] cursor-move select-none"
+              >
+                <span className="text-[11px] font-semibold text-[var(--amber)] font-mono">Terminal · Settings</span>
+                <button
+                  onClick={handleCloseSettings}
+                  className="w-[18px] h-[18px] flex items-center justify-center rounded-[2px] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-slot)] text-xs leading-none transition-colors cursor-pointer"
+                  title="Close"
+                >✕</button>
               </div>
-              <div className="space-y-3">
+              <div className="space-y-3 p-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] uppercase tracking-[.1em] text-[var(--text-rack-mute)] w-[60px]">缓冲区</span>
+                  <span className="text-[11px] font-mono text-[var(--text-rack)] w-[56px]">Buffer</span>
                   <input
                     type="number"
                     value={scrollbackLines}
@@ -296,15 +417,15 @@ const MainWindow: React.FC = () => {
                       setScrollbackLines(value)
                       localStorage.setItem('terminalScrollback', value.toString())
                     }}
-                    className="w-[80px] px-2 py-1 bg-[var(--bg-elev)] border border-[var(--rule)] rounded-[2px] text-[11px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
+                    className="w-[80px] px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[11px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
                     min={1000}
                     max={100000}
                     step={1000}
                   />
-                  <span className="text-[10px] text-[var(--text-rack-faint)] font-mono">lines</span>
+                  <span className="text-[10px] text-[var(--text-rack-data)] font-mono">Lines</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] uppercase tracking-[.1em] text-[var(--text-rack-mute)] w-[60px]">字体</span>
+                  <span className="text-[11px] font-mono text-[var(--text-rack)] w-[56px]">Font</span>
                   <input
                     type="number"
                     value={fontSize}
@@ -315,15 +436,15 @@ const MainWindow: React.FC = () => {
                       localStorage.setItem('terminalFontSize', clampedValue.toString())
                       window.dispatchEvent(new CustomEvent('terminalFontSizeChanged', { detail: clampedValue }))
                     }}
-                    className="w-[80px] px-2 py-1 bg-[var(--bg-elev)] border border-[var(--rule)] rounded-[2px] text-[11px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
+                    className="w-[80px] px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[11px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
                     min={8}
                     max={32}
                     step={1}
                   />
-                  <span className="text-[10px] text-[var(--text-rack-faint)] font-mono">px</span>
+                  <span className="text-[10px] text-[var(--text-rack-data)] font-mono">Px</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] uppercase tracking-[.1em] text-[var(--text-rack-mute)] w-[60px]">光标</span>
+                  <span className="text-[11px] font-mono text-[var(--text-rack)] w-[56px]">Cursor</span>
                   <input
                     type="checkbox"
                     checked={cursorBlink}
@@ -334,15 +455,19 @@ const MainWindow: React.FC = () => {
                     }}
                     className="w-3.5 h-3.5 accent-[var(--amber)]"
                   />
-                  <span className="text-[10px] text-[var(--text-rack-faint)] font-mono uppercase tracking-[.08em]">{cursorBlink ? 'blink on' : 'blink off'}</span>
+                  {/* blink on/off 是该行的值(等价 input 的数值),不是单位 —— 提到 text-rack-data + 11px,跟 lines/px 那种纯单位拉开层级 */}
+                  <span className={cn(
+                    'text-[11px] font-mono',
+                    cursorBlink ? 'text-[var(--amber)]' : 'text-[var(--text-rack-data)]'
+                  )}>{cursorBlink ? 'Blink On' : 'Blink Off'}</span>
                 </div>
 
                 {/* 主题 ——— 三个 rack 槽位，每行用自己主题的真实色铺底 */}
                 <div className="border-t border-[var(--rule)] pt-2 mt-2">
                   <div className="flex items-baseline justify-between mb-1.5">
-                    <span className="text-[10px] uppercase tracking-[.1em] text-[var(--text-rack-mute)]">主题</span>
-                    <span className="text-[9px] uppercase tracking-[.08em] font-mono text-[var(--text-rack-faint)] truncate ml-2">
-                      {AVAILABLE_THEMES.find(t => t.id === themeId)?.name.toLowerCase()}
+                    <span className="text-[11px] font-mono text-[var(--text-rack)]">Theme</span>
+                    <span className="text-[10px] font-mono text-[var(--text-rack-data)] truncate ml-2">
+                      {AVAILABLE_THEMES.find(t => t.id === themeId)?.name}
                     </span>
                   </div>
                   <div className="border border-[var(--rule)] rounded-[2px] overflow-hidden divide-y divide-[var(--rule-soft)]">
@@ -370,7 +495,7 @@ const MainWindow: React.FC = () => {
                           {/* 名 */}
                           <span
                             className={cn(
-                              'text-[11px] font-semibold uppercase tracking-[.14em] truncate pl-1',
+                              'text-[12px] font-semibold font-mono truncate pl-1',
                               active && 'text-[var(--amber)]'
                             )}
                             style={!active ? { color: t.preview.text } : undefined}
@@ -400,18 +525,57 @@ const MainWindow: React.FC = () => {
                       )
                     })}
                   </div>
+
+                  {/* Custom 主题色 picker —— 只有 themeId === rack-custom 时展开,
+                      两个 native color input 直接驱动 store.setCustomColors,store 内部已处理实时注入 */}
+                  {themeId === CUSTOM_THEME_ID && (
+                    <div className="mt-1.5 border border-[var(--rule)] rounded-[2px] bg-[var(--bg-rack)] divide-y divide-[var(--rule-soft)]">
+                      {/* Base */}
+                      <div className="flex items-center gap-2 px-2 h-[26px]">
+                        <span className="text-[10px] font-mono text-[var(--text-rack-data)] w-[44px]">Base</span>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="color"
+                            value={customColors.base}
+                            onChange={(e) => setCustomColors({ base: e.target.value.toUpperCase() })}
+                            className="w-[18px] h-[18px] cursor-pointer border-0 bg-transparent p-0"
+                            title="Pick base color"
+                          />
+                        </label>
+                        <span className="text-[10px] font-mono text-[var(--text-rack-mute)] tabular-nums">
+                          {customColors.base.toLowerCase()}
+                        </span>
+                      </div>
+                      {/* Accent */}
+                      <div className="flex items-center gap-2 px-2 h-[26px]">
+                        <span className="text-[10px] font-mono text-[var(--text-rack-data)] w-[44px]">Accent</span>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="color"
+                            value={customColors.accent}
+                            onChange={(e) => setCustomColors({ accent: e.target.value.toUpperCase() })}
+                            className="w-[18px] h-[18px] cursor-pointer border-0 bg-transparent p-0"
+                            title="Pick accent color"
+                          />
+                        </label>
+                        <span className="text-[10px] font-mono text-[var(--text-rack-mute)] tabular-nums">
+                          {customColors.accent.toLowerCase()}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* 下载路径 */}
                 <div className="border-t border-[var(--rule)] pt-2 mt-2">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[10px] uppercase tracking-[.1em] text-[var(--text-rack-mute)] w-[60px]">下载</span>
+                    <span className="text-[11px] font-mono text-[var(--text-rack)] w-[56px]">Download</span>
                     <div
                       onClick={handleSelectDownloadDir}
-                      className="flex-1 px-2 py-1 bg-[var(--bg-elev)] border border-[var(--rule)] rounded-[2px] text-[11px] font-mono text-[var(--text-rack)] cursor-pointer hover:border-[var(--amber)] truncate transition-colors"
-                      title={downloadDir || '点击选择'}
+                      className="flex-1 px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[11px] font-mono text-[var(--text-rack)] cursor-pointer hover:border-[var(--amber)] truncate transition-colors"
+                      title={downloadDir || 'Click To Select'}
                     >
-                      {downloadDir || '点击选择目录'}
+                      {downloadDir || 'Click To Choose Directory'}
                     </div>
                     <button
                       onClick={() => downloadDir && window.electronAPI?.openFolder(downloadDir)}
@@ -419,19 +583,19 @@ const MainWindow: React.FC = () => {
                       className={cn(
                         'w-[26px] h-[26px] rounded-[2px] text-xs border flex items-center justify-center transition-colors',
                         downloadDir
-                          ? 'bg-[var(--bg-elev)] border-[var(--rule)] text-[var(--text-rack-data)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
-                          : 'bg-[var(--bg-elev)] border-[var(--rule)] text-[var(--text-rack-faint)] cursor-not-allowed'
+                          ? 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack-data)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
+                          : 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack-faint)] cursor-not-allowed'
                       )}
-                      title="打开文件夹"
+                      title="Open Folder"
                     >
                       📂
                     </button>
                   </div>
-                  <p className="text-[10px] text-[var(--text-rack-faint)] font-mono">default save path</p>
+                  <p className="text-[10px] text-[var(--text-rack-mute)] font-mono">Default Save Path</p>
                 </div>
 
-                <p className="text-[10px] text-[var(--text-rack-faint)] border-t border-[var(--rule)] pt-2 mt-2 font-mono leading-relaxed">
-                  font size applies live · buffer + cursor apply to new sessions
+                <p className="text-[10px] text-[var(--text-rack-mute)] border-t border-[var(--rule)] pt-2 mt-2 font-mono leading-relaxed">
+                  Font Size Applies Live · Buffer + Cursor Apply To New Sessions
                 </p>
               </div>
             </div>
@@ -451,7 +615,7 @@ const MainWindow: React.FC = () => {
                   ? 'bg-[var(--bg-elev)]'
                   : 'bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)]'
               )}
-              title="会话浮窗 (Ctrl+`)"
+              title="Session float window (Ctrl+`)"
             >
               <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
                 <rect x="1" y="2.5" width="9" height="7" stroke="currentColor" strokeWidth="1.3"
@@ -469,7 +633,7 @@ const MainWindow: React.FC = () => {
                   ? 'bg-[var(--bg-elev)]'
                   : 'bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)]'
               )}
-              title="终端设置"
+              title="Terminal settings"
             >
               <span className={cn(
                 'text-xs transition-colors',
@@ -487,7 +651,7 @@ const MainWindow: React.FC = () => {
             <div
               onClick={handleMinimize}
               className="w-[24px] h-[24px] bg-[var(--bg-slot)] flex items-center justify-center rounded-[2px] hover:bg-[var(--bg-elev)] transition-colors cursor-pointer group"
-              title="最小化"
+              title="Minimize"
             >
               <span className="text-[var(--text-rack-mute)] text-base leading-none group-hover:text-[var(--text-rack)] transition-colors">─</span>
             </div>
@@ -495,7 +659,7 @@ const MainWindow: React.FC = () => {
             <div
               onClick={handleMaximize}
               className="w-[24px] h-[24px] bg-[var(--bg-slot)] flex items-center justify-center rounded-[2px] hover:bg-[var(--bg-elev)] transition-colors cursor-pointer group"
-              title={isMaximized ? '还原' : '最大化'}
+              title={isMaximized ? 'Restore' : 'Maximize'}
             >
               {isMaximized ? (
                 <svg width="14" height="14" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -513,7 +677,7 @@ const MainWindow: React.FC = () => {
             <div
               onClick={handleClose}
               className="w-[24px] h-[24px] bg-[var(--bg-slot)] flex items-center justify-center rounded-[2px] hover:bg-[var(--error-rack)] transition-colors cursor-pointer group"
-              title="关闭"
+              title="Close"
             >
               <span className="text-[var(--text-rack-mute)] text-base leading-none group-hover:text-white transition-colors">✕</span>
             </div>
