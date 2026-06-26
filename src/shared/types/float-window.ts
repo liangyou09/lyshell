@@ -55,6 +55,7 @@ export interface QuickCommand {
   createdAt?: Date
   isFavorite?: boolean
   order?: number    // 显示顺序（用于快捷键绑定）
+  escapeSequences?: boolean  // 发送时解析转义字符（\n \r \t \xHH）
 }
 
 /**

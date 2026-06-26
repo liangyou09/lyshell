@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import cn from 'classnames'
 import type { QuickCommand, QuickCommandGroup } from '@shared/types'
+import { processInputEscapeSequences } from '@shared/escape-sequences'
 import { useTerminalStore } from '../../stores/terminal-store'
 import { useSessionStore } from '../../stores/session-store'
 
@@ -63,6 +64,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
   const [newName, setNewName] = useState('')
   const [newContent, setNewContent] = useState('')
   const [newGroupId, setNewGroupId] = useState<string>('')
+  const [newEscape, setNewEscape] = useState(false)
 
   const dropdownRef = useRef<HTMLDivElement>(null)
   const groupButtonRef = useRef<HTMLButtonElement>(null)
@@ -146,6 +148,12 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
+  // 把单行 content 展开成待发送文本：勾选转义时解析 \n \r \t \xHH，否则 trim。
+  const expandLine = (escapeSequences: boolean | undefined, line: string): string | null => {
+    const processed = escapeSequences ? processInputEscapeSequences(line) : line.trim()
+    return processed || null
+  }
+
   // Ctrl + F1-F12 快捷键执行快速命令
   useEffect(() => {
     const handleShortcut = (e: KeyboardEvent) => {
@@ -171,8 +179,9 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
           const cmd = sortedCommands[index]
           const lines = cmd.content.split('\n')
           lines.forEach(line => {
-            if (line.trim()) {
-              onExecuteCommand(line.trim())
+            const processed = expandLine(cmd.escapeSequences, line)
+            if (processed) {
+              onExecuteCommand(processed)
             }
           })
         }
@@ -188,6 +197,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     setNewName('')
     setNewContent('')
     setNewGroupId('')
+    setNewEscape(false)
   }
 
   // 双击添加命令
@@ -195,6 +205,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     setEditCommand(undefined)
     setNewName('')
     setNewContent('')
+    setNewEscape(false)
     // 自动填入当前选中的分组（默认分组则不填 groupId）
     setNewGroupId(selectedGroupId === 'default' ? '' : selectedGroupId)
     setShowAddDialog(true)
@@ -204,8 +215,9 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
   const handleExecute = (cmd: QuickCommand) => {
     const lines = cmd.content.split('\n')
     lines.forEach(line => {
-      if (line.trim()) {
-        onExecuteCommand(line.trim())
+      const processed = expandLine(cmd.escapeSequences, line)
+      if (processed) {
+        onExecuteCommand(processed)
       }
     })
     setActiveDropdown(null)
@@ -219,6 +231,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     setNewName(cmd.name)
     setNewContent(cmd.content)
     setNewGroupId(cmd.groupId || '')
+    setNewEscape(cmd.escapeSequences ?? false)
     setShowAddDialog(true)
     setActiveDropdown(null)
   }
@@ -245,6 +258,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
       name: newName.trim(),
       content: newContent,
       groupId: targetGroupId,
+      escapeSequences: newEscape,
       order: editCommand?.order ?? groupCommands.length  // 设置顺序
     }
 
@@ -597,47 +611,83 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
       {showAddDialog && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] shadow-xl w-[400px] p-4">
-            <div className="text-[11px] uppercase tracking-[.16em] font-semibold text-[var(--text-rack)] mb-3">
-              {editCommand ? '编辑命令' : '添加快速命令'}
+            <div className="text-[11px] tracking-[.16em] font-semibold text-[var(--text-rack)] mb-3">
+              {editCommand ? 'Edit command' : 'Add quick command'}
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-[10px] uppercase tracking-[.1em] text-[var(--text-rack-mute)] mb-1">名称</label>
+                <label className="block text-[10px] tracking-[.1em] text-[var(--text-rack-mute)] mb-1">Name</label>
                 <input
                   type="text"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder="例如: ls"
+                  placeholder="e.g. ls"
                   autoFocus
                   className="w-full px-2 py-1 bg-[var(--bg-elev)] border border-[var(--rule)] rounded-[2px] text-sm text-[var(--text-rack)] placeholder-[var(--text-rack-faint)] focus:outline-none focus:border-[var(--amber)]"
                 />
               </div>
 
               <div>
-                <label className="block text-[10px] uppercase tracking-[.1em] text-[var(--text-rack-mute)] mb-1">命令内容（支持多行）</label>
+                <label className="block text-[10px] tracking-[.1em] text-[var(--text-rack-mute)] mb-1">Command (multi-line supported)</label>
                 <textarea
                   value={newContent}
                   onChange={(e) => setNewContent(e.target.value)}
-                  placeholder="例如:\ncd /var/www\nls -la"
+                  placeholder="e.g.:\ncd /var/www\nls -la"
                   rows={4}
                   className="w-full px-2 py-1 bg-[var(--bg-elev)] border border-[var(--rule)] rounded-[2px] text-sm font-mono text-[var(--text-rack)] placeholder-[var(--text-rack-faint)] focus:outline-none focus:border-[var(--amber)] resize-none"
                 />
               </div>
 
               <div>
-                <label className="block text-[10px] uppercase tracking-[.1em] text-[var(--text-rack-mute)] mb-1">所属分组</label>
+                <label className="block text-[10px] tracking-[.1em] text-[var(--text-rack-mute)] mb-1">Group</label>
                 <select
                   value={newGroupId}
                   onChange={(e) => setNewGroupId(e.target.value)}
                   className="w-full px-2 py-1 bg-[var(--bg-elev)] border border-[var(--rule)] rounded-[2px] text-sm text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
                 >
-                  <option value="">默认</option>
+                  <option value="">Default</option>
                   {groups.map(g => (
                     <option key={g.id} value={g.id}>{g.name}</option>
                   ))}
                 </select>
               </div>
+
+              <label
+                className="flex items-start gap-2 cursor-pointer select-none group/esc"
+                title={'Parse escape sequences when sending: \\n \\r \\t \\xHH\nExample: ls\\t-la → ls<Tab>-la, \\x03 → Ctrl+C'}
+              >
+                <span className="relative flex-shrink-0 mt-[2px]">
+                  <input
+                    type="checkbox"
+                    checked={newEscape}
+                    onChange={(e) => setNewEscape(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <span
+                    className={cn(
+                      'block w-[14px] h-[14px] rounded-[3px] border transition-colors',
+                      newEscape
+                        ? 'bg-[var(--amber)] border-[var(--amber)]'
+                        : 'bg-[var(--bg-elev)] border-[var(--rule)] group-hover/esc:border-[var(--text-rack-dim)]'
+                    )}
+                  />
+                  <svg
+                    viewBox="0 0 14 14"
+                    className={cn(
+                      'absolute inset-0 w-[14px] h-[14px] pointer-events-none transition-opacity',
+                      newEscape ? 'opacity-100' : 'opacity-0'
+                    )}
+                    style={{ color: 'var(--bg-base)' }}
+                  >
+                    <path d="M3 7.5 L5.5 10 L11 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </span>
+                <span className="leading-tight">
+                  <span className="block text-xs text-[var(--text-rack)]">Parse escape sequences</span>
+                  <span className="block text-[10px] text-[var(--text-rack-faint)] font-mono">\n \r \t \xHH</span>
+                </span>
+              </label>
 
               <div className="flex justify-end gap-2 pt-2">
                 {editCommand && (
@@ -645,7 +695,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                     onClick={handleDeleteCommand}
                     className="px-3 py-1 text-sm text-[var(--error-rack)] hover:opacity-80 transition-opacity"
                   >
-                    删除
+                    Delete
                   </button>
                 )}
                 <button
@@ -655,13 +705,13 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                   }}
                   className="px-3 py-1 text-sm text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] transition-colors"
                 >
-                  取消
+                  Cancel
                 </button>
                 <button
                   onClick={handleSaveCommand}
                   className="px-3 py-1 text-sm bg-[var(--amber)] text-[var(--bg-base)] font-semibold rounded-[2px] hover:brightness-110 transition-[filter]"
                 >
-                  保存
+                  Save
                 </button>
               </div>
             </div>
@@ -675,12 +725,12 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
           <div className="bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] shadow-xl w-[320px] p-4">
             {/* 标题栏：标题 + 说明提示 + 按钮 */}
             <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[.16em] font-semibold text-[var(--text-rack)]">
-                <span>编辑分组</span>
+              <div className="flex items-center gap-1.5 text-[11px] tracking-[.16em] font-semibold text-[var(--text-rack)]">
+                <span>Edit groups</span>
                 <span
                   className="inline-flex items-center justify-center w-[14px] h-[14px] rounded-full border border-[var(--text-rack-dim)] text-[var(--text-rack-dim)] text-[9px] italic cursor-help"
                   style={{ fontFamily: '"Times New Roman", serif' }}
-                  title={"第 1 个是默认分组，名称固定。\n其它分组留空则不显示。\n名称最多 4 字宽（自动按显示宽度截断）。"}
+                  title={"The 1st group is the Default group and its name is fixed.\nOther groups with empty names will not be shown.\nNames are auto-truncated to a visual width of 4 CJK characters."}
                 >
                   i
                 </span>
@@ -690,13 +740,13 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                   onClick={() => setShowBatchGroupDialog(false)}
                   className="px-3 py-1.5 text-xs bg-[var(--bg-elev)] text-[var(--text-rack-data)] hover:bg-[var(--rule)] hover:text-[var(--text-rack)] rounded-[2px] transition-colors"
                 >
-                  取消
+                  Cancel
                 </button>
                 <button
                   onClick={handleSaveBatchGroups}
                   className="px-3 py-1.5 text-xs bg-[var(--amber)] text-[var(--bg-base)] font-semibold hover:brightness-110 rounded-[2px] transition-[filter]"
                 >
-                  保存
+                  Save
                 </button>
               </div>
             </div>

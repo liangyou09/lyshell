@@ -4,6 +4,7 @@ import log from 'electron-log'
 import { app } from 'electron'
 import { SSHConnector, TelnetConnector, SerialConnector, LocalConnector, ConnectionStatus, ConnectionType } from '../connectors'
 import type { SessionConfig, SSHConfig, TelnetConfig, SerialConfig, LocalConfig } from '@shared/types'
+import { processInputEscapeSequences } from '@shared/escape-sequences'
 import { OutputBuffer } from './output-buffer'
 import * as mcpAuth from '../mcp/auth'
 import { getMcpHttpPort } from '../mcp/http-server'
@@ -39,17 +40,6 @@ export interface SendAndWaitResult {
   elapsedMs: number
 }
 
-/**
- * 解析输入文本中的转义序列
- * \n -> 换行, \r -> 回车, \xHH -> 对应字符, \t -> Tab
- */
-export function processInputEscapeSequences(text: string): string {
-  return text
-    .replace(/\\n/g, '\n')
-    .replace(/\\r/g, '\r')
-    .replace(/\\x([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-    .replace(/\\t/g, '\t')
-}
 
 /**
  * 提取错误关键信息（去掉堆栈）

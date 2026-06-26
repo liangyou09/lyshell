@@ -504,6 +504,7 @@ export interface QuickCommand {
   name: string
   content: string
   groupId?: string  // 所属分组ID（可选）
+  escapeSequences?: boolean  // 发送时解析转义字符（\n \r \t \xHH）
 }
 
 /**

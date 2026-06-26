@@ -158,7 +158,11 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       // 解决：compositionupdate 之后同步把右边缘收回到容器内，且用下限避免冲出左边。
       const helperTextarea = containerRef.current.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea')
       if (helperTextarea) {
-        // 仅在右边缘溢出容器时纠正，避免覆盖 xterm 正常的光标跟随定位
+        // 注意坐标系：overflow 用视口坐标判断无误（X0 相消），
+        // 但 style.left 必须落在相对 .xterm 容器的坐标系里。
+        // 早期版本误把视口 left 直接写回 style.left，在容器有左偏移时（右分屏最常见）
+        // 反而把候选框往右推，表现为“窄分屏必漂右边缘”。
+        // offsetLeft 本就是相对 offsetParent（.xterm）的坐标，直接平移溢出量即可。
         helperTextarea.addEventListener('compositionupdate', () => {
           const container = containerRef.current
           if (!container) return
@@ -166,8 +170,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
           const taRect = helperTextarea.getBoundingClientRect()
           const overflow = taRect.right - containerRect.right
           if (overflow > 0) {
-            const targetLeft = Math.max(containerRect.right - 4 - taRect.width, 0)
-            helperTextarea.style.left = `${targetLeft}px`
+            helperTextarea.style.left = `${Math.max(helperTextarea.offsetLeft - overflow - 4, 0)}px`
           }
         })
       }
