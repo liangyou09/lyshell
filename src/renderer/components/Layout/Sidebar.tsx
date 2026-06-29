@@ -120,9 +120,8 @@ const formatMeta = (config: SessionConfig): string => {
  * 只有当没有任何 live session 时，才显示 reachability 探测结果（可达 = 灰白 ◎，不可达 = 暗红 ⊘）。
  */
 interface VisualStatus {
-  glyph: string
-  glyphClass: string
   tooltip: string
+  borderColor: string
 }
 
 const isTcpProto = (proto: string): boolean => proto === 'ssh' || proto === 'telnet'
@@ -130,30 +129,30 @@ const isTcpProto = (proto: string): boolean => proto === 'ssh' || proto === 'tel
 const computeVisualStatus = (status: string, reachable: boolean | undefined, proto: string): VisualStatus => {
   // 活动连接覆盖一切
   if (status === 'connected') {
-    return { glyph: '◉', glyphClass: 'text-[var(--live)]', tooltip: 'Connected' }
+    return { borderColor: 'var(--live)', tooltip: 'Connected' }
   }
   if (status === 'connecting' || status === 'reconnecting') {
-    return { glyph: '⌖', glyphClass: 'text-[var(--amber)]', tooltip: 'Connecting' }
+    return { borderColor: 'var(--amber)', tooltip: 'Connecting' }
   }
   if (status === 'error') {
-    return { glyph: '⊘', glyphClass: 'text-[var(--error-rack)]', tooltip: 'Connection failed' }
+    return { borderColor: 'var(--error-rack)', tooltip: 'Connection failed' }
   }
 
-  // 非 TCP 协议（serial/local）不做可达性探测，永远显示中性 ◎
+  // 非 TCP 协议（serial/local）不做可达性探测，永远显示中性
   if (!isTcpProto(proto)) {
-    return { glyph: '◎', glyphClass: 'text-[var(--text-rack-dim)]', tooltip: 'Not connected' }
+    return { borderColor: 'var(--text-rack-dim)', tooltip: 'Not connected' }
   }
 
   // 离线 + 可达性已知
   if (reachable === true) {
-    return { glyph: '◎', glyphClass: 'text-[var(--reachable)]', tooltip: 'TCP reachable · Not connected' }
+    return { borderColor: 'var(--reachable)', tooltip: 'TCP reachable · Not connected' }
   }
   if (reachable === false) {
-    return { glyph: '⊘', glyphClass: 'text-[var(--error-rack)] opacity-60', tooltip: 'TCP unreachable' }
+    return { borderColor: 'var(--error-rack)', tooltip: 'TCP unreachable' }
   }
 
   // 还没探过
-  return { glyph: '◌', glyphClass: 'text-[var(--text-rack-faint)]', tooltip: 'Probing' }
+  return { borderColor: 'var(--text-rack-faint)', tooltip: 'Probing' }
 }
 
 const protoStripBg = (proto: string): string => {
@@ -234,7 +233,7 @@ const IconBtn: React.FC<{
 
 const StripRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="grid grid-cols-[52px_1fr] items-center gap-2 px-3 py-1.5 bg-[var(--bg-strip)] border-b border-[var(--rule-soft)]">
-    <span className="font-mono font-bold text-[11px] text-[var(--text-rack)]">
+    <span className="font-mono font-bold text-[12px] text-[var(--text-rack)]">
       {label}
     </span>
     <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide min-w-0">
@@ -267,7 +266,7 @@ const ShellPill: React.FC<{
       title={shell}
       className={cn(
         'inline-flex items-center gap-[5px] flex-shrink-0 px-2 py-[3px] rounded-[3px] cursor-pointer whitespace-nowrap',
-        'text-[11.5px] font-medium text-[var(--text-rack-data)] bg-transparent border border-[var(--rule)]',
+        'text-[11.5px] font-medium text-[var(--text-rack)] bg-transparent border border-[var(--rule)]',
         'hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)] transition-colors',
         borderHover
       )}
@@ -289,7 +288,7 @@ const AgentPill: React.FC<{
     title={`${agent.name}: ${agent.command}`}
     className={cn(
       'inline-flex items-center gap-[5px] flex-shrink-0 px-2 py-[3px] rounded-[3px] cursor-pointer whitespace-nowrap',
-      'text-[11.5px] font-medium text-[var(--text-rack-data)] bg-transparent border border-[var(--rule)]',
+      'text-[11.5px] font-medium text-[var(--text-rack)] bg-transparent border border-[var(--rule)]',
       'hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)] hover:border-[var(--amber)] transition-colors'
     )}
   >
@@ -413,7 +412,7 @@ const SessionSlot: React.FC<{
       title={visual.tooltip}
       className={cn(
         'group relative grid items-center gap-2.5 pr-3 min-h-[34px] py-1.5 cursor-pointer transition-colors',
-        'grid-cols-[4px_16px_28px_auto_minmax(0,1fr)]',
+        'grid-cols-[4px_auto_minmax(0,auto)_minmax(0,1fr)]',
         // slot 面板基底 + 1U 之间的 hairline + 底沿凹陷阴影(slot 嵌入 rack 框架感)
         'bg-[var(--bg-rack)] border-b border-[var(--rule-soft)]',
         'shadow-[inset_0_-1px_0_var(--bg-base)]',
@@ -438,25 +437,20 @@ const SessionSlot: React.FC<{
           active && status !== 'connecting' && 'brightness-125'
         )}
       />
-      {/* 状态字符进 LED 凹窗 — 16px 圆形,bg-base 底 + rule 描边 + 内阴影,像嵌进面板的指示灯 */}
-      <span className="col-start-2 w-[16px] h-[16px] inline-flex items-center justify-center rounded-full bg-[var(--bg-base)] ring-1 ring-[var(--rule)] shadow-[inset_0_1px_2px_rgba(0,0,0,0.45)]">
-        <span className={cn('font-mono text-[11px] leading-none', visual.glyphClass)}>
-          {visual.glyph}
-        </span>
-      </span>
-      {/* 协议文字标签 —— 显式 SSH/TEL/SER/LOC,跟左侧色条同色,色盲也读得出 */}
+      {/* 协议标签：外围框颜色表示状态,内部文字表示协议 */}
       <span
         className={cn(
-          'col-start-3 font-mono text-[10px] font-bold uppercase tracking-[.12em] tabular-nums text-center',
-          PROTO_TEXT_CLS[proto]
+          'col-start-2 inline-flex items-center justify-center h-[22px] px-1.5 rounded-[3px] border-2 bg-transparent',
+          'font-mono text-[12px] font-bold uppercase tracking-[.04em]'
         )}
+        style={{ borderColor: visual.borderColor }}
       >
-        {PROTO_LABEL[proto]}
+        <span className={cn('leading-none', PROTO_TEXT_CLS[proto])}>{PROTO_LABEL[proto]}</span>
       </span>
-      <span className="text-[13.5px] text-[var(--text-rack)] font-semibold truncate max-w-[140px] tracking-[.01em]">
+      <span className="text-[13.5px] text-[var(--text-rack)] font-semibold truncate max-w-[140px] tracking-[.01em] leading-none inline-flex items-center h-[22px]">
         {config.name}
       </span>
-      <span className="font-mono text-[11px] text-[var(--text-rack-data)] truncate min-w-0">
+      <span className="font-mono text-[11px] text-[var(--text-rack-data)] truncate min-w-0 leading-none inline-flex items-center h-[22px]">
         {formatMeta(config)}
       </span>
       {/* hover actions overlay */}

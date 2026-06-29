@@ -56,6 +56,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
   const [commands, setCommands] = useState<QuickCommand[]>([])
   const { sessions } = useSessionStore()
   const [groups, setGroups] = useState<QuickCommandGroup[]>([])
+  const [defaultGroupColor, setDefaultGroupColor] = useState<string>('')
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [showBatchGroupDialog, setShowBatchGroupDialog] = useState(false)  // 批量编辑分组对话框
@@ -65,6 +66,10 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
   const [newContent, setNewContent] = useState('')
   const [newGroupId, setNewGroupId] = useState<string>('')
   const [newEscape, setNewEscape] = useState(false)
+  const [editingCommandId, setEditingCommandId] = useState<string | null>(null)
+  const [groupDialogOffset, setGroupDialogOffset] = useState({ x: 0, y: 0 })
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
 
   const dropdownRef = useRef<HTMLDivElement>(null)
   const groupButtonRef = useRef<HTMLButtonElement>(null)
@@ -76,6 +81,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
   useEffect(() => {
     loadCommands()
     loadGroups()
+    loadDefaultGroupColor()
   }, [refreshKey])
 
   // 加载命令
@@ -99,11 +105,12 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     }
   }
 
-  // 默认分组（始终存在，不可删除，名称固定）
+  // 默认分组（始终存在，不可删除，名称固定，颜色持久化到偏好设置）
   const DEFAULT_GROUP: QuickCommandGroup = {
     id: 'default',
     name: 'Default',
-    order: 0
+    order: 0,
+    color: defaultGroupColor || undefined
   }
 
   // 合并默认分组和用户分组（过滤掉名称为空的分组）
@@ -120,6 +127,20 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
       }
     } catch (err) {
       console.error('Failed to load groups:', err)
+    }
+  }
+
+  // 加载默认分组颜色（从偏好设置持久化，未设置时默认粉色）
+  const loadDefaultGroupColor = async () => {
+    try {
+      const color = await window.electronAPI?.getConfig?.('quickCommand.defaultGroupColor')
+      if (typeof color === 'string') {
+        setDefaultGroupColor(color)
+      } else {
+        setDefaultGroupColor('#0078D4')
+      }
+    } catch (err) {
+      console.error('Failed to load default group color:', err)
     }
   }
 
@@ -141,6 +162,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
         setShowAddDialog(false)
         setShowBatchGroupDialog(false)
         setActiveDropdown(null)
+        setEditingCommandId(null)
         resetDialogState()
       }
     }
@@ -203,6 +225,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
   // 双击添加命令
   const handleDoubleClick = () => {
     setEditCommand(undefined)
+    setEditingCommandId(null)
     setNewName('')
     setNewContent('')
     setNewEscape(false)
@@ -228,6 +251,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     e.preventDefault()
     e.stopPropagation()
     setEditCommand(cmd)
+    setEditingCommandId(cmd.id)
     setNewName(cmd.name)
     setNewContent(cmd.content)
     setNewGroupId(cmd.groupId || '')
@@ -270,6 +294,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
 
     await loadCommands()
     setShowAddDialog(false)
+    setEditingCommandId(null)
     resetDialogState()
   }
 
@@ -279,57 +304,128 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
       await window.electronAPI?.commandDelete(editCommand.id)
       await loadCommands()
       setShowAddDialog(false)
+      setEditingCommandId(null)
       resetDialogState()
     }
   }
 
+  // 拖动分组编辑窗口
+  const handleGroupDialogMouseDown = (e: React.MouseEvent) => {
+    const startX = e.clientX
+    const startY = e.clientY
+    const startOffsetX = groupDialogOffset.x
+    const startOffsetY = groupDialogOffset.y
+
+    const handleMouseMove = (e: MouseEvent) => {
+      setGroupDialogOffset({
+        x: startOffsetX + e.clientX - startX,
+        y: startOffsetY + e.clientY - startY
+      })
+    }
+
+    const handleMouseUp = () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+  }
+
   // 打开批量编辑分组对话框
   const handleOpenGroupDialog = () => {
-    // 初始化批量编辑数据：默认分组（固定名称） + 用户分组 + 空槽位（补齐到4个）
+    // 固定 1 个默认分组 + 4 个用户分组槽位
     const editGroups: {id: string, name: string, color: string}[] = [
-      { id: 'default', name: 'Default', color: '' },  // 默认分组固定
+      { id: 'default', name: 'Default', color: defaultGroupColor },
       ...groups.map(g => ({ id: g.id, name: g.name, color: g.color || '' }))
     ]
-    // 补齐空槽位到4个用户分组
+    // 补齐到 5 个槽位（1 默认 + 4 用户）
     while (editGroups.length < 5) {
       editGroups.push({ id: '', name: '', color: '' })
     }
-    // 确保最多5个分组（1默认+4用户）
     setBatchGroups(editGroups.slice(0, 5))
+    setDraggedIndex(null)
+    setDragOverIndex(null)
+    setGroupDialogOffset({ x: 0, y: 0 })
     setShowBatchGroupDialog(true)
   }
 
-  // 批量保存分组（只能编辑，不能新增或删除）
+  // 批量保存分组：固定 1+4 槽位，空名称视为无效分组
   const handleSaveBatchGroups = async () => {
-    // 更新默认分组颜色（名称固定，不保存到数据库）
-    DEFAULT_GROUP.color = batchGroups[0].color || undefined
+    // 持久化默认分组颜色（名称固定，存到偏好设置）
+    const newDefaultColor = batchGroups[0].color || ''
+    setDefaultGroupColor(newDefaultColor)
+    await window.electronAPI?.setConfig?.('quickCommand.defaultGroupColor', newDefaultColor)
 
-    // 更新用户分组（索引1-4）
-    for (let i = 1; i < batchGroups.length; i++) {
-      const batchGroup = batchGroups[i]
+    const userGroups = batchGroups.slice(1)
 
-      if (batchGroup.id) {
-        // 更新已有分组
-        await window.electronAPI?.commandGroupUpdate({
-          id: batchGroup.id,
-          name: batchGroup.name.trim(),
-          color: batchGroup.color || undefined,
-          order: i
-        })
-      } else if (batchGroup.name.trim()) {
+    // 更新/创建/删除用户分组
+    for (let i = 0; i < userGroups.length; i++) {
+      const group = userGroups[i]
+      const name = group.name.trim()
+
+      if (group.id) {
+        if (name) {
+          // 更新有效分组
+          await window.electronAPI?.commandGroupUpdate({
+            id: group.id,
+            name,
+            color: group.color || undefined,
+            order: i + 1
+          })
+        } else {
+          // 名称清空 -> 视为无效，删除该分组；若分组下还有命令，先确认
+          const groupCommandCount = commands.filter(c => c.groupId === group.id).length
+          if (groupCommandCount > 0) {
+            const confirmed = confirm(
+              `Delete group?\n\nThis group has ${groupCommandCount} command(s) inside. They will become ungrouped.`
+            )
+            if (!confirmed) continue
+          }
+          await window.electronAPI?.commandGroupDelete(group.id)
+        }
+      } else if (name) {
         // 创建新分组
         const newId = `group-${Date.now()}-${i}`
         await window.electronAPI?.commandGroupAdd({
           id: newId,
-          name: batchGroup.name.trim(),
-          color: batchGroup.color || undefined,
-          order: i
+          name,
+          color: group.color || undefined,
+          order: i + 1
         })
       }
+      // 空槽位（无 id 且无名称）直接跳过
     }
 
     await loadGroups()
     setShowBatchGroupDialog(false)
+  }
+
+  // 分组拖拽排序
+  const handleGroupDragStart = (index: number) => {
+    if (index === 0) return
+    setDraggedIndex(index)
+  }
+
+  const handleGroupDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    if (draggedIndex === null || draggedIndex === index || index === 0) return
+    setDragOverIndex(index)
+  }
+
+  const handleGroupDrop = (targetIndex: number) => {
+    if (draggedIndex === null || draggedIndex === targetIndex || targetIndex === 0) return
+    const newGroups = [...batchGroups]
+    const [removed] = newGroups.splice(draggedIndex, 1)
+    newGroups.splice(targetIndex, 0, removed)
+    setBatchGroups(newGroups)
+    setDraggedIndex(null)
+    setDragOverIndex(null)
+  }
+
+  const handleGroupDragEnd = () => {
+    setDraggedIndex(null)
+    setDragOverIndex(null)
   }
 
   // 获取分组下的命令（默认分组显示未分配groupId的命令，包括空字符串）
@@ -346,7 +442,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
 
   // 预定义颜色
-  const predefinedColors = ['#0078D4', '#E81123', '#107C10', '#FFB900', '#881798', '#00CC99']
+  const predefinedColors = ['#0078D4', '#E81123', '#107C10', '#FFB900', '#FF69B4']
 
   // 限制字符串的视觉宽度不超过最大值（中文字符算1，英文字符算0.5）
   const limitVisualWidth = (str: string, maxWidth: number): string => {
@@ -399,18 +495,18 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
           'bg-[var(--bg-rack)] hover:bg-[var(--bg-slot)]',
           'border-r border-[var(--rule)]',
           'cursor-pointer transition-colors px-2.5',
-          activeDropdown === 'groups' && 'bg-[var(--bg-slot)]'
+          activeDropdown === 'groups' && 'bg-[var(--bg-slot)]',
+          showBatchGroupDialog && 'ring-1 ring-inset ring-[var(--amber)]'
         )}
-        title="单击切换分组 · 右键编辑所有分组"
+        title="Click to switch group · Right-click to edit groups"
       >
         <span
-          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+          className="w-1.5 h-1.5 rounded-full flex-shrink-0 shadow-[inset_0_0_0_1px_rgba(0,0,0,.5)]"
           style={{
-            backgroundColor: currentGroupColor || 'var(--text-rack-dim)',
-            boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.4)'
+            backgroundColor: currentGroupColor || 'var(--text-rack-dim)'
           }}
         />
-        <span className="text-[11px] text-[var(--text-rack)] font-medium">{currentGroup ? currentGroup.name : '默认'}</span>
+        <span className="text-[11px] text-[var(--text-rack)] font-medium">{currentGroup ? currentGroup.name : 'Default'}</span>
         <span className="text-[9px] text-[var(--text-rack-dim)] -translate-y-px">▾</span>
       </button>
 
@@ -424,13 +520,16 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
           <button
             key={cmd.id}
             data-cmd
+            // 阻止鼠标点击时抢走焦点,点完后光标仍留在终端,避免按回车再次触发该命令
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => handleExecute(cmd)}
             onContextMenu={(e) => handleCommandContextMenu(cmd, e)}
             className={cn(
               'group/key relative flex-shrink-0 h-[22px] rounded-[3px]',
               'pl-2 pr-2.5 flex items-center',
               'bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)] active:bg-[var(--rule)]',
-              'text-[var(--text-rack)] cursor-pointer transition-colors'
+              'text-[var(--text-rack)] cursor-pointer transition-colors',
+              editingCommandId === cmd.id && 'ring-1 ring-inset ring-[var(--amber)]'
             )}
             style={{
               boxShadow:
@@ -476,12 +575,12 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
             )}
           >
             <span className="text-[11px] leading-none">+</span>
-            <span className="text-[10.5px] leading-none">添加命令</span>
+            <span className="text-[10.5px] leading-none">Add command</span>
             <span
               className="text-[9.5px] leading-none text-[var(--text-rack-faint)] ml-1"
               style={{ fontFamily: 'ui-monospace, "JetBrains Mono", monospace' }}
             >
-              双击此处
+              double-click
             </span>
           </button>
         )}
@@ -520,10 +619,9 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                 }}
               >
                 <span
-                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  className="w-2 h-2 rounded-full flex-shrink-0 shadow-[inset_0_0_0_1px_rgba(0,0,0,.5)]"
                   style={{
-                    backgroundColor: group.color || 'var(--text-rack-dim)',
-                    boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.3)'
+                    backgroundColor: group.color || 'var(--text-rack-dim)'
                   }}
                 />
                 <span className="flex-1">{group.name}</span>
@@ -552,7 +650,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
             <span
               className="w-2 h-2 rounded-full flex-shrink-0 border border-dashed border-[var(--text-rack-dim)]"
             />
-            <span className="flex-1">编辑分组…</span>
+            <span className="flex-1">Edit groups…</span>
           </div>
         </div>
       )}
@@ -607,57 +705,77 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
         <span className="lowercase">v1.0.2</span>
       </div>
 
-      {/* 添加/编辑命令对话框 */}
+      {/* Quick-command editor */}
       {showAddDialog && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] shadow-xl w-[400px] p-4">
-            <div className="text-[11px] tracking-[.16em] font-semibold text-[var(--text-rack)] mb-3">
-              {editCommand ? 'Edit command' : 'Add quick command'}
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-[var(--bg-rack)] border border-[var(--rule)] rounded-[4px] shadow-2xl w-[400px] overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 bg-[var(--bg-slot)] border-b border-[var(--rule)]">
+              <div className="flex items-center gap-2">
+                <span
+                  className="w-2 h-2 rounded-full ring-2 ring-[var(--bg-slot)]"
+                  style={{ backgroundColor: currentGroupColor || 'var(--text-rack-dim)' }}
+                />
+                <span className="text-[12px] font-semibold text-[var(--text-rack)]">
+                  {editCommand ? 'Edit command' : 'New quick command'}
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  setShowAddDialog(false)
+                  setEditingCommandId(null)
+                  resetDialogState()
+                }}
+                className="text-[var(--text-rack-dim)] hover:text-[var(--text-rack)] text-lg leading-none px-1"
+                aria-label="Close"
+              >
+                ×
+              </button>
             </div>
 
-            <div className="space-y-3">
-              <div>
-                <label className="block text-[10px] tracking-[.1em] text-[var(--text-rack-mute)] mb-1">Name</label>
-                <input
-                  type="text"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="e.g. ls"
-                  autoFocus
-                  className="w-full px-2 py-1 bg-[var(--bg-elev)] border border-[var(--rule)] rounded-[2px] text-sm text-[var(--text-rack)] placeholder-[var(--text-rack-faint)] focus:outline-none focus:border-[var(--amber)]"
-                />
+            <div className="px-4 py-4 space-y-4">
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="block text-[12px] tracking-[.04em] text-[var(--text-rack-data)] mb-1.5">Name</label>
+                  <input
+                    type="text"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="e.g. ls"
+                    autoFocus
+                    className="w-full px-2.5 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[3px] text-sm text-[var(--text-rack)] placeholder-[var(--text-rack-faint)] focus:outline-none focus:border-[var(--amber)]"
+                  />
+                </div>
+                <div className="w-[130px]">
+                  <label className="block text-[12px] tracking-[.04em] text-[var(--text-rack-data)] mb-1.5">Group</label>
+                  <select
+                    value={newGroupId}
+                    onChange={(e) => setNewGroupId(e.target.value)}
+                    className="w-full px-2 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[3px] text-sm text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
+                  >
+                    <option value="">Default</option>
+                    {groups.map(g => (
+                      <option key={g.id} value={g.id}>{g.name}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div>
-                <label className="block text-[10px] tracking-[.1em] text-[var(--text-rack-mute)] mb-1">Command (multi-line supported)</label>
+                <label className="block text-[12px] tracking-[.04em] text-[var(--text-rack-data)] mb-1.5">Command</label>
                 <textarea
                   value={newContent}
                   onChange={(e) => setNewContent(e.target.value)}
                   placeholder="e.g.:\ncd /var/www\nls -la"
                   rows={4}
-                  className="w-full px-2 py-1 bg-[var(--bg-elev)] border border-[var(--rule)] rounded-[2px] text-sm font-mono text-[var(--text-rack)] placeholder-[var(--text-rack-faint)] focus:outline-none focus:border-[var(--amber)] resize-none"
+                  className="w-full px-2.5 py-2 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[3px] text-sm font-mono text-[var(--text-rack)] placeholder-[var(--text-rack-faint)] focus:outline-none focus:border-[var(--amber)] resize-none"
                 />
               </div>
 
-              <div>
-                <label className="block text-[10px] tracking-[.1em] text-[var(--text-rack-mute)] mb-1">Group</label>
-                <select
-                  value={newGroupId}
-                  onChange={(e) => setNewGroupId(e.target.value)}
-                  className="w-full px-2 py-1 bg-[var(--bg-elev)] border border-[var(--rule)] rounded-[2px] text-sm text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
-                >
-                  <option value="">Default</option>
-                  {groups.map(g => (
-                    <option key={g.id} value={g.id}>{g.name}</option>
-                  ))}
-                </select>
-              </div>
-
               <label
-                className="flex items-start gap-2 cursor-pointer select-none group/esc"
+                className="flex items-center gap-2.5 cursor-pointer select-none group/esc"
                 title={'Parse escape sequences when sending: \\n \\r \\t \\xHH\nExample: ls\\t-la → ls<Tab>-la, \\x03 → Ctrl+C'}
               >
-                <span className="relative flex-shrink-0 mt-[2px]">
+                <span className="relative flex-shrink-0">
                   <input
                     type="checkbox"
                     checked={newEscape}
@@ -666,50 +784,52 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                   />
                   <span
                     className={cn(
-                      'block w-[14px] h-[14px] rounded-[3px] border transition-colors',
+                      'block w-4 h-4 rounded-[4px] border transition-colors',
                       newEscape
                         ? 'bg-[var(--amber)] border-[var(--amber)]'
-                        : 'bg-[var(--bg-elev)] border-[var(--rule)] group-hover/esc:border-[var(--text-rack-dim)]'
+                        : 'bg-[var(--bg-base)] border-[var(--rule)] group-hover/esc:border-[var(--text-rack-dim)]'
                     )}
                   />
                   <svg
                     viewBox="0 0 14 14"
                     className={cn(
-                      'absolute inset-0 w-[14px] h-[14px] pointer-events-none transition-opacity',
+                      'absolute inset-0 w-4 h-4 m-auto pointer-events-none transition-opacity',
                       newEscape ? 'opacity-100' : 'opacity-0'
                     )}
                     style={{ color: 'var(--bg-base)' }}
                   >
-                    <path d="M3 7.5 L5.5 10 L11 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M3 7.5 L5.5 10 L11 4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </span>
-                <span className="leading-tight">
-                  <span className="block text-xs text-[var(--text-rack)]">Parse escape sequences</span>
-                  <span className="block text-[10px] text-[var(--text-rack-faint)] font-mono">\n \r \t \xHH</span>
-                </span>
+                <span className="text-xs text-[var(--text-rack)]">Parse escape sequences</span>
               </label>
+            </div>
 
-              <div className="flex justify-end gap-2 pt-2">
-                {editCommand && (
-                  <button
-                    onClick={handleDeleteCommand}
-                    className="px-3 py-1 text-sm text-[var(--error-rack)] hover:opacity-80 transition-opacity"
-                  >
-                    Delete
-                  </button>
-                )}
+            <div className="flex items-center justify-between gap-2 px-4 py-3 bg-[var(--bg-slot)] border-t border-[var(--rule)]">
+              {editCommand ? (
+                <button
+                  onClick={handleDeleteCommand}
+                  className="px-3 py-1.5 text-xs font-medium text-[var(--error-rack)] hover:bg-[var(--error-rack)]/10 rounded-[3px] transition-colors"
+                >
+                  Delete
+                </button>
+              ) : (
+                <span />
+              )}
+              <div className="flex gap-2">
                 <button
                   onClick={() => {
                     setShowAddDialog(false)
+                    setEditingCommandId(null)
                     resetDialogState()
                   }}
-                  className="px-3 py-1 text-sm text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] transition-colors"
+                  className="px-3 py-1.5 text-xs font-medium text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-elev)] rounded-[3px] transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleSaveCommand}
-                  className="px-3 py-1 text-sm bg-[var(--amber)] text-[var(--bg-base)] font-semibold rounded-[2px] hover:brightness-110 transition-[filter]"
+                  className="px-4 py-1.5 text-xs font-semibold bg-[var(--amber)] text-[var(--bg-base)] rounded-[3px] hover:brightness-110 transition-[filter]"
                 >
                   Save
                 </button>
@@ -719,101 +839,155 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
         </div>
       )}
 
-      {/* 批量编辑分组对话框 */}
+      {/* Group editor */}
       {showBatchGroupDialog && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] shadow-xl w-[320px] p-4">
-            {/* 标题栏：标题 + 说明提示 + 按钮 */}
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-1.5 text-[11px] tracking-[.16em] font-semibold text-[var(--text-rack)]">
-                <span>Edit groups</span>
+        <div className="fixed inset-0 z-50 pointer-events-none">
+          <div
+            className="pointer-events-auto absolute top-1/2 left-1/2 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[4px] w-[320px] overflow-hidden"
+            style={{
+              transform: `translate(-50%, -50%) translate(${groupDialogOffset.x}px, ${groupDialogOffset.y}px)`,
+              boxShadow: '0 24px 60px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.03)'
+            }}
+          >
+            <div
+              className="flex items-center justify-between px-4 py-3 bg-[var(--bg-base)] border-b border-[var(--rule)] cursor-move select-none"
+              onMouseDown={handleGroupDialogMouseDown}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-base font-semibold text-[var(--text-rack)] tracking-wide">Edit groups</span>
                 <span
-                  className="inline-flex items-center justify-center w-[14px] h-[14px] rounded-full border border-[var(--text-rack-dim)] text-[var(--text-rack-dim)] text-[9px] italic cursor-help"
-                  style={{ fontFamily: '"Times New Roman", serif' }}
-                  title={"The 1st group is the Default group and its name is fixed.\nOther groups with empty names will not be shown.\nNames are auto-truncated to a visual width of 4 CJK characters."}
+                  className="text-xs font-mono text-[var(--text-rack-data)] px-1.5 py-0.5 bg-[var(--bg-elev)] rounded-[2px]"
+                  style={{ fontFeatureSettings: '"tnum" 1' }}
                 >
-                  i
+                  {batchGroups.length - 1}/4
                 </span>
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setShowBatchGroupDialog(false)}
-                  className="px-3 py-1.5 text-xs bg-[var(--bg-elev)] text-[var(--text-rack-data)] hover:bg-[var(--rule)] hover:text-[var(--text-rack)] rounded-[2px] transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveBatchGroups}
-                  className="px-3 py-1.5 text-xs bg-[var(--amber)] text-[var(--bg-base)] font-semibold hover:brightness-110 rounded-[2px] transition-[filter]"
-                >
-                  Save
-                </button>
-              </div>
+              <button
+                onClick={() => {
+                  setShowBatchGroupDialog(false)
+                  setGroupDialogOffset({ x: 0, y: 0 })
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                className="w-7 h-7 flex items-center justify-center text-[var(--text-rack-dim)] hover:text-[var(--text-rack)] text-lg leading-none pointer-events-auto rounded-[3px] hover:bg-[var(--bg-elev)] transition-colors"
+                aria-label="Close"
+              >
+                ×
+              </button>
             </div>
 
-            <div className="space-y-2">
+            <div className="px-4 py-4 space-y-2">
               {batchGroups.map((bg, index) => {
                 const isDefault = index === 0
+                const isDragged = draggedIndex === index
+                const isDragOver = dragOverIndex === index && draggedIndex !== index
                 return (
-                  <div key={index} className={cn(
-                    'flex items-center gap-2 p-2 bg-[var(--bg-elev)] rounded-[2px]',
-                    isDefault && 'opacity-80'
-                  )}>
-                    {/* 分组序号 */}
-                    <span className="text-[10px] font-mono text-[var(--text-rack-mute)] w-4">{index + 1}</span>
+                  <div
+                    key={index}
+                    draggable={!isDefault}
+                    onDragStart={() => handleGroupDragStart(index)}
+                    onDragOver={(e) => handleGroupDragOver(e, index)}
+                    onDrop={() => handleGroupDrop(index)}
+                    onDragEnd={handleGroupDragEnd}
+                    className={cn(
+                      'group flex items-center gap-2 p-2 rounded-[4px] bg-[var(--bg-base)] border transition-all',
+                      isDragOver ? 'border-[var(--amber)] ring-1 ring-[var(--amber)]/30' : 'border-[var(--rule)]',
+                      isDragged && 'opacity-40',
+                      !isDefault && 'hover:border-[var(--text-rack-dim)]'
+                    )}
+                  >
+                    {/* Drag handle / default lock */}
+                    {!isDefault ? (
+                      <div
+                        className="w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-[3px] bg-[var(--bg-elev)] border border-[var(--rule)] text-[10px] font-mono text-[var(--text-rack)] cursor-move"
+                        title="Drag to reorder"
+                      >
+                        {index}
+                      </div>
+                    ) : (
+                      <div
+                        className="w-5 h-5 flex-shrink-0 flex items-center justify-center text-[var(--text-rack-data)]"
+                        title="Default group"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="5" y="11" width="14" height="10" rx="2" ry="2" />
+                          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                        </svg>
+                      </div>
+                    )}
 
-                    {/* 分组名称 */}
+                    {/* Nameplate input */}
                     <input
                       type="text"
                       value={bg.name}
                       onChange={(e) => {
-                        if (isDefault) return  // 默认分组不可编辑名称
+                        if (isDefault) return
                         const newGroups = [...batchGroups]
-                        newGroups[index].name = limitVisualWidth(e.target.value, 4)  // 最多4个中文字符宽度
+                        newGroups[index].name = limitVisualWidth(e.target.value, 6)
                         setBatchGroups(newGroups)
                       }}
                       placeholder={isDefault ? 'Default' : 'Group name'}
                       disabled={isDefault}
                       className={cn(
-                        'px-2 py-1 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[2px] text-sm text-[var(--text-rack)] placeholder-[var(--text-rack-faint)] w-[100px]',
-                        isDefault ? 'cursor-not-allowed' : 'focus:outline-none focus:border-[var(--amber)]'
+                        'flex-1 min-w-0 h-7 px-2.5 bg-[var(--bg-rack)] border border-[var(--rule)] rounded-[3px] text-sm text-[var(--text-rack)] placeholder-[var(--text-rack-faint)]',
+                        isDefault ? 'cursor-not-allowed opacity-80' : 'focus:outline-none focus:border-[var(--amber)]'
                       )}
                     />
 
-                    {/* 分组颜色选择 */}
-                    <div className="flex gap-1">
-                      {predefinedColors.slice(0, 4).map(color => (
-                        <button
-                          key={color}
-                          onClick={() => {
-                            const newGroups = [...batchGroups]
-                            newGroups[index].color = color
-                            setBatchGroups(newGroups)
-                          }}
-                          className={cn(
-                            'w-5 h-5 rounded-[2px] transition-transform',
-                            bg.color === color && 'ring-2 ring-[var(--amber)] scale-110'
-                          )}
-                          style={{ backgroundColor: color }}
-                        />
-                      ))}
-                      <button
-                        onClick={() => {
-                          const newGroups = [...batchGroups]
-                          newGroups[index].color = ''
-                          setBatchGroups(newGroups)
-                        }}
-                        className={cn(
-                          'w-5 h-5 rounded-[2px] border border-[var(--rule)] text-xs text-[var(--text-rack-mute)]',
-                          !bg.color && 'ring-2 ring-[var(--amber)]'
-                        )}
-                      >
-                        ✕
-                      </button>
+                    {/* Color swatches */}
+                    <div className="flex items-center gap-[2px] h-7">
+                      {predefinedColors.map(color => {
+                        const selected = bg.color === color
+                        return (
+                          <button
+                            key={color}
+                            type="button"
+                            onClick={() => {
+                              const newGroups = [...batchGroups]
+                              newGroups[index].color = color
+                              setBatchGroups(newGroups)
+                            }}
+                            className={cn(
+                              'w-[18px] h-[18px] rounded-[3px] flex-shrink-0 box-border block overflow-hidden',
+                              'border appearance-none p-[1px] m-0',
+                              selected
+                                ? 'border-white/90'
+                                : 'border-black/60 hover:border-black/80'
+                            )}
+                            aria-label={`Set group color ${color}`}
+                          >
+                            <span
+                              className="block w-full h-full rounded-[2px]"
+                              style={{ backgroundColor: color }}
+                            />
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
                 )
               })}
+            </div>
+
+            <div className="px-4 pb-2 text-[10px] text-[var(--text-rack-dim)] leading-relaxed">
+              Clear a group name to remove it. Commands inside will become ungrouped.
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-4 py-3 bg-[var(--bg-base)] border-t border-[var(--rule)]">
+              <button
+                onClick={() => {
+                  setShowBatchGroupDialog(false)
+                  setGroupDialogOffset({ x: 0, y: 0 })
+                }}
+                className="px-3 py-1.5 text-xs font-medium text-[var(--text-rack-data)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-elev)] rounded-[3px] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveBatchGroups}
+                className="px-4 py-1.5 text-xs font-semibold bg-[var(--amber)] text-[var(--bg-base)] rounded-[3px] hover:brightness-110 transition-[filter]"
+              >
+                Save
+              </button>
             </div>
           </div>
         </div>

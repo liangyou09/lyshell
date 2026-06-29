@@ -22,6 +22,7 @@ export interface SerialConfig {
 export class SerialConnector extends BaseConnector {
   private config: SerialConfig
   private port: SerialPort | null = null
+  private decoder: ReturnType<typeof iconv.decodeStream> | null = null
 
   constructor(sessionId: string, config: SerialConfig) {
     super(sessionId)
@@ -29,16 +30,13 @@ export class SerialConnector extends BaseConnector {
   }
 
   /**
-   * 解码数据（根据配置的编码）
+   * 创建流式解码器，避免多字节字符被拆包截断
    */
-  private decodeData(data: Buffer): string {
-    const encoding = this.config.encoding || 'utf-8'
-    try {
-      return iconv.decode(data, encoding)
-    } catch (e) {
-      log.warn('Serial decode error:', e)
-      return data.toString('binary')
-    }
+  private createDecoder(): void {
+    const dec = iconv.decodeStream(this.config.encoding || 'utf-8')
+    dec.on('data', (str: string) => this.emitData(str))
+    dec.on('error', (err: Error) => log.warn('Serial decode stream error:', err))
+    this.decoder = dec
   }
 
   /**
@@ -71,11 +69,15 @@ export class SerialConnector extends BaseConnector {
         log.info('Serial port opened')
         this.connected = true
         this.emit('connected')
+
+        // 每个串口连接单独一个流式解码器
+        this.createDecoder()
+
         resolve()
       })
 
       this.port!.on('data', (data: Buffer) => {
-        this.emitData(this.decodeData(data))
+        this.decoder?.write(data)
       })
 
       this.port!.on('error', (err) => {
@@ -103,6 +105,11 @@ export class SerialConnector extends BaseConnector {
         this.port!.close(() => resolve())
       })
       this.port = null
+    }
+
+    if (this.decoder) {
+      try { this.decoder.end() } catch { /* ignore */ }
+      this.decoder = null
     }
 
     this.connected = false

@@ -19,23 +19,11 @@ export interface TelnetConfig {
 export class TelnetConnector extends BaseConnector {
   private config: TelnetConfig
   private socket: Socket | null = null
+  private decoder: ReturnType<typeof iconv.decodeStream> | null = null
 
   constructor(sessionId: string, config: TelnetConfig) {
     super(sessionId)
     this.config = config
-  }
-
-  /**
-   * 解码数据（根据配置的编码）
-   */
-  private decodeData(data: Buffer): string {
-    const encoding = this.config.encoding || 'utf-8'
-    try {
-      return iconv.decode(data, encoding)
-    } catch (e) {
-      log.warn('Telnet decode error:', e)
-      return data.toString('binary')
-    }
   }
 
   /**
@@ -49,6 +37,11 @@ export class TelnetConnector extends BaseConnector {
     log.info(`Telnet connecting to ${this.config.host}:${this.config.port}`)
 
     this.socket = new Socket()
+    // 用流式解码器避免多字节字符被 TCP 拆包截断产生乱码
+    const dec = iconv.decodeStream(this.config.encoding || 'utf-8')
+    dec.on('data', (str: string) => this.emitData(str))
+    dec.on('error', (err: Error) => log.warn('Telnet decode stream error:', err))
+    this.decoder = dec
 
     this.socket.on('connect', () => {
       log.info('Telnet connected')
@@ -60,7 +53,7 @@ export class TelnetConnector extends BaseConnector {
       // 过滤Telnet IAC控制字符
       const filteredData = this.filterIAC(data)
       if (filteredData.length > 0) {
-        this.emitData(this.decodeData(filteredData))
+        this.decoder?.write(filteredData)
       }
     })
 
@@ -183,6 +176,10 @@ export class TelnetConnector extends BaseConnector {
     if (this.socket) {
       this.socket.destroy()
       this.socket = null
+    }
+    if (this.decoder) {
+      try { this.decoder.end() } catch { /* ignore */ }
+      this.decoder = null
     }
 
     this.connected = false

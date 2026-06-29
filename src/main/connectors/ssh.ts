@@ -27,6 +27,7 @@ export class SSHConnector extends BaseConnector {
   private client: Client | null = null
   private channel: ClientChannel | null = null
   private sharedClient: Client | null = null  // 共享的 SSH client
+  private decoder: ReturnType<typeof iconv.decodeStream> | null = null
   private _connecting: boolean = false  // 是否正在连接中
   private _connectReject: ((error: Error) => void) | null = null  // 连接 Promise 的 reject 函数
   private _cols: number = 80  // 终端列数
@@ -38,16 +39,13 @@ export class SSHConnector extends BaseConnector {
   }
 
   /**
-   * 解码数据（根据配置的编码）
+   * 创建流式解码器，避免多字节字符被 TCP 拆包截断
    */
-  private decodeData(data: Buffer): string {
-    const encoding = this.config.encoding || 'utf-8'
-    try {
-      return iconv.decode(data, encoding)
-    } catch (e) {
-      log.warn('SSH decode error:', e)
-      return data.toString('binary')
-    }
+  private createDecoder(): void {
+    const dec = iconv.decodeStream(this.config.encoding || 'utf-8')
+    dec.on('data', (str: string) => this.emitData(str))
+    dec.on('error', (err: Error) => log.warn('SSH decode stream error:', err))
+    this.decoder = dec
   }
 
   /**
@@ -92,9 +90,12 @@ export class SSHConnector extends BaseConnector {
         this.channel = channel
         this.connected = true
 
-        // 接收数据
+        // 共享 client 复用路径上也需要独立的解码器
+        this.createDecoder()
+
+        // 接收数据（写入流式解码器，避免多字节字符被拆包截断）
         channel.on('data', (data: Buffer) => {
-          this.emitData(this.decodeData(data))
+          this.decoder?.write(data)
         })
 
         // Shell 关闭
@@ -133,6 +134,9 @@ export class SSHConnector extends BaseConnector {
       this._connectReject = null
       this.connected = true
       this.emit('connected')
+
+      // 每个连接单独一个流式解码器
+      this.createDecoder()
 
       // 启动 shell
       this.startShell()
@@ -225,9 +229,9 @@ export class SSHConnector extends BaseConnector {
 
       this.channel = channel
 
-      // 接收数据
+      // 接收数据（写入流式解码器，避免多字节字符被拆包截断）
       channel.on('data', (data: Buffer) => {
-        this.emitData(this.decodeData(data))
+        this.decoder?.write(data)
       })
 
       // Shell 关闭
@@ -263,6 +267,11 @@ export class SSHConnector extends BaseConnector {
     if (!this.sharedClient && this.client) {
       this.client.end()
       this.client = null
+    }
+
+    if (this.decoder) {
+      try { this.decoder.end() } catch { /* ignore */ }
+      this.decoder = null
     }
 
     this.connected = false
