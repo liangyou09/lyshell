@@ -30,6 +30,11 @@ interface PaneStore {
   splitPaneWithPosition: (paneId: string, direction: SplitDirection, sessionId: string, position: 'first' | 'second') => void
   closePane: (paneId: string) => void
   setActivePane: (paneId: string) => void
+  // 隐藏的终端页签 —— key 为 runtime sessionId,true 表示该页签(及终端)被折叠隐藏
+  // xterm 实例不卸载,连接与输出保留;Sidebar LIVE 段会话标签点击 toggle
+  hiddenTabSessions: Record<string, boolean>
+  // 批量切换隐藏态;hidden=true 时还会把受影响 pane 的 active 从被隐藏 session 切走
+  toggleLiveSessionTabs: (sessionIds: string[], hidden: boolean) => void
   setSplitRatio: (paneId: string, ratio: number) => void
   addSessionToPane: (paneId: string, sessionId: string) => void
   removeSessionFromPane: (paneId: string, sessionId: string) => void
@@ -525,16 +530,25 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     const layout = get().layout
     const pane = findPane(layout.root, paneId) as PaneLeaf | undefined
 
-    // 如果分屏还有会话，先断开它们
-    if (pane && pane.type === 'leaf' && pane.sessions.length > 0) {
-      // 断开所有会话（这里只是从分屏移除，不实际断开连接）
-      // 用户需要手动断开
-    }
+    // 收集该分屏内的所有 session —— closePane 不走 removeSessionFromPane,
+    // 需在此一并清理 hiddenTabSessions 残留,保持与 removeSessionFromPane 一致
+    const sessionIdsToClean = (pane?.type === 'leaf' ? pane.sessions : []) ?? []
 
     const newRoot = removePaneAndMerge(layout.root, paneId)
     const leaves = collectLeaves(newRoot)
 
+    // 清理这些 session 的 hidden 标记
+    const nextHidden = { ...get().hiddenTabSessions }
+    let hiddenChanged = false
+    for (const sid of sessionIdsToClean) {
+      if (nextHidden[sid] !== undefined) {
+        delete nextHidden[sid]
+        hiddenChanged = true
+      }
+    }
+
     set({
+      ...(hiddenChanged ? { hiddenTabSessions: nextHidden } : {}),
       layout: {
         root: newRoot,
         activePaneId: leaves.length > 0 ? leaves[0].id : ''
@@ -547,6 +561,45 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     set(state => ({
       layout: { ...state.layout, activePaneId: paneId }
     }))
+  },
+
+  hiddenTabSessions: {},
+  toggleLiveSessionTabs: (sessionIds, hidden) => {
+    set(state => {
+      const next = { ...state.hiddenTabSessions }
+      if (hidden) {
+        for (const id of sessionIds) next[id] = true
+      } else {
+        for (const id of sessionIds) delete next[id]
+      }
+
+      // 隐藏/恢复后都要修正 activeSessionId:
+      // - 隐藏时:若 active 被隐藏,切到第一个未隐藏的 session;全隐藏则置 null
+      // - 恢复时:若 active 为 null(此前全隐藏留下),恢复到第一个 session,避免终端区空白
+      const hiddenNow = (sid: string) => next[sid] === true
+      const fixActive = (node: PaneNode): PaneNode => {
+        if (node.type === 'leaf') {
+          if (node.sessions.length === 0) return node
+          const activeHidden = node.activeSessionId && hiddenNow(node.activeSessionId)
+          const activeMissing = !node.activeSessionId
+          if (activeHidden || activeMissing) {
+            const fallback = node.sessions.find(s => !hiddenNow(s))
+            return { ...node, activeSessionId: fallback ?? null }
+          }
+          return node
+        }
+        // branch: 子节点引用都未变就返回原对象,避免无改动时重建整棵树触发多余重渲染
+        const f = fixActive(node.firstChild)
+        const s = fixActive(node.secondChild)
+        if (f === node.firstChild && s === node.secondChild) return node
+        return { ...node, firstChild: f, secondChild: s }
+      }
+      const newRoot = fixActive(state.layout.root)
+      return {
+        hiddenTabSessions: next,
+        layout: { ...state.layout, root: newRoot }
+      }
+    })
   },
 
   // 设置分屏比例
@@ -634,11 +687,21 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
 
     let newRoot = replacePane(layout.root, paneId, updatedPane)
 
+    // 该 session 已从其唯一所在 pane 移除(addSessionToPane 保证一个 sessionId 至多在一个 pane),
+    // 顺手清理 hiddenTabSessions 残留,避免记录随关闭累积
+    const nextHidden = { ...get().hiddenTabSessions }
+    let hiddenChanged = false
+    if (nextHidden[sessionId] !== undefined) {
+      delete nextHidden[sessionId]
+      hiddenChanged = true
+    }
+
     // 如果分屏没有会话了，关闭该分屏
     if (newSessions.length === 0) {
       newRoot = removePaneAndMerge(newRoot, paneId)
       const leaves = collectLeaves(newRoot)
       set({
+        ...(hiddenChanged ? { hiddenTabSessions: nextHidden } : {}),
         layout: {
           root: newRoot,
           activePaneId: leaves.length > 0 ? leaves[0].id : ''
@@ -646,6 +709,7 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
       })
     } else {
       set({
+        ...(hiddenChanged ? { hiddenTabSessions: nextHidden } : {}),
         layout: {
           root: newRoot,
           activePaneId: paneId

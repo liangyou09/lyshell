@@ -386,6 +386,10 @@ const SessionSlot: React.FC<{
   dangerTitle?: string
   /** 紧凑 hover actions —— 只保留 pin + danger,隐藏 edit/copy。LIVE 段用 */
   compactActions?: boolean
+  /** 视觉置灰 —— LIVE 段该会话所有页签已被隐藏时用,提示点击即还原 */
+  dimmed?: boolean
+  /** 被隐藏的页签数(LIVE 段用);>0 时在名称右侧显示徽章 */
+  hiddenCount?: number
   onDragStart?: (e: React.DragEvent) => void
   onDragEnter?: (e: React.DragEvent) => void
   onDrop?: (e: React.DragEvent) => void
@@ -393,7 +397,7 @@ const SessionSlot: React.FC<{
   isDragOver?: boolean
 }> = ({
   config, status, reachable, active, isPinned, draggable,
-  onClick, onEdit, onCopy, onTogglePin, onDelete, dangerIcon, dangerTitle, compactActions,
+  onClick, onEdit, onCopy, onTogglePin, onDelete, dangerIcon, dangerTitle, compactActions, dimmed, hiddenCount,
   onDragStart, onDragEnter, onDrop, isDragging, isDragOver
 }) => {
   const proto = mapProtocol(config.type)
@@ -409,7 +413,7 @@ const SessionSlot: React.FC<{
       data-proto={proto}
       data-status={status}
       data-reach={reachable === undefined ? 'unknown' : reachable ? 'up' : 'down'}
-      title={visual.tooltip}
+      title={dimmed ? `${visual.tooltip} · 已隐藏,点击还原` : visual.tooltip}
       className={cn(
         'group relative grid items-center gap-2.5 pr-3 min-h-[34px] py-1.5 cursor-pointer transition-colors',
         'grid-cols-[4px_auto_minmax(0,auto)_minmax(0,1fr)]',
@@ -417,6 +421,7 @@ const SessionSlot: React.FC<{
         'bg-[var(--bg-rack)] border-b border-[var(--rule-soft)]',
         'shadow-[inset_0_-1px_0_var(--bg-base)]',
         'hover:bg-[var(--bg-slot)]',
+        dimmed && 'opacity-45 hover:opacity-100',
         active && [
           'bg-[var(--bg-slot)]',
           // 2px amber 左边 + 软晕,像 active slot 在通电
@@ -447,7 +452,16 @@ const SessionSlot: React.FC<{
       >
         <span className={cn('leading-none', PROTO_TEXT_CLS[proto])}>{PROTO_LABEL[proto]}</span>
       </span>
-      <span className="text-[13.5px] text-[var(--text-rack)] font-semibold truncate max-w-[140px] tracking-[.01em] leading-none inline-flex items-center h-[22px]">
+      <span className="text-[13.5px] text-[var(--text-rack)] font-semibold truncate max-w-[140px] tracking-[.01em] leading-none inline-flex items-center gap-1.5 h-[22px]">
+        {/* 被隐藏的页签数徽章 —— 提示点击还原 N 个页签;hiddenCount 为 0/undefined 时不渲染(用三元,切勿用 && 会把 0 渲染成文本) */}
+        {hiddenCount ? (
+          <span
+            title={`已隐藏 ${hiddenCount} 个页签,点击还原`}
+            className="inline-flex items-center justify-center min-w-[20px] h-[18px] px-1 rounded-[2px] bg-[var(--bg-elev)] text-[var(--amber)] font-mono text-[12px] font-bold tabular-nums leading-none"
+          >
+            {hiddenCount}
+          </span>
+        ) : null}
         {config.name}
       </span>
       <span className="font-mono text-[11px] text-[var(--text-rack-data)] truncate min-w-0 leading-none inline-flex items-center h-[22px]">
@@ -516,6 +530,8 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([])
   const { savedSessions, sessions, reachability, refreshSavedSessions, disconnectSession, removeLiveSession } = useSessionStore()
   const removeSessionFromAllPanes = usePaneStore(s => s.removeSessionFromAllPanes)
+  // 被隐藏的终端页签(Sidebar LIVE 段会话标签点击 toggle)——用于给已隐藏的 LIVE 标签置灰
+  const hiddenTabSessions = usePaneStore(s => s.hiddenTabSessions)
   // 订阅 layout —— LIVE 段需要按"在某个 pane 里(打开了 tab)"过滤,而不是按 sessions 数组(那里包含所有 saved 的 disconnected registry)
   const layoutRoot = usePaneStore(s => s.layout.root)
   const sessionIdsInPanes = useMemo<Set<string>>(() => {
@@ -855,6 +871,23 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
     // 与 main/ipc/handlers.ts 中 syncReachabilityTargets 的 key 对齐 — 直接用 config.id
     return reachability[saved.id]?.reachable
   }
+  // 该 saved 对应的所有 runtime session 是否都被隐藏了页签(点击 LIVE 标签 toggle 的结果)
+  // 只看真正在 pane 里的 session,排除 disconnected registry 条目
+  const isLiveHidden = (saved: SessionConfig): boolean => {
+    const key = liveKey(saved)
+    const liveIds = sessions
+      .filter(s => s.config && liveKey(s.config) === key && s.id && sessionIdsInPanes.has(s.id))
+      .map(s => s.id)
+    return liveIds.length > 0 && liveIds.every(id => hiddenTabSessions[id])
+  }
+  // 该 saved 对应的 runtime session 中被隐藏了页签的数量(用于徽章显示)
+  const liveHiddenCount = (saved: SessionConfig): number => {
+    const key = liveKey(saved)
+    return sessions
+      .filter(s => s.config && liveKey(s.config) === key && s.id
+        && sessionIdsInPanes.has(s.id) && hiddenTabSessions[s.id])
+      .length
+  }
 
   // LIVE 行的 danger action: 把对应 saved 的所有 live entry 全关掉(clone/多次 connect 产生的 N 个一并清)
   // 已 disconnected 的 entry 也彻底摘掉
@@ -976,6 +1009,21 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
 
   const handleSessionClick = (config: SessionConfig) => {
     onConnect?.(config.id, config)
+  }
+
+  // LIVE 段会话标签点击:不连接,而是切换该会话所有页签(含终端)的隐藏/还原
+  // xterm 实例不卸载,连接与输出保留;再次点击同一标签即还原
+  const handleLiveSessionToggleTabs = (config: SessionConfig) => {
+    const key = liveKey(config)
+    // 只取真正在某个 pane 里的 runtime session —— sessions 数组里还有同 liveKey 的
+    // disconnected registry 条目(id = saved.id),它不在任何 pane,隐藏它无意义且会让计数虚高
+    const liveIds = sessions
+      .filter(s => s.config && liveKey(s.config) === key && s.id && sessionIdsInPanes.has(s.id))
+      .map(s => s.id)
+    if (liveIds.length === 0) return
+    // 任一已隐藏 → 视为隐藏态,全部还原;否则全部隐藏
+    const anyHidden = liveIds.some(id => usePaneStore.getState().hiddenTabSessions[id])
+    usePaneStore.getState().toggleLiveSessionTabs(liveIds, !anyHidden)
   }
 
   const handleNewSession = () => {
@@ -1196,7 +1244,9 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
                   active={false}
                   isPinned={!!config.tags?.includes('pinned')}
                   compactActions
-                  onClick={() => handleSessionClick(config)}
+                  dimmed={isLiveHidden(config)}
+                  hiddenCount={liveHiddenCount(config)}
+                  onClick={() => handleLiveSessionToggleTabs(config)}
                   onEdit={(e) => handleEditSession(config, e)}
                   onCopy={(e) => handleCopySession(config, e)}
                   onTogglePin={(e) => handleTogglePin(config, e)}

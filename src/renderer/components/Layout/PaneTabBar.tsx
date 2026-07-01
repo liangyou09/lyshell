@@ -18,14 +18,17 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)  // 悬停位置索引
   const { sessions } = useSessionStore()
   const { setActiveSessionInPane, removeSessionFromPane, addSessionToPane, reorderSessionsInPane } = usePaneStore()
+  // 被隐藏的页签(Sidebar LIVE 段会话标签点击 toggle)——不渲染对应页签,但终端实例保留
+  const hiddenTabSessions = usePaneStore(s => s.hiddenTabSessions)
 
   // 防止重复双击
   const isCloning = useRef(false)
 
-  // 获取该分屏内的会话（按照 pane.sessions 的顺序）
+  // 获取该分屏内的会话（按照 pane.sessions 的顺序）；被隐藏的页签不显示
   const paneSessions = pane.sessions
     .map(sessionId => sessions.find(s => s.id === sessionId))
     .filter((s): s is typeof sessions[0] => s !== undefined)
+    .filter(s => !hiddenTabSessions[s.id])
 
   // 获取所有分屏内的活跃会话（用于全局编号计算，只统计活跃的）
   const allPaneSessions = sessions.filter(s =>
@@ -189,15 +192,24 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
     const dragSessionId = e.dataTransfer.getData('text/plain')
     if (!dragSessionId) return
 
-    // 找到拖拽会话的当前索引
+    // 找到拖拽会话的当前索引(在过滤后的 paneSessions 里)
     const dragIndex = paneSessions.findIndex(s => s.id === dragSessionId)
     if (dragIndex === -1 || dragIndex === targetIndex) {
       setDragOverIndex(null)
       return
     }
 
+    // paneSessions 已过滤掉隐藏标签,但 reorderSessionsInPane 对原始 pane.sessions 做 splice,
+    // 直接传过滤后索引会在中间夹有隐藏标签时错位 —— 映射回原始数组索引
+    const fromOrigIndex = pane.sessions.indexOf(paneSessions[dragIndex].id)
+    const toOrigIndex = pane.sessions.indexOf(paneSessions[targetIndex].id)
+    if (fromOrigIndex === -1 || toOrigIndex === -1 || fromOrigIndex === toOrigIndex) {
+      setDragOverIndex(null)
+      return
+    }
+
     // 重排序
-    reorderSessionsInPane(pane.id, dragIndex, targetIndex)
+    reorderSessionsInPane(pane.id, fromOrigIndex, toOrigIndex)
     setDragOverIndex(null)
   }
 

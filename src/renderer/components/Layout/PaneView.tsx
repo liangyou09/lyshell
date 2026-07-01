@@ -18,6 +18,9 @@ interface PaneViewProps {
 const PaneView: React.FC<PaneViewProps> = ({ node }) => {
   const { layout, setActivePane, addSessionToPane, splitPaneWithPosition, swapPanePosition } = usePaneStore()
   const { getPaneBySessionId, getParentPane, getPanePositionInParent } = usePaneStore.getState()
+  // 被隐藏的终端页签记录(Sidebar LIVE 段会话标签点击 toggle);订阅整个记录,任何 toggle 都会触发本组件重渲染。
+  // 实际负载很小(仅 visibility 切换),未做按 pane 过滤的选择器。
+  const hiddenTabSessions = usePaneStore(s => s.hiddenTabSessions)
   const isActive = layout.activePaneId === node.id
   const [dropZone, setDropZone] = useState<DropZone>(null)
   const [dropAction, setDropAction] = useState<'swap' | 'changeDirection' | 'split' | null>(null)
@@ -311,20 +314,35 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
           onDrop={handleDrop}
           className="flex-1 flex overflow-hidden relative"
         >
-          {/* 渲染所有 session 的终端，非活跃的用 CSS 隐藏，确保持续接收数据 */}
+          {/* 渲染所有 session 的终端,非活跃 / 被隐藏的用 CSS 隐藏,确保 xterm 实例不卸载、持续接收数据 */}
           {node.sessions.length > 0 ? (
-            node.sessions.map(sessionId => (
-              <div
-                key={sessionId}
-                className="absolute inset-0"
-                style={{
-                  visibility: sessionId === node.activeSessionId ? 'visible' : 'hidden',
-                  zIndex: sessionId === node.activeSessionId ? 1 : 0
-                }}
-              >
-                <TerminalView sessionId={sessionId} paneId={node.id} />
-              </div>
-            ))
+            <>
+              {node.sessions.map(sessionId => {
+                // 被隐藏的页签:终端仍挂载(保留连接与输出),但不可见;活跃且未隐藏才显示
+                const isVisible = sessionId === node.activeSessionId && !hiddenTabSessions[sessionId]
+                return (
+                  <div
+                    key={sessionId}
+                    className="absolute inset-0"
+                    style={{
+                      visibility: isVisible ? 'visible' : 'hidden',
+                      zIndex: isVisible ? 1 : 0
+                    }}
+                  >
+                    <TerminalView sessionId={sessionId} paneId={node.id} />
+                  </div>
+                )
+              })}
+              {/* 所有页签都被隐藏时叠加提示;终端实例仍挂载下层,保留连接与输出 */}
+              {node.sessions.every(id => hiddenTabSessions[id]) && (
+                <div className="absolute inset-0 flex items-center justify-center bg-[#0C0C0C] text-gray-500 z-10 pointer-events-none">
+                  <div className="text-center">
+                    <p className="text-sm">所有页签已隐藏</p>
+                    <p className="text-xs mt-1">点击侧栏 LIVE 标签还原</p>
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <div className="flex items-center justify-center flex-1 bg-[#0C0C0C] text-gray-500">
               <div className="text-center">
