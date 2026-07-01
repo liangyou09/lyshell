@@ -241,13 +241,18 @@ export class FileManager extends EventEmitter {
 
   /**
    * 下载文件
+   *
+   * @param awaitMd5 MCP 路径需同步返回 MD5 供调用方校验传输完整性；
+   *                UI 路径默认 false —— 异步计算并通过 transfer:md5 事件推送，不阻塞下载队列。
+   *                无论哪种路径，MD5 计算失败都只记日志、不影响下载成功。
    */
   async download(
     sessionId: string,
     remotePath: string,
     localPath: string,
     taskId: string,
-    onProgress?: (progress: TransferProgress) => void
+    onProgress?: (progress: TransferProgress) => void,
+    awaitMd5: boolean = false
   ): Promise<{ md5?: string }> {
     const connector = await this.getConnector(sessionId)
 
@@ -263,7 +268,18 @@ export class FileManager extends EventEmitter {
     // 先发送完成事件（不含 MD5），让 UI 立即响应
     this.emit('transfer:completed', { taskId, sessionId, direction: 'download', md5: undefined })
 
-    // 异步计算 MD5，不阻塞
+    // MD5 计算：MCP 路径同步 await 后返回；UI 路径 fire-and-forget 推事件
+    if (awaitMd5) {
+      try {
+        const md5 = await this.calculateMD5(localPath)
+        this.emit('transfer:md5', { taskId, sessionId, md5 })
+        return { md5 }
+      } catch (err: any) {
+        log.warn(`Failed to calculate MD5 for ${localPath}:`, err.message)
+        return {}
+      }
+    }
+
     this.calculateMD5(localPath).then(md5 => {
       // 发送 MD5 更新事件
       this.emit('transfer:md5', { taskId, sessionId, md5 })

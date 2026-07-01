@@ -186,7 +186,8 @@ export const TOOL_DEFINITIONS = [
     title: '执行命令并捕获输出',
     description:
       'Execute a command on a connected session and capture the output. ' +
-      'For SSH sessions, uses a dedicated exec channel (does not interfere with the interactive terminal). ' +
+      'IMPORTANT for SSH sessions: uses a DEDICATED exec channel — a fresh channel that does NOT inherit the interactive terminal\'s cwd, environment, or any sub-shell you have entered interactively (e.g. if you ran `cd` or `docker exec` in the interactive PTY, execute_command will NOT see that context and may report host-level instead of container-level tools/binaries). ' +
+      'To run a command in the interactive PTY\'s current context instead, use send_and_wait (which writes directly to the PTY, inheriting its cwd and env). ' +
       'For local sessions, uses child_process.exec. ' +
       'Telnet and serial sessions are not supported. ' +
       'Returns the command output as a string.',
@@ -272,11 +273,12 @@ export const TOOL_DEFINITIONS = [
       'Send input to an interactive terminal and wait for the response, returning the captured output. ' +
       'Works with ALL session types (SSH, Local, Telnet, Serial). ' +
       'Supports escape sequences: \\n for Enter, \\r for carriage return, \\x03 for Ctrl+C, \\x1a for Ctrl+Z, \\t for Tab. ' +
+      'By default (autoNewline=true) a trailing \\n is appended automatically when the text ends in a normal character, so you do NOT need to add \\n yourself for a plain command — set autoNewline=false to disable (e.g. when sending raw control sequences). ' +
       'Returns the terminal output produced after the input was sent, with ANSI codes stripped. ' +
+      'The `output` field includes the echoed input (terminals echo what you type); prefer the `cleanOutput` field which has the echoed command lines stripped from the front. ' +
       'The tool waits until output settles (no new data for idleMs) or until a timeout. ' +
       'Optionally returns early when a regex pattern (waitForPattern) appears in the output. ' +
       'Prefer this over send_input + read_output when you need the terminal response. ' +
-      'Note: the returned output includes the echoed input (terminals echo what you type). ' +
       'Best for line-oriented programs; full-screen apps (vim/htop) may produce garbled output.',
     inputSchema: {
       type: 'object' as const,
@@ -307,6 +309,10 @@ export const TOOL_DEFINITIONS = [
         waitForPattern: {
           type: 'string',
           description: 'Regex pattern to wait for in output. Returns immediately when matched.'
+        },
+        autoNewline: {
+          type: 'boolean',
+          description: 'When true (default), append a trailing \\n if the text ends in a normal character, so the command is submitted automatically. Set false for raw control sequences.'
         }
       },
       required: ['sessionId', 'text'] as string[]
@@ -315,11 +321,12 @@ export const TOOL_DEFINITIONS = [
       type: 'object' as const,
       properties: {
         output: { type: 'string' },
+        cleanOutput: { type: 'string', description: 'Output with echoed input lines stripped from the front. Best-effort: plain command lines and caret-echoed control chars (e.g. ^C) are stripped; Tab expansion or prompt-prefixed echoes may not match, in which case cleanOutput falls back to the full output with line endings normalized to \\n (so it may NOT be byte-identical to `output`, which preserves original \\r\\n / \\r endings — do not compare with cleanOutput === output).' },
         settled: { type: 'boolean' },
         patternMatched: { type: 'boolean' },
         elapsedMs: { type: 'number' }
       },
-      required: ['output', 'settled', 'patternMatched', 'elapsedMs']
+      required: ['output', 'cleanOutput', 'settled', 'patternMatched', 'elapsedMs']
     },
     annotations: {
       readOnlyHint: false,
@@ -345,8 +352,11 @@ export const TOOL_DEFINITIONS = [
       required: ['sessionId', 'path'] as string[]
     },
     outputSchema: {
-      type: 'array' as const,
-      items: fileEntrySchema
+      type: 'object' as const,
+      properties: {
+        entries: { type: 'array', items: fileEntrySchema }
+      },
+      required: ['entries']
     },
     annotations: {
       readOnlyHint: true,
@@ -477,25 +487,30 @@ export const TOOL_DEFINITIONS = [
     description:
       'Wait for a regex pattern to appear in a session\'s recent terminal output WITHOUT sending any input. ' +
       'Use to detect a shell prompt is ready, a long-running command finished, or a log line appeared. ' +
+      'The pattern is OPTIONAL: if omitted, defaults to a common shell-prompt regex ([$#>%]\\s*$) matching $ / # / > / % at the end of the buffer. ' +
+      'Checks the recent buffer (up to 1000 lines of scrollback) first and returns immediately if the pattern is already present (e.g. prompt already ready); otherwise waits for new output to match. ' +
+      'Note: because the fast path scans existing scrollback, a custom pattern may match stale history rather than newly produced output — if you need to wait for a fresh occurrence, ensure the pattern is not already in the visible buffer, or use send_and_wait which only scans output produced after the call. ' +
       'For "send something then wait" use send_and_wait instead. Returns as soon as the pattern matches or timeoutMs elapses.',
     inputSchema: {
       type: 'object' as const,
       properties: {
         sessionId: sessionIdField,
-        pattern: { type: 'string', minLength: 1, description: 'Regex to match against the session output buffer.' },
+        pattern: { type: 'string', description: 'Regex to match against the session output buffer. Optional; defaults to a common shell-prompt regex ([$#>%]\\s*$).' },
         timeoutMs: { type: 'number', minimum: 100, maximum: 120000, description: 'Max time to wait in ms (default 30000).' },
         idleMs: { type: 'number', minimum: 50, maximum: 10000, description: 'Idle threshold for the underlying settle detection (default 500).' }
       },
-      required: ['sessionId', 'pattern'] as string[]
+      required: ['sessionId'] as string[]
     },
     outputSchema: {
       type: 'object' as const,
       properties: {
         output: { type: 'string' },
+        cleanOutput: { type: 'string', description: 'Equal to output — wait_for_prompt sends no input, so there is no echo to strip. Present for shape consistency with send_and_wait.' },
         settled: { type: 'boolean' },
         patternMatched: { type: 'boolean' },
         elapsedMs: { type: 'number' }
-      }
+      },
+      required: ['output', 'cleanOutput', 'settled', 'patternMatched', 'elapsedMs']
     },
     annotations: {
       readOnlyHint: true,

@@ -202,8 +202,11 @@ export class LyShellHttpClient {
    */
   async post(apiPath: string, body?: any): Promise<any> {
     const isFileTransfer = apiPath.includes('/files/download') || apiPath.includes('/files/upload')
-    const isLongWait = apiPath.includes('/send-and-wait')
-    const timeout = isFileTransfer ? 120000 : isLongWait ? 60000 : 30000
+    // send_and_wait / wait_for_prompt 都可能等待较久（长命令、慢 prompt），统一 60s；
+    // wait_for_prompt 若走默认 30s 档，等待 >30s 会被客户端先超时。
+    const isLongWait = apiPath.includes('/send-and-wait') || apiPath.includes('/wait-for-prompt')
+    // 文件传输含 SFTP 传输 + 同步 MD5 校验，大文件易超 120s；放宽到 600s（异步任务化前的过渡方案）。
+    const timeout = isFileTransfer ? 600000 : isLongWait ? 60000 : 30000
     return this.request('POST', apiPath, body, timeout)
   }
 

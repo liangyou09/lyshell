@@ -155,24 +155,25 @@ export async function startMcpHttpServer(): Promise<void> {
  * 停止 MCP HTTP 服务端
  */
 export async function stopMcpHttpServer(): Promise<void> {
-   // 关闭 HTTP 服务端
+  // 先做同步清理（端口文件 + token），确保即使调用方不 await（如 will-quit 同步钩子），
+  // 这些关键清理也在挂起前完成——避免残留 mcp-server.json 误导下次启动、或泄漏 token。
+  const portFilePath = getPortFilePath()
+  try {
+    fs.unlinkSync(portFilePath)
+  } catch {
+    // 忽略删除失败
+  }
+
+  // 清空所有 token（全局 + per-session），防止泄漏的 token 在重启后还能使用
+  mcpAuth.clearAllTokens()
+
+  // 关闭 HTTP 服务端（await 可能挂起；进程退出时由 OS 回收监听端口）
   if (server) {
     await new Promise<void>(resolve => {
       server!.close(() => resolve())
     })
     server = null
     httpPort = null
-  }
-
-  // 清空所有 token（全局 + per-session），防止泄漏的 token 在重启后还能使用
-  mcpAuth.clearAllTokens()
-
-  // 清理端口文件
-  const portFilePath = getPortFilePath()
-  try {
-    fs.unlinkSync(portFilePath)
-  } catch {
-    // 忽略删除失败
   }
 
   // 不再自动清理用户外部配置；如需移除，用户自行执行 claude mcp remove lyshell
@@ -666,7 +667,10 @@ async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerRespo
       waitMs: clampNumber(data.waitMs, 0, MAX_COMMAND_TIMEOUT_MS, 2000),
       idleMs: clampNumber(data.idleMs, 50, 10000, 300),
       maxWaitMs: clampNumber(data.maxWaitMs, 100, MAX_COMMAND_TIMEOUT_MS, 10000),
-      waitForPattern: data.waitForPattern ? summarizeText(data.waitForPattern, 500) : undefined
+      // 注意：waitForPattern 是正则，不能过 summarizeText——后者会截断追加 '...'（被 RegExp 当成三个 .）
+      // 并把 CR/LF/Tab 换成空格，悄悄改变正则语义。原样透传。
+      waitForPattern: data.waitForPattern,
+      autoNewline: data.autoNewline !== false
     })
 
     log.info(`[MCP] Send-and-wait to session ${sessionId}: settled=${result.settled} elapsed=${result.elapsedMs}ms`)
@@ -738,7 +742,8 @@ async function handleListFiles(data: FileOperationRequest, res: http.ServerRespo
       return
     }
     const files = await fileManager.listDir(sessionId, dirPath)
-    sendJson(res, 200, { success: true, data: files })
+    // 包成 { entries: [...] } —— MCP structuredContent 必须是对象，裸数组会触发客户端 schema 校验错误。
+    sendJson(res, 200, { success: true, data: { entries: files } })
   } catch (err: any) {
     sendJson(res, 500, { success: false, error: err.message })
   }
@@ -828,7 +833,9 @@ async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerRes
       return
     }
     const taskId = uuidv4()
-    const result = await fileManager.download(sessionId, remotePath, localPath, taskId)
+    // MCP 路径同步等待 MD5 —— 调用方依赖返回值校验传输完整性，
+    // 否则异步 transfer:md5 事件无法回传给 MCP 客户端，工具只会看到空 {}（静默失败）。
+    const result = await fileManager.download(sessionId, remotePath, localPath, taskId, undefined, true)
     const response: DownloadFileResponse = { md5: result.md5 }
     sendJson(res, 200, { success: true, data: response })
   } catch (err: any) {
@@ -1095,16 +1102,18 @@ function redactSecretEnv(env: Record<string, string>): Record<string, string> {
  * POST /api/wait-for-prompt — 等待某模式在终端输出中出现（不发送任何输入）
  */
 async function handleWaitForPrompt(
-  data: { sessionId: string; pattern: string; timeoutMs?: number; idleMs?: number },
+  data: { sessionId: string; pattern?: string; timeoutMs?: number; idleMs?: number },
   res: http.ServerResponse,
   binding: TokenBinding
 ): Promise<void> {
   try {
     const { sessionId, pattern } = data
-    if (!sessionId || !pattern) {
-      sendJson(res, 400, { success: false, error: 'sessionId and pattern are required' })
+    if (!sessionId) {
+      sendJson(res, 400, { success: false, error: 'sessionId is required' })
       return
     }
+    // pattern 可选：缺省匹配常见 shell 提示符（$ / # / > / % 之一结尾，允许尾随空白）
+    const patternStr = pattern && pattern.trim() ? pattern : '[$#>%]\\s*$'
 
     const session = sessionManager.getSession(sessionId)
     if (!session) {
@@ -1116,19 +1125,47 @@ async function handleWaitForPrompt(
       return
     }
 
-    const auth = await authorizeMcpOperation('wait_for_prompt', 'read', sessionId, summarizeText(pattern, 200), binding)
+    const auth = await authorizeMcpOperation('wait_for_prompt', 'read', sessionId, summarizeText(patternStr, 200), binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
 
-    // 复用 sendAndWait, 但 text='' 仅等待 —— 不写入任何字节
+    // 先编译正则（提前 400，避免进入等待后才发现非法）
+    let regex: RegExp
+    try {
+      regex = new RegExp(patternStr)
+    } catch (e: any) {
+      sendJson(res, 400, { success: false, error: `Invalid pattern regex: ${e.message}` })
+      return
+    }
+
+    // 先查"已在缓冲区里"的近期输出：典型场景是 prompt 已就绪（reconnect 后、命令刚返回），
+    // 此时没有新输出产生，纯等新输出会超时。命中即立即返回。
+    // 同时在 raw 与 ANSI 清洗后两种基底上匹配：默认 prompt 正则依赖清洗后的 $ 锚定，
+    // 而带 ANSI 码的自定义正则只在 raw 上命中。
+    const existingRaw = sessionManager.readOutput(sessionId, { lines: 1000, raw: true })
+    const existingClean = sessionManager.readOutput(sessionId, { lines: 1000, raw: false })
+    if (existingRaw && existingClean && (regex.test(existingRaw.output) || regex.test(existingClean.output))) {
+      sendJson(res, 200, {
+        success: true,
+        data: { output: existingClean.output, cleanOutput: existingClean.output, settled: true, patternMatched: true, elapsedMs: 0 }
+      })
+      return
+    }
+
+    // 未在现有缓冲区命中 → 等待新输出。复用 sendAndWait({text:''})：
+    //  - 持有 pendingWaitLock，与 send_and_wait 互斥（避免并发对同一会话输出产生误判）；
+    //  - 在 raw 与清洗后两种基底上匹配（见 sendAndWait 实现）；
+    //  - 用 idleMs 做 settle 早返回（终端静默 idleMs 后即返回 settled:true）。
+    // 仅匹配"调用后新产生"的输出，避免对历史 scrollback 误命中（自定义 pattern 等待新出现时尤为关键）。
     const result: SendAndWaitResult = await sessionManager.sendAndWait(sessionId, {
       text: '',
       waitMs: 0,
       idleMs: clampNumber(data.idleMs, 50, 10000, 500),
       maxWaitMs: clampNumber(data.timeoutMs, 100, MAX_COMMAND_TIMEOUT_MS, 30000),
-      waitForPattern: pattern
+      waitForPattern: patternStr,
+      autoNewline: false
     })
 
     sendJson(res, 200, { success: true, data: result })

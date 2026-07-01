@@ -8,7 +8,6 @@ import { registerIPCHandlers } from './ipc/handlers'
 import { downloadHistory } from './storage'
 import { sessionManager } from './terminal/session-manager'
 import { setMainWindow, setMainWindowForUpload, cleanupAllWorkers, cleanupAllUploadWorkers } from './file'
-import { startMcpHttpServer, stopMcpHttpServer } from './mcp/http-server'
 import { reachabilityProber } from './reachability/reachability-prober'
 
 // 日志配置
@@ -42,6 +41,7 @@ process.on('unhandledRejection', (reason) => {
 })
 
 let mainWindow: BrowserWindow | null = null
+let stopMcpHttpServerImpl: (() => Promise<void>) | undefined
 
 // 创建主窗口
 function createMainWindow(): void {
@@ -137,10 +137,14 @@ app.whenReady().then(async () => {
 
   // 启动 MCP HTTP 服务器（必须在创建任何会话/窗口前完成，
   // 否则用户在窗口中开本地终端时端口尚未就绪，session-token env 无法注入）
-  try {
-    await startMcpHttpServer()
-  } catch (err) {
-    log.error('Failed to start MCP HTTP server:', err)
+  if (!__DISABLE_MCP__) {
+    try {
+      const { startMcpHttpServer, stopMcpHttpServer } = await import('@main/mcp/http-server')
+      await startMcpHttpServer()
+      stopMcpHttpServerImpl = stopMcpHttpServer
+    } catch (err) {
+      log.error('Failed to start MCP HTTP server:', err)
+    }
   }
 
   // 创建主窗口
@@ -216,7 +220,9 @@ app.whenReady().then(async () => {
 app.on('will-quit', () => {
   cleanupAllWorkers()  // 清理所有下载 Worker
   cleanupAllUploadWorkers()  // 清理所有上传 Worker
-  stopMcpHttpServer()  // 停止 MCP HTTP 服务器
+  if (stopMcpHttpServerImpl) {
+    stopMcpHttpServerImpl()  // 停止 MCP HTTP 服务器
+  }
   reachabilityProber.stop()  // 停止可达性探测定时器
   // 断开所有本地终端 PTY 进程
   for (const session of sessionManager.getAllSessions()) {

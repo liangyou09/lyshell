@@ -6,9 +6,6 @@ import { SSHConnector, TelnetConnector, SerialConnector, LocalConnector, Connect
 import type { SessionConfig, SSHConfig, TelnetConfig, SerialConfig, LocalConfig } from '@shared/types'
 import { processInputEscapeSequences } from '@shared/escape-sequences'
 import { OutputBuffer } from './output-buffer'
-import * as mcpAuth from '../mcp/auth'
-import { getMcpHttpPort } from '../mcp/http-server'
-import { LYSHELL_MCP_ENV } from '../mcp/types'
 
 /** read_output 读取选项 */
 export interface ReadOutputOptions {
@@ -30,11 +27,15 @@ export interface SendAndWaitOptions {
   idleMs?: number
   maxWaitMs?: number
   waitForPattern?: string
+  /** 末尾为普通可见字符时自动补一个 \n（默认 true）。避免调用方忘记加 \n 导致命令只回显不执行 */
+  autoNewline?: boolean
 }
 
 /** send_and_wait 结果 */
 export interface SendAndWaitResult {
   output: string
+  /** 裁掉前端回显输入行后的输出（与 output 相比去掉了命令回显） */
+  cleanOutput: string
   settled: boolean
   patternMatched: boolean
   elapsedMs: number
@@ -157,7 +158,10 @@ export class SessionManager extends EventEmitter {
     session.outputBuffer = undefined
 
     // 撤销可能存在的 per-session MCP token（仅 LOCAL 会话会持有，但调用幂等）
-    mcpAuth.revokeSessionToken(id)
+    if (!__DISABLE_MCP__) {
+      const mcpAuth = await import('@main/mcp/auth')
+      mcpAuth.revokeSessionToken(id)
+    }
 
     this.sessions.delete(id)
     log.info(`Session deleted: ${id}`)
@@ -200,24 +204,29 @@ export class SessionManager extends EventEmitter {
           })
           break
         case ConnectionType.LOCAL: {
-          // 为本地 PTY 生成 per-session MCP token，注入到 PTY env。
-          // PTY 内孵化的 Claude Code / MCP Server 子进程将自动继承，
-          // 外部进程拿不到 -> 实现"MCP 仅对 LyShell 内部终端开放"。
-          // 端口未就绪（HTTP 服务尚未启动）则跳过注入，PTY 仍可正常运行，只是无法连 MCP。
-          const sessionToken = mcpAuth.bindSessionToken(id)
-          const port = getMcpHttpPort()
           const extraEnv: Record<string, string> = {}
-          if (port !== null) {
-            extraEnv[LYSHELL_MCP_ENV.PORT] = String(port)
-            extraEnv[LYSHELL_MCP_ENV.TOKEN] = sessionToken
-            extraEnv[LYSHELL_MCP_ENV.SESSION_ID] = id
-            try {
-              extraEnv[LYSHELL_MCP_ENV.USER_DATA] = app.getPath('userData')
-            } catch {
-              // 极少数测试环境下 app 不可用，忽略
+          if (!__DISABLE_MCP__) {
+            // 为本地 PTY 生成 per-session MCP token，注入到 PTY env。
+            // PTY 内孵化的 Claude Code / MCP Server 子进程将自动继承，
+            // 外部进程拿不到 -> 实现"MCP 仅对 LyShell 内部终端开放"。
+            // 端口未就绪（HTTP 服务尚未启动）则跳过注入，PTY 仍可正常运行，只是无法连 MCP。
+            const mcpAuth = await import('@main/mcp/auth')
+            const { getMcpHttpPort } = await import('@main/mcp/http-server')
+            const { LYSHELL_MCP_ENV } = await import('@main/mcp/types')
+            const sessionToken = mcpAuth.bindSessionToken(id)
+            const port = getMcpHttpPort()
+            if (port !== null) {
+              extraEnv[LYSHELL_MCP_ENV.PORT] = String(port)
+              extraEnv[LYSHELL_MCP_ENV.TOKEN] = sessionToken
+              extraEnv[LYSHELL_MCP_ENV.SESSION_ID] = id
+              try {
+                extraEnv[LYSHELL_MCP_ENV.USER_DATA] = app.getPath('userData')
+              } catch {
+                // 极少数测试环境下 app 不可用，忽略
+              }
+            } else {
+              log.warn(`[MCP] HTTP server not ready when spawning local session ${id}; MCP env will not be injected`)
             }
-          } else {
-            log.warn(`[MCP] HTTP server not ready when spawning local session ${id}; MCP env will not be injected`)
           }
 
           session.connector = new LocalConnector(id, {
@@ -311,7 +320,10 @@ export class SessionManager extends EventEmitter {
 
     // 撤销 per-session MCP token：PTY 已退出，env 注入的 token 不应再有效。
     // 重连会在 connectSession 中重新 bind 一个新 token，旧的不会被复用。
-    mcpAuth.revokeSessionToken(id)
+    if (!__DISABLE_MCP__) {
+      const mcpAuth = await import('@main/mcp/auth')
+      mcpAuth.revokeSessionToken(id)
+    }
 
     session.status = ConnectionStatus.DISCONNECTED
     log.info(`Session disconnected: ${id}`)
@@ -551,7 +563,18 @@ export class SessionManager extends EventEmitter {
       }
     }
 
-    const processedText = processInputEscapeSequences(options.text)
+    let processedText = processInputEscapeSequences(options.text)
+
+    // autoNewline：末尾是普通可见字符时自动补一个 \n，避免调用方忘记加换行导致命令只回显不执行。
+    // 末尾已是 \n/\r、或为控制序列（Ctrl+C=\x03、Ctrl+Z=\x1a、Tab=\t 等 C0 控制字符 / DEL）时不补。
+    // 核心层默认 false（保持"不补换行"的最小语义）；MCP 边界层(handleSendAndWait)以 data.autoNewline !== false
+    // 显式 opt-in 默认 true，使外部 MCP 调用方免于手写 \n。新增非 MCP 调用方需自行决定是否传 autoNewline:true。
+    if (options.autoNewline === true && processedText.length > 0) {
+      const lastChar = processedText.charCodeAt(processedText.length - 1)
+      if (lastChar >= 0x20 && lastChar !== 0x7f) {
+        processedText += '\n'
+      }
+    }
 
     session.pendingWaitLock = true
     const connector = session.connector
@@ -576,25 +599,27 @@ export class SessionManager extends EventEmitter {
         const elapsed = now - startTime
         const idleSince = now - lastDataTime
 
-        // 模式匹配检测（在原始数据上匹配，避免清洗影响）
+        // 模式匹配检测：同时在 raw 与 ANSI 清洗后两种基底上匹配。
+        // 默认 prompt 正则（[$#>%]\s*$）依赖清洗后的 $ 锚定（raw 末尾常带 ANSI 复位码）；
+        // 带 ANSI 码的自定义正则只在 raw 上命中。两者取或，避免基底选择导致漏判。
         if (patternRegex) {
           const rawOutput = buffer.getOutputSince(startCursor, false).text
-          if (patternRegex.test(rawOutput)) {
-            const cleanOutput = buffer.getOutputSince(startCursor, true).text
-            return { output: cleanOutput, settled: true, patternMatched: true, elapsedMs: elapsed }
+          const ansiStripped = buffer.getOutputSince(startCursor, true).text
+          if (patternRegex.test(rawOutput) || patternRegex.test(ansiStripped)) {
+            return { output: ansiStripped, cleanOutput: stripEcho(ansiStripped, processedText), settled: true, patternMatched: true, elapsedMs: elapsed }
           }
         }
 
         // 空闲检测：超过 waitMs 且空闲超过 idleMs
         if (elapsed >= waitMs && idleSince >= idleMs) {
-          const cleanOutput = buffer.getOutputSince(startCursor, true).text
-          return { output: cleanOutput, settled: true, patternMatched: false, elapsedMs: elapsed }
+          const ansiStripped = buffer.getOutputSince(startCursor, true).text
+          return { output: ansiStripped, cleanOutput: stripEcho(ansiStripped, processedText), settled: true, patternMatched: false, elapsedMs: elapsed }
         }
 
         // 最大超时
         if (elapsed >= maxWaitMs) {
-          const cleanOutput = buffer.getOutputSince(startCursor, true).text
-          return { output: cleanOutput, settled: false, patternMatched: false, elapsedMs: elapsed }
+          const ansiStripped = buffer.getOutputSince(startCursor, true).text
+          return { output: ansiStripped, cleanOutput: stripEcho(ansiStripped, processedText), settled: false, patternMatched: false, elapsedMs: elapsed }
         }
 
         // 50ms 轮询
@@ -605,6 +630,51 @@ export class SessionManager extends EventEmitter {
       session.pendingWaitLock = false
     }
   }
+}
+
+/**
+ * 把发送文本中的 C0 控制字符 / DEL 归一化为终端的 caret 回显记法（^C / ^Z / ^? 等）。
+ * 终端在 cooked 模式下会把控制字符回显为 caret 记法（如 \x03 回显为 ^C），
+ * 与发送的原始字节不一致，导致 stripEcho 精确匹配失败。归一化后才能对齐。
+ */
+function normalizeControlEcho(text: string): string {
+  // 按码点遍历（避免在正则里写字面控制字符，触发 no-control-regex）。
+  // C0(0x00–0x1f) / DEL(0x7f) → caret 记法（^C / ^Z / ^? 等），对齐终端 cooked 模式的回显。
+  let out = ''
+  for (const ch of text) {
+    const code = ch.codePointAt(0)!
+    if (code <= 0x1f || code === 0x7f) {
+      out += '^' + String.fromCharCode(code === 0x7f ? 0x3f : 0x40 + code)
+    } else {
+      out += ch
+    }
+  }
+  return out
+}
+
+/**
+ * 从捕获的输出前端裁掉与发送文本精确相等的回显行。
+ * 终端会把输入逐行回显（如发送 "ls\n" 会先回显 "ls"），混进真实输出里。
+ * 仅裁前端逐行精确匹配的部分，避免误伤真实输出；不匹配则原样返回。
+ *
+ * 两点对齐：
+ *  - 发送端的控制字符按 caret 记法归一化（\x03 → ^C），对齐终端回显；
+ *  - 捕获端跳过空行，使多行命令（含空行分隔）也能逐行对齐。
+ */
+function stripEcho(captured: string, sentText: string): string {
+  const echoLines = sentText.split(/\r\n|\r|\n/).filter(l => l !== '').map(normalizeControlEcho)
+  if (echoLines.length === 0) return captured
+  const lines = captured.split(/\r\n|\r|\n/)
+  let i = 0
+  for (const echo of echoLines) {
+    while (i < lines.length && lines[i] === '') i++
+    if (i < lines.length && lines[i] === echo) {
+      i++
+    } else {
+      break
+    }
+  }
+  return lines.slice(i).join('\n')
 }
 
 // 单例

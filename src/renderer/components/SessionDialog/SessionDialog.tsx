@@ -364,7 +364,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       <div className="flex items-end">
         {/* 主机标签 */}
         <span
-          className="text-[13px] text-[var(--text-rack)] font-medium flex-shrink-0 pb-1.5 w-[44px] mr-2"
+          className="lyshell-session-label text-[13px] font-medium flex-shrink-0 pb-1.5 w-[44px] mr-2"
           style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
         >
           Host
@@ -406,7 +406,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
         {/* 端口 */}
         <div className="flex items-baseline flex-shrink-0">
           <span
-            className="text-[13px] text-[var(--text-rack)] font-medium mr-2"
+            className="lyshell-session-label text-[13px] font-medium mr-2"
             style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
           >
             Port
@@ -733,6 +733,10 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
             font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
             font-size: 12.5px;
           }
+          .lyshell-session-label {
+            color: var(--text-rack);
+            filter: brightness(1.25);
+          }
         `}</style>
         {/* TITLE STRIP */}
         <div
@@ -799,7 +803,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                       />
                     )}
                     <span
-                      className="text-[14px] font-medium tracking-[0.1em]"
+                      className="lyshell-session-label text-[15px] font-semibold tracking-[0.1em]"
                       style={{ color: isOn ? PROTO_ACCENT[p] : 'var(--text-rack-data)' }}
                     >
                       {PROTO_LABEL[p]}
@@ -824,7 +828,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
               {renderSerialScanner()}
               <div className="flex items-center mt-3 pt-2.5 border-t border-[var(--rule-soft)]">
                 <span
-                  className="text-[13px] text-[var(--text-rack)] font-medium w-[44px] mr-2 flex-shrink-0"
+                  className="lyshell-session-label text-[13px] font-medium w-[44px] mr-2 flex-shrink-0"
                   style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
                 >
                   Baud
@@ -857,7 +861,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
             <div className="py-3.5 px-4 border-b border-[var(--rule)]">
               <div className="flex items-center">
                 <span
-                  className="text-[13px] text-[var(--text-rack)] font-medium w-[44px] mr-2 flex-shrink-0"
+                  className="lyshell-session-label text-[13px] font-medium w-[44px] mr-2 flex-shrink-0"
                   style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
                 >
                   Shell
@@ -891,7 +895,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
               </div>
               <div className="flex items-center mt-2.5">
                 <span
-                  className="text-[13px] text-[var(--text-rack)] font-medium w-[44px] mr-2 flex-shrink-0"
+                  className="lyshell-session-label text-[13px] font-medium w-[44px] mr-2 flex-shrink-0"
                   style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
                 >
                   Cwd
@@ -1015,7 +1019,7 @@ const FieldRow: React.FC<{ label: string; bare?: boolean; labelWidth?: string; c
 }) => (
   <div className={`flex ${bare ? 'items-center py-2' : 'items-stretch py-2.5'}`}>
     <span
-      className={`text-[13px] font-medium text-[var(--text-rack)] ${labelWidth} mr-2 flex-shrink-0 self-center`}
+      className={`lyshell-session-label text-[13px] font-medium ${labelWidth} mr-2 flex-shrink-0 self-center`}
       style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
     >
       {label}

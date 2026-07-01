@@ -1278,10 +1278,10 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
                     )}
                   />
                   <span className="flex-1 flex items-center justify-center gap-1.5 pt-[1px]">
-                    <span className="font-mono text-[11px] font-extrabold tracking-[.1em]">{PROTO_LABEL[p]}</span>
+                    <span className="font-mono text-[13px] font-extrabold tracking-[.1em]">{PROTO_LABEL[p]}</span>
                     <span
                       className={cn(
-                        'font-mono text-[10px] font-semibold tabular-nums px-[3px] py-[1px] rounded-[1px]',
+                        'font-mono text-[11px] font-semibold tabular-nums px-[3px] py-[1px] rounded-[1px]',
                         active
                           ? 'bg-[var(--bg-base)]/55'
                           : 'bg-[var(--bg-base)]/40 text-[var(--text-rack-data)]'

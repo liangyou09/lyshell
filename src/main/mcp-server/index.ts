@@ -144,8 +144,10 @@ async function main(): Promise<void> {
 
   // ====================== Tools ======================
 
+  // 部分 MCP 客户端（如 Claude Code 当前版本）对 outputSchema/structuredContent 支持不完整，
+  // ListTools 时去掉 outputSchema，避免 "tools fetch failed"。CallTool 仍可用 structuredContent。
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [...TOOL_DEFINITIONS, ...ALIAS_DEFINITIONS]
+    tools: [...TOOL_DEFINITIONS, ...ALIAS_DEFINITIONS].map(({ outputSchema: _, ...tool }) => tool)
   }))
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {

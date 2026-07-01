@@ -167,6 +167,8 @@ export interface SendAndWaitRequest {
   maxWaitMs?: number
   /** 正则表达式，匹配后立即返回 */
   waitForPattern?: string
+  /** 末尾非换行/控制字符时自动补 \n（默认 true） */
+  autoNewline?: boolean
 }
 
 /**
@@ -174,6 +176,8 @@ export interface SendAndWaitRequest {
  */
 export interface SendAndWaitResult {
   output: string
+  /** 裁掉前端回显输入行后的输出 */
+  cleanOutput: string
   settled: boolean
   patternMatched: boolean
   elapsedMs: number
