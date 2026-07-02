@@ -151,10 +151,19 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   // 添加临时会话
+  // 去重: onConnectionStatus 的 connecting/connected 事件可能在 getSession().then()
+  // 返回前先后到达,导致对同一 id 调用两次 addTemporarySession,数组里出现重复 entry。
+  // 这里改为: 已存在同 id 则合并更新(保留 isTemporary),否则才 push。
   addTemporarySession: (state) => {
-    set(s => ({
-      sessions: [...s.sessions, { ...state, isTemporary: true }]
-    }))
+    set(s => {
+      const idx = s.sessions.findIndex(x => x.id === state.id)
+      if (idx >= 0) {
+        const next = [...s.sessions]
+        next[idx] = { ...next[idx], ...state, isTemporary: next[idx].isTemporary || state.isTemporary }
+        return { sessions: next }
+      }
+      return { sessions: [...s.sessions, { ...state, isTemporary: true }] }
+    })
   },
 
   // 连接会话
@@ -184,8 +193,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   },
 
   // 断开连接（用户主动断开才清理终端）
+  // 对已经 disconnected/error 的会话不再调后端 disconnect，避免 half-open 连接器挂起/抛错阻塞前端清理。
+  // 后端找不到 session 或 disconnect 失败也继续清理 store/terminal，保证“关闭”一定有可见效果。
   disconnectSession: async (id, clearTerminal = true) => {
-    await window.electronAPI.disconnect(id)
+    const sessionBefore = get().sessions.find(s => s.id === id)
+    const alreadyDead = sessionBefore?.status === 'disconnected' || sessionBefore?.status === 'error'
+
+    if (!alreadyDead) {
+      try {
+        await window.electronAPI.disconnect(id)
+      } catch (error) {
+        // 已经断开或后端找不到都无所谓，继续前端清理
+        console.warn('Backend disconnect failed, continuing frontend cleanup:', error)
+      }
+    }
+
     set(state => ({
       sessions: state.sessions.map(s =>
         s.id === id ? { ...s, status: 'disconnected' as ConnectionStatus } : s

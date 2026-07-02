@@ -19,6 +19,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)  // 悬停位置索引
   const { sessions } = useSessionStore()
   const { setActiveSessionInPane, removeSessionFromPane, addSessionToPane, reorderSessionsInPane } = usePaneStore()
+  const toggleLiveSessionTabs = usePaneStore(s => s.toggleLiveSessionTabs)
   const { t } = useTranslation()
   // 被隐藏的页签(Sidebar LIVE 段会话标签点击 toggle)——不渲染对应页签,但终端实例保留
   const hiddenTabSessions = usePaneStore(s => s.hiddenTabSessions)
@@ -386,11 +387,22 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
               )
             )}
             <button
-              onClick={(e) => {
+              onClick={async (e) => {
                 e.stopPropagation()
-                removeSessionFromPane(pane.id, session.id)
-                // 如果会话已经断开，从 store 中移除
-                useSessionStore.getState().disconnectSession(session.id)
+                const sessionId = session.id
+                // 1. 先从 pane 移除页签：同步、与连接状态无关，确保 UI 立刻响应
+                removeSessionFromPane(pane.id, sessionId)
+                // 2. 如果该 session 正被 LIVE 标签折叠隐藏，一并清掉 hidden 标记，避免残留
+                if (hiddenTabSessions[sessionId]) {
+                  toggleLiveSessionTabs([sessionId], false)
+                }
+                // 3. 通知后端断开并清理 store/terminal；已经 disconnected/error 的会话在前端短路，不再调后端
+                try {
+                  await useSessionStore.getState().disconnectSession(sessionId)
+                } catch (error) {
+                  // 最后一道防线：即使清理 store 也失败，页签已经关闭，避免未捕获 Promise rejection
+                  console.error('Failed to disconnect session after closing tab:', error)
+                }
               }}
               title={t('pane.closeConnection')}
               className="ml-auto w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"

@@ -895,20 +895,27 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
   }
   // 该 saved 对应的所有 runtime session 是否都被隐藏了页签(点击 LIVE 标签 toggle 的结果)
   // 只看真正在 pane 里的 session,排除 disconnected registry 条目
+  // 按 runtime sessionId 去重(sessions 数组在竞态下可能出现同 id 重复 entry,见 addTemporarySession)
   const isLiveHidden = (saved: SessionConfig): boolean => {
     const key = liveKey(saved)
-    const liveIds = sessions
-      .filter(s => s.config && liveKey(s.config) === key && s.id && sessionIdsInPanes.has(s.id))
-      .map(s => s.id)
+    const liveIds = Array.from(new Set(
+      sessions
+        .filter(s => s.config && liveKey(s.config) === key && s.id && sessionIdsInPanes.has(s.id))
+        .map(s => s.id)
+    ))
     return liveIds.length > 0 && liveIds.every(id => hiddenTabSessions[id])
   }
   // 该 saved 对应的 runtime session 中被隐藏了页签的数量(用于徽章显示)
+  // 按 runtime sessionId 去重,徽章显示的是"被隐藏的唯一终端数",而非数组条目数
   const liveHiddenCount = (saved: SessionConfig): number => {
     const key = liveKey(saved)
-    return sessions
-      .filter(s => s.config && liveKey(s.config) === key && s.id
-        && sessionIdsInPanes.has(s.id) && hiddenTabSessions[s.id])
-      .length
+    const hiddenIds = new Set(
+      sessions
+        .filter(s => s.config && liveKey(s.config) === key && s.id
+          && sessionIdsInPanes.has(s.id) && hiddenTabSessions[s.id])
+        .map(s => s.id)
+    )
+    return hiddenIds.size
   }
 
   // LIVE 行的 danger action: 把对应 saved 的所有 live entry 全关掉(clone/多次 connect 产生的 N 个一并清)
