@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { SessionConfig } from '@shared/types'
 import { ConnectionStatus } from '@shared/types'
 import { useTerminalStore } from './terminal-store'
+import i18n from '../i18n'
 
 /**
  * 会话状态
@@ -220,7 +221,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   cloneSession: async (sourceSessionId, cloneChannel = false) => {
     const sourceSession = get().sessions.find(s => s.id === sourceSessionId)
     if (!sourceSession) {
-      throw new Error('Source session not found')
+      throw new Error(i18n.t('error.session.sourceNotFound'))
     }
 
     // 克隆会话保持源会话的名称（不修改），PaneTabBar 会根据 createdAt 显示序号
@@ -245,7 +246,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           result.config.name = newName
           return result.id
         }
-        throw new Error('Clone channel failed')
+        throw new Error(i18n.t('error.session.cloneChannelFailed'))
       } catch (error) {
         console.error('Clone channel failed:', error)
         throw error
@@ -258,7 +259,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (result && result.id) {
         return result.id
       }
-      throw new Error('Failed to create cloned session')
+      throw new Error(i18n.t('error.session.createCloneFailed'))
     } catch (error) {
       console.error('Clone session failed:', error)
       throw error

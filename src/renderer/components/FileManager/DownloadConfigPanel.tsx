@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 
 interface DownloadConfig {
   defaultDir: string
@@ -17,6 +18,7 @@ const DownloadConfigPanel: React.FC = () => {
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const { t } = useTranslation()
 
   // 加载配置
   useEffect(() => {
@@ -41,10 +43,10 @@ const DownloadConfigPanel: React.FC = () => {
     setSaving(true)
     try {
       await window.electronAPI.setDownloadConfig(config)
-      alert('Configuration saved')
+      alert(t('fileManager.configSaved'))
     } catch (error) {
       console.error('Failed to save config:', error)
-      alert('Save failed')
+      alert(t('fileManager.saveFailed'))
     }
     setSaving(false)
   }
@@ -52,7 +54,7 @@ const DownloadConfigPanel: React.FC = () => {
   // 选择目录
   const handleSelectDir = async () => {
     const result = await window.electronAPI.showOpenDialog({
-      title: 'Select Default Download Directory',
+      title: t('fileManager.selectDefaultDirTitle'),
       properties: ['openDirectory', 'createDirectory']
     })
     if (!result.canceled && result.filePaths.length > 0) {
@@ -67,15 +69,15 @@ const DownloadConfigPanel: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full p-4">
-      <h2 className="text-lg text-white mb-4">Download Settings</h2>
+      <h2 className="text-lg text-white mb-4">{t('fileManager.settingsTitle')}</h2>
 
       {loading ? (
-        <div className="text-gray-500">Loading...</div>
+        <div className="text-gray-500">{t('fileManager.loading')}</div>
       ) : (
         <div className="space-y-4">
           {/* 默认下载目录 */}
           <div className="space-y-2">
-            <label className="text-sm text-gray-300">Default Download Directory</label>
+            <label className="text-sm text-gray-300">{t('fileManager.defaultDirLabel')}</label>
             <div className="flex items-center gap-2">
               <input
                 type="text"
@@ -87,16 +89,16 @@ const DownloadConfigPanel: React.FC = () => {
                 onClick={handleSelectDir}
                 className="px-3 py-2 bg-[#3C3C3C] text-gray-300 hover:text-white rounded text-sm"
               >
-                Browse
+                {t('fileManager.browse')}
               </button>
               <button
                 onClick={() => handleOpenDir(config.defaultDir)}
                 className="px-3 py-2 bg-[#3C3C3C] text-gray-300 hover:text-white rounded text-sm"
               >
-                Open
+                {t('fileManager.open')}
               </button>
             </div>
-            <p className="text-xs text-gray-500">All downloaded files are saved to this directory by default</p>
+            <p className="text-xs text-gray-500">{t('fileManager.defaultDirHint')}</p>
           </div>
 
           {/* 自动创建服务器子目录 */}
@@ -108,20 +110,20 @@ const DownloadConfigPanel: React.FC = () => {
                 onChange={(e) => setConfig({ ...config, autoCreateServerSubdir: e.target.checked })}
                 className="w-4 h-4"
               />
-              Auto-create subdirectory per server
+              {t('fileManager.autoCreateSubdir')}
             </label>
             <p className="text-xs text-gray-500">
-              When enabled, files are saved into &quot;&lt;Default Directory&gt;/&lt;Server Name&gt;/&quot; subdirectories
+              {t('fileManager.autoCreateSubdirHint')}
             </p>
           </div>
 
           {/* 说明 */}
           <div className="mt-4 p-3 bg-[#2D2D30] rounded text-xs text-gray-400">
-            <p className="mb-2">💡 Notes:</p>
+            <p className="mb-2">{t('fileManager.notesTitle')}</p>
             <ul className="list-disc list-inside space-y-1">
-              <li>Files are organized by server name automatically</li>
-              <li>Server name comes from the name field in session config</li>
-              <li>You can view the source of each file in Download History</li>
+              <li>{t('fileManager.note1')}</li>
+              <li>{t('fileManager.note2')}</li>
+              <li>{t('fileManager.note3')}</li>
             </ul>
           </div>
 
@@ -134,7 +136,7 @@ const DownloadConfigPanel: React.FC = () => {
                 saving ? 'bg-gray-500 text-gray-400' : 'bg-[#0078D4] text-white hover:bg-[#006CBD]'
               }`}
             >
-              {saving ? 'Saving...' : 'Save'}
+              {saving ? t('fileManager.saving') : t('fileManager.save')}
             </button>
           </div>
         </div>

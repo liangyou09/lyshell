@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { SessionConfig, SerialPortInfo } from '@shared/types'
 import { ConnectionType } from '@shared/types'
 import { DEFAULT_THEME_DARK } from '@shared/constants'
@@ -47,6 +48,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
   // ─── 基础字段 ─────────────────────────────────────────
   const [name, setName] = useState('')
   const [type, setType] = useState<ConnectionType>(ConnectionType.SSH)
+  const { t } = useTranslation()
   // 标签由收藏/置顶按钮和 MCP 管理，对话框不再暴露编辑入口；编辑模式下原样保留
   const [tags, setTags] = useState<string[]>([])
 
@@ -451,7 +453,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                 fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
               }}
             >
-              Shell Init
+              {t('session.shellInit')}
               <span
                 className="text-[11px] px-1.5 py-px rounded-sm bg-[var(--bg-base)] border border-[var(--rule)] font-mono tabular-nums"
                 style={{ color: macroTab === 'shell' ? accent : 'var(--text-rack-mute)', opacity: macroTab === 'shell' ? 0.7 : 1 }}
@@ -471,7 +473,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
               fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
             }}
           >
-            Startup
+            {t('session.startup')}
             <span
               className="text-[11px] px-1.5 py-px rounded-sm bg-[var(--bg-base)] border border-[var(--rule)] font-mono tabular-nums"
               style={{ color: macroTab === 'startup' ? accent : 'var(--text-rack-mute)', opacity: macroTab === 'startup' ? 0.7 : 1 }}
@@ -486,10 +488,10 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                 color: 'var(--text-rack-mute)',
                 fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
               }}
-              title="Shell Init is only available for SSH"
+              title={t('session.shellInitSshOnly')}
             >
-              Shell Init
-              <span className="text-[11px] px-1.5 py-px rounded-sm bg-[var(--bg-base)] border border-[var(--rule)] font-mono">SSH only</span>
+              {t('session.shellInit')}
+              <span className="text-[11px] px-1.5 py-px rounded-sm bg-[var(--bg-base)] border border-[var(--rule)] font-mono">{t('session.sshOnly')}</span>
             </span>
           )}
           {macroTab === 'shell' && (
@@ -498,7 +500,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                 className="text-[12px] text-[var(--text-rack-mute)]"
                 style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
               >
-                Wait
+                {t('session.wait')}
               </span>
               <input
                 value={sshShellEnterWait}
@@ -571,7 +573,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
           style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
         >
           <span>
-            Detected{' '}
+            {t('session.serialDetected')}{' '}
             <span style={{ color: accent }} className="font-medium ml-0.5 font-mono tabular-nums">{serialPorts.length}</span>
           </span>
           <button
@@ -581,7 +583,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
             className="ml-auto text-[var(--text-rack-data)] hover:text-[var(--text-rack)] cursor-pointer flex items-center gap-1.5 text-[12px] px-2 py-1 disabled:opacity-40"
           >
             <span className={serialScanning ? 'animate-spin inline-block' : ''}>↻</span>
-            {serialScanning ? 'Scanning' : 'Rescan'}
+            {serialScanning ? t('session.serialScanning') : t('session.serialRescan')}
           </button>
         </div>
         <div className="max-h-[168px] overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
@@ -590,7 +592,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
               className="px-3 py-3.5 text-[12.5px] text-[var(--text-rack-mute)] text-center"
               style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
             >
-              No serial ports detected · type a path below to enter manually
+              {t('session.serialNoneDetected')}
             </div>
           )}
           {serialPorts.map(p => {
@@ -655,7 +657,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
               />
               <span className="text-[13px] font-medium tracking-[0.04em]" style={{ color: accent }}>{ghost.path}</span>
               <span className="text-[12px] text-[var(--text-rack-data)] truncate" style={{ fontFamily: 'system-ui, sans-serif' }}>
-                <span style={{ color: 'var(--text-rack-mute)', fontSize: 12, fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}>Offline</span>
+                <span style={{ color: 'var(--text-rack-mute)', fontSize: 12, fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}>{t('session.offline')}</span>
               </span>
               <span />
             </div>
@@ -671,7 +673,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
             <input
               value={serialPorts.some(p => p.path === serialPath) ? '' : (ghost ? '' : serialPath)}
               onChange={e => setSerialPath(e.target.value)}
-              placeholder="Or type: COM5 / /dev/ttyUSB0"
+              placeholder={t('session.serialPathPlaceholder')}
               className="bg-transparent border-b text-[13px] py-1 text-[var(--text-rack)] focus:outline-none"
               style={{ borderBottomColor: accent, caretColor: accent }}
             />
@@ -682,11 +684,11 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
   }
 
   // ─── 主渲染 ──────────────────────────────────────────
-  const channelLabel = isEdit ? 'Edit Session' : 'New Session'
+  const channelLabel = isEdit ? t('session.editTitle') : t('session.newTitle')
   const buttonLabel =
-    faultMsg ? 'Retry' :
-    isEdit ? 'Save' :
-    'Connect'
+    faultMsg ? t('session.retry') :
+    isEdit ? t('session.save') :
+    t('session.connect')
 
   return (
     <div
@@ -754,7 +756,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
           <input
             value={name}
             onChange={e => handleNameChange(e.target.value)}
-            placeholder="Empty = use IP as session name"
+            placeholder={t('session.namePlaceholder')}
             className="flex-1 min-w-0 bg-transparent border-none text-[var(--text-rack)] text-[13px] tracking-[0.02em] normal-case py-0 outline-none border-b border-dashed border-transparent hover:border-[var(--rule)] focus:border-[var(--rule)]"
             style={{
               textTransform: 'none',
@@ -766,7 +768,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
             type="button"
             onClick={handleCancel}
             className="text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] text-lg tracking-normal px-2 py-0.5 flex-shrink-0 cursor-pointer"
-            aria-label="Close"
+            aria-label={t('session.close')}
           >
             ✕
           </button>
@@ -818,8 +820,8 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
           {(type === ConnectionType.SSH || type === ConnectionType.TELNET) && (
             <div className="py-3.5 px-4 border-b border-[var(--rule)]">
               {type === ConnectionType.SSH
-                ? renderHostRow(sshHost, setSshHost, sshPort, setSshPort, 'IP or hostname')
-                : renderHostRow(telnetHost, setTelnetHost, telnetPort, setTelnetPort, 'IP or hostname')}
+                ? renderHostRow(sshHost, setSshHost, sshPort, setSshPort, t('session.hostPlaceholder'))
+                : renderHostRow(telnetHost, setTelnetHost, telnetPort, setTelnetPort, t('session.hostPlaceholder'))}
             </div>
           )}
 
@@ -831,7 +833,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                   className="lyshell-session-label text-[13px] font-medium w-[44px] mr-2 flex-shrink-0"
                   style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
                 >
-                  Baud
+                  {t('session.fieldBaud')}
                 </span>
                 <div className="flex gap-1.5 flex-wrap flex-1">
                   {BAUD_PRESETS.map(b => {
@@ -864,7 +866,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                   className="lyshell-session-label text-[13px] font-medium w-[44px] mr-2 flex-shrink-0"
                   style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
                 >
-                  Shell
+                  {t('session.fieldShell')}
                 </span>
                 <select
                   value={isCustomShell ? 'custom' : localShell}
@@ -878,16 +880,16 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                   className="bg-[var(--bg-base)] border border-[var(--rule)] text-[var(--text-rack)] text-[13px] py-1.5 px-2.5 rounded-sm focus:outline-none focus:border-[var(--text-rack-dim)]"
                   style={{ fontFamily: 'ui-monospace, "JetBrains Mono", monospace' }}
                 >
-                  <option value="">cmd.exe (default)</option>
-                  <option value="powershell">PowerShell</option>
-                  <option value="pwsh">PowerShell 7</option>
-                  <option value="custom">Custom…</option>
+                  <option value="">{t('session.shellCmdDefault')}</option>
+                  <option value="powershell">{t('session.shellPowershell')}</option>
+                  <option value="pwsh">{t('session.shellPowershell7')}</option>
+                  <option value="custom">{t('session.shellCustom')}</option>
                 </select>
                 {isCustomShell && (
                   <input
                     value={localShell}
                     onChange={e => setLocalShell(e.target.value)}
-                    placeholder="C:\path\to\shell.exe"
+                    placeholder={t('session.shellCustomPlaceholder')}
                     className="flex-1 bg-transparent border-b border-[var(--rule)] text-[13px] py-1 text-[var(--text-rack)] focus:outline-none font-mono ml-2"
                     style={{ caretColor: accent }}
                   />
@@ -898,12 +900,12 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                   className="lyshell-session-label text-[13px] font-medium w-[44px] mr-2 flex-shrink-0"
                   style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
                 >
-                  Cwd
+                  {t('session.fieldCwd')}
                 </span>
                 <input
                   value={localCwd}
                   onChange={e => setLocalCwd(e.target.value)}
-                  placeholder="Empty = home directory"
+                  placeholder={t('session.cwdPlaceholder')}
                   className="flex-1 bg-transparent border-b border-[var(--rule)] text-[13px] py-1 text-[var(--text-rack)] focus:outline-none font-mono"
                   style={{ caretColor: accent }}
                 />
@@ -914,11 +916,11 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
           {/* AUTH (SSH only) */}
           {type === ConnectionType.SSH && (
             <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <FieldRow label="User">
+              <FieldRow label={t('session.fieldUser')}>
                 <input
                   value={sshUser}
                   onChange={e => setSshUser(e.target.value)}
-                  placeholder="root"
+                  placeholder={t('session.userPlaceholder')}
                   className="flex-1 bg-transparent border-b text-[14px] text-[var(--text-rack)] focus:outline-none focus:text-white font-mono pb-1.5"
                   style={{
                     borderBottomColor: sshUser ? accent : 'var(--rule)',
@@ -930,12 +932,12 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                   required
                 />
               </FieldRow>
-              <FieldRow label="Auth">
+              <FieldRow label={t('session.fieldAuth')}>
                 <input
                   type="password"
                   value={sshPassword}
                   onChange={e => setSshPassword(e.target.value)}
-                  placeholder="Password"
+                  placeholder={t('session.authPasswordPlaceholder')}
                   className="flex-1 bg-transparent border-b text-[14px] text-[var(--text-rack)] focus:outline-none focus:text-white font-mono pb-1.5"
                   style={{
                     borderBottomColor: sshPassword ? accent : 'var(--rule)',
@@ -949,12 +951,12 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                   className="text-[12px] text-[var(--text-rack-mute)] mx-3 self-center"
                   style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
                 >
-                  or
+                  {t('session.authOr')}
                 </span>
                 <input
                   value={sshPrivateKey}
                   onChange={e => setSshPrivateKey(e.target.value)}
-                  placeholder="~/.ssh/id_ed25519"
+                  placeholder={t('session.keyPlaceholder')}
                   className="flex-1 bg-transparent border-b text-[13px] text-[var(--text-rack)] focus:outline-none font-mono pb-1.5"
                   style={{
                     borderBottomColor: sshPrivateKey ? accent : 'var(--rule)',

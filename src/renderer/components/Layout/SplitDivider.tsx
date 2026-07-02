@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { usePaneStore } from '../../stores/pane-store'
 import type { SplitDirection } from '@shared/types'
 
@@ -12,6 +13,7 @@ interface SplitDividerProps {
  */
 const SplitDivider: React.FC<SplitDividerProps> = ({ paneId, direction }) => {
   const [isDragging, setIsDragging] = useState(false)
+  const { t } = useTranslation()
   const startPosRef = useRef(0)
   const startRatioRef = useRef(0.5)
   const { setSplitRatio } = usePaneStore()
@@ -71,7 +73,7 @@ const SplitDivider: React.FC<SplitDividerProps> = ({ paneId, direction }) => {
         ${isDragging ? 'bg-[#0078D4]' : 'bg-[#3C3C3C] hover:bg-[#0078D4]'}
         flex-shrink-0 transition-colors
       `}
-      title="拖拽调整分屏比例"
+      title={t('pane.dragToResize')}
     />
   )
 }

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
 import cn from 'classnames'
+import { useTranslation } from 'react-i18next'
 import type { SessionConfig } from '@shared/types'
 import { useSessionStore } from '../../stores/session-store'
 import SessionDialog from '../SessionDialog/SessionDialog'
@@ -18,6 +19,7 @@ const FloatWindow: React.FC<FloatWindowProps> = ({ onConnect }) => {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const isUpdating = useRef(false) // 防止重复更新
+  const { t } = useTranslation()
 
   // 加载最近会话列表
   useEffect(() => {
@@ -216,8 +218,8 @@ const FloatWindow: React.FC<FloatWindowProps> = ({ onConnect }) => {
       <div className="flex-1 overflow-y-auto rack-scroll py-1">
         {sortedSessions.length === 0 ? (
           <div className="text-center py-6 text-[var(--text-rack-mute)] text-xs">
-            <p className="font-mono uppercase tracking-[.1em]">No sessions</p>
-            <p className="mt-1 text-[var(--text-rack-faint)]">点击下方按钮创建</p>
+            <p className="font-mono uppercase tracking-[.1em]">{t('float.noSessions')}</p>
+            <p className="mt-1 text-[var(--text-rack-faint)]">{t('float.createHint')}</p>
           </div>
         ) : (
           sortedSessions.map((config, index) => {
@@ -251,7 +253,7 @@ const FloatWindow: React.FC<FloatWindowProps> = ({ onConnect }) => {
                   {getTypeLabel(config.type)}
                 </span>
                 {/* 置顶图标 */}
-                <span className={cn('w-[10px] flex justify-center text-[10px]', isPinned ? 'text-[var(--amber)]' : 'text-transparent')} title={isPinned ? '已置顶' : undefined}>
+                <span className={cn('w-[10px] flex justify-center text-[10px]', isPinned ? 'text-[var(--amber)]' : 'text-transparent')} title={isPinned ? t('float.pinned') : undefined}>
                   ◆
                 </span>
                 {/* 名称 + host */}
@@ -264,7 +266,7 @@ const FloatWindow: React.FC<FloatWindowProps> = ({ onConnect }) => {
                 {/* pin 按钮 */}
                 <button
                   onClick={(e) => handleTogglePin(config, e)}
-                  title={isPinned ? '取消置顶' : '置顶'}
+                  title={isPinned ? t('float.unpin') : t('float.pin')}
                   className={cn(
                     'w-[16px] h-[16px] flex items-center justify-center text-[10px] transition-all rounded-[2px]',
                     isPinned

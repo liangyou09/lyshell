@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import cn from 'classnames'
+import { useTranslation } from 'react-i18next'
 import type { QuickCommand, QuickCommandGroup } from '@shared/types'
 import { processInputEscapeSequences } from '@shared/escape-sequences'
 import { useTerminalStore } from '../../stores/terminal-store'
@@ -55,6 +56,7 @@ interface StatusBarProps {
 const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refreshKey }) => {
   const [commands, setCommands] = useState<QuickCommand[]>([])
   const { sessions } = useSessionStore()
+  const { t } = useTranslation()
   const [groups, setGroups] = useState<QuickCommandGroup[]>([])
   const [defaultGroupColor, setDefaultGroupColor] = useState<string>('')
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
@@ -273,7 +275,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
       const groupName = targetGroupId
         ? groups.find(g => g.id === targetGroupId)?.name || 'this group'
         : 'Default'
-      alert(`${groupName} has reached the 12-command limit`)
+      alert(t('statusbar.commandLimit', { name: groupName }))
       return
     }
 
@@ -378,7 +380,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
           const groupCommandCount = commands.filter(c => c.groupId === group.id).length
           if (groupCommandCount > 0) {
             const confirmed = confirm(
-              `Delete group?\n\nThis group has ${groupCommandCount} command(s) inside. They will become ungrouped.`
+              t('statusbar.deleteGroupConfirm', { count: groupCommandCount })
             )
             if (!confirmed) continue
           }
@@ -498,7 +500,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
           activeDropdown === 'groups' && 'bg-[var(--bg-slot)]',
           showBatchGroupDialog && 'ring-1 ring-inset ring-[var(--amber)]'
         )}
-        title="Click to switch group · Right-click to edit groups"
+        title={t('statusbar.groupSwitchHint')}
       >
         <span
           className="w-1.5 h-1.5 rounded-full flex-shrink-0 shadow-[inset_0_0_0_1px_rgba(0,0,0,.5)]"
@@ -575,12 +577,12 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
             )}
           >
             <span className="text-[11px] leading-none">+</span>
-            <span className="text-[10.5px] leading-none">Add command</span>
+            <span className="text-[10.5px] leading-none">{t('statusbar.addCommand')}</span>
             <span
               className="text-[9.5px] leading-none text-[var(--text-rack-faint)] ml-1"
               style={{ fontFamily: 'ui-monospace, "JetBrains Mono", monospace' }}
             >
-              double-click
+              {t('statusbar.doubleClick')}
             </span>
           </button>
         )}
@@ -670,7 +672,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
             <span
               className="w-[6px] h-[6px] rounded-full flex-shrink-0"
               style={{ backgroundColor: 'var(--live)', boxShadow: '0 0 6px rgba(124,197,118,.5)' }}
-              title="connected"
+              title={t('statusbar.connected')}
             />
             <span aria-hidden className="w-px h-[10px] bg-[var(--rule)] flex-shrink-0" />
             {/* 协议 — 用协议色，和会话行同语言 */}
@@ -696,9 +698,9 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
             <span
               className="w-[6px] h-[6px] rounded-full flex-shrink-0"
               style={{ border: '1px solid var(--text-rack-dim)' }}
-              title="no session"
+              title={t('statusbar.noSession')}
             />
-            <span className="lowercase">no session</span>
+            <span className="lowercase">{t('statusbar.noSession')}</span>
           </>
         )}
         <span aria-hidden className="w-px h-[10px] bg-[var(--rule)] flex-shrink-0" />
@@ -716,7 +718,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                   style={{ backgroundColor: currentGroupColor || 'var(--text-rack-dim)' }}
                 />
                 <span className="text-[12px] font-semibold text-[var(--text-rack)]">
-                  {editCommand ? 'Edit command' : 'New quick command'}
+                  {editCommand ? t('statusbar.editCommandTitle') : t('statusbar.newCommandTitle')}
                 </span>
               </div>
               <button
@@ -726,7 +728,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                   resetDialogState()
                 }}
                 className="text-[var(--text-rack-dim)] hover:text-[var(--text-rack)] text-lg leading-none px-1"
-                aria-label="Close"
+                aria-label={t('common.close')}
               >
                 ×
               </button>
@@ -735,24 +737,24 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
             <div className="px-4 py-4 space-y-4">
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <label className="block text-[12px] tracking-[.04em] text-[var(--text-rack-data)] mb-1.5">Name</label>
+                  <label className="block text-[12px] tracking-[.04em] text-[var(--text-rack-data)] mb-1.5">{t('statusbar.fieldName')}</label>
                   <input
                     type="text"
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
-                    placeholder="e.g. ls"
+                    placeholder={t('statusbar.namePlaceholder')}
                     autoFocus
                     className="w-full px-2.5 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[3px] text-sm text-[var(--text-rack)] placeholder-[var(--text-rack-faint)] focus:outline-none focus:border-[var(--amber)]"
                   />
                 </div>
                 <div className="w-[130px]">
-                  <label className="block text-[12px] tracking-[.04em] text-[var(--text-rack-data)] mb-1.5">Group</label>
+                  <label className="block text-[12px] tracking-[.04em] text-[var(--text-rack-data)] mb-1.5">{t('statusbar.fieldGroup')}</label>
                   <select
                     value={newGroupId}
                     onChange={(e) => setNewGroupId(e.target.value)}
                     className="w-full px-2 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[3px] text-sm text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
                   >
-                    <option value="">Default</option>
+                    <option value="">{t('statusbar.defaultGroup')}</option>
                     {groups.map(g => (
                       <option key={g.id} value={g.id}>{g.name}</option>
                     ))}
@@ -761,11 +763,11 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
               </div>
 
               <div>
-                <label className="block text-[12px] tracking-[.04em] text-[var(--text-rack-data)] mb-1.5">Command</label>
+                <label className="block text-[12px] tracking-[.04em] text-[var(--text-rack-data)] mb-1.5">{t('statusbar.fieldCommand')}</label>
                 <textarea
                   value={newContent}
                   onChange={(e) => setNewContent(e.target.value)}
-                  placeholder="e.g.:\ncd /var/www\nls -la"
+                  placeholder={t('statusbar.commandPlaceholder')}
                   rows={4}
                   className="w-full px-2.5 py-2 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[3px] text-sm font-mono text-[var(--text-rack)] placeholder-[var(--text-rack-faint)] focus:outline-none focus:border-[var(--amber)] resize-none"
                 />
@@ -773,7 +775,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
 
               <label
                 className="flex items-center gap-2.5 cursor-pointer select-none group/esc"
-                title={'Parse escape sequences when sending: \\n \\r \\t \\xHH\nExample: ls\\t-la → ls<Tab>-la, \\x03 → Ctrl+C'}
+                title={t('statusbar.parseEscapeTitle')}
               >
                 <span className="relative flex-shrink-0">
                   <input
@@ -801,7 +803,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                     <path d="M3 7.5 L5.5 10 L11 4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </span>
-                <span className="text-xs text-[var(--text-rack)]">Parse escape sequences</span>
+                <span className="text-xs text-[var(--text-rack)]">{t('statusbar.parseEscape')}</span>
               </label>
             </div>
 
@@ -811,7 +813,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                   onClick={handleDeleteCommand}
                   className="px-3 py-1.5 text-xs font-medium text-[var(--error-rack)] hover:bg-[var(--error-rack)]/10 rounded-[3px] transition-colors"
                 >
-                  Delete
+                  {t('statusbar.delete')}
                 </button>
               ) : (
                 <span />
@@ -825,13 +827,13 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                   }}
                   className="px-3 py-1.5 text-xs font-medium text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-elev)] rounded-[3px] transition-colors"
                 >
-                  Cancel
+                  {t('statusbar.cancel')}
                 </button>
                 <button
                   onClick={handleSaveCommand}
                   className="px-4 py-1.5 text-xs font-semibold bg-[var(--amber)] text-[var(--bg-base)] rounded-[3px] hover:brightness-110 transition-[filter]"
                 >
-                  Save
+                  {t('statusbar.save')}
                 </button>
               </div>
             </div>
@@ -854,7 +856,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
               onMouseDown={handleGroupDialogMouseDown}
             >
               <div className="flex items-center gap-2">
-                <span className="text-base font-semibold text-[var(--text-rack)] tracking-wide">Edit groups</span>
+                <span className="text-base font-semibold text-[var(--text-rack)] tracking-wide">{t('statusbar.editGroups')}</span>
                 <span
                   className="text-xs font-mono text-[var(--text-rack-data)] px-1.5 py-0.5 bg-[var(--bg-elev)] rounded-[2px]"
                   style={{ fontFeatureSettings: '"tnum" 1' }}
@@ -869,7 +871,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                 }}
                 onMouseDown={(e) => e.stopPropagation()}
                 className="w-7 h-7 flex items-center justify-center text-[var(--text-rack-dim)] hover:text-[var(--text-rack)] text-lg leading-none pointer-events-auto rounded-[3px] hover:bg-[var(--bg-elev)] transition-colors"
-                aria-label="Close"
+                aria-label={t('common.close')}
               >
                 ×
               </button>
@@ -899,14 +901,14 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                     {!isDefault ? (
                       <div
                         className="w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-[3px] bg-[var(--bg-elev)] border border-[var(--rule)] text-[10px] font-mono text-[var(--text-rack)] cursor-move"
-                        title="Drag to reorder"
+                        title={t('statusbar.dragToReorder')}
                       >
                         {index}
                       </div>
                     ) : (
                       <div
                         className="w-5 h-5 flex-shrink-0 flex items-center justify-center text-[var(--text-rack-data)]"
-                        title="Default group"
+                        title={t('statusbar.defaultGroupLabel')}
                       >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <rect x="5" y="11" width="14" height="10" rx="2" ry="2" />
@@ -925,7 +927,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                         newGroups[index].name = limitVisualWidth(e.target.value, 6)
                         setBatchGroups(newGroups)
                       }}
-                      placeholder={isDefault ? 'Default' : 'Group name'}
+                      placeholder={isDefault ? t('statusbar.defaultGroup') : t('statusbar.groupNamePlaceholder')}
                       disabled={isDefault}
                       className={cn(
                         'flex-1 min-w-0 h-7 px-2.5 bg-[var(--bg-rack)] border border-[var(--rule)] rounded-[3px] text-sm text-[var(--text-rack)] placeholder-[var(--text-rack-faint)]',
@@ -953,7 +955,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                                 ? 'border-white/90'
                                 : 'border-black/60 hover:border-black/80'
                             )}
-                            aria-label={`Set group color ${color}`}
+                            aria-label={t('statusbar.setGroupColor', { color })}
                           >
                             <span
                               className="block w-full h-full rounded-[2px]"
@@ -969,7 +971,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
             </div>
 
             <div className="px-4 pb-2 text-[10px] text-[var(--text-rack-dim)] leading-relaxed">
-              Clear a group name to remove it. Commands inside will become ungrouped.
+              {t('statusbar.clearGroupHint')}
             </div>
 
             <div className="flex items-center justify-end gap-2 px-4 py-3 bg-[var(--bg-base)] border-t border-[var(--rule)]">
@@ -980,13 +982,13 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
                 }}
                 className="px-3 py-1.5 text-xs font-medium text-[var(--text-rack-data)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-elev)] rounded-[3px] transition-colors"
               >
-                Cancel
+                {t('statusbar.cancel')}
               </button>
               <button
                 onClick={handleSaveBatchGroups}
                 className="px-4 py-1.5 text-xs font-semibold bg-[var(--amber)] text-[var(--bg-base)] rounded-[3px] hover:brightness-110 transition-[filter]"
               >
-                Save
+                {t('statusbar.save')}
               </button>
             </div>
           </div>

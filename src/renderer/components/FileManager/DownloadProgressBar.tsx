@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import cn from 'classnames'
+import { useTranslation } from 'react-i18next'
+import i18n from '../../i18n'
 
 interface DownloadProgress {
   taskId: string
@@ -14,11 +16,11 @@ interface DownloadProgress {
   localPath?: string
 }
 
-// 格式化速度
+// 格式化速度（用 i18n 单例）
 const formatSpeed = (bytesPerSecond: number) => {
-  if (bytesPerSecond < 1024) return `${bytesPerSecond}B/s`
-  if (bytesPerSecond < 1024 * 1024) return `${(bytesPerSecond / 1024).toFixed(1)}K/s`
-  return `${(bytesPerSecond / (1024 * 1024)).toFixed(1)}M/s`
+  if (bytesPerSecond < 1024) return i18n.t('fileManager.speedB', { n: bytesPerSecond })
+  if (bytesPerSecond < 1024 * 1024) return i18n.t('fileManager.speedK', { n: (bytesPerSecond / 1024).toFixed(1) })
+  return i18n.t('fileManager.speedM', { n: (bytesPerSecond / (1024 * 1024)).toFixed(1) })
 }
 
 // 全局文件名存储（用于进度条显示）
@@ -49,6 +51,7 @@ export const clearDownload = (taskId: string) => {
  */
 const DownloadProgressBar: React.FC = () => {
   const [downloads, setDownloads] = useState<DownloadProgress[]>([])
+  const { t } = useTranslation()
 
   const removeDownload = (taskId: string) => {
     setDownloads(prev => prev.filter(d => d.taskId !== taskId))
@@ -66,7 +69,7 @@ const DownloadProgressBar: React.FC = () => {
       if (data.md5Update) return
 
       const taskId = data.taskId
-      const fileName = fileNameStore.get(taskId) || 'unknown file'
+      const fileName = fileNameStore.get(taskId) || t('fileManager.unknownFile')
       const localPath = localPathStore.get(taskId)
       const direction = data.direction || 'download'
 
@@ -172,14 +175,14 @@ const DownloadProgressBar: React.FC = () => {
       {!isActive && current.status === 'failed' && (
         <span
           className="flex-shrink-0 font-medium tracking-[-.02em] text-[var(--error-rack)] cursor-help"
-          title={current.error || 'Transfer failed'}
+          title={current.error || t('fileManager.transferFailed')}
         >
-          err
+          {t('fileManager.err')}
         </span>
       )}
       {/* 完成态：download 时显示主 CTA "reveal"；upload 时只是个静态 done */}
       {!isActive && current.status === 'completed' && current.direction !== 'download' && (
-        <span className="flex-shrink-0 font-medium tracking-[-.02em] text-[var(--live)]">done</span>
+        <span className="flex-shrink-0 font-medium tracking-[-.02em] text-[var(--live)]">{t('fileManager.done')}</span>
       )}
 
       {isActive && current.fileSize > 0 && (
@@ -195,17 +198,17 @@ const DownloadProgressBar: React.FC = () => {
       {current.status === 'completed' && current.direction === 'download' && current.localPath && (
         <button
           onClick={() => openFolder(current.localPath)}
-          title={`Reveal in Explorer — ${current.localPath}`}
+          title={t('fileManager.revealInExplorer', { path: current.localPath })}
           className="inline-flex items-center gap-1 px-1.5 h-[20px] flex-shrink-0 bg-[var(--amber-soft)] hover:bg-[var(--amber)] text-[var(--amber)] hover:text-[var(--bg-base)] border-none cursor-pointer rounded-[2px] font-mono text-[11.5px] font-semibold tracking-[.02em] transition-colors"
         >
           <svg width="10" height="10" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square"><path d="M3 8L8 3M8 3H4M8 3V7"/></svg>
-          reveal
+          {t('common.reveal')}
         </button>
       )}
 
       <button
         onClick={(e) => { e.stopPropagation(); removeDownload(current.taskId) }}
-        title="Close"
+        title={t('common.close')}
         className="w-[18px] h-[18px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] flex-shrink-0 rounded-[2px] hover:bg-[var(--bg-slot)] transition-colors"
       >
         <svg width="11" height="11" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 2l6 6M8 2l-6 6"/></svg>

@@ -6,6 +6,8 @@ import 'xterm/css/xterm.css'
 import { DEFAULT_THEME_DARK, DEFAULT_FONT_FAMILY, isCursorBlinkEnabled } from '@shared/constants'
 import { useTerminalStore } from '../../stores/terminal-store'
 import { useSessionStore } from '../../stores/session-store'
+import { useTranslation } from 'react-i18next'
+import i18n from '../../i18n'
 import { ConnectionStatus } from '@shared/types'
 
 interface TerminalViewProps {
@@ -43,6 +45,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   const [useRegex, setUseRegex] = useState(false)
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [wholeWord, setWholeWord] = useState(false)
+  const { t } = useTranslation()
   // 匹配计数:SearchAddon.onDidChangeResults 推送,resultIndex 从 0 开始;total = -1 表示超过 highlightLimit
   const [matchInfo, setMatchInfo] = useState<{ idx: number; total: number }>({ idx: -1, total: 0 })
   // 搜索面板位置 (相对容器右上角的偏移,负数表示更靠左/上)。null 表示用默认贴右上。
@@ -175,17 +178,19 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         })
       }
 
-      // 显示欢迎信息和 Xshell 风格的连接信息
+      // 显示欢迎信息和 Xshell 风格的连接信息。
+      // 用 i18n.t 单例而非 hook 的 t —— 这些是连接时一次性写入终端缓冲区的瞬态消息,
+      // 不该随语言切换重跑 effect(会重复刷 banner)。用单例即不进入 effect 依赖。
       const buildDate = new Date().toISOString().split('T')[0]
-      terminal.writeln(`\x1b[1;36mLyShell v1.0.2\x1b[0m \x1b[90mBuild: ${buildDate}\x1b[0m`)
+      terminal.writeln(`\x1b[1;36m${i18n.t('terminal.banner')}\x1b[0m \x1b[90m${i18n.t('terminal.buildLabel', { date: buildDate })}\x1b[0m`)
       terminal.writeln('')
       if (sessionConfig?.type === 'local') {
-        terminal.writeln('Starting local terminal...')
+        terminal.writeln(i18n.t('terminal.startingLocal'))
       } else {
         const sshConfig = sessionConfig?.ssh
         const host = sshConfig?.host || 'unknown'
         const port = sshConfig?.port || 22
-        terminal.writeln(`Connecting to ${host}:${port}...`)
+        terminal.writeln(i18n.t('terminal.connecting', { host, port }))
       }
 
       // 注册到 store
@@ -535,9 +540,9 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
             const host = sshConfig?.host || 'unknown'
             const port = sshConfig?.port || 22
             instance.terminal.writeln('')
-            instance.terminal.writeln(`\x1b[31mCould not connect to '${host}' (port ${port}): ${data.error || 'Connection failed.'}\x1b[0m`)
+            instance.terminal.writeln(`\x1b[31m${i18n.t('terminal.connectFailed', { host, port, error: data.error || i18n.t('terminal.connectionFailed') })}\x1b[0m`)
             instance.terminal.writeln('')
-            instance.terminal.writeln('\x1b[90mType `help\' to learn how to use LyShell prompt.\x1b[0m')
+            instance.terminal.writeln(`\x1b[90m${i18n.t('terminal.helpHint')}\x1b[0m`)
           }
         }
       }
@@ -691,7 +696,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
           <div
             onMouseDown={startDrag}
             className={`flex items-center gap-2 px-3 h-[10px] border-b border-[#555] bg-[#3C3C3C] ${isDragging ? 'cursor-grabbing' : 'cursor-grab'} select-none`}
-            title="Drag to move"
+            title={t('terminal.search.dragToMove')}
           >
             <div className="flex gap-[3px]">
               <span className="w-[3px] h-[3px] bg-[#9CA3AF] rounded-full" />
@@ -708,7 +713,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
               value={searchText}
               onChange={(e) => handleSearchChange(e.target.value)}
               onKeyDown={handleSearchKeyDown}
-              placeholder="search…"
+              placeholder={t('terminal.search.placeholder')}
               autoFocus
               rows={1}
               className="flex-1 bg-transparent border-none text-white text-[15px] outline-none resize-none py-0.5 placeholder-[#9CA3AF] leading-[1.4]"
@@ -717,17 +722,17 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
             <button
               onClick={() => doSearch('prev')}
               className="w-[28px] h-[28px] grid place-items-center text-[#D1D5DB] hover:text-white hover:bg-[#555] rounded text-[15px] font-light"
-              title="Previous (Shift+Enter)"
+              title={t('terminal.search.previous')}
             >↑</button>
             <button
               onClick={() => doSearch('next')}
               className="w-[28px] h-[28px] grid place-items-center text-[#D1D5DB] hover:text-white hover:bg-[#555] rounded text-[15px] font-light"
-              title="Next (Enter)"
+              title={t('terminal.search.next')}
             >↓</button>
             <button
               onClick={closeSearch}
               className="w-[28px] h-[28px] grid place-items-center text-[#9CA3AF] hover:text-[#FF6A3D] hover:bg-[#555] rounded text-[15px]"
-              title="Close (Esc)"
+              title={t('terminal.search.close')}
             >✕</button>
           </div>
 
@@ -740,21 +745,21 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
                 className={`px-3 py-2 text-[14px] ${
                   caseSensitive ? 'text-[#5AA8FF]' : 'text-[#D1D5DB] hover:text-white'
                 }`}
-                title="Match case"
+                title={t('terminal.search.matchCase')}
               >Aa</button>
               <button
                 onClick={() => setUseRegex(!useRegex)}
                 className={`px-3 py-2 text-[14px] ${
                   useRegex ? 'text-[#5AA8FF]' : 'text-[#D1D5DB] hover:text-white'
                 }`}
-                title="Regular expression"
+                title={t('terminal.search.regex')}
               >.*</button>
               <button
                 onClick={() => setWholeWord(!wholeWord)}
                 className={`px-3 py-2 text-[14px] ${
                   wholeWord ? 'text-[#5AA8FF]' : 'text-[#D1D5DB] hover:text-white'
                 }`}
-                title="Whole word"
+                title={t('terminal.search.wholeWord')}
               >word</button>
             </div>
 
@@ -762,12 +767,12 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
             <div className="flex items-center h-full border-x border-[#555]">
               <span className="px-4 text-[14px] tabular-nums whitespace-nowrap min-w-[100px] text-center">
                 {searchScope === 'all'
-                  ? <span className="text-[#6B7280]" title="跨标签搜索时不显示单标签计数">—</span>
+                  ? <span className="text-[#6B7280]" title={t('terminal.search.allTabsNoCount')}>—</span>
                   : searchText
                     ? matchInfo.total === -1
-                      ? <span className="text-[#E0A458] font-medium">1k+ matches</span>
+                      ? <span className="text-[#E0A458] font-medium">{t('terminal.search.matchesOverLimit')}</span>
                       : matchInfo.total === 0
-                        ? <span className="text-[#9CA3AF]">no matches</span>
+                        ? <span className="text-[#9CA3AF]">{t('terminal.search.noMatches')}</span>
                         : <><span className="text-white font-medium">{matchInfo.idx + 1}</span><span className="text-[#9CA3AF]"> / {matchInfo.total}</span></>
                     : <span className="text-[#6B7280]">—</span>}
               </span>
@@ -775,30 +780,30 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
 
             {/* 右:范围切换 - 同左侧一致的 underline 开关 */}
             <div className="flex items-center justify-end pr-2">
-              <span className="text-[14px] text-[#9CA3AF] mr-1">scope:</span>
+              <span className="text-[14px] text-[#9CA3AF] mr-1">{t('terminal.search.scopeLabel')}</span>
               <button
                 onClick={() => setSearchScope('current')}
                 className={`px-2.5 py-2 text-[14px] ${
                   searchScope === 'current' ? 'text-[#5AA8FF]' : 'text-[#D1D5DB] hover:text-white'
                 }`}
-                title="Search this tab (Alt+A)"
-              >Tab</button>
+                title={t('terminal.search.searchThisTab')}
+              >{t('terminal.search.scopeCurrent')}</button>
               <button
                 onClick={() => setSearchScope('all')}
                 className={`px-2.5 py-2 text-[14px] ${
                   searchScope === 'all' ? 'text-[#5AA8FF]' : 'text-[#D1D5DB] hover:text-white'
                 }`}
-                title="Search all tabs (Alt+A)"
-              >All</button>
+                title={t('terminal.search.searchAllTabs')}
+              >{t('terminal.search.scopeAll')}</button>
             </div>
           </div>
 
           {/* 第三行:快捷键提示 */}
           <div className="flex gap-4 px-3 py-2 text-[12px] text-[#9CA3AF]">
-            <span><kbd className="border border-[#6B7280] text-[#D1D5DB] px-1.5 rounded text-[11px] mr-1">↵</kbd>next</span>
-            <span><kbd className="border border-[#6B7280] text-[#D1D5DB] px-1.5 rounded text-[11px] mr-1">⇧↵</kbd>prev</span>
-            <span><kbd className="border border-[#6B7280] text-[#D1D5DB] px-1.5 rounded text-[11px] mr-1">⌥A</kbd>scope</span>
-            <span><kbd className="border border-[#6B7280] text-[#D1D5DB] px-1.5 rounded text-[11px] mr-1">esc</kbd>close</span>
+            <span><kbd className="border border-[#6B7280] text-[#D1D5DB] px-1.5 rounded text-[11px] mr-1">↵</kbd>{t('terminal.search.hintNext')}</span>
+            <span><kbd className="border border-[#6B7280] text-[#D1D5DB] px-1.5 rounded text-[11px] mr-1">⇧↵</kbd>{t('terminal.search.hintPrev')}</span>
+            <span><kbd className="border border-[#6B7280] text-[#D1D5DB] px-1.5 rounded text-[11px] mr-1">⌥A</kbd>{t('terminal.search.hintScope')}</span>
+            <span><kbd className="border border-[#6B7280] text-[#D1D5DB] px-1.5 rounded text-[11px] mr-1">esc</kbd>{t('terminal.search.hintClose')}</span>
           </div>
         </div>
       )}

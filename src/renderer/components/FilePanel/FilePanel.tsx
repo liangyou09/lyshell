@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import FileTree from './FileTree'
 import FileToolbar from './FileToolbar'
 import { useFileStore, useSessionStore } from '../../stores'
@@ -30,6 +31,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
   const [renameDialogOpen, setRenameDialogOpen] = useState(false)
   const [renameFile, setRenameFile] = useState<FileInfo | null>(null)
   const [newFileName, setNewFileName] = useState('')
+  const { t } = useTranslation()
 
   // ESC键关闭弹窗
   useEffect(() => {
@@ -82,7 +84,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
     const uploadDir = targetDir || currentPath
 
     const result = await window.electronAPI.showOpenDialog({
-      title: '选择要上传的文件',
+      title: t('file.uploadDialogTitle'),
       properties: ['openFile', 'multiSelections']
     })
 
@@ -100,7 +102,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
     }
 
     // 提示用户
-    alert(`已开始上传 ${result.filePaths.length} 个文件，请稍后刷新查看`)
+    alert(t('file.uploadStarted', { count: result.filePaths.length }))
   }
 
   // 下载文件（直接调用，不显示进度）
@@ -110,20 +112,20 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
     if (!dirResult.success) {
       // 使用默认保存对话框
       const result = await window.electronAPI.showSaveDialog({
-        title: '保存文件',
+        title: t('file.saveDialogTitle'),
         defaultPath: file.name
       })
       if (result.canceled || !result.filePath) return
 
       const taskId = Date.now().toString()
       window.electronAPI.fileDownload(sessionId, file.path, result.filePath, taskId, file.name, file.size)
-      alert(`开始下载 ${file.name}`)
+      alert(t('file.downloadStarted', { name: file.name }))
     } else {
       // 使用配置的下载目录
       const localPath = `${dirResult.data}/${file.name}`
       const taskId = Date.now().toString()
       window.electronAPI.fileDownload(sessionId, file.path, localPath, taskId, file.name, file.size)
-      alert(`开始下载 ${file.name}\n保存到: ${localPath}`)
+      alert(t('file.downloadStartedWithPath', { name: file.name, path: localPath }))
     }
   }
 
@@ -131,9 +133,13 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
   const handleDelete = async (file: FileInfo) => {
     const confirmed = await window.electronAPI.showMessageBox({
       type: 'warning',
-      buttons: ['删除', '取消'],
-      title: '确认删除',
-      message: `确定要删除 ${file.isDir ? '目录' : '文件'} "${file.name}" 吗？${file.isDir ? '\n目录内所有内容都将被删除。' : ''}`
+      buttons: [t('file.deleteConfirmButton'), t('file.cancelButton')],
+      title: t('file.deleteConfirmTitle'),
+      message: t('file.deleteConfirmMessage', {
+        type: file.isDir ? t('file.typeDir') : t('file.typeFile'),
+        name: file.name,
+        dirExtra: file.isDir ? t('file.deleteConfirmDirExtra') : ''
+      })
     })
 
     if (confirmed.response !== 0) {
@@ -146,7 +152,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
     } else {
       await window.electronAPI.showMessageBox({
         type: 'error',
-        title: '删除失败',
+        title: t('file.deleteFailedTitle'),
         message: result.error
       })
     }
@@ -174,7 +180,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
     } else {
       await window.electronAPI.showMessageBox({
         type: 'error',
-        title: '重命名失败',
+        title: t('file.renameFailedTitle'),
         message: result.error
       })
     }
@@ -204,7 +210,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
     } else {
       await window.electronAPI.showMessageBox({
         type: 'error',
-        title: '创建目录失败',
+        title: t('file.mkdirFailedTitle'),
         message: result.error
       })
     }
@@ -232,7 +238,7 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
     return (
       <div className="flex flex-col h-full bg-[#1E1E1E]">
         <div className="flex items-center justify-center h-full text-gray-400">
-          请先连接会话
+          {t('file.notConnected')}
         </div>
       </div>
     )
@@ -267,13 +273,13 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
       {mkdirDialogOpen && (
         <div className="fixed inset-0 flex items-center justify-center bg-black/50 z-50">
           <div className="bg-[#252526] border border-[#3C3C3C] rounded shadow-lg p-4 w-[300px]">
-            <div className="text-sm text-gray-200 mb-3">新建目录</div>
+            <div className="text-sm text-gray-200 mb-3">{t('file.newDirDialogTitle')}</div>
             <div className="text-xs text-gray-400 mb-2">{mkdirParentPath}</div>
             <input
               type="text"
               value={newDirName}
               onChange={(e) => setNewDirName(e.target.value)}
-              placeholder="目录名称"
+              placeholder={t('file.dirNamePlaceholder')}
               className="w-full bg-[#1E1E1E] border border-[#3C3C3C] rounded px-2 py-1 text-sm text-gray-200 outline-none focus:border-[#0078D4]"
               autoFocus
             />
@@ -282,13 +288,13 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
                 onClick={() => setMkdirDialogOpen(false)}
                 className="px-3 py-1 text-sm text-gray-400 hover:text-white transition-colors"
               >
-                取消
+                {t('file.cancelButton')}
               </button>
               <button
                 onClick={executeMkdir}
                 className="px-3 py-1 text-sm text-white bg-[#0078D4] rounded hover:bg-[#0066B4] transition-colors"
               >
-                创建
+                {t('file.createButton')}
               </button>
             </div>
           </div>
@@ -300,13 +306,13 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
         <div className="fixed inset-0 flex items-center justify-center bg-black/50 z-50">
           <div className="bg-[#252526] border border-[#3C3C3C] rounded shadow-lg p-4 w-[300px]">
             <div className="text-sm text-gray-200 mb-3">
-              重命名 {renameFile.isDir ? '目录' : '文件'}
+              {t('file.renameDialogTitle', { type: renameFile.isDir ? t('file.typeDir') : t('file.typeFile') })}
             </div>
             <input
               type="text"
               value={newFileName}
               onChange={(e) => setNewFileName(e.target.value)}
-              placeholder="新名称"
+              placeholder={t('file.newNamePlaceholder')}
               className="w-full bg-[#1E1E1E] border border-[#3C3C3C] rounded px-2 py-1 text-sm text-gray-200 outline-none focus:border-[#0078D4]"
               autoFocus
             />
@@ -315,13 +321,13 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
                 onClick={() => setRenameDialogOpen(false)}
                 className="px-3 py-1 text-sm text-gray-400 hover:text-white transition-colors"
               >
-                取消
+                {t('file.cancelButton')}
               </button>
               <button
                 onClick={executeRename}
                 className="px-3 py-1 text-sm text-white bg-[#0078D4] rounded hover:bg-[#0066B4] transition-colors"
               >
-                确定
+                {t('file.okButton')}
               </button>
             </div>
           </div>

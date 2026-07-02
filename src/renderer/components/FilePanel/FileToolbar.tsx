@@ -1,5 +1,6 @@
 import React from 'react'
 import cn from 'classnames'
+import { useTranslation } from 'react-i18next'
 import { useFileStore } from '../../stores'
 import { FileConnectorType } from '@shared/types'
 
@@ -28,6 +29,7 @@ const FileToolbar: React.FC<FileToolbarProps> = ({
   const { connectorTypes, loading } = useFileStore()
   const connectorType = connectorTypes[sessionId]
   const isLoading = loading[sessionId]
+  const { t } = useTranslation()
 
   return (
     <div className="flex items-center gap-2 px-2 py-1.5 border-b border-[#3C3C3C] bg-[#252526]">
@@ -57,7 +59,7 @@ const FileToolbar: React.FC<FileToolbarProps> = ({
           'w-6 h-6 flex items-center justify-center rounded hover:bg-[#3C3C3C] transition-colors',
           isLoading && 'opacity-50 cursor-not-allowed'
         )}
-        title="刷新"
+        title={t('file.refresh')}
       >
         🔄
       </button>
@@ -66,7 +68,7 @@ const FileToolbar: React.FC<FileToolbarProps> = ({
       <button
         onClick={onUpload}
         className="w-6 h-6 flex items-center justify-center rounded hover:bg-[#3C3C3C] transition-colors"
-        title="上传文件"
+        title={t('file.uploadFile')}
       >
         ⬆
       </button>
@@ -75,7 +77,7 @@ const FileToolbar: React.FC<FileToolbarProps> = ({
       <button
         onClick={onMkdir}
         className="w-6 h-6 flex items-center justify-center rounded hover:bg-[#3C3C3C] transition-colors"
-        title="新建目录"
+        title={t('file.newDir')}
       >
         📁+
       </button>
@@ -88,7 +90,7 @@ const FileToolbar: React.FC<FileToolbarProps> = ({
           'w-6 h-6 flex items-center justify-center rounded hover:bg-[#3C3C3C] transition-colors',
           currentPath === '/' && 'opacity-50 cursor-not-allowed'
         )}
-        title="上级目录"
+        title={t('file.parentDir')}
       >
         ⬆
       </button>

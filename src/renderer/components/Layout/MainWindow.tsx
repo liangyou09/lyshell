@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import cn from 'classnames'
+import { useTranslation } from 'react-i18next'
 import Sidebar from './Sidebar'
 import StatusBar from './StatusBar'
 import SplitPaneContainer from './SplitPaneContainer'
@@ -7,6 +8,7 @@ import FloatWindow from '../FloatWindow/FloatWindow'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import { useThemeStore, AVAILABLE_THEMES, CUSTOM_THEME_ID } from '../../stores/theme-store'
+import { useLocaleStore, AVAILABLE_LOCALES } from '../../stores/locale-store'
 import type { SessionConfig } from '@shared/types'
 import { isCursorBlinkEnabled } from '@shared/constants'
 
@@ -45,12 +47,19 @@ const MainWindow: React.FC = () => {
   const { loadSessions, refreshSavedSessions } = useSessionStore()
   const { getAllLeafPanes, layout } = usePaneStore()
   const { themeId, setTheme, customColors, setCustomColors, initFromStorage } = useThemeStore()
+  const { localeId, setLocale, initFromStorage: initLocaleFromStorage } = useLocaleStore()
+  const { t } = useTranslation()
   const terminalWrapperRef = useRef<HTMLDivElement>(null)
 
   // 加载主题（index.html 已早期应用，这里仅同步 store 状态）
   useEffect(() => {
     initFromStorage()
   }, [initFromStorage])
+
+  // 加载语言（lang-init.ts 已早期设 <html lang>，i18n.ts 已用 saved 初始化 lng；这里同步 store 状态供选择器显示）
+  useEffect(() => {
+    initLocaleFromStorage()
+  }, [initLocaleFromStorage])
 
   // 一次性清理:RECENT 段已从 Sidebar 删除并搬到浮窗,旧 localStorage key 是死数据
   // 几次启动后绝大多数客户端就清干净了;新装用户根本不会有这个 key,这段也会是 no-op
@@ -357,7 +366,7 @@ const MainWindow: React.FC = () => {
           <div
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
             className="w-[24px] h-[24px] bg-[var(--bg-slot)] flex items-center justify-center rounded-[2px] hover:bg-[var(--bg-elev)] transition-colors cursor-pointer group"
-            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={sidebarCollapsed ? t('settings.expandSidebar') : t('settings.collapseSidebar')}
           >
             <svg width="14" height="11" viewBox="0 0 14 11" fill="none"
               className="text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)] transition-colors">
@@ -396,19 +405,19 @@ const MainWindow: React.FC = () => {
                 onPointerUp={handleSettingsDragEnd}
                 onPointerCancel={handleSettingsDragEnd}
                 onDoubleClick={handleResetSettingsPosition}
-                title="Drag to move · Double-click to reset"
+                title={t('settings.dragToMove')}
                 className="flex items-center justify-between px-3 h-[26px] bg-[var(--bg-strip)] border-b border-[var(--rule)] cursor-move select-none"
               >
                 <span className="text-[11px] font-semibold text-[var(--amber)] font-mono">Terminal · Settings</span>
                 <button
                   onClick={handleCloseSettings}
                   className="w-[18px] h-[18px] flex items-center justify-center rounded-[2px] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-slot)] text-xs leading-none transition-colors cursor-pointer"
-                  title="Close"
+                  title={t('settings.close')}
                 >✕</button>
               </div>
               <div className="space-y-3 p-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-mono text-[var(--text-rack)] w-[56px]">Buffer</span>
+                  <span className="text-[11px] font-mono text-[var(--text-rack)] w-[56px]">{t('settings.buffer')}</span>
                   <input
                     type="number"
                     value={scrollbackLines}
@@ -422,10 +431,10 @@ const MainWindow: React.FC = () => {
                     max={100000}
                     step={1000}
                   />
-                  <span className="text-[10px] text-[var(--text-rack-data)] font-mono">Lines</span>
+                  <span className="text-[10px] text-[var(--text-rack-data)] font-mono">{t('settings.lines')}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-mono text-[var(--text-rack)] w-[56px]">Font</span>
+                  <span className="text-[11px] font-mono text-[var(--text-rack)] w-[56px]">{t('settings.font')}</span>
                   <input
                     type="number"
                     value={fontSize}
@@ -441,10 +450,10 @@ const MainWindow: React.FC = () => {
                     max={32}
                     step={1}
                   />
-                  <span className="text-[10px] text-[var(--text-rack-data)] font-mono">Px</span>
+                  <span className="text-[10px] text-[var(--text-rack-data)] font-mono">{t('settings.px')}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-mono text-[var(--text-rack)] w-[56px]">Cursor</span>
+                  <span className="text-[11px] font-mono text-[var(--text-rack)] w-[56px]">{t('settings.cursor')}</span>
                   <input
                     type="checkbox"
                     checked={cursorBlink}
@@ -459,13 +468,13 @@ const MainWindow: React.FC = () => {
                   <span className={cn(
                     'text-[11px] font-mono',
                     cursorBlink ? 'text-[var(--amber)]' : 'text-[var(--text-rack-data)]'
-                  )}>{cursorBlink ? 'Blink On' : 'Blink Off'}</span>
+                  )}>{cursorBlink ? t('settings.blinkOn') : t('settings.blinkOff')}</span>
                 </div>
 
                 {/* 主题 ——— 三个 rack 槽位，每行用自己主题的真实色铺底 */}
                 <div className="border-t border-[var(--rule)] pt-2 mt-2">
                   <div className="flex items-baseline justify-between mb-1.5">
-                    <span className="text-[11px] font-mono text-[var(--text-rack)]">Theme</span>
+                    <span className="text-[11px] font-mono text-[var(--text-rack)]">{t('settings.theme')}</span>
                     <span className="text-[10px] font-mono text-[var(--text-rack-data)] truncate ml-2">
                       {AVAILABLE_THEMES.find(t => t.id === themeId)?.name}
                     </span>
@@ -539,7 +548,7 @@ const MainWindow: React.FC = () => {
                             value={customColors.base}
                             onChange={(e) => setCustomColors({ base: e.target.value.toUpperCase() })}
                             className="w-[18px] h-[18px] cursor-pointer border-0 bg-transparent p-0"
-                            title="Pick base color"
+                            title={t('settings.pickBaseColor')}
                           />
                         </label>
                         <span className="text-[10px] font-mono text-[var(--text-rack-mute)] tabular-nums">
@@ -555,7 +564,7 @@ const MainWindow: React.FC = () => {
                             value={customColors.accent}
                             onChange={(e) => setCustomColors({ accent: e.target.value.toUpperCase() })}
                             className="w-[18px] h-[18px] cursor-pointer border-0 bg-transparent p-0"
-                            title="Pick accent color"
+                            title={t('settings.pickAccentColor')}
                           />
                         </label>
                         <span className="text-[10px] font-mono text-[var(--text-rack-mute)] tabular-nums">
@@ -566,16 +575,58 @@ const MainWindow: React.FC = () => {
                   )}
                 </div>
 
+                {/* 语言 —— 镜像 Theme 段布局：border-t 分隔 + 标题行 + locale 按钮列表 */}
+                <div className="border-t border-[var(--rule)] pt-2 mt-2">
+                  <div className="flex items-baseline justify-between mb-1.5">
+                    <span className="text-[11px] font-mono text-[var(--text-rack)]">{t('settings.language')}</span>
+                    <span className="text-[10px] font-mono text-[var(--text-rack-data)] truncate ml-2">
+                      {AVAILABLE_LOCALES.find(l => l.id === localeId)?.name}
+                    </span>
+                  </div>
+                  <div className="border border-[var(--rule)] rounded-[2px] overflow-hidden divide-y divide-[var(--rule-soft)]">
+                    {AVAILABLE_LOCALES.map(l => {
+                      const active = localeId === l.id
+                      return (
+                        <button
+                          key={l.id}
+                          onClick={() => setLocale(l.id)}
+                          className={cn(
+                            'group relative w-full grid items-center gap-2 h-[30px] pr-2 text-left transition-[filter] duration-150',
+                            'grid-cols-[3px_1fr]',
+                            !active && 'hover:brightness-110'
+                          )}
+                        >
+                          {/* 3px 左条 — active=amber, idle=透明留位 */}
+                          <span
+                            aria-hidden
+                            className="h-full"
+                            style={{ backgroundColor: active ? 'var(--amber)' : 'transparent' }}
+                          />
+                          {/* name 用目标语言自身书写，不翻译 */}
+                          <span
+                            className={cn(
+                              'text-[12px] font-semibold font-mono truncate pl-1',
+                              active ? 'text-[var(--amber)]' : 'text-[var(--text-rack)]'
+                            )}
+                          >
+                            {l.name}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
                 {/* 下载路径 */}
                 <div className="border-t border-[var(--rule)] pt-2 mt-2">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[11px] font-mono text-[var(--text-rack)] w-[56px]">Download</span>
+                    <span className="text-[11px] font-mono text-[var(--text-rack)] w-[56px]">{t('settings.download')}</span>
                     <div
                       onClick={handleSelectDownloadDir}
                       className="flex-1 px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[11px] font-mono text-[var(--text-rack)] cursor-pointer hover:border-[var(--amber)] truncate transition-colors"
-                      title={downloadDir || 'Click To Select'}
+                      title={downloadDir || t('settings.clickToSelect')}
                     >
-                      {downloadDir || 'Click To Choose Directory'}
+                      {downloadDir || t('settings.clickToChoose')}
                     </div>
                     <button
                       onClick={() => downloadDir && window.electronAPI?.openFolder(downloadDir)}
@@ -586,16 +637,16 @@ const MainWindow: React.FC = () => {
                           ? 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack-data)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
                           : 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack-faint)] cursor-not-allowed'
                       )}
-                      title="Open Folder"
+                      title={t('settings.openFolder')}
                     >
                       📂
                     </button>
                   </div>
-                  <p className="text-[10px] text-[var(--text-rack-mute)] font-mono">Default Save Path</p>
+                  <p className="text-[10px] text-[var(--text-rack-mute)] font-mono">{t('settings.defaultSavePath')}</p>
                 </div>
 
                 <p className="text-[10px] text-[var(--text-rack-mute)] border-t border-[var(--rule)] pt-2 mt-2 font-mono leading-relaxed">
-                  Font Size Applies Live · Buffer + Cursor Apply To New Sessions
+                  {t('settings.applyHint')}
                 </p>
               </div>
             </div>
@@ -615,7 +666,7 @@ const MainWindow: React.FC = () => {
                   ? 'bg-[var(--bg-elev)]'
                   : 'bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)]'
               )}
-              title="Session float window (Ctrl+`)"
+              title={t('settings.floatWindow')}
             >
               <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
                 <rect x="1" y="2.5" width="9" height="7" stroke="currentColor" strokeWidth="1.3"
@@ -633,7 +684,7 @@ const MainWindow: React.FC = () => {
                   ? 'bg-[var(--bg-elev)]'
                   : 'bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)]'
               )}
-              title="Terminal settings"
+              title={t('settings.terminalSettings')}
             >
               <span className={cn(
                 'text-xs transition-colors',
@@ -651,7 +702,7 @@ const MainWindow: React.FC = () => {
             <div
               onClick={handleMinimize}
               className="w-[24px] h-[24px] bg-[var(--bg-slot)] flex items-center justify-center rounded-[2px] hover:bg-[var(--bg-elev)] transition-colors cursor-pointer group"
-              title="Minimize"
+              title={t('settings.minimize')}
             >
               <span className="text-[var(--text-rack-mute)] text-base leading-none group-hover:text-[var(--text-rack)] transition-colors">─</span>
             </div>
@@ -659,7 +710,7 @@ const MainWindow: React.FC = () => {
             <div
               onClick={handleMaximize}
               className="w-[24px] h-[24px] bg-[var(--bg-slot)] flex items-center justify-center rounded-[2px] hover:bg-[var(--bg-elev)] transition-colors cursor-pointer group"
-              title={isMaximized ? 'Restore' : 'Maximize'}
+              title={isMaximized ? t('settings.restore') : t('settings.maximize')}
             >
               {isMaximized ? (
                 <svg width="14" height="14" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -677,7 +728,7 @@ const MainWindow: React.FC = () => {
             <div
               onClick={handleClose}
               className="w-[24px] h-[24px] bg-[var(--bg-slot)] flex items-center justify-center rounded-[2px] hover:bg-[var(--error-rack)] transition-colors cursor-pointer group"
-              title="Close"
+              title={t('settings.close')}
             >
               <span className="text-[var(--text-rack-mute)] text-base leading-none group-hover:text-white transition-colors">✕</span>
             </div>

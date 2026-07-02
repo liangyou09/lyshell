@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="rack-graphite">
+<html lang="en" data-theme="rack-graphite">
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +7,8 @@
     <title>LyShell</title>
     <!-- 早期主题预设：必须在 React 挂载前同步还原 data-theme，避免 FOUC -->
     <script type="module" src="./theme-init.ts"></script>
+    <!-- 早期语言预设：React 挂载前同步设 <html lang>，供 a11y；i18next 在 main.tsx 里初始化 -->
+    <script type="module" src="./lang-init.ts"></script>
     <style>
       body {
         background-color: #11151A;

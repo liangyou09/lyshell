@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import cn from 'classnames'
+import { useTranslation } from 'react-i18next'
 
 interface QuickCommand {
   id: string
@@ -21,6 +22,7 @@ const QuickCommands: React.FC<QuickCommandsProps> = ({ onExecute }) => {
   const [editCommand, setEditCommand] = useState<QuickCommand | undefined>(undefined)
   const [newName, setNewName] = useState('')
   const [newContent, setNewContent] = useState('')
+  const { t } = useTranslation()
 
   // 加载保存的快速命令
   useEffect(() => {
@@ -134,7 +136,7 @@ const QuickCommands: React.FC<QuickCommandsProps> = ({ onExecute }) => {
       onDoubleClick={handleDoubleClick}
     >
       {/* 提示 */}
-      <span className="text-xs text-gray-500 mr-2">双击添加:</span>
+      <span className="text-xs text-gray-500 mr-2">{t('quickCmd.doubleClickToAdd')}</span>
 
       {/* 命令列表 */}
       {commands.map((cmd) => (
@@ -154,7 +156,7 @@ const QuickCommands: React.FC<QuickCommandsProps> = ({ onExecute }) => {
 
       {/* 空状态提示 */}
       {commands.length === 0 && (
-        <span className="text-xs text-gray-500">暂无命令，双击添加</span>
+        <span className="text-xs text-gray-500">{t('quickCmd.empty')}</span>
       )}
 
       {/* 添加/编辑对话框 */}
@@ -162,27 +164,27 @@ const QuickCommands: React.FC<QuickCommandsProps> = ({ onExecute }) => {
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
           <div className="bg-[#2D2D30] rounded-lg shadow-xl w-[400px] p-4">
             <div className="text-sm text-white font-medium mb-3">
-              {editCommand ? '编辑命令' : '添加快速命令'}
+              {editCommand ? t('quickCmd.editTitle') : t('quickCmd.addTitle')}
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs text-gray-400 mb-1">名称</label>
+                <label className="block text-xs text-gray-400 mb-1">{t('quickCmd.nameLabel')}</label>
                 <input
                   type="text"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  placeholder="例如: ls"
+                  placeholder={t('quickCmd.namePlaceholder')}
                   className="w-full px-2 py-1 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs text-gray-400 mb-1">命令内容（支持多行）</label>
+                <label className="block text-xs text-gray-400 mb-1">{t('quickCmd.contentLabel')}</label>
                 <textarea
                   value={newContent}
                   onChange={(e) => setNewContent(e.target.value)}
-                  placeholder="例如:&#10;cd /var/www&#10;ls -la"
+                  placeholder={t('quickCmd.contentPlaceholder')}
                   rows={4}
                   className="w-full px-2 py-1 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4] resize-none"
                 />
@@ -194,20 +196,20 @@ const QuickCommands: React.FC<QuickCommandsProps> = ({ onExecute }) => {
                     onClick={handleDelete}
                     className="px-3 py-1 text-sm text-red-400 hover:text-red-300 transition-colors"
                   >
-                    删除
+                    {t('quickCmd.delete')}
                   </button>
                 )}
                 <button
                   onClick={() => setShowAddDialog(false)}
                   className="px-3 py-1 text-sm text-gray-400 hover:text-white transition-colors"
                 >
-                  取消
+                  {t('quickCmd.cancel')}
                 </button>
                 <button
                   onClick={handleSave}
                   className="px-3 py-1 text-sm bg-[#0078D4] text-white rounded hover:bg-[#006CBD] transition-colors"
                 >
-                  保存
+                  {t('quickCmd.save')}
                 </button>
               </div>
             </div>

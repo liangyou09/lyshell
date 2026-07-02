@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { SessionConfig } from '@shared/types'
 
 interface QuickCommand {
@@ -39,6 +40,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
   const [_importFilePath, setImportFilePath] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'warning', text: string } | null>(null)
+  const { t } = useTranslation()
 
   // ESC键关闭弹窗
   useEffect(() => {
@@ -137,7 +139,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
   // 执行导出
   const handleExport = async () => {
     if (selectedSessions.size === 0 && selectedCommands.size === 0) {
-      setMessage({ type: 'error', text: '请选择要导出的内容' })
+      setMessage({ type: 'error', text: t('export.selectExportContent') })
       return
     }
 
@@ -159,10 +161,10 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
       if (result?.success) {
         setMessage({
           type: 'success',
-          text: `导出成功: ${result.path}${result.encrypted ? ' (已加密)' : ''}`
+          text: t('export.exportSuccess', { path: result.path, encrypted: result.encrypted ? t('export.encryptedSuffix') : '' })
         })
       } else {
-        setMessage({ type: 'error', text: result?.message || '导出失败' })
+        setMessage({ type: 'error', text: result?.message || t('export.exportFailed') })
       }
     } catch (error) {
       setMessage({ type: 'error', text: (error as Error).message })
@@ -186,15 +188,15 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
         // 文件需要解密密码
         setNeedPassword(true)
         setImportFilePath(result.path)
-        setMessage({ type: 'warning', text: '该文件已加密，请输入解密密码' })
+        setMessage({ type: 'warning', text: t('export.fileEncryptedPrompt') })
       } else if (result?.success && result.data) {
         setImportSessions(result.data.sessions || [])
         setImportCommands(result.data.quickCommands || [])
         setImportSessionSelect(new Set(result.data.sessions?.map((s: SessionConfig) => s.id) || []))
         setImportCommandSelect(new Set(result.data.quickCommands?.map((c: QuickCommand) => c.id) || []))
-        setMessage({ type: 'success', text: `已加载: ${result.path}${result.encrypted ? ' (已解密)' : ''}` })
+        setMessage({ type: 'success', text: t('export.loaded', { path: result.path, decrypted: result.encrypted ? t('export.decryptedSuffix') : '' }) })
       } else {
-        setMessage({ type: 'error', text: result?.message || '导入失败' })
+        setMessage({ type: 'error', text: result?.message || t('export.importFailed') })
       }
     } catch (error) {
       setMessage({ type: 'error', text: (error as Error).message })
@@ -206,7 +208,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
   // 输入密码后解密
   const handleDecrypt = async () => {
     if (!decryptPassword) {
-      setMessage({ type: 'error', text: '请输入解密密码' })
+      setMessage({ type: 'error', text: t('export.enterDecryptPassword') })
       return
     }
 
@@ -222,12 +224,12 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
         setImportSessionSelect(new Set(result.data.sessions?.map((s: SessionConfig) => s.id) || []))
         setImportCommandSelect(new Set(result.data.quickCommands?.map((c: QuickCommand) => c.id) || []))
         setNeedPassword(false)
-        setMessage({ type: 'success', text: '解密成功，数据已加载' })
+        setMessage({ type: 'success', text: t('export.decryptSuccess') })
       } else {
-        setMessage({ type: 'error', text: result?.message || '解密失败，密码可能错误' })
+        setMessage({ type: 'error', text: result?.message || t('export.decryptFailed') })
       }
     } catch (error) {
-      setMessage({ type: 'error', text: '解密失败，密码可能错误' })
+      setMessage({ type: 'error', text: t('export.decryptFailed') })
     } finally {
       setLoading(false)
     }
@@ -236,7 +238,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
   // 执行导入
   const handleImport = async () => {
     if (importSessionSelect.size === 0 && importCommandSelect.size === 0) {
-      setMessage({ type: 'error', text: '请选择要导入的内容' })
+      setMessage({ type: 'error', text: t('export.selectImportContent') })
       return
     }
 
@@ -274,7 +276,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
       // 返回导入的数据给父组件处理（刷新UI）
       onImportComplete(selectedImportSessions, selectedImportCommands)
 
-      setMessage({ type: 'success', text: `导入成功: ${selectedImportSessions.length} 个会话, ${selectedImportCommands.length} 个快速命令` })
+      setMessage({ type: 'success', text: t('export.importSuccess', { sessionCount: selectedImportSessions.length, commandCount: selectedImportCommands.length }) })
     } catch (error) {
       setMessage({ type: 'error', text: (error as Error).message })
     } finally {
@@ -314,7 +316,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
       <div className="bg-[#2D2D30] rounded-lg shadow-xl w-[500px] max-h-[80vh] overflow-hidden">
         {/* 标题 */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[#3C3C3C]">
-          <span className="text-white font-medium">配置导出/导入</span>
+          <span className="text-white font-medium">{t('export.title')}</span>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-white"
@@ -333,7 +335,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
                 : 'bg-[#3C3C3C] text-gray-300 hover:bg-[#555]'
             }`}
           >
-            导出
+            {t('export.tabExport')}
           </button>
           <button
             onClick={() => handleModeChange('import')}
@@ -343,7 +345,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
                 : 'bg-[#3C3C3C] text-gray-300 hover:bg-[#555]'
             }`}
           >
-            导入
+            {t('export.tabImport')}
           </button>
         </div>
 
@@ -354,33 +356,33 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
               {/* 加密密码 */}
               <div className="mb-4">
                 <label className="block text-sm text-gray-300 mb-1">
-                  加密密码 (可选，加密密码等敏感数据)
+                  {t('export.encryptPasswordLabel')}
                 </label>
                 <input
                   type="password"
                   value={encryptPassword}
                   onChange={(e) => setEncryptPassword(e.target.value)}
-                  placeholder="留空则不加密"
+                  placeholder={t('export.encryptPasswordPlaceholder')}
                   className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
                 />
                 {encryptPassword && (
-                  <p className="text-xs text-green-400 mt-1">密码、私钥等敏感数据将被加密</p>
+                  <p className="text-xs text-green-400 mt-1">{t('export.encryptHint')}</p>
                 )}
               </div>
 
               {/* 会话列表 */}
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-sm text-gray-300">会话 ({sessions.length})</span>
+                  <span className="text-sm text-gray-300">{t('export.sessionsLabel', { count: sessions.length })}</span>
                   <button
                     onClick={toggleAllSessions}
                     className="text-xs text-[#0078D4] hover:text-[#0098FF]"
                   >
-                    {selectedSessions.size === sessions.length ? '取消全选' : '全选'}
+                    {selectedSessions.size === sessions.length ? t('export.deselectAll') : t('export.selectAll')}
                   </button>
                 </div>
                 {sessions.length === 0 ? (
-                  <div className="text-xs text-gray-500 py-2">暂无会话</div>
+                  <div className="text-xs text-gray-500 py-2">{t('export.noSessions')}</div>
                 ) : (
                   <div className="space-y-1">
                     {sessions.map(session => (
@@ -410,16 +412,16 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
               {/* 快速命令列表 */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-sm text-gray-300">快速命令 ({quickCommands.length})</span>
+                  <span className="text-sm text-gray-300">{t('export.commandsLabel', { count: quickCommands.length })}</span>
                   <button
                     onClick={toggleAllCommands}
                     className="text-xs text-[#0078D4] hover:text-[#0098FF]"
                   >
-                    {selectedCommands.size === quickCommands.length ? '取消全选' : '全选'}
+                    {selectedCommands.size === quickCommands.length ? t('export.deselectAll') : t('export.selectAll')}
                   </button>
                 </div>
                 {quickCommands.length === 0 ? (
-                  <div className="text-xs text-gray-500 py-2">暂无快速命令</div>
+                  <div className="text-xs text-gray-500 py-2">{t('export.noCommands')}</div>
                 ) : (
                   <div className="space-y-1">
                     {quickCommands.map(cmd => (
@@ -453,18 +455,18 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
                 disabled={loading}
                 className="w-full px-3 py-2 bg-[#3C3C3C] text-gray-200 rounded hover:bg-[#555] transition-colors mb-4 text-sm"
               >
-                {loading ? '加载中...' : '选择导入文件 (.json)'}
+                {loading ? t('export.loading') : t('export.selectImportFile')}
               </button>
 
               {/* 需要解密密码 */}
               {needPassword && (
                 <div className="mb-4 p-3 bg-[#1E1E1E] rounded border border-[#555]">
-                  <p className="text-sm text-yellow-400 mb-2">该文件已加密，请输入解密密码:</p>
+                  <p className="text-sm text-yellow-400 mb-2">{t('export.fileEncryptedPrompt')}</p>
                   <input
                     type="password"
                     value={decryptPassword}
                     onChange={(e) => setDecryptPassword(e.target.value)}
-                    placeholder="输入解密密码"
+                    placeholder={t('export.enterDecryptPassword')}
                     className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4] mb-2"
                   />
                   <button
@@ -472,7 +474,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
                     disabled={loading || !decryptPassword}
                     className="w-full px-3 py-1.5 bg-[#0078D4] text-white rounded text-sm hover:bg-[#006CBD] transition-colors disabled:opacity-50"
                   >
-                    {loading ? '解密中...' : '解密'}
+                    {loading ? t('export.decrypting') : t('export.decrypt')}
                   </button>
                 </div>
               )}
@@ -483,12 +485,12 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
                   {/* 导入会话列表 */}
                   <div className="mb-4">
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm text-gray-300">会话 ({importSessions.length})</span>
+                      <span className="text-sm text-gray-300">{t('export.sessionsLabel', { count: importSessions.length })}</span>
                       <button
                         onClick={toggleAllImportSessions}
                         className="text-xs text-[#0078D4] hover:text-[#0098FF]"
                       >
-                        {importSessionSelect.size === importSessions.length ? '取消全选' : '全选'}
+                        {importSessionSelect.size === importSessions.length ? t('export.deselectAll') : t('export.selectAll')}
                       </button>
                     </div>
                     <div className="space-y-1">
@@ -518,12 +520,12 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
                   {/* 导入快速命令列表 */}
                   <div>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm text-gray-300">快速命令 ({importCommands.length})</span>
+                      <span className="text-sm text-gray-300">{t('export.commandsLabel', { count: importCommands.length })}</span>
                       <button
                         onClick={toggleAllImportCommands}
                         className="text-xs text-[#0078D4] hover:text-[#0098FF]"
                       >
-                        {importCommandSelect.size === importCommands.length ? '取消全选' : '全选'}
+                        {importCommandSelect.size === importCommands.length ? t('export.deselectAll') : t('export.selectAll')}
                       </button>
                     </div>
                     <div className="space-y-1">
@@ -554,7 +556,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
               {/* 未加载文件提示 */}
               {!needPassword && importSessions.length === 0 && importCommands.length === 0 && (
                 <div className="text-center text-gray-500 text-sm py-8">
-                  请选择要导入的配置文件
+                  {t('export.importFilePrompt')}
                 </div>
               )}
             </>
@@ -577,7 +579,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
             onClick={onClose}
             className="px-4 py-1.5 text-sm text-gray-400 hover:text-white transition-colors"
           >
-            关闭
+            {t('export.close')}
           </button>
           {mode === 'export' ? (
             <button
@@ -585,7 +587,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
               disabled={loading}
               className="px-4 py-1.5 text-sm bg-[#0078D4] text-white rounded hover:bg-[#006CBD] transition-colors disabled:opacity-50"
             >
-              {loading ? '导出中...' : '导出'}
+              {loading ? t('export.exporting') : t('export.export')}
             </button>
           ) : (
             <button
@@ -593,7 +595,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
               disabled={loading || needPassword || (importSessionSelect.size === 0 && importCommandSelect.size === 0)}
               className="px-4 py-1.5 text-sm bg-[#0078D4] text-white rounded hover:bg-[#006CBD] transition-colors disabled:opacity-50"
             >
-              {loading ? '导入中...' : '导入'}
+              {loading ? t('export.importing') : t('export.import')}
             </button>
           )}
         </div>

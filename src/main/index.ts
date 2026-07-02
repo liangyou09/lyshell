@@ -52,7 +52,9 @@ function createMainWindow(): void {
     minHeight: 600,
     show: false,
     title: 'LyShell',
-    icon: join(process.resourcesPath, 'icons', 'icon.png'),
+    icon: isDev
+      ? join(__dirname, '../../resources/icons/icon.png')
+      : join(process.resourcesPath, 'icons', 'icon.png'),
     autoHideMenuBar: true,
     frame: false, // 无边框窗口，自定义标题栏
     webPreferences: {

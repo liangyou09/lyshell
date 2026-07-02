@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import cn from 'classnames'
+import { useTranslation } from 'react-i18next'
 import type { SessionConfig, PaneNode } from '@shared/types'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import SessionDialog from '../SessionDialog/SessionDialog'
 import ExportImportDialog from '../ExportImportDialog/ExportImportDialog'
 import FileManagerPanel from '../FileManager/FileManagerPanel'
+import i18n from '../../i18n'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 类型
@@ -62,20 +64,6 @@ const PROTO_KINDS: ProtoKind[] = ['ssh', 'telnet', 'serial', 'local']
 const PROTO_LABEL: Record<ProtoKind, string> = {
   ssh: 'SSH', telnet: 'TEL', serial: 'SER', local: 'LOC'
 }
-// 顶部 2px 协议色条 —— 始终可见,告诉用户这块是哪个协议的开关
-const PROTO_STRIPE_CLS: Record<ProtoKind, string> = {
-  ssh:    'bg-[var(--proto-ssh)]',
-  telnet: 'bg-[var(--proto-tel)]',
-  serial: 'bg-[var(--proto-ser)]',
-  local:  'bg-[var(--proto-loc)]',
-}
-// 未激活时的"略带颜色"文字 —— 比纯灰更显眼,又不至于像激活态
-const PROTO_TEXT_DIM_CLS: Record<ProtoKind, string> = {
-  ssh:    'text-[var(--proto-ssh)]/80',
-  telnet: 'text-[var(--proto-tel)]/80',
-  serial: 'text-[var(--proto-ser)]/80',
-  local:  'text-[var(--proto-loc)]/80',
-}
 // 会话行内的协议标签文字色 —— 全饱和,跟左侧色条配合,文字本身也读得出"这是什么协议"
 const PROTO_TEXT_CLS: Record<ProtoKind, string> = {
   ssh:    'text-[var(--proto-ssh)]',
@@ -83,11 +71,43 @@ const PROTO_TEXT_CLS: Record<ProtoKind, string> = {
   serial: 'text-[var(--proto-ser)]',
   local:  'text-[var(--proto-loc)]',
 }
+// 筛选 chip = LED 通道条。状态 100% 由 LED 承载,文字恒定不随状态变色——
+// 这样"选中亮 / 未选中暗"的振荡止于 LED,标签与计数在两态下同等可读。
+// 注意:Tailwind 对 var(--x)/N 斜杠透明度静默不生成,故全部改用 color-mix 任意值整包写法。
+// 选中:无 flood(透明底) + 满色 border-2(协议色)——用 border 而非 ring,与未选中同位置同占位,尺寸一致
 const PROTO_ACTIVE_CLS: Record<ProtoKind, string> = {
-  ssh:    'bg-[var(--proto-ssh)]/20 text-[var(--proto-ssh)] ring-1 ring-inset ring-[var(--proto-ssh)]/55',
-  telnet: 'bg-[var(--proto-tel)]/20 text-[var(--proto-tel)] ring-1 ring-inset ring-[var(--proto-tel)]/55',
-  serial: 'bg-[var(--proto-ser)]/20 text-[var(--proto-ser)] ring-1 ring-inset ring-[var(--proto-ser)]/55',
-  local:  'bg-[var(--proto-loc)]/20 text-[var(--proto-loc)] ring-1 ring-inset ring-[var(--proto-loc)]/55',
+  ssh:    'bg-transparent border-[color-mix(in_srgb,var(--proto-ssh)_100%,transparent)]',
+  telnet: 'bg-transparent border-[color-mix(in_srgb,var(--proto-tel)_100%,transparent)]',
+  serial: 'bg-transparent border-[color-mix(in_srgb,var(--proto-ser)_100%,transparent)]',
+  local:  'bg-transparent border-[color-mix(in_srgb,var(--proto-loc)_100%,transparent)]',
+}
+// 未选中:透明底 + 协议色边框(32%)——和选中同不填充,纯靠边框深浅区分;hover 边框提到 50%
+const PROTO_IDLE_CLS: Record<ProtoKind, string> = {
+  ssh:    'bg-transparent border-[color-mix(in_srgb,var(--proto-ssh)_32%,transparent)] hover:border-[color-mix(in_srgb,var(--proto-ssh)_50%,transparent)]',
+  telnet: 'bg-transparent border-[color-mix(in_srgb,var(--proto-tel)_32%,transparent)] hover:border-[color-mix(in_srgb,var(--proto-tel)_50%,transparent)]',
+  serial: 'bg-transparent border-[color-mix(in_srgb,var(--proto-ser)_32%,transparent)] hover:border-[color-mix(in_srgb,var(--proto-ser)_50%,transparent)]',
+  local:  'bg-transparent border-[color-mix(in_srgb,var(--proto-loc)_32%,transparent)] hover:border-[color-mix(in_srgb,var(--proto-loc)_50%,transparent)]',
+}
+// LED 点亮态:满色 + 静态光晕(color-mix 取 50% 协议色;无脉冲——LIVE 段才呼吸)
+const PROTO_LED_LIT_CLS: Record<ProtoKind, string> = {
+  ssh:    'bg-[var(--proto-ssh)] shadow-[0_0_6px_color-mix(in_srgb,var(--proto-ssh)_50%,transparent)]',
+  telnet: 'bg-[var(--proto-tel)] shadow-[0_0_6px_color-mix(in_srgb,var(--proto-tel)_50%,transparent)]',
+  serial: 'bg-[var(--proto-ser)] shadow-[0_0_6px_color-mix(in_srgb,var(--proto-ser)_50%,transparent)]',
+  local:  'bg-[var(--proto-loc)] shadow-[0_0_6px_color-mix(in_srgb,var(--proto-loc)_50%,transparent)]',
+}
+// LED 待机态:协议色 35%,暗但可见——未选中不再是"关掉",而是"待机"
+const PROTO_LED_DIM_CLS: Record<ProtoKind, string> = {
+  ssh:    'bg-[color-mix(in_srgb,var(--proto-ssh)_35%,transparent)]',
+  telnet: 'bg-[color-mix(in_srgb,var(--proto-tel)_35%,transparent)]',
+  serial: 'bg-[color-mix(in_srgb,var(--proto-ser)_35%,transparent)]',
+  local:  'bg-[color-mix(in_srgb,var(--proto-loc)_35%,transparent)]',
+}
+// 选中态文字色:协议色满色——选中后铭牌+读数也"点亮"
+const PROTO_TEXT_LIT_CLS: Record<ProtoKind, string> = {
+  ssh:    'text-[var(--proto-ssh)]',
+  telnet: 'text-[var(--proto-tel)]',
+  serial: 'text-[var(--proto-ser)]',
+  local:  'text-[var(--proto-loc)]',
 }
 
 const getPort = (config: SessionConfig): string => {
@@ -105,9 +125,9 @@ const mapProtocol = (type: string): 'ssh' | 'telnet' | 'serial' | 'local' => {
 const formatMeta = (config: SessionConfig): string => {
   if (config.ssh) {
     const u = config.ssh.username ? `${config.ssh.username}@` : ''
-    return `${u}${config.ssh.host} :${config.ssh.port}`
+    return `${u}${config.ssh.host}:${config.ssh.port}`
   }
-  if (config.telnet) return `${config.telnet.host} :${config.telnet.port}`
+  if (config.telnet) return `${config.telnet.host}:${config.telnet.port}`
   if (config.serial) return `${config.serial.path} ${config.serial.baudRate}`
   if (config.local) return config.local.shell || 'local'
   return ''
@@ -129,30 +149,30 @@ const isTcpProto = (proto: string): boolean => proto === 'ssh' || proto === 'tel
 const computeVisualStatus = (status: string, reachable: boolean | undefined, proto: string): VisualStatus => {
   // 活动连接覆盖一切
   if (status === 'connected') {
-    return { borderColor: 'var(--live)', tooltip: 'Connected' }
+    return { borderColor: 'var(--live)', tooltip: i18n.t('sidebar.statusConnected') }
   }
   if (status === 'connecting' || status === 'reconnecting') {
-    return { borderColor: 'var(--amber)', tooltip: 'Connecting' }
+    return { borderColor: 'var(--amber)', tooltip: i18n.t('sidebar.statusConnecting') }
   }
   if (status === 'error') {
-    return { borderColor: 'var(--error-rack)', tooltip: 'Connection failed' }
+    return { borderColor: 'var(--error-rack)', tooltip: i18n.t('sidebar.statusConnectionFailed') }
   }
 
   // 非 TCP 协议（serial/local）不做可达性探测，永远显示中性
   if (!isTcpProto(proto)) {
-    return { borderColor: 'var(--text-rack-dim)', tooltip: 'Not connected' }
+    return { borderColor: 'var(--text-rack-dim)', tooltip: i18n.t('sidebar.statusNotConnected') }
   }
 
   // 离线 + 可达性已知
   if (reachable === true) {
-    return { borderColor: 'var(--reachable)', tooltip: 'TCP reachable · Not connected' }
+    return { borderColor: 'var(--reachable)', tooltip: i18n.t('sidebar.statusTcpReachable') }
   }
   if (reachable === false) {
-    return { borderColor: 'var(--error-rack)', tooltip: 'TCP unreachable' }
+    return { borderColor: 'var(--error-rack)', tooltip: i18n.t('sidebar.statusTcpUnreachable') }
   }
 
   // 还没探过
-  return { borderColor: 'var(--text-rack-faint)', tooltip: 'Probing' }
+  return { borderColor: 'var(--text-rack-faint)', tooltip: i18n.t('sidebar.statusProbing') }
 }
 
 const protoStripBg = (proto: string): string => {
@@ -402,6 +422,7 @@ const SessionSlot: React.FC<{
 }) => {
   const proto = mapProtocol(config.type)
   const visual = computeVisualStatus(status, reachable, proto)
+  const { t } = useTranslation()
   return (
     <div
       onClick={onClick}
@@ -413,7 +434,7 @@ const SessionSlot: React.FC<{
       data-proto={proto}
       data-status={status}
       data-reach={reachable === undefined ? 'unknown' : reachable ? 'up' : 'down'}
-      title={dimmed ? `${visual.tooltip} · 已隐藏,点击还原` : visual.tooltip}
+      title={dimmed ? t('sidebar.tooltipWithHidden', { tooltip: visual.tooltip }) : visual.tooltip}
       className={cn(
         'group relative grid items-center gap-2.5 pr-3 min-h-[34px] py-1.5 cursor-pointer transition-colors',
         'grid-cols-[4px_auto_minmax(0,auto)_minmax(0,1fr)]',
@@ -445,18 +466,18 @@ const SessionSlot: React.FC<{
       {/* 协议标签：外围框颜色表示状态,内部文字表示协议 */}
       <span
         className={cn(
-          'col-start-2 inline-flex items-center justify-center h-[22px] px-1.5 rounded-[3px] border-2 bg-transparent',
+          'col-start-2 inline-flex items-end justify-center h-[22px] px-1.5 rounded-[3px] border-2 bg-transparent',
           'font-mono text-[12px] font-bold uppercase tracking-[.04em]'
         )}
         style={{ borderColor: visual.borderColor }}
       >
-        <span className={cn('leading-none', PROTO_TEXT_CLS[proto])}>{PROTO_LABEL[proto]}</span>
+        <span className={cn('leading-none pb-[3px]', PROTO_TEXT_CLS[proto])}>{PROTO_LABEL[proto]}</span>
       </span>
-      <span className="text-[13.5px] text-[var(--text-rack)] font-semibold truncate max-w-[140px] tracking-[.01em] leading-none inline-flex items-center gap-1.5 h-[22px]">
+      <span className="text-[13.5px] text-[var(--text-rack)] font-semibold truncate max-w-[140px] tracking-[.01em] leading-none inline-flex items-end gap-1.5 h-[22px] pb-[4px]">
         {/* 被隐藏的页签数徽章 —— 提示点击还原 N 个页签;hiddenCount 为 0/undefined 时不渲染(用三元,切勿用 && 会把 0 渲染成文本) */}
         {hiddenCount ? (
           <span
-            title={`已隐藏 ${hiddenCount} 个页签,点击还原`}
+            title={t('sidebar.tabsHidden', { count: hiddenCount })}
             className="inline-flex items-center justify-center min-w-[20px] h-[18px] px-1 rounded-[2px] bg-[var(--bg-elev)] text-[var(--amber)] font-mono text-[12px] font-bold tabular-nums leading-none"
           >
             {hiddenCount}
@@ -464,7 +485,7 @@ const SessionSlot: React.FC<{
         ) : null}
         {config.name}
       </span>
-      <span className="font-mono text-[11px] text-[var(--text-rack-data)] truncate min-w-0 leading-none inline-flex items-center h-[22px]">
+      <span className="font-mono text-[11px] text-[var(--text-rack-data)] truncate min-w-0 leading-none inline-flex items-end h-[22px] pb-[5px]">
         {formatMeta(config)}
       </span>
       {/* hover actions overlay */}
@@ -478,14 +499,14 @@ const SessionSlot: React.FC<{
                  : 'bg-gradient-to-l from-[var(--bg-rack)] from-[24%] to-transparent'
         )}
       >
-        {!compactActions && <ActBtn onClick={onEdit} title="Edit session"><IconEdit /></ActBtn>}
-        {!compactActions && <ActBtn onClick={onCopy} title="Copy session"><IconCopy /></ActBtn>}
+        {!compactActions && <ActBtn onClick={onEdit} title={t('sidebar.editSession')}><IconEdit /></ActBtn>}
+        {!compactActions && <ActBtn onClick={onCopy} title={t('sidebar.copySession')}><IconCopy /></ActBtn>}
         {!compactActions && (
-          <ActBtn amber active={isPinned} onClick={onTogglePin} title={isPinned ? 'Unpin' : 'Pin session'}>
+          <ActBtn amber active={isPinned} onClick={onTogglePin} title={isPinned ? t('sidebar.unpin') : t('sidebar.pinSession')}>
             <IconStar filled={isPinned} />
           </ActBtn>
         )}
-        <ActBtn danger onClick={onDelete} title={dangerTitle ?? 'Delete session'}>{dangerIcon ?? <IconX />}</ActBtn>
+        <ActBtn danger onClick={onDelete} title={dangerTitle ?? t('sidebar.deleteSession')}>{dangerIcon ?? <IconX />}</ActBtn>
       </div>
     </div>
   )
@@ -530,6 +551,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
   const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([])
   const { savedSessions, sessions, reachability, refreshSavedSessions, disconnectSession, removeLiveSession } = useSessionStore()
   const removeSessionFromAllPanes = usePaneStore(s => s.removeSessionFromAllPanes)
+  const { t } = useTranslation()
   // 被隐藏的终端页签(Sidebar LIVE 段会话标签点击 toggle)——用于给已隐藏的 LIVE 标签置灰
   const hiddenTabSessions = usePaneStore(s => s.hiddenTabSessions)
   // 订阅 layout —— LIVE 段需要按"在某个 pane 里(打开了 tab)"过滤,而不是按 sessions 数组(那里包含所有 saved 的 disconnected registry)
@@ -1001,7 +1023,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
 
   const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    if (confirm('Delete this session?')) {
+    if (confirm(t('sidebar.deleteSessionConfirm'))) {
       await window.electronAPI?.deleteSession(sessionId)
       refreshSavedSessions()
     }
@@ -1146,13 +1168,13 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
             <span className="text-[var(--text-rack-mute)] font-medium">RACK</span>
           </span>
           <div className="flex gap-0.5">
-            <IconBtn amber onClick={handleNewSession} title="New session"><IconPlus /></IconBtn>
-            <IconBtn onClick={handleOpenExportImport} title="Export / Import"><IconDownload /></IconBtn>
+            <IconBtn amber onClick={handleNewSession} title={t('sidebar.newSession')}><IconPlus /></IconBtn>
+            <IconBtn onClick={handleOpenExportImport} title={t('sidebar.exportImport')}><IconDownload /></IconBtn>
           </div>
         </div>
 
         {/* ===== LAUNCH STRIP ===== */}
-        <StripRow label="Launch">
+        <StripRow label={t('sidebar.stripLaunch')}>
           <ShellPill shell="cmd" glyph="▮" onClick={() => handleQuickLocal('')}>cmd</ShellPill>
           <ShellPill shell="ps"  glyph="◆" onClick={() => handleQuickLocal('powershell')}>ps</ShellPill>
           <ShellPill shell="ps7" glyph="◇" onClick={() => handleQuickLocal('pwsh')}>ps7</ShellPill>
@@ -1160,7 +1182,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
         </StripRow>
 
         {/* ===== AGENTS STRIP ===== */}
-        <StripRow label="Agents">
+        <StripRow label={t('sidebar.stripAgents')}>
           {agents.map(a => (
             <AgentPill
               key={a.id}
@@ -1169,7 +1191,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
               onContextMenu={(e) => handleAgentContextMenu(a, e)}
             />
           ))}
-          <StripAdd onClick={handleAgentAdd} title="Add agent" />
+          <StripAdd onClick={handleAgentAdd} title={t('sidebar.addAgent')} />
         </StripRow>
 
         {/* ===== 过滤区 ===== */}
@@ -1182,13 +1204,13 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="filter hosts · tags · users"
+              placeholder={t('sidebar.filterPlaceholder')}
               className="flex-1 bg-transparent border-none outline-none text-[12px] text-[var(--text-rack)] placeholder:text-[var(--text-rack-dim)]"
             />
           </div>
           <button
             onClick={toggleAllGroups}
-            title={allGroupsCollapsed ? 'Expand all groups' : 'Collapse all groups'}
+            title={allGroupsCollapsed ? t('sidebar.expandAllGroups') : t('sidebar.collapseAllGroups')}
             className="w-[26px] h-[26px] flex-shrink-0 flex items-center justify-center bg-transparent border border-[var(--rule)] rounded-[3px] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:border-[var(--text-rack-mute)] cursor-pointer transition-colors"
           >
             {allGroupsCollapsed ? (
@@ -1213,7 +1235,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
               <GroupHeader
                 tone="live"
                 icon={<IconLive />}
-                label="Live"
+                label={t('sidebar.groupLive')}
                 count={liveSessions.length}
                 collapsed={liveCollapsed}
                 onToggle={() => setLiveCollapsed(c => !c)}
@@ -1221,8 +1243,8 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
                   <button
                     onClick={handleCloseAllClick}
                     title={closeAllArmed
-                      ? `Click again to confirm · Close all ${liveSessions.length} connections`
-                      : `Close all ${liveSessions.length} connections`}
+                      ? t('sidebar.closeAllConfirm', { count: liveSessions.length })
+                      : t('sidebar.closeAllConnections', { count: liveSessions.length })}
                     className={cn(
                       'ml-1.5 h-[18px] inline-flex items-center justify-center gap-[3px] rounded-[2px] cursor-pointer text-[10px] font-mono tracking-[.02em] transition-colors',
                       closeAllArmed
@@ -1265,7 +1287,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
               <GroupHeader
                 amber
                 icon={<IconStar filled />}
-                label="Pinned"
+                label={t('sidebar.groupPinned')}
                 count={pinnedSessions.length}
                 collapsed={pinnedCollapsed}
                 onToggle={() => setPinnedCollapsed(c => !c)}
@@ -1294,7 +1316,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
             </>
           )}
 
-          {/* 协议筛选 chips —— 4 颗带顶部色条的机柜按钮;多选 toggle,全空 = 显示全部 */}
+          {/* 协议筛选 chips —— LED 通道条:每颗 = 一盏协议状态灯 + 铭牌 + 读数;多选 toggle,全空 = 显示全部 */}
           <div className="flex items-stretch gap-[4px] px-2 py-2 bg-[var(--bg-strip)] border-y border-[var(--rule)]">
             {PROTO_KINDS.map(p => {
               const active = protoFilter.has(p)
@@ -1307,39 +1329,29 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
                   key={p}
                   onClick={() => !disabled && toggleProtoFilter(p)}
                   disabled={disabled}
-                  title={disabled ? `No ${PROTO_LABEL[p]} sessions` : (active ? `Clear ${PROTO_LABEL[p]} filter` : `Show only ${PROTO_LABEL[p]}`)}
+                  title={disabled ? t('sidebar.noProtoSessions', { proto: PROTO_LABEL[p] }) : (active ? t('sidebar.clearProtoFilter', { proto: PROTO_LABEL[p] }) : t('sidebar.showOnlyProto', { proto: PROTO_LABEL[p] }))}
                   className={cn(
-                    // 28px 高,比之前 20 高出近一半;round 仍是 2,机柜面板感
-                    'group relative flex-1 h-[28px] flex flex-col items-stretch justify-center gap-0 rounded-[2px] overflow-hidden transition-colors',
-                    disabled && 'opacity-25 cursor-not-allowed',
+                    // 单行:LED · 铭牌 · 读数。带 border——按钮物体边界;
+                    // 未选中=透明底 + 协议色淡 border-2;选中=透明底 + 协议色满色 border-2(亮框框住)。两态都不填充,纯靠边框深浅区分
+                    'group relative flex-1 h-[28px] flex items-center gap-[6px] px-[8px] rounded-[2px] border-2 transition-colors',
+                    disabled && 'opacity-25 cursor-not-allowed border-[var(--rule-soft)]',
                     !disabled && (active
                       ? PROTO_ACTIVE_CLS[p]
-                      // 未激活: 浮在 bg-elev 上(比容器 bg-strip 高一档),自带浅色文字,一眼能看出是按钮
-                      : cn('bg-[var(--bg-elev)] hover:bg-[var(--bg-slot)]', PROTO_TEXT_DIM_CLS[p]))
+                      : PROTO_IDLE_CLS[p])
                   )}
                 >
-                  {/* 顶部 2px 协议色条 —— 始终可见的"协议指纹",不像 chip 那么藏 */}
+                  {/* LED —— 协议状态灯。off=/30 待机(仍可见),on=满色+光晕。状态信号全在这里 */}
                   <span
                     aria-hidden
                     className={cn(
-                      'absolute top-0 left-0 right-0 h-[2px] transition-opacity',
-                      PROTO_STRIPE_CLS[p],
-                      disabled ? 'opacity-25' : active ? 'opacity-100' : 'opacity-50'
+                      'w-[6px] h-[6px] rounded-full flex-shrink-0 transition-all',
+                      active ? PROTO_LED_LIT_CLS[p] : PROTO_LED_DIM_CLS[p]
                     )}
                   />
-                  <span className="flex-1 flex items-center justify-center gap-1.5 pt-[1px]">
-                    <span className="font-mono text-[13px] font-extrabold tracking-[.1em]">{PROTO_LABEL[p]}</span>
-                    <span
-                      className={cn(
-                        'font-mono text-[11px] font-semibold tabular-nums px-[3px] py-[1px] rounded-[1px]',
-                        active
-                          ? 'bg-[var(--bg-base)]/55'
-                          : 'bg-[var(--bg-base)]/40 text-[var(--text-rack-data)]'
-                      )}
-                    >
-                      {count}
-                    </span>
-                  </span>
+                  {/* 铭牌:未选中 text-rack 近白,选中点亮成协议色 */}
+                  <span className={cn('font-mono text-[12px] font-semibold tracking-[.12em]', active ? PROTO_TEXT_LIT_CLS[p] : 'text-[var(--text-rack)]')}>{PROTO_LABEL[p]}</span>
+                  {/* 读数:未选中中性数据色,选中点亮成协议色,右贴边 */}
+                  <span className={cn('ml-auto font-mono text-[13px] font-semibold tabular-nums', active ? PROTO_TEXT_LIT_CLS[p] : 'text-[var(--text-rack-data)]')}>{count}</span>
                 </button>
               )
             })}
@@ -1382,10 +1394,10 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
             <div className="text-center py-8 px-4 text-[var(--text-rack-dim)] flex flex-col items-center gap-2">
               <span className="font-mono text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
               <span className="text-[11.5px] text-[var(--text-rack-mute)]">
-                {searchQuery.trim() ? 'No matches' : 'No sessions yet'}
+                {searchQuery.trim() ? t('sidebar.noMatches') : t('sidebar.noSessionsYet')}
               </span>
               <span className="text-[10.5px] font-mono text-[var(--text-rack-faint)]">
-                {searchQuery.trim() ? 'Try a different keyword' : 'Click + above to create'}
+                {searchQuery.trim() ? t('sidebar.tryDifferentKeyword') : t('sidebar.clickAboveToCreate')}
               </span>
             </div>
           )}
@@ -1414,15 +1426,15 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--live)] animate-breathe flex-shrink-0" />
             <span>
               <span className="text-[var(--text-rack-data)] tabular-nums">{liveCount}</span>
-              <span className="ml-1">live</span>
+              <span className="ml-1">{t('sidebar.footerLive')}</span>
             </span>
             <span aria-hidden className="w-px h-[10px] bg-[var(--rule)]" />
             <span>
               <span className="text-[var(--text-rack-data)] tabular-nums">{Math.max(0, idleCount)}</span>
-              <span className="ml-1">idle</span>
+              <span className="ml-1">{t('sidebar.footerIdle')}</span>
             </span>
           </span>
-          <span className="text-[var(--text-rack-mute)]">alt + 1…9</span>
+          <span className="text-[var(--text-rack-mute)]">{t('sidebar.footerShortcut')}</span>
         </div>
       </div>
 
@@ -1469,11 +1481,11 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
           <div className="bg-[var(--bg-elev)] border border-[var(--rule)] rounded-md shadow-xl w-[380px] p-4">
             <div className="text-sm text-[var(--text-rack)] font-medium mb-3">
-              {editAgent ? 'Edit Agent' : 'Add Agent'}
+              {editAgent ? t('sidebar.agentEditTitle') : t('sidebar.agentAddTitle')}
             </div>
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">Name</label>
+                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">{t('sidebar.agentFieldName')}</label>
                 <input
                   type="text"
                   value={agentName}
@@ -1484,7 +1496,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
                 />
               </div>
               <div className="flex items-center gap-2">
-                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">Command</label>
+                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">{t('sidebar.agentFieldCommand')}</label>
                 <input
                   type="text"
                   value={agentCommand}
@@ -1494,7 +1506,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
                 />
               </div>
               <div className="flex items-center gap-2">
-                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">Icon</label>
+                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">{t('sidebar.agentFieldIcon')}</label>
                 <input
                   type="text"
                   value={agentIcon}
@@ -1502,7 +1514,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
                   placeholder="🤖"
                   className="w-16 px-3 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded text-sm text-[var(--text-rack)] placeholder:text-[var(--text-rack-dim)] focus:outline-none focus:border-[var(--amber)]"
                 />
-                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">Workdir</label>
+                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">{t('sidebar.agentFieldWorkdir')}</label>
                 <input
                   type="text"
                   value={agentCwd}
@@ -1517,20 +1529,20 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
                     onClick={handleAgentDelete}
                     className="px-3 py-1 text-sm text-[var(--error-rack)] hover:opacity-80 transition-opacity"
                   >
-                    Delete
+                    {t('sidebar.agentDelete')}
                   </button>
                 )}
                 <button
                   onClick={() => setShowAgentDialog(false)}
                   className="px-3 py-1 text-sm text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] transition-colors"
                 >
-                  Cancel
+                  {t('sidebar.agentCancel')}
                 </button>
                 <button
                   onClick={handleAgentSave}
                   className="px-3 py-1 text-sm bg-[var(--amber)] text-[var(--bg-base)] rounded hover:opacity-90 transition-opacity font-medium"
                 >
-                  Save
+                  {t('sidebar.agentSave')}
                 </button>
               </div>
             </div>

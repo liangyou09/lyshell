@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import DownloadHistoryList from './DownloadHistoryList'
 import FileBrowser from './FileBrowser'
 
@@ -28,6 +29,7 @@ interface FileManagerFloatProps {
  * 文件管理浮窗 - 侧边栏按钮下方显示
  */
 const FileManagerFloat: React.FC<FileManagerFloatProps> = ({ visible, onClose, sessions }) => {
+  const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<'files' | 'history'>('files')
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [files, setFiles] = useState<FileInfo[]>([])
@@ -86,7 +88,7 @@ const FileManagerFloat: React.FC<FileManagerFloatProps> = ({ visible, onClose, s
     // 获取下载目录
     const dirResult = await window.electronAPI.getDownloadDir(selectedSessionId)
     if (!dirResult.success) {
-      alert('无法获取下载目录')
+      alert(t('fileManager.noDownloadDir'))
       return
     }
 
@@ -119,7 +121,7 @@ const FileManagerFloat: React.FC<FileManagerFloatProps> = ({ visible, onClose, s
     <div className="fixed bottom-[24px] left-[0px] z-40 w-[240px] max-h-[calc(50vh-60px)] bg-[#2D2D30] border border-[#3C3C3C] rounded shadow-lg flex flex-col overflow-hidden">
       {/* 标题栏 */}
       <div className="h-[28px] bg-[#252526] border-b border-[#3C3C3C] flex items-center justify-between px-2">
-        <span className="text-xs text-gray-300">文件管理</span>
+        <span className="text-xs text-gray-300">{t('fileManager.floatTitle')}</span>
         <div className="flex items-center gap-1">
           <button
             onClick={() => setActiveTab('files')}
@@ -127,7 +129,7 @@ const FileManagerFloat: React.FC<FileManagerFloatProps> = ({ visible, onClose, s
               activeTab === 'files' ? 'bg-[#0078D4] text-white' : 'text-gray-400 hover:text-white'
             }`}
           >
-            文件
+            {t('fileManager.floatTabFiles')}
           </button>
           <button
             onClick={() => setActiveTab('history')}
@@ -135,7 +137,7 @@ const FileManagerFloat: React.FC<FileManagerFloatProps> = ({ visible, onClose, s
               activeTab === 'history' ? 'bg-[#0078D4] text-white' : 'text-gray-400 hover:text-white'
             }`}
           >
-            记录
+            {t('fileManager.floatTabHistory')}
           </button>
           <button
             onClick={onClose}

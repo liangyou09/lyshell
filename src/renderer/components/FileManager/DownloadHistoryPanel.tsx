@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
+import i18n from '../../i18n'
 
 interface DownloadRecord {
   id: string
@@ -18,17 +20,18 @@ interface DownloadRecord {
   downloadDir: string
 }
 
-// 格式化文件大小
+// 格式化文件大小（用 i18n 单例取单位）
 const formatSize = (bytes: number) => {
-  if (bytes < 1024) return `${bytes}B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
+  if (bytes < 1024) return i18n.t('file.fileSizeB', { n: bytes })
+  if (bytes < 1024 * 1024) return i18n.t('common.sizeKB', { n: (bytes / 1024).toFixed(1) })
+  return i18n.t('common.sizeMB', { n: (bytes / (1024 * 1024)).toFixed(1) })
 }
 
-// 格式化日期
+// 格式化日期——按当前语言取 locale（zh → zh-CN，en → en-US）
 const formatDate = (date: Date) => {
   const d = new Date(date)
-  return d.toLocaleString('zh-CN', {
+  const locale = i18n.language === 'zh' ? 'zh-CN' : 'en-US'
+  return d.toLocaleString(locale, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -48,6 +51,7 @@ const DownloadHistoryPanel: React.FC<DownloadHistoryPanelProps> = ({ sessionId }
   const [records, setRecords] = useState<DownloadRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [groupByServer, setGroupByServer] = useState(true)
+  const { t } = useTranslation()
 
   // 加载下载记录
   useEffect(() => {
@@ -69,7 +73,7 @@ const DownloadHistoryPanel: React.FC<DownloadHistoryPanelProps> = ({ sessionId }
 
   // 删除记录
   const handleDelete = async (recordId: string) => {
-    if (!confirm('Delete this download record?')) return
+    if (!confirm(t('fileManager.deleteRecordConfirm'))) return
     try {
       await window.electronAPI.deleteDownloadRecord(recordId)
       setRecords(records.filter(r => r.id !== recordId))
@@ -80,7 +84,7 @@ const DownloadHistoryPanel: React.FC<DownloadHistoryPanelProps> = ({ sessionId }
 
   // 清空所有记录
   const handleClearAll = async () => {
-    if (!confirm('Clear all download records?')) return
+    if (!confirm(t('fileManager.clearAllConfirm'))) return
     try {
       await window.electronAPI.clearDownloadHistory()
       setRecords([])
@@ -106,7 +110,7 @@ const DownloadHistoryPanel: React.FC<DownloadHistoryPanelProps> = ({ sessionId }
     <div className="flex flex-col h-full">
       {/* 工具栏 */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[#3C3C3C] bg-[#252526]">
-        <span className="text-sm text-gray-300">History ({records.length})</span>
+        <span className="text-sm text-gray-300">{t('fileManager.historyTitle', { count: records.length })}</span>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setGroupByServer(!groupByServer)}
@@ -114,19 +118,19 @@ const DownloadHistoryPanel: React.FC<DownloadHistoryPanelProps> = ({ sessionId }
               groupByServer ? 'bg-[#0078D4] text-white' : 'bg-[#3C3C3C] text-gray-400'
             }`}
           >
-            {groupByServer ? 'Grouped by Server' : 'List View'}
+            {groupByServer ? t('fileManager.groupedByServer') : t('fileManager.listView')}
           </button>
           <button
             onClick={handleClearAll}
             className="px-2 py-1 text-xs bg-[#3C3C3C] text-gray-400 hover:text-red-400 rounded"
           >
-            Clear
+            {t('fileManager.clear')}
           </button>
           <button
             onClick={loadRecords}
             className="px-2 py-1 text-xs bg-[#3C3C3C] text-gray-400 hover:text-white rounded"
           >
-            Refresh
+            {t('common.refresh')}
           </button>
         </div>
       </div>
@@ -135,11 +139,11 @@ const DownloadHistoryPanel: React.FC<DownloadHistoryPanelProps> = ({ sessionId }
       <div className="flex-1 overflow-auto rack-scroll">
         {loading ? (
           <div className="flex items-center justify-center h-full text-gray-500">
-            Loading...
+            {t('fileManager.loading')}
           </div>
         ) : records.length === 0 ? (
           <div className="flex items-center justify-center h-full text-gray-500">
-            No download records
+            {t('fileManager.noDownloadRecords')}
           </div>
         ) : groupByServer ? (
           // 按服务器分组显示
@@ -176,7 +180,7 @@ const DownloadHistoryPanel: React.FC<DownloadHistoryPanelProps> = ({ sessionId }
                         <button
                           onClick={() => handleOpenFolder(record.localPath)}
                           className="text-xs text-gray-400 hover:text-blue-400"
-                          title="Open Folder"
+                          title={t('common.openFolder')}
                         >
                           📂
                         </button>
@@ -184,7 +188,7 @@ const DownloadHistoryPanel: React.FC<DownloadHistoryPanelProps> = ({ sessionId }
                       <button
                         onClick={() => handleDelete(record.id)}
                         className="text-xs text-gray-400 hover:text-red-400"
-                        title="Delete Record"
+                        title={t('fileManager.deleteRecord')}
                       >
                         ✕
                       </button>

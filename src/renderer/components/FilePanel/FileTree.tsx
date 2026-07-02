@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import cn from 'classnames'
+import { useTranslation } from 'react-i18next'
 import { useFileStore } from '../../stores'
+import i18n from '../../i18n'
 import type { FileNode } from '../../stores/file-store'
 import type { FileInfo } from '@shared/types'
 
@@ -37,6 +39,7 @@ const FileTree: React.FC<FileTreeProps> = ({
     initFileTree,
     refreshDir
   } = useFileStore()
+  const { t } = useTranslation()
 
   const [contextMenu, setContextMenu] = useState<{
     x: number
@@ -84,10 +87,10 @@ const FileTree: React.FC<FileTreeProps> = ({
       if (result.success) {
         setMd5Dialog({ file, md5: result.data, loading: false })
       } else {
-        setMd5Dialog({ file, md5: `错误: ${result.error}`, loading: false })
+        setMd5Dialog({ file, md5: t('file.errorPrefix', { message: result.error }), loading: false })
       }
     } catch (err) {
-      setMd5Dialog({ file, md5: `错误: ${(err as Error).message}`, loading: false })
+      setMd5Dialog({ file, md5: t('file.errorPrefix', { message: (err as Error).message }), loading: false })
     }
   }
 
@@ -189,7 +192,7 @@ const FileTree: React.FC<FileTreeProps> = ({
             className="text-xs text-gray-400 px-2 py-1"
             style={{ paddingLeft: `${(depth + 1) * 16 + 8}px` }}
           >
-            加载中...
+            {t('file.loadingTree')}
           </div>
         )}
       </div>
@@ -200,7 +203,7 @@ const FileTree: React.FC<FileTreeProps> = ({
   if (isLoading && !root) {
     return (
       <div className="flex items-center justify-center h-full text-gray-400">
-        加载中...
+        {t('file.loadingTree')}
       </div>
     )
   }
@@ -214,7 +217,7 @@ const FileTree: React.FC<FileTreeProps> = ({
           onClick={() => initFileTree(sessionId, '/')}
           className="text-xs text-blue-400 hover:text-blue-300"
         >
-          重试
+          {t('file.retry')}
         </button>
       </div>
     )
@@ -224,7 +227,7 @@ const FileTree: React.FC<FileTreeProps> = ({
   if (!root) {
     return (
       <div className="flex items-center justify-center h-full text-gray-400">
-        无文件
+        {t('file.noFiles')}
       </div>
     )
   }
@@ -321,17 +324,17 @@ const FileTree: React.FC<FileTreeProps> = ({
               {md5Dialog.file.name}
             </div>
             {md5Dialog.loading ? (
-              <div className="text-sm text-gray-400">计算中...</div>
+              <div className="text-sm text-gray-400">{t('file.md5Calculating')}</div>
             ) : (
               <div className="text-xs text-green-400 break-all select-all">
-                MD5: {md5Dialog.md5}
+                {t('file.md5Label', { value: md5Dialog.md5 })}
               </div>
             )}
             <button
               onClick={() => setMd5Dialog(null)}
               className="mt-3 text-xs text-gray-400 hover:text-white"
             >
-              关闭
+              {t('file.md5DialogClose')}
             </button>
           </div>
         </div>
@@ -355,6 +358,7 @@ const ContextMenu: React.FC<{
   onRefresh?: () => void
   onViewMd5?: () => void
 }> = ({ x, y, file, onDownload, onUpload, onDelete, onRename, onMkdir, onRefresh, onViewMd5 }) => {
+  const { t } = useTranslation()
   return (
     <div
       className="fixed bg-[#252526] border border-[#3C3C3C] rounded shadow-lg py-1 z-50"
@@ -365,31 +369,31 @@ const ContextMenu: React.FC<{
       {file.isDir && (
         <>
           {onUpload && (
-            <MenuItem onClick={onUpload} icon="⬆" label="上传文件" />
+            <MenuItem onClick={onUpload} icon="⬆" label={t('file.contextUploadFile')} />
           )}
           {onMkdir && (
-            <MenuItem onClick={onMkdir} icon="📁" label="新建目录" />
+            <MenuItem onClick={onMkdir} icon="📁" label={t('file.contextNewDir')} />
           )}
         </>
       )}
 
       {/* 文件操作 */}
       {!file.isDir && onDownload && (
-        <MenuItem onClick={onDownload} icon="⬇" label="下载" />
+        <MenuItem onClick={onDownload} icon="⬇" label={t('file.contextDownload')} />
       )}
       {!file.isDir && onViewMd5 && (
-        <MenuItem onClick={onViewMd5} icon="🔍" label="查看MD5" />
+        <MenuItem onClick={onViewMd5} icon="🔍" label={t('file.contextMd5')} />
       )}
 
       {/* 通用操作 */}
       {onRename && (
-        <MenuItem onClick={onRename} icon="✏" label="重命名" />
+        <MenuItem onClick={onRename} icon="✏" label={t('file.contextRename')} />
       )}
       {onDelete && (
-        <MenuItem onClick={onDelete} icon="🗑" label="删除" />
+        <MenuItem onClick={onDelete} icon="🗑" label={t('file.contextDelete')} />
       )}
       {onRefresh && (
-        <MenuItem onClick={onRefresh} icon="🔄" label="刷新" />
+        <MenuItem onClick={onRefresh} icon="🔄" label={t('file.contextRefresh')} />
       )}
     </div>
   )
@@ -447,13 +451,13 @@ function getFileIcon(filename: string): string {
 }
 
 /**
- * 格式化文件大小
+ * 格式化文件大小（模块级，用 i18n 单例取单位——非组件作用域无法用 hook）
  */
 function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`
+  if (bytes < 1024) return i18n.t('file.fileSizeB', { n: bytes })
+  if (bytes < 1024 * 1024) return i18n.t('file.fileSizeKB', { n: (bytes / 1024).toFixed(1) })
+  if (bytes < 1024 * 1024 * 1024) return i18n.t('file.fileSizeMB', { n: (bytes / (1024 * 1024)).toFixed(1) })
+  return i18n.t('file.fileSizeGB', { n: (bytes / (1024 * 1024 * 1024)).toFixed(1) })
 }
 
 export default FileTree

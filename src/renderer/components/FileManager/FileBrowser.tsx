@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import cn from 'classnames'
+import { useTranslation } from 'react-i18next'
 import { categorizeFile, formatSize, formatMtime, pathSegments, type FileCategory } from './fileType'
 
 interface FileInfo {
@@ -105,6 +106,11 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
   const [showFilter, setShowFilter] = useState(false)
   const [sortBy, setSortBy] = useState<SortKey>('name')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const { t } = useTranslation()
+
+  // MD5 失败的带外哨兵——不存翻译后的字符串,避免切语言后存储值与 t('fileManager.md5Failed') 不匹配。
+  // 渲染时再翻译;copy 守卫也用这个常量判断。
+  const MD5_FAILED = '__MD5_FAILED__'
 
   // 处理 MD5 按钮：未取得时拉取并展开；已取得时切换展开状态
   const handleMd5Click = async (file: FileInfo) => {
@@ -120,16 +126,16 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
       if (result.success && result.data) {
         setMd5Values(prev => ({ ...prev, [file.path]: result.data }))
       } else {
-        setMd5Values(prev => ({ ...prev, [file.path]: 'Failed' }))
+        setMd5Values(prev => ({ ...prev, [file.path]: MD5_FAILED }))
       }
     } catch {
-      setMd5Values(prev => ({ ...prev, [file.path]: 'Failed' }))
+      setMd5Values(prev => ({ ...prev, [file.path]: MD5_FAILED }))
     }
     setMd5Loading(prev => ({ ...prev, [file.path]: false }))
   }
 
   const handleCopyMd5 = (hash: string) => {
-    if (hash && hash !== 'Failed') {
+    if (hash && hash !== MD5_FAILED) {
       navigator.clipboard?.writeText(hash).catch(() => {})
     }
   }
@@ -198,7 +204,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
         <button
           onClick={onGoUp}
           disabled={currentPath === '/'}
-          title="Up to parent"
+          title={t('fileManager.upToParent')}
           className={cn(
             'w-[18px] h-[18px] inline-flex items-center justify-center bg-transparent border-none rounded-[2px] mr-0.5',
             currentPath === '/'
@@ -233,7 +239,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
         <div className="flex flex-shrink-0">
           <button
             onClick={() => setShowFilter(!showFilter)}
-            title="Filter files"
+            title={t('fileManager.filterFiles')}
             className={cn(
               'w-[20px] h-[20px] inline-flex items-center justify-center bg-transparent border-none rounded-[2px] cursor-pointer transition-colors',
               (showFilter || filterPattern)
@@ -245,7 +251,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
           </button>
           <button
             onClick={onRefresh}
-            title="Refresh"
+            title={t('common.refresh')}
             className="w-[20px] h-[20px] inline-flex items-center justify-center bg-transparent border-none rounded-[2px] cursor-pointer text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)] transition-colors"
           >
             <IconRefresh />
@@ -260,7 +266,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
             type="text"
             value={filterPattern}
             onChange={(e) => onFilterChange(e.target.value)}
-            placeholder="*.log, *.conf"
+            placeholder={t('fileManager.filterPlaceholder')}
             autoFocus
             className="flex-1 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[2px] px-2 py-[3px] font-mono text-[12.5px] text-[var(--text-rack)] placeholder:text-[var(--text-rack-faint)] focus:outline-none focus:border-[var(--amber)]"
           />
@@ -268,7 +274,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
             <button
               onClick={() => onFilterChange('')}
               className="text-[12.5px] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] px-1"
-              title="Clear filter"
+              title={t('fileManager.clearFilter')}
             >
               ✕
             </button>
@@ -281,9 +287,9 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
       {hasSession && !loading && files.length > 0 && (
         <div className="grid grid-cols-[3px_16px_1fr_64px_56px_36px] gap-2 pl-0 pr-2.5 py-1.5 border-b border-[var(--rule-soft)] items-center">
           <span /><span />
-          <SortableCol keyName="name">Name</SortableCol>
-          <SortableCol keyName="size" align="right">Size</SortableCol>
-          <SortableCol keyName="mtime" align="right">mtime</SortableCol>
+          <SortableCol keyName="name">{t('fileManager.colName')}</SortableCol>
+          <SortableCol keyName="size" align="right">{t('fileManager.colSize')}</SortableCol>
+          <SortableCol keyName="mtime" align="right">{t('fileManager.colMtime')}</SortableCol>
           <span />
         </div>
       )}
@@ -296,16 +302,16 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
         {!hasSession ? (
           <div className="flex flex-col items-center justify-center h-full gap-2 px-4 text-center">
             <span className="font-mono text-[18px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
-            <span className="text-[13px] text-[var(--text-rack-mute)]">attach a remote session to browse</span>
-            <span className="font-mono text-[12px] text-[var(--text-rack-faint)]">click any session in the rack above</span>
+            <span className="text-[13px] text-[var(--text-rack-mute)]">{t('fileManager.attachHint')}</span>
+            <span className="font-mono text-[12px] text-[var(--text-rack-faint)]">{t('fileManager.clickSessionHint')}</span>
           </div>
         ) : loading ? (
           <div className="flex items-center justify-center h-full text-[13px] text-[var(--text-rack-mute)]">
-            loading…
+            {t('fileManager.loadingDots')}
           </div>
         ) : files.length === 0 ? (
           <div className="flex items-center justify-center h-full text-[13px] text-[var(--text-rack-mute)]">
-            empty directory
+            {t('fileManager.emptyDirectory')}
           </div>
         ) : (
           <div>
@@ -341,14 +347,14 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
                     </span>
                     {isExpanded && !file.isDir && (
                       <div className="font-mono text-[12px] text-[var(--text-rack-mute)] flex items-center gap-1.5 mt-px whitespace-nowrap min-w-0">
-                        <span className="text-[var(--text-rack-faint)] flex-shrink-0">md5</span>
-                        <span className={cn('truncate', hash === 'Failed' ? 'text-[var(--error-rack)]' : 'text-[var(--text-rack-data)]')}>
-                          {md5Loading[file.path] ? '…' : (hash || '…')}
+                        <span className="text-[var(--text-rack-faint)] flex-shrink-0">{t('common.md5')}</span>
+                        <span className={cn('truncate', hash === MD5_FAILED ? 'text-[var(--error-rack)]' : 'text-[var(--text-rack-data)]')}>
+                          {md5Loading[file.path] ? '…' : (hash === MD5_FAILED ? t('fileManager.md5Failed') : (hash || '…'))}
                         </span>
-                        {hash && hash !== 'Failed' && (
+                        {hash && hash !== MD5_FAILED && (
                           <button
                             onClick={(e) => { e.stopPropagation(); handleCopyMd5(hash) }}
-                            title="Copy"
+                            title={t('common.copy')}
                             className="w-[14px] h-[14px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer text-[var(--text-rack-mute)] hover:text-[var(--amber)] flex-shrink-0"
                           >
                             <IconCopy />
@@ -369,7 +375,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
                       <button
                         onClick={(e) => { e.stopPropagation(); handleMd5Click(file) }}
                         disabled={md5Loading[file.path]}
-                        title="MD5"
+                        title={t('common.md5Short')}
                         className={cn(
                           'w-[24px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] font-mono text-[12px]',
                           md5Loading[file.path]
@@ -381,7 +387,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); onDownload(file) }}
-                        title="Download"
+                        title={t('fileManager.download')}
                         className="w-[24px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] font-mono text-[12px] text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--amber)]"
                       >
                         ↓

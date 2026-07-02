@@ -3,6 +3,8 @@
  * 服务于 FileBrowser 的 3px 类型色条、size 列、mtime 列
  */
 
+import i18n from '../../i18n'
+
 export type FileCategory = 'dir' | 'src' | 'log' | 'arch' | 'img' | 'bin' | 'other'
 
 const SRC_EXTS = new Set([
@@ -66,10 +68,10 @@ export function categorizeFile(name: string, isDir: boolean): FileCategory {
  * 格式化字节大小 — 设计稿无 'B' 后缀（"42.3M" / "1.2G"）
  */
 export function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes}`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}K`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}M`
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)}G`
+  if (bytes < 1024) return i18n.t('common.sizeB', { n: bytes })
+  if (bytes < 1024 * 1024) return i18n.t('common.sizeK', { n: (bytes / 1024).toFixed(1) })
+  if (bytes < 1024 * 1024 * 1024) return i18n.t('common.sizeM', { n: (bytes / (1024 * 1024)).toFixed(1) })
+  return i18n.t('common.sizeG', { n: (bytes / (1024 * 1024 * 1024)).toFixed(2) })
 }
 
 export type MtimeTier = 'recent' | 'fresh' | ''
@@ -93,12 +95,12 @@ export function formatMtime(date: Date | string | number | undefined | null): { 
   const month = Math.floor(day / 30)
   const year = Math.floor(day / 365)
 
-  if (sec < 60)  return { text: `${sec}s ago`, tier: 'recent' }
-  if (min < 60)  return { text: `${min}m ago`, tier: 'recent' }
-  if (hour < 24) return { text: `${hour}h ago`, tier: 'fresh' }
-  if (day < 30)  return { text: `${day}d ago`, tier: '' }
-  if (month < 12) return { text: `${month}mo ago`, tier: '' }
-  return { text: `${year}y ago`, tier: '' }
+  if (sec < 60)  return { text: i18n.t('common.relTimeSeconds', { count: sec }), tier: 'recent' }
+  if (min < 60)  return { text: i18n.t('common.relTimeMinutes', { count: min }), tier: 'recent' }
+  if (hour < 24) return { text: i18n.t('common.relTimeHours', { count: hour }), tier: 'fresh' }
+  if (day < 30)  return { text: i18n.t('common.relTimeDays', { count: day }), tier: '' }
+  if (month < 12) return { text: i18n.t('common.relTimeMonths', { count: month }), tier: '' }
+  return { text: i18n.t('common.relTimeYears', { count: year }), tier: '' }
 }
 
 /**

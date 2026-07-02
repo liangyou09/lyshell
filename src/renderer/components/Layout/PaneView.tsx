@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { usePaneStore } from '../../stores/pane-store'
 import TerminalView from '../Terminal/TerminalView'
 import PaneTabBar from './PaneTabBar'
@@ -21,6 +22,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
   // 被隐藏的终端页签记录(Sidebar LIVE 段会话标签点击 toggle);订阅整个记录,任何 toggle 都会触发本组件重渲染。
   // 实际负载很小(仅 visibility 切换),未做按 pane 过滤的选择器。
   const hiddenTabSessions = usePaneStore(s => s.hiddenTabSessions)
+  const { t } = useTranslation()
   const isActive = layout.activePaneId === node.id
   const [dropZone, setDropZone] = useState<DropZone>(null)
   const [dropAction, setDropAction] = useState<'swap' | 'changeDirection' | 'split' | null>(null)
@@ -274,23 +276,23 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
       }
 
       const labels = {
-        swap: '交换',
-        changeDirection: '改变方向',
-        split: '分屏'
+        swap: t('pane.actionSwap'),
+        changeDirection: t('pane.actionChangeDirection'),
+        split: t('pane.actionSplit')
       }
       const label = labels[action || 'split']
 
       switch (zone) {
         case 'left':
-          return { ...baseStyle, left: 0, top: 0, width: '30%', height: '100%', label: `${label}左侧` }
+          return { ...baseStyle, left: 0, top: 0, width: '30%', height: '100%', label: t('pane.zoneLeft', { label }) }
         case 'right':
-          return { ...baseStyle, right: 0, top: 0, width: '30%', height: '100%', label: `${label}右侧` }
+          return { ...baseStyle, right: 0, top: 0, width: '30%', height: '100%', label: t('pane.zoneRight', { label }) }
         case 'top':
-          return { ...baseStyle, left: 0, top: 0, width: '100%', height: '25%', label: `${label}上方` }
+          return { ...baseStyle, left: 0, top: 0, width: '100%', height: '25%', label: t('pane.zoneTop', { label }) }
         case 'bottom':
-          return { ...baseStyle, left: 0, bottom: 0, width: '100%', height: '25%', label: `${label}下方` }
+          return { ...baseStyle, left: 0, bottom: 0, width: '100%', height: '25%', label: t('pane.zoneBottom', { label }) }
         case 'center':
-          return { ...baseStyle, left: '30%', top: '25%', width: '40%', height: '50%', label: '合并' }
+          return { ...baseStyle, left: '30%', top: '25%', width: '40%', height: '50%', label: t('pane.merge') }
         default:
           return null
       }
@@ -337,8 +339,8 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
               {node.sessions.every(id => hiddenTabSessions[id]) && (
                 <div className="absolute inset-0 flex items-center justify-center bg-[#0C0C0C] text-gray-500 z-10 pointer-events-none">
                   <div className="text-center">
-                    <p className="text-sm">所有页签已隐藏</p>
-                    <p className="text-xs mt-1">点击侧栏 LIVE 标签还原</p>
+                    <p className="text-sm">{t('pane.allTabsHidden')}</p>
+                    <p className="text-xs mt-1">{t('pane.allTabsHiddenHint')}</p>
                   </div>
                 </div>
               )}
@@ -346,8 +348,8 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
           ) : (
             <div className="flex items-center justify-center flex-1 bg-[#0C0C0C] text-gray-500">
               <div className="text-center">
-                <p className="text-sm">空分屏</p>
-                <p className="text-xs mt-1">拖拽标签到此区域</p>
+                <p className="text-sm">{t('pane.emptyPane')}</p>
+                <p className="text-xs mt-1">{t('pane.emptyPaneHint')}</p>
               </div>
             </div>
           )}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import cn from 'classnames'
+import { useTranslation } from 'react-i18next'
 import DownloadHistoryList from './DownloadHistoryList'
 import FileBrowser from './FileBrowser'
 import DownloadProgressBar, { registerDownloadFileName } from './DownloadProgressBar'
@@ -88,6 +89,7 @@ const FileManagerPanel: React.FC = () => {
   // 获取所有会话和终端
   const { layout, getAllLeafPanes } = usePaneStore()
   const { sessions } = useSessionStore()
+  const { t } = useTranslation()
 
   // 获取活动终端的会话
   const activePane = getAllLeafPanes().find(p => p.id === layout.activePaneId)
@@ -186,7 +188,7 @@ const FileManagerPanel: React.FC = () => {
       } else {
         loadingCacheRef.current[key] = false
         if (currentServerKey === key) {
-          setError(result.error || 'Load failed')
+          setError(result.error || t('fileManager.loadFailed'))
           setDisplayFiles([])
           setDisplayLoading(false)
         }
@@ -195,7 +197,7 @@ const FileManagerPanel: React.FC = () => {
       console.error('Failed to load files:', err)
       loadingCacheRef.current[key] = false
       if (currentServerKey === key) {
-        setError('Load failed')
+        setError(t('fileManager.loadFailed'))
         setDisplayFiles([])
         setDisplayLoading(false)
       }
@@ -282,7 +284,7 @@ const FileManagerPanel: React.FC = () => {
     setDragFileCount(0)
 
     if (!currentSessionId || !currentServerKey) {
-      alert('Please connect a terminal first')
+      alert(t('fileManager.connectTerminalFirst'))
       return
     }
 
@@ -376,7 +378,7 @@ const FileManagerPanel: React.FC = () => {
       {/* 拖放提示条（替代原全屏遮罩）— 仅在面板顶部显示一条 24px */}
       {isDragging && (
         <div className="flex items-center justify-between gap-2 px-2.5 py-1 bg-[var(--amber-soft)] border-b border-[var(--amber)] font-mono text-[12px] text-[var(--amber)] tracking-[.02em] pointer-events-none">
-          <span>release to upload{dragFileCount > 0 ? ` ${dragFileCount} file${dragFileCount > 1 ? 's' : ''}` : ' files'}</span>
+          <span>{t('fileManager.releaseToUpload', { fileLabel: dragFileCount > 0 ? t('fileManager.fileCount', { count: dragFileCount }) : t('fileManager.filesLabel') })}</span>
           <span className="text-[var(--text-rack-data)] truncate" title={displayPath}>→ {displayPath}</span>
         </div>
       )}
@@ -398,7 +400,7 @@ const FileManagerPanel: React.FC = () => {
               )}
             </>
           ) : (
-            <span className="text-[13px] text-[var(--text-rack-mute)] truncate">no active session</span>
+            <span className="text-[13px] text-[var(--text-rack-mute)] truncate">{t('fileManager.noActiveSession')}</span>
           )}
         </div>
         <div className="flex gap-0 flex-shrink-0">
@@ -411,7 +413,7 @@ const FileManagerPanel: React.FC = () => {
                 : 'text-[var(--text-rack-mute)] border-transparent hover:text-[var(--text-rack)]'
             )}
           >
-            Files
+            {t('fileManager.tabFiles')}
           </button>
           <button
             onClick={() => setActiveTab('history')}
@@ -422,7 +424,7 @@ const FileManagerPanel: React.FC = () => {
                 : 'text-[var(--text-rack-mute)] border-transparent hover:text-[var(--text-rack)]'
             )}
           >
-            History
+            {t('fileManager.tabHistory')}
           </button>
         </div>
       </div>
@@ -462,8 +464,8 @@ const FileManagerPanel: React.FC = () => {
           ) : (
             <div className="flex flex-col items-center justify-center h-full px-4 text-center gap-2">
               <span className="font-mono text-[18px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
-              <span className="text-[13px] text-[var(--text-rack-mute)]">attach a remote session to browse</span>
-              <span className="font-mono text-[12px] text-[var(--text-rack-faint)]">click any session in the rack above</span>
+              <span className="text-[13px] text-[var(--text-rack-mute)]">{t('fileManager.attachHint')}</span>
+              <span className="font-mono text-[12px] text-[var(--text-rack-faint)]">{t('fileManager.clickSessionHint')}</span>
             </div>
           )
         ) : (

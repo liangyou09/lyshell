@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react'
 import cn from 'classnames'
+import { useTranslation } from 'react-i18next'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import { setDraggingSessionId as setGlobalDraggingId } from './SplitPaneContainer'
@@ -18,6 +19,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)  // 悬停位置索引
   const { sessions } = useSessionStore()
   const { setActiveSessionInPane, removeSessionFromPane, addSessionToPane, reorderSessionsInPane } = usePaneStore()
+  const { t } = useTranslation()
   // 被隐藏的页签(Sidebar LIVE 段会话标签点击 toggle)——不渲染对应页签,但终端实例保留
   const hiddenTabSessions = usePaneStore(s => s.hiddenTabSessions)
 
@@ -225,16 +227,18 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
 
   const getStatusLabel = (status: string) => {
     switch (status) {
-      case 'connected': return 'OK'
-      case 'connecting': return '...'
-      case 'error': return 'ERR'
-      default: return '--'
+      case 'connected': return t('common.status.connected')
+      case 'connecting': return ''
+      case 'error': return t('common.status.error')
+      default: return t('common.status.idle')
     }
   }
 
   // 获取友好的错误提示
+  // errorMap 的 value 现在是 i18n key（而非字面文案）；map 的 key 是技术子串，
+  // 用于匹配后端原始错误，永远不展示，不翻译。函数在渲染期调用，t 在闭包作用域。
   const getFriendlyError = (error?: string): string => {
-    if (!error) return '连接失败'
+    if (!error) return t('error.default')
 
     // 提取错误关键信息（去掉堆栈）
     let cleanError = error
@@ -245,43 +249,43 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
       cleanError = cleanError.replace(/Error:\s*/g, '')
     }
 
-    // 常见错误转换
+    // 常见错误转换 —— key=技术子串(匹配用), value=i18n key(展示用)
     const errorMap: Record<string, string> = {
-      'Timed out while waiting for handshake': 'SSH握手超时，请检查主机端口和网络',
-      'handshake timeout': 'SSH握手超时，请检查主机端口和网络',
-      'Authentication failed': '认证失败，请检查用户名和密码',
-      'connection refused': '连接被拒绝，请检查端口是否正确',
-      'Connection refused': '连接被拒绝，请检查端口是否正确',
-      'Connection timeout': '连接超时，请检查主机地址和网络',
-      'connection timeout': '连接超时，请检查主机地址和网络',
-      'Host key verification failed': '主机密钥验证失败',
-      'Network is unreachable': '网络不可达，请检查网络连接',
-      'ENOTFOUND': '无法找到主机，请检查地址是否正确',
-      'ECONNREFUSED': '连接被拒绝，请检查端口是否正确',
-      'ETIMEDOUT': '连接超时，请检查主机地址和网络',
-      'EHOSTUNREACH': '主机不可达，请检查网络连接',
-      'getaddrinfo ENOTFOUND': '无法解析主机名，请检查地址是否正确',
-      'read ECONNRESET': '连接被重置',
-      'write ECONNRESET': '连接被重置',
-      'socket hang up': '连接意外关闭',
-      'SSH connection error': 'SSH连接错误',
-      'All configured authentication methods failed': '所有认证方式都失败了，请检查密码或密钥',
-      'private key decrypt failed': '私钥解密失败，请检查密钥密码',
-      'no such file': '找不到指定的文件',
-      'Permission denied': '权限被拒绝',
-      'Too many authentication failures': '认证失败次数过多',
+      'Timed out while waiting for handshake': 'error.sshHandshakeTimeout',
+      'handshake timeout': 'error.sshHandshakeTimeout',
+      'Authentication failed': 'error.authFailed',
+      'connection refused': 'error.connectionRefused',
+      'Connection refused': 'error.connectionRefused',
+      'Connection timeout': 'error.connectionTimeout',
+      'connection timeout': 'error.connectionTimeout',
+      'Host key verification failed': 'error.hostKeyVerification',
+      'Network is unreachable': 'error.networkUnreachable',
+      'ENOTFOUND': 'error.hostNotFound',
+      'ECONNREFUSED': 'error.connectionRefused',
+      'ETIMEDOUT': 'error.connectionTimeout',
+      'EHOSTUNREACH': 'error.hostUnreachable',
+      'getaddrinfo ENOTFOUND': 'error.dnsResolveFailed',
+      'read ECONNRESET': 'error.connectionReset',
+      'write ECONNRESET': 'error.connectionReset',
+      'socket hang up': 'error.connectionClosed',
+      'SSH connection error': 'error.sshConnectionError',
+      'All configured authentication methods failed': 'error.allAuthMethodsFailed',
+      'private key decrypt failed': 'error.privateKeyDecryptFailed',
+      'no such file': 'error.fileNotFound',
+      'Permission denied': 'error.permissionDenied',
+      'Too many authentication failures': 'error.tooManyAuthFailures',
     }
 
     // 查找匹配的错误
     for (const [key, value] of Object.entries(errorMap)) {
       if (cleanError.includes(key)) {
-        return value
+        return t(value)
       }
     }
 
     // 如果还是太长，截断
     if (cleanError.length > 30) {
-      return cleanError.substring(0, 30) + '...'
+      return cleanError.substring(0, 30) + t('error.truncatedSuffix')
     }
     return cleanError
   }
@@ -317,7 +321,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
       {/* 左滚动按钮 */}
       <button
         onClick={scrollLeft}
-        title="向左滚动"
+        title={t('pane.scrollLeft')}
         className="w-[20px] h-full flex items-center justify-center text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-elev)] transition-colors"
       >
         ‹
@@ -345,7 +349,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
             onDragOver={(e) => handleDragOverTab(e, index)}
             onDragLeave={handleDragLeaveTab}
             onDrop={(e) => handleDropOnTab(e, index)}
-            title="单击切换 | 双击左键克隆会话 | 双击右键克隆渠道(SSH)"
+            title={t('pane.tabHint')}
             className={cn(
               'flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
               pane.activeSessionId === session.id
@@ -360,16 +364,27 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
             )}
           >
             <span className="text-xs truncate max-w-[150px]">{getNameWithIndex(session)}</span>
-            <span
-              title={session.status === 'error' ? getFriendlyError(session.lastError) : undefined}
-              className={cn(
-                'text-xs cursor-default',
-                session.status === 'connected' ? 'text-[var(--live)]' :
-                session.status === 'error' ? 'text-[var(--error-rack)] hover:opacity-80' : 'text-[var(--text-rack-mute)]'
-              )}
-            >
-              {getStatusLabel(session.status)}
-            </span>
+            {session.status === 'connecting' ? (
+              // connecting 不显示文字,改用 amber 呼吸点指示"连接中",避免误读为空闲态
+              <span
+                title={t('pane.connecting')}
+                aria-label={t('pane.connecting')}
+                className="w-[6px] h-[6px] rounded-full bg-[var(--amber)] animate-pulse flex-shrink-0"
+              />
+            ) : (
+              getStatusLabel(session.status) && (
+                <span
+                  title={session.status === 'error' ? getFriendlyError(session.lastError) : undefined}
+                  className={cn(
+                    'text-xs cursor-default',
+                    session.status === 'connected' ? 'text-[var(--live)]' :
+                    session.status === 'error' ? 'text-[var(--error-rack)] hover:opacity-80' : 'text-[var(--text-rack-mute)]'
+                  )}
+                >
+                  {getStatusLabel(session.status)}
+                </span>
+              )
+            )}
             <button
               onClick={(e) => {
                 e.stopPropagation()
@@ -377,8 +392,8 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
                 // 如果会话已经断开，从 store 中移除
                 useSessionStore.getState().disconnectSession(session.id)
               }}
-              title="关闭连接"
-              className="ml-1 w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
+              title={t('pane.closeConnection')}
+              className="ml-auto w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
             >
               ✕
             </button>
@@ -389,7 +404,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
       {/* 右滚动按钮 */}
       <button
         onClick={scrollRight}
-        title="向右滚动"
+        title={t('pane.scrollRight')}
         className="w-[20px] h-full flex items-center justify-center text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-elev)] transition-colors"
       >
         ›
