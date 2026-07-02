@@ -19,10 +19,12 @@ const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
 // 全局错误处理 - 避免SSH超时等错误弹出对话框
 process.on('uncaughtException', (error) => {
-  // SSH handshake timeout 等连接相关错误，只记录日志不弹出
+  // SSH 认证失败 / handshake timeout / PTY pipe 断裂 等连接相关错误，只记录日志不弹出
   const msg = error.message || error.toString()
-  if (msg.includes('handshake') || msg.includes('SSH') || msg.includes('connection') || msg.includes('timeout')) {
-    log.error('Connection error (suppressed dialog):', msg)
+  if (msg.includes('handshake') || msg.includes('SSH') || msg.includes('connection') || msg.includes('timeout')
+      || msg.includes('EPIPE') || msg.includes('EOF') || msg.includes('ECONNRESET')
+      || msg.includes('authentication')) {
+    log.error('Connection/PTY/SSH auth error (suppressed dialog):', msg)
     return
   }
   // 其他错误：开发环境下快速失败（崩溃退出）以暴露 bug；生产环境只记日志避免影响用户

@@ -239,31 +239,26 @@ export class SessionManager extends EventEmitter {
           throw new Error(`Unknown connection type: ${session.config.type}`)
       }
 
-      // 连接
-      await session.connector.connect()
-
-      // 连接成功后，shell 会自动输出欢迎信息，不需要额外显示
-
-      // 创建输出缓冲区
+      // 先挂监听器，再 connect()：连接过程中（认证失败、网络错误）connector 可能 emit 'error'，
+      // 若等 connect() 成功后再挂，这些早期错误没有监听器，会变成未捕获异常。
       session.outputBuffer = new OutputBuffer()
-
-      // 监听数据
       session.connector.on('data', (data: string) => {
         this.emit('terminal:data', { sessionId: id, data })
         session.outputBuffer?.append(data)
       })
-
-      // 监听关闭
       session.connector.on('close', () => {
         session.status = ConnectionStatus.DISCONNECTED
         this.emit('session:status', { id, status: ConnectionStatus.DISCONNECTED })
       })
-
-      // 监听错误
       session.connector.on('error', (error: Error) => {
         session.status = ConnectionStatus.ERROR
         this.emit('session:status', { id, status: ConnectionStatus.ERROR, error: extractErrorMessage(error) })
       })
+
+      // 连接
+      await session.connector.connect()
+
+      // 连接成功后，shell 会自动输出欢迎信息，不需要额外显示
 
       session.status = ConnectionStatus.CONNECTED
       session.lastActiveAt = new Date()

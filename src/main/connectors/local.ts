@@ -63,6 +63,21 @@ export class LocalConnector extends BaseConnector {
       this.emitClose()
     })
 
+    // node-pty 底层是 net.Socket；进程被 kill 或子进程崩溃时 pipe 断裂会触发 'error'。
+    // 没有监听器时 'error' 会变成未捕获异常，导致主进程崩溃（Windows 上尤为明显）。
+    // 这里吞掉 EPIPE/EOF/ECONNRESET 等 teardown 噪音，其余仅记录。
+    const ptyWithOn = this.ptyProcess as unknown as { on?: (ev: string, cb: (e: Error) => void) => void }
+    if (typeof ptyWithOn.on === 'function') {
+      ptyWithOn.on('error', (err: Error) => {
+        const msg = err?.message || String(err)
+        if (msg.includes('EPIPE') || msg.includes('EOF') || msg.includes('ECONNRESET') || msg.includes('ECONNABORTED')) {
+          log.debug(`Local PTY teardown error ignored for ${this.sessionId}: ${msg}`)
+          return
+        }
+        log.warn(`Local PTY error for ${this.sessionId}:`, err)
+      })
+    }
+
     this.connected = true
   }
 
@@ -70,11 +85,19 @@ export class LocalConnector extends BaseConnector {
    * 断开连接（杀死 PTY 进程）
    */
   async disconnect(): Promise<void> {
-    if (this.ptyProcess) {
-      this.ptyProcess.kill()
+    const pty = this.ptyProcess
+    if (pty) {
       this.ptyProcess = null
+      this.connected = false
+      try {
+        pty.kill()
+      } catch (error) {
+        // 进程可能已经退出或句柄已失效，忽略
+        log.warn(`Failed to kill local PTY ${this.sessionId}:`, error)
+      }
+    } else {
+      this.connected = false
     }
-    this.connected = false
   }
 
   /**
