@@ -48,6 +48,8 @@
     "openFolder": "Open Folder",
     "defaultSavePath": "Default Save Path",
     "applyHint": "Font Size Applies Live · Buffer + Cursor Apply To New Sessions",
+    "mcpSessionMetadataWrite": "Allow MCP to write session notes",
+    "mcpSessionMetadataWriteHint": "Only affects external MCP clients (global token): when enabled they can read/write summary, usage notes, and tags. Terminals spawned by LyShell itself can always read/write session notes, unaffected by this toggle. Creating/reconnecting sessions requires the separate session-control capability",
     "floatWindow": "Session float window (Ctrl+`)",
     "terminalSettings": "Terminal settings",
     "minimize": "Minimize",
@@ -88,7 +90,12 @@
     "serialDetected": "Detected",
     "serialScanning": "Scanning",
     "serialRescan": "Rescan",
-    "serialNoneDetected": "No serial ports detected · type a path below to enter manually"
+    "serialNoneDetected": "No serial ports detected · type a path below to enter manually",
+    "summary": "Summary",
+    "summaryPlaceholder": "One-sentence description of this session",
+    "usageNotes": "Usage Notes",
+    "usageNotesPlaceholder": "Common commands, precautions, steps…",
+    "notes": "Notes"
   },
   "statusbar": {
     "groupSwitchHint": "Click to switch group · Right-click to edit groups",

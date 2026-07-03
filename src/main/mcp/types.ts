@@ -213,3 +213,95 @@ export const LYSHELL_MCP_ENV = {
   SESSION_ID: 'LYSHELL_MCP_SESSION_ID',
   USER_DATA: 'LYSHELL_USER_DATA',
 } as const
+
+/**
+ * 会话摘要、使用说明及标签
+ */
+export interface SessionNotes {
+  sessionId: string
+  summary?: string
+  usageNotes?: string
+  tags: string[]
+  /** 是否存在非空标签 */
+  hasTags: boolean
+  updatedAt: string
+  /** 当 summary 和 usageNotes 同时为空/缺失时为 true；与 tags 无关 */
+  isEmpty: boolean
+}
+
+/**
+ * 读取会话笔记请求
+ */
+export interface ReadSessionNotesRequest {
+  sessionId: string
+}
+
+/**
+ * 写入会话笔记请求
+ */
+export interface WriteSessionNotesRequest {
+  sessionId: string
+  /** undefined=不变, ""=清空, string=写入 */
+  summary?: string
+  /** undefined=不变, ""=清空, string=写入 */
+  usageNotes?: string
+  /** 提供则完整替换标签列表 */
+  tags?: string[]
+  /** 是否允许覆盖已有非空内容，默认 false */
+  overwrite?: boolean
+  /** 必须设为 true；服务端会强校验，确保 LLM 已在调用前询问用户 */
+  userConfirmed: boolean
+}
+
+/**
+ * 创建会话请求（MCP 专用，脱敏 —— 不接受任何凭据）
+ *
+ * MCP 客户端只允许创建 host/port/username 等元数据；password / privateKey / passphrase
+ * 一律不接受，用户需在 LyShell dialog 中手动补充。
+ */
+export interface CreateSessionRequest {
+  /** 会话名称；留空时服务端根据 host/path 派生 */
+  name?: string
+  type: 'ssh' | 'telnet' | 'serial' | 'local'
+  ssh?: {
+    host: string
+    port?: number
+    username?: string
+    shellEnterCommands?: string
+    shellEnterWait?: number
+  }
+  telnet?: {
+    host: string
+    port?: number
+  }
+  serial?: {
+    path: string
+    baudRate?: number
+  }
+  local?: {
+    shell?: string
+    cwd?: string
+  }
+  /** 会话摘要（可选） */
+  summary?: string
+  /** 使用说明（可选） */
+  usageNotes?: string
+  /** 标签列表（可选，全量替换） */
+  tags?: string[]
+  /** 启动命令行（可选，每行一条） */
+  startupCommands?: string[]
+  /** 终端字符集 */
+  encoding?: 'utf-8' | 'gbk' | 'gb2312'
+  /** 必须设为 true；服务端强校验，确保 LLM 已在调用前询问用户 */
+  userConfirmed: boolean
+}
+
+/**
+ * 创建会话响应
+ */
+export interface CreateSessionResponse {
+  sessionId: string
+  name: string
+  type: string
+  notes: SessionNotes
+}

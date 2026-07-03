@@ -39,6 +39,11 @@ interface SessionStore {
   // 刷新保存的会话列表
   refreshSavedSessions: () => Promise<void>
 
+  // 外部路径（MCP 写入/创建）改动会话列表后的增量同步：
+  // 拉取最新列表，合并进既有 entry 的 config，但不重置 status/isTemporary/hasActivity。
+  // 与 loadSessions 的区别——loadSessions 会把所有会话 status 重置为 disconnected，不能用于运行中同步。
+  syncSessionsFromBackend: () => Promise<void>
+
   // 操作方法
   loadSessions: () => Promise<void>
   createSession: (config: SessionConfig) => Promise<SessionState>
@@ -89,6 +94,26 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       set({ savedSessions: sessions })
     } catch (error) {
       console.error('Failed to refresh saved sessions:', error)
+    }
+  },
+
+  // 外部路径（MCP）改动后的增量同步：savedSessions 全量替换；
+  // sessions 数组保留每个既有 entry 的运行态（status/isTemporary/hasActivity），仅用最新 config 覆盖。
+  // 新会话只进 savedSessions（sidebar SAVED 段以它为源），不强行塞进 sessions——用户没打开就不该出现在 LIVE 段。
+  syncSessionsFromBackend: async () => {
+    try {
+      const fresh: SessionConfig[] = await window.electronAPI.listSessions()
+      const freshById = new Map<string, SessionConfig>()
+      for (const s of fresh) freshById.set(s.id, s)
+      set(state => ({
+        savedSessions: fresh,
+        sessions: state.sessions.map(entry => {
+          const updated = freshById.get(entry.id)
+          return updated ? { ...entry, config: updated } : entry
+        })
+      }))
+    } catch (error) {
+      console.error('Failed to sync sessions from backend:', error)
     }
   },
 

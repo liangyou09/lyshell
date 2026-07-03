@@ -128,6 +128,12 @@ export interface McpSecuritySettings {
    */
   allowSessionControl?: boolean
   /**
+   * 是否允许 MCP 客户端读写会话摘要、使用说明及标签等元数据。
+   * 默认 false：防止外部 MCP 客户端未经提示修改会话备注。
+   * undefined 视为 false（前向兼容旧偏好文件）。
+   */
+  allowSessionMetadataWrite?: boolean
+  /**
    * 是否允许 LyShell 进程外的 MCP 客户端通过端口文件接入。
    * 默认 false：MCP 仅对 LyShell 自身孵化的本地 PTY 开放（per-session token 经
    * 环境变量注入），LyShell 关闭或 PTY 退出后 token 自动失效。

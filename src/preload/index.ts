@@ -18,6 +18,7 @@ const IPC_CHANNELS = {
   SESSION_DELETE: 'session:delete',
   SESSION_LIST: 'session:list',
   SESSION_GET: 'session:get',
+  SESSIONS_CHANGED: 'sessions:changed',  // 外部路径（MCP）改动会话列表后的推送
 
   // 串口
   SERIAL_LIST_PORTS: 'serial:list-ports',
@@ -98,6 +99,11 @@ const electronAPI = {
     const listener = (_event: IpcRendererEvent, payload: { key: string; reachable: boolean; reason?: string }) => callback(payload)
     ipcRenderer.on(IPC_CHANNELS.CONNECTION_REACHABLE, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.CONNECTION_REACHABLE, listener)
+  },
+  onSessionsChanged: (callback: () => void) => {
+    const listener = () => callback()
+    ipcRenderer.on(IPC_CHANNELS.SESSIONS_CHANGED, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.SESSIONS_CHANGED, listener)
   },
   probeReachabilityNow: (): Promise<{ success: true }> => ipcRenderer.invoke(IPC_CHANNELS.REACHABILITY_PROBE_NOW),
 

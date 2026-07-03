@@ -48,6 +48,8 @@
     "openFolder": "打开文件夹",
     "defaultSavePath": "默认保存路径",
     "applyHint": "字号实时生效 · 缓冲与光标应用于新会话",
+    "mcpSessionMetadataWrite": "允许 MCP 写入会话备注",
+    "mcpSessionMetadataWriteHint": "仅对外部 MCP 客户端（全局 token）生效：开启后它们可读写摘要、使用说明和标签。LyShell 自身孵化的终端始终可读写会话备注，不受此开关控制；创建/重连会话需另行开启会话控制",
     "floatWindow": "会话浮窗 (Ctrl+`)",
     "terminalSettings": "终端设置",
     "minimize": "最小化",
@@ -88,7 +90,12 @@
     "serialDetected": "检测到",
     "serialScanning": "扫描中",
     "serialRescan": "重新扫描",
-    "serialNoneDetected": "未检测到串口 · 在下方输入路径手动指定"
+    "serialNoneDetected": "未检测到串口 · 在下方输入路径手动指定",
+    "summary": "摘要",
+    "summaryPlaceholder": "一句话描述该会话用途",
+    "usageNotes": "使用说明",
+    "usageNotesPlaceholder": "常用命令、注意事项、操作步骤…",
+    "notes": "备注"
   },
   "statusbar": {
     "groupSwitchHint": "单击切换分组 · 右键编辑分组",

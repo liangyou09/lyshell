@@ -21,6 +21,12 @@ export interface SessionConfig {
   // 标签
   tags: string[]
 
+  // 会话摘要（一句话描述用途）
+  summary?: string
+
+  // 使用说明（操作提示、注意事项、常用命令等）
+  usageNotes?: string
+
   // 置顶排序顺序（数字越小排在前面）
   pinOrder?: number
 

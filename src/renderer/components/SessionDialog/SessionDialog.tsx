@@ -71,8 +71,12 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
 
   const [encoding, setEncoding] = useState<'utf-8' | 'gbk' | 'gb2312'>('utf-8')
 
+  // ─── 会话备注 ─────────────────────────────────────────
+  const [summary, setSummary] = useState('')
+  const [usageNotes, setUsageNotes] = useState('')
+
   // ─── 宏面板 ──────────────────────────────────────────
-  const [macroTab, setMacroTab] = useState<'shell' | 'startup'>('startup')
+  const [macroTab, setMacroTab] = useState<'shell' | 'startup' | 'notes'>('startup')
   const [shellEnterLines, setShellEnterLines] = useState<string[]>([])
   const [sshShellEnterWait, setSshShellEnterWait] = useState('1000')
   const [startupLines, setStartupLines] = useState<string[]>([])
@@ -175,11 +179,15 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       setIsCustomShell(!!shell && shell !== 'powershell' && shell !== 'pwsh')
       setLocalCwd(initialConfig.local?.cwd || '')
       setEncoding(initialConfig.terminal?.encoding || 'utf-8')
+      setSummary(initialConfig.summary || '')
+      setUsageNotes(initialConfig.usageNotes || '')
     } else {
       setName('')
       setType(ConnectionType.SSH)
       setTags([])
       setStartupLines([])
+      setSummary('')
+      setUsageNotes('')
       setSshHost('')
       setSshPort('22')
       setSshUser('')
@@ -252,11 +260,16 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       else if (type === ConnectionType.LOCAL) sessionName = 'Local Terminal'
     }
 
+    // 标签规范化：trim 并过滤空字符串，与 MCP 写入路径保持一致
+    const normalizedTags = tags.map(t => t.trim()).filter(Boolean)
+
     const config: SessionConfig = {
       id: initialConfig?.id || Date.now().toString(),
       name: sessionName,
       type,
-      tags,
+      tags: normalizedTags,
+      summary: summary.trim() || undefined,
+      usageNotes: usageNotes.trim() || undefined,
       startupCommands: startupLines.filter(Boolean),
       terminal: {
         ...initialConfig?.terminal || {
@@ -433,9 +446,11 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
   }
 
   const renderMacroPanel = () => {
+    const isCommandTab = macroTab === 'shell' || macroTab === 'startup'
     const lines = macroTab === 'shell' ? shellEnterLines : startupLines
     const setLines = macroTab === 'shell' ? setShellEnterLines : setStartupLines
     const showShellTab = type === ConnectionType.SSH
+    const notesFilledCount = (summary.trim() ? 1 : 0) + (usageNotes.trim() ? 1 : 0)
 
     return (
       <>
@@ -481,6 +496,25 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
               {startupLines.filter(Boolean).length}
             </span>
           </button>
+          <button
+            type="button"
+            onClick={() => setMacroTab('notes')}
+            className="text-[13px] py-2 px-3 border-b cursor-pointer flex items-center gap-2"
+            style={{
+              color: macroTab === 'notes' ? accent : 'var(--text-rack-data)',
+              borderBottomColor: macroTab === 'notes' ? accent : 'transparent',
+              marginBottom: -1,
+              fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
+            }}
+          >
+            {t('session.notes')}
+            <span
+              className="text-[11px] px-1.5 py-px rounded-sm bg-[var(--bg-base)] border border-[var(--rule)] font-mono tabular-nums"
+              style={{ color: macroTab === 'notes' ? accent : 'var(--text-rack-mute)', opacity: macroTab === 'notes' ? 0.7 : 1 }}
+            >
+              {notesFilledCount}
+            </span>
+          </button>
           {!showShellTab && (
             <span
               className="text-[13px] py-2 px-3 opacity-30 cursor-not-allowed flex items-center gap-2"
@@ -514,49 +548,78 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
           )}
         </div>
 
-        {/* line editor — 单个 textarea，跨行选择/复制/删除像普通编辑器 */}
-        <div className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm relative overflow-hidden">
-          {(() => {
-            const text = lines.join('\n')
-            const rowCount = Math.max(text.split('\n').length, 3)
-            const placeholder = macroTab === 'shell'
-              ? 'One command per line · Enter for newline · paste multi-line'
-              : 'One command per line · Enter for newline · paste multi-line'
-            return (
-              <div className="flex">
-                {/* 行号槽（不响应交互，跟随 textarea 滚动） */}
-                <div
-                  className="select-none pt-1.5 pb-1.5 pl-2.5 pr-2 text-right text-[11px] text-[var(--text-rack-dim)] font-mono tabular-nums leading-[22px] bg-[var(--bg-strip)] border-r border-[var(--rule-soft)]"
-                  style={{ minWidth: 32 }}
-                  aria-hidden
-                >
-                  {Array.from({ length: rowCount }, (_, i) => (
-                    <div key={i}>{i + 1}</div>
-                  ))}
+        {/* content panels */}
+        {isCommandTab ? (
+          <div className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm relative overflow-hidden">
+            {(() => {
+              const text = lines.join('\n')
+              const rowCount = Math.max(text.split('\n').length, 3)
+              const placeholder = macroTab === 'shell'
+                ? 'One command per line · Enter for newline · paste multi-line'
+                : 'One command per line · Enter for newline · paste multi-line'
+              return (
+                <div className="flex">
+                  {/* 行号槽（不响应交互，跟随 textarea 滚动） */}
+                  <div
+                    className="select-none pt-1.5 pb-1.5 pl-2.5 pr-2 text-right text-[11px] text-[var(--text-rack-dim)] font-mono tabular-nums leading-[22px] bg-[var(--bg-strip)] border-r border-[var(--rule-soft)]"
+                    style={{ minWidth: 32 }}
+                    aria-hidden
+                  >
+                    {Array.from({ length: rowCount }, (_, i) => (
+                      <div key={i}>{i + 1}</div>
+                    ))}
+                  </div>
+                  <textarea
+                    value={text}
+                    onChange={e => {
+                      // 用户主动按 Enter / 粘贴 都通过这一条路径
+                      setLines(e.target.value.split('\n'))
+                    }}
+                    onPaste={e => {
+                      // 粘贴正常走 onChange，无需特殊处理；保留 hook 留作以后扩展
+                      void e
+                    }}
+                    placeholder={placeholder}
+                    spellCheck={false}
+                    rows={Math.min(rowCount, 8)}
+                    className="lyshell-macro-area flex-1 min-w-0 bg-transparent border-none text-[var(--text-rack)] focus:outline-none resize-none py-1.5 px-3 text-[13px] leading-[22px]"
+                    style={{
+                      caretColor: accent,
+                      fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", monospace'
+                    }}
+                  />
                 </div>
-                <textarea
-                  value={text}
-                  onChange={e => {
-                    // 用户主动按 Enter / 粘贴 都通过这一条路径
-                    setLines(e.target.value.split('\n'))
-                  }}
-                  onPaste={e => {
-                    // 粘贴正常走 onChange，无需特殊处理；保留 hook 留作以后扩展
-                    void e
-                  }}
-                  placeholder={placeholder}
-                  spellCheck={false}
-                  rows={Math.min(rowCount, 8)}
-                  className="lyshell-macro-area flex-1 min-w-0 bg-transparent border-none text-[var(--text-rack)] focus:outline-none resize-none py-1.5 px-3 text-[13px] leading-[22px]"
-                  style={{
-                    caretColor: accent,
-                    fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", monospace'
-                  }}
-                />
-              </div>
-            )
-          })()}
-        </div>
+              )
+            })()}
+          </div>
+        ) : (
+          // notes 面板：summary + usageNotes 复用宏面板的视觉容器
+          <div className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm relative overflow-hidden">
+            <input
+              type="text"
+              value={summary}
+              onChange={e => setSummary(e.target.value)}
+              placeholder={t('session.summaryPlaceholder')}
+              className="lyshell-macro-area w-full bg-transparent border-b border-[var(--rule-soft)] text-[13px] text-[var(--text-rack)] focus:outline-none py-1.5 px-3 leading-[22px]"
+              style={{
+                caretColor: accent,
+                fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", monospace'
+              }}
+            />
+            <textarea
+              value={usageNotes}
+              onChange={e => setUsageNotes(e.target.value)}
+              placeholder={t('session.usageNotesPlaceholder')}
+              rows={5}
+              spellCheck={false}
+              className="lyshell-macro-area w-full bg-transparent border-none text-[var(--text-rack)] focus:outline-none resize-none py-1.5 px-3 text-[13px] leading-[22px]"
+              style={{
+                caretColor: accent,
+                fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", monospace'
+              }}
+            />
+          </div>
+        )}
       </>
     )
   }
@@ -974,6 +1037,8 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
           <div className="py-3.5 px-4 border-b border-[var(--rule)]">
             {renderMacroPanel()}
           </div>
+
+          {/* NOTES — 已合并入 renderMacroPanel 的第三个 tab */}
 
           {/* META */}
           <div className="py-3.5 px-4">

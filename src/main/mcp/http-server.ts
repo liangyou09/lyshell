@@ -14,11 +14,13 @@ import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 
 import { sessionManager } from '../terminal/session-manager'
+import { broadcastSessionsChanged } from '../ipc/handlers'
 import { processInputEscapeSequences } from '@shared/escape-sequences'
 import { fileManager } from '../file/manager'
-import { preferencesRepository, quickCommandsRepository } from '../storage/repository'
+import { preferencesRepository, quickCommandsRepository, sessionRepository } from '../storage/repository'
 import { agentRepository } from '../storage/agent-repository'
-import { ConnectionType, ConnectionStatus } from '@shared/types'
+import { ConnectionType, ConnectionStatus, SessionConfig } from '@shared/types'
+import { DEFAULT_THEME_DARK } from '@shared/constants'
 import * as mcpAuth from './auth'
 import type { TokenBinding, TokenKind } from './auth'
 import type {
@@ -39,7 +41,11 @@ import type {
   SendAndWaitRequest,
   SendAndWaitResult,
   ReconnectSessionRequest,
-  ReconnectSessionResponse
+  ReconnectSessionResponse,
+  SessionNotes,
+  WriteSessionNotesRequest,
+  CreateSessionRequest,
+  CreateSessionResponse
 } from './types'
 
 let server: http.Server | null = null
@@ -49,7 +55,7 @@ const MAX_COMMAND_TIMEOUT_MS = 120000
 const MAX_READ_FILE_BYTES = 1048576
 const MAX_TEXT_LENGTH = 1024 * 1024
 
-type McpCapability = 'read' | 'interactiveWrite' | 'execute' | 'localExecute' | 'fileWrite' | 'sessionControl'
+type McpCapability = 'read' | 'interactiveWrite' | 'execute' | 'localExecute' | 'fileWrite' | 'sessionControl' | 'sessionMetadataWrite'
 
 interface McpSecuritySettings {
   enabled?: boolean
@@ -59,6 +65,7 @@ interface McpSecuritySettings {
   allowLocalExecute?: boolean
   allowFileWrite?: boolean
   allowSessionControl?: boolean
+  allowSessionMetadataWrite?: boolean
   requireConfirmation?: boolean
   allowedSessionIds?: string[]
   deniedSessionIds?: string[]
@@ -89,6 +96,7 @@ const DEFAULT_MCP_SECURITY: Required<McpSecuritySettings> = {
   allowLocalExecute: false,
   allowFileWrite: false,
   allowSessionControl: false,
+  allowSessionMetadataWrite: false,
   requireConfirmation: true,
   allowedSessionIds: [],
   deniedSessionIds: [],
@@ -339,6 +347,15 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       }
     }
 
+    // GET /api/sessions/{id}/notes
+    {
+      const m = url.pathname.match(/^\/api\/sessions\/([^/]+)\/notes$/)
+      if (req.method === 'GET' && m) {
+        handleReadSessionNotes(m[1], res, ctxBinding).catch(err => sendJson(res, 500, { success: false, error: err.message }))
+        return
+      }
+    }
+
     if (req.method === 'POST') {
       readBody(req).then(body => {
         let data: any
@@ -348,9 +365,19 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
           sendJson(res, 400, { success: false, error: 'Invalid JSON in request body' })
           return
         }
+        // POST /api/sessions/{id}/notes
+        {
+          const m = url.pathname.match(/^\/api\/sessions\/([^/]+)\/notes$/)
+          if (m) {
+            return handleWriteSessionNotes({ ...data, sessionId: m[1] }, res, ctxBinding)
+          }
+        }
+
         switch (url.pathname) {
           case '/api/sessions':
             return handleListSessionsFiltered(data, res)
+          case '/api/sessions/create':
+            return handleCreateSession(data, res, ctxBinding)
           case '/api/execute':
             return handleExecuteCommand(data, res, ctxBinding)
           case '/api/send-input':
@@ -727,6 +754,371 @@ async function handleReconnectSession(
 }
 
 /**
+ * 把 SessionConfig 转换为 SessionNotes 响应
+ */
+function toSessionNotes(sessionId: string, config: SessionConfig): SessionNotes {
+  const summary = config.summary?.trim() || undefined
+  const usageNotes = config.usageNotes?.trim() || undefined
+  const tags = (config.tags || []).map(t => t.trim()).filter(t => t !== '')
+  return {
+    sessionId,
+    summary,
+    usageNotes,
+    tags,
+    hasTags: tags.length > 0,
+    updatedAt: config.updatedAt.toISOString(),
+    isEmpty: !summary && !usageNotes
+  }
+}
+
+/**
+ * 标签规范化与校验（write_session_notes 与 create_session 共用）。
+ * trim、去空、去重、长度/数量上限。
+ *
+ * @returns ok:true 时 tags 为规范化后的数组；输入为 undefined 时 tags 为 null，
+ *          由调用方决定语义（write 路径=保持不变，create 路径=空数组）。
+ *          ok:false 时 error 适合直接回给客户端。
+ */
+function normalizeAndValidateTags(tags: string[] | undefined): { ok: true; tags: string[] | null } | { ok: false; error: string } {
+  if (tags === undefined) return { ok: true, tags: null }
+  const trimmed = tags.map(t => t.trim()).filter(t => t.length > 0)
+  const MAX_TAGS = 20
+  const MAX_TAG_LENGTH = 50
+  if (trimmed.length > MAX_TAGS) return { ok: false, error: `Too many tags (max ${MAX_TAGS})` }
+  const seen = new Set<string>()
+  for (const tag of trimmed) {
+    if (tag.length > MAX_TAG_LENGTH) return { ok: false, error: `Tag too long (max ${MAX_TAG_LENGTH} chars): ${tag}` }
+    if (seen.has(tag)) return { ok: false, error: `Duplicate tag: ${tag}` }
+    seen.add(tag)
+  }
+  return { ok: true, tags: trimmed }
+}
+
+/**
+ * GET /api/sessions/{id}/notes — 读取会话摘要和使用说明
+ * 支持未连接的离线会话：以 sessionRepository 为主源
+ */
+async function handleReadSessionNotes(
+  sessionId: string,
+  res: http.ServerResponse,
+  binding: TokenBinding
+): Promise<void> {
+  try {
+    if (!sessionId) {
+      sendJson(res, 400, { success: false, error: 'sessionId is required' })
+      return
+    }
+
+    // 先授权（含审计），再查存在性 —— 避免未授权客户端通过 404 vs 403 探测 sessionId 是否存在，
+    // 并保证未授权访问进入审计日志。
+    const auth = await authorizeMcpOperation('read_session_notes', 'read', sessionId, undefined, binding)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+
+    const config = sessionRepository.get(sessionId)
+    if (!config) {
+      sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
+      return
+    }
+
+    sendJson(res, 200, { success: true, data: toSessionNotes(sessionId, config) })
+  } catch (err: any) {
+    log.error('[MCP] Read session notes error:', err)
+    sendJson(res, 500, { success: false, error: err.message })
+  }
+}
+
+/**
+ * POST /api/sessions/{id}/notes — 写入会话摘要和使用说明
+ * 支持未连接的离线会话：以 sessionRepository 为主源，活跃会话额外走 sessionManager 触发事件
+ */
+async function handleWriteSessionNotes(
+  data: WriteSessionNotesRequest,
+  res: http.ServerResponse,
+  binding: TokenBinding
+): Promise<void> {
+  try {
+    const { sessionId } = data
+    if (!sessionId) {
+      sendJson(res, 400, { success: false, error: 'sessionId is required' })
+      return
+    }
+
+    // 强校验：确保 LLM 已在调用前询问用户关键信息
+    if (data.userConfirmed !== true) {
+      sendJson(res, 400, {
+        success: false,
+        error: 'userConfirmed must be true. Ask the user for summary, usage notes, tags, and overwrite policy before writing.'
+      })
+      return
+    }
+
+    const summary = data.summary
+    const usageNotes = data.usageNotes
+    const tags = data.tags
+    const overwrite = data.overwrite === true
+
+    // 标签校验与规范化（trim/去空/去重/长度）—— 纯输入校验，先于授权，不泄露 sessionId 存在性
+    const tagResult = normalizeAndValidateTags(tags)
+    if (!tagResult.ok) {
+      sendJson(res, 400, { success: false, error: tagResult.error })
+      return
+    }
+    const normalizedTags = tagResult.tags  // null = 未传 tags = 保持不变
+
+    // 审计摘要覆盖所有变更字段
+    const auditParts: string[] = []
+    if (summary !== undefined) auditParts.push('summary')
+    if (usageNotes !== undefined) auditParts.push('usageNotes')
+    if (tags !== undefined) auditParts.push(`tags[${tags.length}]`)
+    const auth = await authorizeMcpOperation(
+      'write_session_notes',
+      'sessionMetadataWrite',
+      sessionId,
+      summarizeText(auditParts.join(', ') || 'no changes', 200),
+      binding
+    )
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+
+    // 授权通过后再查存在性 —— 避免未授权客户端探测 sessionId 是否存在
+    const config = sessionRepository.get(sessionId)
+    if (!config) {
+      sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
+      return
+    }
+
+    // 冲突检测：未开启 overwrite 且目标字段已有非空值，错误中只给出短预览
+    if (!overwrite) {
+      if (summary !== undefined && (config.summary || '').trim() !== '') {
+        sendJson(res, 409, {
+          success: false,
+          error: `Summary already exists. Set overwrite=true to replace. Current preview: ${summarizeText(config.summary, 80)}`
+        })
+        return
+      }
+      if (usageNotes !== undefined && (config.usageNotes || '').trim() !== '') {
+        sendJson(res, 409, {
+          success: false,
+          error: `Usage notes already exist. Set overwrite=true to replace. Current preview: ${summarizeText(config.usageNotes, 80)}`
+        })
+        return
+      }
+    }
+
+    // 应用变更：先持久化，再同步活跃会话，避免 updateSession 刷新 lastActiveAt 影响"最近会话"排序
+    const updates: Partial<SessionConfig> = {}
+    if (normalizedTags !== null) {
+      updates.tags = normalizedTags
+    }
+    if (summary !== undefined) {
+      updates.summary = summary.trim() || undefined
+    }
+    if (usageNotes !== undefined) {
+      updates.usageNotes = usageNotes.trim() || undefined
+    }
+
+    const activeSession = sessionManager.getSession(sessionId)
+    const currentConfig = activeSession ? activeSession.config : config
+
+    // 无实际变更 —— 不落盘、不刷新 updatedAt（避免空写扰动"最近会话"排序）、不广播，直接回当前 notes
+    if (Object.keys(updates).length === 0) {
+      const notes = toSessionNotes(sessionId, currentConfig)
+      log.info(`[MCP] Write session notes ${sessionId}: no changes (empty update)`)
+      sendJson(res, 200, { success: true, data: notes })
+      return
+    }
+
+    const candidateConfig: SessionConfig = { ...currentConfig, ...updates, updatedAt: new Date() }
+    const saved = sessionRepository.saveSession(candidateConfig)
+
+    if (activeSession) {
+      // 用 repository 的 updatedAt 回填内存对象，消除两次 Date 写入的毫秒偏差；
+      // touchLastActive=false，因为修改备注不属于用户终端活动。
+      sessionManager.updateSession(
+        sessionId,
+        { ...updates, updatedAt: saved.updatedAt },
+        { touchLastActive: false, timestamp: saved.updatedAt }
+      )
+    }
+
+    // 外部路径改动会话列表 —— 通知渲染层增量同步，避免 UI 看不到 MCP 写入的备注
+    broadcastSessionsChanged()
+
+    const notes = toSessionNotes(sessionId, saved)
+    log.info(`[MCP] Updated session notes ${sessionId}: summary=${!!notes.summary}, usageNotes=${!!notes.usageNotes}, tags=${notes.tags.length}`)
+    sendJson(res, 200, { success: true, data: notes })
+  } catch (err: any) {
+    log.error('[MCP] Write session notes error:', err)
+    sendJson(res, 500, { success: false, error: err.message })
+  }
+}
+
+/**
+ * POST /api/sessions/create — 通过 MCP 创建新会话
+ *
+ * 安全约束：
+ *  - 不接受任何凭据字段（password/privateKey/passphrase），凭据由用户在 dialog 中手动补充。
+ *  - 强制 userConfirmed=true，防止 LLM 静默创建。
+ *  - capability=sessionControl（与 reconnect 对齐；不引入新开关）。
+ *
+ * 创建后仅入库，不主动连接。渲染层通过 sessions store 常规拉取即可看到新会话。
+ */
+async function handleCreateSession(
+  data: CreateSessionRequest,
+  res: http.ServerResponse,
+  binding: TokenBinding
+): Promise<void> {
+  try {
+    // 强校验：确保 LLM 已在调用前询问用户
+    if (data.userConfirmed !== true) {
+      sendJson(res, 400, {
+        success: false,
+        error: 'userConfirmed must be true. Ask the user for connection type, host/port, and notes before creating a session.'
+      })
+      return
+    }
+
+    const type = data.type
+    if (type !== 'ssh' && type !== 'telnet' && type !== 'serial' && type !== 'local') {
+      sendJson(res, 400, { success: false, error: `Invalid session type: ${type}` })
+      return
+    }
+
+    // 派生 name
+    let name = (data.name || '').trim()
+    if (!name) {
+      if (type === 'ssh') name = (data.ssh?.host || '').trim()
+      else if (type === 'telnet') name = (data.telnet?.host || '').trim()
+      else if (type === 'serial') name = (data.serial?.path || '').trim()
+      else if (type === 'local') name = 'Local Terminal'
+    }
+    if (!name) {
+      sendJson(res, 400, { success: false, error: 'name is required (or provide host/path so it can be derived)' })
+      return
+    }
+    if (name.length > 200) {
+      sendJson(res, 400, { success: false, error: 'name too long (max 200 chars)' })
+      return
+    }
+
+    // 协议字段校验
+    if (type === 'ssh' && !data.ssh?.host?.trim()) {
+      sendJson(res, 400, { success: false, error: 'ssh.host is required' })
+      return
+    }
+    if (type === 'telnet' && !data.telnet?.host?.trim()) {
+      sendJson(res, 400, { success: false, error: 'telnet.host is required' })
+      return
+    }
+    if (type === 'serial' && !data.serial?.path?.trim()) {
+      sendJson(res, 400, { success: false, error: 'serial.path is required' })
+      return
+    }
+
+    // 授权（capability = sessionControl，与 reconnect 对齐）
+    const auditParts: string[] = [type, name]
+    if (data.ssh?.host) auditParts.push(`${data.ssh.host}:${data.ssh.port ?? 22}`)
+    if (data.telnet?.host) auditParts.push(`${data.telnet.host}:${data.telnet.port ?? 23}`)
+    if (data.serial?.path) auditParts.push(data.serial.path)
+    const auth = await authorizeMcpOperation(
+      'create_session',
+      'sessionControl',
+      undefined,
+      summarizeText(auditParts.join(' | '), 200),
+      binding
+    )
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+
+    // 标签校验与规范化（trim/去空/去重/长度）
+    const tagResult = normalizeAndValidateTags(data.tags)
+    if (!tagResult.ok) {
+      sendJson(res, 400, { success: false, error: tagResult.error })
+      return
+    }
+    const normalizedTags = tagResult.tags ?? []
+
+    // 装配 SessionConfig
+    const now = new Date()
+    const config: SessionConfig = {
+      id: '',  // 交给 repository 生成 uuid
+      name,
+      type: type as ConnectionType,
+      tags: normalizedTags,
+      summary: data.summary?.trim() || undefined,
+      usageNotes: data.usageNotes?.trim() || undefined,
+      startupCommands: (data.startupCommands || []).map(s => s || '').filter(Boolean),
+      terminal: {
+        fontSize: 14,
+        fontFamily: 'Consolas, Monaco, monospace',
+        theme: DEFAULT_THEME_DARK,
+        cursorStyle: 'block',
+        cursorBlink: true,
+        scrollback: 10000,
+        encoding: data.encoding || 'utf-8'
+      },
+      createdAt: now,
+      updatedAt: now
+    }
+
+    if (type === 'ssh' && data.ssh) {
+      config.ssh = {
+        host: data.ssh.host.trim(),
+        port: data.ssh.port || 22,
+        username: (data.ssh.username || '').trim(),
+        // 凭据字段一律不接受；用户在 dialog 内自行补充
+        shellEnterCommands: data.ssh.shellEnterCommands || undefined,
+        shellEnterWait: data.ssh.shellEnterWait
+      }
+    } else if (type === 'telnet' && data.telnet) {
+      config.telnet = {
+        host: data.telnet.host.trim(),
+        port: data.telnet.port || 23
+      }
+    } else if (type === 'serial' && data.serial) {
+      config.serial = {
+        path: data.serial.path.trim(),
+        baudRate: data.serial.baudRate || 9600,
+        dataBits: 8,
+        stopBits: 1,
+        parity: 'none'
+      }
+    } else if (type === 'local' && data.local) {
+      config.local = {
+        shell: data.local.shell || undefined,
+        cwd: data.local.cwd || undefined
+      }
+    } else if (type === 'local') {
+      config.local = {}
+    }
+
+    const saved = sessionRepository.saveSession(config)
+    // 新会话入库 —— 通知渲染层增量同步，让 sidebar 立即看到这条新会话
+    broadcastSessionsChanged()
+    const notes = toSessionNotes(saved.id, saved)
+
+    log.info(`[MCP] Created session ${saved.id} (${saved.name}, ${saved.type})`)
+    const response: CreateSessionResponse = {
+      sessionId: saved.id,
+      name: saved.name,
+      type: saved.type,
+      notes
+    }
+    sendJson(res, 200, { success: true, data: response })
+  } catch (err: any) {
+    log.error('[MCP] Create session error:', err)
+    sendJson(res, 500, { success: false, error: err.message })
+  }
+}
+
+/**
  * POST /api/files/list — 列出目录内容
  */
 async function handleListFiles(data: FileOperationRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
@@ -974,7 +1366,8 @@ async function authorizeMcpOperation(
         capability === 'execute' ? settings.allowSshExecute :
           capability === 'localExecute' ? settings.allowLocalExecute :
             capability === 'fileWrite' ? settings.allowFileWrite :
-              capability === 'sessionControl' ? (settings.allowSessionControl === true) : false
+              capability === 'sessionControl' ? (settings.allowSessionControl === true) :
+                capability === 'sessionMetadataWrite' ? (settings.allowSessionMetadataWrite === true) : false
 
   if (!capabilityAllowed) return deny(`MCP capability ${capability} is disabled`)
 

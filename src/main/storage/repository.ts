@@ -268,12 +268,76 @@ export class SessionRepository {
       session.createdAt = now
     }
 
+    // 全新会话且用户没显式填 notes 时，尝试从同主机的已有会话继承 summary/usageNotes/tags
+    // —— New session / Copy 到同一台机器不需要再手动补一次。
+    // 已存在的会话（更新场景）不触发继承，避免把旧记录覆盖回来。
+    const isBrandNew = !this.sessions.has(session.id)
+    if (isBrandNew) {
+      this.inheritNotesFromSameHost(session)
+    }
+
     session.updatedAt = now
     this.sessions.set(session.id, session)
     this.save()
 
     log.info(`Session saved: ${session.id} (${session.name})`)
     return session
+  }
+
+  /**
+   * 计算某会话的"host key"，用于识别指向同一目标的会话。
+   * SSH / Telnet 用 host+port，Serial 用 path，Local 无 host —— 返回 null。
+   */
+  private getHostKey(session: SessionConfig): string | null {
+    if (session.ssh) return `ssh://${session.ssh.host}:${session.ssh.port}`
+    if (session.telnet) return `telnet://${session.telnet.host}:${session.telnet.port}`
+    if (session.serial) return `serial://${session.serial.path}`
+    return null
+  }
+
+  /**
+   * 用户是否已显式在新会话上填了 notes。tags 里的 'pinned' 是系统标签，不算 user notes。
+   */
+  private hasUserNotes(session: SessionConfig): boolean {
+    if (session.summary && session.summary.trim() !== '') return true
+    if (session.usageNotes && session.usageNotes.trim() !== '') return true
+    const userTags = (session.tags || []).filter(t => t !== 'pinned')
+    return userTags.length > 0
+  }
+
+  /**
+   * 新建会话时，如用户未填 notes，从同主机（type + host + port）的最近已有会话继承。
+   * 只填充空字段；用户已填的字段一律不覆盖。
+   */
+  private inheritNotesFromSameHost(session: SessionConfig): void {
+    if (this.hasUserNotes(session)) return
+    const key = this.getHostKey(session)
+    if (!key) return
+
+    let source: SessionConfig | null = null
+    for (const existing of this.sessions.values()) {
+      if (this.getHostKey(existing) !== key) continue
+      if (!source || (existing.updatedAt > source.updatedAt)) {
+        source = existing
+      }
+    }
+    if (!source) return
+
+    if ((!session.summary || session.summary.trim() === '') && source.summary) {
+      session.summary = source.summary
+    }
+    if ((!session.usageNotes || session.usageNotes.trim() === '') && source.usageNotes) {
+      session.usageNotes = source.usageNotes
+    }
+    // 继承 user tags；保留新会话已有的 pinned 等系统标签
+    const existingSystemTags = (session.tags || []).filter(t => t === 'pinned')
+    const inheritedUserTags = (source.tags || []).filter(t => t !== 'pinned')
+    if (inheritedUserTags.length > 0) {
+      const merged = new Set([...existingSystemTags, ...inheritedUserTags])
+      session.tags = Array.from(merged)
+    }
+
+    log.info(`Session ${session.id} inherited notes from ${source.id} (host key: ${key})`)
   }
 
   /**

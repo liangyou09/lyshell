@@ -126,12 +126,14 @@ async function main(): Promise<void> {
       },
       instructions:
         'LyShell MCP Server — terminal session management, interactive input, remote file operations, ' +
-        'quick commands, and AI agents. ' +
+        'quick commands, AI agents, and session metadata. ' +
         'Use list_sessions to discover sessions. ' +
         "Inside a LyShell-spawned terminal, pass sessionId='current' to target the current PTY directly. " +
         'Use send_input / send_and_wait / execute_command to interact with sessions. ' +
         'Use reconnect_session to restore a dropped connection. ' +
         'Use run_on_sessions to broadcast a command across multiple servers. ' +
+        'Use read_session_notes / write_session_notes to manage per-session summary, usage notes, and tags. ' +
+        'Use create_session to add a new session (SSH / Telnet / Serial / Local) with notes — credentials must be filled manually afterward. ' +
         'File tools cover what shell cannot do safely or efficiently: binary transfer (upload/download), ' +
         'structured listing/stat, and bounded text read. For mutating operations (rm, mv, mkdir, chmod, md5sum, ...) ' +
         'use execute_command — the SSH/PTY permission model already governs them. ' +
@@ -167,6 +169,35 @@ async function main(): Promise<void> {
       // lyshell_list_sessions: 使用 POST 支持过滤；空参数时等价于 GET 全量
       if (name === 'lyshell_list_sessions') {
         const result = await httpClient.post('/api/sessions', args || {})
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }],
+          structuredContent: result.data
+        }
+      }
+
+      // lyshell_read_session_notes: GET /api/sessions/:id/notes
+      if (name === 'lyshell_read_session_notes') {
+        const { sessionId } = (args || {}) as { sessionId: string }
+        const result = await httpClient.get(`/api/sessions/${encodeURIComponent(sessionId)}/notes`)
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }],
+          structuredContent: result.data
+        }
+      }
+
+      // lyshell_write_session_notes: POST /api/sessions/:id/notes
+      if (name === 'lyshell_write_session_notes') {
+        const { sessionId, ...body } = (args || {}) as { sessionId: string }
+        const result = await httpClient.post(`/api/sessions/${encodeURIComponent(sessionId)}/notes`, body)
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }],
+          structuredContent: result.data
+        }
+      }
+
+      // lyshell_create_session: POST /api/sessions/create
+      if (name === 'lyshell_create_session') {
+        const result = await httpClient.post('/api/sessions/create', args || {})
         return {
           content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }],
           structuredContent: result.data

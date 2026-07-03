@@ -56,6 +56,21 @@ const sessionInfoSchema = {
   required: ['id', 'name', 'type', 'status', 'tags', 'capabilities']
 }
 
+const sessionNotesSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    sessionId: { type: 'string' },
+    summary: { type: 'string' },
+    usageNotes: { type: 'string' },
+    tags: { type: 'array', items: { type: 'string' } },
+    hasTags: { type: 'boolean' },
+    updatedAt: { type: 'string' },
+    isEmpty: { type: 'boolean' }
+  },
+  required: ['sessionId', 'tags', 'hasTags', 'updatedAt', 'isEmpty']
+}
+
 const fileEntrySchema = {
   type: 'object',
   properties: {
@@ -146,7 +161,223 @@ export const TOOL_DEFINITIONS = [
     }
   },
 
-  // ---------- 终端交互 ----------
+  // ---------- 会话摘要与使用说明 ----------
+  {
+    name: 'lyshell_read_session_notes',
+    title: '读取会话摘要和使用说明',
+    description:
+      'Read the summary, usage notes, and tags of a LyShell session. ' +
+      'CRITICAL: If `isEmpty` is true (both summary and usageNotes are missing/empty), ' +
+      'you MUST ask the user to describe this session before writing anything. ' +
+      'Ask for: (1) a one-sentence summary of its purpose; (2) usage notes, common commands, or precautions; ' +
+      '(3) tags describing what kind of device/server this is. ' +
+      'Suggested tags if unclear: compile-server, build-server, ips-device, firewall, router, switch, ' +
+      'database-server, k8s-node, bastion, test-env, prod-env, staging. ' +
+      'Note: `pinned` is a system tag (set via the LyShell UI to pin a session to the top), not user content — do not treat it as a user-defined tag. ' +
+      'Do not invent content.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: sessionIdField
+      },
+      required: ['sessionId'] as string[]
+    },
+    outputSchema: sessionNotesSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false
+    }
+  },
+  {
+    name: 'lyshell_write_session_notes',
+    title: '写入会话摘要和使用说明',
+    description:
+      'Write or update the summary, usage notes, and tags of a LyShell session. ' +
+      'CRITICAL: Before calling this tool, you MUST ask the user for the following key information ' +
+      'and only proceed after explicit approval: ' +
+      '(1) target session — confirm the exact sessionId or session name; ' +
+      '(2) exact summary text, or confirmation to keep/clear the existing summary; ' +
+      '(3) exact usage notes text, or confirmation to keep/clear the existing usage notes; ' +
+      '(4) complete list of tags (tags are fully replaced, not merged); ' +
+      '(5) whether to overwrite existing non-empty summary/usage notes. ' +
+      'Set `userConfirmed=true` only after the user explicitly approves. ' +
+      'Semantics: missing field = unchanged, "" = clear, tags provided = full replacement. ' +
+      'The `pinned` tag is a system tag and is preserved automatically even when you replace all tags — do not include it in your tags array. ' +
+      'If the session currently has no notes, first call lyshell_read_session_notes to confirm `isEmpty=true`, ' +
+      'then ask the user for the missing information.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: sessionIdField,
+        summary: {
+          type: 'string',
+          maxLength: 500,
+          description: 'Summary text. Omit to keep existing. Pass empty string to clear.'
+        },
+        usageNotes: {
+          type: 'string',
+          maxLength: 10000,
+          description: 'Usage notes text. Omit to keep existing. Pass empty string to clear.'
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string', maxLength: 50 },
+          maxItems: 20,
+          description: 'Complete list of tags to set. Omit to keep existing tags unchanged.'
+        },
+        overwrite: {
+          type: 'boolean',
+          description: 'Allow overwriting existing non-empty summary/usage notes. Default false.'
+        },
+        userConfirmed: {
+          type: 'boolean',
+          description: 'Set to true only after explicitly asking the user for all key information and receiving approval.'
+        }
+      },
+      required: ['sessionId', 'userConfirmed'] as string[]
+    },
+    outputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string' },
+        summary: { type: 'string' },
+        usageNotes: { type: 'string' },
+        tags: { type: 'array', items: { type: 'string' } },
+        hasTags: { type: 'boolean' },
+        updatedAt: { type: 'string' },
+        isEmpty: { type: 'boolean' }
+      },
+      required: ['sessionId', 'tags', 'hasTags', 'updatedAt', 'isEmpty']
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false
+    }
+  },
+  {
+    name: 'lyshell_create_session',
+    title: '创建新会话（不含凭据）',
+    description:
+      'Create a new LyShell session (SSH / Telnet / Serial / Local) with optional summary, usage notes, and tags. ' +
+      'The new session is stored but NOT auto-connected — the user still needs to click it in LyShell to connect.\n\n' +
+      'SECURITY: This tool NEVER accepts credentials. Fields `password`, `privateKey`, `passphrase` are rejected by design. ' +
+      'For SSH sessions requiring auth, the user must fill in password / private key manually in the LyShell dialog after creation.\n\n' +
+      'REQUIRES: the `sessionControl` MCP capability (same as lyshell_reconnect_session). Creating a session is a control ' +
+      'operation and is NOT governed by the session-notes-write toggle — enabling notes-write alone will not allow creation.\n\n' +
+      'CRITICAL: Before calling this tool, you MUST ask the user for the following and only proceed after explicit approval:\n' +
+      '  (1) session type — ssh / telnet / serial / local;\n' +
+      '  (2) connection target — host+port (ssh/telnet), device path (serial), or shell/cwd (local);\n' +
+      '  (3) session name (or confirm auto-derive from host);\n' +
+      '  (4) summary — a one-sentence description of the purpose;\n' +
+      '  (5) usage notes — common commands, precautions;\n' +
+      '  (6) tags — what kind of device/server (e.g. compile-server, ips-device, firewall, router, switch, database-server, k8s-node, bastion, test-env, prod-env, staging);\n' +
+      '  (7) startup commands — optional, one per array element.\n' +
+      'Set `userConfirmed=true` only after the user approves all fields.\n' +
+      'Do not invent connection targets or notes — always ask.',
+    inputSchema: {
+      type: 'object' as const,
+      additionalProperties: false,
+      properties: {
+        name: {
+          type: 'string',
+          maxLength: 200,
+          description: 'Session name. Omit to auto-derive from host/path/type.'
+        },
+        type: {
+          type: 'string',
+          enum: ['ssh', 'telnet', 'serial', 'local'],
+          description: 'Connection type.'
+        },
+        ssh: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            host: { type: 'string', minLength: 1, description: 'SSH host (IP or hostname).' },
+            port: { type: 'number', minimum: 1, maximum: 65535, description: 'SSH port (default 22).' },
+            username: { type: 'string', description: 'SSH username.' },
+            shellEnterCommands: { type: 'string', description: 'Commands to send right after login (multi-line, one per line).' },
+            shellEnterWait: { type: 'number', minimum: 0, maximum: 60000, description: 'Wait ms after each shell-init line.' }
+          },
+          required: ['host'],
+          description: 'SSH connection details. Required when type=ssh. Credentials (password/privateKey) are NOT accepted here.'
+        },
+        telnet: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            host: { type: 'string', minLength: 1, description: 'Telnet host.' },
+            port: { type: 'number', minimum: 1, maximum: 65535, description: 'Telnet port (default 23).' }
+          },
+          required: ['host'],
+          description: 'Telnet connection details. Required when type=telnet.'
+        },
+        serial: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            path: { type: 'string', minLength: 1, description: 'Device path, e.g. COM5 / /dev/ttyUSB0.' },
+            baudRate: { type: 'number', minimum: 300, description: 'Baud rate (default 9600).' }
+          },
+          required: ['path'],
+          description: 'Serial connection details. Required when type=serial.'
+        },
+        local: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            shell: { type: 'string', description: 'Absolute path to the shell binary, e.g. powershell / pwsh / cmd.exe / bash. Omit for default.' },
+            cwd: { type: 'string', description: 'Working directory. Omit for user home.' }
+          },
+          description: 'Local PTY details. Optional when type=local.'
+        },
+        summary: { type: 'string', maxLength: 500, description: 'One-sentence summary. Omit to leave empty.' },
+        usageNotes: { type: 'string', maxLength: 10000, description: 'Multi-line usage notes / precautions.' },
+        tags: {
+          type: 'array',
+          items: { type: 'string', maxLength: 50 },
+          maxItems: 20,
+          description: 'Tags. Complete list (not merged with anything, since the session is new).'
+        },
+        startupCommands: {
+          type: 'array',
+          items: { type: 'string' },
+          maxItems: 50,
+          description: 'Commands to run automatically after the session connects (one per array element).'
+        },
+        encoding: {
+          type: 'string',
+          enum: ['utf-8', 'gbk', 'gb2312'],
+          description: 'Terminal charset (default utf-8).'
+        },
+        userConfirmed: {
+          type: 'boolean',
+          description: 'Set to true only after asking the user for all key fields listed in the description and receiving approval.'
+        }
+      },
+      required: ['type', 'userConfirmed'] as string[]
+    },
+    outputSchema: {
+      type: 'object' as const,
+      additionalProperties: false,
+      properties: {
+        sessionId: { type: 'string', description: 'ID of the newly created session.' },
+        name: { type: 'string' },
+        type: { type: 'string' },
+        notes: sessionNotesSchema
+      },
+      required: ['sessionId', 'name', 'type', 'notes']
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true
+    }
+  },
   {
     name: 'lyshell_send_input',
     title: '向终端发送输入',

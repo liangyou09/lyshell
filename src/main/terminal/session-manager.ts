@@ -127,14 +127,28 @@ export class SessionManager extends EventEmitter {
 
   /**
    * 更新会话配置
+   *
+   * @param options.touchLastActive 是否同时刷新 lastActiveAt（默认 true）。
+   *                                对于不表示用户活动的元数据写入（如 MCP 修改备注），应传 false，
+   *                                避免干扰"最近会话"排序。
+   * @param options.timestamp      强制使用指定时间戳；不传则内部新建 Date()。
    */
-  updateSession(id: string, config: Partial<SessionConfig>): Session | undefined {
+  updateSession(
+    id: string,
+    config: Partial<SessionConfig>,
+    options?: { touchLastActive?: boolean; timestamp?: Date }
+  ): Session | undefined {
     const session = this.sessions.get(id)
     if (!session) return undefined
 
+    const touchLastActive = options?.touchLastActive !== false
+    const timestamp = options?.timestamp ?? new Date()
+
     session.config = { ...session.config, ...config }
-    session.config.updatedAt = new Date()
-    session.lastActiveAt = new Date()
+    session.config.updatedAt = timestamp
+    if (touchLastActive) {
+      session.lastActiveAt = timestamp
+    }
 
     log.info(`Session updated: ${id}`)
     this.emit('session:updated', session)

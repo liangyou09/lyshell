@@ -63,6 +63,8 @@ export const IPC_CHANNELS = {
   SESSION_GET: 'session:get',
   SESSION_FAVORITES: 'session:favorites',
   SESSION_RECENT: 'session:recent',
+  // 会话列表被外部路径（MCP 写入/创建）改动后，向所有窗口推送一次，触发渲染层增量同步
+  SESSIONS_CHANGED: 'sessions:changed',
 
   // 串口
   SERIAL_LIST_PORTS: 'serial:list-ports',
@@ -167,6 +169,15 @@ function sendToAllWindows(channel: string, ...args: any[]): void {
       win.webContents.send(channel, ...args)
     }
   }
+}
+
+/**
+ * 会话列表被外部路径（主要是 MCP HTTP API）改动后调用，
+ * 通知所有渲染窗口增量拉取最新会话——避免 LLM 经 MCP 创建/改备注后 UI 不同步。
+ * 渲染层订阅后做 merge 式同步，不会重置已连接会话的 status。
+ */
+export function broadcastSessionsChanged(): void {
+  sendToAllWindows(IPC_CHANNELS.SESSIONS_CHANGED)
 }
 
 const allowedOpenDialogProperties = new Set<NonNullable<OpenDialogOptions['properties']>[number]>([

@@ -31,6 +31,7 @@ const MainWindow: React.FC = () => {
   })
   const [cursorBlink, setCursorBlink] = useState(() => isCursorBlinkEnabled())
   const [downloadDir, setDownloadDir] = useState('')
+  const [mcpSessionMetadataWrite, setMcpSessionMetadataWrite] = useState(false)
   // 设置面板拖拽偏移 —— 持久化到 localStorage,关闭/重启都保留位置
   const [settingsOffset, setSettingsOffset] = useState(() => {
     try {
@@ -44,7 +45,7 @@ const MainWindow: React.FC = () => {
   })
   const settingsDragRef = useRef<{ startX: number; startY: number; offsetX: number; offsetY: number } | null>(null)
   const settingsPanelRef = useRef<HTMLDivElement>(null)
-  const { loadSessions, refreshSavedSessions } = useSessionStore()
+  const { loadSessions, refreshSavedSessions, syncSessionsFromBackend } = useSessionStore()
   const { getAllLeafPanes, layout } = usePaneStore()
   const { themeId, setTheme, customColors, setCustomColors, initFromStorage } = useThemeStore()
   const { localeId, setLocale, initFromStorage: initLocaleFromStorage } = useLocaleStore()
@@ -114,6 +115,28 @@ const MainWindow: React.FC = () => {
     }
     loadDownloadConfig()
   }, [])
+
+  // 设置面板打开时加载 MCP 安全开关
+  useEffect(() => {
+    if (!showSettings || !window.electronAPI) return
+    const loadMcpSecurity = async () => {
+      try {
+        const rawSecurity = await window.electronAPI?.getConfig('security')
+        if (rawSecurity && typeof rawSecurity === 'object') {
+          const security = rawSecurity as Record<string, unknown>
+          const mcp = security.mcp && typeof security.mcp === 'object'
+            ? (security.mcp as Record<string, unknown>)
+            : null
+          if (mcp) {
+            setMcpSessionMetadataWrite(mcp.allowSessionMetadataWrite === true)
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load MCP security settings:', e)
+      }
+    }
+    loadMcpSecurity()
+  }, [showSettings])
 
   // 监听会话状态变化并更新 store
   useEffect(() => {
@@ -187,6 +210,15 @@ const MainWindow: React.FC = () => {
     })
     return cleanup
   }, [])
+
+  // 外部路径（MCP 写入/创建）改动会话列表后，主进程推送 sessions:changed —— 增量同步，不重置连接状态
+  useEffect(() => {
+    if (!window.electronAPI?.onSessionsChanged) return
+    const cleanup = window.electronAPI.onSessionsChanged(() => {
+      syncSessionsFromBackend()
+    })
+    return cleanup
+  }, [syncSessionsFromBackend])
 
   // 检查窗口是否最大化
   useEffect(() => {
@@ -643,6 +675,50 @@ const MainWindow: React.FC = () => {
                     </button>
                   </div>
                   <p className="text-[10px] text-[var(--text-rack-mute)] font-mono">{t('settings.defaultSavePath')}</p>
+                </div>
+
+                {/* MCP 会话元数据写入开关 */}
+                <div className="border-t border-[var(--rule)] pt-2 mt-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <input
+                      id="mcp-session-metadata-write"
+                      type="checkbox"
+                      checked={mcpSessionMetadataWrite}
+                      onChange={async (e) => {
+                        const checked = e.target.checked
+                        setMcpSessionMetadataWrite(checked)
+                        try {
+                          const rawSecurity = await window.electronAPI?.getConfig('security')
+                          const security = rawSecurity && typeof rawSecurity === 'object'
+                            ? (rawSecurity as Record<string, unknown>)
+                            : {}
+                          const existingMcp =
+                            security.mcp && typeof security.mcp === 'object'
+                              ? (security.mcp as Record<string, unknown>)
+                              : {}
+                          await window.electronAPI?.setConfig('security', {
+                            ...security,
+                            mcp: {
+                              ...existingMcp,
+                              allowSessionMetadataWrite: checked
+                            }
+                          })
+                        } catch (err) {
+                          console.warn('Failed to save MCP security setting:', err)
+                        }
+                      }}
+                      className="w-3.5 h-3.5 accent-[var(--amber)]"
+                    />
+                    <label
+                      htmlFor="mcp-session-metadata-write"
+                      className="text-[11px] font-mono text-[var(--text-rack)] cursor-pointer"
+                    >
+                      {t('settings.mcpSessionMetadataWrite')}
+                    </label>
+                  </div>
+                  <p className="text-[10px] text-[var(--text-rack-mute)] font-mono">
+                    {t('settings.mcpSessionMetadataWriteHint')}
+                  </p>
                 </div>
 
                 <p className="text-[10px] text-[var(--text-rack-mute)] border-t border-[var(--rule)] pt-2 mt-2 font-mono leading-relaxed">
