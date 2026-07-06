@@ -8,21 +8,26 @@ import * as http from 'http'
 import * as net from 'net'
 import * as fs from 'fs'
 import * as path from 'path'
-import { exec, execSync } from 'child_process'
+import { exec, execSync, spawn } from 'child_process'
 import { app, dialog } from 'electron'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 
 import { sessionManager } from '../terminal/session-manager'
-import { broadcastSessionsChanged } from '../ipc/handlers'
+import { broadcastSessionsChanged, broadcastMcpOpenConnectionDialog } from '../ipc/handlers'
 import { processInputEscapeSequences } from '@shared/escape-sequences'
 import { fileManager } from '../file/manager'
 import { preferencesRepository, quickCommandsRepository, sessionRepository } from '../storage/repository'
 import { agentRepository } from '../storage/agent-repository'
+import { mcpAuditRepository } from '../storage/mcp-audit-repository'
 import { ConnectionType, ConnectionStatus, SessionConfig } from '@shared/types'
+import type { FileInfo } from '@shared/types'
 import { DEFAULT_THEME_DARK } from '@shared/constants'
 import * as mcpAuth from './auth'
 import type { TokenBinding, TokenKind } from './auth'
+import { scanDestructiveCommand } from './destructive-check'
+import { compileGlob, relPath } from './glob'
+import { t } from '../i18n'
 import type {
   ApiResponse,
   SessionInfo,
@@ -33,6 +38,7 @@ import type {
   DownloadFileRequest,
   DownloadFileResponse,
   UploadFileRequest,
+  UploadFileResponse,
   FileOperationRequest,
   McpPortInfo,
   SendInputRequest,
@@ -42,6 +48,10 @@ import type {
   SendAndWaitResult,
   ReconnectSessionRequest,
   ReconnectSessionResponse,
+  CloseSessionRequest,
+  CloseSessionResponse,
+  OpenConnectionDialogRequest,
+  OpenConnectionDialogResponse,
   SessionNotes,
   WriteSessionNotesRequest,
   CreateSessionRequest,
@@ -70,11 +80,13 @@ interface McpSecuritySettings {
   allowedSessionIds?: string[]
   deniedSessionIds?: string[]
   allowExternalMcpClients?: boolean
+  confirmDestructiveCommands?: boolean
+  confirmFirstNotesWrite?: boolean
 }
 
 interface McpAuditEvent {
   operation: string
-  capability: McpCapability | 'auth'
+  capability: McpCapability | 'auth' | 'destructiveConfirm'
   sessionId?: string
   sessionName?: string
   sessionType?: string
@@ -101,7 +113,11 @@ const DEFAULT_MCP_SECURITY: Required<McpSecuritySettings> = {
   allowedSessionIds: [],
   deniedSessionIds: [],
   // 默认关闭外部接入：只对 LyShell 自身孵化的本地 PTY（per-session token）开放
-  allowExternalMcpClients: false
+  allowExternalMcpClients: false,
+  // 默认开启破坏性命令确认：对 session/global token 一视同仁的内容级防御层
+  confirmDestructiveCommands: true,
+  // 默认开启首次写入会话备注确认（C6）：session token 写元数据的唯一人工闸门
+  confirmFirstNotesWrite: true
 }
 
 /**
@@ -151,6 +167,9 @@ export async function startMcpHttpServer(): Promise<void> {
     fs.chmodSync(tempPortFilePath, 0o600)
   }
   fs.renameSync(tempPortFilePath, portFilePath)
+
+  // Windows 下显式收紧端口文件 ACL 到 owner-only（POSIX 已在写入时 chmod 0o600）
+  hardenPortFilePermissionsWindows(portFilePath)
 
   // 不再自动改写用户外部配置（~/.claude/mcp.json）。
   // 输出 claude mcp add 命令，由用户自行添加。
@@ -208,6 +227,37 @@ function getMcpServerScriptPath(): string {
   return path.join(__dirname, 'mcpServer.js')
 }
 
+/**
+ * Windows 下显式收紧端口文件 ACL 到 owner-only（B3）。
+ *
+ * 威胁模型澄清：文件 ACL 无法阻止同用户其它进程读取——同用户进程可 take ownership，
+ * 这与 POSIX 的 0o600 同理。同用户威胁由 allowExternalMcpClients=false（默认）兜底。
+ * 本函数的价值是 defense-in-depth：不依赖 %APPDATA% 目录的继承 ACL，显式移除继承的
+ * ACE，仅保留当前用户；并让 isPortFilePermissionSafe 的读取侧校验不再是 no-op。
+ *
+ * 失败仅 log.warn，不阻塞启动——此时端口文件仍受目录 ACL 保护，等价于改动前状态。
+ */
+function hardenPortFilePermissionsWindows(filePath: string): void {
+  if (process.platform !== 'win32') return
+  try {
+    const user = process.env.USERDOMAIN && process.env.USERNAME
+      ? `${process.env.USERDOMAIN}\\${process.env.USERNAME}`
+      : process.env.USERNAME
+    if (!user) {
+      log.warn('[MCP] Cannot harden port file ACL on Windows: USERNAME env not set')
+      return
+    }
+    // /inheritance:r 移除继承的 ACE；/grant:r 仅授予当前用户完全控制（替换而非追加）
+    execSync(`icacls "${filePath}" /inheritance:r /grant:r "${user}:F"`, {
+      stdio: 'ignore',
+      timeout: 5000
+    })
+    log.info(`[MCP] Hardened port file ACL on Windows for ${user}`)
+  } catch (err) {
+    log.warn(`[MCP] Failed to harden port file ACL on Windows: ${(err as Error).message}`)
+  }
+}
+
 
 /**
  * 解析 Node.js 可执行文件路径
@@ -259,28 +309,64 @@ function resolveNodePath(): string {
  * @param externalAccess 当前是否允许外部 MCP 客户端通过端口文件接入
  */
 function logMcpAddCommand(externalAccess: boolean): void {
-  let nodePath: string
-  try {
-    nodePath = resolveNodePath()
-  } catch (err) {
-    log.error(`[MCP] Cannot generate 'claude mcp add' command: ${(err as Error).message}`)
-    return
-  }
-
-  const scriptPath = getMcpServerScriptPath()
-  const userDataDir = app.getPath('userData')
-
-  // 构造 claude mcp add 命令（带 LYSHELL_USER_DATA 环境变量，路径加双引号）
-  const cmd =
-    `claude mcp add lyshell -e LYSHELL_USER_DATA="${userDataDir}" -- "${nodePath}" "${scriptPath}"`
-
+  const info = buildMcpAddCommand(externalAccess)
   log.info('[MCP] To register LyShell with Claude Code, run the following command:')
-  log.info(`[MCP]   ${cmd}`)
+  log.info(`[MCP]   ${info.command}`)
+  if (info.systemNodeCommand) {
+    log.info('[MCP] Fallback (system Node.js, if the command above fails):')
+    log.info(`[MCP]   ${info.systemNodeCommand}`)
+  }
   log.info('[MCP] To remove later: claude mcp remove lyshell')
   if (!externalAccess) {
     log.info('[MCP] External access is OFF (default). Run claude inside a LyShell-spawned local terminal,')
     log.info('[MCP]   or enable security.mcp.allowExternalMcpClients in preferences to allow external connections.')
   }
+}
+
+export interface McpAddCommand {
+  /** 主命令：用 LyShell 自带 Electron 二进制 + ELECTRON_RUN_AS_NODE=1，无需系统 Node */
+  command: string
+  /** 备选命令：用系统 Node.js（若检测到），主命令失效时回退 */
+  systemNodeCommand?: string
+  /** 当前是否允许外部 MCP 客户端接入 */
+  externalAccess: boolean
+}
+
+/**
+ * 构造 `claude mcp add lyshell ...` 注册命令（B6）。
+ *
+ * 主命令用 process.execPath + ELECTRON_RUN_AS_NODE=1：LyShell 自带的 Electron 二进制
+ * 在该 env 下作为纯 Node.js 运行，直接跑打包好的 mcpServer.js，无需用户另装系统 Node.js。
+ * （历史注释误以为 Electron 二进制不能跑 MCP Server——ELECTRON_RUN_AS_NODE 正是为此。）
+ *
+ * 备选命令仍用系统 Node.js（若能检测到），供主命令在异常环境（如 env 被剥离）下回退。
+ */
+export function buildMcpAddCommand(externalAccess: boolean): McpAddCommand {
+  const scriptPath = getMcpServerScriptPath()
+  const userDataDir = app.getPath('userData')
+  const execPath = process.execPath
+
+  const command =
+    `claude mcp add lyshell -e LYSHELL_USER_DATA="${userDataDir}" -e ELECTRON_RUN_AS_NODE=1 -- "${execPath}" "${scriptPath}"`
+
+  let systemNodeCommand: string | undefined
+  try {
+    const nodePath = resolveNodePath()
+    systemNodeCommand =
+      `claude mcp add lyshell -e LYSHELL_USER_DATA="${userDataDir}" -- "${nodePath}" "${scriptPath}"`
+  } catch {
+    // 系统未装 Node.js —— 主命令不依赖它，忽略
+  }
+
+  return { command, systemNodeCommand, externalAccess }
+}
+
+/**
+ * IPC 入口：读取当前外部接入开关并构造注册命令，供设置页"复制注册命令"按钮使用。
+ */
+export function getMcpAddCommandForIpc(): McpAddCommand {
+  const externalAccess = getMcpSecuritySettings().allowExternalMcpClients === true
+  return buildMcpAddCommand(externalAccess)
 }
 
 // ========== HTTP 请求处理 ==========
@@ -326,7 +412,9 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     const ctxBinding = binding!
 
     if (req.method === 'GET' && url.pathname === '/api/sessions') {
-      return handleListSessions(res)
+      const includeAll = url.searchParams.get('includeAll') === 'true'
+      handleListSessions(res, ctxBinding, includeAll).catch(err => sendJson(res, 500, { success: false, error: err.message }))
+      return
     }
 
     // P1: 资源端点（read capability，纯只读，无副作用）
@@ -375,11 +463,13 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 
         switch (url.pathname) {
           case '/api/sessions':
-            return handleListSessionsFiltered(data, res)
+            return handleListSessionsFiltered(data, res, ctxBinding)
           case '/api/sessions/create':
             return handleCreateSession(data, res, ctxBinding)
           case '/api/execute':
             return handleExecuteCommand(data, res, ctxBinding)
+          case '/api/execute-stream':
+            return handleExecuteCommandStream(data, res, ctxBinding)
           case '/api/send-input':
             return handleSendInput(data, res, ctxBinding)
           case '/api/read-output':
@@ -388,6 +478,10 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
             return handleSendAndWait(data, res, ctxBinding)
           case '/api/sessions/reconnect':
             return handleReconnectSession(data, res, ctxBinding)
+          case '/api/sessions/close':
+            return handleCloseSession(data, res, ctxBinding)
+          case '/api/sessions/open-dialog':
+            return handleOpenConnectionDialog(data, res, ctxBinding)
           case '/api/files/list':
             return handleListFiles(data, res, ctxBinding)
           case '/api/files/read':
@@ -427,69 +521,132 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 /**
  * GET /api/sessions — 列出所有会话
  */
-function handleListSessions(res: http.ServerResponse): void {
+/**
+ * 把 SessionConfig 转换成侧边栏视角的 SessionInfo。
+ *
+ * 主源：sessionRepository（所有已保存会话，含未连接的）。
+ * live 状态：从 sessionManager.getSession(config.id) 叠加，无则 disconnected。
+ * 所有敏感字段（password / privateKey / passphrase）均不输出。
+ */
+function buildSessionInfo(config: SessionConfig): SessionInfo {
+  const live = sessionManager.getSession(config.id)
+  const status = live ? live.status : ConnectionStatus.DISCONNECTED
+  const pinned = config.tags?.includes('pinned') ?? false
+
+  return {
+    id: config.id,
+    name: config.name,
+    type: config.type,
+    status,
+    host: config.ssh?.host || config.telnet?.host,
+    port: config.ssh?.port || config.telnet?.port,
+    group: config.group,
+    tags: config.tags,
+    capabilities: {
+      sendInput: true, // 所有连接类型都支持
+      executeCommand: config.type === ConnectionType.SSH || config.type === ConnectionType.LOCAL,
+      fileOperations: config.type === ConnectionType.SSH,
+      readOutput: status === ConnectionStatus.CONNECTED // 已连接会话可读取输出
+    },
+    // 协议专属字段（脱敏）
+    username: config.ssh?.username,
+    path: config.serial?.path,
+    baudRate: config.serial?.baudRate,
+    shell: config.local?.shell,
+    cwd: config.local?.cwd,
+    // 辅助 agent 选会话
+    summary: config.summary || undefined,
+    pinned,
+    connectCount: config.connectCount,
+    updatedAt: config.updatedAt.toISOString()
+  }
+}
+
+const STATUS_RANK: Record<string, number> = {
+  [ConnectionStatus.CONNECTED]: 5,
+  [ConnectionStatus.CONNECTING]: 4,
+  [ConnectionStatus.RECONNECTING]: 3,
+  [ConnectionStatus.ERROR]: 2,
+  [ConnectionStatus.DISCONNECTED]: 1
+}
+
+function sortSessionInfos(infos: SessionInfo[]): SessionInfo[] {
+  return infos.sort((a, b) => {
+    const rankA = STATUS_RANK[a.status] ?? 0
+    const rankB = STATUS_RANK[b.status] ?? 0
+    if (rankB !== rankA) return rankB - rankA
+    if (a.pinned !== b.pinned) return (a.pinned ? 1 : 0) - (b.pinned ? 1 : 0)
+    const ta = a.updatedAt ? new Date(a.updatedAt).getTime() : 0
+    const tb = b.updatedAt ? new Date(b.updatedAt).getTime() : 0
+    return tb - ta
+  })
+}
+
+/**
+ * 默认可见性过滤：为避免 agent 上下文被大量离线会话淹没，
+ * 未传 includeAll=true 时只保留 connected 或 pinned 的会话。
+ */
+function applyDefaultVisibilityFilter(infos: SessionInfo[], includeAll?: boolean): SessionInfo[] {
+  if (includeAll) return infos
+  return infos.filter(i => i.status === ConnectionStatus.CONNECTED || i.pinned)
+}
+
+async function handleListSessions(res: http.ServerResponse, binding: TokenBinding, includeAll = false): Promise<void> {
   try {
-    const sessions = sessionManager.getAllSessions()
-    const result: SessionInfo[] = sessions.map(s => ({
-      id: s.id,
-      name: s.config.name,
-      type: s.config.type,
-      status: s.status,
-      host: s.config.ssh?.host || s.config.telnet?.host,
-      port: s.config.ssh?.port || s.config.telnet?.port,
-      group: s.config.group,
-      tags: s.config.tags,
-      capabilities: {
-        sendInput: true, // 所有连接类型都支持
-        executeCommand: s.config.type === ConnectionType.SSH || s.config.type === ConnectionType.LOCAL,
-        fileOperations: s.config.type === ConnectionType.SSH,
-        readOutput: s.status === ConnectionStatus.CONNECTED // 已连接会话可读取输出
-      }
-    }))
+    const auth = await authorizeMcpOperation('list_sessions', 'read', undefined, undefined, binding)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+
+    const saved = sessionRepository.getAll()
+    const result = sortSessionInfos(applyDefaultVisibilityFilter(saved.map(buildSessionInfo), includeAll))
     sendJson(res, 200, { success: true, data: result })
   } catch (err: any) {
+    log.error('[MCP] List sessions error:', err)
     sendJson(res, 500, { success: false, error: err.message })
   }
 }
 
 /**
  * POST /api/sessions — 列出会话（带过滤/分页）
- * 兼容 GET：参数全部 undefined 时等价于 GET 全量。
+ * 数据源为 sessionRepository 全部已保存会话，叠加 live 状态。
+ * 默认仅返回 connected 或 pinned 的会话；传 includeAll=true 可列出全部保存项。
  * 返回 { sessions, total, offset, limit }。
  */
-function handleListSessionsFiltered(
-  filter: { status?: string; type?: string; tag?: string; search?: string; limit?: number; offset?: number } | undefined,
-  res: http.ServerResponse
-): void {
+async function handleListSessionsFiltered(
+  filter: { status?: string; type?: string; tag?: string; search?: string; pinned?: boolean; includeAll?: boolean; limit?: number; offset?: number } | undefined,
+  res: http.ServerResponse,
+  binding: TokenBinding
+): Promise<void> {
   try {
-    const all = sessionManager.getAllSessions()
-    let infos: SessionInfo[] = all.map(s => ({
-      id: s.id,
-      name: s.config.name,
-      type: s.config.type,
-      status: s.status,
-      host: s.config.ssh?.host || s.config.telnet?.host,
-      port: s.config.ssh?.port || s.config.telnet?.port,
-      group: s.config.group,
-      tags: s.config.tags,
-      capabilities: {
-        sendInput: true,
-        executeCommand: s.config.type === ConnectionType.SSH || s.config.type === ConnectionType.LOCAL,
-        fileOperations: s.config.type === ConnectionType.SSH,
-        readOutput: s.status === ConnectionStatus.CONNECTED
-      }
-    }))
+    const auth = await authorizeMcpOperation('list_sessions', 'read', undefined, undefined, binding)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+
+    const saved = sessionRepository.getAll()
+    let infos: SessionInfo[] = saved.map(buildSessionInfo)
 
     const f = filter || {}
     if (f.status) infos = infos.filter(i => i.status === f.status)
     if (f.type) infos = infos.filter(i => i.type === f.type)
     if (f.tag) infos = infos.filter(i => i.tags.includes(f.tag!))
+    if (typeof f.pinned === 'boolean') {
+      infos = infos.filter(i => i.pinned === f.pinned)
+    }
     if (f.search) {
       const q = String(f.search).toLowerCase()
       infos = infos.filter(i =>
-        i.name.toLowerCase().includes(q) || (i.host || '').toLowerCase().includes(q)
+        i.name.toLowerCase().includes(q) ||
+        (i.host || '').toLowerCase().includes(q) ||
+        (i.summary || '').toLowerCase().includes(q) ||
+        i.tags.some(t => t.toLowerCase().includes(q))
       )
     }
+
+    infos = sortSessionInfos(applyDefaultVisibilityFilter(infos, f.includeAll))
 
     const total = infos.length
     const offset = clampNumber(f.offset, 0, total, 0)
@@ -498,6 +655,7 @@ function handleListSessionsFiltered(
 
     sendJson(res, 200, { success: true, data: { sessions: sliced, total, offset, limit } })
   } catch (err: any) {
+    log.error('[MCP] List sessions error:', err)
     sendJson(res, 500, { success: false, error: err.message })
   }
 }
@@ -538,6 +696,12 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
       return
     }
 
+    const destructive = await confirmDestructiveIfNeeded('execute_command', command, sessionId, binding)
+    if (!destructive.allowed) {
+      sendJson(res, 403, { success: false, error: destructive.reason })
+      return
+    }
+
     let result: ExecuteResponse
 
     if (session.config.type === ConnectionType.SSH) {
@@ -561,6 +725,114 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
   } catch (err: any) {
     log.error('[MCP] Execute command error:', err)
     sendJson(res, 500, { success: false, error: err.message })
+  }
+}
+
+/**
+ * POST /api/execute-stream — 流式执行命令，输出以 SSE 增量推送（A1）。
+ *
+ * 鉴权与破坏性确认通过后才切换到 text/event-stream：
+ *   data: {"type":"chunk","chunk":"..."}            —— 增量输出（stdout+stderr）
+ *   data: {"type":"done","exitCode":0,"output":"..."} —— 完成（output 为完整输出）
+ *   data: {"type":"error","error":"..."}            —— 出错
+ * 客户端断开时通过 AbortSignal 中止底层执行（best-effort）。
+ */
+async function handleExecuteCommandStream(data: ExecuteRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
+  try {
+    const { sessionId, command, timeout = 30000 } = data
+
+    if (typeof command === 'string' && command.length > MAX_TEXT_LENGTH) {
+      sendJson(res, 400, { success: false, error: `Command too large (max ${MAX_TEXT_LENGTH} chars)` })
+      return
+    }
+    if (!sessionId || !command) {
+      sendJson(res, 400, { success: false, error: 'sessionId and command are required' })
+      return
+    }
+
+    const session = sessionManager.getSession(sessionId)
+    if (!session) {
+      sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
+      return
+    }
+    if (session.status !== ConnectionStatus.CONNECTED) {
+      sendJson(res, 400, { success: false, error: `Session not connected (status: ${session.status})` })
+      return
+    }
+
+    const safeTimeout = clampNumber(timeout, 1, MAX_COMMAND_TIMEOUT_MS, 30000)
+    const capability: McpCapability = session.config.type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
+    const auth = await authorizeMcpOperation('execute_command', capability, sessionId, summarizeText(command), binding)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+
+    const destructive = await confirmDestructiveIfNeeded('execute_command', command, sessionId, binding)
+    if (!destructive.allowed) {
+      sendJson(res, 403, { success: false, error: destructive.reason })
+      return
+    }
+
+    // 鉴权通过，切换到 SSE
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no'
+    })
+
+    const writeEvent = (obj: Record<string, unknown>): void => {
+      if (!res.writableEnded) res.write(`data: ${JSON.stringify(obj)}\n\n`)
+    }
+
+    const abortController = new AbortController()
+    res.on('close', () => {
+      if (!res.writableEnded) abortController.abort()
+    })
+
+    try {
+      let result: { output: string; exitCode: number }
+      if (session.config.type === ConnectionType.SSH) {
+        const connector = await fileManager.getConnector(sessionId)
+        if (!connector.execStream) {
+          writeEvent({ type: 'error', error: 'Connector does not support streaming execution' })
+          res.end()
+          return
+        }
+        result = await connector.execStream(
+          command,
+          safeTimeout,
+          (chunk) => writeEvent({ type: 'chunk', chunk }),
+          abortController.signal
+        )
+      } else if (session.config.type === ConnectionType.LOCAL) {
+        result = await executeLocalCommandStream(
+          command,
+          session.config.local?.cwd,
+          session.config.local?.env,
+          safeTimeout,
+          (chunk) => writeEvent({ type: 'chunk', chunk }),
+          abortController.signal
+        )
+      } else {
+        writeEvent({ type: 'error', error: `Command execution not supported for session type: ${session.config.type}` })
+        res.end()
+        return
+      }
+      writeEvent({ type: 'done', exitCode: result.exitCode, output: result.output })
+    } catch (err: any) {
+      writeEvent({ type: 'error', error: err.message || 'Execution failed' })
+    }
+    if (!res.writableEnded) res.end()
+  } catch (err: any) {
+    log.error('[MCP] Execute stream command error:', err)
+    if (!res.headersSent) {
+      sendJson(res, 500, { success: false, error: err.message })
+    } else if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`)
+      res.end()
+    }
   }
 }
 
@@ -595,6 +867,13 @@ async function handleSendInput(data: SendInputRequest, res: http.ServerResponse,
     const auth = await authorizeMcpOperation('send_input', 'interactiveWrite', sessionId, `${text.length} chars`, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+
+    // 内容级破坏性确认：在 escape 处理之前扫描原始 text，破坏性子串此时已存在
+    const destructive = await confirmDestructiveIfNeeded('send_input', text, sessionId, binding)
+    if (!destructive.allowed) {
+      sendJson(res, 403, { success: false, error: destructive.reason })
       return
     }
 
@@ -689,6 +968,12 @@ async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerRespo
       return
     }
 
+    const destructive = await confirmDestructiveIfNeeded('send_and_wait', text, sessionId, binding)
+    if (!destructive.allowed) {
+      sendJson(res, 403, { success: false, error: destructive.reason })
+      return
+    }
+
     const result: SendAndWaitResult = await sessionManager.sendAndWait(sessionId, {
       text,
       waitMs: clampNumber(data.waitMs, 0, MAX_COMMAND_TIMEOUT_MS, 2000),
@@ -697,7 +982,8 @@ async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerRespo
       // 注意：waitForPattern 是正则，不能过 summarizeText——后者会截断追加 '...'（被 RegExp 当成三个 .）
       // 并把 CR/LF/Tab 换成空格，悄悄改变正则语义。原样透传。
       waitForPattern: data.waitForPattern,
-      autoNewline: data.autoNewline !== false
+      autoNewline: data.autoNewline !== false,
+      captureExitCode: data.captureExitCode === true
     })
 
     log.info(`[MCP] Send-and-wait to session ${sessionId}: settled=${result.settled} elapsed=${result.elapsedMs}ms`)
@@ -749,6 +1035,97 @@ async function handleReconnectSession(
     sendJson(res, 200, { success: true, data: response })
   } catch (err: any) {
     log.error('[MCP] Reconnect session error:', err)
+    sendJson(res, 500, { success: false, error: err.message })
+  }
+}
+
+/**
+ * POST /api/sessions/close — 关闭会话的 live 连接（A8，scope-limited）
+ *
+ * 仅断开 live 连接，不从仓库删除保存项；后续可 reconnect 恢复。
+ * 鉴权走 sessionControl：session token 受既有 scope 约束（自身 origin 或远端，
+ * 不得操纵其它 LOCAL 终端；C5 进一步禁止 resurrect 其它已断开会话——但 close 目标
+ * 通常是已连接会话，C5 不拦截）。global token 走 requireConfirmation 弹窗。
+ */
+async function handleCloseSession(
+  data: CloseSessionRequest,
+  res: http.ServerResponse,
+  binding: TokenBinding
+): Promise<void> {
+  try {
+    const { sessionId } = data
+    if (!sessionId) {
+      sendJson(res, 400, { success: false, error: 'sessionId is required' })
+      return
+    }
+
+    const session = sessionManager.getSession(sessionId)
+    if (!session) {
+      // 无 live 对象（仅保存项）——视为本就未连接
+      const response: CloseSessionResponse = { sessionId, status: 'not_connected' }
+      sendJson(res, 200, { success: true, data: response })
+      return
+    }
+
+    const auth = await authorizeMcpOperation('close_session', 'sessionControl', sessionId, undefined, binding)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+
+    if (session.status !== ConnectionStatus.CONNECTED && session.status !== ConnectionStatus.CONNECTING) {
+      const response: CloseSessionResponse = { sessionId, status: 'not_connected' }
+      sendJson(res, 200, { success: true, data: response })
+      return
+    }
+
+    await sessionManager.disconnectSession(sessionId)
+    broadcastSessionsChanged()
+    const response: CloseSessionResponse = { sessionId, status: 'disconnected' }
+    log.info(`[MCP] Closed session ${sessionId}`)
+    sendJson(res, 200, { success: true, data: response })
+  } catch (err: any) {
+    log.error('[MCP] Close session error:', err)
+    sendJson(res, 500, { success: false, error: err.message })
+  }
+}
+
+/**
+ * POST /api/sessions/open-dialog — 触发渲染层打开"新建连接"对话框（C4）
+ *
+ * MCP 通道不接受凭据；agent 需要凭据（如新建 SSH）时把球交还给用户。
+ * 鉴权用 sessionControl（与 create_session 对齐，控制类操作）。仅向渲染层派发打开指令，
+ * 用户是否真的填写不可知——返回 opened=true 与下一步提示。
+ */
+async function handleOpenConnectionDialog(
+  data: OpenConnectionDialogRequest,
+  res: http.ServerResponse,
+  binding: TokenBinding
+): Promise<void> {
+  try {
+    if (data?.userConfirmed !== true) {
+      sendJson(res, 400, {
+        success: false,
+        error: 'userConfirmed must be true. Tell the user the connection dialog is about to open before calling.'
+      })
+      return
+    }
+
+    const auth = await authorizeMcpOperation('open_connection_dialog', 'sessionControl', undefined, undefined, binding)
+    if (!auth.allowed) {
+      sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+
+    broadcastMcpOpenConnectionDialog()
+    const response: OpenConnectionDialogResponse = {
+      opened: true,
+      message: 'Connection dialog opened in LyShell. After the user fills details and connects, call lyshell_list_sessions to find the new session.'
+    }
+    log.info(`[MCP] Opened connection dialog (triggered by ${binding.kind} token)`)
+    sendJson(res, 200, { success: true, data: response })
+  } catch (err: any) {
+    log.error('[MCP] Open connection dialog error:', err)
     sendJson(res, 500, { success: false, error: err.message })
   }
 }
@@ -892,6 +1269,48 @@ async function handleWriteSessionNotes(
       return
     }
 
+    // C6：首次写入会话备注的内容级确认（prompt-injection 防御）。
+    // session token 跳过 requireConfirmation，本层是其写入元数据的唯一人工闸门——
+    // 阻断被注入的 agent 静默给一个"空白"会话打上误导性 summary/notes/tags
+    // （如把 prod 标成 test-env），污染后续 agent 的判断与路由决策。
+    // global token 已由 requireConfirmation 弹窗覆盖，不重复弹。
+    // 仅当目标会话当前为空（无 summary/usageNotes/tags）且本次将写入非空内容时触发。
+    if (binding.kind === 'session' && getMcpSecuritySettings().confirmFirstNotesWrite !== false) {
+      const existingTags = (config.tags || []).filter(t => t.trim())
+      const currentlyEmpty = !(config.summary || '').trim() && !(config.usageNotes || '').trim() && existingTags.length === 0
+      const writingContent =
+        (normalizedTags !== null && normalizedTags.length > 0) ||
+        (summary !== undefined && summary.trim() !== '') ||
+        (usageNotes !== undefined && usageNotes.trim() !== '')
+      if (currentlyEmpty && writingContent) {
+        const result = await dialog.showMessageBox({
+          type: 'warning',
+          buttons: [t('mcp.dialog.reject'), t('mcp.dialog.allowOnce')],
+          defaultId: 0,
+          cancelId: 0,
+          title: t('mcp.dialog.firstNotesTitle'),
+          message: t('mcp.dialog.firstNotesMessage'),
+          detail: [
+            `${t('mcp.dialog.session')}: ${config.name} (${config.type})`,
+            `${t('mcp.dialog.content')}: ${summarizeText(auditParts.join(', ') || 'no changes', 200)}`
+          ].filter(Boolean).join('\n')
+        })
+        if (result.response !== 1) {
+          const c6AuditBase: Omit<McpAuditEvent, 'allowed'> = {
+            operation: 'write_session_notes',
+            capability: 'sessionMetadataWrite',
+            ...getSessionSummary(sessionId),
+            summary: summarizeText('first notes write denied', 200),
+            tokenSource: binding.kind,
+            originSessionId: binding.originSessionId
+          }
+          auditMcpOperation({ ...c6AuditBase, allowed: false, reason: 'user denied first session-notes write' })
+          sendJson(res, 403, { success: false, error: 'User denied first session-notes write' })
+          return
+        }
+      }
+    }
+
     // 冲突检测：未开启 overwrite 且目标字段已有非空值，错误中只给出短预览
     if (!overwrite) {
       if (summary !== undefined && (config.summary || '').trim() !== '') {
@@ -959,14 +1378,16 @@ async function handleWriteSessionNotes(
 }
 
 /**
- * POST /api/sessions/create — 通过 MCP 创建新会话
+ * POST /api/sessions/create — 通过 MCP 创建/复用会话并按需打开终端
  *
  * 安全约束：
  *  - 不接受任何凭据字段（password/privateKey/passphrase），凭据由用户在 dialog 中手动补充。
  *  - 强制 userConfirmed=true，防止 LLM 静默创建。
  *  - capability=sessionControl（与 reconnect 对齐；不引入新开关）。
  *
- * 创建后仅入库，不主动连接。渲染层通过 sessions store 常规拉取即可看到新会话。
+ * 行为：按连接目标（SSH/Telnet=host:port，Serial=path）复用已存在的保存项；找不到才新建。
+ * 默认自动连接打开终端——SSH 需该会话已存凭据，新建 SSH 无凭据则不连（留给用户手动补）。
+ * Telnet/Serial/Local 无需凭据，始终自动连。渲染层经 sessions:changed 增量同步。
  */
 async function handleCreateSession(
   data: CreateSessionRequest,
@@ -986,6 +1407,22 @@ async function handleCreateSession(
     const type = data.type
     if (type !== 'ssh' && type !== 'telnet' && type !== 'serial' && type !== 'local') {
       sendJson(res, 400, { success: false, error: `Invalid session type: ${type}` })
+      return
+    }
+
+    // 安全契约：create_session 永不接受凭据。显式 400 拒绝（而非静默丢弃），
+    // 让 agent 清楚凭据未生效——需走 lyshell_open_connection_dialog 或 LyShell UI 由用户手动补充。
+    // 检查根级与 ssh 子对象两处，避免 agent 把凭据放错位置后被静默忽略。
+    const rootInput = data as unknown as Record<string, unknown>
+    const sshInput = data.ssh as unknown as Record<string, unknown> | undefined
+    if (
+      rootInput.password !== undefined || rootInput.privateKey !== undefined || rootInput.passphrase !== undefined ||
+      (sshInput !== undefined && (sshInput.password !== undefined || sshInput.privateKey !== undefined || sshInput.passphrase !== undefined))
+    ) {
+      sendJson(res, 400, {
+        success: false,
+        error: 'Credentials (password/privateKey/passphrase) are not accepted by create_session. Use lyshell_open_connection_dialog so the user can fill them in the LyShell UI.'
+      })
       return
     }
 
@@ -1099,17 +1536,82 @@ async function handleCreateSession(
       config.local = {}
     }
 
-    const saved = sessionRepository.saveSession(config)
-    // 新会话入库 —— 通知渲染层增量同步，让 sidebar 立即看到这条新会话
-    broadcastSessionsChanged()
-    const notes = toSessionNotes(saved.id, saved)
+    // 按连接目标查找已存在的保存项——命中则复用，避免对同一台机器重复建项。
+    // 复用时使用已有会话自身的配置（含其已存凭据/备注），调用方传入的 notes/username 等被忽略；
+    // 若需更新备注请另调 write_session_notes。
+    const existing = sessionRepository.findByTarget(config)
+    let saved: SessionConfig
+    let created: boolean
+    if (existing) {
+      saved = existing
+      created = false
+      log.info(`[MCP] create_session reused existing ${saved.id} (${saved.name}) for same target`)
+    } else {
+      saved = sessionRepository.saveSession(config)
+      created = true
+      log.info(`[MCP] Created session ${saved.id} (${saved.name}, ${saved.type})`)
+    }
 
-    log.info(`[MCP] Created session ${saved.id} (${saved.name}, ${saved.type})`)
+    // 新建/复用都可能影响 sidebar 列表 —— 通知渲染层增量同步
+    broadcastSessionsChanged()
+
+    // 是否自动连接打开终端：connect 默认 true。
+    // SSH 需已存凭据（password/privateKey）；Telnet/Serial/Local 无需凭据，始终可连。
+    // 新建的 SSH 会话无凭据（工具不接受凭据），即便 connect=true 也不连，留给用户手动补凭据。
+    const wantConnect = data.connect !== false
+    const hasCreds = saved.type === ConnectionType.SSH
+      ? (!!(saved.ssh?.password) || !!(saved.ssh?.privateKey))
+      : true
+
+    let status: 'connecting' | 'connected' | 'disconnected' | 'error' = 'disconnected'
+    let message: string | undefined
+
+    if (wantConnect && hasCreds) {
+      const live = sessionManager.getSession(saved.id)
+      if (live && live.status === ConnectionStatus.CONNECTED) {
+        // 已有 live 且已连上——直接复用，不重连
+        status = 'connected'
+      } else {
+        // 没有 live 就注册一个（用 saved 配置，含已存凭据），再连接
+        if (!live) {
+          await sessionManager.createSession(saved)
+        }
+        const liveId = saved.id
+        if (data.waitForReady === true) {
+          // A7：阻塞等待握手完成。成功 connected；失败 error 并回填 message。
+          try {
+            await sessionManager.connectSession(liveId)
+            status = 'connected'
+          } catch (err: any) {
+            status = 'error'
+            message = `Connection failed: ${err?.message || err}`
+            log.error(`[MCP] create_session waitForReady connect failed for ${liveId}:`, err?.message || err)
+          }
+        } else {
+          // 异步连接，立即返回 connecting
+          sessionManager.connectSession(liveId).catch((err: any) => {
+            log.error(`[MCP] create_session auto-connect failed for ${liveId}:`, err?.message || err)
+          })
+          status = 'connecting'
+        }
+      }
+    } else if (!hasCreds) {
+      message = 'Session saved but not connected: no saved credentials. Fill password/key in the LyShell dialog and connect manually.'
+      status = 'disconnected'
+    } else {
+      message = 'Session saved but not connected (connect=false).'
+      status = 'disconnected'
+    }
+
+    const notes = toSessionNotes(saved.id, saved)
     const response: CreateSessionResponse = {
       sessionId: saved.id,
       name: saved.name,
       type: saved.type,
-      notes
+      notes,
+      created,
+      status,
+      message
     }
     sendJson(res, 200, { success: true, data: response })
   } catch (err: any) {
@@ -1119,7 +1621,10 @@ async function handleCreateSession(
 }
 
 /**
- * POST /api/files/list — 列出目录内容
+ * POST /api/files/list — 列出目录内容（A5：支持 recursive / glob / maxEntries）
+ *
+ * 非递归且无 glob 时走原路径单次 listDir；否则广度优先遍历子目录（symlink 不跟随），
+ * 对每个条目的相对路径（及文件名）做 glob 匹配，maxEntries 截断防巨目录打爆响应。
  */
 async function handleListFiles(data: FileOperationRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
@@ -1133,9 +1638,50 @@ async function handleListFiles(data: FileOperationRequest, res: http.ServerRespo
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
-    const files = await fileManager.listDir(sessionId, dirPath)
-    // 包成 { entries: [...] } —— MCP structuredContent 必须是对象，裸数组会触发客户端 schema 校验错误。
-    sendJson(res, 200, { success: true, data: { entries: files } })
+
+    const recursive = data.recursive === true
+    const glob = typeof data.glob === 'string' && data.glob.trim() ? data.glob.trim() : undefined
+    const maxEntries = clampNumber(data.maxEntries, 1, 50000, 5000)
+
+    // 快速路径：单目录、无过滤
+    if (!recursive && !glob) {
+      const files = await fileManager.listDir(sessionId, dirPath)
+      sendJson(res, 200, { success: true, data: { entries: files, truncated: false } })
+      return
+    }
+
+    // 递归 / glob 遍历
+    const matcher = glob ? compileGlob(glob) : undefined
+    const root = dirPath.replace(/\/+$/, '') || '/'
+    const out: FileInfo[] = []
+    let truncated = false
+    const queue: string[] = [root]
+    const seen = new Set<string>()
+    while (queue.length > 0) {
+      const dir = queue.shift()!
+      if (seen.has(dir)) continue
+      seen.add(dir)
+      let entries: FileInfo[]
+      try {
+        entries = await fileManager.listDir(sessionId, dir)
+      } catch {
+        // 无权限/不存在的子目录跳过，继续遍历兄弟节点
+        continue
+      }
+      for (const e of entries) {
+        if (out.length >= maxEntries) { truncated = true; break }
+        const rel = relPath(root, e.path)
+        if (!matcher || matcher(rel) || matcher(e.name)) {
+          out.push(e)
+        }
+        if (recursive && e.isDir) {
+          queue.push(e.path)
+        }
+      }
+      if (truncated) break
+    }
+    // 包成 { entries, truncated } —— MCP structuredContent 必须是对象，裸数组会触发客户端 schema 校验错误。
+    sendJson(res, 200, { success: true, data: { entries: out, truncated } })
   } catch (err: any) {
     sendJson(res, 500, { success: false, error: err.message })
   }
@@ -1228,7 +1774,7 @@ async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerRes
     // MCP 路径同步等待 MD5 —— 调用方依赖返回值校验传输完整性，
     // 否则异步 transfer:md5 事件无法回传给 MCP 客户端，工具只会看到空 {}（静默失败）。
     const result = await fileManager.download(sessionId, remotePath, localPath, taskId, undefined, true)
-    const response: DownloadFileResponse = { md5: result.md5 }
+    const response: DownloadFileResponse = { md5: result.md5, remotePath, localPath }
     sendJson(res, 200, { success: true, data: response })
   } catch (err: any) {
     sendJson(res, 500, { success: false, error: err.message })
@@ -1252,7 +1798,8 @@ async function handleUploadFile(data: UploadFileRequest, res: http.ServerRespons
     }
     const taskId = uuidv4()
     await fileManager.upload(sessionId, localPath, remotePath, taskId)
-    sendJson(res, 200, { success: true, data: {} })
+    const response: UploadFileResponse = { remotePath, localPath }
+    sendJson(res, 200, { success: true, data: response })
   } catch (err: any) {
     sendJson(res, 500, { success: false, error: err.message })
   }
@@ -1282,10 +1829,22 @@ function summarizeText(value: unknown, maxLength: number = 200): string {
 }
 
 function auditMcpOperation(event: McpAuditEvent): void {
-  log.info('[MCP][audit]', {
-    ...event,
-    timestamp: new Date().toISOString(),
-    summary: event.summary ? summarizeText(event.summary) : undefined
+  const timestamp = new Date().toISOString()
+  const summary = event.summary ? summarizeText(event.summary) : undefined
+  log.info('[MCP][audit]', { ...event, timestamp, summary })
+  // 同步入库供"MCP 活动"面板查询（内存环形缓冲 + 防抖落盘）
+  mcpAuditRepository.append({
+    operation: event.operation,
+    capability: event.capability,
+    sessionId: event.sessionId,
+    sessionName: event.sessionName,
+    sessionType: event.sessionType,
+    allowed: event.allowed,
+    reason: event.reason,
+    summary,
+    durationMs: event.durationMs,
+    tokenSource: event.tokenSource ?? '',
+    originSessionId: event.originSessionId
   })
 }
 
@@ -1348,6 +1907,16 @@ async function authorizeMcpOperation(
     if (sessionId && session && session.config.type === ConnectionType.LOCAL && sessionId !== binding.originSessionId) {
       return deny('session token cannot drive other LOCAL terminals; only its own PTY or remote (SSH/Telnet/Serial) sessions are allowed')
     }
+    // C5：session token 不得 resurrect 其它已断开的保存会话（可能持有已存凭据）——
+    // 防止 PTY 内被注入的 agent 唤醒另一台带凭据的 SSH 会话再驱动它（横向移动 / 凭据重用）。
+    // 自身 origin 的重连（自愈）与对已连接远端会话的控制（如刷新、关闭）仍允许。
+    if (
+      capability === 'sessionControl' &&
+      sessionId && sessionId !== binding.originSessionId &&
+      session && session.status === ConnectionStatus.DISCONNECTED
+    ) {
+      return deny('session token cannot reconnect other disconnected sessions (potential credential reuse); only its own session or already-connected remotes are allowed')
+    }
     auditMcpOperation({ ...auditBase, allowed: true })
     return { allowed: true }
   }
@@ -1378,17 +1947,78 @@ async function authorizeMcpOperation(
   if (settings.requireConfirmation && capability !== 'read') {
     const result = await dialog.showMessageBox({
       type: 'warning',
-      buttons: ['拒绝', '允许一次'],
+      buttons: [t('mcp.dialog.reject'), t('mcp.dialog.allowOnce')],
       defaultId: 0,
       cancelId: 0,
-      title: 'MCP 高风险操作确认',
-      message: `允许 MCP 执行 ${operation}？`,
+      title: t('mcp.dialog.highRiskTitle'),
+      message: t('mcp.dialog.highRiskMessage', { operation }),
       detail: [
-        session ? `会话: ${session.config.name} (${session.config.type})` : undefined,
-        summary ? `内容: ${summarizeText(summary)}` : undefined
+        session ? `${t('mcp.dialog.session')}: ${session.config.name} (${session.config.type})` : undefined,
+        summary ? `${t('mcp.dialog.content')}: ${summarizeText(summary)}` : undefined
       ].filter(Boolean).join('\n')
     })
     if (result.response !== 1) return deny('User denied MCP operation')
+  }
+
+  auditMcpOperation({ ...auditBase, allowed: true })
+  return { allowed: true }
+}
+
+/**
+ * 破坏性命令内容级确认（B1）。
+ *
+ * 独立于 authorizeMcpOperation：capability 闸门通过后，再扫描命令内容是否命中
+ * 灾难性 pattern。命中且 settings.confirmDestructiveCommands !== false 时弹窗确认。
+ *
+ * 关键：对 session token 和 global token 一视同仁——session token 在 authorize 中
+ * 跳过 requireConfirmation 弹窗，本层是其唯一的"人工确认"机会，用于阻断
+ * prompt-injection 触发的灾难性操作（如被注入的 agent 在 SSH 会话上跑 rm -rf /）。
+ *
+ * 已知限制：无法捕获跨多次 send_input 拼装的命令（见 destructive-check.ts）。
+ */
+async function confirmDestructiveIfNeeded(
+  operation: string,
+  content: string,
+  sessionId: string | undefined,
+  binding: TokenBinding
+): Promise<{ allowed: boolean; reason?: string }> {
+  const settings = getMcpSecuritySettings()
+  // 默认 true；仅在用户显式关闭时跳过
+  if (settings.confirmDestructiveCommands === false) return { allowed: true }
+
+  const matches = scanDestructiveCommand(content)
+  if (matches.length === 0) return { allowed: true }
+
+  const sessionSummary = getSessionSummary(sessionId)
+  const auditBase: Omit<McpAuditEvent, 'allowed'> = {
+    operation,
+    capability: 'destructiveConfirm',
+    ...sessionSummary,
+    summary: summarizeText(content),
+    tokenSource: binding.kind,
+    originSessionId: binding.originSessionId
+  }
+
+  const result = await dialog.showMessageBox({
+    type: 'warning',
+    buttons: [t('mcp.dialog.reject'), t('mcp.dialog.allowOnce')],
+    defaultId: 0,
+    cancelId: 0,
+    title: t('mcp.dialog.destructiveTitle'),
+    message: t('mcp.dialog.destructiveMessage'),
+    detail: [
+      sessionSummary.sessionName
+        ? `${t('mcp.dialog.session')}: ${sessionSummary.sessionName} (${sessionSummary.sessionType})`
+        : undefined,
+      `${t('mcp.dialog.matchedRules')}: ${matches.map(m => m.name).join(', ')}`,
+      `${t('mcp.dialog.explanation')}: ${matches.map(m => m.description).join('; ')}`,
+      `${t('mcp.dialog.commandPreview')}: ${summarizeText(content, 300)}`
+    ].filter(Boolean).join('\n')
+  })
+
+  if (result.response !== 1) {
+    auditMcpOperation({ ...auditBase, allowed: false, reason: 'user denied destructive command' })
+    return { allowed: false, reason: 'User denied destructive command' }
   }
 
   auditMcpOperation({ ...auditBase, allowed: true })
@@ -1573,7 +2203,7 @@ async function handleWaitForPrompt(
  * 最大并发 = min(sessionIds.length, 10)
  */
 async function handleRunOnSessions(
-  data: { sessionIds: string[]; command: string; timeout?: number },
+  data: { sessionIds: string[]; command: string; timeout?: number; dryRun?: boolean },
   res: http.ServerResponse,
   binding: TokenBinding
 ): Promise<void> {
@@ -1596,7 +2226,32 @@ async function handleRunOnSessions(
       return
     }
 
+    // dryRun：仅预览将受影响的会话，不执行、不触发破坏性确认
+    if (data.dryRun === true) {
+      const targets = sessionIds.map(sid => {
+        const s = sessionManager.getSession(sid)
+        const connected = !!s && s.status === ConnectionStatus.CONNECTED
+        const supported = !!s && (s.config.type === ConnectionType.SSH || s.config.type === ConnectionType.LOCAL)
+        return {
+          sessionId: sid,
+          sessionName: s?.config.name,
+          sessionType: s?.config.type,
+          status: s?.status,
+          wouldExecute: connected && supported
+        }
+      })
+      sendJson(res, 200, { success: true, data: { dryRun: true, command, targets } })
+      return
+    }
+
     const safeTimeout = clampNumber(timeout, 100, MAX_COMMAND_TIMEOUT_MS, 30000)
+
+    // 命令对所有目标会话相同，破坏性确认只做一次；拒绝则整单 403，避免 50 次弹窗
+    const destructive = await confirmDestructiveIfNeeded('run_on_sessions', command, undefined, binding)
+    if (!destructive.allowed) {
+      sendJson(res, 403, { success: false, error: destructive.reason })
+      return
+    }
 
     // 单 session 的执行（含鉴权 + 类型路由），失败转为 result entry 而非抛出
     const runOne = async (sid: string): Promise<{ sessionId: string; output?: string; exitCode?: number; error?: string }> => {
@@ -1748,6 +2403,52 @@ function executeLocalCommand(
         exitCode: error ? (error as any).code || 1 : 0
       })
     })
+  })
+}
+
+/**
+ * 本地命令流式执行（spawn），与 executeLocalCommand 的 cwd/env 处理一致，
+ * 但 stdout/stderr 增量推送且捕获真实 exitCode。
+ *
+ * 超时与 SSH execStream 对齐：超时 kill 子进程后 reject('Command timeout')，
+ * 由 SSE 层发 error 事件（部分输出已通过增量 chunk 实时推给客户端，agent 不会丢）。
+ * abort（客户端断开 SSE）kill 后仍 resolve——响应已关闭，结果被丢弃，无需报错。
+ */
+function executeLocalCommandStream(
+  command: string,
+  cwd: string | undefined,
+  env: Record<string, string> | undefined,
+  timeout: number,
+  onData: (chunk: string) => void,
+  signal?: AbortSignal
+): Promise<{ output: string; exitCode: number }> {
+  return new Promise((resolve, reject) => {
+    const execEnv = { ...process.env, ...env } as Record<string, string>
+    const execCwd = cwd || process.env.USERPROFILE || process.env.HOME || ''
+
+    log.info(`[MCP] Executing local command (stream): ${command} (cwd: ${execCwd})`)
+
+    const child = spawn(command, { cwd: execCwd, env: execEnv, shell: true, windowsHide: true })
+    let output = ''
+    let settled = false
+    let timedOut = false  // 区分超时 kill 与正常 close，超时需 reject 以发 SSE error
+
+    const finish = (fn: () => void) => { if (!settled) { settled = true; clearTimeout(timer); if (signal) signal.removeEventListener('abort', onAbort); fn() } }
+
+    const timer = setTimeout(() => { timedOut = true; child.kill('SIGTERM') }, timeout)
+    const onAbort = () => { child.kill('SIGTERM') }  // abort 不置 timedOut：客户端断开，结果丢弃，不报错
+    if (signal) {
+      if (signal.aborted) child.kill('SIGTERM')
+      else signal.addEventListener('abort', onAbort, { once: true })
+    }
+
+    child.stdout?.on('data', (d: Buffer) => { const c = d.toString(); output += c; onData(c) })
+    child.stderr?.on('data', (d: Buffer) => { const c = d.toString(); output += c; onData(c) })
+    child.on('error', (e) => finish(() => reject(e)))
+    child.on('close', (code: number | null) => finish(() => {
+      if (timedOut) reject(new Error('Command timeout'))
+      else resolve({ output, exitCode: code ?? 0 })
+    }))
   })
 }
 

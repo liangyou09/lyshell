@@ -51,7 +51,18 @@ const sessionInfoSchema = {
         readOutput: { type: 'boolean' }
       },
       required: ['sendInput', 'executeCommand', 'fileOperations', 'readOutput']
-    }
+    },
+    // 协议专属字段
+    username: { type: 'string' },
+    path: { type: 'string' },
+    baudRate: { type: 'number' },
+    shell: { type: 'string' },
+    cwd: { type: 'string' },
+    // 辅助 agent 识别与排序
+    summary: { type: 'string' },
+    pinned: { type: 'boolean' },
+    connectCount: { type: 'number' },
+    updatedAt: { type: 'string' }
   },
   required: ['id', 'name', 'type', 'status', 'tags', 'capabilities']
 }
@@ -93,18 +104,23 @@ export const TOOL_DEFINITIONS = [
     name: 'lyshell_list_sessions',
     title: '列出 LyShell 会话',
     description:
-      'List all terminal sessions in LyShell with their connection status and capabilities. ' +
-      'Returns session ID, name, type (ssh/telnet/serial/local), status, host, port, and capabilities. ' +
-      'Check capabilities before calling other tools: sendInput (all types), executeCommand (SSH/Local), fileOperations (SSH only). ' +
-      'Use the session ID in other tools to target a specific session. ' +
-      'Supports optional filter parameters: status, type, tag, search, limit, offset.',
+      'List LyShell sessions shown in the left sidebar. By default only connected or pinned sessions are returned, ' +
+      'to keep the result focused and avoid overwhelming context. Pass includeAll=true to list every saved session, including disconnected ones. ' +
+      'This is the primary discovery tool: call it first to see what sessions exist and pick a target sessionId for other tools. ' +
+      'Each entry includes id, name, type (ssh/telnet/serial/local), live status, host/port or path/shell, tags, pinned flag, ' +
+      'connectCount, updatedAt, summary, and capabilities. Use summary to understand what a session is for without extra calls. ' +
+      'Default sort: connected first, then pinned, then most recently updated. ' +
+      'Requires the read MCP capability for global tokens; LyShell-spawned PTY tokens bypass capability checks. ' +
+      'Supports optional filter parameters: status, type, tag, pinned, search, includeAll, limit, offset.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        status: { type: 'string', enum: ['connected', 'disconnected', 'connecting', 'error'], description: 'Filter by session connection status.' },
+        status: { type: 'string', enum: ['connected', 'disconnected', 'connecting', 'error'], description: 'Filter by session connection status. NOTE: the default visibility filter already excludes disconnected sessions, so status=disconnected returns nothing unless you also pass includeAll=true.' },
         type: { type: 'string', enum: ['ssh', 'telnet', 'serial', 'local'], description: 'Filter by connection type.' },
         tag: { type: 'string', description: 'Filter by tag name.' },
-        search: { type: 'string', description: 'Substring search against session name and host.' },
+        pinned: { type: 'boolean', description: 'Filter by pinned state (true = pinned, false = unpinned).' },
+        search: { type: 'string', description: 'Substring search against session name, host, summary, and tags.' },
+        includeAll: { type: 'boolean', description: 'If true, return every saved session including disconnected ones. Default false (connected or pinned only).' },
         limit: { type: 'number', minimum: 1, maximum: 500, description: 'Max results (default 50).' },
         offset: { type: 'number', minimum: 0, description: 'Pagination offset (default 0).' }
       },
@@ -158,6 +174,74 @@ export const TOOL_DEFINITIONS = [
       destructiveHint: false,
       idempotentHint: true,
       openWorldHint: true
+    }
+  },
+  {
+    name: 'lyshell_close_session',
+    title: '关闭会话连接（scope-limited）',
+    description:
+      'Close (disconnect) a session\'s live terminal connection. The saved session entry is NOT deleted — ' +
+      'call lyshell_reconnect_session to restore it later. ' +
+      'SCOPE: a LyShell-spawned PTY token (sessionId="current") can only close its OWN session; ' +
+      'a global token can close any session (requires the sessionControl capability). ' +
+      'Closing an already-disconnected session is a no-op returning status=not_connected. ' +
+      'Use this to cleanly tear down a session you opened via lyshell_create_session when done.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: sessionIdField
+      },
+      required: ['sessionId'] as string[]
+    },
+    outputSchema: {
+      type: 'object' as const,
+      properties: {
+        sessionId: { type: 'string' },
+        status: { type: 'string', enum: ['disconnected', 'not_connected'], description: 'disconnected=closed a live connection; not_connected=there was no live connection to close.' }
+      },
+      required: ['sessionId', 'status']
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false
+    }
+  },
+  {
+    name: 'lyshell_open_connection_dialog',
+    title: '打开新建连接对话框',
+    description:
+      'Open the LyShell "new connection" dialog so the USER can fill in connection details and credentials interactively. ' +
+      'Use this when you need credentials that MCP cannot accept (e.g. creating an SSH session to a new host — ' +
+      'lyshell_create_session never accepts passwords/keys, so a brand-new SSH session cannot auto-connect). ' +
+      'Hand off to the user with this tool, then poll lyshell_list_sessions to find the newly connected session. ' +
+      'This tool carries NO credentials through the MCP channel — the dialog is filled entirely in the LyShell UI. ' +
+      'CRITICAL: ask the user / explain why the dialog is opening before calling, then set userConfirmed=true.',
+    inputSchema: {
+      type: 'object' as const,
+      additionalProperties: false,
+      properties: {
+        userConfirmed: {
+          type: 'boolean',
+          description: 'Set to true only after telling the user the connection dialog is about to open and why.'
+        }
+      },
+      required: ['userConfirmed'] as string[]
+    },
+    outputSchema: {
+      type: 'object' as const,
+      properties: {
+        opened: { type: 'boolean', description: 'true if the open-dialog signal was dispatched to the LyShell UI.' },
+        message: { type: 'string', description: 'Next-step guidance for the agent.' }
+      },
+      required: ['opened', 'message']
+    },
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false
     }
   },
 
@@ -262,10 +346,15 @@ export const TOOL_DEFINITIONS = [
     name: 'lyshell_create_session',
     title: '创建新会话（不含凭据）',
     description:
-      'Create a new LyShell session (SSH / Telnet / Serial / Local) with optional summary, usage notes, and tags. ' +
-      'The new session is stored but NOT auto-connected — the user still needs to click it in LyShell to connect.\n\n' +
-      'SECURITY: This tool NEVER accepts credentials. Fields `password`, `privateKey`, `passphrase` are rejected by design. ' +
-      'For SSH sessions requiring auth, the user must fill in password / private key manually in the LyShell dialog after creation.\n\n' +
+      'Create or reuse a LyShell session (SSH / Telnet / Serial / Local) and optionally open a connected terminal.\n\n' +
+      'REUSE: if a saved session pointing at the same target already exists (SSH/Telnet by host:port, Serial by path), ' +
+      'it is reused as-is — its saved credentials/notes win and any notes you pass are ignored (use lyshell_write_session_notes ' +
+      'to update them). Only when no match exists is a new saved session created. Local sessions are never deduped (always fresh).\n\n' +
+      'AUTO-CONNECT: by default (connect=true) the session is connected and its terminal opened. SSH auto-connects only if that ' +
+      'session already has saved credentials (password/privateKey); a brand-new SSH session has no credentials — this tool NEVER ' +
+      'accepts them — so it will NOT connect, and the user must fill password/key in the LyShell dialog and connect manually. ' +
+      'Telnet/Serial/Local need no credentials and always auto-connect. Set connect=false to just save/reuse without connecting.\n\n' +
+      'SECURITY: This tool NEVER accepts credentials. Fields `password`, `privateKey`, `passphrase` are rejected by design.\n\n' +
       'REQUIRES: the `sessionControl` MCP capability (same as lyshell_reconnect_session). Creating a session is a control ' +
       'operation and is NOT governed by the session-notes-write toggle — enabling notes-write alone will not allow creation.\n\n' +
       'CRITICAL: Before calling this tool, you MUST ask the user for the following and only proceed after explicit approval:\n' +
@@ -356,6 +445,14 @@ export const TOOL_DEFINITIONS = [
         userConfirmed: {
           type: 'boolean',
           description: 'Set to true only after asking the user for all key fields listed in the description and receiving approval.'
+        },
+        connect: {
+          type: 'boolean',
+          description: 'Whether to auto-connect and open the terminal after create/reuse (default true). SSH auto-connects only if saved credentials exist; a new SSH session has none and will not connect regardless.'
+        },
+        waitForReady: {
+          type: 'boolean',
+          description: 'If true (and connect=true with credentials available), block until the connection handshake completes before returning — status=connected on success, status=error on failure. Default false returns immediately with status=connecting. Use true when the next step needs the session to be actually connected (e.g. execute_command right after). No-op for SSH without saved creds (stays disconnected) or connect=false.'
         }
       },
       required: ['type', 'userConfirmed'] as string[]
@@ -364,12 +461,15 @@ export const TOOL_DEFINITIONS = [
       type: 'object' as const,
       additionalProperties: false,
       properties: {
-        sessionId: { type: 'string', description: 'ID of the newly created session.' },
+        sessionId: { type: 'string', description: 'ID of the created or reused session.' },
         name: { type: 'string' },
         type: { type: 'string' },
-        notes: sessionNotesSchema
+        notes: sessionNotesSchema,
+        created: { type: 'boolean', description: 'true if a new saved session was created; false if an existing same-target session was reused.' },
+        status: { type: 'string', enum: ['connecting', 'connected', 'disconnected', 'error'], description: 'Connection status after the call.' },
+        message: { type: 'string', description: 'Present when not auto-connected, explaining why (e.g. missing credentials, connect=false).' }
       },
-      required: ['sessionId', 'name', 'type', 'notes']
+      required: ['sessionId', 'name', 'type', 'notes', 'created', 'status']
     },
     annotations: {
       readOnlyHint: false,
@@ -421,7 +521,13 @@ export const TOOL_DEFINITIONS = [
       'To run a command in the interactive PTY\'s current context instead, use send_and_wait (which writes directly to the PTY, inheriting its cwd and env). ' +
       'For local sessions, uses child_process.exec. ' +
       'Telnet and serial sessions are not supported. ' +
-      'Returns the command output as a string.',
+      'Returns the command output as a string.\n\n' +
+      'STREAMING: pass stream=true to receive output incrementally via MCP progress notifications ' +
+      '(each stdout/stderr chunk surfaces as a progress message while the command runs). The final result ' +
+      'still contains the complete output and exitCode. Useful for long-running commands where you want ' +
+      'live visibility. Note: progress notifications are shown to the user/client; the model receives only ' +
+      'the final result. For mid-command reactivity (e.g. interrupt on partial output), use send_and_wait + ' +
+      'read_output/tail_until polling instead.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -436,6 +542,10 @@ export const TOOL_DEFINITIONS = [
           minimum: 100,
           maximum: 120000,
           description: 'Timeout in milliseconds (default 30000, max 120000)'
+        },
+        stream: {
+          type: 'boolean',
+          description: 'If true, stream stdout/stderr chunks via MCP progress notifications while the command runs (default false). The final result is unchanged.'
         }
       },
       required: ['sessionId', 'command'] as string[]
@@ -544,6 +654,10 @@ export const TOOL_DEFINITIONS = [
         autoNewline: {
           type: 'boolean',
           description: 'When true (default), append a trailing \\n if the text ends in a normal character, so the command is submitted automatically. Set false for raw control sequences.'
+        },
+        captureExitCode: {
+          type: 'boolean',
+          description: 'Best-effort capture of the command exit code (POSIX shells only: bash/zsh/sh). When true, appends `printf \'__LYSHELL_EXIT_%d__\' $?` after the command and parses the marker from the output. Returns exitCode in the result (null if the marker is not found, e.g. non-POSIX shell or command not submitted). Only meaningful for simple shell commands; do not use with interactive programs (vim/htop). For a reliable exit code on SSH/local without cwd inheritance, use execute_command instead.'
         }
       },
       required: ['sessionId', 'text'] as string[]
@@ -552,10 +666,11 @@ export const TOOL_DEFINITIONS = [
       type: 'object' as const,
       properties: {
         output: { type: 'string' },
-        cleanOutput: { type: 'string', description: 'Output with echoed input lines stripped from the front. Best-effort: plain command lines and caret-echoed control chars (e.g. ^C) are stripped; Tab expansion or prompt-prefixed echoes may not match, in which case cleanOutput falls back to the full output with line endings normalized to \\n (so it may NOT be byte-identical to `output`, which preserves original \\r\\n / \\r endings — do not compare with cleanOutput === output).' },
+        cleanOutput: { type: 'string', description: 'Output with echoed input lines stripped from the front. INVARIANT: cleanOutput is always derived from output by (a) stripping leading lines that exactly match the echoed command lines, then (b) when captureExitCode=true, stripping the trailing __LYSHELL_EXIT_N__ marker. It never contains content not present in output (modulo line-ending normalization to \\n). When echo stripping cannot match a line, it falls back to output with line endings normalized to \\n. Prefer cleanOutput for parsing command results (no echo); use output for raw terminal state including echoes. Do not compare with cleanOutput === output (line endings differ).' },
         settled: { type: 'boolean' },
         patternMatched: { type: 'boolean' },
-        elapsedMs: { type: 'number' }
+        elapsedMs: { type: 'number' },
+        exitCode: { type: ['number', 'null'], description: 'Best-effort exit code. Present only when captureExitCode=true and the POSIX marker was parsed; null otherwise. send_and_wait cannot natively capture exit codes (PTY semantics) — for guaranteed exit codes use execute_command.' }
       },
       required: ['output', 'cleanOutput', 'settled', 'patternMatched', 'elapsedMs']
     },
@@ -573,21 +688,45 @@ export const TOOL_DEFINITIONS = [
     title: '列出远程目录',
     description:
       'List files and directories in a remote path. SSH sessions only. ' +
-      'Returns file name, path, size, modification time, permissions, owner, and group.',
+      'Returns file name, path, size, modification time, permissions, owner, and group.\n\n' +
+      'RECURSIVE: pass recursive=true to walk into subdirectories and return a flat list of all entries ' +
+      '(directories are included as entries, symlinks are NOT followed to avoid cycles). ' +
+      'GLOB: pass a glob pattern (e.g. "*.log", "**/*.conf", "src/**/*.ts") to filter entries by their path. ' +
+      'glob supports *, ** (across path separators), ?, and [abc] character classes; matching is case-sensitive ' +
+      'on the path relative to the listed directory. Combine recursive=true + glob to find files by pattern ' +
+      'across a tree (e.g. recursive=true, glob="**/*.log" lists all log files under the path). ' +
+      'Without recursive, glob matches only the immediate directory. ' +
+      'maxEntries (default 5000) caps the result size for recursive/glob walks over huge trees.',
     inputSchema: {
       type: 'object' as const,
       properties: {
         sessionId: sessionIdField,
-        path: remotePathField('The remote directory path to list')
+        path: remotePathField('The remote directory path to list'),
+        recursive: {
+          type: 'boolean',
+          description: 'If true, recursively walk subdirectories and return a flat list. Symlinks are not followed. Default false.'
+        },
+        glob: {
+          type: 'string',
+          maxLength: 500,
+          description: 'Optional glob filter applied to each entry\'s path (relative to the listed directory). Supports *, **, ?, [abc]. Case-sensitive.'
+        },
+        maxEntries: {
+          type: 'number',
+          minimum: 1,
+          maximum: 50000,
+          description: 'Cap on returned entries for recursive/glob walks (default 5000). Prevents huge-tree response blowup.'
+        }
       },
       required: ['sessionId', 'path'] as string[]
     },
     outputSchema: {
       type: 'object' as const,
       properties: {
-        entries: { type: 'array', items: fileEntrySchema }
+        entries: { type: 'array', items: fileEntrySchema },
+        truncated: { type: 'boolean', description: 'true if the result hit maxEntries and was truncated.' }
       },
-      required: ['entries']
+      required: ['entries'] as string[]
     },
     annotations: {
       readOnlyHint: true,
@@ -651,7 +790,9 @@ export const TOOL_DEFINITIONS = [
     outputSchema: {
       type: 'object' as const,
       properties: {
-        md5: { type: 'string' }
+        md5: { type: 'string' },
+        remotePath: { type: 'string' },
+        localPath: { type: 'string' }
       }
     },
     annotations: {
@@ -679,6 +820,8 @@ export const TOOL_DEFINITIONS = [
     outputSchema: {
       type: 'object' as const,
       properties: {
+        remotePath: { type: 'string' },
+        localPath: { type: 'string' },
         md5: { type: 'string' }
       }
     },
@@ -756,7 +899,11 @@ export const TOOL_DEFINITIONS = [
     description:
       'Run the same command on multiple sessions concurrently (max concurrency 10, max 50 sessions per call). ' +
       'Each session is authorized and routed independently — a failure on one session does NOT stop others. ' +
-      'Telnet/Serial sessions are skipped with an error entry. Use this for fleet-wide checks like `uptime`, `df -h`, etc.',
+      'Telnet/Serial sessions are skipped with an error entry. Use this for fleet-wide checks like `uptime`, `df -h`, etc.\n\n' +
+      'DRY RUN: pass dryRun=true to preview which sessions would receive the command WITHOUT executing. ' +
+      'Returns { dryRun: true, command, targets: [{ sessionId, sessionName, sessionType, status, wouldExecute }] } ' +
+      'instead of results. Recommended before destructive or fleet-wide commands — verify the blast radius first. ' +
+      'dryRun does not trigger the destructive-command confirmation (no execution occurs).',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -768,7 +915,11 @@ export const TOOL_DEFINITIONS = [
           description: 'Array of session IDs (cannot contain "current"; resolve it client-side first).'
         },
         command: { type: 'string', minLength: 1, description: 'Shell command to run on every session.' },
-        timeout: { type: 'number', minimum: 100, maximum: 120000, description: 'Per-session timeout in ms (default 30000).' }
+        timeout: { type: 'number', minimum: 100, maximum: 120000, description: 'Per-session timeout in ms (default 30000).' },
+        dryRun: {
+          type: 'boolean',
+          description: 'If true, preview the target sessions and wouldExecute flags without executing the command (default false).'
+        }
       },
       required: ['sessionIds', 'command'] as string[]
     },

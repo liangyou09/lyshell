@@ -55,6 +55,11 @@ LyShell exposes its sessions to external MCP clients in two layers:
 
 Per-session tokens are injected into spawned PTYs via env (`LYSHELL_MCP_ENV` constant). Treat any HTTP/MCP input as untrusted — validation is enforced server-side.
 
+**MCP known limitations (by design):**
+- Full-screen TUI apps (vim, htop, less, gdb TUI) are not supported over `send_and_wait` / `read_output` — the MCP layer reads the raw PTY stream and strips ANSI, so alternate-screen control sequences render as garbled text. These tools are scoped to line-oriented programs. Interact with full-screen apps via the real terminal in the LyShell UI, not MCP.
+- Destructive-command confirmation (B1) scans a single `send_input` / `execute_command` / `send_and_wait` payload; it cannot catch a destructive command assembled across multiple calls. The `deniedSessionIds` / capability toggles are the backstop.
+- Set `LYSHELL_MCP_HIDE_DEPRECATED=1` in the MCP server's env to hide legacy non-`lyshell_`-prefixed tool aliases from `tools/list` (old names still work via `ALIAS_TO_NEW`).
+
 ### File transfers
 
 `src/main/file/` has a queue (`download-queue.ts`) and Worker pools (`download-worker-manager.ts`, `upload-worker-manager.ts`) that fan out to the worker bundles built from `download-worker.ts` / `upload-worker.ts`. Workers use `ssh-file-client.ts` (SFTP via `ssh2`) with an `exec.ts` fallback. The main window reference is set on startup so workers can post progress events back to the renderer; `cleanupAllWorkers` / `cleanupAllUploadWorkers` are called on app quit.

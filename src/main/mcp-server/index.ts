@@ -127,13 +127,15 @@ async function main(): Promise<void> {
       instructions:
         'LyShell MCP Server — terminal session management, interactive input, remote file operations, ' +
         'quick commands, AI agents, and session metadata. ' +
-        'Use list_sessions to discover sessions. ' +
+        'Use list_sessions to discover sessions shown in the left sidebar. By default it returns connected or pinned sessions only; pass includeAll=true to list every saved session. Use summary/status/pinned to choose a target. ' +
         "Inside a LyShell-spawned terminal, pass sessionId='current' to target the current PTY directly. " +
         'Use send_input / send_and_wait / execute_command to interact with sessions. ' +
         'Use reconnect_session to restore a dropped connection. ' +
         'Use run_on_sessions to broadcast a command across multiple servers. ' +
         'Use read_session_notes / write_session_notes to manage per-session summary, usage notes, and tags. ' +
-        'Use create_session to add a new session (SSH / Telnet / Serial / Local) with notes — credentials must be filled manually afterward. ' +
+        'Use create_session to open a session terminal: it reuses an existing saved session for the same target (host:port / serial path) ' +
+        'or creates a new one, then auto-connects when credentials allow (SSH needs saved creds; telnet/serial/local always connect). ' +
+        'New SSH sessions have no credentials and stay disconnected until the user fills them in LyShell. ' +
         'File tools cover what shell cannot do safely or efficiently: binary transfer (upload/download), ' +
         'structured listing/stat, and bounded text read. For mutating operations (rm, mv, mkdir, chmod, md5sum, ...) ' +
         'use execute_command — the SSH/PTY permission model already governs them. ' +
@@ -148,9 +150,15 @@ async function main(): Promise<void> {
 
   // 部分 MCP 客户端（如 Claude Code 当前版本）对 outputSchema/structuredContent 支持不完整，
   // ListTools 时去掉 outputSchema，避免 "tools fetch failed"。CallTool 仍可用 structuredContent。
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [...TOOL_DEFINITIONS, ...ALIAS_DEFINITIONS].map(({ outputSchema: _, ...tool }) => tool)
-  }))
+  //
+  // A4：LYSHELL_MCP_HIDE_DEPRECATED=1/true 时不返回旧名别名，减少工具列表噪声、
+  // 强制 agent 使用 lyshell_* 新名。旧名调用仍由 CallTool 的 ALIAS_TO_NEW 兼容（不会因隐藏而失效）。
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const hideDeprecated =
+      process.env.LYSHELL_MCP_HIDE_DEPRECATED === '1' || process.env.LYSHELL_MCP_HIDE_DEPRECATED === 'true'
+    const all = hideDeprecated ? TOOL_DEFINITIONS : [...TOOL_DEFINITIONS, ...ALIAS_DEFINITIONS]
+    return { tools: all.map(({ outputSchema: _, ...tool }) => tool) }
+  })
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name: requestedName, arguments: rawArgs } = request.params
@@ -201,6 +209,30 @@ async function main(): Promise<void> {
         return {
           content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }],
           structuredContent: result.data
+        }
+      }
+
+      // lyshell_execute_command stream 模式：SSE 流式 + MCP progress notification 增量推送（A1）
+      // progress notification 供客户端向用户展示实时输出；最终 CallToolResult 仍含完整 output/exitCode。
+      if (name === 'lyshell_execute_command' && (args as Record<string, unknown> | undefined)?.stream === true) {
+        const progressToken = (request.params as { _meta?: { progressToken?: unknown } })?._meta?.progressToken
+        const result = await httpClient.postStream('/api/execute-stream', args || {}, async (evt) => {
+          if (evt.type === 'chunk' && evt.chunk && progressToken !== undefined) {
+            try {
+              // progress 不递增：流式命令无已知总量，progress:0 仅作"心跳"让客户端展示；
+              // 真正的增量输出由 message 承载（每个 stdout/stderr chunk 一条 progress notification）。
+              await server.notification({
+                method: 'notifications/progress',
+                params: { progressToken, progress: 0, message: evt.chunk }
+              })
+            } catch {
+              // 客户端可能未订阅 progress，忽略发送失败
+            }
+          }
+        })
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+          structuredContent: result
         }
       }
 
@@ -410,6 +442,8 @@ function getApiPath(toolName: string): string | null {
     lyshell_read_output: '/api/read-output',
     lyshell_send_and_wait: '/api/send-and-wait',
     lyshell_reconnect_session: '/api/sessions/reconnect',
+    lyshell_close_session: '/api/sessions/close',
+    lyshell_open_connection_dialog: '/api/sessions/open-dialog',
     lyshell_wait_for_prompt: '/api/wait-for-prompt',
     lyshell_run_on_sessions: '/api/run-on-sessions',
     lyshell_tail_until: '/api/tail-until',

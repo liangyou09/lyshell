@@ -50,6 +50,13 @@
     "applyHint": "字号实时生效 · 缓冲与光标应用于新会话",
     "mcpSessionMetadataWrite": "允许 MCP 写入会话备注",
     "mcpSessionMetadataWriteHint": "仅对外部 MCP 客户端（全局 token）生效：开启后它们可读写摘要、使用说明和标签。LyShell 自身孵化的终端始终可读写会话备注，不受此开关控制；创建/重连会话需另行开启会话控制",
+    "mcpConfirmDestructive": "破坏性命令执行前确认",
+    "mcpConfirmDestructiveHint": "对 rm -rf /、dd 到块设备、mkfs、fork bomb、关机重启、chmod 根目录等疑似灾难性命令弹窗确认。对 LyShell 内部终端（session token）和外部 MCP 客户端一视同仁——这是 prompt-injection 触发灾难性操作时的最后一道人工闸",
+    "mcpRegister": "MCP 注册",
+    "mcpRegisterCopy": "复制 Claude Code 注册命令",
+    "mcpRegisterCopied": "已复制到剪贴板",
+    "mcpRegisterHint": "主命令用 LyShell 自带二进制运行，无需另装 Node.js。粘贴到终端执行即可注册；外部 MCP 客户端需先开启外部接入",
+    "mcpAudit": "MCP 活动",
     "floatWindow": "会话浮窗 (Ctrl+`)",
     "terminalSettings": "终端设置",
     "minimize": "最小化",
@@ -422,5 +429,27 @@
       "cloneChannelFailed": "克隆渠道失败",
       "createCloneFailed": "创建克隆会话失败"
     }
+  },
+  "mcpAudit": {
+    "title": "MCP 活动",
+    "total": "共 {{total}} 条",
+    "close": "关闭",
+    "filterOperation": "按操作名过滤…",
+    "filterAll": "全部",
+    "filterAllowed": "已放行",
+    "filterDenied": "已拒绝",
+    "refresh": "刷新",
+    "copy": "复制 JSON",
+    "copied": "已复制",
+    "clear": "清空",
+    "confirmClear": "确定清空所有 MCP 审计记录？",
+    "empty": "暂无活动记录",
+    "colTime": "时间",
+    "colOperation": "操作",
+    "colCapability": "能力",
+    "colSession": "会话",
+    "colResult": "结果",
+    "colSource": "来源",
+    "colSummary": "内容"
   }
 }

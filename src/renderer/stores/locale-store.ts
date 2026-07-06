@@ -58,6 +58,8 @@ export const useLocaleStore = create<LocaleStore>((set) => ({
     const valid = AVAILABLE_LOCALES.some(l => l.id === id) ? id : DEFAULT_LOCALE_ID
     applyLocale(valid)
     try { localStorage.setItem(STORAGE_KEY, valid) } catch { /* localStorage 不可用就静默 */ }
+    // 同步到 preferences，供主进程（MCP 确认弹窗等）读取当前 UI 语言
+    try { window.electronAPI?.setConfig('locale', valid) } catch { /* 静默 */ }
     set({ localeId: valid })
   },
 

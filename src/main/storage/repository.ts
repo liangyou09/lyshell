@@ -189,6 +189,23 @@ export class SessionRepository {
   }
 
   /**
+   * 按连接目标查找已存在的会话（忽略 name / notes / tags，只看连接目标）。
+   * 匹配口径与 getHostKey 一致：SSH/Telnet=host:port，Serial=path，Local=null（不参与去重，每次新建）。
+   * 多条命中时返回最近更新的那条。供 MCP create_session 复用同目标会话使用。
+   */
+  findByTarget(session: SessionConfig): SessionConfig | null {
+    this.ensureInitialized()
+    const key = this.getHostKey(session)
+    if (!key) return null
+    let best: SessionConfig | null = null
+    for (const existing of this.sessions.values()) {
+      if (this.getHostKey(existing) !== key) continue
+      if (!best || existing.updatedAt > best.updatedAt) best = existing
+    }
+    return best
+  }
+
+  /**
    * 检查会话配置是否相同（忽略 ID 和时间戳）
    */
   private isSameConfig(a: SessionConfig, b: SessionConfig): boolean {

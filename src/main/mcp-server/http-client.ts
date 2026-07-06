@@ -119,9 +119,38 @@ function isValidPortInfo(info: McpPortInfo): boolean {
 }
 
 function isPortFilePermissionSafe(portFilePath: string): boolean {
-  if (process.platform === 'win32') return true
+  if (process.platform === 'win32') {
+    return isPortFileAclSafeWindows(portFilePath)
+  }
   const mode = fs.statSync(portFilePath).mode & 0o777
   return (mode & 0o077) === 0
+}
+
+/**
+ * Windows 下 best-effort 校验端口文件 ACL 不含广域 principal（B3）。
+ *
+ * 限制：built-in 组名（Users / Everyone 等）在非英文 Windows 上会被本地化，
+ * 本扫描可能漏判（false-accept），但绝不会误拒（false-reject）——
+ * 写入侧 hardenPortFilePermissionsWindows 是硬保证。
+ * 任何 icacls 调用异常都视为通过（graceful），不阻塞发现流程。
+ */
+function isPortFileAclSafeWindows(portFilePath: string): boolean {
+  try {
+    const output = execSync(`icacls "${portFilePath}"`, { encoding: 'utf-8', timeout: 5000 })
+    // 命中任一广域 principal 即视为不安全（SYSTEM/Administrators 当前用户不在此列）
+    const broadPrincipals = [
+      'Everyone',
+      'Authenticated Users',
+      'BUILTIN\\Users',
+      'BUILTIN\\Power Users',
+      'Guest',
+      'ANONYMOUS LOGON'
+    ]
+    return !broadPrincipals.some(p => output.includes(p))
+  } catch {
+    // icacls 不可用或失败：不阻塞，写入侧 hardening 仍生效
+    return true
+  }
 }
 
 function getUserDataDir(): string | null {
@@ -208,6 +237,94 @@ export class LyShellHttpClient {
     // 文件传输含 SFTP 传输 + 同步 MD5 校验，大文件易超 120s；放宽到 600s（异步任务化前的过渡方案）。
     const timeout = isFileTransfer ? 600000 : isLongWait ? 60000 : 30000
     return this.request('POST', apiPath, body, timeout)
+  }
+
+  /**
+   * 流式 POST：消费 SSE 事件（execute_command stream 模式）。
+   *
+   * 每个 `data: {...}` 事件解析后回调 onEvent（chunk 事件）；
+   * done 事件 resolve { output, exitCode }，error 事件 reject。
+   * 非 200 响应（鉴权失败等）累积 body 后 reject。
+   * 超时略大于服务端 MAX_COMMAND_TIMEOUT_MS，避免客户端先超时。
+   */
+  async postStream(
+    apiPath: string,
+    body: any,
+    onEvent: (evt: { type: string; chunk?: string; output?: string; exitCode?: number; error?: string }) => void
+  ): Promise<{ output: string; exitCode: number }> {
+    return new Promise((resolve, reject) => {
+      const options: http.RequestOptions = {
+        hostname: '127.0.0.1',
+        port: this.port,
+        path: apiPath,
+        method: 'POST',
+        headers: {
+          'X-LyShell-Token': this.token,
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream'
+        },
+        timeout: 130000
+      }
+
+      const req = http.request(options, (res) => {
+        if (res.statusCode !== 200) {
+          let data = ''
+          res.on('data', (c: Buffer) => { data += c.toString() })
+          res.on('end', () => {
+            let msg = data
+            try { const j = JSON.parse(data); msg = j.error || data } catch { /* 非 JSON */ }
+            reject(new Error(msg || `HTTP ${res.statusCode}`))
+          })
+          return
+        }
+
+        let buffer = ''
+        let resolved = false
+
+        const handleEvent = (raw: string) => {
+          const line = raw.trim()
+          if (!line.startsWith('data:')) return
+          const payload = line.slice(5).trim()
+          if (!payload) return
+          let evt: any
+          try { evt = JSON.parse(payload) } catch { return }
+          if (evt.type === 'done' && !resolved) {
+            resolved = true
+            resolve({ output: evt.output ?? '', exitCode: evt.exitCode ?? 0 })
+          } else if (evt.type === 'error' && !resolved) {
+            resolved = true
+            reject(new Error(evt.error || 'Stream error'))
+          } else if (evt.type === 'chunk') {
+            onEvent(evt)
+          }
+        }
+
+        res.on('data', (chunk: Buffer) => {
+          buffer += chunk.toString().replace(/\r\n/g, '\n')
+          let idx: number
+          while ((idx = buffer.indexOf('\n\n')) !== -1) {
+            const raw = buffer.slice(0, idx)
+            buffer = buffer.slice(idx + 2)
+            handleEvent(raw)
+          }
+        })
+        res.on('end', () => {
+          if (!resolved) {
+            if (buffer.trim()) handleEvent(buffer)
+            if (!resolved) reject(new Error('Stream ended without done event'))
+          }
+        })
+        res.on('error', (err) => {
+          if (!resolved) { resolved = true; reject(new Error(`Stream error: ${err.message}`)) }
+        })
+      })
+
+      req.on('error', (err) => reject(new Error(`HTTP request failed: ${err.message}`)))
+      req.on('timeout', () => { req.destroy(); reject(new Error('HTTP stream request timeout')) })
+
+      if (body !== undefined) req.write(JSON.stringify(body))
+      req.end()
+    })
   }
 
   /**

@@ -9,6 +9,7 @@ import { downloadHistory } from './storage'
 import { sessionManager } from './terminal/session-manager'
 import { setMainWindow, setMainWindowForUpload, cleanupAllWorkers, cleanupAllUploadWorkers } from './file'
 import { reachabilityProber } from './reachability/reachability-prober'
+import { mcpAuditRepository } from './storage/mcp-audit-repository'
 
 // 日志配置
 log.transports.file.level = 'info'
@@ -227,6 +228,7 @@ app.on('will-quit', () => {
   if (stopMcpHttpServerImpl) {
     stopMcpHttpServerImpl()  // 停止 MCP HTTP 服务器
   }
+  mcpAuditRepository.flushSync()  // 同步落盘 MCP 审计日志，防丢最近事件
   reachabilityProber.stop()  // 停止可达性探测定时器
   // 断开所有本地终端 PTY 进程
   for (const session of sessionManager.getAllSessions()) {

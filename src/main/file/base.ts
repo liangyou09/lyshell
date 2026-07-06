@@ -94,6 +94,13 @@ export abstract class BaseFileConnector extends EventEmitter {
   execRaw?(command: string, timeout?: number): Promise<string>
 
   /**
+   * 流式执行命令（可选）：stdout/stderr 增量通过 onData 回调推送，
+   * 最终 resolve { output, exitCode }。用于 MCP execute_command stream 模式。
+   * signal 可用于客户端断开时中止执行（best-effort）。
+   */
+  execStream?(command: string, timeout: number, onData: (chunk: string) => void, signal?: AbortSignal): Promise<{ output: string; exitCode: number }>
+
+  /**
    * 发送进度事件
    */
   protected emitProgress(progress: TransferProgress): void {

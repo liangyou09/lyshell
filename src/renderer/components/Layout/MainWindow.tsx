@@ -5,6 +5,7 @@ import Sidebar from './Sidebar'
 import StatusBar from './StatusBar'
 import SplitPaneContainer from './SplitPaneContainer'
 import FloatWindow from '../FloatWindow/FloatWindow'
+import { McpAuditPanel } from './McpAuditPanel'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import { useThemeStore, AVAILABLE_THEMES, CUSTOM_THEME_ID } from '../../stores/theme-store'
@@ -32,6 +33,12 @@ const MainWindow: React.FC = () => {
   const [cursorBlink, setCursorBlink] = useState(() => isCursorBlinkEnabled())
   const [downloadDir, setDownloadDir] = useState('')
   const [mcpSessionMetadataWrite, setMcpSessionMetadataWrite] = useState(false)
+  // 破坏性命令确认默认开启（与后端 DEFAULT_MCP_SECURITY 一致）
+  const [mcpConfirmDestructive, setMcpConfirmDestructive] = useState(true)
+  // 复制 MCP 注册命令的瞬时反馈
+  const [mcpCmdCopied, setMcpCmdCopied] = useState(false)
+  // MCP 活动面板
+  const [mcpAuditOpen, setMcpAuditOpen] = useState(false)
   // 设置面板拖拽偏移 —— 持久化到 localStorage,关闭/重启都保留位置
   const [settingsOffset, setSettingsOffset] = useState(() => {
     try {
@@ -129,6 +136,8 @@ const MainWindow: React.FC = () => {
             : null
           if (mcp) {
             setMcpSessionMetadataWrite(mcp.allowSessionMetadataWrite === true)
+            // confirmDestructiveCommands 默认 true：仅在显式 false 时关闭
+            setMcpConfirmDestructive(mcp.confirmDestructiveCommands !== false)
           }
         }
       } catch (e) {
@@ -232,6 +241,16 @@ const MainWindow: React.FC = () => {
     if (!window.electronAPI) return
     const cleanup = window.electronAPI.onFloatToggle(() => {
       setFloatVisible(prev => !prev)
+    })
+    return cleanup
+  }, [])
+
+  // MCP open_connection_dialog 工具（C4）：主进程推送 → 派发 newSession 事件，
+  // 由 Sidebar 监听并打开"新建连接"对话框。agent 把凭据填写交还给用户（MCP 通道不接受凭据）。
+  useEffect(() => {
+    if (!window.electronAPI?.onMcpOpenConnectionDialog) return
+    const cleanup = window.electronAPI.onMcpOpenConnectionDialog(() => {
+      window.dispatchEvent(new Event('newSession'))
     })
     return cleanup
   }, [])
@@ -721,6 +740,90 @@ const MainWindow: React.FC = () => {
                   </p>
                 </div>
 
+                {/* MCP 破坏性命令确认开关 */}
+                <div className="border-t border-[var(--rule)] pt-2 mt-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <input
+                      id="mcp-confirm-destructive"
+                      type="checkbox"
+                      checked={mcpConfirmDestructive}
+                      onChange={async (e) => {
+                        const checked = e.target.checked
+                        setMcpConfirmDestructive(checked)
+                        try {
+                          const rawSecurity = await window.electronAPI?.getConfig('security')
+                          const security = rawSecurity && typeof rawSecurity === 'object'
+                            ? (rawSecurity as Record<string, unknown>)
+                            : {}
+                          const existingMcp =
+                            security.mcp && typeof security.mcp === 'object'
+                              ? (security.mcp as Record<string, unknown>)
+                              : {}
+                          await window.electronAPI?.setConfig('security', {
+                            ...security,
+                            mcp: {
+                              ...existingMcp,
+                              confirmDestructiveCommands: checked
+                            }
+                          })
+                        } catch (err) {
+                          console.warn('Failed to save MCP security setting:', err)
+                        }
+                      }}
+                      className="w-3.5 h-3.5 accent-[var(--amber)]"
+                    />
+                    <label
+                      htmlFor="mcp-confirm-destructive"
+                      className="text-[11px] font-mono text-[var(--text-rack)] cursor-pointer"
+                    >
+                      {t('settings.mcpConfirmDestructive')}
+                    </label>
+                  </div>
+                  <p className="text-[10px] text-[var(--text-rack-mute)] font-mono">
+                    {t('settings.mcpConfirmDestructiveHint')}
+                  </p>
+                </div>
+
+                {/* MCP 注册命令复制 */}
+                <div className="border-t border-[var(--rule)] pt-2 mt-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[11px] font-mono text-[var(--text-rack)] w-[56px]">
+                      {t('settings.mcpRegister')}
+                    </span>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const info = await window.electronAPI?.getMcpAddCommand()
+                          if (info?.command) {
+                            await navigator.clipboard.writeText(info.command)
+                            setMcpCmdCopied(true)
+                            setTimeout(() => setMcpCmdCopied(false), 2000)
+                          }
+                        } catch (err) {
+                          console.warn('Failed to copy MCP add command:', err)
+                        }
+                      }}
+                      className={cn(
+                        'px-2 py-1 rounded-[2px] text-[11px] font-mono border transition-colors',
+                        mcpCmdCopied
+                          ? 'bg-[var(--amber)] border-[var(--amber)] text-[var(--bg-rack)]'
+                          : 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
+                      )}
+                    >
+                      {mcpCmdCopied ? t('settings.mcpRegisterCopied') : t('settings.mcpRegisterCopy')}
+                    </button>
+                    <button
+                      onClick={() => setMcpAuditOpen(true)}
+                      className="px-2 py-1 rounded-[2px] text-[11px] font-mono border bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]"
+                    >
+                      {t('settings.mcpAudit')}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-[var(--text-rack-mute)] font-mono">
+                    {t('settings.mcpRegisterHint')}
+                  </p>
+                </div>
+
                 <p className="text-[10px] text-[var(--text-rack-mute)] border-t border-[var(--rule)] pt-2 mt-2 font-mono leading-relaxed">
                   {t('settings.applyHint')}
                 </p>
@@ -840,6 +943,9 @@ const MainWindow: React.FC = () => {
           <StatusBar sessionId={activeSessionIdForStatusBar} onExecuteCommand={handleExecuteCommand} refreshKey={quickCommandsRefreshKey} />
         </div>
       </div>
+
+      {/* MCP 活动面板（模态） */}
+      <McpAuditPanel open={mcpAuditOpen} onClose={() => setMcpAuditOpen(false)} />
     </div>
   )
 }

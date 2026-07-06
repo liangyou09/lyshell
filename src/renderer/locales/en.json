@@ -50,6 +50,13 @@
     "applyHint": "Font Size Applies Live · Buffer + Cursor Apply To New Sessions",
     "mcpSessionMetadataWrite": "Allow MCP to write session notes",
     "mcpSessionMetadataWriteHint": "Only affects external MCP clients (global token): when enabled they can read/write summary, usage notes, and tags. Terminals spawned by LyShell itself can always read/write session notes, unaffected by this toggle. Creating/reconnecting sessions requires the separate session-control capability",
+    "mcpConfirmDestructive": "Confirm destructive commands before execution",
+    "mcpConfirmDestructiveHint": "Shows a confirmation dialog for likely-catastrophic commands: rm -rf /, dd to block devices, mkfs, fork bombs, shutdown/reboot, chmod on root. Applies equally to LyShell-spawned terminals (session token) and external MCP clients — the last human gate against prompt-injection triggering disastrous operations",
+    "mcpRegister": "MCP register",
+    "mcpRegisterCopy": "Copy Claude Code register command",
+    "mcpRegisterCopied": "Copied to clipboard",
+    "mcpRegisterHint": "Primary command runs via LyShell's bundled binary — no separate Node.js install needed. Paste into a terminal to register; external MCP clients require enabling external access first",
+    "mcpAudit": "MCP Activity",
     "floatWindow": "Session float window (Ctrl+`)",
     "terminalSettings": "Terminal settings",
     "minimize": "Minimize",
@@ -425,5 +432,27 @@
       "cloneChannelFailed": "Clone channel failed",
       "createCloneFailed": "Failed to create cloned session"
     }
+  },
+  "mcpAudit": {
+    "title": "MCP Activity",
+    "total": "{{total}} records",
+    "close": "Close",
+    "filterOperation": "Filter by operation…",
+    "filterAll": "All",
+    "filterAllowed": "Allowed",
+    "filterDenied": "Denied",
+    "refresh": "Refresh",
+    "copy": "Copy JSON",
+    "copied": "Copied",
+    "clear": "Clear",
+    "confirmClear": "Clear all MCP audit records?",
+    "empty": "No activity records",
+    "colTime": "Time",
+    "colOperation": "Operation",
+    "colCapability": "Capability",
+    "colSession": "Session",
+    "colResult": "Result",
+    "colSource": "Source",
+    "colSummary": "Summary"
   }
 }

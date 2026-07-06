@@ -29,6 +29,13 @@ export interface SendAndWaitOptions {
   waitForPattern?: string
   /** 末尾为普通可见字符时自动补一个 \n（默认 true）。避免调用方忘记加 \n 导致命令只回显不执行 */
   autoNewline?: boolean
+  /**
+   * best-effort 捕获上一条命令的退出码（POSIX shell only：bash/zsh/sh）。
+   * 开启后会在命令后追加 `printf '__LYSHELL_EXIT_%d__' $?`，从输出末尾解析标记。
+   * 找不到标记（非 POSIX shell / 命令未提交 / 输出被截断）时 exitCode 为 null。
+   * 仅适用于简单 shell 命令；对交互式程序（vim 等）无意义且会污染其输入。
+   */
+  captureExitCode?: boolean
 }
 
 /** send_and_wait 结果 */
@@ -39,6 +46,8 @@ export interface SendAndWaitResult {
   settled: boolean
   patternMatched: boolean
   elapsedMs: number
+  /** best-effort 退出码；仅在 captureExitCode=true 且解析成功时有值，否则 null */
+  exitCode?: number | null
 }
 
 
@@ -585,6 +594,29 @@ export class SessionManager extends EventEmitter {
       }
     }
 
+    // captureExitCode：追加 POSIX 退出码探针（best-effort，纯 ASCII 标记 survives ANSI 清洗）
+    let capturingExit = false
+    if (options.captureExitCode === true) {
+      if (!processedText.endsWith('\n')) processedText += '\n'
+      processedText += "printf '__LYSHELL_EXIT_%d__' $?\n"
+      capturingExit = true
+    }
+
+    // 结果统一构造：captureExitCode 时从 cleanOutput 末尾剥除标记并解析退出码。
+    // output 保持 raw（含探针回显与标记，符合"原始终端输出"语义）；cleanOutput 剥除回显+标记。
+    const finalize = (ansiStripped: string, settled: boolean, patternMatched: boolean, elapsed: number): SendAndWaitResult => {
+      let cleanOutput = stripEcho(ansiStripped, processedText)
+      let exitCode: number | null = null
+      if (capturingExit) {
+        const m = cleanOutput.match(/__LYSHELL_EXIT_(\d+)__\s*$/)
+        if (m) {
+          exitCode = parseInt(m[1], 10)
+          cleanOutput = cleanOutput.replace(/__LYSHELL_EXIT_\d+__\s*$/, '').trimEnd()
+        }
+      }
+      return { output: ansiStripped, cleanOutput, settled, patternMatched, elapsedMs: elapsed, exitCode }
+    }
+
     session.pendingWaitLock = true
     const connector = session.connector
     const dataListener = () => { lastDataTime = Date.now() }
@@ -615,20 +647,20 @@ export class SessionManager extends EventEmitter {
           const rawOutput = buffer.getOutputSince(startCursor, false).text
           const ansiStripped = buffer.getOutputSince(startCursor, true).text
           if (patternRegex.test(rawOutput) || patternRegex.test(ansiStripped)) {
-            return { output: ansiStripped, cleanOutput: stripEcho(ansiStripped, processedText), settled: true, patternMatched: true, elapsedMs: elapsed }
+            return finalize(ansiStripped, true, true, elapsed)
           }
         }
 
         // 空闲检测：超过 waitMs 且空闲超过 idleMs
         if (elapsed >= waitMs && idleSince >= idleMs) {
           const ansiStripped = buffer.getOutputSince(startCursor, true).text
-          return { output: ansiStripped, cleanOutput: stripEcho(ansiStripped, processedText), settled: true, patternMatched: false, elapsedMs: elapsed }
+          return finalize(ansiStripped, true, false, elapsed)
         }
 
         // 最大超时
         if (elapsed >= maxWaitMs) {
           const ansiStripped = buffer.getOutputSince(startCursor, true).text
-          return { output: ansiStripped, cleanOutput: stripEcho(ansiStripped, processedText), settled: false, patternMatched: false, elapsedMs: elapsed }
+          return finalize(ansiStripped, false, false, elapsed)
         }
 
         // 50ms 轮询

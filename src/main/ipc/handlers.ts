@@ -24,6 +24,9 @@ import {
   assertStringRecord,
   validationFailure
 } from './validation'
+import { getMcpAddCommandForIpc } from '../mcp/http-server'
+import { mcpAuditRepository } from '../storage/mcp-audit-repository'
+import type { McpAuditQuery } from '../storage/mcp-audit-repository'
 
 /**
  * 任务元信息（用于保存下载记录）
@@ -90,6 +93,16 @@ export const IPC_CHANNELS = {
   CONFIG_GET: 'config:get',
   CONFIG_SET: 'config:set',
   CONFIG_RESET: 'config:reset',
+
+  // MCP 注册命令（供设置页"复制注册命令"按钮）
+  MCP_GET_ADD_COMMAND: 'mcp:get-add-command',
+
+  // MCP 审计日志（"MCP 活动"面板）
+  MCP_AUDIT_LIST: 'mcp-audit:list',
+  MCP_AUDIT_CLEAR: 'mcp-audit:clear',
+
+  // MCP 触发渲染层打开"新建连接"对话框（C4：凭据交还用户）
+  MCP_OPEN_CONNECTION_DIALOG: 'mcp:open-connection-dialog',
 
   // 命令历史
   HISTORY_LIST: 'history:list',
@@ -178,6 +191,14 @@ function sendToAllWindows(channel: string, ...args: any[]): void {
  */
 export function broadcastSessionsChanged(): void {
   sendToAllWindows(IPC_CHANNELS.SESSIONS_CHANGED)
+}
+
+/**
+ * MCP open_connection_dialog 工具（C4）调用：通知渲染层打开"新建连接"对话框。
+ * agent 把凭据填写交还给用户（MCP 通道不接受凭据）。无 payload——只触发打开动作。
+ */
+export function broadcastMcpOpenConnectionDialog(): void {
+  sendToAllWindows(IPC_CHANNELS.MCP_OPEN_CONNECTION_DIALOG)
 }
 
 const allowedOpenDialogProperties = new Set<NonNullable<OpenDialogOptions['properties']>[number]>([
@@ -756,6 +777,22 @@ export function registerIPCHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.CONFIG_RESET, async () => {
     log.debug('Reset config')
     preferencesRepository.reset()
+    return { success: true }
+  })
+
+  // MCP 注册命令（只读，无参数）
+  ipcMain.handle(IPC_CHANNELS.MCP_GET_ADD_COMMAND, async () => {
+    return getMcpAddCommandForIpc()
+  })
+
+  // MCP 审计日志查询（带过滤+分页）
+  ipcMain.handle(IPC_CHANNELS.MCP_AUDIT_LIST, async (_event, filter: McpAuditQuery = {}) => {
+    return mcpAuditRepository.query(filter)
+  })
+
+  // MCP 审计日志清空
+  ipcMain.handle(IPC_CHANNELS.MCP_AUDIT_CLEAR, async () => {
+    mcpAuditRepository.clear()
     return { success: true }
   })
 

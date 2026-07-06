@@ -14,17 +14,45 @@ export interface ApiResponse<T = unknown> {
 
 /**
  * 会话信息（脱敏，不包含密码/私钥等敏感数据）
+ *
+ * 数据源为 sessionRepository（全部已保存会话），叠加 sessionManager 的 live 状态，
+ * 与左侧会话栏列表一致——含未连接的离线会话，便于 agent 发现并选择目标。
  */
 export interface SessionInfo {
   id: string
   name: string
   type: 'ssh' | 'telnet' | 'serial' | 'local'
+  /** live 状态叠加：connected / connecting / reconnecting / error / disconnected */
   status: string
+  /** ssh / telnet 主机；serial 为路径、local 为 cwd 的便捷别名（详见 path/shell） */
   host?: string
+  /** ssh / telnet 端口 */
   port?: number
   group?: string
   tags: string[]
   capabilities: SessionCapabilities
+
+  // —— 侧边栏展示元信息（按协议填充，全部脱敏）——
+  /** ssh 登录用户名 */
+  username?: string
+  /** serial 设备路径 */
+  path?: string
+  /** serial 波特率 */
+  baudRate?: number
+  /** local shell 可执行文件 */
+  shell?: string
+  /** local 工作目录 */
+  cwd?: string
+
+  // —— 供 agent 选择目标会话用的辅助字段 ——
+  /** 一句话用途摘要（与 read_session_notes 同源） */
+  summary?: string
+  /** 是否置顶（由 tags 含 'pinned' 派生） */
+  pinned?: boolean
+  /** 历史连接次数，衡量使用频率 */
+  connectCount?: number
+  /** 最近修改时间（ISO 字符串） */
+  updatedAt?: string
 }
 
 /**
@@ -89,6 +117,8 @@ export interface DownloadFileRequest {
  */
 export interface DownloadFileResponse {
   md5?: string
+  remotePath?: string
+  localPath?: string
 }
 
 /**
@@ -101,11 +131,26 @@ export interface UploadFileRequest {
 }
 
 /**
+ * 上传文件响应
+ */
+export interface UploadFileResponse {
+  remotePath?: string
+  localPath?: string
+  md5?: string
+}
+
+/**
  * 文件操作请求（sessionId + path）
  */
 export interface FileOperationRequest {
   sessionId: string
   path: string
+  /** list_files 专用：递归列出子目录（stat 忽略） */
+  recursive?: boolean
+  /** list_files 专用：glob 过滤模式，对收集到的每个条目的 path 匹配（* / ** / ?）；stat 忽略 */
+  glob?: string
+  /** list_files 专用：递归/glob 模式下返回条目上限，防止巨目录打爆响应（默认 5000） */
+  maxEntries?: number
 }
 
 /**
@@ -169,6 +214,8 @@ export interface SendAndWaitRequest {
   waitForPattern?: string
   /** 末尾非换行/控制字符时自动补 \n（默认 true） */
   autoNewline?: boolean
+  /** best-effort 捕获退出码（POSIX shell only，会追加探针到命令后） */
+  captureExitCode?: boolean
 }
 
 /**
@@ -181,6 +228,8 @@ export interface SendAndWaitResult {
   settled: boolean
   patternMatched: boolean
   elapsedMs: number
+  /** best-effort 退出码；仅在 captureExitCode=true 且解析成功时有值，否则 null */
+  exitCode?: number | null
 }
 
 /**
@@ -294,6 +343,19 @@ export interface CreateSessionRequest {
   encoding?: 'utf-8' | 'gbk' | 'gb2312'
   /** 必须设为 true；服务端强校验，确保 LLM 已在调用前询问用户 */
   userConfirmed: boolean
+  /**
+   * 是否在创建/复用后自动连接并打开终端。默认 true。
+   * 自动连接前提：SSH 需已保存凭据（password/privateKey）；Telnet/Serial/Local 无需凭据。
+   * 新建的 SSH 会话无凭据，即便 connect=true 也不会连接，需用户在 LyShell 补凭据后手动连接。
+   */
+  connect?: boolean
+  /**
+   * 是否阻塞等待连接就绪后再返回（A7）。默认 false（与 connect 一同发起即返回 status=connecting）。
+   * 设为 true 时，仅在 connect=true 且有凭据可连的前提下生效：服务端 await 完整握手，
+   * 成功返回 status=connected，失败返回 status=error 并附 message。
+   * 对无凭据的 SSH（不连）或 connect=false 无意义——直接返回 disconnected。
+   */
+  waitForReady?: boolean
 }
 
 /**
@@ -304,4 +366,44 @@ export interface CreateSessionResponse {
   name: string
   type: string
   notes: SessionNotes
+  /** true = 新建了保存项；false = 复用了同目标的已存在会话 */
+  created: boolean
+  /** 当前连接状态：connecting=已发起连接（握手异步进行中），connected=已连上，disconnected=未连接，error=连接失败 */
+  status: 'connecting' | 'connected' | 'disconnected' | 'error'
+  /** 未自动连接时的原因（如缺少凭据、connect=false、waitForReady 连接失败） */
+  message?: string
+}
+
+/**
+ * 关闭会话请求（A8，scope-limited）
+ *
+ * 仅断开/移除 live 会话连接，不从仓库删除保存项。
+ * session token 只能关闭自身 origin 的会话（见 authorizeMcpOperation 的 sessionControl 收窄）。
+ */
+export interface CloseSessionRequest {
+  sessionId: string
+}
+
+export interface CloseSessionResponse {
+  sessionId: string
+  /** 关闭后的状态：disconnected=已断开（保存项仍在），not_connected=原本就没有 live 连接 */
+  status: 'disconnected' | 'not_connected'
+}
+
+/**
+ * 打开连接对话框请求（C4）
+ *
+ * 触发渲染层打开"新建连接"对话框，供用户手动补凭据/细节——MCP 通道不接受凭据，
+ * 当 agent 需要凭据（如新建 SSH）时用它把球交还给用户。无凭据经 MCP 流转。
+ */
+export interface OpenConnectionDialogRequest {
+  /** 必须设为 true；服务端强校验，确保 LLM 已在调用前询问/告知用户 */
+  userConfirmed: boolean
+}
+
+export interface OpenConnectionDialogResponse {
+  /** true=已向渲染层派发打开指令（用户是否真的填了对话框不在此可知） */
+  opened: boolean
+  /** 给 agent 的下一步提示 */
+  message: string
 }

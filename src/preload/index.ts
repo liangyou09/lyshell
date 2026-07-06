@@ -32,6 +32,16 @@ const IPC_CHANNELS = {
   CONFIG_GET: 'config:get',
   CONFIG_SET: 'config:set',
 
+  // MCP 注册命令
+  MCP_GET_ADD_COMMAND: 'mcp:get-add-command',
+
+  // MCP 审计日志
+  MCP_AUDIT_LIST: 'mcp-audit:list',
+  MCP_AUDIT_CLEAR: 'mcp-audit:clear',
+
+  // MCP 触发渲染层打开"新建连接"对话框（C4：凭据交还用户）
+  MCP_OPEN_CONNECTION_DIALOG: 'mcp:open-connection-dialog',
+
   // 浮窗
   FLOAT_TOGGLE: 'float:toggle',
 
@@ -131,6 +141,16 @@ const electronAPI = {
   // 配置管理
   getConfig: (key: string) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET, key),
   setConfig: (key: string, value: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_SET, key, value),
+  getMcpAddCommand: () => ipcRenderer.invoke(IPC_CHANNELS.MCP_GET_ADD_COMMAND),
+  getMcpAudit: (filter?: unknown) => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_LIST, filter),
+  clearMcpAudit: () => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_CLEAR),
+
+  // MCP 打开"新建连接"对话框（C4）—— 供 agent 把凭据填写交还给用户
+  onMcpOpenConnectionDialog: (callback: () => void) => {
+    const listener = () => callback()
+    ipcRenderer.on(IPC_CHANNELS.MCP_OPEN_CONNECTION_DIALOG, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MCP_OPEN_CONNECTION_DIALOG, listener)
+  },
 
   // 浮窗
   onFloatToggle: (callback: () => void) => {
