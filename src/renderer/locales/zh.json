@@ -58,7 +58,9 @@
     "mcpRegisterHint": "主命令用 LyShell 自带二进制运行，无需另装 Node.js。粘贴到终端执行即可注册；外部 MCP 客户端需先开启外部接入",
     "mcpAudit": "MCP 活动",
     "floatWindow": "会话浮窗 (Ctrl+`)",
-    "terminalSettings": "终端设置",
+    "title": "设置",
+    "tabTerminal": "终端",
+    "tabMcp": "MCP",
     "minimize": "最小化",
     "restore": "还原",
     "maximize": "最大化"

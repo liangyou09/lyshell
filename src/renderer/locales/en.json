@@ -58,7 +58,9 @@
     "mcpRegisterHint": "Primary command runs via LyShell's bundled binary — no separate Node.js install needed. Paste into a terminal to register; external MCP clients require enabling external access first",
     "mcpAudit": "MCP Activity",
     "floatWindow": "Session float window (Ctrl+`)",
-    "terminalSettings": "Terminal settings",
+    "title": "Settings",
+    "tabTerminal": "Terminal",
+    "tabMcp": "MCP",
     "minimize": "Minimize",
     "restore": "Restore",
     "maximize": "Maximize"

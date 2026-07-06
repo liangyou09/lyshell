@@ -39,6 +39,8 @@ const MainWindow: React.FC = () => {
   const [mcpCmdCopied, setMcpCmdCopied] = useState(false)
   // MCP 活动面板
   const [mcpAuditOpen, setMcpAuditOpen] = useState(false)
+  // 设置面板页签 —— 'terminal' 默认;组件内 state,关闭再开回到上次页签(不持久化到磁盘)
+  const [settingsTab, setSettingsTab] = useState<'terminal' | 'mcp'>('terminal')
   // 设置面板拖拽偏移 —— 持久化到 localStorage,关闭/重启都保留位置
   const [settingsOffset, setSettingsOffset] = useState(() => {
     try {
@@ -459,16 +461,38 @@ const MainWindow: React.FC = () => {
                 title={t('settings.dragToMove')}
                 className="flex items-center justify-between px-3 h-[26px] bg-[var(--bg-strip)] border-b border-[var(--rule)] cursor-move select-none"
               >
-                <span className="text-[11px] font-semibold text-[var(--amber)] font-mono">Terminal · Settings</span>
+                <span className="text-[12px] font-semibold text-[var(--amber)] font-mono">{t('settings.title')}</span>
                 <button
                   onClick={handleCloseSettings}
                   className="w-[18px] h-[18px] flex items-center justify-center rounded-[2px] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-slot)] text-xs leading-none transition-colors cursor-pointer"
                   title={t('settings.close')}
                 >✕</button>
               </div>
+              {/* 页签栏 —— bg-strip 续条;active 用 amber 底边线标识,与面板顶边 amber 信号呼应
+                  (顶边=被召出的焦点面板,tab 底边=被选中的页签)。amber 跨主题不变,作主题独立的 identity 信号 */}
+              <div className="flex bg-[var(--bg-strip)] border-b border-[var(--rule)]">
+                {(['terminal', 'mcp'] as const).map(tab => {
+                  const active = settingsTab === tab
+                  return (
+                    <button
+                      key={tab}
+                      onClick={() => setSettingsTab(tab)}
+                      className={cn(
+                        'relative flex-1 h-[26px] text-[12px] font-mono font-semibold transition-colors',
+                        active ? 'text-[var(--amber)]' : 'text-[var(--text-rack-mute)] hover:text-[var(--text-rack)]'
+                      )}
+                    >
+                      {tab === 'terminal' ? t('settings.tabTerminal') : t('settings.tabMcp')}
+                      {/* amber 底边线 —— bottom-[-1px] 压住 strip 的 border-b,让选中页签"咬合"进下方主体,呼应机柜插卡意象 */}
+                      {active && <span aria-hidden className="absolute inset-x-0 bottom-[-1px] h-[2px] bg-[var(--amber)]" />}
+                    </button>
+                  )
+                })}
+              </div>
               <div className="space-y-3 p-3">
+                {settingsTab === 'terminal' && (<>
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-mono text-[var(--text-rack)] w-[56px]">{t('settings.buffer')}</span>
+                  <span className="text-[12px] font-mono text-[var(--text-rack)] w-[64px]">{t('settings.buffer')}</span>
                   <input
                     type="number"
                     value={scrollbackLines}
@@ -477,15 +501,15 @@ const MainWindow: React.FC = () => {
                       setScrollbackLines(value)
                       localStorage.setItem('terminalScrollback', value.toString())
                     }}
-                    className="w-[80px] px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[11px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
+                    className="w-[80px] px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[12px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
                     min={1000}
                     max={100000}
                     step={1000}
                   />
-                  <span className="text-[10px] text-[var(--text-rack-data)] font-mono">{t('settings.lines')}</span>
+                  <span className="text-[11px] text-[var(--text-rack-data)] font-mono">{t('settings.lines')}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-mono text-[var(--text-rack)] w-[56px]">{t('settings.font')}</span>
+                  <span className="text-[12px] font-mono text-[var(--text-rack)] w-[64px]">{t('settings.font')}</span>
                   <input
                     type="number"
                     value={fontSize}
@@ -496,15 +520,15 @@ const MainWindow: React.FC = () => {
                       localStorage.setItem('terminalFontSize', clampedValue.toString())
                       window.dispatchEvent(new CustomEvent('terminalFontSizeChanged', { detail: clampedValue }))
                     }}
-                    className="w-[80px] px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[11px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
+                    className="w-[80px] px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[12px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
                     min={8}
                     max={32}
                     step={1}
                   />
-                  <span className="text-[10px] text-[var(--text-rack-data)] font-mono">{t('settings.px')}</span>
+                  <span className="text-[11px] text-[var(--text-rack-data)] font-mono">{t('settings.px')}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-mono text-[var(--text-rack)] w-[56px]">{t('settings.cursor')}</span>
+                  <span className="text-[12px] font-mono text-[var(--text-rack)] w-[64px]">{t('settings.cursor')}</span>
                   <input
                     type="checkbox"
                     checked={cursorBlink}
@@ -517,7 +541,7 @@ const MainWindow: React.FC = () => {
                   />
                   {/* blink on/off 是该行的值(等价 input 的数值),不是单位 —— 提到 text-rack-data + 11px,跟 lines/px 那种纯单位拉开层级 */}
                   <span className={cn(
-                    'text-[11px] font-mono',
+                    'text-[12px] font-mono',
                     cursorBlink ? 'text-[var(--amber)]' : 'text-[var(--text-rack-data)]'
                   )}>{cursorBlink ? t('settings.blinkOn') : t('settings.blinkOff')}</span>
                 </div>
@@ -525,8 +549,8 @@ const MainWindow: React.FC = () => {
                 {/* 主题 ——— 三个 rack 槽位，每行用自己主题的真实色铺底 */}
                 <div className="border-t border-[var(--rule)] pt-2 mt-2">
                   <div className="flex items-baseline justify-between mb-1.5">
-                    <span className="text-[11px] font-mono text-[var(--text-rack)]">{t('settings.theme')}</span>
-                    <span className="text-[10px] font-mono text-[var(--text-rack-data)] truncate ml-2">
+                    <span className="text-[12px] font-mono text-[var(--text-rack)]">{t('settings.theme')}</span>
+                    <span className="text-[11px] font-mono text-[var(--text-rack-data)] truncate ml-2">
                       {AVAILABLE_THEMES.find(t => t.id === themeId)?.name}
                     </span>
                   </div>
@@ -555,7 +579,7 @@ const MainWindow: React.FC = () => {
                           {/* 名 */}
                           <span
                             className={cn(
-                              'text-[12px] font-semibold font-mono truncate pl-1',
+                              'text-[13px] font-semibold font-mono truncate pl-1',
                               active && 'text-[var(--amber)]'
                             )}
                             style={!active ? { color: t.preview.text } : undefined}
@@ -565,7 +589,7 @@ const MainWindow: React.FC = () => {
 
                           {/* hex — 用本主题 bg-rack 的真值，遥测语言 */}
                           <span
-                            className="text-[9.5px] font-mono tracking-[.04em] tabular-nums"
+                            className="text-[10.5px] font-mono tracking-[.04em] tabular-nums"
                             style={{ color: active ? 'var(--amber)' : `${t.preview.text}66` }}
                           >
                             {t.preview.bgRack.toLowerCase()}
@@ -592,7 +616,7 @@ const MainWindow: React.FC = () => {
                     <div className="mt-1.5 border border-[var(--rule)] rounded-[2px] bg-[var(--bg-rack)] divide-y divide-[var(--rule-soft)]">
                       {/* Base */}
                       <div className="flex items-center gap-2 px-2 h-[26px]">
-                        <span className="text-[10px] font-mono text-[var(--text-rack-data)] w-[44px]">Base</span>
+                        <span className="text-[11px] font-mono text-[var(--text-rack-data)] w-[44px]">Base</span>
                         <label className="relative inline-flex items-center cursor-pointer">
                           <input
                             type="color"
@@ -602,13 +626,13 @@ const MainWindow: React.FC = () => {
                             title={t('settings.pickBaseColor')}
                           />
                         </label>
-                        <span className="text-[10px] font-mono text-[var(--text-rack-mute)] tabular-nums">
+                        <span className="text-[11px] font-mono text-[var(--text-rack-mute)] tabular-nums">
                           {customColors.base.toLowerCase()}
                         </span>
                       </div>
                       {/* Accent */}
                       <div className="flex items-center gap-2 px-2 h-[26px]">
-                        <span className="text-[10px] font-mono text-[var(--text-rack-data)] w-[44px]">Accent</span>
+                        <span className="text-[11px] font-mono text-[var(--text-rack-data)] w-[44px]">Accent</span>
                         <label className="relative inline-flex items-center cursor-pointer">
                           <input
                             type="color"
@@ -618,7 +642,7 @@ const MainWindow: React.FC = () => {
                             title={t('settings.pickAccentColor')}
                           />
                         </label>
-                        <span className="text-[10px] font-mono text-[var(--text-rack-mute)] tabular-nums">
+                        <span className="text-[11px] font-mono text-[var(--text-rack-mute)] tabular-nums">
                           {customColors.accent.toLowerCase()}
                         </span>
                       </div>
@@ -629,8 +653,8 @@ const MainWindow: React.FC = () => {
                 {/* 语言 —— 镜像 Theme 段布局：border-t 分隔 + 标题行 + locale 按钮列表 */}
                 <div className="border-t border-[var(--rule)] pt-2 mt-2">
                   <div className="flex items-baseline justify-between mb-1.5">
-                    <span className="text-[11px] font-mono text-[var(--text-rack)]">{t('settings.language')}</span>
-                    <span className="text-[10px] font-mono text-[var(--text-rack-data)] truncate ml-2">
+                    <span className="text-[12px] font-mono text-[var(--text-rack)]">{t('settings.language')}</span>
+                    <span className="text-[11px] font-mono text-[var(--text-rack-data)] truncate ml-2">
                       {AVAILABLE_LOCALES.find(l => l.id === localeId)?.name}
                     </span>
                   </div>
@@ -656,7 +680,7 @@ const MainWindow: React.FC = () => {
                           {/* name 用目标语言自身书写，不翻译 */}
                           <span
                             className={cn(
-                              'text-[12px] font-semibold font-mono truncate pl-1',
+                              'text-[13px] font-semibold font-mono truncate pl-1',
                               active ? 'text-[var(--amber)]' : 'text-[var(--text-rack)]'
                             )}
                           >
@@ -671,10 +695,10 @@ const MainWindow: React.FC = () => {
                 {/* 下载路径 */}
                 <div className="border-t border-[var(--rule)] pt-2 mt-2">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[11px] font-mono text-[var(--text-rack)] w-[56px]">{t('settings.download')}</span>
+                    <span className="text-[12px] font-mono text-[var(--text-rack)] w-[64px]">{t('settings.download')}</span>
                     <div
                       onClick={handleSelectDownloadDir}
-                      className="flex-1 px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[11px] font-mono text-[var(--text-rack)] cursor-pointer hover:border-[var(--amber)] truncate transition-colors"
+                      className="flex-1 px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[12px] font-mono text-[var(--text-rack)] cursor-pointer hover:border-[var(--amber)] truncate transition-colors"
                       title={downloadDir || t('settings.clickToSelect')}
                     >
                       {downloadDir || t('settings.clickToChoose')}
@@ -693,11 +717,17 @@ const MainWindow: React.FC = () => {
                       📂
                     </button>
                   </div>
-                  <p className="text-[10px] text-[var(--text-rack-mute)] font-mono">{t('settings.defaultSavePath')}</p>
+                  <p className="text-[11px] text-[var(--text-rack-mute)] font-mono">{t('settings.defaultSavePath')}</p>
                 </div>
 
-                {/* MCP 会话元数据写入开关 */}
-                <div className="border-t border-[var(--rule)] pt-2 mt-2">
+                {/* 字号/缓冲/光标生效说明 —— 终端页脚(原面板底部 hint,随终端页签归属) */}
+                <p className="text-[11px] text-[var(--text-rack-mute)] border-t border-[var(--rule)] pt-2 mt-2 font-mono leading-relaxed">
+                  {t('settings.applyHint')}
+                </p>
+                </>)}
+                {settingsTab === 'mcp' && (<>
+                {/* MCP 会话元数据写入开关 —— 页签内首块,去掉 border-t/mt-2(无需与上方分隔) */}
+                <div>
                   <div className="flex items-center gap-2 mb-1">
                     <input
                       id="mcp-session-metadata-write"
@@ -730,12 +760,12 @@ const MainWindow: React.FC = () => {
                     />
                     <label
                       htmlFor="mcp-session-metadata-write"
-                      className="text-[11px] font-mono text-[var(--text-rack)] cursor-pointer"
+                      className="text-[12px] font-mono text-[var(--text-rack)] cursor-pointer"
                     >
                       {t('settings.mcpSessionMetadataWrite')}
                     </label>
                   </div>
-                  <p className="text-[10px] text-[var(--text-rack-mute)] font-mono">
+                  <p className="text-[11px] text-[var(--text-rack-mute)] font-mono">
                     {t('settings.mcpSessionMetadataWriteHint')}
                   </p>
                 </div>
@@ -774,12 +804,12 @@ const MainWindow: React.FC = () => {
                     />
                     <label
                       htmlFor="mcp-confirm-destructive"
-                      className="text-[11px] font-mono text-[var(--text-rack)] cursor-pointer"
+                      className="text-[12px] font-mono text-[var(--text-rack)] cursor-pointer"
                     >
                       {t('settings.mcpConfirmDestructive')}
                     </label>
                   </div>
-                  <p className="text-[10px] text-[var(--text-rack-mute)] font-mono">
+                  <p className="text-[11px] text-[var(--text-rack-mute)] font-mono">
                     {t('settings.mcpConfirmDestructiveHint')}
                   </p>
                 </div>
@@ -787,7 +817,7 @@ const MainWindow: React.FC = () => {
                 {/* MCP 注册命令复制 */}
                 <div className="border-t border-[var(--rule)] pt-2 mt-2">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[11px] font-mono text-[var(--text-rack)] w-[56px]">
+                    <span className="text-[12px] font-mono text-[var(--text-rack)] w-[64px]">
                       {t('settings.mcpRegister')}
                     </span>
                     <button
@@ -804,7 +834,7 @@ const MainWindow: React.FC = () => {
                         }
                       }}
                       className={cn(
-                        'px-2 py-1 rounded-[2px] text-[11px] font-mono border transition-colors',
+                        'px-2 py-1 rounded-[2px] text-[12px] font-mono border transition-colors',
                         mcpCmdCopied
                           ? 'bg-[var(--amber)] border-[var(--amber)] text-[var(--bg-rack)]'
                           : 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
@@ -814,19 +844,16 @@ const MainWindow: React.FC = () => {
                     </button>
                     <button
                       onClick={() => setMcpAuditOpen(true)}
-                      className="px-2 py-1 rounded-[2px] text-[11px] font-mono border bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]"
+                      className="px-2 py-1 rounded-[2px] text-[12px] font-mono border bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]"
                     >
                       {t('settings.mcpAudit')}
                     </button>
                   </div>
-                  <p className="text-[10px] text-[var(--text-rack-mute)] font-mono">
+                  <p className="text-[11px] text-[var(--text-rack-mute)] font-mono">
                     {t('settings.mcpRegisterHint')}
                   </p>
                 </div>
-
-                <p className="text-[10px] text-[var(--text-rack-mute)] border-t border-[var(--rule)] pt-2 mt-2 font-mono leading-relaxed">
-                  {t('settings.applyHint')}
-                </p>
+                </>)}
               </div>
             </div>
           )}
@@ -863,7 +890,7 @@ const MainWindow: React.FC = () => {
                   ? 'bg-[var(--bg-elev)]'
                   : 'bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)]'
               )}
-              title={t('settings.terminalSettings')}
+              title={t('settings.title')}
             >
               <span className={cn(
                 'text-xs transition-colors',
