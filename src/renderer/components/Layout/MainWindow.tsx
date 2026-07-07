@@ -478,7 +478,9 @@ const MainWindow: React.FC = () => {
                       key={tab}
                       onClick={() => setSettingsTab(tab)}
                       className={cn(
-                        'relative flex-1 h-[26px] text-[12px] font-mono font-semibold transition-colors',
+                        // flex 居中 + leading-none:CJK("终端")满 em 与 Latin("MCP")cap-height 同字号下天然不等高,
+                        // 收紧行高并垂直居中,让两个页签的文字框一致,消除"大小不一样"的错觉(字形重量差是脚本固有,无法消除)
+                        'relative flex-1 h-[26px] flex items-center justify-center leading-none text-[12px] font-mono font-semibold transition-colors',
                         active ? 'text-[var(--amber)]' : 'text-[var(--text-rack-mute)] hover:text-[var(--text-rack)]'
                       )}
                     >
@@ -489,8 +491,10 @@ const MainWindow: React.FC = () => {
                   )
                 })}
               </div>
-              <div className="space-y-3 p-3">
-                {settingsTab === 'terminal' && (<>
+              {/* 两页签内容常驻 DOM、grid 同格重叠(col-start-1 row-start-1),以"取较大者"稳定面板尺寸 —— 切页签不再引起宽高跳变。
+                  inactive 用 invisible(visibility:hidden) 保留布局贡献(撑住尺寸)同时不绘制/不可交互/不可聚焦;aria-hidden 屏蔽读屏。 */}
+              <div className="grid p-3">
+                <div className={cn('col-start-1 row-start-1 space-y-3', settingsTab === 'terminal' ? '' : 'invisible')} aria-hidden={settingsTab !== 'terminal'}>
                 <div className="flex items-center gap-2">
                   <span className="text-[12px] font-mono text-[var(--text-rack)] w-[64px]">{t('settings.buffer')}</span>
                   <input
@@ -724,8 +728,8 @@ const MainWindow: React.FC = () => {
                 <p className="text-[11px] text-[var(--text-rack-mute)] border-t border-[var(--rule)] pt-2 mt-2 font-mono leading-relaxed">
                   {t('settings.applyHint')}
                 </p>
-                </>)}
-                {settingsTab === 'mcp' && (<>
+                </div>
+                <div className={cn('col-start-1 row-start-1 space-y-3', settingsTab === 'mcp' ? '' : 'invisible')} aria-hidden={settingsTab !== 'mcp'}>
                 {/* MCP 会话元数据写入开关 —— 页签内首块,去掉 border-t/mt-2(无需与上方分隔) */}
                 <div>
                   <div className="flex items-center gap-2 mb-1">
@@ -853,7 +857,7 @@ const MainWindow: React.FC = () => {
                     {t('settings.mcpRegisterHint')}
                   </p>
                 </div>
-                </>)}
+                </div>
               </div>
             </div>
           )}
