@@ -62,7 +62,8 @@ const sessionInfoSchema = {
     summary: { type: 'string' },
     pinned: { type: 'boolean' },
     connectCount: { type: 'number' },
-    updatedAt: { type: 'string' }
+    updatedAt: { type: 'string' },
+    inTerminal: { type: 'boolean' }
   },
   required: ['id', 'name', 'type', 'status', 'tags', 'capabilities']
 }
@@ -106,12 +107,13 @@ export const TOOL_DEFINITIONS = [
     description:
       'List LyShell sessions shown in the left sidebar. By default only connected or pinned sessions are returned, ' +
       'to keep the result focused and avoid overwhelming context. Pass includeAll=true to list every saved session, including disconnected ones. ' +
+      'Pass terminalStatus=true to list only sessions that are currently opened in a terminal pane/tab, regardless of connection state. ' +
       'This is the primary discovery tool: call it first to see what sessions exist and pick a target sessionId for other tools. ' +
       'Each entry includes id, name, type (ssh/telnet/serial/local), live status, host/port or path/shell, tags, pinned flag, ' +
-      'connectCount, updatedAt, summary, and capabilities. Use summary to understand what a session is for without extra calls. ' +
+      'connectCount, updatedAt, summary, capabilities, and inTerminal. Use summary to understand what a session is for without extra calls. ' +
       'Default sort: connected first, then pinned, then most recently updated. ' +
       'Requires the read MCP capability for global tokens; LyShell-spawned PTY tokens bypass capability checks. ' +
-      'Supports optional filter parameters: status, type, tag, pinned, search, includeAll, limit, offset.',
+      'Supports optional filter parameters: status, type, tag, pinned, search, includeAll, terminalStatus, limit, offset.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -121,6 +123,7 @@ export const TOOL_DEFINITIONS = [
         pinned: { type: 'boolean', description: 'Filter by pinned state (true = pinned, false = unpinned).' },
         search: { type: 'string', description: 'Substring search against session name, host, summary, and tags.' },
         includeAll: { type: 'boolean', description: 'If true, return every saved session including disconnected ones. Default false (connected or pinned only).' },
+        terminalStatus: { type: 'boolean', description: 'If true, return only sessions currently opened in a terminal pane/tab, regardless of connection state. When this is true, the default connected/pinned visibility filter is not applied.' },
         limit: { type: 'number', minimum: 1, maximum: 500, description: 'Max results (default 50).' },
         offset: { type: 'number', minimum: 0, description: 'Pagination offset (default 0).' }
       },

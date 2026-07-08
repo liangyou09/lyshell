@@ -53,6 +53,8 @@ export interface SessionInfo {
   connectCount?: number
   /** 最近修改时间（ISO 字符串） */
   updatedAt?: string
+  /** 当前是否在终端页签/分屏中打开 */
+  inTerminal?: boolean
 }
 
 /**

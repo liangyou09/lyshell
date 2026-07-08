@@ -99,6 +99,9 @@ export class SessionManager extends EventEmitter {
   private sessions: Map<string, Session> = new Map()
   private activeSessionId: string | null = null
 
+  // 各渲染窗口中当前在终端页签/分屏里打开的会话集合（key = WebContents.id）
+  private terminalOpenSessions: Map<number, Set<string>> = new Map()
+
   /**
    * 创建新会话
    */
@@ -132,6 +135,33 @@ export class SessionManager extends EventEmitter {
    */
   getAllSessions(): Session[] {
     return Array.from(this.sessions.values())
+  }
+
+  /**
+   * 设置某个渲染窗口当前在终端中打开的会话集合
+   */
+  setTerminalOpenSessionsForWindow(windowId: number, ids: string[]): void {
+    this.terminalOpenSessions.set(windowId, new Set(ids))
+  }
+
+  /**
+   * 移除某个渲染窗口的终端打开会话记录（窗口关闭时清理）
+   */
+  removeTerminalOpenSessionsForWindow(windowId: number): void {
+    this.terminalOpenSessions.delete(windowId)
+  }
+
+  /**
+   * 获取所有窗口中当前在终端里打开的会话 ID 集合（并集）
+   */
+  getAllTerminalOpenSessionIds(): Set<string> {
+    const union = new Set<string>()
+    for (const set of this.terminalOpenSessions.values()) {
+      for (const id of set) {
+        union.add(id)
+      }
+    }
+    return union
   }
 
   /**

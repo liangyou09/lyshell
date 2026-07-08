@@ -213,6 +213,17 @@ const MainWindow: React.FC = () => {
     return cleanup
   }, [])
 
+  // 启动时把当前已在终端页签中的会话同步给主进程（覆盖从 localStorage 恢复布局的场景）
+  useEffect(() => {
+    if (!window.electronAPI?.syncTerminalOpenSessions) return
+    const ids = usePaneStore.getState().getAllOpenSessionIds()
+    if (ids.length > 0) {
+      window.electronAPI.syncTerminalOpenSessions(ids).catch((err: unknown) => {
+        console.warn('Failed to sync initial terminal open sessions:', err)
+      })
+    }
+  }, [])
+
   // 订阅可达性探测结果
   useEffect(() => {
     if (!window.electronAPI?.onSessionReachable) return
@@ -388,10 +399,9 @@ const MainWindow: React.FC = () => {
       await refreshSavedSessions()
 
       // 调用后端连接（后端会立即返回 sessionId，前端显示终端）
-      await window.electronAPI?.connect({
-        ...config,
-        id: '' // 后端会自动处理
-      })
+      // 保留 config.id，使 runtime session 与 saved session 共用同一 ID，
+      // 避免 MCP list_sessions 看到 saved session 为 disconnected 的假象。
+      await window.electronAPI?.connect(config)
     } catch (error) {
       console.error('Connect failed:', error)
     }

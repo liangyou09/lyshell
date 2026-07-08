@@ -51,12 +51,21 @@ export function setMainWindowForUpload(window: BrowserWindow | null) {
 }
 
 /**
- * 启动上传 Worker
+ * 启动上传 Worker（fire-and-forget，UI 路径用）
  */
 export function startUploadWorker(task: UploadTaskData): Promise<void> {
+  // 复用阻塞等待路径，仅忽略其 Promise 结果；进度/错误仍通过 message 事件推送
+  runUploadWorkerAndWait(task).catch(() => {})
+  return Promise.resolve()
+}
+
+/**
+ * 启动上传 Worker 并阻塞等待完成（MCP 同步路径用）
+ */
+export function runUploadWorkerAndWait(task: UploadTaskData): Promise<void> {
   const { taskId, sessionId } = task
 
-  log.info(`Starting upload worker for task ${taskId}`)
+  log.info(`Starting upload worker (await completion) for task ${taskId}`)
 
   // Worker 脚本路径（编译后叫 uploadWorker.js）
   const workerPath = path.join(__dirname, 'uploadWorker.js')
@@ -76,39 +85,57 @@ export function startUploadWorker(task: UploadTaskData): Promise<void> {
     startTime: Date.now()
   })
 
-  // 监听 Worker 消息
-  worker.on('message', (msg: any) => {
-    handleWorkerMessage(msg, task)
-  })
+  return new Promise<void>((resolve, reject) => {
+    let settled = false
 
-  // 监听 Worker 错误
-  worker.on('error', (err) => {
-    log.error(`Upload worker error for task ${taskId}: ${err.message}`)
-    sendProgressToRenderer({
-      taskId,
-      sessionId,
-      failed: true,
-      error: err.message,
-      progress: 0,
-      transferredSize: 0,
-      fileSize: task.fileSize,
-      speed: 0,
-      direction: 'upload'
+    // 监听 Worker 消息
+    worker.on('message', (msg: any) => {
+      handleWorkerMessage(msg, task)
+      if (settled) return
+      if (msg.type === 'complete') {
+        settled = true
+        resolve()
+      } else if (msg.type === 'error') {
+        settled = true
+        reject(new Error(msg.error || 'Upload failed'))
+      }
     })
-    activeWorkers.delete(taskId)
-  })
 
-  // 监听 Worker 退出
-  worker.on('exit', (code) => {
-    if (code !== 0) {
-      log.warn(`Upload worker for task ${taskId} exited with code ${code}`)
-    } else {
-      log.info(`Upload worker for task ${taskId} completed successfully`)
-    }
-    activeWorkers.delete(taskId)
-  })
+    // 监听 Worker 错误
+    worker.on('error', (err) => {
+      log.error(`Upload worker error for task ${taskId}:`, err.message)
+      sendProgressToRenderer({
+        taskId,
+        sessionId,
+        failed: true,
+        error: err.message,
+        progress: 0,
+        transferredSize: 0,
+        fileSize: task.fileSize,
+        speed: 0,
+        direction: 'upload'
+      })
+      activeWorkers.delete(taskId)
+      if (!settled) {
+        settled = true
+        reject(err)
+      }
+    })
 
-  return Promise.resolve()
+    // 监听 Worker 退出
+    worker.on('exit', (code) => {
+      activeWorkers.delete(taskId)
+      if (code !== 0) {
+        log.warn(`Upload worker for task ${taskId} exited with code ${code}`)
+        if (!settled) {
+          settled = true
+          reject(new Error(`Upload worker exited with code ${code}`))
+        }
+      } else {
+        log.info(`Upload worker for task ${taskId} completed successfully`)
+      }
+    })
+  })
 }
 
 /**

@@ -27,6 +27,7 @@ const IPC_CHANNELS = {
   TERMINAL_WRITE: 'terminal:write',
   TERMINAL_RESIZE: 'terminal:resize',
   TERMINAL_DATA: 'terminal:data',
+  TERMINAL_OPEN_SESSIONS_SYNC: 'terminal:open-sessions-sync',
 
   // 配置管理
   CONFIG_GET: 'config:get',
@@ -137,6 +138,8 @@ const electronAPI = {
     ipcRenderer.on(IPC_CHANNELS.TERMINAL_DATA, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_DATA, listener)
   },
+  syncTerminalOpenSessions: (sessionIds: string[]) =>
+    ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_OPEN_SESSIONS_SYNC, sessionIds),
 
   // 配置管理
   getConfig: (key: string) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET, key),

@@ -45,6 +45,9 @@ interface TaskMeta {
 // 任务元信息存储
 const taskMetaStore: Map<string, TaskMeta> = new Map()
 
+// 已注册 destroyed 清理监听的窗口，避免每次同步都重复注册
+const registeredTerminalSyncWindows = new Set<number>()
+
 /**
  * IPC 通道定义
  */
@@ -77,6 +80,7 @@ export const IPC_CHANNELS = {
   TERMINAL_RESIZE: 'terminal:resize',
   TERMINAL_DATA: 'terminal:data',
   TERMINAL_EXIT: 'terminal:exit',
+  TERMINAL_OPEN_SESSIONS_SYNC: 'terminal:open-sessions-sync',  // 渲染层同步当前打开的会话列表
 
   // Python 执行
   PYTHON_EXECUTE: 'python:execute',
@@ -598,6 +602,25 @@ export function registerIPCHandlers(): void {
       sessionManager.resizeSession(sessionId, safeCols, safeRows)
     } catch (error) {
       validationFailure(error) || log.warn('Rejected terminal resize:', extractErrorMessage(error as Error))
+    }
+  })
+
+  // 渲染层同步当前在终端页签/分屏中打开的会话集合
+  ipcMain.handle(IPC_CHANNELS.TERMINAL_OPEN_SESSIONS_SYNC, async (_event, _ids: unknown) => {
+    try {
+      const ids = assertStringArray(_ids, 'ids', { maxItems: 10000, maxItemLength: 128 })
+      const sender = _event.sender
+      sessionManager.setTerminalOpenSessionsForWindow(sender.id, ids)
+      if (!registeredTerminalSyncWindows.has(sender.id)) {
+        registeredTerminalSyncWindows.add(sender.id)
+        sender.once('destroyed', () => {
+          registeredTerminalSyncWindows.delete(sender.id)
+          sessionManager.removeTerminalOpenSessionsForWindow(sender.id)
+        })
+      }
+      return { success: true }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
     }
   })
 

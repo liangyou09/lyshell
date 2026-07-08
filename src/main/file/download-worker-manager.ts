@@ -76,19 +76,26 @@ export function registerTaskMeta(taskId: string, meta: TaskMeta) {
 }
 
 /**
- * 启动下载 Worker
+ * 启动下载 Worker（fire-and-forget，UI 路径用）
  */
 export function startDownloadWorker(task: DownloadTaskData): Promise<void> {
+  // 复用阻塞等待路径，仅忽略其 Promise 结果；进度/错误仍通过 message 事件推送
+  runDownloadWorkerAndWait(task).catch(() => {})
+  return Promise.resolve()
+}
+
+/**
+ * 启动下载 Worker 并阻塞等待完成（MCP 同步路径用）
+ */
+export function runDownloadWorkerAndWait(task: DownloadTaskData): Promise<void> {
   const { taskId, sessionId } = task
 
-  log.info(`Starting download worker for task ${taskId}`)
+  log.info(`Starting download worker (await completion) for task ${taskId}`)
 
   // 获取任务元信息
   const meta = taskMetaStore.get(taskId)
 
   // Worker 脚本路径
-  // electron-vite 在开发和生产模式都输出到 dist/main/
-  // __dirname 是当前执行文件所在目录，即 dist/main/
   const workerPath = path.join(__dirname, 'worker.js')
 
   log.debug(`Worker path: ${workerPath}, __dirname: ${__dirname}`)
@@ -114,40 +121,58 @@ export function startDownloadWorker(task: DownloadTaskData): Promise<void> {
     }
   })
 
-  // 监听 Worker 消息
-  worker.on('message', (msg: any) => {
-    handleWorkerMessage(msg, task)
-  })
+  return new Promise<void>((resolve, reject) => {
+    let settled = false
 
-  // 监听 Worker 错误
-  worker.on('error', (err) => {
-    log.error(`Worker error for task ${taskId}: ${err.message}`)
-    sendProgressToRenderer({
-      taskId,
-      sessionId,
-      failed: true,
-      error: err.message,
-      progress: 0,
-      transferredSize: 0,
-      fileSize: task.fileSize,
-      speed: 0
+    // 监听 Worker 消息
+    worker.on('message', (msg: any) => {
+      handleWorkerMessage(msg, task)
+      if (settled) return
+      if (msg.type === 'complete') {
+        settled = true
+        resolve()
+      } else if (msg.type === 'error') {
+        settled = true
+        reject(new Error(msg.error || 'Download failed'))
+      }
     })
-    activeWorkers.delete(taskId)
-    taskMetaStore.delete(taskId)
-  })
 
-  // 监听 Worker 退出
-  worker.on('exit', (code) => {
-    if (code !== 0) {
-      log.warn(`Worker for task ${taskId} exited with code ${code}`)
-    } else {
-      log.info(`Worker for task ${taskId} completed successfully`)
-    }
-    activeWorkers.delete(taskId)
-    taskMetaStore.delete(taskId)
-  })
+    // 监听 Worker 错误
+    worker.on('error', (err) => {
+      log.error(`Worker error for task ${taskId}:`, err.message)
+      sendProgressToRenderer({
+        taskId,
+        sessionId,
+        failed: true,
+        error: err.message,
+        progress: 0,
+        transferredSize: 0,
+        fileSize: task.fileSize,
+        speed: 0
+      })
+      activeWorkers.delete(taskId)
+      taskMetaStore.delete(taskId)
+      if (!settled) {
+        settled = true
+        reject(err)
+      }
+    })
 
-  return Promise.resolve()
+    // 监听 Worker 退出
+    worker.on('exit', (code) => {
+      activeWorkers.delete(taskId)
+      taskMetaStore.delete(taskId)
+      if (code !== 0) {
+        log.warn(`Worker for task ${taskId} exited with code ${code}`)
+        if (!settled) {
+          settled = true
+          reject(new Error(`Download worker exited with code ${code}`))
+        }
+      } else {
+        log.info(`Worker for task ${taskId} completed successfully`)
+      }
+    })
+  })
 }
 
 /**

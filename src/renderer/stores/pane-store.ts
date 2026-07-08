@@ -18,6 +18,38 @@ const subscribeToLayoutChanges = (store: any) => {
   })
 }
 
+// 收集当前布局中所有已打开的 sessionId
+const collectOpenSessionIds = (layout: PaneLayout): string[] => {
+  const ids = new Set<string>()
+  const collect = (node: PaneNode) => {
+    if (node.type === 'leaf') {
+      for (const id of node.sessions) {
+        ids.add(id)
+      }
+    } else {
+      collect(node.firstChild)
+      collect(node.secondChild)
+    }
+  }
+  collect(layout.root)
+  return Array.from(ids)
+}
+
+// 自动向主进程同步"当前在终端中打开的会话集合"
+const subscribeToTerminalOpenSessionsSync = (store: any) => {
+  let lastIds: string | null = null
+  store.subscribe((state: PaneStore, prevState: PaneStore) => {
+    if (state.layout === prevState.layout) return
+    const ids = collectOpenSessionIds(state.layout)
+    const idsKey = ids.join('\0')
+    if (idsKey === lastIds) return
+    lastIds = idsKey
+    window.electronAPI?.syncTerminalOpenSessions?.(ids)?.catch((err: unknown) => {
+      console.warn('Failed to sync terminal open sessions:', err)
+    })
+  })
+}
+
 /**
  * 分屏状态管理
  */
@@ -52,6 +84,7 @@ interface PaneStore {
   getParentPane: (paneId: string) => PaneSplit | undefined
   getPaneBySessionId: (sessionId: string) => PaneLeaf | undefined
   getPanePositionInParent: (paneId: string) => 'first' | 'second' | null
+  getAllOpenSessionIds: () => string[]
 }
 
 // 生成唯一ID
@@ -788,6 +821,10 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     return findPaneBySessionId(get().layout.root, sessionId)
   },
 
+  getAllOpenSessionIds: () => {
+    return collectOpenSessionIds(get().layout)
+  },
+
   // 交换分屏位置（交换兄弟分屏）
   swapPanePosition: (paneId) => {
     const layout = get().layout
@@ -857,3 +894,6 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
 
 // 自动保存布局变化
 subscribeToLayoutChanges(usePaneStore)
+
+// 自动同步终端打开会话集合到主进程
+subscribeToTerminalOpenSessionsSync(usePaneStore)

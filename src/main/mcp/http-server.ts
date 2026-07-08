@@ -16,7 +16,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { sessionManager } from '../terminal/session-manager'
 import { broadcastSessionsChanged, broadcastMcpOpenConnectionDialog } from '../ipc/handlers'
 import { processInputEscapeSequences } from '@shared/escape-sequences'
-import { fileManager } from '../file/manager'
+import { fileManager, runUploadWorkerAndWait, runDownloadWorkerAndWait } from '../file'
 import { preferencesRepository, quickCommandsRepository, sessionRepository } from '../storage/repository'
 import { agentRepository } from '../storage/agent-repository'
 import { mcpAuditRepository } from '../storage/mcp-audit-repository'
@@ -528,7 +528,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
  * live 状态：从 sessionManager.getSession(config.id) 叠加，无则 disconnected。
  * 所有敏感字段（password / privateKey / passphrase）均不输出。
  */
-function buildSessionInfo(config: SessionConfig): SessionInfo {
+function buildSessionInfo(config: SessionConfig, inTerminal?: boolean): SessionInfo {
   const live = sessionManager.getSession(config.id)
   const status = live ? live.status : ConnectionStatus.DISCONNECTED
   const pinned = config.tags?.includes('pinned') ?? false
@@ -558,7 +558,8 @@ function buildSessionInfo(config: SessionConfig): SessionInfo {
     summary: config.summary || undefined,
     pinned,
     connectCount: config.connectCount,
-    updatedAt: config.updatedAt.toISOString()
+    updatedAt: config.updatedAt.toISOString(),
+    inTerminal
   }
 }
 
@@ -600,7 +601,8 @@ async function handleListSessions(res: http.ServerResponse, binding: TokenBindin
     }
 
     const saved = sessionRepository.getAll()
-    const result = sortSessionInfos(applyDefaultVisibilityFilter(saved.map(buildSessionInfo), includeAll))
+    const terminalIds = sessionManager.getAllTerminalOpenSessionIds()
+    const result = sortSessionInfos(applyDefaultVisibilityFilter(saved.map(c => buildSessionInfo(c, terminalIds.has(c.id))), includeAll))
     sendJson(res, 200, { success: true, data: result })
   } catch (err: any) {
     log.error('[MCP] List sessions error:', err)
@@ -615,7 +617,7 @@ async function handleListSessions(res: http.ServerResponse, binding: TokenBindin
  * 返回 { sessions, total, offset, limit }。
  */
 async function handleListSessionsFiltered(
-  filter: { status?: string; type?: string; tag?: string; search?: string; pinned?: boolean; includeAll?: boolean; limit?: number; offset?: number } | undefined,
+  filter: { status?: string; type?: string; tag?: string; search?: string; pinned?: boolean; includeAll?: boolean; terminalStatus?: boolean; limit?: number; offset?: number } | undefined,
   res: http.ServerResponse,
   binding: TokenBinding
 ): Promise<void> {
@@ -626,10 +628,30 @@ async function handleListSessionsFiltered(
       return
     }
 
-    const saved = sessionRepository.getAll()
-    let infos: SessionInfo[] = saved.map(buildSessionInfo)
-
     const f = filter || {}
+
+    let infos: SessionInfo[]
+    if (f.terminalStatus === true) {
+      // 返回当前在终端页签/分屏中打开的会话（不区分连接状态）
+      const terminalIds = sessionManager.getAllTerminalOpenSessionIds()
+      infos = []
+      for (const id of terminalIds) {
+        const live = sessionManager.getSession(id)
+        if (live) {
+          infos.push(buildSessionInfo(live.config, true))
+        } else {
+          const saved = sessionRepository.get(id)
+          if (saved) {
+            infos.push(buildSessionInfo(saved, true))
+          }
+        }
+      }
+    } else {
+      const saved = sessionRepository.getAll()
+      const terminalIds = sessionManager.getAllTerminalOpenSessionIds()
+      infos = saved.map(c => buildSessionInfo(c, terminalIds.has(c.id)))
+    }
+
     if (f.status) infos = infos.filter(i => i.status === f.status)
     if (f.type) infos = infos.filter(i => i.type === f.type)
     if (f.tag) infos = infos.filter(i => i.tags.includes(f.tag!))
@@ -646,7 +668,8 @@ async function handleListSessionsFiltered(
       )
     }
 
-    infos = sortSessionInfos(applyDefaultVisibilityFilter(infos, f.includeAll))
+    // terminalStatus=true 时不再应用默认可见性过滤，否则离线打开会话会被隐藏
+    infos = sortSessionInfos(f.terminalStatus === true ? infos : applyDefaultVisibilityFilter(infos, f.includeAll))
 
     const total = infos.length
     const offset = clampNumber(f.offset, 0, total, 0)
@@ -1758,6 +1781,12 @@ async function handleStatFile(data: FileOperationRequest, res: http.ServerRespon
 /**
  * POST /api/files/download — 下载远程文件
  */
+/**
+ * POST /api/files/download — 下载远程文件
+ *
+ * 使用 Worker 路径（与 UI 文件管理一致），避免主进程 shell channel 的
+ * 60s/chunk ACK 超时对大文件不友好。传输完成后本地计算 MD5 返回给调用方。
+ */
 async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
     const { sessionId, remotePath, localPath } = data
@@ -1765,16 +1794,71 @@ async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerRes
       sendJson(res, 400, { success: false, error: 'sessionId, remotePath, and localPath are required' })
       return
     }
-    const auth = await authorizeMcpOperation('download_file', 'fileWrite', sessionId, `${remotePath} -> ${localPath}`, binding)
+    let safeLocalPath: string
+    try {
+      safeLocalPath = assertSafeLocalPath(localPath)
+    } catch (pathErr: any) {
+      sendJson(res, 400, { success: false, error: pathErr.message })
+      return
+    }
+    const auth = await authorizeMcpOperation('download_file', 'fileWrite', sessionId, `${remotePath} -> ${safeLocalPath}`, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
+
+    const session = sessionManager.getSession(sessionId)
+    if (!session || session.config.type !== ConnectionType.SSH) {
+      sendJson(res, 400, { success: false, error: 'download_file only supports SSH sessions' })
+      return
+    }
+    if (session.status !== ConnectionStatus.CONNECTED) {
+      sendJson(res, 409, { success: false, error: 'Session is not connected' })
+      return
+    }
+
+    const sshConfig = session.config.ssh
+    if (!sshConfig) {
+      sendJson(res, 400, { success: false, error: 'SSH config not found' })
+      return
+    }
+
+    const fileStat = await fileManager.stat(sessionId, remotePath)
+    const fileSize = fileStat.size
+
+    const connectorType = await fileManager.getConnectorType(sessionId)
     const taskId = uuidv4()
-    // MCP 路径同步等待 MD5 —— 调用方依赖返回值校验传输完整性，
-    // 否则异步 transfer:md5 事件无法回传给 MCP 客户端，工具只会看到空 {}（静默失败）。
-    const result = await fileManager.download(sessionId, remotePath, localPath, taskId, undefined, true)
-    const response: DownloadFileResponse = { md5: result.md5, remotePath, localPath }
+
+    await runDownloadWorkerAndWait({
+      taskId,
+      sessionId,
+      method: connectorType === 'sftp' ? 'sftp' : 'exec',
+      sshConfig: {
+        host: sshConfig.host,
+        port: sshConfig.port,
+        username: sshConfig.username,
+        password: sshConfig.password,
+        privateKey: sshConfig.privateKey,
+        passphrase: sshConfig.passphrase,
+        readyTimeout: sshConfig.readyTimeout,
+        keepaliveInterval: sshConfig.keepaliveInterval,
+        shellEnterCommands: sshConfig.shellEnterCommands,
+        shellEnterWait: sshConfig.shellEnterWait
+      },
+      remotePath,
+      localPath: safeLocalPath,
+      fileSize
+    })
+
+    // 传输完成后本地计算 MD5，供 MCP 调用方校验完整性
+    let md5: string | undefined
+    try {
+      md5 = await fileManager.calculateMD5(safeLocalPath)
+    } catch (md5Err: any) {
+      log.warn(`[MCP] Failed to calculate MD5 for ${safeLocalPath}:`, md5Err.message)
+    }
+
+    const response: DownloadFileResponse = { md5, remotePath, localPath: safeLocalPath }
     sendJson(res, 200, { success: true, data: response })
   } catch (err: any) {
     sendJson(res, 500, { success: false, error: err.message })
@@ -1783,6 +1867,9 @@ async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerRes
 
 /**
  * POST /api/files/upload — 上传本地文件
+ *
+ * 使用 Worker 路径（与 UI 文件管理一致），避免主进程 shell channel 的
+ * 15s/chunk ACK 超时对大文件不友好。
  */
 async function handleUploadFile(data: UploadFileRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
@@ -1791,14 +1878,77 @@ async function handleUploadFile(data: UploadFileRequest, res: http.ServerRespons
       sendJson(res, 400, { success: false, error: 'sessionId, localPath, and remotePath are required' })
       return
     }
-    const auth = await authorizeMcpOperation('upload_file', 'fileWrite', sessionId, `${localPath} -> ${remotePath}`, binding)
+    let safeLocalPath: string
+    try {
+      safeLocalPath = assertSafeLocalPath(localPath)
+    } catch (pathErr: any) {
+      sendJson(res, 400, { success: false, error: pathErr.message })
+      return
+    }
+    const auth = await authorizeMcpOperation('upload_file', 'fileWrite', sessionId, `${safeLocalPath} -> ${remotePath}`, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
+
+    const session = sessionManager.getSession(sessionId)
+    if (!session || session.config.type !== ConnectionType.SSH) {
+      sendJson(res, 400, { success: false, error: 'upload_file only supports SSH sessions' })
+      return
+    }
+    if (session.status !== ConnectionStatus.CONNECTED) {
+      sendJson(res, 409, { success: false, error: 'Session is not connected' })
+      return
+    }
+
+    const sshConfig = session.config.ssh
+    if (!sshConfig) {
+      sendJson(res, 400, { success: false, error: 'SSH config not found' })
+      return
+    }
+
+    let fileSize = 0
+    try {
+      const stat = fs.statSync(safeLocalPath)
+      fileSize = stat.size
+    } catch (err: any) {
+      sendJson(res, 400, { success: false, error: `Local file not found: ${err.message}` })
+      return
+    }
+
+    const connectorType = await fileManager.getConnectorType(sessionId)
     const taskId = uuidv4()
-    await fileManager.upload(sessionId, localPath, remotePath, taskId)
-    const response: UploadFileResponse = { remotePath, localPath }
+
+    await runUploadWorkerAndWait({
+      taskId,
+      sessionId,
+      method: connectorType === 'sftp' ? 'sftp' : 'exec',
+      sshConfig: {
+        host: sshConfig.host,
+        port: sshConfig.port,
+        username: sshConfig.username,
+        password: sshConfig.password,
+        privateKey: sshConfig.privateKey,
+        passphrase: sshConfig.passphrase,
+        readyTimeout: sshConfig.readyTimeout,
+        keepaliveInterval: sshConfig.keepaliveInterval,
+        shellEnterCommands: sshConfig.shellEnterCommands,
+        shellEnterWait: sshConfig.shellEnterWait
+      },
+      localPath: safeLocalPath,
+      remotePath,
+      fileSize
+    })
+
+    // 上传完成后计算远程文件 MD5，供 MCP 调用方校验完整性
+    let md5: string | undefined
+    try {
+      md5 = await fileManager.calculateRemoteMD5(sessionId, remotePath)
+    } catch (md5Err: any) {
+      log.warn(`[MCP] Failed to calculate remote MD5 for ${remotePath}:`, md5Err.message)
+    }
+
+    const response: UploadFileResponse = { remotePath, localPath: safeLocalPath, md5 }
     sendJson(res, 200, { success: true, data: response })
   } catch (err: any) {
     sendJson(res, 500, { success: false, error: err.message })
@@ -1855,6 +2005,18 @@ function clampNumber(value: unknown, min: number, max: number, fallback: number)
 
 function quotePosixPath(filePath: string): string {
   return `'${filePath.replace(/'/g, `'\\''`)}'`
+}
+
+/**
+ * 校验本地路径安全：禁止路径穿越（含 .. 分量）
+ */
+function assertSafeLocalPath(filePath: string): string {
+  const normalized = path.normalize(filePath)
+  const parts = normalized.split(path.sep)
+  if (parts.includes('..')) {
+    throw new Error('localPath contains path traversal')
+  }
+  return normalized
 }
 
 async function authorizeMcpOperation(

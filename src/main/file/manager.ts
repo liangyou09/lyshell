@@ -291,9 +291,9 @@ export class FileManager extends EventEmitter {
   }
 
   /**
-   * 计算文件 MD5
+   * 计算本地文件 MD5
    */
-  private async calculateMD5(filePath: string): Promise<string> {
+  async calculateMD5(filePath: string): Promise<string> {
     const crypto = await import('crypto')
     const fs = await import('fs')
 
