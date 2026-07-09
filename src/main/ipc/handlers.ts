@@ -81,6 +81,8 @@ export const IPC_CHANNELS = {
   TERMINAL_DATA: 'terminal:data',
   TERMINAL_EXIT: 'terminal:exit',
   TERMINAL_OPEN_SESSIONS_SYNC: 'terminal:open-sessions-sync',  // 渲染层同步当前打开的会话列表
+  MCP_SESSION_LOCKED: 'mcp:session-locked',  // MCP 占用共享 PTY，渲染层应阻塞用户输入
+  MCP_SESSION_UNLOCKED: 'mcp:session-unlocked',  // MCP 释放共享 PTY，恢复用户输入
 
   // Python 执行
   PYTHON_EXECUTE: 'python:execute',
@@ -203,6 +205,20 @@ export function broadcastSessionsChanged(): void {
  */
 export function broadcastMcpOpenConnectionDialog(): void {
   sendToAllWindows(IPC_CHANNELS.MCP_OPEN_CONNECTION_DIALOG)
+}
+
+/**
+ * 通知所有渲染窗口：指定 session 的 PTY 被 MCP 锁定，应阻塞用户键盘输入
+ */
+export function broadcastMcpSessionLocked(sessionId: string): void {
+  sendToAllWindows(IPC_CHANNELS.MCP_SESSION_LOCKED, { sessionId })
+}
+
+/**
+ * 通知所有渲染窗口：指定 session 的 PTY 已解锁，恢复用户键盘输入
+ */
+export function broadcastMcpSessionUnlocked(sessionId: string): void {
+  sendToAllWindows(IPC_CHANNELS.MCP_SESSION_UNLOCKED, { sessionId })
 }
 
 const allowedOpenDialogProperties = new Set<NonNullable<OpenDialogOptions['properties']>[number]>([
@@ -432,6 +448,15 @@ export function registerIPCHandlers(): void {
           log.warn(`Failed to pre-init file connector for ${data.id}:`, err.message)
         })
       }, 200)  // 延迟 200ms，让终端先处理几帧数据后立即初始化连接
+    }
+  })
+
+  // MCP 占用/释放共享 PTY 时通知渲染层阻塞/恢复用户输入
+  sessionManager.on('session:mcp-lock-changed', ({ sessionId, lockedByMcp }: { sessionId: string; lockedByMcp: boolean }) => {
+    if (lockedByMcp) {
+      broadcastMcpSessionLocked(sessionId)
+    } else {
+      broadcastMcpSessionUnlocked(sessionId)
     }
   })
 

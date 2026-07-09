@@ -39,6 +39,11 @@ export interface SessionConfig {
   // 创建和修改时间
   createdAt: Date
   updatedAt: Date
+
+  // 运行时会话关联的已保存会话 ID。
+  // 前端打开 saved session 时会清空 id 并生成新的 runtime UUID，
+  // 通过此字段可把 runtime 会话与原始保存项关联起来（如 MCP list_sessions 状态同步）。
+  originSavedSessionId?: string
 }
 
 /**

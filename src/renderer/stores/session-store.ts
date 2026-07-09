@@ -15,6 +15,7 @@ interface SessionState {
   isTemporary?: boolean // 临时会话标记
   skipAutoAddToPane?: boolean // 跳过自动添加到分屏（用于克隆）
   hasActivity?: boolean // 有新输出活动（用于标签高亮提示）
+  lockedByMcp?: boolean // MCP 是否正在占用该会话 PTY（共享 PTY 模式时阻塞用户输入）
 }
 
 /**
@@ -78,6 +79,9 @@ interface SessionStore {
 
   // 设置/清除会话活动状态
   setSessionActivity: (id: string, hasActivity: boolean) => void
+
+  // 设置/清除 MCP PTY 锁定状态
+  setSessionMcpLock: (id: string, lockedByMcp: boolean) => void
 }
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
@@ -360,6 +364,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set(state => ({
       sessions: state.sessions.map(s =>
         s.id === id ? { ...s, hasActivity } : s
+      )
+    }))
+  },
+
+  // 设置/清除 MCP PTY 锁定状态
+  setSessionMcpLock: (id, lockedByMcp) => {
+    set(state => ({
+      sessions: state.sessions.map(s =>
+        s.id === id ? { ...s, lockedByMcp } : s
       )
     }))
   }

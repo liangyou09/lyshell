@@ -13,7 +13,7 @@ import { app, dialog } from 'electron'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 
-import { sessionManager } from '../terminal/session-manager'
+import { sessionManager, type Session } from '../terminal/session-manager'
 import { broadcastSessionsChanged, broadcastMcpOpenConnectionDialog } from '../ipc/handlers'
 import { processInputEscapeSequences } from '@shared/escape-sequences'
 import { fileManager, runUploadWorkerAndWait, runDownloadWorkerAndWait } from '../file'
@@ -528,10 +528,14 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
  * live 状态：从 sessionManager.getSession(config.id) 叠加，无则 disconnected。
  * 所有敏感字段（password / privateKey / passphrase）均不输出。
  */
-function buildSessionInfo(config: SessionConfig, inTerminal?: boolean): SessionInfo {
-  const live = sessionManager.getSession(config.id)
+function buildSessionInfo(config: SessionConfig, terminalOpenIds: Set<string>): SessionInfo {
+  // saved session 可能正以 runtime 实例打开（前端会清空 config.id 并记 originSavedSessionId）
+  const live = sessionManager.getSession(config.id) ?? (config.id ? pickBestRuntimeSession(config.id) : undefined)
+
   const status = live ? live.status : ConnectionStatus.DISCONNECTED
   const pinned = config.tags?.includes('pinned') ?? false
+  // saved id 或 runtime id 任一在终端中打开即视为已打开
+  const isInTerminal = terminalOpenIds.has(config.id) || (live ? terminalOpenIds.has(live.id) : false)
 
   return {
     id: config.id,
@@ -559,8 +563,26 @@ function buildSessionInfo(config: SessionConfig, inTerminal?: boolean): SessionI
     pinned,
     connectCount: config.connectCount,
     updatedAt: config.updatedAt.toISOString(),
-    inTerminal
+    inTerminal: isInTerminal
   }
+}
+
+/**
+ * 把 saved session ID 解析为当前正在运行的 runtime session ID。
+ *
+ * 前端打开 saved session 时会清空 config.id 并生成新的 runtime UUID，
+ * 因此直接用 saved id 调用工具会找不到 session。此函数通过 originSavedSessionId
+ * 反查对应的 runtime 会话；如果 sessionId 本身就是 live id 或没有关联 runtime，则原样返回。
+ */
+function resolveRuntimeSessionId(sessionId: string): string {
+  // 本身是 live session，直接返回
+  if (sessionManager.getSession(sessionId)) {
+    return sessionId
+  }
+
+  // 反查 originSavedSessionId 匹配的 runtime 会话；无则原样返回
+  const best = pickBestRuntimeSession(sessionId)
+  return best ? best.id : sessionId
 }
 
 const STATUS_RANK: Record<string, number> = {
@@ -569,6 +591,21 @@ const STATUS_RANK: Record<string, number> = {
   [ConnectionStatus.RECONNECTING]: 3,
   [ConnectionStatus.ERROR]: 2,
   [ConnectionStatus.DISCONNECTED]: 1
+}
+
+/**
+ * 按 saved session ID 反查最优 runtime 会话（通过 originSavedSessionId）。
+ * 优先 connected，其次按最近活跃时间倒序。供 buildSessionInfo 与 resolveRuntimeSessionId 复用。
+ */
+function pickBestRuntimeSession(savedId: string): Session | undefined {
+  const candidates = sessionManager.getAllSessions().filter(s => s.config.originSavedSessionId === savedId)
+  if (candidates.length === 0) return undefined
+  return candidates.sort((a, b) => {
+    const rankA = STATUS_RANK[a.status] ?? 0
+    const rankB = STATUS_RANK[b.status] ?? 0
+    if (rankB !== rankA) return rankB - rankA
+    return b.lastActiveAt.getTime() - a.lastActiveAt.getTime()
+  })[0]
 }
 
 function sortSessionInfos(infos: SessionInfo[]): SessionInfo[] {
@@ -602,7 +639,7 @@ async function handleListSessions(res: http.ServerResponse, binding: TokenBindin
 
     const saved = sessionRepository.getAll()
     const terminalIds = sessionManager.getAllTerminalOpenSessionIds()
-    const result = sortSessionInfos(applyDefaultVisibilityFilter(saved.map(c => buildSessionInfo(c, terminalIds.has(c.id))), includeAll))
+    const result = sortSessionInfos(applyDefaultVisibilityFilter(saved.map(c => buildSessionInfo(c, terminalIds)), includeAll))
     sendJson(res, 200, { success: true, data: result })
   } catch (err: any) {
     log.error('[MCP] List sessions error:', err)
@@ -638,18 +675,18 @@ async function handleListSessionsFiltered(
       for (const id of terminalIds) {
         const live = sessionManager.getSession(id)
         if (live) {
-          infos.push(buildSessionInfo(live.config, true))
+          infos.push(buildSessionInfo(live.config, terminalIds))
         } else {
           const saved = sessionRepository.get(id)
           if (saved) {
-            infos.push(buildSessionInfo(saved, true))
+            infos.push(buildSessionInfo(saved, terminalIds))
           }
         }
       }
     } else {
       const saved = sessionRepository.getAll()
       const terminalIds = sessionManager.getAllTerminalOpenSessionIds()
-      infos = saved.map(c => buildSessionInfo(c, terminalIds.has(c.id)))
+      infos = saved.map(c => buildSessionInfo(c, terminalIds))
     }
 
     if (f.status) infos = infos.filter(i => i.status === f.status)
@@ -700,28 +737,31 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
       return
     }
 
-    const session = sessionManager.getSession(sessionId)
-    if (!session) {
+    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
+    const targetSession = sessionManager.getSession(resolvedSessionId)
+    if (!targetSession) {
       sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
       return
     }
 
-    if (session.status !== ConnectionStatus.CONNECTED) {
-      sendJson(res, 400, { success: false, error: `Session not connected (status: ${session.status})` })
-      return
-    }
-
     const safeTimeout = clampNumber(timeout, 1, MAX_COMMAND_TIMEOUT_MS, 30000)
-    const capability: McpCapability = session.config.type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
-    const auth = await authorizeMcpOperation('execute_command', capability, sessionId, summarizeText(command), binding)
+    const capability: McpCapability = targetSession.config.type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
+    const auth = await authorizeMcpOperation('execute_command', capability, resolvedSessionId, summarizeText(command), binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
 
-    const destructive = await confirmDestructiveIfNeeded('execute_command', command, sessionId, binding)
+    const destructive = await confirmDestructiveIfNeeded('execute_command', command, resolvedSessionId, binding)
     if (!destructive.allowed) {
       sendJson(res, 403, { success: false, error: destructive.reason })
+      return
+    }
+
+    // execute_command 走独立 exec 通道，不需要占用 PTY，也不创建 Agent 页签。
+    const session = sessionManager.getSession(resolvedSessionId)
+    if (!session || session.status !== ConnectionStatus.CONNECTED) {
+      sendJson(res, 400, { success: false, error: `Session not connected (status: ${session?.status ?? 'unknown'})` })
       return
     }
 
@@ -729,7 +769,7 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
 
     if (session.config.type === ConnectionType.SSH) {
       // SSH 会话：使用 fileManager 的 connector（独立 SSH exec 通道）
-      const connector = await fileManager.getConnector(sessionId)
+      const connector = await fileManager.getConnector(resolvedSessionId)
       if (!connector.execRaw) {
         sendJson(res, 500, { success: false, error: 'Connector does not support command execution' })
         return
@@ -773,27 +813,31 @@ async function handleExecuteCommandStream(data: ExecuteRequest, res: http.Server
       return
     }
 
-    const session = sessionManager.getSession(sessionId)
-    if (!session) {
+    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
+    const targetSession = sessionManager.getSession(resolvedSessionId)
+    if (!targetSession) {
       sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
-      return
-    }
-    if (session.status !== ConnectionStatus.CONNECTED) {
-      sendJson(res, 400, { success: false, error: `Session not connected (status: ${session.status})` })
       return
     }
 
     const safeTimeout = clampNumber(timeout, 1, MAX_COMMAND_TIMEOUT_MS, 30000)
-    const capability: McpCapability = session.config.type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
-    const auth = await authorizeMcpOperation('execute_command', capability, sessionId, summarizeText(command), binding)
+    const capability: McpCapability = targetSession.config.type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
+    const auth = await authorizeMcpOperation('execute_command', capability, resolvedSessionId, summarizeText(command), binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
 
-    const destructive = await confirmDestructiveIfNeeded('execute_command', command, sessionId, binding)
+    const destructive = await confirmDestructiveIfNeeded('execute_command', command, resolvedSessionId, binding)
     if (!destructive.allowed) {
       sendJson(res, 403, { success: false, error: destructive.reason })
+      return
+    }
+
+    // execute-stream 同样走独立 exec 通道，不创建 Agent 页签。
+    const session = sessionManager.getSession(resolvedSessionId)
+    if (!session || session.status !== ConnectionStatus.CONNECTED) {
+      sendJson(res, 400, { success: false, error: `Session not connected (status: ${session?.status ?? 'unknown'})` })
       return
     }
 
@@ -817,7 +861,7 @@ async function handleExecuteCommandStream(data: ExecuteRequest, res: http.Server
     try {
       let result: { output: string; exitCode: number }
       if (session.config.type === ConnectionType.SSH) {
-        const connector = await fileManager.getConnector(sessionId)
+        const connector = await fileManager.getConnector(resolvedSessionId)
         if (!connector.execStream) {
           writeEvent({ type: 'error', error: 'Connector does not support streaming execution' })
           res.end()
@@ -871,14 +915,10 @@ async function handleSendInput(data: SendInputRequest, res: http.ServerResponse,
       return
     }
 
-    const session = sessionManager.getSession(sessionId)
-    if (!session) {
+    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
+    const targetSession = sessionManager.getSession(resolvedSessionId)
+    if (!targetSession) {
       sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
-      return
-    }
-
-    if (session.status !== ConnectionStatus.CONNECTED) {
-      sendJson(res, 400, { success: false, error: `Session not connected (status: ${session.status})` })
       return
     }
 
@@ -887,26 +927,37 @@ async function handleSendInput(data: SendInputRequest, res: http.ServerResponse,
       return
     }
 
-    const auth = await authorizeMcpOperation('send_input', 'interactiveWrite', sessionId, `${text.length} chars`, binding)
+    const auth = await authorizeMcpOperation('send_input', 'interactiveWrite', resolvedSessionId, `${text.length} chars`, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
 
     // 内容级破坏性确认：在 escape 处理之前扫描原始 text，破坏性子串此时已存在
-    const destructive = await confirmDestructiveIfNeeded('send_input', text, sessionId, binding)
+    const destructive = await confirmDestructiveIfNeeded('send_input', text, resolvedSessionId, binding)
     if (!destructive.allowed) {
       sendJson(res, 403, { success: false, error: destructive.reason })
+      return
+    }
+
+    const session = sessionManager.getSession(resolvedSessionId)
+    if (!session || session.status !== ConnectionStatus.CONNECTED) {
+      sendJson(res, 400, { success: false, error: `Session not connected (status: ${session?.status ?? 'unknown'})` })
       return
     }
 
     // 解析转义字符：\n -> 换行, \r -> 回车, \x03 -> Ctrl+C 等
     const processedText = processInputEscapeSequences(text)
 
-    sessionManager.writeToSession(sessionId, processedText)
-
-    log.info(`[MCP] Send input to session ${sessionId}: ${text.length} chars`)
-    sendJson(res, 200, { success: true, data: { sent: true } })
+    // 临时锁定 PTY，避免用户输入与 MCP 输入冲突
+    sessionManager.lockSessionForMcp(resolvedSessionId)
+    try {
+      sessionManager.writeToSession(resolvedSessionId, processedText)
+      log.info(`[MCP] Send input to session ${resolvedSessionId} (origin ${sessionId}): ${text.length} chars`)
+      sendJson(res, 200, { success: true, data: { sent: true, bytes: processedText.length } })
+    } finally {
+      sessionManager.unlockSessionForMcp(resolvedSessionId)
+    }
   } catch (err: any) {
     log.error('[MCP] Send input error:', err)
     sendJson(res, 500, { success: false, error: err.message })
@@ -924,19 +975,20 @@ async function handleReadOutput(data: ReadOutputRequest, res: http.ServerRespons
       return
     }
 
-    const session = sessionManager.getSession(sessionId)
+    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
+    const session = sessionManager.getSession(resolvedSessionId)
     if (!session) {
       sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
       return
     }
 
-    const auth = await authorizeMcpOperation('read_output', 'read', sessionId, undefined, binding)
+    const auth = await authorizeMcpOperation('read_output', 'read', resolvedSessionId, undefined, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
 
-    const result = sessionManager.readOutput(sessionId, {
+    const result = sessionManager.readOutput(resolvedSessionId, {
       lines: clampNumber(data.lines, 1, 1000, 100),
       raw: data.raw === true
     })
@@ -969,14 +1021,10 @@ async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerRespo
       return
     }
 
-    const session = sessionManager.getSession(sessionId)
-    if (!session) {
+    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
+    const targetSession = sessionManager.getSession(resolvedSessionId)
+    if (!targetSession) {
       sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
-      return
-    }
-
-    if (session.status !== ConnectionStatus.CONNECTED) {
-      sendJson(res, 400, { success: false, error: `Session not connected (status: ${session.status})` })
       return
     }
 
@@ -985,32 +1033,44 @@ async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerRespo
       return
     }
 
-    const auth = await authorizeMcpOperation('send_and_wait', 'interactiveWrite', sessionId, `${text.length} chars`, binding)
+    const auth = await authorizeMcpOperation('send_and_wait', 'interactiveWrite', resolvedSessionId, `${text.length} chars`, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
 
-    const destructive = await confirmDestructiveIfNeeded('send_and_wait', text, sessionId, binding)
+    const destructive = await confirmDestructiveIfNeeded('send_and_wait', text, resolvedSessionId, binding)
     if (!destructive.allowed) {
       sendJson(res, 403, { success: false, error: destructive.reason })
       return
     }
 
-    const result: SendAndWaitResult = await sessionManager.sendAndWait(sessionId, {
-      text,
-      waitMs: clampNumber(data.waitMs, 0, MAX_COMMAND_TIMEOUT_MS, 2000),
-      idleMs: clampNumber(data.idleMs, 50, 10000, 300),
-      maxWaitMs: clampNumber(data.maxWaitMs, 100, MAX_COMMAND_TIMEOUT_MS, 10000),
-      // 注意：waitForPattern 是正则，不能过 summarizeText——后者会截断追加 '...'（被 RegExp 当成三个 .）
-      // 并把 CR/LF/Tab 换成空格，悄悄改变正则语义。原样透传。
-      waitForPattern: data.waitForPattern,
-      autoNewline: data.autoNewline !== false,
-      captureExitCode: data.captureExitCode === true
-    })
+    const session = sessionManager.getSession(resolvedSessionId)
+    if (!session || session.status !== ConnectionStatus.CONNECTED) {
+      sendJson(res, 400, { success: false, error: `Session not connected (status: ${session?.status ?? 'unknown'})` })
+      return
+    }
 
-    log.info(`[MCP] Send-and-wait to session ${sessionId}: settled=${result.settled} elapsed=${result.elapsedMs}ms`)
-    sendJson(res, 200, { success: true, data: result })
+    // 在 sendAndWait 期间锁定 PTY，避免用户输入与 MCP 输入冲突
+    sessionManager.lockSessionForMcp(resolvedSessionId)
+    try {
+      const result: SendAndWaitResult = await sessionManager.sendAndWait(resolvedSessionId, {
+        text,
+        waitMs: clampNumber(data.waitMs, 0, MAX_COMMAND_TIMEOUT_MS, 2000),
+        idleMs: clampNumber(data.idleMs, 50, 10000, 300),
+        maxWaitMs: clampNumber(data.maxWaitMs, 100, MAX_COMMAND_TIMEOUT_MS, 10000),
+        // 注意：waitForPattern 是正则，不能过 summarizeText——后者会截断追加 '...'（被 RegExp 当成三个 .）
+        // 并把 CR/LF/Tab 换成空格，悄悄改变正则语义。原样透传。
+        waitForPattern: data.waitForPattern,
+        autoNewline: data.autoNewline !== false,
+        captureExitCode: data.captureExitCode === true
+      })
+
+      log.info(`[MCP] Send-and-wait to session ${resolvedSessionId} (origin ${sessionId}): settled=${result.settled} elapsed=${result.elapsedMs}ms`)
+      sendJson(res, 200, { success: true, data: result })
+    } finally {
+      sessionManager.unlockSessionForMcp(resolvedSessionId)
+    }
   } catch (err: any) {
     log.error('[MCP] Send-and-wait error:', err)
     sendJson(res, 500, { success: false, error: err.message })
@@ -1037,24 +1097,25 @@ async function handleReconnectSession(
       return
     }
 
-    const session = sessionManager.getSession(sessionId)
+    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
+    const session = sessionManager.getSession(resolvedSessionId)
     if (!session) {
       sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
       return
     }
 
-    const auth = await authorizeMcpOperation('reconnect_session', 'sessionControl', sessionId, undefined, binding)
+    const auth = await authorizeMcpOperation('reconnect_session', 'sessionControl', resolvedSessionId, undefined, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
 
-    const result = await sessionManager.reconnectSession(sessionId)
+    const result = await sessionManager.reconnectSession(resolvedSessionId)
     const response: ReconnectSessionResponse = {
       sessionId: result.id,
       status: result.status
     }
-    log.info(`[MCP] Reconnected session ${sessionId}: status=${result.status}`)
+    log.info(`[MCP] Reconnected session ${resolvedSessionId}: status=${result.status}`)
     sendJson(res, 200, { success: true, data: response })
   } catch (err: any) {
     log.error('[MCP] Reconnect session error:', err)
@@ -1082,7 +1143,8 @@ async function handleCloseSession(
       return
     }
 
-    const session = sessionManager.getSession(sessionId)
+    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
+    const session = sessionManager.getSession(resolvedSessionId)
     if (!session) {
       // 无 live 对象（仅保存项）——视为本就未连接
       const response: CloseSessionResponse = { sessionId, status: 'not_connected' }
@@ -1090,7 +1152,7 @@ async function handleCloseSession(
       return
     }
 
-    const auth = await authorizeMcpOperation('close_session', 'sessionControl', sessionId, undefined, binding)
+    const auth = await authorizeMcpOperation('close_session', 'sessionControl', resolvedSessionId, undefined, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -1102,10 +1164,10 @@ async function handleCloseSession(
       return
     }
 
-    await sessionManager.disconnectSession(sessionId)
+    await sessionManager.disconnectSession(resolvedSessionId)
     broadcastSessionsChanged()
     const response: CloseSessionResponse = { sessionId, status: 'disconnected' }
-    log.info(`[MCP] Closed session ${sessionId}`)
+    log.info(`[MCP] Closed session ${resolvedSessionId}`)
     sendJson(res, 200, { success: true, data: response })
   } catch (err: any) {
     log.error('[MCP] Close session error:', err)
@@ -1656,7 +1718,8 @@ async function handleListFiles(data: FileOperationRequest, res: http.ServerRespo
       sendJson(res, 400, { success: false, error: 'sessionId and path are required' })
       return
     }
-    const auth = await authorizeMcpOperation('list_files', 'read', sessionId, dirPath, binding)
+    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
+    const auth = await authorizeMcpOperation('list_files', 'read', resolvedSessionId, dirPath, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -1668,7 +1731,7 @@ async function handleListFiles(data: FileOperationRequest, res: http.ServerRespo
 
     // 快速路径：单目录、无过滤
     if (!recursive && !glob) {
-      const files = await fileManager.listDir(sessionId, dirPath)
+      const files = await fileManager.listDir(resolvedSessionId, dirPath)
       sendJson(res, 200, { success: true, data: { entries: files, truncated: false } })
       return
     }
@@ -1686,7 +1749,7 @@ async function handleListFiles(data: FileOperationRequest, res: http.ServerRespo
       seen.add(dir)
       let entries: FileInfo[]
       try {
-        entries = await fileManager.listDir(sessionId, dir)
+        entries = await fileManager.listDir(resolvedSessionId, dir)
       } catch {
         // 无权限/不存在的子目录跳过，继续遍历兄弟节点
         continue
@@ -1721,14 +1784,15 @@ async function handleReadFile(data: ReadFileRequest, res: http.ServerResponse, b
       return
     }
 
+    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
     const safeMaxSize = clampNumber(maxSize, 1, MAX_READ_FILE_BYTES, MAX_READ_FILE_BYTES)
-    const auth = await authorizeMcpOperation('read_file', 'read', sessionId, filePath, binding)
+    const auth = await authorizeMcpOperation('read_file', 'read', resolvedSessionId, filePath, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
 
-    const connector = await fileManager.getConnector(sessionId)
+    const connector = await fileManager.getConnector(resolvedSessionId)
 
     // 先检查文件信息
     const stat = await connector.stat(filePath)
@@ -1766,12 +1830,13 @@ async function handleStatFile(data: FileOperationRequest, res: http.ServerRespon
       sendJson(res, 400, { success: false, error: 'sessionId and path are required' })
       return
     }
-    const auth = await authorizeMcpOperation('stat_file', 'read', sessionId, filePath, binding)
+    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
+    const auth = await authorizeMcpOperation('stat_file', 'read', resolvedSessionId, filePath, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
-    const stat = await fileManager.stat(sessionId, filePath)
+    const stat = await fileManager.stat(resolvedSessionId, filePath)
     sendJson(res, 200, { success: true, data: stat })
   } catch (err: any) {
     sendJson(res, 500, { success: false, error: err.message })
@@ -1801,13 +1866,14 @@ async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerRes
       sendJson(res, 400, { success: false, error: pathErr.message })
       return
     }
-    const auth = await authorizeMcpOperation('download_file', 'fileWrite', sessionId, `${remotePath} -> ${safeLocalPath}`, binding)
+    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
+    const auth = await authorizeMcpOperation('download_file', 'fileWrite', resolvedSessionId, `${remotePath} -> ${safeLocalPath}`, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
 
-    const session = sessionManager.getSession(sessionId)
+    const session = sessionManager.getSession(resolvedSessionId)
     if (!session || session.config.type !== ConnectionType.SSH) {
       sendJson(res, 400, { success: false, error: 'download_file only supports SSH sessions' })
       return
@@ -1823,15 +1889,15 @@ async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerRes
       return
     }
 
-    const fileStat = await fileManager.stat(sessionId, remotePath)
+    const fileStat = await fileManager.stat(resolvedSessionId, remotePath)
     const fileSize = fileStat.size
 
-    const connectorType = await fileManager.getConnectorType(sessionId)
+    const connectorType = await fileManager.getConnectorType(resolvedSessionId)
     const taskId = uuidv4()
 
     await runDownloadWorkerAndWait({
       taskId,
-      sessionId,
+      sessionId: resolvedSessionId,
       method: connectorType === 'sftp' ? 'sftp' : 'exec',
       sshConfig: {
         host: sshConfig.host,
@@ -1885,13 +1951,14 @@ async function handleUploadFile(data: UploadFileRequest, res: http.ServerRespons
       sendJson(res, 400, { success: false, error: pathErr.message })
       return
     }
-    const auth = await authorizeMcpOperation('upload_file', 'fileWrite', sessionId, `${safeLocalPath} -> ${remotePath}`, binding)
+    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
+    const auth = await authorizeMcpOperation('upload_file', 'fileWrite', resolvedSessionId, `${safeLocalPath} -> ${remotePath}`, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
 
-    const session = sessionManager.getSession(sessionId)
+    const session = sessionManager.getSession(resolvedSessionId)
     if (!session || session.config.type !== ConnectionType.SSH) {
       sendJson(res, 400, { success: false, error: 'upload_file only supports SSH sessions' })
       return
@@ -1916,12 +1983,12 @@ async function handleUploadFile(data: UploadFileRequest, res: http.ServerRespons
       return
     }
 
-    const connectorType = await fileManager.getConnectorType(sessionId)
+    const connectorType = await fileManager.getConnectorType(resolvedSessionId)
     const taskId = uuidv4()
 
     await runUploadWorkerAndWait({
       taskId,
-      sessionId,
+      sessionId: resolvedSessionId,
       method: connectorType === 'sftp' ? 'sftp' : 'exec',
       sshConfig: {
         host: sshConfig.host,
@@ -1943,7 +2010,7 @@ async function handleUploadFile(data: UploadFileRequest, res: http.ServerRespons
     // 上传完成后计算远程文件 MD5，供 MCP 调用方校验完整性
     let md5: string | undefined
     try {
-      md5 = await fileManager.calculateRemoteMD5(sessionId, remotePath)
+      md5 = await fileManager.calculateRemoteMD5(resolvedSessionId, remotePath)
     } catch (md5Err: any) {
       log.warn(`[MCP] Failed to calculate remote MD5 for ${remotePath}:`, md5Err.message)
     }
@@ -1965,9 +2032,10 @@ function getMcpSecuritySettings(): Required<McpSecuritySettings> {
 
 function getSessionSummary(sessionId?: string): Pick<McpAuditEvent, 'sessionId' | 'sessionName' | 'sessionType'> {
   if (!sessionId) return {}
-  const session = sessionManager.getSession(sessionId)
+  const resolvedId = resolveRuntimeSessionId(sessionId)
+  const session = sessionManager.getSession(resolvedId)
   return {
-    sessionId,
+    sessionId: resolvedId,
     sessionName: session?.config.name,
     sessionType: session?.config.type
   }
@@ -2027,7 +2095,9 @@ async function authorizeMcpOperation(
   binding: TokenBinding
 ): Promise<{ allowed: boolean; reason?: string }> {
   const settings = getMcpSecuritySettings()
-  const session = sessionId ? sessionManager.getSession(sessionId) : undefined
+  // 把 saved id 解析为 runtime id，使 MCP 工具既可以用保存项 ID 也可以用 live session ID 调用。
+  const resolvedSessionId = sessionId ? resolveRuntimeSessionId(sessionId) : undefined
+  const session = resolvedSessionId ? sessionManager.getSession(resolvedSessionId) : undefined
   const sessionSummary = getSessionSummary(sessionId)
 
   const auditBase: Omit<McpAuditEvent, 'allowed'> = {
@@ -2044,11 +2114,16 @@ async function authorizeMcpOperation(
     return { allowed: false, reason }
   }
 
-  // 全局开关 + sessionId 黑/白名单（两类 token 共同受约束）
+  // 全局开关 + sessionId 黑/白名单（两类 token 共同受约束）。
+  // 同时检查原始 id 与解析后的 runtime id：用户配置黑白名单时可能使用保存项 ID。
   if (!settings.enabled) return deny('MCP access is disabled')
-  if (sessionId && settings.deniedSessionIds.includes(sessionId)) return deny('Session is denied for MCP')
-  if (sessionId && settings.allowedSessionIds.length > 0 && !settings.allowedSessionIds.includes(sessionId)) {
-    return deny('Session is not allowed for MCP')
+  const isDenied = (sid?: string) => sid !== undefined && settings.deniedSessionIds.includes(sid)
+  if (isDenied(sessionId) || isDenied(resolvedSessionId)) return deny('Session is denied for MCP')
+  if (settings.allowedSessionIds.length > 0) {
+    const isAllowed = (sid?: string) => sid !== undefined && settings.allowedSessionIds.includes(sid)
+    if (!isAllowed(sessionId) && !isAllowed(resolvedSessionId)) {
+      return deny('Session is not allowed for MCP')
+    }
   }
 
   // session token 来自 LyShell 自身孵化的 PTY（经 LYSHELL_MCP_TOKEN env 注入），
@@ -2066,7 +2141,7 @@ async function authorizeMcpOperation(
   // 注：MCP 本身已不暴露 delete_file 工具。需要删除的请走 execute_command + rm，
   //     由 allowSshExecute / allowLocalExecute 控制，并继承 SSH/PTY 自身的权限模型。
   if (binding.kind === 'session') {
-    if (sessionId && session && session.config.type === ConnectionType.LOCAL && sessionId !== binding.originSessionId) {
+    if (resolvedSessionId && session && session.config.type === ConnectionType.LOCAL && resolvedSessionId !== binding.originSessionId) {
       return deny('session token cannot drive other LOCAL terminals; only its own PTY or remote (SSH/Telnet/Serial) sessions are allowed')
     }
     // C5：session token 不得 resurrect 其它已断开的保存会话（可能持有已存凭据）——
@@ -2074,7 +2149,7 @@ async function authorizeMcpOperation(
     // 自身 origin 的重连（自愈）与对已连接远端会话的控制（如刷新、关闭）仍允许。
     if (
       capability === 'sessionControl' &&
-      sessionId && sessionId !== binding.originSessionId &&
+      resolvedSessionId && resolvedSessionId !== binding.originSessionId &&
       session && session.status === ConnectionStatus.DISCONNECTED
     ) {
       return deny('session token cannot reconnect other disconnected sessions (potential credential reuse); only its own session or already-connected remotes are allowed')
@@ -2242,19 +2317,20 @@ async function handleSessionOutputResource(
   binding: TokenBinding
 ): Promise<void> {
   try {
-    const auth = await authorizeMcpOperation('read_output_resource', 'read', sessionId, undefined, binding)
+    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
+    const auth = await authorizeMcpOperation('read_output_resource', 'read', resolvedSessionId, undefined, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
-    const session = sessionManager.getSession(sessionId)
+    const session = sessionManager.getSession(resolvedSessionId)
     if (!session) {
       sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
       return
     }
     const rawLines = url.searchParams.get('lines')
     const linesNum = rawLines ? Number(rawLines) : 200
-    const out = sessionManager.readOutput(sessionId, {
+    const out = sessionManager.readOutput(resolvedSessionId, {
       lines: clampNumber(linesNum, 1, 1000, 200),
       raw: false
     })
@@ -2297,10 +2373,11 @@ async function handleWaitForPrompt(
       sendJson(res, 400, { success: false, error: 'sessionId is required' })
       return
     }
+    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
     // pattern 可选：缺省匹配常见 shell 提示符（$ / # / > / % 之一结尾，允许尾随空白）
     const patternStr = pattern && pattern.trim() ? pattern : '[$#>%]\\s*$'
 
-    const session = sessionManager.getSession(sessionId)
+    const session = sessionManager.getSession(resolvedSessionId)
     if (!session) {
       sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
       return
@@ -2310,7 +2387,7 @@ async function handleWaitForPrompt(
       return
     }
 
-    const auth = await authorizeMcpOperation('wait_for_prompt', 'read', sessionId, summarizeText(patternStr, 200), binding)
+    const auth = await authorizeMcpOperation('wait_for_prompt', 'read', resolvedSessionId, summarizeText(patternStr, 200), binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -2329,8 +2406,8 @@ async function handleWaitForPrompt(
     // 此时没有新输出产生，纯等新输出会超时。命中即立即返回。
     // 同时在 raw 与 ANSI 清洗后两种基底上匹配：默认 prompt 正则依赖清洗后的 $ 锚定，
     // 而带 ANSI 码的自定义正则只在 raw 上命中。
-    const existingRaw = sessionManager.readOutput(sessionId, { lines: 1000, raw: true })
-    const existingClean = sessionManager.readOutput(sessionId, { lines: 1000, raw: false })
+    const existingRaw = sessionManager.readOutput(resolvedSessionId, { lines: 1000, raw: true })
+    const existingClean = sessionManager.readOutput(resolvedSessionId, { lines: 1000, raw: false })
     if (existingRaw && existingClean && (regex.test(existingRaw.output) || regex.test(existingClean.output))) {
       sendJson(res, 200, {
         success: true,
@@ -2344,7 +2421,7 @@ async function handleWaitForPrompt(
     //  - 在 raw 与清洗后两种基底上匹配（见 sendAndWait 实现）；
     //  - 用 idleMs 做 settle 早返回（终端静默 idleMs 后即返回 settled:true）。
     // 仅匹配"调用后新产生"的输出，避免对历史 scrollback 误命中（自定义 pattern 等待新出现时尤为关键）。
-    const result: SendAndWaitResult = await sessionManager.sendAndWait(sessionId, {
+    const result: SendAndWaitResult = await sessionManager.sendAndWait(resolvedSessionId, {
       text: '',
       waitMs: 0,
       idleMs: clampNumber(data.idleMs, 50, 10000, 500),
@@ -2483,7 +2560,8 @@ async function handleTailUntil(
       return
     }
 
-    const session = sessionManager.getSession(sessionId)
+    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
+    const session = sessionManager.getSession(resolvedSessionId)
     if (!session) {
       sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
       return
@@ -2493,7 +2571,7 @@ async function handleTailUntil(
       return
     }
 
-    const auth = await authorizeMcpOperation('tail_until', 'read', sessionId, summarizeText(pattern, 200), binding)
+    const auth = await authorizeMcpOperation('tail_until', 'read', resolvedSessionId, summarizeText(pattern, 200), binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -2514,7 +2592,7 @@ async function handleTailUntil(
     let lastOutput = ''
 
     while (Date.now() - start < timeoutMs) {
-      const out = sessionManager.readOutput(sessionId, { lines: 500, raw: false })
+      const out = sessionManager.readOutput(resolvedSessionId, { lines: 500, raw: false })
       if (out) {
         lastOutput = out.output
         if (regex.test(lastOutput)) {
@@ -2523,7 +2601,7 @@ async function handleTailUntil(
         }
       }
       // 注意：会话中途断开则放弃
-      const fresh = sessionManager.getSession(sessionId)
+      const fresh = sessionManager.getSession(resolvedSessionId)
       if (!fresh || fresh.status !== ConnectionStatus.CONNECTED) {
         sendJson(res, 200, {
           success: true,

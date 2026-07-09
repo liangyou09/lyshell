@@ -224,6 +224,23 @@ const MainWindow: React.FC = () => {
     }
   }, [])
 
+  // MCP 占用/释放共享 PTY 时更新 store 锁定状态，TerminalView 据此阻塞用户输入
+  useEffect(() => {
+    if (!window.electronAPI?.onMcpSessionLocked) return
+    const cleanupLock = window.electronAPI.onMcpSessionLocked(({ sessionId }) => {
+      useSessionStore.getState().setSessionMcpLock(sessionId, true)
+    })
+    return cleanupLock
+  }, [])
+
+  useEffect(() => {
+    if (!window.electronAPI?.onMcpSessionUnlocked) return
+    const cleanupUnlock = window.electronAPI.onMcpSessionUnlocked(({ sessionId }) => {
+      useSessionStore.getState().setSessionMcpLock(sessionId, false)
+    })
+    return cleanupUnlock
+  }, [])
+
   // 订阅可达性探测结果
   useEffect(() => {
     if (!window.electronAPI?.onSessionReachable) return
@@ -391,17 +408,20 @@ const MainWindow: React.FC = () => {
   // 点击会话直接开启终端
   const handleConnect = async (_sessionId: string, config: SessionConfig) => {
     try {
-      // 更新访问时间
+      // 更新访问时间（仍用原 saved id）
       await window.electronAPI?.updateSession({
         ...config,
         updatedAt: new Date()
       })
       await refreshSavedSessions()
 
+      // 每次点击 saved session 都创建新的 runtime 会话：
+      // 把 id 置空让后端生成新 UUID，避免同一 saved id 只能对应一个终端页签。
+      // 通过 originSavedSessionId 保留与原保存项的关联，供 MCP list_sessions 同步状态。
+      const runtimeConfig: SessionConfig = { ...config, id: '', originSavedSessionId: config.id }
+
       // 调用后端连接（后端会立即返回 sessionId，前端显示终端）
-      // 保留 config.id，使 runtime session 与 saved session 共用同一 ID，
-      // 避免 MCP list_sessions 看到 saved session 为 disconnected 的假象。
-      await window.electronAPI?.connect(config)
+      await window.electronAPI?.connect(runtimeConfig)
     } catch (error) {
       console.error('Connect failed:', error)
     }

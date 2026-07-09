@@ -21,7 +21,7 @@
     "preview": "electron-vite preview",
     "start": "electron .",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
-    "rebuild": "electron-rebuild -f -w serialport node-pty",
+    "rebuild": "electron-builder install-app-deps",
     "postinstall": "electron-builder install-app-deps",
     "pack": "npm run build && electron-builder --dir",
     "pack:no-mcp": "cross-env LYSHELL_DISABLE_MCP=true npm run pack",

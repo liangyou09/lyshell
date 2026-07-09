@@ -21,7 +21,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 
 import { discoverLyshell, LyShellHttpClient } from './http-client'
-import { TOOL_DEFINITIONS, ALIAS_DEFINITIONS, ALIAS_TO_NEW } from './tools'
+import { TOOL_DEFINITIONS, ALIAS_DEFINITIONS, ALIAS_TO_NEW, HIDDEN_FROM_LIST_TOOLS } from './tools'
 
 // ====================== 'current' 解析 ======================
 
@@ -156,8 +156,13 @@ async function main(): Promise<void> {
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const hideDeprecated =
       process.env.LYSHELL_MCP_HIDE_DEPRECATED === '1' || process.env.LYSHELL_MCP_HIDE_DEPRECATED === 'true'
+    const enableExecute =
+      process.env.LYSHELL_MCP_ENABLE_EXECUTE === '1' || process.env.LYSHELL_MCP_ENABLE_EXECUTE === 'true'
     const all = hideDeprecated ? TOOL_DEFINITIONS : [...TOOL_DEFINITIONS, ...ALIAS_DEFINITIONS]
-    return { tools: all.map(({ outputSchema: _, ...tool }) => tool) }
+    const visible = enableExecute
+      ? all
+      : all.filter((tool) => !HIDDEN_FROM_LIST_TOOLS.has(tool.name))
+    return { tools: visible.map(({ outputSchema: _, ...tool }) => tool) }
   })
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {

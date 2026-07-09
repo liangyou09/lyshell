@@ -28,6 +28,8 @@ const IPC_CHANNELS = {
   TERMINAL_RESIZE: 'terminal:resize',
   TERMINAL_DATA: 'terminal:data',
   TERMINAL_OPEN_SESSIONS_SYNC: 'terminal:open-sessions-sync',
+  MCP_SESSION_LOCKED: 'mcp:session-locked',
+  MCP_SESSION_UNLOCKED: 'mcp:session-unlocked',
 
   // 配置管理
   CONFIG_GET: 'config:get',
@@ -140,6 +142,17 @@ const electronAPI = {
   },
   syncTerminalOpenSessions: (sessionIds: string[]) =>
     ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_OPEN_SESSIONS_SYNC, sessionIds),
+  // MCP 占用/释放共享 PTY 通知
+  onMcpSessionLocked: (callback: (payload: { sessionId: string }) => void) => {
+    const listener = (_event: IpcRendererEvent, payload: unknown) => callback(payload as { sessionId: string })
+    ipcRenderer.on(IPC_CHANNELS.MCP_SESSION_LOCKED, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MCP_SESSION_LOCKED, listener)
+  },
+  onMcpSessionUnlocked: (callback: (payload: { sessionId: string }) => void) => {
+    const listener = (_event: IpcRendererEvent, payload: unknown) => callback(payload as { sessionId: string })
+    ipcRenderer.on(IPC_CHANNELS.MCP_SESSION_UNLOCKED, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.MCP_SESSION_UNLOCKED, listener)
+  },
 
   // 配置管理
   getConfig: (key: string) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET, key),

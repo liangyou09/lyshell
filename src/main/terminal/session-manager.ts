@@ -89,6 +89,8 @@ export interface Session {
   pendingRows?: number  // 等待应用的终端高度
   outputBuffer?: OutputBuffer  // 终端输出缓冲区（用于 MCP 读取输出）
   pendingWaitLock?: boolean  // send_and_wait 并发锁
+  lockedByMcp?: boolean  // MCP 是否正在占用该会话 PTY（共享 PTY 模式时阻塞用户输入）
+  mcpLockCount?: number  // MCP PTY 锁引用计数：并发 send_input/send_and_wait 各持一份，归零才真正解锁
 }
 
 /**
@@ -107,6 +109,9 @@ export class SessionManager extends EventEmitter {
    */
   async createSession(config: SessionConfig): Promise<Session> {
     const id = config.id || uuidv4()
+    // 回填 config.id，确保 live session 的 config 与 session 本身一致，
+    // 避免后续依赖 config.id 的地方（如 MCP list_sessions）拿到空 id。
+    config.id = id
 
     const session: Session = {
       id,
@@ -162,6 +167,40 @@ export class SessionManager extends EventEmitter {
       }
     }
     return union
+  }
+
+  /**
+   * 锁定指定会话的 PTY，阻止渲染层用户键盘输入。
+   * 用于 MCP send_input / send_and_wait 在共享 PTY 模式时避免人机输入冲突。
+   * 采用引用计数：并发调用各持一份，计数归零才真正解锁，避免长任务进行中被短任务 finally 过早放行。
+   */
+  lockSessionForMcp(sessionId: string): boolean {
+    const session = this.sessions.get(sessionId)
+    if (!session) return false
+    const prev = session.mcpLockCount ?? 0
+    session.mcpLockCount = prev + 1
+    if (!session.lockedByMcp) {
+      session.lockedByMcp = true
+      this.emit('session:mcp-lock-changed', { sessionId, lockedByMcp: true })
+    }
+    return true
+  }
+
+  /**
+   * 释放一份 MCP PTY 锁。仅当计数归零才真正解锁、恢复用户键盘输入。
+   */
+  unlockSessionForMcp(sessionId: string): boolean {
+    const session = this.sessions.get(sessionId)
+    if (!session) return false
+    const prev = session.mcpLockCount ?? 0
+    if (prev <= 0) return false
+    const next = prev - 1
+    session.mcpLockCount = next
+    if (next === 0 && session.lockedByMcp) {
+      session.lockedByMcp = false
+      this.emit('session:mcp-lock-changed', { sessionId, lockedByMcp: false })
+    }
+    return true
   }
 
   /**
@@ -374,6 +413,12 @@ export class SessionManager extends EventEmitter {
     }
 
     session.status = ConnectionStatus.DISCONNECTED
+    // 断开时清空 MCP 锁计数并通知渲染层解锁（即便有进行中的 MCP 操作，PTY 已不可写）
+    if (session.lockedByMcp) {
+      session.lockedByMcp = false
+      session.mcpLockCount = 0
+      this.emit('session:mcp-lock-changed', { sessionId: id, lockedByMcp: false })
+    }
     log.info(`Session disconnected: ${id}`)
     this.emit('session:status', { id, status: ConnectionStatus.DISCONNECTED })
 

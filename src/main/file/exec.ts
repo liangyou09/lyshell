@@ -213,7 +213,6 @@ export class ExecFileConnector extends BaseFileConnector {
   private async initShellChannel(): Promise<void> {
     // 如果 shell channel 存在且已准备好，直接返回
     if (this.shellChannel && this.shellReady) {
-      log.debug('[FileManager] shell channel already exists and ready')
       return
     }
 

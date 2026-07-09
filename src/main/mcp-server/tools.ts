@@ -489,7 +489,8 @@ export const TOOL_DEFINITIONS = [
       'Works with ALL session types (SSH, Telnet, Serial, Local). ' +
       'Use this to interact with interactive CLI programs like codex, vim, htop, gdb, etc. ' +
       'Supports escape sequences: \\n for Enter, \\r for carriage return, \\x03 for Ctrl+C, \\x1a for Ctrl+Z, \\t for Tab. ' +
-      'For non-interactive commands where you need the output, use execute_command instead.',
+      'For non-interactive commands where you need the output, use send_and_wait instead. ' +
+      'The user\'s terminal will be temporarily locked while the input is sent, to prevent human and MCP input from conflicting.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -525,6 +526,7 @@ export const TOOL_DEFINITIONS = [
       'For local sessions, uses child_process.exec. ' +
       'Telnet and serial sessions are not supported. ' +
       'Returns the command output as a string.\n\n' +
+      'This tool uses a dedicated exec channel and does NOT create a visible Agent terminal tab, so it will not interfere with the user\'s current terminal.\n\n' +
       'STREAMING: pass stream=true to receive output incrementally via MCP progress notifications ' +
       '(each stdout/stderr chunk surfaces as a progress message while the command runs). The final result ' +
       'still contains the complete output and exitCode. Useful for long-running commands where you want ' +
@@ -623,6 +625,7 @@ export const TOOL_DEFINITIONS = [
       'The tool waits until output settles (no new data for idleMs) or until a timeout. ' +
       'Optionally returns early when a regex pattern (waitForPattern) appears in the output. ' +
       'Prefer this over send_input + read_output when you need the terminal response. ' +
+      'The user\'s terminal will be temporarily locked while the operation runs, to prevent human and MCP input from conflicting. ' +
       'Best for line-oriented programs; full-screen apps (vim/htop) may produce garbled output.',
     inputSchema: {
       type: 'object' as const,
@@ -661,7 +664,7 @@ export const TOOL_DEFINITIONS = [
         captureExitCode: {
           type: 'boolean',
           description: 'Best-effort capture of the command exit code (POSIX shells only: bash/zsh/sh). When true, appends `printf \'__LYSHELL_EXIT_%d__\' $?` after the command and parses the marker from the output. Returns exitCode in the result (null if the marker is not found, e.g. non-POSIX shell or command not submitted). Only meaningful for simple shell commands; do not use with interactive programs (vim/htop). For a reliable exit code on SSH/local without cwd inheritance, use execute_command instead.'
-        }
+        },
       },
       required: ['sessionId', 'text'] as string[]
     },
@@ -673,7 +676,7 @@ export const TOOL_DEFINITIONS = [
         settled: { type: 'boolean' },
         patternMatched: { type: 'boolean' },
         elapsedMs: { type: 'number' },
-        exitCode: { type: ['number', 'null'], description: 'Best-effort exit code. Present only when captureExitCode=true and the POSIX marker was parsed; null otherwise. send_and_wait cannot natively capture exit codes (PTY semantics) — for guaranteed exit codes use execute_command.' }
+        exitCode: { type: ['number', 'null'], description: 'Best-effort exit code. Present only when captureExitCode=true and the POSIX marker was parsed; null otherwise. send_and_wait cannot natively capture exit codes (PTY semantics) — for guaranteed exit codes use execute_command.' },
       },
       required: ['output', 'cleanOutput', 'settled', 'patternMatched', 'elapsedMs']
     },
@@ -1030,3 +1033,14 @@ export const ALIAS_DEFINITIONS = (() => {
   }
   return aliases
 })()
+
+/**
+ * 可从 tools/list 中隐藏的工具名（新名 + 旧别名）。
+ * 被隐藏后 Claude Code 等客户端不会自动选用，但 CallTool 仍兼容旧调用。
+ */
+export const HIDDEN_FROM_LIST_TOOLS = new Set<string>([
+  'lyshell_execute_command',
+  'lyshell_execute_stream',
+  'execute_command',
+  'execute_stream'
+])

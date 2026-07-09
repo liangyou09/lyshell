@@ -365,6 +365,14 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
             )}
           >
             <span className="text-xs truncate max-w-[150px]">{getNameWithIndex(session)}</span>
+            {session.lockedByMcp && (
+              <span
+                title={t('pane.lockedByMcp', { defaultValue: 'MCP is using this terminal' })}
+                className="text-[10px] px-1 rounded bg-[var(--amber)]/20 text-[var(--amber)] flex-shrink-0"
+              >
+                🔒
+              </span>
+            )}
             {session.status === 'connecting' ? (
               // connecting 不显示文字,改用 amber 呼吸点指示"连接中",避免误读为空闲态
               <span

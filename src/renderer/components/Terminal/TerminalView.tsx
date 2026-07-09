@@ -61,6 +61,13 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   const { sessions } = useSessionStore()
   const session = sessions.find(s => s.id === sessionId)
   const sessionConfig = session?.config
+  const blockInput = session?.lockedByMcp ?? false
+
+  // 用 ref 让 onData / 右键粘贴回调读到最新的锁定状态：这两个回调注册在下方
+  // 依赖数组不含 blockInput 的大 effect 里（terminal 创建时注册一次），闭包会捕获
+  // 初始 blockInput=false；不加 ref，MCP 锁定后用户输入仍会写入 PTY。
+  const blockInputRef = useRef(blockInput)
+  useEffect(() => { blockInputRef.current = blockInput }, [blockInput])
 
   // 初始化或获取终端实例
   useEffect(() => {
@@ -137,7 +144,8 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         // 必须开 proposed api,否则 SearchAddon 的 decorations 选项无法使用,
         // 而 SearchAddon 又只在传 decorations 时才 fire onDidChangeResults,
         // 不传就拿不到匹配计数(显示 "no matches")。
-        allowProposedApi: true
+        allowProposedApi: true,
+        disableStdin: blockInput  // 只读或 MCP 锁定时禁止键盘输入
       })
 
       fitAddon = new FitAddon()
@@ -196,8 +204,9 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       // 注册到 store
       registerTerminal(sessionId, terminal, fitAddon, searchAddon)
 
-      // 处理用户输入
+      // 处理用户输入（只读页签或 MCP 锁定时忽略）
       terminal.onData((data) => {
+        if (blockInputRef.current) return
         window.electronAPI?.terminalWrite(sessionId, data)
       })
 
@@ -237,8 +246,9 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       }
     }, 100)
 
-    // 右键粘贴剪贴板内容
+    // 右键粘贴剪贴板内容（只读页签或 MCP 锁定时忽略）
     const handleContextMenu = (e: MouseEvent) => {
+      if (blockInputRef.current) return
       e.preventDefault()
       // 确保终端聚焦
       const instance = getTerminal(sessionId)
@@ -373,6 +383,14 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       // 只有在 session 断开时才 dispose
     }
   }, [sessionId, getTerminal, registerTerminal])
+
+  // 当只读/MCP 锁定状态变化时，动态更新终端 disableStdin
+  useEffect(() => {
+    const instance = getTerminal(sessionId)
+    if (instance) {
+      instance.terminal.options.disableStdin = blockInput
+    }
+  }, [sessionId, blockInput, getTerminal])
 
   // Ctrl+F 快捷键查找
   useEffect(() => {
