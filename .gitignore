@@ -140,6 +140,7 @@ dist
 # Vite files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+electron.vite.config.*.mjs
 .vite/
 
 # electron-builder 输出（与 dist/ 平级的发布产物）

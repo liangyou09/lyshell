@@ -71,6 +71,19 @@ const MainWindow: React.FC = () => {
     initLocaleFromStorage()
   }, [initLocaleFromStorage])
 
+  // Ctrl+滚轮改字号时,同步设置面板的字号输入框(否则输入框还显示旧值)。
+  // 输入框自身 onChange 也会派发同一事件,但 setFontSize 的是相同数值,React 会 bail out,无环路。
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const value = (e as CustomEvent<number>).detail
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        setFontSize(value)
+      }
+    }
+    window.addEventListener('terminalFontSizeChanged', handler as EventListener)
+    return () => window.removeEventListener('terminalFontSizeChanged', handler as EventListener)
+  }, [])
+
   // 一次性清理:RECENT 段已从 Sidebar 删除并搬到浮窗,旧 localStorage key 是死数据
   // 几次启动后绝大多数客户端就清干净了;新装用户根本不会有这个 key,这段也会是 no-op
   // 注:recentCollapsed 存在 main 的 preferences.json(非 localStorage),清理它需要新增 IPC delete 通道,

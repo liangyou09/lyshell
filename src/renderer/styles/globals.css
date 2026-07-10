@@ -196,13 +196,29 @@ body {
 .xterm,
 .xterm-screen,
 .xterm-viewport,
-.xterm-rows,
-.xterm-helpers {
+.xterm-rows {
   padding: 0 !important;
   margin: 0 !important;
   height: 100% !important;
   box-sizing: border-box !important;
 }
+
+/* xterm-helpers 只承载 textarea / composition-view，必须固定为左上角 0x0 定位上下文，
+   否则 textarea 的 absolute left/top 会随父元素尺寸或滚动漂移，导致 IME 候选框/预编辑
+   字母出现在错误位置（如页面末尾）。 */
+.xterm .xterm-helpers {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  z-index: 5 !important;
+  box-sizing: border-box !important;
+}
+
+/* IME 候选框定位：helper textarea 的透明/平移规则由 TerminalView.tsx 里的
+   IME_STYLE_ID 动态注入作为唯一来源，避免 globals.css 与 JS 两处重复维护。
+   这里不再写 .xterm-helper-textarea 规则。 */
 
 /* 终端滚动条 — rack 调性 / 比 chrome 宽一档，因为是高频画布 */
 .xterm-viewport::-webkit-scrollbar {

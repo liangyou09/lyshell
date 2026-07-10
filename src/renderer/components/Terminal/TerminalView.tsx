@@ -1,14 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Terminal } from 'xterm'
-import { FitAddon } from 'xterm-addon-fit'
-import { SearchAddon } from 'xterm-addon-search'
-import 'xterm/css/xterm.css'
+import { Terminal } from '@xterm/xterm'
+import { FitAddon } from '@xterm/addon-fit'
+import { SearchAddon } from '@xterm/addon-search'
+import '@xterm/xterm/css/xterm.css'
 import { DEFAULT_THEME_DARK, DEFAULT_FONT_FAMILY, isCursorBlinkEnabled } from '@shared/constants'
 import { useTerminalStore } from '../../stores/terminal-store'
 import { useSessionStore } from '../../stores/session-store'
 import { useTranslation } from 'react-i18next'
 import i18n from '../../i18n'
 import { ConnectionStatus } from '@shared/types'
+
+// 注意：本组件的 IME 定位逻辑重度依赖 xterm.js 内部私有 API（_core、_compositionHelper、
+// textarea、_renderService、_bufferService 等）。这些 API 无稳定性承诺，xterm 任何版本
+// 更新都可能改名或移除。已验证版本：@xterm/xterm@5.5.0、@xterm/addon-fit@0.11.0、
+// @xterm/addon-search@0.16.0。package.json 中已把这些包锁定到确切版本；升级前必须
+// 人工回归中文 IME 输入。
 
 interface TerminalViewProps {
   sessionId: string
@@ -55,6 +61,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   const searchInputRef = useRef<HTMLTextAreaElement>(null)
   const scrollbackLines = parseInt(localStorage.getItem('terminalScrollback') || '10000')
   const fontSize = parseInt(localStorage.getItem('terminalFontSize') || '16')
+  const fontSizeRef = useRef(fontSize)
   const cursorBlink = isCursorBlinkEnabled()
 
   const { getTerminal, registerTerminal } = useTerminalStore()
@@ -69,9 +76,186 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   const blockInputRef = useRef(blockInput)
   useEffect(() => { blockInputRef.current = blockInput }, [blockInput])
 
+  // IME 事件回调用 ref 保持稳定引用，避免组件复用终端实例时 add/removeEventListener 对不上。
+  const imeCallbacksRef = useRef<{
+    sync: (() => void) | null
+    compositionUpdate: (() => void) | null
+    input: (() => void) | null
+    keyUp: (() => void) | null
+    start: (() => void) | null
+    stop: (() => void) | null
+    focus: (() => void) | null
+    beforeInput: (() => void) | null
+    keyDown: (() => void) | null
+  }>({ sync: null, compositionUpdate: null, input: null, keyUp: null, start: null, stop: null, focus: null, beforeInput: null, keyDown: null })
+  const imeRefs = useRef<{
+    helper: HTMLTextAreaElement | null
+    viewport: HTMLElement | null
+    isComposing: boolean
+  }>({ helper: null, viewport: null, isComposing: false })
+
   // 初始化或获取终端实例
   useEffect(() => {
     if (!containerRef.current) return
+
+    // 在 effect 内固定 ref 快照，cleanup 里用它避免 react-hooks/exhaustive-deps 误报。
+    const imeRefSnapshot = imeRefs.current
+
+    // 强制注入 textarea 样式:保持透明,避免 HMR/打包后 CSS 丢失导致预编辑字母
+    // 或候选框位置异常。每次 effect 都重写,保证内容和代码一致。
+    const IME_STYLE_ID = 'lyshell-ime-textarea-override'
+    let imeStyle = document.getElementById(IME_STYLE_ID) as HTMLStyleElement | null
+    if (!imeStyle) {
+      imeStyle = document.createElement('style')
+      imeStyle.id = IME_STYLE_ID
+      document.head.appendChild(imeStyle)
+    }
+    imeStyle.textContent = `
+      .xterm .xterm-helper-textarea {
+        opacity: 0 !important;
+        color: transparent !important;
+        background: transparent !important;
+        transform: translateX(-100%) !important;
+      }
+    `
+
+    // ---- IME 定位同步 ----
+    // xterm 默认在 compositionupdate 时把 helper textarea 的 width 撑成预编辑文本宽度，
+    // 并把 left 定在光标处，导致 caret 跑到拼音末尾，IME 候选框跟着向右漂移。
+    // 我们在 CSS 里给 textarea 加 translateX(-100%)：xterm 把 textarea 左边缘放在光标处、
+    // 宽度设为拼音宽度后，transform 把它向左平移自身宽度，于是右边缘（caret）始终对齐
+    // 光标。这样 .composition-view 正常显示拼音，候选框也固定在光标位置。
+
+    // 触发 xterm 的 updateCompositionElements，让 .composition-view(预编辑字母)
+    // 同步到当前光标；CSS transform 负责把 textarea 的 caret 拉回光标。
+    const syncIMEPosition = () => {
+      const instance = getTerminal(sessionId)
+      if (!instance) return
+      const core = (instance.terminal as any)._core
+      const helper = core?._compositionHelper
+      if (typeof helper?.updateCompositionElements !== 'function') return
+      helper.updateCompositionElements(true)
+    }
+
+    // 强制刷新:临时把 _isComposing 设为 true 以绕过 updateCompositionElements 的早返回。
+    // 只在 compositionstart 用一次,防御 xterm 内部监听器执行顺序不确定导致的首次定位失败。
+    const forceSyncIMEPosition = () => {
+      const instance = getTerminal(sessionId)
+      if (!instance) return
+      const core = (instance.terminal as any)._core
+      const helper = core?._compositionHelper
+      if (typeof helper?.updateCompositionElements !== 'function') return
+      const wasComposing = helper._isComposing
+      helper._isComposing = true
+      try {
+        helper.updateCompositionElements(true)
+      } finally {
+        helper._isComposing = wasComposing
+      }
+    }
+
+    // 非合成期间直接把 helper textarea 拉到当前光标，并缩成 1x1，避免遮挡点击。
+    // composition 期间 xterm 会通过 updateCompositionElements 管理位置，CSS transform
+    // 会自动把 textarea 的 caret 拉回光标，这里不再改动 left/top/width。
+    const syncTextAreaToCursor = () => {
+      if (imeRefs.current.isComposing) return
+      const instance = getTerminal(sessionId)
+      if (!instance) return
+      const core = (instance.terminal as any)._core
+      const textarea = core?.textarea as HTMLTextAreaElement | undefined
+      if (!textarea || !core?._renderService || !core?._bufferService) return
+      const buffer = core._bufferService.buffer
+      if (!buffer.isCursorInViewport) return
+      const cols = core._bufferService.cols
+      const cursorX = Math.min(buffer.x, cols - 1)
+      const dims = core._renderService.dimensions
+      if (!dims?.css?.cell) return
+      const cellWidth = dims.css.cell.width
+      const cellHeight = dims.css.cell.height
+      if (!cellWidth || !cellHeight) return
+      textarea.style.left = `${cursorX * cellWidth}px`
+      textarea.style.top = `${buffer.y * cellHeight}px`
+      textarea.style.width = '1px'
+      textarea.style.height = '1px'
+    }
+
+    // compositionstart: xterm 自己只把 _isComposing 置 true,不会移动 composition-view/
+    // helper-textarea。这里立刻强刷一次,把候选框/预编辑字母定位到光标。
+    // 注意：不要在这里清 textarea.value 或改 _compositionPosition,否则会打断 IME 的
+    // composition 流程,导致拼音被直接当成普通字符发给 shell。
+    const startComposition = () => {
+      imeRefs.current.isComposing = true
+      forceSyncIMEPosition()
+    }
+    const stopComposition = () => {
+      imeRefs.current.isComposing = false
+      // 退出合成后把 textarea 归位,避免清空输入后立即开始新合成时 IME 读到旧位置。
+      syncTextAreaToCursor()
+      const textarea = imeRefs.current.helper
+      if (textarea) {
+        // 等 xterm 自己的 setTimeout 把最终字符发出去后再清空 value,
+        // 防止下一次 compositionstart 把起始位置算到旧内容后面。
+        setTimeout(() => {
+          if (!imeRefs.current.isComposing) {
+            textarea.value = ''
+          }
+        }, 0)
+      }
+    }
+
+    // compositionupdate / input / keyup: xterm 内部已经调用过一次 updateCompositionElements,
+    // 我们再补一次,并用 requestAnimationFrame 再追一帧,覆盖 IME 在 layout commit 前就读 caret。
+    const syncIMEWithRaf = () => {
+      syncIMEPosition()
+      requestAnimationFrame(() => {
+        syncIMEPosition()
+      })
+    }
+
+    // 非合成期间的兜底：focus/keydown/beforeinput/pointerdown 直接把 textarea 拉到光标。
+    const onFocusSyncIME = () => syncTextAreaToCursor()
+    const onBeforeInputSyncIME = () => syncTextAreaToCursor()
+    const onKeyDownSyncIME = () => syncTextAreaToCursor()
+    const onPointerDownSyncIME = () => syncTextAreaToCursor()
+    imeCallbacksRef.current = {
+      sync: syncIMEPosition,
+      compositionUpdate: syncIMEWithRaf,
+      input: syncIMEWithRaf,
+      keyUp: syncIMEWithRaf,
+      start: startComposition,
+      stop: stopComposition,
+      focus: onFocusSyncIME,
+      beforeInput: onBeforeInputSyncIME,
+      keyDown: onKeyDownSyncIME
+    }
+
+    const bindIME = (helper: HTMLTextAreaElement | null, viewport: HTMLElement | null) => {
+      const { start, compositionUpdate, input, keyUp, sync, stop, focus, beforeInput, keyDown } = imeCallbacksRef.current
+      if (!start || !compositionUpdate || !input || !keyUp || !sync || !stop || !focus || !beforeInput || !keyDown) return
+      helper?.addEventListener('compositionstart', start)
+      helper?.addEventListener('compositionupdate', compositionUpdate)
+      helper?.addEventListener('compositionend', stop)
+      helper?.addEventListener('focus', focus)
+      helper?.addEventListener('beforeinput', beforeInput)
+      helper?.addEventListener('input', input)
+      helper?.addEventListener('keydown', keyDown)
+      helper?.addEventListener('keyup', keyUp)
+      viewport?.addEventListener('scroll', sync)
+    }
+    const unbindIME = (helper: HTMLTextAreaElement | null, viewport: HTMLElement | null) => {
+      const { start, compositionUpdate, input, keyUp, sync, stop, focus, beforeInput, keyDown } = imeCallbacksRef.current
+      if (!start || !compositionUpdate || !input || !keyUp || !sync || !stop || !focus || !beforeInput || !keyDown) return
+      helper?.removeEventListener('compositionstart', start)
+      helper?.removeEventListener('compositionupdate', compositionUpdate)
+      helper?.removeEventListener('compositionend', stop)
+      helper?.removeEventListener('focus', focus)
+      helper?.removeEventListener('beforeinput', beforeInput)
+      helper?.removeEventListener('input', input)
+      helper?.removeEventListener('keydown', keyDown)
+      helper?.removeEventListener('keyup', keyUp)
+      viewport?.removeEventListener('scroll', sync)
+    }
+    // ----------------------
 
     // 检查是否已有终端实例
     const existingInstance = getTerminal(sessionId)
@@ -102,6 +286,14 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         }
 
         containerRef.current.appendChild(terminalElement)
+
+        // 组件复用终端时重新绑定 IME 事件（旧 listener 先解绑避免重复）
+        const helperTextarea = containerRef.current.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea')
+        const xtermViewport = containerRef.current.querySelector<HTMLElement>('.xterm-viewport')
+        unbindIME(helperTextarea, xtermViewport)
+        bindIME(helperTextarea, xtermViewport)
+        imeRefs.current.helper = helperTextarea
+        imeRefs.current.viewport = xtermViewport
 
         // 延迟后重新连接 ResizeObserver 并执行一次 fit
         setTimeout(() => {
@@ -141,6 +333,9 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         allowTransparency: false,
         logLevel: 'off',
         convertEol: true,  // 正确处理换行和回显
+        // 双击选词边界符:在默认 ()[]{}'" 基础上额外切分 : / @ = + 等常见符号,
+        // 但保留 . - _ 不切,使 app.js / foo-bar 仍整体选中(只切到「一个单词」)。
+        wordSeparator: ' ()[]{}\'"`:/@=+,;!?*|<>&%^~',
         // 必须开 proposed api,否则 SearchAddon 的 decorations 选项无法使用,
         // 而 SearchAddon 又只在传 decorations 时才 fire onDidChangeResults,
         // 不传就拿不到匹配计数(显示 "no matches")。
@@ -162,29 +357,15 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       // 使输入法（IME）候选框漂到左上角或上次位置。默认 DOM renderer
       // 对当前负载性能足够，故移除 WebGL renderer。
 
-      // 修复 IME 候选框漂出右边缘的问题：
-      // xterm CompositionHelper.updateCompositionElements() 同步把 .xterm-helper-textarea
-      // 的 left/width 设为预编辑文本的渲染尺寸，caret 位于文本末尾。Chromium/IMM 以 caret 屏幕
-      // 坐标定位候选框，因此拼音越长 caret 越靠右；在窄分屏 / 行尾输入时会冲出可视区。
-      // 解决：compositionupdate 之后同步把右边缘收回到容器内，且用下限避免冲出左边。
+      // IME 候选框定位：xterm 的 compositionstart 本身不调 updateCompositionElements,
+      // textarea 默认停在 -9999em，IME 在 compositionstart 瞬间读到最左，compositionupdate
+      // 时才跳到光标，表现为"左右飘"。我们在合成全生命周期持续同步，并在 resize / 滚动
+      // / 标签切换等可能改变光标坐标的时机刷新。
       const helperTextarea = containerRef.current.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea')
-      if (helperTextarea) {
-        // 注意坐标系：overflow 用视口坐标判断无误（X0 相消），
-        // 但 style.left 必须落在相对 .xterm 容器的坐标系里。
-        // 早期版本误把视口 left 直接写回 style.left，在容器有左偏移时（右分屏最常见）
-        // 反而把候选框往右推，表现为“窄分屏必漂右边缘”。
-        // offsetLeft 本就是相对 offsetParent（.xterm）的坐标，直接平移溢出量即可。
-        helperTextarea.addEventListener('compositionupdate', () => {
-          const container = containerRef.current
-          if (!container) return
-          const containerRect = container.getBoundingClientRect()
-          const taRect = helperTextarea.getBoundingClientRect()
-          const overflow = taRect.right - containerRect.right
-          if (overflow > 0) {
-            helperTextarea.style.left = `${Math.max(helperTextarea.offsetLeft - overflow - 4, 0)}px`
-          }
-        })
-      }
+      const xtermViewport = containerRef.current.querySelector<HTMLElement>('.xterm-viewport')
+      bindIME(helperTextarea, xtermViewport)
+      imeRefs.current.helper = helperTextarea
+      imeRefs.current.viewport = xtermViewport
 
       // 显示欢迎信息和 Xshell 风格的连接信息。
       // 用 i18n.t 单例而非 hook 的 t —— 这些是连接时一次性写入终端缓冲区的瞬态消息,
@@ -278,6 +459,36 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       }
     }
 
+    // Ctrl + 滚轮 调整字号:在 capture 阶段截断,抢在 xterm 处理之前,
+    // 这样 vim/less 开了鼠标捕获时也做缩放,而不是把滚轮上报给 app。
+    const handleWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return
+      e.preventDefault()
+      e.stopPropagation()
+      const current = fontSizeRef.current
+      const next = Math.max(8, Math.min(32, current + (e.deltaY < 0 ? 1 : -1)))
+      if (next === current) return
+      fontSizeRef.current = next
+      localStorage.setItem('terminalFontSize', next.toString())
+      window.dispatchEvent(new CustomEvent('terminalFontSizeChanged', { detail: next }))
+    }
+
+    // IME 合成时 .xterm-helper-textarea 被聚焦,其 nowrap 预编辑文本向右溢出会让
+    // containerRef(overflow:hidden,但仍是滚动容器、可被 focus 自动滚动)的 scrollLeft
+    // 被往右拨,终端内容整体左移、左侧被裁(“左边缩进去、内容不可见”)。
+    // 终端内容本就不该在 containerRef 内滚动(横向不滚、纵向滚动归 .xterm-viewport),
+    // 故一旦发生滚动就强制归零。设回 0 会再触发一次 scroll,但已为 0 即 no-op,无环路。
+    const handleContainerScroll = () => {
+      const el = containerRef.current
+      if (!el) return
+      if (el.scrollLeft !== 0) el.scrollLeft = 0
+      if (el.scrollTop !== 0) el.scrollTop = 0
+      // container 滚动会把 textarea 推离光标，合成期间立即拉回
+      if (imeRefs.current.isComposing) {
+        imeCallbacksRef.current.sync?.()
+      }
+    }
+
     // 处理终端 resize - 使用 ResizeObserver 监听容器大小变化（带防抖）
     const handleResize = () => {
       const instance = getTerminal(sessionId)
@@ -298,6 +509,11 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
 
           if (newCols && newRows && (newCols !== oldCols || newRows !== oldRows)) {
             window.electronAPI?.terminalResize(sessionId, newCols, newRows)
+          }
+
+          // 合成期间光标坐标可能因 fit 改变，立刻同步 IME 位置
+          if (imeRefs.current.isComposing) {
+            imeCallbacksRef.current.sync?.()
           }
         } catch {
           // 终端可能已销毁，忽略错误
@@ -328,6 +544,9 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
             if (instance.terminal.cols && instance.terminal.rows) {
               window.electronAPI?.terminalResize(sessionId, instance.terminal.cols, instance.terminal.rows)
             }
+            if (imeRefs.current.isComposing) {
+              imeCallbacksRef.current.sync?.()
+            }
           }
         } catch {
           // 终端可能已销毁，忽略错误
@@ -337,17 +556,26 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
 
     window.addEventListener('resize', handleWindowResize)
     containerRef.current.addEventListener('contextmenu', handleContextMenu)
+    containerRef.current.addEventListener('pointerdown', onPointerDownSyncIME)
     containerRef.current.addEventListener('mousedown', handleMouseDown)
     containerRef.current.addEventListener('click', handleClick)
+    // Ctrl + 滚轮缩放字号(capture + passive:false 才能 preventDefault 截住)
+    containerRef.current.addEventListener('wheel', handleWheel, { capture: true, passive: false })
+    // 钉死 containerRef 的滚动位置,防止 IME 聚焦 textarea 触发 focus 自动滚动把终端内容左移
+    containerRef.current.addEventListener('scroll', handleContainerScroll)
 
     // 监听字体大小变化事件
     const handleFontSizeChanged = (e: CustomEvent) => {
+      fontSizeRef.current = e.detail
       const instance = getTerminal(sessionId)
       if (instance) {
         instance.terminal.options.fontSize = e.detail
         instance.fitAddon.fit()
         if (instance.terminal.cols && instance.terminal.rows) {
           window.electronAPI?.terminalResize(sessionId, instance.terminal.cols, instance.terminal.rows)
+        }
+        if (imeRefs.current.isComposing) {
+          imeCallbacksRef.current.sync?.()
         }
       }
     }
@@ -371,14 +599,20 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       }
       window.removeEventListener('resize', handleWindowResize)
       containerRef.current?.removeEventListener('contextmenu', handleContextMenu)
+      containerRef.current?.removeEventListener('pointerdown', onPointerDownSyncIME)
       containerRef.current?.removeEventListener('mousedown', handleMouseDown)
       containerRef.current?.removeEventListener('click', handleClick)
+      containerRef.current?.removeEventListener('wheel', handleWheel, { capture: true })
+      containerRef.current?.removeEventListener('scroll', handleContainerScroll)
       window.removeEventListener('terminalFontSizeChanged', handleFontSizeChanged as EventListener)
       window.removeEventListener('terminalCursorBlinkChanged', handleCursorBlinkChanged as EventListener)
       // 解绑搜索匹配计数订阅;否则切换 tab 时旧组件的回调还活在 SearchAddon 上,
       // 并且会触发已卸载组件的 setState 警告。
       resultsDisposable?.dispose()
       searchAddonRef.current = null
+      // 解绑 IME 事件并退出合成状态
+      unbindIME(imeRefSnapshot.helper, imeRefSnapshot.viewport)
+      stopComposition()
       // 注意：不在这里 dispose 终端，终端实例保存在 store 中
       // 只有在 session 断开时才 dispose
     }
@@ -437,6 +671,9 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
                 if (cols && rows) {
                   window.electronAPI?.terminalResize(sessionId, cols, rows)
                 }
+                if (imeRefs.current.isComposing) {
+                  imeCallbacksRef.current.sync?.()
+                }
               } catch {
                 // 终端可能已销毁，忽略错误
               }
@@ -467,6 +704,9 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
                 const rows = instance.terminal.rows
                 if (cols && rows) {
                   window.electronAPI?.terminalResize(sessionId, cols, rows)
+                }
+                if (imeRefs.current.isComposing) {
+                  imeCallbacksRef.current.sync?.()
                 }
               } catch {
                 // 忽略错误
