@@ -216,9 +216,10 @@ body {
   box-sizing: border-box !important;
 }
 
-/* IME 候选框定位：helper textarea 的透明/平移规则由 TerminalView.tsx 里的
-   IME_STYLE_ID 动态注入作为唯一来源，避免 globals.css 与 JS 两处重复维护。
-   这里不再写 .xterm-helper-textarea 规则。 */
+/* IME 候选框定位：textarea 宽度由 TerminalView.tsx 的 patchCompositionHelper
+   猴补丁在 updateCompositionElements 后压回 1px，使 caret 固定在光标处。
+   非合成期间 xterm 默认将 textarea 置于 -9999em；合成开始时补丁会立即将其拉到光标，
+   因此这里不再覆盖 .xterm-helper-textarea 的位置规则。 */
 
 /* 终端滚动条 — rack 调性 / 比 chrome 宽一档，因为是高频画布 */
 .xterm-viewport::-webkit-scrollbar {
