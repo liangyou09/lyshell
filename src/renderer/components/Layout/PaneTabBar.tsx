@@ -18,7 +18,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
   const [draggingSessionId, setDraggingSessionIdLocal] = useState<string | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)  // 悬停位置索引
   const { sessions } = useSessionStore()
-  const { setActiveSessionInPane, removeSessionFromPane, addSessionToPane, reorderSessionsInPane } = usePaneStore()
+  const { setActiveSessionInPane, removeSessionFromPane, addSessionToPane, reorderSessionsInPane, mcpAuditPaneId } = usePaneStore()
   const toggleLiveSessionTabs = usePaneStore(s => s.toggleLiveSessionTabs)
   const { t } = useTranslation()
   // 被隐藏的页签(Sidebar LIVE 段会话标签点击 toggle)——不渲染对应页签,但终端实例保留
@@ -59,6 +59,9 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
 
   // 点击标签时切换会话
   const handleTabClick = (sessionId: string) => {
+    // 切到 session 页签前关掉本 pane 的 MCP 覆盖层，否则它会挡住刚选中的终端
+    const paneSt = usePaneStore.getState()
+    if (paneSt.mcpAuditPaneId === pane.id) paneSt.closeMcpAudit()
     setActiveSessionInPane(pane.id, sessionId)
     // 清除活动状态
     useSessionStore.getState().setSessionActivity(sessionId, false)
@@ -67,6 +70,11 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
     setTimeout(() => {
       window.dispatchEvent(new CustomEvent('terminal-tab-switched'))
     }, 50)
+  }
+
+  // 点击 MCP 页签（仅本 pane 已开 MCP 时渲染）：关闭 MCP，切回当前 session
+  const handleMcpTabClick = () => {
+    usePaneStore.getState().closeMcpAudit()
   }
 
   // 双击左键：断开状态重连，已连接状态克隆会话
@@ -291,10 +299,8 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
     return cleanError
   }
 
-  // 如果分屏没有会话，不显示标签栏
-  if (paneSessions.length === 0) {
-    return null
-  }
+  // 无会话且本 pane 未开 MCP 时不渲染标签栏，避免空 28px 条；MCP 打开时仍需标签栏承载页签
+  if (paneSessions.length === 0 && mcpAuditPaneId !== pane.id) return null
 
   // 计算会话名称编号 - 基于全局所有分屏的同名会话
   const getNameWithIndex = (session: typeof paneSessions[0]) => {
@@ -353,7 +359,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
             title={t('pane.tabHint')}
             className={cn(
               'flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
-              pane.activeSessionId === session.id
+              pane.activeSessionId === session.id && mcpAuditPaneId !== pane.id
                 ? 'bg-[#0C0C0C] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
                 : session.hasActivity
                   ? 'bg-[var(--reachable)]/25 text-[var(--text-rack)] hover:bg-[var(--reachable)]/35 shadow-[inset_2px_0_0_var(--reachable)]' // 有未读输出:reachable 青调底 + 左侧 stripe
@@ -419,6 +425,24 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
             </button>
           </div>
         ))}
+        {/* MCP 活动页签 -- 仅在本 pane 打开 MCP 时出现（非常驻）；入口为标题栏 MCP 状态片；✕ / 点标签 / ESC 关闭 */}
+        {mcpAuditPaneId === pane.id && (
+          <div
+            data-tab-id="__mcp_audit__"
+            onClick={handleMcpTabClick}
+            title={t('pane.mcpTabHint')}
+            className="flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px] bg-[#0C0C0C] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]"
+          >
+            <span className="text-xs truncate max-w-[150px]">{t('pane.mcpTab')}</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); usePaneStore.getState().closeMcpAudit() }}
+              title={t('mcpAudit.close')}
+              className="ml-auto w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 右滚动按钮 */}

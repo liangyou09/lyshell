@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { usePaneStore } from '../../stores/pane-store'
 import TerminalView from '../Terminal/TerminalView'
 import PaneTabBar from './PaneTabBar'
+import { McpAuditPanel } from './McpAuditPanel'
 import SplitDivider from './SplitDivider'
 import { getDraggingSessionId, setDraggingSessionId } from './SplitPaneContainer'
 import type { PaneNode, SplitDirection } from '@shared/types'
@@ -17,7 +18,7 @@ interface PaneViewProps {
  * 分屏视图组件 - 递归渲染分屏树
  */
 const PaneView: React.FC<PaneViewProps> = ({ node }) => {
-  const { layout, setActivePane, addSessionToPane, splitPaneWithPosition, swapPanePosition } = usePaneStore()
+  const { layout, setActivePane, addSessionToPane, splitPaneWithPosition, swapPanePosition, mcpAuditPaneId, closeMcpAudit } = usePaneStore()
   const { getPaneBySessionId, getParentPane, getPanePositionInParent } = usePaneStore.getState()
   // 被隐藏的终端页签记录(Sidebar LIVE 段会话标签点击 toggle);订阅整个记录,任何 toggle 都会触发本组件重渲染。
   // 实际负载很小(仅 visibility 切换),未做按 pane 过滤的选择器。
@@ -351,6 +352,13 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
                 <p className="text-sm">{t('pane.emptyPane')}</p>
                 <p className="text-xs mt-1">{t('pane.emptyPaneHint')}</p>
               </div>
+            </div>
+          )}
+
+          {/* MCP 活动页签覆盖层 -- 单例，仅本 pane 激活时挂载；终端实例在底层继续接收数据，关掉页签原样复现 */}
+          {mcpAuditPaneId === node.id && (
+            <div className="absolute inset-0 z-10">
+              <McpAuditPanel onClose={closeMcpAudit} />
             </div>
           )}
 

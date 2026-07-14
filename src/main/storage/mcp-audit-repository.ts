@@ -40,8 +40,17 @@ export interface McpAuditQuery {
   allowed?: boolean
   /** ISO：仅返回此时间之后的记录 */
   since?: string
+  /** ISO：仅返回此时间之前的记录 */
+  until?: string
   limit?: number
   offset?: number
+}
+
+export interface McpAuditFacets {
+  /** 去重后的操作名（按字母序） */
+  operations: string[]
+  /** 去重后的会话（按会话名排序），供下拉选择 */
+  sessions: { sessionId: string; sessionName?: string; sessionType?: string }[]
 }
 
 const MAX_RECORDS = 2000
@@ -105,12 +114,36 @@ class McpAuditRepository {
     if (filter.operation) filtered = filtered.filter(r => r.operation.includes(filter.operation!))
     if (filter.allowed !== undefined) filtered = filtered.filter(r => r.allowed === filter.allowed)
     if (filter.since) filtered = filtered.filter(r => r.timestamp >= filter.since!)
+    if (filter.until) filtered = filtered.filter(r => r.timestamp <= filter.until!)
     // 倒序：最新在前
     const reversed = [...filtered].reverse()
     const total = reversed.length
     const offset = Math.max(0, filter.offset ?? 0)
     const limit = Math.max(1, filter.limit ?? 200)
     return { records: reversed.slice(offset, offset + limit), total }
+  }
+
+  /** 全量去重操作名/会话，供面板下拉选项。不随当前过滤变化--展示全集，便于用户任选。 */
+  facets(): McpAuditFacets {
+    this.ensureInitialized()
+    const opSet = new Set<string>()
+    const sessionMap = new Map<string, { sessionId: string; sessionName?: string; sessionType?: string }>()
+    for (const r of this.records) {
+      if (r.operation) opSet.add(r.operation)
+      if (r.sessionId && !sessionMap.has(r.sessionId)) {
+        sessionMap.set(r.sessionId, {
+          sessionId: r.sessionId,
+          sessionName: r.sessionName,
+          sessionType: r.sessionType
+        })
+      }
+    }
+    return {
+      operations: Array.from(opSet).sort(),
+      sessions: Array.from(sessionMap.values()).sort((a, b) =>
+        (a.sessionName || a.sessionId).localeCompare(b.sessionName || b.sessionId)
+      )
+    }
   }
 
   clear(): void {

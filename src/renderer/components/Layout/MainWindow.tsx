@@ -5,7 +5,7 @@ import Sidebar from './Sidebar'
 import StatusBar from './StatusBar'
 import SplitPaneContainer from './SplitPaneContainer'
 import FloatWindow from '../FloatWindow/FloatWindow'
-import { McpAuditPanel } from './McpAuditPanel'
+import { McpActivityChip } from './McpActivityChip'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import { useThemeStore, AVAILABLE_THEMES, CUSTOM_THEME_ID } from '../../stores/theme-store'
@@ -37,8 +37,6 @@ const MainWindow: React.FC = () => {
   const [mcpConfirmDestructive, setMcpConfirmDestructive] = useState(true)
   // 复制 MCP 注册命令的瞬时反馈
   const [mcpCmdCopied, setMcpCmdCopied] = useState(false)
-  // MCP 活动面板
-  const [mcpAuditOpen, setMcpAuditOpen] = useState(false)
   // 设置面板页签 —— 'terminal' 默认;组件内 state,关闭再开回到上次页签(不持久化到磁盘)
   const [settingsTab, setSettingsTab] = useState<'terminal' | 'mcp'>('terminal')
   // 设置面板拖拽偏移 —— 持久化到 localStorage,关闭/重启都保留位置
@@ -55,7 +53,7 @@ const MainWindow: React.FC = () => {
   const settingsDragRef = useRef<{ startX: number; startY: number; offsetX: number; offsetY: number } | null>(null)
   const settingsPanelRef = useRef<HTMLDivElement>(null)
   const { loadSessions, refreshSavedSessions, syncSessionsFromBackend } = useSessionStore()
-  const { getAllLeafPanes, layout } = usePaneStore()
+  const { getAllLeafPanes, layout, mcpAuditPaneId } = usePaneStore()
   const { themeId, setTheme, customColors, setCustomColors, initFromStorage } = useThemeStore()
   const { localeId, setLocale, initFromStorage: initLocaleFromStorage } = useLocaleStore()
   const { t } = useTranslation()
@@ -298,9 +296,10 @@ const MainWindow: React.FC = () => {
     return cleanup
   }, [])
 
-  // ESC 键关闭设置面板
+  // ESC 关闭设置面板。MCP 活动页签打开时让出 ESC -- 由 McpAuditPanel 自己的监听关闭它，
+  // 避免一次 ESC 同时关掉两层。MCP 页签关掉后本 effect 重跑、重新接管 ESC。
   useEffect(() => {
-    if (!showSettings) return
+    if (!showSettings || mcpAuditPaneId !== null) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setShowSettings(false)
@@ -308,7 +307,7 @@ const MainWindow: React.FC = () => {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [showSettings])
+  }, [showSettings, mcpAuditPaneId])
 
   // 把 offset 夹紧到视口内 —— 面板锚点 (left:0, top:28px),translate(x,y) 后整体必须仍可见。
   // 只读 refs / DOM 当下尺寸,无组件状态依赖,空 deps 让引用稳定供 effect 复用。
@@ -889,12 +888,6 @@ const MainWindow: React.FC = () => {
                     >
                       {mcpCmdCopied ? t('settings.mcpRegisterCopied') : t('settings.mcpRegisterCopy')}
                     </button>
-                    <button
-                      onClick={() => setMcpAuditOpen(true)}
-                      className="px-2 py-1 rounded-[2px] text-[12px] font-mono border bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]"
-                    >
-                      {t('settings.mcpAudit')}
-                    </button>
                   </div>
                   <p className="text-[11px] text-[var(--text-rack-mute)] font-mono">
                     {t('settings.mcpRegisterHint')}
@@ -910,6 +903,9 @@ const MainWindow: React.FC = () => {
         <div className="flex items-center pr-1" style={{ WebkitAppRegion: 'no-drag' } as any}>
           {/* 应用控制簇 */}
           <div className="flex items-center gap-[2px]">
+            {/* MCP 活动状态片 -- 浮窗键左边；从设置页 MCP tab 提升出来，随时可达。
+                圆点(amber=最近有活动/灰=空闲)+标签+记录条数，点击打开 MCP 活动面板(ESC 可关) */}
+            <McpActivityChip />
             {/* 浮窗按钮 — 两矩形错位，PIP/分窗形态 */}
             <div
               onClick={() => setFloatVisible(!floatVisible)}
@@ -1002,7 +998,7 @@ const MainWindow: React.FC = () => {
         {/* 终端内容区 */}
         <div className="flex flex-col flex-1 min-w-0 min-h-0">
           {/* 终端内容区 - 分屏布局 */}
-          <div ref={terminalWrapperRef} className="terminal-wrapper flex-1 min-h-0 bg-[#0C0C0C] overflow-hidden relative pl-1 pb-0">
+          <div ref={terminalWrapperRef} className="terminal-wrapper flex-1 min-h-0 bg-[#0C0C0C] overflow-hidden relative pb-0">
             <SplitPaneContainer />
 
             {/* 右上角会话浮窗 */}
@@ -1018,8 +1014,7 @@ const MainWindow: React.FC = () => {
         </div>
       </div>
 
-      {/* MCP 活动面板（模态） */}
-      <McpAuditPanel open={mcpAuditOpen} onClose={() => setMcpAuditOpen(false)} />
+      {/* MCP 活动面板以页签形式挂在各分屏 PaneView 内，由 pane-store.mcpAuditPaneId 驱动 */}
     </div>
   )
 }

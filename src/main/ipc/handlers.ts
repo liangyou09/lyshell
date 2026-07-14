@@ -105,6 +105,7 @@ export const IPC_CHANNELS = {
 
   // MCP 审计日志（"MCP 活动"面板）
   MCP_AUDIT_LIST: 'mcp-audit:list',
+  MCP_AUDIT_FACETS: 'mcp-audit:facets',
   MCP_AUDIT_CLEAR: 'mcp-audit:clear',
 
   // MCP 触发渲染层打开"新建连接"对话框（C4：凭据交还用户）
@@ -836,6 +837,11 @@ export function registerIPCHandlers(): void {
   // MCP 审计日志查询（带过滤+分页）
   ipcMain.handle(IPC_CHANNELS.MCP_AUDIT_LIST, async (_event, filter: McpAuditQuery = {}) => {
     return mcpAuditRepository.query(filter)
+  })
+
+  // MCP 审计日志去重选项（操作名/会话），供面板下拉框
+  ipcMain.handle(IPC_CHANNELS.MCP_AUDIT_FACETS, async () => {
+    return mcpAuditRepository.facets()
   })
 
   // MCP 审计日志清空

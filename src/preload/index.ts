@@ -40,6 +40,7 @@ const IPC_CHANNELS = {
 
   // MCP 审计日志
   MCP_AUDIT_LIST: 'mcp-audit:list',
+  MCP_AUDIT_FACETS: 'mcp-audit:facets',
   MCP_AUDIT_CLEAR: 'mcp-audit:clear',
 
   // MCP 触发渲染层打开"新建连接"对话框（C4：凭据交还用户）
@@ -159,6 +160,7 @@ const electronAPI = {
   setConfig: (key: string, value: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_SET, key, value),
   getMcpAddCommand: () => ipcRenderer.invoke(IPC_CHANNELS.MCP_GET_ADD_COMMAND),
   getMcpAudit: (filter?: unknown) => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_LIST, filter),
+  getMcpAuditFacets: () => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_FACETS),
   clearMcpAudit: () => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_CLEAR),
 
   // MCP 打开"新建连接"对话框（C4）—— 供 agent 把凭据填写交还给用户

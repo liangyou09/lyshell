@@ -62,6 +62,10 @@ interface PaneStore {
   splitPaneWithPosition: (paneId: string, direction: SplitDirection, sessionId: string, position: 'first' | 'second') => void
   closePane: (paneId: string) => void
   setActivePane: (paneId: string) => void
+  // MCP 活动页签 -- 单例：当前显示 MCP 审计面板的 paneId（null=未打开）。瞬态，不随布局持久化。
+  mcpAuditPaneId: string | null
+  openMcpAuditInPane: (paneId: string) => void  // 在指定 pane 打开 MCP 页签覆盖层
+  closeMcpAudit: () => void                      // 关闭 MCP 页签覆盖层
   // 隐藏的终端页签 —— key 为 runtime sessionId,true 表示该页签(及终端)被折叠隐藏
   // xterm 实例不卸载,连接与输出保留;Sidebar LIVE 段会话标签点击 toggle
   hiddenTabSessions: Record<string, boolean>
@@ -594,6 +598,16 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     set(state => ({
       layout: { ...state.layout, activePaneId: paneId }
     }))
+  },
+
+  // MCP 活动页签（单例覆盖层）：在指定 pane 打开；空 paneId 忽略（activePaneId 未就绪时点 chip 无害）
+  mcpAuditPaneId: null,
+  openMcpAuditInPane: (paneId) => {
+    if (!paneId) return
+    set({ mcpAuditPaneId: paneId })
+  },
+  closeMcpAudit: () => {
+    set({ mcpAuditPaneId: null })
   },
 
   hiddenTabSessions: {},
