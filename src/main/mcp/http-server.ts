@@ -927,7 +927,7 @@ async function handleSendInput(data: SendInputRequest, res: http.ServerResponse,
       return
     }
 
-    const auth = await authorizeMcpOperation('send_input', 'interactiveWrite', resolvedSessionId, `${text.length} chars`, binding)
+    const auth = await authorizeMcpOperation('send_input', 'interactiveWrite', resolvedSessionId, `${text.length} chars · ${summarizeText(text, 512)}`, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -1033,7 +1033,7 @@ async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerRespo
       return
     }
 
-    const auth = await authorizeMcpOperation('send_and_wait', 'interactiveWrite', resolvedSessionId, `${text.length} chars`, binding)
+    const auth = await authorizeMcpOperation('send_and_wait', 'interactiveWrite', resolvedSessionId, `${text.length} chars · ${summarizeText(text, 512)}`, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -2048,7 +2048,7 @@ function summarizeText(value: unknown, maxLength: number = 200): string {
 
 function auditMcpOperation(event: McpAuditEvent): void {
   const timestamp = new Date().toISOString()
-  const summary = event.summary ? summarizeText(event.summary) : undefined
+  const summary = event.summary ? summarizeText(event.summary, 512) : undefined
   log.info('[MCP][audit]', { ...event, timestamp, summary })
   // 同步入库供"MCP 活动"面板查询（内存环形缓冲 + 防抖落盘）
   mcpAuditRepository.append({

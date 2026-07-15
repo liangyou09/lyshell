@@ -32,6 +32,174 @@ type AllowedFilter = 'all' | 'allowed' | 'denied'
 /** 每页条数：审计日志多为浏览/回溯，50 条/页在 640px 面板里滚动适中 */
 const PAGE_SIZE = 50
 
+const WEEK_DAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0')
+}
+
+function formatYmd(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+
+function parseYmd(s: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
+  const d = new Date(`${s}T00:00:00`)
+  return isNaN(d.getTime()) ? null : d
+}
+
+function isSameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
+
+interface DateInputProps {
+  value: string
+  onChange: (value: string) => void
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void
+  title?: string
+}
+
+function DateInput({ value, onChange, onKeyDown, title }: DateInputProps): JSX.Element {
+  const { t, i18n } = useTranslation()
+  // 星期标题走 i18n:中文 日一二三…,英文 Su Mo Tu…;失败回退英文常量
+  const rawWeekDays = t('mcpAudit.weekDays', { returnObjects: true }) as unknown as string[] | string
+  const weekDays: string[] = Array.isArray(rawWeekDays) ? rawWeekDays : WEEK_DAYS
+  const [open, setOpen] = useState(false)
+  const [viewDate, setViewDate] = useState<Date>(() => parseYmd(value) || new Date())
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handle = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [open])
+
+  useEffect(() => {
+    const d = parseYmd(value)
+    if (d) setViewDate(d)
+  }, [value])
+
+  const year = viewDate.getFullYear()
+  const month = viewDate.getMonth()
+  const startOfMonth = new Date(year, month, 1)
+  const endOfMonth = new Date(year, month + 1, 0)
+  const startDay = startOfMonth.getDay()
+  const prevEnd = new Date(year, month, 0).getDate()
+
+  const days: { date: number; current: boolean }[] = []
+  for (let i = startDay - 1; i >= 0; i--) {
+    days.push({ date: prevEnd - i, current: false })
+  }
+  for (let i = 1; i <= endOfMonth.getDate(); i++) {
+    days.push({ date: i, current: true })
+  }
+  const remaining = 42 - days.length
+  for (let i = 1; i <= remaining; i++) {
+    days.push({ date: i, current: false })
+  }
+
+  const today = new Date()
+
+  const selectCell = (cell: { date: number; current: boolean }, idx: number) => {
+    let y = year
+    let m = month
+    if (!cell.current) {
+      m += idx < startDay ? -1 : 1
+      if (m < 0) { m = 11; y -= 1 }
+      if (m > 11) { m = 0; y += 1 }
+    }
+    onChange(formatYmd(new Date(y, m, cell.date)))
+    setOpen(false)
+  }
+
+  return (
+    <div ref={containerRef} className="relative inline-flex items-center">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape' && open) {
+            e.stopPropagation()
+            setOpen(false)
+            return
+          }
+          onKeyDown?.(e)
+        }}
+        placeholder="YYYY-MM-DD"
+        maxLength={10}
+        title={title}
+        className="px-2 py-1 pr-7 bg-[var(--audit-canvas)] border border-[var(--audit-rule)] rounded-[2px] text-[var(--audit-bright)] w-[116px] focus:border-[var(--amber)] outline-none"
+      />
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        title={title}
+        className="absolute right-1 p-0.5 text-[var(--audit-mute)] hover:text-[var(--amber)] outline-none"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+          <line x1="16" y1="2" x2="16" y2="6" />
+          <line x1="8" y1="2" x2="8" y2="6" />
+          <line x1="3" y1="10" x2="21" y2="10" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute top-full left-0 mt-1 z-[200] w-[232px] p-2 bg-[var(--audit-surface)] border border-[var(--audit-rule)] rounded-[2px] shadow-xl">
+          <div className="flex items-center justify-between mb-2 px-1">
+            <button
+              type="button"
+              onClick={() => setViewDate(new Date(year, month - 1, 1))}
+              className="p-0.5 text-[var(--audit-mute)] hover:text-[var(--amber)]"
+            >‹</button>
+            <span className="text-[12px] text-[var(--audit-text)] font-medium">
+              {viewDate.toLocaleString(i18n.language, { month: 'short', year: 'numeric' })}
+            </span>
+            <button
+              type="button"
+              onClick={() => setViewDate(new Date(year, month + 1, 1))}
+              className="p-0.5 text-[var(--audit-mute)] hover:text-[var(--amber)]"
+            >›</button>
+          </div>
+          <div className="grid grid-cols-7 gap-1 text-[10px] text-center text-[var(--audit-mute)] mb-1">
+            {weekDays.map(d => <span key={d}>{d}</span>)}
+          </div>
+          <div className="grid grid-cols-7 gap-1 text-[11px] text-center">
+            {days.map((cell, idx) => {
+              const cellMonth = !cell.current ? (idx < startDay ? month - 1 : month + 1) : month
+              const cellDate = new Date(year, cellMonth, cell.date)
+              const selected = value ? parseYmd(value) : null
+              const isSelected = selected ? isSameDay(selected, cellDate) : false
+              const isToday = isSameDay(today, cellDate)
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => selectCell(cell, idx)}
+                  className={cn(
+                    'h-7 w-7 flex items-center justify-center rounded-[2px] transition-colors',
+                    cell.current ? 'text-[var(--audit-text)] hover:bg-[var(--audit-rule)]' : 'text-[var(--audit-faint)] hover:bg-[var(--audit-hover)]',
+                    isSelected && 'bg-[var(--amber)] text-[var(--audit-canvas)] font-semibold hover:bg-[var(--amber)]',
+                    isToday && !isSelected && 'border border-[var(--amber)] text-[var(--amber)]'
+                  )}
+                >
+                  {cell.date}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
   const { t } = useTranslation()
   const [records, setRecords] = useState<McpAuditRecord[]>([])
@@ -190,13 +358,13 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
 
   return (
     <div className="flex h-full w-full">
-      <div className="flex-1 flex flex-col bg-[var(--bg-rack)] overflow-hidden">
+      <div className="flex-1 flex flex-col bg-[var(--audit-canvas)] overflow-hidden">
         {/* 过滤栏 -- flex-wrap：窄屏自动换行，避免输入挤一起 */}
-        <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-[var(--rule)] text-[11px] font-mono">
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-[var(--audit-surface)] border-b border-[var(--audit-rule)] text-[12px] font-mono">
           <select
             value={operation}
             onChange={(e) => { setOperation(e.target.value); operationRef.current = e.target.value; load(1) }}
-            className="px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[var(--text-rack)] w-[180px] focus:border-[var(--amber)] outline-none"
+            className="px-2 py-1 bg-[var(--audit-canvas)] border border-[var(--audit-rule)] rounded-[2px] text-[var(--audit-bright)] w-[180px] focus:border-[var(--amber)] outline-none"
           >
             <option value="">{t('mcpAudit.filterAll')}</option>
             {operations.map((op) => <option key={op} value={op}>{op}</option>)}
@@ -204,7 +372,7 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
           <select
             value={session}
             onChange={(e) => { setSession(e.target.value); sessionRef.current = e.target.value; load(1) }}
-            className="px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[var(--text-rack)] w-[150px] focus:border-[var(--amber)] outline-none"
+            className="px-2 py-1 bg-[var(--audit-canvas)] border border-[var(--audit-rule)] rounded-[2px] text-[var(--audit-bright)] w-[150px] focus:border-[var(--amber)] outline-none"
           >
             <option value="">{t('mcpAudit.filterAll')}</option>
             {sessions.map((s) => (
@@ -216,36 +384,28 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
           <select
             value={allowed}
             onChange={(e) => { const v = e.target.value as AllowedFilter; setAllowed(v); allowedRef.current = v; load(1) }}
-            className="px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[var(--text-rack)] outline-none focus:border-[var(--amber)]"
+            className="px-2 py-1 bg-[var(--audit-canvas)] border border-[var(--audit-rule)] rounded-[2px] text-[var(--audit-bright)] outline-none focus:border-[var(--amber)]"
           >
             <option value="all">{t('mcpAudit.filterAll')}</option>
             <option value="allowed">{t('mcpAudit.filterAllowed')}</option>
             <option value="denied">{t('mcpAudit.filterDenied')}</option>
           </select>
-          <input
-            type="text"
+          <DateInput
             value={fromDate}
-            onChange={(e) => {
-              const v = e.target.value
+            onChange={(v) => {
               setFromDate(v)
-              // 只在完整 yyyy-mm-dd 或清空时写入 ref 并查询；半截输入只更新显示
               if (v === '' || /^\d{4}-\d{2}-\d{2}$/.test(v)) {
                 fromRef.current = v
                 load(1)
               }
             }}
             onKeyDown={(e) => { if (e.key === 'Enter') load(1) }}
-            placeholder="YYYY-MM-DD"
-            maxLength={10}
             title={t('mcpAudit.filterFrom')}
-            className="px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[var(--text-rack)] w-[104px] focus:border-[var(--amber)] outline-none"
           />
-          <span className="text-[var(--text-rack-faint)]">–</span>
-          <input
-            type="text"
+          <span className="text-[var(--audit-mute)]">–</span>
+          <DateInput
             value={toDate}
-            onChange={(e) => {
-              const v = e.target.value
+            onChange={(v) => {
               setToDate(v)
               if (v === '' || /^\d{4}-\d{2}-\d{2}$/.test(v)) {
                 toRef.current = v
@@ -253,14 +413,11 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
               }
             }}
             onKeyDown={(e) => { if (e.key === 'Enter') load(1) }}
-            placeholder="YYYY-MM-DD"
-            maxLength={10}
             title={t('mcpAudit.filterTo')}
-            className="px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[var(--text-rack)] w-[104px] focus:border-[var(--amber)] outline-none"
           />
           <button
             onClick={() => { load(page); loadFacets() }}
-            className="px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]"
+            className="px-2 py-1 bg-[var(--audit-surface)] border border-[var(--audit-rule)] rounded-[2px] text-[var(--audit-bright)] hover:border-[var(--amber)] hover:text-[var(--amber)]"
           >
             {loading ? '…' : t('mcpAudit.refresh')}
           </button>
@@ -270,15 +427,15 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
             className={cn(
               'px-2 py-1 rounded-[2px] border transition-colors',
               copied
-                ? 'bg-[var(--amber)] border-[var(--amber)] text-[var(--bg-rack)]'
-                : 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)]'
+                ? 'bg-[var(--amber)] border-[var(--amber)] text-[var(--audit-canvas)]'
+                : 'bg-[var(--audit-surface)] border-[var(--audit-rule)] text-[var(--audit-bright)] hover:border-[var(--amber)]'
             )}
           >
             {copied ? t('mcpAudit.copied') : t('mcpAudit.copy')}
           </button>
           <button
             onClick={handleClear}
-            className="px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[var(--text-rack)] hover:border-[var(--danger, #e06c75)] hover:text-[var(--danger, #e06c75)]"
+            className="px-2 py-1 bg-[var(--audit-surface)] border border-[var(--audit-rule)] rounded-[2px] text-[var(--audit-bright)] hover:border-[var(--error-rack)] hover:text-[var(--error-rack)]"
           >
             {t('mcpAudit.clear')}
           </button>
@@ -287,13 +444,13 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
         {/* 记录列表 -- 滚动时清掉 summary tip，避免定位错乱 */}
         <div className="flex-1 overflow-auto" onScroll={() => setSummaryTip(null)}>
           {records.length === 0 ? (
-            <div className="p-6 text-[12px] font-mono text-[var(--text-rack-mute)] text-center">
+            <div className="p-6 text-[13px] font-mono text-[var(--audit-text)] text-center">
               {t('mcpAudit.empty')}
             </div>
           ) : (
-            <table className="w-full text-[11px] font-mono">
-              <thead className="sticky top-0 z-10 bg-[var(--bg-elev)] border-b border-[var(--rule)]">
-                <tr className="text-[11px] tracking-[.04em] text-[var(--text-rack-data)]">
+            <table className="w-full text-[12px] font-mono">
+              <thead className="sticky top-0 z-10 bg-[var(--audit-surface)] border-b border-[var(--audit-rule)]">
+                <tr className="text-[12px] tracking-[.04em] text-[var(--audit-head)]">
                   <th className="text-left px-2 py-1.5 font-semibold">{t('mcpAudit.colTime')}</th>
                   <th className="text-left px-2 py-1.5 font-semibold">{t('mcpAudit.colOperation')}</th>
                   <th className="text-left px-2 py-1.5 font-semibold">{t('mcpAudit.colCapability')}</th>
@@ -305,13 +462,13 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
               </thead>
               <tbody>
                 {records.map((r) => (
-                  <tr key={r.id} className="border-b border-[var(--rule-soft,var(--rule))] hover:bg-[var(--bg-elev)]">
-                    <td className="px-2 py-1.5 text-[var(--text-rack)] whitespace-nowrap" title={r.timestamp}>
-                      <span className="text-[var(--text-rack-data)]">{fmtDate(r.timestamp)}</span>{' '}{fmtTime(r.timestamp)}
+                  <tr key={r.id} className="border-b border-[var(--audit-rule)] hover:bg-[var(--audit-hover)]">
+                    <td className="px-2 py-1.5 text-[var(--audit-text)] whitespace-nowrap" title={r.timestamp}>
+                      <span className="text-[var(--audit-text)]">{fmtDate(r.timestamp)}</span>{' '}{fmtTime(r.timestamp)}
                     </td>
-                    <td className="px-2 py-1.5 text-[var(--text-rack)] whitespace-nowrap font-semibold">{r.operation}</td>
-                    <td className="px-2 py-1.5 text-[var(--text-rack-data)] whitespace-nowrap">{r.capability}</td>
-                    <td className="px-2 py-1.5 text-[var(--text-rack-data)] whitespace-nowrap" title={r.sessionId}>
+                    <td className="px-2 py-1.5 text-[var(--audit-text)] whitespace-nowrap font-semibold">{r.operation}</td>
+                    <td className="px-2 py-1.5 text-[var(--audit-text)] whitespace-nowrap">{r.capability}</td>
+                    <td className="px-2 py-1.5 text-[var(--audit-text)] whitespace-nowrap" title={r.sessionId}>
                       {r.sessionName || r.sessionId?.slice(0, 8) || '–'}
                     </td>
                     <td className="px-2 py-1.5 whitespace-nowrap">
@@ -320,19 +477,19 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
                           'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[2px] text-[10px] font-semibold',
                           r.allowed
                             ? 'bg-[color-mix(in_srgb,var(--amber)_18%,transparent)] text-[var(--amber)]'
-                            : 'bg-[color-mix(in_srgb,var(--danger,#e06c75)_18%,transparent)] text-[var(--danger,#e06c75)]'
+                            : 'bg-[color-mix(in_srgb,var(--error-rack)_18%,transparent)] text-[var(--error-rack)]'
                         )}
                       >
                         {r.allowed ? '✓' : '✗'}
                         {r.reason ? <span className="opacity-70" title={r.reason}>ⓘ</span> : null}
                       </span>
                     </td>
-                    <td className="px-2 py-1.5 text-[var(--text-rack-mute)] whitespace-nowrap">
+                    <td className="px-2 py-1.5 text-[var(--audit-text)] whitespace-nowrap">
                       {r.tokenSource || '–'}
-                      {r.originSessionId ? <span className="text-[var(--text-rack-faint)]" title={r.originSessionId}>·{r.originSessionId.slice(0, 6)}</span> : null}
+                      {r.originSessionId ? <span className="text-[var(--audit-mute)]" title={r.originSessionId}>·{r.originSessionId.slice(0, 6)}</span> : null}
                     </td>
                     <td
-                      className="px-2 py-1.5 text-[var(--text-rack-data)] truncate max-w-[280px] cursor-help"
+                      className="px-2 py-1.5 text-[var(--audit-text)] truncate max-w-[280px] cursor-help"
                       onMouseEnter={(e) => handleSummaryEnter(e, r.summary)}
                       onMouseLeave={() => setSummaryTip(null)}
                     >
@@ -346,7 +503,7 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
         </div>
 
         {/* 分页栏 */}
-        <div className="flex items-center justify-between px-3 py-2 border-t border-[var(--rule)] text-[11px] font-mono text-[var(--text-rack-mute)]">
+        <div className="flex items-center justify-between px-3 py-2 bg-[var(--audit-surface)] border-t border-[var(--audit-rule)] text-[12px] font-mono text-[var(--audit-text)]">
           <span className="tabular-nums">
             {total > 0 ? `${rangeStart}–${rangeEnd} / ${total}` : '– / –'}
           </span>
@@ -358,11 +515,11 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
               className={cn(
                 'w-[24px] h-[20px] flex items-center justify-center rounded-[2px] border transition-colors',
                 page <= 1
-                  ? 'border-[var(--rule)] text-[var(--text-rack-faint)] cursor-not-allowed'
-                  : 'border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
+                  ? 'border-[var(--audit-rule)] text-[var(--audit-mute)] cursor-not-allowed'
+                  : 'border-[var(--audit-rule)] text-[var(--audit-bright)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
               )}
             >‹</button>
-            <span className="tabular-nums text-[var(--text-rack-data)] min-w-[48px] text-center">{page} / {totalPages}</span>
+            <span className="tabular-nums text-[var(--audit-bright)] min-w-[48px] text-center">{page} / {totalPages}</span>
             <button
               type="button"
               onClick={() => gotoPage(page + 1)}
@@ -370,8 +527,8 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
               className={cn(
                 'w-[24px] h-[20px] flex items-center justify-center rounded-[2px] border transition-colors',
                 page >= totalPages
-                  ? 'border-[var(--rule)] text-[var(--text-rack-faint)] cursor-not-allowed'
-                  : 'border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
+                  ? 'border-[var(--audit-rule)] text-[var(--audit-mute)] cursor-not-allowed'
+                  : 'border-[var(--audit-rule)] text-[var(--audit-bright)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
               )}
             >›</button>
           </div>
@@ -381,7 +538,7 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
       {/* summary 鼠标 tip -- 渲染在面板外层、固定定位，不被记录列表的 overflow-auto 裁切 */}
       {summaryTip && (
         <div
-          className="fixed z-[300] px-2 py-1.5 rounded-[3px] bg-[var(--bg-elev)] border border-[var(--rule)] text-[11px] font-mono text-[var(--text-rack)] shadow-xl pointer-events-none whitespace-normal break-words"
+          className="fixed z-[300] px-2 py-1.5 rounded-[3px] bg-[var(--audit-surface)] border border-[var(--audit-rule)] text-[12px] font-mono text-[var(--audit-bright)] shadow-xl pointer-events-none whitespace-normal break-words"
           style={{ left: summaryTip.x, top: summaryTip.y, maxWidth: Math.min(400, window.innerWidth - summaryTip.x - 8) }}
         >
           {summaryTip.text}

@@ -15,6 +15,24 @@
   --font-family-terminal: 'Lucida Console', 'Consolas', 'Courier New', monospace;
 }
 
+/* MCP 审计面板令牌 -- "终端领地"恒暗配色。
+   审计面板与终端画布(#0C0C0C)共用同一窗格槽位,而终端窗格在所有主题(含 rack-paper
+   浅色主题)下都恒暗,因此面板也跨主题保持深色,不随主题翻浅。
+   各 [data-theme] 块均不覆盖 --audit-*,故其在任意主题下都取此处的恒定值。
+   amber(--amber)/错误(--error-rack)等语义色仍走主题变量,在恒暗底上各主题均可见。
+   值取当前 graphite 主题下调好的配色,确保深色主题下外观零变化。 */
+:root {
+  --audit-canvas:  #0C0C0C;  /* 面板主区/输入框底色,对齐 TerminalView 画布 */
+  --audit-surface: #121212;  /* 过滤栏/表头/分页栏表面 */
+  --audit-hover:   #141414;  /* 行 hover */
+  --audit-rule:    #1E1E1E;  /* 边线 */
+  --audit-bright:  #E4E7EA;  /* 控件文字(输入/按钮/分页),原 var(--text-rack) 的 graphite 值 */
+  --audit-text:    #C5CCD2;  /* 内容文字 */
+  --audit-head:    #B8BFC6;  /* 表头 */
+  --audit-mute:    #6E767D;  /* 次要(分隔符/禁用/星期头),原 var(--text-rack-mute) */
+  --audit-faint:   #353C42;  /* 弱化(日历非当月日期),原 var(--text-rack-faint) */
+}
+
 /* ─────────────────────────────────────────────────────────────
    主题系统
    ──────────────

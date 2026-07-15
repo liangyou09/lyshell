@@ -11,7 +11,7 @@
  */
 import { app } from 'electron'
 import { join } from 'path'
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'fs'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -53,7 +53,7 @@ export interface McpAuditFacets {
   sessions: { sessionId: string; sessionName?: string; sessionType?: string }[]
 }
 
-const MAX_RECORDS = 2000
+const MAX_RECORDS = 5000
 const SAVE_DEBOUNCE_MS = 2000
 
 class McpAuditRepository {
@@ -70,7 +70,14 @@ class McpAuditRepository {
   }
 
   private load(): void {
-    if (!this.filePath || !existsSync(this.filePath)) return
+    if (!this.filePath) return
+    // 清理上次崩溃可能残留的 .tmp(saveNow 先写 .tmp 再 rename,中途崩溃会留下)。
+    // 不读取它——内容可能不完整,下次 saveNow 会重写;这里只删遗留。
+    const tmp = `${this.filePath}.tmp`
+    if (existsSync(tmp)) {
+      try { unlinkSync(tmp) } catch { /* 被占用等:忽略,下次再清 */ }
+    }
+    if (!existsSync(this.filePath)) return
     try {
       const content = readFileSync(this.filePath, 'utf-8')
       const data = JSON.parse(content)
@@ -91,8 +98,17 @@ class McpAuditRepository {
 
   private saveNow(): void {
     if (!this.filePath) return
+    // 原子落盘：先写临时文件再 rename，避免写盘中途崩溃损坏整份审计日志。
+    // rename 在同分区上是原子的；Windows 上若目标文件被占用会抛错，此时回退到直写。
+    const tmp = `${this.filePath}.tmp`
     try {
-      writeFileSync(this.filePath, JSON.stringify(this.records, null, 2), 'utf-8')
+      writeFileSync(tmp, JSON.stringify(this.records, null, 2), 'utf-8')
+      try {
+        renameSync(tmp, this.filePath)
+      } catch (e) {
+        log.warn('[MCP] Atomic rename failed, falling back to direct write:', e)
+        writeFileSync(this.filePath, JSON.stringify(this.records, null, 2), 'utf-8')
+      }
     } catch (e) {
       log.error('[MCP] Failed to save audit log:', e)
     }

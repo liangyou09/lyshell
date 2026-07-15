@@ -458,6 +458,7 @@
     "colSession": "会话",
     "colResult": "结果",
     "colSource": "来源",
-    "colSummary": "内容"
+    "colSummary": "内容",
+    "weekDays": ["日", "一", "二", "三", "四", "五", "六"]
   }
 }

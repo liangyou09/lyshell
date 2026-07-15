@@ -461,6 +461,7 @@
     "colSession": "Session",
     "colResult": "Result",
     "colSource": "Source",
-    "colSummary": "Summary"
+    "colSummary": "Summary",
+    "weekDays": ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
   }
 }
