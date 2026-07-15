@@ -187,7 +187,10 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
       const fKeyMatch = e.key.match(/^F([1-9]|1[0-2])$/)
       if (!fKeyMatch) return
 
+      // 必须 stopPropagation:capture 阶段截断后阻止事件继续传到 xterm,
+      // 否则 xterm 仍会把 F1-F12 解析成转义序列发进 PTY(快捷命令与转义序列双发)。
       e.preventDefault()
+      e.stopPropagation()
 
       const index = parseInt(fKeyMatch[1]) - 1
       if (index >= 0 && index < 12) {
@@ -211,8 +214,10 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
         }
       }
     }
-    window.addEventListener('keydown', handleShortcut)
-    return () => window.removeEventListener('keydown', handleShortcut)
+    // 用 capture 阶段:焦点在终端时 xterm 会先在 textarea 上处理 F1-F12 并
+    // stopPropagation,冒泡阶段的 window 监听收不到事件;capture 抢在 xterm 之前截走。
+    window.addEventListener('keydown', handleShortcut, true)
+    return () => window.removeEventListener('keydown', handleShortcut, true)
   }, [selectedGroupId, commands, onExecuteCommand])
 
   // 重置对话框状态
