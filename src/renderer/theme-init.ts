@@ -26,9 +26,16 @@ try {
             typeof c?.base === 'string' && /^#[0-9a-f]{6}$/i.test(c.base) &&
             typeof c?.accent === 'string' && /^#[0-9a-f]{6}$/i.test(c.accent)
           ) {
-            // 只设两个最显眼的变量做首帧防闪 —— 完整 13 阶在 store 挂载后注入
+            // 只设最显眼的几个变量做首帧防闪 —— 完整 13 阶在 store 挂载后注入
             document.documentElement.style.setProperty('--bg-base', c.base)
             document.documentElement.style.setProperty('--amber', c.accent)
+            // 终端画布底色:亮底用 base,暗底近黑(#0C0C0C) -- 防 FOUC,完整派生在 store 挂载后注入
+            const tbHex = c.base.slice(1)
+            const tbV = parseInt(tbHex, 16) || 0
+            const tbLum = (0.299 * ((tbV >> 16) & 0xff) + 0.587 * ((tbV >> 8) & 0xff) + 0.114 * (tbV & 0xff)) / 255
+            // 阈值 0.55 须与 @shared/color-utils 的 LIGHT_LUMINANCE_THRESHOLD 保持一致
+            // (早期 FOUC 脚本须自包含,不能 import;改阈值时两处同步)
+            document.documentElement.style.setProperty('--terminal-bg', tbLum > 0.55 ? c.base : '#0C0C0C')
           }
         }
       } catch {

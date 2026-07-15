@@ -1,11 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Terminal } from '@xterm/xterm'
+import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import '@xterm/xterm/css/xterm.css'
-import { DEFAULT_THEME_DARK, DEFAULT_FONT_FAMILY, isCursorBlinkEnabled } from '@shared/constants'
+import { DEFAULT_THEME_DARK, DEFAULT_THEME_LIGHT, DEFAULT_FONT_FAMILY, isCursorBlinkEnabled } from '@shared/constants'
+import { isLightColor } from '@shared/color-utils'
 import { useTerminalStore } from '../../stores/terminal-store'
 import { useSessionStore } from '../../stores/session-store'
+import { useThemeStore } from '../../stores/theme-store'
 import { useTranslation } from 'react-i18next'
 import i18n from '../../i18n'
 import { ConnectionStatus } from '@shared/types'
@@ -34,6 +36,21 @@ const SEARCH_DECORATIONS = {
   matchBorder: '#EAC54F',
   matchOverviewRuler: '#EAC54F',
   activeMatchColorOverviewRuler: '#FFD166'
+}
+
+/**
+ * 解析当前主题下的 xterm 终端配色。
+ * 终端画布底色取自 --terminal-bg(深色主题近黑 #0C0C0C、rack-paper 浅纸 #ECEAE4);
+ * 按其亮度选择深/浅配色集(DARK/LIGHT 仅 foreground/cursor/black/white 不同,ANSI 色共用),
+ * 再把 background 覆写为 --terminal-bg,使终端画布与页签/审计面板的 var(--terminal-bg) 严丝合缝。
+ * 主题切换时由下方 useEffect 实时调用,无需重建终端(xterm 5.5 支持 options.theme 热更新)。
+ */
+function resolveTerminalTheme(): ITheme {
+  const bg = getComputedStyle(document.documentElement)
+    .getPropertyValue('--terminal-bg')
+    .trim() || '#0C0C0C'
+  const base = isLightColor(bg) ? DEFAULT_THEME_LIGHT : DEFAULT_THEME_DARK
+  return { ...base, background: bg }
 }
 
 /**
@@ -66,6 +83,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
 
   const { getTerminal, registerTerminal } = useTerminalStore()
   const { sessions } = useSessionStore()
+  const themeId = useThemeStore(s => s.themeId)
   const session = sessions.find(s => s.id === sessionId)
   const sessionConfig = session?.config
   const blockInput = session?.lockedByMcp ?? false
@@ -254,7 +272,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         fontFamily: DEFAULT_FONT_FAMILY,
         fontSize: fontSize,
         lineHeight: 1.2,
-        theme: DEFAULT_THEME_DARK,
+        theme: resolveTerminalTheme(),
         cursorStyle: 'block',
         cursorBlink: cursorBlink,
         scrollback: scrollbackLines,
@@ -538,6 +556,15 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       instance.terminal.options.disableStdin = blockInput
     }
   }, [sessionId, blockInput, getTerminal])
+
+  // 主题切换时实时更新 xterm 配色 -- setTheme 已同步把 --terminal-bg 写入 :root,
+  // 此处读 computed 值重选深/浅配色集并覆写 background,终端无需重建。
+  useEffect(() => {
+    const instance = getTerminal(sessionId)
+    if (instance) {
+      instance.terminal.options.theme = resolveTerminalTheme()
+    }
+  }, [themeId, sessionId, getTerminal])
 
   // Ctrl+F 快捷键查找
   useEffect(() => {
@@ -843,7 +870,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   }, [isDragging])
 
   return (
-    <div className="w-full h-full bg-[#0C0C0C] relative overflow-hidden">
+    <div className="w-full h-full bg-[var(--terminal-bg)] relative overflow-hidden">
       {/* 终端容器 */}
       <div
         ref={containerRef}

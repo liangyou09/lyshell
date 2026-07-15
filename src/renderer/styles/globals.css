@@ -15,24 +15,6 @@
   --font-family-terminal: 'Lucida Console', 'Consolas', 'Courier New', monospace;
 }
 
-/* MCP 审计面板令牌 -- "终端领地"恒暗配色。
-   审计面板与终端画布(#0C0C0C)共用同一窗格槽位,而终端窗格在所有主题(含 rack-paper
-   浅色主题)下都恒暗,因此面板也跨主题保持深色,不随主题翻浅。
-   各 [data-theme] 块均不覆盖 --audit-*,故其在任意主题下都取此处的恒定值。
-   amber(--amber)/错误(--error-rack)等语义色仍走主题变量,在恒暗底上各主题均可见。
-   值取当前 graphite 主题下调好的配色,确保深色主题下外观零变化。 */
-:root {
-  --audit-canvas:  #0C0C0C;  /* 面板主区/输入框底色,对齐 TerminalView 画布 */
-  --audit-surface: #121212;  /* 过滤栏/表头/分页栏表面 */
-  --audit-hover:   #141414;  /* 行 hover */
-  --audit-rule:    #1E1E1E;  /* 边线 */
-  --audit-bright:  #E4E7EA;  /* 控件文字(输入/按钮/分页),原 var(--text-rack) 的 graphite 值 */
-  --audit-text:    #C5CCD2;  /* 内容文字 */
-  --audit-head:    #B8BFC6;  /* 表头 */
-  --audit-mute:    #6E767D;  /* 次要(分隔符/禁用/星期头),原 var(--text-rack-mute) */
-  --audit-faint:   #353C42;  /* 弱化(日历非当月日期),原 var(--text-rack-faint) */
-}
-
 /* ─────────────────────────────────────────────────────────────
    主题系统
    ──────────────
@@ -45,6 +27,7 @@
 /* 默认 = Rack Graphite */
 :root,
 [data-theme="rack-graphite"] {
+  --terminal-bg:    #0C0C0C;  /* 终端画布底色 -- 深色主题统一近黑(经 :root 继承);rack-paper 覆盖为浅纸 */
   --bg-base:        #11151A;
   --bg-rack:        #161B20;
   --bg-slot:        #1C2228;
@@ -110,21 +93,22 @@
   --text-rack-faint:#383838;
 }
 
-/* Rack Paper — 工程稿纸:淡青灰绿底 + 铜调红铅笔焦点,
-   不是冷灰 SaaS 极简,也不是暖米黄 AI 默认;celadon 与机柜暗主题在材质上互补 */
+/* Rack Paper - 自然浅纸:暖中性石色底 + 石墨墨字 + 铜调红铅笔焦点,
+   未漂白纸/卵石质感,刻意避开淡青(原版偏冷绿、不自然)与暖米黄(AI 默认);与机柜暗主题材质互补 */
 [data-theme="rack-paper"] {
-  --bg-base:        #DCE6E4;
-  --bg-rack:        #D2DDDB;
-  --bg-slot:        #C7D3D1;
-  --bg-elev:        #BCC9C7;
-  --bg-strip:       #D6E0DE;
-  --rule:           #91A4A1;
-  --rule-soft:      #B5C2C0;
-  --text-rack:      #14231F;
-  --text-rack-mute: #5A6764;
-  --text-rack-data: #2A3835;
-  --text-rack-dim:  #7A8784;
-  --text-rack-faint:#A6B0AD;
+  --terminal-bg:    #ECEAE4;  /* 浅纸终端画布,对齐 --bg-base */
+  --bg-base:        #ECEAE4;
+  --bg-rack:        #E4E2DB;
+  --bg-slot:        #DBD9D1;
+  --bg-elev:        #D2D0C7;
+  --bg-strip:       #E8E6DF;
+  --rule:           #C0BEB4;
+  --rule-soft:      #D3D1C8;
+  --text-rack:      #1F1E1A;
+  --text-rack-mute: #67655D;
+  --text-rack-data: #34332C;
+  --text-rack-dim:  #86847B;
+  --text-rack-faint:#AFAEA3;
   --amber:          #B8741D;
   --amber-soft:     #B8741D22;
   --amber-glow:     #B8741D33;

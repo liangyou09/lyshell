@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { isLightColor } from '@shared/color-utils'
 
 /**
  * 主题系统
@@ -67,8 +68,8 @@ export const AVAILABLE_THEMES: ThemeMeta[] = [
   {
     id: 'rack-paper',
     name: 'Paper',
-    description: '工程稿纸 · 淡青底 + 铜调焦点',
-    preview: { bgBase: '#DCE6E4', bgRack: '#D2DDDB', bgSlot: '#C7D3D1', text: '#14231F' }
+    description: '自然浅纸 · 石墨墨 + 铜铅笔',
+    preview: { bgBase: '#ECEAE4', bgRack: '#E4E2DB', bgSlot: '#DBD9D1', text: '#1F1E1A' }
   },
   {
     id: 'rack-ember',
@@ -160,12 +161,6 @@ function shiftLightness(hex: string, deltaL: number): string {
   return rgbToHex(nr, ng, nb)
 }
 
-// 亮度 0~1（用于决定文字反相方向）
-function luminance(hex: string): number {
-  const [r, g, b] = hexToRgb(hex)
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255
-}
-
 /**
  * 从 base + accent 派生完整 13 阶 CSS 变量字典。
  * - 亮底（luminance > .55）：chrome 阶向暗推（负 delta），文字阶向亮推
@@ -173,7 +168,7 @@ function luminance(hex: string): number {
  * - amber-soft / glow 用 8-bit alpha 后缀
  */
 function deriveCustomVars(base: string, accent: string): Record<string, string> {
-  const isLight = luminance(base) > 0.55
+  const isLight = isLightColor(base)
   const dir = isLight ? -1 : 1  // chrome 移动方向
 
   // chrome 5 阶 —— elev > slot > rack > strip > base 的明亮序列
@@ -200,6 +195,7 @@ function deriveCustomVars(base: string, accent: string): Record<string, string> 
     '--bg-slot':         bgSlot,
     '--bg-elev':         bgElev,
     '--bg-strip':        bgStrip,
+    '--terminal-bg':     isLight ? base : '#0C0C0C',  // 终端画布:亮底对齐 base,暗底近黑(与预设主题约定一致)
     '--rule':            rule,
     '--rule-soft':       ruleSoft,
     '--text-rack':       textRack,
@@ -251,6 +247,7 @@ function clearCustomColors(): void {
   const root = document.documentElement
   const keys = [
     '--bg-base', '--bg-rack', '--bg-slot', '--bg-elev', '--bg-strip',
+    '--terminal-bg',
     '--rule', '--rule-soft',
     '--text-rack', '--text-rack-mute', '--text-rack-data', '--text-rack-dim', '--text-rack-faint',
     '--amber', '--amber-soft', '--amber-glow'

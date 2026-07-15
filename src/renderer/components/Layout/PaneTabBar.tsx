@@ -360,7 +360,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
             className={cn(
               'flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
               pane.activeSessionId === session.id && mcpAuditPaneId !== pane.id
-                ? 'bg-[#0C0C0C] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
+                ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
                 : session.hasActivity
                   ? 'bg-[var(--reachable)]/25 text-[var(--text-rack)] hover:bg-[var(--reachable)]/35 shadow-[inset_2px_0_0_var(--reachable)]' // 有未读输出:reachable 青调底 + 左侧 stripe
                   : 'bg-[var(--bg-rack)] text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)]',
@@ -431,7 +431,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
             data-tab-id="__mcp_audit__"
             onClick={handleMcpTabClick}
             title={t('pane.mcpTabHint')}
-            className="flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px] bg-[#0C0C0C] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]"
+            className="flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px] bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]"
           >
             <span className="text-xs truncate max-w-[150px]">{t('pane.mcpTab')}</span>
             <button

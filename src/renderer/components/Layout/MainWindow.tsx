@@ -998,7 +998,7 @@ const MainWindow: React.FC = () => {
         {/* 终端内容区 */}
         <div className="flex flex-col flex-1 min-w-0 min-h-0">
           {/* 终端内容区 - 分屏布局 */}
-          <div ref={terminalWrapperRef} className="terminal-wrapper flex-1 min-h-0 bg-[#0C0C0C] overflow-hidden relative pb-0">
+          <div ref={terminalWrapperRef} className="terminal-wrapper flex-1 min-h-0 bg-[var(--terminal-bg)] overflow-hidden relative pb-0">
             <SplitPaneContainer />
 
             {/* 右上角会话浮窗 */}

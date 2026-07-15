@@ -338,7 +338,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
               })}
               {/* 所有页签都被隐藏时叠加提示;终端实例仍挂载下层,保留连接与输出 */}
               {node.sessions.every(id => hiddenTabSessions[id]) && (
-                <div className="absolute inset-0 flex items-center justify-center bg-[#0C0C0C] text-gray-500 z-10 pointer-events-none">
+                <div className="absolute inset-0 flex items-center justify-center bg-[var(--terminal-bg)] text-gray-500 z-10 pointer-events-none">
                   <div className="text-center">
                     <p className="text-sm">{t('pane.allTabsHidden')}</p>
                     <p className="text-xs mt-1">{t('pane.allTabsHiddenHint')}</p>
@@ -347,7 +347,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
               )}
             </>
           ) : (
-            <div className="flex items-center justify-center flex-1 bg-[#0C0C0C] text-gray-500">
+            <div className="flex items-center justify-center flex-1 bg-[var(--terminal-bg)] text-gray-500">
               <div className="text-center">
                 <p className="text-sm">{t('pane.emptyPane')}</p>
                 <p className="text-xs mt-1">{t('pane.emptyPaneHint')}</p>

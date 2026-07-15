@@ -85,7 +85,7 @@ const SplitPaneContainer: React.FC = () => {
   return (
     <div
       ref={containerRef}
-      className="w-full h-full bg-[#0C0C0C] overflow-hidden relative"
+      className="w-full h-full bg-[var(--terminal-bg)] overflow-hidden relative"
     >
       {/* 分屏内容 */}
       <PaneView node={layout.root} />
