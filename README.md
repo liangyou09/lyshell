@@ -16,10 +16,11 @@
 ## 开发
 
 ```bash
-# 安装依赖
+# 安装依赖（需 node 18/20 LTS：node-pty 1.0.0 在 node 24 下无法编译，
+# postinstall 仅在 18/20 上重编原生模块，其他版本自动跳过但没有可用二进制）
 npm install
 
-# 编译原生模块
+# 编译原生模块（仅 node 18/20 LTS）
 npm run rebuild
 
 # 开发模式

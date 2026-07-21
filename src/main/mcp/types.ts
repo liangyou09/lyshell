@@ -161,6 +161,7 @@ export interface FileOperationRequest {
 export interface SendInputRequest {
   sessionId: string
   text: string
+  autoNewline?: boolean
 }
 
 /**

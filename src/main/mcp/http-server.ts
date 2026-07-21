@@ -15,7 +15,7 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { sessionManager, type Session } from '../terminal/session-manager'
 import { broadcastSessionsChanged, broadcastMcpOpenConnectionDialog } from '../ipc/handlers'
-import { processInputEscapeSequences } from '@shared/escape-sequences'
+import { processInputEscapeSequences, appendAutoNewline } from '@shared/escape-sequences'
 import { fileManager, runUploadWorkerAndWait, runDownloadWorkerAndWait } from '../file'
 import { preferencesRepository, quickCommandsRepository, sessionRepository } from '../storage/repository'
 import { agentRepository } from '../storage/agent-repository'
@@ -946,8 +946,10 @@ async function handleSendInput(data: SendInputRequest, res: http.ServerResponse,
       return
     }
 
-    // 解析转义字符：\n -> 换行, \r -> 回车, \x03 -> Ctrl+C 等
-    const processedText = processInputEscapeSequences(text)
+    // 解析转义字符（\n -> 换行, \r -> 回车, \x03 -> Ctrl+C 等），并按 autoNewline 决定是否补末尾换行：
+    // 末尾是普通可见字符时自动补一个 \n，避免命令只回显不执行；末尾已是 \n/\r 或控制序列时不补。
+    // MCP 边界层默认 true（data.autoNewline !== false）。
+    const processedText = appendAutoNewline(processInputEscapeSequences(text), data.autoNewline !== false)
 
     // 临时锁定 PTY，避免用户输入与 MCP 输入冲突
     sessionManager.lockSessionForMcp(resolvedSessionId)

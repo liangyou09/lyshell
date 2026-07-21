@@ -2,6 +2,14 @@ appId: com.lyshell.app
 productName: LyShell
 copyright: Copyright © 2026 LyShell Team
 
+# node-pty 1.0.0 在 node 24 下无法原生编译(winpty GetCommitHash.bat)。
+# 新机器必须先用 node 18/20 LTS 执行 npm install——postinstall(scripts/postinstall.cjs)
+# 会跑 install-app-deps 为 Electron 28 ABI 预编译 serialport/node-pty，这是拿到可用
+# 原生模块二进制的唯一途径；否则打包出的 app 运行时加载 node-pty 会失败。
+# 此处 npmRebuild: false 让打包阶段跳过重编，直接复用上述预编译结果。
+# 如需在支持 node-pty 编译的 node(18/20 LTS)上恢复重编，可移除此项。
+npmRebuild: false
+
 directories:
   output: release/${version}
   buildResources: build

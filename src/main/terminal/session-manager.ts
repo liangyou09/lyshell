@@ -4,7 +4,7 @@ import log from 'electron-log'
 import { app } from 'electron'
 import { SSHConnector, TelnetConnector, SerialConnector, LocalConnector, ConnectionStatus, ConnectionType } from '../connectors'
 import type { SessionConfig, SSHConfig, TelnetConfig, SerialConfig, LocalConfig } from '@shared/types'
-import { processInputEscapeSequences } from '@shared/escape-sequences'
+import { processInputEscapeSequences, appendAutoNewline } from '@shared/escape-sequences'
 import { OutputBuffer } from './output-buffer'
 
 /** read_output 读取选项 */
@@ -658,16 +658,12 @@ export class SessionManager extends EventEmitter {
 
     let processedText = processInputEscapeSequences(options.text)
 
-    // autoNewline：末尾是普通可见字符时自动补一个 \n，避免调用方忘记加换行导致命令只回显不执行。
-    // 末尾已是 \n/\r、或为控制序列（Ctrl+C=\x03、Ctrl+Z=\x1a、Tab=\t 等 C0 控制字符 / DEL）时不补。
-    // 核心层默认 false（保持"不补换行"的最小语义）；MCP 边界层(handleSendAndWait)以 data.autoNewline !== false
-    // 显式 opt-in 默认 true，使外部 MCP 调用方免于手写 \n。新增非 MCP 调用方需自行决定是否传 autoNewline:true。
-    if (options.autoNewline === true && processedText.length > 0) {
-      const lastChar = processedText.charCodeAt(processedText.length - 1)
-      if (lastChar >= 0x20 && lastChar !== 0x7f) {
-        processedText += '\n'
-      }
-    }
+    // autoNewline：末尾是普通可见字符时自动补一个 \n，避免调用方忘记加换行导致命令只回显不执行；
+    // 末尾已是 \n/\r 或控制序列时不补。核心层默认 false（保持"不补换行"的最小语义）；
+    // MCP 边界层统一默认 true：handleSendInput 在 http-server 内直接调 appendAutoNewline，
+    // handleSendAndWait 经此核心函数（data.autoNewline !== false opt-in），使外部 MCP 调用方免于手写 \n。
+    // 新增非 MCP 调用方需自行决定是否传 autoNewline:true。
+    processedText = appendAutoNewline(processedText, options.autoNewline === true)
 
     // captureExitCode：追加 POSIX 退出码探针（best-effort，纯 ASCII 标记 survives ANSI 清洗）
     let capturingExit = false

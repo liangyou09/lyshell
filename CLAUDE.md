@@ -11,7 +11,7 @@ Stack: Electron 28, TypeScript 5, React 18, xterm.js, node-pty, ssh2, serialport
 ## Commands
 
 ```bash
-npm install              # install deps (postinstall runs electron-builder install-app-deps)
+npm install              # install deps; postinstall (scripts/postinstall.cjs) rebuilds native modules only on node 18/20 LTS — node-pty 1.0.0 can't compile on node 24
 npm run rebuild          # rebuild native modules (serialport, node-pty) for current Electron ABI — required after Electron upgrades or fresh installs on a new machine
 npm run dev              # electron-vite dev (renderer HMR + main reload)
 npm run typecheck        # tsc --noEmit for both renderer and node configs
