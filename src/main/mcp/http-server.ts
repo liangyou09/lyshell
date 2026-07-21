@@ -23,6 +23,7 @@ import { mcpAuditRepository } from '../storage/mcp-audit-repository'
 import { ConnectionType, ConnectionStatus, SessionConfig } from '@shared/types'
 import type { FileInfo } from '@shared/types'
 import { DEFAULT_THEME_DARK } from '@shared/constants'
+import { type McpCapability } from '@shared/api-routes'
 import * as mcpAuth from './auth'
 import type { TokenBinding, TokenKind } from './auth'
 import { scanDestructiveCommand } from './destructive-check'
@@ -64,8 +65,6 @@ const PORT_FILE_NAME = 'mcp-server.json'
 const MAX_COMMAND_TIMEOUT_MS = 120000
 const MAX_READ_FILE_BYTES = 1048576
 const MAX_TEXT_LENGTH = 1024 * 1024
-
-type McpCapability = 'read' | 'interactiveWrite' | 'execute' | 'localExecute' | 'fileWrite' | 'sessionControl' | 'sessionMetadataWrite'
 
 interface McpSecuritySettings {
   enabled?: boolean
@@ -216,14 +215,16 @@ function getPortFilePath(): string {
 }
 
 /**
- * 获取 MCP Server 脚本的绝对路径
+ * 获取 MCP Server 脚本的绝对路径。
+ * dev 用 __dirname(dist/main);打包用 resources/app.asar/dist/main/(asar 内)。
+ *
+ * 注:打包后 app 在 resources/app.asar(无 app/ 目录),曾用 'app' 致 ENOENT -- 打包版 MCP server
+ * 静默起不来。改 'app.asar' 修复(dist:win + asar 探针实测 ELECTRON_RUN_AS_NODE 可读 asar 内脚本)。
  */
 function getMcpServerScriptPath(): string {
   if (app.isPackaged) {
-     // 生产环境：asar 包内含 dist/main/mcpServer.js
-    return path.join(process.resourcesPath, 'app', 'dist', 'main', 'mcpServer.js')
+    return path.join(process.resourcesPath, 'app.asar', 'dist', 'main', 'mcpServer.js')
   }
-   // 开发环境：__dirname 是 dist/main/，mcpServer.js 也在 dist/main/ 中
   return path.join(__dirname, 'mcpServer.js')
 }
 
@@ -2153,6 +2154,33 @@ async function authorizeMcpOperation(
       session && session.status === ConnectionStatus.DISCONNECTED
     ) {
       return deny('session token cannot reconnect other disconnected sessions (potential credential reuse); only its own session or already-connected remotes are allowed')
+    }
+    auditMcpOperation({ ...auditBase, allowed: true })
+    return { allowed: true }
+  }
+
+  // plugin token：来自 plugin host（contributor 插件），绑定 pluginId + 用户安装时批准的
+  // capability 子集（grantedCapabilities）。不要求 allowExternalMcpClients（plugin 是内部
+  // host，非外部 client），不受 settings.allow* 控制（grantedCapabilities 是独立授权）。
+  // 跨会话：plugin 可驱动任意会话（在其 grantedCapabilities 范围内），不受 session token 的
+  // origin 限制；但仍受上方 deniedSessionIds/allowedSessionIds 约束。
+  // requireConfirmation 跳过（plugin 已由用户安装批准），但 confirmDestructiveIfNeeded 仍生效。
+  if (binding.kind === 'plugin') {
+    if (!binding.capabilities?.includes(capability)) {
+      // execute_command / run_on_sessions 按 session 类型选 execute(远端)或 localExecute(LOCAL):
+      // 候选级 gate(plugin-host/api.ts)用 some() 放行任一,故插件可能持 execute 却在 LOCAL 会话被拒
+      // (反之亦然)。给出可操作提示,避免「明明声明了 execute 却 403」的困惑。
+      const pid = binding.pluginId ?? '<unknown>'
+      const has = binding.capabilities ?? []
+      let reason = `plugin ${pid} lacks capability '${capability}' for this operation`
+      if (capability === 'localExecute' && has.includes('execute')) {
+        reason +=
+          " (LOCAL 会话的 execute_command / lyshell_run_on_sessions 要求 'localExecute' 而非 'execute';在 manifest 同时声明 'execute' 与 'localExecute' 以覆盖所有会话类型)"
+      } else if (capability === 'execute' && has.includes('localExecute')) {
+        reason +=
+          " (远端会话的 execute_command / lyshell_run_on_sessions 要求 'execute' 而非 'localExecute';在 manifest 同时声明两者以覆盖所有会话类型)"
+      }
+      return deny(reason)
     }
     auditMcpOperation({ ...auditBase, allowed: true })
     return { allowed: true }

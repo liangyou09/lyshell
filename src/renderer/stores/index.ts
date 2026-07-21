@@ -6,3 +6,4 @@ export { useThemeStore, AVAILABLE_THEMES, DEFAULT_THEME_ID } from './theme-store
 export type { ThemeMeta } from './theme-store'
 export { useLocaleStore, AVAILABLE_LOCALES, DEFAULT_LOCALE_ID } from './locale-store'
 export type { LocaleMeta } from './locale-store'
+export { usePluginStore } from './plugin-store'

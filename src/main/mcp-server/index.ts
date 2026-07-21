@@ -22,6 +22,7 @@ import {
 
 import { discoverLyshell, LyShellHttpClient } from './http-client'
 import { TOOL_DEFINITIONS, ALIAS_DEFINITIONS, ALIAS_TO_NEW, HIDDEN_FROM_LIST_TOOLS } from './tools'
+import { PATH_BY_NAME } from '@shared/api-routes'
 
 // ====================== 'current' 解析 ======================
 
@@ -441,24 +442,10 @@ async function main(): Promise<void> {
 // ====================== 工具 API 路径映射 ======================
 
 function getApiPath(toolName: string): string | null {
-  const map: Record<string, string> = {
-    lyshell_send_input: '/api/send-input',
-    lyshell_execute_command: '/api/execute',
-    lyshell_read_output: '/api/read-output',
-    lyshell_send_and_wait: '/api/send-and-wait',
-    lyshell_reconnect_session: '/api/sessions/reconnect',
-    lyshell_close_session: '/api/sessions/close',
-    lyshell_open_connection_dialog: '/api/sessions/open-dialog',
-    lyshell_wait_for_prompt: '/api/wait-for-prompt',
-    lyshell_run_on_sessions: '/api/run-on-sessions',
-    lyshell_tail_until: '/api/tail-until',
-    lyshell_list_files: '/api/files/list',
-    lyshell_read_file: '/api/files/read',
-    lyshell_download_file: '/api/files/download',
-    lyshell_upload_file: '/api/files/upload',
-    lyshell_stat_file: '/api/files/stat'
-  }
-  return map[toolName] || null
+  // 从 @shared/api-routes 的 PATH_BY_NAME 派生，消除手写静态 map。
+  // 特殊处理工具（list_sessions / read_session_notes / write_session_notes / create_session）
+  // 不走此函数（见上方 CallTool 分支），PATH_BY_NAME 含它们亦无妨。
+  return PATH_BY_NAME.get(toolName) ?? null
 }
 
 function escapeRegex(s: string): string {

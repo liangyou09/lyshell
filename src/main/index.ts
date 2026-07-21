@@ -10,6 +10,7 @@ import { sessionManager } from './terminal/session-manager'
 import { setMainWindow, setMainWindowForUpload, cleanupAllWorkers, cleanupAllUploadWorkers } from './file'
 import { reachabilityProber } from './reachability/reachability-prober'
 import { mcpAuditRepository } from './storage/mcp-audit-repository'
+import { pluginHostManager } from './plugin/host-mgr'
 
 // 日志配置
 log.transports.file.level = 'info'
@@ -152,6 +153,13 @@ app.whenReady().then(async () => {
     }
   }
 
+  // 启动 plugin host（依赖 MCP HTTP server 已就绪；无 enabled 插件时为 no-op）
+  try {
+    pluginHostManager.start()
+  } catch (err) {
+    log.error('Failed to start plugin host:', err)
+  }
+
   // 创建主窗口
   createMainWindow()
 
@@ -228,6 +236,7 @@ app.on('will-quit', () => {
   if (stopMcpHttpServerImpl) {
     stopMcpHttpServerImpl()  // 停止 MCP HTTP 服务器
   }
+  pluginHostManager.stop()  // 停止 plugin host 子进程 + 撤销 plugin token
   mcpAuditRepository.flushSync()  // 同步落盘 MCP 审计日志，防丢最近事件
   reachabilityProber.stop()  // 停止可达性探测定时器
   // 断开所有本地终端 PTY 进程

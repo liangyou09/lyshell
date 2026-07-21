@@ -1,0 +1,10 @@
+{
+  "id": "my-py-plugin",
+  "name": "My Python Plugin (template)",
+  "version": "0.1.0",
+  "engines": { "lyshell": "^1.0" },
+  "runtime": "python",
+  "main": "main.py",
+  "activationEvents": ["onStartup"],
+  "capabilities": ["read", "interactiveWrite"]
+}

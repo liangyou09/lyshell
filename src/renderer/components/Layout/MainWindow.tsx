@@ -6,12 +6,22 @@ import StatusBar from './StatusBar'
 import SplitPaneContainer from './SplitPaneContainer'
 import FloatWindow from '../FloatWindow/FloatWindow'
 import { McpActivityChip } from './McpActivityChip'
+import PluginPanel from './PluginPanel'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import { useThemeStore, AVAILABLE_THEMES, CUSTOM_THEME_ID } from '../../stores/theme-store'
 import { useLocaleStore, AVAILABLE_LOCALES } from '../../stores/locale-store'
 import type { SessionConfig } from '@shared/types'
 import { isCursorBlinkEnabled } from '@shared/constants'
+
+/**
+ * 设置页签列表。no-mcp 构建隐藏 plugin 页签 -- 插件激活依赖 MCP HTTP server,
+ * 该构建下 start() 短路永不激活,展示页签只会让用户"装了没反应"。__DISABLE_MCP__
+ * 为编译期常量,no-mcp 构建经 vite define + minify 消除 plugin 分支。
+ */
+const SETTINGS_TABS = __DISABLE_MCP__
+  ? (['terminal', 'mcp'] as const)
+  : (['terminal', 'mcp', 'plugin'] as const)
 
 /**
  * 主窗口布局组件
@@ -38,7 +48,7 @@ const MainWindow: React.FC = () => {
   // 复制 MCP 注册命令的瞬时反馈
   const [mcpCmdCopied, setMcpCmdCopied] = useState(false)
   // 设置面板页签 —— 'terminal' 默认;组件内 state,关闭再开回到上次页签(不持久化到磁盘)
-  const [settingsTab, setSettingsTab] = useState<'terminal' | 'mcp'>('terminal')
+  const [settingsTab, setSettingsTab] = useState<'terminal' | 'mcp' | 'plugin'>('terminal')
   // 设置面板拖拽偏移 —— 持久化到 localStorage,关闭/重启都保留位置
   const [settingsOffset, setSettingsOffset] = useState(() => {
     try {
@@ -513,7 +523,7 @@ const MainWindow: React.FC = () => {
               {/* 页签栏 —— bg-strip 续条;active 用 amber 底边线标识,与面板顶边 amber 信号呼应
                   (顶边=被召出的焦点面板,tab 底边=被选中的页签)。amber 跨主题不变,作主题独立的 identity 信号 */}
               <div className="flex bg-[var(--bg-strip)] border-b border-[var(--rule)]">
-                {(['terminal', 'mcp'] as const).map(tab => {
+                {SETTINGS_TABS.map(tab => {
                   const active = settingsTab === tab
                   return (
                     <button
@@ -526,7 +536,7 @@ const MainWindow: React.FC = () => {
                         active ? 'text-[var(--amber)]' : 'text-[var(--text-rack-mute)] hover:text-[var(--text-rack)]'
                       )}
                     >
-                      {tab === 'terminal' ? t('settings.tabTerminal') : t('settings.tabMcp')}
+                      {tab === 'terminal' ? t('settings.tabTerminal') : tab === 'mcp' ? t('settings.tabMcp') : t('settings.tabPlugin')}
                       {/* amber 底边线 —— bottom-[-1px] 压住 strip 的 border-b,让选中页签"咬合"进下方主体,呼应机柜插卡意象 */}
                       {active && <span aria-hidden className="absolute inset-x-0 bottom-[-1px] h-[2px] bg-[var(--amber)]" />}
                     </button>
@@ -893,6 +903,10 @@ const MainWindow: React.FC = () => {
                     {t('settings.mcpRegisterHint')}
                   </p>
                 </div>
+                </div>
+                {/* 插件页签 -- col-start-1 row-start-1 同格重叠,inactive 用 invisible 保留布局贡献(对齐 terminal/mcp) */}
+                <div className={cn('col-start-1 row-start-1', settingsTab === 'plugin' ? '' : 'invisible')} aria-hidden={settingsTab !== 'plugin'}>
+                  <PluginPanel />
                 </div>
               </div>
             </div>

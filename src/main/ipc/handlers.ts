@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, dialog, shell } from 'electron'
+import { ipcMain, BrowserWindow, dialog, shell, app } from 'electron'
 import type { MessageBoxOptions, OpenDialogOptions, SaveDialogOptions } from 'electron'
 import { writeFile, readFile } from 'fs/promises'
 import * as path from 'path'
@@ -27,6 +27,18 @@ import {
 import { getMcpAddCommandForIpc } from '../mcp/http-server'
 import { mcpAuditRepository } from '../storage/mcp-audit-repository'
 import type { McpAuditQuery } from '../storage/mcp-audit-repository'
+import { pluginRepository, getPluginsDir } from '../storage/plugin-repository'
+import { pluginHostManager } from '../plugin/host-mgr'
+import { validateManifest, checkEngines } from '@shared/plugin-types'
+import type {
+  PluginListItem,
+  PluginInstallDevRequest,
+  PluginPickResult,
+  PluginRegistryEntry,
+  PluginRuntime,
+  ActivationEvent
+} from '@shared/plugin-types'
+import type { McpCapability } from '@shared/api-routes'
 
 /**
  * 任务元信息（用于保存下载记录）
@@ -1685,6 +1697,200 @@ export function registerIPCHandlers(): void {
         status: ConnectionStatus.CONNECTING,
         config: session.config
       }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  // ========== Plugin ==========
+  // 插件管理(install[dev]/enable/disable/uninstall/list)。详见 docs/plugin-system-design.md §8。
+  // 生命周期变更经 pluginHostManager.restart() 使 registry 生效:
+  //   restart = stop(撤全部 token + kill host) + start(重读 getEnabled 重绑 token + 重 spawn)。
+  // 顺序:先改 registry(remove/setEnabled/upsert)再 restart -- start() 重读 getEnabled 才能反映变更。
+  // 审计复用 mcpAuditRepository.append(operation='plugin:*')。
+
+  /** 读单条 entry 的 manifest 展示字段;manifest 读失败时降级(name=id、runtime='node')。 */
+  const enrichEntry = (entry: PluginRegistryEntry): PluginListItem => {
+    let name = entry.id
+    let runtime: PluginRuntime = 'node'
+    let main: string | undefined
+    let activationEvents: ActivationEvent[] = []
+    let capabilities: McpCapability[] = [...entry.grantedCapabilities]
+    try {
+      const pluginDir = path.isAbsolute(entry.path) ? entry.path : path.join(getPluginsDir(), entry.path)
+      const manifestPath = path.join(pluginDir, 'lyshell-plugin.json')
+      if (fs.existsSync(manifestPath)) {
+        const result = validateManifest(JSON.parse(fs.readFileSync(manifestPath, 'utf-8')))
+        if (result.ok && result.manifest) {
+          name = result.manifest.name
+          runtime = result.manifest.runtime
+          main = result.manifest.main
+          activationEvents = result.manifest.activationEvents
+          capabilities = result.manifest.capabilities
+        }
+      }
+    } catch (e) {
+      log.warn(`[plugin] Failed to enrich entry ${entry.id}:`, e)
+    }
+    return { ...entry, name, runtime, main, activationEvents, capabilities }
+  }
+
+  ipcMain.handle('plugin:list', async () => {
+    try {
+      return pluginRepository.getAll().map(enrichEntry)
+    } catch (error) {
+      log.error('plugin:list error:', error)
+      return []
+    }
+  })
+
+  // 选本地文件夹 -> 读 manifest -> 校验。供 renderer 弹权限确认 UI 前预览。
+  ipcMain.handle('plugin:pick-folder', async (): Promise<PluginPickResult> => {
+    try {
+      const res = await dialog.showOpenDialog({
+        title: '选择插件文件夹(dev)',
+        properties: ['openDirectory']
+      })
+      if (res.canceled || res.filePaths.length === 0) return { success: false, error: 'canceled' }
+      const folder = res.filePaths[0]
+      const manifestPath = path.join(folder, 'lyshell-plugin.json')
+      if (!fs.existsSync(manifestPath)) return { success: false, error: '所选文件夹缺少 lyshell-plugin.json' }
+      let raw: unknown
+      try {
+        raw = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'))
+      } catch (e) {
+        return { success: false, error: 'lyshell-plugin.json 解析失败: ' + (e as Error).message }
+      }
+      const result = validateManifest(raw)
+      if (!result.ok || !result.manifest) {
+        return { success: false, error: 'manifest 校验失败: ' + result.errors.join('; ') }
+      }
+      return { success: true, path: folder, manifest: result.manifest }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  // 安装 dev 插件:注册绝对路径(dev:true,不复制)。grantedCapabilities 强制 ∩ manifest.capabilities 防越权。
+  ipcMain.handle('plugin:install-dev', async (_event, req: PluginInstallDevRequest) => {
+    try {
+      const folder = assertString(req?.path, 'path', { maxLength: 4096 })
+      if (!path.isAbsolute(folder)) {
+        return { success: false, error: 'path 必须为绝对路径' }
+      }
+      const manifestPath = path.join(folder, 'lyshell-plugin.json')
+      if (!fs.existsSync(manifestPath)) return { success: false, error: '文件夹缺少 lyshell-plugin.json' }
+      const result = validateManifest(JSON.parse(fs.readFileSync(manifestPath, 'utf-8')))
+      if (!result.ok || !result.manifest) {
+        return { success: false, error: 'manifest 校验失败: ' + result.errors.join('; ') }
+      }
+      const manifest = result.manifest
+
+      // engines.lyshell 兼容性 warn-only 检查(§8.3/§12):不兼容不阻断安装,但 log.warn + 回显给用户。
+      const engine = checkEngines(manifest.engines.lyshell, app.getVersion())
+      if (!engine.ok) {
+        log.warn(`[plugin] ${manifest.id}@${manifest.version}: ${engine.warning}`)
+      }
+
+      // grantedCapabilities 强制取 ∩ manifest.capabilities,防 renderer 传入未声明 capability 越权(§7)
+      const declared = new Set<McpCapability>(manifest.capabilities)
+      const requested = assertStringArray(req?.grantedCapabilities, 'grantedCapabilities', { maxItems: 32 })
+      const granted = requested.filter((c) => declared.has(c as McpCapability)) as McpCapability[]
+
+      const entry: PluginRegistryEntry = {
+        id: manifest.id,
+        version: manifest.version,
+        path: folder,
+        dev: true,
+        enabled: req?.enabled === true,
+        grantedCapabilities: granted,
+        installedAt: new Date().toISOString(),
+        source: 'dev'
+      }
+      pluginRepository.upsert(entry)
+      pluginHostManager.restart()
+      mcpAuditRepository.append({
+        operation: 'plugin:install',
+        capability: granted.join(','),
+        allowed: true,
+        summary: `${manifest.id}@${manifest.version} (dev)${engine.ok ? '' : ' [engines warn]'}`,
+        tokenSource: ''
+      })
+      log.info(
+        `[plugin] Installed dev plugin ${manifest.id}@${manifest.version} (granted: ${granted.join(',') || 'none'})`
+      )
+      return { success: true, entry: enrichEntry(entry), warning: engine.ok ? undefined : engine.warning }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('plugin:enable', async (_event, pluginId: string) => {
+    try {
+      const id = assertString(pluginId, 'pluginId', { maxLength: 128 })
+      const ok = pluginRepository.setEnabled(id, true)
+      if (ok) {
+        pluginHostManager.restart()
+        mcpAuditRepository.append({
+          operation: 'plugin:enable',
+          capability: '',
+          allowed: true,
+          summary: id,
+          tokenSource: ''
+        })
+      }
+      return { success: ok }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('plugin:disable', async (_event, pluginId: string) => {
+    try {
+      const id = assertString(pluginId, 'pluginId', { maxLength: 128 })
+      const ok = pluginRepository.setEnabled(id, false)
+      if (ok) {
+        pluginHostManager.restart()
+        mcpAuditRepository.append({
+          operation: 'plugin:disable',
+          capability: '',
+          allowed: true,
+          summary: id,
+          tokenSource: ''
+        })
+      }
+      return { success: ok }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  // 卸载:§8.4 三步撤销。先 remove(让 start 重读 getEnabled 不再激活本插件) -> restart(停进程+撤 token) -> 非dev删文件夹。
+  ipcMain.handle('plugin:uninstall', async (_event, pluginId: string) => {
+    try {
+      const id = assertString(pluginId, 'pluginId', { maxLength: 128 })
+      const entry = pluginRepository.get(id)
+      if (!entry) return { success: false, error: '插件不存在' }
+      pluginRepository.remove(id)
+      pluginHostManager.restart()
+      // dev 插件 path 指向开发者源码树,卸载只删记录,绝不删源文件夹;仅 !dev(未来 zip 安装)才删
+      if (!entry.dev) {
+        const pluginDir = path.isAbsolute(entry.path) ? entry.path : path.join(getPluginsDir(), entry.path)
+        try {
+          fs.rmSync(pluginDir, { recursive: true, force: true })
+        } catch (e) {
+          log.warn(`[plugin] Failed to remove plugin folder ${pluginDir}:`, e)
+        }
+      }
+      mcpAuditRepository.append({
+        operation: 'plugin:uninstall',
+        capability: '',
+        allowed: true,
+        summary: id,
+        tokenSource: ''
+      })
+      log.info(`[plugin] Uninstalled ${id} (dev=${entry.dev})`)
+      return { success: true }
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }

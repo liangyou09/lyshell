@@ -20,7 +20,8 @@ export default defineConfig({
           worker: resolve(__dirname, 'src/main/file/download-worker.ts'),
           uploadWorker: resolve(__dirname, 'src/main/file/upload-worker.ts'),
           ...(disableMcp ? {} : {
-            mcpServer: resolve(__dirname, 'src/main/mcp-server/index.ts')
+            mcpServer: resolve(__dirname, 'src/main/mcp-server/index.ts'),
+            pluginHost: resolve(__dirname, 'src/main/plugin-host/index.ts')
           })
         },
         output: {
@@ -89,6 +90,11 @@ export default defineConfig({
 
   // 渲染进程构建配置
   renderer: {
+    // 与 main 同源的编译期开关:renderer 据 __DISABLE_MCP__ 隐藏依赖 MCP 的 UI
+    // (如插件页签 -- 插件激活依赖 MCP HTTP server,no-mcp 构建下 start() 短路永不激活)。
+    define: {
+      __DISABLE_MCP__: JSON.stringify(disableMcp)
+    },
     plugins: [react()],
     resolve: {
       alias: {

@@ -94,7 +94,15 @@ const IPC_CHANNELS = {
   AGENT_ADD: 'agent:add',
   AGENT_UPDATE: 'agent:update',
   AGENT_DELETE: 'agent:delete',
-  AGENT_LAUNCH: 'agent:launch'
+  AGENT_LAUNCH: 'agent:launch',
+
+  // Plugin 管理(install[dev]/enable/disable/uninstall/list)
+  PLUGIN_LIST: 'plugin:list',
+  PLUGIN_PICK_FOLDER: 'plugin:pick-folder',
+  PLUGIN_INSTALL_DEV: 'plugin:install-dev',
+  PLUGIN_ENABLE: 'plugin:enable',
+  PLUGIN_DISABLE: 'plugin:disable',
+  PLUGIN_UNINSTALL: 'plugin:uninstall'
 }
 
 // 暴露给渲染进程的 API
@@ -203,6 +211,14 @@ const electronAPI = {
   updateAgent: (agent: unknown) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_UPDATE, agent),
   deleteAgent: (agentId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_DELETE, agentId),
   launchAgent: (agentId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_LAUNCH, agentId),
+
+  // Plugin 管理
+  listPlugins: () => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_LIST),
+  pickPluginFolder: () => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_PICK_FOLDER),
+  installDevPlugin: (req: unknown) => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_INSTALL_DEV, req),
+  enablePlugin: (pluginId: string) => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_ENABLE, pluginId),
+  disablePlugin: (pluginId: string) => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_DISABLE, pluginId),
+  uninstallPlugin: (pluginId: string) => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_UNINSTALL, pluginId),
 
   // 窗口
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
