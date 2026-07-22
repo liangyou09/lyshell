@@ -30,10 +30,25 @@ import type { McpAuditQuery } from '../storage/mcp-audit-repository'
 import { pluginRepository, getPluginsDir } from '../storage/plugin-repository'
 import { pluginHostManager } from '../plugin/host-mgr'
 import { validateManifest, checkEngines } from '@shared/plugin-types'
+import {
+  readManifestFromZip,
+  extractZipSafely,
+  downloadZip,
+  assertUnderBase,
+  getDownloadsDir,
+  safeDeleteDownload,
+  atomicSwapPlugin,
+  ZipSlipError,
+  ZipBombError
+} from '../plugin/install-zip'
 import type {
   PluginListItem,
   PluginInstallDevRequest,
+  PluginInstallZipRequest,
   PluginPickResult,
+  PluginPickFileResult,
+  PluginFetchUrlRequest,
+  PluginFetchUrlResult,
   PluginRegistryEntry,
   PluginRuntime,
   ActivationEvent
@@ -1825,6 +1840,214 @@ export function registerIPCHandlers(): void {
     }
   })
 
+  // 选 .lyshell-plugin/.zip 文件 -> 读**根** manifest(不解压)。供 renderer 弹权限确认卡前预览。
+  ipcMain.handle('plugin:pick-file', async (): Promise<PluginPickFileResult> => {
+    try {
+      const res = await dialog.showOpenDialog({
+        title: '选择插件压缩包(.lyshell-plugin / .zip)',
+        properties: ['openFile'],
+        filters: [{ name: 'LyShell Plugin', extensions: ['lyshell-plugin', 'zip'] }]
+      })
+      if (res.canceled || res.filePaths.length === 0) return { success: false, error: 'canceled' }
+      const file = res.filePaths[0]
+      const result = await readManifestFromZip(file)
+      if (!result.ok || !result.manifest) {
+        return { success: false, error: 'manifest 校验失败: ' + result.errors.join('; ') }
+      }
+      return { success: true, path: file, manifest: result.manifest }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  // 从 URL 下载 zip 到 {pluginsDir}/.downloads/<uuid>.zip -> 读**根** manifest 预览(不解压到插件目录)。
+  // 临时文件由 main 持有:install-zip(url)消费后删;未消费的由 app 退出时 cleanupDownloadsDir 回收。
+  ipcMain.handle(
+    'plugin:fetch-url',
+    async (_event, req: PluginFetchUrlRequest): Promise<PluginFetchUrlResult> => {
+      try {
+        const url = assertString(req?.url, 'url', { maxLength: 4096 })
+        const downloadsDir = getDownloadsDir(getPluginsDir())
+        fs.mkdirSync(downloadsDir, { recursive: true })
+        const tempPath = path.join(downloadsDir, `${uuidv4()}.zip`)
+        try {
+          await downloadZip(url, tempPath)
+        } catch (e) {
+          try {
+            fs.rmSync(tempPath, { force: true })
+          } catch {
+            /* ignore */
+          }
+          return { success: false, error: '下载失败: ' + (e as Error).message }
+        }
+        const result = await readManifestFromZip(tempPath)
+        if (!result.ok || !result.manifest) {
+          try {
+            fs.rmSync(tempPath, { force: true })
+          } catch {
+            /* ignore */
+          }
+          return { success: false, error: 'manifest 校验失败: ' + result.errors.join('; ') }
+        }
+        return { success: true, path: tempPath, manifest: result.manifest }
+      } catch (error) {
+        return validationFailure(error) || { success: false, error: (error as Error).message }
+      }
+    }
+  )
+
+  // 安装 zip 插件:解压到 {pluginsDir}/{id}/ -> 落盘复验 manifest -> upsert(dev:false, source)。
+  // grantedCapabilities 强制 ∩ manifest.capabilities 防越权。zip-slip 经 extractZipSafely 防护;
+  // 覆盖安装清旧 dest + 卸载 rmSync 均经 assertUnderBase 兜底。详见 §8.3 / §8.4。
+  ipcMain.handle('plugin:install-zip', async (_event, req: PluginInstallZipRequest) => {
+    try {
+      const zipPath = assertString(req?.path, 'path', { maxLength: 4096 })
+      if (!path.isAbsolute(zipPath)) return { success: false, error: 'path 必须为绝对路径' }
+      const source = req?.source
+      if (source !== 'local-file' && source !== 'url') {
+        return { success: false, error: 'source 必须为 "local-file" 或 "url"' }
+      }
+      // 先读 manifest 拿 id(决定解压目标 {pluginsDir}/{id})
+      const preview = await readManifestFromZip(zipPath)
+      if (!preview.ok || !preview.manifest) {
+        return { success: false, error: 'manifest 校验失败: ' + preview.errors.join('; ') }
+      }
+      const pluginsDir = getPluginsDir()
+      const destDir = path.join(pluginsDir, preview.manifest.id)
+      // 解压到 staging 兄弟目录,成功后原子换入 destDir(评审 reinstall #1):失败只清 staging,旧 destDir 不动。
+      const stagingDir = path.join(pluginsDir, `.staging-${preview.manifest.id}`)
+      // 清上次崩溃残留的 staging/trash
+      for (const d of [stagingDir, path.join(pluginsDir, `.trash-${preview.manifest.id}`)]) {
+        if (fs.existsSync(d)) {
+          try {
+            fs.rmSync(d, { recursive: true, force: true })
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      // 安全解压到 staging(zip-slip 防护在 extractZipSafely 内);失败只清 staging,旧 destDir 完好
+      try {
+        await extractZipSafely(zipPath, stagingDir)
+      } catch (e) {
+        try {
+          fs.rmSync(stagingDir, { recursive: true, force: true })
+        } catch {
+          /* ignore */
+        }
+        const msg = e instanceof ZipSlipError
+          ? `zip-slip 拒绝: ${e.message}`
+          : e instanceof ZipBombError
+            ? `zip-bomb 拒绝: ${e.message}`
+            : (e as Error).message
+        return { success: false, error: '解压失败: ' + msg }
+      }
+      // 落盘复验:从 staging 重读 manifest(post-extraction 权威副本),确认解压结果完整一致
+      const onDisk = validateManifest(
+        JSON.parse(fs.readFileSync(path.join(stagingDir, 'lyshell-plugin.json'), 'utf-8'))
+      )
+      if (!onDisk.ok || !onDisk.manifest) {
+        try {
+          fs.rmSync(stagingDir, { recursive: true, force: true })
+        } catch {
+          /* ignore */
+        }
+        return { success: false, error: '解压后 manifest 复验失败: ' + onDisk.errors.join('; ') }
+      }
+      // 用落盘后的权威 manifest 构建记录(评审 #3);id 应与解压前预览一致(决定 destDir),否则回滚
+      const manifest = onDisk.manifest
+      if (manifest.id !== preview.manifest.id) {
+        try {
+          fs.rmSync(stagingDir, { recursive: true, force: true })
+        } catch {
+          /* ignore */
+        }
+        return { success: false, error: '解压后 manifest id 与预览不一致' }
+      }
+      // main 入口预检(评审 #2):声明 main 但 staging 内缺失 -> 警告(不阻断,镜像 dev-install 的宽松)
+      let mainWarning: string | undefined
+      if (manifest.main && !fs.existsSync(path.join(stagingDir, manifest.main))) {
+        mainWarning = `声明的入口 "${manifest.main}" 在压缩包中不存在,激活将失败`
+        log.warn(`[plugin] ${manifest.id}: ${mainWarning}`)
+      }
+      // url 来源:临时下载文件已消费,删除(local-file 是用户的文件,不动)
+      if (source === 'url') {
+        try {
+          fs.rmSync(zipPath, { force: true })
+        } catch {
+          /* ignore */
+        }
+      }
+      // 原子换入 staging -> destDir(失败回滚,旧版本完好;评审 reinstall #1)
+      const swap = atomicSwapPlugin(stagingDir, destDir, pluginsDir)
+      if (!swap.ok) {
+        try {
+          fs.rmSync(stagingDir, { recursive: true, force: true })
+        } catch {
+          /* ignore */
+        }
+        return { success: false, error: swap.error ?? '安装失败' }
+      }
+
+      // engines.lyshell warn-only(§8.3/§12)
+      const engine = checkEngines(manifest.engines.lyshell, app.getVersion())
+      if (!engine.ok) {
+        log.warn(`[plugin] ${manifest.id}@${manifest.version}: ${engine.warning}`)
+      }
+      // grantedCapabilities 强制取 ∩ manifest.capabilities,防 renderer 传入未声明 capability 越权(§7)
+      const declared = new Set<McpCapability>(manifest.capabilities)
+      const requested = assertStringArray(req?.grantedCapabilities, 'grantedCapabilities', {
+        maxItems: 32
+      })
+      const granted = requested.filter((c) => declared.has(c as McpCapability)) as McpCapability[]
+
+      const entry: PluginRegistryEntry = {
+        id: manifest.id,
+        version: manifest.version,
+        path: manifest.id, // 相对 {pluginsDir}/
+        dev: false,
+        enabled: req?.enabled === true,
+        grantedCapabilities: granted,
+        installedAt: new Date().toISOString(),
+        source
+      }
+      pluginRepository.upsert(entry)
+      pluginHostManager.restart()
+      mcpAuditRepository.append({
+        operation: 'plugin:install',
+        capability: granted.join(','),
+        allowed: true,
+        summary: `${manifest.id}@${manifest.version} (${source})${engine.ok ? '' : ' [engines warn]'}${mainWarning ? ' [main missing]' : ''}`,
+        tokenSource: ''
+      })
+      log.info(
+        `[plugin] Installed ${source} plugin ${manifest.id}@${manifest.version} (granted: ${granted.join(',') || 'none'})`
+      )
+      const warnings: string[] = []
+      if (!engine.ok && engine.warning) warnings.push(engine.warning)
+      if (mainWarning) warnings.push(mainWarning)
+      return {
+        success: true,
+        entry: enrichEntry(entry),
+        warning: warnings.length > 0 ? warnings.join('; ') : undefined
+      }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  // 取消 URL 安装:即时删除 .downloads/ 下的临时下载文件(评审 #1,防 fetch-then-cancel 累积到退出)。
+  // safeDeleteDownload 经 assertUnderBase 断言仅删 .downloads/ 下文件,防 renderer 传任意路径越界。
+  ipcMain.handle('plugin:cancel-download', async (_event, filePath: string) => {
+    try {
+      const p = assertString(filePath, 'path', { maxLength: 4096 })
+      safeDeleteDownload(p, getDownloadsDir(getPluginsDir()))
+      return { success: true }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
   ipcMain.handle('plugin:enable', async (_event, pluginId: string) => {
     try {
       const id = assertString(pluginId, 'pluginId', { maxLength: 128 })
@@ -1873,10 +2096,13 @@ export function registerIPCHandlers(): void {
       if (!entry) return { success: false, error: '插件不存在' }
       pluginRepository.remove(id)
       pluginHostManager.restart()
-      // dev 插件 path 指向开发者源码树,卸载只删记录,绝不删源文件夹;仅 !dev(未来 zip 安装)才删
+      // dev 插件 path 指向开发者源码树,卸载只删记录,绝不删源文件夹;仅 !dev(zip 安装)才删。
+      // 删前 assertUnderBase 兜底:pluginDir 必须严格在 pluginsDir 下,防 path 越界误删(zip-slip 纵深防御)。
       if (!entry.dev) {
-        const pluginDir = path.isAbsolute(entry.path) ? entry.path : path.join(getPluginsDir(), entry.path)
+        const pluginsDir = getPluginsDir()
+        const pluginDir = path.isAbsolute(entry.path) ? entry.path : path.join(pluginsDir, entry.path)
         try {
+          assertUnderBase(pluginDir, pluginsDir)
           fs.rmSync(pluginDir, { recursive: true, force: true })
         } catch (e) {
           log.warn(`[plugin] Failed to remove plugin folder ${pluginDir}:`, e)

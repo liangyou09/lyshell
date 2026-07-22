@@ -24,7 +24,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { LyShellHttpClient } from '@main/mcp-server/http-client'
-import { validateManifest } from '@shared/plugin-types'
+import { validateManifest, isUnsafeRelativePath } from '@shared/plugin-types'
 import type { PluginSpec, LyShellPluginManifest, ActivationEvent } from '@shared/plugin-types'
 import type { PluginModule } from '@shared/plugin-api'
 import { createPluginApi } from './api'
@@ -62,6 +62,14 @@ function loadPlugin(spec: PluginSpec): LoadedPlugin | null {
 
   if (!spec.main) {
     // contributor 无 main 不该进 host（host-mgr 已过滤）；防御性跳过
+    return null
+  }
+  // 入口包围(评审 containment,防御纵深):main 必须相对插件目录,防指向插件目录外执行他处代码。
+  // validateManifest 安装时已拒,此为 host 重读 manifest 后对 spec.main 的兜底。
+  if (isUnsafeRelativePath(spec.main)) {
+    console.error(
+      `[plugin-host] Plugin ${spec.pluginId} main "${spec.main}" escapes plugin directory; refusing to load`
+    )
     return null
   }
   const mainPath = join(spec.pluginDir, spec.main)

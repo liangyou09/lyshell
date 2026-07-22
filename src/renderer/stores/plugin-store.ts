@@ -2,7 +2,10 @@ import { create } from 'zustand'
 import type {
   PluginListItem,
   PluginInstallDevRequest,
-  PluginPickResult
+  PluginInstallZipRequest,
+  PluginPickResult,
+  PluginPickFileResult,
+  PluginFetchUrlResult
 } from '@shared/plugin-types'
 
 /**
@@ -37,6 +40,10 @@ interface PluginStore {
   load: () => Promise<void>
   pickFolder: () => Promise<PluginPickResult>
   installDev: (req: PluginInstallDevRequest) => Promise<InstallResult>
+  pickFile: () => Promise<PluginPickFileResult>
+  fetchUrl: (url: string) => Promise<PluginFetchUrlResult>
+  installZip: (req: PluginInstallZipRequest) => Promise<InstallResult>
+  cancelDownload: (path: string) => Promise<SimpleResult>
   enable: (id: string) => Promise<boolean>
   disable: (id: string) => Promise<boolean>
   uninstall: (id: string) => Promise<SimpleResult>
@@ -73,6 +80,45 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
       return { success: !!res?.success, error: res?.error, entry: res?.entry, warning: res?.warning }
     } catch (e) {
       set({ error: (e as Error).message })
+      return { success: false, error: (e as Error).message }
+    }
+  },
+
+  pickFile: async () => {
+    return ((await window.electronAPI?.pickPluginFile()) as PluginPickFileResult | undefined) ?? {
+      success: false,
+      error: 'unavailable'
+    }
+  },
+
+  fetchUrl: async (url) => {
+    return (
+      ((await window.electronAPI?.fetchPluginUrl({ url })) as PluginFetchUrlResult | undefined) ?? {
+        success: false,
+        error: 'unavailable'
+      }
+    )
+  },
+
+  installZip: async (req) => {
+    try {
+      const res = (await window.electronAPI?.installZipPlugin(req)) as InstallResult | undefined
+      if (res?.success) {
+        await get().load()
+      }
+      return { success: !!res?.success, error: res?.error, entry: res?.entry, warning: res?.warning }
+    } catch (e) {
+      set({ error: (e as Error).message })
+      return { success: false, error: (e as Error).message }
+    }
+  },
+
+  // 取消 URL 安装:即时删除临时下载文件(.downloads/ 下,服务端 assertUnderBase 兜底)。fire-and-forget 即可。
+  cancelDownload: async (path) => {
+    try {
+      const res = (await window.electronAPI?.cancelPluginDownload(path)) as SimpleResult | undefined
+      return { success: !!res?.success, error: res?.error }
+    } catch (e) {
       return { success: false, error: (e as Error).message }
     }
   },

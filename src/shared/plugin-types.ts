@@ -142,6 +142,57 @@ export interface PluginPickResult {
   error?: string
 }
 
+/**
+ * plugin:pick-file 结果:选 .lyshell-plugin/.zip -> 读**根** manifest(不解压)-> 校验。
+ * 形态与 PluginPickResult 一致(path 为 zip 文件绝对路径);复用同构便于 UI 复用权限确认卡。
+ * 取消/失败 success=false。
+ */
+export interface PluginPickFileResult {
+  success: boolean
+  /** 选中的 zip 文件绝对路径(success=true 时有) */
+  path?: string
+  /** 从 zip 根 lyshell-plugin.json 解析出的 manifest(success=true 时有) */
+  manifest?: LyShellPluginManifest
+  /** 失败/取消原因(success=false 时有) */
+  error?: string
+}
+
+/** plugin:fetch-url 请求:下载 URL -> 读 manifest 预览(不解压到插件目录)。 */
+export interface PluginFetchUrlRequest {
+  url: string
+}
+
+/**
+ * plugin:fetch-url 结果:下载到临时文件 -> 读**根** manifest -> 校验。
+ * path 为临时下载文件绝对路径(由 main 持有,install-zip 时消费,取消/退出时清理)。
+ * 取消/失败 success=false。
+ */
+export interface PluginFetchUrlResult {
+  success: boolean
+  /** 临时下载文件绝对路径(success=true 时有;install-zip 消费后由 main 删除) */
+  path?: string
+  /** 从 zip 根 lyshell-plugin.json 解析出的 manifest(success=true 时有) */
+  manifest?: LyShellPluginManifest
+  /** 失败/取消原因(success=false 时有) */
+  error?: string
+}
+
+/**
+ * plugin:install-zip 请求。把 zip(path)解压到 {userData}/plugins/{id}/。
+ * path 为 pick-file 选中文件或 fetch-url 临时下载文件;source 仅区分 registry 记录与审计。
+ * 详见 docs/plugin-system-design.md §8.3(zip/URL 安装)+ §8.4(卸载三步撤销)。
+ */
+export interface PluginInstallZipRequest {
+  /** zip 文件绝对路径(pick-file 选中或 fetch-url 临时下载) */
+  path: string
+  /** 安装来源:local-file(pick-file)/ url(fetch-url)。仅写 registry.source + 审计,不影响解压 */
+  source: 'local-file' | 'url'
+  /** 用户批准的 capability;服务端强制取 ∩ manifest.capabilities,防 renderer 传入未声明 capability 越权 */
+  grantedCapabilities?: McpCapability[]
+  /** 安装即启用;默认 false(§8.3 enabled 默认 false,按 activationEvents 延迟激活) */
+  enabled?: boolean
+}
+
 const VALID_CAPABILITIES: ReadonlySet<string> = new Set<McpCapability>([
   'read',
   'interactiveWrite',
@@ -220,6 +271,10 @@ export function validateManifest(raw: unknown): ManifestValidation {
   }
   if (m.main !== undefined && typeof m.main !== 'string') {
     errors.push('main must be a string if present')
+  } else if (typeof m.main === 'string' && m.main.length > 0 && isUnsafeRelativePath(m.main)) {
+    // 入口路径包围(评审 containment):禁 .. 段/绝对路径/盘符,防 main 指向插件目录外绕过 zip-slip 包围。
+    // 空 main 不拒(host 视为 consumer 无入口);仅非空 main 校验。
+    errors.push('main must be a relative path inside the plugin directory (no "..", absolute paths, or drive letters)')
   }
   if (m.contributes !== undefined && (typeof m.contributes !== 'object' || m.contributes === null)) {
     errors.push('contributes must be an object if present')
@@ -368,4 +423,18 @@ export function checkEngines(enginesLyshell: string, appVersion: string): { ok: 
     ok: false,
     warning: `engines.lyshell "${enginesLyshell}" 与当前 LyShell 版本 ${appVersion} 不兼容（插件可能无法正常工作）`
   }
+}
+
+/**
+ * 判定相对路径是否"不安全"(可逃逸出基目录):空、含 NUL、绝对路径(/开头)、Windows 盘符(X:)、.. 段。
+ * 共享给 validateManifest(校验 manifest.main,防 entry point 指向插件目录外绕过 zip-slip 包围)
+ * 与 install-zip 的 assertSafeEntryName(zip 条目名)。归一化反斜杠;空串视为不安全。
+ */
+export function isUnsafeRelativePath(name: string): boolean {
+  if (typeof name !== 'string') return true
+  const n = name.replace(/\\/g, '/')
+  if (n === '' || n.includes('\0')) return true
+  if (n.startsWith('/') || /^[a-zA-Z]:/.test(n)) return true
+  if (n.split('/').some((s) => s === '..')) return true
+  return false
 }

@@ -96,10 +96,14 @@ const IPC_CHANNELS = {
   AGENT_DELETE: 'agent:delete',
   AGENT_LAUNCH: 'agent:launch',
 
-  // Plugin 管理(install[dev]/enable/disable/uninstall/list)
+  // Plugin 管理(install[dev]/zip/url/enable/disable/uninstall/list)
   PLUGIN_LIST: 'plugin:list',
   PLUGIN_PICK_FOLDER: 'plugin:pick-folder',
   PLUGIN_INSTALL_DEV: 'plugin:install-dev',
+  PLUGIN_PICK_FILE: 'plugin:pick-file',
+  PLUGIN_FETCH_URL: 'plugin:fetch-url',
+  PLUGIN_INSTALL_ZIP: 'plugin:install-zip',
+  PLUGIN_CANCEL_DOWNLOAD: 'plugin:cancel-download',
   PLUGIN_ENABLE: 'plugin:enable',
   PLUGIN_DISABLE: 'plugin:disable',
   PLUGIN_UNINSTALL: 'plugin:uninstall'
@@ -216,6 +220,11 @@ const electronAPI = {
   listPlugins: () => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_LIST),
   pickPluginFolder: () => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_PICK_FOLDER),
   installDevPlugin: (req: unknown) => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_INSTALL_DEV, req),
+  pickPluginFile: () => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_PICK_FILE),
+  fetchPluginUrl: (req: unknown) => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_FETCH_URL, req),
+  installZipPlugin: (req: unknown) => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_INSTALL_ZIP, req),
+  cancelPluginDownload: (filePath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_CANCEL_DOWNLOAD, filePath),
   enablePlugin: (pluginId: string) => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_ENABLE, pluginId),
   disablePlugin: (pluginId: string) => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_DISABLE, pluginId),
   uninstallPlugin: (pluginId: string) => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_UNINSTALL, pluginId),

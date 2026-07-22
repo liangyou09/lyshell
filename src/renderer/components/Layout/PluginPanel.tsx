@@ -4,10 +4,13 @@ import { useTranslation } from 'react-i18next'
 import { usePluginStore } from '../../stores/plugin-store'
 import type { LyShellPluginManifest } from '@shared/plugin-types'
 
+/** 安装来源(dev=文件夹/file=本地 zip/url=URL 下载)。决定走 installDev 还是 installZip。 */
+type PickedSource = 'dev' | 'file' | 'url'
+
 /**
  * 插件管理面板(Settings "插件" 页签内容)。
- * 列表 / 添加 dev 插件(选文件夹->权限确认) / 启用禁用 / 卸载 / 查看权限。
- * 详见 docs/plugin-system-design.md §8(生命周期)。
+ * 列表 / 三种安装来源(dev 文件夹 / 本地 .lyshell-plugin / URL 下载)/ 启用禁用 / 卸载 / 查看权限。
+ * 详见 docs/plugin-system-design.md §8(生命周期)+ §8.3(安装流程)。
  *
  * 样式沿用 Settings 面板令牌(--bg-elev/--bg-slot/--rule/--amber/--text-rack*)与 font-mono 12px 基线。
  */
@@ -19,42 +22,89 @@ const PluginPanel: React.FC = () => {
   const load = usePluginStore((s) => s.load)
   const pickFolder = usePluginStore((s) => s.pickFolder)
   const installDev = usePluginStore((s) => s.installDev)
+  const pickFile = usePluginStore((s) => s.pickFile)
+  const fetchUrl = usePluginStore((s) => s.fetchUrl)
+  const installZip = usePluginStore((s) => s.installZip)
+  const cancelDownload = usePluginStore((s) => s.cancelDownload)
   const enable = usePluginStore((s) => s.enable)
   const disable = usePluginStore((s) => s.disable)
   const uninstall = usePluginStore((s) => s.uninstall)
 
-  // pick 后的 manifest 预览(权限确认卡);null = 未在安装流程中
-  const [picked, setPicked] = useState<{ manifest: LyShellPluginManifest; path: string } | null>(null)
+  // pick/下载后的 manifest 预览(权限确认卡);null = 未在安装流程中
+  const [picked, setPicked] = useState<{
+    source: PickedSource
+    manifest: LyShellPluginManifest
+    path: string
+  } | null>(null)
   const [installEnabled, setInstallEnabled] = useState(true)
   const [busy, setBusy] = useState(false)
   const [confirmUninstall, setConfirmUninstall] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  // URL 安装输入
+  const [showUrlInput, setShowUrlInput] = useState(false)
+  const [urlInput, setUrlInput] = useState('')
 
   useEffect(() => {
     void load()
   }, [load])
 
-  const handlePick = async (): Promise<void> => {
+  const handlePickDev = async (): Promise<void> => {
     setNotice(null)
     const res = await pickFolder()
     if (res.success && res.manifest && res.path) {
-      setPicked({ manifest: res.manifest, path: res.path })
+      setPicked({ source: 'dev', manifest: res.manifest, path: res.path })
       setInstallEnabled(true)
     } else if (res.error && res.error !== 'canceled') {
       setNotice(res.error)
     }
   }
 
+  const handlePickFile = async (): Promise<void> => {
+    setNotice(null)
+    const res = await pickFile()
+    if (res.success && res.manifest && res.path) {
+      setPicked({ source: 'file', manifest: res.manifest, path: res.path })
+      setInstallEnabled(true)
+    } else if (res.error && res.error !== 'canceled') {
+      setNotice(res.error)
+    }
+  }
+
+  const handleFetchUrl = async (): Promise<void> => {
+    setNotice(null)
+    const url = urlInput.trim()
+    if (!url) return
+    setBusy(true)
+    setNotice(t('plugin.fetching'))
+    const res = await fetchUrl(url)
+    setBusy(false)
+    if (res.success && res.manifest && res.path) {
+      setPicked({ source: 'url', manifest: res.manifest, path: res.path })
+      setInstallEnabled(true)
+      setShowUrlInput(false)
+      setUrlInput('')
+      setNotice(null)
+    } else {
+      setNotice(res.error ?? t('plugin.fetchFail'))
+    }
+  }
+
+  // 安装:dev 走 installDev;file/url 走 installZip(source 区分 registry 记录与审计)
   const handleInstall = async (): Promise<void> => {
     if (!picked) return
     setBusy(true)
     setNotice(null)
-    const res = await installDev({
-      path: picked.path,
-      // dev 插件:用户即开发者,安装即批准其声明的全部 capability(服务端仍取 ∩ manifest.capabilities 兜底)
-      grantedCapabilities: picked.manifest.capabilities,
-      enabled: installEnabled
-    })
+    // 三种来源都按"用户即批准其声明的全部 capability"(服务端仍取 ∩ manifest.capabilities 兜底)
+    const granted = picked.manifest.capabilities
+    const res =
+      picked.source === 'dev'
+        ? await installDev({ path: picked.path, grantedCapabilities: granted, enabled: installEnabled })
+        : await installZip({
+            path: picked.path,
+            source: picked.source === 'file' ? 'local-file' : 'url',
+            grantedCapabilities: granted,
+            enabled: installEnabled
+          })
     setBusy(false)
     if (res.success) {
       setPicked(null)
@@ -81,29 +131,81 @@ const PluginPanel: React.FC = () => {
     if (!res.success) setNotice(res.error ?? t('plugin.uninstallFail'))
   }
 
+  const cancelPicked = (): void => {
+    // url 来源:取消时即时删除临时下载文件(.downloads/ 下),防 fetch-then-cancel 累积到退出(评审 #1)
+    if (picked?.source === 'url' && picked.path) {
+      void cancelDownload(picked.path)
+    }
+    setPicked(null)
+    setNotice(null)
+  }
+
+  const sourceLabel = (s: PickedSource): string =>
+    s === 'dev' ? 'dev' : s === 'file' ? t('plugin.sourceFile') : t('plugin.sourceUrl')
+
   return (
     <div className="w-[320px] space-y-2">
-      {/* 标题 + 添加 dev 插件 */}
-      <div className="flex items-center justify-between">
+      {/* 标题 + 三种安装入口(dev 文件夹 / 本地 zip / URL) */}
+      <div className="flex flex-wrap items-center justify-between gap-1">
         <span className="text-[12px] font-mono text-[var(--text-rack)]">{t('plugin.title')}</span>
-        <button
-          onClick={handlePick}
-          disabled={busy}
-          className="px-2 py-0.5 text-[11px] font-mono rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer"
-        >
-          + {t('plugin.addDev')}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handlePickDev}
+            disabled={busy}
+            className="px-2 py-0.5 text-[11px] font-mono rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+          >
+            + {t('plugin.addDev')}
+          </button>
+          <button
+            onClick={handlePickFile}
+            disabled={busy}
+            className="px-2 py-0.5 text-[11px] font-mono rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+          >
+            {t('plugin.addFile')}
+          </button>
+          <button
+            onClick={() => setShowUrlInput((v) => !v)}
+            disabled={busy}
+            className="px-2 py-0.5 text-[11px] font-mono rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+          >
+            {t('plugin.installFromUrl')}
+          </button>
+        </div>
       </div>
 
-      {/* 权限确认卡(选完文件夹后展示 manifest,用户确认权限与是否即启用) */}
+      {/* URL 输入行 */}
+      {showUrlInput && (
+        <div className="flex items-center gap-1">
+          <input
+            type="text"
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void handleFetchUrl()
+            }}
+            placeholder={t('plugin.urlPlaceholder')}
+            className="flex-1 min-w-0 px-1.5 py-0.5 text-[11px] font-mono rounded-[2px] bg-[var(--bg-elev)] border border-[var(--rule)] text-[var(--text-rack)] placeholder:text-[var(--text-rack-mute)] focus:outline-none focus:border-[var(--amber)]"
+          />
+          <button
+            onClick={handleFetchUrl}
+            disabled={busy || !urlInput.trim()}
+            className="px-2 py-0.5 text-[11px] font-mono rounded-[2px] bg-[var(--amber)] text-black hover:brightness-110 disabled:opacity-50 cursor-pointer whitespace-nowrap"
+          >
+            {t('plugin.fetch')}
+          </button>
+        </div>
+      )}
+
+      {/* 权限确认卡(选完文件夹/文件或 URL 下载完后展示 manifest,用户确认权限与是否即启用) */}
       {picked && (
         <div className="border border-[var(--amber)] rounded-[2px] p-2 space-y-1.5 bg-[var(--bg-slot)]">
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-[12px] font-mono font-semibold text-[var(--amber)] truncate">{picked.manifest.name}</span>
             <span className="text-[10.5px] font-mono text-[var(--text-rack-data)] shrink-0">{picked.manifest.version}</span>
           </div>
-          <div className="text-[10.5px] font-mono text-[var(--text-rack-mute)] truncate">
-            {picked.manifest.id} · {picked.manifest.runtime}
+          <div className="flex items-center gap-1.5 text-[10.5px] font-mono text-[var(--text-rack-mute)]">
+            <span className="truncate">{picked.manifest.id} · {picked.manifest.runtime}</span>
+            <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{sourceLabel(picked.source)}</span>
           </div>
           {picked.manifest.capabilities.length > 0 && (
             <div className="flex flex-wrap gap-1">
@@ -128,7 +230,7 @@ const PluginPanel: React.FC = () => {
           </label>
           <div className="flex justify-end gap-1.5 pt-0.5">
             <button
-              onClick={() => setPicked(null)}
+              onClick={cancelPicked}
               disabled={busy}
               className="px-2 py-0.5 text-[11px] font-mono rounded-[2px] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] disabled:opacity-50 cursor-pointer"
             >

@@ -33,7 +33,7 @@ import { pluginRepository, getPluginsDir } from '@main/storage/plugin-repository
 import { bindPluginToken, revokePluginToken } from '@main/mcp/auth'
 import { getMcpHttpPort } from '@main/mcp/http-server'
 import { pythonEngine } from '@main/python/engine'
-import { validateManifest, type PluginSpec, type LyShellPluginManifest } from '@shared/plugin-types'
+import { validateManifest, isUnsafeRelativePath, type PluginSpec, type LyShellPluginManifest } from '@shared/plugin-types'
 
 /**
  * pluginHost.js 脚本路径。与 getMcpServerScriptPath(http-server.ts)同构。
@@ -108,6 +108,14 @@ class PluginHostManager {
         // python：每插件独立 python 子进程（engine.ts spawn），env 只含该插件自身 token。
         // 不同于 node host（多插件共享进程需 IPC 下发 token 防 env 互窃），python 单插件单进程，
         // token 落 env 安全——该进程内不存在兄弟插件可读他者 token。
+        // 入口包围(评审 containment,防御纵深):main 必须相对插件目录,防指向插件目录外读取/执行他处代码。
+        if (isUnsafeRelativePath(manifest.main)) {
+          log.error(
+            `[plugin-host] python plugin ${entry.id} main "${manifest.main}" escapes plugin directory; refusing to load`
+          )
+          revokePluginToken(entry.id)
+          continue
+        }
         const mainPath = join(pluginDir, manifest.main)
         if (!existsSync(mainPath)) {
           log.error(`[plugin-host] python plugin ${entry.id} main not found: ${mainPath}`)

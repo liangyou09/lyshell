@@ -39,6 +39,33 @@ describe('validateManifest', () => {
     expect(r.ok).toBe(true)
   })
 
+  it('拒绝 main 含 .. 段 / 绝对路径 / 盘符(入口包围,评审 containment)', () => {
+    for (const main of [
+      '../evil.js',
+      'dist/../../evil.js',
+      'a/../b.js',
+      '/etc/evil.js',
+      'C:\\evil.js',
+      'C:/evil.js'
+    ]) {
+      const r = validateManifest({ ...validManifest, main })
+      expect(r.ok).toBe(false)
+      expect(r.errors.some((e) => e.startsWith('main '))).toBe(true)
+    }
+  })
+
+  it('接受相对安全的 main(含 ./ 前缀与子目录)', () => {
+    for (const main of ['dist/main.js', './dist/main.js', 'main.js', 'dist/sub/main.js']) {
+      const r = validateManifest({ ...validManifest, main })
+      expect(r.ok).toBe(true)
+    }
+  })
+
+  it('接受空 main(视为 consumer 无入口,不拒)', () => {
+    const r = validateManifest({ ...validManifest, main: '' })
+    expect(r.ok).toBe(true)
+  })
+
   it('拒绝非对象', () => {
     expect(validateManifest(null).ok).toBe(false)
     expect(validateManifest('hello').ok).toBe(false)

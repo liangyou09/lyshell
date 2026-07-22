@@ -11,6 +11,8 @@ import { setMainWindow, setMainWindowForUpload, cleanupAllWorkers, cleanupAllUpl
 import { reachabilityProber } from './reachability/reachability-prober'
 import { mcpAuditRepository } from './storage/mcp-audit-repository'
 import { pluginHostManager } from './plugin/host-mgr'
+import { cleanupDownloadsDir } from './plugin/install-zip'
+import { getPluginsDir } from './storage/plugin-repository'
 
 // 日志配置
 log.transports.file.level = 'info'
@@ -237,6 +239,7 @@ app.on('will-quit', () => {
     stopMcpHttpServerImpl()  // 停止 MCP HTTP 服务器
   }
   pluginHostManager.stop()  // 停止 plugin host 子进程 + 撤销 plugin token
+  cleanupDownloadsDir(getPluginsDir())  // 清理 URL 安装临时下载(.downloads/),防累积
   mcpAuditRepository.flushSync()  // 同步落盘 MCP 审计日志，防丢最近事件
   reachabilityProber.stop()  // 停止可达性探测定时器
   // 断开所有本地终端 PTY 进程
