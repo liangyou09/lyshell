@@ -22,7 +22,7 @@
     "start": "electron .",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
     "rebuild": "electron-builder install-app-deps",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "node scripts/postinstall.cjs",
     "pack": "npm run build && electron-builder --dir",
     "pack:no-mcp": "cross-env LYSHELL_DISABLE_MCP=true npm run pack",
     "dist": "npm run build && electron-builder",

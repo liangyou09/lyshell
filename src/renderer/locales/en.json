@@ -144,6 +144,8 @@
     "editGroups": "Edit groups",
     "connected": "connected",
     "noSession": "no session",
+    "clearScreenHint": "Click to clear screen (keeps scrollback)",
+    "scrollBottomHint": "Click to scroll to bottom · Double-click to clear scrollback",
     "commandLimit": "{{name}} has reached the 12-command limit",
     "deleteGroupConfirm": "Delete group?\n\nThis group has {{count}} command(s) inside. They will become ungrouped.",
     "editCommandTitle": "Edit command",

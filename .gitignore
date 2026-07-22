@@ -155,3 +155,10 @@ release*
 # 本地设计稿/原型 HTML（临时探索产物，不入库）
 design/
 prototypes/
+
+# 临时草稿脚本（一次性的 ASCII 动画/调试脚本等，不入库）
+tmp_*
+
+# Python 字节码缓存
+__pycache__/
+*.pyc

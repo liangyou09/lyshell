@@ -597,6 +597,7 @@ export const API_ROUTES: ApiRouteMeta[] = [
       'Send text input directly to an interactive terminal session, as if the user typed it. ' +
       'Works with ALL session types (SSH, Telnet, Serial, Local). ' +
       'Use this to interact with interactive CLI programs like codex, vim, htop, gdb, etc. ' +
+      'By default (autoNewline=true) a trailing \\n is appended automatically when the text ends in a normal character, so you do NOT need to add \\n yourself for a plain command - set autoNewline=false to disable (e.g. when sending raw control sequences, or interactive single-key input like vim i/q or htop menu keys, where the default would wrongly append a newline to a single keypress). ' +
       'Supports escape sequences: \\n for Enter, \\r for carriage return, \\x03 for Ctrl+C, \\x1a for Ctrl+Z, \\t for Tab. ' +
       'For non-interactive commands where you need the output, use send_and_wait instead. ' +
       'The user\'s terminal will be temporarily locked while the input is sent, to prevent human and MCP input from conflicting.',
@@ -607,6 +608,10 @@ export const API_ROUTES: ApiRouteMeta[] = [
         text: {
           type: 'string',
           description: 'The text to send. Use \\n for Enter, \\x03 for Ctrl+C, \\x1a for Ctrl+Z, \\t for Tab.'
+        },
+        autoNewline: {
+          type: 'boolean',
+          description: 'When true (default), append a trailing \\n if the text ends in a normal character, so the command is submitted automatically. Set false for raw control sequences, or for interactive single-key input (e.g. vim i/q, htop menu keys) where a single keypress must not be followed by a newline.'
         }
       },
       required: ['sessionId', 'text'] as string[]
@@ -740,7 +745,7 @@ export const API_ROUTES: ApiRouteMeta[] = [
       'Send input to an interactive terminal and wait for the response, returning the captured output. ' +
       'Works with ALL session types (SSH, Local, Telnet, Serial). ' +
       'Supports escape sequences: \\n for Enter, \\r for carriage return, \\x03 for Ctrl+C, \\x1a for Ctrl+Z, \\t for Tab. ' +
-      'By default (autoNewline=true) a trailing \\n is appended automatically when the text ends in a normal character, so you do NOT need to add \\n yourself for a plain command - set autoNewline=false to disable (e.g. when sending raw control sequences). ' +
+      'By default (autoNewline=true) a trailing \\n is appended automatically when the text ends in a normal character, so you do NOT need to add \\n yourself for a plain command - set autoNewline=false to disable (e.g. when sending raw control sequences, or interactive single-key input like vim i/q or htop menu keys, where the default would wrongly append a newline to a single keypress). ' +
       'Returns the terminal output produced after the input was sent, with ANSI codes stripped. ' +
       'The `output` field includes the echoed input (terminals echo what you type); prefer the `cleanOutput` field which has the echoed command lines stripped from the front. ' +
       'The tool waits until output settles (no new data for idleMs) or until a timeout. ' +
@@ -780,7 +785,7 @@ export const API_ROUTES: ApiRouteMeta[] = [
         },
         autoNewline: {
           type: 'boolean',
-          description: 'When true (default), append a trailing \\n if the text ends in a normal character, so the command is submitted automatically. Set false for raw control sequences.'
+          description: 'When true (default), append a trailing \\n if the text ends in a normal character, so the command is submitted automatically. Set false for raw control sequences, or for interactive single-key input (e.g. vim i/q, htop menu keys) where a single keypress must not be followed by a newline.'
         },
         captureExitCode: {
           type: 'boolean',

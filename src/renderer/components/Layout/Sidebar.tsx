@@ -251,12 +251,16 @@ const IconBtn: React.FC<{
   </button>
 )
 
-const StripRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+const StripRow: React.FC<{ label: string; children: React.ReactNode; wrap?: boolean }> = ({ label, children, wrap }) => (
   <div className="grid grid-cols-[52px_1fr] items-center gap-2 px-3 py-1.5 bg-[var(--bg-strip)] border-b border-[var(--rule-soft)]">
     <span className="font-mono font-bold text-[12px] text-[var(--text-rack)]">
       {label}
     </span>
-    <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide min-w-0">
+    {/* wrap=true: agents 等数量不定的项换行展示,避免单行横向滚动+隐藏滚动条导致看不全 */}
+    <div className={cn(
+      'flex items-center gap-1 min-w-0',
+      wrap ? 'flex-wrap' : 'overflow-x-auto scrollbar-hide'
+    )}>
       {children}
     </div>
   </div>
@@ -1189,7 +1193,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
         </StripRow>
 
         {/* ===== AGENTS STRIP ===== */}
-        <StripRow label={t('sidebar.stripAgents')}>
+        <StripRow label={t('sidebar.stripAgents')} wrap>
           {agents.map(a => (
             <AgentPill
               key={a.id}

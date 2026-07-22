@@ -489,7 +489,7 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
                       {r.originSessionId ? <span className="text-[var(--text-rack-mute)]" title={r.originSessionId}>·{r.originSessionId.slice(0, 6)}</span> : null}
                     </td>
                     <td
-                      className="px-2 py-1.5 text-[var(--text-rack-data)] truncate max-w-[280px] cursor-help"
+                      className="px-2 py-1.5 text-[var(--text-rack-data)] truncate max-w-[280px]"
                       onMouseEnter={(e) => handleSummaryEnter(e, r.summary)}
                       onMouseLeave={() => setSummaryTip(null)}
                     >
