@@ -156,6 +156,9 @@ release*
 design/
 prototypes/
 
+# 根目录临时截图（设计对照/调试用，不入库）
+.rail-shot*.png
+
 # 临时草稿脚本（一次性的 ASCII 动画/调试脚本等，不入库）
 tmp_*
 

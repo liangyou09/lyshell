@@ -96,6 +96,34 @@
     "uninstallFail": "Uninstall failed",
     "toggleFail": "Operation failed"
   },
+  "nav": {
+    "sessions": "Sessions",
+    "agents": "Agents",
+    "plugins": "Plugins"
+  },
+  "agents": {
+    "title": "Agents",
+    "empty": "No agents yet",
+    "emptyHint": "Click + to add an agent",
+    "edit": {
+      "namePh": "Agent name, e.g. Claude Code",
+      "iconPh": "Icon",
+      "command": "Command",
+      "commandHint": "Runs when you launch the agent",
+      "workdir": "Working directory",
+      "workdirHint": "Blank uses the current directory",
+      "env": "Environment",
+      "envHint": "Vars injected into the shell, e.g. API keys",
+      "envKeyPh": "KEY",
+      "envValuePh": "value",
+      "envAdd": "Add variable",
+      "preview": "Preview",
+      "previewHint": "What fires on launch",
+      "previewNoCmd": "Enter a command to see the preview",
+      "required": "Name and command can't be empty",
+      "confirmDelete": "Click again to confirm"
+    }
+  },
   "session": {
     "editTitle": "Edit Session",
     "newTitle": "New Session",
@@ -171,7 +199,6 @@
     "newSession": "New session",
     "exportImport": "Export / Import",
     "stripLaunch": "Launch",
-    "stripAgents": "Agents",
     "addAgent": "Add agent",
     "filterPlaceholder": "filter hosts · tags · users",
     "expandAllGroups": "Expand all groups",
@@ -199,7 +226,7 @@
     "showOnlyProto": "Show only {{proto}}",
     "footerLive": "live",
     "footerIdle": "idle",
-    "footerShortcut": "alt + 1…9",
+    "footerShortcut": "alt + 1…{{n}}",
     "statusConnected": "Connected",
     "statusConnecting": "Connecting",
     "statusConnectionFailed": "Connection failed",
@@ -209,10 +236,6 @@
     "statusProbing": "Probing",
     "agentEditTitle": "Edit Agent",
     "agentAddTitle": "Add Agent",
-    "agentFieldName": "Name",
-    "agentFieldCommand": "Command",
-    "agentFieldIcon": "Icon",
-    "agentFieldWorkdir": "Workdir",
     "agentDelete": "Delete",
     "agentCancel": "Cancel",
     "agentSave": "Save"

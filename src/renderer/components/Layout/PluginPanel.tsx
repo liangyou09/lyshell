@@ -8,7 +8,7 @@ import type { LyShellPluginManifest } from '@shared/plugin-types'
 type PickedSource = 'dev' | 'file' | 'url'
 
 /**
- * 插件管理面板(Settings "插件" 页签内容)。
+ * 插件管理面板(机柜左列 Plugins 页签,原 Settings "插件" 页签迁出)。
  * 列表 / 三种安装来源(dev 文件夹 / 本地 .lyshell-plugin / URL 下载)/ 启用禁用 / 卸载 / 查看权限。
  * 详见 docs/plugin-system-design.md §8(生命周期)+ §8.3(安装流程)。
  *
@@ -144,7 +144,7 @@ const PluginPanel: React.FC = () => {
     s === 'dev' ? 'dev' : s === 'file' ? t('plugin.sourceFile') : t('plugin.sourceUrl')
 
   return (
-    <div className="w-[320px] space-y-2">
+    <div className="w-full h-full flex flex-col bg-[var(--bg-base)] p-3 space-y-2">
       {/* 标题 + 三种安装入口(dev 文件夹 / 本地 zip / URL) */}
       <div className="flex flex-wrap items-center justify-between gap-1">
         <span className="text-[12px] font-mono text-[var(--text-rack)]">{t('plugin.title')}</span>
@@ -256,7 +256,7 @@ const PluginPanel: React.FC = () => {
       ) : items.length === 0 ? (
         <div className="text-[11px] font-mono text-[var(--text-rack-mute)] py-2 text-center">{t('plugin.empty')}</div>
       ) : (
-        <div className="space-y-1 max-h-[260px] overflow-y-auto pr-0.5">
+        <div className="space-y-1 flex-1 min-h-0 overflow-y-auto pr-0.5">
           {items.map((p) => (
             <div key={p.id} className="border border-[var(--rule)] rounded-[2px] p-1.5 space-y-1">
               <div className="flex items-baseline justify-between gap-2">

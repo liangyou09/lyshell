@@ -19,19 +19,7 @@ interface QuickCommand {
   content: string
 }
 
-interface AgentConfig {
-  id: string
-  name: string
-  command: string
-  icon?: string
-  cwd?: string
-  env?: Record<string, string>
-  order: number
-}
-
-interface SidebarProps {
-  collapsed: boolean
-  onToggle: () => void
+interface SessionsPanelProps {
   onConnect?: (sessionId: string, config: SessionConfig) => void
   onQuickCommandsChange?: () => void
 }
@@ -209,9 +197,6 @@ const IconStar = ({ filled }: { filled?: boolean }) => (
 const IconX = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 2l7 7M9 2l-7 7"/></svg>
 )
-const IconAddTiny = () => (
-  <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M4.5 1v7M1 4.5h7"/></svg>
-)
 const IconRack = () => (
   <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x=".5" y=".5" width="9" height="9"/><path d="M0 3.5h10M0 6.5h10M3.5 0v10M6.5 0v10"/></svg>
 )
@@ -251,16 +236,12 @@ const IconBtn: React.FC<{
   </button>
 )
 
-const StripRow: React.FC<{ label: string; children: React.ReactNode; wrap?: boolean }> = ({ label, children, wrap }) => (
+const StripRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="grid grid-cols-[52px_1fr] items-center gap-2 px-3 py-1.5 bg-[var(--bg-strip)] border-b border-[var(--rule-soft)]">
     <span className="font-mono font-bold text-[12px] text-[var(--text-rack)]">
       {label}
     </span>
-    {/* wrap=true: agents 等数量不定的项换行展示,避免单行横向滚动+隐藏滚动条导致看不全 */}
-    <div className={cn(
-      'flex items-center gap-1 min-w-0',
-      wrap ? 'flex-wrap' : 'overflow-x-auto scrollbar-hide'
-    )}>
+    <div className="flex items-center gap-1 min-w-0 overflow-x-auto scrollbar-hide">
       {children}
     </div>
   </div>
@@ -300,40 +281,6 @@ const ShellPill: React.FC<{
     </button>
   )
 }
-
-const AgentPill: React.FC<{
-  agent: AgentConfig
-  onClick: () => void
-  onContextMenu: (e: React.MouseEvent) => void
-}> = ({ agent, onClick, onContextMenu }) => (
-  <button
-    onClick={onClick}
-    onContextMenu={onContextMenu}
-    title={`${agent.name}: ${agent.command}`}
-    className={cn(
-      'inline-flex items-center gap-[5px] flex-shrink-0 px-2 py-[3px] rounded-[3px] cursor-pointer whitespace-nowrap',
-      'text-[11.5px] font-medium text-[var(--text-rack)] bg-transparent border border-[var(--rule)]',
-      'hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)] hover:border-[var(--amber)] transition-colors'
-    )}
-  >
-    {agent.icon && <span className="text-[11.5px] leading-none">{agent.icon}</span>}
-    <span>{agent.name}</span>
-  </button>
-)
-
-const StripAdd: React.FC<{ onClick: () => void; title?: string }> = ({ onClick, title }) => (
-  <button
-    onClick={onClick}
-    title={title}
-    className={cn(
-      'w-[22px] h-[22px] flex-shrink-0 ml-0.5 inline-flex items-center justify-center cursor-pointer rounded-[3px]',
-      'bg-transparent border border-dashed border-[var(--rule)] text-[var(--text-rack-dim)]',
-      'hover:border-[var(--amber)] hover:border-solid hover:text-[var(--amber)] transition-colors'
-    )}
-  >
-    <IconAddTiny />
-  </button>
-)
 
 const GroupHeader: React.FC<{
   icon: React.ReactNode
@@ -540,14 +487,14 @@ const ActBtn: React.FC<{
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sidebar 主体
+// SessionsPanel 主体
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * 侧边栏组件 - 左侧会话机架 + 底部嵌入文件管理器
- * 支持宽度调整（右边缘拖动）和文件管理器高度调整（分割线拖动）
+ * 会话面板(机柜左列 Sessions 页签内容)- 会话机架 + 底部嵌入文件管理器。
+ * 列宽度由 MainWindow 列容器统一管(三栏共享);本组件只持文件管理器高度(分割线拖动)。
  */
-const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommandsChange }) => {
+const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommandsChange }) => {
   const [showDialog, setShowDialog] = useState(false)
   const [editConfig, setEditConfig] = useState<SessionConfig | undefined>(undefined)
   const [searchQuery, setSearchQuery] = useState('')
@@ -556,7 +503,7 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
   const { savedSessions, sessions, reachability, refreshSavedSessions, disconnectSession, removeLiveSession } = useSessionStore()
   const removeSessionFromAllPanes = usePaneStore(s => s.removeSessionFromAllPanes)
   const { t } = useTranslation()
-  // 被隐藏的终端页签(Sidebar LIVE 段会话标签点击 toggle)——用于给已隐藏的 LIVE 标签置灰
+  // 被隐藏的终端页签(SessionsPanel LIVE 段会话标签点击 toggle)——用于给已隐藏的 LIVE 标签置灰
   const hiddenTabSessions = usePaneStore(s => s.hiddenTabSessions)
   // 订阅 layout —— LIVE 段需要按"在某个 pane 里(打开了 tab)"过滤,而不是按 sessions 数组(那里包含所有 saved 的 disconnected registry)
   const layoutRoot = usePaneStore(s => s.layout.root)
@@ -578,21 +525,10 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const isUpdating = useRef(false)
 
-  // 宽度状态
-  const [width, setWidth] = useState(240)
+  // 文件管理器高度(列宽度由 MainWindow 列容器统一管)
   const [fileManagerHeight, setFileManagerHeight] = useState(200)
-  const [isResizingWidth, setIsResizingWidth] = useState(false)
   const [isResizingHeight, setIsResizingHeight] = useState(false)
   const sidebarRef = useRef<HTMLDivElement>(null)
-
-  // Agent 状态（吸收自原 AgentBar）
-  const [agents, setAgents] = useState<AgentConfig[]>([])
-  const [showAgentDialog, setShowAgentDialog] = useState(false)
-  const [editAgent, setEditAgent] = useState<AgentConfig | undefined>(undefined)
-  const [agentName, setAgentName] = useState('')
-  const [agentCommand, setAgentCommand] = useState('')
-  const [agentIcon, setAgentIcon] = useState('')
-  const [agentCwd, setAgentCwd] = useState('')
 
   // 分组折叠状态 — 放在顶部以维持"hooks 都在顶部"约定
   const [expandedIPs, setExpandedIPs] = useState<Record<string, boolean>>({})
@@ -632,17 +568,6 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
     }).catch(err => console.error('Failed to load quick commands:', err))
   }, [])
 
-  // 加载 Agent
-  const loadAgents = async () => {
-    try {
-      const result = await window.electronAPI?.listAgents()
-      if (Array.isArray(result)) setAgents(result as AgentConfig[])
-    } catch (err) {
-      console.error('Failed to load agents:', err)
-    }
-  }
-  useEffect(() => { loadAgents() }, [])
-
   // 监听新建会话事件
   useEffect(() => {
     const handleNewSession = () => {
@@ -662,8 +587,6 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
   useEffect(() => {
     const loadUIConfig = async () => {
       try {
-        const savedWidth = await window.electronAPI?.getConfig('sidebarWidth')
-        if (savedWidth && savedWidth > 0) setWidth(savedWidth)
         const savedHeight = await window.electronAPI?.getConfig('fileManagerHeight')
         if (savedHeight && savedHeight > 0) setFileManagerHeight(savedHeight)
       } catch (e) {
@@ -673,14 +596,6 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
     loadUIConfig()
   }, [])
 
-  // 保存宽度（带防抖）
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      window.electronAPI?.setConfig('sidebarWidth', width)
-    }, 500)
-    return () => clearTimeout(timer)
-  }, [width])
-
   // 保存文件管理器高度（带防抖）
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -688,19 +603,6 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
     }, 500)
     return () => clearTimeout(timer)
   }, [fileManagerHeight])
-
-  // 宽度拖动
-  useEffect(() => {
-    if (!isResizingWidth) return
-    const handleMouseMove = (e: MouseEvent) => setWidth(Math.max(180, Math.min(400, e.clientX)))
-    const handleMouseUp = () => setIsResizingWidth(false)
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-    }
-  }, [isResizingWidth])
 
   // 高度拖动
   useEffect(() => {
@@ -1064,10 +966,6 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
     setShowDialog(true)
   }
 
-  const handleLaunchAgent = async (agentId: string) => {
-    await window.electronAPI?.launchAgent(agentId)
-  }
-
   const handleQuickLocal = async (shell: string, startupCommands?: string[]) => {
     const shellName = shell === 'powershell' ? 'PowerShell' : shell === 'pwsh' ? 'PowerShell 7' : 'CMD'
     const name = startupCommands ? `${shellName} (Admin)` : shellName
@@ -1116,61 +1014,15 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
     setShowDialog(true)
   }
 
-  // Agent 对话框
-  const handleAgentAdd = () => {
-    setEditAgent(undefined)
-    setAgentName(''); setAgentCommand(''); setAgentIcon(''); setAgentCwd('')
-    setShowAgentDialog(true)
-  }
-  const handleAgentContextMenu = (agent: AgentConfig, e: React.MouseEvent) => {
-    e.preventDefault(); e.stopPropagation()
-    setEditAgent(agent)
-    setAgentName(agent.name); setAgentCommand(agent.command)
-    setAgentIcon(agent.icon || ''); setAgentCwd(agent.cwd || '')
-    setShowAgentDialog(true)
-  }
-  const handleAgentSave = async () => {
-    if (!agentName.trim() || !agentCommand.trim()) return
-    if (editAgent) {
-      await window.electronAPI?.updateAgent({
-        ...editAgent,
-        name: agentName.trim(),
-        command: agentCommand.trim(),
-        icon: agentIcon || undefined,
-        cwd: agentCwd || undefined
-      })
-    } else {
-      await window.electronAPI?.addAgent({
-        name: agentName.trim(),
-        command: agentCommand.trim(),
-        icon: agentIcon || undefined,
-        cwd: agentCwd || undefined,
-        order: agents.length
-      })
-    }
-    await loadAgents()
-    setShowAgentDialog(false)
-  }
-  const handleAgentDelete = async () => {
-    if (editAgent) {
-      await window.electronAPI?.deleteAgent(editAgent.id)
-      await loadAgents()
-      setShowAgentDialog(false)
-    }
-  }
-
   // 底部计数
   const liveCount = sessions.filter(s => s.status === 'connected').length
   const idleCount = savedSessions.length - liveCount
-
-  if (collapsed) return null
 
   return (
     <>
       <div
         ref={sidebarRef}
-        className="bg-[var(--bg-base)] border-r border-[var(--rule)] flex flex-col h-full sidebar-container"
-        style={{ width: `${width}px`, pointerEvents: 'auto' }}
+        className="bg-[var(--bg-base)] flex flex-col h-full sidebar-container"
       >
         {/* ===== 系统区 ===== */}
         <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--rule)]">
@@ -1190,19 +1042,6 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
           <ShellPill shell="ps"  glyph="◆" onClick={() => handleQuickLocal('powershell')}>ps</ShellPill>
           <ShellPill shell="ps7" glyph="◇" onClick={() => handleQuickLocal('pwsh')}>ps7</ShellPill>
           <ShellPill shell="ps+" glyph="⛨" onClick={() => handleQuickLocal('powershell', ['gsudo'])}>ps+</ShellPill>
-        </StripRow>
-
-        {/* ===== AGENTS STRIP ===== */}
-        <StripRow label={t('sidebar.stripAgents')} wrap>
-          {agents.map(a => (
-            <AgentPill
-              key={a.id}
-              agent={a}
-              onClick={() => handleLaunchAgent(a.id)}
-              onContextMenu={(e) => handleAgentContextMenu(a, e)}
-            />
-          ))}
-          <StripAdd onClick={handleAgentAdd} title={t('sidebar.addAgent')} />
         </StripRow>
 
         {/* ===== 过滤区 ===== */}
@@ -1445,19 +1284,8 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
               <span className="ml-1">{t('sidebar.footerIdle')}</span>
             </span>
           </span>
-          <span className="text-[var(--text-rack-mute)]">{t('sidebar.footerShortcut')}</span>
+          <span className="text-[var(--text-rack-mute)]">{t('sidebar.footerShortcut', { n: __DISABLE_MCP__ ? 2 : 3 })}</span>
         </div>
-      </div>
-
-      {/* 右边缘宽度调整条 */}
-      <div
-        className="w-[4px] bg-[var(--rule)] cursor-col-resize hover:bg-[var(--amber)] transition-colors flex-shrink-0 relative"
-        onMouseDown={() => setIsResizingWidth(true)}
-      >
-        <div
-          className="absolute -left-[4px] top-0 bottom-0 w-[4px] cursor-col-resize"
-          onMouseDown={() => setIsResizingWidth(true)}
-        />
       </div>
 
       {/* 会话对话框 */}
@@ -1487,81 +1315,8 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed, onConnect, onQuickCommands
         onImportComplete={handleImportComplete}
       />
 
-      {/* Agent 编辑对话框（吸收自原 AgentBar） */}
-      {showAgentDialog && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-          <div className="bg-[var(--bg-elev)] border border-[var(--rule)] rounded-md shadow-xl w-[380px] p-4">
-            <div className="text-sm text-[var(--text-rack)] font-medium mb-3">
-              {editAgent ? t('sidebar.agentEditTitle') : t('sidebar.agentAddTitle')}
-            </div>
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">{t('sidebar.agentFieldName')}</label>
-                <input
-                  type="text"
-                  value={agentName}
-                  onChange={(e) => setAgentName(e.target.value)}
-                  placeholder="Claude Code"
-                  autoFocus
-                  className="flex-1 px-3 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded text-sm text-[var(--text-rack)] placeholder:text-[var(--text-rack-dim)] focus:outline-none focus:border-[var(--amber)]"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">{t('sidebar.agentFieldCommand')}</label>
-                <input
-                  type="text"
-                  value={agentCommand}
-                  onChange={(e) => setAgentCommand(e.target.value)}
-                  placeholder="claude"
-                  className="flex-1 px-3 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded text-sm text-[var(--text-rack)] placeholder:text-[var(--text-rack-dim)] focus:outline-none focus:border-[var(--amber)]"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">{t('sidebar.agentFieldIcon')}</label>
-                <input
-                  type="text"
-                  value={agentIcon}
-                  onChange={(e) => setAgentIcon(e.target.value)}
-                  placeholder="🤖"
-                  className="w-16 px-3 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded text-sm text-[var(--text-rack)] placeholder:text-[var(--text-rack-dim)] focus:outline-none focus:border-[var(--amber)]"
-                />
-                <label className="text-xs text-[var(--text-rack-mute)] w-16 shrink-0">{t('sidebar.agentFieldWorkdir')}</label>
-                <input
-                  type="text"
-                  value={agentCwd}
-                  onChange={(e) => setAgentCwd(e.target.value)}
-                  placeholder="Optional"
-                  className="flex-1 px-3 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded text-sm text-[var(--text-rack)] placeholder:text-[var(--text-rack-dim)] focus:outline-none focus:border-[var(--amber)]"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                {editAgent && (
-                  <button
-                    onClick={handleAgentDelete}
-                    className="px-3 py-1 text-sm text-[var(--error-rack)] hover:opacity-80 transition-opacity"
-                  >
-                    {t('sidebar.agentDelete')}
-                  </button>
-                )}
-                <button
-                  onClick={() => setShowAgentDialog(false)}
-                  className="px-3 py-1 text-sm text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] transition-colors"
-                >
-                  {t('sidebar.agentCancel')}
-                </button>
-                <button
-                  onClick={handleAgentSave}
-                  className="px-3 py-1 text-sm bg-[var(--amber)] text-[var(--bg-base)] rounded hover:opacity-90 transition-opacity font-medium"
-                >
-                  {t('sidebar.agentSave')}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   )
 }
 
-export default Sidebar
+export default SessionsPanel

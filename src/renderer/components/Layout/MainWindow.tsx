@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
-import Sidebar from './Sidebar'
+import SessionsPanel from './SessionsPanel'
+import ActivityRail, { type NavTab, RAIL_WIDTH } from './ActivityRail'
+import AgentsPanel from './AgentsPanel'
 import StatusBar from './StatusBar'
 import SplitPaneContainer from './SplitPaneContainer'
 import FloatWindow from '../FloatWindow/FloatWindow'
@@ -15,19 +17,30 @@ import type { SessionConfig } from '@shared/types'
 import { isCursorBlinkEnabled } from '@shared/constants'
 
 /**
- * 设置页签列表。no-mcp 构建隐藏 plugin 页签 -- 插件激活依赖 MCP HTTP server,
- * 该构建下 start() 短路永不激活,展示页签只会让用户"装了没反应"。__DISABLE_MCP__
- * 为编译期常量,no-mcp 构建经 vite define + minify 消除 plugin 分支。
+ * 设置页签列表。插件页签已迁至左侧机柜页签轨(ActivityRail);此处只留终端 + MCP。
+ * no-mcp 构建的 plugin 隐藏逻辑随之移到 ActivityRail(__DISABLE_MCP__ 编译期消除)。
  */
-const SETTINGS_TABS = __DISABLE_MCP__
-  ? (['terminal', 'mcp'] as const)
-  : (['terminal', 'mcp', 'plugin'] as const)
+const SETTINGS_TABS = ['terminal', 'mcp'] as const
 
 /**
  * 主窗口布局组件
  */
 const MainWindow: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  // 左列机柜页签轨当前页签 -- 持久化到 localStorage;no-mcp 构建无 plugins 槽,夹回 sessions
+  const [activeNav, setActiveNav] = useState<NavTab>(() => {
+    try {
+      const saved = localStorage.getItem('lyshell.navTab.v1')
+      if (saved === 'sessions' || saved === 'agents' || saved === 'plugins') {
+        if (saved === 'plugins' && __DISABLE_MCP__) return 'sessions'
+        return saved
+      }
+    } catch { /* localStorage 不可用,回退默认 */ }
+    return 'sessions'
+  })
+  // 左列宽度(三栏共享) -- 从会话面板(SessionsPanel)上移到此;ActivityRail 固定 RAIL_WIDTH 在其左,面板填剩余宽
+  const [sidebarWidth, setSidebarWidth] = useState(240)
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false)
   const [floatVisible, setFloatVisible] = useState(false) // 浮窗默认隐藏
   const [isMaximized, setIsMaximized] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -48,7 +61,7 @@ const MainWindow: React.FC = () => {
   // 复制 MCP 注册命令的瞬时反馈
   const [mcpCmdCopied, setMcpCmdCopied] = useState(false)
   // 设置面板页签 —— 'terminal' 默认;组件内 state,关闭再开回到上次页签(不持久化到磁盘)
-  const [settingsTab, setSettingsTab] = useState<'terminal' | 'mcp' | 'plugin'>('terminal')
+  const [settingsTab, setSettingsTab] = useState<'terminal' | 'mcp'>('terminal')
   // 设置面板拖拽偏移 —— 持久化到 localStorage,关闭/重启都保留位置
   const [settingsOffset, setSettingsOffset] = useState(() => {
     try {
@@ -62,12 +75,18 @@ const MainWindow: React.FC = () => {
   })
   const settingsDragRef = useRef<{ startX: number; startY: number; offsetX: number; offsetY: number } | null>(null)
   const settingsPanelRef = useRef<HTMLDivElement>(null)
-  const { loadSessions, refreshSavedSessions, syncSessionsFromBackend } = useSessionStore()
+  const { sessions, loadSessions, refreshSavedSessions, syncSessionsFromBackend } = useSessionStore()
   const { getAllLeafPanes, layout, mcpAuditPaneId } = usePaneStore()
   const { themeId, setTheme, customColors, setCustomColors, initFromStorage } = useThemeStore()
   const { localeId, setLocale, initFromStorage: initLocaleFromStorage } = useLocaleStore()
   const { t } = useTranslation()
   const terminalWrapperRef = useRef<HTMLDivElement>(null)
+
+  // 切换左列页签 -- 持久化到 localStorage(Alt+1/2/3 与页签轨点击共用)
+  const handleNavChange = useCallback((tab: NavTab) => {
+    setActiveNav(tab)
+    try { localStorage.setItem('lyshell.navTab.v1', tab) } catch { /* quota */ }
+  }, [])
 
   // 加载主题（index.html 已早期应用，这里仅同步 store 状态）
   useEffect(() => {
@@ -92,7 +111,7 @@ const MainWindow: React.FC = () => {
     return () => window.removeEventListener('terminalFontSizeChanged', handler as EventListener)
   }, [])
 
-  // 一次性清理:RECENT 段已从 Sidebar 删除并搬到浮窗,旧 localStorage key 是死数据
+  // 一次性清理:RECENT 段已从会话面板删除并搬到浮窗,旧 localStorage key 是死数据
   // 几次启动后绝大多数客户端就清干净了;新装用户根本不会有这个 key,这段也会是 no-op
   // 注:recentCollapsed 存在 main 的 preferences.json(非 localStorage),清理它需要新增 IPC delete 通道,
   // 只为删一个 boolean 不值得 —— 残留几 bytes,忽略
@@ -287,6 +306,50 @@ const MainWindow: React.FC = () => {
     })
   }, [])
 
+  // 左列宽度:加载 / 防抖保存 / 拖动(rail RAIL_WIDTH 在左,面板宽 = clientX - RAIL_WIDTH)
+  useEffect(() => {
+    window.electronAPI?.getConfig('sidebarWidth').then((w: unknown) => {
+      if (typeof w === 'number' && w > 0) setSidebarWidth(w)
+    }).catch(() => {})
+  }, [])
+  useEffect(() => {
+    const t = setTimeout(() => {
+      window.electronAPI?.setConfig('sidebarWidth', sidebarWidth)
+    }, 500)
+    return () => clearTimeout(t)
+  }, [sidebarWidth])
+  useEffect(() => {
+    if (!isResizingSidebar) return
+    const handleMouseMove = (e: MouseEvent) => setSidebarWidth(Math.max(180, Math.min(400, e.clientX - RAIL_WIDTH)))
+    const handleMouseUp = () => setIsResizingSidebar(false)
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizingSidebar])
+
+  // Alt+1/2/3 切换左列页签(实现 footer 既有 "alt + 1…3" 提示;capture 抢在 xterm 前)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.altKey) return
+      // 文本输入中不拦截(避免劫持 PluginPanel URL 输入等)
+      const el = e.target as HTMLElement | null
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
+      let tab: NavTab | null = null
+      if (e.key === '1') tab = 'sessions'
+      else if (e.key === '2') tab = 'agents'
+      else if (e.key === '3' && !__DISABLE_MCP__) tab = 'plugins'
+      if (!tab) return
+      e.preventDefault()
+      e.stopPropagation()
+      handleNavChange(tab)
+    }
+    window.addEventListener('keydown', handler, true)
+    return () => window.removeEventListener('keydown', handler, true)
+  }, [handleNavChange])
+
   // 监听浮窗显示/隐藏快捷键
   useEffect(() => {
     if (!window.electronAPI) return
@@ -297,7 +360,7 @@ const MainWindow: React.FC = () => {
   }, [])
 
   // MCP open_connection_dialog 工具（C4）：主进程推送 → 派发 newSession 事件，
-  // 由 Sidebar 监听并打开"新建连接"对话框。agent 把凭据填写交还给用户（MCP 通道不接受凭据）。
+  // 由 SessionsPanel 监听并打开"新建连接"对话框。agent 把凭据填写交还给用户（MCP 通道不接受凭据）。
   useEffect(() => {
     if (!window.electronAPI?.onMcpOpenConnectionDialog) return
     const cleanup = window.electronAPI.onMcpOpenConnectionDialog(() => {
@@ -460,6 +523,8 @@ const MainWindow: React.FC = () => {
   // 获取活动分屏的活动会话ID用于状态栏
   const activePane = getAllLeafPanes().find(p => p.id === layout.activePaneId)
   const activeSessionIdForStatusBar = activePane?.activeSessionId || null
+  // 在线会话数 -- ActivityRail 的 sessions 槽位 LED 读数
+  const liveCount = sessions.filter(s => s.status === 'connected').length
 
   return (
     <div className="flex flex-col h-screen bg-[var(--bg-base)] text-[var(--text-rack)] overflow-hidden">
@@ -536,7 +601,7 @@ const MainWindow: React.FC = () => {
                         active ? 'text-[var(--amber)]' : 'text-[var(--text-rack-mute)] hover:text-[var(--text-rack)]'
                       )}
                     >
-                      {tab === 'terminal' ? t('settings.tabTerminal') : tab === 'mcp' ? t('settings.tabMcp') : t('settings.tabPlugin')}
+                      {tab === 'terminal' ? t('settings.tabTerminal') : t('settings.tabMcp')}
                       {/* amber 底边线 —— bottom-[-1px] 压住 strip 的 border-b,让选中页签"咬合"进下方主体,呼应机柜插卡意象 */}
                       {active && <span aria-hidden className="absolute inset-x-0 bottom-[-1px] h-[2px] bg-[var(--amber)]" />}
                     </button>
@@ -904,10 +969,6 @@ const MainWindow: React.FC = () => {
                   </p>
                 </div>
                 </div>
-                {/* 插件页签 -- col-start-1 row-start-1 同格重叠,inactive 用 invisible 保留布局贡献(对齐 terminal/mcp) */}
-                <div className={cn('col-start-1 row-start-1', settingsTab === 'plugin' ? '' : 'invisible')} aria-hidden={settingsTab !== 'plugin'}>
-                  <PluginPanel />
-                </div>
               </div>
             </div>
           )}
@@ -1001,13 +1062,32 @@ const MainWindow: React.FC = () => {
 
       {/* 主内容区 */}
       <div className="flex flex-1 min-w-0 min-h-0 main-content">
-        {/* 侧边栏 */}
-        <Sidebar
-          collapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-          onConnect={handleConnect}
-          onQuickCommandsChange={() => setQuickCommandsRefreshKey(k => k + 1)}
-        />
+        {/* 左列:机柜页签轨 + 面板 + 宽度调整条。sidebarCollapsed 时整列隐藏 */}
+        {!sidebarCollapsed && (
+          <>
+            <ActivityRail active={activeNav} onChange={handleNavChange} liveCount={liveCount} />
+            <div style={{ width: `${sidebarWidth}px` }} className="flex-shrink-0 min-w-0 h-full">
+              {activeNav === 'sessions' && (
+                <SessionsPanel
+                  onConnect={handleConnect}
+                  onQuickCommandsChange={() => setQuickCommandsRefreshKey(k => k + 1)}
+                />
+              )}
+              {activeNav === 'agents' && <AgentsPanel />}
+              {activeNav === 'plugins' && <PluginPanel />}
+            </div>
+            {/* 宽度调整条 */}
+            <div
+              className="w-[4px] bg-[var(--rule)] cursor-col-resize hover:bg-[var(--amber)] transition-colors flex-shrink-0 relative"
+              onMouseDown={() => setIsResizingSidebar(true)}
+            >
+              <div
+                className="absolute -left-[4px] top-0 bottom-0 w-[4px] cursor-col-resize"
+                onMouseDown={() => setIsResizingSidebar(true)}
+              />
+            </div>
+          </>
+        )}
 
         {/* 终端内容区 */}
         <div className="flex flex-col flex-1 min-w-0 min-h-0">
