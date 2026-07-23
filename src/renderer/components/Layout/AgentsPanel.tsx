@@ -42,6 +42,10 @@ const IconEdit = () => (
 const IconX = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 2l7 7M9 2l-7 7"/></svg>
 )
+/** 文件夹 -- 工作目录选择器按钮 */
+const IconFolder = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" strokeLinejoin="miter"><path d="M2 4.5h4l1.5 2H14v6H2z"/></svg>
+)
 /** 默认 agent 图标(未设 icon 时用) -- 与 ActivityRail 的机器人头同源 */
 const IconRobot = () => (
   <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square">
@@ -82,6 +86,23 @@ const AgentsPanel: React.FC = () => {
     }
   }
   useEffect(() => { loadAgents() }, [])
+
+  // ESC 退出对话框 -- 文档级监听,不依赖子元素焦点(覆盖层本身不可聚焦)
+  // 处于删除二次确认态时,首次 ESC 仅回退确认态,再次 ESC 才关闭(与两步确认语义一致)
+  useEffect(() => {
+    if (!showDialog) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      if (confirmDelete) {
+        setConfirmDelete(false)
+        return
+      }
+      setShowDialog(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [showDialog, confirmDelete])
 
   const handleLaunch = async (agentId: string) => {
     await window.electronAPI?.launchAgent(agentId)
@@ -155,6 +176,19 @@ const AgentsPanel: React.FC = () => {
   const updateEnvRow = (i: number, field: 'key' | 'value', value: string) =>
     setAgentEnv(prev => prev.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)))
   const removeEnvRow = (i: number) => setAgentEnv(prev => prev.filter((_, idx) => idx !== i))
+
+  // 工作目录:复用通用目录选择器(与下载设置同源),弹原生选择框;以当前填入路径为起始目录
+  const handlePickCwd = async () => {
+    const result = await window.electronAPI?.showOpenDialog({
+      title: t('agents.edit.browse'),
+      // 仅以绝对路径作起始目录;~ 开头 Electron 不展开,会相对 app cwd 打开,故跳过
+      defaultPath: agentCwd && !agentCwd.startsWith('~') ? agentCwd : undefined,
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (result && !result.canceled && result.filePaths.length > 0) {
+      setAgentCwd(result.filePaths[0])
+    }
+  }
 
   const valid = agentName.trim().length > 0 && agentCommand.trim().length > 0
   const envKeys = agentEnv.map(r => r.key.trim()).filter(Boolean)
@@ -245,8 +279,8 @@ const AgentsPanel: React.FC = () => {
                 {editAgent ? t('sidebar.agentEditTitle') : t('sidebar.agentAddTitle')}
               </span>
               <span className="flex-1" />
-              <span className="text-[10.5px] font-mono tracking-[0.14em] px-1.5 py-px rounded-sm bg-[var(--bg-base)] border border-[var(--rule)] text-[var(--text-rack-mute)]">
-                AGENT
+              <span className="text-[10.5px] font-mono tracking-[0.08em] px-1.5 py-px rounded-sm bg-[var(--bg-base)] border border-[var(--rule)] text-[var(--text-rack-mute)]">
+                Agent
               </span>
             </div>
 
@@ -273,7 +307,7 @@ const AgentsPanel: React.FC = () => {
             {/* COMMAND */}
             <div className="py-3.5 px-4 border-b border-[var(--rule)]">
               <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-[10px] font-mono tracking-[0.14em] uppercase text-[var(--amber)]">{t('agents.edit.command')}</span>
+                <span className="text-[12px] font-mono tracking-[0.06em] text-[var(--amber)]">{t('agents.edit.command')}</span>
                 <span className="text-[10.5px] text-[var(--text-rack-mute)]">· {t('agents.edit.commandHint')}</span>
               </div>
               <input
@@ -288,22 +322,32 @@ const AgentsPanel: React.FC = () => {
             {/* WORKDIR */}
             <div className="py-3.5 px-4 border-b border-[var(--rule)]">
               <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-[10px] font-mono tracking-[0.14em] uppercase text-[var(--amber)]">{t('agents.edit.workdir')}</span>
+                <span className="text-[12px] font-mono tracking-[0.06em] text-[var(--amber)]">{t('agents.edit.workdir')}</span>
                 <span className="text-[10.5px] text-[var(--text-rack-mute)]">· {t('agents.edit.workdirHint')}</span>
               </div>
-              <input
-                type="text"
-                value={agentCwd}
-                onChange={(e) => setAgentCwd(e.target.value)}
-                placeholder="~/projects/lyshell"
-                className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 font-mono focus:outline-none focus:border-[var(--amber)]"
-              />
+              <div className="flex items-stretch gap-1.5">
+                <input
+                  type="text"
+                  value={agentCwd}
+                  onChange={(e) => setAgentCwd(e.target.value)}
+                  placeholder="~/projects/lyshell"
+                  className="flex-1 min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 font-mono focus:outline-none focus:border-[var(--amber)]"
+                />
+                <button
+                  type="button"
+                  onClick={handlePickCwd}
+                  title={t('agents.edit.browse')}
+                  className="flex-shrink-0 w-[34px] inline-flex items-center justify-center bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[var(--text-rack-mute)] hover:text-[var(--amber)] hover:border-[var(--amber)] transition-colors"
+                >
+                  <IconFolder />
+                </button>
+              </div>
             </div>
 
             {/* ENVIRONMENT -- 后端早已支持 env(注入孵化终端),此前 UI 未暴露;此处补齐 key-value 行编辑器 */}
             <div className="py-3.5 px-4 border-b border-[var(--rule)]">
               <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-[10px] font-mono tracking-[0.14em] uppercase text-[var(--amber)]">{t('agents.edit.env')}</span>
+                <span className="text-[12px] font-mono tracking-[0.06em] text-[var(--amber)]">{t('agents.edit.env')}</span>
                 <span className="text-[10.5px] text-[var(--text-rack-mute)]">· {t('agents.edit.envHint')}</span>
               </div>
               <div className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm overflow-hidden">
@@ -356,7 +400,7 @@ const AgentsPanel: React.FC = () => {
             {/* PREVIEW -- 签名:实时渲染启动时真正执行的命令行(终端口吻,随输入更新) */}
             <div className="py-3.5 px-4 border-b border-[var(--rule)]">
               <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-[10px] font-mono tracking-[0.14em] uppercase text-[var(--amber)]">{t('agents.edit.preview')}</span>
+                <span className="text-[12px] font-mono tracking-[0.06em] text-[var(--amber)]">{t('agents.edit.preview')}</span>
                 <span className="text-[10.5px] text-[var(--text-rack-mute)]">· {t('agents.edit.previewHint')}</span>
               </div>
               <div className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm px-3 py-2 font-mono text-[12px] leading-relaxed overflow-hidden">

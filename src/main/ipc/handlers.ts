@@ -252,7 +252,8 @@ export function broadcastMcpSessionUnlocked(sessionId: string): void {
 const allowedOpenDialogProperties = new Set<NonNullable<OpenDialogOptions['properties']>[number]>([
   'openFile',
   'openDirectory',
-  'multiSelections'
+  'multiSelections',
+  'createDirectory'
 ])
 
 function sanitizeDialogFilters(filters: unknown): Electron.FileFilter[] | undefined {

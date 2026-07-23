@@ -112,6 +112,7 @@
       "commandHint": "Runs when you launch the agent",
       "workdir": "Working directory",
       "workdirHint": "Blank uses the current directory",
+      "browse": "Choose directory",
       "env": "Environment",
       "envHint": "Vars injected into the shell, e.g. API keys",
       "envKeyPh": "KEY",
