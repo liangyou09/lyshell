@@ -25,7 +25,7 @@
  * （noop getMcpHttpPort 恒返回 null；__DISABLE_MCP__ 全局不在此直接引用）。
  */
 import { spawn, type ChildProcess } from 'child_process'
-import { join, isAbsolute } from 'path'
+import { join, isAbsolute, dirname } from 'path'
 import { existsSync, readFileSync } from 'fs'
 import { app } from 'electron'
 import log from 'electron-log'
@@ -164,11 +164,15 @@ class PluginHostManager {
     try {
       // spawn(process.execPath) + ELECTRON_RUN_AS_NODE:以纯 Node 模式跑 pluginHost.js(不弹 Electron 窗口)。
       // 不用 child_process.fork:fork 强制要求 stdio 含 IPC 通道;本进程用 spawn + 显式 'ipc' 项。
+      // LYSHELL_MCP_SERVER_SCRIPT:mcpServer.js 权威路径(与 hostPath 同目录,兄弟 entry)。
+      //   下发给 host,spawnControlled 读此 env 而非 __dirname 重算 -- 防 api.ts 被多 entry
+      //   引用变 chunk 后 __dirname 漂到 chunks/ 路径错、静默退化(评审 robustness)。
       this.child = spawn(process.execPath, [hostPath], {
         env: {
           ...process.env,
           ELECTRON_RUN_AS_NODE: '1',
-          LYSHELL_MCP_PORT: String(port)
+          LYSHELL_MCP_PORT: String(port),
+          LYSHELL_MCP_SERVER_SCRIPT: join(dirname(hostPath), 'mcpServer.js')
         },
         stdio: ['ignore', 'pipe', 'pipe', 'ipc']
       })
