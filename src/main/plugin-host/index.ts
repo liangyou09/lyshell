@@ -23,6 +23,7 @@
  */
 import { readFileSync } from 'fs'
 import { join } from 'path'
+import type { ChildProcess } from 'child_process'
 import { LyShellHttpClient } from '@main/mcp-server/http-client'
 import { validateManifest, isUnsafeRelativePath } from '@shared/plugin-types'
 import type { PluginSpec, LyShellPluginManifest, ActivationEvent } from '@shared/plugin-types'
@@ -112,10 +113,22 @@ async function runHost(port: number, specs: PluginSpec[]): Promise<void> {
     if (result) loaded.push(result)
   }
 
+  // 插件经 api.spawnControlled 拉起的孙进程登记表(跨插件共享):退出时兜底 kill,
+  // 防插件 deactivate 漏杀 / 超过 2s grace / Windows 不级联孙进程 -> 孤儿。
+  // 子进程 'close' 时移出集合(含坏 exe 的报错子进程);shutdown 只杀仍存活的。
+  const spawnedChildren = new Set<ChildProcess>()
+
   let activatedCount = 0
   for (const p of loaded) {
     // 每插件独立 client（token 不同），api 内部按 pluginId 路由 + capability gate
-    const api = createPluginApi(p.spec, new LyShellHttpClient(port, p.spec.token))
+    const api = createPluginApi(p.spec, new LyShellHttpClient(port, p.spec.token), {
+      onSpawn: (child) => {
+        spawnedChildren.add(child)
+        // 'close' 而非 'exit':坏 exe(ENOENT)只发 'error'+'close' 不发 'exit',
+        // 听 'close' 才能把报错子进程也移出集合,长跑 host 下 Set 更干净。
+        child.on('close', () => spawnedChildren.delete(child))
+      }
+    })
     if (shouldActivateOnStartup(p.manifest.activationEvents)) {
       try {
         await p.module.activate(api)
@@ -158,6 +171,16 @@ async function runHost(port: number, specs: PluginSpec[]): Promise<void> {
         )
       })
     }
+    // 兜底:杀插件 spawn 的孙进程。已退出的经 'close' 监听移出集合;
+    // 仍存活的(deactivate 漏杀 / 超时 / Windows 不级联)在此 SIGTERM,防孤儿。
+    for (const child of spawnedChildren) {
+      try {
+        child.kill('SIGTERM')
+      } catch {
+        /* 进程可能已退出 */
+      }
+    }
+    spawnedChildren.clear()
     process.exit(0)
   }
   process.on('SIGTERM', () => void shutdown('SIGTERM'))

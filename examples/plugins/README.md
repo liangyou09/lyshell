@@ -1,11 +1,12 @@
 # LyShell 插件示例
 
-两个最小可跑的插件 demo,演示两种 runtime 的典型用法。
+三个最小可跑的插件 demo,演示两种 runtime 的典型用法。
 
 | demo | runtime | 看点 |
 |---|---|---|
 | [my-py-plugin](./my-py-plugin) | python | **oneshot**:激活时列会话 + 对首个连着的会话演示读输出 / 发命令 |
 | [my-node-plugin](./my-node-plugin) | node | **常驻**:激活时巡检 + 30s 定时器持续巡检(python 做不到) |
+| [my-pet-plugin](./my-pet-plugin) | node | **路线2**:插件只当启动器,桌宠 spawn mcpServer.js 像 Claude 一样经 stdio MCP 连 LyShell,动态 tools/list |
 
 ## 安装(dev 文件夹)
 
