@@ -108,6 +108,8 @@
     "edit": {
       "namePh": "Agent 名称,如 Claude Code",
       "iconPh": "图标",
+      "iconAuto": "内置品牌图标",
+      "iconClear": "清空(用自动图标)",
       "command": "命令",
       "commandHint": "按下 Agent 时执行",
       "workdir": "工作目录",

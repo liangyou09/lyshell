@@ -1,5 +1,8 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+// 内置品牌图标:Vite new URL 模式取打包后资产 URL(免 *.png 模块声明)
+const claudeIcon = new URL('../../assets/agent-icons/claude.png', import.meta.url).href
+const codexIcon = new URL('../../assets/agent-icons/codex.png', import.meta.url).href
 
 /**
  * Agent 面板(机柜左列 Agents 页签内容)。
@@ -58,6 +61,68 @@ const IconRobot = () => (
   </svg>
 )
 
+/** 图标选择器内置 emoji 集 -- 面向 AI/开发 agent,点击即用;清空则回退内置/机器人头 */
+const ICON_EMOJIS = ['🤖','🧠','⚡','🚀','🐙','🤝','🛠️','📦','🔧','💡','🎯','📊','🔬','🦾','🧩','⚙️','🌐','💻','🗂️','📁','🔌','🔥','✨','🌟','🎨','🦊','🐍','🐳','🍄','🪐','🧪','🦄']
+
+/** 内置品牌图标条目:src=资产 URL;mode=img 用原色(自有配色,明暗皆可见),
+ *  mode=mask 用 CSS mask 按 --text-rack 着色(单色剪影,明暗主题自适应)。 */
+interface BundledIconEntry { src: string; mode: 'img' | 'mask' }
+
+/**
+ * 已知品牌 CLI 的内置图标(打包进 LyShell,按 command 首 token 小写匹配)。
+ * 不再运行时从 exe 抠图(不可靠:shim 指向 node.exe、大 exe 抠取失败、Rust 二进制无图标资源);
+ * 用 command 名直接映射内置 PNG。无匹配则回退 emoji/机器人头。
+ * 新增品牌:抠/取图标到 assets/agent-icons/<name>.png,在此登记即可。
+ *  - 自带配色的品牌标(如 Anthropic 暖色)用 mode:'img';
+ *  - 单色剪影(如 OpenAI 花朵)用 mode:'mask',随主题文字色着色,明暗皆可见。
+ */
+const BUNDLED_ICON_BY_COMMAND: Record<string, BundledIconEntry> = {
+  claude: { src: claudeIcon, mode: 'img' },
+  codex: { src: codexIcon, mode: 'mask' }
+}
+
+/** 取 command 首 token(剥引号、小写)查内置图标;无匹配返回 null。 */
+function bundledIconFor(command: string): BundledIconEntry | null {
+  const t = command.trim().split(/\s+/)[0]?.replace(/^["']|["']$/g, '').toLowerCase()
+  return (t && BUNDLED_ICON_BY_COMMAND[t]) || null
+}
+
+/** 渲染内置品牌图标:mask 模式取资产 alpha 作剪影、按 --text-rack 着色(明暗自适应);
+ *  img 模式直接显示原色品牌标。 */
+const BundledIconView: React.FC<{ entry: BundledIconEntry; className?: string; title?: string }> = ({ entry, className, title }) => {
+  if (entry.mode === 'mask') {
+    // mask 模式:bg 着色(默认文字色 --text-rack);列表行内随 .group 悬停切 --amber,
+    // 与 IconRobot(currentColor)的悬停高亮一致(emoji 色字与 img 品牌色不参与,各自合理)
+    return (
+      <span
+        aria-hidden
+        title={title}
+        className={`inline-block bg-[var(--text-rack)] group-hover:bg-[var(--amber)] transition-colors ${className ?? ''}`}
+        style={{
+          maskImage: `url(${entry.src})`,
+          WebkitMaskImage: `url(${entry.src})`,
+          maskSize: 'contain',
+          WebkitMaskSize: 'contain',
+          maskPosition: 'center',
+          WebkitMaskPosition: 'center',
+          maskRepeat: 'no-repeat',
+          WebkitMaskRepeat: 'no-repeat'
+        }}
+      />
+    )
+  }
+  // img 模式:object-contain 只对替换元素生效,故挂此分支(mask 的 <span> 上无效,不再下发)
+  return <img src={entry.src} alt="" title={title} className={`${className ?? ''} object-contain`} />
+}
+
+/** agent 图标槽内容:emoji > 内置品牌图标 > 机器人头(颜色/尺寸槽由调用方包裹) */
+const AgentSlotIcon: React.FC<{ agent: AgentConfig }> = ({ agent }) => {
+  if (agent.icon) return <span className="text-[15px] leading-none">{agent.icon}</span>
+  const bundled = bundledIconFor(agent.command)
+  if (bundled) return <BundledIconView entry={bundled} className="w-[18px] h-[18px]" />
+  return <IconRobot />
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 组件
 // ─────────────────────────────────────────────────────────────────────────────
@@ -76,6 +141,9 @@ const AgentsPanel: React.FC = () => {
   // 校验:首次提交前不报错;删除两步确认(复用 closeAll 的"再点一次"语义)
   const [triedSubmit, setTriedSubmit] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // 图标选择器浮层开合 + 外部点击关闭用 ref
+  const [iconPickerOpen, setIconPickerOpen] = useState(false)
+  const iconPickerRef = useRef<HTMLDivElement>(null)
 
   const loadAgents = async () => {
     try {
@@ -87,6 +155,18 @@ const AgentsPanel: React.FC = () => {
   }
   useEffect(() => { loadAgents() }, [])
 
+  // 图标选择器浮层:外部点击关闭
+  useEffect(() => {
+    if (!iconPickerOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (iconPickerRef.current && !iconPickerRef.current.contains(e.target as Node)) {
+        setIconPickerOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [iconPickerOpen])
+
   // ESC 退出对话框 -- 文档级监听,不依赖子元素焦点(覆盖层本身不可聚焦)
   // 处于删除二次确认态时,首次 ESC 仅回退确认态,再次 ESC 才关闭(与两步确认语义一致)
   useEffect(() => {
@@ -94,6 +174,11 @@ const AgentsPanel: React.FC = () => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       e.stopPropagation()
+      // 优先级:图标浮层 > 删除二次确认 > 关闭对话框(逐层回退,ESC 不越级跳)
+      if (iconPickerOpen) {
+        setIconPickerOpen(false)
+        return
+      }
       if (confirmDelete) {
         setConfirmDelete(false)
         return
@@ -102,7 +187,7 @@ const AgentsPanel: React.FC = () => {
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [showDialog, confirmDelete])
+  }, [showDialog, confirmDelete, iconPickerOpen])
 
   const handleLaunch = async (agentId: string) => {
     await window.electronAPI?.launchAgent(agentId)
@@ -112,7 +197,7 @@ const AgentsPanel: React.FC = () => {
     setEditAgent(undefined)
     setAgentName(''); setAgentCommand(''); setAgentIcon(''); setAgentCwd('')
     setAgentEnv([])
-    setTriedSubmit(false); setConfirmDelete(false)
+    setTriedSubmit(false); setConfirmDelete(false); setIconPickerOpen(false)
     setShowDialog(true)
   }
   const handleContextMenu = (agent: AgentConfig, e: React.MouseEvent) => {
@@ -121,7 +206,7 @@ const AgentsPanel: React.FC = () => {
     setAgentName(agent.name); setAgentCommand(agent.command)
     setAgentIcon(agent.icon || ''); setAgentCwd(agent.cwd || '')
     setAgentEnv(agent.env ? Object.entries(agent.env).map(([key, value]) => ({ key, value })) : [])
-    setTriedSubmit(false); setConfirmDelete(false)
+    setTriedSubmit(false); setConfirmDelete(false); setIconPickerOpen(false)
     setShowDialog(true)
   }
   const handleSave = async () => {
@@ -192,6 +277,8 @@ const AgentsPanel: React.FC = () => {
 
   const valid = agentName.trim().length > 0 && agentCommand.trim().length > 0
   const envKeys = agentEnv.map(r => r.key.trim()).filter(Boolean)
+  // 编辑中 command 对应的内置图标(emoji 为空时在选择器按钮上预览)
+  const previewIcon = bundledIconFor(agentCommand)
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg-base)] min-w-0">
@@ -229,9 +316,9 @@ const AgentsPanel: React.FC = () => {
               title={`${agent.name}: ${agent.command}`}
               className="group relative flex items-center gap-2.5 px-3 min-h-[42px] py-1.5 cursor-pointer transition-colors bg-[var(--bg-rack)] border-b border-[var(--rule-soft)] shadow-[inset_0_-1px_0_var(--bg-base)] hover:bg-[var(--bg-slot)]"
             >
-              {/* 图标槽:有 emoji 直接显,否则默认机器人头 */}
+              {/* 图标槽:emoji > 内置品牌图标 > 默认机器人头 */}
               <span className="flex-shrink-0 w-[24px] h-[24px] inline-flex items-center justify-center text-[15px] leading-none text-[var(--text-rack-mute)] group-hover:text-[var(--amber)] transition-colors">
-                {agent.icon ? <span>{agent.icon}</span> : <IconRobot />}
+                <AgentSlotIcon agent={agent} />
               </span>
               <span className="flex flex-col min-w-0 flex-1">
                 <span className="text-[13px] font-semibold text-[var(--text-rack)] truncate leading-tight">{agent.name}</span>
@@ -286,14 +373,46 @@ const AgentsPanel: React.FC = () => {
 
             {/* 面板:图标 + 名称(插槽丝印) */}
             <div className="flex items-center gap-2.5 py-3.5 px-4 border-b border-[var(--rule)]">
-              <input
-                type="text"
-                value={agentIcon}
-                onChange={(e) => setAgentIcon(e.target.value)}
-                placeholder="🤖"
-                title={t('agents.edit.iconPh')}
-                className="w-7 h-7 flex-shrink-0 text-center text-[15px] leading-none bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] focus:outline-none focus:border-[var(--amber)]"
-              />
+              {/* 图标:点选 emoji(浮层);留空回退自动 exe 图标。非文本输入,避免敲 emoji 的别扭 */}
+              <div className="relative flex-shrink-0" ref={iconPickerRef}>
+                <button
+                  type="button"
+                  onClick={() => setIconPickerOpen(o => !o)}
+                  title={t('agents.edit.iconPh')}
+                  className="w-7 h-7 flex items-center justify-center bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[var(--text-rack)] hover:border-[var(--amber)] focus:outline-none focus:border-[var(--amber)] transition-colors"
+                >
+                  {agentIcon ? (
+                    <span className="text-[15px] leading-none">{agentIcon}</span>
+                  ) : previewIcon ? (
+                    <BundledIconView entry={previewIcon} title={t('agents.edit.iconAuto')} className="w-[18px] h-[18px]" />
+                  ) : (
+                    <span className="text-[15px] leading-none text-[var(--text-rack-data)]">🤖</span>
+                  )}
+                </button>
+                {iconPickerOpen && (
+                  <div className="absolute top-full left-0 mt-1 z-50 w-[224px] bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm p-1.5 shadow-xl">
+                    <div className="grid grid-cols-8 gap-0.5">
+                      {ICON_EMOJIS.map(em => (
+                        <button
+                          key={em}
+                          type="button"
+                          onClick={() => { setAgentIcon(em); setIconPickerOpen(false) }}
+                          className="w-6 h-6 flex items-center justify-center text-[15px] leading-none rounded-sm hover:bg-[var(--bg-slot)] transition-colors overflow-hidden"
+                        >
+                          {em}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setAgentIcon(''); setIconPickerOpen(false) }}
+                      className="mt-1 pt-1 w-full text-[10.5px] font-mono text-[var(--text-rack-data)] hover:text-[var(--amber)] border-t border-[var(--rule-soft)] transition-colors"
+                    >
+                      {t('agents.edit.iconClear')}
+                    </button>
+                  </div>
+                )}
+              </div>
               <input
                 type="text"
                 value={agentName}

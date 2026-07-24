@@ -108,6 +108,8 @@
     "edit": {
       "namePh": "Agent name, e.g. Claude Code",
       "iconPh": "Icon",
+      "iconAuto": "Built-in brand icon",
+      "iconClear": "Clear (auto icon)",
       "command": "Command",
       "commandHint": "Runs when you launch the agent",
       "workdir": "Working directory",
