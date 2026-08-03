@@ -8,6 +8,9 @@ export interface UserPreferences {
   // 浮窗
   floatWindow: FloatWindowSettings
 
+  // 主窗口尺寸(像素) -- 持久化到 preferences.json 的 'window' 键,启动时由主进程读取恢复
+  window?: WindowSettings
+
   // 终端
   terminal: TerminalSettings
 
@@ -60,6 +63,16 @@ export enum FloatWindowPosition {
   BOTTOM_RIGHT = 'bottom-right',
   BOTTOM_LEFT = 'bottom-left',
   CUSTOM = 'custom'
+}
+
+/**
+ * 主窗口尺寸设置(像素)
+ * 运行时以扁平 key 'window' 存入 preferences.json,与 sidebarWidth/security 等一致;
+ * 主进程 createMainWindow 读取并据此调整 BrowserWindow 初始尺寸。
+ */
+export interface WindowSettings {
+  width: number
+  height: number
 }
 
 /**

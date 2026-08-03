@@ -23,6 +23,17 @@ import { isCursorBlinkEnabled } from '@shared/constants'
 const SETTINGS_TABS = ['terminal', 'mcp'] as const
 
 /**
+ * 主窗口尺寸预设(像素) -- 常见分辨率 + 默认 1200×800
+ */
+const WINDOW_PRESETS: ReadonlyArray<{ width: number; height: number }> = [
+  { width: 1280, height: 720 },
+  { width: 1600, height: 900 },
+  { width: 1920, height: 1080 },
+  { width: 2560, height: 1440 },
+  { width: 1200, height: 800 }
+]
+
+/**
  * 主窗口布局组件
  */
 const MainWindow: React.FC = () => {
@@ -62,6 +73,14 @@ const MainWindow: React.FC = () => {
   const [mcpCmdCopied, setMcpCmdCopied] = useState(false)
   // 设置面板页签 —— 'terminal' 默认;组件内 state,关闭再开回到上次页签(不持久化到磁盘)
   const [settingsTab, setSettingsTab] = useState<'terminal' | 'mcp'>('terminal')
+  // 主窗口尺寸(像素) -- 持久化到 preferences,启动恢复;输入框双向绑定,点应用/预设时调 IPC
+  const [windowSize, setWindowSize] = useState<{ width: number; height: number }>({ width: 1200, height: 800 })
+  const applyWindowSize = async (w: number, h: number) => {
+    const result = await window.electronAPI?.setWindowSize(w, h)
+    if (result?.success) {
+      setWindowSize({ width: result.width, height: result.height })
+    }
+  }
   // 设置面板拖拽偏移 —— 持久化到 localStorage,关闭/重启都保留位置
   const [settingsOffset, setSettingsOffset] = useState(() => {
     try {
@@ -187,6 +206,23 @@ const MainWindow: React.FC = () => {
       }
     }
     loadMcpSecurity()
+  }, [showSettings])
+
+  // 设置面板打开时加载已保存的窗口尺寸(回显输入框与预设高亮)
+  useEffect(() => {
+    if (!showSettings || !window.electronAPI) return
+    const loadWindowSize = async () => {
+      try {
+        const saved = await window.electronAPI?.getConfig('window')
+        if (saved && typeof saved === 'object') {
+          const s = saved as { width?: number; height?: number }
+          if (typeof s.width === 'number' && typeof s.height === 'number') {
+            setWindowSize({ width: s.width, height: s.height })
+          }
+        }
+      } catch { /* 静默:读失败回退默认值 */ }
+    }
+    loadWindowSize()
   }, [showSettings])
 
   // 监听会话状态变化并更新 store
@@ -612,6 +648,62 @@ const MainWindow: React.FC = () => {
                   inactive 用 invisible(visibility:hidden) 保留布局贡献(撑住尺寸)同时不绘制/不可交互/不可聚焦;aria-hidden 屏蔽读屏。 */}
               <div className="grid p-3">
                 <div className={cn('col-start-1 row-start-1 space-y-3', settingsTab === 'terminal' ? '' : 'invisible')} aria-hidden={settingsTab !== 'terminal'}>
+                {/* 窗口大小 -- 预设 chip + 自定义宽高,持久化到 preferences,启动恢复 */}
+                <div className="border-b border-[var(--rule-soft)] pb-3">
+                  <div className="flex items-baseline justify-between mb-1.5">
+                    <span className="text-[12px] font-mono text-[var(--text-rack)]">{t('settings.windowSize')}</span>
+                    <span className="text-[11px] font-mono text-[var(--text-rack-data)] tabular-nums">
+                      {windowSize.width}×{windowSize.height}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {WINDOW_PRESETS.map(p => {
+                      const active = windowSize.width === p.width && windowSize.height === p.height
+                      return (
+                        <button
+                          key={`${p.width}x${p.height}`}
+                          onClick={() => applyWindowSize(p.width, p.height)}
+                          className={cn(
+                            'px-2 h-[22px] rounded-[2px] border text-[11px] font-mono tabular-nums transition-colors cursor-pointer',
+                            active
+                              ? 'border-[var(--amber)] text-[var(--amber)] bg-[var(--bg-slot)]'
+                              : 'border-[var(--rule)] text-[var(--text-rack-data)] bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
+                          )}
+                        >
+                          {p.width}×{p.height}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-mono text-[var(--text-rack-data)] w-[40px]">{t('settings.custom')}</span>
+                    <input
+                      type="number"
+                      value={windowSize.width}
+                      onChange={(e) => setWindowSize(s => ({ ...s, width: parseInt(e.target.value) || 0 }))}
+                      className="w-[64px] px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[12px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
+                      min={800}
+                      step={10}
+                      title={t('settings.width')}
+                    />
+                    <span className="text-[11px] text-[var(--text-rack-data)] font-mono">×</span>
+                    <input
+                      type="number"
+                      value={windowSize.height}
+                      onChange={(e) => setWindowSize(s => ({ ...s, height: parseInt(e.target.value) || 0 }))}
+                      className="w-[64px] px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[12px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
+                      min={600}
+                      step={10}
+                      title={t('settings.height')}
+                    />
+                    <button
+                      onClick={() => applyWindowSize(windowSize.width, windowSize.height)}
+                      className="px-2 h-[24px] rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] text-[11px] font-mono text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)] transition-colors cursor-pointer"
+                    >
+                      {t('settings.apply')}
+                    </button>
+                  </div>
+                </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[12px] font-mono text-[var(--text-rack)] w-[64px]">{t('settings.buffer')}</span>
                   <input

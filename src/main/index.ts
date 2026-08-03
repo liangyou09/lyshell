@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, screen } from 'electron'
 import { join, resolve } from 'path'
 import log from 'electron-log'
 import * as fs from 'fs'
@@ -6,6 +6,7 @@ import * as fs from 'fs'
 // 导入模块
 import { registerIPCHandlers } from './ipc/handlers'
 import { downloadHistory } from './storage'
+import { preferencesRepository } from './storage/repository'
 import { sessionManager } from './terminal/session-manager'
 import { setMainWindow, setMainWindowForUpload, cleanupAllWorkers, cleanupAllUploadWorkers } from './file'
 import { reachabilityProber } from './reachability/reachability-prober'
@@ -51,9 +52,19 @@ let stopMcpHttpServerImpl: (() => Promise<void>) | undefined
 
 // 创建主窗口
 function createMainWindow(): void {
+  // 启动恢复:读取持久化的窗口尺寸,无则回退默认 1200×800;clamp 到当前屏幕工作区防换小屏超界
+  const saved = preferencesRepository.get('window') as { width?: number; height?: number } | undefined
+  const workArea = screen.getPrimaryDisplay().workAreaSize
+  const initWidth = saved && typeof saved.width === 'number'
+    ? Math.max(800, Math.min(saved.width, workArea.width))
+    : 1200
+  const initHeight = saved && typeof saved.height === 'number'
+    ? Math.max(600, Math.min(saved.height, workArea.height))
+    : 800
+
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: initWidth,
+    height: initHeight,
     minWidth: 800,
     minHeight: 600,
     show: false,
@@ -81,7 +92,20 @@ function createMainWindow(): void {
     mainWindow?.show()
   })
 
+  // 记住手动拖拽/边框缩放后的窗口尺寸(debounce 500ms;最大化期间不记,避免记成最大化尺寸;只记尺寸不记位置)
+  let resizePersistTimer: NodeJS.Timeout | undefined
+  mainWindow.on('resize', () => {
+    if (!mainWindow || mainWindow.isMaximized()) return
+    clearTimeout(resizePersistTimer)
+    resizePersistTimer = setTimeout(() => {
+      if (!mainWindow || mainWindow.isMaximized()) return
+      const [width, height] = mainWindow.getSize()
+      preferencesRepository.set('window', { width, height })
+    }, 500)
+  })
+
   mainWindow.on('closed', () => {
+    clearTimeout(resizePersistTimer)
     setMainWindow(null)  // 清除窗口引用
     setMainWindowForUpload(null)
     mainWindow = null
@@ -174,6 +198,27 @@ app.whenReady().then(async () => {
   // 注册窗口相关 IPC 处理器
   ipcMain.handle('window:get-bounds', async () => {
     return mainWindow?.getBounds() || null
+  })
+
+  // 设定主窗口尺寸(像素) -- 先退出最大化,按窗口所在显示器的工作区 clamp 尺寸 + 夹紧位置,最后持久化
+  ipcMain.handle('window:set-size', async (_event, width: number, height: number) => {
+    if (!mainWindow) return { success: false }
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize()
+    }
+    // 用 getDisplayMatching 取窗口当前所在显示器(多屏下不误拽到主屏);workArea 含 x/y 且排除任务栏
+    const workArea = screen.getDisplayMatching(mainWindow.getBounds()).workArea
+    // 宽高不允许超过该屏工作区
+    const w = Math.max(800, Math.min(Math.round(width), workArea.width))
+    const h = Math.max(600, Math.min(Math.round(height), workArea.height))
+    mainWindow.setSize(w, h)
+    // setSize 不移动左上角,窗口贴边时右下角会超出屏幕 -- 把左上角夹进工作区,保证整窗在屏内
+    const bounds = mainWindow.getBounds()
+    const x = Math.min(Math.max(bounds.x, workArea.x), workArea.x + workArea.width - w)
+    const y = Math.min(Math.max(bounds.y, workArea.y), workArea.y + workArea.height - h)
+    mainWindow.setPosition(Math.round(x), Math.round(y))
+    preferencesRepository.set('window', { width: w, height: h })
+    return { success: true, width: w, height: h }
   })
 
   // 窗口控制

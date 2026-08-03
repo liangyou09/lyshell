@@ -235,6 +235,7 @@ const electronAPI = {
   closeWindow: () => ipcRenderer.invoke('window:close'),
   isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
   selectDirectory: () => ipcRenderer.invoke('window:select-directory'),
+  setWindowSize: (width: number, height: number) => ipcRenderer.invoke('window:set-size', width, height),
 
   // 数据导出导入
   exportData: (data: unknown, encryptPassword?: string) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_DATA, data, encryptPassword),
