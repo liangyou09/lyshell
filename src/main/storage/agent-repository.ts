@@ -18,7 +18,8 @@ export interface AgentConfig {
 }
 
 const DEFAULT_AGENTS: AgentConfig[] = [
-  { id: 'agent-claude-code', name: 'Claude Code', command: 'claude', icon: '🤖', order: 0 },
+  // Claude Code 省略 icon:走 bundledIconFor('claude') 显示内置品牌标(与 handleSave 落库的 undefined 形态统一)
+  { id: 'agent-claude-code', name: 'Claude Code', command: 'claude', order: 0 },
   { id: 'agent-aider', name: 'Aider', command: 'aider', icon: '🤝', order: 1 },
   { id: 'agent-copilot', name: 'Copilot CLI', command: 'gh copilot', icon: '🐙', order: 2 }
 ]
