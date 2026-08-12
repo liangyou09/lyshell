@@ -17,7 +17,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [draggingSessionId, setDraggingSessionIdLocal] = useState<string | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)  // 悬停位置索引
-  const { sessions } = useSessionStore()
+  const { sessions, removeLiveSession } = useSessionStore()
   const { setActiveSessionInPane, removeSessionFromPane, addSessionToPane, reorderSessionsInPane, mcpAuditPaneId } = usePaneStore()
   const toggleLiveSessionTabs = usePaneStore(s => s.toggleLiveSessionTabs)
   const { t } = useTranslation()
@@ -417,6 +417,8 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
                   // 最后一道防线：即使清理 store 也失败，页签已经关闭，避免未捕获 Promise rejection
                   console.error('Failed to disconnect session after closing tab:', error)
                 }
+                // 4. 从 sessions 数组彻底移除 —— 与 Sidebar LIVE 段的 handleCloseLive 保持一致
+                removeLiveSession(sessionId)
               }}
               title={t('pane.closeConnection')}
               className="ml-auto w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
