@@ -660,7 +660,10 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommand
     return name.includes(query) || ip.includes(query) || port.includes(query)
   }
 
-  const filteredSessions = savedSessions.filter(s => s && matchesSearch(s))
+  // 过滤掉 agent 会话（标签含 "agent:" 前缀），agent 为瞬态终端，不进入会话管理列表
+  const isAgentSession = (s: SessionConfig) => s.tags?.some(t => t.startsWith('agent:'))
+  const displayedSessions = savedSessions.filter(s => s && !isAgentSession(s))
+  const filteredSessions = displayedSessions.filter(s => matchesSearch(s))
 
   const sortByUpdateTime = (a: SessionConfig, b: SessionConfig) => {
     const getTime = (d: Date | string | undefined) => d ? new Date(d).getTime() : 0
@@ -1015,8 +1018,8 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommand
   }
 
   // 底部计数
-  const liveCount = sessions.filter(s => s.status === 'connected').length
-  const idleCount = savedSessions.length - liveCount
+  const liveCount = sessions.filter(s => s.status === 'connected' && !isAgentSession(s.config)).length
+  const idleCount = displayedSessions.length - liveCount
 
   return (
     <>

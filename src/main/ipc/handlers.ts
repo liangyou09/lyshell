@@ -1757,9 +1757,10 @@ export function registerIPCHandlers(): void {
       const session = await sessionManager.createSession(config)
 
       // 延迟连接，给前端时间创建 xterm 实例
+      // 注意：agent 会话不持久化到 sessionRepository —— 每次点击即创建瞬态会话，
+      // 关闭即清理。保存会导致同 agent 多次启动产生多条重复 saved entries，
+      // 进而因为 liveKey 相同在 LIVE 栏中重复显示。
       setTimeout(() => {
-        // 连接前保存会话（同步操作）
-        sessionRepository.saveSession(config)
         sessionManager.connectSession(session.id).catch(err => {
           log.error('Agent launch failed:', extractErrorMessage(err))
         })

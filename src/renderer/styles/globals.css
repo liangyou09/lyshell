@@ -195,13 +195,21 @@ body {
 }
 
 /* xterm 终端填满容器 */
+/* .xterm 和 .xterm-viewport 需要填满容器;
+   .xterm-screen 和 .xterm-rows 的高度由 xterm.js 通过 JS 精确计算(含 DPI 取整),
+   CSS 的 height:100%!important 会覆盖 JS 设置的 inline style,
+   导致 box 高度与内部记录不一致,滚动时第一列文字出现子像素漂移。 */
 .xterm,
-.xterm-screen,
-.xterm-viewport,
-.xterm-rows {
+.xterm-viewport {
   padding: 0 !important;
   margin: 0 !important;
   height: 100% !important;
+  box-sizing: border-box !important;
+}
+.xterm-screen,
+.xterm-rows {
+  padding: 0 !important;
+  margin: 0 !important;
   box-sizing: border-box !important;
 }
 

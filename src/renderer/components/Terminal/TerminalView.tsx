@@ -278,7 +278,10 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         scrollback: scrollbackLines,
         allowTransparency: false,
         logLevel: 'off',
-        convertEol: true,  // 正确处理换行和回显
+        // convertEol 必须为 false(默认值): PTY 层已处理 \n→\r\n 转换,
+        // 设 true 会导致双重转换,在终端 buffer 中产生多余字符,
+        // 滚动时这些字符堆积在行首/行尾,呈现为"第一列文字飘移"的鬼影。
+        convertEol: false,
         // 双击选词边界符:在默认 ()[]{}'" 基础上额外切分 : / @ = + 等常见符号,
         // 但保留 . - _ 不切,使 app.js / foo-bar 仍整体选中(只切到「一个单词」)。
         wordSeparator: ' ()[]{}\'"`:/@=+,;!?*|<>&%^~',
