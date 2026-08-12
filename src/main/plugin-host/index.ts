@@ -25,8 +25,8 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import type { ChildProcess } from 'child_process'
 import { LyShellHttpClient } from '@main/mcp-server/http-client'
-import { validateManifest, isUnsafeRelativePath } from '@shared/plugin-types'
-import type { PluginSpec, LyShellPluginManifest, ActivationEvent } from '@shared/plugin-types'
+import { validateManifest, isUnsafeRelativePath, shouldActivateOnStartup } from '@shared/plugin-types'
+import type { PluginSpec, LyShellPluginManifest } from '@shared/plugin-types'
 import type { PluginModule } from '@shared/plugin-api'
 import { createPluginApi } from './api'
 
@@ -35,11 +35,6 @@ interface LoadedPlugin {
   manifest: LyShellPluginManifest
   module: PluginModule
   activated: boolean
-}
-
-/** activationEvents 含 onStartup 或 * -> host 启动即激活 */
-function shouldActivateOnStartup(events: ActivationEvent[]): boolean {
-  return events.includes('onStartup') || events.includes('*')
 }
 
 /**
@@ -134,7 +129,7 @@ async function runHost(port: number, specs: PluginSpec[]): Promise<void> {
         await p.module.activate(api)
         p.activated = true
         activatedCount++
-        console.error(`[plugin-host] Activated ${p.spec.pluginId}`)
+        console.error(`[plugin-host] Activated ${p.spec.pluginId} (${p.spec.lifecycle})`)
       } catch (e) {
         console.error(`[plugin-host] Failed to activate ${p.spec.pluginId}:`, e)
       }
@@ -143,7 +138,7 @@ async function runHost(port: number, specs: PluginSpec[]): Promise<void> {
         p.manifest.activationEvents.length > 0
           ? p.manifest.activationEvents.join(', ')
           : 'none (declarative contributes only)'
-      console.error(`[plugin-host] Pending ${p.spec.pluginId} (waits for: ${waits})`)
+      console.error(`[plugin-host] Pending ${p.spec.pluginId} (${p.spec.lifecycle}, waits for: ${waits})`)
     }
   }
 

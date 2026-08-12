@@ -22,6 +22,7 @@ function makeSpec(overrides: Partial<PluginSpec> = {}): PluginSpec {
     pluginDir: '/tmp',
     main: 'index.js',
     runtime: 'node',
+    lifecycle: 'persistent',
     ...overrides
   }
 }

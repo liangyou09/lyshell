@@ -93,7 +93,7 @@ const FileManagerFloat: React.FC<FileManagerFloatProps> = ({ visible, onClose, s
     }
 
     const localPath = `${dirResult.data}/${file.name}`
-    const taskId = Date.now().toString()
+    const taskId = crypto.randomUUID()
 
     // 调用下载
     window.electronAPI.fileDownload(selectedSessionId, file.path, localPath, taskId, file.name, file.size)

@@ -1,14 +1,13 @@
 # my-py-plugin
 
-LyShell Python 插件模板。`onStartup` 激活时:列会话 -> 对首个连着的会话演示读输出 + 发命令。装上启用就能在主进程日志看到它干了什么,用来验证 plugin token -> HTTP 回连链路通了。
+LyShell Python **oneshot** 插件模板。manifest 声明 `lifecycle: oneshot`,**不会随 LyShell 启动自动运行**--在插件页点「运行」按钮按需触发一次:`main.py` 列会话 -> 对首个连着的会话演示读输出 + 发命令,跑完即退出。用来验证 plugin token -> HTTP 回连链路通了。
 
 ## 安装(dev 文件夹)
 
 1. LyShell -> 设置 -> 插件 -> **添加 dev 插件**
 2. 选本文件夹(`examples/plugins/my-py-plugin`)
-3. 勾选 `read` + `interactiveWrite`(已在 manifest 声明)
-4. 勾选 **安装即启用**
-5. 看主进程日志(dev 跑 `npm run dev` 的终端):`[my-py-plugin] activating ...`
+3. 勾选 `read` + `interactiveWrite`(已在 manifest 声明),安装即注册(oneshot 无「安装即启用」开关)
+4. 点插件卡片上的「运行」按钮:dev 跑 `npm run dev` 的终端可见 `[my-py-plugin] ...` 日志
 
 ## 改哪里
 
@@ -18,8 +17,8 @@ LyShell Python 插件模板。`onStartup` 激活时:列会话 -> 对首个连着
 ## 前提
 
 - Python 插件需要系统装了 Python(LyShell 启动时检测 PATH 里的 `python.exe` 或便携版);找不到则 python 插件无法激活
-- 改完代码:插件页关再开开关(或禁用->启用),host 重启即生效(dev 插件记录绝对路径,不复制源码)
-- python 为 oneshot 模型:`main.py` 跑完即退出,`onStartup` = 启动跑一次(非常驻);长驻/事件驱动请用 node 运行时(见 examples/plugins/my-node-plugin)
+- 改完代码:直接再次点「运行」即可(每次运行从磁盘重读 `main.py`,无需重启 host;dev 插件记录绝对路径,不复制源码)
+- oneshot vs persistent:`lifecycle: oneshot`(本模板)手动触发、跑完即退,`onStartup` 不会自动跑;需要长驻/事件驱动改成 `"lifecycle": "persistent"`(见 `examples/plugins/my-py-persistent-plugin`),或用 node 运行时(见 `examples/plugins/my-node-plugin`)
 
 ## 可用 lyshell 方法
 

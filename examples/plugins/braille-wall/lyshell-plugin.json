@@ -1,0 +1,11 @@
+{
+  "id": "braille-wall",
+  "name": "Braille Wall (multi-terminal)",
+  "version": "0.1.0",
+  "engines": { "lyshell": "^1.0" },
+  "runtime": "node",
+  "lifecycle": "oneshot",
+  "main": "main.js",
+  "activationEvents": ["onStartup"],
+  "capabilities": ["read", "interactiveWrite"]
+}

@@ -310,7 +310,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       // 用 i18n.t 单例而非 hook 的 t —— 这些是连接时一次性写入终端缓冲区的瞬态消息,
       // 不该随语言切换重跑 effect(会重复刷 banner)。用单例即不进入 effect 依赖。
       const buildDate = new Date().toISOString().split('T')[0]
-      terminal.writeln(`\x1b[1;36m${i18n.t('terminal.banner')}\x1b[0m \x1b[90m${i18n.t('terminal.buildLabel', { date: buildDate })}\x1b[0m`)
+      terminal.writeln(`\x1b[1;36m${i18n.t('terminal.banner')}\x1b[0m \x1b[90m${i18n.t('terminal.buildLabel', { date: buildDate })}\x1b[0m \x1b[90mby Liangyou\x1b[0m`)
       terminal.writeln('')
       if (sessionConfig?.type === 'local') {
         terminal.writeln(i18n.t('terminal.startingLocal'))

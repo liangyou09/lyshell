@@ -9,6 +9,8 @@ import log from 'electron-log'
  */
 export interface DownloadRecord {
   id: string
+  // 传输 taskId（用于 MD5 等后续更新匹配；历史记录可能缺失）
+  taskId?: string
   // 服务器信息
   sessionId: string
   sessionName: string
@@ -169,15 +171,12 @@ class DownloadHistoryStorage {
    * 根据 taskId 更新记录（用于 MD5 更新）
    */
   async updateRecordByTaskId(taskId: string, updates: Partial<DownloadRecord>): Promise<DownloadRecord | null> {
-    // taskId 保存在 startTime 中（作为 Date 对象），需要转换查找
-    const record = this.records.find(r => {
-      const recordTaskId = r.startTime.getTime().toString()
-      return recordTaskId === taskId
-    })
-    if (!record) return null
+    // 按 taskId 字段查找（渲染进程生成的 taskId 与主进程 startTime 分属不同进程，
+    // 此前用 startTime.getTime().toString() 匹配 taskId 永远不命中，导致 MD5 无法落库）
+    const index = this.records.findIndex(r => r.taskId === taskId)
+    if (index === -1) return null
 
-    const index = this.records.indexOf(record)
-    this.records[index] = { ...record, ...updates }
+    this.records[index] = { ...this.records[index], ...updates }
     await this.save()
     return this.records[index]
   }

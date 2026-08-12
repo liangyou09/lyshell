@@ -59,6 +59,12 @@ const DownloadProgressBar: React.FC = () => {
     localPathStore.delete(taskId)
   }
 
+  // 关闭按钮：活动传输先终止 worker，再移除 UI 行；完成/失败仅移除
+  const handleClose = (taskId: string, active: boolean) => {
+    if (active) void window.electronAPI.fileCancel(taskId)
+    removeDownload(taskId)
+  }
+
   const openFolder = (localPath?: string) => {
     if (localPath) window.electronAPI.openFolder(localPath)
   }
@@ -67,6 +73,10 @@ const DownloadProgressBar: React.FC = () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cleanup = window.electronAPI.onFileProgress((data: any) => {
       if (data.md5Update) return
+      if (data.cancelled) {
+        removeDownload(data.taskId)
+        return
+      }
 
       const taskId = data.taskId
       const fileName = fileNameStore.get(taskId) || t('fileManager.unknownFile')
@@ -207,7 +217,7 @@ const DownloadProgressBar: React.FC = () => {
       )}
 
       <button
-        onClick={(e) => { e.stopPropagation(); removeDownload(current.taskId) }}
+        onClick={(e) => { e.stopPropagation(); handleClose(current.taskId, isActive) }}
         title={t('common.close')}
         className="w-[18px] h-[18px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] flex-shrink-0 rounded-[2px] hover:bg-[var(--bg-slot)] transition-colors"
       >

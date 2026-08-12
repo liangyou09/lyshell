@@ -58,6 +58,7 @@ const IPC_CHANNELS = {
   FILE_STAT: 'file:stat',
   FILE_UPLOAD: 'file:upload',
   FILE_DOWNLOAD: 'file:download',
+  FILE_CANCEL: 'file:cancel',
   FILE_DELETE: 'file:delete',
   FILE_RENAME: 'file:rename',
   FILE_MKDIR: 'file:mkdir',
@@ -106,6 +107,7 @@ const IPC_CHANNELS = {
   PLUGIN_CANCEL_DOWNLOAD: 'plugin:cancel-download',
   PLUGIN_ENABLE: 'plugin:enable',
   PLUGIN_DISABLE: 'plugin:disable',
+  PLUGIN_RUN_ONESHOT: 'plugin:run-oneshot',
   PLUGIN_UNINSTALL: 'plugin:uninstall'
 }
 
@@ -227,6 +229,7 @@ const electronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_CANCEL_DOWNLOAD, filePath),
   enablePlugin: (pluginId: string) => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_ENABLE, pluginId),
   disablePlugin: (pluginId: string) => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_DISABLE, pluginId),
+  runOneshotPlugin: (pluginId: string) => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_RUN_ONESHOT, pluginId),
   uninstallPlugin: (pluginId: string) => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_UNINSTALL, pluginId),
 
   // 窗口
@@ -248,6 +251,7 @@ const electronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.FILE_UPLOAD, sessionId, localPath, remotePath, taskId),
   fileDownload: (sessionId: string, remotePath: string, localPath: string, taskId: string, fileName: string, fileSize: number) =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_DOWNLOAD, sessionId, remotePath, localPath, taskId, fileName, fileSize),
+  fileCancel: (taskId: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_CANCEL, taskId),
   fileDelete: (sessionId: string, path: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_DELETE, sessionId, path),
   fileRename: (sessionId: string, oldPath: string, newPath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE_RENAME, sessionId, oldPath, newPath),

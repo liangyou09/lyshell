@@ -919,7 +919,9 @@ export const API_ROUTES: ApiRouteMeta[] = [
     transports: BOTH,
     title: '下载远程文件',
     description:
-      'Download a remote file to a local path. SSH sessions only. ' +
+      'Download a remote file. SSH sessions only. ' +
+      'localPath may be a relative name/subpath (resolved into the session download dir) ' +
+      'or an absolute path within it; the resolved localPath is returned. ' +
       'Returns the MD5 hash of the downloaded file if available. ' +
       'Supports SFTP or exec-based transfer (auto-detected).',
     inputSchema: {
@@ -927,7 +929,7 @@ export const API_ROUTES: ApiRouteMeta[] = [
       properties: {
         sessionId: sessionIdField,
         remotePath: remotePathField('The remote file path to download'),
-        localPath: remotePathField('The local file path to save to')
+        localPath: remotePathField('Local save path: a relative name/subpath (resolved into the session download dir) or an absolute path within it')
       },
       required: ['sessionId', 'remotePath', 'localPath'] as string[]
     },

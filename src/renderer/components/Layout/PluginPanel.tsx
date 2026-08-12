@@ -2,10 +2,16 @@ import React, { useEffect, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { usePluginStore } from '../../stores/plugin-store'
-import type { LyShellPluginManifest } from '@shared/plugin-types'
+import { normalizeLifecycle } from '@shared/plugin-types'
+import type { LyShellPluginManifest, PluginLifecycle } from '@shared/plugin-types'
 
 /** 安装来源(dev=文件夹/file=本地 zip/url=URL 下载)。决定走 installDev 还是 installZip。 */
 type PickedSource = 'dev' | 'file' | 'url'
+
+/** 取 manifest 展示用的生命周期（未声明时按 runtime 默认值显示）。 */
+function manifestLifecycle(manifest: LyShellPluginManifest): PluginLifecycle {
+  return normalizeLifecycle(manifest.runtime, manifest.lifecycle)
+}
 
 /**
  * 插件管理面板(机柜左列 Plugins 页签,原 Settings "插件" 页签迁出)。
@@ -28,6 +34,7 @@ const PluginPanel: React.FC = () => {
   const cancelDownload = usePluginStore((s) => s.cancelDownload)
   const enable = usePluginStore((s) => s.enable)
   const disable = usePluginStore((s) => s.disable)
+  const runOneshot = usePluginStore((s) => s.runOneshot)
   const uninstall = usePluginStore((s) => s.uninstall)
 
   // pick/下载后的 manifest 预览(权限确认卡);null = 未在安装流程中
@@ -96,14 +103,16 @@ const PluginPanel: React.FC = () => {
     setNotice(null)
     // 三种来源都按"用户即批准其声明的全部 capability"(服务端仍取 ∩ manifest.capabilities 兜底)
     const granted = picked.manifest.capabilities
+    // oneshot 插件不通过 enable/disable 常驻，安装即视为可用，强制 enabled=true。
+    const enabled = manifestLifecycle(picked.manifest) === 'oneshot' ? true : installEnabled
     const res =
       picked.source === 'dev'
-        ? await installDev({ path: picked.path, grantedCapabilities: granted, enabled: installEnabled })
+        ? await installDev({ path: picked.path, grantedCapabilities: granted, enabled })
         : await installZip({
             path: picked.path,
             source: picked.source === 'file' ? 'local-file' : 'url',
             grantedCapabilities: granted,
-            enabled: installEnabled
+            enabled
           })
     setBusy(false)
     if (res.success) {
@@ -120,6 +129,16 @@ const PluginPanel: React.FC = () => {
     setNotice(null)
     const ok = nextEnabled ? await enable(id) : await disable(id)
     if (!ok) setNotice(t('plugin.toggleFail'))
+  }
+
+  const handleRunOneshot = async (id: string): Promise<void> => {
+    setNotice(null)
+    const res = await runOneshot(id)
+    if (!res.success) {
+      setNotice(res.error ?? t('plugin.runFail'))
+    } else {
+      setNotice(t('plugin.runOk'))
+    }
   }
 
   const handleUninstall = async (id: string): Promise<void> => {
@@ -205,6 +224,7 @@ const PluginPanel: React.FC = () => {
           </div>
           <div className="flex items-center gap-1.5 text-[10.5px] font-mono text-[var(--text-rack-mute)]">
             <span className="truncate">{picked.manifest.id} · {picked.manifest.runtime}</span>
+            <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{t(`plugin.lifecycle${manifestLifecycle(picked.manifest) === 'oneshot' ? 'Oneshot' : 'Persistent'}`)}</span>
             <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{sourceLabel(picked.source)}</span>
           </div>
           {picked.manifest.capabilities.length > 0 && (
@@ -219,15 +239,17 @@ const PluginPanel: React.FC = () => {
               ))}
             </div>
           )}
-          <label className="flex items-center gap-1.5 text-[11px] font-mono text-[var(--text-rack)] cursor-pointer">
-            <input
-              type="checkbox"
-              checked={installEnabled}
-              onChange={(e) => setInstallEnabled(e.target.checked)}
-              className="w-3 h-3 accent-[var(--amber)]"
-            />
-            {t('plugin.enableOnInstall')}
-          </label>
+          {manifestLifecycle(picked.manifest) !== 'oneshot' && (
+            <label className="flex items-center gap-1.5 text-[11px] font-mono text-[var(--text-rack)] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={installEnabled}
+                onChange={(e) => setInstallEnabled(e.target.checked)}
+                className="w-3 h-3 accent-[var(--amber)]"
+              />
+              {t('plugin.enableOnInstall')}
+            </label>
+          )}
           <div className="flex justify-end gap-1.5 pt-0.5">
             <button
               onClick={cancelPicked}
@@ -266,6 +288,7 @@ const PluginPanel: React.FC = () => {
               <div className="flex items-center gap-1.5 text-[10.5px] font-mono text-[var(--text-rack-mute)]">
                 <span className="truncate">{p.id}</span>
                 <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{p.runtime}</span>
+                <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{t(`plugin.lifecycle${p.lifecycle === 'oneshot' ? 'Oneshot' : 'Persistent'}`)}</span>
                 {p.dev && (
                   <span className="px-1 py-px rounded-[2px] border border-[var(--amber)] text-[var(--amber)] shrink-0">dev</span>
                 )}
@@ -292,15 +315,26 @@ const PluginPanel: React.FC = () => {
                 </div>
               )}
               <div className="flex items-center justify-between pt-0.5">
-                <label className="flex items-center gap-1 text-[11px] font-mono text-[var(--text-rack)] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={p.enabled}
-                    onChange={(e) => handleToggle(p.id, e.target.checked)}
-                    className="w-3 h-3 accent-[var(--amber)]"
-                  />
-                  {p.enabled ? t('plugin.enabled') : t('plugin.disabled')}
-                </label>
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-1 text-[11px] font-mono text-[var(--text-rack)] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={p.enabled}
+                      onChange={(e) => handleToggle(p.id, e.target.checked)}
+                      className="w-3 h-3 accent-[var(--amber)]"
+                    />
+                    {p.enabled ? t('plugin.enabled') : t('plugin.disabled')}
+                  </label>
+                  {p.lifecycle === 'oneshot' && (
+                    <button
+                      onClick={() => void handleRunOneshot(p.id)}
+                      disabled={busy || !p.enabled}
+                      className="px-1.5 py-0.5 text-[10px] font-mono rounded-[2px] bg-[var(--amber)] text-black hover:brightness-110 disabled:opacity-50 cursor-pointer"
+                    >
+                      {t('plugin.run')}
+                    </button>
+                  )}
+                </div>
                 {confirmUninstall === p.id ? (
                   <span className="flex items-center gap-1">
                     <span className="text-[10px] font-mono text-[var(--text-rack-data)]">{t('plugin.confirmUninstall')}</span>

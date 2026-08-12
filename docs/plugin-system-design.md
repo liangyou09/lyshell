@@ -120,6 +120,7 @@ Python/Node 自动化脚本主要是 consumer;给 LyShell 加"新连接协议""�
   "engines": { "lyshell": "^1.0" },
   "main": "./dist/index.js",          // contributor 入口(Node)
   "runtime": "node",                  // node | python(走 engine.ts)
+  "lifecycle": "persistent",          // oneshot | persistent;省略时 node 默认 persistent,python 默认 oneshot
   "activationEvents": [
     "onCommand:rdp.connect",          // 命令触发才激活(延迟)
     "onConnectionType:rdp"            // 或:选了 rdp 协议时激活
@@ -135,7 +136,16 @@ Python/Node 自动化脚本主要是 consumer;给 LyShell 加"新连接协议""�
 
 激活机制对齐 VS Code:声明式 `contributes` 让命令/连接类型零激活就出现在 UI 上;用户触发对应 activation event 才加载 `main`。consumer 插件没有 `main`,只有元数据(或不需清单,直接当 client)。
 
-**runtime 语义**:`runtime: "node"` 走 plugin host 常驻子进程(VS Code Extension Host 式,支持长驻/事件驱动);`runtime: "python"` 走 `engine.ts` 的 **oneshot 脚本模型** -- `main.py` 运行至结束即退出,`onStartup`/`*` 指「启动跑一次」而非常驻。长驻/事件驱动需求请用 node 运行时。python oneshot 进程超时经可选字段 `pythonTimeoutMs`(ms,默认 120000、上限 600000)配置,到点子进程被杀、在途 HTTP 调用因 token 撤销而 401 退出。
+**lifecycle 语义**:manifest 用 `lifecycle` 显式声明单次运行还是长期运行,与 `runtime` 解耦:
+
+| runtime | lifecycle | 执行方式 | 说明 |
+|---|---|---|---|
+| `node` | `persistent` (默认) | 共享 plugin-host 子进程,`activate()` 后常驻 | VS Code Extension Host 式,事件驱动 |
+| `node` | `oneshot` | 每插件独立子进程,`activate()` 完成后退出 | 手动「运行」触发一次;**不随启动自跑**,`activationEvents` 被忽略 |
+| `python` | `oneshot` (默认) | `engine.ts execute()`,`main.py` 跑完即退出 | **显式声明**时仅手动「运行」触发,`activationEvents` 被忽略;旧清单未声明 `lifecycle` 时兼容为启动运行一次;超时 `pythonTimeoutMs` |
+| `python` | `persistent` | `engine.ts spawnScript()` 长期保持 Python 子进程 | 常驻至禁用/卸载/退出;MVP 仅 `onStartup`/`*`;`onCommand`/`onConnectionType` 事件分发待后续 |
+
+未指定 `lifecycle` 时按 `runtime` 取默认值(`node`→`persistent`,`python`→`oneshot`)。为保持旧插件行为，**未声明 `lifecycle` 的 Python 插件保留 legacy 兼容：随 LyShell 启动运行一次**；显式 `lifecycle='oneshot'` 才采用新语义，仅在用户手动「运行」时触发一次后退出，`activationEvents`（包括 `onStartup`/`*`）不生效。`pythonTimeoutMs` 对两种 Python 单次运行均生效；需要常驻或事件驱动请用 `persistent`。
 
 ## 7. 鉴权:复用 + 加一档
 

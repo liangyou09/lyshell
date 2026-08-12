@@ -611,6 +611,27 @@ export class ExecFileConnector extends BaseFileConnector {
       // 跳过空行
       if (!trimmed) continue
 
+      // === 优先保留：文件列表行 / Python 标记 / 路径行 ===
+      // 这些必须先于命令回显/提示符/错误过滤，否则名为 echo、pwd、exit、
+      // "No such file"、_deadbeef 等的文件会因子串/正则规则被误删。
+      // 文件列表行：以权限字符 d/-/l 开头，或 ls 的 total 汇总行
+      if (trimmed.match(/^[d\-l][rwx\-stST]{9}/) || trimmed.startsWith('total ')) {
+        resultLines.push(trimmed)
+        continue
+      }
+      // 保留 Python 测试标记
+      if (trimmed.includes('___PYTHON_TEST_OK___')) {
+        resultLines.push(trimmed)
+        continue
+      }
+      // 保留路径行（以 / 开头，用于 pwd 命令）
+      if (trimmed.startsWith('/')) {
+        resultLines.push(trimmed)
+        continue
+      }
+
+      // === 以下仅过滤非保留行（命令回显 / 提示符 / marker / 错误等噪声）===
+
       // 跳过 marker 行（使用新的 UUID 格式）
       if (trimmed.includes('END_MARKER_UUID')) continue
 
@@ -624,38 +645,18 @@ export class ExecFileConnector extends BaseFileConnector {
       // 跳过提示符行（包含 ]# 或 # 或 $）
       if (trimmed.match(/\[.*\]#/) || trimmed.match(/^#\s*$/) || trimmed.match(/^\$\s*$/)) continue
 
-      // 跳过命令回显（包含 ls -la 或 echo 或 pwd）
-      if (trimmed.includes('ls -la') || trimmed.includes('echo') || trimmed.includes('pwd')) continue
+      // 跳过命令回显行：以命令动词开头。
+      // 用前缀匹配而非 includes 子串，避免误删名为 echo/pwd/exit/ls 等的文件
+      // （文件列表行已在上方优先保留，且其以 d/-/l 开头，不会命中此前缀）
+      if (/^(ls|pwd|echo|which|base64|python3?|printf|cat|rm|mv|mkdir|cd|ps|exit|ll)\b/.test(trimmed)) continue
 
       // 跳过 Password: 等交互提示
       if (trimmed.includes('Password:') || trimmed.includes('password:')) continue
 
-      // 跳过 exit 相关
-      if (trimmed.toLowerCase().includes('exit')) continue
+      // 跳过 ls 错误行（ls: cannot access '...': No such file or directory）
+      if (/^ls:/.test(trimmed)) continue
 
-      // 跳过错误提示（如 "No such file or directory"）但不跳过文件列表
-      if (trimmed.includes('No such file') || trimmed.includes('cannot access')) {
-        continue
-      }
-
-      // 保留 Python 测试标记
-      if (trimmed.includes('___PYTHON_TEST_OK___')) {
-        resultLines.push(trimmed)
-        continue
-      }
-
-      // 保留路径行（以 / 开头，用于 pwd 命令）
-      if (trimmed.startsWith('/')) {
-        resultLines.push(trimmed)
-        continue
-      }
-
-      // 保留可能的文件列表行
-      // 必须以权限字符开头：d, -, l（文件/目录/链接）
-      // 或者 total 行（ls 输出的汇总行）
-      if (trimmed.match(/^[d\-l][rwx\-stST]{9}/) || trimmed.startsWith('total ')) {
-        resultLines.push(trimmed)
-      }
+      // 其余无法识别的行：丢弃（只保留可识别的列表/路径/标记行）
     }
 
     return resultLines.join('\n')

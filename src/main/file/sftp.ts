@@ -9,6 +9,32 @@ import * as path from 'path'
 import { v4 as uuidv4 } from 'uuid'
 
 /**
+ * 递归创建远程目录（mkdir -p 等价）。
+ * ssh2 SFTP 无递归 mkdir，逐级创建并忽略"已存在"类错误（与 exec/Python 路径的 os.makedirs 行为对齐）。
+ */
+async function sftpMkdirP(sftp: SFTPWrapper, remoteDir: string): Promise<void> {
+  const norm = remoteDir.replace(/\/+/g, '/').replace(/\/$/, '')
+  if (!norm || norm === '/' || norm === '.') return
+  const parts = norm.split('/').filter(Boolean)
+  let cur = norm.startsWith('/') ? '' : '.'
+  for (const part of parts) {
+    cur = cur === '' ? `/${part}` : cur === '.' ? part : `${cur}/${part}`
+    await new Promise<void>((resolve, reject) => {
+      sftp.mkdir(cur, (err) => {
+        if (!err) return resolve()
+        const code = (err as any).code
+        if (code !== 4 && !/exist|failure/i.test(err.message)) return reject(err)
+        // SSH_FX_FAILURE(4) 含义模糊（也可能是权限不足/父级非目录），仅在目标确为目录时忽略。
+        sftp.stat(cur, (statErr, attrs) => {
+          if (!statErr && attrs?.isDirectory()) return resolve()
+          reject(err)
+        })
+      })
+    })
+  }
+}
+
+/**
  * SFTP 文件连接器
  * 使用 ssh2 的 SFTP 功能实现文件操作
  * 接收 SSHFileClient，使用独立的 SSH 连接
@@ -247,6 +273,9 @@ export class SFTPFileConnector extends BaseFileConnector {
     const fileSize = localStat.size
 
     log.info(`SFTP upload (stream): ${localPath} -> ${remotePath} (${fileSize} bytes)`)
+
+    // 确保远程父目录存在（与 exec/Python 路径的 os.makedirs 对齐）
+    await sftpMkdirP(sftp, path.posix.dirname(remotePath))
 
     return new Promise((resolve, reject) => {
       let transferred = 0

@@ -93,9 +93,10 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
     }
 
     for (const localPath of result.filePaths) {
-      const fileName = localPath.split('/').pop() || localPath.split('\\').pop() || 'unknown'
+      // Windows showOpenDialog 返回反斜杠路径，统一按 / 与 \ 切分取基名
+      const fileName = localPath.split(/[/\\]/).pop() || 'unknown'
       const remotePath = `${uploadDir}/${fileName}`
-      const taskId = Date.now().toString()
+      const taskId = crypto.randomUUID()
 
       // 直接调用上传，不追踪进度
       window.electronAPI.fileUpload(sessionId, localPath, remotePath, taskId)
@@ -110,23 +111,33 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
     // 获取下载目录
     const dirResult = await window.electronAPI.getDownloadDir(sessionId)
     if (!dirResult.success) {
-      // 使用默认保存对话框
-      const result = await window.electronAPI.showSaveDialog({
-        title: t('file.saveDialogTitle'),
-        defaultPath: file.name
+      await window.electronAPI.showMessageBox({
+        type: 'error',
+        title: t('file.downloadFailedTitle'),
+        message: dirResult.error || t('file.downloadDirUnavailable')
       })
-      if (result.canceled || !result.filePath) return
-
-      const taskId = Date.now().toString()
-      window.electronAPI.fileDownload(sessionId, file.path, result.filePath, taskId, file.name, file.size)
-      alert(t('file.downloadStarted', { name: file.name }))
-    } else {
-      // 使用配置的下载目录
-      const localPath = `${dirResult.data}/${file.name}`
-      const taskId = Date.now().toString()
-      window.electronAPI.fileDownload(sessionId, file.path, localPath, taskId, file.name, file.size)
-      alert(t('file.downloadStartedWithPath', { name: file.name, path: localPath }))
+      return
     }
+
+    const localPath = `${dirResult.data}/${file.name}`
+    const taskId = crypto.randomUUID()
+    const result = await window.electronAPI.fileDownload(
+      sessionId,
+      file.path,
+      localPath,
+      taskId,
+      file.name,
+      file.size
+    )
+    if (!result.success) {
+      await window.electronAPI.showMessageBox({
+        type: 'error',
+        title: t('file.downloadFailedTitle'),
+        message: result.error || t('file.downloadDirUnavailable')
+      })
+      return
+    }
+    alert(t('file.downloadStartedWithPath', { name: file.name, path: localPath }))
   }
 
   // 删除文件

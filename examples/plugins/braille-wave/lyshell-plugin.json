@@ -1,0 +1,11 @@
+{
+  "id": "braille-wave",
+  "name": "Braille Wave (demo)",
+  "version": "0.2.0",
+  "engines": { "lyshell": "^1.0" },
+  "runtime": "node",
+  "lifecycle": "oneshot",
+  "main": "main.js",
+  "activationEvents": ["onStartup"],
+  "capabilities": ["read", "interactiveWrite"]
+}

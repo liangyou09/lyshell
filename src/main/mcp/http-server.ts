@@ -16,7 +16,8 @@ import { v4 as uuidv4 } from 'uuid'
 import { sessionManager, type Session } from '../terminal/session-manager'
 import { broadcastSessionsChanged, broadcastMcpOpenConnectionDialog } from '../ipc/handlers'
 import { processInputEscapeSequences, appendAutoNewline } from '@shared/escape-sequences'
-import { fileManager, runUploadWorkerAndWait, runDownloadWorkerAndWait } from '../file'
+import { fileManager, runUploadWorkerAndWait, runDownloadWorkerAndWait, assertSafeLocalPath } from '../file'
+import { downloadHistory } from '../storage'
 import { preferencesRepository, quickCommandsRepository, sessionRepository } from '../storage/repository'
 import { agentRepository } from '../storage/agent-repository'
 import { mcpAuditRepository } from '../storage/mcp-audit-repository'
@@ -1862,21 +1863,32 @@ async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerRes
       sendJson(res, 400, { success: false, error: 'sessionId, remotePath, and localPath are required' })
       return
     }
+    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
+    const session = sessionManager.getSession(resolvedSessionId)
+    const sshConfig = session?.config.ssh
+    // 限定 localPath 必须落在该会话的下载目录内，防止写到 Startup 等敏感位置（RCE/持久化）
     let safeLocalPath: string
     try {
-      safeLocalPath = assertSafeLocalPath(localPath)
+      const downloadRoot = downloadHistory.getDownloadDir(
+        resolvedSessionId,
+        session?.config.name || '',
+        sshConfig?.host || '',
+        sshConfig?.port || 22
+      )
+      // 外部 agent 无从得知下载目录绝对路径：相对 localPath（文件名或子路径）解析进下载目录，
+      // 传 "report.log" 即落到 <downloadRoot>/report.log；绝对路径仍按 containment 校验（目录外 400）。
+      const resolvedLocal = path.isAbsolute(localPath) ? localPath : path.join(downloadRoot, localPath)
+      safeLocalPath = assertSafeLocalPath(resolvedLocal, { write: true, containmentRoot: downloadRoot })
     } catch (pathErr: any) {
       sendJson(res, 400, { success: false, error: pathErr.message })
       return
     }
-    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
     const auth = await authorizeMcpOperation('download_file', 'fileWrite', resolvedSessionId, `${remotePath} -> ${safeLocalPath}`, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
 
-    const session = sessionManager.getSession(resolvedSessionId)
     if (!session || session.config.type !== ConnectionType.SSH) {
       sendJson(res, 400, { success: false, error: 'download_file only supports SSH sessions' })
       return
@@ -1886,7 +1898,6 @@ async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerRes
       return
     }
 
-    const sshConfig = session.config.ssh
     if (!sshConfig) {
       sendJson(res, 400, { success: false, error: 'SSH config not found' })
       return
@@ -1897,6 +1908,13 @@ async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerRes
 
     const connectorType = await fileManager.getConnectorType(resolvedSessionId)
     const taskId = uuidv4()
+
+    // 最后一个 await 之后、入队前再校验连接状态：早期 CONNECTED 检查与入队之间存在 await 窗口，
+    // 会话可能在期间断开（disconnectSession 已同步标记 DISCONNECTED 并取消排队任务）。
+    if (session.status !== ConnectionStatus.CONNECTED) {
+      sendJson(res, 409, { success: false, error: 'Session is not connected' })
+      return
+    }
 
     await runDownloadWorkerAndWait({
       taskId,
@@ -1949,7 +1967,7 @@ async function handleUploadFile(data: UploadFileRequest, res: http.ServerRespons
     }
     let safeLocalPath: string
     try {
-      safeLocalPath = assertSafeLocalPath(localPath)
+      safeLocalPath = assertSafeLocalPath(localPath, { write: false })
     } catch (pathErr: any) {
       sendJson(res, 400, { success: false, error: pathErr.message })
       return
@@ -1988,6 +2006,13 @@ async function handleUploadFile(data: UploadFileRequest, res: http.ServerRespons
 
     const connectorType = await fileManager.getConnectorType(resolvedSessionId)
     const taskId = uuidv4()
+
+    // 最后一个 await 之后、入队前再校验连接状态：早期 CONNECTED 检查与入队之间存在 await 窗口，
+    // 会话可能在期间断开（disconnectSession 已同步标记 DISCONNECTED 并取消排队任务）。
+    if (session.status !== ConnectionStatus.CONNECTED) {
+      sendJson(res, 409, { success: false, error: 'Session is not connected' })
+      return
+    }
 
     await runUploadWorkerAndWait({
       taskId,
@@ -2081,15 +2106,6 @@ function quotePosixPath(filePath: string): string {
 /**
  * 校验本地路径安全：禁止路径穿越（含 .. 分量）
  */
-function assertSafeLocalPath(filePath: string): string {
-  const normalized = path.normalize(filePath)
-  const parts = normalized.split(path.sep)
-  if (parts.includes('..')) {
-    throw new Error('localPath contains path traversal')
-  }
-  return normalized
-}
-
 async function authorizeMcpOperation(
   operation: string,
   capability: McpCapability,

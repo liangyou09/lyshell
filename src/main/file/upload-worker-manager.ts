@@ -6,6 +6,7 @@ import { Worker } from 'worker_threads'
 import * as path from 'path'
 import log from 'electron-log'
 import type { BrowserWindow } from 'electron'
+import { createSerialChain } from './serial-chain'
 
 // Worker 任务数据
 interface UploadTaskData {
@@ -40,6 +41,18 @@ interface ActiveWorker {
 // 全局 Worker 映射
 const activeWorkers: Map<string, ActiveWorker> = new Map()
 
+// 同 SSH endpoint + 规范化远程路径的上传串行化：两个并发上传写同一远端文件会让
+// Python `open(path, "wb")` 互相 truncate + 交错写入，导致远端文件损坏且双方都不报错。
+// 后到的同路径上传排队在前一个完成/失败/取消之后执行。
+// key 用 host:port:user + 远程路径，不含 sessionId——克隆会话(sessionId 不同但同一主机/
+// 用户/路径)写同一远端文件同样会损坏；path.posix.normalize 折叠 //、./、.. 别名防绕过。
+const uploadChain = createSerialChain()
+
+function uploadChainKey(sshConfig: UploadTaskData['sshConfig'], remotePath: string): string {
+  const norm = path.posix.normalize(remotePath)
+  return `${sshConfig.host}:${sshConfig.port}:${sshConfig.username || ''}\0${norm}`
+}
+
 // 主窗口引用（用于发送进度）
 let mainWindow: BrowserWindow | null = null
 
@@ -61,8 +74,21 @@ export function startUploadWorker(task: UploadTaskData): Promise<void> {
 
 /**
  * 启动上传 Worker 并阻塞等待完成（MCP 同步路径用）
+ *
+ * 同 SSH endpoint + 规范化远程路径的上传会串行排队，避免并发写同一远端文件导致损坏。
  */
 export function runUploadWorkerAndWait(task: UploadTaskData): Promise<void> {
+  const key = uploadChainKey(task.sshConfig, task.remotePath)
+  return uploadChain.run(key, () => runUploadWorkerInternal(task), {
+    id: task.taskId,
+    group: task.sessionId
+  })
+}
+
+/**
+ * 实际创建并运行单个上传 Worker（无串行化逻辑）
+ */
+function runUploadWorkerInternal(task: UploadTaskData): Promise<void> {
   const { taskId, sessionId } = task
 
   log.info(`Starting upload worker (await completion) for task ${taskId}`)
@@ -125,14 +151,17 @@ export function runUploadWorkerAndWait(task: UploadTaskData): Promise<void> {
     // 监听 Worker 退出
     worker.on('exit', (code) => {
       activeWorkers.delete(taskId)
-      if (code !== 0) {
-        log.warn(`Upload worker for task ${taskId} exited with code ${code}`)
-        if (!settled) {
-          settled = true
-          reject(new Error(`Upload worker exited with code ${code}`))
-        }
-      } else {
+      if (!settled) {
+        settled = true
+        const error = code === 0
+          ? new Error('Upload worker exited without a terminal message')
+          : new Error(`Upload worker exited with code ${code}`)
+        log.warn(`Upload worker for task ${taskId} exited before protocol settlement (code ${code})`)
+        reject(error)
+      } else if (code === 0) {
         log.info(`Upload worker for task ${taskId} completed successfully`)
+      } else {
+        log.warn(`Upload worker for task ${taskId} exited with code ${code} after settlement`)
       }
     })
   })
@@ -226,7 +255,34 @@ export function cancelUpload(taskId: string): boolean {
     activeWorkers.delete(taskId)
     return true
   }
+  if (uploadChain.cancelId(taskId)) {
+    log.info(`Cancelling queued upload task ${taskId}`)
+    return true
+  }
   return false
+}
+
+/**
+ * 取消某会话的所有活跃上传任务（会话断开时调用）
+ * 返回已取消的任务数；每个被终止的 worker 都补发一个 cancelled 事件以更新 UI
+ */
+export function cancelUploadsBySession(sessionId: string): number {
+  const queuedTaskIds = uploadChain.cancelGroup(sessionId)
+  for (const taskId of queuedTaskIds) {
+    log.info(`Cancelling queued upload task ${taskId} (session ${sessionId} disconnected)`)
+    sendProgressToRenderer({ taskId, cancelled: true })
+  }
+  let count = queuedTaskIds.length
+  for (const [taskId, active] of activeWorkers) {
+    if (active.sessionId === sessionId) {
+      log.info(`Cancelling upload task ${taskId} (session ${sessionId} disconnected)`)
+      active.worker.terminate()
+      activeWorkers.delete(taskId)
+      sendProgressToRenderer({ taskId, cancelled: true })
+      count++
+    }
+  }
+  return count
 }
 
 /**
@@ -240,6 +296,7 @@ export function getActiveUploadCount(): number {
  * 清理所有上传 Worker
  */
 export function cleanupAllUploadWorkers() {
+  uploadChain.cancelAll()
   for (const [taskId, active] of activeWorkers) {
     log.info(`Terminating upload worker for task ${taskId}`)
     active.worker.terminate()

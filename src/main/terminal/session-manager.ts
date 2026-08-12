@@ -6,6 +6,7 @@ import { SSHConnector, TelnetConnector, SerialConnector, LocalConnector, Connect
 import type { SessionConfig, SSHConfig, TelnetConfig, SerialConfig, LocalConfig } from '@shared/types'
 import { processInputEscapeSequences, appendAutoNewline } from '@shared/escape-sequences'
 import { OutputBuffer } from './output-buffer'
+import { fileManager, cancelDownloadsBySession, cancelUploadsBySession } from '@main/file'
 
 /** read_output 读取选项 */
 export interface ReadOutputOptions {
@@ -91,6 +92,9 @@ export interface Session {
   pendingWaitLock?: boolean  // send_and_wait 并发锁
   lockedByMcp?: boolean  // MCP 是否正在占用该会话 PTY（共享 PTY 模式时阻塞用户输入）
   mcpLockCount?: number  // MCP PTY 锁引用计数：并发 send_input/send_and_wait 各持一份，归零才真正解锁
+  disconnectCleanup?: Promise<void>  // 自然 close / 显式 disconnect 共用的幂等清理
+  connectorGeneration?: number  // 每次连接递增，隔离旧 connector 的迟到事件
+  connectPromise?: Promise<Session>  // 同一 Session 的连接尝试串行化
 }
 
 /**
@@ -109,6 +113,9 @@ export class SessionManager extends EventEmitter {
    */
   async createSession(config: SessionConfig): Promise<Session> {
     const id = config.id || uuidv4()
+    if (this.sessions.has(id)) {
+      throw new Error(`Session already exists: ${id}`)
+    }
     // 回填 config.id，确保 live session 的 config 与 session 本身一致，
     // 避免后续依赖 config.id 的地方（如 MCP list_sessions）拿到空 id。
     config.id = id
@@ -234,39 +241,65 @@ export class SessionManager extends EventEmitter {
   }
 
   /**
-   * 删除会话
+   * 删除运行时会话。先复用完整断开流程取消传输、清理连接器并撤销 token，再立即清除缓冲与 Map。
    */
   async deleteSession(id: string): Promise<boolean> {
     const session = this.sessions.get(id)
     if (!session) return false
+    const outputBuffer = session.outputBuffer
 
-    // 先断开连接
-    if (session.connector && session.status === ConnectionStatus.CONNECTED) {
-      await session.connector.disconnect()
+    try {
+      await this.disconnectSession(id)
+    } catch (err) {
+      log.warn(`Session cleanup on delete failed for ${id}:`, err)
+    } finally {
+      outputBuffer?.clear()
+      session.outputBuffer = undefined
+      this.sessions.delete(id)
+      if (this.activeSessionId === id) this.activeSessionId = null
+      for (const ids of this.terminalOpenSessions.values()) ids.delete(id)
+      log.info(`Session deleted: ${id}`)
+      this.emit('session:deleted', id)
     }
-
-    // 立即销毁输出缓冲
-    session.outputBuffer?.clear()
-    session.outputBuffer = undefined
-
-    // 撤销可能存在的 per-session MCP token（仅 LOCAL 会话会持有，但调用幂等）
-    if (!__DISABLE_MCP__) {
-      const mcpAuth = await import('@main/mcp/auth')
-      mcpAuth.revokeSessionToken(id)
-    }
-
-    this.sessions.delete(id)
-    log.info(`Session deleted: ${id}`)
-    this.emit('session:deleted', id)
     return true
   }
 
   /**
-   * 连接会话
+   * 连接会话。同一 Session 的并发调用复用同一个 Promise，完整串行化连接生命周期。
    */
   async connectSession(id: string): Promise<Session> {
     const session = this.sessions.get(id)
     if (!session) throw new Error(`Session not found: ${id}`)
+    if (session.connectPromise) {
+      if (!session.disconnectCleanup) return session.connectPromise
+      try { await session.connectPromise } catch { /* 旧 attempt 被断开/替代 */ }
+      if (this.sessions.get(id) !== session) throw new Error(`Session replaced: ${id}`)
+      return this.connectSession(id)
+    }
+
+    const promise = this.connectSessionAttempt(id, session)
+    session.connectPromise = promise
+    try {
+      return await promise
+    } finally {
+      if (session.connectPromise === promise) session.connectPromise = undefined
+    }
+  }
+
+  private async connectSessionAttempt(id: string, session: Session): Promise<Session> {
+    if (session.disconnectCleanup) await session.disconnectCleanup
+    if (this.sessions.get(id) !== session) throw new Error(`Session replaced: ${id}`)
+
+    session.disconnectCleanup = undefined
+    const generation = (session.connectorGeneration ?? 0) + 1
+    session.connectorGeneration = generation
+    session.connector = undefined
+    let connector: Session['connector']
+    const isCurrentAttempt = (): boolean =>
+      this.sessions.get(id) === session &&
+      session.disconnectCleanup === undefined &&
+      session.connectorGeneration === generation &&
+      (connector === undefined || session.connector === connector)
 
     session.status = ConnectionStatus.CONNECTING
     this.emit('session:status', { id, status: ConnectionStatus.CONNECTING })
@@ -305,6 +338,7 @@ export class SessionManager extends EventEmitter {
             const mcpAuth = await import('@main/mcp/auth')
             const { getMcpHttpPort } = await import('@main/mcp/http-server')
             const { LYSHELL_MCP_ENV } = await import('@main/mcp/types')
+            if (!isCurrentAttempt()) throw new Error(`Connection superseded: ${id}`)
             const sessionToken = mcpAuth.bindSessionToken(id)
             const port = getMcpHttpPort()
             if (port !== null) {
@@ -331,27 +365,36 @@ export class SessionManager extends EventEmitter {
           throw new Error(`Unknown connection type: ${session.config.type}`)
       }
 
-      // 先挂监听器，再 connect()：连接过程中（认证失败、网络错误）connector 可能 emit 'error'，
-      // 若等 connect() 成功后再挂，这些早期错误没有监听器，会变成未捕获异常。
+      // 先挂监听器，再 connect()：连接过程中（认证失败、网络错误）connector 可能 emit 'error'。
+      // generation + Session/connector 身份校验，防旧 attempt 的迟到事件污染新连接。
+      connector = session.connector
+      if (!connector || !isCurrentAttempt()) throw new Error(`Connection superseded: ${id}`)
+
       session.outputBuffer = new OutputBuffer()
-      session.connector.on('data', (data: string) => {
+      connector.on('data', (data: string) => {
+        if (!isCurrentAttempt()) return
         this.emit('terminal:data', { sessionId: id, data })
         session.outputBuffer?.append(data)
       })
-      session.connector.on('close', () => {
-        session.status = ConnectionStatus.DISCONNECTED
-        this.emit('session:status', { id, status: ConnectionStatus.DISCONNECTED })
+      connector.on('close', () => {
+        if (!isCurrentAttempt()) return
+        void this.cleanupDisconnectedSession(id, generation, connector).catch((err) => {
+          log.warn(`Natural disconnect cleanup failed for ${id}:`, err)
+        })
       })
-      session.connector.on('error', (error: Error) => {
+      connector.on('error', (error: Error) => {
+        if (!isCurrentAttempt()) return
         session.status = ConnectionStatus.ERROR
         this.emit('session:status', { id, status: ConnectionStatus.ERROR, error: extractErrorMessage(error) })
       })
 
       // 连接
-      await session.connector.connect()
+      await connector.connect()
+      if (!isCurrentAttempt()) throw new Error(`Connection superseded: ${id}`)
 
       // 连接成功后，shell 会自动输出欢迎信息，不需要额外显示
 
+      if (!isCurrentAttempt()) throw new Error(`Connection superseded: ${id}`)
       session.status = ConnectionStatus.CONNECTED
       session.lastActiveAt = new Date()
 
@@ -374,6 +417,7 @@ export class SessionManager extends EventEmitter {
         // 本地终端启动快，200ms；远程连接需等待 shell 就绪，500ms
         const delay = session.config.type === ConnectionType.LOCAL ? 200 : 500
         setTimeout(() => {
+          if (!isCurrentAttempt()) return
           for (const cmd of session.config.startupCommands!) {
             this.writeToSession(id, cmd + '\r')
           }
@@ -383,15 +427,66 @@ export class SessionManager extends EventEmitter {
       return session
 
     } catch (error) {
-      session.status = ConnectionStatus.ERROR
-      const errorMsg = extractErrorMessage(error as Error)
-
-      // 错误信息由前端 TerminalView 显示（Xshell 风格）
-      // 不再在终端发送中文错误信息
-
-      this.emit('session:status', { id, status: ConnectionStatus.ERROR, error: errorMsg })
+      if (isCurrentAttempt()) {
+        session.status = ConnectionStatus.ERROR
+        const errorMsg = extractErrorMessage(error as Error)
+        this.emit('session:status', { id, status: ConnectionStatus.ERROR, error: errorMsg })
+      }
       throw error
     }
+  }
+
+  /**
+   * 自然 close 与显式 disconnect 共用的幂等资源清理。
+   */
+  private cleanupDisconnectedSession(
+    id: string,
+    generation?: number,
+    connector?: Session['connector']
+  ): Promise<void> {
+    const session = this.sessions.get(id)
+    if (!session) return Promise.resolve()
+    if (generation !== undefined && (
+      session.connectorGeneration !== generation || session.connector !== connector
+    )) return Promise.resolve()
+    if (session.disconnectCleanup) return session.disconnectCleanup
+
+    session.status = ConnectionStatus.DISCONNECTED
+    cancelDownloadsBySession(id)
+    cancelUploadsBySession(id)
+
+    const isSameSession = (): boolean => this.sessions.get(id) === session
+    session.disconnectCleanup = (async () => {
+      if (!isSameSession()) return
+      try {
+        await fileManager.removeConnector(id)
+      } catch (err) {
+        log.warn(`File cleanup on disconnect failed for ${id}:`, err)
+      }
+      if (!isSameSession()) return
+
+      if (!__DISABLE_MCP__) {
+        const mcpAuth = await import('@main/mcp/auth')
+        if (!isSameSession()) return
+        mcpAuth.revokeSessionToken(id)
+      }
+      if (!isSameSession()) return
+
+      if (session.lockedByMcp) {
+        session.lockedByMcp = false
+        session.mcpLockCount = 0
+        this.emit('session:mcp-lock-changed', { sessionId: id, lockedByMcp: false })
+      }
+      log.info(`Session disconnected: ${id}`)
+      this.emit('session:status', { id, status: ConnectionStatus.DISCONNECTED })
+
+      const bufferToClean = session.outputBuffer
+      if (bufferToClean) {
+        session.outputBuffer = undefined
+        setTimeout(() => bufferToClean.clear(), 30000)
+      }
+    })()
+    return session.disconnectCleanup
   }
 
   /**
@@ -401,33 +496,18 @@ export class SessionManager extends EventEmitter {
     const session = this.sessions.get(id)
     if (!session) throw new Error(`Session not found: ${id}`)
 
-    if (session.connector) {
-      await session.connector.disconnect()
+    // 首个 await 前同步开始清理，阻止清理期间启动新的文件任务。
+    const connector = session.connector
+    const generation = session.connectorGeneration
+    const cleanup = this.cleanupDisconnectedSession(id, generation, connector)
+    if (connector) {
+      try {
+        await connector.disconnect()
+      } catch (err) {
+        log.warn(`Connector disconnect failed for ${id}:`, err)
+      }
     }
-
-    // 撤销 per-session MCP token：PTY 已退出，env 注入的 token 不应再有效。
-    // 重连会在 connectSession 中重新 bind 一个新 token，旧的不会被复用。
-    if (!__DISABLE_MCP__) {
-      const mcpAuth = await import('@main/mcp/auth')
-      mcpAuth.revokeSessionToken(id)
-    }
-
-    session.status = ConnectionStatus.DISCONNECTED
-    // 断开时清空 MCP 锁计数并通知渲染层解锁（即便有进行中的 MCP 操作，PTY 已不可写）
-    if (session.lockedByMcp) {
-      session.lockedByMcp = false
-      session.mcpLockCount = 0
-      this.emit('session:mcp-lock-changed', { sessionId: id, lockedByMcp: false })
-    }
-    log.info(`Session disconnected: ${id}`)
-    this.emit('session:status', { id, status: ConnectionStatus.DISCONNECTED })
-
-    // 保留输出缓冲 30 秒，便于 MCP 读取最后输出后销毁
-    const bufferToClean = session.outputBuffer
-    if (bufferToClean) {
-      session.outputBuffer = undefined
-      setTimeout(() => bufferToClean.clear(), 30000)
-    }
+    await cleanup
   }
 
   /**

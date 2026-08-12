@@ -1,9 +1,10 @@
 import { spawn, ChildProcess } from 'child_process'
 import { app } from 'electron'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { existsSync } from 'fs'
 import log from 'electron-log'
 import { EventEmitter } from 'events'
+import { randomUUID } from 'crypto'
 
 /**
  * 执行上下文
@@ -30,6 +31,7 @@ export interface ExecutionResult {
   stderr: string
   exitCode: number
   duration: number
+  signal?: NodeJS.Signals
   outputs?: any[]
 }
 
@@ -167,6 +169,18 @@ class LyShell:
 lyshell = LyShell()
 `
 
+const SCRIPT_BOOTSTRAP = `${LYSHELL_API}
+import runpy
+
+_script_path = sys.argv[1]
+sys.argv = sys.argv[1:]
+runpy.run_path(_script_path, run_name='__main__', init_globals={
+    'lyshell': lyshell,
+    'LyShell': LyShell,
+    'LyShellError': LyShellError,
+})
+`
+
 /**
  * Python 执行引擎
  */
@@ -183,12 +197,14 @@ export class PythonEngine extends EventEmitter {
    * 检测 Python 环境
    */
   private detectPython(): void {
-    // 优先使用便携版 Python
-    const portablePython = join(process.resourcesPath, 'python', 'python.exe')
-    if (existsSync(portablePython)) {
-      this.pythonPath = portablePython
-      log.info(`Using portable Python: ${portablePython}`)
-      return
+    // 优先使用便携版 Python(Electron 专有;纯 Node 测试环境 process.resourcesPath 可能缺失)
+    if (process.resourcesPath) {
+      const portablePython = join(process.resourcesPath, 'python', 'python.exe')
+      if (existsSync(portablePython)) {
+        this.pythonPath = portablePython
+        log.info(`Using portable Python: ${portablePython}`)
+        return
+      }
     }
 
     // 检测系统 Python
@@ -241,7 +257,7 @@ export class PythonEngine extends EventEmitter {
       throw new Error('Python not available. Please install Python or configure path.')
     }
 
-    const executionId = Date.now().toString()
+    const executionId = randomUUID()
     const timeout = context?.timeout || 60000
     const cwd = context?.cwd || app.getPath('temp')
     const startTime = Date.now()
@@ -293,18 +309,20 @@ export class PythonEngine extends EventEmitter {
         this.emit('output', { executionId, type: 'stderr', data: data.toString() })
       })
 
-      proc.on('close', (code) => {
+      proc.on('close', (code, closeSignal) => {
         this.executions.delete(executionId)
         if (signal) signal.removeEventListener('abort', onAbort)
         const duration = Date.now() - startTime
+        const exitCode = code ?? (closeSignal ? 1 : 0)
 
-        log.info(`Python execution completed (${executionId}): exit=${code}, duration=${duration}ms`)
+        log.info(`Python execution completed (${executionId}): exit=${exitCode}, signal=${closeSignal || 'none'}, duration=${duration}ms`)
 
         resolve({
           stdout,
           stderr,
-          exitCode: code || 0,
-          duration
+          exitCode,
+          duration,
+          signal: closeSignal || undefined
         })
       })
 
@@ -318,51 +336,155 @@ export class PythonEngine extends EventEmitter {
   }
 
   /**
-   * 执行 Python 脚本文件
+   * 执行 Python 脚本文件并等待结束。通过固定 bootstrap 注入 LyShell API，保留真实脚本语义。
    */
   async runScript(path: string, args?: string[], context?: ExecutionContext): Promise<ExecutionResult> {
     if (!this.pythonPath) {
       throw new Error('Python not available')
     }
+    if (!existsSync(path)) {
+      throw new Error(`Script not found: ${path}`)
+    }
 
-    const executionId = Date.now().toString()
+    const executionId = randomUUID()
     const timeout = context?.timeout || 60000
     const cwd = context?.cwd || app.getPath('temp')
     const startTime = Date.now()
+    const scriptPath = resolve(path)
 
-    log.info(`Running Python script: ${path}`)
+    log.info(`Running Python script: ${scriptPath}`)
 
     return new Promise((resolve, reject) => {
-      const proc = spawn(this.pythonPath!, [path, ...(args || [])], {
+      const proc = spawn(this.pythonPath!, ['-c', SCRIPT_BOOTSTRAP, scriptPath, ...(args || [])], {
         cwd,
-        timeout
+        timeout,
+        env: {
+          ...process.env,
+          ...context?.env,
+          LYSHELL_SESSION_ID: context?.session?.id || '',
+          LYSHELL_SESSION_TYPE: context?.session?.type || '',
+          LYSHELL_HOST: context?.session?.host || '',
+          LYSHELL_PORT: String(context?.session?.port || '')
+        }
       })
 
       this.executions.set(executionId, proc)
+
+      const signal = context?.signal
+      const onAbort = (): void => {
+        try { proc.kill('SIGTERM') } catch { /* 进程可能已退出 */ }
+      }
+      if (signal) {
+        if (signal.aborted) onAbort()
+        else signal.addEventListener('abort', onAbort, { once: true })
+      }
 
       let stdout = ''
       let stderr = ''
 
       proc.stdout?.on('data', (data) => {
         stdout += data.toString()
+        this.emit('output', { executionId, type: 'stdout', data: data.toString() })
       })
 
       proc.stderr?.on('data', (data) => {
         stderr += data.toString()
+        this.emit('output', { executionId, type: 'stderr', data: data.toString() })
       })
 
-      proc.on('close', (code) => {
+      proc.on('close', (code, closeSignal) => {
         this.executions.delete(executionId)
+        if (signal) signal.removeEventListener('abort', onAbort)
         resolve({
           stdout,
           stderr,
-          exitCode: code || 0,
-          duration: Date.now() - startTime
+          exitCode: code ?? (closeSignal ? 1 : 0),
+          duration: Date.now() - startTime,
+          signal: closeSignal || undefined
         })
       })
 
-      proc.on('error', reject)
+      proc.on('error', (error) => {
+        this.executions.delete(executionId)
+        if (signal) signal.removeEventListener('abort', onAbort)
+        reject(error)
+      })
     })
+  }
+
+  /**
+   * 常驻执行 Python 脚本文件：不等待结束、不设 timeout，返回子进程句柄。
+   * 通过固定 bootstrap 注入 LyShell API，再以真实脚本路径执行，保留 __file__ / sys.argv[0] 语义。
+   * 调用方负责管理进程生命周期（kill/重启）；本方法仅做 spawn、信号清理与日志转发。
+   */
+  spawnScript(path: string, context?: ExecutionContext): { proc: ChildProcess; executionId: string } {
+    if (!this.pythonPath) {
+      throw new Error('Python not available')
+    }
+    if (!existsSync(path)) {
+      throw new Error(`Script not found: ${path}`)
+    }
+
+    const executionId = randomUUID()
+    const cwd = context?.cwd || app.getPath('temp')
+    const scriptPath = resolve(path)
+
+    log.info(`Spawning Python script: ${scriptPath}`)
+
+    const proc = spawn(this.pythonPath!, ['-c', SCRIPT_BOOTSTRAP, scriptPath], {
+      cwd,
+      env: {
+        ...process.env,
+        ...context?.env,
+        LYSHELL_SESSION_ID: context?.session?.id || '',
+        LYSHELL_SESSION_TYPE: context?.session?.type || '',
+        LYSHELL_HOST: context?.session?.host || '',
+        LYSHELL_PORT: String(context?.session?.port || '')
+      }
+      // 不设 timeout：persistent 进程由调用方控制生命周期
+    })
+
+    this.executions.set(executionId, proc)
+
+    // 外部取消信号(plugin host stop()):abort 时主动 SIGTERM。
+    const signal = context?.signal
+    const onAbort = (): void => {
+      try { proc.kill('SIGTERM') } catch { /* 进程可能已退出 */ }
+    }
+    if (signal) {
+      if (signal.aborted) onAbort()
+      else signal.addEventListener('abort', onAbort, { once: true })
+    }
+
+    proc.stdout?.on('data', (data) => {
+      const text = data.toString().trimEnd()
+      if (text) {
+        log.info(`[python:${executionId}] ${text}`)
+        this.emit('output', { executionId, type: 'stdout', data: data.toString() })
+      }
+    })
+
+    proc.stderr?.on('data', (data) => {
+      const text = data.toString().trimEnd()
+      if (text) {
+        log.error(`[python:${executionId}] ${text}`)
+        this.emit('output', { executionId, type: 'stderr', data: data.toString() })
+      }
+    })
+
+    proc.on('close', (code) => {
+      this.executions.delete(executionId)
+      if (signal) signal.removeEventListener('abort', onAbort)
+      log.info(`Python script ${path} completed (${executionId}): exit=${code}`)
+    })
+
+    proc.on('error', (error) => {
+      this.executions.delete(executionId)
+      if (signal) signal.removeEventListener('abort', onAbort)
+      log.error(`Python script ${path} error (${executionId}):`, error)
+    })
+
+    return { proc, executionId }
   }
 
   /**

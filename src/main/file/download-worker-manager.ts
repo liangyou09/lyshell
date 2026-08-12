@@ -8,6 +8,7 @@ import log from 'electron-log'
 import type { BrowserWindow } from 'electron'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { v4 as uuidv4 } from 'uuid'
+import { createSerialChain } from './serial-chain'
 
 // Worker 任务数据
 interface DownloadTaskData {
@@ -55,6 +56,18 @@ interface ActiveWorker {
 // 全局 Worker 映射
 const activeWorkers: Map<string, ActiveWorker> = new Map()
 
+// 同规范化本地路径的下载串行化：两个并发下载写同一本地文件会让
+// `fs.openSync(localPath, 'w')` 互相 truncate + 交错写入，导致本地文件损坏且双方都不报错。
+// 后到的同路径下载排队在前一个完成/失败/取消之后执行。
+// key 不含 sessionId——两个会话写同一本地文件同样会损坏；path.normalize 折叠
+// /a//b、/a/./b、/a/../b 等别名，Windows 大小写不敏感统一小写，防别名绕过。
+const downloadChain = createSerialChain()
+
+function downloadChainKey(localPath: string): string {
+  const norm = path.normalize(localPath)
+  return process.platform === 'win32' ? norm.toLowerCase() : norm
+}
+
 // 任务元信息存储
 const taskMetaStore: Map<string, TaskMeta> = new Map()
 
@@ -86,8 +99,22 @@ export function startDownloadWorker(task: DownloadTaskData): Promise<void> {
 
 /**
  * 启动下载 Worker 并阻塞等待完成（MCP 同步路径用）
+ *
+ * 同规范化本地路径的下载会串行排队，避免并发写同一本地文件导致损坏。
  */
 export function runDownloadWorkerAndWait(task: DownloadTaskData): Promise<void> {
+  const key = downloadChainKey(task.localPath)
+  return downloadChain.run(key, () => runDownloadWorkerInternal(task), {
+    id: task.taskId,
+    group: task.sessionId,
+    onCancel: () => taskMetaStore.delete(task.taskId)
+  })
+}
+
+/**
+ * 实际创建并运行单个下载 Worker（无串行化逻辑）
+ */
+function runDownloadWorkerInternal(task: DownloadTaskData): Promise<void> {
   const { taskId, sessionId } = task
 
   log.info(`Starting download worker (await completion) for task ${taskId}`)
@@ -162,14 +189,17 @@ export function runDownloadWorkerAndWait(task: DownloadTaskData): Promise<void> 
     worker.on('exit', (code) => {
       activeWorkers.delete(taskId)
       taskMetaStore.delete(taskId)
-      if (code !== 0) {
-        log.warn(`Worker for task ${taskId} exited with code ${code}`)
-        if (!settled) {
-          settled = true
-          reject(new Error(`Download worker exited with code ${code}`))
-        }
-      } else {
+      if (!settled) {
+        settled = true
+        const error = code === 0
+          ? new Error('Download worker exited without a terminal message')
+          : new Error(`Download worker exited with code ${code}`)
+        log.warn(`Worker for task ${taskId} exited before protocol settlement (code ${code})`)
+        reject(error)
+      } else if (code === 0) {
         log.info(`Worker for task ${taskId} completed successfully`)
+      } else {
+        log.warn(`Worker for task ${taskId} exited with code ${code} after settlement`)
       }
     })
   })
@@ -216,6 +246,7 @@ function handleWorkerMessage(msg: any, task: DownloadTaskData) {
         const meta = active.meta
         const record: DownloadRecord = {
           id: uuidv4(),
+          taskId: taskId,
           sessionId: sessionId,
           sessionName: meta.sessionName || 'Unknown',
           host: task.sshConfig.host,
@@ -264,6 +295,7 @@ function handleWorkerMessage(msg: any, task: DownloadTaskData) {
         const meta = active.meta
         const record: DownloadRecord = {
           id: uuidv4(),
+          taskId: taskId,
           sessionId: sessionId,
           sessionName: meta.sessionName || 'Unknown',
           host: task.sshConfig.host,
@@ -324,7 +356,35 @@ export function cancelDownload(taskId: string): boolean {
     taskMetaStore.delete(taskId)
     return true
   }
+  if (downloadChain.cancelId(taskId)) {
+    log.info(`Cancelling queued download task ${taskId}`)
+    return true
+  }
   return false
+}
+
+/**
+ * 取消某会话的所有活跃下载任务（会话断开时调用）
+ * 返回已取消的任务数；每个被终止的 worker 都补发一个 cancelled 事件以更新 UI
+ */
+export function cancelDownloadsBySession(sessionId: string): number {
+  const queuedTaskIds = downloadChain.cancelGroup(sessionId)
+  for (const taskId of queuedTaskIds) {
+    log.info(`Cancelling queued download task ${taskId} (session ${sessionId} disconnected)`)
+    sendProgressToRenderer({ taskId, cancelled: true })
+  }
+  let count = queuedTaskIds.length
+  for (const [taskId, active] of activeWorkers) {
+    if (active.sessionId === sessionId) {
+      log.info(`Cancelling download task ${taskId} (session ${sessionId} disconnected)`)
+      active.worker.terminate()
+      activeWorkers.delete(taskId)
+      taskMetaStore.delete(taskId)
+      sendProgressToRenderer({ taskId, cancelled: true })
+      count++
+    }
+  }
+  return count
 }
 
 /**
@@ -345,6 +405,7 @@ export function getActiveTasks(): string[] {
  * 清理所有 Worker
  */
 export function cleanupAllWorkers() {
+  downloadChain.cancelAll()
   for (const [taskId, active] of activeWorkers) {
     log.info(`Terminating worker for task ${taskId}`)
     active.worker.terminate()

@@ -303,10 +303,13 @@ const FileManagerPanel: React.FC = () => {
     if (!currentSessionId) return
 
     const dirResult = await window.electronAPI.getDownloadDir(currentSessionId)
-    if (!dirResult.success) return
+    if (!dirResult.success) {
+      alert(dirResult.error || t('fileManager.transferFailed'))
+      return
+    }
 
     const localPath = `${dirResult.data}/${file.name}`
-    const taskId = Date.now().toString()
+    const taskId = crypto.randomUUID()
     registerDownloadFileName(taskId, file.name, localPath)
     window.electronAPI.fileDownload(currentSessionId, file.path, localPath, taskId, file.name, file.size)
   }
@@ -316,7 +319,7 @@ const FileManagerPanel: React.FC = () => {
     if (!currentSessionId || !currentServerKey) return
 
     const remotePath = `${displayPath}/${fileName}`
-    const taskId = Date.now().toString()
+    const taskId = crypto.randomUUID()
     registerDownloadFileName(taskId, fileName, localPath)
 
     const result = await window.electronAPI.fileUpload(currentSessionId, localPath, remotePath, taskId)

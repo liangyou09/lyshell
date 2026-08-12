@@ -46,6 +46,7 @@ interface PluginStore {
   cancelDownload: (path: string) => Promise<SimpleResult>
   enable: (id: string) => Promise<boolean>
   disable: (id: string) => Promise<boolean>
+  runOneshot: (id: string) => Promise<SimpleResult>
   uninstall: (id: string) => Promise<SimpleResult>
 }
 
@@ -142,6 +143,15 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
     } catch (e) {
       set({ error: (e as Error).message })
       return false
+    }
+  },
+
+  runOneshot: async (id) => {
+    try {
+      const res = (await window.electronAPI?.runOneshotPlugin(id)) as SimpleResult | undefined
+      return { success: !!res?.success, error: res?.error }
+    } catch (e) {
+      return { success: false, error: (e as Error).message }
     }
   },
 

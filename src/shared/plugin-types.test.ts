@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { validateManifest, checkEngines } from './plugin-types'
+import { validateManifest, checkEngines, getDefaultLifecycle, normalizeLifecycle, isLegacyPythonStartup, shouldActivateOnStartup } from './plugin-types'
 
 /** 一份合法的清单基线，各用例在此基础上破坏单个字段 */
 const validManifest: Record<string, unknown> = {
@@ -159,6 +159,53 @@ describe('validateManifest', () => {
   it('接受合法 pythonTimeoutMs', () => {
     const r = validateManifest({ ...validManifest, runtime: 'python', pythonTimeoutMs: 300000 })
     expect(r.ok).toBe(true)
+  })
+
+  it('接受合法 lifecycle', () => {
+    expect(validateManifest({ ...validManifest, lifecycle: 'oneshot' }).ok).toBe(true)
+    expect(validateManifest({ ...validManifest, lifecycle: 'persistent' }).ok).toBe(true)
+  })
+
+  it('拒绝非法 lifecycle', () => {
+    const r = validateManifest({ ...validManifest, lifecycle: 'long' as unknown as never })
+    expect(r.ok).toBe(false)
+    expect(r.errors.some((e) => e.startsWith('lifecycle '))).toBe(true)
+  })
+
+  it('缺失 lifecycle 时 validateManifest 仍合法', () => {
+    const r = validateManifest(validManifest)
+    expect(r.ok).toBe(true)
+    expect(r.manifest).toBeDefined()
+    expect(r.manifest?.lifecycle).toBeUndefined()
+  })
+
+  it('按 runtime 取默认生命周期', () => {
+    expect(getDefaultLifecycle('node')).toBe('persistent')
+    expect(getDefaultLifecycle('python')).toBe('oneshot')
+  })
+
+  it('归一化生命周期：显式值优先，缺失取默认值', () => {
+    expect(normalizeLifecycle('node', 'oneshot')).toBe('oneshot')
+    expect(normalizeLifecycle('node', 'persistent')).toBe('persistent')
+    expect(normalizeLifecycle('node')).toBe('persistent')
+    expect(normalizeLifecycle('python')).toBe('oneshot')
+    expect(normalizeLifecycle('python', 'persistent')).toBe('persistent')
+  })
+
+  it('仅未声明 lifecycle 的 Python 插件走 legacy 启动时运行一次兼容路径', () => {
+    expect(isLegacyPythonStartup('python')).toBe(true)
+    expect(isLegacyPythonStartup('python', 'oneshot')).toBe(false)
+    expect(isLegacyPythonStartup('python', 'persistent')).toBe(false)
+    expect(isLegacyPythonStartup('node')).toBe(false)
+  })
+
+  it('shouldActivateOnStartup: 仅 onStartup/* 立即激活', () => {
+    expect(shouldActivateOnStartup(['onStartup'])).toBe(true)
+    expect(shouldActivateOnStartup(['*'])).toBe(true)
+    expect(shouldActivateOnStartup(['onStartup', 'onCommand:x'])).toBe(true)
+    expect(shouldActivateOnStartup([])).toBe(false)
+    expect(shouldActivateOnStartup(['onCommand:rdp.connect'])).toBe(false)
+    expect(shouldActivateOnStartup(['onConnectionType:rdp'])).toBe(false)
   })
 })
 

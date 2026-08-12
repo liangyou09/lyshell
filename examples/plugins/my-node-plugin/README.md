@@ -1,13 +1,13 @@
 # my-node-plugin
 
-LyShell **Node** 插件 demo。`onStartup` 激活时巡检会话状态,并起 30s 定时器持续巡检 -- 展示 node runtime 的**长驻**能力(python 是 oneshot 跑完即退,做不到定时)。
+LyShell **Node** 插件 demo。`onStartup` 激活时巡检会话状态,并起 30s 定时器持续巡检 -- 展示 node runtime 的**长驻**能力(python 现也支持 `lifecycle: persistent` 长驻,但 node 多插件共享一个 host 进程,更适合常驻/定时场景)。
 
 ## 和 python 插件的差异
 
 | | node | python |
 |---|---|---|
-| 进程 | 所有 node 插件**共享一个常驻 host** | 每插件**独立 oneshot**进程,跑完即退 |
-| 适合 | 长驻 / 定时 / 事件驱动 | 一次性脚本 / 自动化 |
+| 进程 | 所有 node 插件**共享一个常驻 host** | 每插件**独立进程**;`oneshot` 跑完即退,`persistent` 长驻 |
+| 适合 | 长驻 / 定时 / 事件驱动(共享 host) | 一次性脚本(`oneshot`)/ 长驻(`persistent`) |
 | 入口 | `main.js` **CJS**(`module.exports`) | `main.py`,host 注入全局 `lyshell` |
 | API | `api.call('lyshell_list_sessions', {...})` | `lyshell.list_sessions(...)` |
 | 日志 | `console.error`(stderr,host-mgr 捕获) | `print`(stdout) |

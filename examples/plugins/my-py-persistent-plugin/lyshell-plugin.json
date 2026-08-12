@@ -1,0 +1,11 @@
+{
+  "id": "my-py-persistent-plugin",
+  "name": "My Python Persistent Plugin (template)",
+  "version": "0.1.0",
+  "engines": { "lyshell": "^1.0" },
+  "runtime": "python",
+  "lifecycle": "persistent",
+  "main": "main.py",
+  "activationEvents": ["onStartup"],
+  "capabilities": ["read"]
+}

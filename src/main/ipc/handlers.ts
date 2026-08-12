@@ -14,7 +14,7 @@ import { downloadHistory, DownloadRecord } from '../storage'
 import { ConnectionStatus } from '../connectors'
 import { reachabilityProber, type ReachabilityTarget } from '../reachability/reachability-prober'
 import { ConnectionType } from '@shared/types'
-import { fileManager, startDownloadWorker, registerTaskMeta, startUploadWorker } from '../file'
+import { fileManager, startDownloadWorker, registerTaskMeta, startUploadWorker, cancelDownload, cancelUpload, assertSafeLocalPath } from '../file'
 import type { SessionConfig } from '@shared/types'
 import {
   assertNumber,
@@ -29,7 +29,7 @@ import { mcpAuditRepository } from '../storage/mcp-audit-repository'
 import type { McpAuditQuery } from '../storage/mcp-audit-repository'
 import { pluginRepository, getPluginsDir } from '../storage/plugin-repository'
 import { pluginHostManager } from '../plugin/host-mgr'
-import { validateManifest, checkEngines } from '@shared/plugin-types'
+import { validateManifest, checkEngines, normalizeLifecycle } from '@shared/plugin-types'
 import {
   readManifestFromZip,
   extractZipSafely,
@@ -51,6 +51,7 @@ import type {
   PluginFetchUrlResult,
   PluginRegistryEntry,
   PluginRuntime,
+  PluginLifecycle,
   ActivationEvent
 } from '@shared/plugin-types'
 import type { McpCapability } from '@shared/api-routes'
@@ -176,6 +177,7 @@ export const IPC_CHANNELS = {
   FILE_STAT: 'file:stat',
   FILE_UPLOAD: 'file:upload',
   FILE_DOWNLOAD: 'file:download',
+  FILE_CANCEL: 'file:cancel',
   FILE_DELETE: 'file:delete',
   FILE_RENAME: 'file:rename',
   FILE_MKDIR: 'file:mkdir',
@@ -358,16 +360,22 @@ export function registerIPCHandlers(): void {
       syncReachabilityTargets()
 
       const existingSession = sessionManager.getSession(config.id)
-      if (existingSession && existingSession.status === ConnectionStatus.CONNECTED) {
-        log.debug('Session already connected:', config.id)
-        return {
-          id: existingSession.id,
-          status: existingSession.status,
-          config: existingSession.config
+      if (existingSession) {
+        sessionManager.updateSession(config.id, savedConfig, { touchLastActive: false })
+        if (
+          existingSession.status === ConnectionStatus.CONNECTED ||
+          existingSession.status === ConnectionStatus.CONNECTING
+        ) {
+          log.debug('Session already active:', config.id)
+          return {
+            id: existingSession.id,
+            status: existingSession.status,
+            config: existingSession.config
+          }
         }
       }
 
-      const session = await sessionManager.createSession(savedConfig)
+      const session = existingSession || await sessionManager.createSession(savedConfig)
       const sessionId = session.id
 
       // 注意：CONNECTING 状态由 connectSession 内部通过 session:status 事件发送
@@ -578,13 +586,7 @@ export function registerIPCHandlers(): void {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       log.debug('Delete session:', sessionId)
-      // 先断开连接
-      try {
-        await sessionManager.disconnectSession(sessionId)
-      } catch (e) {
-        // 忽略错误
-      }
-      // 删除存储
+      await sessionManager.deleteSession(sessionId)
       sessionRepository.delete(sessionId)
       syncReachabilityTargets()
       return { success: true }
@@ -1128,6 +1130,7 @@ export function registerIPCHandlers(): void {
 
         const record: DownloadRecord = {
           id: uuidv4(),
+          taskId: info.taskId,
           sessionId: info.sessionId,
           sessionName: session?.config.name || 'Unknown',
           host: sshConfig?.host || '',
@@ -1246,9 +1249,23 @@ export function registerIPCHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.FILE_UPLOAD, async (_event, _sessionId: string, localPath: string, remotePath: string, _taskId: string) => {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
-      const safeLocalPath = assertString(localPath, 'localPath', { maxLength: 4096 })
+      let safeLocalPath = assertString(localPath, 'localPath', { maxLength: 4096 })
       const safeRemotePath = assertString(remotePath, 'remotePath', { maxLength: 4096 })
       const taskId = assertString(_taskId, 'taskId', { maxLength: 128 })
+      try {
+        // 读本地（upload）：拦截私钥/凭据等敏感路径，防外泄
+        safeLocalPath = assertSafeLocalPath(safeLocalPath, { write: false })
+      } catch (pathErr: any) {
+        sendToAllWindows(IPC_CHANNELS.FILE_PROGRESS, {
+          taskId: taskId,
+          sessionId: sessionId,
+          failed: true,
+          error: pathErr.message,
+          progress: 0,
+          direction: 'upload'
+        })
+        return { success: false, error: pathErr.message }
+      }
       log.debug('File upload:', sessionId, safeLocalPath, '->', safeRemotePath)
 
       const session = sessionManager.getSession(sessionId)
@@ -1296,6 +1313,19 @@ export function registerIPCHandlers(): void {
       const connectorType = await fileManager.getConnectorType(sessionId)
       log.debug(`Connector type for upload: ${connectorType}`)
 
+      // 最后一个 await 之后、入队前再校验连接状态：会话可能在 getConnectorType 期间断开。
+      if (session.status !== ConnectionStatus.CONNECTED) {
+        sendToAllWindows(IPC_CHANNELS.FILE_PROGRESS, {
+          taskId: taskId,
+          sessionId: sessionId,
+          failed: true,
+          error: 'Session is not connected',
+          progress: 0,
+          direction: 'upload'
+        })
+        return { success: false, error: 'Session is not connected' }
+      }
+
       await startUploadWorker({
         taskId: taskId,
         sessionId: sessionId,
@@ -1329,7 +1359,7 @@ export function registerIPCHandlers(): void {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       const safeRemotePath = assertString(remotePath, 'remotePath', { maxLength: 4096 })
-      const safeLocalPath = assertString(localPath, 'localPath', { maxLength: 4096 })
+      let safeLocalPath = assertString(localPath, 'localPath', { maxLength: 4096 })
       const taskId = assertString(_taskId, 'taskId', { maxLength: 128 })
       const safeFileName = assertString(fileName, 'fileName', { maxLength: 255 })
       const safeFileSize = assertNumber(fileSize, 'fileSize', { min: 0, max: Number.MAX_SAFE_INTEGER, integer: true })
@@ -1345,8 +1375,21 @@ export function registerIPCHandlers(): void {
         return { success: false, error: 'SSH config not found' }
       }
 
+      // 限定 localPath 必须落在该会话的下载目录内，防止写到 Startup 等敏感位置（RCE/持久化）
+      try {
+        const downloadRoot = downloadHistory.getDownloadDir(sessionId, session.config.name || '', sshConfig.host || '', sshConfig.port || 22)
+        safeLocalPath = assertSafeLocalPath(safeLocalPath, { write: true, containmentRoot: downloadRoot })
+      } catch (pathErr: any) {
+        return { success: false, error: pathErr.message }
+      }
+
       const connectorType = await fileManager.getConnectorType(sessionId)
       log.debug(`Connector type for session ${sessionId}: ${connectorType}`)
+
+      // 最后一个 await 之后、入队前再校验连接状态：会话可能在 getConnectorType 期间断开。
+      if (session.status !== ConnectionStatus.CONNECTED) {
+        return { success: false, error: 'Session is not connected' }
+      }
 
       registerTaskMeta(taskId, {
         taskId: taskId,
@@ -1437,6 +1480,21 @@ export function registerIPCHandlers(): void {
     } catch (error) {
       log.error('Get connector type error:', error)
       return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.FILE_CANCEL, async (_event, _taskId: string) => {
+    try {
+      const taskId = assertString(_taskId, 'taskId', { maxLength: 128 })
+      // 终止对应 worker（下载或上传）；worker 被 terminate 后不会再发完成/失败事件，
+      // 由这里补发一个 cancelled 事件，让所有窗口的进度条移除该任务
+      const cancelled = cancelDownload(taskId) || cancelUpload(taskId)
+      if (cancelled) {
+        sendToAllWindows(IPC_CHANNELS.FILE_PROGRESS, { taskId, cancelled: true })
+      }
+      return { success: cancelled }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
     }
   })
 
@@ -1729,6 +1787,7 @@ export function registerIPCHandlers(): void {
   const enrichEntry = (entry: PluginRegistryEntry): PluginListItem => {
     let name = entry.id
     let runtime: PluginRuntime = 'node'
+    let lifecycle: PluginLifecycle = normalizeLifecycle(runtime)
     let main: string | undefined
     let activationEvents: ActivationEvent[] = []
     let capabilities: McpCapability[] = [...entry.grantedCapabilities]
@@ -1740,6 +1799,7 @@ export function registerIPCHandlers(): void {
         if (result.ok && result.manifest) {
           name = result.manifest.name
           runtime = result.manifest.runtime
+          lifecycle = normalizeLifecycle(runtime, result.manifest.lifecycle)
           main = result.manifest.main
           activationEvents = result.manifest.activationEvents
           capabilities = result.manifest.capabilities
@@ -1748,7 +1808,7 @@ export function registerIPCHandlers(): void {
     } catch (e) {
       log.warn(`[plugin] Failed to enrich entry ${entry.id}:`, e)
     }
-    return { ...entry, name, runtime, main, activationEvents, capabilities }
+    return { ...entry, name, runtime, lifecycle, main, activationEvents, capabilities }
   }
 
   ipcMain.handle('plugin:list', async () => {
@@ -2090,6 +2150,25 @@ export function registerIPCHandlers(): void {
   })
 
   // 卸载:§8.4 三步撤销。先 remove(让 start 重读 getEnabled 不再激活本插件) -> restart(停进程+撤 token) -> 非dev删文件夹。
+  ipcMain.handle('plugin:run-oneshot', async (_event, pluginId: string) => {
+    try {
+      const id = assertString(pluginId, 'pluginId', { maxLength: 128 })
+      const result = pluginHostManager.runOneshot(id)
+      if (result.success) {
+        mcpAuditRepository.append({
+          operation: 'plugin:run-oneshot',
+          capability: '',
+          allowed: true,
+          summary: id,
+          tokenSource: ''
+        })
+      }
+      return result
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
   ipcMain.handle('plugin:uninstall', async (_event, pluginId: string) => {
     try {
       const id = assertString(pluginId, 'pluginId', { maxLength: 128 })

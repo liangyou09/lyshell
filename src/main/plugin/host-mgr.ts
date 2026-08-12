@@ -9,14 +9,13 @@
  *            端口经 env 注入；PluginSpec（含 per-plugin token）经 IPC（child.send）下发 --
  *            token 不落 env，防插件 process.env 窃取其他插件 token 越权（§7 per-plugin 能力绑定）。
  *
- *   python -- 每插件经 engine.ts execute() 起独立 python 子进程（oneshot 脚本模型）。
- *            LYSHELL_API 前置注入（lyshell 全局可用），env 注入 port + 该插件 token + pluginDir。
- *            单插件单进程 -> env 只含自身 token，无跨插件泄漏（不同于 node host 多插件共享进程）。
- *            fire-and-forget，不阻塞 start()；长驻/事件驱动 python 插件留待后续。
+ *   python -- persistent 经 engine.ts spawnScript() 长期运行；oneshot 经 execute() 独立运行一次。
+ *            显式 oneshot 仅手动触发；未声明 lifecycle 的旧 Python 清单兼容为启动时运行一次。
+ *            LYSHELL_API 前置注入（lyshell 全局可用），env 只注入该插件自身 token + pluginDir，
+ *            单插件单进程，无跨插件 token 泄漏（不同于 node host 多插件共享进程）。
  *
- *   stop() -- kill node host 子进程 + abort python oneshot 进程（经 AbortSignal -> engine SIGTERM）+ 逐个 revokePluginToken
- *            （node + python 统一撤销，§8.4 三步撤销的第 1/2 步）。python 经 AbortController 主动 kill,
- *            不再只靠 token 撤销 401 自退（纯计算中无 HTTP 调用的进程会滞留至 pythonTimeoutMs）。
+ *   stop() -- kill node host / node oneshot / python persistent 子进程 + abort python oneshot，
+ *            并逐个 revokePluginToken（§8.4 三步撤销的第 1/2 步）。
  *
  * token 粒度：per-plugin。grantedCapabilities 是安装时按插件批准的（§8.2），
  * 故 token 也 per-plugin。鉴权由 http-server 按 pluginId 路由到 grantedCapabilities（兜底 gate）。
@@ -33,7 +32,15 @@ import { pluginRepository, getPluginsDir } from '@main/storage/plugin-repository
 import { bindPluginToken, revokePluginToken } from '@main/mcp/auth'
 import { getMcpHttpPort } from '@main/mcp/http-server'
 import { pythonEngine } from '@main/python/engine'
-import { validateManifest, isUnsafeRelativePath, type PluginSpec, type LyShellPluginManifest } from '@shared/plugin-types'
+import {
+  validateManifest,
+  isUnsafeRelativePath,
+  normalizeLifecycle,
+  isLegacyPythonStartup,
+  shouldActivateOnStartup,
+  type PluginSpec,
+  type LyShellPluginManifest
+} from '@shared/plugin-types'
 
 /**
  * pluginHost.js 脚本路径。与 getMcpServerScriptPath(http-server.ts)同构。
@@ -52,11 +59,26 @@ function getHostScriptPath(): string {
   return join(__dirname, 'pluginHost.js')
 }
 
+function getOneshotHostScriptPath(): string {
+  if (app.isPackaged) {
+    return join(process.resourcesPath, 'app.asar', 'dist', 'main', 'pluginHostOneshot.js')
+  }
+  return join(__dirname, 'pluginHostOneshot.js')
+}
+
 class PluginHostManager {
   private child: ChildProcess | null = null
   private activePluginIds: string[] = []
-  /** python oneshot 子进程的取消控制器(per pluginId)--stop()/restart() 时 abort 主动 SIGTERM,免滞留至 timeout。 */
+  /** python 子进程的取消控制器(per pluginId)--oneshot execute 与 persistent 启动阶段共用,stop()/restart() 时 abort 主动 SIGTERM。 */
   private pythonControllers = new Map<string, AbortController>()
+  /** node oneshot 子进程句柄(per pluginId)--stop()/restart() 时主动 kill,防孤儿。 */
+  private nodeOneshotChildren = new Map<string, ChildProcess>()
+  /** python persistent 子进程句柄(per pluginId)--stop()/restart() 时主动 kill。 */
+  private pythonPersistentProcesses = new Map<string, ChildProcess>()
+  /** oneshot 运行中插件集合(per pluginId)--防止用户重复点击「运行」导致 token 串扰/孤儿进程。 */
+  private oneshotRuns = new Set<string>()
+  /** oneshot 本次运行颁发的 token(per pluginId)--用于运行结束时安全撤销,避免被后一次运行的 .finally 误杀。 */
+  private activeOneshotTokens = new Map<string, string>()
 
   /** host 子进程是否存活（killed 仅表示已发信号，用 exitCode/signalCode 判进程是否已退出） */
   isRunning(): boolean {
@@ -83,13 +105,29 @@ class PluginHostManager {
     // 收集 enabled contributor 插件：node 进 host 子进程，python 经 engine.ts 独立 spawn
     const enabled = pluginRepository.getEnabled()
     const specs: PluginSpec[] = []
-    const pythonPlugins: Array<{ id: string; token: string; pluginDir: string; code: string; timeoutMs: number }> = []
+    const legacyPythonStartupIds: string[] = []
+    // 立即激活（onStartup/*）的 persistent python，启动时 spawn 长驻进程
+    const pythonPersistentPlugins: Array<{ id: string; token: string; pluginDir: string; main: string }> = []
+    // 所有已绑定 token 的 persistent python id（含不立即激活的），供 stop() 统一撤销 token
+    const pythonPersistentIds: string[] = []
     for (const entry of enabled) {
       const manifest = this.loadManifest(entry.id, entry.path)
       if (!manifest) continue
       if (!manifest.main) {
         // consumer 插件（纯消费 API，无贡献入口）：不需要运行时
         log.info(`[plugin-host] Plugin ${entry.id} has no main entry (consumer); not loaded`)
+        continue
+      }
+      const lifecycle = normalizeLifecycle(manifest.runtime, manifest.lifecycle)
+      if (lifecycle === 'oneshot') {
+        if (isLegacyPythonStartup(manifest.runtime, manifest.lifecycle)) {
+          // 向后兼容：旧版 Python manifest 没有 lifecycle，当时语义是 LyShell 启动时执行一次。
+          // 显式 lifecycle='oneshot' 仍采用新语义，仅用户手动「运行」。
+          log.info(`[plugin-host] Legacy python plugin ${entry.id} has no lifecycle; scheduling one startup run`)
+          legacyPythonStartupIds.push(entry.id)
+        } else {
+          log.info(`[plugin-host] Plugin ${entry.id} is explicit oneshot; skipping auto-start (run on demand)`)
+        }
         continue
       }
       const pluginDir = isAbsolute(entry.path) ? entry.path : join(getPluginsDir(), entry.path)
@@ -102,7 +140,8 @@ class PluginHostManager {
           manifestPath: join(pluginDir, 'lyshell-plugin.json'),
           pluginDir,
           main: manifest.main,
-          runtime: manifest.runtime
+          runtime: manifest.runtime,
+          lifecycle
         })
       } else {
         // python：每插件独立 python 子进程（engine.ts spawn），env 只含该插件自身 token。
@@ -122,26 +161,49 @@ class PluginHostManager {
           revokePluginToken(entry.id)
           continue
         }
-        pythonPlugins.push({ id: entry.id, token, pluginDir, code: readFileSync(mainPath, 'utf-8'), timeoutMs: manifest.pythonTimeoutMs ?? 120000 })
+        // 此处 lifecycle 必为 'persistent'：显式 oneshot 与 legacy Python startup 均已在上方分流。
+        // 与 Node host 一致：仅 onStartup/* 立即激活；activationEvents:[] / onCommand:* 不自动启动进程。
+        // 不立即激活的仍保留已绑定的 token 并纳入 activePluginIds，供后续事件分发（MVP 暂无 Python 事件源）。
+        if (shouldActivateOnStartup(manifest.activationEvents ?? [])) {
+          pythonPersistentPlugins.push({ id: entry.id, token, pluginDir, main: manifest.main })
+        } else {
+          log.info(`[plugin-host] Python persistent plugin ${entry.id} waits for activation events (${(manifest.activationEvents ?? []).join(', ') || 'none'}); not auto-started`)
+        }
+        pythonPersistentIds.push(entry.id)
       }
     }
 
-    if (specs.length === 0 && pythonPlugins.length === 0) {
-      log.info('[plugin-host] No enabled contributor plugins; nothing to start')
+    // activePluginIds 必须在 no-op return 前设置：延迟激活的 Python persistent 插件
+    // （pythonPersistentIds 非空但 pythonPersistentPlugins 为空）已绑定 token，
+    // 即使本次不启动任何进程，stop()/restart() 仍需能撤销这些 token。
+    this.activePluginIds = [
+      ...specs.map((s) => s.pluginId),
+      ...pythonPersistentIds
+    ]
+
+    if (specs.length === 0 && pythonPersistentPlugins.length === 0 && legacyPythonStartupIds.length === 0) {
+      log.info('[plugin-host] No enabled contributor plugins to start; nothing to spawn')
       return
     }
 
-    // activePluginIds 覆盖 node + python，供 stop() 统一撤销 token
-    this.activePluginIds = [...specs.map((s) => s.pluginId), ...pythonPlugins.map((p) => p.id)]
-
-    // ---- node 插件：单 host 子进程承载（VS Code Extension Host 式）----
+    // ---- node persistent 插件：单 host 子进程承载（VS Code Extension Host 式）----
     if (specs.length > 0) {
       this.spawnNodeHost(specs, port)
     }
 
-    // ---- python 插件：每插件独立 spawn（fire-and-forget，不阻塞启动）----
-    for (const p of pythonPlugins) {
-      this.activatePython(p, port)
+    // ---- python persistent 插件：长期保持子进程----
+    for (const p of pythonPersistentPlugins) {
+      this.activatePythonPersistent(p, port)
+    }
+
+    // ---- legacy python（未声明 lifecycle）：兼容旧版「启动时运行一次」语义----
+    // 复用统一 runOneshot 路径，避免恢复已删除的 activatePython 重复实现；
+    // runOneshot 会临时绑定 token，并在完成/失败后自动撤销。
+    for (const id of legacyPythonStartupIds) {
+      const result = this.runOneshot(id)
+      if (!result.success) {
+        log.error(`[plugin-host] Failed to auto-start legacy python plugin ${id}: ${result.error}`)
+      }
     }
   }
 
@@ -221,29 +283,95 @@ class PluginHostManager {
   }
 
   /**
-   * 激活 python 插件：经 engine.ts execute() 起独立 python 子进程。
-   * LYSHELL_API 前置注入（lyshell 全局可用），env 注入 port + 该插件 token + pluginId + pluginDir。
-   * 子进程 env 继承 caveat:插件自己 spawn 的第三方子进程可继承 env 读到本插件 token -- 但该 token
-   * 绑定本插件 grantedCapabilities,泄漏不越权(插件自身已能调用同等能力,非权限升级)。
-   *
-   * 进程模型：oneshot 脚本（main.py 运行至结束即退出）。onStartup/* 指「启动跑一次」而非常驻 --
-   * python 不支持长驻/事件驱动（需改用 node 运行时）。超时取 manifest.pythonTimeoutMs（默认 120000，
-   * 上限 600000，见 @shared/plugin-types validateManifest），到点子进程被杀。fire-and-forget：不阻塞 start()。
+   * spawn node oneshot 插件子进程并经 IPC 下发单个 PluginSpec（含 per-plugin token）。
+   * oneshot runner 在 activate() 完成后自动退出；host-mgr 跟踪进程句柄供 stop()/restart() 兜底 kill。
+   * @returns 同步启动是否成功（spawn/send 失败返回 false，进程后续异步退出仍视为启动成功）
    */
-  private activatePython(
-    p: { id: string; token: string; pluginDir: string; code: string; timeoutMs: number },
+  private spawnNodeOneshot(spec: PluginSpec, port: number, onExit?: () => void): boolean {
+    const hostPath = getOneshotHostScriptPath()
+    if (!existsSync(hostPath)) {
+      log.error(`[plugin-host] pluginHostOneshot.js not found at ${hostPath}`)
+      return false
+    }
+
+    log.info(`[plugin-host] Spawning oneshot node host for ${spec.pluginId}`)
+    let child: ChildProcess
+    try {
+      child = spawn(process.execPath, [hostPath], {
+        env: {
+          ...process.env,
+          ELECTRON_RUN_AS_NODE: '1',
+          LYSHELL_MCP_PORT: String(port),
+          LYSHELL_MCP_SERVER_SCRIPT: join(dirname(hostPath), 'mcpServer.js')
+        },
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc']
+      })
+    } catch (e) {
+      log.error('[plugin-host] Failed to spawn oneshot host:', e)
+      return false
+    }
+
+    this.nodeOneshotChildren.set(spec.pluginId, child)
+
+    try {
+      child.send({ type: 'spec', spec })
+    } catch (e) {
+      log.error(`[plugin-host] Failed to send spec to oneshot host for ${spec.pluginId}; killing:`, e)
+      this.nodeOneshotChildren.delete(spec.pluginId)
+      try {
+        child.kill('SIGTERM')
+      } catch {
+        /* 进程可能已退出 */
+      }
+      return false
+    }
+
+    child.stderr?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString().trimEnd()
+      if (text) log.info(text)
+    })
+    // 闭包捕获 child：stop() kill 旧 child 后异步 exit，若用户已重跑 set 新 child，
+    // 仅当 map 仍是本 child 才删除并回调，避免误清新 run 的句柄 + finishRun 撤错 token。
+    child.on('exit', (code, signal) => {
+      log.info(`[plugin-host] Oneshot host for ${spec.pluginId} exited (code=${code}, signal=${signal})`)
+      if (this.nodeOneshotChildren.get(spec.pluginId) === child) {
+        this.nodeOneshotChildren.delete(spec.pluginId)
+        onExit?.()
+      }
+    })
+    child.on('error', (err) => {
+      log.error(`[plugin-host] Oneshot host for ${spec.pluginId} error:`, err)
+      if (this.nodeOneshotChildren.get(spec.pluginId) === child) {
+        this.nodeOneshotChildren.delete(spec.pluginId)
+        onExit?.()
+      }
+    })
+    return true
+  }
+
+  /**
+   * 激活 python persistent 插件：长期保持子进程，直到禁用/卸载/退出。
+   * MVP 仅支持 onStartup/* 激活一次；onCommand/onConnectionType 事件分发留待后续。
+   */
+  private activatePythonPersistent(
+    p: { id: string; token: string; pluginDir: string; main: string },
     port: number
   ): void {
-    log.info(`[plugin-host] Activating python plugin ${p.id} (cwd=${p.pluginDir}, timeout=${p.timeoutMs}ms)`)
-    // 取消控制器:stop()/restart() 时 abort -> engine 经 SIGTERM 主动 kill python oneshot 进程,
-    // 不再只靠 token 撤销 401 自退(纯计算中无 HTTP 调用的进程会滞留至 pythonTimeoutMs,上限 10min)。
-    const controller = new AbortController()
-    this.pythonControllers.set(p.id, controller)
-    pythonEngine
-      .execute(p.code, {
+    if (isUnsafeRelativePath(p.main)) {
+      log.error(`[plugin-host] python persistent plugin ${p.id} main "${p.main}" escapes plugin directory; refusing to load`)
+      revokePluginToken(p.id)
+      return
+    }
+    const mainPath = join(p.pluginDir, p.main)
+    if (!existsSync(mainPath)) {
+      log.error(`[plugin-host] python persistent plugin ${p.id} main not found: ${mainPath}`)
+      revokePluginToken(p.id)
+      return
+    }
+    log.info(`[plugin-host] Activating python persistent plugin ${p.id} (cwd=${p.pluginDir})`)
+    try {
+      const { proc } = pythonEngine.spawnScript(mainPath, {
         cwd: p.pluginDir,
-        timeout: p.timeoutMs,
-        signal: controller.signal,
         env: {
           LYSHELL_MCP_PORT: String(port),
           LYSHELL_PLUGIN_TOKEN: p.token,
@@ -251,18 +379,142 @@ class PluginHostManager {
           LYSHELL_PLUGIN_DIR: p.pluginDir
         }
       })
-      .then((result) => {
-        this.pythonControllers.delete(p.id)
-        log.info(
-          `[plugin-host] python plugin ${p.id} exited (code=${result.exitCode}, ${result.duration}ms)`
-        )
-        if (result.stdout.trim()) log.info(`[plugin-host] ${p.id} stdout: ${result.stdout.trim()}`)
-        if (result.stderr.trim()) log.info(`[plugin-host] ${p.id} stderr: ${result.stderr.trim()}`)
+      this.pythonPersistentProcesses.set(p.id, proc)
+      // 闭包捕获 proc：restart() kill 旧 proc 后异步 exit，若 start() 已 spawn 新 proc 并 set，
+      // 仅当 map 仍是本 proc 才删除，否则误删新 proc 句柄导致后续 stop()/禁用无法 kill。
+      proc.on('exit', (code, signal) => {
+        log.info(`[plugin-host] python persistent plugin ${p.id} exited (code=${code}, signal=${signal})`)
+        if (this.pythonPersistentProcesses.get(p.id) === proc) {
+          this.pythonPersistentProcesses.delete(p.id)
+        }
       })
-      .catch((err) => {
-        this.pythonControllers.delete(p.id)
-        log.error(`[plugin-host] python plugin ${p.id} failed:`, err)
+      proc.on('error', (err) => {
+        log.error(`[plugin-host] python persistent plugin ${p.id} error:`, err)
+        if (this.pythonPersistentProcesses.get(p.id) === proc) {
+          this.pythonPersistentProcesses.delete(p.id)
+        }
       })
+    } catch (e) {
+      log.error(`[plugin-host] Failed to spawn python persistent plugin ${p.id}:`, e)
+      revokePluginToken(p.id)
+    }
+  }
+
+  /**
+   * 手动运行一次 oneshot 插件（用户点击“运行”触发）。
+   * 运行时临时绑定 token，进程退出/完成后撤销；不进入 activePluginIds（不在 LyShell 启动时自动运行）。
+   * 同 pluginId 运行未结束时再次调用会直接拒绝，避免 token 串扰与孤儿进程。
+   */
+  runOneshot(pluginId: string): { success: boolean; error?: string } {
+    const port = getMcpHttpPort()
+    if (!port) {
+      return { success: false, error: 'MCP HTTP server not available' }
+    }
+    const entry = pluginRepository.get(pluginId)
+    if (!entry) {
+      return { success: false, error: 'Plugin not found' }
+    }
+    if (!entry.enabled) {
+      return { success: false, error: 'Plugin is disabled' }
+    }
+    const manifest = this.loadManifest(pluginId, entry.path)
+    if (!manifest || !manifest.main) {
+      return { success: false, error: 'Invalid manifest or no main entry' }
+    }
+    const lifecycle = normalizeLifecycle(manifest.runtime, manifest.lifecycle)
+    if (lifecycle !== 'oneshot') {
+      return { success: false, error: 'Plugin is not oneshot' }
+    }
+    if (this.oneshotRuns.has(pluginId)) {
+      return { success: false, error: 'Plugin is already running' }
+    }
+
+    const pluginDir = isAbsolute(entry.path) ? entry.path : join(getPluginsDir(), entry.path)
+    const token = bindPluginToken(pluginId, entry.grantedCapabilities)
+    this.activeOneshotTokens.set(pluginId, token)
+    this.oneshotRuns.add(pluginId)
+
+    const finishRun = (): void => {
+      this.oneshotRuns.delete(pluginId)
+      if (this.activeOneshotTokens.get(pluginId) === token) {
+        this.activeOneshotTokens.delete(pluginId)
+        revokePluginToken(pluginId)
+      }
+    }
+
+    if (manifest.runtime === 'node') {
+      if (isUnsafeRelativePath(manifest.main)) {
+        finishRun()
+        return { success: false, error: 'main escapes plugin directory' }
+      }
+      const spec: PluginSpec = {
+        pluginId,
+        token,
+        grantedCapabilities: entry.grantedCapabilities,
+        manifestPath: join(pluginDir, 'lyshell-plugin.json'),
+        pluginDir,
+        main: manifest.main,
+        runtime: manifest.runtime,
+        lifecycle
+      }
+      const started = this.spawnNodeOneshot(spec, port, finishRun)
+      if (!started) {
+        finishRun()
+        return { success: false, error: 'Failed to start oneshot plugin' }
+      }
+      return { success: true }
+    }
+
+    // python oneshot：按 engine.ts oneshot 模型执行一次，完成后撤销 token。
+    if (isUnsafeRelativePath(manifest.main)) {
+      finishRun()
+      return { success: false, error: 'main escapes plugin directory' }
+    }
+    const mainPath = join(pluginDir, manifest.main)
+    if (!existsSync(mainPath)) {
+      finishRun()
+      return { success: false, error: 'main not found' }
+    }
+    log.info(`[plugin-host] Running python oneshot plugin ${pluginId} on demand`)
+    const controller = new AbortController()
+    this.pythonControllers.set(pluginId, controller)
+    try {
+      pythonEngine
+        .runScript(mainPath, undefined, {
+          cwd: pluginDir,
+          timeout: manifest.pythonTimeoutMs ?? 120000,
+          signal: controller.signal,
+          env: {
+            LYSHELL_MCP_PORT: String(port),
+            LYSHELL_PLUGIN_TOKEN: token,
+            LYSHELL_PLUGIN_ID: pluginId,
+            LYSHELL_PLUGIN_DIR: pluginDir
+          }
+        })
+        .then((result) => {
+          const message = `[plugin-host] python oneshot plugin ${pluginId} exited (code=${result.exitCode}, signal=${result.signal || 'none'}, ${result.duration}ms)`
+          if (result.exitCode === 0) log.info(message)
+          else log.error(message)
+        })
+        .catch((err) => {
+          log.error(`[plugin-host] python oneshot plugin ${pluginId} failed:`, err)
+        })
+        .finally(() => {
+          // 闭包捕获 controller：stop() clear() 后用户可立即重跑，旧 run 的 finally 不得
+          // 删新 run 的 controller / oneshotRuns / token。仅当本 run 仍是当前活跃 run 时才清场；
+          // stop() 已清场（controller 不在 map）时跳过，不重复 finishRun。
+          if (this.pythonControllers.get(pluginId) === controller) {
+            this.pythonControllers.delete(pluginId)
+            finishRun()
+          }
+        })
+    } catch (error) {
+      this.pythonControllers.delete(pluginId)
+      finishRun()
+      log.error(`[plugin-host] Failed to start python oneshot plugin ${pluginId}:`, error)
+      return { success: false, error: (error as Error).message }
+    }
+    return { success: true }
   }
 
   /**
@@ -275,6 +527,18 @@ class PluginHostManager {
       this.child.kill('SIGTERM')
       this.child = null
     }
+    // node oneshot 进程：主动 SIGTERM kill，防 deactivate 漏杀 / Windows 不级联 -> 孤儿。
+    if (this.nodeOneshotChildren.size > 0) {
+      log.info(`[plugin-host] Stopping ${this.nodeOneshotChildren.size} oneshot node plugin process(es)`)
+      for (const [id, child] of this.nodeOneshotChildren) {
+        try {
+          child.kill('SIGTERM')
+        } catch {
+          /* 进程可能已退出 */
+        }
+        this.nodeOneshotChildren.delete(id)
+      }
+    }
     // python oneshot 进程:abort 取消信号 -> engine SIGTERM 主动 kill(§8.4 第 1 步「停进程」)。
     // 此前仅撤 token 靠 401 自退,纯计算中(无 HTTP 调用)的进程会滞留至 pythonTimeoutMs。
     if (this.pythonControllers.size > 0) {
@@ -283,6 +547,26 @@ class PluginHostManager {
         controller.abort()
       }
       this.pythonControllers.clear()
+    }
+    // python persistent 进程：主动 kill，避免禁用/退出后仍常驻。
+    if (this.pythonPersistentProcesses.size > 0) {
+      log.info(`[plugin-host] Stopping ${this.pythonPersistentProcesses.size} python persistent plugin process(es)`)
+      for (const [id, proc] of this.pythonPersistentProcesses) {
+        try {
+          proc.kill('SIGTERM')
+        } catch {
+          /* 进程可能已退出 */
+        }
+        this.pythonPersistentProcesses.delete(id)
+      }
+    }
+    // oneshot 运行中的临时 token：兜底撤销（正常路径已由 exit/finally 处理，但 stop 可能在中途被调用）。
+    if (this.activeOneshotTokens.size > 0) {
+      for (const [id] of this.activeOneshotTokens) {
+        revokePluginToken(id)
+      }
+      this.activeOneshotTokens.clear()
+      this.oneshotRuns.clear()
     }
     this.revokeActiveTokens()
   }

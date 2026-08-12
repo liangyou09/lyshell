@@ -317,10 +317,8 @@ export class FileManager extends EventEmitter {
       throw new Error('This connector does not support shell commands')
     }
 
-    // 安全引用路径（处理特殊字符）
-    const safePath = filePath.includes("'")
-      ? `"${filePath}"`  // 路径含单引号时用双引号
-      : `'${filePath}'`  // 否则用单引号
+    // 安全引用路径：统一用单引号 + 内部单引号转义，避免双引号模式下的 $()/反引号/\" 展开
+    const safePath = quotePosixPath(filePath)
 
     // 直接尝试 md5sum（Linux 常用）
     try {
@@ -387,3 +385,12 @@ export class FileManager extends EventEmitter {
 
 // 单例
 export const fileManager = new FileManager()
+
+/**
+ * POSIX 单引号安全引用：单引号内 shell 不做任何展开，
+ * 内部单引号用 '"'"' 转义（与 exec.ts quotePath / http-server.ts quotePosixPath 一致）。
+ * 用于把用户可控的 remotePath 安全拼进远程 shell 命令（如 md5sum）。
+ */
+function quotePosixPath(filePath: string): string {
+  return `'${filePath.replace(/'/g, `'\\''`)}'`
+}

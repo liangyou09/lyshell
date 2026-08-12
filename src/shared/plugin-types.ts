@@ -11,6 +11,9 @@ import type { McpCapability } from './api-routes'
 /** 插件运行时 */
 export type PluginRuntime = 'node' | 'python'
 
+/** 插件生命周期：单次运行（跑完即退出）或长期运行（常驻至 LyShell 退出/禁用） */
+export type PluginLifecycle = 'oneshot' | 'persistent'
+
 /** 插件安装来源 */
 export type PluginSource = 'local-file' | 'url' | 'builtin' | 'dev'
 
@@ -45,9 +48,14 @@ export interface LyShellPluginManifest {
   /** 运行时。node 走 plugin host 子进程；python 走 engine.ts。 */
   runtime: PluginRuntime
   /**
-   * python 插件 oneshot 进程超时（ms）。仅 runtime='python' 生效；默认 120000，上限 600000。
-   * python 为 oneshot 脚本模型（main.py 运行至结束即退出），onStartup/* 指「启动跑一次」而非常驻 --
-   * 长驻/事件驱动请改用 node 运行时。超时到则子进程被杀，在途 HTTP 调用因 token 撤销而 401 退出。
+   * 生命周期。未指定时按 runtime 取默认值：node -> persistent，python -> oneshot。
+   * 与 runtime 解耦后，node 插件也可以是 oneshot，python 插件也可以是 persistent（需对应运行时支持）。
+   */
+  lifecycle?: PluginLifecycle
+  /**
+   * python oneshot 进程超时（ms）。仅 runtime='python' 且 lifecycle='oneshot' 生效；默认 120000，上限 600000。
+   * python oneshot 脚本模型（main.py 运行至结束即退出），onStartup/* 指「启动跑一次」而非常驻。
+   * 超时到则子进程被杀，在途 HTTP 调用因 token 撤销而 401 退出。
    */
   pythonTimeoutMs?: number
   /** 延迟激活事件。空数组 = 不自动激活（纯声明式贡献）。 */
@@ -93,6 +101,8 @@ export interface PluginSpec {
   /** contributor 入口相对路径;consumer 插件省略 */
   main?: string
   runtime: PluginRuntime
+  /** 归一化后的生命周期（host 按此路由） */
+  lifecycle: PluginLifecycle
 }
 
 /** manifest 校验结果 */
@@ -111,6 +121,8 @@ export interface PluginListItem extends PluginRegistryEntry {
   name: string
   /** manifest 运行时(manifest 读失败为 'node') */
   runtime: PluginRuntime
+  /** manifest 生命周期(manifest 读失败按 runtime 取默认值) */
+  lifecycle: PluginLifecycle
   /** contributor 入口(相对插件根);consumer 插件无 */
   main?: string
   /** manifest 声明的激活事件 */
@@ -205,6 +217,38 @@ const VALID_CAPABILITIES: ReadonlySet<string> = new Set<McpCapability>([
 
 const VALID_RUNTIMES: ReadonlySet<string> = new Set(['node', 'python'])
 
+const VALID_LIFECYCLES: ReadonlySet<string> = new Set(['oneshot', 'persistent'])
+
+/** 按 runtime 取默认生命周期。node 默认长期运行，python 默认单次运行。 */
+export function getDefaultLifecycle(runtime: PluginRuntime): PluginLifecycle {
+  return runtime === 'python' ? 'oneshot' : 'persistent'
+}
+
+/** 归一化生命周期：显式值优先，缺失时按 runtime 取默认值。 */
+export function normalizeLifecycle(
+  runtime: PluginRuntime,
+  lifecycle?: PluginLifecycle
+): PluginLifecycle {
+  return lifecycle ?? getDefaultLifecycle(runtime)
+}
+
+/**
+ * 旧版 Python manifest 未声明 lifecycle 时，保持「LyShell 启动时运行一次」的兼容行为。
+ * 显式 lifecycle='oneshot' 属新语义：仅用户手动「运行」，不随启动自跑。
+ */
+export function isLegacyPythonStartup(runtime: PluginRuntime, lifecycle?: PluginLifecycle): boolean {
+  return runtime === 'python' && lifecycle === undefined
+}
+
+/**
+ * activationEvents 含 onStartup 或 * -> host 启动即激活。
+ * 空数组或仅 onCommand/onConnectionType -> 不自动激活（纯声明式贡献 / 待事件触发）。
+ * Node 与 Python persistent 共用此判定，确保两者对 activationEvents 语义一致。
+ */
+export function shouldActivateOnStartup(events: ActivationEvent[]): boolean {
+  return events.includes('onStartup') || events.includes('*')
+}
+
 function isValidActivationEvent(e: unknown): boolean {
   if (typeof e !== 'string') return false
   return e === 'onStartup' || e === '*' || e.startsWith('onCommand:') || e.startsWith('onConnectionType:')
@@ -242,6 +286,9 @@ export function validateManifest(raw: unknown): ManifestValidation {
   }
   if (typeof m.runtime !== 'string' || !VALID_RUNTIMES.has(m.runtime)) {
     errors.push('runtime must be "node" or "python"')
+  }
+  if (m.lifecycle !== undefined && (typeof m.lifecycle !== 'string' || !VALID_LIFECYCLES.has(m.lifecycle))) {
+    errors.push('lifecycle must be "oneshot" or "persistent"')
   }
   if (m.pythonTimeoutMs !== undefined) {
     const t = m.pythonTimeoutMs
