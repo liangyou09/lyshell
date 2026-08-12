@@ -412,21 +412,28 @@ LyShell serves as an MCP server, letting external AI clients like Claude Code co
 
 ## 🎨 Themes
 
-Light/dark theme switching with `--terminal-bg` CSS token propagated to all terminal surfaces (canvas, tabs, audit panel). Colors resolved at runtime and hot-updated — no restart needed.
+5 preset themes + custom color support, with `--terminal-bg` CSS token propagated to all terminal surfaces (canvas, tabs, audit panel). Hot-updated on switch — no restart needed.
 
-<!-- 📸 placeholder: theme comparison (light vs dark theme side by side) -->
+### Presets
+
+| Theme | Style | Dark/Light |
+|-------|-------|-------------|
+| **Graphite** | Deep graphite + tungsten amber (default) | Dark |
+| **Slate** | Blue-tinted slate, same amber accent | Dark |
+| **Carbon** | Neutral charcoal, no blue cast | Dark |
+| **Ember** | Warm walnut brown + warm amber | Dark |
+| **Paper** | Natural warm paper, graphite ink | Light |
+
+All themes share the same semantic color tokens — amber accent, protocol colors (SSH blue / Telnet green / Serial amber / Local purple), status colors, and file-type colors remain consistent across presets.
+
+### Custom
+
+Pick a **base** (background) and **accent** (focus) color → LyShell auto-derives the full 13-CSS-variable palette via HSL lightness steps: 5 chrome levels, 5 text levels, and 3 amber states. Light/dark mode auto-detected from the base color's luminance.
+
+<!-- 📸 placeholder: theme comparison (preset swatches + custom color picker) -->
 <p align="center">
-  <img src="docs/assets/screenshot-theme-comparison.jpg" alt="Light and dark theme comparison" width="90%">
+  <img src="docs/assets/screenshot-theme-comparison.jpg" alt="Theme presets and custom color picker" width="90%">
 </p>
-
-| Element | Dark | Light |
-|---------|------|-------|
-| Foreground | `#CCCCCC` | `#333333` |
-| Background | `#0C0C0C` | `#FFFFFF` |
-| Cursor | `#FFFFFF` | `#333333` |
-| Main bg | `#1E1E1E` | `#F3F3F3` |
-| Secondary | `#252526` | `#FFFFFF` |
-| Accent | `#0078D4` | `#0078D4` |
 
 ---
 
