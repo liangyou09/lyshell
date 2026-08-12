@@ -17,6 +17,13 @@
 
 ---
 
+<!-- 📸 placeholder: LyShell main screenshot (full window: terminal + sidebar + quick commands bar + split panes) -->
+<p align="center">
+  <img src="docs/assets/screenshot-main.jpg" alt="LyShell main interface" width="90%">
+</p>
+
+---
+
 ## 📖 Usage Guide
 
 ### UI Layout
@@ -95,9 +102,19 @@ Edit the session to add startup commands — one per line. Auto-executed after l
 
 `Ctrl+Alt+F` from any app → search → Enter to connect.
 
+<!-- 📸 placeholder: float window (popup window + search filter + session list) -->
+<p align="center">
+  <img src="docs/assets/screenshot-float-window.jpg" alt="Float window quick connect" width="70%">
+</p>
+
 ### Daily Workflows
 
 #### 🖥️ Multi-Server Monitoring (Split Panes)
+
+<!-- 📸 placeholder: split panes layout (multi-tab + different servers + split layout) -->
+<p align="center">
+  <img src="docs/assets/screenshot-split-panes.jpg" alt="Split panes multi-server monitoring" width="90%">
+</p>
 
 1. Click a session to open it
 2. `Ctrl+Shift+V` split vertically
@@ -114,6 +131,11 @@ Layout auto-saved, restored on restart.
 3. Switch tabs, click command or press `Ctrl+F1`/`Ctrl+F2`
 
 Create groups per server role ("Web Tier", "DB Tier"...), up to 12 commands × 5 groups.
+
+<!-- 📸 placeholder: quick commands bar (bottom bar + group dropdown + hover effect) -->
+<p align="center">
+  <img src="docs/assets/screenshot-quick-commands.jpg" alt="Quick commands bar" width="90%">
+</p>
 
 #### 📂 File Transfer
 
@@ -263,6 +285,11 @@ Title bar ⚙ → split into **Terminal** / **MCP** tabs:
 
 Sidebar panel, SSH only. Independent connection — never blocks the terminal.
 
+<!-- 📸 placeholder: file manager (file tree + download progress + right-click menu) -->
+<p align="center">
+  <img src="docs/assets/screenshot-file-manager.jpg" alt="File manager" width="90%">
+</p>
+
 | Action | How |
 |--------|-----|
 | 📤 Upload | Drag from desktop to File Panel |
@@ -279,6 +306,11 @@ Download settings → default `~/Downloads/LyShell/`; enable "auto-create server
 ## 🤖 AI Agents
 
 Sidebar quick-launch bar for AI coding tools.
+
+<!-- 📸 placeholder: AI agent quick-launch bar (sidebar + agent buttons + Claude Code running in terminal) -->
+<p align="center">
+  <img src="docs/assets/screenshot-agents.jpg" alt="AI Agent launcher" width="90%">
+</p>
 
 ### Built-in Agents
 
@@ -305,6 +337,11 @@ Agent sessions are transient — close tab, gone from list.
 ## 🧩 Plugin System
 
 Capability-gated plugin host. stdio MCP connection, per-plugin token sandboxing.
+
+<!-- 📸 placeholder: plugin management UI (plugin list + capability toggles + install/uninstall) -->
+<p align="center">
+  <img src="docs/assets/screenshot-plugins.jpg" alt="Plugin manager" width="90%">
+</p>
 
 **Install methods**: Local dev directory · ZIP import · URL remote install
 
@@ -368,11 +405,21 @@ LyShell serves as an MCP server, letting external AI clients like Claude Code co
 
 > ⚠️ Full-screen TUI apps (vim, htop, less) are not supported over MCP — ANSI stripping garbles alternate-screen sequences. Use the LyShell UI native terminal instead.
 
+<!-- 📸 placeholder: MCP audit panel (activity log + calendar picker + filter) -->
+<p align="center">
+  <img src="docs/assets/screenshot-mcp-audit.jpg" alt="MCP audit panel" width="90%">
+</p>
+
 ---
 
 ## 🎨 Themes
 
 Light/dark theme switching with `--terminal-bg` CSS token propagated to all terminal surfaces (canvas, tabs, audit panel). Colors resolved at runtime and hot-updated — no restart needed.
+
+<!-- 📸 placeholder: theme comparison (light vs dark theme side by side) -->
+<p align="center">
+  <img src="docs/assets/screenshot-theme-comparison.jpg" alt="Light and dark theme comparison" width="90%">
+</p>
 
 | Element | Dark | Light |
 |---------|------|-------|

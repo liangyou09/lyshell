@@ -17,6 +17,13 @@
 
 ---
 
+<!-- 📸 占位：产品主截图（全窗口：终端+侧边栏+快捷命令栏+分屏效果） -->
+<p align="center">
+  <img src="docs/assets/screenshot-main.jpg" alt="LyShell 主界面" width="90%">
+</p>
+
+---
+
 ## 📖 使用指南
 
 ### 界面布局
@@ -95,9 +102,19 @@
 
 `Ctrl+Alt+F` 呼出浮窗 → 搜索 → 回车即连，任何应用中有效。
 
+<!-- 📸 占位：浮窗截图（悬浮窗 + 搜索过滤 + 会话列表） -->
+<p align="center">
+  <img src="docs/assets/screenshot-float-window.jpg" alt="浮窗快速连接" width="70%">
+</p>
+
 ### 日常工作流
 
 #### 🖥️ 多机监控（分屏）
+
+<!-- 📸 占位：分屏效果截图（多标签 + 不同服务器 + 分屏布局） -->
+<p align="center">
+  <img src="docs/assets/screenshot-split-panes.jpg" alt="分屏多机监控" width="90%">
+</p>
 
 1. 点击会话打开第一个面板
 2. `Ctrl+Shift+V` 垂直分屏
@@ -114,6 +131,11 @@
 3. 切换服务器标签页，点击命令或按 `Ctrl+F1`/`Ctrl+F2`/`Ctrl+F3` 触发
 
 为不同服务器角色创建独立分组（"Web 层"、"数据库层"……），每组最多 12 条命令，共 5 组。
+
+<!-- 📸 占位：快捷命令栏截图（底部命令栏 + 分组下拉 + 悬停效果） -->
+<p align="center">
+  <img src="docs/assets/screenshot-quick-commands.jpg" alt="快捷命令栏" width="90%">
+</p>
 
 #### 📂 文件传输
 
@@ -263,6 +285,11 @@ xterm.js 5.5 + WebGL GPU 加速渲染，完整 ANSI 序列 + 256 色。
 
 侧边栏嵌入，仅 SSH 可用。独立 SSH 连接，不阻塞终端。
 
+<!-- 📸 占位：文件管理器截图（文件树 + 下载进度 + 右键菜单） -->
+<p align="center">
+  <img src="docs/assets/screenshot-file-manager.jpg" alt="文件管理器" width="90%">
+</p>
+
 | 操作 | 说明 |
 |------|------|
 | 📤 上传 | 桌面拖拽到文件面板 |
@@ -279,6 +306,11 @@ xterm.js 5.5 + WebGL GPU 加速渲染，完整 ANSI 序列 + 256 色。
 ## 🤖 AI Agent
 
 侧边栏搜索框下方，一键启动 AI 编程工具。
+
+<!-- 📸 占位：Agent 快速启动栏截图（侧边栏 + Agent 按钮 + 终端中运行的 Claude Code） -->
+<p align="center">
+  <img src="docs/assets/screenshot-agents.jpg" alt="AI Agent 启动栏" width="90%">
+</p>
 
 ### 预置 Agent
 
@@ -305,6 +337,11 @@ Agent 会话为**瞬态** — 关闭标签即消失，不残留。
 ## 🧩 插件系统
 
 能力门控的插件宿主。stdio MCP 连接，独立 Token 沙箱隔离。
+
+<!-- 📸 占位：插件管理界面（插件列表 + 能力开关 + 安装/卸载操作） -->
+<p align="center">
+  <img src="docs/assets/screenshot-plugins.jpg" alt="插件管理" width="90%">
+</p>
 
 **安装方式**：本地开发目录 · ZIP 导入 · URL 远程安装
 
@@ -368,11 +405,21 @@ LyShell 可以作为 MCP 服务端，让 Claude Code 等外部 AI 客户端通�
 
 > ⚠️ 全屏 TUI（vim、htop、less）不支持 MCP 操作 — ANSI 剥离后交替屏幕为乱码，请用 LyShell 界面原生终端。
 
+<!-- 📸 占位：MCP 审计面板截图（活动日志 + 日历选择器 + 过滤） -->
+<p align="center">
+  <img src="docs/assets/screenshot-mcp-audit.jpg" alt="MCP 审计面板" width="90%">
+</p>
+
 ---
 
 ## 🎨 主题
 
 明暗主题切换，`--terminal-bg` CSS Token 统一传播到所有终端表面（画布、标签、审计面板），颜色运行时解析热更新，无需重启。
+
+<!-- 📸 占位：主题对比截图（深色/浅色主题左右对比） -->
+<p align="center">
+  <img src="docs/assets/screenshot-theme-comparison.jpg" alt="深色与浅色主题对比" width="90%">
+</p>
 
 | 元素 | 深色 | 浅色 |
 |------|------|------|
