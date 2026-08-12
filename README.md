@@ -1,6 +1,6 @@
 <p align="center">
   <img src="https://img.shields.io/badge/LyShell-v2.0.0-0078D4?style=flat-square" alt="version">
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square" alt="platform">
+  <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-MIT-yellow?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/Electron-28-9feaf9?style=flat-square&logo=electron" alt="electron">
   <img src="https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react" alt="react">
@@ -9,7 +9,7 @@
 
 # 💻 LyShell
 
-> 🤖 A cross-platform terminal workstation for ops engineers and developers — SSH, Telnet, serial, and local PTY in one app, with built-in SFTP file manager, AI Agent launcher, Python scripting engine, plugin system, and MCP API.
+> 🤖 A Windows terminal workstation for ops engineers and developers — SSH, Telnet, serial, and local PTY in one app, with built-in SFTP file manager, AI Agent launcher, Python scripting engine, plugin system, and MCP API.
 
 **English** | [简体中文](README.zh.md)
 
@@ -183,13 +183,11 @@ Activity Rail → Python panel → paste/load → execute. Drives the terminal a
 
 ## 📥 Install
 
-Download the latest installer from [Releases](https://github.com/liangyou09/lyshell_release/releases). Auto-update supported on all platforms.
+Download the latest installer from [Releases](https://github.com/liangyou09/lyshell_release/releases). Auto-update supported.
 
 | Platform | Format | Architecture |
 |----------|--------|--------------|
 | 🪟 Windows | NSIS installer (.exe) + portable | x64 |
-| 🍎 macOS | DMG | x64 + arm64 |
-| 🐧 Linux | AppImage + .deb | x64 |
 
 ---
 
@@ -245,7 +243,7 @@ Built on `serialport`. Auto-detects available COM ports.
 
 ### Local
 
-Built on `node-pty`. Opens cmd.exe / bash / zsh / PowerShell in-app with configurable working directory and environment.
+Built on `node-pty`. Opens cmd.exe / PowerShell in-app with configurable working directory and environment.
 
 ---
 
@@ -465,8 +463,6 @@ All config stored as JSON in the user data directory:
 | Platform | Path |
 |----------|------|
 | Windows | `%APPDATA%\lyshell\` |
-| macOS | `~/Library/Application Support/lyshell/` |
-| Linux | `~/.config/lyshell/` |
 
 AES-256-CBC encrypted export for sessions + quick commands, import with preview and confirm.
 

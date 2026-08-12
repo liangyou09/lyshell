@@ -1,6 +1,6 @@
 <p align="center">
   <img src="https://img.shields.io/badge/LyShell-v2.0.0-0078D4?style=flat-square" alt="version">
-  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square" alt="platform">
+  <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-MIT-yellow?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/Electron-28-9feaf9?style=flat-square&logo=electron" alt="electron">
   <img src="https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react" alt="react">
@@ -9,7 +9,7 @@
 
 # 💻 LyShell
 
-> 🤖 跨平台智能终端 — SSH / Telnet / 串口 / 本地 PTY 四合一，内置 SFTP 文件管理、AI Agent 启动栏、Python 脚本引擎、插件系统及 MCP API，面向运维工程师与开发者的终端工作台。
+> 🤖 Windows 智能终端 — SSH / Telnet / 串口 / 本地 PTY 四合一，内置 SFTP 文件管理、AI Agent 启动栏、Python 脚本引擎、插件系统及 MCP API，面向运维工程师与开发者的终端工作台。
 
 **简体中文** | [English](README.md)
 
@@ -183,13 +183,11 @@ for s in sessions:
 
 ## 📥 安装
 
-从 [Releases](https://github.com/liangyou09/lyshell_release/releases) 下载最新安装包。所有平台支持自动更新。
+从 [Releases](https://github.com/liangyou09/lyshell_release/releases) 下载最新安装包。支持自动更新。
 
 | 平台 | 格式 | 架构 |
 |------|------|------|
 | 🪟 Windows | NSIS 安装包 (.exe) + 便携版 | x64 |
-| 🍎 macOS | DMG 镜像 | x64 + arm64 |
-| 🐧 Linux | AppImage + .deb | x64 |
 
 ---
 
@@ -245,7 +243,7 @@ for s in sessions:
 
 ### 本地终端
 
-基于 `node-pty`，应用内打开 cmd.exe / bash / zsh / PowerShell，可配工作目录和环境变量。
+基于 `node-pty`，应用内打开 cmd.exe / PowerShell，可配工作目录和环境变量。
 
 ---
 
@@ -465,8 +463,6 @@ LyShell 可以作为 MCP 服务端，让 Claude Code 等外部 AI 客户端通�
 | 平台 | 路径 |
 |------|------|
 | Windows | `%APPDATA%\lyshell\` |
-| macOS | `~/Library/Application Support/lyshell/` |
-| Linux | `~/.config/lyshell/` |
 
 支持 AES-256-CBC 加密导出会话与快捷命令，导入提供预览确认。
 
