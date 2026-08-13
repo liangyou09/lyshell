@@ -152,7 +152,10 @@ Click a session → `Ctrl+Shift+V` to split vertically → click another session
 ### File Transfer
 - **Upload** — drag from desktop to File Panel
 - **Download** — double-click remote file or right-click → Download
-- **Security** — SFTP or TCP-over-SSH tunnel; no plaintext fallback
+- **Progress** — real-time speed + ETA, auto MD5 on completion
+- **History** — file, size, path, MD5 recorded; supports re-download
+- **Security** — independent SSH connection (never blocks terminal), SFTP or TCP-over-SSH tunnel; no plaintext fallback even when `AllowTcpForwarding` is disabled
+- **Download directory** — default `~/Downloads/LyShell/`, optional auto-create server subdirectory for archiving
 
 ### Quick Commands
 Right-click the quick commands bar → **Edit Group** → add commands like `tail -f /var/log/syslog`. Trigger with `Ctrl+F1`–`F12`. Up to 12 commands × 5 groups.
