@@ -1,6 +1,6 @@
 # my-pet-plugin
 
-路线2 桌宠 agent 示例:**插件只当启动器,桌宠作为 MCP 客户端像 Claude 一样连 LyShell**。
+桌宠 agent 示例:**插件只当启动器,桌宠作为独立 MCP 客户端像 Claude 一样连 LyShell**。
 
 ## 工作方式
 
@@ -22,7 +22,7 @@
 
 ## 与 my-node-plugin 的区别
 
-| | my-node-plugin | my-pet-plugin(路线2) |
+| | my-node-plugin | my-pet-plugin |
 |---|---|---|
 | 桌宠怎么连 LyShell | 插件自己 `api.call`(经 host) | 桌宠 spawn mcpServer.js,像 Claude 走 stdio MCP |
 | 动态工具发现 | 无(写死工具名) | ✓ `tools/list` 自动跟上 LyShell 工具变化 |
@@ -65,7 +65,7 @@
 | `interactiveWrite` | send_input · send_and_wait |
 | `execute` / `localExecute` | execute_command · run_on_sessions |
 | `fileWrite` | download_file · upload_file |
-| `sessionControl` | reconnect · close · create_session · open_connection_dialog |
+| `sessionControl` | reconnect_session · close_session · create_session · open_connection_dialog |
 | `sessionMetadataWrite` | write_session_notes |
 
 `tools/list` 会返回全部工具名 + inputSchema;`tools/call` 调没声明 capability 的工具会被服务端 403。

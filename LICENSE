@@ -1,21 +1,42 @@
-MIT License
+LyShell Software License
 
-Copyright (c) 2026 liangyou
+Copyright © 2026 liangyou. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+LyShell is free to download and use, for personal or commercial purposes.
+However:
+· The LyShell application source code is not yet open — reverse engineering or decompilation is prohibited.
+· Redistribution of the binary without prior permission is prohibited.
+All other rights reserved.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Note: this restriction applies to the application itself; the example plugins
+and documentation in the `examples/` directory are published for your reference.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+In case of any conflict between the English and Chinese versions of this
+license, the English version prevails.
+
+---
+
+LyShell 软件许可
+
+Copyright © 2026 liangyou 保留所有权利。
+
+本软件（LyShell）可免费下载使用，用于个人或商业用途。
+但：
+· 应用源码暂不开放，禁止反编译 / 逆向工程。
+· 未经许可禁止再分发二进制。
+其余权利保留。
+
+注：上述限制针对应用本体；`examples/` 目录下的示例插件与文档已开放供参考。
+
+本软件按「现状」提供，不附带任何明示或默示的担保，包括但不限于适销性、
+特定用途适用性及不侵权的担保。在任何情况下，作者均不对因使用本软件而
+产生的任何索赔、损害或其他责任负责。
+
+本许可的中英文版本如有冲突，以英文版为准。

@@ -1,6 +1,6 @@
 {
   "id": "braille-zongzhu",
-  "name": "Braille 宗主 (铁山靠 / 打篮球)",
+  "name": "Braille Character Animation (shoulder strike / basketball)",
   "version": "0.1.0",
   "engines": { "lyshell": "^1.0" },
   "runtime": "node",

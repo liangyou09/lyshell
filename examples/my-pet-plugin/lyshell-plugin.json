@@ -1,9 +1,10 @@
 {
   "id": "my-pet-plugin",
-  "name": "My Pet Plugin (route 2 demo)",
+  "name": "My Pet Plugin (desktop pet launcher)",
   "version": "0.1.0",
   "engines": { "lyshell": "^1.0" },
   "runtime": "node",
+  "lifecycle": "persistent",
   "main": "main.js",
   "activationEvents": ["onStartup"],
   "capabilities": ["read", "interactiveWrite"]

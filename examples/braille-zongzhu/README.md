@@ -1,6 +1,6 @@
 # braille-zongzhu
 
-LyShell 示例插件：在终端用 Braille 点阵播放「铁山靠」/「打篮球」动画。
+LyShell 示例插件：在终端用 Braille 点阵播放角色动画（侧身顶肩 / 正面运球）。
 
 ## 运行方式
 

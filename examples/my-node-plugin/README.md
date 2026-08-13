@@ -10,7 +10,7 @@ LyShell **Node** 插件 demo。`onStartup` 激活时巡检会话状态,并起 30
 | 适合 | 长驻 / 定时 / 事件驱动(共享 host) | 一次性脚本(`oneshot`)/ 长驻(`persistent`) |
 | 入口 | `main.js` **CJS**(`module.exports`) | `main.py`,host 注入全局 `lyshell` |
 | API | `api.call('lyshell_list_sessions', {...})` | `lyshell.list_sessions(...)` |
-| 日志 | `console.error`(stderr,host-mgr 捕获) | `print`(stdout) |
+| 日志 | `console.error`(stderr,插件宿主捕获) | `print`(stdout) |
 | token | 经 IPC 下发(共享进程,防互窃) | env 注入(单进程,安全) |
 
 ## 安装(dev 文件夹)
@@ -34,7 +34,7 @@ LyShell **Node** 插件 demo。`onStartup` 激活时巡检会话状态,并起 30
 | `interactiveWrite` | send_input · send_and_wait |
 | `execute` / `localExecute` | execute_command · run_on_sessions |
 | `fileWrite` | download_file · upload_file |
-| `sessionControl` | reconnect · close · create_session · open_connection_dialog |
+| `sessionControl` | reconnect_session · close_session · create_session · open_connection_dialog |
 | `sessionMetadataWrite` | write_session_notes |
 
 ## 重载

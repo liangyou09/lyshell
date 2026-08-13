@@ -1,17 +1,17 @@
 <p align="center">
   <img src="https://img.shields.io/badge/LyShell-v1.0.2-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
-  <img src="https://img.shields.io/badge/license-MIT-yellow?style=flat-square" alt="license">
+  <img src="https://img.shields.io/badge/license-Freeware-orange?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
 </p>
 
 # 💻 LyShell
 
-> 🤖 A Windows terminal workstation for ops engineers and developers — SSH, Telnet, serial, and local PTY in one app, with built-in SFTP file manager, AI Agent launcher, Python scripting engine, plugin system, and MCP API.
+> 🤖 An AI-native Windows terminal — a fast multi-protocol terminal (SSH / Telnet / serial / local PTY) built to be driven by AI and code: MCP server, plugin system, Python scripting, and an AI Agent launcher.
 
 **English** | [简体中文](README.zh.md)
 
-[📖 Usage Guide](#-usage-guide) · [📥 Install](#-install) · [✨ Features](#-features) · [🔌 Connections](#-connection-types) · [🖥️ Terminal](#-terminal) · [📂 Files](#-file-manager) · [🤖 Agents](#-ai-agents)<br>[🧩 Plugins](#-plugin-system) · [🐍 Python](#-python-scripting) · [🔗 MCP](#-mcp-integration) · [🎨 Themes](#-themes) · [⌨️ Shortcuts](#-keyboard-shortcuts) · [❓ FAQ](#-faq)
+[✨ Highlights](#-highlights) · [📖 Usage Guide](#-usage-guide) · [📥 Install](#-install) · [✨ Features](#-features) · [🔌 Connections](#-connection-types) · [🖥️ Terminal](#-terminal) · [📂 Files](#-file-manager) · [🤖 Agents](#-ai-agents)<br>[🧩 Plugins](#-plugin-system) · [🐍 Python](#-python-scripting) · [🔗 MCP](#-mcp-integration) · [🎨 Themes](#-themes) · [⌨️ Shortcuts](#-keyboard-shortcuts) · [❓ FAQ](#-faq)
 
 ---
 
@@ -21,40 +21,22 @@
 
 ---
 
+## ✨ Highlights
+
+Under the hood LyShell is a fast multi-protocol terminal (SSH / Telnet / serial / local PTY). What sets it apart is that it's built to be **driven by AI and code**:
+
+- 🔗 **MCP server** — expose your terminals to Claude Code and other AI clients, with per-session authorization and an audit log.
+- 🤖 **Agent-agnostic launcher** — Claude Code, Aider, Copilot CLI, or any custom CLI, in a clean terminal.
+- 🧩 **Plugin system** — extend it with Python or Node.js plugins, each running under granular permissions.
+- 🐍 **Python engine** — script terminal automation through a built-in `LyShell` API.
+
+See [AI Agents](#-ai-agents) · [Plugin System](#-plugin-system) · [Python](#-python-scripting) · [MCP](#-mcp-integration).
+
+---
+
 ## 📖 Usage Guide
 
 ### UI Layout
-
-```
-┌──────────────────────────────────────────────────────────┐
-│  Title Bar  │  Tabs (session tabs × N)           │ ⚙ — ✕ │
-├────────────┬─────────────────────────────────────────────┤
-│            │                                             │
-│  Activity  │                                             │
-│  Rail      │          Terminal / Split Panes             │
-│  (sidebar) │                                             │
-│            │                                             │
-│  ┌───────┐ │                                             │
-│  │Session│ │   🔍 Search                                 │
-│  │ List  │ │                                             │
-│  │       │ │                                             │
-│  │ sess1 │ │                                             │
-│  │ sess2 │ │                                             │
-│  │  ...  │ │                                             │
-│  └───────┘ │                                             │
-│  ┌───────┐ │                                             │
-│  │ Agent │ │                                             │
-│  │ Quick │ │                                             │
-│  │Launch │ │                                             │
-│  └───────┘ │                                             │
-│  ┌───────┐ │                                             │
-│  │ File  │ │                                             │
-│  │ Panel │ │                                             │
-│  └───────┘ │                                             │
-├────────────┴─────────────────────────────────────────────┤
-│  Quick Commands Bar  │  Cols×Rows  │  Status             │
-└──────────────────────────────────────────────────────────┘
-```
 
 | Area | What it does |
 |------|-------------|
@@ -82,10 +64,8 @@
 | Username | Login user | - |
 | Password / Private Key | Authentication | - |
 | Shell Enter Commands | Commands to run after login, one per line | - |
-| Shell Enter Wait | Delay between commands (ms) | `1000` |
-| Keepalive Interval | Heartbeat interval (seconds) | - |
-| Connection Timeout | Ready timeout (ms) | - |
-| Encoding | Terminal charset | UTF-8 |
+
+Other options (keepalive, timeout, encoding) are set in the session editor — see [FAQ](#-faq) for encoding.
 
 3. Click **Connect** — the tab indicator turns 🟢 green
 
@@ -123,7 +103,7 @@ Layout auto-saved, restored on restart.
 
 1. Right-click the quick commands bar → **Edit Group**
 2. Add commands: `tail -f /var/log/syslog`, `tail -f /var/log/nginx/access.log`...
-3. Switch tabs, click command or press `Ctrl+F1`/`Ctrl+F2`
+3. Switch tabs, click command or press `Ctrl+F1`/`Ctrl+F2`/`Ctrl+F3`
 
 Create groups per server role ("Web Tier", "DB Tier"...), up to 12 commands × 5 groups.
 
@@ -136,7 +116,7 @@ Create groups per server role ("Web Tier", "DB Tier"...), up to 12 commands × 5
 - **Upload** — drag from desktop to File Panel
 - **Download** — double-click remote file or right-click → Download
 - **Progress** — real-time speed + ETA, auto MD5 on completion
-- **Security** — TCP-over-SSH tunnel on SFTP failure, no plaintext fallback
+- **Security** — TCP-over-SSH tunnel on SFTP failure; no plaintext fallback when `AllowTcpForwarding` is disabled
 
 #### 🤖 AI Agent in Context
 
@@ -194,17 +174,17 @@ Download the latest build from [Releases](https://github.com/liangyou09/lyshell_
 
 | Category | Details |
 |----------|---------|
-| 🔌 **Multi-protocol** | SSH, Telnet, serial, local PTY — one window |
-| 🪟 **Split panes** | Horizontal/vertical splits, drag-to-split, tab swapping, layout persistence |
-| ⌨️ **Quick commands** | Grouped bar, right-click to edit, `Ctrl+F1–F12` keybindings |
-| 📂 **File manager** | SFTP/SSH browser, drag-drop upload, double-click download, MD5 checksum |
+| 🔗 **MCP server** | Standard MCP server, audit log + per-session authorization |
 | 🤖 **AI Agents** | Agent-agnostic terminal — run Claude Code, Aider, Copilot CLI, or any custom CLI |
 | 🧩 **Plugin system** | Permission-gated host, Python + Node.js plugins, dev/ZIP/URL install |
 | 🐍 **Python engine** | Embedded scripting with `LyShell` terminal automation API |
-| 🔗 **MCP API** | Standard MCP server, audit log + per-session authorization |
+| 🔌 **Multi-protocol** | SSH, Telnet, serial, local PTY — one window |
+| 🪟 **Split panes** | Horizontal/vertical splits, drag-to-split, layout persistence |
+| ⌨️ **Quick commands** | Grouped bar, right-click to edit, `Ctrl+F1–F12` keybindings |
+| 📂 **File manager** | SFTP/SSH browser, drag-drop upload, double-click download, MD5 checksum |
 | 🪟 **Float window** | `Ctrl+Alt+F` global hotkey, collapsible hover-to-expand |
-| 🌐 **i18n** | Built-in Chinese + English, add languages with JSON |
 | 🎨 **Themes** | 5 presets + custom colors, instant switch, no restart |
+| 🌐 **i18n** | Built-in Chinese + English |
 | 🔒 **Security** | AES-256-CBC encrypted export |
 | 💾 **Persistence** | Window size, position, split layout restored on restart |
 
@@ -212,37 +192,12 @@ Download the latest build from [Releases](https://github.com/liangyou09/lyshell_
 
 ## 🔌 Connection Types
 
-### SSH
-
-Password/private key auth, Keepalive, shell enter commands (sequential post-login), configurable timeout.
-
-**Cloning**: Double-click tab left → new connection (re-auth); double-click right → shared channel (no re-auth)
-
-### Telnet
-
-Raw TCP socket with full Telnet protocol (IAC negotiation).
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| Host | Target address | - |
-| Port | Telnet port | `23` |
-| Timeout | Connection timeout (ms) | - |
-
-### Serial
-
-Auto-detects available COM ports.
-
-| Parameter | Options | Default |
-|-----------|---------|---------|
-| Path | Dropdown selection | - |
-| Baud rate | 9600 ~ 921600 | `115200` |
-| Data bits | 5 / 6 / 7 / **8** | `8` |
-| Stop bits | **1** / 2 | `1` |
-| Parity | **none** / even / odd / mark / space | `none` |
-
-### Local
-
-Opens cmd.exe / PowerShell in-app with configurable working directory and environment.
+| Type | Auth / key params | Notes |
+|------|-------------------|-------|
+| 🖥️ **SSH** | password or private key; port `22` | post-login commands, keepalive; double-click tab left = clone (re-auth), right = shared channel |
+| 📟 **Telnet** | host + port `23` | full IAC negotiation |
+| 🔌 **Serial** | COM port, baud `115200` (9600–921600), 8N1 | auto-detects ports |
+| 💻 **Local PTY** | cmd.exe / PowerShell | configurable working directory + env |
 
 ---
 
@@ -255,26 +210,17 @@ GPU-accelerated rendering, full ANSI sequences + 256 colors.
 | Feature | How |
 |---------|-----|
 | 🔍 Search | `Ctrl+F` or middle-click, regex/case-sensitive/cross-tab, draggable bar |
-| 📜 Scrollback | 1,000 ~ 100,000 lines configurable |
+| 📜 Scrollback | 1,000 ~ 100,000 lines (default 10,000) |
 | 🔤 Encoding | UTF-8 / GBK / GB2312 per session |
 | 🚀 Startup | Commands auto-executed after connection |
 | 📋 Copy/Paste | Select to copy, right-click to paste |
 | ⌨️ IME | CJK composition handled |
-| ✏️ Cursor blink | Off by default for performance |
+| 🔠 Font size | 8 ~ 32 (default 16) |
+| ✏️ Cursor blink | Off by default for performance, can be enabled |
 
 ### Tab Status
 
 🟢 Connected | 🔴 Error | ⚪ Disconnected | 🔵 Inactive tab has new output
-
-### Terminal Settings
-
-Title bar ⚙ → split into **Terminal** / **MCP** tabs:
-
-| Setting | Range | Default |
-|---------|-------|---------|
-| Scrollback | 1,000 ~ 100,000 | 10,000 |
-| Font size | 8 ~ 32 | 16 |
-| Cursor blink | On/Off | Off |
 
 ---
 
@@ -393,8 +339,8 @@ LyShell serves as an MCP server, letting external AI clients like Claude Code co
 | `list_sessions` | `read` | List sidebar sessions |
 | `send_input` | `interactiveWrite` | Send text, autoNewline support |
 | `send_and_wait` | `interactiveWrite` | Send and capture response, strips echo + ANSI |
-| `execute_command` | `execute` | Run via independent exec channel (SSH only) |
-| `run_on_sessions` | `execute` | Broadcast command, max 50 sessions, concurrency 10 |
+| `execute_command` | `execute` / `localExecute` | Run via independent exec channel (SSH only) |
+| `run_on_sessions` | `execute` / `localExecute` | Broadcast command, max 50 sessions, concurrency 10 |
 | `read_output` | `read` | Read N lines of terminal output |
 | `upload_file` / `download_file` | `fileWrite` | SFTP file transfer |
 | `read_file` / `stat_file` / `list_files` | `read` | Remote file inspection, recursive + glob |
@@ -437,7 +383,7 @@ LyShell serves as an MCP server, letting external AI clients like Claude Code co
 | **Ember** | Warm walnut brown + warm amber | Dark |
 | **Paper** | Natural warm paper, graphite ink | Light |
 
-Accent and status colors stay consistent across themes — each protocol (SSH, Telnet, serial, local) keeps its own color, so you can tell connection types apart at a glance.
+Accent and status colors stay consistent across themes — each protocol (SSH, Telnet, serial, local PTY) keeps its own color, so you can tell connection types apart at a glance.
 
 ### Custom
 
@@ -523,7 +469,9 @@ Default `~/Downloads/LyShell/`. Change in settings; enable "auto-create server s
 
 ## 📄 License
 
-MIT © liangyou
+LyShell is free to download and use, but the source code is not yet open. **Reverse engineering and redistribution of the binary are not permitted** without prior permission. See [LICENSE](LICENSE).
+
+© 2026 liangyou. All rights reserved.
 
 ---
 

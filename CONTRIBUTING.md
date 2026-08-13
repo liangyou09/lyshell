@@ -1,8 +1,8 @@
 # Contributing
 
-> Thanks for considering contributing to LyShell! This repository is the **user-facing release repo** — it hosts the README, example plugins, and documentation. Application source code lives in a separate repository.
+> Thanks for considering contributing to LyShell! This repository is the **user-facing release repo** — it hosts the README, example plugins, and documentation. Application source code is not yet open.
 >
-> 感谢你考虑为 LyShell 贡献。这个仓库是**面向用户的发布仓**，承载 README、示例插件与文档；应用源码在单独的仓库维护。
+> 感谢你考虑为 LyShell 贡献。这个仓库是**面向用户的发布仓**，承载 README、示例插件与文档；应用源码暂不开放。
 
 ## What you can contribute here · 你能在这里贡献什么
 
@@ -13,8 +13,8 @@
 ## Documentation conventions · 文档风格约定
 
 - 面向**最终用户**：不出现源码路径、构建命令或开发者内部术语。*End-user oriented: no source paths, build commands, or internal jargon.*
-- 双语同步：对 `README.md` 的改动须同步到 `README.zh.md`。*Keep both languages in sync.*
-- 截图：优先用 `docs/assets/` 下的 `.jpg`，宽度统一 `90%`。*Use `.jpg` under `docs/assets/`, width `90%`.*
+- 双语同步：对 `README.md` 的改动须同步到 `README.zh.md`；`examples/README.md` 同样保持中英双语。*Keep both languages in sync — `README.md` ↔ `README.zh.md`, and `examples/README.md` stays bilingual too.*
+- 截图：优先用 `docs/assets/` 下的 `.jpg`，宽度统一 `90%`（浮窗截图用 `70%`）。*Use `.jpg` under `docs/assets/`, width `90%` (float-window screenshots use `70%`).*
 
 ## Opening a PR · 提交一个 PR
 

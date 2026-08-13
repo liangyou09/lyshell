@@ -22,4 +22,13 @@ LyShell Python **oneshot** 插件模板。manifest 声明 `lifecycle: oneshot`,*
 
 ## 可用 lyshell 方法
 
-见主仓库(LyShell 源码)的插件开发指南。
+| capability | 工具 |
+|---|---|
+| `read` | list_sessions · read_output · read_session_notes · list_files · read_file · stat_file · wait_for_prompt · tail_until |
+| `interactiveWrite` | send_input · send_and_wait |
+| `execute` / `localExecute` | execute_command · run_on_sessions |
+| `fileWrite` | download_file · upload_file |
+| `sessionControl` | reconnect_session · close_session · create_session · open_connection_dialog |
+| `sessionMetadataWrite` | write_session_notes |
+
+`tools/list` 会返回全部工具名 + inputSchema；调用未声明 capability 的工具会被服务端 403。
