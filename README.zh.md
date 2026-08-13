@@ -523,7 +523,7 @@ LyShell 可以作为 MCP 服务端，让 Claude Code 等外部 AI 客户端通�
 
 ## 📄 许可证
 
-MIT © LyShell Team
+MIT © liangyou
 
 ---
 

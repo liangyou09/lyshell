@@ -523,7 +523,7 @@ Default `~/Downloads/LyShell/`. Change in settings; enable "auto-create server s
 
 ## 📄 License
 
-MIT © LyShell Team
+MIT © liangyou
 
 ---
 
