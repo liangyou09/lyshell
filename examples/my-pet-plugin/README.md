@@ -32,11 +32,11 @@
 ## 安装
 
 1. 把 `pet/main.ts` 编译成 `pet/main.js`(桌宠自己的构建;需 `electron` + `@modelcontextprotocol/sdk` 依赖)。或把 `main.js` 里的 `petExe` 改成你自己的桌宠入口。
-2. `npm run dev` 起 LyShell
+2. 启动 LyShell 应用
 3. 设置 -> 插件 -> 添加 dev 插件 -> 选本文件夹
 4. 勾 `read` + `interactiveWrite`(manifest 已声明)
 5. 勾「安装即启用」
-6. 桌宠窗口起来;dev 终端看 `[my-pet-plugin]` / `[pet]` 日志
+6. 桌宠窗口起来;查看 `[my-pet-plugin]` / `[pet]` 日志
 
 ## 改哪里
 

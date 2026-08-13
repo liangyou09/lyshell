@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/LyShell-v2.0.0-0078D4?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/LyShell-v1.0.2-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-MIT-yellow?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
@@ -11,11 +11,10 @@
 
 **简体中文** | [English](README.md)
 
-[📖 使用指南](#-使用指南) · [📥 安装](#-安装) · [✨ 功能特性](#-功能特性) · [🔌 连接类型](#-连接类型) · [🖥️ 终端](#️-终端) · [📂 文件管理](#-文件管理) · [🤖 AI Agent](#-ai-agent)<br>[🧩 插件](#-插件系统) · [🐍 Python](#-python-脚本) · [🔗 MCP](#-mcp-集成) · [🎨 主题](#-主题) · [⌨️ 快捷键](#️-快捷键) · [❓ FAQ](#-常见问题)
+[📖 使用指南](#-使用指南) · [📥 安装](#-安装) · [✨ 功能特性](#-功能特性) · [🔌 连接类型](#-连接类型) · [🖥️ 终端](#-终端) · [📂 文件管理](#-文件管理) · [🤖 AI Agent](#-ai-agent)<br>[🧩 插件](#-插件系统) · [🐍 Python](#-python-脚本) · [🔗 MCP](#-mcp-集成) · [🎨 主题](#-主题) · [⌨️ 快捷键](#-快捷键) · [❓ FAQ](#-常见问题)
 
 ---
 
-<!-- 📸 占位：产品主截图（全窗口：终端+侧边栏+快捷命令栏+分屏效果） -->
 <p align="center">
   <img src="docs/assets/screenshot-main.jpg" alt="LyShell 主界面" width="90%">
 </p>
@@ -100,7 +99,6 @@
 
 `Ctrl+Alt+F` 呼出浮窗 → 搜索 → 回车即连，任何应用中有效。
 
-<!-- 📸 占位：浮窗截图（悬浮窗 + 搜索过滤 + 会话列表） -->
 <p align="center">
   <img src="docs/assets/screenshot-float-window.jpg" alt="浮窗快速连接" width="70%">
 </p>
@@ -109,7 +107,6 @@
 
 #### 🖥️ 多机监控（分屏）
 
-<!-- 📸 占位：分屏效果截图（多标签 + 不同服务器 + 分屏布局） -->
 <p align="center">
   <img src="docs/assets/screenshot-split-panes.jpg" alt="分屏多机监控" width="90%">
 </p>
@@ -130,7 +127,6 @@
 
 为不同服务器角色创建独立分组（"Web 层"、"数据库层"……），每组最多 12 条命令，共 5 组。
 
-<!-- 📸 占位：快捷命令栏截图（底部命令栏 + 分组下拉 + 悬停效果） -->
 <p align="center">
   <img src="docs/assets/screenshot-quick-commands.jpg" alt="快捷命令栏" width="90%">
 </p>
@@ -187,6 +183,8 @@ for s in sessions:
 | 平台 | 格式 | 架构 |
 |------|------|------|
 | 🪟 Windows | 便携版 (.exe) — 下载即用 | x64 |
+
+**系统要求**：Windows 10 或 Windows 11，64 位（x64）。
 
 > 🚧 目前**仅提供 Windows 版本**，macOS / Linux 暂未发布。
 
@@ -284,7 +282,6 @@ GPU 加速渲染，完整 ANSI 序列 + 256 色。
 
 侧边栏嵌入，仅 SSH 可用。独立 SSH 连接，不阻塞终端。
 
-<!-- 📸 占位：文件管理器截图（文件树 + 下载进度 + 右键菜单） -->
 <p align="center">
   <img src="docs/assets/screenshot-file-manager.jpg" alt="文件管理器" width="90%">
 </p>
@@ -306,7 +303,6 @@ GPU 加速渲染，完整 ANSI 序列 + 256 色。
 
 LyShell 是一个**干净的、与 Agent 无关的终端** — 不绑定任何特定 AI 工具。启动你正在用的任意 CLI Agent，它就像普通会话一样运行在标准终端里：回滚、分屏、输入法支持一视同仁。
 
-<!-- 📸 占位：Agent 快速启动栏截图（侧边栏 + Agent 按钮 + 终端中运行的 Claude Code） -->
 <p align="center">
   <img src="docs/assets/screenshot-agents.jpg" alt="AI Agent 启动栏" width="90%">
 </p>
@@ -339,7 +335,6 @@ Agent 会话为**瞬态** — 关闭标签即消失，不残留。
 
 权限门控的插件宿主。每个插件以独立的授权范围运行。
 
-<!-- 📸 占位：插件管理界面（插件列表 + 能力开关 + 安装/卸载操作） -->
 <p align="center">
   <img src="docs/assets/screenshot-plugins.jpg" alt="插件管理" width="90%">
 </p>
@@ -356,6 +351,8 @@ Agent 会话为**瞬态** — 关闭标签即消失，不残留。
 **安全模型**：每个插件独立授权，每次请求都按细粒度权限（读取 / 写入 / 执行 / 文件 / 会话控制）服务端校验。多层防护：路径安全、破坏性命令确认、共享终端锁定。
 
 插件可列表/读取/交互会话、执行命令、访问文件管理器、启动受控进程。
+
+> ⚠️ **当前范围** — 插件目前按启动事件（`onStartup`）激活；按命令/连接类型事件激活、以及声明式 UI 贡献尚未接通。
 
 📦 **开箱即用的示例** — 见 [`examples/`](examples/)，含最小可跑的 Python 与 Node.js 插件 demo。
 
@@ -403,7 +400,10 @@ LyShell 可以作为 MCP 服务端，让 Claude Code 等外部 AI 客户端通�
 | `read_file` / `stat_file` / `list_files` | `read` | 远程文件检查，支持递归和通配符 |
 | `create_session` | `sessionControl` | 创建/复用会话，同 target 自动去重 |
 | `reconnect_session` | `sessionControl` | 重连断开连接 |
-| `read/write_session_notes` | `read` / `sessionControl` | 管理摘要、说明和标签 |
+| `close_session` | `sessionControl` | 断开连接但不删除已保存会话 |
+| `open_connection_dialog` | `sessionControl` | 打开新建连接对话框，供用户手动填写 |
+| `read_session_notes` | `read` | 读取会话摘要、说明、标签 |
+| `write_session_notes` | `sessionMetadataWrite` | 更新摘要、说明、标签 |
 | `wait_for_prompt` | `read` | 等待 Shell 提示符或正则 |
 | `tail_until` | `read` | 轮询直到匹配 |
 
@@ -417,7 +417,6 @@ LyShell 可以作为 MCP 服务端，让 Claude Code 等外部 AI 客户端通�
 
 > ⚠️ 全屏 TUI（vim、htop、less）不支持 MCP 操作 — ANSI 剥离后交替屏幕为乱码，请用 LyShell 界面原生终端。
 
-<!-- 📸 占位：MCP 审计面板截图（活动日志 + 日历选择器 + 过滤） -->
 <p align="center">
   <img src="docs/assets/screenshot-mcp-audit.jpg" alt="MCP 审计面板" width="90%">
 </p>
@@ -444,7 +443,6 @@ LyShell 可以作为 MCP 服务端，让 Claude Code 等外部 AI 客户端通�
 
 选取背景色和强调色，LyShell 自动生成一整套和谐配色 — 明暗模式也会自动判断。
 
-<!-- 📸 占位：主题对比截图（预设色卡 + 自定义取色器） -->
 <p align="center">
   <img src="docs/assets/screenshot-theme-comparison.jpg" alt="主题预设与自定义取色器" width="90%">
 </p>
@@ -532,5 +530,7 @@ MIT © LyShell Team
 <p align="center">
   <a href="https://github.com/liangyou09/lyshell_release">GitHub</a> ·
   <a href="https://github.com/liangyou09/lyshell_release/issues">Issues</a> ·
-  <a href="https://github.com/liangyou09/lyshell_release/releases">Releases</a>
+  <a href="https://github.com/liangyou09/lyshell_release/releases">Releases</a> ·
+  <a href="CHANGELOG.md">更新日志</a> ·
+  <a href="CONTRIBUTING.md">参与贡献</a>
 </p>

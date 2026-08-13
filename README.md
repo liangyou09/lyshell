@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/LyShell-v2.0.0-0078D4?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/LyShell-v1.0.2-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-MIT-yellow?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
@@ -11,11 +11,10 @@
 
 **English** | [简体中文](README.zh.md)
 
-[📖 Usage Guide](#-usage-guide) · [📥 Install](#-install) · [✨ Features](#-features) · [🔌 Connections](#-connection-types) · [🖥️ Terminal](#️-terminal) · [📂 Files](#-file-manager) · [🤖 Agents](#-ai-agents)<br>[🧩 Plugins](#-plugin-system) · [🐍 Python](#-python-scripting) · [🔗 MCP](#-mcp-integration) · [🎨 Themes](#-themes) · [⌨️ Shortcuts](#️-keyboard-shortcuts) · [❓ FAQ](#-faq)
+[📖 Usage Guide](#-usage-guide) · [📥 Install](#-install) · [✨ Features](#-features) · [🔌 Connections](#-connection-types) · [🖥️ Terminal](#-terminal) · [📂 Files](#-file-manager) · [🤖 Agents](#-ai-agents)<br>[🧩 Plugins](#-plugin-system) · [🐍 Python](#-python-scripting) · [🔗 MCP](#-mcp-integration) · [🎨 Themes](#-themes) · [⌨️ Shortcuts](#-keyboard-shortcuts) · [❓ FAQ](#-faq)
 
 ---
 
-<!-- 📸 placeholder: LyShell main screenshot (full window: terminal + sidebar + quick commands bar + split panes) -->
 <p align="center">
   <img src="docs/assets/screenshot-main.jpg" alt="LyShell main interface" width="90%">
 </p>
@@ -100,7 +99,6 @@ Edit the session to add startup commands — one per line. Auto-executed after l
 
 `Ctrl+Alt+F` from any app → search → Enter to connect.
 
-<!-- 📸 placeholder: float window (popup window + search filter + session list) -->
 <p align="center">
   <img src="docs/assets/screenshot-float-window.jpg" alt="Float window quick connect" width="70%">
 </p>
@@ -109,7 +107,6 @@ Edit the session to add startup commands — one per line. Auto-executed after l
 
 #### 🖥️ Multi-Server Monitoring (Split Panes)
 
-<!-- 📸 placeholder: split panes layout (multi-tab + different servers + split layout) -->
 <p align="center">
   <img src="docs/assets/screenshot-split-panes.jpg" alt="Split panes multi-server monitoring" width="90%">
 </p>
@@ -130,7 +127,6 @@ Layout auto-saved, restored on restart.
 
 Create groups per server role ("Web Tier", "DB Tier"...), up to 12 commands × 5 groups.
 
-<!-- 📸 placeholder: quick commands bar (bottom bar + group dropdown + hover effect) -->
 <p align="center">
   <img src="docs/assets/screenshot-quick-commands.jpg" alt="Quick commands bar" width="90%">
 </p>
@@ -187,6 +183,8 @@ Download the latest build from [Releases](https://github.com/liangyou09/lyshell_
 | Platform | Format | Architecture |
 |----------|--------|--------------|
 | 🪟 Windows | Portable (.exe) — download and run | x64 |
+
+**System requirements**: Windows 10 or Windows 11, 64-bit (x64).
 
 > 🚧 Currently **Windows only** — macOS and Linux builds are not yet available.
 
@@ -284,7 +282,6 @@ Title bar ⚙ → split into **Terminal** / **MCP** tabs:
 
 Sidebar panel, SSH only. Independent connection — never blocks the terminal.
 
-<!-- 📸 placeholder: file manager (file tree + download progress + right-click menu) -->
 <p align="center">
   <img src="docs/assets/screenshot-file-manager.jpg" alt="File manager" width="90%">
 </p>
@@ -306,7 +303,6 @@ Download settings → default `~/Downloads/LyShell/`; enable "auto-create server
 
 LyShell is a **clean, agent-agnostic terminal** — it doesn't lock you to any particular AI tool. Just launch whatever CLI agent you use and it runs in a regular terminal like any other session: scrollback, split panes, and IME support all work the same.
 
-<!-- 📸 placeholder: AI agent quick-launch bar (sidebar + agent buttons + Claude Code running in terminal) -->
 <p align="center">
   <img src="docs/assets/screenshot-agents.jpg" alt="AI Agent launcher" width="90%">
 </p>
@@ -339,7 +335,6 @@ Agent sessions are transient — close tab, gone from list.
 
 Permission-gated plugin host. Each plugin runs with its own scoped authorization.
 
-<!-- 📸 placeholder: plugin management UI (plugin list + capability toggles + install/uninstall) -->
 <p align="center">
   <img src="docs/assets/screenshot-plugins.jpg" alt="Plugin manager" width="90%">
 </p>
@@ -356,6 +351,8 @@ Plugins are written in two runtimes:
 **Security**: Each plugin runs with its own scoped authorization, and every request is checked against granular permissions (read / write / execute / file / session control). Layered safeguards include path safety, destructive-command confirmation, and shared-terminal locking.
 
 Plugins can list and interact with sessions, run commands, access the file manager, and start controlled processes.
+
+> ⚠️ **Current scope** — plugins activate on startup (`onStartup`) today. Activation on command or connection-type events, and declarative UI contributions, are not wired up yet.
 
 📦 **Ready-to-run examples** — see [`examples/`](examples/) for minimal Python and Node.js plugin demos.
 
@@ -403,7 +400,10 @@ LyShell serves as an MCP server, letting external AI clients like Claude Code co
 | `read_file` / `stat_file` / `list_files` | `read` | Remote file inspection, recursive + glob |
 | `create_session` | `sessionControl` | Create/reuse saved session, auto-dedup by target |
 | `reconnect_session` | `sessionControl` | Reconnect dropped connection |
-| `read/write_session_notes` | `read` / `sessionControl` | Manage summary, notes, tags |
+| `close_session` | `sessionControl` | Disconnect without deleting the saved session |
+| `open_connection_dialog` | `sessionControl` | Open the new-connection dialog for user input |
+| `read_session_notes` | `read` | Read session summary, notes, tags |
+| `write_session_notes` | `sessionMetadataWrite` | Update summary, notes, tags |
 | `wait_for_prompt` | `read` | Wait for shell prompt or regex |
 | `tail_until` | `read` | Poll output until pattern matches |
 
@@ -417,7 +417,6 @@ LyShell serves as an MCP server, letting external AI clients like Claude Code co
 
 > ⚠️ Full-screen TUI apps (vim, htop, less) are not supported over MCP — ANSI stripping garbles alternate-screen sequences. Use the LyShell UI native terminal instead.
 
-<!-- 📸 placeholder: MCP audit panel (activity log + calendar picker + filter) -->
 <p align="center">
   <img src="docs/assets/screenshot-mcp-audit.jpg" alt="MCP audit panel" width="90%">
 </p>
@@ -444,7 +443,6 @@ Accent and status colors stay consistent across themes — each protocol (SSH, T
 
 Pick a background and an accent color, and LyShell automatically builds a complete, harmonious theme from them — light vs dark is detected for you.
 
-<!-- 📸 placeholder: theme comparison (preset swatches + custom color picker) -->
 <p align="center">
   <img src="docs/assets/screenshot-theme-comparison.jpg" alt="Theme presets and custom color picker" width="90%">
 </p>
@@ -532,5 +530,7 @@ MIT © LyShell Team
 <p align="center">
   <a href="https://github.com/liangyou09/lyshell_release">GitHub</a> ·
   <a href="https://github.com/liangyou09/lyshell_release/issues">Issues</a> ·
-  <a href="https://github.com/liangyou09/lyshell_release/releases">Releases</a>
+  <a href="https://github.com/liangyou09/lyshell_release/releases">Releases</a> ·
+  <a href="CHANGELOG.md">Changelog</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a>
 </p>

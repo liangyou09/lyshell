@@ -4,7 +4,7 @@ LyShell 示例插件：在终端用 Braille 点阵播放「铁山靠」/「打�
 
 ## 运行方式
 
-1. 将本目录复制到 LyShell 插件目录（开发时可直接在 `examples/plugins/braille-zongzhu`）。
+1. 将本目录复制到 LyShell 插件目录（本仓库中可直接在 `examples/braille-zongzhu` 选择）。
 2. 在 LyShell 中启用 `braille-zongzhu` 插件。
 3. 插件会在 `onStartup` 时自动在所有「停在 shell 提示符」的已连接 SSH 会话上播放动画。
 

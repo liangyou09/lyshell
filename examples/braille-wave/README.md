@@ -15,7 +15,7 @@
 
 ## 安装
 
-1. 左侧机柜 -> Plugins ->「+ dev」选 `examples/plugins/braille-wave/`。
+1. 左侧机柜 -> Plugins ->「+ dev」选 `examples/braille-wave/`。
 2. 权限确认卡显示两项 capability:`read` / `interactiveWrite`,确认安装。
    - 不想开机自放:取消「启用即开」,要看时再启用。
 

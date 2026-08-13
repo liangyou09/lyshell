@@ -24,7 +24,7 @@ POV 视角:一只红色拳套 + 前臂悬在身前(收势位),按组合拳节奏
 
 ## 安装与触发
 
-1. Plugins ->「+ dev」选 `examples/plugins/braille-punch/`。
+1. Plugins ->「+ dev」选 `examples/braille-punch/`。
 2. 确认 `read`/`interactiveWrite` 两项权限,安装。
 3. 连一个 SSH 会话(停在提示符),勾启用 -> 远程终端里放 18s 出拳动画,自动还原。
 

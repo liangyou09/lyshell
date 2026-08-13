@@ -16,10 +16,10 @@ LyShell **Node** 插件 demo。`onStartup` 激活时巡检会话状态,并起 30
 ## 安装(dev 文件夹)
 
 1. LyShell -> 设置 -> 插件 -> **添加 dev 插件**
-2. 选本文件夹(`examples/plugins/my-node-plugin`)
+2. 选本文件夹(`examples/my-node-plugin`)
 3. 勾 `read`(已在 manifest 声明)
 4. 勾 **安装即启用**
-5. 看日志:dev 跑 `npm run dev` 的终端,`[my-node-plugin] activated ...`,之后每 30s 一条 snapshot
+5. 查看插件日志:`[my-node-plugin] activated ...`,之后每 30s 一条 snapshot
 
 ## 改哪里
 
