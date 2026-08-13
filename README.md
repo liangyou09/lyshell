@@ -181,7 +181,7 @@ Right-click the quick commands bar → **Edit Group** → add commands like `tai
 | 🔌 **Serial** | COM port, baud `115200` (9600–921600), 8N1 | Auto-detects ports |
 | 💻 **Local PTY** | cmd.exe / PowerShell | Configurable working directory + env |
 
-**Terminal**: GPU-accelerated rendering, full ANSI + 256 colors. Scrollback up to 100,000 lines. Split panes (horizontal/vertical), drag-to-split. Tab status: 🟢 Connected · 🔴 Error · ⚪ Disconnected · 🔵 New output.
+**Terminal**: GPU-accelerated rendering, full ANSI + 256 colors. Scrollback up to 100,000 lines. Split panes (horizontal/vertical), drag-to-split. Quick commands bar `Ctrl+F1–F12`. Tab status: 🟢 Connected · 🔴 Error · ⚪ Disconnected · 🔵 New output.
 
 ---
 
@@ -193,7 +193,7 @@ Right-click the quick commands bar → **Edit Group** → add commands like `tai
 |-------|-------|------|
 | **Graphite** | Deep graphite + tungsten amber (default) | Dark |
 | **Slate** | Blue-tinted slate, amber accent | Dark |
-| **Carbon** | Neutral charcoal | Dark |
+| **Carbon** | Neutral charcoal, no blue cast | Dark |
 | **Ember** | Warm walnut brown + warm amber | Dark |
 | **Paper** | Natural warm paper, graphite ink | Light |
 
