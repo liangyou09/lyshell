@@ -67,14 +67,14 @@
 | **File Panel** | SSH remote file browser — drag to upload, double-click to download |
 | **Terminal Area** | Main canvas — split panes, tabs, drag-to-split, in-terminal search |
 | **Quick Commands Bar** | Configurable buttons — click to run, `Ctrl+F1–F12` to trigger |
-| **Status Bar** | Terminal dims (click to toggle), connection state, encoding |
+| **Status Bar** | Cols×Rows (click to clear screen), scrollback lines (click to bottom / double-click to clear), connection state, encoding |
 | **Title Bar** | ⚙ Settings, 📊 MCP Audit Panel, float window toggle |
 
 ### First Launch
 
 #### 1️⃣ Create Your First SSH Session
 
-1. Click the **+** button at the top of the session list, or press `Ctrl+Alt+F`
+1. Click the **+** button at the top of the session list to create a new connection
 2. Choose **SSH**, fill in:
 
 | Parameter | Description | Default |
@@ -177,17 +177,17 @@ Activity Rail → Python panel → paste/load → execute. Drives the terminal a
 - Select text → auto-copy | Right-click → paste | Middle-click → search bar
 - `Ctrl+F` → in-terminal search (regex, case-sensitive, cross-tab)
 - Encoding issues → edit session, switch UTF-8 / GBK / GB2312
-- Status bar click → toggle cols×rows display
+- Status bar click → Cols×Rows clears screen (`Ctrl+L`), Lines scrolls to bottom (double-click to clear scrollback)
 
 ---
 
 ## 📥 Install
 
-Download the latest installer from [Releases](https://github.com/liangyou09/lyshell_release/releases). Auto-update supported.
+Download the latest build from [Releases](https://github.com/liangyou09/lyshell_release/releases). **No installation needed** — the portable build runs straight after download, nothing to install.
 
 | Platform | Format | Architecture |
 |----------|--------|--------------|
-| 🪟 Windows | NSIS installer (.exe) + portable | x64 |
+| 🪟 Windows | Portable (.exe) — download and run | x64 |
 
 ---
 
@@ -199,7 +199,7 @@ Download the latest installer from [Releases](https://github.com/liangyou09/lysh
 | 🪟 **Split panes** | Horizontal/vertical splits, drag-to-split, tab swapping, layout persistence |
 | ⌨️ **Quick commands** | Grouped bar, right-click to edit, `Ctrl+F1–F12` keybindings |
 | 📂 **File manager** | SFTP/SSH browser, drag-drop upload, double-click download, MD5 checksum |
-| 🤖 **AI Agents** | One-click Claude Code, Aider, Copilot CLI + custom agents |
+| 🤖 **AI Agents** | Agent-agnostic terminal — run Claude Code, Aider, Copilot CLI, or any custom CLI |
 | 🧩 **Plugin system** | Capability-gated host, per-plugin tokens, dev/ZIP/URL install |
 | 🐍 **Python engine** | Embedded scripting with `LyShell` terminal automation API |
 | 🔗 **MCP API** | Full MCP server (stdio + HTTP), audit log + per-session tokens |
@@ -303,7 +303,7 @@ Download settings → default `~/Downloads/LyShell/`; enable "auto-create server
 
 ## 🤖 AI Agents
 
-Sidebar quick-launch bar for AI coding tools.
+LyShell is a **clean, agent-agnostic terminal** — it doesn't lock you to any particular AI tool. Just launch whatever CLI agent you use and it runs in a regular PTY like any other session: full xterm.js rendering, scrollback, split panes, and IME support all work the same.
 
 <!-- 📸 placeholder: AI agent quick-launch bar (sidebar + agent buttons + Claude Code running in terminal) -->
 <p align="center">
@@ -319,6 +319,8 @@ Sidebar quick-launch bar for AI coding tools.
 | 🐙 Copilot CLI | `gh copilot` |
 
 ### Custom Agents
+
+Any CLI tool can be registered as an agent — the launch bar just runs its shell command:
 
 | Field | Description |
 |-------|-------------|

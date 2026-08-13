@@ -67,14 +67,14 @@
 | **文件面板** | SSH 远程文件浏览 — 拖拽上传、双击下载、右键操作 |
 | **终端区域** | 主终端画布 — 分屏、多标签、拖拽拆分、终端内搜索 |
 | **快捷命令栏** | 底部可配置快捷键 — 点击执行，`Ctrl+F1–F12` 触发 |
-| **状态栏** | 终端尺寸列×行（点击切换）、连接状态、编码指示 |
+| **状态栏** | 列×行（点击清屏）、回滚行数（单击滚回底部 / 双击清空 scrollback）、连接状态、编码指示 |
 | **标题栏** | ⚙ 设置面板，📊 MCP 审计面板，浮窗切换 |
 
 ### 首次使用
 
 #### 1️⃣ 创建第一个 SSH 会话
 
-1. 点击会话列表顶部的 **+** 按钮，或按 `Ctrl+Alt+F` 打开浮窗
+1. 点击会话列表顶部的 **+** 按钮创建新连接
 2. 选择 **SSH** 连接类型，填写参数：
 
 | 参数 | 说明 | 默认值 |
@@ -177,17 +177,17 @@ for s in sessions:
 - 选中文本 → 自动复制 | 右键 → 粘贴 | 鼠标中键 → 搜索栏
 - `Ctrl+F` → 终端内搜索（正则、区分大小写、跨标签搜索）
 - 中文乱码 → 编辑会话，UTF-8 / GBK / GB2312 切换
-- 状态栏点击 → 切换显示列×行
+- 状态栏点击 → 列×行清屏（`Ctrl+L`），行数滚回底部（双击清空 scrollback）
 
 ---
 
 ## 📥 安装
 
-从 [Releases](https://github.com/liangyou09/lyshell_release/releases) 下载最新安装包。支持自动更新。
+从 [Releases](https://github.com/liangyou09/lyshell_release/releases) 下载最新版本。**免安装** — 便携版下载即用，无需安装。
 
 | 平台 | 格式 | 架构 |
 |------|------|------|
-| 🪟 Windows | NSIS 安装包 (.exe) + 便携版 | x64 |
+| 🪟 Windows | 便携版 (.exe) — 下载即用 | x64 |
 
 ---
 
@@ -199,7 +199,7 @@ for s in sessions:
 | 🪟 **分屏终端** | 水平/垂直分屏，拖拽拆分、标签交换，布局自动持久化 |
 | ⌨️ **快捷命令** | 分组管理，右键编辑，`Ctrl+F1–F12` 一键触发 |
 | 📂 **文件管理** | SFTP/SSH 浏览，拖拽上传，双击下载，MD5 校验 |
-| 🤖 **AI Agent** | 一键启动 Claude Code、Aider、Copilot CLI，支持自定义 |
+| 🤖 **AI Agent** | 与 Agent 无关的干净终端 — Claude Code、Aider、Copilot CLI 或任意自定义 CLI 都能跑 |
 | 🧩 **插件系统** | 能力门控，独立 Token，开发/ZIP/URL 安装 |
 | 🐍 **Python 引擎** | 内置执行引擎，`LyShell` API 驱动终端自动化 |
 | 🔗 **MCP API** | 完整 MCP 服务端（stdio + HTTP），审计日志 + 会话级 Token |
@@ -303,7 +303,7 @@ xterm.js 5.5 + WebGL GPU 加速渲染，完整 ANSI 序列 + 256 色。
 
 ## 🤖 AI Agent
 
-侧边栏搜索框下方，一键启动 AI 编程工具。
+LyShell 是一个**干净的、与 Agent 无关的终端** — 不绑定任何特定 AI 工具。启动你正在用的任意 CLI Agent，它就像普通会话一样运行在标准 PTY 里：完整的 xterm.js 渲染、回滚、分屏、输入法支持一视同仁。
 
 <!-- 📸 占位：Agent 快速启动栏截图（侧边栏 + Agent 按钮 + 终端中运行的 Claude Code） -->
 <p align="center">
@@ -319,6 +319,8 @@ xterm.js 5.5 + WebGL GPU 加速渲染，完整 ANSI 序列 + 256 色。
 | 🐙 Copilot CLI | `gh copilot` |
 
 ### 自定义 Agent
+
+任意 CLI 工具都能注册为 Agent — 启动栏只是执行它的 shell 命令：
 
 | 字段 | 说明 |
 |------|------|
