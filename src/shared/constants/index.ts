@@ -105,8 +105,12 @@ export const DEFAULT_THEME_LIGHT = {
 
 /**
  * 默认字体
+ * 顺序关键：Maple Mono NF CN 排最前 —— 圆角等宽字体，中文严格 2:1 且自带 Nerd Font 图标，
+ * 能让中文/符号在 xterm 的固定列网格里对齐不漂移（见 TerminalView 的 convertEol 与
+ * globals.css 的 .xterm-screen 高度修复，本字体栈解决的是第三条根因：行内宽字符列宽不对齐）。
+ * 未安装 Maple 时依次回退：Cascadia Mono(拉丁,Win11 自带) → Consolas → NSimSun(等宽 CJK 兜底)。
  */
-export const DEFAULT_FONT_FAMILY = "'Lucida Console', 'Consolas', 'Courier New', monospace"
+export const DEFAULT_FONT_FAMILY = "'Maple Mono NF CN', 'Cascadia Mono', 'Consolas', 'NSimSun', 'Courier New', monospace"
 
 /**
  * 默认光标闪烁设置：关闭。减少持续输出时的光标闪烁，用户可在设置面板中手动开启

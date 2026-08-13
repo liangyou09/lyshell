@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { DEFAULT_THEME_DARK, DEFAULT_THEME_LIGHT, DEFAULT_FONT_FAMILY, isCursorBlinkEnabled } from '@shared/constants'
 import { isLightColor } from '@shared/color-utils'
@@ -10,12 +11,12 @@ import { useSessionStore } from '../../stores/session-store'
 import { useThemeStore } from '../../stores/theme-store'
 import { useTranslation } from 'react-i18next'
 import i18n from '../../i18n'
-import { ConnectionStatus } from '@shared/types'
+import { ConnectionStatus, type SessionConfig } from '@shared/types'
 
 // 注意：本组件的 IME 定位逻辑依赖 xterm.js 内部私有 API（_core、_compositionHelper、
 // _textarea、updateCompositionElements、compositionstart）。这些 API 无稳定性承诺，xterm 任何版本
 // 更新都可能改名或移除。已验证版本：@xterm/xterm@5.5.0、@xterm/addon-fit@0.11.0、
-// @xterm/addon-search@0.16.0。package.json 中已把这些包锁定到确切版本；升级前必须
+// @xterm/addon-search@0.16.0、@xterm/addon-unicode11@0.8.0。package.json 中已把这些包锁定到确切版本；升级前必须
 // 人工回归中文 IME 输入。
 
 interface TerminalViewProps {
@@ -51,6 +52,25 @@ function resolveTerminalTheme(): ITheme {
     .trim() || '#0C0C0C'
   const base = isLightColor(bg) ? DEFAULT_THEME_LIGHT : DEFAULT_THEME_DARK
   return { ...base, background: bg }
+}
+
+/**
+ * 取"连接目标"的展示信息：SSH/Telnet 用 host:port，串口用 path@baud。
+ * 旧实现无条件读 sessionConfig.ssh，导致 telnet/serial 连接时误打印 "unknown:22"。
+ */
+function getConnectTarget(
+  config: SessionConfig | undefined
+): { kind: 'host'; host: string; port: number } | { kind: 'serial'; path: string; baudRate?: number } {
+  switch (config?.type) {
+    case 'telnet':
+      return { kind: 'host', host: config.telnet?.host || 'unknown', port: config.telnet?.port || 23 }
+    case 'ssh':
+      return { kind: 'host', host: config.ssh?.host || 'unknown', port: config.ssh?.port || 22 }
+    case 'serial':
+      return { kind: 'serial', path: config.serial?.path || 'unknown', baudRate: config.serial?.baudRate }
+    default:
+      return { kind: 'host', host: 'unknown', port: 22 }
+  }
 }
 
 /**
@@ -299,6 +319,12 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       const searchAddon = new SearchAddon()
       terminal.loadAddon(searchAddon)
 
+      // 加载 Unicode11Addon：按 Unicode 11 计算宽字符/emoji 的列宽，
+      // 让 ✅⏳ 等 emoji 被正确保留 2 列，减少行内宽字符导致的文字漂移。
+      const unicode11Addon = new Unicode11Addon()
+      terminal.loadAddon(unicode11Addon)
+      terminal.unicode.activeVersion = '11'
+
       terminal.open(containerRef.current)
 
       // 注意：此处曾尝试加载 WebglAddon 以提升渲染性能，但会导致
@@ -318,10 +344,12 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       if (sessionConfig?.type === 'local') {
         terminal.writeln(i18n.t('terminal.startingLocal'))
       } else {
-        const sshConfig = sessionConfig?.ssh
-        const host = sshConfig?.host || 'unknown'
-        const port = sshConfig?.port || 22
-        terminal.writeln(i18n.t('terminal.connecting', { host, port }))
+        const target = getConnectTarget(sessionConfig)
+        if (target.kind === 'serial') {
+          terminal.writeln(i18n.t('terminal.connectingSerial', { path: target.path, baudRate: target.baudRate }))
+        } else {
+          terminal.writeln(i18n.t('terminal.connecting', { host: target.host, port: target.port }))
+        }
       }
 
       // 注册到 store
@@ -735,11 +763,14 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
             }
           } else if (data.status === ConnectionStatus.ERROR) {
             // 显示 Xshell 风格的错误信息
-            const sshConfig = sessionConfig?.ssh
-            const host = sshConfig?.host || 'unknown'
-            const port = sshConfig?.port || 22
+            const target = getConnectTarget(sessionConfig)
+            const errorText = data.error || i18n.t('terminal.connectionFailed')
             instance.terminal.writeln('')
-            instance.terminal.writeln(`\x1b[31m${i18n.t('terminal.connectFailed', { host, port, error: data.error || i18n.t('terminal.connectionFailed') })}\x1b[0m`)
+            if (target.kind === 'serial') {
+              instance.terminal.writeln(`\x1b[31m${i18n.t('terminal.connectFailedSerial', { path: target.path, error: errorText })}\x1b[0m`)
+            } else {
+              instance.terminal.writeln(`\x1b[31m${i18n.t('terminal.connectFailed', { host: target.host, port: target.port, error: errorText })}\x1b[0m`)
+            }
             instance.terminal.writeln('')
             instance.terminal.writeln(`\x1b[90m${i18n.t('terminal.helpHint')}\x1b[0m`)
           }

@@ -15,11 +15,23 @@
         margin: 0;
         padding: 0;
       }
+      /* Maple Mono NF CN：打包进 app 的圆角等宽字体，中文严格 2:1 且自带 Nerd Font 图标。
+         scripts/subset-maple-font.py 子集化(去掉生僻字/稀有脚本)后转 woff2,
+         Regular+Bold 合计 ~11.6MB(原 ttf ~41MB)。font-display: swap 避免加载期文字不可见。
+         @font-face 的 family 名必须与 DEFAULT_FONT_FAMILY（@shared/constants）首项一致。 */
       @font-face {
-        font-family: 'Lucida Console';
-        src: url('./fonts/LUCON-2.ttf') format('truetype');
-        font-weight: normal;
+        font-family: 'Maple Mono NF CN';
+        src: url('./fonts/MapleMono-NF-CN-Regular.woff2') format('woff2');
+        font-weight: 400;
         font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'Maple Mono NF CN';
+        src: url('./fonts/MapleMono-NF-CN-Bold.woff2') format('woff2');
+        font-weight: 700;
+        font-style: normal;
+        font-display: swap;
       }
     </style>
   </head>

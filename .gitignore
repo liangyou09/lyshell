@@ -165,3 +165,6 @@ tmp_*
 # Python 字节码缓存
 __pycache__/
 *.pyc
+
+# 字体子集化脚本的本地源字体（scripts/subset-maple-font.py 的默认输入目录，不入库）
+fonts-src/
