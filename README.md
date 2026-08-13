@@ -223,7 +223,7 @@ Right-click the quick commands bar → **Edit Group** → add commands like `tai
 
 JSON files in `%APPDATA%\lyshell\`:
 
-` sessions.json` · `preferences.json` · `quickCommands.json` · `agents.json` · `download-history.json` · `download-config.json` · `mcp-server.json`
+`sessions.json` · `preferences.json` · `quickCommands.json` · `agents.json` · `download-history.json` · `download-config.json` · `mcp-server.json`
 
 AES-256-CBC encrypted export/import for sessions and quick commands.
 
