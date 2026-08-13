@@ -365,7 +365,9 @@
     "buildLabel": "Build: {{date}}",
     "startingLocal": "正在启动本地终端...",
     "connecting": "正在连接 {{host}}:{{port}}...",
+    "connectingSerial": "正在连接串口 {{path}} ({{baudRate}} 波特)...",
     "connectFailed": "无法连接到 '{{host}}' (端口 {{port}}): {{error}}",
+    "connectFailedSerial": "无法连接到串口 '{{path}}': {{error}}",
     "connectionFailed": "连接失败。",
     "helpHint": "输入 `help' 了解如何使用 LyShell 提示符。",
     "search": {

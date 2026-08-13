@@ -368,7 +368,9 @@
     "buildLabel": "Build: {{date}}",
     "startingLocal": "Starting local terminal...",
     "connecting": "Connecting to {{host}}:{{port}}...",
+    "connectingSerial": "Connecting to serial {{path}} ({{baudRate}} baud)...",
     "connectFailed": "Could not connect to '{{host}}' (port {{port}}): {{error}}",
+    "connectFailedSerial": "Could not connect to serial '{{path}}': {{error}}",
     "connectionFailed": "Connection failed.",
     "helpHint": "Type `help' to learn how to use LyShell prompt.",
     "search": {
