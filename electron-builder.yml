@@ -1,6 +1,6 @@
 appId: com.lyshell.app
 productName: LyShell
-copyright: Copyright © 2026 LyShell Team
+copyright: Copyright © 2026 liangyou. All rights reserved.
 
 # node-pty 1.0.0 在 node 24 下无法原生编译(winpty GetCommitHash.bat)。
 # 新机器必须先用 node 18/20 LTS 执行 npm install——postinstall(scripts/postinstall.cjs)
@@ -51,6 +51,7 @@ nsis:
     - zh_CN
     - en_US
   language: 2052
+  license: resources/licenses/LyShell-LICENSE.txt
 
 mac:
   target:
