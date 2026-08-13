@@ -7,330 +7,44 @@
 
 # 💻 LyShell
 
-> 🤖 面向 AI 的 Windows 终端 — 一个快速的多协议终端（SSH / Telnet / 串口 / 本地 PTY），为 AI 与代码驱动而生：MCP 服务端、插件系统、Python 脚本引擎与 AI Agent 启动栏。
+> 🔌 **你的终端，也是 AI 的终端。** LyShell 是一款内置 MCP 服务端的 Windows 终端 — 让 Claude Code 等 AI 客户端直接操控你的 SSH / Telnet / 串口 / 本地 PTY 会话。还集成了 AI Agent 启动栏、插件系统和 Python 脚本引擎。
 
 **简体中文** | [English](README.md)
 
-[✨ 核心亮点](#-核心亮点) · [📖 使用指南](#-使用指南) · [📥 安装](#-安装) · [✨ 功能特性](#-功能特性) · [🔌 连接类型](#-连接类型) · [🖥️ 终端](#-终端) · [📂 文件管理](#-文件管理) · [🤖 AI Agent](#-ai-agent)<br>[🧩 插件](#-插件系统) · [🐍 Python](#-python-脚本) · [🔗 MCP](#-mcp-集成) · [🎨 主题](#-主题) · [⌨️ 快捷键](#-快捷键) · [❓ FAQ](#-常见问题)
-
----
-
-<p align="center">
-  <img src="docs/assets/screenshot-main.jpg" alt="LyShell 主界面" width="90%">
-</p>
+[✨ 核心亮点](#-核心亮点) · [🔗 MCP 集成](#-mcp-集成) · [🤖 AI Agent](#-ai-agent) · [🧩 插件与脚本](#-插件系统--python-脚本) · [🚀 快速上手](#-快速上手) · [❓ 常见问题](#-常见问题)
 
 ---
 
 ## ✨ 核心亮点
 
-底层上 LyShell 是一个快速的多协议终端（SSH / Telnet / 串口 / 本地 PTY）。它真正的不同在于**为 AI 与代码驱动而生**：
-
-- 🔗 **MCP 服务端** — 把终端暴露给 Claude Code 等 AI 客户端，会话级授权 + 审计日志。
-- 🤖 **Agent 无关启动栏** — Claude Code、Aider、Copilot CLI 或任意自定义 CLI，跑在干净终端里。
-- 🧩 **插件系统** — 用 Python 或 Node.js 插件扩展，每个插件在细粒度权限下运行。
-- 🐍 **Python 引擎** — 通过内置 `LyShell` API 编写终端自动化。
-
-详见 [AI Agent](#-ai-agent) · [插件系统](#-插件系统) · [Python](#-python-脚本) · [MCP](#-mcp-集成)。
+| | |
+|---|---|
+| 🔗 **MCP 服务端** — 将终端暴露给 AI 客户端，会话级授权 + 审计日志 | 🤖 **Agent 启动栏** — 一键启动 Claude Code / Aider / Copilot CLI / 任意自定义 CLI |
+| 🧩 **插件系统** — Python + Node.js 插件，细粒度权限隔离 | 🐍 **Python 引擎** — 内置 `LyShell` API 驱动终端自动化 |
 
 ---
 
-## 📖 使用指南
-
-### 界面布局
-
-| 区域 | 功能 |
-|------|------|
-| **活动导航栏** | 切换会话列表、Agent 启动栏、文件管理器、插件管理 |
-| **会话列表** | 点击连接，右键菜单，悬停操作（✏️编辑 📋复制 📌置顶 🗑️删除） |
-| **Agent 快速启动** | 一键启动 Claude Code、Aider、Copilot CLI 及自定义 Agent |
-| **文件面板** | SSH 远程文件浏览 — 拖拽上传、双击下载、右键操作 |
-| **终端区域** | 主终端画布 — 分屏、多标签、拖拽拆分、终端内搜索 |
-| **快捷命令栏** | 底部可配置快捷键 — 点击执行，`Ctrl+F1–F12` 触发 |
-| **状态栏** | 列×行（点击清屏）、回滚行数（单击滚回底部 / 双击清空 scrollback）、连接状态、编码指示 |
-| **标题栏** | ⚙ 设置面板，📊 MCP 审计面板，浮窗切换 |
-
-### 首次使用
-
-#### 1️⃣ 创建第一个 SSH 会话
-
-1. 点击会话列表顶部的 **+** 按钮创建新连接
-2. 选择 **SSH** 连接类型，填写参数：
-
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| 名称 | 便于识别的标签，如"生产环境 Web" | - |
-| 主机 | 服务器 IP 或域名 | - |
-| 端口 | SSH 端口 | `22` |
-| 用户名 | 登录用户名 | - |
-| 密码 / 私钥 | 认证方式 | - |
-| Shell 进入命令 | 登录后逐行执行的命令序列 | - |
-
-其余选项（心跳、超时、编码）在会话编辑器中配置 — 编码相关见 [FAQ](#-常见问题)。
-
-3. 点击 **连接**，终端标签指示灯变为 🟢 绿色
-
-> 💡 **网络设备登录**：需先输入 `shell`、`enable` 才能进入 CLI 的交换机/路由器，在 Shell 进入命令中逐行写入，LyShell 会自动按序发送。
-
-#### 2️⃣ 配置启动命令
-
-编辑会话，在 **启动命令** 文本框中每行一条。连接后自动执行，适用于切换到工作目录、加载环境变量、网络设备自动提权等场景。
-
-#### 3️⃣ 随时快速连接
-
-`Ctrl+Alt+F` 呼出浮窗 → 搜索 → 回车即连，任何应用中有效。
-
 <p align="center">
-  <img src="docs/assets/screenshot-float-window.jpg" alt="浮窗快速连接" width="70%">
+  <img src="docs/assets/screenshot-main.jpg" alt="LyShell 主界面" width="80%">
 </p>
-
-### 日常工作流
-
-#### 🖥️ 多机监控（分屏）
-
-<p align="center">
-  <img src="docs/assets/screenshot-split-panes.jpg" alt="分屏多机监控" width="90%">
-</p>
-
-1. 点击会话打开第一个面板
-2. `Ctrl+Shift+V` 垂直分屏
-3. 点击另一个会话在新面板中打开
-4. `Ctrl+Shift+H` 水平分屏
-5. 拖拽分隔线调整比例
-
-布局自动保存，重启后恢复。
-
-#### ⌨️ 快捷命令看日志
-
-1. 右键快捷命令栏 → **编辑分组**
-2. 为当前分组添加命令：`tail -f /var/log/syslog`、`tail -f /var/log/nginx/access.log`……
-3. 切换服务器标签页，点击命令或按 `Ctrl+F1`/`Ctrl+F2`/`Ctrl+F3` 触发
-
-为不同服务器角色创建独立分组（"Web 层"、"数据库层"……），每组最多 12 条命令，共 5 组。
-
-<p align="center">
-  <img src="docs/assets/screenshot-quick-commands.jpg" alt="快捷命令栏" width="90%">
-</p>
-
-#### 📂 文件传输
-
-- **上传**：桌面拖拽到文件面板
-- **下载**：双击远程文件，或右键 → 下载
-- **进度**：状态栏实时速度与预估时间，下载完成自动 MD5 校验
-- **安全**：SFTP 不可用时走 TCP-over-SSH 隧道，`AllowTcpForwarding` 禁用不会回退明文
-
-#### 🤖 AI Agent 即用
-
-侧边栏点击 Claude Code / Aider / Copilot CLI → 新标签页在当前目录启动 → 用完关闭，不残留于会话列表。
-
-#### 🐍 Python 自动化
-
-```python
-sessions = LyShell.list_sessions(tag="prod-env")
-for s in sessions:
-    LyShell.connect(s.id)
-    LyShell.wait_for("$")
-    LyShell.execute("uptime")
-    LyShell.execute("df -h /")
-```
-
-从活动导航栏打开 Python 面板 → 粘贴/加载 → 执行，自动驱动终端操作。
-
-### 会话管理
-
-| 操作 | 方法 |
-|------|------|
-| 📌 置顶 | 悬停卡片 → 点击 📌 |
-| 📋 克隆会话 | 双击标签左半侧 |
-| ⚡ 克隆通道（免重认证） | 双击标签右半侧（仅 SSH） |
-| 🔍 搜索 | 搜索框输入名称/主机/标签 |
-| ✏️ 编辑 | 右键 → ✏️，或悬停点击 ✏️ |
-| 🗑️ 删除 | 悬停 → 点击 🗑️ |
-
-### 终端技巧
-
-- 选中文本 → 自动复制 | 右键 → 粘贴 | 鼠标中键 → 搜索栏
-- `Ctrl+F` → 终端内搜索（正则、区分大小写、跨标签搜索）
-- 中文乱码 → 编辑会话，UTF-8 / GBK / GB2312 切换
-- **清屏** — 点击右下角状态栏的「列 × 行」指示（发送 `Ctrl+L`，保留回滚）
-- **清回滚** — 点击右下角状态栏的缓冲行数（单击滚回底部，双击清空回滚）
 
 ---
 
 ## 📥 安装
 
-从 [Releases](https://github.com/liangyou09/lyshell_release/releases) 下载最新版本。**免安装** — 便携版下载即用，无需安装。
+从 [Releases](https://github.com/liangyou09/lyshell_release/releases) 下载最新版本 — **免安装**，下载即用。
 
-| 平台 | 格式 | 架构 |
-|------|------|------|
-| 🪟 Windows | 便携版 (.exe) — 下载即用 | x64 |
-
-**系统要求**：Windows 10 或 Windows 11，64 位（x64）。
+| 平台 | 格式 | 架构 | 系统要求 |
+|------|------|------|----------|
+| 🪟 Windows | 便携版 (.exe) | x64 | Windows 10 / 11，64 位 |
 
 > 🚧 目前**仅提供 Windows 版本**，macOS / Linux 暂未发布。
 
 ---
 
-## ✨ 功能特性
-
-| 类别 | 说明 |
-|------|------|
-| 🔗 **MCP 服务端** | 标准 MCP 服务端，审计日志 + 会话级授权 |
-| 🤖 **AI Agent** | 与 Agent 无关的干净终端 — Claude Code、Aider、Copilot CLI 或任意自定义 CLI 都能跑 |
-| 🧩 **插件系统** | 权限门控，支持 Python + Node.js 插件，开发/ZIP/URL 安装 |
-| 🐍 **Python 引擎** | 内置执行引擎，`LyShell` API 驱动终端自动化 |
-| 🔌 **多协议** | SSH、Telnet、串口、本地 PTY — 一个窗口全搞定 |
-| 🪟 **分屏终端** | 水平/垂直分屏，拖拽拆分，布局自动持久化 |
-| ⌨️ **快捷命令** | 分组管理，右键编辑，`Ctrl+F1–F12` 一键触发 |
-| 📂 **文件管理** | SFTP/SSH 浏览，拖拽上传，双击下载，MD5 校验 |
-| 🪟 **浮窗** | `Ctrl+Alt+F` 全局热键，可折叠悬停展开 |
-| 🎨 **主题** | 5 预设 + 自定义颜色，即时切换无需重启 |
-| 🌐 **国际化** | 内置中英双语 |
-| 🔒 **数据安全** | AES-256-CBC 加密导出 |
-| 💾 **窗口记忆** | 大小、位置、分屏布局重启恢复 |
-
----
-
-## 🔌 连接类型
-
-| 类型 | 认证 / 关键参数 | 说明 |
-|------|----------------|------|
-| 🖥️ **SSH** | 密码或私钥；端口 `22` | 登录后命令、心跳；双击标签左半 = 克隆会话（重认证），右半 = 共享通道 |
-| 📟 **Telnet** | 主机 + 端口 `23` | 完整 IAC 协商 |
-| 🔌 **串口** | COM 口，波特率 `115200`（9600–921600），8N1 | 自动检测端口 |
-| 💻 **本地 PTY** | cmd.exe / PowerShell | 可配工作目录 + 环境变量 |
-
----
-
-## 🖥️ 终端
-
-GPU 加速渲染，完整 ANSI 序列 + 256 色。
-
-### 功能速览
-
-| 功能 | 操作 |
-|------|------|
-| 🔍 搜索 | `Ctrl+F` 或鼠标中键，支持正则/区分大小写/跨标签搜索，搜索栏可拖拽 |
-| 📜 回滚 | 1,000 ~ 100,000 行（默认 10,000） |
-| 🔤 编码 | UTF-8 / GBK / GB2312，每会话独立 |
-| 🚀 启动命令 | 连接后自动逐条执行 |
-| 📋 复制粘贴 | 选中即复制，右键粘贴 |
-| ⌨️ 输入法 | CJK 候选框定位修正 |
-| 🔠 字体大小 | 8 ~ 32（默认 16） |
-| ✏️ 光标闪烁 | 默认关闭（性能优先），可开启 |
-
-### 标签状态
-
-🟢 已连接 | 🔴 连接错误 | ⚪ 未连接 | 🔵 非活动标签有新输出
-
----
-
-## 📂 文件管理
-
-侧边栏嵌入，仅 SSH 可用。独立 SSH 连接，不阻塞终端。
-
-<p align="center">
-  <img src="docs/assets/screenshot-file-manager.jpg" alt="文件管理器" width="90%">
-</p>
-
-| 操作 | 说明 |
-|------|------|
-| 📤 上传 | 桌面拖拽到文件面板 |
-| 📥 下载 | 双击远程文件 / 右键下载 |
-| 📋 右键菜单 | 下载、删除、重命名、新建目录 |
-| 🔄 传输 | Worker 线程池并发，实时速度 + 预估时间 |
-| ✅ 校验 | 下载完成自动 MD5 |
-| 📜 历史 | 记录含文件名、大小、路径、MD5，支持重新下载 |
-
-下载目录设置 → 默认 `~/Downloads/LyShell/`，可选"自动创建服务器子目录"归档至 `下载目录/服务器名/`。
-
----
-
-## 🤖 AI Agent
-
-LyShell 是一个**干净的、与 Agent 无关的终端** — 不绑定任何特定 AI 工具。启动你正在用的任意 CLI Agent，它就像普通会话一样运行在标准终端里：回滚、分屏、输入法支持一视同仁。
-
-<p align="center">
-  <img src="docs/assets/screenshot-agents.jpg" alt="AI Agent 启动栏" width="90%">
-</p>
-
-### 预置 Agent
-
-| Agent | 命令 |
-|-------|------|
-| 🧠 Claude Code | `claude` |
-| 🤝 Aider | `aider` |
-| 🐙 Copilot CLI | `gh copilot` |
-
-### 自定义 Agent
-
-任意 CLI 工具都能注册为 Agent — 启动栏只是执行它的 shell 命令：
-
-| 字段 | 说明 |
-|------|------|
-| 名称 | 显示名称 |
-| 命令 | Shell 启动命令 |
-| 图标 | Emoji 选择器 / 品牌图标（按 command 自动匹配） |
-| 工作目录 | 原生目录选择器，ESC 关闭 |
-| 环境变量 | 启动时注入 |
-
-Agent 会话为**瞬态** — 关闭标签即消失，不残留。
-
----
-
-## 🧩 插件系统
-
-权限门控的插件宿主。每个插件以独立的授权范围运行。
-
-<p align="center">
-  <img src="docs/assets/screenshot-plugins.jpg" alt="插件管理" width="90%">
-</p>
-
-插件用两种运行时编写：
-
-| 运行时 | 入口 | 生命周期 | 适用场景 |
-|--------|------|----------|----------|
-| 🐍 Python | `main.py` | 一次性 / 常驻 | 一次性自动化脚本 |
-| 🟢 Node.js | `main.js` | 常驻（共享宿主） | 长驻、定时、事件驱动 |
-
-**安装方式**：本地开发目录 · ZIP 导入 · URL 远程安装
-
-**安全模型**：每个插件独立授权，每次请求都按细粒度权限（读取 / 写入 / 执行 / 文件 / 会话控制）服务端校验。多层防护：路径安全、破坏性命令确认、共享终端锁定。
-
-插件可列表/读取/交互会话、执行命令、访问文件管理器、启动受控进程。
-
-> ⚠️ **当前范围** — 插件目前按启动事件（`onStartup`）激活；按命令/连接类型事件激活、以及声明式 UI 贡献尚未接通。
-
-📦 **开箱即用的示例** — 见 [`examples/`](examples/)，含最小可跑的 Python 与 Node.js 插件 demo。
-
----
-
-## 🐍 Python 脚本
-
-内置 Python 执行引擎，提供 `LyShell` API 驱动终端自动化。
-
-```python
-session = LyShell.get_current_session()
-LyShell.execute("ls -la")
-LyShell.send("hello\n")
-LyShell.wait_for("prompt$")
-```
-
-| 环境变量 | 说明 |
-|----------|------|
-| `LYSHELL_SESSION_ID` | 当前会话 ID |
-| `LYSHELL_SESSION_TYPE` | ssh / telnet / serial / local |
-| `LYSHELL_HOST` | 连接主机 |
-| `LYSHELL_PORT` | 连接端口 |
-
-Python 路径自动检测系统 PATH，可在设置中配置自定义解释器。
-
-> 💡 除内置 Python 面板外，[插件系统](#-插件系统) 还支持 **Node.js** 插件 — 长驻、定时任务的首选。
-
----
-
 ## 🔗 MCP 集成
 
-LyShell 可以作为 MCP 服务端，让 Claude Code 等外部 AI 客户端通过 MCP 协议操控终端。
+**这是 LyShell 最大的不同。** LyShell 可以作为 MCP 服务端，让 Claude Code 等外部 AI 客户端通过 MCP 协议操控终端 — 列出会话、发送命令、读取输出、传输文件、管理连接，一应俱全。
 
 ### 工具列表
 
@@ -364,16 +78,116 @@ LyShell 可以作为 MCP 服务端，让 Claude Code 等外部 AI 客户端通�
 > ⚠️ 全屏 TUI（vim、htop、less）不支持 MCP 操作 — ANSI 剥离后交替屏幕为乱码，请用 LyShell 界面原生终端。
 
 <p align="center">
-  <img src="docs/assets/screenshot-mcp-audit.jpg" alt="MCP 审计面板" width="90%">
+  <img src="docs/assets/screenshot-mcp-audit.jpg" alt="MCP 审计面板" width="80%">
 </p>
+
+---
+
+## 🤖 AI Agent
+
+LyShell 是**与 Agent 无关的终端** — 不绑定任何特定 AI 工具。启动你正在用的任意 CLI Agent，它就像普通会话一样运行在标准终端里：回滚、分屏、输入法支持一视同仁。
+
+| Agent | 命令 |
+|-------|------|
+| 🧠 Claude Code | `claude` |
+| 🤝 Aider | `aider` |
+| 🐙 Copilot CLI | `gh copilot` |
+
+**自定义 Agent**：任意 CLI 工具都能注册 — 名称、命令、图标、工作目录、环境变量。Agent 会话为**瞬态**，关闭标签即消失，不残留。
+
+<p align="center">
+  <img src="docs/assets/screenshot-agents.jpg" alt="AI Agent 启动栏" width="80%">
+</p>
+
+---
+
+## 🧩 插件系统 & Python 脚本
+
+### 插件系统
+
+权限门控的插件宿主，支持 **Python**（一次性 / 常驻）和 **Node.js**（常驻）插件。可从本地目录、ZIP 或远程 URL 安装。每个插件独立授权，按细粒度权限（读取 / 写入 / 执行 / 文件 / 会话控制）服务端校验，含路径安全、破坏性命令确认、共享终端锁定等多层防护。
+
+> ⚠️ 插件目前按启动事件（`onStartup`）激活；按命令/连接类型事件激活、以及声明式 UI 贡献尚未接通。
+
+📦 开箱即用的示例见 [`examples/`](examples/)。
+
+### Python 脚本引擎
+
+内置 Python 执行引擎，提供 `LyShell` API 驱动终端自动化：
+
+```python
+session = LyShell.get_current_session()
+LyShell.execute("ls -la")
+LyShell.send("hello\n")
+LyShell.wait_for("prompt$")
+```
+
+环境变量：`LYSHELL_SESSION_ID` · `LYSHELL_SESSION_TYPE` · `LYSHELL_HOST` · `LYSHELL_PORT`
+
+Python 路径自动检测系统 PATH，可在设置中配置自定义解释器。
+
+> 💡 长驻或定时任务建议使用**Node.js 插件**（通过[插件系统](#-插件系统--python-脚本)），更加适合。
+
+---
+
+## 🚀 快速上手
+
+### 首次连接
+1. 点击会话列表顶部的 **+** → **SSH**
+2. 填写主机、端口、用户名、密码/私钥
+3. 点击 **连接**，标签变为 🟢 绿色
+
+> 💡 网络设备需先 `shell` → `enable` 才能进入 CLI？在 **Shell 进入命令** 中逐行写入，LyShell 会自动按序发送。
+
+### 快速连接
+`Ctrl+Alt+F` 从任何应用呼出浮窗 → 搜索 → 回车即连。
+
+<p align="center">
+  <img src="docs/assets/screenshot-float-window.jpg" alt="浮窗快速连接" width="60%">
+</p>
+
+### 多机监控
+点击会话 → `Ctrl+Shift+V` 垂直分屏 → 点击另一个会话。布局自动保存。
+
+### 文件传输
+- **上传**：桌面拖拽到文件面板
+- **下载**：双击远程文件，或右键 → 下载
+- **安全**：SFTP 或 TCP-over-SSH 隧道，不回退明文
+
+### 快捷命令
+右键快捷命令栏 → **编辑分组** → 添加 `tail -f /var/log/syslog` 等命令。`Ctrl+F1`–`F12` 触发，最多 12 条命令 × 5 组。
+
+### 会话管理
+- 📌 置顶 — 悬停卡片 → 点击 📌
+- 📋 克隆会话 — 双击标签左半侧
+- ⚡ 克隆通道（免重认证） — 双击标签右半侧（仅 SSH）
+- 🔍 搜索 — 搜索框输入名称/主机/标签
+
+### 终端技巧
+- 选中文本 → 自动复制 · 右键粘贴 · 鼠标中键 → 搜索栏
+- `Ctrl+F` → 终端内搜索（正则、区分大小写、跨标签）
+- 中文乱码 → 编辑会话，UTF-8 / GBK / GB2312 切换
+- 点击右下角「列 × 行」→ 清屏
+- 点击缓冲行数 → 滚回底部；双击 → 清空回滚
+
+---
+
+## 🔌 连接类型 & 终端
+
+| 类型 | 关键参数 | 说明 |
+|------|---------|------|
+| 🖥️ **SSH** | 密码或私钥；端口 `22` | 登录后命令、心跳；双击标签克隆 |
+| 📟 **Telnet** | 主机 + 端口 `23` | 完整 IAC 协商 |
+| 🔌 **串口** | COM 口，波特率 `115200`（9600–921600），8N1 | 自动检测端口 |
+| 💻 **本地 PTY** | cmd.exe / PowerShell | 可配工作目录 + 环境变量 |
+
+**终端**：GPU 加速渲染，完整 ANSI + 256 色。回滚最多 100,000 行。分屏（水平/垂直）、拖拽拆分。快捷命令栏 `Ctrl+F1–F12`。标签状态：🟢 已连接 · 🔴 错误 · ⚪ 未连接 · 🔵 新输出。
 
 ---
 
 ## 🎨 主题
 
-5 种预设主题 + 自定义颜色。切换即时生效，整界面一起变 — 终端画布、标签、面板同步切换，无需重启。
-
-### 预设
+5 种预设 + 自定义。即时切换，无需重启。
 
 | 主题 | 风格 | 明/暗 |
 |------|------|-------|
@@ -383,14 +197,10 @@ LyShell 可以作为 MCP 服务端，让 Claude Code 等外部 AI 客户端通�
 | **Ember** | 暖色胡桃木褐 + 暖琥珀 | 暗 |
 | **Paper** | 自然浅纸 · 石墨墨 | 亮 |
 
-强调色与状态色跨主题保持一致 — 每种协议（SSH、Telnet、串口、本地 PTY）都有专属色，一眼就能区分连接类型。
-
-### 自定义
-
-选取背景色和强调色，LyShell 自动生成一整套和谐配色 — 明暗模式也会自动判断。
+**自定义**：选取背景色和强调色，LyShell 自动生成一整套和谐配色。
 
 <p align="center">
-  <img src="docs/assets/screenshot-theme-comparison.jpg" alt="主题预设与自定义取色器" width="90%">
+  <img src="docs/assets/screenshot-theme-comparison.jpg" alt="主题预设与自定义取色器" width="80%">
 </p>
 
 ---
@@ -406,30 +216,16 @@ LyShell 可以作为 MCP 服务端，让 Claude Code 等外部 AI 客户端通�
 | `Ctrl + Shift + V` | 垂直分屏 |
 | 右键 | 粘贴 |
 | 鼠标中键 | 搜索栏 |
-| 双击标签左半侧 | 克隆会话 |
-| 双击标签右半侧 | 克隆通道（SSH） |
 
 ---
 
 ## ⚙️ 配置文件
 
-所有配置以 JSON 存储于用户数据目录：
+JSON 文件存储于 `%APPDATA%\lyshell\`：
 
-| 文件 | 内容 |
-|------|------|
-| `sessions.json` | 会话配置 |
-| `preferences.json` | 用户偏好 |
-| `quickCommands.json` | 快捷命令分组 |
-| `agents.json` | AI Agent 定义 |
-| `download-history.json` | 传输历史 |
-| `download-config.json` | 下载目录设置 |
-| `mcp-server.json` | MCP 授权 |
+`sessions.json` · `preferences.json` · `quickCommands.json` · `agents.json` · `download-history.json` · `download-config.json` · `mcp-server.json`
 
-| 平台 | 路径 |
-|------|------|
-| Windows | `%APPDATA%\lyshell\` |
-
-支持 AES-256-CBC 加密导出会话与快捷命令，导入提供预览确认。
+支持 AES-256-CBC 加密导出/导入会话与快捷命令。
 
 ---
 
@@ -452,7 +248,7 @@ LyShell 可以作为 MCP 服务端，让 Claude Code 等外部 AI 客户端通�
 
 <details>
 <summary><b>如何重置所有配置？</b></summary>
-删除用户数据目录下所有 JSON 文件，重启即恢复默认。
+删除 `%APPDATA%\lyshell\` 下所有 JSON 文件，重启即可。
 </details>
 
 <details>
@@ -462,7 +258,7 @@ LyShell 可以作为 MCP 服务端，让 Claude Code 等外部 AI 客户端通�
 
 <details>
 <summary><b>下载的文件在哪？</b></summary>
-默认 `~/Downloads/LyShell/`，设置中可改目录，开启"自动创建服务器子目录"按服务器名归档。
+默认 `~/Downloads/LyShell/`，可在设置中修改。
 </details>
 
 ---
