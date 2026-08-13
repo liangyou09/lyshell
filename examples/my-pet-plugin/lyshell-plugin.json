@@ -1,0 +1,10 @@
+{
+  "id": "my-pet-plugin",
+  "name": "My Pet Plugin (route 2 demo)",
+  "version": "0.1.0",
+  "engines": { "lyshell": "^1.0" },
+  "runtime": "node",
+  "main": "main.js",
+  "activationEvents": ["onStartup"],
+  "capabilities": ["read", "interactiveWrite"]
+}

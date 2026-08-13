@@ -175,7 +175,8 @@ Activity Rail → Python panel → paste/load → execute. Drives the terminal a
 - Select text → auto-copy | Right-click → paste | Middle-click → search bar
 - `Ctrl+F` → in-terminal search (regex, case-sensitive, cross-tab)
 - Encoding issues → edit session, switch UTF-8 / GBK / GB2312
-- Status bar click → Cols×Rows clears screen (`Ctrl+L`), Lines scrolls to bottom (double-click to clear scrollback)
+- **Clear screen** — click the `cols × rows` indicator in the bottom-right status bar (sends `Ctrl+L`, keeps scrollback)
+- **Clear scrollback** — click the buffer-line counter in the bottom-right status bar (single click scrolls to bottom, double-click clears)
 
 ---
 
@@ -200,7 +201,7 @@ Download the latest build from [Releases](https://github.com/liangyou09/lyshell_
 | ⌨️ **Quick commands** | Grouped bar, right-click to edit, `Ctrl+F1–F12` keybindings |
 | 📂 **File manager** | SFTP/SSH browser, drag-drop upload, double-click download, MD5 checksum |
 | 🤖 **AI Agents** | Agent-agnostic terminal — run Claude Code, Aider, Copilot CLI, or any custom CLI |
-| 🧩 **Plugin system** | Permission-gated host, per-plugin authorization, dev/ZIP/URL install |
+| 🧩 **Plugin system** | Permission-gated host, Python + Node.js plugins, dev/ZIP/URL install |
 | 🐍 **Python engine** | Embedded scripting with `LyShell` terminal automation API |
 | 🔗 **MCP API** | Standard MCP server, audit log + per-session authorization |
 | 🪟 **Float window** | `Ctrl+Alt+F` global hotkey, collapsible hover-to-expand |
@@ -343,11 +344,20 @@ Permission-gated plugin host. Each plugin runs with its own scoped authorization
   <img src="docs/assets/screenshot-plugins.jpg" alt="Plugin manager" width="90%">
 </p>
 
+Plugins are written in two runtimes:
+
+| Runtime | Entry | Lifecycle | Best for |
+|---------|-------|-----------|----------|
+| 🐍 Python | `main.py` | one-shot / persistent | one-off automation scripts |
+| 🟢 Node.js | `main.js` | persistent (shared host) | long-running, timers, event-driven |
+
 **Install methods**: Local dev directory · ZIP import · URL remote install
 
 **Security**: Each plugin runs with its own scoped authorization, and every request is checked against granular permissions (read / write / execute / file / session control). Layered safeguards include path safety, destructive-command confirmation, and shared-terminal locking.
 
 Plugins can list and interact with sessions, run commands, access the file manager, and start controlled processes.
+
+📦 **Ready-to-run examples** — see [`examples/`](examples/) for minimal Python and Node.js plugin demos.
 
 ---
 
@@ -370,6 +380,8 @@ LyShell.wait_for("prompt$")
 | `LYSHELL_PORT` | Connection port |
 
 Python path auto-detected from system PATH, configurable in settings.
+
+> 💡 Besides the built-in Python panel, the [Plugin System](#-plugin-system) also runs **Node.js** plugins — the better choice for long-running or scheduled tasks.
 
 ---
 
