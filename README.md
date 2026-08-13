@@ -11,7 +11,7 @@
 
 **English** | [简体中文](README.zh.md)
 
-[📖 Usage Guide](#-usage-guide) · [📥 Install](#-install) · [✨ Features](#-features) · [🔌 Connections](#-connection-types) · [🖥️ Terminal](#️-terminal) · [📂 Files](#-file-manager) · [🤖 Agents](#-ai-agents) · [🧩 Plugins](#-plugin-system) · [🐍 Python](#-python-scripting) · [🔗 MCP](#-mcp-integration) · [🎨 Themes](#-themes) · [⌨️ Shortcuts](#️-keyboard-shortcuts) · [❓ FAQ](#-faq)
+[📖 Usage Guide](#-usage-guide) · [📥 Install](#-install) · [✨ Features](#-features) · [🔌 Connections](#-connection-types) · [🖥️ Terminal](#️-terminal) · [📂 Files](#-file-manager) · [🤖 Agents](#-ai-agents)<br>[🧩 Plugins](#-plugin-system) · [🐍 Python](#-python-scripting) · [🔗 MCP](#-mcp-integration) · [🎨 Themes](#-themes) · [⌨️ Shortcuts](#️-keyboard-shortcuts) · [❓ FAQ](#-faq)
 
 ---
 
@@ -186,6 +186,8 @@ Download the latest build from [Releases](https://github.com/liangyou09/lyshell_
 | Platform | Format | Architecture |
 |----------|--------|--------------|
 | 🪟 Windows | Portable (.exe) — download and run | x64 |
+
+> 🚧 Currently **Windows only** — macOS and Linux builds are not yet available.
 
 ---
 
