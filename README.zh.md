@@ -2,8 +2,6 @@
   <img src="https://img.shields.io/badge/LyShell-v2.0.0-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-MIT-yellow?style=flat-square" alt="license">
-  <img src="https://img.shields.io/badge/Electron-28-9feaf9?style=flat-square&logo=electron" alt="electron">
-  <img src="https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react" alt="react">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
 </p>
 
@@ -200,12 +198,12 @@ for s in sessions:
 | ⌨️ **快捷命令** | 分组管理，右键编辑，`Ctrl+F1–F12` 一键触发 |
 | 📂 **文件管理** | SFTP/SSH 浏览，拖拽上传，双击下载，MD5 校验 |
 | 🤖 **AI Agent** | 与 Agent 无关的干净终端 — Claude Code、Aider、Copilot CLI 或任意自定义 CLI 都能跑 |
-| 🧩 **插件系统** | 能力门控，独立 Token，开发/ZIP/URL 安装 |
+| 🧩 **插件系统** | 权限门控，插件独立授权，开发/ZIP/URL 安装 |
 | 🐍 **Python 引擎** | 内置执行引擎，`LyShell` API 驱动终端自动化 |
-| 🔗 **MCP API** | 完整 MCP 服务端（stdio + HTTP），审计日志 + 会话级 Token |
+| 🔗 **MCP API** | 标准 MCP 服务端，审计日志 + 会话级授权 |
 | 🪟 **浮窗** | `Ctrl+Alt+F` 全局热键，可折叠悬停展开 |
-| 🌐 **国际化** | i18next 驱动，内置中英双语，新增语言只需 JSON |
-| 🎨 **主题** | 明暗切换，`--terminal-bg` CSS Token，热更新无需重启 |
+| 🌐 **国际化** | 内置中英双语，新增语言只需 JSON |
+| 🎨 **主题** | 5 预设 + 自定义颜色，即时切换无需重启 |
 | 🔒 **数据安全** | AES-256-CBC 加密导出 |
 | 💾 **窗口记忆** | 大小、位置、分屏布局重启恢复 |
 
@@ -215,7 +213,7 @@ for s in sessions:
 
 ### SSH
 
-基于 `ssh2` 库。支持密码/私钥认证、Keepalive、Shell 进入命令（登录后逐条执行）、可配超时。
+支持密码/私钥认证、Keepalive、Shell 进入命令（登录后逐条执行）、可配超时。
 
 **会话克隆**：双击标签左半侧 → 克隆会话（新连接）；双击右半侧 → 克隆通道（共享连接，免重认证）
 
@@ -231,7 +229,7 @@ for s in sessions:
 
 ### 串口
 
-基于 `serialport`，自动检测系统可用 COM 端口。
+自动检测系统可用 COM 端口。
 
 | 参数 | 可选值 | 默认值 |
 |------|--------|--------|
@@ -243,13 +241,13 @@ for s in sessions:
 
 ### 本地终端
 
-基于 `node-pty`，应用内打开 cmd.exe / PowerShell，可配工作目录和环境变量。
+应用内打开 cmd.exe / PowerShell，可配工作目录和环境变量。
 
 ---
 
 ## 🖥️ 终端
 
-xterm.js 5.5 + WebGL GPU 加速渲染，完整 ANSI 序列 + 256 色。
+GPU 加速渲染，完整 ANSI 序列 + 256 色。
 
 ### 功能速览
 
@@ -303,7 +301,7 @@ xterm.js 5.5 + WebGL GPU 加速渲染，完整 ANSI 序列 + 256 色。
 
 ## 🤖 AI Agent
 
-LyShell 是一个**干净的、与 Agent 无关的终端** — 不绑定任何特定 AI 工具。启动你正在用的任意 CLI Agent，它就像普通会话一样运行在标准 PTY 里：完整的 xterm.js 渲染、回滚、分屏、输入法支持一视同仁。
+LyShell 是一个**干净的、与 Agent 无关的终端** — 不绑定任何特定 AI 工具。启动你正在用的任意 CLI Agent，它就像普通会话一样运行在标准终端里：回滚、分屏、输入法支持一视同仁。
 
 <!-- 📸 占位：Agent 快速启动栏截图（侧边栏 + Agent 按钮 + 终端中运行的 Claude Code） -->
 <p align="center">
@@ -336,7 +334,7 @@ Agent 会话为**瞬态** — 关闭标签即消失，不残留。
 
 ## 🧩 插件系统
 
-能力门控的插件宿主。stdio MCP 连接，独立 Token 沙箱隔离。
+权限门控的插件宿主。每个插件以独立的授权范围运行。
 
 <!-- 📸 占位：插件管理界面（插件列表 + 能力开关 + 安装/卸载操作） -->
 <p align="center">
@@ -345,9 +343,9 @@ Agent 会话为**瞬态** — 关闭标签即消失，不残留。
 
 **安装方式**：本地开发目录 · ZIP 导入 · URL 远程安装
 
-**安全模型**：每插件独立 Token，能力门（`read` / `interactiveWrite` / `execute` / `fileWrite` / `sessionControl`）服务端强制校验，多层检查含路径安全验证、破坏性命令确认、共享 PTY 锁定。
+**安全模型**：每个插件独立授权，每次请求都按细粒度权限（读取 / 写入 / 执行 / 文件 / 会话控制）服务端校验。多层防护：路径安全、破坏性命令确认、共享终端锁定。
 
-插件可列表/读取/交互会话、执行命令、访问文件管理器、`spawnControlled` 启动受控进程。
+插件可列表/读取/交互会话、执行命令、访问文件管理器、启动受控进程。
 
 ---
 
@@ -397,7 +395,7 @@ LyShell 可以作为 MCP 服务端，让 Claude Code 等外部 AI 客户端通�
 
 ### 安全机制
 
-- 🔑 **会话级 Token** — 每 PTY 独立能力范围
+- 🔑 **会话级授权** — 每个终端拥有独立权限范围
 - 🚪 **能力门控** — 每端点服务端强制执行
 - 🛡️ **破坏性命令确认** — 扫描 `rm -rf`、`dd if=` 等模式
 - 🔒 **共享 PTY 锁定** — MCP 与人工输入不冲突
@@ -414,7 +412,7 @@ LyShell 可以作为 MCP 服务端，让 Claude Code 等外部 AI 客户端通�
 
 ## 🎨 主题
 
-5 种预设主题 + 自定义颜色，`--terminal-bg` CSS Token 统一传播到所有终端表面（画布、标签、审计面板）。切换即时生效，无需重启。
+5 种预设主题 + 自定义颜色。切换即时生效，整界面一起变 — 终端画布、标签、面板同步切换，无需重启。
 
 ### 预设
 
@@ -426,11 +424,11 @@ LyShell 可以作为 MCP 服务端，让 Claude Code 等外部 AI 客户端通�
 | **Ember** | 暖色胡桃木褐 + 暖琥珀 | 暗 |
 | **Paper** | 自然浅纸 · 石墨墨 | 亮 |
 
-所有主题共享语义色 Token — 琥珀焦点色、协议色（SSH 蓝 / Telnet 绿 / 串口琥珀 / 本机紫）、状态色、文件类型色跨主题保持不变。
+强调色与状态色跨主题保持一致 — 每种协议（SSH、Telnet、串口、本机）都有专属色，一眼就能区分连接类型。
 
 ### 自定义
 
-选取**底色**和**焦点色** → LyShell 自动按 HSL 明度阶梯派生完整 13 阶 CSS 变量：5 阶 chrome 背景、5 阶文字色、3 阶琥珀状态。明/暗模式由底色亮度自动判定。
+选取背景色和强调色，LyShell 自动生成一整套和谐配色 — 明暗模式也会自动判断。
 
 <!-- 📸 占位：主题对比截图（预设色卡 + 自定义取色器） -->
 <p align="center">
@@ -467,7 +465,7 @@ LyShell 可以作为 MCP 服务端，让 Claude Code 等外部 AI 客户端通�
 | `agents.json` | AI Agent 定义 |
 | `download-history.json` | 传输历史 |
 | `download-config.json` | 下载目录设置 |
-| `mcp-server.json` | MCP Token |
+| `mcp-server.json` | MCP 授权 |
 
 | 平台 | 路径 |
 |------|------|

@@ -2,8 +2,6 @@
   <img src="https://img.shields.io/badge/LyShell-v2.0.0-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-MIT-yellow?style=flat-square" alt="license">
-  <img src="https://img.shields.io/badge/Electron-28-9feaf9?style=flat-square&logo=electron" alt="electron">
-  <img src="https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react" alt="react">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
 </p>
 
@@ -200,12 +198,12 @@ Download the latest build from [Releases](https://github.com/liangyou09/lyshell_
 | ⌨️ **Quick commands** | Grouped bar, right-click to edit, `Ctrl+F1–F12` keybindings |
 | 📂 **File manager** | SFTP/SSH browser, drag-drop upload, double-click download, MD5 checksum |
 | 🤖 **AI Agents** | Agent-agnostic terminal — run Claude Code, Aider, Copilot CLI, or any custom CLI |
-| 🧩 **Plugin system** | Capability-gated host, per-plugin tokens, dev/ZIP/URL install |
+| 🧩 **Plugin system** | Permission-gated host, per-plugin authorization, dev/ZIP/URL install |
 | 🐍 **Python engine** | Embedded scripting with `LyShell` terminal automation API |
-| 🔗 **MCP API** | Full MCP server (stdio + HTTP), audit log + per-session tokens |
+| 🔗 **MCP API** | Standard MCP server, audit log + per-session authorization |
 | 🪟 **Float window** | `Ctrl+Alt+F` global hotkey, collapsible hover-to-expand |
-| 🌐 **i18n** | Chinese + English via i18next, add languages with JSON |
-| 🎨 **Themes** | Light/dark, `--terminal-bg` CSS token, hot-update on switch |
+| 🌐 **i18n** | Built-in Chinese + English, add languages with JSON |
+| 🎨 **Themes** | 5 presets + custom colors, instant switch, no restart |
 | 🔒 **Security** | AES-256-CBC encrypted export |
 | 💾 **Persistence** | Window size, position, split layout restored on restart |
 
@@ -215,7 +213,7 @@ Download the latest build from [Releases](https://github.com/liangyou09/lyshell_
 
 ### SSH
 
-Built on `ssh2`. Password/private key auth, Keepalive, shell enter commands (sequential post-login), configurable timeout.
+Password/private key auth, Keepalive, shell enter commands (sequential post-login), configurable timeout.
 
 **Cloning**: Double-click tab left → new connection (re-auth); double-click right → shared channel (no re-auth)
 
@@ -231,7 +229,7 @@ Raw TCP socket with full Telnet protocol (IAC negotiation).
 
 ### Serial
 
-Built on `serialport`. Auto-detects available COM ports.
+Auto-detects available COM ports.
 
 | Parameter | Options | Default |
 |-----------|---------|---------|
@@ -243,13 +241,13 @@ Built on `serialport`. Auto-detects available COM ports.
 
 ### Local
 
-Built on `node-pty`. Opens cmd.exe / PowerShell in-app with configurable working directory and environment.
+Opens cmd.exe / PowerShell in-app with configurable working directory and environment.
 
 ---
 
 ## 🖥️ Terminal
 
-xterm.js 5.5 + WebGL GPU-accelerated rendering, full ANSI sequences + 256 colors.
+GPU-accelerated rendering, full ANSI sequences + 256 colors.
 
 ### Quick Reference
 
@@ -303,7 +301,7 @@ Download settings → default `~/Downloads/LyShell/`; enable "auto-create server
 
 ## 🤖 AI Agents
 
-LyShell is a **clean, agent-agnostic terminal** — it doesn't lock you to any particular AI tool. Just launch whatever CLI agent you use and it runs in a regular PTY like any other session: full xterm.js rendering, scrollback, split panes, and IME support all work the same.
+LyShell is a **clean, agent-agnostic terminal** — it doesn't lock you to any particular AI tool. Just launch whatever CLI agent you use and it runs in a regular terminal like any other session: scrollback, split panes, and IME support all work the same.
 
 <!-- 📸 placeholder: AI agent quick-launch bar (sidebar + agent buttons + Claude Code running in terminal) -->
 <p align="center">
@@ -336,7 +334,7 @@ Agent sessions are transient — close tab, gone from list.
 
 ## 🧩 Plugin System
 
-Capability-gated plugin host. stdio MCP connection, per-plugin token sandboxing.
+Permission-gated plugin host. Each plugin runs with its own scoped authorization.
 
 <!-- 📸 placeholder: plugin management UI (plugin list + capability toggles + install/uninstall) -->
 <p align="center">
@@ -345,9 +343,9 @@ Capability-gated plugin host. stdio MCP connection, per-plugin token sandboxing.
 
 **Install methods**: Local dev directory · ZIP import · URL remote install
 
-**Security**: Per-plugin token, capability gate (`read` / `interactiveWrite` / `execute` / `fileWrite` / `sessionControl`) enforced server-side on every call. Multi-layer checks: path safety, destructive-command confirmation, shared PTY locking.
+**Security**: Each plugin runs with its own scoped authorization, and every request is checked against granular permissions (read / write / execute / file / session control). Layered safeguards include path safety, destructive-command confirmation, and shared-terminal locking.
 
-Plugins can list/read/interact with sessions, execute commands, access the file manager, and spawn controlled processes via `spawnControlled`.
+Plugins can list and interact with sessions, run commands, access the file manager, and start controlled processes.
 
 ---
 
@@ -397,7 +395,7 @@ LyShell serves as an MCP server, letting external AI clients like Claude Code co
 
 ### Security
 
-- 🔑 **Per-session tokens** — each PTY gets scoped token via env
+- 🔑 **Per-session authorization** — each terminal gets its own scoped permission
 - 🚪 **Capability gates** — enforced server-side on every endpoint
 - 🛡️ **Destructive-command check** — scans for `rm -rf`, `dd if=`, fork bombs
 - 🔒 **Shared PTY locking** — MCP vs human input never collide
@@ -414,7 +412,7 @@ LyShell serves as an MCP server, letting external AI clients like Claude Code co
 
 ## 🎨 Themes
 
-5 preset themes + custom color support, with `--terminal-bg` CSS token propagated to all terminal surfaces (canvas, tabs, audit panel). Hot-updated on switch — no restart needed.
+5 preset themes plus custom colors. Switching applies instantly across the whole interface — terminal canvas, tabs, and panels all change together, no restart needed.
 
 ### Presets
 
@@ -426,11 +424,11 @@ LyShell serves as an MCP server, letting external AI clients like Claude Code co
 | **Ember** | Warm walnut brown + warm amber | Dark |
 | **Paper** | Natural warm paper, graphite ink | Light |
 
-All themes share the same semantic color tokens — amber accent, protocol colors (SSH blue / Telnet green / Serial amber / Local purple), status colors, and file-type colors remain consistent across presets.
+Accent and status colors stay consistent across themes — each protocol (SSH, Telnet, serial, local) keeps its own color, so you can tell connection types apart at a glance.
 
 ### Custom
 
-Pick a **base** (background) and **accent** (focus) color → LyShell auto-derives the full 13-CSS-variable palette via HSL lightness steps: 5 chrome levels, 5 text levels, and 3 amber states. Light/dark mode auto-detected from the base color's luminance.
+Pick a background and an accent color, and LyShell automatically builds a complete, harmonious theme from them — light vs dark is detected for you.
 
 <!-- 📸 placeholder: theme comparison (preset swatches + custom color picker) -->
 <p align="center">
@@ -467,7 +465,7 @@ All config stored as JSON in the user data directory:
 | `agents.json` | AI Agent definitions |
 | `download-history.json` | Transfer history |
 | `download-config.json` | Download directory |
-| `mcp-server.json` | MCP tokens |
+| `mcp-server.json` | MCP authorization |
 
 | Platform | Path |
 |----------|------|
