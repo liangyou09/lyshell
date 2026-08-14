@@ -22,12 +22,12 @@ const TABS: NavTab[] = __DISABLE_MCP__ ? ['sessions', 'agents'] : ALL_TABS
 export const RAIL_WIDTH = 44
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 图标 -- 1.4 stroke / square cap,与既有图标集同语言
+// 图标 -- 24px 渲染(20 viewBox 放大 1.2x,有效线宽 ~1.68),方形 cap 与既有图标集同语言
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** 会话 = 三层服务器机柜(每层一颗电源灯) */
 const IconSessions: React.FC = () => (
-  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square">
+  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square">
     <rect x="3" y="3" width="14" height="3.5" />
     <rect x="3" y="8.25" width="14" height="3.5" />
     <rect x="3" y="13.5" width="14" height="3.5" />
@@ -39,7 +39,7 @@ const IconSessions: React.FC = () => (
 
 /** Agent = 机器人头(呼应默认 🤖 agent 图标) */
 const IconAgents: React.FC = () => (
-  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square">
+  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square">
     <rect x="4" y="6" width="12" height="9.5" rx="1" />
     <path d="M10 3v3" />
     <circle cx="10" cy="2.6" r="0.9" fill="currentColor" stroke="none" />
@@ -51,7 +51,7 @@ const IconAgents: React.FC = () => (
 
 /** 插件 = 拼图块(通用约定,识别度优先于主题化) */
 const IconPlugins: React.FC = () => (
-  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" strokeLinejoin="miter">
+  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" strokeLinejoin="miter">
     <path d="M3 3 h5.5 a1.5 1.5 0 0 1 3 0 h5.5 v5.5 a1.5 1.5 0 0 1 0 3 v5.5 h-14 z" />
   </svg>
 )
@@ -60,7 +60,7 @@ const IconPlugins: React.FC = () => (
  *  齿轮是曲线形态,round cap/join 更自然,故不随其余直线图标用 square;
  *  24 viewBox 缩小到 20 渲染,strokeWidth 取 1.7 使有效线宽对齐其余图标的 1.4。 */
 const IconSettings: React.FC = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="12" cy="12" r="3" />
     <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
   </svg>
@@ -145,9 +145,9 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
             )}
             <span
               className={cn(
-                'transition-colors',
+                'transition-[color,transform] duration-200 ease-out group-hover:scale-110',
                 isActive
-                  ? 'text-[var(--amber)]'
+                  ? 'text-[var(--amber)] animate-rail-icon-glow'
                   : 'text-[var(--text-rack-dim)] group-hover:text-[var(--text-rack-mute)]'
               )}
             >
@@ -158,7 +158,7 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
             {led && (
               <span
                 aria-hidden
-                className="absolute top-[7px] right-[7px] w-[6px] h-[6px] rounded-full"
+                className="absolute top-[7px] right-[7px] w-[6px] h-[6px] rounded-full animate-breathe"
                 style={{ backgroundColor: led, boxShadow: `0 0 5px ${led}` }}
               />
             )}
@@ -192,9 +192,9 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
         )}
         <span
           className={cn(
-            'transition-colors',
+            'transition-[color,transform] duration-200 ease-out group-hover:scale-110',
             active === 'settings'
-              ? 'text-[var(--amber)]'
+              ? 'text-[var(--amber)] animate-rail-icon-glow'
               : 'text-[var(--text-rack-dim)] group-hover:text-[var(--text-rack-mute)]'
           )}
         >

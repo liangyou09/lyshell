@@ -168,6 +168,15 @@
   animation: breathe 2.4s ease-in-out infinite;
 }
 
+/* 轨上激活图标呼吸辉光 -- "通电"的通电感,随 amber 焦点 */
+@keyframes rail-icon-glow {
+  0%, 100% { filter: drop-shadow(0 0 2px var(--amber-glow)); }
+  50%      { filter: drop-shadow(0 0 6px var(--amber-glow)); }
+}
+.animate-rail-icon-glow {
+  animation: rail-icon-glow 2.2s ease-in-out infinite;
+}
+
 /* 基础样式 */
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
