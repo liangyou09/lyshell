@@ -37,15 +37,16 @@ const IconSessions: React.FC = () => (
   </svg>
 )
 
-/** Agent = 机器人头(呼应默认 🤖 agent 图标) */
+/** Agent = 机器人头(呼应默认 🤖 agent 图标)。
+ *  宽略大于高(12.5×10.5),在「扁」与「方」之间取中;rx=2.5 大圆角去方感,微笑嘴,round cap/join。 */
 const IconAgents: React.FC = () => (
-  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square">
-    <rect x="4" y="6" width="12" height="9.5" rx="1" />
-    <path d="M10 3v3" />
-    <circle cx="10" cy="2.6" r="0.9" fill="currentColor" stroke="none" />
-    <circle cx="7.6" cy="10.2" r="1" fill="currentColor" stroke="none" />
-    <circle cx="12.4" cy="10.2" r="1" fill="currentColor" stroke="none" />
-    <path d="M7.8 12.8h4.4" />
+  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10 4.3v1.7" />
+    <circle cx="10" cy="3.4" r="0.9" fill="currentColor" stroke="none" />
+    <rect x="3.75" y="6" width="12.5" height="10.5" rx="2.5" />
+    <circle cx="7.9" cy="10.5" r="1.05" fill="currentColor" stroke="none" />
+    <circle cx="12.1" cy="10.5" r="1.05" fill="currentColor" stroke="none" />
+    <path d="M7.9 13.7q2.1 1.4 4.2 0" />
   </svg>
 )
 
