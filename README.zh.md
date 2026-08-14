@@ -108,7 +108,7 @@
 | **文件面板** | 远程文件浏览器（仅 SSH 可用）— 浏览、拖拽上传、双击下载、右键操作 |
 | **终端区域** | 主终端画布 — 支持分屏、多标签、拖拽拆分、终端内搜索 |
 | **快捷命令栏** | 底部可配置的快捷键按钮 — 点击执行，Ctrl+F1–F12 触发，右键编辑分组 |
-| **状态栏** | 终端尺寸列×行（点击切换显示）、连接状态、编码指示、传输进度 |
+| **状态栏** | 终端尺寸列×行（点击切换显示）、连接状态、编码指示 |
 | **标题栏** | ⚙ 齿轮图标进入设置面板，📊 MCP 审计面板入口，浮窗切换按钮 |
 
 ---
@@ -683,7 +683,7 @@ LyShell 遵循标准的 Electron 三进程模型：
 
 ## 插件系统
 
-LyShell 内建能力门控的插件宿主。插件通过 stdio MCP 连接，由独立 Token 沙箱隔离，支持细粒度能力开关。
+LyShell 内建能力门控的插件宿主。插件运行在独立子进程中，通过 HTTP 回连主进程 API，由独立 Token 沙箱隔离，支持细粒度能力开关。
 
 ### 安装方式
 
@@ -743,7 +743,9 @@ LyShell 通过两层架构向外部 MCP 客户端暴露会话与能力：
 | `read_file` / `stat_file` / `list_files` | `read` | 远程文件系统检查，支持递归和通配符 |
 | `create_session` | `sessionControl` | 创建或复用已保存的会话，同 target 自动去重 |
 | `reconnect_session` | `sessionControl` | 重连已断开的连接 |
-| `read_session_notes` / `write_session_notes` | `read` / `sessionControl` | 管理会话摘要、使用说明和标签 |
+| `read_session_notes` / `write_session_notes` | `read` / `sessionMetadataWrite` | 管理会话摘要、使用说明和标签 |
+| `close_session` | `sessionControl` | 关闭会话的终端连接，保留已保存的会话记录 |
+| `open_connection_dialog` | `sessionControl` | 打开新连接对话框，让用户交互式填写凭据 |
 | `wait_for_prompt` | `read` | 等待 Shell 提示符或正则匹配（默认 `[$#>%]\s*$`） |
 | `tail_until` | `read` | 轮询输出直到匹配模式 |
 

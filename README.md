@@ -483,7 +483,7 @@ Agent sessions are transient — they never leak into the persistent session lis
 
 ## Plugin System
 
-LyShell includes a capability-gated plugin host. Plugins connect via stdio MCP and are sandboxed behind per-plugin tokens with fine-grained capability toggles.
+LyShell includes a capability-gated plugin host. Plugins run in a dedicated child process that connects back to the main process via HTTP API, sandboxed behind per-plugin tokens with fine-grained capability toggles.
 
 ### Installation Methods
 
@@ -576,7 +576,9 @@ External MCP Client (e.g. Claude Code)
 | `read_file` / `stat_file` / `list_files` | `read` | Remote file system inspection |
 | `create_session` | `sessionControl` | Create or reuse a saved session |
 | `reconnect_session` | `sessionControl` | Reconnect a dropped connection |
-| `read_session_notes` / `write_session_notes` | `read` / `sessionControl` | Manage per-session metadata |
+| `read_session_notes` / `write_session_notes` | `read` / `sessionMetadataWrite` | Manage per-session metadata |
+| `close_session` | `sessionControl` | Close a session's terminal connection, preserving the saved session |
+| `open_connection_dialog` | `sessionControl` | Open the new connection dialog for interactive credential entry |
 | `wait_for_prompt` | `read` | Wait for a shell prompt or regex pattern |
 | `tail_until` | `read` | Poll output until a pattern matches |
 
