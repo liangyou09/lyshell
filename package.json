@@ -1,6 +1,6 @@
 {
   "name": "lyshell",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "智能终端软件 - SSH/Telnet/串口连接 + Python脚本 + AI辅助",
   "main": "dist/main/index.js",
   "author": "LyShell Team",

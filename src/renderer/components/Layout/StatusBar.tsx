@@ -762,7 +762,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
           </>
         )}
         <span aria-hidden className="w-px h-[10px] bg-[var(--rule)] flex-shrink-0" />
-        <span className="lowercase">v1.0.2</span>
+        <span className="lowercase">v1.0.3</span>
       </div>
 
       {/* Quick-command editor */}
