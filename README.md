@@ -46,6 +46,8 @@ Download the latest portable build from [Releases](https://github.com/liangyou09
 
 **This is what makes LyShell different.** It serves as an MCP server, letting external AI clients like Claude Code control terminals via the MCP protocol — listing sessions, sending commands, reading output, transferring files, and managing connections.
 
+> 📖 **Configuration** — see [MCP Configuration](docs/mcp-config.md). In most cases you don't configure anything by hand: launch an agent from the **Agent Launcher** and ask it to configure LyShell as its MCP server itself.
+
 ### Tools
 
 | Tool | Capability | Description |

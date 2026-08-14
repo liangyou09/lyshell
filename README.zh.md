@@ -46,6 +46,8 @@
 
 **这是 LyShell 最大的不同。** LyShell 可以作为 MCP 服务端，让 Claude Code 等外部 AI 客户端通过 MCP 协议操控终端 — 列出会话、发送命令、读取输出、传输文件、管理连接，一应俱全。
 
+> 📖 **配置** — 见 [MCP 配置指南](docs/mcp-config.md)。大多数情况下你无需手动配置：从 **Agent 启动栏** 启动 agent，让它自己把 LyShell 配成自己的 MCP 服务端即可。
+
 ### 工具列表
 
 | 工具 | 能力 | 说明 |
