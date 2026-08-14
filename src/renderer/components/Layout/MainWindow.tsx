@@ -9,29 +9,12 @@ import SplitPaneContainer from './SplitPaneContainer'
 import FloatWindow from '../FloatWindow/FloatWindow'
 import { McpActivityChip } from './McpActivityChip'
 import PluginPanel from './PluginPanel'
+import SettingsPanel from './SettingsPanel'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
-import { useThemeStore, AVAILABLE_THEMES, CUSTOM_THEME_ID } from '../../stores/theme-store'
-import { useLocaleStore, AVAILABLE_LOCALES } from '../../stores/locale-store'
+import { useThemeStore } from '../../stores/theme-store'
+import { useLocaleStore } from '../../stores/locale-store'
 import type { SessionConfig } from '@shared/types'
-import { isCursorBlinkEnabled, DEFAULT_TERMINAL_FONT_SIZE, TERMINAL_FONT_SIZE_MIN, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_STEP, snapTerminalFontSize } from '@shared/constants'
-
-/**
- * 设置页签列表。插件页签已迁至左侧机柜页签轨(ActivityRail);此处只留终端 + MCP。
- * no-mcp 构建的 plugin 隐藏逻辑随之移到 ActivityRail(__DISABLE_MCP__ 编译期消除)。
- */
-const SETTINGS_TABS = ['terminal', 'mcp'] as const
-
-/**
- * 主窗口尺寸预设(像素) -- 常见分辨率 + 默认 1200×800
- */
-const WINDOW_PRESETS: ReadonlyArray<{ width: number; height: number }> = [
-  { width: 1280, height: 720 },
-  { width: 1600, height: 900 },
-  { width: 1920, height: 1080 },
-  { width: 2560, height: 1440 },
-  { width: 1200, height: 800 }
-]
 
 /**
  * 主窗口布局组件
@@ -42,7 +25,7 @@ const MainWindow: React.FC = () => {
   const [activeNav, setActiveNav] = useState<NavTab>(() => {
     try {
       const saved = localStorage.getItem('lyshell.navTab.v1')
-      if (saved === 'sessions' || saved === 'agents' || saved === 'plugins') {
+      if (saved === 'sessions' || saved === 'agents' || saved === 'plugins' || saved === 'settings') {
         if (saved === 'plugins' && __DISABLE_MCP__) return 'sessions'
         return saved
       }
@@ -54,50 +37,11 @@ const MainWindow: React.FC = () => {
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
   const [floatVisible, setFloatVisible] = useState(false) // 浮窗默认隐藏
   const [isMaximized, setIsMaximized] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
   const [quickCommandsRefreshKey, setQuickCommandsRefreshKey] = useState(0)  // 用于刷新 StatusBar
-  const [scrollbackLines, setScrollbackLines] = useState(() => {
-    const saved = localStorage.getItem('terminalScrollback')
-    return saved ? parseInt(saved) : 10000
-  })
-  const [fontSize, setFontSize] = useState(() => {
-    const saved = localStorage.getItem('terminalFontSize')
-    return saved ? snapTerminalFontSize(parseInt(saved)) : DEFAULT_TERMINAL_FONT_SIZE
-  })
-  const [cursorBlink, setCursorBlink] = useState(() => isCursorBlinkEnabled())
-  const [downloadDir, setDownloadDir] = useState('')
-  const [mcpSessionMetadataWrite, setMcpSessionMetadataWrite] = useState(false)
-  // 破坏性命令确认默认开启（与后端 DEFAULT_MCP_SECURITY 一致）
-  const [mcpConfirmDestructive, setMcpConfirmDestructive] = useState(true)
-  // 复制 MCP 注册命令的瞬时反馈
-  const [mcpCmdCopied, setMcpCmdCopied] = useState(false)
-  // 设置面板页签 —— 'terminal' 默认;组件内 state,关闭再开回到上次页签(不持久化到磁盘)
-  const [settingsTab, setSettingsTab] = useState<'terminal' | 'mcp'>('terminal')
-  // 主窗口尺寸(像素) -- 持久化到 preferences,启动恢复;输入框双向绑定,点应用/预设时调 IPC
-  const [windowSize, setWindowSize] = useState<{ width: number; height: number }>({ width: 1200, height: 800 })
-  const applyWindowSize = async (w: number, h: number) => {
-    const result = await window.electronAPI?.setWindowSize(w, h)
-    if (result?.success) {
-      setWindowSize({ width: result.width, height: result.height })
-    }
-  }
-  // 设置面板拖拽偏移 —— 持久化到 localStorage,关闭/重启都保留位置
-  const [settingsOffset, setSettingsOffset] = useState(() => {
-    try {
-      const saved = localStorage.getItem('settingsPanelOffset')
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        if (typeof parsed.x === 'number' && typeof parsed.y === 'number') return parsed
-      }
-    } catch { /* 坏数据忽略,落到默认 */ }
-    return { x: 0, y: 0 }
-  })
-  const settingsDragRef = useRef<{ startX: number; startY: number; offsetX: number; offsetY: number } | null>(null)
-  const settingsPanelRef = useRef<HTMLDivElement>(null)
   const { sessions, loadSessions, refreshSavedSessions, syncSessionsFromBackend } = useSessionStore()
-  const { getAllLeafPanes, layout, mcpAuditPaneId } = usePaneStore()
-  const { themeId, setTheme, customColors, setCustomColors, initFromStorage } = useThemeStore()
-  const { localeId, setLocale, initFromStorage: initLocaleFromStorage } = useLocaleStore()
+  const { getAllLeafPanes, layout } = usePaneStore()
+  const { initFromStorage } = useThemeStore()
+  const { initFromStorage: initLocaleFromStorage } = useLocaleStore()
   const { t } = useTranslation()
   const terminalWrapperRef = useRef<HTMLDivElement>(null)
 
@@ -116,19 +60,6 @@ const MainWindow: React.FC = () => {
   useEffect(() => {
     initLocaleFromStorage()
   }, [initLocaleFromStorage])
-
-  // Ctrl+滚轮改字号时,同步设置面板的字号输入框(否则输入框还显示旧值)。
-  // 输入框自身 onChange 也会派发同一事件,但 setFontSize 的是相同数值,React 会 bail out,无环路。
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const value = (e as CustomEvent<number>).detail
-      if (typeof value === 'number' && Number.isFinite(value)) {
-        setFontSize(value)
-      }
-    }
-    window.addEventListener('terminalFontSizeChanged', handler as EventListener)
-    return () => window.removeEventListener('terminalFontSizeChanged', handler as EventListener)
-  }, [])
 
   // 一次性清理:RECENT 段已从会话面板删除并搬到浮窗,旧 localStorage key 是死数据
   // 几次启动后绝大多数客户端就清干净了;新装用户根本不会有这个 key,这段也会是 no-op
@@ -168,62 +99,6 @@ const MainWindow: React.FC = () => {
 
     return cleanup
   }, [])
-
-  // 加载下载配置
-  useEffect(() => {
-    const loadDownloadConfig = async () => {
-      try {
-        const result = await window.electronAPI?.getDownloadConfig()
-        if (result?.success && result.data?.defaultDir) {
-          setDownloadDir(result.data.defaultDir)
-        }
-      } catch (e) {
-        console.warn('Failed to load download config:', e)
-      }
-    }
-    loadDownloadConfig()
-  }, [])
-
-  // 设置面板打开时加载 MCP 安全开关
-  useEffect(() => {
-    if (!showSettings || !window.electronAPI) return
-    const loadMcpSecurity = async () => {
-      try {
-        const rawSecurity = await window.electronAPI?.getConfig('security')
-        if (rawSecurity && typeof rawSecurity === 'object') {
-          const security = rawSecurity as Record<string, unknown>
-          const mcp = security.mcp && typeof security.mcp === 'object'
-            ? (security.mcp as Record<string, unknown>)
-            : null
-          if (mcp) {
-            setMcpSessionMetadataWrite(mcp.allowSessionMetadataWrite === true)
-            // confirmDestructiveCommands 默认 true：仅在显式 false 时关闭
-            setMcpConfirmDestructive(mcp.confirmDestructiveCommands !== false)
-          }
-        }
-      } catch (e) {
-        console.warn('Failed to load MCP security settings:', e)
-      }
-    }
-    loadMcpSecurity()
-  }, [showSettings])
-
-  // 设置面板打开时加载已保存的窗口尺寸(回显输入框与预设高亮)
-  useEffect(() => {
-    if (!showSettings || !window.electronAPI) return
-    const loadWindowSize = async () => {
-      try {
-        const saved = await window.electronAPI?.getConfig('window')
-        if (saved && typeof saved === 'object') {
-          const s = saved as { width?: number; height?: number }
-          if (typeof s.width === 'number' && typeof s.height === 'number') {
-            setWindowSize({ width: s.width, height: s.height })
-          }
-        }
-      } catch { /* 静默:读失败回退默认值 */ }
-    }
-    loadWindowSize()
-  }, [showSettings])
 
   // 监听会话状态变化并更新 store
   useEffect(() => {
@@ -366,7 +241,7 @@ const MainWindow: React.FC = () => {
     }
   }, [isResizingSidebar])
 
-  // Alt+1/2/3 切换左列页签(实现 footer 既有 "alt + 1…3" 提示;capture 抢在 xterm 前)
+  // Alt+1/2/3/4 切换左列页签(实现 footer 既有 "alt + 1…3" 提示;capture 抢在 xterm 前)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!e.altKey) return
@@ -377,6 +252,7 @@ const MainWindow: React.FC = () => {
       if (e.key === '1') tab = 'sessions'
       else if (e.key === '2') tab = 'agents'
       else if (e.key === '3' && !__DISABLE_MCP__) tab = 'plugins'
+      else if (e.key === '4') tab = 'settings'
       if (!tab) return
       e.preventDefault()
       e.stopPropagation()
@@ -405,61 +281,6 @@ const MainWindow: React.FC = () => {
     return cleanup
   }, [])
 
-  // ESC 关闭设置面板。MCP 活动页签打开时让出 ESC -- 由 McpAuditPanel 自己的监听关闭它，
-  // 避免一次 ESC 同时关掉两层。MCP 页签关掉后本 effect 重跑、重新接管 ESC。
-  useEffect(() => {
-    if (!showSettings || mcpAuditPaneId !== null) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setShowSettings(false)
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [showSettings, mcpAuditPaneId])
-
-  // 把 offset 夹紧到视口内 —— 面板锚点 (left:0, top:28px),translate(x,y) 后整体必须仍可见。
-  // 只读 refs / DOM 当下尺寸,无组件状态依赖,空 deps 让引用稳定供 effect 复用。
-  const clampSettingsOffset = useCallback((x: number, y: number) => {
-    const panel = settingsPanelRef.current
-    // 守卫只为类型收窄,语义上调用者(拖拽 / rAF 后的 effect)都在面板挂载后才触发
-    if (!panel) return { x, y }
-    const { width, height } = panel.getBoundingClientRect()
-    const vw = window.innerWidth
-    const vh = window.innerHeight
-    // panel 比视口大时,vw - width 会变负;Math.max 防止把"最大上界"拉到比"最小下界"(0 / -28)还小,
-    // 退化时区间塌缩为单点,面板贴左/贴顶,不会继续被推走。
-    const maxX = Math.max(0, vw - width)
-    const maxY = Math.max(-28, vh - 28 - height)
-    return {
-      x: Math.max(0, Math.min(maxX, x)),
-      y: Math.max(-28, Math.min(maxY, y)),
-    }
-  }, [])
-
-  // 面板打开 / 窗口 resize 后兜底夹紧 —— 救援 localStorage 里历史脏数据,以及窗口缩到比面板小的场景
-  useEffect(() => {
-    if (!showSettings) return
-    // 等浏览器把面板挂到 DOM,getBoundingClientRect 才有真值
-    const raf = requestAnimationFrame(() => {
-      setSettingsOffset(curr => {
-        const clamped = clampSettingsOffset(curr.x, curr.y)
-        if (clamped.x !== curr.x || clamped.y !== curr.y) {
-          try { localStorage.setItem('settingsPanelOffset', JSON.stringify(clamped)) } catch { /* 忽略 */ }
-        }
-        return clamped
-      })
-    })
-    const onResize = () => {
-      setSettingsOffset(curr => clampSettingsOffset(curr.x, curr.y))
-    }
-    window.addEventListener('resize', onResize)
-    return () => {
-      cancelAnimationFrame(raf)
-      window.removeEventListener('resize', onResize)
-    }
-  }, [showSettings, clampSettingsOffset])
-
   // 窗口控制
   const handleMinimize = () => {
     window.electronAPI?.minimizeWindow()
@@ -473,57 +294,6 @@ const MainWindow: React.FC = () => {
 
   const handleClose = () => {
     window.electronAPI?.closeWindow()
-  }
-
-  // 设置面板拖拽 —— pointer capture 让拖出头条区域也能继续追踪;关闭按钮通过 closest('button') 跳过避免误触
-  const handleSettingsDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest('button')) return
-    e.currentTarget.setPointerCapture(e.pointerId)
-    settingsDragRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      offsetX: settingsOffset.x,
-      offsetY: settingsOffset.y,
-    }
-  }
-
-  const handleSettingsDragMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const drag = settingsDragRef.current
-    if (!drag) return
-    const rawX = drag.offsetX + (e.clientX - drag.startX)
-    const rawY = drag.offsetY + (e.clientY - drag.startY)
-    setSettingsOffset(clampSettingsOffset(rawX, rawY))
-  }
-
-  const handleSettingsDragEnd = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (settingsDragRef.current) {
-      e.currentTarget.releasePointerCapture(e.pointerId)
-      settingsDragRef.current = null
-      // 落盘:函数式读 state 保最新值(setSettingsOffset 是异步的,直接读 settingsOffset 可能是旧值)
-      setSettingsOffset(curr => {
-        try { localStorage.setItem('settingsPanelOffset', JSON.stringify(curr)) } catch { /* 满盘忽略 */ }
-        return curr
-      })
-    }
-  }
-
-  const handleCloseSettings = () => {
-    setShowSettings(false)
-  }
-
-  // 重置面板位置 —— 拖到屏外救援用,双击头条触发
-  const handleResetSettingsPosition = () => {
-    setSettingsOffset({ x: 0, y: 0 })
-    try { localStorage.removeItem('settingsPanelOffset') } catch { /* 忽略 */ }
-  }
-
-  // 选择下载目录（使用系统目录选择器）
-  const handleSelectDownloadDir = async () => {
-    const result = await window.electronAPI?.selectDirectory()
-    if (result) {
-      setDownloadDir(result)
-      await window.electronAPI?.setDownloadConfig({ defaultDir: result })
-    }
   }
 
   // 点击会话直接开启终端
@@ -590,485 +360,6 @@ const MainWindow: React.FC = () => {
           {/* 标题 */}
           <span className="text-[10px] uppercase tracking-[.18em] text-[var(--text-rack)] px-2 font-mono font-semibold">lyshell</span>
 
-          {/* 设置面板 —— 与 FloatWindow 同套"被召唤覆盖物"语言:amber 顶边线 + 双段式(strip 头 + elev 体) */}
-          {/* 之前用 bg-slot 单段,与 bg-rack 标题栏只差 ~6 亮度,在影子被深色界面吃掉时几乎贴在标题栏上看不出 */}
-          {/* shadow 用 color-mix(var(--bg-base)) 派生,carbon/slate/graphite 切换时影子调性也跟着变,不再是固定纯黑 */}
-          {showSettings && (
-            <div
-              ref={settingsPanelRef}
-              className="absolute top-[28px] left-0 z-50 bg-[var(--bg-elev)] border border-[var(--rule)] rounded-[2px] min-w-[280px] overflow-hidden"
-              style={{
-                transform: `translate(${settingsOffset.x}px, ${settingsOffset.y}px)`,
-                boxShadow: '0 10px 28px color-mix(in srgb, var(--bg-base) 70%, transparent), 0 2px 6px color-mix(in srgb, var(--bg-base) 55%, transparent)'
-              }}
-            >
-              {/* 顶边 amber 高亮 — 同 FloatWindow,标识"召出的焦点面板"(amber 跨主题不变,与 chrome 形成主题独立的 identity 信号) */}
-              <div aria-hidden className="h-[2px] bg-[var(--amber)]" />
-              {/* 头条:bg-strip 暗带 + amber 标题,与下方主体形成机柜两段式;同时作为拖拽把手(双击重置位置) */}
-              <div
-                onPointerDown={handleSettingsDragStart}
-                onPointerMove={handleSettingsDragMove}
-                onPointerUp={handleSettingsDragEnd}
-                onPointerCancel={handleSettingsDragEnd}
-                onDoubleClick={handleResetSettingsPosition}
-                title={t('settings.dragToMove')}
-                className="flex items-center justify-between px-3 h-[26px] bg-[var(--bg-strip)] border-b border-[var(--rule)] cursor-move select-none"
-              >
-                <span className="text-[12px] font-semibold text-[var(--amber)] font-mono">{t('settings.title')}</span>
-                <button
-                  onClick={handleCloseSettings}
-                  className="w-[18px] h-[18px] flex items-center justify-center rounded-[2px] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-slot)] text-xs leading-none transition-colors cursor-pointer"
-                  title={t('settings.close')}
-                >✕</button>
-              </div>
-              {/* 页签栏 —— bg-strip 续条;active 用 amber 底边线标识,与面板顶边 amber 信号呼应
-                  (顶边=被召出的焦点面板,tab 底边=被选中的页签)。amber 跨主题不变,作主题独立的 identity 信号 */}
-              <div className="flex bg-[var(--bg-strip)] border-b border-[var(--rule)]">
-                {SETTINGS_TABS.map(tab => {
-                  const active = settingsTab === tab
-                  return (
-                    <button
-                      key={tab}
-                      onClick={() => setSettingsTab(tab)}
-                      className={cn(
-                        // flex 居中 + leading-none:CJK("终端")满 em 与 Latin("MCP")cap-height 同字号下天然不等高,
-                        // 收紧行高并垂直居中,让两个页签的文字框一致,消除"大小不一样"的错觉(字形重量差是脚本固有,无法消除)
-                        'relative flex-1 h-[26px] flex items-center justify-center leading-none text-[12px] font-mono font-semibold transition-colors',
-                        active ? 'text-[var(--amber)]' : 'text-[var(--text-rack-mute)] hover:text-[var(--text-rack)]'
-                      )}
-                    >
-                      {tab === 'terminal' ? t('settings.tabTerminal') : t('settings.tabMcp')}
-                      {/* amber 底边线 —— bottom-[-1px] 压住 strip 的 border-b,让选中页签"咬合"进下方主体,呼应机柜插卡意象 */}
-                      {active && <span aria-hidden className="absolute inset-x-0 bottom-[-1px] h-[2px] bg-[var(--amber)]" />}
-                    </button>
-                  )
-                })}
-              </div>
-              {/* 两页签内容常驻 DOM、grid 同格重叠(col-start-1 row-start-1),以"取较大者"稳定面板尺寸 —— 切页签不再引起宽高跳变。
-                  inactive 用 invisible(visibility:hidden) 保留布局贡献(撑住尺寸)同时不绘制/不可交互/不可聚焦;aria-hidden 屏蔽读屏。 */}
-              <div className="grid p-3">
-                <div className={cn('col-start-1 row-start-1 space-y-3', settingsTab === 'terminal' ? '' : 'invisible')} aria-hidden={settingsTab !== 'terminal'}>
-                {/* 窗口大小 -- 预设 chip + 自定义宽高,持久化到 preferences,启动恢复 */}
-                <div className="border-b border-[var(--rule-soft)] pb-3">
-                  <div className="flex items-baseline justify-between mb-1.5">
-                    <span className="text-[12px] font-mono text-[var(--text-rack)]">{t('settings.windowSize')}</span>
-                    <span className="text-[11px] font-mono text-[var(--text-rack-data)] tabular-nums">
-                      {windowSize.width}×{windowSize.height}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1 mb-2">
-                    {WINDOW_PRESETS.map(p => {
-                      const active = windowSize.width === p.width && windowSize.height === p.height
-                      return (
-                        <button
-                          key={`${p.width}x${p.height}`}
-                          onClick={() => applyWindowSize(p.width, p.height)}
-                          className={cn(
-                            'px-2 h-[22px] rounded-[2px] border text-[11px] font-mono tabular-nums transition-colors cursor-pointer',
-                            active
-                              ? 'border-[var(--amber)] text-[var(--amber)] bg-[var(--bg-slot)]'
-                              : 'border-[var(--rule)] text-[var(--text-rack-data)] bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
-                          )}
-                        >
-                          {p.width}×{p.height}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-mono text-[var(--text-rack-data)] w-[40px]">{t('settings.custom')}</span>
-                    <input
-                      type="number"
-                      value={windowSize.width}
-                      onChange={(e) => setWindowSize(s => ({ ...s, width: parseInt(e.target.value) || 0 }))}
-                      className="w-[64px] px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[12px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
-                      min={800}
-                      step={10}
-                      title={t('settings.width')}
-                    />
-                    <span className="text-[11px] text-[var(--text-rack-data)] font-mono">×</span>
-                    <input
-                      type="number"
-                      value={windowSize.height}
-                      onChange={(e) => setWindowSize(s => ({ ...s, height: parseInt(e.target.value) || 0 }))}
-                      className="w-[64px] px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[12px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
-                      min={600}
-                      step={10}
-                      title={t('settings.height')}
-                    />
-                    <button
-                      onClick={() => applyWindowSize(windowSize.width, windowSize.height)}
-                      className="px-2 h-[24px] rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] text-[11px] font-mono text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)] transition-colors cursor-pointer"
-                    >
-                      {t('settings.apply')}
-                    </button>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[12px] font-mono text-[var(--text-rack)] w-[64px]">{t('settings.buffer')}</span>
-                  <input
-                    type="number"
-                    value={scrollbackLines}
-                    onChange={(e) => {
-                      const value = parseInt(e.target.value) || 1000
-                      setScrollbackLines(value)
-                      localStorage.setItem('terminalScrollback', value.toString())
-                    }}
-                    className="w-[80px] px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[12px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
-                    min={1000}
-                    max={100000}
-                    step={1000}
-                  />
-                  <span className="text-[11px] text-[var(--text-rack-data)] font-mono">{t('settings.lines')}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[12px] font-mono text-[var(--text-rack)] w-[64px]">{t('settings.font')}</span>
-                  <input
-                    type="number"
-                    value={fontSize}
-                    onChange={(e) => {
-                      // 输入期间只存草稿值（不吸附），避免键入 "25" 时输到 "2" 就被吸成 "20" 而无法键入多位数
-                      const raw = parseInt(e.target.value)
-                      setFontSize(Number.isFinite(raw) ? raw : DEFAULT_TERMINAL_FONT_SIZE)
-                    }}
-                    onBlur={() => {
-                      // 失焦时才吸附 + 持久化 + 派发，保证终端永远拿不到「有问题」的档位
-                      const next = snapTerminalFontSize(fontSize)
-                      setFontSize(next)
-                      localStorage.setItem('terminalFontSize', next.toString())
-                      window.dispatchEvent(new CustomEvent('terminalFontSizeChanged', { detail: next }))
-                    }}
-                    className="w-[80px] px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[12px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
-                    min={TERMINAL_FONT_SIZE_MIN}
-                    max={TERMINAL_FONT_SIZE_MAX}
-                    step={TERMINAL_FONT_SIZE_STEP}
-                  />
-                  <span className="text-[11px] text-[var(--text-rack-data)] font-mono">{t('settings.px')}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[12px] font-mono text-[var(--text-rack)] w-[64px]">{t('settings.cursor')}</span>
-                  <input
-                    type="checkbox"
-                    checked={cursorBlink}
-                    onChange={(e) => {
-                      setCursorBlink(e.target.checked)
-                      localStorage.setItem('terminalCursorBlink', e.target.checked.toString())
-                      window.dispatchEvent(new CustomEvent('terminalCursorBlinkChanged', { detail: e.target.checked }))
-                    }}
-                    className="w-3.5 h-3.5 accent-[var(--amber)]"
-                  />
-                  {/* blink on/off 是该行的值(等价 input 的数值),不是单位 —— 提到 text-rack-data + 11px,跟 lines/px 那种纯单位拉开层级 */}
-                  <span className={cn(
-                    'text-[12px] font-mono',
-                    cursorBlink ? 'text-[var(--amber)]' : 'text-[var(--text-rack-data)]'
-                  )}>{cursorBlink ? t('settings.blinkOn') : t('settings.blinkOff')}</span>
-                </div>
-
-                {/* 主题 ——— 三个 rack 槽位，每行用自己主题的真实色铺底 */}
-                <div className="border-t border-[var(--rule)] pt-2 mt-2">
-                  <div className="flex items-baseline justify-between mb-1.5">
-                    <span className="text-[12px] font-mono text-[var(--text-rack)]">{t('settings.theme')}</span>
-                    <span className="text-[11px] font-mono text-[var(--text-rack-data)] truncate ml-2">
-                      {AVAILABLE_THEMES.find(t => t.id === themeId)?.name}
-                    </span>
-                  </div>
-                  <div className="border border-[var(--rule)] rounded-[2px] overflow-hidden divide-y divide-[var(--rule-soft)]">
-                    {AVAILABLE_THEMES.map(t => {
-                      const active = themeId === t.id
-                      return (
-                        <button
-                          key={t.id}
-                          onClick={() => setTheme(t.id)}
-                          title={t.description}
-                          className={cn(
-                            'group relative w-full grid items-center gap-2 h-[30px] pr-2 text-left transition-[filter] duration-150',
-                            'grid-cols-[3px_1fr_auto_14px]',
-                            !active && 'hover:brightness-110'
-                          )}
-                          style={{ backgroundColor: t.preview.bgRack, color: t.preview.text }}
-                        >
-                          {/* 3px 左条 — active=amber, idle=本主题 bg-slot（隐形但留位） */}
-                          <span
-                            aria-hidden
-                            className="h-full"
-                            style={{ backgroundColor: active ? 'var(--amber)' : t.preview.bgSlot }}
-                          />
-
-                          {/* 名 */}
-                          <span
-                            className={cn(
-                              'text-[13px] font-semibold font-mono truncate pl-1',
-                              active && 'text-[var(--amber)]'
-                            )}
-                            style={!active ? { color: t.preview.text } : undefined}
-                          >
-                            {t.name}
-                          </span>
-
-                          {/* hex — 用本主题 bg-rack 的真值，遥测语言 */}
-                          <span
-                            className="text-[10.5px] font-mono tracking-[.04em] tabular-nums"
-                            style={{ color: active ? 'var(--amber)' : `${t.preview.text}66` }}
-                          >
-                            {t.preview.bgRack.toLowerCase()}
-                          </span>
-
-                          {/* chrome 三阶塔（迷你机柜灯） */}
-                          <span
-                            aria-hidden
-                            className="flex flex-col h-[18px] w-[5px] border border-[var(--bg-base)]"
-                            style={{ borderColor: t.preview.bgBase }}
-                          >
-                            <span className="flex-1" style={{ backgroundColor: t.preview.bgBase }} />
-                            <span className="flex-1" style={{ backgroundColor: t.preview.bgRack }} />
-                            <span className="flex-1" style={{ backgroundColor: t.preview.bgSlot }} />
-                          </span>
-                        </button>
-                      )
-                    })}
-                  </div>
-
-                  {/* Custom 主题色 picker —— 只有 themeId === rack-custom 时展开,
-                      两个 native color input 直接驱动 store.setCustomColors,store 内部已处理实时注入 */}
-                  {themeId === CUSTOM_THEME_ID && (
-                    <div className="mt-1.5 border border-[var(--rule)] rounded-[2px] bg-[var(--bg-rack)] divide-y divide-[var(--rule-soft)]">
-                      {/* Base */}
-                      <div className="flex items-center gap-2 px-2 h-[26px]">
-                        <span className="text-[11px] font-mono text-[var(--text-rack-data)] w-[44px]">Base</span>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="color"
-                            value={customColors.base}
-                            onChange={(e) => setCustomColors({ base: e.target.value.toUpperCase() })}
-                            className="w-[18px] h-[18px] cursor-pointer border-0 bg-transparent p-0"
-                            title={t('settings.pickBaseColor')}
-                          />
-                        </label>
-                        <span className="text-[11px] font-mono text-[var(--text-rack-mute)] tabular-nums">
-                          {customColors.base.toLowerCase()}
-                        </span>
-                      </div>
-                      {/* Accent */}
-                      <div className="flex items-center gap-2 px-2 h-[26px]">
-                        <span className="text-[11px] font-mono text-[var(--text-rack-data)] w-[44px]">Accent</span>
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="color"
-                            value={customColors.accent}
-                            onChange={(e) => setCustomColors({ accent: e.target.value.toUpperCase() })}
-                            className="w-[18px] h-[18px] cursor-pointer border-0 bg-transparent p-0"
-                            title={t('settings.pickAccentColor')}
-                          />
-                        </label>
-                        <span className="text-[11px] font-mono text-[var(--text-rack-mute)] tabular-nums">
-                          {customColors.accent.toLowerCase()}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* 语言 —— 镜像 Theme 段布局：border-t 分隔 + 标题行 + locale 按钮列表 */}
-                <div className="border-t border-[var(--rule)] pt-2 mt-2">
-                  <div className="flex items-baseline justify-between mb-1.5">
-                    <span className="text-[12px] font-mono text-[var(--text-rack)]">{t('settings.language')}</span>
-                    <span className="text-[11px] font-mono text-[var(--text-rack-data)] truncate ml-2">
-                      {AVAILABLE_LOCALES.find(l => l.id === localeId)?.name}
-                    </span>
-                  </div>
-                  <div className="border border-[var(--rule)] rounded-[2px] overflow-hidden divide-y divide-[var(--rule-soft)]">
-                    {AVAILABLE_LOCALES.map(l => {
-                      const active = localeId === l.id
-                      return (
-                        <button
-                          key={l.id}
-                          onClick={() => setLocale(l.id)}
-                          className={cn(
-                            'group relative w-full grid items-center gap-2 h-[30px] pr-2 text-left transition-[filter] duration-150',
-                            'grid-cols-[3px_1fr]',
-                            !active && 'hover:brightness-110'
-                          )}
-                        >
-                          {/* 3px 左条 — active=amber, idle=透明留位 */}
-                          <span
-                            aria-hidden
-                            className="h-full"
-                            style={{ backgroundColor: active ? 'var(--amber)' : 'transparent' }}
-                          />
-                          {/* name 用目标语言自身书写，不翻译 */}
-                          <span
-                            className={cn(
-                              'text-[13px] font-semibold font-mono truncate pl-1',
-                              active ? 'text-[var(--amber)]' : 'text-[var(--text-rack)]'
-                            )}
-                          >
-                            {l.name}
-                          </span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                {/* 下载路径 */}
-                <div className="border-t border-[var(--rule)] pt-2 mt-2">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[12px] font-mono text-[var(--text-rack)] w-[64px]">{t('settings.download')}</span>
-                    <div
-                      onClick={handleSelectDownloadDir}
-                      className="flex-1 px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[12px] font-mono text-[var(--text-rack)] cursor-pointer hover:border-[var(--amber)] truncate transition-colors"
-                      title={downloadDir || t('settings.clickToSelect')}
-                    >
-                      {downloadDir || t('settings.clickToChoose')}
-                    </div>
-                    <button
-                      onClick={() => downloadDir && window.electronAPI?.openFolder(downloadDir)}
-                      disabled={!downloadDir}
-                      className={cn(
-                        'w-[26px] h-[26px] rounded-[2px] text-xs border flex items-center justify-center transition-colors',
-                        downloadDir
-                          ? 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack-data)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
-                          : 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack-faint)] cursor-not-allowed'
-                      )}
-                      title={t('settings.openFolder')}
-                    >
-                      📂
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-[var(--text-rack-mute)] font-mono">{t('settings.defaultSavePath')}</p>
-                </div>
-
-                {/* 字号/缓冲/光标生效说明 —— 终端页脚(原面板底部 hint,随终端页签归属) */}
-                <p className="text-[11px] text-[var(--text-rack-mute)] border-t border-[var(--rule)] pt-2 mt-2 font-mono leading-relaxed">
-                  {t('settings.applyHint')}
-                </p>
-                </div>
-                <div className={cn('col-start-1 row-start-1 space-y-3', settingsTab === 'mcp' ? '' : 'invisible')} aria-hidden={settingsTab !== 'mcp'}>
-                {/* MCP 会话元数据写入开关 —— 页签内首块,去掉 border-t/mt-2(无需与上方分隔) */}
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <input
-                      id="mcp-session-metadata-write"
-                      type="checkbox"
-                      checked={mcpSessionMetadataWrite}
-                      onChange={async (e) => {
-                        const checked = e.target.checked
-                        setMcpSessionMetadataWrite(checked)
-                        try {
-                          const rawSecurity = await window.electronAPI?.getConfig('security')
-                          const security = rawSecurity && typeof rawSecurity === 'object'
-                            ? (rawSecurity as Record<string, unknown>)
-                            : {}
-                          const existingMcp =
-                            security.mcp && typeof security.mcp === 'object'
-                              ? (security.mcp as Record<string, unknown>)
-                              : {}
-                          await window.electronAPI?.setConfig('security', {
-                            ...security,
-                            mcp: {
-                              ...existingMcp,
-                              allowSessionMetadataWrite: checked
-                            }
-                          })
-                        } catch (err) {
-                          console.warn('Failed to save MCP security setting:', err)
-                        }
-                      }}
-                      className="w-3.5 h-3.5 accent-[var(--amber)]"
-                    />
-                    <label
-                      htmlFor="mcp-session-metadata-write"
-                      className="text-[12px] font-mono text-[var(--text-rack)] cursor-pointer"
-                    >
-                      {t('settings.mcpSessionMetadataWrite')}
-                    </label>
-                  </div>
-                  <p className="text-[11px] text-[var(--text-rack-mute)] font-mono">
-                    {t('settings.mcpSessionMetadataWriteHint')}
-                  </p>
-                </div>
-
-                {/* MCP 破坏性命令确认开关 */}
-                <div className="border-t border-[var(--rule)] pt-2 mt-2">
-                  <div className="flex items-center gap-2 mb-1">
-                    <input
-                      id="mcp-confirm-destructive"
-                      type="checkbox"
-                      checked={mcpConfirmDestructive}
-                      onChange={async (e) => {
-                        const checked = e.target.checked
-                        setMcpConfirmDestructive(checked)
-                        try {
-                          const rawSecurity = await window.electronAPI?.getConfig('security')
-                          const security = rawSecurity && typeof rawSecurity === 'object'
-                            ? (rawSecurity as Record<string, unknown>)
-                            : {}
-                          const existingMcp =
-                            security.mcp && typeof security.mcp === 'object'
-                              ? (security.mcp as Record<string, unknown>)
-                              : {}
-                          await window.electronAPI?.setConfig('security', {
-                            ...security,
-                            mcp: {
-                              ...existingMcp,
-                              confirmDestructiveCommands: checked
-                            }
-                          })
-                        } catch (err) {
-                          console.warn('Failed to save MCP security setting:', err)
-                        }
-                      }}
-                      className="w-3.5 h-3.5 accent-[var(--amber)]"
-                    />
-                    <label
-                      htmlFor="mcp-confirm-destructive"
-                      className="text-[12px] font-mono text-[var(--text-rack)] cursor-pointer"
-                    >
-                      {t('settings.mcpConfirmDestructive')}
-                    </label>
-                  </div>
-                  <p className="text-[11px] text-[var(--text-rack-mute)] font-mono">
-                    {t('settings.mcpConfirmDestructiveHint')}
-                  </p>
-                </div>
-
-                {/* MCP 注册命令复制 */}
-                <div className="border-t border-[var(--rule)] pt-2 mt-2">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[12px] font-mono text-[var(--text-rack)] w-[64px]">
-                      {t('settings.mcpRegister')}
-                    </span>
-                    <button
-                      onClick={async () => {
-                        try {
-                          const info = await window.electronAPI?.getMcpAddCommand()
-                          if (info?.command) {
-                            await navigator.clipboard.writeText(info.command)
-                            setMcpCmdCopied(true)
-                            setTimeout(() => setMcpCmdCopied(false), 2000)
-                          }
-                        } catch (err) {
-                          console.warn('Failed to copy MCP add command:', err)
-                        }
-                      }}
-                      className={cn(
-                        'px-2 py-1 rounded-[2px] text-[12px] font-mono border transition-colors',
-                        mcpCmdCopied
-                          ? 'bg-[var(--amber)] border-[var(--amber)] text-[var(--bg-rack)]'
-                          : 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
-                      )}
-                    >
-                      {mcpCmdCopied ? t('settings.mcpRegisterCopied') : t('settings.mcpRegisterCopy')}
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-[var(--text-rack-mute)] font-mono">
-                    {t('settings.mcpRegisterHint')}
-                  </p>
-                </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* 右侧按钮组 — 应用控制 │ 系统窗口控制，两簇分隔 */}
@@ -1095,22 +386,6 @@ const MainWindow: React.FC = () => {
                 <rect x="5.5" y="6" width="7.5" height="6" fill="currentColor"
                   className={cn(floatVisible ? 'text-[var(--amber)]' : 'text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)]', 'transition-colors')} />
               </svg>
-            </div>
-            {/* 设置按钮 */}
-            <div
-              onClick={() => setShowSettings(!showSettings)}
-              className={cn(
-                'w-[24px] h-[24px] flex items-center justify-center rounded-[2px] cursor-pointer group transition-colors',
-                showSettings
-                  ? 'bg-[var(--bg-elev)]'
-                  : 'bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)]'
-              )}
-              title={t('settings.title')}
-            >
-              <span className={cn(
-                'text-xs transition-colors',
-                showSettings ? 'text-[var(--amber)]' : 'text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)]'
-              )}>⚙</span>
             </div>
           </div>
 
@@ -1172,6 +447,7 @@ const MainWindow: React.FC = () => {
               )}
               {activeNav === 'agents' && <AgentsPanel />}
               {activeNav === 'plugins' && <PluginPanel />}
+              {activeNav === 'settings' && <SettingsPanel />}
             </div>
             {/* 宽度调整条 */}
             <div

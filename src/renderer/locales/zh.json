@@ -109,7 +109,8 @@
   "nav": {
     "sessions": "会话",
     "agents": "Agent",
-    "plugins": "插件"
+    "plugins": "插件",
+    "settings": "设置"
   },
   "agents": {
     "title": "Agent",

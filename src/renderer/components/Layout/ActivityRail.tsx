@@ -12,8 +12,9 @@ import { useTranslation } from 'react-i18next'
  * no-mcp 构建隐藏 plugins 槽 -- 插件激活依赖 MCP HTTP server(见 MainWindow 同源逻辑),
  * 该构建下展示槽只会让用户"装了没反应"。__DISABLE_MCP__ 为编译期常量,经 vite define 消除分支。
  */
-export type NavTab = 'sessions' | 'agents' | 'plugins'
+export type NavTab = 'sessions' | 'agents' | 'plugins' | 'settings'
 
+// 内容页签(上组):会话 / Agent / 插件。settings 是轨底独立工具槽,不在此列。
 const ALL_TABS: NavTab[] = ['sessions', 'agents', 'plugins']
 const TABS: NavTab[] = __DISABLE_MCP__ ? ['sessions', 'agents'] : ALL_TABS
 
@@ -55,10 +56,21 @@ const IconPlugins: React.FC = () => (
   </svg>
 )
 
+/** 设置 = 齿轮(工具位,轨底独立槽)。
+ *  齿轮是曲线形态,round cap/join 更自然,故不随其余直线图标用 square;
+ *  24 viewBox 缩小到 20 渲染,strokeWidth 取 1.7 使有效线宽对齐其余图标的 1.4。 */
+const IconSettings: React.FC = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </svg>
+)
+
 const TAB_ICON: Record<NavTab, React.FC> = {
   sessions: IconSessions,
   agents: IconAgents,
   plugins: IconPlugins,
+  settings: IconSettings,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,7 +95,8 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
   const labelFor = (tab: NavTab): string =>
     tab === 'sessions' ? t('nav.sessions')
       : tab === 'agents' ? t('nav.agents')
-        : t('nav.plugins')
+        : tab === 'plugins' ? t('nav.plugins')
+          : t('nav.settings')
 
   /** sessions 槽位:有在线会话时亮 live LED;其余槽位无徽章 */
   const ledFor = (tab: NavTab): string | undefined =>
@@ -152,6 +165,42 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
           </button>
         )
       })}
+
+      {/* 轨底 settings 工具槽 -- mt-auto 推到底,与内容页签隔开(border-t hairline);无 LED。
+          active 语言与内容槽一致:amber 左条 + bg-slot 填充,读作"通电的工具卡"。 */}
+      <button
+        type="button"
+        role="tab"
+        aria-selected={active === 'settings'}
+        aria-label={labelFor('settings')}
+        title={labelFor('settings')}
+        onClick={() => onChange('settings')}
+        className={cn(
+          'relative h-[44px] flex items-center justify-center transition-colors group mt-auto',
+          'border-t border-[var(--rule-soft)]',
+          active === 'settings'
+            ? 'bg-[var(--bg-slot)] shadow-[inset_0_1px_0_var(--amber-soft),inset_0_-1px_0_var(--amber-soft)]'
+            : 'hover:bg-[var(--bg-rack)]',
+          'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--amber)]'
+        )}
+      >
+        {active === 'settings' && (
+          <span
+            aria-hidden
+            className="absolute left-0 top-0 bottom-0 w-[2px] bg-[var(--amber)] shadow-[0_0_4px_var(--amber-glow)]"
+          />
+        )}
+        <span
+          className={cn(
+            'transition-colors',
+            active === 'settings'
+              ? 'text-[var(--amber)]'
+              : 'text-[var(--text-rack-dim)] group-hover:text-[var(--text-rack-mute)]'
+          )}
+        >
+          <IconSettings />
+        </span>
+      </button>
     </div>
   )
 }
