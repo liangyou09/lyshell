@@ -116,6 +116,8 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
   const [newContent, setNewContent] = useState('')
   const [newGroupId, setNewGroupId] = useState<string>('')
   const [newEscape, setNewEscape] = useState(false)
+  const [nameError, setNameError] = useState(false)  // 名称为空时提示必填
+  const [contentError, setContentError] = useState(false)  // 命令为空时提示必填
   const [editingCommandId, setEditingCommandId] = useState<string | null>(null)
   const [groupDialogOffset, setGroupDialogOffset] = useState({ x: 0, y: 0 })
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
@@ -275,6 +277,8 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     setNewContent('')
     setNewGroupId('')
     setNewEscape(false)
+    setNameError(false)
+    setContentError(false)
   }
 
   // 双击添加命令
@@ -284,6 +288,8 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     setNewName('')
     setNewContent('')
     setNewEscape(false)
+    setNameError(false)
+    setContentError(false)
     // 自动填入当前选中的分组（默认分组则不填 groupId）
     setNewGroupId(selectedGroupId === 'default' ? '' : selectedGroupId)
     setShowAddDialog(true)
@@ -311,13 +317,20 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     setNewContent(cmd.content)
     setNewGroupId(cmd.groupId || '')
     setNewEscape(cmd.escapeSequences ?? false)
+    setNameError(false)
+    setContentError(false)
     setShowAddDialog(true)
     setActiveDropdown(null)
   }
 
   // 保存命令
   const handleSaveCommand = async () => {
-    if (!newName.trim() || !newContent.trim()) return
+    // 名称与命令均为必填项：为空时各自高亮并提示，不再静默返回
+    const nameEmpty = !newName.trim()
+    const contentEmpty = !newContent.trim()
+    setNameError(nameEmpty)
+    setContentError(contentEmpty)
+    if (nameEmpty || contentEmpty) return
 
     // 检查分组命令数量限制（最多12个）
     const targetGroupId = newGroupId || undefined
@@ -618,27 +631,19 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
           </button>
         ))}
 
-        {/* 空状态：虚线键帽，明示这是个槽位 */}
-        {displayCommands.length === 0 && (
-          <button
-            onClick={handleDoubleClick}
-            className={cn(
-              'flex-shrink-0 h-[22px] rounded-[3px] px-2.5 flex items-center gap-1.5',
-              'border border-dashed border-[var(--bg-elev)] hover:border-[var(--text-rack-dim)]',
-              'text-[var(--text-rack-dim)] hover:text-[var(--text-rack-data)]',
-              'cursor-pointer transition-colors'
-            )}
-          >
-            <span className="text-[11px] leading-none">+</span>
-            <span className="text-[10.5px] leading-none">{t('statusbar.addCommand')}</span>
-            <span
-              className="text-[9.5px] leading-none text-[var(--text-rack-faint)] ml-1"
-              style={{ fontFamily: 'ui-monospace, "JetBrains Mono", monospace' }}
-            >
-              {t('statusbar.doubleClick')}
-            </span>
-          </button>
-        )}
+        {/* 常驻提示：紧跟最后一个键帽右侧，无命令时同样显示，点击新建 */}
+        <button
+          onClick={handleDoubleClick}
+          className={cn(
+            'flex-shrink-0 h-[22px] rounded-[3px] px-2 flex items-center gap-1',
+            'text-[var(--amber)] hover:text-[var(--bg-base)] hover:bg-[var(--amber)]',
+            'cursor-pointer transition-colors'
+          )}
+          title={t('statusbar.clickToAddHint')}
+        >
+          <span className="text-[11px] leading-none font-semibold">+</span>
+          <span className="text-[10.5px] leading-none font-medium">{t('statusbar.clickToAddHint')}</span>
+        </button>
       </div>
 
       {/* 分组选择下拉菜单（使用 fixed 定位） */}
@@ -790,15 +795,30 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
             <div className="px-4 py-4 space-y-4">
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <label className="block text-[12px] tracking-[.04em] text-[var(--text-rack-data)] mb-1.5">{t('statusbar.fieldName')}</label>
+                  <label className="block text-[12px] tracking-[.04em] text-[var(--text-rack-data)] mb-1.5">
+                    {t('statusbar.fieldName')}
+                    <span className="text-[var(--error-rack)] ml-0.5" title={t('statusbar.nameRequired')}>*</span>
+                  </label>
                   <input
                     type="text"
                     value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
+                    onChange={(e) => {
+                      setNewName(e.target.value)
+                      if (nameError) setNameError(false)
+                    }}
                     placeholder={t('statusbar.namePlaceholder')}
                     autoFocus
-                    className="w-full px-2.5 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[3px] text-sm text-[var(--text-rack)] placeholder-[var(--text-rack-faint)] focus:outline-none focus:border-[var(--amber)]"
+                    aria-required="true"
+                    className={cn(
+                      'w-full px-2.5 py-1.5 bg-[var(--bg-base)] border rounded-[3px] text-sm text-[var(--text-rack)] placeholder-[var(--text-rack-faint)] focus:outline-none',
+                      nameError
+                        ? 'border-[var(--error-rack)] focus:border-[var(--error-rack)]'
+                        : 'border-[var(--rule)] focus:border-[var(--amber)]'
+                    )}
                   />
+                  {nameError && (
+                    <div className="mt-1 text-[11px] text-[var(--error-rack)]">{t('statusbar.nameRequired')}</div>
+                  )}
                 </div>
                 <div className="w-[130px]">
                   <label className="block text-[12px] tracking-[.04em] text-[var(--text-rack-data)] mb-1.5">{t('statusbar.fieldGroup')}</label>
@@ -816,14 +836,29 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
               </div>
 
               <div>
-                <label className="block text-[12px] tracking-[.04em] text-[var(--text-rack-data)] mb-1.5">{t('statusbar.fieldCommand')}</label>
+                <label className="block text-[12px] tracking-[.04em] text-[var(--text-rack-data)] mb-1.5">
+                  {t('statusbar.fieldCommand')}
+                  <span className="text-[var(--error-rack)] ml-0.5" title={t('statusbar.commandRequired')}>*</span>
+                </label>
                 <textarea
                   value={newContent}
-                  onChange={(e) => setNewContent(e.target.value)}
+                  onChange={(e) => {
+                    setNewContent(e.target.value)
+                    if (contentError) setContentError(false)
+                  }}
                   placeholder={t('statusbar.commandPlaceholder')}
                   rows={4}
-                  className="w-full px-2.5 py-2 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[3px] text-sm font-mono text-[var(--text-rack)] placeholder-[var(--text-rack-faint)] focus:outline-none focus:border-[var(--amber)] resize-none"
+                  aria-required="true"
+                  className={cn(
+                    'w-full px-2.5 py-2 bg-[var(--bg-base)] border rounded-[3px] text-sm font-mono text-[var(--text-rack)] placeholder-[var(--text-rack-faint)] focus:outline-none resize-none',
+                    contentError
+                      ? 'border-[var(--error-rack)] focus:border-[var(--error-rack)]'
+                      : 'border-[var(--rule)] focus:border-[var(--amber)]'
+                  )}
                 />
+                {contentError && (
+                  <div className="mt-1 text-[11px] text-[var(--error-rack)]">{t('statusbar.commandRequired')}</div>
+                )}
               </div>
 
               <label

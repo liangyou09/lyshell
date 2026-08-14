@@ -181,8 +181,7 @@
   },
   "statusbar": {
     "groupSwitchHint": "单击切换分组 · 右键编辑分组",
-    "addCommand": "添加命令",
-    "doubleClick": "双击",
+    "clickToAddHint": "点击新建快捷命令",
     "editGroups": "编辑分组",
     "connected": "已连接",
     "noSession": "无会话",
@@ -193,6 +192,8 @@
     "editCommandTitle": "编辑命令",
     "newCommandTitle": "新建快速命令",
     "fieldName": "名称",
+    "nameRequired": "名称为必填项",
+    "commandRequired": "命令为必填项",
     "fieldGroup": "分组",
     "defaultGroup": "默认",
     "fieldCommand": "命令",

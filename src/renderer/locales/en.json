@@ -181,8 +181,7 @@
   },
   "statusbar": {
     "groupSwitchHint": "Click to switch group · Right-click to edit groups",
-    "addCommand": "Add command",
-    "doubleClick": "double-click",
+    "clickToAddHint": "Click to add a command",
     "editGroups": "Edit groups",
     "connected": "connected",
     "noSession": "no session",
@@ -193,6 +192,8 @@
     "editCommandTitle": "Edit command",
     "newCommandTitle": "New quick command",
     "fieldName": "Name",
+    "nameRequired": "Name is required",
+    "commandRequired": "Command is required",
     "fieldGroup": "Group",
     "defaultGroup": "Default",
     "fieldCommand": "Command",
