@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
@@ -7,6 +7,7 @@ import { DEFAULT_THEME_DARK, DEFAULT_THEME_LIGHT, DEFAULT_FONT_FAMILY, isCursorB
 import { isLightColor } from '@shared/color-utils'
 import { useTerminalStore } from '../../stores/terminal-store'
 import { useSessionStore } from '../../stores/session-store'
+import { usePaneStore } from '../../stores/pane-store'
 import { useThemeStore } from '../../stores/theme-store'
 import { useTranslation } from 'react-i18next'
 import i18n from '../../i18n'
@@ -158,6 +159,18 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
     restore: () => void
     resetLock: () => void
   } | null>(null)
+
+  // 聚焦终端（仅当本 session 是其所在 pane 的活跃页签且未被隐藏时）。
+  // 同一 pane 内所有 xterm 实例都保持挂载（非活跃用 visibility:hidden 隐藏），
+  // 若不设守卫，多个实例会争抢焦点，导致「新建会话后无法直接输入」。
+  const focusTerminalIfActive = useCallback(() => {
+    const paneStore = usePaneStore.getState()
+    const pane = paneId ? paneStore.getPaneById(paneId) : undefined
+    const isActive = pane?.type === 'leaf' && pane.activeSessionId === sessionId && !paneStore.hiddenTabSessions[sessionId]
+    if (isActive) {
+      getTerminal(sessionId)?.terminal.focus()
+    }
+  }, [sessionId, paneId, getTerminal])
 
   // 初始化或获取终端实例
   useEffect(() => {
@@ -446,6 +459,8 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
           if (instance.terminal.cols && instance.terminal.rows) {
             window.electronAPI?.terminalResize(sessionId, instance.terminal.cols, instance.terminal.rows)
           }
+          // 新建/复用终端后自动聚焦，避免用户必须先点击才能输入
+          focusTerminalIfActive()
         }
       }
     }, 100)
@@ -733,6 +748,8 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
                 if (cols && rows) {
                   window.electronAPI?.terminalResize(sessionId, cols, rows)
                 }
+                // 切换页签后自动聚焦，用户可立即输入
+                focusTerminalIfActive()
               } catch {
                 // 忽略错误
               }
