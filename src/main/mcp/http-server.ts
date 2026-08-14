@@ -305,62 +305,102 @@ function resolveNodePath(): string {
   )
 }
 /**
- * 输出 claude mcp add 命令，供用户自行注册 LyShell MCP Server
- * 不再自动改写用户外部配置文件（~/.claude/mcp.json），避免崩溃残留与未授权改写。
+ * 输出通用 MCP `mcpServers` 配置，供用户自行注册 LyShell MCP Server
+ * 不再自动改写用户外部配置文件（如 ~/.claude/mcp.json），避免崩溃残留与未授权改写。
  *
  * @param externalAccess 当前是否允许外部 MCP 客户端通过端口文件接入
  */
 function logMcpAddCommand(externalAccess: boolean): void {
   const info = buildMcpAddCommand(externalAccess)
-  log.info('[MCP] To register LyShell with Claude Code, run the following command:')
-  log.info(`[MCP]   ${info.command}`)
-  if (info.systemNodeCommand) {
-    log.info('[MCP] Fallback (system Node.js, if the command above fails):')
-    log.info(`[MCP]   ${info.systemNodeCommand}`)
+  log.info('[MCP] To register LyShell with an MCP client, add this to its mcpServers config:')
+  log.info(`[MCP] ${info.config}`)
+  if (info.systemNodeConfig) {
+    log.info('[MCP] Fallback (system Node.js, if the config above fails):')
+    log.info(`[MCP] ${info.systemNodeConfig}`)
   }
-  log.info('[MCP] To remove later: claude mcp remove lyshell')
   if (!externalAccess) {
-    log.info('[MCP] External access is OFF (default). Run claude inside a LyShell-spawned local terminal,')
+    log.info('[MCP] External access is OFF (default). Run the MCP client inside a LyShell-spawned local terminal,')
     log.info('[MCP]   or enable security.mcp.allowExternalMcpClients in preferences to allow external connections.')
   }
 }
 
 export interface McpAddCommand {
-  /** 主命令：用 LyShell 自带 Electron 二进制 + ELECTRON_RUN_AS_NODE=1，无需系统 Node */
-  command: string
-  /** 备选命令：用系统 Node.js（若检测到），主命令失效时回退 */
-  systemNodeCommand?: string
+  /** 主配置：通用 mcpServers JSON，用 LyShell 自带 Electron 二进制 + ELECTRON_RUN_AS_NODE=1，无需系统 Node */
+  config: string
+  /** 备选配置：通用 mcpServers JSON，用系统 Node.js（若检测到），主配置失效时回退 */
+  systemNodeConfig?: string
+  /** Claude Code 专用：claude mcp add 命令（主配置，自带 Electron 二进制） */
+  claudeCommand: string
+  /** Codex CLI 专用：config.toml 片段（[mcp_servers.lyshell]） */
+  codexConfig: string
   /** 当前是否允许外部 MCP 客户端接入 */
   externalAccess: boolean
 }
 
+/** TOML 基本字符串转义：反斜杠 → \\，双引号 → \"（Windows 路径必须双写反斜杠，否则 TOML 解析报错） */
+function tomlEscape(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
 /**
- * 构造 `claude mcp add lyshell ...` 注册命令（B6）。
+ * 构造 MCP 注册信息（B6）：通用 `mcpServers` JSON + Claude Code 命令 + Codex config.toml 片段。
  *
- * 主命令用 process.execPath + ELECTRON_RUN_AS_NODE=1：LyShell 自带的 Electron 二进制
+ * 主配置用 process.execPath + ELECTRON_RUN_AS_NODE=1：LyShell 自带的 Electron 二进制
  * 在该 env 下作为纯 Node.js 运行，直接跑打包好的 mcpServer.js，无需用户另装系统 Node.js。
  * （历史注释误以为 Electron 二进制不能跑 MCP Server——ELECTRON_RUN_AS_NODE 正是为此。）
  *
- * 备选命令仍用系统 Node.js（若能检测到），供主命令在异常环境（如 env 被剥离）下回退。
+ * 备选配置仍用系统 Node.js（若能检测到），供主配置在异常环境（如 env 被剥离）下回退。
+ * 通用 JSON 任何 MCP 客户端（Claude Code / Cursor 等）通用；Claude/Codex 另给专属写法。
  */
 export function buildMcpAddCommand(externalAccess: boolean): McpAddCommand {
   const scriptPath = getMcpServerScriptPath()
   const userDataDir = app.getPath('userData')
   const execPath = process.execPath
 
-  const command =
-    `claude mcp add lyshell -e LYSHELL_USER_DATA="${userDataDir}" -e ELECTRON_RUN_AS_NODE=1 -- "${execPath}" "${scriptPath}"`
+  const config = JSON.stringify({
+    mcpServers: {
+      lyshell: {
+        command: execPath,
+        args: [scriptPath],
+        env: {
+          LYSHELL_USER_DATA: userDataDir,
+          ELECTRON_RUN_AS_NODE: '1',
+        },
+      },
+    },
+  }, null, 2)
 
-  let systemNodeCommand: string | undefined
+  let systemNodeConfig: string | undefined
   try {
     const nodePath = resolveNodePath()
-    systemNodeCommand =
-      `claude mcp add lyshell -e LYSHELL_USER_DATA="${userDataDir}" -- "${nodePath}" "${scriptPath}"`
+    systemNodeConfig = JSON.stringify({
+      mcpServers: {
+        lyshell: {
+          command: nodePath,
+          args: [scriptPath],
+          env: {
+            LYSHELL_USER_DATA: userDataDir,
+          },
+        },
+      },
+    }, null, 2)
   } catch {
-    // 系统未装 Node.js —— 主命令不依赖它，忽略
+    // 系统未装 Node.js —— 主配置不依赖它，忽略
   }
 
-  return { command, systemNodeCommand, externalAccess }
+  // Claude Code 专用：claude mcp add 命令（主配置）
+  const claudeCommand =
+    `claude mcp add lyshell -e LYSHELL_USER_DATA="${userDataDir}" -e ELECTRON_RUN_AS_NODE=1 -- "${execPath}" "${scriptPath}"`
+
+  // Codex 走 ~/.codex/config.toml 的 [mcp_servers.*]（key 是下划线 mcp_servers，非 mcpServers）
+  const codexConfig = [
+    '[mcp_servers.lyshell]',
+    `command = "${tomlEscape(execPath)}"`,
+    `args = ["${tomlEscape(scriptPath)}"]`,
+    `env = { LYSHELL_USER_DATA = "${tomlEscape(userDataDir)}", ELECTRON_RUN_AS_NODE = "1" }`,
+  ].join('\n')
+
+  return { config, systemNodeConfig, claudeCommand, codexConfig, externalAccess }
 }
 
 /**

@@ -18,7 +18,7 @@ function manifestLifecycle(manifest: LyShellPluginManifest): PluginLifecycle {
  * 列表 / 三种安装来源(dev 文件夹 / 本地 .lyshell-plugin / URL 下载)/ 启用禁用 / 卸载 / 查看权限。
  * 详见 docs/plugin-system-design.md §8(生命周期)+ §8.3(安装流程)。
  *
- * 样式沿用 Settings 面板令牌(--bg-elev/--bg-slot/--rule/--amber/--text-rack*)与 font-mono 12px 基线。
+ * 样式沿用 Settings 面板令牌(--bg-elev/--bg-slot/--rule/--amber/--text-rack*)与 [font-family:inherit] 12px 基线。
  */
 const PluginPanel: React.FC = () => {
   const { t } = useTranslation()
@@ -163,29 +163,32 @@ const PluginPanel: React.FC = () => {
     s === 'dev' ? 'dev' : s === 'file' ? t('plugin.sourceFile') : t('plugin.sourceUrl')
 
   return (
-    <div className="w-full h-full flex flex-col bg-[var(--bg-base)] p-3 space-y-2">
+    <div
+      className="w-full h-full flex flex-col bg-[var(--bg-base)] p-3 space-y-2"
+      style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
+    >
       {/* 标题 + 三种安装入口(dev 文件夹 / 本地 zip / URL) */}
       <div className="flex flex-wrap items-center justify-between gap-1">
-        <span className="text-[12px] font-mono text-[var(--text-rack)]">{t('plugin.title')}</span>
+        <span className="text-[12px] [font-family:inherit] text-[var(--text-rack)]">{t('plugin.title')}</span>
         <div className="flex items-center gap-1">
           <button
             onClick={handlePickDev}
             disabled={busy}
-            className="px-2 py-0.5 text-[11px] font-mono rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+            className="px-2 py-0.5 text-[11px] [font-family:inherit] rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
           >
             + {t('plugin.addDev')}
           </button>
           <button
             onClick={handlePickFile}
             disabled={busy}
-            className="px-2 py-0.5 text-[11px] font-mono rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+            className="px-2 py-0.5 text-[11px] [font-family:inherit] rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
           >
             {t('plugin.addFile')}
           </button>
           <button
             onClick={() => setShowUrlInput((v) => !v)}
             disabled={busy}
-            className="px-2 py-0.5 text-[11px] font-mono rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+            className="px-2 py-0.5 text-[11px] [font-family:inherit] rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
           >
             {t('plugin.installFromUrl')}
           </button>
@@ -203,12 +206,12 @@ const PluginPanel: React.FC = () => {
               if (e.key === 'Enter') void handleFetchUrl()
             }}
             placeholder={t('plugin.urlPlaceholder')}
-            className="flex-1 min-w-0 px-1.5 py-0.5 text-[11px] font-mono rounded-[2px] bg-[var(--bg-elev)] border border-[var(--rule)] text-[var(--text-rack)] placeholder:text-[var(--text-rack-mute)] focus:outline-none focus:border-[var(--amber)]"
+            className="flex-1 min-w-0 px-1.5 py-0.5 text-[11px] [font-family:inherit] rounded-[2px] bg-[var(--bg-elev)] border border-[var(--rule)] text-[var(--text-rack)] placeholder:text-[var(--text-rack-mute)] focus:outline-none focus:border-[var(--amber)]"
           />
           <button
             onClick={handleFetchUrl}
             disabled={busy || !urlInput.trim()}
-            className="px-2 py-0.5 text-[11px] font-mono rounded-[2px] bg-[var(--amber)] text-black hover:brightness-110 disabled:opacity-50 cursor-pointer whitespace-nowrap"
+            className="px-2 py-0.5 text-[11px] [font-family:inherit] rounded-[2px] bg-[var(--amber)] text-black hover:brightness-110 disabled:opacity-50 cursor-pointer whitespace-nowrap"
           >
             {t('plugin.fetch')}
           </button>
@@ -219,10 +222,10 @@ const PluginPanel: React.FC = () => {
       {picked && (
         <div className="border border-[var(--amber)] rounded-[2px] p-2 space-y-1.5 bg-[var(--bg-slot)]">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="text-[12px] font-mono font-semibold text-[var(--amber)] truncate">{picked.manifest.name}</span>
-            <span className="text-[10.5px] font-mono text-[var(--text-rack-data)] shrink-0">{picked.manifest.version}</span>
+            <span className="text-[12px] [font-family:inherit] font-semibold text-[var(--amber)] truncate">{picked.manifest.name}</span>
+            <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] shrink-0">{picked.manifest.version}</span>
           </div>
-          <div className="flex items-center gap-1.5 text-[10.5px] font-mono text-[var(--text-rack-mute)]">
+          <div className="flex items-center gap-1.5 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">
             <span className="truncate">{picked.manifest.id} · {picked.manifest.runtime}</span>
             <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{t(`plugin.lifecycle${manifestLifecycle(picked.manifest) === 'oneshot' ? 'Oneshot' : 'Persistent'}`)}</span>
             <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{sourceLabel(picked.source)}</span>
@@ -232,7 +235,7 @@ const PluginPanel: React.FC = () => {
               {picked.manifest.capabilities.map((c) => (
                 <span
                   key={c}
-                  className="px-1.5 py-px text-[10px] font-mono rounded-[2px] bg-[var(--bg-elev)] border border-[var(--rule)] text-[var(--text-rack-data)]"
+                  className="px-1.5 py-px text-[10px] [font-family:inherit] rounded-[2px] bg-[var(--bg-elev)] border border-[var(--rule)] text-[var(--text-rack-data)]"
                 >
                   {c}
                 </span>
@@ -240,7 +243,7 @@ const PluginPanel: React.FC = () => {
             </div>
           )}
           {manifestLifecycle(picked.manifest) !== 'oneshot' && (
-            <label className="flex items-center gap-1.5 text-[11px] font-mono text-[var(--text-rack)] cursor-pointer">
+            <label className="flex items-center gap-1.5 text-[11px] [font-family:inherit] text-[var(--text-rack)] cursor-pointer">
               <input
                 type="checkbox"
                 checked={installEnabled}
@@ -254,14 +257,14 @@ const PluginPanel: React.FC = () => {
             <button
               onClick={cancelPicked}
               disabled={busy}
-              className="px-2 py-0.5 text-[11px] font-mono rounded-[2px] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] disabled:opacity-50 cursor-pointer"
+              className="px-2 py-0.5 text-[11px] [font-family:inherit] rounded-[2px] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] disabled:opacity-50 cursor-pointer"
             >
               {t('plugin.cancel')}
             </button>
             <button
               onClick={handleInstall}
               disabled={busy}
-              className="px-2 py-0.5 text-[11px] font-mono rounded-[2px] bg-[var(--amber)] text-black hover:brightness-110 disabled:opacity-50 cursor-pointer"
+              className="px-2 py-0.5 text-[11px] [font-family:inherit] rounded-[2px] bg-[var(--amber)] text-black hover:brightness-110 disabled:opacity-50 cursor-pointer"
             >
               {t('plugin.install')}
             </button>
@@ -269,23 +272,23 @@ const PluginPanel: React.FC = () => {
         </div>
       )}
 
-      {notice && <div className="text-[10.5px] font-mono text-[var(--text-rack-data)] break-all">{notice}</div>}
-      {error && <div className="text-[10.5px] font-mono text-red-400 break-all">{error}</div>}
+      {notice && <div className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] break-all">{notice}</div>}
+      {error && <div className="text-[10.5px] [font-family:inherit] text-red-400 break-all">{error}</div>}
 
       {/* 列表 */}
       {loading && items.length === 0 ? (
-        <div className="text-[11px] font-mono text-[var(--text-rack-mute)]">{t('plugin.loading')}</div>
+        <div className="text-[11px] [font-family:inherit] text-[var(--text-rack-mute)]">{t('plugin.loading')}</div>
       ) : items.length === 0 ? (
-        <div className="text-[11px] font-mono text-[var(--text-rack-mute)] py-2 text-center">{t('plugin.empty')}</div>
+        <div className="text-[11px] [font-family:inherit] text-[var(--text-rack-mute)] py-2 text-center">{t('plugin.empty')}</div>
       ) : (
         <div className="space-y-1 flex-1 min-h-0 overflow-y-auto pr-0.5">
           {items.map((p) => (
             <div key={p.id} className="border border-[var(--rule)] rounded-[2px] p-1.5 space-y-1">
               <div className="flex items-baseline justify-between gap-2">
-                <span className="text-[12px] font-mono font-semibold text-[var(--text-rack)] truncate">{p.name}</span>
-                <span className="text-[10.5px] font-mono text-[var(--text-rack-data)] shrink-0">{p.version}</span>
+                <span className="text-[12px] [font-family:inherit] font-semibold text-[var(--text-rack)] truncate">{p.name}</span>
+                <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] shrink-0">{p.version}</span>
               </div>
-              <div className="flex items-center gap-1.5 text-[10.5px] font-mono text-[var(--text-rack-mute)]">
+              <div className="flex items-center gap-1.5 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">
                 <span className="truncate">{p.id}</span>
                 <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{p.runtime}</span>
                 <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{t(`plugin.lifecycle${p.lifecycle === 'oneshot' ? 'Oneshot' : 'Persistent'}`)}</span>
@@ -302,7 +305,7 @@ const PluginPanel: React.FC = () => {
                         key={c}
                         title={granted ? t('plugin.granted') : t('plugin.declared')}
                         className={cn(
-                          'px-1.5 py-px text-[10px] font-mono rounded-[2px] border',
+                          'px-1.5 py-px text-[10px] [font-family:inherit] rounded-[2px] border',
                           granted
                             ? 'border-[var(--amber)] text-[var(--amber)]'
                             : 'border-[var(--rule)] text-[var(--text-rack-mute)] line-through'
@@ -316,7 +319,7 @@ const PluginPanel: React.FC = () => {
               )}
               <div className="flex items-center justify-between pt-0.5">
                 <div className="flex items-center gap-2">
-                  <label className="flex items-center gap-1 text-[11px] font-mono text-[var(--text-rack)] cursor-pointer">
+                  <label className="flex items-center gap-1 text-[11px] [font-family:inherit] text-[var(--text-rack)] cursor-pointer">
                     <input
                       type="checkbox"
                       checked={p.enabled}
@@ -329,7 +332,7 @@ const PluginPanel: React.FC = () => {
                     <button
                       onClick={() => void handleRunOneshot(p.id)}
                       disabled={busy || !p.enabled}
-                      className="px-1.5 py-0.5 text-[10px] font-mono rounded-[2px] bg-[var(--amber)] text-black hover:brightness-110 disabled:opacity-50 cursor-pointer"
+                      className="px-1.5 py-0.5 text-[10px] [font-family:inherit] rounded-[2px] bg-[var(--amber)] text-black hover:brightness-110 disabled:opacity-50 cursor-pointer"
                     >
                       {t('plugin.run')}
                     </button>
@@ -337,18 +340,18 @@ const PluginPanel: React.FC = () => {
                 </div>
                 {confirmUninstall === p.id ? (
                   <span className="flex items-center gap-1">
-                    <span className="text-[10px] font-mono text-[var(--text-rack-data)]">{t('plugin.confirmUninstall')}</span>
+                    <span className="text-[10px] [font-family:inherit] text-[var(--text-rack-data)]">{t('plugin.confirmUninstall')}</span>
                     <button
                       onClick={() => void handleUninstall(p.id)}
                       disabled={busy}
-                      className="px-1.5 py-0.5 text-[10px] font-mono rounded-[2px] bg-red-500/80 text-white hover:bg-red-500 disabled:opacity-50 cursor-pointer"
+                      className="px-1.5 py-0.5 text-[10px] [font-family:inherit] rounded-[2px] bg-red-500/80 text-white hover:bg-red-500 disabled:opacity-50 cursor-pointer"
                     >
                       {t('plugin.yes')}
                     </button>
                     <button
                       onClick={() => setConfirmUninstall(null)}
                       disabled={busy}
-                      className="px-1.5 py-0.5 text-[10px] font-mono rounded-[2px] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] disabled:opacity-50 cursor-pointer"
+                      className="px-1.5 py-0.5 text-[10px] [font-family:inherit] rounded-[2px] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] disabled:opacity-50 cursor-pointer"
                     >
                       {t('plugin.no')}
                     </button>
@@ -357,7 +360,7 @@ const PluginPanel: React.FC = () => {
                   <button
                     onClick={() => setConfirmUninstall(p.id)}
                     disabled={busy}
-                    className="px-1.5 py-0.5 text-[10px] font-mono rounded-[2px] text-[var(--text-rack-mute)] hover:text-red-400 disabled:opacity-50 cursor-pointer"
+                    className="px-1.5 py-0.5 text-[10px] [font-family:inherit] rounded-[2px] text-[var(--text-rack-mute)] hover:text-red-400 disabled:opacity-50 cursor-pointer"
                   >
                     {t('plugin.uninstall')}
                   </button>

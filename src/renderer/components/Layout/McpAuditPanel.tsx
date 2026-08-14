@@ -357,10 +357,13 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
   }
 
   return (
-    <div className="flex h-full w-full">
+    <div
+      className="flex h-full w-full"
+      style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
+    >
       <div className="flex-1 flex flex-col bg-[var(--terminal-bg)] overflow-hidden">
         {/* 过滤栏 -- flex-wrap：窄屏自动换行，避免输入挤一起 */}
-        <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-[var(--bg-slot)] border-b border-[var(--rule)] text-[12px] font-mono">
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-[var(--bg-slot)] border-b border-[var(--rule)] text-[12px] [font-family:inherit]">
           <select
             value={operation}
             onChange={(e) => { setOperation(e.target.value); operationRef.current = e.target.value; load(1) }}
@@ -444,11 +447,11 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
         {/* 记录列表 -- 滚动时清掉 summary tip，避免定位错乱 */}
         <div className="flex-1 overflow-auto" onScroll={() => setSummaryTip(null)}>
           {records.length === 0 ? (
-            <div className="p-6 text-[13px] font-mono text-[var(--text-rack-data)] text-center">
+            <div className="p-6 text-[13px] [font-family:inherit] text-[var(--text-rack-data)] text-center">
               {t('mcpAudit.empty')}
             </div>
           ) : (
-            <table className="w-full text-[12px] font-mono">
+            <table className="w-full text-[12px] [font-family:inherit]">
               <thead className="sticky top-0 z-10 bg-[var(--bg-slot)] border-b border-[var(--rule)]">
                 <tr className="text-[12px] tracking-[.04em] text-[var(--text-rack)]">
                   <th className="text-left px-2 py-1.5 font-semibold">{t('mcpAudit.colTime')}</th>
@@ -503,7 +506,7 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
         </div>
 
         {/* 分页栏 */}
-        <div className="flex items-center justify-between px-3 py-2 bg-[var(--bg-slot)] border-t border-[var(--rule)] text-[12px] font-mono text-[var(--text-rack-data)]">
+        <div className="flex items-center justify-between px-3 py-2 bg-[var(--bg-slot)] border-t border-[var(--rule)] text-[12px] [font-family:inherit] text-[var(--text-rack-data)]">
           <span className="tabular-nums">
             {total > 0 ? `${rangeStart}–${rangeEnd} / ${total}` : '– / –'}
           </span>
@@ -538,7 +541,7 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
       {/* summary 鼠标 tip -- 渲染在面板外层、固定定位，不被记录列表的 overflow-auto 裁切 */}
       {summaryTip && (
         <div
-          className="fixed z-[300] px-2 py-1.5 rounded-[3px] bg-[var(--bg-slot)] border border-[var(--rule)] text-[12px] font-mono text-[var(--text-rack)] shadow-xl pointer-events-none whitespace-normal break-words"
+          className="fixed z-[300] px-2 py-1.5 rounded-[3px] bg-[var(--bg-slot)] border border-[var(--rule)] text-[12px] [font-family:inherit] text-[var(--text-rack)] shadow-xl pointer-events-none whitespace-normal break-words"
           style={{ left: summaryTip.x, top: summaryTip.y, maxWidth: Math.min(400, window.innerWidth - summaryTip.x - 8) }}
         >
           {summaryTip.text}

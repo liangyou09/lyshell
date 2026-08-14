@@ -30,6 +30,31 @@ const WINDOW_PRESETS: ReadonlyArray<{ width: number; height: number }> = [
   { width: 1200, height: 800 }
 ]
 
+/**
+ * 设置卡片 —— 每条设置一个独立槽位:外框 + 浅底 + 顶部 caption,让相邻设置之间有明确层次。
+ * caption(弱化)与控件(亮)拉开层级;flush=true 时 body 无内边距,给主题/语言这类满幅列表用,
+ * 避免卡片内再套一层边框。
+ */
+const SettingCard: React.FC<{
+  title: React.ReactNode
+  right?: React.ReactNode
+  flush?: boolean
+  /** 标题本身是内容(如 MCP 开关 label)时用亮色,否则按分区 caption 弱化 */
+  brightTitle?: boolean
+  children: React.ReactNode
+}> = ({ title, right, flush, brightTitle, children }) => (
+  <div className="border border-[var(--rule)] rounded-[3px] bg-[var(--bg-slot)]/45 overflow-hidden">
+    <div className="flex items-center justify-between gap-2 px-2.5 pt-2 pb-1.5">
+      <span className={cn(
+        'font-mono tracking-[.06em]',
+        brightTitle ? 'text-[12px] text-[var(--text-rack)]' : 'text-[11px] text-[var(--text-rack-mute)]'
+      )}>{title}</span>
+      {right}
+    </div>
+    <div className={cn(!flush && 'px-2.5 pb-2')}>{children}</div>
+  </div>
+)
+
 const SettingsPanel: React.FC = () => {
   const [settingsTab, setSettingsTab] = useState<'terminal' | 'mcp'>('terminal')
   const [scrollbackLines, setScrollbackLines] = useState(() => {
@@ -45,8 +70,10 @@ const SettingsPanel: React.FC = () => {
   const [mcpSessionMetadataWrite, setMcpSessionMetadataWrite] = useState(false)
   // 破坏性命令确认默认开启（与后端 DEFAULT_MCP_SECURITY 一致）
   const [mcpConfirmDestructive, setMcpConfirmDestructive] = useState(true)
-  // 复制 MCP 注册命令的瞬时反馈
-  const [mcpCmdCopied, setMcpCmdCopied] = useState(false)
+  // MCP 注册信息(通用 JSON + Claude 命令 + Codex TOML),挂载时加载供展示与复制
+  const [mcpAddInfo, setMcpAddInfo] = useState<{ config: string; systemNodeConfig?: string; claudeCommand: string; codexConfig: string } | null>(null)
+  // 复制反馈:标记刚复制的是哪一块(主配置/备选/Claude/Codex)
+  const [mcpCopied, setMcpCopied] = useState<'primary' | 'fallback' | 'claude' | 'codex' | null>(null)
   // 主窗口尺寸(像素) -- 持久化到 preferences,启动恢复;输入框双向绑定,点应用/预设时调 IPC
   const [windowSize, setWindowSize] = useState<{ width: number; height: number }>({ width: 1200, height: 800 })
   const { themeId, setTheme, customColors, setCustomColors } = useThemeStore()
@@ -112,6 +139,35 @@ const SettingsPanel: React.FC = () => {
     loadMcpSecurity()
   }, [])
 
+  // 加载 MCP 注册信息(通用 JSON + Claude 命令 + Codex TOML),供设置页展示与复制
+  useEffect(() => {
+    if (!window.electronAPI) return
+    window.electronAPI.getMcpAddCommand()
+      .then(info => {
+        if (info?.config) {
+          setMcpAddInfo({
+            config: info.config,
+            systemNodeConfig: info.systemNodeConfig,
+            claudeCommand: info.claudeCommand,
+            codexConfig: info.codexConfig,
+          })
+        }
+      })
+      .catch(() => { /* 静默:读失败保持空,配置块不渲染 */ })
+  }, [])
+
+  // 复制 MCP 注册配置(主/备选),带 2s 瞬时反馈
+  const copyMcp = async (which: 'primary' | 'fallback' | 'claude' | 'codex', text?: string) => {
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+      setMcpCopied(which)
+      setTimeout(() => setMcpCopied(null), 2000)
+    } catch (err) {
+      console.warn('Failed to copy MCP config:', err)
+    }
+  }
+
   // 加载已保存的窗口尺寸(回显输入框与预设高亮)
   useEffect(() => {
     if (!window.electronAPI) return
@@ -138,8 +194,11 @@ const SettingsPanel: React.FC = () => {
     }
   }
 
+  // 当前窗口尺寸是否命中某个预设；命中则下拉回显该预设，否则显示"自定义"
+  const activeWindowPreset = WINDOW_PRESETS.find(p => windowSize.width === p.width && windowSize.height === p.height)
+
   return (
-    <div className="h-full flex flex-col bg-[var(--bg-rack)]">
+    <div className="settings-panel h-full flex flex-col bg-[var(--bg-rack)]">
       {/* 页签栏 —— bg-strip;active 用 amber 底边线标识,沿用原悬浮面板视觉语言(去掉拖拽把手/关闭钮) */}
       <div className="flex bg-[var(--bg-strip)] border-b border-[var(--rule)] flex-shrink-0">
         {SETTINGS_TABS.map(tab => {
@@ -163,37 +222,34 @@ const SettingsPanel: React.FC = () => {
         })}
       </div>
 
-      {/* 内容区 —— 滚动适配 180–400px 可调栏宽;两页签 grid 同格重叠(invisible)以取较大者稳定高度 */}
+      {/* 内容区 —— 滚动适配 180–400px 可调栏宽;两页签同格重叠,非激活页签 display:none 使其高度互不影响 */}
       <div className="flex-1 overflow-y-auto">
         <div className="grid p-3">
-          <div className={cn('col-start-1 row-start-1 space-y-3', settingsTab === 'terminal' ? '' : 'invisible')} aria-hidden={settingsTab !== 'terminal'}>
-            {/* 窗口大小 -- 预设 chip + 自定义宽高,持久化到 preferences,启动恢复 */}
-            <div className="border-b border-[var(--rule-soft)] pb-3">
-              <div className="flex items-baseline justify-between mb-1.5">
-                <span className="text-[12px] font-mono text-[var(--text-rack)]">{t('settings.windowSize')}</span>
-                <span className="text-[11px] font-mono text-[var(--text-rack-data)] tabular-nums">
-                  {windowSize.width}×{windowSize.height}
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-1 mb-2">
-                {WINDOW_PRESETS.map(p => {
-                  const active = windowSize.width === p.width && windowSize.height === p.height
-                  return (
-                    <button
-                      key={`${p.width}x${p.height}`}
-                      onClick={() => applyWindowSize(p.width, p.height)}
-                      className={cn(
-                        'px-2 h-[22px] rounded-[2px] border text-[11px] font-mono tabular-nums transition-colors cursor-pointer',
-                        active
-                          ? 'border-[var(--amber)] text-[var(--amber)] bg-[var(--bg-slot)]'
-                          : 'border-[var(--rule)] text-[var(--text-rack-data)] bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
-                      )}
-                    >
-                      {p.width}×{p.height}
-                    </button>
-                  )
-                })}
-              </div>
+          <div className={cn('col-start-1 row-start-1 space-y-2', settingsTab === 'terminal' ? '' : 'hidden')} aria-hidden={settingsTab !== 'terminal'}>
+            {/* 窗口大小 —— 预设下拉 + 自定义宽高,持久化到 preferences,启动恢复 */}
+            <SettingCard
+              title={t('settings.windowSize')}
+              right={<span className="text-[11px] font-mono text-[var(--text-rack-data)] tabular-nums">{windowSize.width}×{windowSize.height}</span>}
+            >
+              <select
+                value={activeWindowPreset ? `${activeWindowPreset.width}x${activeWindowPreset.height}` : 'custom'}
+                onChange={(e) => {
+                  const p = WINDOW_PRESETS.find(p => `${p.width}x${p.height}` === e.target.value)
+                  if (p) applyWindowSize(p.width, p.height)
+                }}
+                className="w-full h-[28px] px-2 mb-2 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[12px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)] cursor-pointer"
+              >
+                {!activeWindowPreset && (
+                  <option value="custom" disabled>
+                    {t('settings.custom')}
+                  </option>
+                )}
+                {WINDOW_PRESETS.map(p => (
+                  <option key={`${p.width}x${p.height}`} value={`${p.width}x${p.height}`}>
+                    {p.width}×{p.height}
+                  </option>
+                ))}
+              </select>
               <div className="flex items-center gap-2">
                 <span className="text-[11px] font-mono text-[var(--text-rack-data)] w-[40px]">{t('settings.custom')}</span>
                 <input
@@ -222,76 +278,83 @@ const SettingsPanel: React.FC = () => {
                   {t('settings.apply')}
                 </button>
               </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[12px] font-mono text-[var(--text-rack)] w-[64px]">{t('settings.buffer')}</span>
-              <input
-                type="number"
-                value={scrollbackLines}
-                onChange={(e) => {
-                  const value = parseInt(e.target.value) || 1000
-                  setScrollbackLines(value)
-                  localStorage.setItem('terminalScrollback', value.toString())
-                }}
-                className="w-[80px] px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[12px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
-                min={1000}
-                max={100000}
-                step={1000}
-              />
-              <span className="text-[11px] text-[var(--text-rack-data)] font-mono">{t('settings.lines')}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[12px] font-mono text-[var(--text-rack)] w-[64px]">{t('settings.font')}</span>
-              <input
-                type="number"
-                value={fontSize}
-                onChange={(e) => {
-                  // 输入期间只存草稿值（不吸附），避免键入 "25" 时输到 "2" 就被吸成 "20" 而无法键入多位数
-                  const raw = parseInt(e.target.value)
-                  setFontSize(Number.isFinite(raw) ? raw : DEFAULT_TERMINAL_FONT_SIZE)
-                }}
-                onBlur={() => {
-                  // 失焦时才吸附 + 持久化 + 派发，保证终端永远拿不到「有问题」的档位
-                  const next = snapTerminalFontSize(fontSize)
-                  setFontSize(next)
-                  localStorage.setItem('terminalFontSize', next.toString())
-                  window.dispatchEvent(new CustomEvent('terminalFontSizeChanged', { detail: next }))
-                }}
-                className="w-[80px] px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[12px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
-                min={TERMINAL_FONT_SIZE_MIN}
-                max={TERMINAL_FONT_SIZE_MAX}
-                step={TERMINAL_FONT_SIZE_STEP}
-              />
-              <span className="text-[11px] text-[var(--text-rack-data)] font-mono">{t('settings.px')}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[12px] font-mono text-[var(--text-rack)] w-[64px]">{t('settings.cursor')}</span>
-              <input
-                type="checkbox"
-                checked={cursorBlink}
-                onChange={(e) => {
-                  setCursorBlink(e.target.checked)
-                  localStorage.setItem('terminalCursorBlink', e.target.checked.toString())
-                  window.dispatchEvent(new CustomEvent('terminalCursorBlinkChanged', { detail: e.target.checked }))
-                }}
-                className="w-3.5 h-3.5 accent-[var(--amber)]"
-              />
-              {/* blink on/off 是该行的值(等价 input 的数值),不是单位 —— 提到 text-rack-data + 11px,跟 lines/px 那种纯单位拉开层级 */}
-              <span className={cn(
-                'text-[12px] font-mono',
-                cursorBlink ? 'text-[var(--amber)]' : 'text-[var(--text-rack-data)]'
-              )}>{cursorBlink ? t('settings.blinkOn') : t('settings.blinkOff')}</span>
-            </div>
+            </SettingCard>
 
-            {/* 主题 ——— 三个 rack 槽位，每行用自己主题的真实色铺底 */}
-            <div className="border-t border-[var(--rule)] pt-2 mt-2">
-              <div className="flex items-baseline justify-between mb-1.5">
-                <span className="text-[12px] font-mono text-[var(--text-rack)]">{t('settings.theme')}</span>
-                <span className="text-[11px] font-mono text-[var(--text-rack-data)] truncate ml-2">
-                  {AVAILABLE_THEMES.find(t => t.id === themeId)?.name}
-                </span>
+            {/* 缓冲 */}
+            <SettingCard title={t('settings.buffer')}>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={scrollbackLines}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value) || 1000
+                    setScrollbackLines(value)
+                    localStorage.setItem('terminalScrollback', value.toString())
+                  }}
+                  className="w-[80px] px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[12px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
+                  min={1000}
+                  max={100000}
+                  step={1000}
+                />
+                <span className="text-[11px] text-[var(--text-rack-data)] font-mono">{t('settings.lines')}</span>
               </div>
-              <div className="border border-[var(--rule)] rounded-[2px] overflow-hidden divide-y divide-[var(--rule-soft)]">
+            </SettingCard>
+
+            {/* 字体 */}
+            <SettingCard title={t('settings.font')}>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={fontSize}
+                  onChange={(e) => {
+                    // 输入期间只存草稿值（不吸附），避免键入 "25" 时输到 "2" 就被吸成 "20" 而无法键入多位数
+                    const raw = parseInt(e.target.value)
+                    setFontSize(Number.isFinite(raw) ? raw : DEFAULT_TERMINAL_FONT_SIZE)
+                  }}
+                  onBlur={() => {
+                    // 失焦时才吸附 + 持久化 + 派发，保证终端永远拿不到「有问题」的档位
+                    const next = snapTerminalFontSize(fontSize)
+                    setFontSize(next)
+                    localStorage.setItem('terminalFontSize', next.toString())
+                    window.dispatchEvent(new CustomEvent('terminalFontSizeChanged', { detail: next }))
+                  }}
+                  className="w-[80px] px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[12px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
+                  min={TERMINAL_FONT_SIZE_MIN}
+                  max={TERMINAL_FONT_SIZE_MAX}
+                  step={TERMINAL_FONT_SIZE_STEP}
+                />
+                <span className="text-[11px] text-[var(--text-rack-data)] font-mono">{t('settings.px')}</span>
+              </div>
+            </SettingCard>
+
+            {/* 光标 */}
+            <SettingCard title={t('settings.cursor')}>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={cursorBlink}
+                  onChange={(e) => {
+                    setCursorBlink(e.target.checked)
+                    localStorage.setItem('terminalCursorBlink', e.target.checked.toString())
+                    window.dispatchEvent(new CustomEvent('terminalCursorBlinkChanged', { detail: e.target.checked }))
+                  }}
+                  className="w-3.5 h-3.5 accent-[var(--amber)]"
+                />
+                {/* blink on/off 是该行的值(等价 input 的数值),不是单位 —— 提到 text-rack-data + 11px,跟 lines/px 那种纯单位拉开层级 */}
+                <span className={cn(
+                  'text-[12px] font-mono',
+                  cursorBlink ? 'text-[var(--amber)]' : 'text-[var(--text-rack-data)]'
+                )}>{cursorBlink ? t('settings.blinkOn') : t('settings.blinkOff')}</span>
+              </div>
+            </SettingCard>
+
+            {/* 主题 —— 满幅列表,每行用自己主题的真实色铺底 */}
+            <SettingCard
+              title={t('settings.theme')}
+              right={<span className="text-[11px] font-mono text-[var(--text-rack-data)] truncate ml-2">{AVAILABLE_THEMES.find(t => t.id === themeId)?.name}</span>}
+              flush
+            >
+              <div className="divide-y divide-[var(--rule-soft)]">
                 {AVAILABLE_THEMES.map(t => {
                   const active = themeId === t.id
                   return (
@@ -350,7 +413,7 @@ const SettingsPanel: React.FC = () => {
               {/* Custom 主题色 picker —— 只有 themeId === rack-custom 时展开,
                   两个 native color input 直接驱动 store.setCustomColors,store 内部已处理实时注入 */}
               {themeId === CUSTOM_THEME_ID && (
-                <div className="mt-1.5 border border-[var(--rule)] rounded-[2px] bg-[var(--bg-rack)] divide-y divide-[var(--rule-soft)]">
+                <div className="border-t border-[var(--rule-soft)] bg-[var(--bg-rack)] divide-y divide-[var(--rule-soft)]">
                   {/* Base */}
                   <div className="flex items-center gap-2 px-2 h-[26px]">
                     <span className="text-[11px] font-mono text-[var(--text-rack-data)] w-[44px]">Base</span>
@@ -385,17 +448,15 @@ const SettingsPanel: React.FC = () => {
                   </div>
                 </div>
               )}
-            </div>
+            </SettingCard>
 
-            {/* 语言 —— 镜像 Theme 段布局：border-t 分隔 + 标题行 + locale 按钮列表 */}
-            <div className="border-t border-[var(--rule)] pt-2 mt-2">
-              <div className="flex items-baseline justify-between mb-1.5">
-                <span className="text-[12px] font-mono text-[var(--text-rack)]">{t('settings.language')}</span>
-                <span className="text-[11px] font-mono text-[var(--text-rack-data)] truncate ml-2">
-                  {AVAILABLE_LOCALES.find(l => l.id === localeId)?.name}
-                </span>
-              </div>
-              <div className="border border-[var(--rule)] rounded-[2px] overflow-hidden divide-y divide-[var(--rule-soft)]">
+            {/* 语言 —— 镜像 Theme:满幅列表 */}
+            <SettingCard
+              title={t('settings.language')}
+              right={<span className="text-[11px] font-mono text-[var(--text-rack-data)] truncate ml-2">{AVAILABLE_LOCALES.find(l => l.id === localeId)?.name}</span>}
+              flush
+            >
+              <div className="divide-y divide-[var(--rule-soft)]">
                 {AVAILABLE_LOCALES.map(l => {
                   const active = localeId === l.id
                   return (
@@ -427,12 +488,11 @@ const SettingsPanel: React.FC = () => {
                   )
                 })}
               </div>
-            </div>
+            </SettingCard>
 
             {/* 下载路径 */}
-            <div className="border-t border-[var(--rule)] pt-2 mt-2">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[12px] font-mono text-[var(--text-rack)] w-[64px]">{t('settings.download')}</span>
+            <SettingCard title={t('settings.download')}>
+              <div className="flex items-center gap-2">
                 <div
                   onClick={handleSelectDownloadDir}
                   className="flex-1 px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[12px] font-mono text-[var(--text-rack)] cursor-pointer hover:border-[var(--amber)] truncate transition-colors"
@@ -454,18 +514,20 @@ const SettingsPanel: React.FC = () => {
                   📂
                 </button>
               </div>
-              <p className="text-[11px] text-[var(--text-rack-mute)] font-mono">{t('settings.defaultSavePath')}</p>
-            </div>
+              <p className="mt-1 text-[11px] text-[var(--text-rack-mute)] font-mono">{t('settings.defaultSavePath')}</p>
+            </SettingCard>
 
-            {/* 字号/缓冲/光标生效说明 —— 终端页脚(原面板底部 hint,随终端页签归属) */}
-            <p className="text-[11px] text-[var(--text-rack-mute)] border-t border-[var(--rule)] pt-2 mt-2 font-mono leading-relaxed">
+            {/* 字号/缓冲/光标生效说明 —— 终端页脚 */}
+            <p className="text-[11px] text-[var(--text-rack-mute)] font-mono leading-relaxed">
               {t('settings.applyHint')}
             </p>
           </div>
-          <div className={cn('col-start-1 row-start-1 space-y-3', settingsTab === 'mcp' ? '' : 'invisible')} aria-hidden={settingsTab !== 'mcp'}>
-            {/* MCP 会话元数据写入开关 —— 页签内首块,去掉 border-t/mt-2(无需与上方分隔) */}
-            <div>
-              <div className="flex items-center gap-2 mb-1">
+          <div className={cn('col-start-1 row-start-1 space-y-2', settingsTab === 'mcp' ? '' : 'hidden')} aria-hidden={settingsTab !== 'mcp'}>
+            {/* MCP 会话元数据写入开关 —— 标题即 label,点击整条 caption 也可切换 */}
+            <SettingCard
+              brightTitle
+              title={<label htmlFor="mcp-session-metadata-write" className="cursor-pointer">{t('settings.mcpSessionMetadataWrite')}</label>}
+              right={
                 <input
                   id="mcp-session-metadata-write"
                   type="checkbox"
@@ -495,21 +557,18 @@ const SettingsPanel: React.FC = () => {
                   }}
                   className="w-3.5 h-3.5 accent-[var(--amber)]"
                 />
-                <label
-                  htmlFor="mcp-session-metadata-write"
-                  className="text-[12px] font-mono text-[var(--text-rack)] cursor-pointer"
-                >
-                  {t('settings.mcpSessionMetadataWrite')}
-                </label>
-              </div>
-              <p className="text-[11px] text-[var(--text-rack-mute)] font-mono">
+              }
+            >
+              <p className="text-[11px] text-[var(--text-rack-data)] font-mono">
                 {t('settings.mcpSessionMetadataWriteHint')}
               </p>
-            </div>
+            </SettingCard>
 
             {/* MCP 破坏性命令确认开关 */}
-            <div className="border-t border-[var(--rule)] pt-2 mt-2">
-              <div className="flex items-center gap-2 mb-1">
+            <SettingCard
+              brightTitle
+              title={<label htmlFor="mcp-confirm-destructive" className="cursor-pointer">{t('settings.mcpConfirmDestructive')}</label>}
+              right={
                 <input
                   id="mcp-confirm-destructive"
                   type="checkbox"
@@ -539,51 +598,109 @@ const SettingsPanel: React.FC = () => {
                   }}
                   className="w-3.5 h-3.5 accent-[var(--amber)]"
                 />
-                <label
-                  htmlFor="mcp-confirm-destructive"
-                  className="text-[12px] font-mono text-[var(--text-rack)] cursor-pointer"
-                >
-                  {t('settings.mcpConfirmDestructive')}
-                </label>
-              </div>
-              <p className="text-[11px] text-[var(--text-rack-mute)] font-mono">
+              }
+            >
+              <p className="text-[11px] text-[var(--text-rack-data)] font-mono">
                 {t('settings.mcpConfirmDestructiveHint')}
               </p>
-            </div>
+            </SettingCard>
 
-            {/* MCP 注册命令复制 */}
-            <div className="border-t border-[var(--rule)] pt-2 mt-2">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[12px] font-mono text-[var(--text-rack)] w-[64px]">
-                  {t('settings.mcpRegister')}
-                </span>
-                <button
-                  onClick={async () => {
-                    try {
-                      const info = await window.electronAPI?.getMcpAddCommand()
-                      if (info?.command) {
-                        await navigator.clipboard.writeText(info.command)
-                        setMcpCmdCopied(true)
-                        setTimeout(() => setMcpCmdCopied(false), 2000)
-                      }
-                    } catch (err) {
-                      console.warn('Failed to copy MCP add command:', err)
-                    }
-                  }}
-                  className={cn(
-                    'px-2 py-1 rounded-[2px] text-[12px] font-mono border transition-colors',
-                    mcpCmdCopied
-                      ? 'bg-[var(--amber)] border-[var(--amber)] text-[var(--bg-rack)]'
-                      : 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
+            {/* MCP 注册配置 —— 展示主/备选 JSON 配置并支持复制,便于手动添加 */}
+            <SettingCard brightTitle title={t('settings.mcpRegister')}>
+              {mcpAddInfo ? (
+                <>
+                  <div className="mb-1.5">
+                    <span className="text-[10px] font-mono text-[var(--text-rack-mute)]">{t('settings.mcpRegisterPrimary')}</span>
+                    <div className="mt-0.5 flex items-start gap-1.5">
+                      <code className="flex-1 min-w-0 px-2 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[2px] text-[10.5px] font-mono text-[var(--text-rack-data)] leading-relaxed whitespace-pre-wrap break-all select-text">
+                        {mcpAddInfo.config}
+                      </code>
+                      <button
+                        onClick={() => copyMcp('primary', mcpAddInfo.config)}
+                        className={cn(
+                          'flex-shrink-0 px-2 h-[24px] rounded-[2px] text-[11px] font-mono border transition-colors',
+                          mcpCopied === 'primary'
+                            ? 'bg-[var(--amber)] border-[var(--amber)] text-[var(--bg-rack)]'
+                            : 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
+                        )}
+                      >
+                        {mcpCopied === 'primary' ? t('settings.mcpRegisterCopied') : t('settings.mcpRegisterCopy')}
+                      </button>
+                    </div>
+                  </div>
+                  {mcpAddInfo.systemNodeConfig && (
+                    <div>
+                      <span className="text-[10px] font-mono text-[var(--text-rack-mute)]">{t('settings.mcpRegisterFallback')}</span>
+                      <div className="mt-0.5 flex items-start gap-1.5">
+                        <code className="flex-1 min-w-0 px-2 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[2px] text-[10.5px] font-mono text-[var(--text-rack-data)] leading-relaxed whitespace-pre-wrap break-all select-text">
+                          {mcpAddInfo.systemNodeConfig}
+                        </code>
+                        <button
+                          onClick={() => copyMcp('fallback', mcpAddInfo.systemNodeConfig)}
+                          className={cn(
+                            'flex-shrink-0 px-2 h-[24px] rounded-[2px] text-[11px] font-mono border transition-colors',
+                            mcpCopied === 'fallback'
+                              ? 'bg-[var(--amber)] border-[var(--amber)] text-[var(--bg-rack)]'
+                              : 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
+                          )}
+                        >
+                          {mcpCopied === 'fallback' ? t('settings.mcpRegisterCopied') : t('settings.mcpRegisterCopy')}
+                        </button>
+                      </div>
+                    </div>
                   )}
-                >
-                  {mcpCmdCopied ? t('settings.mcpRegisterCopied') : t('settings.mcpRegisterCopy')}
-                </button>
-              </div>
-              <p className="text-[11px] text-[var(--text-rack-mute)] font-mono">
+                  <div className="mt-1.5">
+                    <span className="text-[10px] font-mono text-[var(--text-rack-mute)]">{t('settings.mcpRegisterClaude')}</span>
+                    <div className="mt-0.5 flex items-start gap-1.5">
+                      <code className="flex-1 min-w-0 px-2 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[2px] text-[10.5px] font-mono text-[var(--text-rack-data)] leading-relaxed whitespace-pre-wrap break-all select-text">
+                        {mcpAddInfo.claudeCommand}
+                      </code>
+                      <button
+                        onClick={() => copyMcp('claude', mcpAddInfo.claudeCommand)}
+                        className={cn(
+                          'flex-shrink-0 px-2 h-[24px] rounded-[2px] text-[11px] font-mono border transition-colors',
+                          mcpCopied === 'claude'
+                            ? 'bg-[var(--amber)] border-[var(--amber)] text-[var(--bg-rack)]'
+                            : 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
+                        )}
+                      >
+                        {mcpCopied === 'claude' ? t('settings.mcpRegisterCopied') : t('settings.mcpRegisterCopy')}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-1.5">
+                    <span className="text-[10px] font-mono text-[var(--text-rack-mute)]">{t('settings.mcpRegisterCodex')}</span>
+                    <div className="mt-0.5 flex items-start gap-1.5">
+                      <code className="flex-1 min-w-0 px-2 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[2px] text-[10.5px] font-mono text-[var(--text-rack-data)] leading-relaxed whitespace-pre-wrap break-all select-text">
+                        {mcpAddInfo.codexConfig}
+                      </code>
+                      <button
+                        onClick={() => copyMcp('codex', mcpAddInfo.codexConfig)}
+                        className={cn(
+                          'flex-shrink-0 px-2 h-[24px] rounded-[2px] text-[11px] font-mono border transition-colors',
+                          mcpCopied === 'codex'
+                            ? 'bg-[var(--amber)] border-[var(--amber)] text-[var(--bg-rack)]'
+                            : 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
+                        )}
+                      >
+                        {mcpCopied === 'codex' ? t('settings.mcpRegisterCopied') : t('settings.mcpRegisterCopy')}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <p className="text-[11px] text-[var(--text-rack-data)] font-mono">{t('settings.mcpRegisterUnavailable')}</p>
+              )}
+              <p className="mt-1.5 text-[11px] text-[var(--text-rack-data)] font-mono leading-relaxed">
                 {t('settings.mcpRegisterHint')}
               </p>
-            </div>
+              <div className="mt-1.5">
+                <span className="text-[10px] font-mono text-[var(--text-rack-mute)]">{t('settings.mcpRegisterExample')}</span>
+                <p className="mt-0.5 text-[11px] font-mono text-[var(--text-rack-data)] leading-relaxed whitespace-pre-wrap">
+                  {t('settings.mcpRegisterFieldLegend')}
+                </p>
+              </div>
+            </SettingCard>
           </div>
         </div>
       </div>

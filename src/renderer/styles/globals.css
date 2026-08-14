@@ -186,6 +186,14 @@ body {
   user-select: none;
 }
 
+/* 设置面板等宽字体 — 与状态栏右侧连接状态簇一致
+   (ui-monospace 兜底,优先 JetBrains Mono / Cascadia Code)。
+   未包裹在 @layer 内,故优先于 Tailwind utilities 层的 font-mono,无需 !important。 */
+.settings-panel,
+.settings-panel .font-mono {
+  font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+}
+
 /* 侧边栏、标签栏、状态栏完全禁止选择 */
 .sidebar-container,
 .tab-bar-container,

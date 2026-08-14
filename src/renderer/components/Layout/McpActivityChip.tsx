@@ -84,6 +84,7 @@ export function McpActivityChip(): JSX.Element {
         'h-[24px] flex items-center gap-1.5 px-2 rounded-[2px] cursor-pointer group transition-colors',
         active ? 'bg-[var(--bg-elev)]' : 'bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)]'
       )}
+      style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
       <span
         aria-hidden
@@ -92,7 +93,7 @@ export function McpActivityChip(): JSX.Element {
       />
       <span
         className={cn(
-          'text-[11px] font-mono font-semibold tracking-[.08em] transition-colors leading-none',
+          'text-[11px] [font-family:inherit] font-semibold tracking-[.08em] transition-colors leading-none',
           active ? 'text-[var(--amber)]' : 'text-[var(--text-rack-data)] group-hover:text-[var(--amber)]'
         )}
       >
@@ -100,7 +101,7 @@ export function McpActivityChip(): JSX.Element {
       </span>
       <span
         className={cn(
-          'text-[11px] font-mono tabular-nums leading-none group-hover:text-[var(--amber)]',
+          'text-[11px] [font-family:inherit] tabular-nums leading-none group-hover:text-[var(--amber)]',
           count > 0 ? 'text-[var(--text-rack)]' : 'text-[var(--text-rack-mute)]'
         )}
         style={{ fontFeatureSettings: '"tnum" 1' }}

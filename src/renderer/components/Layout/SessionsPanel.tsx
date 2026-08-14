@@ -238,7 +238,7 @@ const IconBtn: React.FC<{
 
 const StripRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="grid grid-cols-[52px_1fr] items-center gap-2 px-3 py-1.5 bg-[var(--bg-strip)] border-b border-[var(--rule-soft)]">
-    <span className="font-mono font-bold text-[12px] text-[var(--text-rack)]">
+    <span className="[font-family:inherit] font-bold text-[12px] text-[var(--text-rack)]">
       {label}
     </span>
     <div className="flex items-center gap-1 min-w-0 overflow-x-auto scrollbar-hide">
@@ -270,13 +270,13 @@ const ShellPill: React.FC<{
       onClick={onClick}
       title={shell}
       className={cn(
-        'inline-flex items-center gap-[5px] flex-shrink-0 px-2 py-[3px] rounded-[3px] cursor-pointer whitespace-nowrap',
-        'text-[11.5px] font-medium text-[var(--text-rack)] bg-transparent border border-[var(--rule)]',
+        'inline-flex items-center gap-[5px] flex-shrink-0 px-2.5 py-[4px] rounded-[3px] cursor-pointer whitespace-nowrap',
+        'text-[13px] font-medium text-[var(--text-rack)] bg-transparent border border-[var(--rule)]',
         'hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)] transition-colors',
         borderHover
       )}
     >
-      <span className={cn('font-mono text-[11px] w-[11px] inline-flex justify-center', glyphColor)}>{glyph}</span>
+      <span className={cn('[font-family:inherit] text-[12.5px] w-[12px] inline-flex justify-center', glyphColor)}>{glyph}</span>
       <span>{children}</span>
     </button>
   )
@@ -327,14 +327,14 @@ const GroupHeader: React.FC<{
         className={cn(
           'flex-shrink-0',
           monoLabel
-            ? 'font-mono normal-case tracking-[.04em] text-[var(--text-rack)] font-normal text-[10.5px]'
-            : 'font-mono font-bold text-[11px] text-[var(--text-rack)]'
+            ? '[font-family:inherit] normal-case tracking-[.04em] text-[var(--text-rack)] font-normal text-[10.5px]'
+            : '[font-family:inherit] font-bold text-[11px] text-[var(--text-rack)]'
         )}
       >
         {label}
       </span>
       <span className="flex-1 h-px bg-[var(--rule)]" />
-      <span className="font-mono text-[10px] text-[var(--text-rack-data)] tracking-[.04em] normal-case">{count}</span>
+      <span className="[font-family:inherit] text-[10px] text-[var(--text-rack-data)] tracking-[.04em] normal-case">{count}</span>
       {action}
     </div>
   )
@@ -418,7 +418,7 @@ const SessionSlot: React.FC<{
       <span
         className={cn(
           'col-start-2 inline-flex items-end justify-center h-[22px] px-1.5 rounded-[3px] border-2 bg-transparent',
-          'font-mono text-[12px] font-bold uppercase tracking-[.04em]'
+          '[font-family:inherit] text-[12px] font-bold uppercase tracking-[.04em]'
         )}
         style={{ borderColor: visual.borderColor }}
       >
@@ -429,14 +429,14 @@ const SessionSlot: React.FC<{
         {hiddenCount ? (
           <span
             title={t('sidebar.tabsHidden', { count: hiddenCount })}
-            className="inline-flex items-center justify-center min-w-[20px] h-[18px] px-1 rounded-[2px] bg-[var(--bg-elev)] text-[var(--amber)] font-mono text-[12px] font-bold tabular-nums leading-none"
+            className="inline-flex items-center justify-center min-w-[20px] h-[18px] px-1 rounded-[2px] bg-[var(--bg-elev)] text-[var(--amber)] [font-family:inherit] text-[12px] font-bold tabular-nums leading-none"
           >
             {hiddenCount}
           </span>
         ) : null}
         {config.name}
       </span>
-      <span className="font-mono text-[11px] text-[var(--text-rack-data)] truncate min-w-0 leading-none inline-flex items-end h-[22px] pb-[5px]">
+      <span className="[font-family:inherit] text-[11px] text-[var(--text-rack-data)] truncate min-w-0 leading-none inline-flex items-end h-[22px] pb-[5px]">
         {formatMeta(config)}
       </span>
       {/* hover actions overlay */}
@@ -1026,6 +1026,7 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommand
       <div
         ref={sidebarRef}
         className="bg-[var(--bg-base)] flex flex-col h-full sidebar-container"
+        style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
       >
         {/* ===== 系统区 ===== */}
         <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--rule)]">
@@ -1099,7 +1100,7 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommand
                       ? t('sidebar.closeAllConfirm', { count: liveSessions.length })
                       : t('sidebar.closeAllConnections', { count: liveSessions.length })}
                     className={cn(
-                      'ml-1.5 h-[18px] inline-flex items-center justify-center gap-[3px] rounded-[2px] cursor-pointer text-[10px] font-mono tracking-[.02em] transition-colors',
+                      'ml-1.5 h-[18px] inline-flex items-center justify-center gap-[3px] rounded-[2px] cursor-pointer text-[10px] [font-family:inherit] tracking-[.02em] transition-colors',
                       closeAllArmed
                         ? 'px-1.5 bg-[var(--error-rack)] text-[var(--bg-base)] font-semibold'
                         : 'w-[18px] text-[var(--text-rack-mute)] hover:text-[var(--error-rack)] hover:bg-[var(--bg-elev)]'
@@ -1202,9 +1203,9 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommand
                     )}
                   />
                   {/* 铭牌:未选中 text-rack 近白,选中点亮成协议色 */}
-                  <span className={cn('font-mono text-[12px] font-semibold tracking-[.12em]', active ? PROTO_TEXT_LIT_CLS[p] : 'text-[var(--text-rack)]')}>{PROTO_LABEL[p]}</span>
+                  <span className={cn('[font-family:inherit] text-[12px] font-semibold tracking-[.12em]', active ? PROTO_TEXT_LIT_CLS[p] : 'text-[var(--text-rack)]')}>{PROTO_LABEL[p]}</span>
                   {/* 读数:未选中中性数据色,选中点亮成协议色,右贴边 */}
-                  <span className={cn('ml-auto font-mono text-[13px] font-semibold tabular-nums', active ? PROTO_TEXT_LIT_CLS[p] : 'text-[var(--text-rack-data)]')}>{count}</span>
+                  <span className={cn('ml-auto [font-family:inherit] text-[13px] font-semibold tabular-nums', active ? PROTO_TEXT_LIT_CLS[p] : 'text-[var(--text-rack-data)]')}>{count}</span>
                 </button>
               )
             })}
@@ -1245,11 +1246,11 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommand
 
           {filteredSessions.length === 0 && (
             <div className="text-center py-8 px-4 text-[var(--text-rack-dim)] flex flex-col items-center gap-2">
-              <span className="font-mono text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
+              <span className="[font-family:inherit] text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
               <span className="text-[11.5px] text-[var(--text-rack-mute)]">
                 {searchQuery.trim() ? t('sidebar.noMatches') : t('sidebar.noSessionsYet')}
               </span>
-              <span className="text-[10.5px] font-mono text-[var(--text-rack-faint)]">
+              <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">
                 {searchQuery.trim() ? t('sidebar.tryDifferentKeyword') : t('sidebar.clickAboveToCreate')}
               </span>
             </div>
@@ -1274,20 +1275,26 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommand
         </div>
 
         {/* ===== 底部 status ===== */}
-        <div className="flex items-center justify-between px-3 py-1.5 border-t border-[var(--rule)] bg-[var(--bg-rack)] font-mono text-[11.5px] text-[var(--text-rack-mute)] tracking-[.02em] min-h-[26px]">
+        <div
+          className="flex items-center justify-between px-3 py-1.5 border-t border-[var(--rule)] bg-[var(--bg-rack)] text-[12px] text-[var(--text-rack-data)] tracking-[.02em] min-h-[26px]"
+          style={{
+            fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace',
+            fontFeatureSettings: '"tnum" 1'
+          }}
+        >
           <span className="inline-flex items-center gap-2">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--live)] animate-breathe flex-shrink-0" />
             <span>
-              <span className="text-[var(--text-rack-data)] tabular-nums">{liveCount}</span>
+              <span className="text-[var(--text-rack)] tabular-nums">{liveCount}</span>
               <span className="ml-1">{t('sidebar.footerLive')}</span>
             </span>
             <span aria-hidden className="w-px h-[10px] bg-[var(--rule)]" />
             <span>
-              <span className="text-[var(--text-rack-data)] tabular-nums">{Math.max(0, idleCount)}</span>
+              <span className="text-[var(--text-rack)] tabular-nums">{Math.max(0, idleCount)}</span>
               <span className="ml-1">{t('sidebar.footerIdle')}</span>
             </span>
           </span>
-          <span className="text-[var(--text-rack-mute)]">{t('sidebar.footerShortcut', { n: __DISABLE_MCP__ ? 2 : 3 })}</span>
+          <span>{t('sidebar.footerShortcut', { n: __DISABLE_MCP__ ? 2 : 3 })}</span>
         </div>
       </div>
 

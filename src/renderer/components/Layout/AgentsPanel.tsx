@@ -284,10 +284,10 @@ const AgentsPanel: React.FC = () => {
     <div className="flex flex-col h-full bg-[var(--bg-base)] min-w-0">
       {/* 头条:AGENTS · 计数 + 添加 */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--rule)] flex-shrink-0">
-        <span className="font-semibold tracking-[.18em] text-[11px] text-[var(--text-rack)] select-none">
+        <span className="font-semibold tracking-[.18em] text-[12px] text-[var(--text-rack)] select-none">
           {t('agents.title')}
           <span className="text-[var(--text-rack-dim)] mx-1.5 font-normal">·</span>
-          <span className="text-[var(--text-rack-mute)] font-medium tabular-nums">{agents.length}</span>
+          <span className="text-[var(--text-rack)] font-medium tabular-nums">{agents.length}</span>
         </span>
         <button
           onClick={handleAdd}
@@ -321,8 +321,8 @@ const AgentsPanel: React.FC = () => {
                 <AgentSlotIcon agent={agent} />
               </span>
               <span className="flex flex-col min-w-0 flex-1">
-                <span className="text-[13px] font-semibold text-[var(--text-rack)] truncate leading-tight">{agent.name}</span>
-                <span className="font-mono text-[10.5px] text-[var(--text-rack-data)] truncate leading-tight">
+                <span className="text-[14px] font-semibold text-[var(--text-rack)] truncate leading-tight">{agent.name}</span>
+                <span className="font-mono text-[11.5px] text-[var(--text-rack-data)] truncate leading-tight">
                   {agent.command}{agent.cwd ? ` · ${agent.cwd}` : ''}
                 </span>
               </span>

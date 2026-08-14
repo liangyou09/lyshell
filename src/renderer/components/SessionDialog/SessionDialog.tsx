@@ -767,20 +767,20 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
         {/* placeholder + selection 强制亮度（dialog 作用域，不污染全局） */}
         <style>{`
           .lyshell-session-dialog ::placeholder {
-            color: var(--text-rack-dim) !important;
+            color: var(--text-rack-mute) !important;
             opacity: 1;
           }
-          .lyshell-session-dialog ::-webkit-input-placeholder { color: var(--text-rack-dim) !important; }
-          .lyshell-session-dialog :-ms-input-placeholder { color: var(--text-rack-dim) !important; }
-          /* 主机输入框：18px mono 太抢眼，placeholder 再压暗一档 + 字号缩小 */
+          .lyshell-session-dialog ::-webkit-input-placeholder { color: var(--text-rack-mute) !important; }
+          .lyshell-session-dialog :-ms-input-placeholder { color: var(--text-rack-mute) !important; }
+          /* 主机输入框：18px mono 太抢眼，placeholder 字号缩小为 13px */
           .lyshell-session-dialog .lyshell-host-input::placeholder {
-            color: var(--text-rack-faint) !important;
+            color: var(--text-rack-mute) !important;
             font-weight: 400;
             font-size: 13px;
             font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
           }
           .lyshell-session-dialog .lyshell-host-input::-webkit-input-placeholder {
-            color: var(--text-rack-faint) !important;
+            color: var(--text-rack-mute) !important;
             font-weight: 400;
             font-size: 13px;
             font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
@@ -788,13 +788,13 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
           /* 宏面板空态：placeholder 走 sans，input 自己仍是 mono 等输入命令 */
           .lyshell-session-dialog .lyshell-macro-empty::placeholder,
           .lyshell-session-dialog .lyshell-macro-area::placeholder {
-            color: var(--text-rack-dim) !important;
+            color: var(--text-rack-mute) !important;
             font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
             font-size: 12.5px;
           }
           .lyshell-session-dialog .lyshell-macro-empty::-webkit-input-placeholder,
           .lyshell-session-dialog .lyshell-macro-area::-webkit-input-placeholder {
-            color: var(--text-rack-dim) !important;
+            color: var(--text-rack-mute) !important;
             font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
             font-size: 12.5px;
           }

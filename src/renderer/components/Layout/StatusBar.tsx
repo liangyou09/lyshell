@@ -720,7 +720,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
         className="flex items-center gap-2.5 flex-shrink-0 px-3 bg-[var(--bg-rack)] border-l border-[var(--rule)] text-[var(--text-rack-data)]"
         style={{
           fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace',
-          fontSize: '11px',
+          fontSize: '12px',
           fontFeatureSettings: '"tnum" 1'
         }}
       >
