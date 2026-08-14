@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/LyShell-v1.0.2-0078D4?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/LyShell-v1.0.3-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-Freeware-orange?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
@@ -46,7 +46,7 @@ Download the latest portable build from [Releases](https://github.com/liangyou09
 
 **This is what makes LyShell different.** It serves as an MCP server, letting external AI clients like Claude Code control terminals via the MCP protocol — listing sessions, sending commands, reading output, transferring files, and managing connections.
 
-> 📖 **Configuration** — see [MCP Configuration](docs/mcp-config.md). In most cases you don't configure anything by hand: launch an agent from the **Agent Launcher** and ask it to configure LyShell as its MCP server itself.
+> 📖 **Configuration** — see [MCP Configuration](docs/mcp-config.md). In most cases you don't configure anything by hand: launch an agent from the **Agent Launcher** and ask it to configure LyShell as its MCP server itself. Registration configs are emitted in **JSON / CLI / TOML** to fit different clients.
 
 ### Tools
 
