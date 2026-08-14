@@ -2,9 +2,8 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
-import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
-import { DEFAULT_THEME_DARK, DEFAULT_THEME_LIGHT, DEFAULT_FONT_FAMILY, isCursorBlinkEnabled } from '@shared/constants'
+import { DEFAULT_THEME_DARK, DEFAULT_THEME_LIGHT, DEFAULT_FONT_FAMILY, isCursorBlinkEnabled, DEFAULT_TERMINAL_FONT_SIZE, TERMINAL_FONT_SIZE_STEP, snapTerminalFontSize } from '@shared/constants'
 import { isLightColor } from '@shared/color-utils'
 import { useTerminalStore } from '../../stores/terminal-store'
 import { useSessionStore } from '../../stores/session-store'
@@ -12,12 +11,15 @@ import { useThemeStore } from '../../stores/theme-store'
 import { useTranslation } from 'react-i18next'
 import i18n from '../../i18n'
 import { ConnectionStatus, type SessionConfig } from '@shared/types'
+import { Unicode15Provider } from './unicode15-provider'
 
-// 注意：本组件的 IME 定位逻辑依赖 xterm.js 内部私有 API（_core、_compositionHelper、
-// _textarea、updateCompositionElements、compositionstart）。这些 API 无稳定性承诺，xterm 任何版本
-// 更新都可能改名或移除。已验证版本：@xterm/xterm@5.5.0、@xterm/addon-fit@0.11.0、
-// @xterm/addon-search@0.16.0、@xterm/addon-unicode11@0.8.0。package.json 中已把这些包锁定到确切版本；升级前必须
-// 人工回归中文 IME 输入。
+// 注意：本组件依赖 xterm.js 内部私有 API，无稳定性承诺，xterm 任何版本更新都可能改名或移除。
+//   - IME 定位：_core、_compositionHelper、_textarea、updateCompositionElements、compositionstart
+//     （升级前须人工回归中文 IME 输入）。
+//   - 浮点测量：patchXtermFloatMeasure 依赖 _core._renderService._renderer.value 上的
+//     WidthCache._measure / DomRenderer._setDefaultSpacing / _widthCache（升级前须人工回归滚动对齐）。
+// 已验证版本：@xterm/xterm@5.5.0、@xterm/addon-fit@0.11.0、@xterm/addon-search@0.16.0。
+// package.json 中已把这些包锁定到确切版本。
 
 interface TerminalViewProps {
   sessionId: string
@@ -74,6 +76,44 @@ function getConnectTarget(
 }
 
 /**
+ * 猴补丁：让 DOM renderer 的 WidthCache 用浮点宽度测量，对齐 CharSizeService。
+ * xterm 的 WidthCache._measure 用 el.offsetWidth（浏览器取整成整数）除以 32 求单字符宽，
+ * 而 CharSizeService 用 canvas.measureText（浮点）求 char.width；二者的小数差
+ * （约 0.006px/字符，CJK 翻倍）经 _setDefaultSpacing 转成非零的 letter-spacing 补偿，
+ * 且每行/每字符残差各不相同，滚动时放大成「第一列文字漂移」（典型：claude 的 > 提示符列）。
+ * 把测量换成 getBoundingClientRect().width（浮点）后两侧同源，残差归零，漂移消失。
+ * 依赖 xterm 内部私有 API（WidthCache._measure / DomRenderer._setDefaultSpacing），
+ * 无稳定性承诺；已锁定 @xterm/xterm@5.5.0，升级前须人工回归滚动对齐。
+ */
+function patchXtermFloatMeasure(terminal: Terminal): void {
+  const core = (terminal as any)._core
+  const renderer = core?._renderService?._renderer?.value
+  const widthCache = renderer?._widthCache
+  if (!widthCache) return
+  const proto = Object.getPrototypeOf(widthCache) as any
+  if (!proto || typeof proto._measure !== 'function' || (proto._measure as any).__lyshellFloatMeasure) {
+    return
+  }
+  const REPEAT = 32
+  proto._measure = function (this: any, c: string, variant: number): number {
+    const el = this._measureElements[variant]
+    el.textContent = c.repeat(REPEAT)
+    return el.getBoundingClientRect().width / REPEAT
+  }
+  ;(proto._measure as any).__lyshellFloatMeasure = true
+  // 清空旧缓存并重算 defaultSpacing，让新测量立即生效
+  widthCache.clear()
+  if (typeof renderer._setDefaultSpacing === 'function') {
+    renderer._setDefaultSpacing()
+  }
+  try {
+    if (terminal.rows > 0) terminal.refresh(0, terminal.rows - 1)
+  } catch {
+    // refresh 仅用于重绘旧内容，失败可忽略
+  }
+}
+
+/**
  * 终端视图组件
  * 终端实例存储在全局 store 中，与 sessionId 绑定，不受组件生命周期影响
  */
@@ -97,7 +137,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   const dragOffsetRef = useRef({ x: 0, y: 0 })
   const searchInputRef = useRef<HTMLTextAreaElement>(null)
   const scrollbackLines = parseInt(localStorage.getItem('terminalScrollback') || '10000')
-  const fontSize = parseInt(localStorage.getItem('terminalFontSize') || '16')
+  const fontSize = snapTerminalFontSize(parseInt(localStorage.getItem('terminalFontSize') || String(DEFAULT_TERMINAL_FONT_SIZE)))
   const fontSizeRef = useRef(fontSize)
   const cursorBlink = isCursorBlinkEnabled()
 
@@ -296,12 +336,21 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         cursorStyle: 'block',
         cursorBlink: cursorBlink,
         scrollback: scrollbackLines,
-        allowTransparency: false,
         logLevel: 'off',
-        // convertEol 必须为 false(默认值): PTY 层已处理 \n→\r\n 转换,
-        // 设 true 会导致双重转换,在终端 buffer 中产生多余字符,
-        // 滚动时这些字符堆积在行首/行尾,呈现为"第一列文字飘移"的鬼影。
-        convertEol: false,
+        allowTransparency: false,
+        // convertEol: false。设为 true 时 xterm 在每个 \n 前补 \r（归零列），
+        // 修复 ConPTY 裸 \n 导致的历史输入右飘；但 raw-mode TUI(Claude Code/Ink)
+        // 用 ANSI 绝对光标定位，额外 \r 会覆盖其列坐标，输出漂移更严重。
+        // 保持 false，历史输入轻微右飘可接受。
+        // windowsPty: 告诉 xterm 底层是 Windows ConPTY。不设时 xterm 默认按 Unix PTY 语义处理
+        // resize/reflow —— ConPTY 增行时是「补空行 + 重印内容」而非「从 scrollback 上卷」，二者语义
+        // 相反；缺此项会让 resize 时行被替换丢失、isWrapped 错乱，再经 reflow 把邻行错误合并/错列，
+        // 表现为「首列漂移 / 文字落到上一行行尾 / 划选错位」——正是 raw-mode TUI(Claude Code/Ink)
+        // 运行时的根因。backend='conpty' 触发 ConPTY 的增行语义(Buffer.resize 追加空行而非回卷)。
+        // buildNumber: 设 < 21376 以关闭 xterm 内部 reflow，避免 ConPTY 与 xterm 双重重排打架；
+        // 同时启用 Windows 换行启发式（末字符非空白即视为 wrapped），帮助 xterm 理解 ConPTY 的裸换行。
+        // 当前 Win11 实际 >= 21376，但该版本差异仅影响 reflow 开关——设 21375 获得我们需要的关闭行为。
+        windowsPty: { backend: 'conpty', buildNumber: 21375 },
         // 双击选词边界符:在默认 ()[]{}'" 基础上额外切分 : / @ = + 等常见符号,
         // 但保留 . - _ 不切,使 app.js / foo-bar 仍整体选中(只切到「一个单词」)。
         wordSeparator: ' ()[]{}\'"`:/@=+,;!?*|<>&%^~',
@@ -319,13 +368,17 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       const searchAddon = new SearchAddon()
       terminal.loadAddon(searchAddon)
 
-      // 加载 Unicode11Addon：按 Unicode 11 计算宽字符/emoji 的列宽，
-      // 让 ✅⏳ 等 emoji 被正确保留 2 列，减少行内宽字符导致的文字漂移。
-      const unicode11Addon = new Unicode11Addon()
-      terminal.loadAddon(unicode11Addon)
-      terminal.unicode.activeVersion = '11'
+      // 加载 Unicode 15 宽度表：按 Unicode 15.1（emoji-regex + eastasianwidth）计算
+      // 宽字符/emoji 列宽，与 Claude Code / string-width 的宽度算法对齐。
+      // 原 Unicode11Addon 只覆盖到 Unicode 12 的 emoji，Unicode 12+ emoji 与
+      // ⚠️✌️ 等 emoji-presentation 符号会被算成 1 格，导致行内文字漂移。
+      terminal.unicode.register(Unicode15Provider)
+      terminal.unicode.activeVersion = '15'
 
       terminal.open(containerRef.current)
+
+      // 浮点宽度测量：修复 DOM renderer 的 letter-spacing 补偿导致的第一列漂移
+      patchXtermFloatMeasure(terminal)
 
       // 注意：此处曾尝试加载 WebglAddon 以提升渲染性能，但会导致
       // xterm 的 .xterm-helper-textarea 不再跟随光标位置同步，
@@ -436,7 +489,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       e.preventDefault()
       e.stopPropagation()
       const current = fontSizeRef.current
-      const next = Math.max(8, Math.min(32, current + (e.deltaY < 0 ? 1 : -1)))
+      const next = snapTerminalFontSize(current + (e.deltaY < 0 ? TERMINAL_FONT_SIZE_STEP : -TERMINAL_FONT_SIZE_STEP))
       if (next === current) return
       fontSizeRef.current = next
       localStorage.setItem('terminalFontSize', next.toString())
@@ -530,10 +583,13 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
 
     // 监听字体大小变化事件
     const handleFontSizeChanged = (e: CustomEvent) => {
-      fontSizeRef.current = e.detail
+      // 兜底吸附：无论事件来自设置面板还是 Ctrl+滚轮，终端只应用合法档位（5 的整数倍），
+      // 避免任何来源把字号设置到「有问题」的非整数格宽档位。
+      const next = snapTerminalFontSize(e.detail)
+      fontSizeRef.current = next
       const instance = getTerminal(sessionId)
       if (instance) {
-        instance.terminal.options.fontSize = e.detail
+        instance.terminal.options.fontSize = next
         instance.fitAddon.fit()
         if (instance.terminal.cols && instance.terminal.rows) {
           window.electronAPI?.terminalResize(sessionId, instance.terminal.cols, instance.terminal.rows)

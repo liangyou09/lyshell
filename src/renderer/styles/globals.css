@@ -205,6 +205,9 @@ body {
   height: 100% !important;
   box-sizing: border-box !important;
 }
+.xterm-viewport {
+  overflow-x: hidden !important;
+}
 .xterm-screen,
 .xterm-rows {
   padding: 0 !important;

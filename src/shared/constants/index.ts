@@ -113,6 +113,28 @@ export const DEFAULT_THEME_LIGHT = {
 export const DEFAULT_FONT_FAMILY = "'Maple Mono NF CN', 'Cascadia Mono', 'Consolas', 'NSimSun', 'Courier New', monospace"
 
 /**
+ * 终端字号 —— 只允许 Maple Mono 渲染稳定的字号。
+ * Maple Mono NF CN 的前进宽是 0.6em(600/1000),字号必须是 5 的整数倍时每格像素宽才是整数
+ * (15px→9px、20px→12px、25px→15px…)。非整数格宽会触发 xterm DOM renderer 的亚像素
+ * letter-spacing 补偿(见 TerminalView 的 patchXtermFloatMeasure),放大成第一列漂移。
+ * 故把字号钉死在 10/15/20/25/30 五档,禁止落到 16/17 这类「有问题」的档位。
+ */
+export const DEFAULT_TERMINAL_FONT_SIZE = 15
+export const TERMINAL_FONT_SIZE_MIN = 10
+export const TERMINAL_FONT_SIZE_MAX = 30
+export const TERMINAL_FONT_SIZE_STEP = 5
+
+/**
+ * 把任意字号吸附到最近的合法档位(5 的整数倍),并夹到 [min,max]。
+ * 用于设置输入框、Ctrl+滚轮、以及从 localStorage 恢复旧值时兜底。
+ */
+export function snapTerminalFontSize(size: number): number {
+  if (!Number.isFinite(size)) return DEFAULT_TERMINAL_FONT_SIZE
+  const snapped = Math.round(size / TERMINAL_FONT_SIZE_STEP) * TERMINAL_FONT_SIZE_STEP
+  return Math.max(TERMINAL_FONT_SIZE_MIN, Math.min(TERMINAL_FONT_SIZE_MAX, snapped))
+}
+
+/**
  * 默认光标闪烁设置：关闭。减少持续输出时的光标闪烁，用户可在设置面板中手动开启
  */
 export const DEFAULT_CURSOR_BLINK = false

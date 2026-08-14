@@ -14,7 +14,7 @@ import { usePaneStore } from '../../stores/pane-store'
 import { useThemeStore, AVAILABLE_THEMES, CUSTOM_THEME_ID } from '../../stores/theme-store'
 import { useLocaleStore, AVAILABLE_LOCALES } from '../../stores/locale-store'
 import type { SessionConfig } from '@shared/types'
-import { isCursorBlinkEnabled } from '@shared/constants'
+import { isCursorBlinkEnabled, DEFAULT_TERMINAL_FONT_SIZE, TERMINAL_FONT_SIZE_MIN, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_STEP, snapTerminalFontSize } from '@shared/constants'
 
 /**
  * 设置页签列表。插件页签已迁至左侧机柜页签轨(ActivityRail);此处只留终端 + MCP。
@@ -62,7 +62,7 @@ const MainWindow: React.FC = () => {
   })
   const [fontSize, setFontSize] = useState(() => {
     const saved = localStorage.getItem('terminalFontSize')
-    return saved ? parseInt(saved) : 16
+    return saved ? snapTerminalFontSize(parseInt(saved)) : DEFAULT_TERMINAL_FONT_SIZE
   })
   const [cursorBlink, setCursorBlink] = useState(() => isCursorBlinkEnabled())
   const [downloadDir, setDownloadDir] = useState('')
@@ -727,16 +727,21 @@ const MainWindow: React.FC = () => {
                     type="number"
                     value={fontSize}
                     onChange={(e) => {
-                      const value = parseInt(e.target.value) || 12
-                      const clampedValue = Math.max(8, Math.min(32, value))
-                      setFontSize(clampedValue)
-                      localStorage.setItem('terminalFontSize', clampedValue.toString())
-                      window.dispatchEvent(new CustomEvent('terminalFontSizeChanged', { detail: clampedValue }))
+                      // 输入期间只存草稿值（不吸附），避免键入 "25" 时输到 "2" 就被吸成 "20" 而无法键入多位数
+                      const raw = parseInt(e.target.value)
+                      setFontSize(Number.isFinite(raw) ? raw : DEFAULT_TERMINAL_FONT_SIZE)
+                    }}
+                    onBlur={() => {
+                      // 失焦时才吸附 + 持久化 + 派发，保证终端永远拿不到「有问题」的档位
+                      const next = snapTerminalFontSize(fontSize)
+                      setFontSize(next)
+                      localStorage.setItem('terminalFontSize', next.toString())
+                      window.dispatchEvent(new CustomEvent('terminalFontSizeChanged', { detail: next }))
                     }}
                     className="w-[80px] px-2 py-1 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-[2px] text-[12px] font-mono text-[var(--text-rack)] focus:outline-none focus:border-[var(--amber)]"
-                    min={8}
-                    max={32}
-                    step={1}
+                    min={TERMINAL_FONT_SIZE_MIN}
+                    max={TERMINAL_FONT_SIZE_MAX}
+                    step={TERMINAL_FONT_SIZE_STEP}
                   />
                   <span className="text-[11px] text-[var(--text-rack-data)] font-mono">{t('settings.px')}</span>
                 </div>
