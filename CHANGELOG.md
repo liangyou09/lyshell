@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，�
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-08-17
+
+### 新增 Features
+
+- **DeepSeek Harness 工作区**：新增专属面板，集中管理 DeepSeek Harness 工作区 — 创建、编辑、置顶、删除，支持按工作区配置环境变量（`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`、`DSH_HOME` 等）与模型预设。*A dedicated DeepSeek Harness workspace panel — create, edit, pin, and delete workspaces, with per-workspace env vars (`DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DSH_HOME`, …) and model presets.*
+- **TUI 与 Web UI 双启动**：每个工作区可打开为终端 TUI（`dsh-tui`）或内嵌 Web UI。Web UI 以 `dsh web --port 0` 启动，从 stdout 解析真实端口，并在 LyShell 内作为 `<webview>` 标签页渲染。*Each workspace launches as a terminal TUI (`dsh-tui`) or an embedded Web UI — spawned as `dsh web --port 0`, its real port parsed from stdout, rendered as a `<webview>` tab.*
+- **Web UI 视作终端标签页**：可点击 ✕ 关闭，也可来回切换 — 切走即隐藏，但保留页面状态与子进程存活，仅 ✕ 才真正销毁。*Web UI behaves like a terminal tab — closable via ✕ and switchable back and forth; switching away hides it while keeping page state and the subprocess alive, and only ✕ tears it down.*
+
+### 安全 Security
+
+- **Web UI 导航锁定**：Web UI 的导航与弹窗锁定在工作区回环源；回显 URL 在 `<webview>` 加载前先校验（回环 + 显式端口、无内嵌凭据）。*Web UI navigation and popups are locked to the workspace's loopback origin; the echoed URL is validated (loopback + explicit port, no embedded credentials) before `<webview>` loads it.*
+
 ## [1.0.3] - 2026-08-14
 
 ### 新增 Features
@@ -29,6 +41,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，�
 - 新增插件系统（Python / Node.js 两种运行时，支持开发目录 / ZIP / URL 安装）。*Plugin system with Python and Node.js runtimes, installable from a dev directory, ZIP, or URL.*
 - 提供 MCP HTTP API，供外部工具与 AI Agent 编排终端会话。*MCP HTTP API for external tools and AI agents to orchestrate terminal sessions.*
 
-[Unreleased]: https://github.com/liangyou09/lyshell_release/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/liangyou09/lyshell_release/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/liangyou09/lyshell_release/releases/tag/v1.0.4
 [1.0.3]: https://github.com/liangyou09/lyshell_release/releases/tag/v1.0.3
 [1.0.2]: https://github.com/liangyou09/lyshell_release/releases/tag/v1.0.2

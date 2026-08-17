@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/LyShell-v1.0.3-0078D4?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/LyShell-v1.0.4-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-Freeware-orange?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
@@ -11,7 +11,7 @@
 
 **简体中文** | [English](README.md)
 
-[✨ 核心亮点](#-核心亮点) · [🔗 MCP 集成](#-mcp-集成) · [🤖 AI Agent](#-ai-agent) · [🧩 插件与脚本](#-插件系统--python-脚本) · [🚀 快速上手](#-快速上手) · [❓ 常见问题](#-常见问题)
+[✨ 核心亮点](#-核心亮点) · [🐋 DeepSeek Harness](#-deepseek-harness) · [🔗 MCP 集成](#-mcp-集成) · [🤖 AI Agent](#-ai-agent) · [🧩 插件与脚本](#-插件系统--python-脚本) · [🚀 快速上手](#-快速上手) · [❓ 常见问题](#-常见问题)
 
 ---
 
@@ -21,6 +21,7 @@
 |---|---|
 | 🔗 **MCP 服务端** — 将终端暴露给 AI 客户端，会话级授权 + 审计日志 | 🤖 **Agent 启动栏** — 一键启动 Claude Code / Aider / Copilot CLI / 任意自定义 CLI |
 | 🧩 **插件系统** — Python + Node.js 插件，细粒度权限隔离 | 🐍 **Python 引擎** — 内置 `LyShell` API 驱动终端自动化 |
+| 🐋 **DeepSeek Harness** — 管理工作区，按工作区环境变量 + 模型预设，一键启动 TUI 或内嵌 Web UI | 🔐 **内嵌 Web UI** — 应用内 `<webview>` 标签页运行 `dsh web`，回环锁定 + URL 校验 |
 
 ---
 
@@ -99,6 +100,42 @@ LyShell 是**与 Agent 无关的终端** — 不绑定任何特定 AI 工具。�
 
 <p align="center">
   <img src="docs/assets/screenshot-agents.jpg" alt="AI Agent 启动栏" width="80%">
+</p>
+
+---
+
+## 🐋 DeepSeek Harness
+
+为 **DeepSeek Harness** 工作区提供的一等公民之家。在一个专属面板中统一管理工作区，再以终端 TUI **或** 内嵌 Web UI 两种方式启动 — 全程在 LyShell 内完成，无需另开浏览器窗口。
+
+| | |
+|---|---|
+| 🗂️ **工作区面板** — 创建、编辑、置顶、删除 | 🔧 **按工作区环境变量** — `DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`、`DSH_HOME` 等 |
+| 🎛️ **模型预设** — 按工作区保存并切换模型 | 🖥️ **TUI 启动** — 在原生终端标签页运行 `dsh-tui` |
+
+### 启动方式：TUI 或 Web UI
+
+每个工作区支持两种打开方式：
+
+- **终端 TUI** — `dsh-tui` 作为标准终端标签页运行，完整回滚、分屏、输入法一视同仁。
+- **内嵌 Web UI** — 以 `dsh web --port 0` 启动；LyShell 从 stdout 解析真实端口，把应用渲染进应用内 `<webview>` 标签页。无需浏览器，也无需手动折腾端口。
+
+### Web UI 视作终端标签页
+
+- **✕ 关闭** — 只有 ✕ 才会真正销毁标签并终止子进程。
+- **切走即隐藏** — 切换到其他标签页会隐藏 Web UI，但保留页面状态与 `dsh web` 子进程存活；切回即秒开。
+
+### 安全机制
+
+- 🔒 **回环锁定** — 导航与弹窗被固定在工作区回环源。
+- ✅ **URL 校验** — 回显 URL 在 `<webview>` 加载前先校验（回环 + 显式端口、无内嵌凭据）。
+
+<p align="center">
+  <img src="docs/assets/screenshot-deepseek-panel.jpg" alt="DeepSeek Harness 工作区面板" width="80%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-deepseek-webui.jpg" alt="内嵌 Web UI 标签页" width="80%">
 </p>
 
 ---

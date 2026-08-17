@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/LyShell-v1.0.3-0078D4?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/LyShell-v1.0.4-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-Freeware-orange?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
@@ -11,7 +11,7 @@
 
 **English** | [简体中文](README.zh.md)
 
-[✨ Highlights](#-highlights) · [🔗 MCP](#-mcp-integration) · [🤖 AI Agents](#-ai-agents) · [🧩 Plugins](#-plugin-system--python-scripting) · [🚀 Quick Start](#-quick-start) · [❓ FAQ](#-faq)
+[✨ Highlights](#-highlights) · [🐋 DeepSeek Harness](#-deepseek-harness) · [🔗 MCP](#-mcp-integration) · [🤖 AI Agents](#-ai-agents) · [🧩 Plugins](#-plugin-system--python-scripting) · [🚀 Quick Start](#-quick-start) · [❓ FAQ](#-faq)
 
 ---
 
@@ -21,6 +21,7 @@
 |---|---|
 | 🔗 **MCP Server** — Expose your terminals to Claude Code and other AI clients, with per-session authorization and audit log | 🤖 **Agent Launcher** — Run Claude Code, Aider, Copilot CLI, or any custom CLI in a clean transient terminal |
 | 🧩 **Plugin System** — Extend with Python or Node.js plugins, each running under granular permissions | 🐍 **Python Engine** — Script terminal automation through a built-in `LyShell` API |
+| 🐋 **DeepSeek Harness** — Manage DeepSeek Harness workspaces with per-workspace env vars & model presets, launch TUI or embedded Web UI | 🔐 **Embedded Web UI** — Run `dsh web` in an in-app `<webview>` tab, loopback-locked and URL-validated |
 
 ---
 
@@ -99,6 +100,42 @@ Agent-agnostic terminal — no lock-in to any AI tool. Launch any CLI agent and 
 
 <p align="center">
   <img src="docs/assets/screenshot-agents.jpg" alt="AI Agent launcher" width="80%">
+</p>
+
+---
+
+## 🐋 DeepSeek Harness
+
+A first-class home for **DeepSeek Harness** workspaces. Manage every workspace in one dedicated panel, then launch each one as a terminal TUI **or** an embedded Web UI — inside LyShell, not a separate browser window.
+
+| | |
+|---|---|
+| 🗂️ **Workspace panel** — create, edit, pin, delete | 🔧 **Per-workspace env** — `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DSH_HOME`, … |
+| 🎛️ **Model presets** — save & switch models per workspace | 🖥️ **TUI launch** — `dsh-tui` in a native terminal tab |
+
+### Launch: TUI or Web UI
+
+Every workspace opens two ways:
+
+- **Terminal TUI** — `dsh-tui` runs as a standard terminal tab with full scrollback, split panes, and IME support.
+- **Embedded Web UI** — spawned as `dsh web --port 0`; LyShell parses the real port from stdout and renders the app in an in-app `<webview>` tab. No browser, no manual port juggling.
+
+### Web UI acts like a terminal tab
+
+- **✕ close** — only ✕ tears the tab down and terminates the subprocess.
+- **Switch away** — switching to another tab hides the Web UI but keeps the page state and the `dsh web` subprocess alive; switching back resumes instantly.
+
+### Security
+
+- 🔒 **Loopback-locked** — navigation and popups are pinned to the workspace's loopback origin.
+- ✅ **Validated URL** — the echoed URL is checked (loopback + explicit port, no embedded credentials) *before* the `<webview>` ever loads it.
+
+<p align="center">
+  <img src="docs/assets/screenshot-deepseek-panel.jpg" alt="DeepSeek Harness workspace panel" width="80%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-deepseek-webui.jpg" alt="Embedded Web UI tab" width="80%">
 </p>
 
 ---
