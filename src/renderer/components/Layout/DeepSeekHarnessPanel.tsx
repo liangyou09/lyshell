@@ -87,7 +87,15 @@ const IconPin: React.FC<{ filled?: boolean }> = ({ filled = true }) => (
   </svg>
 )
 
-const DeepSeekHarnessPanel: React.FC = () => {
+/** 地球仪 —— Web UI 入口图标（嵌入 dsh web 面板） */
+const IconGlobe: React.FC = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="square" strokeLinejoin="miter">
+    <circle cx="8" cy="8" r="6" />
+    <path d="M2 8h12M8 2c-2 2-2 10 0 12M8 2c2 2 2 10 0 12" />
+  </svg>
+)
+
+const DeepSeekHarnessPanel: React.FC<{ onOpenWeb?: (ws: DshWorkspace) => Promise<{ success: boolean; error?: string }> }> = ({ onOpenWeb }) => {
   const { t } = useTranslation()
   const [status, setStatus] = useState<DshStatus | null>(null)
   const [detecting, setDetecting] = useState(false)
@@ -95,6 +103,7 @@ const DeepSeekHarnessPanel: React.FC = () => {
   // 工作区列表与启动状态
   const [workspaces, setWorkspaces] = useState<DshWorkspace[]>([])
   const [launchingId, setLaunchingId] = useState<string | null>(null)
+  const [webOpeningId, setWebOpeningId] = useState<string | null>(null)
   // 列表级操作错误横幅：启动失败与置顶切换失败共用，统一在此展示具体原因
   const [actionError, setActionError] = useState<string | null>(null)
   // 新增/编辑对话框
@@ -152,6 +161,12 @@ const DeepSeekHarnessPanel: React.FC = () => {
 
   const handleLaunch = async (ws: DshWorkspace) => {
     if (launchingId) return
+    // TUI 依赖 dsh-tui；仅装了 dsh 时阻断并提示走 Web（列表以 dsh 为准，见下 dshReady）
+    if (!status?.dshTui) {
+      setActionError(t('dsh.tuiMissingHint'))
+      void runDetect()
+      return
+    }
     setLaunchingId(ws.id)
     setActionError(null)
     try {
@@ -168,6 +183,23 @@ const DeepSeekHarnessPanel: React.FC = () => {
       setActionError(err instanceof Error ? err.message : t('dsh.launchFailed'))
     } finally {
       setLaunchingId(null)
+    }
+  }
+
+  const handleWeb = async (ws: DshWorkspace) => {
+    if (webOpeningId) return
+    setWebOpeningId(ws.id)
+    setActionError(null)
+    try {
+      const res = await onOpenWeb?.(ws)
+      if (res && res.success === false) {
+        setActionError(typeof res.error === 'string' && res.error ? res.error : t('dsh.webFailed'))
+      }
+    } catch (err) {
+      console.error('dsh web open failed:', err)
+      setActionError(err instanceof Error ? err.message : t('dsh.webFailed'))
+    } finally {
+      setWebOpeningId(null)
     }
   }
 
@@ -292,7 +324,9 @@ const DeepSeekHarnessPanel: React.FC = () => {
     ])
   }
 
-  const allInstalled = status !== null && status.dsh && status.dshTui
+  // Web 仅需 dsh（dsh-tui 是 TUI 前端），故列表以 dsh 为准；TUI 启动再单独校验 dshTui
+  const dshReady = status !== null && status.dsh
+  const tuiReady = status !== null && status.dshTui
   const missing: string[] = []
   if (status) {
     if (!status.dsh) missing.push('dsh')
@@ -316,8 +350,8 @@ const DeepSeekHarnessPanel: React.FC = () => {
         </button>
       </div>
 
-      {/* 未就绪：依赖状态行 + 提示卡 */}
-      {!allInstalled && (
+      {/* 未就绪：dsh 缺失 → 依赖状态行 + 提示卡（无 dsh 则 TUI/Web 均不可用） */}
+      {!dshReady && (
         <>
           <div className="space-y-1">
             {(['dsh', 'dsh-tui'] as const).map((dep) => {
@@ -422,8 +456,8 @@ const DeepSeekHarnessPanel: React.FC = () => {
         </>
       )}
 
-      {/* 就绪：工作区列表（多工作区） */}
-      {allInstalled && (
+      {/* 就绪：工作区列表（多工作区；dsh 就绪即可，Web 立即可用，TUI 需额外 dsh-tui） */}
+      {dshReady && (
         <>
           <div className="flex items-center justify-between gap-1 flex-shrink-0">
             <span className="text-[12px] [font-family:inherit] text-[var(--text-rack)]">
@@ -439,6 +473,14 @@ const DeepSeekHarnessPanel: React.FC = () => {
               <IconPlus />
             </button>
           </div>
+
+          {/* dsh-tui 未装：TUI 禁用，仅 Web 可用 */}
+          {!tuiReady && (
+            <div className="flex items-start gap-2 rounded-[2px] border border-[color-mix(in_srgb,var(--amber)_28%,var(--rule))] bg-[color-mix(in_srgb,var(--amber)_7%,var(--bg-slot))] px-2 py-1.5">
+              <span className="w-[6px] h-[6px] rounded-full bg-[var(--amber)] shadow-[0_0_5px_var(--amber-glow)] mt-[3px] shrink-0" />
+              <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] break-words">{t('dsh.tuiMissingHint')}</span>
+            </div>
+          )}
 
           {actionError && (
             <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words">{actionError}</div>
@@ -478,6 +520,7 @@ const DeepSeekHarnessPanel: React.FC = () => {
                         )}
                         {ws.name}
                         {launching && <span className="ml-1.5 text-[10.5px] [font-family:inherit] text-[var(--amber)]">{t('dsh.launching')}</span>}
+                        {webOpeningId === ws.id && <span className="ml-1.5 text-[10.5px] [font-family:inherit] text-[var(--amber)]">{t('dsh.webLoading')}</span>}
                       </span>
                       <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">{ws.cwd}</span>
                       {ws.note && (
@@ -485,6 +528,14 @@ const DeepSeekHarnessPanel: React.FC = () => {
                       )}
                     </span>
                     <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-slot)] from-[24%] to-transparent">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); void handleWeb(ws) }}
+                        title={t('dsh.webLaunch')}
+                        disabled={webOpeningId === ws.id}
+                        className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--amber)] disabled:opacity-50 disabled:cursor-wait"
+                      >
+                        <IconGlobe />
+                      </button>
                       <button
                         onClick={async (e) => { e.stopPropagation(); await togglePin(ws) }}
                         title={ws.pinned ? t('dsh.wsUnpin') : t('dsh.wsPin')}

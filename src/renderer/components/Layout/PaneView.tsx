@@ -18,7 +18,7 @@ interface PaneViewProps {
  * 分屏视图组件 - 递归渲染分屏树
  */
 const PaneView: React.FC<PaneViewProps> = ({ node }) => {
-  const { layout, setActivePane, addSessionToPane, splitPaneWithPosition, swapPanePosition, mcpAuditPaneId, closeMcpAudit } = usePaneStore()
+  const { layout, setActivePane, addSessionToPane, splitPaneWithPosition, swapPanePosition, mcpAuditPaneId, closeMcpAudit, dshWeb, dshWebPaneId, dshWebActive } = usePaneStore()
   const { getPaneBySessionId, getParentPane, getPanePositionInParent } = usePaneStore.getState()
   // 被隐藏的终端页签记录(Sidebar LIVE 段会话标签点击 toggle);订阅整个记录,任何 toggle 都会触发本组件重渲染。
   // 实际负载很小(仅 visibility 切换),未做按 pane 过滤的选择器。
@@ -359,6 +359,20 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
           {mcpAuditPaneId === node.id && (
             <div className="absolute inset-0 z-10">
               <McpAuditPanel onClose={closeMcpAudit} />
+            </div>
+          )}
+
+          {/* dsh Web UI 覆盖层 -- 单例，打开后挂载在本 pane；切到终端标签用 visibility 隐藏（webview 保持挂载、页面状态不丢），点 ✕ 才卸载销毁。导航由主进程锁定 */}
+          {dshWebPaneId === node.id && dshWeb && (
+            <div
+              className="absolute inset-0"
+              style={{ visibility: dshWebActive ? 'visible' : 'hidden', zIndex: dshWebActive ? 10 : 0 }}
+            >
+              <webview
+                partition="persist:dshweb"
+                src={dshWeb.url}
+                className="w-full h-full"
+              />
             </div>
           )}
 

@@ -15,6 +15,7 @@ import type { DshWorkspace } from '../storage/dsh-workspace-repository'
 import { detectDshInstallation } from '../dsh/detect'
 import { resolveWorkspaceCwd, normalizeDshHomeEnv } from '../dsh/cwd'
 import { presetDshTuiModel, clearDshTuiModel } from '../dsh/model-preset'
+import { dshWebManager } from '../dsh/web'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { ConnectionStatus } from '../connectors'
 import { reachabilityProber, type ReachabilityTarget } from '../reachability/reachability-prober'
@@ -28,6 +29,7 @@ import {
   assertString,
   assertStringArray,
   assertStringRecord,
+  assertWorkspaceId,
   validationFailure
 } from './validation'
 import { getMcpAddCommandForIpc } from '../mcp/http-server'
@@ -1870,7 +1872,7 @@ export function registerIPCHandlers(): void {
 
   ipcMain.handle('dsh:workspace:delete', async (_event, workspaceId: string) => {
     try {
-      const safeId = assertString(workspaceId, 'workspaceId', { maxLength: 128 })
+      const safeId = assertWorkspaceId(workspaceId)
       const success = dshWorkspaceRepository.delete(safeId)
       return { success }
     } catch (error) {
@@ -1880,7 +1882,7 @@ export function registerIPCHandlers(): void {
 
   ipcMain.handle('dsh:workspace:setPinned', async (_event, workspaceId: string, pinned: unknown) => {
     try {
-      const safeId = assertString(workspaceId, 'workspaceId', { maxLength: 128 })
+      const safeId = assertWorkspaceId(workspaceId)
       // 仅接受显式布尔，非布尔直接校验失败（不静默转 false）
       const safePinned = assertBoolean(pinned, 'pinned')
       const success = dshWorkspaceRepository.setPinned(safeId, safePinned)
@@ -1892,7 +1894,7 @@ export function registerIPCHandlers(): void {
 
   ipcMain.handle('dsh:workspace:launch', async (_event, workspaceId: string) => {
     try {
-      const safeId = assertString(workspaceId, 'workspaceId', { maxLength: 128 })
+      const safeId = assertWorkspaceId(workspaceId)
       const workspace = dshWorkspaceRepository.get(safeId)
       if (!workspace) return { success: false, error: 'Workspace not found' }
 
@@ -1935,6 +1937,45 @@ export function registerIPCHandlers(): void {
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }
+  })
+
+  // 启动 Web UI：spawn `dsh web --port 0` + 解析 stdout 端口，返回 URL 供渲染层 <webview> 加载。
+  // Web 仅需 dsh（dsh-tui 是 TUI 前端），model 预设（cordis.patch.yml）是 dsh-tui 专用，这里不写；
+  // env（DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL / DSH_HOME 等）仍注入子进程。
+  ipcMain.handle('dsh:web:open', async (_event, workspaceId: string) => {
+    try {
+      const safeId = assertWorkspaceId(workspaceId)
+      const workspace = dshWorkspaceRepository.get(safeId)
+      if (!workspace) return { success: false, error: 'Workspace not found' }
+
+      // 启动前复核 dsh 是否仍在 PATH 上（仅 dsh，不依赖 dsh-tui）
+      if (!detectDshInstallation().dsh) {
+        return { success: false, error: 'dsh not installed' }
+      }
+
+      const cwd = resolveWorkspaceCwd(workspace.cwd)
+      if (!cwd.ok) {
+        return { success: false, error: cwd.error }
+      }
+
+      // 归一化 DSH_HOME（相对/空白兜底），其余 env 原样注入子进程
+      const envResult = normalizeDshHomeEnv(workspace.env)
+      if (!envResult.ok) {
+        return { success: false, error: envResult.error }
+      }
+
+      const result = await dshWebManager.open({ cwd: cwd.path, env: envResult.env })
+      if (!result.ok) return { success: false, error: result.error }
+      return { success: true, url: result.url }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  // 关闭 Web UI：回收子进程；渲染层 <webview> 由自身卸载随覆盖层销毁。
+  ipcMain.handle('dsh:web:close', async () => {
+    dshWebManager.close()
+    return { success: true }
   })
 
   // ========== Plugin ==========

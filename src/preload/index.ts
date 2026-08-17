@@ -105,6 +105,8 @@ const IPC_CHANNELS = {
   DSH_WORKSPACE_DELETE: 'dsh:workspace:delete',
   DSH_WORKSPACE_LAUNCH: 'dsh:workspace:launch',
   DSH_WORKSPACE_SET_PINNED: 'dsh:workspace:setPinned',
+  DSH_WEB_OPEN: 'dsh:web:open',
+  DSH_WEB_CLOSE: 'dsh:web:close',
 
   // Plugin 管理(install[dev]/zip/url/enable/disable/uninstall/list)
   PLUGIN_LIST: 'plugin:list',
@@ -235,6 +237,8 @@ const electronAPI = {
   deleteDshWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_DELETE, workspaceId),
   launchDshWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_LAUNCH, workspaceId),
   setDshWorkspacePinned: (workspaceId: string, pinned: boolean) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_SET_PINNED, workspaceId, pinned),
+  openDshWeb: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_OPEN, workspaceId),
+  closeDshWeb: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_CLOSE),
 
   // Plugin 管理
   listPlugins: () => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_LIST),

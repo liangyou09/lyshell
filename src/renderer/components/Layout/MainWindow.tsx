@@ -297,6 +297,24 @@ const MainWindow: React.FC = () => {
     window.electronAPI?.closeWindow()
   }
 
+  // 打开 dsh Web UI：主进程 spawn `dsh web --port 0` 解析端口 → 拿到 URL 后写入 pane-store，
+  // 由 PaneTabBar / PaneView 渲染成终端页签 + <webview> 覆盖层（对齐 MCP 活动页签模式，可像标签一样 ✕ 关闭）。
+  // 失败把 error 回传给面板横幅展示（面板负责本地化兜底文案）。
+  const handleOpenWeb = useCallback(async (ws: { id: string; name: string }) => {
+    try {
+      const res = await window.electronAPI?.openDshWeb(ws.id)
+      if (!res || res.success === false) {
+        return { success: false as const, error: res && typeof res.error === 'string' ? res.error : undefined }
+      }
+      const { openDshWebInPane, layout: paneLayout } = usePaneStore.getState()
+      openDshWebInPane(paneLayout.activePaneId, { url: res.url as string, name: ws.name })
+      return { success: true as const }
+    } catch (err) {
+      console.error('dsh web open failed:', err)
+      return { success: false as const, error: err instanceof Error ? err.message : undefined }
+    }
+  }, [])
+
   // 点击会话直接开启终端
   const handleConnect = async (_sessionId: string, config: SessionConfig) => {
     try {
@@ -447,7 +465,7 @@ const MainWindow: React.FC = () => {
                 />
               )}
               {activeNav === 'agents' && <AgentsPanel />}
-              {activeNav === 'dsh' && <DeepSeekHarnessPanel />}
+              {activeNav === 'dsh' && <DeepSeekHarnessPanel onOpenWeb={handleOpenWeb} />}
               {activeNav === 'plugins' && <PluginPanel />}
               {activeNav === 'settings' && <SettingsPanel />}
             </div>

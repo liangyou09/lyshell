@@ -14,6 +14,7 @@ import { mcpAuditRepository } from './storage/mcp-audit-repository'
 import { pluginHostManager } from './plugin/host-mgr'
 import { cleanupDownloadsDir } from './plugin/install-zip'
 import { getPluginsDir } from './storage/plugin-repository'
+import { dshWebManager } from './dsh/web'
 
 // 日志配置
 log.transports.file.level = 'info'
@@ -50,6 +51,17 @@ process.on('unhandledRejection', (reason) => {
 let mainWindow: BrowserWindow | null = null
 let stopMcpHttpServerImpl: (() => Promise<void>) | undefined
 
+// dsh web 导航白名单：取当前实例规范化 URL 的 origin（127.0.0.1:实际端口）。无实例时返回 null。
+function getDshWebAllowedOrigin(): string | null {
+  const u = dshWebManager.currentUrl
+  if (!u) return null
+  try {
+    return new URL(u).origin
+  } catch {
+    return null
+  }
+}
+
 // 创建主窗口
 function createMainWindow(): void {
   // 启动恢复:读取持久化的窗口尺寸,无则回退默认 1200×800;clamp 到当前屏幕工作区防换小屏超界
@@ -80,6 +92,7 @@ function createMainWindow(): void {
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
+      webviewTag: true,
       allowRunningInsecureContent: false
     }
   })
@@ -109,6 +122,9 @@ function createMainWindow(): void {
     setMainWindow(null)  // 清除窗口引用
     setMainWindowForUpload(null)
     mainWindow = null
+    // macOS 上关窗不退出应用：webview 已随窗口销毁，但 dsh web 子进程仍在，这里主动回收。
+    // will-quit 里的 close() 是兜底；此处保证「关窗即停」（幂等，重复调用无害）。
+    dshWebManager.close()
   })
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
@@ -132,6 +148,51 @@ function createMainWindow(): void {
       shell.openExternal(url).catch(err => log.warn('Failed to open external URL:', err))
     }
     return { action: 'deny' }
+  })
+
+  // 锁定 <webview> 客体（dsh web 面板）：初始 src 与后续导航都只放行 dshWebManager 当前实例
+  // 的 origin（127.0.0.1:实际端口），弹窗一律 deny —— 杜绝 webview 逃逸到外站或本机其它服务。
+  mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    const src = params?.src || ''
+    const allowed = (() => {
+      const origin = getDshWebAllowedOrigin()
+      if (!origin) return false
+      try {
+        return new URL(src).origin === origin
+      } catch {
+        return false
+      }
+    })()
+    if (!allowed) {
+      log.warn('Blocked webview attach with unexpected src:', src)
+      event.preventDefault()
+      return
+    }
+    // 显式锁定 webview 的 webPreferences（防注入；主窗口已 sandbox/contextIsolation）
+    webPreferences.nodeIntegration = false
+    webPreferences.contextIsolation = true
+    webPreferences.sandbox = true
+    webPreferences.webSecurity = true
+  })
+
+  mainWindow.webContents.on('did-attach-webview', (_event, webContents) => {
+    webContents.setWindowOpenHandler(({ url }) => {
+      // webview 不允许开新窗口/弹窗，直接 deny（dsh UI 不需要 popup，也不交系统浏览器避免泄 URL）
+      log.warn('Blocked webview window.open:', url)
+      return { action: 'deny' }
+    })
+    webContents.on('will-navigate', (event, url) => {
+      try {
+        const target = new URL(url)
+        const origin = getDshWebAllowedOrigin()
+        if (origin && target.origin === origin) return
+        event.preventDefault()
+        log.warn('Blocked webview navigation:', url)
+      } catch {
+        event.preventDefault()
+        log.warn('Blocked malformed webview navigation URL:', url)
+      }
+    })
   })
 
   if (isDev && process.env['ELECTRON_RENDERER_URL']) {
@@ -278,6 +339,7 @@ app.whenReady().then(async () => {
 app.on('will-quit', () => {
   cleanupAllWorkers()  // 清理所有下载 Worker
   cleanupAllUploadWorkers()  // 清理所有上传 Worker
+  dshWebManager.close()  // 关闭 dsh web 子进程（webview 随窗口一起销毁，这里只回收进程）
   if (stopMcpHttpServerImpl) {
     stopMcpHttpServerImpl()  // 停止 MCP HTTP 服务器
   }

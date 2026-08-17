@@ -18,7 +18,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
   const [draggingSessionId, setDraggingSessionIdLocal] = useState<string | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)  // 悬停位置索引
   const { sessions, removeLiveSession } = useSessionStore()
-  const { setActiveSessionInPane, removeSessionFromPane, addSessionToPane, reorderSessionsInPane, mcpAuditPaneId } = usePaneStore()
+  const { setActiveSessionInPane, removeSessionFromPane, addSessionToPane, reorderSessionsInPane, mcpAuditPaneId, dshWeb, dshWebPaneId, dshWebActive } = usePaneStore()
   const toggleLiveSessionTabs = usePaneStore(s => s.toggleLiveSessionTabs)
   const { t } = useTranslation()
   // 被隐藏的页签(Sidebar LIVE 段会话标签点击 toggle)——不渲染对应页签,但终端实例保留
@@ -62,6 +62,8 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
     // 切到 session 页签前关掉本 pane 的 MCP 覆盖层，否则它会挡住刚选中的终端
     const paneSt = usePaneStore.getState()
     if (paneSt.mcpAuditPaneId === pane.id) paneSt.closeMcpAudit()
+    // 本 pane 正显示 dsh web 时，切到终端页签仅隐藏（webview 保持挂载、子进程不回收），点 web 页签可切回
+    if (paneSt.dshWebPaneId === pane.id && paneSt.dshWebActive) paneSt.deactivateDshWeb()
     setActiveSessionInPane(pane.id, sessionId)
     // 清除活动状态
     useSessionStore.getState().setSessionActivity(sessionId, false)
@@ -299,8 +301,8 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
     return cleanError
   }
 
-  // 无会话且本 pane 未开 MCP 时不渲染标签栏，避免空 28px 条；MCP 打开时仍需标签栏承载页签
-  if (paneSessions.length === 0 && mcpAuditPaneId !== pane.id) return null
+  // 无会话且本 pane 未开 MCP / dsh Web 时不渲染标签栏，避免空 28px 条；打开时仍需标签栏承载页签
+  if (paneSessions.length === 0 && mcpAuditPaneId !== pane.id && dshWebPaneId !== pane.id) return null
 
   // 计算会话名称编号 - 基于全局所有分屏的同名会话
   const getNameWithIndex = (session: typeof paneSessions[0]) => {
@@ -322,6 +324,9 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
     }
     return `${session.config.name} (${index})`
   }
+
+  // 本 pane 是否正显示 dsh web（web 页签激活态 / 终端标签激活态都据此判定）
+  const webActiveHere = dshWebPaneId === pane.id && dshWebActive
 
   return (
     <div className="flex items-center bg-[var(--bg-rack)] border-b border-[var(--rule)] h-[28px]">
@@ -359,7 +364,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
             title={t('pane.tabHint')}
             className={cn(
               'flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
-              pane.activeSessionId === session.id && mcpAuditPaneId !== pane.id
+              pane.activeSessionId === session.id && mcpAuditPaneId !== pane.id && !webActiveHere
                 ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
                 : session.hasActivity
                   ? 'bg-[var(--reachable)]/25 text-[var(--text-rack)] hover:bg-[var(--reachable)]/35 shadow-[inset_2px_0_0_var(--reachable)]' // 有未读输出:reachable 青调底 + 左侧 stripe
@@ -439,6 +444,29 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
             <button
               onClick={(e) => { e.stopPropagation(); usePaneStore.getState().closeMcpAudit() }}
               title={t('mcpAudit.close')}
+              className="ml-auto w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+        {/* dsh Web UI 页签 -- 单例，仅本 pane 打开 web 时渲染；点页签切回 web，✕ 关闭并回收子进程 */}
+        {dshWebPaneId === pane.id && dshWeb && (
+          <div
+            data-tab-id="__dsh_web__"
+            onClick={() => usePaneStore.getState().activateDshWeb()}
+            title={t('dsh.webTitle')}
+            className={cn(
+              'flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
+              webActiveHere
+                ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
+                : 'bg-[var(--bg-rack)] text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)]'
+            )}
+          >
+            <span className="text-xs truncate max-w-[150px]">{dshWeb.name}</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); usePaneStore.getState().closeDshWeb() }}
+              title={t('dsh.webClose')}
               className="ml-auto w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
             >
               ✕

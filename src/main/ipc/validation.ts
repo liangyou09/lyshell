@@ -46,6 +46,11 @@ export function assertString(value: unknown, name: string, options: StringOption
   return value
 }
 
+/** dsh 工作区 ID 校验：非空字符串，≤128。dsh:workspace:* / dsh:web:* 各处理器共用。 */
+export function assertWorkspaceId(value: unknown): string {
+  return assertString(value, 'workspaceId', { maxLength: 128 })
+}
+
 export function assertNumber(value: unknown, name: string, options: NumberOptions = {}): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new ValidationError(`${name} must be a finite number`)

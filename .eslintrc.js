@@ -31,6 +31,8 @@ module.exports = {
     '@typescript-eslint/no-explicit-any': 'warn',
     'react/react-in-jsx-scope': 'off',
     'react/prop-types': 'off',
+    // <webview> 标签的 Electron 专有属性（嵌入 dsh web 面板用）
+    'react/no-unknown-property': ['error', { ignore: ['partition'] }],
   },
   ignorePatterns: ['dist', 'release', 'node_modules', '*.config.js'],
 }

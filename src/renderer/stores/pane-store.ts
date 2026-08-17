@@ -66,6 +66,15 @@ interface PaneStore {
   mcpAuditPaneId: string | null
   openMcpAuditInPane: (paneId: string) => void  // 在指定 pane 打开 MCP 页签覆盖层
   closeMcpAudit: () => void                      // 关闭 MCP 页签覆盖层
+  // dsh Web UI 页签 -- 单例：dshWeb 非空即打开，承载在 dshWebPaneId 指定 pane 的页签+覆盖层。瞬态。
+  // dshWebActive 区分「打开中」与「当前显示」：切到终端标签只隐藏不回收，点 ✕ 才真正关闭。
+  dshWeb: { url: string; name: string } | null
+  dshWebPaneId: string | null
+  dshWebActive: boolean
+  openDshWebInPane: (paneId: string, info: { url: string; name: string }) => void
+  activateDshWeb: () => void
+  deactivateDshWeb: () => void
+  closeDshWeb: () => void
   // 隐藏的终端页签 —— key 为 runtime sessionId,true 表示该页签(及终端)被折叠隐藏
   // xterm 实例不卸载,连接与输出保留;Sidebar LIVE 段会话标签点击 toggle
   hiddenTabSessions: Record<string, boolean>
@@ -113,6 +122,16 @@ const findPane = (node: PaneNode, paneId: string): PaneNode | undefined => {
     return found
   }
   return undefined
+}
+
+// 若 dsh web 承载 pane 已不在新布局树中（被 removeEmptyPanes / removePaneAndMerge 删除），
+// 关闭并回收子进程 —— 避免 webview 随 pane 卸载后 dsh 子进程残留成孤儿。
+// 每次 layout 树变更后统一调用（见各 action 末尾 removeEmptyPanes/removePaneAndMerge 之后）。
+const pruneOrphanedDshWeb = (root: PaneNode): void => {
+  const { dshWebPaneId, closeDshWeb } = usePaneStore.getState()
+  if (dshWebPaneId && !findPane(root, dshWebPaneId)) {
+    closeDshWeb()
+  }
 }
 
 // 查找父节点
@@ -353,8 +372,9 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     let newRoot = layout.root
     if (sessionId) {
       newRoot = removeSessionFromAllPanes(newRoot, sessionId)
-      // 移除空分屏
+      // 移除空分屏；若承载 dsh web 的 pane 因此被删，回收子进程
       newRoot = removeEmptyPanes(newRoot)
+      pruneOrphanedDshWeb(newRoot)
     }
 
     // 找到目标分屏
@@ -460,6 +480,7 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     if (sessionId) {
       newRoot = removeSessionFromAllPanes(newRoot, sessionId)
       newRoot = removeEmptyPanes(newRoot)
+      pruneOrphanedDshWeb(newRoot)
     }
 
     // 找到目标分屏
@@ -572,6 +593,8 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     const sessionIdsToClean = (pane?.type === 'leaf' ? pane.sessions : []) ?? []
 
     const newRoot = removePaneAndMerge(layout.root, paneId)
+    // 若删除的 pane 承载 dsh web，合并后该 pane 已不在树中，回收子进程
+    pruneOrphanedDshWeb(newRoot)
     const leaves = collectLeaves(newRoot)
 
     // 清理这些 session 的 hidden 标记
@@ -608,6 +631,27 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
   },
   closeMcpAudit: () => {
     set({ mcpAuditPaneId: null })
+  },
+
+  // dsh Web UI 页签（单例覆盖层）：打开时指定承载 pane；空 paneId 回落首个叶子 pane。
+  // 打开即激活；切到终端标签走 deactivate（隐藏但保留 webview 与子进程），✕ 走 close（真正回收）。
+  dshWeb: null,
+  dshWebPaneId: null,
+  dshWebActive: false,
+  openDshWebInPane: (paneId, info) => {
+    const target = paneId || get().getAllLeafPanes()[0]?.id
+    if (!target) return
+    set({ dshWeb: info, dshWebPaneId: target, dshWebActive: true })
+  },
+  activateDshWeb: () => {
+    if (get().dshWeb) set({ dshWebActive: true })
+  },
+  deactivateDshWeb: () => {
+    set({ dshWebActive: false })
+  },
+  closeDshWeb: () => {
+    set({ dshWeb: null, dshWebPaneId: null, dshWebActive: false })
+    void window.electronAPI?.closeDshWeb?.()
   },
 
   hiddenTabSessions: {},
@@ -681,8 +725,9 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     // 先从所有分屏中移除该会话
     let newRoot = removeSessionFromAllPanes(layout.root, sessionId)
 
-    // 移除空分屏并合并
+    // 移除空分屏并合并；若承载 dsh web 的 pane 因此被删，回收子进程
     newRoot = removeEmptyPanes(newRoot)
+    pruneOrphanedDshWeb(newRoot)
 
     // 找到目标分屏（可能 id 变了，需要重新查找或保持原位置）
     let targetPane = findPane(newRoot, paneId) as PaneLeaf | undefined
@@ -746,6 +791,8 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     // 如果分屏没有会话了，关闭该分屏
     if (newSessions.length === 0) {
       newRoot = removePaneAndMerge(newRoot, paneId)
+      // pane 因无会话被合并删除；若它承载 dsh web，一并关闭避免子进程残留
+      pruneOrphanedDshWeb(newRoot)
       const leaves = collectLeaves(newRoot)
       set({
         ...(hiddenChanged ? { hiddenTabSessions: nextHidden } : {}),
