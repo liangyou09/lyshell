@@ -175,7 +175,8 @@
     "wsSave": "保存",
     "wsNote": "备注",
     "wsNotePh": "可选 · 记录用途或说明",
-    "wsNoteHint": "可选"
+    "wsNoteHint": "可选",
+    "wsSaveFailed": "保存失败，请检查后重试"
   },
   "session": {
     "editTitle": "编辑会话",

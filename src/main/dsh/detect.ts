@@ -15,7 +15,7 @@ import { delimiter, join } from 'path'
 /** Windows 下按 PATHEXT 探测可执行扩展名（cmd 实际按此顺序解析命令，不含 .ps1）。
  *  npm 全局安装会生成 .cmd shim（属 PATHEXT）；.ps1 需 powershell 运行、cmd 不直接执行，
  *  故不再硬编码，避免把「仅存在 dsh.ps1」误判为可在本地终端直接启动。 */
-function windowsExecutableExtensions(): string[] {
+export function windowsExecutableExtensions(): string[] {
   const pathext = process.env.PATHEXT
   if (!pathext) return ['.com', '.exe', '.bat', '.cmd']
   const exts = pathext
@@ -29,7 +29,7 @@ function windowsExecutableExtensions(): string[] {
 }
 
 /** 在 PATH 上查找某命令是否可用（Windows 检查扩展名，POSIX 检查可执行位） */
-function commandExists(command: string): boolean {
+export function commandExists(command: string): boolean {
   const dirs = (process.env.PATH || '').split(delimiter).filter(Boolean)
 
   if (process.platform === 'win32') {

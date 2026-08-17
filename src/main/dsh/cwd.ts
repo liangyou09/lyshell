@@ -1,0 +1,43 @@
+import { statSync } from 'fs'
+import { homedir } from 'os'
+import { isAbsolute, join } from 'path'
+
+/**
+ * 展开工作目录里的 `~` 为当前用户 home 目录。
+ * node-pty 不会展开 `~`（local.ts 将 cwd 原样传入），故在保存与启动前先在此归一化。
+ * 支持 `~`、`~/xxx`（POSIX）与 `~\xxx`（Windows）。
+ */
+export function expandTilde(input: string): string {
+  const trimmed = input.trim()
+  if (trimmed === '~') return homedir()
+  if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
+    return join(homedir(), trimmed.slice(2))
+  }
+  return trimmed
+}
+
+export type ResolvedCwd = { ok: true; path: string } | { ok: false; error: string }
+
+/**
+ * 校验工作目录：展开 `~` 后须为绝对路径且存在（目录）。
+ * 用于 dsh:workspace:launch 启动前 —— node-pty spawn 失败是异步的、无法回传给调用方，
+ * 故在创建瞬态会话前先拒绝无效目录。
+ */
+export function resolveWorkspaceCwd(input: string): ResolvedCwd {
+  const trimmed = input.trim()
+  if (trimmed.length === 0) {
+    return { ok: false, error: 'workspace.cwd is required' }
+  }
+  const expanded = expandTilde(trimmed)
+  if (!isAbsolute(expanded)) {
+    return { ok: false, error: 'workspace.cwd must be an absolute path' }
+  }
+  try {
+    if (!statSync(expanded).isDirectory()) {
+      return { ok: false, error: 'workspace.cwd is not a directory' }
+    }
+  } catch {
+    return { ok: false, error: 'workspace.cwd does not exist' }
+  }
+  return { ok: true, path: expanded }
+}

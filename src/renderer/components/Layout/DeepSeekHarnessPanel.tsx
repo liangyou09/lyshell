@@ -85,6 +85,9 @@ const DeepSeekHarnessPanel: React.FC = () => {
   const [wsNote, setWsNote] = useState('')
   const [triedSubmit, setTriedSubmit] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  // 列表行内删除的两步确认：记录待确认的工作区 id（null = 无待确认）
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   const runDetect = useCallback(async () => {
     setDetecting(true)
@@ -145,17 +148,34 @@ const DeepSeekHarnessPanel: React.FC = () => {
     }
   }
 
+  // ESC 退出对话框 —— 文档级监听，不依赖子元素焦点（覆盖层本身不可聚焦）
+  // 处于删除二次确认态时，首次 ESC 仅回退确认态，再次 ESC 才关闭（与两步确认语义一致）
+  useEffect(() => {
+    if (!showDialog) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      if (confirmDelete) {
+        setConfirmDelete(false)
+        return
+      }
+      setShowDialog(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [showDialog, confirmDelete])
+
   // ── 对话框 ──
   const handleAdd = () => {
     setEditWorkspace(undefined)
     setWsName(''); setWsCwd(''); setWsNote('')
-    setTriedSubmit(false); setConfirmDelete(false)
+    setTriedSubmit(false); setConfirmDelete(false); setSaveError(null)
     setShowDialog(true)
   }
   const handleEdit = (ws: DshWorkspace) => {
     setEditWorkspace(ws)
     setWsName(ws.name); setWsCwd(ws.cwd); setWsNote(ws.note || '')
-    setTriedSubmit(false); setConfirmDelete(false)
+    setTriedSubmit(false); setConfirmDelete(false); setSaveError(null)
     setShowDialog(true)
   }
   const handlePickCwd = async () => {
@@ -177,13 +197,18 @@ const DeepSeekHarnessPanel: React.FC = () => {
   const valid = wsName.trim().length > 0 && wsCwd.trim().length > 0
   const handleSave = async () => {
     if (!valid) { setTriedSubmit(true); return }
+    setSaveError(null)
     const name = wsName.trim()
     const cwd = wsCwd.trim()
     const note = wsNote.trim()
-    if (editWorkspace) {
-      await window.electronAPI?.updateDshWorkspace({ ...editWorkspace, name, cwd, note })
-    } else {
-      await window.electronAPI?.addDshWorkspace({ name, cwd, note, order: workspaces.length })
+    // order 由主进程仓库分配递增，前端不再传 workspaces.length（删除后可能产生重复）
+    const res = editWorkspace
+      ? await window.electronAPI?.updateDshWorkspace({ ...editWorkspace, name, cwd, note: note || undefined })
+      : await window.electronAPI?.addDshWorkspace({ name, cwd, note: note || undefined })
+    // 保存失败（校验未通过 / 落盘失败）：保留表单，展示具体错误，不关闭对话框
+    if (res && res.success === false) {
+      setSaveError(typeof res.error === 'string' ? res.error : t('dsh.wsSaveFailed'))
+      return
     }
     await loadWorkspaces()
     setShowDialog(false)
@@ -364,6 +389,7 @@ const DeepSeekHarnessPanel: React.FC = () => {
                     key={ws.id}
                     onClick={() => void handleLaunch(ws)}
                     onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); handleEdit(ws) }}
+                    onMouseLeave={() => { if (deleteConfirmId === ws.id) setDeleteConfirmId(null) }}
                     title={t('dsh.launch')}
                     className={cn(
                       'group relative flex items-center gap-2.5 px-2 py-1.5 rounded-[2px] cursor-pointer border border-[var(--rule)] bg-[var(--bg-rack)] hover:bg-[var(--bg-slot)] transition-colors',
@@ -394,11 +420,22 @@ const DeepSeekHarnessPanel: React.FC = () => {
                       <button
                         onClick={async (e) => {
                           e.stopPropagation()
+                          // 两步确认：首次点击切到确认态，再次点击才真正删除（与对话框一致）
+                          if (deleteConfirmId !== ws.id) {
+                            setDeleteConfirmId(ws.id)
+                            return
+                          }
+                          setDeleteConfirmId(null)
                           await window.electronAPI?.deleteDshWorkspace(ws.id)
                           await loadWorkspaces()
                         }}
-                        title={t('dsh.wsDelete')}
-                        className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]"
+                        title={deleteConfirmId === ws.id ? t('dsh.wsConfirmDelete') : t('dsh.wsDelete')}
+                        className={cn(
+                          'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
+                          deleteConfirmId === ws.id
+                            ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
+                            : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]'
+                        )}
                       >
                         <IconX />
                       </button>
@@ -487,6 +524,13 @@ const DeepSeekHarnessPanel: React.FC = () => {
             {triedSubmit && !valid && (
               <div className="px-4 py-2 text-[11px] [font-family:inherit] text-[var(--error-rack)] border-b border-[var(--rule)]">
                 {t('dsh.wsRequired')}
+              </div>
+            )}
+
+            {/* 保存失败提示（校验未通过 / 落盘失败，保留表单） */}
+            {saveError && (
+              <div className="px-4 py-2 text-[11px] [font-family:inherit] text-[var(--error-rack)] border-b border-[var(--rule)] break-all">
+                {saveError}
               </div>
             )}
 

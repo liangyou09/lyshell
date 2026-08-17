@@ -175,7 +175,8 @@
     "wsSave": "Save",
     "wsNote": "Note",
     "wsNotePh": "Optional · note the purpose",
-    "wsNoteHint": "Optional"
+    "wsNoteHint": "Optional",
+    "wsSaveFailed": "Save failed, please check and retry"
   },
   "session": {
     "editTitle": "Edit Session",

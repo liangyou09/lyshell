@@ -13,6 +13,7 @@ import type { AgentConfig } from '../storage/agent-repository'
 import { dshWorkspaceRepository } from '../storage/dsh-workspace-repository'
 import type { DshWorkspace } from '../storage/dsh-workspace-repository'
 import { detectDshInstallation } from '../dsh/detect'
+import { resolveWorkspaceCwd } from '../dsh/cwd'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { ConnectionStatus } from '../connectors'
 import { reachabilityProber, type ReachabilityTarget } from '../reachability/reachability-prober'
@@ -1802,13 +1803,17 @@ export function registerIPCHandlers(): void {
   ipcMain.handle('dsh:workspace:add', async (_event, workspace) => {
     try {
       const safe = assertObject(workspace, 'workspace')
-      const newWorkspace: Omit<DshWorkspace, 'id'> = {
+      // 保存即校验 cwd：须为存在的绝对目录（含展开 ~），尽早反馈而非等到启动
+      const cwd = resolveWorkspaceCwd(assertString(safe.cwd, 'workspace.cwd', { maxLength: 4096 }))
+      if (!cwd.ok) return { success: false, error: cwd.error }
+      const newWorkspace: Omit<DshWorkspace, 'id' | 'order'> = {
         name: assertString(safe.name, 'workspace.name', { maxLength: 120 }),
-        cwd: assertString(safe.cwd, 'workspace.cwd', { maxLength: 4096 }),
-        order: safe.order === undefined ? 0 : assertNumber(safe.order, 'workspace.order', { min: 0, max: 10000, integer: true }),
-        note: safe.note === undefined ? '' : assertString(safe.note, 'workspace.note', { maxLength: 2000 })
+        cwd: cwd.path
       }
-      return dshWorkspaceRepository.add(newWorkspace)
+      if (safe.note !== undefined) newWorkspace.note = assertString(safe.note, 'workspace.note', { maxLength: 2000 })
+      const added = dshWorkspaceRepository.add(newWorkspace)
+      if (!added) return { success: false, error: 'Failed to save workspace' }
+      return { success: true, workspace: added }
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }
@@ -1817,15 +1822,17 @@ export function registerIPCHandlers(): void {
   ipcMain.handle('dsh:workspace:update', async (_event, workspace) => {
     try {
       const safe = assertObject(workspace, 'workspace')
+      const cwd = resolveWorkspaceCwd(assertString(safe.cwd, 'workspace.cwd', { maxLength: 4096 }))
+      if (!cwd.ok) return { success: false, error: cwd.error }
       const updated: DshWorkspace = {
         id: assertString(safe.id, 'workspace.id', { maxLength: 128 }),
         name: assertString(safe.name, 'workspace.name', { maxLength: 120 }),
-        cwd: assertString(safe.cwd, 'workspace.cwd', { maxLength: 4096 }),
-        order: safe.order === undefined ? 0 : assertNumber(safe.order, 'workspace.order', { min: 0, max: 10000, integer: true }),
-        note: safe.note === undefined ? '' : assertString(safe.note, 'workspace.note', { maxLength: 2000 })
+        cwd: cwd.path,
+        order: safe.order === undefined ? 0 : assertNumber(safe.order, 'workspace.order', { min: 0, max: 10000, integer: true })
       }
+      if (safe.note !== undefined) updated.note = assertString(safe.note, 'workspace.note', { maxLength: 2000 })
       const success = dshWorkspaceRepository.update(updated)
-      return { success }
+      return success ? { success: true } : { success: false, error: 'Workspace not found' }
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }
@@ -1854,7 +1861,13 @@ export function registerIPCHandlers(): void {
         return { success: false, error: `${missing.join(' and ')} not installed` }
       }
 
-      return await spawnLocalCommandSession(workspace.name, 'dsh-tui', [`dsh:${safeId}`], { cwd: workspace.cwd })
+      // 启动前校验 cwd：展开 ~ 且须为存在的绝对目录，避免无效目录创建瞬态会话
+      const cwd = resolveWorkspaceCwd(workspace.cwd)
+      if (!cwd.ok) {
+        return { success: false, error: cwd.error }
+      }
+
+      return await spawnLocalCommandSession(workspace.name, 'dsh-tui', [`dsh:${safeId}`], { cwd: cwd.path })
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }
