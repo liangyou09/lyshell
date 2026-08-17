@@ -176,7 +176,20 @@
     "wsNote": "Note",
     "wsNotePh": "Optional · note the purpose",
     "wsNoteHint": "Optional",
-    "wsSaveFailed": "Save failed, please check and retry"
+    "wsSaveFailed": "Save failed, please check and retry",
+    "wsPin": "Pin",
+    "wsUnpin": "Unpin",
+    "wsPinFailed": "Pin toggle failed, please retry",
+    "wsModel": "Model",
+    "wsModelHint": "Empty falls back to dsh-TUI default; global, last launch wins",
+    "wsModelHintTitle": "Setting a model rewrites cordis.patch.yml (js-yaml drops hand-written comments; backed up to cordis.patch.yml.bak only before the first rewrite)",
+    "wsModelPh": "e.g. deepseek-v4-flash",
+    "wsEnv": "Environment",
+    "wsEnvHint": "Vars injected into the dsh-tui shell, e.g. API keys",
+    "wsEnvAdd": "Add variable",
+    "wsEnvKeyPh": "KEY",
+    "wsEnvValuePh": "value",
+    "wsEnvFill": "Fill DeepSeek vars"
   },
   "session": {
     "editTitle": "Edit Session",

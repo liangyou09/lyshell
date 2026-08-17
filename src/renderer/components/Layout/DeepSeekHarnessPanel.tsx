@@ -19,6 +19,15 @@ const REPOS: { dep: string; url: string }[] = [
   { dep: 'dsh-tui', url: 'https://github.com/ccch1mneyyy/dsh-TUI' },
 ]
 
+/** DeepSeek 官方适配器默认读取的环境变量；补全时按缺失情况填入 key 名（BASE_URL 预填官方默认值，API_KEY 留空待填） */
+const DEEPSEEK_ENV_DEFAULTS: { key: string; value: string }[] = [
+  { key: 'DEEPSEEK_API_KEY', value: '' },
+  { key: 'DEEPSEEK_BASE_URL', value: 'https://api.deepseek.com' }
+]
+
+/** 模型建议列表（datalist）—— dsh-TUI 默认 deepseek-v4-flash、alternate deepseek-v4-pro；留空则用默认 */
+const MODEL_SUGGESTIONS = ['deepseek-v4-flash', 'deepseek-v4-pro']
+
 interface DshStatus {
   dsh: boolean
   dshTui: boolean
@@ -31,6 +40,9 @@ interface DshWorkspace {
   cwd: string
   order: number
   note?: string
+  pinned?: boolean
+  env?: Record<string, string>
+  model?: string
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -68,6 +80,13 @@ const IconX: React.FC = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 2l7 7M9 2l-7 7" /></svg>
 )
 
+/** 置顶图钉 —— 实心填充，置顶态常显 amber，未置顶态在 hover 动作里以描边灰呈现 */
+const IconPin: React.FC<{ filled?: boolean }> = ({ filled = true }) => (
+  <svg width="11" height="11" viewBox="0 0 12 12" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.3" strokeLinecap="square" strokeLinejoin="miter">
+    <path d="M5 1.5h2l.6 3h1.9l.8 1H1.7l.8-1H4.4zM6 5.5V10M4.5 8.5h3" />
+  </svg>
+)
+
 const DeepSeekHarnessPanel: React.FC = () => {
   const { t } = useTranslation()
   const [status, setStatus] = useState<DshStatus | null>(null)
@@ -76,13 +95,16 @@ const DeepSeekHarnessPanel: React.FC = () => {
   // 工作区列表与启动状态
   const [workspaces, setWorkspaces] = useState<DshWorkspace[]>([])
   const [launchingId, setLaunchingId] = useState<string | null>(null)
-  const [launchFailed, setLaunchFailed] = useState(false)
+  // 列表级操作错误横幅：启动失败与置顶切换失败共用，统一在此展示具体原因
+  const [actionError, setActionError] = useState<string | null>(null)
   // 新增/编辑对话框
   const [showDialog, setShowDialog] = useState(false)
   const [editWorkspace, setEditWorkspace] = useState<DshWorkspace | undefined>(undefined)
   const [wsName, setWsName] = useState('')
   const [wsCwd, setWsCwd] = useState('')
   const [wsNote, setWsNote] = useState('')
+  const [wsModel, setWsModel] = useState('')
+  const [wsEnv, setWsEnv] = useState<{ key: string; value: string }[]>([])
   const [triedSubmit, setTriedSubmit] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -131,20 +153,39 @@ const DeepSeekHarnessPanel: React.FC = () => {
   const handleLaunch = async (ws: DshWorkspace) => {
     if (launchingId) return
     setLaunchingId(ws.id)
-    setLaunchFailed(false)
+    setActionError(null)
     try {
       const res = await window.electronAPI?.launchDshWorkspace(ws.id)
       if (res && res.success === false) {
         console.error('dsh workspace launch failed:', res.error)
-        setLaunchFailed(true)
+        // 展示具体失败原因（如补丁解析失败/权限错误），而非只给一句通用的「启动失败」
+        setActionError(typeof res.error === 'string' ? res.error : t('dsh.launchFailed'))
         // 检测与点击之间依赖可能已被卸载 —— 重新检测刷新 UI，回到「缺少依赖」提示卡
         void runDetect()
       }
     } catch (err) {
       console.error('dsh workspace launch failed:', err)
-      setLaunchFailed(true)
+      setActionError(err instanceof Error ? err.message : t('dsh.launchFailed'))
     } finally {
       setLaunchingId(null)
+    }
+  }
+
+  const togglePin = async (ws: DshWorkspace) => {
+    const next = !ws.pinned
+    try {
+      const res = await window.electronAPI?.setDshWorkspacePinned(ws.id, next)
+      // 置顶切换失败（如工作区已被删除/落盘失败）：记录 + 展示具体原因，随后列表刷新回落真实状态
+      if (res && res.success === false) {
+        console.error('dsh workspace pin toggle failed:', res.error ?? 'unknown error')
+        setActionError(typeof res.error === 'string' ? res.error : t('dsh.wsPinFailed'))
+      }
+    } catch (err) {
+      console.error('dsh workspace pin toggle failed:', err)
+      setActionError(err instanceof Error ? err.message : t('dsh.wsPinFailed'))
+    } finally {
+      // 无论成败都重新拉取，确保列表与主进程状态一致（失败时回落到未切换的原状态）
+      await loadWorkspaces()
     }
   }
 
@@ -168,13 +209,14 @@ const DeepSeekHarnessPanel: React.FC = () => {
   // ── 对话框 ──
   const handleAdd = () => {
     setEditWorkspace(undefined)
-    setWsName(''); setWsCwd(''); setWsNote('')
+    setWsName(''); setWsCwd(''); setWsNote(''); setWsModel(''); setWsEnv([])
     setTriedSubmit(false); setConfirmDelete(false); setSaveError(null)
     setShowDialog(true)
   }
   const handleEdit = (ws: DshWorkspace) => {
     setEditWorkspace(ws)
-    setWsName(ws.name); setWsCwd(ws.cwd); setWsNote(ws.note || '')
+    setWsName(ws.name); setWsCwd(ws.cwd); setWsNote(ws.note || ''); setWsModel(ws.model || '')
+    setWsEnv(ws.env ? Object.entries(ws.env).map(([key, value]) => ({ key, value })) : [])
     setTriedSubmit(false); setConfirmDelete(false); setSaveError(null)
     setShowDialog(true)
   }
@@ -201,10 +243,19 @@ const DeepSeekHarnessPanel: React.FC = () => {
     const name = wsName.trim()
     const cwd = wsCwd.trim()
     const note = wsNote.trim()
+    const model = wsModel.trim()
+    const modelPayload = model.length > 0 ? model : undefined
+    // 折叠 env：丢弃空 key 行；同名 key 后者覆盖；空时传 undefined（启动即用系统环境变量）
+    const env: Record<string, string> = {}
+    for (const row of wsEnv) {
+      const k = row.key.trim()
+      if (k) env[k] = row.value
+    }
+    const envPayload = Object.keys(env).length > 0 ? env : undefined
     // order 由主进程仓库分配递增，前端不再传 workspaces.length（删除后可能产生重复）
     const res = editWorkspace
-      ? await window.electronAPI?.updateDshWorkspace({ ...editWorkspace, name, cwd, note: note || undefined })
-      : await window.electronAPI?.addDshWorkspace({ name, cwd, note: note || undefined })
+      ? await window.electronAPI?.updateDshWorkspace({ ...editWorkspace, name, cwd, note: note || undefined, model: modelPayload, env: envPayload })
+      : await window.electronAPI?.addDshWorkspace({ name, cwd, note: note || undefined, model: modelPayload, env: envPayload })
     // 保存失败（校验未通过 / 落盘失败）：保留表单，展示具体错误，不关闭对话框
     if (res && res.success === false) {
       setSaveError(typeof res.error === 'string' ? res.error : t('dsh.wsSaveFailed'))
@@ -220,6 +271,25 @@ const DeepSeekHarnessPanel: React.FC = () => {
       await loadWorkspaces()
       setShowDialog(false)
     }
+  }
+
+  // 环境变量行编辑（对齐 AgentsPanel 的 env 编辑器）
+  const addEnvRow = () => setWsEnv((prev) => [...prev, { key: '', value: '' }])
+  const updateEnvRow = (i: number, field: 'key' | 'value', value: string) =>
+    setWsEnv((prev) => prev.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)))
+  const removeEnvRow = (i: number) => setWsEnv((prev) => prev.filter((_, idx) => idx !== i))
+  // 当前 env 行里尚缺的 DeepSeek 默认变量（按 key 名精确匹配）
+  const missingDeepSeekEnv = DEEPSEEK_ENV_DEFAULTS.filter(
+    (d) => !wsEnv.some((row) => row.key.trim() === d.key)
+  )
+  // 一键补全缺失的 DeepSeek 变量（保留已有行，仅追加缺失项）
+  const fillDeepSeekEnv = () => {
+    setWsEnv((prev) => [
+      ...prev,
+      ...DEEPSEEK_ENV_DEFAULTS
+        .filter((d) => !prev.some((row) => row.key.trim() === d.key))
+        .map((d) => ({ key: d.key, value: d.value }))
+    ])
   }
 
   const allInstalled = status !== null && status.dsh && status.dshTui
@@ -370,8 +440,8 @@ const DeepSeekHarnessPanel: React.FC = () => {
             </button>
           </div>
 
-          {launchFailed && (
-            <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)]">{t('dsh.launchFailed')}</div>
+          {actionError && (
+            <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words">{actionError}</div>
           )}
 
           <div className="flex-1 overflow-y-auto min-h-0 space-y-1 rack-scroll">
@@ -401,6 +471,11 @@ const DeepSeekHarnessPanel: React.FC = () => {
                     </span>
                     <span className="flex flex-col min-w-0 flex-1">
                       <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">
+                        {ws.pinned && (
+                          <span aria-hidden className="inline-flex align-[-1px] mr-1 text-[var(--amber)]">
+                            <IconPin />
+                          </span>
+                        )}
                         {ws.name}
                         {launching && <span className="ml-1.5 text-[10.5px] [font-family:inherit] text-[var(--amber)]">{t('dsh.launching')}</span>}
                       </span>
@@ -410,6 +485,18 @@ const DeepSeekHarnessPanel: React.FC = () => {
                       )}
                     </span>
                     <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-slot)] from-[24%] to-transparent">
+                      <button
+                        onClick={async (e) => { e.stopPropagation(); await togglePin(ws) }}
+                        title={ws.pinned ? t('dsh.wsUnpin') : t('dsh.wsPin')}
+                        className={cn(
+                          'w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors',
+                          ws.pinned
+                            ? 'text-[var(--amber)] hover:bg-[var(--bg-elev)]'
+                            : 'text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--amber)]'
+                        )}
+                      >
+                        <IconPin filled={ws.pinned} />
+                      </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleEdit(ws) }}
                         title={t('dsh.wsEditTitle')}
@@ -518,6 +605,92 @@ const DeepSeekHarnessPanel: React.FC = () => {
                 rows={2}
                 className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)] resize-none"
               />
+            </div>
+
+            {/* 模型 —— 启动 dsh-tui 的模型；留空则清除预设回落 dsh-TUI 默认（全局生效，以最后一次启动为准） */}
+            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+              <div className="flex items-baseline gap-2 mb-2">
+                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t('dsh.wsModel')}</span>
+                <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]" title={t('dsh.wsModelHintTitle')}>· {t('dsh.wsModelHint')}</span>
+              </div>
+              <input
+                type="text"
+                list="dsh-model-suggestions"
+                value={wsModel}
+                onChange={(e) => setWsModel(e.target.value)}
+                placeholder={t('dsh.wsModelPh')}
+                className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
+              />
+              <datalist id="dsh-model-suggestions">
+                {MODEL_SUGGESTIONS.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+            </div>
+
+            {/* 环境变量 —— 注入 dsh-tui 会话；留空则用系统环境变量 */}
+            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t('dsh.wsEnv')}</span>
+                  <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t('dsh.wsEnvHint')}</span>
+                </div>
+                <span className="flex-1" />
+                {missingDeepSeekEnv.length > 0 && (
+                  <button
+                    onClick={fillDeepSeekEnv}
+                    title={missingDeepSeekEnv.map((d) => d.key).join(', ')}
+                    className="px-1.5 py-0.5 text-[10.5px] [font-family:inherit] rounded-[2px] border border-[color-mix(in_srgb,var(--amber)_40%,var(--rule))] text-[var(--amber)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] transition-colors whitespace-nowrap"
+                  >
+                    + {t('dsh.wsEnvFill')}
+                  </button>
+                )}
+              </div>
+              <div className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm overflow-hidden">
+                {wsEnv.length === 0 ? (
+                  <button
+                    onClick={addEnvRow}
+                    className="w-full text-left py-1.5 px-2.5 text-[11.5px] [font-family:inherit] text-[var(--text-rack-data)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] transition-colors"
+                  >
+                    + {t('dsh.wsEnvAdd')}
+                  </button>
+                ) : (
+                  <>
+                    {wsEnv.map((row, i) => (
+                      <div key={i} className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0">
+                        <input
+                          type="text"
+                          value={row.key}
+                          onChange={(e) => updateEnvRow(i, 'key', e.target.value)}
+                          placeholder={t('dsh.wsEnvKeyPh')}
+                          className="flex-1 min-w-0 bg-transparent border-none text-[12px] [font-family:inherit] text-[var(--amber)] placeholder:text-[var(--text-rack-data)] focus:outline-none"
+                        />
+                        <span className="text-[var(--text-rack-mute)] [font-family:inherit] text-[12px] select-none">=</span>
+                        <input
+                          type="text"
+                          value={row.value}
+                          onChange={(e) => updateEnvRow(i, 'value', e.target.value)}
+                          placeholder={t('dsh.wsEnvValuePh')}
+                          className="flex-[2] min-w-0 bg-transparent border-none text-[12px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] focus:outline-none"
+                        />
+                        <button
+                          onClick={() => removeEnvRow(i)}
+                          title={t('dsh.wsDelete')}
+                          className="w-[18px] h-[18px] flex-shrink-0 inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] text-[var(--text-rack-faint)] hover:text-[var(--error-rack)] transition-colors"
+                        >
+                          <IconX />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      onClick={addEnvRow}
+                      className="w-full text-left py-1.5 px-2.5 text-[11.5px] [font-family:inherit] text-[var(--text-rack-data)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] transition-colors"
+                    >
+                      + {t('dsh.wsEnvAdd')}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
 
             {/* 校验提示（仅尝试提交后显示） */}

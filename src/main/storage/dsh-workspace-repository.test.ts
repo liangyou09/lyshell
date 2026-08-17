@@ -121,4 +121,81 @@ describe('DshWorkspaceRepository', () => {
     const repo2 = new DshWorkspaceRepository()
     expect(repo2.getAll().map((w) => w.name)).toEqual(['a'])
   })
+
+  it('pinned 非布尔按 false，布尔保留', () => {
+    seed(JSON.stringify([
+      { id: 'a', name: 'a', cwd: '/a', order: 0, pinned: true },
+      { id: 'b', name: 'b', cwd: '/b', order: 1, pinned: 'yes' }
+    ]))
+    const repo = new DshWorkspaceRepository()
+    const all = repo.getAll()
+    expect(all.find((w) => w.id === 'a')?.pinned).toBe(true)
+    expect(all.find((w) => w.id === 'b')?.pinned).toBe(false)
+  })
+
+  it('add 默认 pinned=false，显式传 true 保留', () => {
+    const repo = new DshWorkspaceRepository()
+    const a = repo.add({ name: 'a', cwd: '/a' })!
+    const b = repo.add({ name: 'b', cwd: '/b', pinned: true })!
+    expect(a.pinned).toBe(false)
+    expect(b.pinned).toBe(true)
+  })
+
+  it('setPinned 切换置顶，getAll 置顶优先', () => {
+    const repo = new DshWorkspaceRepository()
+    repo.add({ name: 'a', cwd: '/a' })
+    repo.add({ name: 'b', cwd: '/b' })
+    repo.add({ name: 'c', cwd: '/c' })
+    const b = repo.getAll().find((w) => w.name === 'b')!
+    // 初始均未置顶，按 order 排
+    expect(repo.getAll().map((w) => w.name)).toEqual(['a', 'b', 'c'])
+    expect(repo.setPinned(b.id, true)).toBe(true)
+    // b 置顶后提到最前
+    expect(repo.getAll().map((w) => w.name)).toEqual(['b', 'a', 'c'])
+    // 取消置顶恢复原序
+    expect(repo.setPinned(b.id, false)).toBe(true)
+    expect(repo.getAll().map((w) => w.name)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('setPinned 不存在的 id 返回 false', () => {
+    const repo = new DshWorkspaceRepository()
+    expect(repo.setPinned('nope', true)).toBe(false)
+  })
+
+  it('env 过滤非字符串值，空/非对象记录按缺失处理', () => {
+    seed(JSON.stringify([
+      { id: 'a', name: 'a', cwd: '/a', order: 0, env: { K1: 'v1', K2: 42, K3: 'v3' } },
+      { id: 'b', name: 'b', cwd: '/b', order: 1, env: {} },
+      { id: 'c', name: 'c', cwd: '/c', order: 2, env: 'not-an-object' }
+    ]))
+    const repo = new DshWorkspaceRepository()
+    const all = repo.getAll()
+    expect(all.find((w) => w.id === 'a')?.env).toEqual({ K1: 'v1', K3: 'v3' })
+    expect(all.find((w) => w.id === 'b')?.env).toBeUndefined()
+    expect(all.find((w) => w.id === 'c')?.env).toBeUndefined()
+  })
+
+  it('env 丢弃空 key / 含 NUL 的 key / 含 NUL 的 value', () => {
+    seed(JSON.stringify([
+      { id: 'a', name: 'a', cwd: '/a', order: 0, env: { '': 'empty-key', 'A\u0000B': 'nul-key', K1: 'v1', K2: 'va\u0000lue', K3: 42 } }
+    ]))
+    const repo = new DshWorkspaceRepository()
+    const env = repo.getAll().find((w) => w.id === 'a')?.env
+    expect(env).toEqual({ K1: 'v1' })
+  })
+
+  it('model 非字符串/空串按缺失处理，字符串保留', () => {
+    seed(JSON.stringify([
+      { id: 'a', name: 'a', cwd: '/a', order: 0, model: 'deepseek-v4-pro' },
+      { id: 'b', name: 'b', cwd: '/b', order: 1, model: '' },
+      { id: 'c', name: 'c', cwd: '/c', order: 2, model: 42 },
+      { id: 'd', name: 'd', cwd: '/d', order: 3 }
+    ]))
+    const repo = new DshWorkspaceRepository()
+    const all = repo.getAll()
+    expect(all.find((w) => w.id === 'a')?.model).toBe('deepseek-v4-pro')
+    expect(all.find((w) => w.id === 'b')?.model).toBeUndefined()
+    expect(all.find((w) => w.id === 'c')?.model).toBeUndefined()
+    expect(all.find((w) => w.id === 'd')?.model).toBeUndefined()
+  })
 })

@@ -97,11 +97,22 @@ export function assertStringRecord(
 
   const result: Record<string, string> = {}
   for (const [key, val] of entries) {
+    // 空 key 会让 node-pty spawn 返回 EINVAL；NUL 会截断环境变量（C 字符串以 \0 结尾），
+    // 二者在服务端直接拒绝，而非等启动时才报错。
+    if (key.length === 0) {
+      throw new ValidationError(`${name} key must not be empty`)
+    }
+    if (key.includes('\0')) {
+      throw new ValidationError(`${name} key must not contain NUL`)
+    }
     if (options.maxKeyLength !== undefined && key.length > options.maxKeyLength) {
       throw new ValidationError(`${name} key is too long`)
     }
     if (typeof val !== 'string') {
       throw new ValidationError(`${name}[${key}] must be a string`)
+    }
+    if (val.includes('\0')) {
+      throw new ValidationError(`${name}[${key}] must not contain NUL`)
     }
     if (options.maxValueLength !== undefined && val.length > options.maxValueLength) {
       throw new ValidationError(`${name}[${key}] is too long`)
@@ -116,6 +127,13 @@ export function assertObject<T extends Record<string, unknown> = Record<string, 
     throw new ValidationError(`${name} must be an object`)
   }
   return value as T
+}
+
+export function assertBoolean(value: unknown, name: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new ValidationError(`${name} must be a boolean`)
+  }
+  return value
 }
 
 export function normalizeTimeout(value: unknown, defaultMs: number, maxMs: number): number {

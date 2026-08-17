@@ -13,7 +13,8 @@ import type { AgentConfig } from '../storage/agent-repository'
 import { dshWorkspaceRepository } from '../storage/dsh-workspace-repository'
 import type { DshWorkspace } from '../storage/dsh-workspace-repository'
 import { detectDshInstallation } from '../dsh/detect'
-import { resolveWorkspaceCwd } from '../dsh/cwd'
+import { resolveWorkspaceCwd, normalizeDshHomeEnv } from '../dsh/cwd'
+import { presetDshTuiModel, clearDshTuiModel } from '../dsh/model-preset'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { ConnectionStatus } from '../connectors'
 import { reachabilityProber, type ReachabilityTarget } from '../reachability/reachability-prober'
@@ -21,6 +22,7 @@ import { ConnectionType } from '@shared/types'
 import { fileManager, startDownloadWorker, registerTaskMeta, startUploadWorker, cancelDownload, cancelUpload, assertSafeLocalPath } from '../file'
 import type { SessionConfig } from '@shared/types'
 import {
+  assertBoolean,
   assertNumber,
   assertObject,
   assertString,
@@ -1808,9 +1810,17 @@ export function registerIPCHandlers(): void {
       if (!cwd.ok) return { success: false, error: cwd.error }
       const newWorkspace: Omit<DshWorkspace, 'id' | 'order'> = {
         name: assertString(safe.name, 'workspace.name', { maxLength: 120 }),
-        cwd: cwd.path
+        cwd: cwd.path,
+        pinned: safe.pinned === undefined ? false : assertBoolean(safe.pinned, 'workspace.pinned')
       }
       if (safe.note !== undefined) newWorkspace.note = assertString(safe.note, 'workspace.note', { maxLength: 2000 })
+      if (safe.model !== undefined) newWorkspace.model = assertString(safe.model, 'workspace.model', { maxLength: 256 })
+      if (safe.env !== undefined) newWorkspace.env = assertStringRecord(safe.env, 'workspace.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
+      // DSH_HOME 须为空（回落默认）或绝对路径：相对路径会让主进程写补丁与子进程读补丁各自
+      // 相对不同 cwd 解析，产生错位，故在入库前归一化/拒绝。
+      const envResult = normalizeDshHomeEnv(newWorkspace.env)
+      if (!envResult.ok) return { success: false, error: envResult.error }
+      newWorkspace.env = envResult.env
       const added = dshWorkspaceRepository.add(newWorkspace)
       if (!added) return { success: false, error: 'Failed to save workspace' }
       return { success: true, workspace: added }
@@ -1824,13 +1834,33 @@ export function registerIPCHandlers(): void {
       const safe = assertObject(workspace, 'workspace')
       const cwd = resolveWorkspaceCwd(assertString(safe.cwd, 'workspace.cwd', { maxLength: 4096 }))
       if (!cwd.ok) return { success: false, error: cwd.error }
+      const id = assertString(safe.id, 'workspace.id', { maxLength: 128 })
       const updated: DshWorkspace = {
-        id: assertString(safe.id, 'workspace.id', { maxLength: 128 }),
+        id,
         name: assertString(safe.name, 'workspace.name', { maxLength: 120 }),
         cwd: cwd.path,
-        order: safe.order === undefined ? 0 : assertNumber(safe.order, 'workspace.order', { min: 0, max: 10000, integer: true })
+        order: safe.order === undefined ? 0 : assertNumber(safe.order, 'workspace.order', { min: 0, max: 10000, integer: true }),
+        // 未显式传 pinned 时保留现状，避免编辑其它字段把置顶态误清；显式传了就必须是布尔（对齐 setPinned）
+        pinned: safe.pinned === undefined ? (dshWorkspaceRepository.get(id)?.pinned ?? false) : assertBoolean(safe.pinned, 'workspace.pinned')
       }
       if (safe.note !== undefined) updated.note = assertString(safe.note, 'workspace.note', { maxLength: 2000 })
+      // model 用「键存在」判断而非 `!== undefined`：编辑时清空 model（传 undefined）应生效，
+      // 否则仓库里旧 model 会残留，违背「留空即用 dsh-TUI 默认模型」的语义。
+      if ('model' in safe) {
+        updated.model = safe.model === undefined
+          ? undefined
+          : assertString(safe.model, 'workspace.model', { maxLength: 256 })
+      }
+      // env 用「键存在」判断而非 `!== undefined`：编辑时清空 env（传 undefined）应生效，
+      // 否则仓库里旧 env 会残留，违背「不设置即用系统环境变量」的语义。
+      if ('env' in safe) {
+        updated.env = safe.env === undefined
+          ? undefined
+          : assertStringRecord(safe.env, 'workspace.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
+      }
+      const envResult = normalizeDshHomeEnv(updated.env)
+      if (!envResult.ok) return { success: false, error: envResult.error }
+      updated.env = envResult.env
       const success = dshWorkspaceRepository.update(updated)
       return success ? { success: true } : { success: false, error: 'Workspace not found' }
     } catch (error) {
@@ -1842,6 +1872,18 @@ export function registerIPCHandlers(): void {
     try {
       const safeId = assertString(workspaceId, 'workspaceId', { maxLength: 128 })
       const success = dshWorkspaceRepository.delete(safeId)
+      return { success }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('dsh:workspace:setPinned', async (_event, workspaceId: string, pinned: unknown) => {
+    try {
+      const safeId = assertString(workspaceId, 'workspaceId', { maxLength: 128 })
+      // 仅接受显式布尔，非布尔直接校验失败（不静默转 false）
+      const safePinned = assertBoolean(pinned, 'pinned')
+      const success = dshWorkspaceRepository.setPinned(safeId, safePinned)
       return { success }
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
@@ -1867,7 +1909,29 @@ export function registerIPCHandlers(): void {
         return { success: false, error: cwd.error }
       }
 
-      return await spawnLocalCommandSession(workspace.name, 'dsh-tui', [`dsh:${safeId}`], { cwd: cwd.path })
+      // 启动前再次归一化 DSH_HOME：历史/手工编辑的 env 可绕过 add/update 校验，故在此兜底，
+      // 用归一化后的 env 同时传给 preset/clear 与 spawn，避免相对路径/空白 DSH_HOME 造成
+      // 主进程写补丁与子进程读补丁错位。相对路径直接拒绝启动，而非静默用错位置。
+      const envResult = normalizeDshHomeEnv(workspace.env)
+      if (!envResult.ok) {
+        return { success: false, error: envResult.error }
+      }
+      const launchEnv = envResult.env
+
+      // 预设启动模型：写 cordis.patch.yml 的 dsh-tui.config（provider 固定 deepseek-official）。
+      // model 是 per-workspace、补丁是全局，留空必须显式清除 provider/model 才能回落 dsh-TUI
+      // 默认（否则会残留上一工作区写入的模型）；写失败（用户补丁无法解析等）则拒绝启动，
+      // 避免静默用错模型。注：补丁须在 spawn 前写就（dsh-tui 启动即读），spawn 失败时补丁
+      // 已改 —— 属已知权衡，启动失败会在下次任意工作区启动时被再次校正。
+      const preset = workspace.model
+        ? presetDshTuiModel(workspace.model, launchEnv)
+        : clearDshTuiModel(launchEnv)
+      if (!preset.ok) {
+        return { success: false, error: preset.error }
+      }
+
+      // env 缺省时 opts.env 为 undefined，LocalConnector 以 {...process.env} 启动 —— 即系统环境变量
+      return await spawnLocalCommandSession(workspace.name, 'dsh-tui', [`dsh:${safeId}`], { cwd: cwd.path, env: launchEnv })
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }

@@ -14,9 +14,28 @@ export interface DshWorkspace {
   cwd: string            // 工作目录（dsh-tui 启动 cwd）
   order: number
   note?: string          // 可选备注，仅用于记录/说明
+  pinned?: boolean       // 置顶：true 时在 DSH 列表与 Agents 面板顶部展示
+  env?: Record<string, string>  // 可选环境变量，注入 dsh-tui 会话；缺省时用系统环境变量
+  model?: string         // 可选启动模型（provider 固定 deepseek-official）；缺省时用 dsh-TUI 默认
 }
 
-/** 归一化单条 JSON 记录：非法记录返回 null（由 load 过滤），合法记录补齐 note 默认值。 */
+/** 归一化 env 记录：过滤非字符串值，空记录按缺失处理（缺省时启动即用系统环境变量）。 */
+function normalizeEnv(raw: unknown): Record<string, string> | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined
+  const result: Record<string, string> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    // 丢弃脏数据（手工编辑/历史 JSON 可能残留）：空 key / 含 NUL 的 key / 含 NUL 的 value
+    // 会让 node-pty spawn 返回 EINVAL 或截断环境变量（对齐 validation.assertStringRecord 的拒绝）。
+    if (key.length === 0) continue
+    if (key.includes('\0')) continue
+    if (typeof value !== 'string') continue
+    if (value.includes('\0')) continue
+    result[key] = value
+  }
+  return Object.keys(result).length > 0 ? result : undefined
+}
+
+/** 归一化单条 JSON 记录：非法记录返回 null（由 load 过滤），合法记录补齐 note/pinned 默认值。 */
 function normalizeWorkspace(raw: unknown): DshWorkspace | null {
   if (typeof raw !== 'object' || raw === null) return null
   const w = raw as Record<string, unknown>
@@ -26,7 +45,13 @@ function normalizeWorkspace(raw: unknown): DshWorkspace | null {
   if (typeof w.order !== 'number' || !Number.isFinite(w.order)) return null
   // note 非字符串时按缺失处理（不因备注脏数据丢整条记录）
   const note = typeof w.note === 'string' && w.note.length > 0 ? w.note : undefined
-  return { id: w.id, name: w.name, cwd: w.cwd, order: w.order, ...(note !== undefined ? { note } : {}) }
+  // model 非字符串/空串按缺失处理（缺省时用 dsh-TUI 默认模型）
+  const model = typeof w.model === 'string' && w.model.length > 0 ? w.model : undefined
+  // pinned 非布尔按 false 处理
+  const pinned = typeof w.pinned === 'boolean' ? w.pinned : false
+  // env 非对象/空记录按缺失处理（不因脏数据丢整条记录）
+  const env = normalizeEnv(w.env)
+  return { id: w.id, name: w.name, cwd: w.cwd, order: w.order, pinned, ...(note !== undefined ? { note } : {}), ...(model !== undefined ? { model } : {}), ...(env !== undefined ? { env } : {}) }
 }
 
 /**
@@ -94,7 +119,10 @@ export class DshWorkspaceRepository {
 
   getAll(): DshWorkspace[] {
     this.ensureInitialized()
-    return [...this.workspaces].sort((a, b) => a.order - b.order)
+    // 置顶优先，其余按 order 升序
+    return [...this.workspaces].sort(
+      (a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || a.order - b.order
+    )
   }
 
   get(id: string): DshWorkspace | undefined {
@@ -107,6 +135,7 @@ export class DshWorkspaceRepository {
     const newWorkspace: DshWorkspace = {
       ...workspace,
       id: uuidv4(),
+      pinned: workspace.pinned === true,
       // order 由仓库分配递增，避免用 workspaces.length 在删除后产生重复值
       order: this.workspaces.reduce((max, w) => Math.max(max, w.order), -1) + 1
     }
@@ -126,6 +155,19 @@ export class DshWorkspaceRepository {
     this.workspaces[index] = workspace
     if (!this.save()) {
       this.workspaces[index] = previous
+      return false
+    }
+    return true
+  }
+
+  setPinned(id: string, pinned: boolean): boolean {
+    this.ensureInitialized()
+    const index = this.workspaces.findIndex((w) => w.id === id)
+    if (index === -1) return false
+    const previous = this.workspaces[index].pinned
+    this.workspaces[index] = { ...this.workspaces[index], pinned }
+    if (!this.save()) {
+      this.workspaces[index] = { ...this.workspaces[index], pinned: previous }
       return false
     }
     return true
