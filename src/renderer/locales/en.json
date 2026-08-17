@@ -425,7 +425,7 @@
     "dragToResize": "Drag to resize split ratio"
   },
   "terminal": {
-    "banner": "LyShell v1.0.3",
+    "banner": "LyShell v1.0.4",
     "buildLabel": "Build: {{date}}",
     "startingLocal": "Starting local terminal...",
     "connecting": "Connecting to {{host}}:{{port}}...",
