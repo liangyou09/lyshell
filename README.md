@@ -276,7 +276,6 @@ Auto-update is supported via `electron-updater` on all platforms.
 npm install              # install dependencies
 npm run rebuild          # rebuild native modules for current Electron ABI
 npm run dev              # electron-vite dev (renderer HMR + main reload)
-npm run dev:no-mcp       # dev mode with MCP server disabled
 npm run typecheck        # tsc --noEmit for both renderer and node configs
 npm run lint             # eslint src --ext .ts,.tsx
 npm run lint:fix         # auto-fix lint issues
@@ -762,7 +761,6 @@ src/
 
 ```bash
 npm run build              # electron-vite build → dist/
-npm run build:no-mcp       # build without MCP server
 npm run dist:win           # build + package for Windows (NSIS + portable)
 npm run dist:mac           # build + package for macOS (DMG)
 npm run dist:linux         # build + package for Linux (AppImage + .deb)
@@ -770,8 +768,6 @@ npm run clean              # remove dist/ and release/
 ```
 
 Build output goes to `dist/` (loaded by Electron); installers go to `release/`.
-
-To disable the MCP feature at build time, use the `:no-mcp` variants or set `LYSHELL_DISABLE_MCP=true`.
 
 ---
 

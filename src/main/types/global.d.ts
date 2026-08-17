@@ -60,8 +60,3 @@ export interface SFTPWrapper extends EventEmitter {
   rename(oldPath: string, newPath: string, callback: (err: Error | undefined) => void): void
   mkdir(path: string, callback: (err: Error | undefined) => void): void
 }
-
-declare global {
-  /** 编译期开关：true 表示当前构建不包含 MCP 功能 */
-  const __DISABLE_MCP__: boolean
-}

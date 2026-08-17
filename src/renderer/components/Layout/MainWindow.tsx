@@ -9,6 +9,7 @@ import SplitPaneContainer from './SplitPaneContainer'
 import FloatWindow from '../FloatWindow/FloatWindow'
 import { McpActivityChip } from './McpActivityChip'
 import PluginPanel from './PluginPanel'
+import DeepSeekHarnessPanel from './DeepSeekHarnessPanel'
 import SettingsPanel from './SettingsPanel'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
@@ -21,12 +22,11 @@ import type { SessionConfig } from '@shared/types'
  */
 const MainWindow: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  // 左列机柜页签轨当前页签 -- 持久化到 localStorage;no-mcp 构建无 plugins 槽,夹回 sessions
+  // 左列机柜页签轨当前页签 -- 持久化到 localStorage
   const [activeNav, setActiveNav] = useState<NavTab>(() => {
     try {
       const saved = localStorage.getItem('lyshell.navTab.v1')
-      if (saved === 'sessions' || saved === 'agents' || saved === 'plugins' || saved === 'settings') {
-        if (saved === 'plugins' && __DISABLE_MCP__) return 'sessions'
+      if (saved === 'sessions' || saved === 'agents' || saved === 'dsh' || saved === 'plugins' || saved === 'settings') {
         return saved
       }
     } catch { /* localStorage 不可用,回退默认 */ }
@@ -241,7 +241,7 @@ const MainWindow: React.FC = () => {
     }
   }, [isResizingSidebar])
 
-  // Alt+1/2/3/4 切换左列页签(实现 footer 既有 "alt + 1…3" 提示;capture 抢在 xterm 前)
+  // Alt+1/2/3/4/5 切换左列页签(实现 footer 既有 "alt + 1…5" 提示;capture 抢在 xterm 前)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!e.altKey) return
@@ -251,8 +251,9 @@ const MainWindow: React.FC = () => {
       let tab: NavTab | null = null
       if (e.key === '1') tab = 'sessions'
       else if (e.key === '2') tab = 'agents'
-      else if (e.key === '3' && !__DISABLE_MCP__) tab = 'plugins'
-      else if (e.key === '4') tab = 'settings'
+      else if (e.key === '3') tab = 'dsh'
+      else if (e.key === '4') tab = 'plugins'
+      else if (e.key === '5') tab = 'settings'
       if (!tab) return
       e.preventDefault()
       e.stopPropagation()
@@ -446,6 +447,7 @@ const MainWindow: React.FC = () => {
                 />
               )}
               {activeNav === 'agents' && <AgentsPanel />}
+              {activeNav === 'dsh' && <DeepSeekHarnessPanel />}
               {activeNav === 'plugins' && <PluginPanel />}
               {activeNav === 'settings' && <SettingsPanel />}
             </div>

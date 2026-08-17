@@ -169,14 +169,12 @@ app.whenReady().then(async () => {
 
   // 启动 MCP HTTP 服务器（必须在创建任何会话/窗口前完成，
   // 否则用户在窗口中开本地终端时端口尚未就绪，session-token env 无法注入）
-  if (!__DISABLE_MCP__) {
-    try {
-      const { startMcpHttpServer, stopMcpHttpServer } = await import('@main/mcp/http-server')
-      await startMcpHttpServer()
-      stopMcpHttpServerImpl = stopMcpHttpServer
-    } catch (err) {
-      log.error('Failed to start MCP HTTP server:', err)
-    }
+  try {
+    const { startMcpHttpServer, stopMcpHttpServer } = await import('@main/mcp/http-server')
+    await startMcpHttpServer()
+    stopMcpHttpServerImpl = stopMcpHttpServer
+  } catch (err) {
+    log.error('Failed to start MCP HTTP server:', err)
   }
 
   // 启动 plugin host（依赖 MCP HTTP server 已就绪；无 enabled 插件时为 no-op）

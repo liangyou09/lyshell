@@ -1294,7 +1294,7 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommand
               <span className="ml-1">{t('sidebar.footerIdle')}</span>
             </span>
           </span>
-          <span>{t('sidebar.footerShortcut', { n: __DISABLE_MCP__ ? 2 : 3 })}</span>
+          <span>{t('sidebar.footerShortcut', { n: 5 })}</span>
         </div>
       </div>
 

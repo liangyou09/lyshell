@@ -9,8 +9,7 @@
  *   - main 进程 http-server（未来）：路由层鉴权从 capabilities 派生。
  *   - 未来 plugin host：in-process 受控 API + 参数校验从 inputSchema 派生。
  *
- * 放在 @shared 以便 main 与 mcp-server 两个 bundle 共用，且不受 LYSHELL_DISABLE_MCP
- * 的 mcp-noop 重定向影响（见 electron.vite.config.ts 的 lyshell-mcp-alias 插件）。
+ * 放在 @shared 以便 main 与 mcp-server 两个 bundle 共用。
  *
  * 历史注记：Step 1 此处仅含 name/path/method/capabilities/annotations；Step 1.5 把
  * mcp-server/tools.ts 的 title/description/inputSchema/outputSchema 迁入，消除两处

@@ -1,6 +1,7 @@
 import React from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
+import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
 
 /**
  * 左侧机柜竖版页签轨 -- 把"会话 / Agent / 插件"三权并立成等高的机柜卡槽。
@@ -8,15 +9,12 @@ import { useTranslation } from 'react-i18next'
  * 视觉语言沿用 active SessionSlot:激活槽用 amber 左边条 + bg-slot 填充 + amber 图标,
  * 像"通电的 1U 卡片";槽间用 rule-soft hairline + inset 凹陷阴影做卡笼分隔。
  * 这是本组件的 signature -- 导航本身读作机柜插卡,而非通用图标条。
- *
- * no-mcp 构建隐藏 plugins 槽 -- 插件激活依赖 MCP HTTP server(见 MainWindow 同源逻辑),
- * 该构建下展示槽只会让用户"装了没反应"。__DISABLE_MCP__ 为编译期常量,经 vite define 消除分支。
  */
-export type NavTab = 'sessions' | 'agents' | 'plugins' | 'settings'
+export type NavTab = 'sessions' | 'agents' | 'dsh' | 'plugins' | 'settings'
 
-// 内容页签(上组):会话 / Agent / 插件。settings 是轨底独立工具槽,不在此列。
-const ALL_TABS: NavTab[] = ['sessions', 'agents', 'plugins']
-const TABS: NavTab[] = __DISABLE_MCP__ ? ['sessions', 'agents'] : ALL_TABS
+// 内容页签(上组):会话 / Agent / DeepSeek Harness / 插件。settings 是轨底独立工具槽,不在此列。
+const ALL_TABS: NavTab[] = ['sessions', 'agents', 'dsh', 'plugins']
+const TABS: NavTab[] = ALL_TABS
 
 /** 轨宽(px) -- 单一真相源:本组件容器宽与 MainWindow 宽度拖拽算式共用,防两处漂移 */
 export const RAIL_WIDTH = 44
@@ -70,6 +68,7 @@ const IconSettings: React.FC = () => (
 const TAB_ICON: Record<NavTab, React.FC> = {
   sessions: IconSessions,
   agents: IconAgents,
+  dsh: DeepSeekWhaleIcon,
   plugins: IconPlugins,
   settings: IconSettings,
 }
@@ -96,8 +95,9 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
   const labelFor = (tab: NavTab): string =>
     tab === 'sessions' ? t('nav.sessions')
       : tab === 'agents' ? t('nav.agents')
-        : tab === 'plugins' ? t('nav.plugins')
-          : t('nav.settings')
+        : tab === 'dsh' ? t('nav.dsh')
+          : tab === 'plugins' ? t('nav.plugins')
+            : t('nav.settings')
 
   /** sessions 槽位:有在线会话时亮 live LED;其余槽位无徽章 */
   const ledFor = (tab: NavTab): string | undefined =>
@@ -148,7 +148,9 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
               className={cn(
                 'transition-[color,transform] duration-200 ease-out group-hover:scale-110',
                 isActive
-                  ? 'text-[var(--amber)] animate-rail-icon-glow'
+                  ? tab === 'dsh'
+                    ? 'text-[var(--text-rack)]'
+                    : 'text-[var(--amber)] animate-rail-icon-glow'
                   : 'text-[var(--text-rack-dim)] group-hover:text-[var(--text-rack-mute)]'
               )}
             >

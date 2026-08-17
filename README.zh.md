@@ -605,7 +605,6 @@ npm run dev          # 启动开发模式，支持 HMR
 npm install              # 安装依赖
 npm run rebuild          # 为当前 Electron ABI 重编原生模块
 npm run dev              # electron-vite 开发模式（渲染进程 HMR + 主进程热重载）
-npm run dev:no-mcp       # 开发模式（禁用 MCP 服务端）
 npm run typecheck        # tsc --noEmit 同时检查渲染和 Node 配置
 npm run lint             # eslint src --ext .ts,.tsx
 npm run lint:fix         # 自动修复 lint 问题
@@ -945,7 +944,6 @@ src/
 
 ```bash
 npm run build              # electron-vite 构建 → dist/
-npm run build:no-mcp       # 构建（不含 MCP 服务端）
 npm run dist:win           # 构建 + 打包 Windows（NSIS + 便携版）
 npm run dist:mac           # 构建 + 打包 macOS（DMG）
 npm run dist:linux         # 构建 + 打包 Linux（AppImage + .deb）
@@ -953,8 +951,6 @@ npm run clean              # 删除 dist/ 和 release/
 ```
 
 构建产物输出到 `dist/`（Electron 加载）；安装包输出到 `release/`。
-
-如需在构建时禁用 MCP 功能，使用 `:no-mcp` 变体或设置 `LYSHELL_DISABLE_MCP=true`。
 
 ---
 

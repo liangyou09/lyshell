@@ -10,6 +10,9 @@ import { sessionManager, extractErrorMessage } from '../terminal/session-manager
 import { sessionRepository, preferencesRepository, quickCommandsRepository } from '../storage/repository'
 import { agentRepository } from '../storage/agent-repository'
 import type { AgentConfig } from '../storage/agent-repository'
+import { dshWorkspaceRepository } from '../storage/dsh-workspace-repository'
+import type { DshWorkspace } from '../storage/dsh-workspace-repository'
+import { detectDshInstallation } from '../dsh/detect'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { ConnectionStatus } from '../connectors'
 import { reachabilityProber, type ReachabilityTarget } from '../reachability/reachability-prober'
@@ -1707,71 +1710,151 @@ export function registerIPCHandlers(): void {
       const agent = agentRepository.get(safeAgentId)
       if (!agent) return { success: false, error: 'Agent not found' }
 
-      // 创建 LOCAL 会话配置
-      const config: SessionConfig = {
-        id: '',
-        name: agent.name,
-        type: ConnectionType.LOCAL,
-        local: {
-          shell: undefined,
-          cwd: agent.cwd,
-          env: agent.env
+      return await spawnLocalCommandSession(agent.name, agent.command, [`agent:${safeAgentId}`], {
+        cwd: agent.cwd,
+        env: agent.env
+      })
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  // ========== DeepSeek Harness (dsh) ==========
+
+  // 启动一个「本地终端 + 单条启动命令」的瞬态会话（agent:launch 与 dsh:workspace:launch 共用）。
+  // 不持久化到 sessionRepository —— 每次点击即创建瞬态会话，关闭即清理；
+  // 若持久化，同 agent/dsh 多次启动会累积重复 saved entries，
+  // 进而因 liveKey 相同在 LIVE 栏中重复显示。
+  async function spawnLocalCommandSession(
+    name: string,
+    command: string,
+    tags: string[],
+    opts?: { cwd?: string; env?: Record<string, string> }
+  ) {
+    const config: SessionConfig = {
+      id: '',
+      name,
+      type: ConnectionType.LOCAL,
+      local: {
+        shell: undefined,
+        cwd: opts?.cwd,
+        env: opts?.env
+      },
+      terminal: {
+        fontSize: 14,
+        fontFamily: 'Consolas, Monaco, monospace',
+        theme: {
+          foreground: '#D4D4D4',
+          background: '#1E1E1E',
+          cursor: '#D4D4D4',
+          selectionBackground: '#264F78',
+          black: '#000000',
+          red: '#CD3131',
+          green: '#0DBC79',
+          yellow: '#E5E510',
+          blue: '#2472C8',
+          magenta: '#BC3FBC',
+          cyan: '#11A8CD',
+          white: '#E5E5E5',
+          brightBlack: '#666666',
+          brightRed: '#F14C4C',
+          brightGreen: '#23D18B',
+          brightYellow: '#F5F543',
+          brightBlue: '#3B8EEA',
+          brightMagenta: '#D670D6',
+          brightCyan: '#29B8DB',
+          brightWhite: '#E5E5E5'
         },
-        terminal: {
-          fontSize: 14,
-          fontFamily: 'Consolas, Monaco, monospace',
-          theme: {
-            foreground: '#D4D4D4',
-            background: '#1E1E1E',
-            cursor: '#D4D4D4',
-            selectionBackground: '#264F78',
-            black: '#000000',
-            red: '#CD3131',
-            green: '#0DBC79',
-            yellow: '#E5E510',
-            blue: '#2472C8',
-            magenta: '#BC3FBC',
-            cyan: '#11A8CD',
-            white: '#E5E5E5',
-            brightBlack: '#666666',
-            brightRed: '#F14C4C',
-            brightGreen: '#23D18B',
-            brightYellow: '#F5F543',
-            brightBlue: '#3B8EEA',
-            brightMagenta: '#D670D6',
-            brightCyan: '#29B8DB',
-            brightWhite: '#E5E5E5'
-          },
-          cursorStyle: 'bar',
-          cursorBlink: true,
-          scrollback: 10000,
-          encoding: 'utf-8'
-        },
-        tags: [`agent:${safeAgentId}`],
-        startupCommands: [agent.command],
-        createdAt: new Date(),
-        updatedAt: new Date()
+        cursorStyle: 'bar',
+        cursorBlink: true,
+        scrollback: 10000,
+        encoding: 'utf-8'
+      },
+      tags,
+      startupCommands: [command],
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }
+
+    const session = await sessionManager.createSession(config)
+    // 延迟连接，给前端时间创建 xterm 实例
+    setTimeout(() => {
+      sessionManager.connectSession(session.id).catch(err => {
+        log.error(`Local command session launch failed (${name}):`, extractErrorMessage(err))
+      })
+    }, 100)
+
+    return { success: true, id: session.id, status: ConnectionStatus.CONNECTING, config: session.config }
+  }
+
+  // 检测 dsh / dsh-tui 是否已安装（纯 PATH 扫描，无副作用）
+  ipcMain.handle('dsh:detect', async () => {
+    return detectDshInstallation()
+  })
+
+  // ========== DeepSeek Harness 工作区 ==========
+  // 每个工作区 = 名称 + 工作目录，单击在对应目录启动 dsh-tui（参照 agent:launch 的 cwd 语义）。
+
+  ipcMain.handle('dsh:workspace:list', async () => {
+    return dshWorkspaceRepository.getAll()
+  })
+
+  ipcMain.handle('dsh:workspace:add', async (_event, workspace) => {
+    try {
+      const safe = assertObject(workspace, 'workspace')
+      const newWorkspace: Omit<DshWorkspace, 'id'> = {
+        name: assertString(safe.name, 'workspace.name', { maxLength: 120 }),
+        cwd: assertString(safe.cwd, 'workspace.cwd', { maxLength: 4096 }),
+        order: safe.order === undefined ? 0 : assertNumber(safe.order, 'workspace.order', { min: 0, max: 10000, integer: true }),
+        note: safe.note === undefined ? '' : assertString(safe.note, 'workspace.note', { maxLength: 2000 })
+      }
+      return dshWorkspaceRepository.add(newWorkspace)
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('dsh:workspace:update', async (_event, workspace) => {
+    try {
+      const safe = assertObject(workspace, 'workspace')
+      const updated: DshWorkspace = {
+        id: assertString(safe.id, 'workspace.id', { maxLength: 128 }),
+        name: assertString(safe.name, 'workspace.name', { maxLength: 120 }),
+        cwd: assertString(safe.cwd, 'workspace.cwd', { maxLength: 4096 }),
+        order: safe.order === undefined ? 0 : assertNumber(safe.order, 'workspace.order', { min: 0, max: 10000, integer: true }),
+        note: safe.note === undefined ? '' : assertString(safe.note, 'workspace.note', { maxLength: 2000 })
+      }
+      const success = dshWorkspaceRepository.update(updated)
+      return { success }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('dsh:workspace:delete', async (_event, workspaceId: string) => {
+    try {
+      const safeId = assertString(workspaceId, 'workspaceId', { maxLength: 128 })
+      const success = dshWorkspaceRepository.delete(safeId)
+      return { success }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('dsh:workspace:launch', async (_event, workspaceId: string) => {
+    try {
+      const safeId = assertString(workspaceId, 'workspaceId', { maxLength: 128 })
+      const workspace = dshWorkspaceRepository.get(safeId)
+      if (!workspace) return { success: false, error: 'Workspace not found' }
+
+      // 启动前复核 dsh 与 dsh-tui 是否仍在 PATH 上（与 agent:launch 同层兜底，不依赖前端禁用态）
+      const status = detectDshInstallation()
+      const missing = [status.dsh ? null : 'dsh', status.dshTui ? null : 'dsh-tui'].filter((x): x is string => x !== null)
+      if (missing.length > 0) {
+        return { success: false, error: `${missing.join(' and ')} not installed` }
       }
 
-      // 先创建会话并返回 ID，让前端先初始化终端
-      const session = await sessionManager.createSession(config)
-
-      // 延迟连接，给前端时间创建 xterm 实例
-      // 注意：agent 会话不持久化到 sessionRepository —— 每次点击即创建瞬态会话，
-      // 关闭即清理。保存会导致同 agent 多次启动产生多条重复 saved entries，
-      // 进而因为 liveKey 相同在 LIVE 栏中重复显示。
-      setTimeout(() => {
-        sessionManager.connectSession(session.id).catch(err => {
-          log.error('Agent launch failed:', extractErrorMessage(err))
-        })
-      }, 100)
-
-      return {
-        success: true,
-        id: session.id,
-        status: ConnectionStatus.CONNECTING,
-        config: session.config
-      }
+      return await spawnLocalCommandSession(workspace.name, 'dsh-tui', [`dsh:${safeId}`], { cwd: workspace.cwd })
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }

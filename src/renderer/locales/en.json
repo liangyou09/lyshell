@@ -116,6 +116,7 @@
   "nav": {
     "sessions": "Sessions",
     "agents": "Agents",
+    "dsh": "DeepSeek Harness",
     "plugins": "Plugins",
     "settings": "Settings"
   },
@@ -144,6 +145,37 @@
       "required": "Name and command can't be empty",
       "confirmDelete": "Click again to confirm"
     }
+  },
+  "dsh": {
+    "title": "DeepSeek Harness",
+    "detecting": "Detecting…",
+    "redetect": "Re-detect",
+    "installed": "Installed",
+    "missing": "Not installed",
+    "launch": "Launch dsh-tui",
+    "launching": "Launching…",
+    "launchFailed": "Launch failed: dsh-tui is not installed or unavailable",
+    "missingDeps": "Missing dependencies",
+    "copy": "Copy",
+    "copied": "Copied",
+    "browse": "Browse",
+    "wsHeader": "Workspaces",
+    "wsAddTitle": "New workspace",
+    "wsEditTitle": "Edit workspace",
+    "wsName": "Name",
+    "wsNamePh": "e.g. lyshell",
+    "wsCwd": "Working directory",
+    "wsCwdPh": "~/projects/lyshell",
+    "wsEmpty": "No workspaces yet",
+    "wsEmptyHint": "Click + to add a directory where dsh-tui runs",
+    "wsRequired": "Name and working directory are required",
+    "wsConfirmDelete": "Click again to confirm delete",
+    "wsDelete": "Delete",
+    "wsCancel": "Cancel",
+    "wsSave": "Save",
+    "wsNote": "Note",
+    "wsNotePh": "Optional · note the purpose",
+    "wsNoteHint": "Optional"
   },
   "session": {
     "editTitle": "Edit Session",

@@ -166,7 +166,7 @@ describe('spawnControlled', () => {
     expect(lastSpawnEnv()?.ELECTRON_RUN_AS_NODE).toBe('1')
   })
 
-  it('mcpServer.js 不存在时不注入 SCRIPT/EXE（no-mcp 兜底）', () => {
+  it('mcpServer.js 不存在时不注入 SCRIPT/EXE（mcpServer.js 缺失兜底）', () => {
     vi.mocked(existsSync).mockReturnValue(false)
     const api = createPluginApi(makeSpec({ token: TOKEN64 }), makeClient())
     api.spawnControlled('pet.exe')

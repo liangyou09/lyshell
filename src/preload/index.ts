@@ -97,6 +97,14 @@ const IPC_CHANNELS = {
   AGENT_DELETE: 'agent:delete',
   AGENT_LAUNCH: 'agent:launch',
 
+  // DeepSeek Harness (dsh)
+  DSH_DETECT: 'dsh:detect',
+  DSH_WORKSPACE_LIST: 'dsh:workspace:list',
+  DSH_WORKSPACE_ADD: 'dsh:workspace:add',
+  DSH_WORKSPACE_UPDATE: 'dsh:workspace:update',
+  DSH_WORKSPACE_DELETE: 'dsh:workspace:delete',
+  DSH_WORKSPACE_LAUNCH: 'dsh:workspace:launch',
+
   // Plugin 管理(install[dev]/zip/url/enable/disable/uninstall/list)
   PLUGIN_LIST: 'plugin:list',
   PLUGIN_PICK_FOLDER: 'plugin:pick-folder',
@@ -217,6 +225,14 @@ const electronAPI = {
   updateAgent: (agent: unknown) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_UPDATE, agent),
   deleteAgent: (agentId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_DELETE, agentId),
   launchAgent: (agentId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_LAUNCH, agentId),
+
+  // DeepSeek Harness (dsh)
+  detectDsh: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_DETECT),
+  listDshWorkspaces: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_LIST),
+  addDshWorkspace: (workspace: unknown) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_ADD, workspace),
+  updateDshWorkspace: (workspace: unknown) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_UPDATE, workspace),
+  deleteDshWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_DELETE, workspaceId),
+  launchDshWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_LAUNCH, workspaceId),
 
   // Plugin 管理
   listPlugins: () => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_LIST),

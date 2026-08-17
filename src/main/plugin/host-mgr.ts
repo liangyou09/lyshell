@@ -20,8 +20,7 @@
  * token 粒度：per-plugin。grantedCapabilities 是安装时按插件批准的（§8.2），
  * 故 token 也 per-plugin。鉴权由 http-server 按 pluginId 路由到 grantedCapabilities（兜底 gate）。
  *
- * disableMcp 构建下 HTTP 不可用，start() 经 getMcpHttpPort() 返回 null 短路
- * （noop getMcpHttpPort 恒返回 null；__DISABLE_MCP__ 全局不在此直接引用）。
+ * HTTP 尚未就绪时（HTTP server 未启动），start() 经 getMcpHttpPort() 返回 null 短路。
  */
 import { spawn, type ChildProcess } from 'child_process'
 import { join, isAbsolute, dirname } from 'path'
@@ -97,7 +96,7 @@ class PluginHostManager {
 
     const port = getMcpHttpPort()
     if (!port) {
-      // disableMcp 构建，或 HTTP server 未就绪
+      // HTTP server 尚未就绪
       log.info('[plugin-host] Skipped: MCP HTTP server not available')
       return
     }
@@ -582,7 +581,7 @@ class PluginHostManager {
    * 进一步可经 host IPC 对 node 插件单独 deactivate,免整 host 重启。
    *
    * exit handler 闭包捕获 child 引用(见 spawnNodeHost),故 restart 间旧 host 异步退出不会误清新 host。
-   * disableMcp 构建下 start() 短路(getMcpHttpPort=null),restart 仍安全 -- registry 已更新,下次真启动加载。
+   * HTTP 未就绪时 start() 短路(getMcpHttpPort=null),restart 仍安全 -- registry 已更新,下次真启动加载。
    */
   restart(): void {
     this.stop()

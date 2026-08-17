@@ -116,6 +116,7 @@
   "nav": {
     "sessions": "会话",
     "agents": "Agent",
+    "dsh": "DeepSeek Harness",
     "plugins": "插件",
     "settings": "设置"
   },
@@ -144,6 +145,37 @@
       "required": "名称和命令不能为空",
       "confirmDelete": "再点一次确认删除"
     }
+  },
+  "dsh": {
+    "title": "DeepSeek Harness",
+    "detecting": "检测中…",
+    "redetect": "重新检测",
+    "installed": "已安装",
+    "missing": "未安装",
+    "launch": "启动 dsh-tui",
+    "launching": "启动中…",
+    "launchFailed": "启动失败：dsh-tui 未安装或不可用",
+    "missingDeps": "缺少依赖",
+    "copy": "复制",
+    "copied": "已复制",
+    "browse": "选择目录",
+    "wsHeader": "工作区",
+    "wsAddTitle": "新增工作区",
+    "wsEditTitle": "编辑工作区",
+    "wsName": "名称",
+    "wsNamePh": "如 lyshell",
+    "wsCwd": "工作目录",
+    "wsCwdPh": "~/projects/lyshell",
+    "wsEmpty": "还没有工作区",
+    "wsEmptyHint": "点击右上角 + 添加一个运行 dsh-tui 的目录",
+    "wsRequired": "名称与工作目录均不能为空",
+    "wsConfirmDelete": "再点一次确认删除",
+    "wsDelete": "删除",
+    "wsCancel": "取消",
+    "wsSave": "保存",
+    "wsNote": "备注",
+    "wsNotePh": "可选 · 记录用途或说明",
+    "wsNoteHint": "可选"
   },
   "session": {
     "editTitle": "编辑会话",

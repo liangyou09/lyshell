@@ -330,29 +330,27 @@ export class SessionManager extends EventEmitter {
           break
         case ConnectionType.LOCAL: {
           const extraEnv: Record<string, string> = {}
-          if (!__DISABLE_MCP__) {
-            // 为本地 PTY 生成 per-session MCP token，注入到 PTY env。
-            // PTY 内孵化的 Claude Code / MCP Server 子进程将自动继承，
-            // 外部进程拿不到 -> 实现"MCP 仅对 LyShell 内部终端开放"。
-            // 端口未就绪（HTTP 服务尚未启动）则跳过注入，PTY 仍可正常运行，只是无法连 MCP。
-            const mcpAuth = await import('@main/mcp/auth')
-            const { getMcpHttpPort } = await import('@main/mcp/http-server')
-            const { LYSHELL_MCP_ENV } = await import('@main/mcp/types')
-            if (!isCurrentAttempt()) throw new Error(`Connection superseded: ${id}`)
-            const sessionToken = mcpAuth.bindSessionToken(id)
-            const port = getMcpHttpPort()
-            if (port !== null) {
-              extraEnv[LYSHELL_MCP_ENV.PORT] = String(port)
-              extraEnv[LYSHELL_MCP_ENV.TOKEN] = sessionToken
-              extraEnv[LYSHELL_MCP_ENV.SESSION_ID] = id
-              try {
-                extraEnv[LYSHELL_MCP_ENV.USER_DATA] = app.getPath('userData')
-              } catch {
-                // 极少数测试环境下 app 不可用，忽略
-              }
-            } else {
-              log.warn(`[MCP] HTTP server not ready when spawning local session ${id}; MCP env will not be injected`)
+          // 为本地 PTY 生成 per-session MCP token，注入到 PTY env。
+          // PTY 内孵化的 Claude Code / MCP Server 子进程将自动继承，
+          // 外部进程拿不到 -> 实现"MCP 仅对 LyShell 内部终端开放"。
+          // 端口未就绪（HTTP 服务尚未启动）则跳过注入，PTY 仍可正常运行，只是无法连 MCP。
+          const mcpAuth = await import('@main/mcp/auth')
+          const { getMcpHttpPort } = await import('@main/mcp/http-server')
+          const { LYSHELL_MCP_ENV } = await import('@main/mcp/types')
+          if (!isCurrentAttempt()) throw new Error(`Connection superseded: ${id}`)
+          const sessionToken = mcpAuth.bindSessionToken(id)
+          const port = getMcpHttpPort()
+          if (port !== null) {
+            extraEnv[LYSHELL_MCP_ENV.PORT] = String(port)
+            extraEnv[LYSHELL_MCP_ENV.TOKEN] = sessionToken
+            extraEnv[LYSHELL_MCP_ENV.SESSION_ID] = id
+            try {
+              extraEnv[LYSHELL_MCP_ENV.USER_DATA] = app.getPath('userData')
+            } catch {
+              // 极少数测试环境下 app 不可用，忽略
             }
+          } else {
+            log.warn(`[MCP] HTTP server not ready when spawning local session ${id}; MCP env will not be injected`)
           }
 
           session.connector = new LocalConnector(id, {
@@ -465,11 +463,9 @@ export class SessionManager extends EventEmitter {
       }
       if (!isSameSession()) return
 
-      if (!__DISABLE_MCP__) {
-        const mcpAuth = await import('@main/mcp/auth')
-        if (!isSameSession()) return
-        mcpAuth.revokeSessionToken(id)
-      }
+      const mcpAuth = await import('@main/mcp/auth')
+      if (!isSameSession()) return
+      mcpAuth.revokeSessionToken(id)
       if (!isSameSession()) return
 
       if (session.lockedByMcp) {
