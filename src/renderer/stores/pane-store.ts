@@ -72,9 +72,15 @@ interface PaneStore {
   dshWebPaneId: string | null
   dshWebActive: boolean
   openDshWebInPane: (paneId: string, info: { url: string; name: string }) => void
+  moveDshWebToPane: (paneId: string) => void  // 拖拽 Web 页签到另一 pane 中心：改挂载 pane（不改树）
+  splitDshWebIntoPane: (paneId: string, direction: SplitDirection, position: 'first' | 'second') => void  // 拖拽 Web 页签到边：拆出独立 pane
   activateDshWeb: () => void
   deactivateDshWeb: () => void
   closeDshWeb: () => void
+  // Web 页签拖拽标记：拖拽期间隐藏 webview（webview 会吞掉宿主页的 drag 事件），
+  // 使 drop 目标区（终端/空 pane）暴露出来可接收 dragover/drop。瞬态，不持久化。
+  draggingDshWeb: boolean
+  setDraggingDshWeb: (dragging: boolean) => void
   // 隐藏的终端页签 —— key 为 runtime sessionId,true 表示该页签(及终端)被折叠隐藏
   // xterm 实例不卸载,连接与输出保留;Sidebar LIVE 段会话标签点击 toggle
   hiddenTabSessions: Record<string, boolean>
@@ -134,6 +140,15 @@ const pruneOrphanedDshWeb = (root: PaneNode): void => {
   }
 }
 
+// 承载 dsh web / MCP 审计覆盖层的 pane 即便没有终端会话也不应被判为空删除 ——
+// 覆盖层以顶层 store 字段（dshWebPaneId / mcpAuditPaneId）挂在 pane 上，而非 pane 树的 session；
+// removeEmptyPanes / removePaneAndMerge 只看 sessions.length，会把仍承载覆盖层的 pane 误删，
+// 进而触发 pruneOrphanedDshWeb 把 web 一并关闭（关最后一个终端页签连带关 web 的根因）。
+const isOverlayPane = (paneId: string): boolean => {
+  const { dshWebPaneId, mcpAuditPaneId } = usePaneStore.getState()
+  return paneId === dshWebPaneId || paneId === mcpAuditPaneId
+}
+
 // 查找父节点
 const findParent = (node: PaneNode, paneId: string, parent?: PaneSplit): PaneSplit | undefined => {
   if (node.id === paneId) return parent
@@ -182,16 +197,22 @@ const removeSessionFromAllPanes = (root: PaneNode, sessionId: string): PaneNode 
   }
 }
 
-// 移除所有空分屏并合并
-const removeEmptyPanes = (root: PaneNode): PaneNode => {
+// 移除所有空分屏并合并。
+// dshWebPaneIdOverride：可选，用于在 store 尚未写入新 dshWebPaneId 时以「新 id」判定覆盖层保护
+// （dsh move/split 需在单次 set 前完成 prune，此时 store 里仍是旧 dshWebPaneId，isOverlayPane 会误保护旧 pane）。
+const removeEmptyPanes = (root: PaneNode, dshWebPaneIdOverride?: string | null): PaneNode => {
   // 先递归处理子节点
   if (root.type === 'split') {
-    const newFirstChild = removeEmptyPanes(root.firstChild)
-    const newSecondChild = removeEmptyPanes(root.secondChild)
+    const newFirstChild = removeEmptyPanes(root.firstChild, dshWebPaneIdOverride)
+    const newSecondChild = removeEmptyPanes(root.secondChild, dshWebPaneIdOverride)
+
+    const { dshWebPaneId, mcpAuditPaneId } = usePaneStore.getState()
+    const webPaneId = dshWebPaneIdOverride ?? dshWebPaneId
+    const isProtected = (id: string) => id === webPaneId || id === mcpAuditPaneId
 
     // 检查子节点是否是空叶子
-    const firstEmpty = newFirstChild.type === 'leaf' && newFirstChild.sessions.length === 0
-    const secondEmpty = newSecondChild.type === 'leaf' && newSecondChild.sessions.length === 0
+    const firstEmpty = newFirstChild.type === 'leaf' && newFirstChild.sessions.length === 0 && !isProtected(newFirstChild.id)
+    const secondEmpty = newSecondChild.type === 'leaf' && newSecondChild.sessions.length === 0 && !isProtected(newSecondChild.id)
 
     // 如果两个都空，返回空叶子
     if (firstEmpty && secondEmpty) {
@@ -294,7 +315,7 @@ const removePaneAndMerge = (root: PaneNode, paneId: string): PaneNode => {
     newRoot = replacePane(node, parent.id, otherChild)
 
     // 检查合并后的节点是否是空的叶子，如果是，继续向上合并
-    if (otherChild.type === 'leaf' && otherChild.sessions.length === 0) {
+    if (otherChild.type === 'leaf' && otherChild.sessions.length === 0 && !isOverlayPane(otherChild.id)) {
       // 继续向上合并
       return merge(newRoot, otherChild.id)
     }
@@ -638,20 +659,72 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
   dshWeb: null,
   dshWebPaneId: null,
   dshWebActive: false,
+  draggingDshWeb: false,
   openDshWebInPane: (paneId, info) => {
     const target = paneId || get().getAllLeafPanes()[0]?.id
     if (!target) return
     set({ dshWeb: info, dshWebPaneId: target, dshWebActive: true })
   },
+  // 拖拽 Web 页签到某 pane 边缘 → 把 web 拆进独立 pane（左/右/上/下由 position 决定），
+  // 原 pane 的终端会话留在另一侧。目标 pane 本就无会话时直接改挂载，不再 split。
+  splitDshWebIntoPane: (paneId, direction, position) => {
+    const { layout, dshWeb, dshWebPaneId } = get()
+    if (!dshWeb) return
+    const targetLeaf = findPane(layout.root, paneId) as PaneLeaf | undefined
+    if (!targetLeaf || targetLeaf.type !== 'leaf') return
+
+    // 目标 pane 无终端会话：web 直接挂上去（若本就是 web 所在 pane，则无事可做）
+    if (targetLeaf.sessions.length === 0) {
+      if (paneId === dshWebPaneId) return
+      // 以新 paneId 覆盖判定：新 web pane 受保护，原 web pane 空出即清理
+      const pruned = removeEmptyPanes(layout.root, paneId)
+      set({ dshWebPaneId: paneId, dshWebActive: true, layout: { root: pruned, activePaneId: paneId } })
+      return
+    }
+
+    const keepPaneId = generateId()
+    const webPaneId = generateId()
+    const keepLeaf: PaneLeaf = { id: keepPaneId, type: 'leaf', sessions: targetLeaf.sessions, activeSessionId: targetLeaf.activeSessionId }
+    const webLeaf: PaneLeaf = { id: webPaneId, type: 'leaf', sessions: [], activeSessionId: null }
+    const newSplit: PaneSplit = {
+      id: targetLeaf.id,
+      type: 'split',
+      direction,
+      splitRatio: 0.5,
+      firstChild: position === 'first' ? webLeaf : keepLeaf,
+      secondChild: position === 'first' ? keepLeaf : webLeaf
+    }
+    // 以新 webPaneId 覆盖判定：新空 leaf 受保护，原 web pane（若存在）空出即清理
+    const pruned = removeEmptyPanes(replacePane(layout.root, paneId, newSplit), webPaneId)
+    set({ dshWebPaneId: webPaneId, dshWebActive: true, layout: { root: pruned, activePaneId: webPaneId } })
+  },
+  // 拖拽 Web 页签到某 pane 中心 → 改挂载 pane（web 仍作覆盖层叠加在该 pane 上），原 pane 空出则清理
+  moveDshWebToPane: (paneId) => {
+    const { dshWeb, dshWebPaneId, layout } = get()
+    if (!dshWeb || !paneId || paneId === dshWebPaneId) return
+    // 以新 paneId 覆盖判定：新 web pane 受保护，原 web pane 空出即清理
+    const pruned = removeEmptyPanes(layout.root, paneId)
+    set({ dshWebPaneId: paneId, dshWebActive: true, layout: { root: pruned, activePaneId: paneId } })
+  },
   activateDshWeb: () => {
-    if (get().dshWeb) set({ dshWebActive: true })
+    if (!get().dshWeb) return
+    // 点 web 页签除激活外，还要把 activePaneId 切到承载 pane，
+    // 否则 activePaneId 仍停在终端 pane，导致底部状态栏判定（dshWebActiveHere）与分屏高亮环不一致
+    set(state => ({
+      dshWebActive: true,
+      // 用 state.dshWebPaneId 而非闭包值，与 set 内其它 state 读取一致；空则维持原 activePaneId
+      layout: { ...state.layout, activePaneId: state.dshWebPaneId ?? state.layout.activePaneId }
+    }))
   },
   deactivateDshWeb: () => {
     set({ dshWebActive: false })
   },
   closeDshWeb: () => {
-    set({ dshWeb: null, dshWebPaneId: null, dshWebActive: false })
+    set({ dshWeb: null, dshWebPaneId: null, dshWebActive: false, draggingDshWeb: false })
     void window.electronAPI?.closeDshWeb?.()
+  },
+  setDraggingDshWeb: (dragging) => {
+    set({ draggingDshWeb: dragging })
   },
 
   hiddenTabSessions: {},
@@ -788,8 +861,8 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
       hiddenChanged = true
     }
 
-    // 如果分屏没有会话了，关闭该分屏
-    if (newSessions.length === 0) {
+    // 如果分屏没有会话了，关闭该分屏；但若仍承载 dsh web / MCP 覆盖层则保留（覆盖层不是 session，不占会话位）
+    if (newSessions.length === 0 && !isOverlayPane(paneId)) {
       newRoot = removePaneAndMerge(newRoot, paneId)
       // pane 因无会话被合并删除；若它承载 dsh web，一并关闭避免子进程残留
       pruneOrphanedDshWeb(newRoot)

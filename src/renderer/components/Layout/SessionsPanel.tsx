@@ -364,12 +364,13 @@ const SessionSlot: React.FC<{
   onDragStart?: (e: React.DragEvent) => void
   onDragEnter?: (e: React.DragEvent) => void
   onDrop?: (e: React.DragEvent) => void
+  onDragEnd?: (e: React.DragEvent) => void
   isDragging?: boolean
   isDragOver?: boolean
 }> = ({
   config, status, reachable, active, isPinned, draggable,
   onClick, onEdit, onCopy, onTogglePin, onDelete, dangerIcon, dangerTitle, compactActions, dimmed, hiddenCount,
-  onDragStart, onDragEnter, onDrop, isDragging, isDragOver
+  onDragStart, onDragEnter, onDrop, onDragEnd, isDragging, isDragOver
 }) => {
   const proto = mapProtocol(config.type)
   const visual = computeVisualStatus(status, reachable, proto)
@@ -381,6 +382,7 @@ const SessionSlot: React.FC<{
       onDragStart={onDragStart}
       onDragEnter={onDragEnter}
       onDrop={onDrop}
+      onDragEnd={onDragEnd}
       onDragOver={(e) => e.preventDefault()}
       data-proto={proto}
       data-status={status}
@@ -900,6 +902,12 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommand
   const handleDragStart = (_e: React.DragEvent, index: number) => {
     setDraggedIndex(index)
   }
+  // dragend 无论拖到目标还是中途取消/落到空白处都会触发 —— 唯一可靠的复位点。
+  // 之前缺它:拖拽没落在别的 pinned 行上时 onDrop 不触发,draggedIndex 一直残留,行一直停在 isDragging 态放不掉。
+  const handleDragEnd = () => {
+    setDraggedIndex(null)
+    setDragOverIndex(null)
+  }
   const handleDragEnter = (e: React.DragEvent, index: number) => {
     e.preventDefault()
     setDragOverIndex(index)
@@ -1158,6 +1166,7 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommand
                   onDragStart={(e) => handleDragStart(e, index)}
                   onDragEnter={(e) => handleDragEnter(e, index)}
                   onDrop={(e) => handleDrop(e, index)}
+                  onDragEnd={handleDragEnd}
                   isDragging={draggedIndex === index}
                   isDragOver={dragOverIndex === index && draggedIndex !== index}
                   onClick={() => handleSessionClick(config)}

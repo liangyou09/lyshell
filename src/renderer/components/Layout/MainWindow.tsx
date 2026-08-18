@@ -39,7 +39,7 @@ const MainWindow: React.FC = () => {
   const [isMaximized, setIsMaximized] = useState(false)
   const [quickCommandsRefreshKey, setQuickCommandsRefreshKey] = useState(0)  // 用于刷新 StatusBar
   const { sessions, loadSessions, refreshSavedSessions, syncSessionsFromBackend } = useSessionStore()
-  const { getAllLeafPanes, layout } = usePaneStore()
+  const { getAllLeafPanes, layout, dshWebActive, dshWebPaneId } = usePaneStore()
   const { initFromStorage } = useThemeStore()
   const { initFromStorage: initLocaleFromStorage } = useLocaleStore()
   const { t } = useTranslation()
@@ -307,7 +307,8 @@ const MainWindow: React.FC = () => {
         return { success: false as const, error: res && typeof res.error === 'string' ? res.error : undefined }
       }
       const { openDshWebInPane, layout: paneLayout } = usePaneStore.getState()
-      openDshWebInPane(paneLayout.activePaneId, { url: res.url as string, name: ws.name })
+      const info = { url: res.url as string, name: ws.name }
+      openDshWebInPane(paneLayout.activePaneId, info)
       return { success: true as const }
     } catch (err) {
       console.error('dsh web open failed:', err)
@@ -348,6 +349,9 @@ const MainWindow: React.FC = () => {
   // 获取活动分屏的活动会话ID用于状态栏
   const activePane = getAllLeafPanes().find(p => p.id === layout.activePaneId)
   const activeSessionIdForStatusBar = activePane?.activeSessionId || null
+  // dsh web 仅在其承载分屏为当前活动分屏且正显示时，才接管底部状态栏（隐藏快捷命令）。
+  // 否则即便 web 仍挂在别的分屏上，活动分屏是终端时快捷命令仍应指向该终端。
+  const dshWebActiveHere = dshWebActive && dshWebPaneId === layout.activePaneId
   // 在线会话数 -- ActivityRail 的 sessions 槽位 LED 读数
   const liveCount = sessions.filter(s => s.status === 'connected').length
 
@@ -496,8 +500,10 @@ const MainWindow: React.FC = () => {
             )}
           </div>
 
-          {/* 状态栏 */}
-          <StatusBar sessionId={activeSessionIdForStatusBar} onExecuteCommand={handleExecuteCommand} refreshKey={quickCommandsRefreshKey} />
+          {/* 状态栏：dsh web 激活时直接隐藏整条状态栏（含快捷命令），webview 占满剩余高度；否则维持终端快速命令栏 */}
+          {!dshWebActiveHere && (
+            <StatusBar sessionId={activeSessionIdForStatusBar} onExecuteCommand={handleExecuteCommand} refreshKey={quickCommandsRefreshKey} />
+          )}
         </div>
       </div>
 

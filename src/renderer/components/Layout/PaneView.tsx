@@ -18,7 +18,7 @@ interface PaneViewProps {
  * 分屏视图组件 - 递归渲染分屏树
  */
 const PaneView: React.FC<PaneViewProps> = ({ node }) => {
-  const { layout, setActivePane, addSessionToPane, splitPaneWithPosition, swapPanePosition, mcpAuditPaneId, closeMcpAudit, dshWeb, dshWebPaneId, dshWebActive } = usePaneStore()
+  const { layout, setActivePane, addSessionToPane, splitPaneWithPosition, swapPanePosition, mcpAuditPaneId, closeMcpAudit, dshWeb, dshWebPaneId, dshWebActive, draggingDshWeb, setDraggingDshWeb, moveDshWebToPane, splitDshWebIntoPane } = usePaneStore()
   const { getPaneBySessionId, getParentPane, getPanePositionInParent } = usePaneStore.getState()
   // 被隐藏的终端页签记录(Sidebar LIVE 段会话标签点击 toggle);订阅整个记录,任何 toggle 都会触发本组件重渲染。
   // 实际负载很小(仅 visibility 切换),未做按 pane 过滤的选择器。
@@ -26,7 +26,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
   const { t } = useTranslation()
   const isActive = layout.activePaneId === node.id
   const [dropZone, setDropZone] = useState<DropZone>(null)
-  const [dropAction, setDropAction] = useState<'swap' | 'changeDirection' | 'split' | null>(null)
+  const [dropAction, setDropAction] = useState<'swap' | 'changeDirection' | 'split' | 'moveWeb' | null>(null)
   const dropRef = useRef<HTMLDivElement>(null)
 
   // 点击激活分屏
@@ -40,8 +40,10 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
   if (node.type === 'leaf') {
     const handleDragOver = (e: React.DragEvent) => {
       const sessionId = getDraggingSessionId()
-      if (!sessionId) {
+      const draggingWeb = draggingDshWeb
+      if (!sessionId && !draggingWeb) {
         setDropZone(null)
+        setDropAction(null)
         return
       }
 
@@ -64,6 +66,25 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
 
       const xPos = x / rect.width
       const yPos = y / rect.height
+
+      // dsh Web 拖拽分屏：四边 = 独立分屏，中心 = 改挂载到本 pane（live 预览沿用 dropZone 指示器）
+      if (draggingWeb) {
+        const isHorizontalEdge = xPos < 0.3 || xPos > 0.7
+        const isVerticalEdge = yPos < 0.25 || yPos > 0.7
+        const isCenter = !isHorizontalEdge && !isVerticalEdge
+        setDropAction(isCenter ? 'moveWeb' : 'split')
+        if (isCenter) {
+          setDropZone('center')
+        } else if (isHorizontalEdge) {
+          setDropZone(xPos < 0.5 ? 'left' : 'right')
+        } else {
+          setDropZone(yPos < 0.5 ? 'top' : 'bottom')
+        }
+        return
+      }
+
+      // 非 web 拖拽：顶部 guard 已拦下「两者皆空」，此处仅为收窄 sessionId 类型
+      if (!sessionId) return
 
       // 判断拖拽位置
       const isHorizontalEdge = xPos < 0.3 || xPos > 0.7
@@ -148,6 +169,34 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
       e.preventDefault()
       setDropZone(null)
       setDropAction(null)
+
+      // dsh Web 拖拽落下：中心 = 改挂载，四边 = 独立分屏
+      if (draggingDshWeb) {
+        const rect = dropRef.current?.getBoundingClientRect()
+        if (!rect) return
+        if (e.clientX < rect.left || e.clientX > rect.right ||
+            e.clientY < rect.top || e.clientY > rect.bottom) {
+          return
+        }
+        const x = e.clientX - rect.left
+        const y = e.clientY - rect.top
+        const xPos = x / rect.width
+        const yPos = y / rect.height
+        setDraggingDshWeb(false)
+
+        const isHorizontalEdge = xPos < 0.3 || xPos > 0.7
+        const isVerticalEdge = yPos < 0.25 || yPos > 0.7
+        const isCenter = !isHorizontalEdge && !isVerticalEdge
+
+        if (isCenter) {
+          moveDshWebToPane(node.id)
+        } else if (isHorizontalEdge) {
+          splitDshWebIntoPane(node.id, 'horizontal', xPos < 0.5 ? 'first' : 'second')
+        } else {
+          splitDshWebIntoPane(node.id, 'vertical', yPos < 0.5 ? 'first' : 'second')
+        }
+        return
+      }
 
       const sessionId = getDraggingSessionId()
       if (!sessionId) return
@@ -253,13 +302,14 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
       }
     }
 
-    const getDropZoneStyle = (zone: DropZone, action: 'swap' | 'changeDirection' | 'split' | null) => {
+    const getDropZoneStyle = (zone: DropZone, action: 'swap' | 'changeDirection' | 'split' | 'moveWeb' | null) => {
       if (!zone) return null
 
       const colors = {
         swap: { bg: 'rgba(255, 140, 0, 0.3)', border: '#FF8C00' },      // 橙色 - 交换
         changeDirection: { bg: 'rgba(0, 200, 83, 0.3)', border: '#00C853' }, // 绿色 - 改变方向
-        split: { bg: 'rgba(0, 120, 212, 0.3)', border: '#0078D4' }      // 蓝色 - 分屏
+        split: { bg: 'rgba(0, 120, 212, 0.3)', border: '#0078D4' },      // 蓝色 - 分屏
+        moveWeb: { bg: 'rgba(0, 200, 200, 0.3)', border: '#00C8C8' }     // 青色 - 移动 Web 挂载
       }
 
       const color = colors[action || 'split']
@@ -279,7 +329,8 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
       const labels = {
         swap: t('pane.actionSwap'),
         changeDirection: t('pane.actionChangeDirection'),
-        split: t('pane.actionSplit')
+        split: t('pane.actionSplit'),
+        moveWeb: t('pane.moveWebHere')
       }
       const label = labels[action || 'split']
 
@@ -293,7 +344,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
         case 'bottom':
           return { ...baseStyle, left: 0, bottom: 0, width: '100%', height: '25%', label: t('pane.zoneBottom', { label }) }
         case 'center':
-          return { ...baseStyle, left: '30%', top: '25%', width: '40%', height: '50%', label: t('pane.merge') }
+          return { ...baseStyle, left: '30%', top: '25%', width: '40%', height: '50%', label: action === 'moveWeb' ? t('pane.moveWebHere') : t('pane.merge') }
         default:
           return null
       }
@@ -363,10 +414,14 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
           )}
 
           {/* dsh Web UI 覆盖层 -- 单例，打开后挂载在本 pane；切到终端标签用 visibility 隐藏（webview 保持挂载、页面状态不丢），点 ✕ 才卸载销毁。导航由主进程锁定 */}
+          {/* 拖拽 web 页签期间同样隐藏 webview：webview 是独立原生视图、会吞掉宿主页 dragover/drop，隐藏后 drop 目标区（终端/空 pane）才可接收 */}
           {dshWebPaneId === node.id && dshWeb && (
             <div
               className="absolute inset-0"
-              style={{ visibility: dshWebActive ? 'visible' : 'hidden', zIndex: dshWebActive ? 10 : 0 }}
+              style={{
+                visibility: dshWebActive && !draggingDshWeb ? 'visible' : 'hidden',
+                zIndex: dshWebActive && !draggingDshWeb ? 10 : 0
+              }}
             >
               <webview
                 partition="persist:dshweb"

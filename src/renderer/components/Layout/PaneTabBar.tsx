@@ -18,7 +18,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
   const [draggingSessionId, setDraggingSessionIdLocal] = useState<string | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)  // 悬停位置索引
   const { sessions, removeLiveSession } = useSessionStore()
-  const { setActiveSessionInPane, removeSessionFromPane, addSessionToPane, reorderSessionsInPane, mcpAuditPaneId, dshWeb, dshWebPaneId, dshWebActive } = usePaneStore()
+  const { setActiveSessionInPane, removeSessionFromPane, addSessionToPane, reorderSessionsInPane, mcpAuditPaneId, dshWeb, dshWebPaneId, dshWebActive, setDraggingDshWeb } = usePaneStore()
   const toggleLiveSessionTabs = usePaneStore(s => s.toggleLiveSessionTabs)
   const { t } = useTranslation()
   // 被隐藏的页签(Sidebar LIVE 段会话标签点击 toggle)——不渲染对应页签,但终端实例保留
@@ -450,12 +450,20 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
             </button>
           </div>
         )}
-        {/* dsh Web UI 页签 -- 单例，仅本 pane 打开 web 时渲染；点页签切回 web，✕ 关闭并回收子进程 */}
+        {/* dsh Web UI 页签 -- 单例，仅本 pane 打开 web 时渲染；点页签切回 web，✕ 关闭并回收子进程。
+            可拖拽：拖到本 pane 或其他 pane 的边缘拆成独立分屏，拖到中心则改挂载到该 pane。 */}
         {dshWebPaneId === pane.id && dshWeb && (
           <div
             data-tab-id="__dsh_web__"
             onClick={() => usePaneStore.getState().activateDshWeb()}
             title={t('dsh.webTitle')}
+            draggable={webActiveHere}
+            onDragStart={(e) => {
+              e.dataTransfer.setData('text/plain', '__dsh_web__')
+              e.dataTransfer.effectAllowed = 'move'
+              setDraggingDshWeb(true)
+            }}
+            onDragEnd={() => setDraggingDshWeb(false)}
             className={cn(
               'flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
               webActiveHere

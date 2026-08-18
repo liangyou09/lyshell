@@ -69,7 +69,7 @@ const IconFolder: React.FC = () => (
 )
 
 const IconPlus: React.FC = () => (
-  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square"><path d="M7 2v10M2 7h10" /></svg>
+  <svg width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square"><path d="M7 2v10M2 7h10" /></svg>
 )
 
 const IconEdit: React.FC = () => (
@@ -89,7 +89,7 @@ const IconPin: React.FC<{ filled?: boolean }> = ({ filled = true }) => (
 
 /** 地球仪 —— Web UI 入口图标（嵌入 dsh web 面板） */
 const IconGlobe: React.FC = () => (
-  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="square" strokeLinejoin="miter">
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="square" strokeLinejoin="miter">
     <circle cx="8" cy="8" r="6" />
     <path d="M2 8h12M8 2c-2 2-2 10 0 12M8 2c2 2 2 10 0 12" />
   </svg>
@@ -104,6 +104,9 @@ const DeepSeekHarnessPanel: React.FC<{ onOpenWeb?: (ws: DshWorkspace) => Promise
   const [workspaces, setWorkspaces] = useState<DshWorkspace[]>([])
   const [launchingId, setLaunchingId] = useState<string | null>(null)
   const [webOpeningId, setWebOpeningId] = useState<string | null>(null)
+  // 全局栏地球仪的目标工作区：默认置顶（首个），新建后自动选中新建项，点行内地球仪可重选。
+  // 这样地球仪不再是「永远只开首个」，而是「开当前关注的那个」。
+  const [selectedWsId, setSelectedWsId] = useState<string | null>(null)
   // 列表级操作错误横幅：启动失败与置顶切换失败共用，统一在此展示具体原因
   const [actionError, setActionError] = useState<string | null>(null)
   // 新增/编辑对话框
@@ -293,6 +296,10 @@ const DeepSeekHarnessPanel: React.FC<{ onOpenWeb?: (ws: DshWorkspace) => Promise
       setSaveError(typeof res.error === 'string' ? res.error : t('dsh.wsSaveFailed'))
       return
     }
+    // 新建成功即选中新建项，让全局栏地球仪指向它（否则地球仪仍开置顶工作区，用户会以为新建没生效）
+    if (!editWorkspace && res && res.success && res.workspace) {
+      setSelectedWsId(res.workspace.id)
+    }
     await loadWorkspaces()
     setShowDialog(false)
   }
@@ -332,22 +339,52 @@ const DeepSeekHarnessPanel: React.FC<{ onOpenWeb?: (ws: DshWorkspace) => Promise
     if (!status.dsh) missing.push('dsh')
     if (!status.dshTui) missing.push('dsh-tui')
   }
+  // 全局栏 Web 入口作用于置顶（首个）工作区 —— getAll 已按 pinned 优先、order 升序返回
+  const topWorkspace = workspaces.length > 0 ? workspaces[0] : undefined
+  // 地球仪实际目标：优先「当前选中」工作区（新建后自动选中），否则回落置顶工作区
+  const globeTarget = (selectedWsId ? workspaces.find(w => w.id === selectedWsId) : undefined) ?? topWorkspace
 
   return (
     <div
       className="w-full h-full flex flex-col bg-[var(--bg-base)] p-3 space-y-2"
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
-      {/* 标题 + 重新检测 */}
+      {/* 标题 + 全局操作（Web 入口 / 重新检测） */}
       <div className="flex items-center justify-between gap-1 flex-shrink-0">
-        <span className="text-[12px] [font-family:inherit] text-[var(--text-rack)]">{t('dsh.title')}</span>
-        <button
-          onClick={() => void runDetect()}
-          disabled={detecting}
-          className="px-2 py-0.5 text-[11px] [font-family:inherit] rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
-        >
-          {detecting ? t('dsh.detecting') : t('dsh.redetect')}
-        </button>
+        <span className="text-[14px] [font-family:inherit] text-[var(--text-rack)]">{t('dsh.title')}</span>
+        <div className="flex items-center gap-0">
+          {/* 依赖就绪且有工作区时，Web 入口（地球仪）提升到全局栏，作用于「当前选中/置顶」工作区；分屏改为拖拽 Web 页签 */}
+          {dshReady && globeTarget && (
+            <button
+              onClick={() => void handleWeb(globeTarget)}
+              title={t('dsh.webLaunch')}
+              disabled={!!webOpeningId}
+              className="w-[24px] h-[24px] flex items-center justify-center bg-transparent border-none rounded-[4px] cursor-pointer transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--amber)] disabled:opacity-50 disabled:cursor-wait"
+            >
+              <IconGlobe />
+            </button>
+          )}
+          {/* 新建工作区入口 —— 依赖就绪即提升到全局栏 */}
+          {dshReady && (
+            <button
+              onClick={handleAdd}
+              title={t('dsh.wsAddTitle')}
+              className="w-[24px] h-[24px] flex items-center justify-center bg-transparent border-none rounded-[4px] cursor-pointer transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--amber)]"
+            >
+              <IconPlus />
+            </button>
+          )}
+          {/* 依赖齐全时无需重新检测（隐藏）；检测中/缺依赖时保留 */}
+          {!(status?.dsh && status?.dshTui) && (
+            <button
+              onClick={() => void runDetect()}
+              disabled={detecting}
+              className="px-2.5 py-1 text-[12.5px] [font-family:inherit] rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              {detecting ? t('dsh.detecting') : t('dsh.redetect')}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 未就绪：dsh 缺失 → 依赖状态行 + 提示卡（无 dsh 则 TUI/Web 均不可用） */}
@@ -465,13 +502,6 @@ const DeepSeekHarnessPanel: React.FC<{ onOpenWeb?: (ws: DshWorkspace) => Promise
               <span className="text-[var(--text-rack-dim)] mx-1.5">·</span>
               <span className="tabular-nums">{workspaces.length}</span>
             </span>
-            <button
-              onClick={handleAdd}
-              title={t('dsh.wsAddTitle')}
-              className="w-[24px] h-[24px] flex items-center justify-center bg-transparent border-none rounded-[3px] cursor-pointer transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--amber)]"
-            >
-              <IconPlus />
-            </button>
           </div>
 
           {/* dsh-tui 未装：TUI 禁用，仅 Web 可用 */}
@@ -520,7 +550,6 @@ const DeepSeekHarnessPanel: React.FC<{ onOpenWeb?: (ws: DshWorkspace) => Promise
                         )}
                         {ws.name}
                         {launching && <span className="ml-1.5 text-[10.5px] [font-family:inherit] text-[var(--amber)]">{t('dsh.launching')}</span>}
-                        {webOpeningId === ws.id && <span className="ml-1.5 text-[10.5px] [font-family:inherit] text-[var(--amber)]">{t('dsh.webLoading')}</span>}
                       </span>
                       <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">{ws.cwd}</span>
                       {ws.note && (
@@ -529,9 +558,9 @@ const DeepSeekHarnessPanel: React.FC<{ onOpenWeb?: (ws: DshWorkspace) => Promise
                     </span>
                     <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-slot)] from-[24%] to-transparent">
                       <button
-                        onClick={(e) => { e.stopPropagation(); void handleWeb(ws) }}
+                        onClick={(e) => { e.stopPropagation(); setSelectedWsId(ws.id); void handleWeb(ws) }}
                         title={t('dsh.webLaunch')}
-                        disabled={webOpeningId === ws.id}
+                        disabled={!!webOpeningId}
                         className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--amber)] disabled:opacity-50 disabled:cursor-wait"
                       >
                         <IconGlobe />
