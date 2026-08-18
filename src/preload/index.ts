@@ -108,6 +108,24 @@ const IPC_CHANNELS = {
   DSH_WEB_OPEN: 'dsh:web:open',
   DSH_WEB_CLOSE: 'dsh:web:close',
 
+  // Codex Harness
+  CODEX_DETECT: 'codex:detect',
+  CODEX_WORKSPACE_LIST: 'codex:workspace:list',
+  CODEX_WORKSPACE_ADD: 'codex:workspace:add',
+  CODEX_WORKSPACE_UPDATE: 'codex:workspace:update',
+  CODEX_WORKSPACE_DELETE: 'codex:workspace:delete',
+  CODEX_WORKSPACE_LAUNCH: 'codex:workspace:launch',
+  CODEX_WORKSPACE_SET_PINNED: 'codex:workspace:setPinned',
+
+  // Claude Harness
+  CLAUDE_DETECT: 'claude:detect',
+  CLAUDE_WORKSPACE_LIST: 'claude:workspace:list',
+  CLAUDE_WORKSPACE_ADD: 'claude:workspace:add',
+  CLAUDE_WORKSPACE_UPDATE: 'claude:workspace:update',
+  CLAUDE_WORKSPACE_DELETE: 'claude:workspace:delete',
+  CLAUDE_WORKSPACE_LAUNCH: 'claude:workspace:launch',
+  CLAUDE_WORKSPACE_SET_PINNED: 'claude:workspace:setPinned',
+
   // Plugin 管理(install[dev]/zip/url/enable/disable/uninstall/list)
   PLUGIN_LIST: 'plugin:list',
   PLUGIN_PICK_FOLDER: 'plugin:pick-folder',
@@ -239,6 +257,24 @@ const electronAPI = {
   setDshWorkspacePinned: (workspaceId: string, pinned: boolean) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_SET_PINNED, workspaceId, pinned),
   openDshWeb: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_OPEN, workspaceId),
   closeDshWeb: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_CLOSE),
+
+  // Codex Harness
+  detectCodex: () => ipcRenderer.invoke(IPC_CHANNELS.CODEX_DETECT),
+  listCodexWorkspaces: () => ipcRenderer.invoke(IPC_CHANNELS.CODEX_WORKSPACE_LIST),
+  addCodexWorkspace: (workspace: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_WORKSPACE_ADD, workspace),
+  updateCodexWorkspace: (workspace: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_WORKSPACE_UPDATE, workspace),
+  deleteCodexWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_WORKSPACE_DELETE, workspaceId),
+  launchCodexWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_WORKSPACE_LAUNCH, workspaceId),
+  setCodexWorkspacePinned: (workspaceId: string, pinned: boolean) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_WORKSPACE_SET_PINNED, workspaceId, pinned),
+
+  // Claude Harness
+  detectClaude: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_DETECT),
+  listClaudeWorkspaces: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_WORKSPACE_LIST),
+  addClaudeWorkspace: (workspace: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_WORKSPACE_ADD, workspace),
+  updateClaudeWorkspace: (workspace: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_WORKSPACE_UPDATE, workspace),
+  deleteClaudeWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_WORKSPACE_DELETE, workspaceId),
+  launchClaudeWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_WORKSPACE_LAUNCH, workspaceId),
+  setClaudeWorkspacePinned: (workspaceId: string, pinned: boolean) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_WORKSPACE_SET_PINNED, workspaceId, pinned),
 
   // Plugin 管理
   listPlugins: () => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_LIST),

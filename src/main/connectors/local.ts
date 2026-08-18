@@ -1,6 +1,7 @@
 import { spawn, IPty } from 'node-pty'
 import log from 'electron-log'
 import { BaseConnector } from './base'
+import { readSystemPath } from '../env/refresh'
 
 /**
  * 本地终端配置
@@ -45,12 +46,21 @@ export class LocalConnector extends BaseConnector {
     const shell = this.resolveShell(this.config.shell || this.getDefaultShell())
     log.info(`Local terminal spawning: ${shell}`)
 
+    // 即时读取系统 PATH 注入子进程（用户改环境变量后无需重启 app 生效）。
+    // 优先级：即时系统 PATH < config.env < extraEnv（工作区/env 显式覆盖仍生效）。
+    const systemPath = readSystemPath()
+
     this.ptyProcess = spawn(shell, [], {
       name: 'xterm-256color',
       cols: this._cols,
       rows: this._rows,
       cwd: this.config.cwd || process.env.USERPROFILE || process.env.HOME,
-      env: { ...process.env, ...this.config.env, ...this.extraEnv } as Record<string, string>
+      env: {
+        ...process.env,
+        ...(systemPath ? { PATH: systemPath } : {}),
+        ...this.config.env,
+        ...this.extraEnv
+      } as Record<string, string>
     })
 
     this.ptyProcess.onData((data: string) => {

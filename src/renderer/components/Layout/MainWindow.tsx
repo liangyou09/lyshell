@@ -9,7 +9,7 @@ import SplitPaneContainer from './SplitPaneContainer'
 import FloatWindow from '../FloatWindow/FloatWindow'
 import { McpActivityChip } from './McpActivityChip'
 import PluginPanel from './PluginPanel'
-import DeepSeekHarnessPanel from './DeepSeekHarnessPanel'
+import HarnessPanel from './HarnessPanel'
 import SettingsPanel from './SettingsPanel'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
@@ -26,7 +26,7 @@ const MainWindow: React.FC = () => {
   const [activeNav, setActiveNav] = useState<NavTab>(() => {
     try {
       const saved = localStorage.getItem('lyshell.navTab.v1')
-      if (saved === 'sessions' || saved === 'agents' || saved === 'dsh' || saved === 'plugins' || saved === 'settings') {
+      if (saved === 'sessions' || saved === 'agents' || saved === 'dsh' || saved === 'codex' || saved === 'claude' || saved === 'plugins' || saved === 'settings') {
         return saved
       }
     } catch { /* localStorage 不可用,回退默认 */ }
@@ -241,7 +241,7 @@ const MainWindow: React.FC = () => {
     }
   }, [isResizingSidebar])
 
-  // Alt+1/2/3/4/5 切换左列页签(实现 footer 既有 "alt + 1…5" 提示;capture 抢在 xterm 前)
+  // Alt+1..7 切换左列页签(实现 footer 既有 "alt + 1…7" 提示;capture 抢在 xterm 前)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!e.altKey) return
@@ -252,8 +252,10 @@ const MainWindow: React.FC = () => {
       if (e.key === '1') tab = 'sessions'
       else if (e.key === '2') tab = 'agents'
       else if (e.key === '3') tab = 'dsh'
-      else if (e.key === '4') tab = 'plugins'
-      else if (e.key === '5') tab = 'settings'
+      else if (e.key === '4') tab = 'codex'
+      else if (e.key === '5') tab = 'claude'
+      else if (e.key === '6') tab = 'plugins'
+      else if (e.key === '7') tab = 'settings'
       if (!tab) return
       e.preventDefault()
       e.stopPropagation()
@@ -469,7 +471,9 @@ const MainWindow: React.FC = () => {
                 />
               )}
               {activeNav === 'agents' && <AgentsPanel />}
-              {activeNav === 'dsh' && <DeepSeekHarnessPanel onOpenWeb={handleOpenWeb} />}
+              {activeNav === 'dsh' && <HarnessPanel agent="dsh" onOpenWeb={handleOpenWeb} />}
+              {activeNav === 'codex' && <HarnessPanel agent="codex" />}
+              {activeNav === 'claude' && <HarnessPanel agent="claude" />}
               {activeNav === 'plugins' && <PluginPanel />}
               {activeNav === 'settings' && <SettingsPanel />}
             </div>

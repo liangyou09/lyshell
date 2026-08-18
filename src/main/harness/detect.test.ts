@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, writeFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { commandExists, windowsExecutableExtensions, detectDshInstallation } from './detect'
+import { commandExists, windowsExecutableExtensions, detectDependencies } from './detect'
 
 const origPath = process.env.PATH
 const origPathext = process.env.PATHEXT
@@ -10,7 +10,7 @@ const origPathext = process.env.PATHEXT
 let dir: string
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'lyshell-dsh-detect-'))
+  dir = mkdtempSync(join(tmpdir(), 'lyshell-harness-detect-'))
   process.env.PATHEXT = '.EXE;.CMD;.BAT'
   process.env.PATH = dir
 })
@@ -37,30 +37,30 @@ describe('windowsExecutableExtensions', () => {
 
 describe('commandExists (win32 分支)', () => {
   it.skipIf(process.platform !== 'win32')('按 PATHEXT 匹配 .cmd 扩展', () => {
-    writeFileSync(join(dir, 'dsh.cmd'), '')
-    expect(commandExists('dsh')).toBe(true)
+    writeFileSync(join(dir, 'codex.cmd'), '')
+    expect(commandExists('codex')).toBe(true)
   })
 
   it.skipIf(process.platform !== 'win32')('无扩展名普通文件不误判（无 extensionless 兜底）', () => {
-    writeFileSync(join(dir, 'dsh'), '')
-    expect(commandExists('dsh')).toBe(false)
+    writeFileSync(join(dir, 'codex'), '')
+    expect(commandExists('codex')).toBe(false)
   })
 
   it.skipIf(process.platform !== 'win32')('非可执行扩展名 .txt 不匹配', () => {
-    writeFileSync(join(dir, 'dsh.txt'), '')
-    expect(commandExists('dsh')).toBe(false)
+    writeFileSync(join(dir, 'codex.txt'), '')
+    expect(commandExists('codex')).toBe(false)
   })
 })
 
-describe('detectDshInstallation', () => {
-  it.skipIf(process.platform !== 'win32')('PATH 上有 dsh/dsh-tui shim 时都检测到', () => {
-    writeFileSync(join(dir, 'dsh.cmd'), '')
-    writeFileSync(join(dir, 'dsh-tui.cmd'), '')
-    expect(detectDshInstallation()).toEqual({ dsh: true, dshTui: true })
+describe('detectDependencies', () => {
+  it.skipIf(process.platform !== 'win32')('PATH 上有 shim 时都检测到', () => {
+    writeFileSync(join(dir, 'codex.cmd'), '')
+    writeFileSync(join(dir, 'claude.cmd'), '')
+    expect(detectDependencies(['codex', 'claude'])).toEqual({ codex: true, claude: true })
   })
 
-  it.skipIf(process.platform !== 'win32')('只有 dsh 时 dshTui 为 false', () => {
-    writeFileSync(join(dir, 'dsh.cmd'), '')
-    expect(detectDshInstallation()).toEqual({ dsh: true, dshTui: false })
+  it.skipIf(process.platform !== 'win32')('缺失的依赖返回 false', () => {
+    writeFileSync(join(dir, 'codex.cmd'), '')
+    expect(detectDependencies(['codex', 'claude'])).toEqual({ codex: true, claude: false })
   })
 })

@@ -3,21 +3,13 @@ import { existsSync, readFileSync, writeFileSync } from 'fs'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 import { getConfigDir } from './repository'
+import type { HarnessWorkspace } from '@shared/harness'
 
 /**
- * DeepSeek Harness 工作区配置。
- * 每个工作区 = 名称 + 工作目录，单击在对应目录内启动 dsh-tui。
+ * AI Harness 工作区存储 —— dsh / codex / claude 三份共用（按文件名区分落盘位置）。
+ * 每个工作区 = 名称 + 工作目录，单击在对应目录内启动对应 CLI。
+ * 泛化自原 DshWorkspaceRepository（逻辑不变，DshWorkspace → HarnessWorkspace）。
  */
-export interface DshWorkspace {
-  id: string
-  name: string           // 显示名称，如 "lyshell"
-  cwd: string            // 工作目录（dsh-tui 启动 cwd）
-  order: number
-  note?: string          // 可选备注，仅用于记录/说明
-  pinned?: boolean       // 置顶：true 时在 DSH 列表与 Agents 面板顶部展示
-  env?: Record<string, string>  // 可选环境变量，注入 dsh-tui 会话；缺省时用系统环境变量
-  model?: string         // 可选启动模型（provider 固定 deepseek-official）；缺省时用 dsh-TUI 默认
-}
 
 /** 归一化 env 记录：过滤非字符串值，空记录按缺失处理（缺省时启动即用系统环境变量）。 */
 function normalizeEnv(raw: unknown): Record<string, string> | undefined {
@@ -36,7 +28,7 @@ function normalizeEnv(raw: unknown): Record<string, string> | undefined {
 }
 
 /** 归一化单条 JSON 记录：非法记录返回 null（由 load 过滤），合法记录补齐 note/pinned 默认值。 */
-function normalizeWorkspace(raw: unknown): DshWorkspace | null {
+function normalizeWorkspace(raw: unknown): HarnessWorkspace | null {
   if (typeof raw !== 'object' || raw === null) return null
   const w = raw as Record<string, unknown>
   if (typeof w.id !== 'string' || w.id.length === 0) return null
@@ -45,7 +37,7 @@ function normalizeWorkspace(raw: unknown): DshWorkspace | null {
   if (typeof w.order !== 'number' || !Number.isFinite(w.order)) return null
   // note 非字符串时按缺失处理（不因备注脏数据丢整条记录）
   const note = typeof w.note === 'string' && w.note.length > 0 ? w.note : undefined
-  // model 非字符串/空串按缺失处理（缺省时用 dsh-TUI 默认模型）
+  // model 非字符串/空串按缺失处理（缺省时用各 CLI 默认模型）
   const model = typeof w.model === 'string' && w.model.length > 0 ? w.model : undefined
   // pinned 非布尔按 false 处理
   const pinned = typeof w.pinned === 'boolean' ? w.pinned : false
@@ -55,19 +47,22 @@ function normalizeWorkspace(raw: unknown): DshWorkspace | null {
 }
 
 /**
- * DeepSeek Harness 工作区存储 —— 对齐 agent-repository 的 JSON 文件模式。
- * 健壮性：load 过滤/归一化非法记录、按首个有效 id 去重、按 order 重排为 0..n-1；
- * delete 后 reindex 保持运行期 order 恒连续（0..n-1）；add 分配 maxOrder+1；
- * save 失败返回 false 并回滚内存，避免内存与磁盘不一致。
+ * 通用工作区仓库。健壮性：load 过滤/归一化非法记录、按首个有效 id 去重、按 order 重排为 0..n-1；
+ * delete 后 reindex 保持运行期 order 恒连续；add 分配 maxOrder+1；save 失败返回 false 并回滚内存。
  */
-export class DshWorkspaceRepository {
+export class HarnessWorkspaceRepository {
+  private readonly fileName: string
   private filePath: string | null = null
-  private workspaces: DshWorkspace[] = []
+  private workspaces: HarnessWorkspace[] = []
   private loaded = false
+
+  constructor(fileName: string) {
+    this.fileName = fileName
+  }
 
   private ensureInitialized(): void {
     if (!this.filePath) {
-      this.filePath = join(getConfigDir(), 'dsh-workspaces.json')
+      this.filePath = join(getConfigDir(), this.fileName)
       this.load()
     }
   }
@@ -89,7 +84,7 @@ export class DshWorkspaceRepository {
       const seen = new Set<string>()
       this.workspaces = rawList
         .map(normalizeWorkspace)
-        .filter((w): w is DshWorkspace => w !== null)
+        .filter((w): w is HarnessWorkspace => w !== null)
         .filter((w) => {
           if (seen.has(w.id)) return false
           seen.add(w.id)
@@ -97,10 +92,10 @@ export class DshWorkspaceRepository {
         })
         .sort((a, b) => a.order - b.order)
         .map((w, i) => ({ ...w, order: i }))
-      log.info(`Loaded ${this.workspaces.length} dsh workspaces from storage`)
+      log.info(`Loaded ${this.workspaces.length} harness workspaces from ${this.fileName}`)
       this.loaded = true
     } catch (error) {
-      log.error('Failed to load dsh workspaces:', error)
+      log.error(`Failed to load harness workspaces (${this.fileName}):`, error)
       this.workspaces = []
       this.loaded = true
     }
@@ -112,12 +107,12 @@ export class DshWorkspaceRepository {
       writeFileSync(this.filePath, JSON.stringify(this.workspaces, null, 2), 'utf-8')
       return true
     } catch (error) {
-      log.error('Failed to save dsh workspaces:', error)
+      log.error(`Failed to save harness workspaces (${this.fileName}):`, error)
       return false
     }
   }
 
-  getAll(): DshWorkspace[] {
+  getAll(): HarnessWorkspace[] {
     this.ensureInitialized()
     // 置顶优先，其余按 order 升序
     return [...this.workspaces].sort(
@@ -125,14 +120,14 @@ export class DshWorkspaceRepository {
     )
   }
 
-  get(id: string): DshWorkspace | undefined {
+  get(id: string): HarnessWorkspace | undefined {
     this.ensureInitialized()
     return this.workspaces.find((w) => w.id === id)
   }
 
-  add(workspace: Omit<DshWorkspace, 'id' | 'order'>): DshWorkspace | null {
+  add(workspace: Omit<HarnessWorkspace, 'id' | 'order'>): HarnessWorkspace | null {
     this.ensureInitialized()
-    const newWorkspace: DshWorkspace = {
+    const newWorkspace: HarnessWorkspace = {
       ...workspace,
       id: uuidv4(),
       pinned: workspace.pinned === true,
@@ -147,7 +142,7 @@ export class DshWorkspaceRepository {
     return newWorkspace
   }
 
-  update(workspace: DshWorkspace): boolean {
+  update(workspace: HarnessWorkspace): boolean {
     this.ensureInitialized()
     const index = this.workspaces.findIndex((w) => w.id === workspace.id)
     if (index === -1) return false
@@ -191,4 +186,6 @@ export class DshWorkspaceRepository {
   }
 }
 
-export const dshWorkspaceRepository = new DshWorkspaceRepository()
+export const dshWorkspaceRepository = new HarnessWorkspaceRepository('dsh-workspaces.json')
+export const codexWorkspaceRepository = new HarnessWorkspaceRepository('codex-workspaces.json')
+export const claudeWorkspaceRepository = new HarnessWorkspaceRepository('claude-workspaces.json')

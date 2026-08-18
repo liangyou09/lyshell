@@ -1303,7 +1303,7 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommand
               <span className="ml-1">{t('sidebar.footerIdle')}</span>
             </span>
           </span>
-          <span>{t('sidebar.footerShortcut', { n: 5 })}</span>
+          <span>{t('sidebar.footerShortcut', { n: 7 })}</span>
         </div>
       </div>
 

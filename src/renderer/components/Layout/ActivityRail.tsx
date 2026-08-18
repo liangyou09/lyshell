@@ -10,10 +10,10 @@ import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
  * 像"通电的 1U 卡片";槽间用 rule-soft hairline + inset 凹陷阴影做卡笼分隔。
  * 这是本组件的 signature -- 导航本身读作机柜插卡,而非通用图标条。
  */
-export type NavTab = 'sessions' | 'agents' | 'dsh' | 'plugins' | 'settings'
+export type NavTab = 'sessions' | 'agents' | 'dsh' | 'codex' | 'claude' | 'plugins' | 'settings'
 
-// 内容页签(上组):会话 / Agent / DeepSeek Harness / 插件。settings 是轨底独立工具槽,不在此列。
-const ALL_TABS: NavTab[] = ['sessions', 'agents', 'dsh', 'plugins']
+// 内容页签(上组):会话 / Agent / DeepSeek Harness / Codex / Claude / 插件。settings 是轨底独立工具槽,不在此列。
+const ALL_TABS: NavTab[] = ['sessions', 'agents', 'dsh', 'codex', 'claude', 'plugins']
 const TABS: NavTab[] = ALL_TABS
 
 /** 轨宽(px) -- 单一真相源:本组件容器宽与 MainWindow 宽度拖拽算式共用,防两处漂移 */
@@ -48,6 +48,36 @@ const IconAgents: React.FC = () => (
   </svg>
 )
 
+/** codex/claude = 官方内置品牌标(assets/agent-icons/*.png),mask 取资产 alpha 作实心剪影、随主题着色。
+ *  Filled 剪影与线描图标(会话/机器人头/拼图/齿轮)不同语言,故走 bg-current + mask;
+ *  激活色与 dsh 鲸鱼一致为 --text-rack(白/黑),不亮 amber。 */
+const codexIcon = new URL('../../assets/agent-icons/codex.png', import.meta.url).href
+const claudeIcon = new URL('../../assets/agent-icons/claude.png', import.meta.url).href
+
+/** 实心剪影图标:bg-current 跟随父级 currentColor,取资产 alpha 作 mask(与 rail 其余 currentColor 图标同色) */
+const BrandMaskIcon: React.FC<{ src: string }> = ({ src }) => (
+  <span
+    aria-hidden
+    className="block w-[24px] h-[24px] bg-current"
+    style={{
+      maskImage: `url(${src})`,
+      WebkitMaskImage: `url(${src})`,
+      maskSize: 'contain',
+      WebkitMaskSize: 'contain',
+      maskPosition: 'center',
+      WebkitMaskPosition: 'center',
+      maskRepeat: 'no-repeat',
+      WebkitMaskRepeat: 'no-repeat'
+    }}
+  />
+)
+
+/** codex = OpenAI 花朵(官方内置品牌标,mask 取 alpha 剪影、随主题着色) */
+const IconCodex: React.FC = () => <BrandMaskIcon src={codexIcon} />
+
+/** claude = Anthropic 太阳花(官方内置品牌标,mask 取 alpha 剪影、随主题着色) */
+const IconClaude: React.FC = () => <BrandMaskIcon src={claudeIcon} />
+
 /** 插件 = 拼图块(通用约定,识别度优先于主题化) */
 const IconPlugins: React.FC = () => (
   <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" strokeLinejoin="miter">
@@ -69,6 +99,8 @@ const TAB_ICON: Record<NavTab, React.FC> = {
   sessions: IconSessions,
   agents: IconAgents,
   dsh: DeepSeekWhaleIcon,
+  codex: IconCodex,
+  claude: IconClaude,
   plugins: IconPlugins,
   settings: IconSettings,
 }
@@ -96,8 +128,10 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
     tab === 'sessions' ? t('nav.sessions')
       : tab === 'agents' ? t('nav.agents')
         : tab === 'dsh' ? t('nav.dsh')
-          : tab === 'plugins' ? t('nav.plugins')
-            : t('nav.settings')
+          : tab === 'codex' ? t('nav.codex')
+            : tab === 'claude' ? t('nav.claude')
+              : tab === 'plugins' ? t('nav.plugins')
+                : t('nav.settings')
 
   /** sessions 槽位:有在线会话时亮 live LED;其余槽位无徽章 */
   const ledFor = (tab: NavTab): string | undefined =>
@@ -148,7 +182,7 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
               className={cn(
                 'transition-[color,transform] duration-200 ease-out group-hover:scale-110',
                 isActive
-                  ? tab === 'dsh'
+                  ? (tab === 'dsh' || tab === 'codex' || tab === 'claude')
                     ? 'text-[var(--text-rack)]'
                     : 'text-[var(--amber)] animate-rail-icon-glow'
                   : 'text-[var(--text-rack-dim)] group-hover:text-[var(--text-rack-mute)]'
