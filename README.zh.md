@@ -3,11 +3,12 @@
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-Freeware-orange?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
+  <img src="https://img.shields.io/badge/DeepSeek%20Harness-ready-4D6BFE?style=flat-square" alt="deepseek-harness">
 </p>
 
 # 💻 LyShell
 
-> 🔌 **你的终端，也是 AI 的终端。** LyShell 是一款内置 MCP 服务端的 Windows 终端 — 让 Claude Code 等 AI 客户端直接操控你的 SSH / Telnet / 串口 / 本地 PTY 会话。还集成了 AI Agent 启动栏、插件系统和 Python 脚本引擎。
+> 🔌 **你的终端，也是 AI 的终端。** LyShell 是一款内置 MCP 服务端的 Windows 终端 — 让 Claude Code 等 AI 客户端直接操控你的 SSH / Telnet / 串口 / 本地 PTY 会话。还集成了 DeepSeek Harness 工作区（TUI + 内嵌 Web UI）、AI Agent 启动栏、插件系统和 Python 脚本引擎。
 
 **简体中文** | [English](README.md)
 

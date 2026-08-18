@@ -3,11 +3,12 @@
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-Freeware-orange?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
+  <img src="https://img.shields.io/badge/DeepSeek%20Harness-ready-4D6BFE?style=flat-square" alt="deepseek-harness">
 </p>
 
 # 💻 LyShell
 
-> 🔌 **Your terminal, now AI's terminal too.** LyShell is a Windows terminal with a built-in MCP server — letting Claude Code and other AI clients drive your SSH / Telnet / serial / local PTY sessions directly. Plus AI Agent launcher, plugin system, and Python scripting.
+> 🔌 **Your terminal, now AI's terminal too.** LyShell is a Windows terminal with a built-in MCP server — letting Claude Code and other AI clients drive your SSH / Telnet / serial / local PTY sessions directly. Plus DeepSeek Harness workspaces (TUI + embedded Web UI), AI Agent launcher, plugin system, and Python scripting.
 
 **English** | [简体中文](README.zh.md)
 
