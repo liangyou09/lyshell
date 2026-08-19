@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/LyShell-v1.0.4-0078D4?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/LyShell-v1.0.5-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-Freeware-orange?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
@@ -22,7 +22,7 @@
 |---|---|
 | 🔗 **MCP Server** — Expose your terminals to Claude Code and other AI clients, with per-session authorization and audit log | 🤖 **Agent Launcher** — Run Claude Code, Aider, Copilot CLI, or any custom CLI in a clean transient terminal |
 | 🧩 **Plugin System** — Extend with Python or Node.js plugins, each running under granular permissions | 🐍 **Python Engine** — Script terminal automation through a built-in `LyShell` API |
-| 🐋 **DeepSeek Harness** — Manage DeepSeek Harness workspaces with per-workspace env vars & model presets, launch TUI or embedded Web UI | 🔐 **Embedded Web UI** — Run `dsh web` in an in-app `<webview>` tab, loopback-locked and URL-validated |
+| 🐋 **DeepSeek Harness** — Manage workspaces with variable sets & model presets, launch TUI and embedded Web UI side by side | 🔐 **Embedded Web UI** — Run `dsh web` in an in-app `<webview>` tab, loopback-locked and URL-validated |
 
 ---
 
@@ -94,8 +94,11 @@ Agent-agnostic terminal — no lock-in to any AI tool. Launch any CLI agent and 
 | Agent | Command |
 |-------|---------|
 | 🧠 Claude Code | `claude` |
+| 🛠️ OpenAI Codex | `codex` |
 | 🤝 Aider | `aider` |
 | 🐙 Copilot CLI | `gh copilot` |
+
+**First-class Harness agents** — `dsh`, `codex`, and `claude` are first-class in the Harness panel: each gets its own left-rail tab, a dedicated workspace list, dependency detection, and per-workspace model & environment variables (model passed as `--model`, with `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` defaults).
 
 **Custom agents**: Any CLI tool can be registered — name, command, icon, working directory, env vars. Sessions are transient: close the tab, it's gone.
 
@@ -107,12 +110,22 @@ Agent-agnostic terminal — no lock-in to any AI tool. Launch any CLI agent and 
 
 ## 🐋 DeepSeek Harness
 
-A first-class home for **DeepSeek Harness** workspaces. Manage every workspace in one dedicated panel, then launch each one as a terminal TUI **or** an embedded Web UI — inside LyShell, not a separate browser window.
+A first-class home for **DeepSeek Harness** workspaces. Manage every workspace in one dedicated panel, then launch each one as a terminal TUI **or** an embedded Web UI — inside LyShell, not a separate browser window. The two can even run **side by side in split panes**.
 
 | | |
 |---|---|
-| 🗂️ **Workspace panel** — create, edit, pin, delete | 🔧 **Per-workspace env** — `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DSH_HOME`, … |
+| 🗂️ **Workspace panel** — create, edit, delete | 🔧 **Variable sets** — pre-configure env sets, switch the enabled one |
 | 🎛️ **Model presets** — save & switch models per workspace | 🖥️ **TUI launch** — `dsh-tui` in a native terminal tab |
+
+### Dependency detection & install
+
+Each Harness tab auto-detects its CLI dependencies on open — `dsh` + `dsh-tui` for DeepSeek Harness, `codex` / `claude` for the others — by scanning PATH. When something is missing, the panel shows which dependency is absent, its one-line install command, and the source-repo link — it never installs anything for you. A **Re-detect** button re-scans on demand, and PATH is read live from the registry, so a freshly installed CLI is picked up without restarting LyShell.
+
+### Environment tab: pre-configure, then switch
+
+The panel splits into **Workspaces** and **Environment** tabs. In the **Environment** tab, pre-configure named **variable sets** — collections of `KEY=VALUE` (`DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DSH_HOME`, …). At most one set is **enabled** at a time; click a set to switch to it, or click the always-on **System environment** slot to fall back to LyShell's own process environment.
+
+Each workspace can bind to a specific set, or **follow the enabled set** — pick nothing and it inherits whichever set is currently enabled (or the system environment when none is). Enter secrets once, then switch between environments without touching each workspace.
 
 ### Launch: TUI or Web UI
 
@@ -120,6 +133,10 @@ Every workspace opens two ways:
 
 - **Terminal TUI** — `dsh-tui` runs as a standard terminal tab with full scrollback, split panes, and IME support.
 - **Embedded Web UI** — spawned as `dsh web --port 0`; LyShell parses the real port from stdout and renders the app in an in-app `<webview>` tab. No browser, no manual port juggling.
+
+### TUI + Web UI, side by side
+
+Drag the Web UI tab to a pane edge to split it into its own pane — the TUI and the embedded Web UI run **in the same frame, side by side**. Drag it back onto a pane's center to remount it as a regular tab.
 
 ### Web UI acts like a terminal tab
 
@@ -133,6 +150,18 @@ Every workspace opens two ways:
 
 <p align="center">
   <img src="docs/assets/screenshot-deepseek-panel.jpg" alt="DeepSeek Harness workspace panel" width="80%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-deepseek-detect.jpg" alt="Missing dependency — install command and repo links" width="80%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-deepseek-env.jpg" alt="Environment tab — switch between variable sets" width="80%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-deepseek-split.jpg" alt="TUI and embedded Web UI side by side in split panes" width="80%">
 </p>
 
 <p align="center">

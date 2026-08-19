@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/LyShell-v1.0.4-0078D4?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/LyShell-v1.0.5-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-Freeware-orange?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
@@ -22,7 +22,7 @@
 |---|---|
 | 🔗 **MCP 服务端** — 将终端暴露给 AI 客户端，会话级授权 + 审计日志 | 🤖 **Agent 启动栏** — 一键启动 Claude Code / Aider / Copilot CLI / 任意自定义 CLI |
 | 🧩 **插件系统** — Python + Node.js 插件，细粒度权限隔离 | 🐍 **Python 引擎** — 内置 `LyShell` API 驱动终端自动化 |
-| 🐋 **DeepSeek Harness** — 管理工作区，按工作区环境变量 + 模型预设，一键启动 TUI 或内嵌 Web UI | 🔐 **内嵌 Web UI** — 应用内 `<webview>` 标签页运行 `dsh web`，回环锁定 + URL 校验 |
+| 🐋 **DeepSeek Harness** — 变量组 + 模型预设管理工作区，TUI 与内嵌 Web UI 可同框并排 | 🔐 **内嵌 Web UI** — 应用内 `<webview>` 标签页运行 `dsh web`，回环锁定 + URL 校验 |
 
 ---
 
@@ -94,8 +94,11 @@ LyShell 是**与 Agent 无关的终端** — 不绑定任何特定 AI 工具。�
 | Agent | 命令 |
 |-------|------|
 | 🧠 Claude Code | `claude` |
+| 🛠️ OpenAI Codex | `codex` |
 | 🤝 Aider | `aider` |
 | 🐙 Copilot CLI | `gh copilot` |
+
+**一等 Harness Agent** — `dsh`、`codex`、`claude` 在 Harness 面板中为一等公民：各自拥有独立左侧标签、专属工作区列表、依赖检测，以及按工作区的模型与环境变量（模型以 `--model` 传入，环境变量默认 `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`）。
 
 **自定义 Agent**：任意 CLI 工具都能注册 — 名称、命令、图标、工作目录、环境变量。Agent 会话为**瞬态**，关闭标签即消失，不残留。
 
@@ -107,12 +110,22 @@ LyShell 是**与 Agent 无关的终端** — 不绑定任何特定 AI 工具。�
 
 ## 🐋 DeepSeek Harness
 
-为 **DeepSeek Harness** 工作区提供的一等公民之家。在一个专属面板中统一管理工作区，再以终端 TUI **或** 内嵌 Web UI 两种方式启动 — 全程在 LyShell 内完成，无需另开浏览器窗口。
+为 **DeepSeek Harness** 工作区提供的一等公民之家。在一个专属面板中统一管理工作区，再以终端 TUI **或** 内嵌 Web UI 两种方式启动 — 全程在 LyShell 内完成，无需另开浏览器窗口。两者更可**同框并排**运行。
 
 | | |
 |---|---|
-| 🗂️ **工作区面板** — 创建、编辑、置顶、删除 | 🔧 **按工作区环境变量** — `DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`、`DSH_HOME` 等 |
+| 🗂️ **工作区面板** — 创建、编辑、删除 | 🔧 **变量组** — 预配置环境变量组，一键切换启用 |
 | 🎛️ **模型预设** — 按工作区保存并切换模型 | 🖥️ **TUI 启动** — 在原生终端标签页运行 `dsh-tui` |
+
+### 依赖检测与安装方法
+
+每个 Harness 标签打开时自动检测其 CLI 依赖 — DeepSeek Harness 需 `dsh` + `dsh-tui`，codex / claude 各自单个 — 通过扫描 PATH。缺失时面板会指出缺哪个依赖、给出对应的一行安装命令与源码仓库链接 — 但不会替你安装。**重新检测** 按钮可随时重扫，PATH 从注册表实时读取，新装的 CLI 无需重启 LyShell 即可识别。
+
+### 环境变量标签：先预配置，再切换
+
+面板分为「工作区」与「环境变量」两个标签。在「环境变量」标签里预配置具名的**变量组** — 一组 `KEY=VALUE`（`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`、`DSH_HOME` 等）。同一时刻至多启用一组，点击即可切换；再点已启用的一组可停用，落回常驻的「系统环境变量」。
+
+每个工作区可绑定到特定变量组，也可**跟随已启用的变量组** — 不选则继承当前启用的一组（都未启用时用系统环境变量）。密钥录入一次，切换环境无需逐工作区改动。
 
 ### 启动方式：TUI 或 Web UI
 
@@ -120,6 +133,10 @@ LyShell 是**与 Agent 无关的终端** — 不绑定任何特定 AI 工具。�
 
 - **终端 TUI** — `dsh-tui` 作为标准终端标签页运行，完整回滚、分屏、输入法一视同仁。
 - **内嵌 Web UI** — 以 `dsh web --port 0` 启动；LyShell 从 stdout 解析真实端口，把应用渲染进应用内 `<webview>` 标签页。无需浏览器，也无需手动折腾端口。
+
+### TUI 与 Web UI 同框
+
+把 Web UI 标签拖到分屏边缘即可拆分为独立窗格 — TUI 与内嵌 Web UI **同框并排**运行。拖回某个窗格中央即还原为普通标签页。
 
 ### Web UI 视作终端标签页
 
@@ -133,6 +150,18 @@ LyShell 是**与 Agent 无关的终端** — 不绑定任何特定 AI 工具。�
 
 <p align="center">
   <img src="docs/assets/screenshot-deepseek-panel.jpg" alt="DeepSeek Harness 工作区面板" width="80%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-deepseek-detect.jpg" alt="缺少依赖 — 安装命令与仓库链接" width="80%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-deepseek-env.jpg" alt="环境变量标签 — 切换变量组" width="80%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-deepseek-split.jpg" alt="TUI 与内嵌 Web UI 同框并排" width="80%">
 </p>
 
 <p align="center">
