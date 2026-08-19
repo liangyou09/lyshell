@@ -20,7 +20,6 @@ export interface HarnessWorkspace {
   cwd: string            // 工作目录（启动 cwd）
   order: number
   note?: string          // 可选备注，仅用于记录/说明
-  pinned?: boolean       // 置顶：true 时在列表顶部展示
   /**
    * @deprecated 历史 inline 环境变量，已由「变量组」（HarnessEnvProfile）取代。
    * 保留仅为兜住手工编辑/历史 JSON：迁移读到它之前不能丢，故 normalizeWorkspace 仍解析。

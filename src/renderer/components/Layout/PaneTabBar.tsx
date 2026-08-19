@@ -456,7 +456,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
           <div
             data-tab-id="__dsh_web__"
             onClick={() => usePaneStore.getState().activateDshWeb()}
-            title={t('dsh.webTitle')}
+            title={dshWeb.cwd ?? t('dsh.webTitle')}
             draggable={webActiveHere}
             onDragStart={(e) => {
               e.dataTransfer.setData('text/plain', '__dsh_web__')

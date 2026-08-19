@@ -1,4 +1,5 @@
-import { isAbsolute } from 'path'
+import { homedir } from 'os'
+import { isAbsolute, join } from 'path'
 import { expandTilde } from '../harness/cwd'
 
 export type NormalizedEnvResult = { ok: true; env?: Record<string, string> } | { ok: false; error: string }
@@ -24,4 +25,16 @@ export function normalizeDshHomeEnv(env: Record<string, string> | undefined): No
     return { ok: false, error: 'DSH_HOME must be an absolute path' }
   }
   return { ok: true, env: { ...env, DSH_HOME: expanded } }
+}
+
+/**
+ * 解析 DSH_HOME 为绝对目录：trim → expandTilde → 校验绝对路径；空白/相对/无法展开一律回落 ~/.dsh。
+ * 纯函数，供 cwd 侧（handlers.defaultDshWebCwd）与子进程 env 侧（dshWebManager.open）共用，保证两边一致。
+ * 与 normalizeDshHomeEnv 的区别：后者对相对路径「拒绝」（有 UI 可回传错误），这里对不可用值「回落默认」，
+ * 因为 process.env 侧的 DSH_HOME 无 UI 可报错、只能默默退回默认目录。
+ */
+export function resolveDshHome(rawHome: string | undefined): string {
+  const trimmed = rawHome?.trim()
+  const expanded = trimmed ? expandTilde(trimmed) : undefined
+  return expanded && isAbsolute(expanded) ? expanded : join(homedir(), '.dsh')
 }

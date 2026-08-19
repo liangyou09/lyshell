@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'child_process'
 import log from 'electron-log'
 import { readSystemPath } from '../env/refresh'
+import { resolveDshHome } from './env'
 
 /**
  * DeepSeek Harness Web UI 进程管理 —— spawn `dsh web --port 0`，解析 stdout 回显的真实端口，
@@ -86,7 +87,11 @@ class DshWebManager {
 
       // 即时读取系统 PATH（用户改环境变量后无需重启 app），再叠加工作区 env。
       const systemPath = readSystemPath()
-      const baseEnv = systemPath ? { ...process.env, PATH: systemPath } : process.env
+      // 复制 process.env 再展开 DSH_HOME 的字面 ~（与 cwd 侧 defaultDshWebCwd 的 resolveDshHome 对齐），
+      // 避免 cwd 已展开而子进程 DSH_HOME 仍是字面 ~ 导致两边目录错位；不直接改 process.env 引用。
+      const baseEnv: Record<string, string | undefined> = { ...process.env }
+      if (systemPath) baseEnv.PATH = systemPath
+      if (baseEnv.DSH_HOME) baseEnv.DSH_HOME = resolveDshHome(baseEnv.DSH_HOME)
 
       const child = spawn('dsh', ['web', '--port', '0'], {
         cwd: opts.cwd,

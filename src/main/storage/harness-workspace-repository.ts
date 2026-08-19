@@ -30,7 +30,7 @@ export function normalizeEnv(raw: unknown): Record<string, string> | undefined {
   return Object.keys(result).length > 0 ? result : undefined
 }
 
-/** 归一化单条 JSON 记录：非法记录返回 null（由 load 过滤），合法记录补齐 note/pinned 默认值。 */
+/** 归一化单条 JSON 记录：非法记录返回 null（由 load 过滤），合法记录补齐 note 默认值。 */
 function normalizeWorkspace(raw: unknown): HarnessWorkspace | null {
   if (typeof raw !== 'object' || raw === null) return null
   const w = raw as Record<string, unknown>
@@ -42,14 +42,12 @@ function normalizeWorkspace(raw: unknown): HarnessWorkspace | null {
   const note = typeof w.note === 'string' && w.note.length > 0 ? w.note : undefined
   // model 非字符串/空串按缺失处理（缺省时用各 CLI 默认模型）
   const model = typeof w.model === 'string' && w.model.length > 0 ? w.model : undefined
-  // pinned 非布尔按 false 处理
-  const pinned = typeof w.pinned === 'boolean' ? w.pinned : false
   // env 非对象/空记录按缺失处理（不因脏数据丢整条记录）
   // 注意：这是 legacy 字段，但迁移要靠它读到旧数据，删掉这行等于静默丢弃用户的 API key
   const env = normalizeEnv(w.env)
   // envProfileId 非字符串/空串按缺失处理（缺省即「跟随已启用的变量组」）
   const envProfileId = typeof w.envProfileId === 'string' && w.envProfileId.length > 0 ? w.envProfileId : undefined
-  return { id: w.id, name: w.name, cwd: w.cwd, order: w.order, pinned, ...(note !== undefined ? { note } : {}), ...(model !== undefined ? { model } : {}), ...(env !== undefined ? { env } : {}), ...(envProfileId !== undefined ? { envProfileId } : {}) }
+  return { id: w.id, name: w.name, cwd: w.cwd, order: w.order, ...(note !== undefined ? { note } : {}), ...(model !== undefined ? { model } : {}), ...(env !== undefined ? { env } : {}), ...(envProfileId !== undefined ? { envProfileId } : {}) }
 }
 
 /**
@@ -120,10 +118,8 @@ export class HarnessWorkspaceRepository {
 
   getAll(): HarnessWorkspace[] {
     this.ensureInitialized()
-    // 置顶优先，其余按 order 升序
-    return [...this.workspaces].sort(
-      (a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || a.order - b.order
-    )
+    // 按 order 升序返回（load 已 reindex 为 0..n-1 连续值）
+    return [...this.workspaces].sort((a, b) => a.order - b.order)
   }
 
   get(id: string): HarnessWorkspace | undefined {
@@ -136,7 +132,6 @@ export class HarnessWorkspaceRepository {
     const newWorkspace: HarnessWorkspace = {
       ...workspace,
       id: uuidv4(),
-      pinned: workspace.pinned === true,
       // order 由仓库分配递增，避免用 workspaces.length 在删除后产生重复值
       order: this.workspaces.reduce((max, w) => Math.max(max, w.order), -1) + 1
     }
@@ -156,19 +151,6 @@ export class HarnessWorkspaceRepository {
     this.workspaces[index] = workspace
     if (!this.save()) {
       this.workspaces[index] = previous
-      return false
-    }
-    return true
-  }
-
-  setPinned(id: string, pinned: boolean): boolean {
-    this.ensureInitialized()
-    const index = this.workspaces.findIndex((w) => w.id === id)
-    if (index === -1) return false
-    const previous = this.workspaces[index].pinned
-    this.workspaces[index] = { ...this.workspaces[index], pinned }
-    if (!this.save()) {
-      this.workspaces[index] = { ...this.workspaces[index], pinned: previous }
       return false
     }
     return true

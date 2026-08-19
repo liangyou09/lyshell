@@ -8,12 +8,12 @@ import { HARNESS_AGENT_VIEWS, type HarnessAgentKind, type HarnessEnvProfile, typ
  *
  * 每个 kind 通过 HARNESS_AGENT_VIEWS[agent] 注入展示/检测配置（依赖、env 默认、模型建议、
  * 安装信息、是否 Web）；行为差异（启动命令、模型预设、env 归一化）在主进程 harness/config.ts，
- * 渲染层只关心「检测 → 工作区列表 → 增删改/置顶/启动」这套通用交互。
+ * 渲染层只关心「检测 → 工作区列表 → 增删改/启动」这套通用交互。
  *
  * 缺失依赖时只提示 + 给出安装命令与仓库链接（不自动安装）。就绪后管理多个「工作区」：
  * 每个工作区 = 名称 + 工作目录，单击在对应目录内启动对应 CLI（参照 Agent 面板交互）。
  * 样式沿用机柜令牌（--bg-base/--bg-slot/--rule/--amber/--text-rack*）与 12px 等宽基线。
- * Web 入口（地球仪）仅在 hasWeb 时渲染（目前只有 dsh）。
+ * Web 入口挂标题（仅 hasWeb 时可按，目前只有 dsh），落在 deepseek-harness 自己的默认工作区。
  */
 
 /** 每 kind 的 IPC 适配器 —— 映射到 preload 暴露的 concrete 方法（ElectronAPI = typeof electronAPI） */
@@ -24,7 +24,6 @@ const HARNESS_API = {
     add: (ws: unknown) => window.electronAPI.addDshWorkspace(ws),
     update: (ws: unknown) => window.electronAPI.updateDshWorkspace(ws),
     delete: (id: string) => window.electronAPI.deleteDshWorkspace(id),
-    setPinned: (id: string, pinned: boolean) => window.electronAPI.setDshWorkspacePinned(id, pinned),
     launch: (id: string) => window.electronAPI.launchDshWorkspace(id),
     envList: () => window.electronAPI.listDshEnvProfiles(),
     envAdd: (p: unknown) => window.electronAPI.addDshEnvProfile(p),
@@ -38,7 +37,6 @@ const HARNESS_API = {
     add: (ws: unknown) => window.electronAPI.addCodexWorkspace(ws),
     update: (ws: unknown) => window.electronAPI.updateCodexWorkspace(ws),
     delete: (id: string) => window.electronAPI.deleteCodexWorkspace(id),
-    setPinned: (id: string, pinned: boolean) => window.electronAPI.setCodexWorkspacePinned(id, pinned),
     launch: (id: string) => window.electronAPI.launchCodexWorkspace(id),
     envList: () => window.electronAPI.listCodexEnvProfiles(),
     envAdd: (p: unknown) => window.electronAPI.addCodexEnvProfile(p),
@@ -52,7 +50,6 @@ const HARNESS_API = {
     add: (ws: unknown) => window.electronAPI.addClaudeWorkspace(ws),
     update: (ws: unknown) => window.electronAPI.updateClaudeWorkspace(ws),
     delete: (id: string) => window.electronAPI.deleteClaudeWorkspace(id),
-    setPinned: (id: string, pinned: boolean) => window.electronAPI.setClaudeWorkspacePinned(id, pinned),
     launch: (id: string) => window.electronAPI.launchClaudeWorkspace(id),
     envList: () => window.electronAPI.listClaudeEnvProfiles(),
     envAdd: (p: unknown) => window.electronAPI.addClaudeEnvProfile(p),
@@ -97,21 +94,6 @@ const IconX: React.FC = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 2l7 7M9 2l-7 7" /></svg>
 )
 
-/** 置顶图钉 —— 实心填充，置顶态常显 amber，未置顶态在 hover 动作里以描边灰呈现 */
-const IconPin: React.FC<{ filled?: boolean }> = ({ filled = true }) => (
-  <svg width="11" height="11" viewBox="0 0 12 12" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.3" strokeLinecap="square" strokeLinejoin="miter">
-    <path d="M5 1.5h2l.6 3h1.9l.8 1H1.7l.8-1H4.4zM6 5.5V10M4.5 8.5h3" />
-  </svg>
-)
-
-/** 地球仪 —— Web UI 入口图标（嵌入 dsh web 面板） */
-const IconGlobe: React.FC = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="square" strokeLinejoin="miter">
-    <circle cx="8" cy="8" r="6" />
-    <path d="M2 8h12M8 2c-2 2-2 10 0 12M8 2c2 2 2 10 0 12" />
-  </svg>
-)
-
 /**
  * 母线档位指示 —— 环境变量单选组每一格的通电状态：左沿 2px 导轨 + LED 圆点。
  * 通电格琥珀点亮并发辉光，其余是空心环（形状差异，不只靠颜色区分）。
@@ -144,7 +126,30 @@ const slotShell = (on: boolean): string =>
     ? 'border-[color-mix(in_srgb,var(--amber)_28%,var(--rule))] bg-[color-mix(in_srgb,var(--amber)_7%,var(--bg-slot))]'
     : 'border-[var(--rule)] bg-[var(--bg-rack)] hover:bg-[var(--bg-slot)]'
 
-const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: HarnessWorkspace) => Promise<{ success: boolean; error?: string }> }> = ({ agent, onOpenWeb }) => {
+/**
+ * 新建条 —— 钉在页签条下方、列表上方的主动作。
+ *
+ * 位置：紧贴页签，不随列表长短漂移，也不被滚动带走 —— 它是这个页签的动作，不是列表的尾巴。
+ * 分量：实线 + 内凹底色 + 半粗标签，比条目更重（它是动作，条目是数据）；只有 + 号用琥珀，
+ * 因为琥珀在本面板里稀缺地表示"通电/启用"，整块染琥珀会和环境变量页签的"已启用"读混。
+ * 名字直接用它要打开的对话框标题，点下去与看到的一致。
+ */
+const AddBar: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
+  <button
+    onClick={onClick}
+    className="group flex-shrink-0 w-full flex items-center gap-2.5 px-2 py-2 rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] cursor-pointer transition-colors hover:border-[var(--amber)] hover:bg-[var(--bg-elev)] focus:outline-none focus-visible:border-[var(--amber)]"
+  >
+    {/* 20px 与列表行的文件夹图标同宽，标签落在条目名的同一左沿上 */}
+    <span aria-hidden className="flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center text-[var(--amber)]">
+      <IconPlus />
+    </span>
+    <span className="min-w-0 truncate text-[13px] font-semibold [font-family:inherit] text-[var(--text-rack)] group-hover:text-[var(--amber)] transition-colors">
+      {label}
+    </span>
+  </button>
+)
+
+const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { workspaceId?: string; cwd?: string }, name?: string) => Promise<{ success: boolean; error?: string }> }> = ({ agent, onOpenWeb }) => {
   const { t } = useTranslation()
   const view = HARNESS_AGENT_VIEWS[agent]
   const prefix = view.i18nPrefix
@@ -159,10 +164,8 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
   // 工作区列表与启动状态
   const [workspaces, setWorkspaces] = useState<HarnessWorkspace[]>([])
   const [launchingId, setLaunchingId] = useState<string | null>(null)
-  const [webOpeningId, setWebOpeningId] = useState<string | null>(null)
-  // 全局栏地球仪的目标工作区：默认置顶（首个），新建后自动选中新建项，点行内地球仪可重选。
-  const [selectedWsId, setSelectedWsId] = useState<string | null>(null)
-  // 列表级操作错误横幅：启动失败与置顶切换失败共用，统一在此展示具体原因
+  const [webOpening, setWebOpening] = useState(false)
+  // 列表级操作错误横幅：启动失败统一在此展示具体原因
   const [actionError, setActionError] = useState<string | null>(null)
   // 新增/编辑对话框
   const [showDialog, setShowDialog] = useState(false)
@@ -283,41 +286,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
     }
   }
 
-  const handleWeb = async (ws: HarnessWorkspace) => {
-    if (webOpeningId) return
-    setWebOpeningId(ws.id)
-    setActionError(null)
-    try {
-      const res = await onOpenWeb?.(ws)
-      if (res && res.success === false) {
-        setActionError(typeof res.error === 'string' && res.error ? res.error : t(`${prefix}.webFailed`))
-      }
-    } catch (err) {
-      console.error(`${agent} web open failed:`, err)
-      setActionError(err instanceof Error ? err.message : t(`${prefix}.webFailed`))
-    } finally {
-      setWebOpeningId(null)
-    }
-  }
-
-  const togglePin = async (ws: HarnessWorkspace) => {
-    const next = !ws.pinned
-    try {
-      const res = await api.setPinned(ws.id, next)
-      // 置顶切换失败（如工作区已被删除/落盘失败）：记录 + 展示具体原因，随后列表刷新回落真实状态
-      if (res && res.success === false) {
-        console.error(`${agent} workspace pin toggle failed:`, res.error ?? 'unknown error')
-        setActionError(typeof res.error === 'string' ? res.error : t(`${prefix}.wsPinFailed`))
-      }
-    } catch (err) {
-      console.error(`${agent} workspace pin toggle failed:`, err)
-      setActionError(err instanceof Error ? err.message : t(`${prefix}.wsPinFailed`))
-    } finally {
-      // 无论成败都重新拉取，确保列表与主进程状态一致（失败时回落到未切换的原状态）
-      await loadWorkspaces()
-    }
-  }
-
   // ESC 退出对话框 —— 文档级监听，不依赖子元素焦点（覆盖层本身不可聚焦）
   // 处于删除二次确认态时，首次 ESC 仅回退确认态，再次 ESC 才关闭（与两步确认语义一致）
   useEffect(() => {
@@ -408,10 +376,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
     if (res && res.success === false) {
       setSaveError(typeof res.error === 'string' ? res.error : t(`${prefix}.wsSaveFailed`))
       return
-    }
-    // 新建成功即选中新建项，让全局栏地球仪指向它（否则地球仪仍开置顶工作区，用户会以为新建没生效）
-    if (!editWorkspace && res && res.success && res.workspace) {
-      setSelectedWsId(res.workspace.id)
     }
     await loadWorkspaces()
     setShowDialog(false)
@@ -526,45 +490,66 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
   const toggleProfile = (p: HarnessEnvProfile) => applyActiveProfile(p.active === true ? null : p.id)
 
   const missing: string[] = status ? deps.filter((d) => !status[d]) : []
-  // 全局栏 Web 入口作用于置顶（首个）工作区 —— getAll 已按 pinned 优先、order 升序返回
-  const topWorkspace = workspaces.length > 0 ? workspaces[0] : undefined
-  // 地球仪实际目标：优先「当前选中」工作区（新建后自动选中），否则回落置顶工作区
-  const globeTarget = (selectedWsId ? workspaces.find(w => w.id === selectedWsId) : undefined) ?? topWorkspace
+  // 标题按钮：有 Web UI 的 kind（dsh）总是可点 —— 直接开 Web，落在 deepseek-harness 自己的
+  // 默认工作区（$DSH_HOME/web），与 TUI 工作区解耦。
+  const titleEnabled = view.hasWeb && listReady && !webOpening
+  const handleNameplate = (): void => {
+    if (webOpening) return
+    setWebOpening(true)
+    setActionError(null)
+    // 缺省 target：主进程落到 dsh 专属默认工作区（$DSH_HOME/web）。环境走「已启用组 → 系统」。
+    void (async () => {
+      try {
+        const res = await onOpenWeb?.({})
+        if (res && res.success === false) {
+          setActionError(typeof res.error === 'string' && res.error ? res.error : t(`${prefix}.webFailed`))
+        }
+      } catch (err) {
+        console.error(`${agent} web open failed:`, err)
+        setActionError(err instanceof Error ? err.message : t(`${prefix}.webFailed`))
+      } finally {
+        setWebOpening(false)
+      }
+    })()
+  }
 
   return (
     <div
       className="w-full h-full flex flex-col bg-[var(--bg-base)] p-3 space-y-2"
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
-      {/* 标题 + 全局操作（Web 入口 / 重新检测） */}
+      {/* 标题 + 重新检测。
+          hasWeb 的 kind（目前只有 dsh）标题本身就是 Web UI 入口：它是面板里最稳的一块 ——
+          不随页签、不随数据增减改位置，故入口挂这儿比挂一个会来会去的图标按钮更可达。
+          点标题直接开 Web，落在 deepseek-harness 自己的默认工作区（$DSH_HOME/web），与 TUI 工作区解耦。
+          不加边框与状态字，仅靠悬停变琥珀提示可按；启动中同样标黄（琥珀=此刻与 Web 有关）。
+          codex/claude 无 Web UI，标题不可按 —— 有能力的地方才有控件。 */}
       <div className="flex items-center justify-between gap-1 flex-shrink-0">
-        <span className="flex items-center gap-2 text-[15px] font-semibold tracking-[0.02em] [font-family:inherit] text-[var(--text-rack)]">
-          {/* 通电 LED —— 标题的琥珀色锚点，与对话框头条同源；工作区眉条无此标记，形成主从层次 */}
-          <span aria-hidden className="w-[6px] h-[6px] rounded-full bg-[var(--amber)] shadow-[0_0_5px_var(--amber-glow)] flex-shrink-0" />
-          {t(`${prefix}.title`)}
-        </span>
-        <div className="flex items-center gap-0">
-          {/* Web 入口（地球仪）是工作区语义，只在工作区页签露出，作用于「当前选中/置顶」工作区；分屏改为拖拽 Web 页签 */}
-          {view.hasWeb && listReady && activeTab === 'workspaces' && globeTarget && (
-            <button
-              onClick={() => void handleWeb(globeTarget)}
-              title={t(`${prefix}.webLaunch`)}
-              disabled={!!webOpeningId}
-              className="w-[24px] h-[24px] flex items-center justify-center bg-transparent border-none rounded-[4px] cursor-pointer transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--amber)] disabled:opacity-50 disabled:cursor-wait"
-            >
-              <IconGlobe />
-            </button>
-          )}
-          {/* 新建入口 —— 按当前页签分派：工作区页签建工作区，环境变量页签建变量组 */}
-          {listReady && (
-            <button
-              onClick={activeTab === 'workspaces' ? handleAdd : handleAddProfile}
-              title={activeTab === 'workspaces' ? t(`${prefix}.wsAddTitle`) : t(`${prefix}.envAddTitle`)}
-              className="w-[24px] h-[24px] flex items-center justify-center bg-transparent border-none rounded-[4px] cursor-pointer transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--amber)]"
-            >
-              <IconPlus />
-            </button>
-          )}
+        {view.hasWeb ? (
+          <button
+            onClick={handleNameplate}
+            disabled={!titleEnabled}
+            title={t(`${prefix}.webDefault`)}
+            className={cn(
+              'flex-1 min-w-0 flex items-center gap-2 p-0 bg-transparent border-none text-left',
+              'text-[15px] font-semibold tracking-[0.02em] [font-family:inherit] transition-colors',
+              'focus:outline-none focus-visible:text-[var(--amber)] focus-visible:underline underline-offset-[3px]',
+              webOpening && 'text-[var(--amber)] cursor-wait',
+              !webOpening && titleEnabled && 'text-[var(--text-rack)] cursor-pointer hover:text-[var(--amber)]',
+              !webOpening && !titleEnabled && 'text-[var(--text-rack)] cursor-default'
+            )}
+          >
+            {/* 通电 LED —— 面板标题的琥珀锚点，与对话框头条同源（不表示 Web 状态） */}
+            <span aria-hidden className="w-[6px] h-[6px] rounded-full bg-[var(--amber)] shadow-[0_0_5px_var(--amber-glow)] flex-shrink-0" />
+            <span className="min-w-0 truncate">{t(`${prefix}.title`)}</span>
+          </button>
+        ) : (
+          <span className="flex-1 min-w-0 flex items-center gap-2 text-[15px] font-semibold tracking-[0.02em] [font-family:inherit] text-[var(--text-rack)]">
+            <span aria-hidden className="w-[6px] h-[6px] rounded-full bg-[var(--amber)] shadow-[0_0_5px_var(--amber-glow)] flex-shrink-0" />
+            <span className="truncate">{t(`${prefix}.title`)}</span>
+          </span>
+        )}
+        <div className="flex items-center gap-0 flex-shrink-0">
           {/* 依赖齐全时无需重新检测（隐藏）；检测中/缺依赖时保留 */}
           {!launchReady && (
             <button
@@ -715,6 +700,9 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
       {/* 工作区页签 */}
       {listReady && activeTab === 'workspaces' && (
         <>
+          {/* 新建排在告警/错误横幅之前：它是本页签的固定动作，位置不该被临时横幅推来推去 */}
+          <AddBar label={t(`${prefix}.wsAddTitle`)} onClick={handleAdd} />
+
           {/* 其余依赖未装：启动禁用（dsh 仅装了 dsh 缺 dsh-tui 时出现） */}
           {!launchReady && (
             <div className="flex items-start gap-2 rounded-[2px] border border-[color-mix(in_srgb,var(--amber)_28%,var(--rule))] bg-[color-mix(in_srgb,var(--amber)_7%,var(--bg-slot))] px-2 py-1.5">
@@ -758,11 +746,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
                     </span>
                     <span className="flex flex-col min-w-0 flex-1">
                       <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">
-                        {ws.pinned && (
-                          <span aria-hidden className="inline-flex align-[-1px] mr-1 text-[var(--amber)]">
-                            <IconPin />
-                          </span>
-                        )}
                         {ws.name}
                         {launching && <span className="ml-1.5 text-[10.5px] [font-family:inherit] text-[var(--amber)]">{t(`${prefix}.launching`)}</span>}
                       </span>
@@ -779,28 +762,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
                       )}
                     </span>
                     <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-slot)] from-[24%] to-transparent">
-                      {view.hasWeb && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setSelectedWsId(ws.id); void handleWeb(ws) }}
-                          title={t(`${prefix}.webLaunch`)}
-                          disabled={!!webOpeningId}
-                          className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--amber)] disabled:opacity-50 disabled:cursor-wait"
-                        >
-                          <IconGlobe />
-                        </button>
-                      )}
-                      <button
-                        onClick={async (e) => { e.stopPropagation(); await togglePin(ws) }}
-                        title={ws.pinned ? t(`${prefix}.wsUnpin`) : t(`${prefix}.wsPin`)}
-                        className={cn(
-                          'w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors',
-                          ws.pinned
-                            ? 'text-[var(--amber)] hover:bg-[var(--bg-elev)]'
-                            : 'text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--amber)]'
-                        )}
-                      >
-                        <IconPin filled={ws.pinned} />
-                      </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleEdit(ws) }}
                         title={t(`${prefix}.wsEditTitle`)}
@@ -842,6 +803,10 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
       {/* 环境变量页签 —— N+1 单选组（母线）：系统档位常驻列首，恒有且仅有一格通电 */}
       {listReady && activeTab === 'env' && (
         <>
+          {/* 排在 radiogroup 之外、之上：它是动作不是档位，混进单选组会同时破坏「系统档位常驻列首」
+              的读法与 radiogroup 的 role 语义。虚线换实线后与下方档位的实心槽也不会混淆。 */}
+          <AddBar label={t(`${prefix}.envAddTitle`)} onClick={handleAddProfile} />
+
           {envActionError && (
             <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words">{envActionError}</div>
           )}
