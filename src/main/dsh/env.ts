@@ -20,7 +20,8 @@ export function normalizeDshHomeEnv(env: Record<string, string> | undefined): No
   }
   const expanded = expandTilde(raw)
   if (!isAbsolute(expanded)) {
-    return { ok: false, error: 'workspace.env.DSH_HOME must be an absolute path' }
+    // 不带 workspace. 前缀：同一条校验现在也从「变量组」保存路径冒出来，措辞须两处都成立
+    return { ok: false, error: 'DSH_HOME must be an absolute path' }
   }
   return { ok: true, env: { ...env, DSH_HOME: expanded } }
 }

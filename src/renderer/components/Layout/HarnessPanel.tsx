@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
-import { HARNESS_AGENT_VIEWS, type HarnessAgentKind, type HarnessWorkspace } from '@shared/harness'
+import { HARNESS_AGENT_VIEWS, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
 
 /**
  * AI Harness 面板 —— dsh / codex / claude 三份第一等终端 Agent 的通用外壳。
@@ -25,7 +25,12 @@ const HARNESS_API = {
     update: (ws: unknown) => window.electronAPI.updateDshWorkspace(ws),
     delete: (id: string) => window.electronAPI.deleteDshWorkspace(id),
     setPinned: (id: string, pinned: boolean) => window.electronAPI.setDshWorkspacePinned(id, pinned),
-    launch: (id: string) => window.electronAPI.launchDshWorkspace(id)
+    launch: (id: string) => window.electronAPI.launchDshWorkspace(id),
+    envList: () => window.electronAPI.listDshEnvProfiles(),
+    envAdd: (p: unknown) => window.electronAPI.addDshEnvProfile(p),
+    envUpdate: (p: unknown) => window.electronAPI.updateDshEnvProfile(p),
+    envDelete: (id: string) => window.electronAPI.deleteDshEnvProfile(id),
+    envSetActive: (id: string | null) => window.electronAPI.setDshEnvProfileActive(id)
   },
   codex: {
     detect: () => window.electronAPI.detectCodex(),
@@ -34,7 +39,12 @@ const HARNESS_API = {
     update: (ws: unknown) => window.electronAPI.updateCodexWorkspace(ws),
     delete: (id: string) => window.electronAPI.deleteCodexWorkspace(id),
     setPinned: (id: string, pinned: boolean) => window.electronAPI.setCodexWorkspacePinned(id, pinned),
-    launch: (id: string) => window.electronAPI.launchCodexWorkspace(id)
+    launch: (id: string) => window.electronAPI.launchCodexWorkspace(id),
+    envList: () => window.electronAPI.listCodexEnvProfiles(),
+    envAdd: (p: unknown) => window.electronAPI.addCodexEnvProfile(p),
+    envUpdate: (p: unknown) => window.electronAPI.updateCodexEnvProfile(p),
+    envDelete: (id: string) => window.electronAPI.deleteCodexEnvProfile(id),
+    envSetActive: (id: string | null) => window.electronAPI.setCodexEnvProfileActive(id)
   },
   claude: {
     detect: () => window.electronAPI.detectClaude(),
@@ -43,7 +53,12 @@ const HARNESS_API = {
     update: (ws: unknown) => window.electronAPI.updateClaudeWorkspace(ws),
     delete: (id: string) => window.electronAPI.deleteClaudeWorkspace(id),
     setPinned: (id: string, pinned: boolean) => window.electronAPI.setClaudeWorkspacePinned(id, pinned),
-    launch: (id: string) => window.electronAPI.launchClaudeWorkspace(id)
+    launch: (id: string) => window.electronAPI.launchClaudeWorkspace(id),
+    envList: () => window.electronAPI.listClaudeEnvProfiles(),
+    envAdd: (p: unknown) => window.electronAPI.addClaudeEnvProfile(p),
+    envUpdate: (p: unknown) => window.electronAPI.updateClaudeEnvProfile(p),
+    envDelete: (id: string) => window.electronAPI.deleteClaudeEnvProfile(id),
+    envSetActive: (id: string | null) => window.electronAPI.setClaudeEnvProfileActive(id)
   }
 } as const
 
@@ -97,6 +112,38 @@ const IconGlobe: React.FC = () => (
   </svg>
 )
 
+/**
+ * 母线档位指示 —— 环境变量单选组每一格的通电状态：左沿 2px 导轨 + LED 圆点。
+ * 通电格琥珀点亮并发辉光，其余是空心环（形状差异，不只靠颜色区分）。
+ * 依赖父元素 `relative overflow-hidden` 承接绝对定位的导轨。
+ */
+const BusLed: React.FC<{ on: boolean }> = ({ on }) => (
+  <>
+    <span
+      aria-hidden
+      className={cn(
+        'absolute left-0 top-0 bottom-0 w-[2px] transition-colors',
+        on ? 'bg-[var(--amber)] shadow-[0_0_6px_var(--amber-glow)]' : 'bg-transparent'
+      )}
+    />
+    <span
+      aria-hidden
+      className={cn(
+        'flex-shrink-0 w-[8px] h-[8px] rounded-full border transition-colors',
+        on
+          ? 'bg-[var(--amber)] border-[var(--amber)] shadow-[0_0_5px_var(--amber-glow)]'
+          : 'bg-transparent border-[var(--rule)]'
+      )}
+    />
+  </>
+)
+
+/** 档位行外壳的通用配色：通电格用琥珀薄底，其余用常规机柜行 */
+const slotShell = (on: boolean): string =>
+  on
+    ? 'border-[color-mix(in_srgb,var(--amber)_28%,var(--rule))] bg-[color-mix(in_srgb,var(--amber)_7%,var(--bg-slot))]'
+    : 'border-[var(--rule)] bg-[var(--bg-rack)] hover:bg-[var(--bg-slot)]'
+
 const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: HarnessWorkspace) => Promise<{ success: boolean; error?: string }> }> = ({ agent, onOpenWeb }) => {
   const { t } = useTranslation()
   const view = HARNESS_AGENT_VIEWS[agent]
@@ -107,6 +154,8 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
   const [status, setStatus] = useState<Record<string, boolean> | null>(null)
   const [detecting, setDetecting] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
+  // 页签：工作区 / 环境变量（两者平级）
+  const [activeTab, setActiveTab] = useState<'workspaces' | 'env'>('workspaces')
   // 工作区列表与启动状态
   const [workspaces, setWorkspaces] = useState<HarnessWorkspace[]>([])
   const [launchingId, setLaunchingId] = useState<string | null>(null)
@@ -122,12 +171,31 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
   const [wsCwd, setWsCwd] = useState('')
   const [wsNote, setWsNote] = useState('')
   const [wsModel, setWsModel] = useState('')
-  const [wsEnv, setWsEnv] = useState<{ key: string; value: string }[]>([])
+  // 工作区绑定的变量组 id；undefined = 跟随已启用的变量组
+  const [wsEnvProfileId, setWsEnvProfileId] = useState<string | undefined>(undefined)
   const [triedSubmit, setTriedSubmit] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   // 列表行内删除的两步确认：记录待确认的工作区 id（null = 无待确认）
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+
+  // ── 环境变量组 ──
+  const [envProfiles, setEnvProfiles] = useState<HarnessEnvProfile[]>([])
+  // 变量组列表是否已成功拉到 —— 空列表有两种含义（「一个都没有」与「还没拉到/拉失败」），
+  // 只有前者才允许把工作区的悬空绑定判为悬空，见 handleEdit
+  const [envProfilesLoaded, setEnvProfilesLoaded] = useState(false)
+  const [envActionError, setEnvActionError] = useState<string | null>(null)
+  const [switchingActive, setSwitchingActive] = useState(false)
+  const [envDeleteConfirmId, setEnvDeleteConfirmId] = useState<string | null>(null)
+  // 变量组新增/编辑对话框
+  const [showEnvDialog, setShowEnvDialog] = useState(false)
+  const [editProfile, setEditProfile] = useState<HarnessEnvProfile | undefined>(undefined)
+  const [profileName, setProfileName] = useState('')
+  const [profileNote, setProfileNote] = useState('')
+  const [profileEnv, setProfileEnv] = useState<{ key: string; value: string }[]>([])
+  const [triedEnvSubmit, setTriedEnvSubmit] = useState(false)
+  const [envConfirmDelete, setEnvConfirmDelete] = useState(false)
+  const [envSaveError, setEnvSaveError] = useState<string | null>(null)
 
   const runDetect = useCallback(async () => {
     setDetecting(true)
@@ -154,11 +222,25 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
     }
   }, [api, agent])
 
-  // 挂载即检测 + 拉取工作区
+  const loadEnvProfiles = useCallback(async () => {
+    try {
+      const result = await api.envList()
+      if (Array.isArray(result)) {
+        setEnvProfiles(result as HarnessEnvProfile[])
+        setEnvProfilesLoaded(true)
+      }
+    } catch (err) {
+      // 失败时不置 loaded：此后编辑工作区一律透传已有绑定，不拿一份没拉到的列表去判悬空
+      console.error(`Failed to load ${agent} env profiles:`, err)
+    }
+  }, [api, agent])
+
+  // 挂载即检测 + 拉取工作区与变量组（工作区对话框要用变量组渲染选择器，故两者同时拉）
   useEffect(() => {
     void runDetect()
     void loadWorkspaces()
-  }, [runDetect, loadWorkspaces])
+    void loadEnvProfiles()
+  }, [runDetect, loadWorkspaces, loadEnvProfiles])
 
   const copy = async (text: string, key: string) => {
     try {
@@ -253,17 +335,42 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
     return () => document.removeEventListener('keydown', onKey)
   }, [showDialog, confirmDelete])
 
+  // 变量组对话框同上（两个对话框互斥，各自监听自己的开关）
+  useEffect(() => {
+    if (!showEnvDialog) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      if (envConfirmDelete) {
+        setEnvConfirmDelete(false)
+        return
+      }
+      setShowEnvDialog(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [showEnvDialog, envConfirmDelete])
+
   // ── 对话框 ──
   const handleAdd = () => {
     setEditWorkspace(undefined)
-    setWsName(''); setWsCwd(''); setWsNote(''); setWsModel(''); setWsEnv([])
+    setWsName(''); setWsCwd(''); setWsNote(''); setWsModel(''); setWsEnvProfileId(undefined)
     setTriedSubmit(false); setConfirmDelete(false); setSaveError(null)
     setShowDialog(true)
   }
   const handleEdit = (ws: HarnessWorkspace) => {
     setEditWorkspace(ws)
     setWsName(ws.name); setWsCwd(ws.cwd); setWsNote(ws.note || ''); setWsModel(ws.model || '')
-    setWsEnv(ws.env ? Object.entries(ws.env).map(([key, value]) => ({ key, value })) : [])
+    // 绑定的变量组已被删除时按「跟随已启用」呈现 —— 与主进程 resolveWorkspaceEnv 的回落一致，
+    // 否则选择器会显示成「什么都没选中」，看不出实际会用哪份变量。
+    // 但这条归一化只在变量组列表确实拉到之后才成立：工作区与变量组是两条并发 IPC，
+    // 若在变量组返回前（或它拉失败时）点编辑，envProfiles 还是 []，会把有效绑定误判成悬空，
+    // 保存后绑定就没了。列表状态未知时一律透传原值。
+    setWsEnvProfileId(
+      !envProfilesLoaded || (ws.envProfileId && envProfiles.some((p) => p.id === ws.envProfileId))
+        ? ws.envProfileId
+        : undefined
+    )
     setTriedSubmit(false); setConfirmDelete(false); setSaveError(null)
     setShowDialog(true)
   }
@@ -292,17 +399,11 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
     const note = wsNote.trim()
     const model = wsModel.trim()
     const modelPayload = model.length > 0 ? model : undefined
-    // 折叠 env：丢弃空 key 行；同名 key 后者覆盖；空时传 undefined（启动即用系统环境变量）
-    const env: Record<string, string> = {}
-    for (const row of wsEnv) {
-      const k = row.key.trim()
-      if (k) env[k] = row.value
-    }
-    const envPayload = Object.keys(env).length > 0 ? env : undefined
     // order 由主进程仓库分配递增，前端不再传 workspaces.length（删除后可能产生重复）
+    // envProfileId 传 undefined 即「跟随已启用的变量组」；主进程按「键存在」判断，故必须显式带上这个键
     const res = editWorkspace
-      ? await api.update({ ...editWorkspace, name, cwd, note: note || undefined, model: modelPayload, env: envPayload })
-      : await api.add({ name, cwd, note: note || undefined, model: modelPayload, env: envPayload })
+      ? await api.update({ ...editWorkspace, name, cwd, note: note || undefined, model: modelPayload, envProfileId: wsEnvProfileId })
+      : await api.add({ name, cwd, note: note || undefined, model: modelPayload, envProfileId: wsEnvProfileId })
     // 保存失败（校验未通过 / 落盘失败）：保留表单，展示具体错误，不关闭对话框
     if (res && res.success === false) {
       setSaveError(typeof res.error === 'string' ? res.error : t(`${prefix}.wsSaveFailed`))
@@ -324,24 +425,105 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
     }
   }
 
-  // 环境变量行编辑（对齐 AgentsPanel 的 env 编辑器）
-  const addEnvRow = () => setWsEnv((prev) => [...prev, { key: '', value: '' }])
+  // ── 变量组：环境变量行编辑（对齐 AgentsPanel 的 env 编辑器） ──
+  const addEnvRow = () => setProfileEnv((prev) => [...prev, { key: '', value: '' }])
   const updateEnvRow = (i: number, field: 'key' | 'value', value: string) =>
-    setWsEnv((prev) => prev.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)))
-  const removeEnvRow = (i: number) => setWsEnv((prev) => prev.filter((_, idx) => idx !== i))
+    setProfileEnv((prev) => prev.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)))
+  const removeEnvRow = (i: number) => setProfileEnv((prev) => prev.filter((_, idx) => idx !== i))
   // 当前 env 行里尚缺的默认变量（按 key 名精确匹配）
   const missingEnv = view.envDefaults.filter(
-    (d) => !wsEnv.some((row) => row.key.trim() === d.key)
+    (d) => !profileEnv.some((row) => row.key.trim() === d.key)
   )
   // 一键补全缺失的默认变量（保留已有行，仅追加缺失项）
   const fillEnv = () => {
-    setWsEnv((prev) => [
+    setProfileEnv((prev) => [
       ...prev,
       ...view.envDefaults
         .filter((d) => !prev.some((row) => row.key.trim() === d.key))
         .map((d) => ({ key: d.key, value: d.value }))
     ])
   }
+
+  // ── 变量组：对话框与单选启用 ──
+  const activeProfile = envProfiles.find((p) => p.active === true)
+
+  const handleAddProfile = () => {
+    setEditProfile(undefined)
+    setProfileName(''); setProfileNote('')
+    // 新建即预填该 kind 的默认变量（API key 等），省掉「先加行再想 key 叫什么」这一步
+    setProfileEnv(view.envDefaults.map((d) => ({ key: d.key, value: d.value })))
+    setTriedEnvSubmit(false); setEnvConfirmDelete(false); setEnvSaveError(null)
+    setShowEnvDialog(true)
+  }
+  const handleEditProfile = (p: HarnessEnvProfile) => {
+    setEditProfile(p)
+    setProfileName(p.name); setProfileNote(p.note || '')
+    setProfileEnv(Object.entries(p.env).map(([key, value]) => ({ key, value })))
+    setTriedEnvSubmit(false); setEnvConfirmDelete(false); setEnvSaveError(null)
+    setShowEnvDialog(true)
+  }
+
+  // 折叠 env 行：丢弃空 key；同名 key 后者覆盖
+  const collapseEnv = (rows: { key: string; value: string }[]): Record<string, string> => {
+    const env: Record<string, string> = {}
+    for (const row of rows) {
+      const k = row.key.trim()
+      if (k) env[k] = row.value
+    }
+    return env
+  }
+  const profilePayloadEnv = collapseEnv(profileEnv)
+  const profileValid = profileName.trim().length > 0 && Object.keys(profilePayloadEnv).length > 0
+
+  const handleSaveProfile = async () => {
+    if (!profileValid) { setTriedEnvSubmit(true); return }
+    setEnvSaveError(null)
+    const name = profileName.trim()
+    // note 传 undefined 即清空：主进程 `if (safe.note !== undefined)` 不写这个键，
+    // 记录整条替换后备注即消失（与工作区对话框同一套语义）
+    const note = profileNote.trim() || undefined
+    const res = editProfile
+      ? await api.envUpdate({ ...editProfile, name, note, env: profilePayloadEnv })
+      : await api.envAdd({ name, note, env: profilePayloadEnv })
+    if (res && res.success === false) {
+      setEnvSaveError(typeof res.error === 'string' ? res.error : t(`${prefix}.envSaveFailed`))
+      return
+    }
+    await loadEnvProfiles()
+    setShowEnvDialog(false)
+  }
+
+  const handleDeleteProfile = async () => {
+    if (!envConfirmDelete) { setEnvConfirmDelete(true); return }
+    if (editProfile) {
+      await api.envDelete(editProfile.id)
+      // 变量组是工作区绑定的目标，删除后工作区会回落 —— 一并刷新列表让绑定标记消失
+      await Promise.all([loadEnvProfiles(), loadWorkspaces()])
+      setShowEnvDialog(false)
+    }
+  }
+
+  /** 单选启用：传 id 启用该条，传 null 全部停用（回落系统环境变量） */
+  const applyActiveProfile = async (id: string | null) => {
+    if (switchingActive) return
+    setSwitchingActive(true)
+    setEnvActionError(null)
+    try {
+      const res = await api.envSetActive(id)
+      if (res && res.success === false) {
+        setEnvActionError(typeof res.error === 'string' ? res.error : t(`${prefix}.envActiveFailed`))
+      }
+    } catch (err) {
+      console.error(`${agent} env profile activation failed:`, err)
+      setEnvActionError(err instanceof Error ? err.message : t(`${prefix}.envActiveFailed`))
+    } finally {
+      setSwitchingActive(false)
+      // 无论成败都重新拉取，失败时回落到真实状态
+      await loadEnvProfiles()
+    }
+  }
+  // 点已通电的那格即停用 —— 系统那格随之点亮，构成一个可关的单选组
+  const toggleProfile = (p: HarnessEnvProfile) => applyActiveProfile(p.active === true ? null : p.id)
 
   const missing: string[] = status ? deps.filter((d) => !status[d]) : []
   // 全局栏 Web 入口作用于置顶（首个）工作区 —— getAll 已按 pinned 优先、order 升序返回
@@ -362,8 +544,8 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
           {t(`${prefix}.title`)}
         </span>
         <div className="flex items-center gap-0">
-          {/* 依赖就绪且有工作区时，Web 入口（地球仪）提升到全局栏，作用于「当前选中/置顶」工作区；分屏改为拖拽 Web 页签 */}
-          {view.hasWeb && listReady && globeTarget && (
+          {/* Web 入口（地球仪）是工作区语义，只在工作区页签露出，作用于「当前选中/置顶」工作区；分屏改为拖拽 Web 页签 */}
+          {view.hasWeb && listReady && activeTab === 'workspaces' && globeTarget && (
             <button
               onClick={() => void handleWeb(globeTarget)}
               title={t(`${prefix}.webLaunch`)}
@@ -373,11 +555,11 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
               <IconGlobe />
             </button>
           )}
-          {/* 新建工作区入口 —— 依赖就绪即提升到全局栏 */}
+          {/* 新建入口 —— 按当前页签分派：工作区页签建工作区，环境变量页签建变量组 */}
           {listReady && (
             <button
-              onClick={handleAdd}
-              title={t(`${prefix}.wsAddTitle`)}
+              onClick={activeTab === 'workspaces' ? handleAdd : handleAddProfile}
+              title={activeTab === 'workspaces' ? t(`${prefix}.wsAddTitle`) : t(`${prefix}.envAddTitle`)}
               className="w-[24px] h-[24px] flex items-center justify-center bg-transparent border-none rounded-[4px] cursor-pointer transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--amber)]"
             >
               <IconPlus />
@@ -502,17 +684,37 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
         </>
       )}
 
-      {/* 就绪：工作区列表（多工作区；首个依赖就绪即可） */}
+      {/* 就绪：工作区 / 环境变量两个平级页签（首个依赖就绪即可） */}
       {listReady && (
         <>
-          <div className="flex items-center justify-between gap-1 flex-shrink-0">
-            <span className="text-[11px] font-semibold tracking-[0.08em] [font-family:inherit] text-[var(--text-rack-mute)]">
-              {t(`${prefix}.wsHeader`)}
-              <span className="text-[var(--text-rack-dim)] mx-1.5">·</span>
-              <span className="text-[var(--text-rack)] font-medium tabular-nums">{workspaces.length}</span>
-            </span>
+          {/* 页签条 —— 沿用 FileManagerPanel 的语汇：齐平文字按钮 + 琥珀下划线压在容器发丝线上 */}
+          <div className="flex items-center gap-0 flex-shrink-0 border-b border-[var(--rule)]">
+            {([
+              { key: 'workspaces' as const, label: t(`${prefix}.tabWorkspaces`), count: workspaces.length },
+              { key: 'env' as const, label: t(`${prefix}.tabEnv`), count: envProfiles.length }
+            ]).map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                aria-selected={activeTab === tab.key}
+                className={cn(
+                  'px-2 py-1 -mb-px font-semibold text-[11px] tracking-[0.08em] [font-family:inherit] bg-transparent border-none border-b cursor-pointer transition-colors',
+                  activeTab === tab.key
+                    ? 'text-[var(--text-rack)] border-[var(--amber)]'
+                    : 'text-[var(--text-rack-mute)] border-transparent hover:text-[var(--text-rack)]'
+                )}
+              >
+                {tab.label}
+                <span className="ml-1.5 tabular-nums text-[var(--text-rack-dim)]">{tab.count}</span>
+              </button>
+            ))}
           </div>
+        </>
+      )}
 
+      {/* 工作区页签 */}
+      {listReady && activeTab === 'workspaces' && (
+        <>
           {/* 其余依赖未装：启动禁用（dsh 仅装了 dsh 缺 dsh-tui 时出现） */}
           {!launchReady && (
             <div className="flex items-start gap-2 rounded-[2px] border border-[color-mix(in_srgb,var(--amber)_28%,var(--rule))] bg-[color-mix(in_srgb,var(--amber)_7%,var(--bg-slot))] px-2 py-1.5">
@@ -535,6 +737,10 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
             ) : (
               workspaces.map((ws) => {
                 const launching = launchingId === ws.id
+                // 显式绑定的变量组（悬空绑定不显示 —— 主进程会回落已启用组，标出来反而误导）
+                const boundProfile = ws.envProfileId
+                  ? envProfiles.find((p) => p.id === ws.envProfileId)
+                  : undefined
                 return (
                   <div
                     key={ws.id}
@@ -561,6 +767,13 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
                         {launching && <span className="ml-1.5 text-[10.5px] [font-family:inherit] text-[var(--amber)]">{t(`${prefix}.launching`)}</span>}
                       </span>
                       <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">{ws.cwd}</span>
+                      {/* 绑定了变量组时标出来 —— 点这行即刻启动，用哪份密钥必须点之前就看得见 */}
+                      {boundProfile && (
+                        <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0">
+                          <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--amber)] flex-shrink-0" />
+                          <span className="truncate">{boundProfile.name}</span>
+                        </span>
+                      )}
                       {ws.note && (
                         <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] truncate leading-tight">{ws.note}</span>
                       )}
@@ -611,6 +824,114 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
                         className={cn(
                           'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
                           deleteConfirmId === ws.id
+                            ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
+                            : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]'
+                        )}
+                      >
+                        <IconX />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </>
+      )}
+
+      {/* 环境变量页签 —— N+1 单选组（母线）：系统档位常驻列首，恒有且仅有一格通电 */}
+      {listReady && activeTab === 'env' && (
+        <>
+          {envActionError && (
+            <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words">{envActionError}</div>
+          )}
+
+          <div role="radiogroup" aria-label={t(`${prefix}.tabEnv`)} className="flex-1 overflow-y-auto min-h-0 space-y-1 rack-scroll">
+            {/* 系统档位：不是「无选择」，而是与各变量组平级的一格。全部停用时它通电。 */}
+            <div
+              role="radio"
+              aria-checked={!activeProfile}
+              tabIndex={0}
+              onClick={() => void applyActiveProfile(null)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void applyActiveProfile(null) } }}
+              title={activeProfile ? t(`${prefix}.envUseSystem`) : undefined}
+              className={cn(
+                'relative overflow-hidden flex items-center gap-2.5 px-2 py-1.5 rounded-[2px] cursor-pointer border transition-colors focus:outline-none focus-visible:border-[var(--amber)]',
+                slotShell(!activeProfile),
+                switchingActive && 'opacity-60 cursor-wait'
+              )}
+            >
+              <BusLed on={!activeProfile} />
+              <span className="flex flex-col min-w-0 flex-1">
+                <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">
+                  {t(`${prefix}.envSystem`)}
+                </span>
+                <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] truncate leading-tight">
+                  {t(`${prefix}.envSystemHint`)}
+                </span>
+              </span>
+            </div>
+
+            {envProfiles.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-2 px-4 pt-8 text-center">
+                <span className="font-mono text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
+                <span className="text-[11.5px] [font-family:inherit] text-[var(--text-rack-mute)]">{t(`${prefix}.envEmpty`)}</span>
+                <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">{t(`${prefix}.envEmptyHint`)}</span>
+              </div>
+            ) : (
+              envProfiles.map((p) => {
+                const on = p.active === true
+                return (
+                  <div
+                    key={p.id}
+                    role="radio"
+                    aria-checked={on}
+                    tabIndex={0}
+                    onClick={() => void toggleProfile(p)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void toggleProfile(p) } }}
+                    onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); handleEditProfile(p) }}
+                    onMouseLeave={() => { if (envDeleteConfirmId === p.id) setEnvDeleteConfirmId(null) }}
+                    title={on ? t(`${prefix}.envDisable`) : t(`${prefix}.envEnable`)}
+                    className={cn(
+                      'group relative overflow-hidden flex items-center gap-2.5 px-2 py-1.5 rounded-[2px] cursor-pointer border transition-colors focus:outline-none focus-visible:border-[var(--amber)]',
+                      slotShell(on),
+                      switchingActive && 'opacity-60 cursor-wait'
+                    )}
+                  >
+                    <BusLed on={on} />
+                    <span className="flex flex-col min-w-0 flex-1">
+                      <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">
+                        {p.name}
+                      </span>
+                      <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">
+                        {t(`${prefix}.envVars`, { count: Object.keys(p.env).length })}
+                        {p.note && <span className="text-[var(--text-rack-mute)]"> · {p.note}</span>}
+                      </span>
+                    </span>
+                    <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-slot)] from-[24%] to-transparent">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleEditProfile(p) }}
+                        title={t(`${prefix}.envEditTitle`)}
+                        className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
+                      >
+                        <IconEdit />
+                      </button>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          // 两步确认：首次点击切到确认态，再次点击才真正删除（与工作区一致）
+                          if (envDeleteConfirmId !== p.id) {
+                            setEnvDeleteConfirmId(p.id)
+                            return
+                          }
+                          setEnvDeleteConfirmId(null)
+                          await api.envDelete(p.id)
+                          await Promise.all([loadEnvProfiles(), loadWorkspaces()])
+                        }}
+                        title={envDeleteConfirmId === p.id ? t(`${prefix}.wsConfirmDelete`) : t(`${prefix}.wsDelete`)}
+                        className={cn(
+                          'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
+                          envDeleteConfirmId === p.id
                             ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
                             : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]'
                         )}
@@ -719,68 +1040,49 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
               </datalist>
             </div>
 
-            {/* 环境变量 —— 注入 CLI 会话；留空则用系统环境变量 */}
+            {/* 环境变量 —— 选一组预配置变量；不选则跟随已启用的那组（三级链在这里就地摊开） */}
             <div className="py-3.5 px-4 border-b border-[var(--rule)]">
               <div className="mb-2">
-                {/* 标题 + fill 按钮一行；说明单独一行，避免长说明与按钮相互挤压 */}
-                <div className="flex items-center gap-2">
-                  <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsEnv`)}</span>
-                  <span className="flex-1" />
-                  {missingEnv.length > 0 && (
-                    <button
-                      onClick={fillEnv}
-                      title={missingEnv.map((d) => d.key).join(', ')}
-                      className="px-1.5 py-0.5 text-[10.5px] [font-family:inherit] rounded-[2px] border border-[color-mix(in_srgb,var(--amber)_40%,var(--rule))] text-[var(--amber)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] transition-colors whitespace-nowrap"
-                    >
-                      + {t(`${prefix}.wsEnvFill`)}
-                    </button>
-                  )}
-                </div>
-                <div className="mt-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t(`${prefix}.wsEnvHint`)}</div>
+                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsEnvProfile`)}</span>
+                <div className="mt-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t(`${prefix}.wsEnvProfileHint`)}</div>
               </div>
-              <div className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm overflow-hidden">
-                {wsEnv.length === 0 ? (
+              <div role="radiogroup" aria-label={t(`${prefix}.wsEnvProfile`)} className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm overflow-hidden max-h-[168px] overflow-y-auto rack-scroll">
+                {/* 跟随档位：默认值。就地显示解析结果，免得用户还要切页签才知道实际会用哪份 */}
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={wsEnvProfileId === undefined}
+                  onClick={() => setWsEnvProfileId(undefined)}
+                  className="relative w-full text-left flex items-center gap-2 px-2.5 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0 bg-transparent cursor-pointer hover:bg-[var(--bg-slot)] transition-colors"
+                >
+                  <BusLed on={wsEnvProfileId === undefined} />
+                  <span className="flex-1 min-w-0 text-[12px] [font-family:inherit] text-[var(--text-rack)] truncate">
+                    {t(`${prefix}.wsEnvFollow`)}
+                  </span>
+                  <span className="flex-shrink-0 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] truncate max-w-[46%]">
+                    {t(`${prefix}.wsEnvFollowNow`, { name: activeProfile ? activeProfile.name : t(`${prefix}.envSystem`) })}
+                  </span>
+                </button>
+                {envProfiles.map((p) => (
                   <button
-                    onClick={addEnvRow}
-                    className="w-full text-left py-1.5 px-2.5 text-[11.5px] [font-family:inherit] text-[var(--text-rack-data)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] transition-colors"
+                    key={p.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={wsEnvProfileId === p.id}
+                    onClick={() => setWsEnvProfileId(p.id)}
+                    className="relative w-full text-left flex items-center gap-2 px-2.5 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0 bg-transparent cursor-pointer hover:bg-[var(--bg-slot)] transition-colors"
                   >
-                    + {t(`${prefix}.wsEnvAdd`)}
+                    <BusLed on={wsEnvProfileId === p.id} />
+                    <span className="flex-1 min-w-0 text-[12px] [font-family:inherit] text-[var(--text-rack)] truncate">{p.name}</span>
+                    <span className="flex-shrink-0 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] tabular-nums">
+                      {t(`${prefix}.envVars`, { count: Object.keys(p.env).length })}
+                    </span>
                   </button>
-                ) : (
-                  <>
-                    {wsEnv.map((row, i) => (
-                      <div key={i} className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0">
-                        <input
-                          type="text"
-                          value={row.key}
-                          onChange={(e) => updateEnvRow(i, 'key', e.target.value)}
-                          placeholder={t(`${prefix}.wsEnvKeyPh`)}
-                          className="flex-1 min-w-0 bg-transparent border-none text-[12px] [font-family:inherit] text-[var(--amber)] placeholder:text-[var(--text-rack-data)] focus:outline-none"
-                        />
-                        <span className="text-[var(--text-rack-mute)] [font-family:inherit] text-[12px] select-none">=</span>
-                        <input
-                          type="text"
-                          value={row.value}
-                          onChange={(e) => updateEnvRow(i, 'value', e.target.value)}
-                          placeholder={t(`${prefix}.wsEnvValuePh`)}
-                          className="flex-[2] min-w-0 bg-transparent border-none text-[12px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] focus:outline-none"
-                        />
-                        <button
-                          onClick={() => removeEnvRow(i)}
-                          title={t(`${prefix}.wsDelete`)}
-                          className="w-[18px] h-[18px] flex-shrink-0 inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] text-[var(--text-rack-faint)] hover:text-[var(--error-rack)] transition-colors"
-                        >
-                          <IconX />
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      onClick={addEnvRow}
-                      className="w-full text-left py-1.5 px-2.5 text-[11.5px] [font-family:inherit] text-[var(--text-rack-data)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] transition-colors"
-                    >
-                      + {t(`${prefix}.wsEnvAdd`)}
-                    </button>
-                  </>
+                ))}
+                {envProfiles.length === 0 && (
+                  <div className="px-2.5 py-1.5 text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">
+                    {t(`${prefix}.wsEnvNone`)}
+                  </div>
                 )}
               </div>
             </div>
@@ -826,6 +1128,173 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (ws: Harness
                   onClick={() => void handleSave()}
                   className={`px-4 py-1 text-[13px] [font-family:inherit] rounded-sm font-medium transition-opacity ${
                     valid
+                      ? 'bg-[var(--amber)] text-[var(--bg-base)] hover:opacity-90'
+                      : 'bg-[var(--bg-slot)] text-[var(--text-rack-dim)] opacity-70'
+                  }`}
+                >
+                  {t(`${prefix}.wsSave`)}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 变量组新增/编辑对话框 —— 与工作区对话框同壳，只有名称 + 键值表两段 */}
+      {showEnvDialog && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm w-[448px] max-h-[88vh] overflow-y-auto rack-scroll shadow-xl">
+            <div className="flex items-center h-10 px-4 border-b border-[var(--rule)] gap-2.5">
+              <span
+                className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                style={{ background: 'var(--amber)', boxShadow: '0 0 5px var(--amber)' }}
+              />
+              <span className="text-[13px] [font-family:inherit] font-medium tracking-[0.04em] text-[var(--text-rack)]">
+                {editProfile ? t(`${prefix}.envEditTitle`) : t(`${prefix}.envAddTitle`)}
+              </span>
+              <span className="flex-1" />
+              <span className="text-[10.5px] [font-family:inherit] tracking-[0.08em] px-1.5 py-px rounded-sm bg-[var(--bg-base)] border border-[var(--rule)] text-[var(--text-rack-mute)]">
+                {agent.toUpperCase()}
+              </span>
+            </div>
+
+            {/* 名称 */}
+            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+              <div className="flex items-baseline gap-2 mb-2">
+                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.envName`)}</span>
+              </div>
+              <input
+                type="text"
+                value={profileName}
+                onChange={(e) => { setProfileName(e.target.value); if (triedEnvSubmit) setTriedEnvSubmit(false) }}
+                placeholder={t(`${prefix}.envNamePh`)}
+                autoFocus
+                className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
+              />
+            </div>
+
+            {/* 备注（可选）—— 列表行里跟在「n 个变量」后面单行显示，故用 input 而非 textarea */}
+            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+              <div className="flex items-baseline gap-2 mb-2">
+                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--text-rack)]">{t(`${prefix}.wsNote`)}</span>
+                <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t(`${prefix}.wsNoteHint`)}</span>
+              </div>
+              <input
+                type="text"
+                value={profileNote}
+                onChange={(e) => setProfileNote(e.target.value)}
+                placeholder={t(`${prefix}.wsNotePh`)}
+                className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
+              />
+            </div>
+
+            {/* 变量键值表 */}
+            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+              <div className="mb-2">
+                {/* 标题 + fill 按钮一行；说明单独一行，避免长说明与按钮相互挤压 */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsEnv`)}</span>
+                  <span className="flex-1" />
+                  {missingEnv.length > 0 && (
+                    <button
+                      onClick={fillEnv}
+                      title={missingEnv.map((d) => d.key).join(', ')}
+                      className="px-1.5 py-0.5 text-[10.5px] [font-family:inherit] rounded-[2px] border border-[color-mix(in_srgb,var(--amber)_40%,var(--rule))] text-[var(--amber)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] transition-colors whitespace-nowrap"
+                    >
+                      + {t(`${prefix}.wsEnvFill`)}
+                    </button>
+                  )}
+                </div>
+                <div className="mt-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t(`${prefix}.wsEnvHint`)}</div>
+              </div>
+              <div className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm overflow-hidden">
+                {profileEnv.length === 0 ? (
+                  <button
+                    onClick={addEnvRow}
+                    className="w-full text-left py-1.5 px-2.5 text-[11.5px] [font-family:inherit] text-[var(--text-rack-data)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] transition-colors"
+                  >
+                    + {t(`${prefix}.wsEnvAdd`)}
+                  </button>
+                ) : (
+                  <>
+                    {profileEnv.map((row, i) => (
+                      <div key={i} className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0">
+                        <input
+                          type="text"
+                          value={row.key}
+                          onChange={(e) => { updateEnvRow(i, 'key', e.target.value); if (triedEnvSubmit) setTriedEnvSubmit(false) }}
+                          placeholder={t(`${prefix}.wsEnvKeyPh`)}
+                          className="flex-1 min-w-0 bg-transparent border-none text-[12px] [font-family:inherit] text-[var(--amber)] placeholder:text-[var(--text-rack-data)] focus:outline-none"
+                        />
+                        <span className="text-[var(--text-rack-mute)] [font-family:inherit] text-[12px] select-none">=</span>
+                        <input
+                          type="text"
+                          value={row.value}
+                          onChange={(e) => updateEnvRow(i, 'value', e.target.value)}
+                          placeholder={t(`${prefix}.wsEnvValuePh`)}
+                          className="flex-[2] min-w-0 bg-transparent border-none text-[12px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] focus:outline-none"
+                        />
+                        <button
+                          onClick={() => removeEnvRow(i)}
+                          title={t(`${prefix}.wsDelete`)}
+                          className="w-[18px] h-[18px] flex-shrink-0 inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] text-[var(--text-rack-faint)] hover:text-[var(--error-rack)] transition-colors"
+                        >
+                          <IconX />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      onClick={addEnvRow}
+                      className="w-full text-left py-1.5 px-2.5 text-[11.5px] [font-family:inherit] text-[var(--text-rack-data)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] transition-colors"
+                    >
+                      + {t(`${prefix}.wsEnvAdd`)}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* 校验提示（仅尝试提交后显示） */}
+            {triedEnvSubmit && !profileValid && (
+              <div className="px-4 py-2 text-[11px] [font-family:inherit] text-[var(--error-rack)] border-b border-[var(--rule)]">
+                {t(`${prefix}.envRequired`)}
+              </div>
+            )}
+
+            {/* 保存失败提示（校验未通过 / 落盘失败，保留表单） */}
+            {envSaveError && (
+              <div className="px-4 py-2 text-[11px] [font-family:inherit] text-[var(--error-rack)] border-b border-[var(--rule)] break-all">
+                {envSaveError}
+              </div>
+            )}
+
+            {/* footer：删除（两步确认）/ 取消 / 保存 */}
+            <div className="flex items-center justify-between px-4 py-3">
+              {editProfile ? (
+                <button
+                  onClick={() => void handleDeleteProfile()}
+                  className={
+                    envConfirmDelete
+                      ? 'px-2.5 py-1 text-[12px] [font-family:inherit] rounded-sm bg-[var(--error-rack)] text-[var(--bg-base)] font-medium transition-colors'
+                      : 'px-2.5 py-1 text-[12px] [font-family:inherit] text-[var(--error-rack)] hover:bg-[var(--bg-slot)] rounded-sm transition-colors'
+                  }
+                >
+                  {envConfirmDelete ? t(`${prefix}.wsConfirmDelete`) : t(`${prefix}.wsDelete`)}
+                </button>
+              ) : (
+                <span />
+              )}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowEnvDialog(false)}
+                  className="px-3 py-1 text-[13px] [font-family:inherit] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] transition-colors"
+                >
+                  {t(`${prefix}.wsCancel`)}
+                </button>
+                <button
+                  onClick={() => void handleSaveProfile()}
+                  className={`px-4 py-1 text-[13px] [font-family:inherit] rounded-sm font-medium transition-opacity ${
+                    profileValid
                       ? 'bg-[var(--amber)] text-[var(--bg-base)] hover:opacity-90'
                       : 'bg-[var(--bg-slot)] text-[var(--text-rack-dim)] opacity-70'
                   }`}

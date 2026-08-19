@@ -21,8 +21,28 @@ export interface HarnessWorkspace {
   order: number
   note?: string          // 可选备注，仅用于记录/说明
   pinned?: boolean       // 置顶：true 时在列表顶部展示
-  env?: Record<string, string>  // 可选环境变量，注入会话；缺省时用系统环境变量
+  /**
+   * @deprecated 历史 inline 环境变量，已由「变量组」（HarnessEnvProfile）取代。
+   * 保留仅为兜住手工编辑/历史 JSON：迁移读到它之前不能丢，故 normalizeWorkspace 仍解析。
+   * add/update 不再写入；运行期解析只在迁移失败的记录上命中（见 resolveWorkspaceEnv）。
+   */
+  env?: Record<string, string>
+  /** 显式绑定的变量组 id；缺省表示「跟随已启用的变量组」 */
+  envProfileId?: string
   model?: string         // 可选启动模型（dsh 走 cordis 补丁，codex/claude 走 --model CLI）
+}
+
+/**
+ * 具名环境变量组 —— 与工作区平级的一等配置，每个 kind 一份列表。
+ * 同一时刻至多一条 active（单选，可全关）；全关时启动即用系统环境变量。
+ */
+export interface HarnessEnvProfile {
+  id: string
+  name: string           // 显示名称，如 "生产密钥"
+  order: number
+  env: Record<string, string>   // 至少一个变量（空组无意义，仓库层过滤）
+  active?: boolean       // 至多一条为 true —— 由仓库层在 load/setActive 两侧保证
+  note?: string          // 可选备注
 }
 
 export interface HarnessEnvDefault {

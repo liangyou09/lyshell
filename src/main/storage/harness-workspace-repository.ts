@@ -11,8 +11,11 @@ import type { HarnessWorkspace } from '@shared/harness'
  * 泛化自原 DshWorkspaceRepository（逻辑不变，DshWorkspace → HarnessWorkspace）。
  */
 
-/** 归一化 env 记录：过滤非字符串值，空记录按缺失处理（缺省时启动即用系统环境变量）。 */
-function normalizeEnv(raw: unknown): Record<string, string> | undefined {
+/**
+ * 归一化 env 记录：过滤非字符串值，空记录按缺失处理（缺省时启动即用系统环境变量）。
+ * 导出供变量组仓库（harness-env-profile-repository）复用，两处脏数据规则必须一致。
+ */
+export function normalizeEnv(raw: unknown): Record<string, string> | undefined {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined
   const result: Record<string, string> = {}
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
@@ -42,8 +45,11 @@ function normalizeWorkspace(raw: unknown): HarnessWorkspace | null {
   // pinned 非布尔按 false 处理
   const pinned = typeof w.pinned === 'boolean' ? w.pinned : false
   // env 非对象/空记录按缺失处理（不因脏数据丢整条记录）
+  // 注意：这是 legacy 字段，但迁移要靠它读到旧数据，删掉这行等于静默丢弃用户的 API key
   const env = normalizeEnv(w.env)
-  return { id: w.id, name: w.name, cwd: w.cwd, order: w.order, pinned, ...(note !== undefined ? { note } : {}), ...(model !== undefined ? { model } : {}), ...(env !== undefined ? { env } : {}) }
+  // envProfileId 非字符串/空串按缺失处理（缺省即「跟随已启用的变量组」）
+  const envProfileId = typeof w.envProfileId === 'string' && w.envProfileId.length > 0 ? w.envProfileId : undefined
+  return { id: w.id, name: w.name, cwd: w.cwd, order: w.order, pinned, ...(note !== undefined ? { note } : {}), ...(model !== undefined ? { model } : {}), ...(env !== undefined ? { env } : {}), ...(envProfileId !== undefined ? { envProfileId } : {}) }
 }
 
 /**
