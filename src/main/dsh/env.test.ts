@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { homedir } from 'os'
 import { join } from 'path'
-import { normalizeDshHomeEnv } from './env'
+import { normalizeDshHomeEnv, resolveDshHome } from './env'
 
 describe('normalizeDshHomeEnv', () => {
   it('无 env 或未设 DSH_HOME 时原样通过', () => {
@@ -33,5 +33,24 @@ describe('normalizeDshHomeEnv', () => {
   it('绝对 DSH_HOME 原样通过', () => {
     const r = normalizeDshHomeEnv({ DSH_HOME: '/abs/.dsh' })
     expect(r).toEqual({ ok: true, env: { DSH_HOME: '/abs/.dsh' } })
+  })
+})
+
+describe('resolveDshHome', () => {
+  it('展开 ~/.dsh 为绝对 home 子目录', () => {
+    expect(resolveDshHome('~/.dsh')).toBe(join(homedir(), '.dsh'))
+  })
+
+  it('相对路径回落 ~/.dsh', () => {
+    expect(resolveDshHome('relative/path')).toBe(join(homedir(), '.dsh'))
+  })
+
+  it('绝对路径原样通过', () => {
+    expect(resolveDshHome('/abs/.dsh')).toBe('/abs/.dsh')
+  })
+
+  it('空白/未设回落 ~/.dsh', () => {
+    expect(resolveDshHome(undefined)).toBe(join(homedir(), '.dsh'))
+    expect(resolveDshHome('   ')).toBe(join(homedir(), '.dsh'))
   })
 })

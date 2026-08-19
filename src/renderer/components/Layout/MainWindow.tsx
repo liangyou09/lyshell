@@ -302,14 +302,19 @@ const MainWindow: React.FC = () => {
   // 打开 dsh Web UI：主进程 spawn `dsh web --port 0` 解析端口 → 拿到 URL 后写入 pane-store，
   // 由 PaneTabBar / PaneView 渲染成终端页签 + <webview> 覆盖层（对齐 MCP 活动页签模式，可像标签一样 ✕ 关闭）。
   // 失败把 error 回传给面板横幅展示（面板负责本地化兜底文案）。
-  const handleOpenWeb = useCallback(async (ws: { id: string; name: string }) => {
+  // 打开 dsh Web UI：target 可传 { workspaceId }（沿用该工作区目录）或 { cwd }（直接以该目录为根）。
+  // 主进程 spawn `dsh web --port 0` 解析端口 → 拿到 URL/cwd 后写入 pane-store。
+  const handleOpenWeb = useCallback(async (target: { workspaceId?: string; cwd?: string }, name?: string) => {
     try {
-      const res = await window.electronAPI?.openDshWeb(ws.id)
+      const res = await window.electronAPI?.openDshWeb(target)
       if (!res || res.success === false) {
         return { success: false as const, error: res && typeof res.error === 'string' ? res.error : undefined }
       }
       const { openDshWebInPane, layout: paneLayout } = usePaneStore.getState()
-      const info = { url: res.url as string, name: ws.name }
+      // cwd 回传仅用于页签 tooltip 标注运行目录（PaneTabBar 读 dshWeb.cwd）。页签名优先取调用方给的名字，
+      // 否则回落常量 —— 默认目录 $DSH_HOME/web 的基名只是 "web"，不适合直接当页签名。
+      const cwd = res.cwd as string | undefined
+      const info = { url: res.url as string, name: name ?? 'DeepSeek Harness', cwd }
       openDshWebInPane(paneLayout.activePaneId, info)
       return { success: true as const }
     } catch (err) {

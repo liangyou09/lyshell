@@ -11,6 +11,7 @@ import { sessionRepository, preferencesRepository, quickCommandsRepository } fro
 import { agentRepository } from '../storage/agent-repository'
 import type { AgentConfig } from '../storage/agent-repository'
 import { dshWebManager } from '../dsh/web'
+import { resolveDshHome } from '../dsh/env'
 import { readSystemPath } from '../env/refresh'
 import { resolveWorkspaceCwd } from '../harness/cwd'
 import { detectDependencies } from '../harness/detect'
@@ -24,7 +25,6 @@ import { ConnectionType } from '@shared/types'
 import { fileManager, startDownloadWorker, registerTaskMeta, startUploadWorker, cancelDownload, cancelUpload, assertSafeLocalPath } from '../file'
 import type { SessionConfig } from '@shared/types'
 import {
-  assertBoolean,
   assertNumber,
   assertObject,
   assertString,
@@ -1808,7 +1808,7 @@ export function registerIPCHandlers(): void {
     return { success: true, id: session.id, status: ConnectionStatus.CONNECTING, config: session.config }
   }
 
-  // 遍历 HARNESS_AGENTS 注册通用通道族：<kind>:detect / <kind>:workspace:list|add|update|delete|setPinned|launch。
+  // 遍历 HARNESS_AGENTS 注册通用通道族：<kind>:detect / <kind>:workspace:list|add|update|delete|launch。
   // 三份实例（dsh/codex/claude）共享同一套逻辑，仅通过 runtime 注入差异点：
   // 依赖集 / 仓库 / env 归一化 / 模型预设 / 启动命令构造（见 harness/config.ts 的 HARNESS_AGENTS）。
   for (const runtime of Object.values(HARNESS_AGENTS)) {
@@ -1920,8 +1920,7 @@ export function registerIPCHandlers(): void {
         if (!cwd.ok) return { success: false, error: cwd.error }
         const newWorkspace: Omit<HarnessWorkspace, 'id' | 'order'> = {
           name: assertString(safe.name, 'workspace.name', { maxLength: 120 }),
-          cwd: cwd.path,
-          pinned: safe.pinned === undefined ? false : assertBoolean(safe.pinned, 'workspace.pinned')
+          cwd: cwd.path
         }
         if (safe.note !== undefined) newWorkspace.note = assertString(safe.note, 'workspace.note', { maxLength: 2000 })
         if (safe.model !== undefined) newWorkspace.model = assertString(safe.model, 'workspace.model', { maxLength: 256 })
@@ -1952,9 +1951,7 @@ export function registerIPCHandlers(): void {
           // 同 env:update：缺省沿用仓库现状，避免不带 order 的调用方把记录撞到序号 0
           order: safe.order === undefined
             ? (existing?.order ?? 0)
-            : assertNumber(safe.order, 'workspace.order', { min: 0, max: 10000, integer: true }),
-          // 未显式传 pinned 时保留现状，避免编辑其它字段把置顶态误清；显式传了就必须是布尔（对齐 setPinned）
-          pinned: safe.pinned === undefined ? (existing?.pinned ?? false) : assertBoolean(safe.pinned, 'workspace.pinned')
+            : assertNumber(safe.order, 'workspace.order', { min: 0, max: 10000, integer: true })
         }
         if (safe.note !== undefined) updated.note = assertString(safe.note, 'workspace.note', { maxLength: 2000 })
         // model 用「键存在」判断而非 `!== undefined`：编辑时清空 model（传 undefined）应生效，
@@ -1986,18 +1983,6 @@ export function registerIPCHandlers(): void {
       try {
         const safeId = assertWorkspaceId(workspaceId)
         const success = runtime.repository.delete(safeId)
-        return { success }
-      } catch (error) {
-        return validationFailure(error) || { success: false, error: (error as Error).message }
-      }
-    })
-
-    ipcMain.handle(`${kind}:workspace:setPinned`, async (_event, workspaceId: string, pinned: unknown) => {
-      try {
-        const safeId = assertWorkspaceId(workspaceId)
-        // 仅接受显式布尔，非布尔直接校验失败（不静默转 false）
-        const safePinned = assertBoolean(pinned, 'pinned')
-        const success = runtime.repository.setPinned(safeId, safePinned)
         return { success }
       } catch (error) {
         return validationFailure(error) || { success: false, error: (error as Error).message }
@@ -2059,32 +2044,78 @@ export function registerIPCHandlers(): void {
   // Web 仅需 dsh（dsh-tui 是 TUI 前端），model 预设（cordis.patch.yml）是 dsh-tui 专用，这里不写；
   // env（DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL / DSH_HOME 等）仍注入子进程。
   const dshRuntime = HARNESS_AGENTS.dsh
-  ipcMain.handle('dsh:web:open', async (_event, workspaceId: string) => {
+  // Web UI 默认工作目录 —— deepseek-harness 自己的专属工作区，与 TUI 工作区解耦。
+  // 取法：$DSH_HOME/web（dsh 未显式设置 DSH_HOME 时回落 ~/.dsh/web），并确保目录存在。
+  // 用 DSH_HOME 下的子目录而非 DSH_HOME 本身：dsh 把 workspaceRoot 取作启动 cwd，
+  // 直接落在 home 会把配置/凭据目录当成 agent 的可写工作区，混进 web 会话里。
+  // 入参 env 已过 normalizeDshHomeEnv（env.DSH_HOME 若在必为绝对路径）；但系统环境变量
+  // DSH_HOME 走不进变量组、从未被校验，故仍要对 home 兜底展开 ~ + 校验绝对路径。
+  const defaultDshWebCwd = (env: Record<string, string> | undefined): string => {
+    const rawHome = env?.DSH_HOME?.trim() || process.env.DSH_HOME?.trim()
+    // 展开 ~ + 校验绝对路径，空白/相对一律回落 ~/.dsh（纯逻辑在 resolveDshHome，见 dsh/env.ts）
+    const home = resolveDshHome(rawHome)
+    const dir = path.join(home, 'web')
+    fs.mkdirSync(dir, { recursive: true })
+    return dir
+  }
+  // Web UI 不绑定任何单个 TUI 工作区：默认在 dsh 自己的专属目录开（workspaceId/cwd 均缺省时），
+  // 传 workspaceId 则沿用该工作区目录 + 三级 env 解析，传 cwd 则直接用该目录（两者互斥，见下方守卫）。
+  // TODO: workspaceId/cwd 是前向预留 API —— 渲染层唯一入口 handleNameplate（HarnessPanel.tsx）只传 {}，
+  // 两分支尚无调用方可达；若近期不接「按工作区开 Web」，别把这两条判成死分支删掉。
+  ipcMain.handle('dsh:web:open', async (_event, target: unknown) => {
     try {
-      const safeId = assertWorkspaceId(workspaceId)
-      const workspace = dshRuntime.repository.get(safeId)
-      if (!workspace) return { success: false, error: 'Workspace not found' }
+      const safe = assertObject(target ?? {}, 'target')
+      const workspaceId = safe.workspaceId === undefined ? undefined : assertWorkspaceId(safe.workspaceId)
+      const rawCwd = safe.cwd === undefined ? undefined : assertString(safe.cwd, 'target.cwd', { maxLength: 4096 })
+
+      // workspaceId 与 cwd 互斥：同传时目录与 env 语义歧义（目录取工作区还是 cwd？env 取工作区链还是已启用组？），
+      // 明确拒绝而非静默丢 cwd（此前 workspaceId 分支会直接忽略 rawCwd）。
+      if (workspaceId !== undefined && rawCwd !== undefined) {
+        return { success: false, error: 'workspaceId and cwd are mutually exclusive' }
+      }
 
       // 启动前复核 dsh 是否仍在 PATH 上（仅 dsh，不依赖 dsh-tui，故只扫 dsh 一个二进制）
       if (!detectDependencies(['dsh'], readSystemPath() ?? undefined).dsh) {
         return { success: false, error: 'dsh not installed' }
       }
 
-      const cwd = resolveWorkspaceCwd(workspace.cwd)
-      if (!cwd.ok) {
-        return { success: false, error: cwd.error }
+      // cwd：工作区 → 显式 cwd → dsh 专属默认目录（$DSH_HOME/web，不存在则建）
+      let envSource: Record<string, string> | undefined
+      let cwdPath: string | undefined
+      if (workspaceId !== undefined) {
+        const workspace = dshRuntime.repository.get(workspaceId)
+        if (!workspace) return { success: false, error: 'Workspace not found' }
+        const cwd = resolveWorkspaceCwd(workspace.cwd)
+        if (!cwd.ok) return { success: false, error: cwd.error }
+        cwdPath = cwd.path
+        // 与 TUI 启动同一份解析结果（绑定组 → 已启用组 → legacy → 系统）
+        envSource = resolveWorkspaceEnv(dshRuntime, workspace)
+      } else {
+        // 无工作区可绑：env 走「已启用组 → 系统」
+        envSource = dshRuntime.envRepository.getActive()?.env
+        if (rawCwd !== undefined) {
+          const cwd = resolveWorkspaceCwd(rawCwd)
+          if (!cwd.ok) return { success: false, error: cwd.error }
+          cwdPath = cwd.path
+        }
       }
 
-      // 与 TUI 启动同一份解析结果（绑定组 → 已启用组 → legacy → 系统），
-      // 再归一化 DSH_HOME（相对/空白兜底），其余 env 原样注入子进程
-      const envResult = dshRuntime.normalizeEnv(resolveWorkspaceEnv(dshRuntime, workspace))
+      // 先归一化 DSH_HOME（相对/空白兜底），再据其解析默认 cwd —— 否则 defaultDshWebCwd
+      // 会拿到未展开的 ~ 或相对路径，在错误位置 mkdir；失败路径也不会先留一个空目录。
+      const envResult = dshRuntime.normalizeEnv(envSource)
       if (!envResult.ok) {
         return { success: false, error: envResult.error }
       }
 
-      const result = await dshWebManager.open({ cwd: cwd.path, env: envResult.env })
+      // 默认分支（既无 workspaceId 也无 cwd）才落 $DSH_HOME/web，且必须在 env 归一化之后
+      if (cwdPath === undefined) {
+        cwdPath = defaultDshWebCwd(envResult.env)
+      }
+
+      const result = await dshWebManager.open({ cwd: cwdPath, env: envResult.env })
       if (!result.ok) return { success: false, error: result.error }
-      return { success: true, url: result.url }
+      // cwd 回传：渲染层用它标注 Web 页签的运行目录（tooltip「正在这个目录跑」）
+      return { success: true, url: result.url, cwd: cwdPath }
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }

@@ -68,10 +68,10 @@ interface PaneStore {
   closeMcpAudit: () => void                      // 关闭 MCP 页签覆盖层
   // dsh Web UI 页签 -- 单例：dshWeb 非空即打开，承载在 dshWebPaneId 指定 pane 的页签+覆盖层。瞬态。
   // dshWebActive 区分「打开中」与「当前显示」：切到终端标签只隐藏不回收，点 ✕ 才真正关闭。
-  dshWeb: { url: string; name: string } | null
+  dshWeb: { url: string; name: string; cwd?: string } | null
   dshWebPaneId: string | null
   dshWebActive: boolean
-  openDshWebInPane: (paneId: string, info: { url: string; name: string }) => void
+  openDshWebInPane: (paneId: string, info: { url: string; name: string; cwd?: string }) => void
   moveDshWebToPane: (paneId: string) => void  // 拖拽 Web 页签到另一 pane 中心：改挂载 pane（不改树）
   splitDshWebIntoPane: (paneId: string, direction: SplitDirection, position: 'first' | 'second') => void  // 拖拽 Web 页签到边：拆出独立 pane
   activateDshWeb: () => void

@@ -126,46 +126,6 @@ describe('HarnessWorkspaceRepository', () => {
     expect(repo2.getAll().map((w) => w.name)).toEqual(['a'])
   })
 
-  it('pinned 非布尔按 false，布尔保留', () => {
-    seed(JSON.stringify([
-      { id: 'a', name: 'a', cwd: '/a', order: 0, pinned: true },
-      { id: 'b', name: 'b', cwd: '/b', order: 1, pinned: 'yes' }
-    ]))
-    const repo = newRepo()
-    const all = repo.getAll()
-    expect(all.find((w) => w.id === 'a')?.pinned).toBe(true)
-    expect(all.find((w) => w.id === 'b')?.pinned).toBe(false)
-  })
-
-  it('add 默认 pinned=false，显式传 true 保留', () => {
-    const repo = newRepo()
-    const a = repo.add({ name: 'a', cwd: '/a' })!
-    const b = repo.add({ name: 'b', cwd: '/b', pinned: true })!
-    expect(a.pinned).toBe(false)
-    expect(b.pinned).toBe(true)
-  })
-
-  it('setPinned 切换置顶，getAll 置顶优先', () => {
-    const repo = newRepo()
-    repo.add({ name: 'a', cwd: '/a' })
-    repo.add({ name: 'b', cwd: '/b' })
-    repo.add({ name: 'c', cwd: '/c' })
-    const b = repo.getAll().find((w) => w.name === 'b')!
-    // 初始均未置顶，按 order 排
-    expect(repo.getAll().map((w) => w.name)).toEqual(['a', 'b', 'c'])
-    expect(repo.setPinned(b.id, true)).toBe(true)
-    // b 置顶后提到最前
-    expect(repo.getAll().map((w) => w.name)).toEqual(['b', 'a', 'c'])
-    // 取消置顶恢复原序
-    expect(repo.setPinned(b.id, false)).toBe(true)
-    expect(repo.getAll().map((w) => w.name)).toEqual(['a', 'b', 'c'])
-  })
-
-  it('setPinned 不存在的 id 返回 false', () => {
-    const repo = newRepo()
-    expect(repo.setPinned('nope', true)).toBe(false)
-  })
-
   it('env 过滤非字符串值，空/非对象记录按缺失处理', () => {
     seed(JSON.stringify([
       { id: 'a', name: 'a', cwd: '/a', order: 0, env: { K1: 'v1', K2: 42, K3: 'v3' } },
