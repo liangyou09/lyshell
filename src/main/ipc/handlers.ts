@@ -14,8 +14,9 @@ import { dshWebManager } from '../dsh/web'
 import { readSystemPath } from '../env/refresh'
 import { resolveWorkspaceCwd } from '../harness/cwd'
 import { detectDependencies } from '../harness/detect'
-import { HARNESS_AGENTS } from '../harness/config'
-import type { HarnessWorkspace } from '@shared/harness'
+import { HARNESS_AGENTS, resolveWorkspaceEnv } from '../harness/config'
+import { migrateInlineEnvToProfiles } from '../harness/migrate-env'
+import type { HarnessEnvProfile, HarnessWorkspace } from '@shared/harness'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { ConnectionStatus } from '../connectors'
 import { reachabilityProber, type ReachabilityTarget } from '../reachability/reachability-prober'
@@ -30,7 +31,8 @@ import {
   assertStringArray,
   assertStringRecord,
   assertWorkspaceId,
-  validationFailure
+  validationFailure,
+  ValidationError
 } from './validation'
 import { getMcpAddCommandForIpc } from '../mcp/http-server'
 import { mcpAuditRepository } from '../storage/mcp-audit-repository'
@@ -325,6 +327,18 @@ function sanitizeMessageBoxOptions(options: unknown): MessageBoxOptions {
  */
 export function registerIPCHandlers(): void {
   log.info('Registering IPC handlers...')
+
+  // AI Harness legacy inline env → 具名变量组的一次性迁移（幂等，见 harness/migrate-env.ts）。
+  // 放在处理器注册之前：注册虽在同一次同步调用里完成，但要等事件循环才会被触发，
+  // 因此渲染层拿到的第一份列表就已是迁移后的状态，不会闪一下旧数据。
+  for (const runtime of Object.values(HARNESS_AGENTS)) {
+    try {
+      migrateInlineEnvToProfiles(runtime)
+    } catch (error) {
+      // 迁移整体失败不阻断应用启动 —— 未迁移的工作区仍由 resolveWorkspaceEnv 的 legacy 分支供能
+      log.error(`[${runtime.kind}] env migration aborted:`, error)
+    }
+  }
 
   // ========== 连接管理 ==========
 
@@ -997,6 +1011,8 @@ export function registerIPCHandlers(): void {
         ? data.sessions.map(s => encryptSession(s, encryptPassword))
         : data.sessions
 
+      // 有意只导出 sessions + quickCommands：AI Harness 的环境变量组装的就是 API key，
+      // 默认不进导出文件是更稳妥的一侧。不是遗漏，改之前先想清楚密钥外带的后果。
       const exportData = {
         version: '1.0',
         encrypted: !!encryptPassword,
@@ -1807,6 +1823,91 @@ export function registerIPCHandlers(): void {
     // ========== <kind> 工作区 ==========
     // 每个工作区 = 名称 + 工作目录，单击在对应目录启动对应 CLI（参照 agent:launch 的 cwd 语义）。
 
+    // ========== <kind> 环境变量组 ==========
+    // 与工作区平级的一等配置：具名 KEY=value 组，同一时刻至多启用一条（单选，可全关）。
+    // 启动时的解析链见 harness/config.ts 的 resolveWorkspaceEnv。
+
+    ipcMain.handle(`${kind}:env:list`, async () => {
+      return runtime.envRepository.getAll()
+    })
+
+    /** 校验并归一化变量组的 env：先过通用记录校验，再过 kind 专属规则（dsh 的 DSH_HOME 须绝对路径）。 */
+    const assertProfileEnv = (raw: unknown): Record<string, string> => {
+      const env = assertStringRecord(raw, 'profile.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
+      // 零变量的组没有意义 —— 与其存下来在 UI 里当噪声，不如保存即拒
+      if (Object.keys(env).length === 0) {
+        throw new ValidationError('profile.env must not be empty')
+      }
+      const normalized = runtime.normalizeEnv(env)
+      if (!normalized.ok) throw new ValidationError(normalized.error)
+      // normalizeEnv 可能删空键后返回 undefined（如 env 只有一个空 DSH_HOME）
+      if (!normalized.env || Object.keys(normalized.env).length === 0) {
+        throw new ValidationError('profile.env must not be empty')
+      }
+      return normalized.env
+    }
+
+    ipcMain.handle(`${kind}:env:add`, async (_event, profile) => {
+      try {
+        const safe = assertObject(profile, 'profile')
+        const newProfile: Omit<HarnessEnvProfile, 'id' | 'order'> = {
+          name: assertString(safe.name, 'profile.name', { maxLength: 120 }),
+          env: assertProfileEnv(safe.env)
+        }
+        if (safe.note !== undefined) newProfile.note = assertString(safe.note, 'profile.note', { maxLength: 2000 })
+        const added = runtime.envRepository.add(newProfile)
+        if (!added) return { success: false, error: 'Failed to save env profile' }
+        return { success: true, profile: added }
+      } catch (error) {
+        return validationFailure(error) || { success: false, error: (error as Error).message }
+      }
+    })
+
+    ipcMain.handle(`${kind}:env:update`, async (_event, profile) => {
+      try {
+        const safe = assertObject(profile, 'profile')
+        const id = assertString(safe.id, 'profile.id', { maxLength: 128 })
+        const existing = runtime.envRepository.get(id)
+        const updated: HarnessEnvProfile = {
+          id,
+          name: assertString(safe.name, 'profile.name', { maxLength: 120 }),
+          env: assertProfileEnv(safe.env),
+          // 缺省沿用仓库现状而非 0：渲染层总会带上 order，但外部调用方（MCP/HTTP）可能不带，
+          // 落到 0 会与首条撞序（仓库 update 不 reindex）
+          order: safe.order === undefined
+            ? (existing?.order ?? 0)
+            : assertNumber(safe.order, 'profile.order', { min: 0, max: 10000, integer: true })
+        }
+        if (safe.note !== undefined) updated.note = assertString(safe.note, 'profile.note', { maxLength: 2000 })
+        // active 不从这里改（仓库层 update 也会保留现状）—— 启用态只经 setActive
+        const success = runtime.envRepository.update(updated)
+        return success ? { success: true } : { success: false, error: 'Env profile not found' }
+      } catch (error) {
+        return validationFailure(error) || { success: false, error: (error as Error).message }
+      }
+    })
+
+    ipcMain.handle(`${kind}:env:delete`, async (_event, profileId: string) => {
+      try {
+        const safeId = assertString(profileId, 'profileId', { maxLength: 128 })
+        const success = runtime.envRepository.delete(safeId)
+        return { success }
+      } catch (error) {
+        return validationFailure(error) || { success: false, error: (error as Error).message }
+      }
+    })
+
+    // 单选启用：传 id 启用该条并清其余，传 null 全部停用（回落系统环境变量）
+    ipcMain.handle(`${kind}:env:setActive`, async (_event, profileId: unknown) => {
+      try {
+        const safeId = profileId === null ? null : assertString(profileId, 'profileId', { maxLength: 128 })
+        const success = runtime.envRepository.setActive(safeId)
+        return success ? { success: true } : { success: false, error: 'Env profile not found' }
+      } catch (error) {
+        return validationFailure(error) || { success: false, error: (error as Error).message }
+      }
+    })
+
     ipcMain.handle(`${kind}:workspace:list`, async () => {
       return runtime.repository.getAll()
     })
@@ -1824,11 +1925,11 @@ export function registerIPCHandlers(): void {
         }
         if (safe.note !== undefined) newWorkspace.note = assertString(safe.note, 'workspace.note', { maxLength: 2000 })
         if (safe.model !== undefined) newWorkspace.model = assertString(safe.model, 'workspace.model', { maxLength: 256 })
-        if (safe.env !== undefined) newWorkspace.env = assertStringRecord(safe.env, 'workspace.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
-        // dsh 校验 DSH_HOME 须为空（回落默认）或绝对路径；codex/claude 恒等透传（见 runtime.normalizeEnv）。
-        const envResult = runtime.normalizeEnv(newWorkspace.env)
-        if (!envResult.ok) return { success: false, error: envResult.error }
-        newWorkspace.env = envResult.env
+        // 显式绑定的变量组；缺省表示「跟随已启用的变量组」（见 resolveWorkspaceEnv）
+        if (safe.envProfileId !== undefined) {
+          newWorkspace.envProfileId = assertString(safe.envProfileId, 'workspace.envProfileId', { maxLength: 128 })
+        }
+        // env 是 legacy 字段，新建一律不写 —— 环境变量走变量组
         const added = runtime.repository.add(newWorkspace)
         if (!added) return { success: false, error: 'Failed to save workspace' }
         return { success: true, workspace: added }
@@ -1843,13 +1944,17 @@ export function registerIPCHandlers(): void {
         const cwd = resolveWorkspaceCwd(assertString(safe.cwd, 'workspace.cwd', { maxLength: 4096 }))
         if (!cwd.ok) return { success: false, error: cwd.error }
         const id = assertString(safe.id, 'workspace.id', { maxLength: 128 })
+        const existing = runtime.repository.get(id)
         const updated: HarnessWorkspace = {
           id,
           name: assertString(safe.name, 'workspace.name', { maxLength: 120 }),
           cwd: cwd.path,
-          order: safe.order === undefined ? 0 : assertNumber(safe.order, 'workspace.order', { min: 0, max: 10000, integer: true }),
+          // 同 env:update：缺省沿用仓库现状，避免不带 order 的调用方把记录撞到序号 0
+          order: safe.order === undefined
+            ? (existing?.order ?? 0)
+            : assertNumber(safe.order, 'workspace.order', { min: 0, max: 10000, integer: true }),
           // 未显式传 pinned 时保留现状，避免编辑其它字段把置顶态误清；显式传了就必须是布尔（对齐 setPinned）
-          pinned: safe.pinned === undefined ? (runtime.repository.get(id)?.pinned ?? false) : assertBoolean(safe.pinned, 'workspace.pinned')
+          pinned: safe.pinned === undefined ? (existing?.pinned ?? false) : assertBoolean(safe.pinned, 'workspace.pinned')
         }
         if (safe.note !== undefined) updated.note = assertString(safe.note, 'workspace.note', { maxLength: 2000 })
         // model 用「键存在」判断而非 `!== undefined`：编辑时清空 model（传 undefined）应生效，
@@ -1859,16 +1964,17 @@ export function registerIPCHandlers(): void {
             ? undefined
             : assertString(safe.model, 'workspace.model', { maxLength: 256 })
         }
-        // env 用「键存在」判断而非 `!== undefined`：编辑时清空 env（传 undefined）应生效，
-        // 否则仓库里旧 env 会残留，违背「不设置即用系统环境变量」的语义。
-        if ('env' in safe) {
-          updated.env = safe.env === undefined
+        // envProfileId 同样用「键存在」判断：编辑时取消绑定（传 undefined）应生效，
+        // 回到「跟随已启用的变量组」，否则旧绑定会残留。
+        if ('envProfileId' in safe) {
+          updated.envProfileId = safe.envProfileId === undefined
             ? undefined
-            : assertStringRecord(safe.env, 'workspace.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
+            : assertString(safe.envProfileId, 'workspace.envProfileId', { maxLength: 128 })
         }
-        const envResult = runtime.normalizeEnv(updated.env)
-        if (!envResult.ok) return { success: false, error: envResult.error }
-        updated.env = envResult.env
+        // legacy env 一律沿用仓库现状，渲染层无权改它（前端已无 inline 编辑器，不会传这个字段）。
+        // 迁移成功的记录这里恒为 undefined；迁移失败还带着 env 的记录，不该因为用户改了个名字
+        // 就把 API key 弄丢 —— 优先级上它本来就排在变量组之后（见 resolveWorkspaceEnv）。
+        if (existing?.env !== undefined) updated.env = existing.env
         const success = runtime.repository.update(updated)
         return success ? { success: true } : { success: false, error: 'Workspace not found' }
       } catch (error) {
@@ -1917,9 +2023,10 @@ export function registerIPCHandlers(): void {
           return { success: false, error: cwd.error }
         }
 
-        // 启动前再次归一化 env：历史/手工编辑的 env 可绕过 add/update 校验，故在此兜底。
-        // dsh 校验 DSH_HOME（相对路径拒绝启动）；codex/claude 恒等透传。
-        const envResult = runtime.normalizeEnv(workspace.env)
+        // 解析实际注入的环境变量：绑定的变量组 → 已启用的变量组 → legacy ws.env → 系统环境变量。
+        // 再归一化兜底：手工编辑的变量组/历史 env 可绕过 add/update 校验（dsh 校验 DSH_HOME
+        // 相对路径拒绝启动；codex/claude 恒等透传）。
+        const envResult = runtime.normalizeEnv(resolveWorkspaceEnv(runtime, workspace))
         if (!envResult.ok) {
           return { success: false, error: envResult.error }
         }
@@ -1968,8 +2075,9 @@ export function registerIPCHandlers(): void {
         return { success: false, error: cwd.error }
       }
 
-      // 归一化 DSH_HOME（相对/空白兜底），其余 env 原样注入子进程
-      const envResult = dshRuntime.normalizeEnv(workspace.env)
+      // 与 TUI 启动同一份解析结果（绑定组 → 已启用组 → legacy → 系统），
+      // 再归一化 DSH_HOME（相对/空白兜底），其余 env 原样注入子进程
+      const envResult = dshRuntime.normalizeEnv(resolveWorkspaceEnv(dshRuntime, workspace))
       if (!envResult.ok) {
         return { success: false, error: envResult.error }
       }

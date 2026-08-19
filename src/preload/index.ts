@@ -105,6 +105,11 @@ const IPC_CHANNELS = {
   DSH_WORKSPACE_DELETE: 'dsh:workspace:delete',
   DSH_WORKSPACE_LAUNCH: 'dsh:workspace:launch',
   DSH_WORKSPACE_SET_PINNED: 'dsh:workspace:setPinned',
+  DSH_ENV_LIST: 'dsh:env:list',
+  DSH_ENV_ADD: 'dsh:env:add',
+  DSH_ENV_UPDATE: 'dsh:env:update',
+  DSH_ENV_DELETE: 'dsh:env:delete',
+  DSH_ENV_SET_ACTIVE: 'dsh:env:setActive',
   DSH_WEB_OPEN: 'dsh:web:open',
   DSH_WEB_CLOSE: 'dsh:web:close',
 
@@ -116,6 +121,11 @@ const IPC_CHANNELS = {
   CODEX_WORKSPACE_DELETE: 'codex:workspace:delete',
   CODEX_WORKSPACE_LAUNCH: 'codex:workspace:launch',
   CODEX_WORKSPACE_SET_PINNED: 'codex:workspace:setPinned',
+  CODEX_ENV_LIST: 'codex:env:list',
+  CODEX_ENV_ADD: 'codex:env:add',
+  CODEX_ENV_UPDATE: 'codex:env:update',
+  CODEX_ENV_DELETE: 'codex:env:delete',
+  CODEX_ENV_SET_ACTIVE: 'codex:env:setActive',
 
   // Claude Harness
   CLAUDE_DETECT: 'claude:detect',
@@ -125,6 +135,11 @@ const IPC_CHANNELS = {
   CLAUDE_WORKSPACE_DELETE: 'claude:workspace:delete',
   CLAUDE_WORKSPACE_LAUNCH: 'claude:workspace:launch',
   CLAUDE_WORKSPACE_SET_PINNED: 'claude:workspace:setPinned',
+  CLAUDE_ENV_LIST: 'claude:env:list',
+  CLAUDE_ENV_ADD: 'claude:env:add',
+  CLAUDE_ENV_UPDATE: 'claude:env:update',
+  CLAUDE_ENV_DELETE: 'claude:env:delete',
+  CLAUDE_ENV_SET_ACTIVE: 'claude:env:setActive',
 
   // Plugin 管理(install[dev]/zip/url/enable/disable/uninstall/list)
   PLUGIN_LIST: 'plugin:list',
@@ -255,6 +270,11 @@ const electronAPI = {
   deleteDshWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_DELETE, workspaceId),
   launchDshWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_LAUNCH, workspaceId),
   setDshWorkspacePinned: (workspaceId: string, pinned: boolean) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_SET_PINNED, workspaceId, pinned),
+  listDshEnvProfiles: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_LIST),
+  addDshEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_ADD, profile),
+  updateDshEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_UPDATE, profile),
+  deleteDshEnvProfile: (profileId: string) => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_DELETE, profileId),
+  setDshEnvProfileActive: (profileId: string | null) => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_SET_ACTIVE, profileId),
   openDshWeb: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_OPEN, workspaceId),
   closeDshWeb: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_CLOSE),
 
@@ -266,6 +286,11 @@ const electronAPI = {
   deleteCodexWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_WORKSPACE_DELETE, workspaceId),
   launchCodexWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_WORKSPACE_LAUNCH, workspaceId),
   setCodexWorkspacePinned: (workspaceId: string, pinned: boolean) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_WORKSPACE_SET_PINNED, workspaceId, pinned),
+  listCodexEnvProfiles: () => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ENV_LIST),
+  addCodexEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ENV_ADD, profile),
+  updateCodexEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ENV_UPDATE, profile),
+  deleteCodexEnvProfile: (profileId: string) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ENV_DELETE, profileId),
+  setCodexEnvProfileActive: (profileId: string | null) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ENV_SET_ACTIVE, profileId),
 
   // Claude Harness
   detectClaude: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_DETECT),
@@ -275,6 +300,11 @@ const electronAPI = {
   deleteClaudeWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_WORKSPACE_DELETE, workspaceId),
   launchClaudeWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_WORKSPACE_LAUNCH, workspaceId),
   setClaudeWorkspacePinned: (workspaceId: string, pinned: boolean) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_WORKSPACE_SET_PINNED, workspaceId, pinned),
+  listClaudeEnvProfiles: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ENV_LIST),
+  addClaudeEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ENV_ADD, profile),
+  updateClaudeEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ENV_UPDATE, profile),
+  deleteClaudeEnvProfile: (profileId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ENV_DELETE, profileId),
+  setClaudeEnvProfileActive: (profileId: string | null) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ENV_SET_ACTIVE, profileId),
 
   // Plugin 管理
   listPlugins: () => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_LIST),
