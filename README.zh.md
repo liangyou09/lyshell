@@ -1,7 +1,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/LyShell-v1.0.5-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
-  <img src="https://img.shields.io/badge/license-Freeware-orange?style=flat-square" alt="license">
+  <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
   <img src="https://img.shields.io/badge/DeepSeek%20Harness-ready-4D6BFE?style=flat-square" alt="deepseek-harness">
 </p>
@@ -337,9 +337,9 @@ JSON 文件存储于 `%APPDATA%\lyshell\`：
 
 ## 📄 许可证
 
-LyShell 可免费下载使用，但源码暂不开放。**未经许可，禁止反编译与再分发二进制**。详见 [LICENSE](LICENSE)。
+LyShell 基于 [MIT 许可证](LICENSE) 开源。你可以自由使用、修改与再分发，但需保留原始版权与许可声明。
 
-© 2026 liangyou 保留所有权利。
+© 2026 liangyou
 
 ---
 

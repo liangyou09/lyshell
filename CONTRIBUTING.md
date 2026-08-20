@@ -1,11 +1,12 @@
 # Contributing
 
-> Thanks for considering contributing to LyShell! This repository is the **user-facing release repo** — it hosts the README, example plugins, and documentation. Application source code is not yet open.
+> Thanks for considering contributing to LyShell! This repository is the **open-source home of LyShell** — it hosts the full application source code, documentation, and example plugins, released under the [MIT License](LICENSE).
 >
-> 感谢你考虑为 LyShell 贡献。这个仓库是**面向用户的发布仓**，承载 README、示例插件与文档；应用源码暂不开放。
+> 感谢你考虑为 LyShell 贡献。这个仓库是 LyShell 的**开源仓库**，承载完整的应用源码、文档与示例插件，基于 [MIT 许可证](LICENSE) 发布。
 
 ## What you can contribute here · 你能在这里贡献什么
 
+- **源码 / Source code** — 修复 bug、改进 `src/` 下的主进程 / 渲染进程代码。*Fix bugs and improve the main / renderer code under `src/`.*
 - **文档 / Docs** — 修正/补全 `README.md`（英文）与 `README.zh.md`（中文），以及 FAQ、使用指南等内容。*Fix or complete the English and Chinese READMEs, FAQ, and usage guides.*
 - **示例插件 / Example plugins** — 在 `examples/` 下新增或改进最小可跑的插件 demo。*Add or improve minimal plugin demos under `examples/`.*
 - **截图资源 / Screenshots** — 更新 `docs/assets/` 下的界面截图。*Update screenshots under `docs/assets/`.*
