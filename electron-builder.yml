@@ -1,0 +1,97 @@
+appId: com.lyshell.app
+productName: LyShell
+copyright: Copyright © 2026 liangyou. All rights reserved.
+
+# node-pty 1.0.0 在 node 24 下无法原生编译(winpty GetCommitHash.bat)。
+# 新机器必须先用 node 18/20 LTS 执行 npm install——postinstall(scripts/postinstall.cjs)
+# 会跑 install-app-deps 为 Electron 28 ABI 预编译 serialport/node-pty，这是拿到可用
+# 原生模块二进制的唯一途径；否则打包出的 app 运行时加载 node-pty 会失败。
+# 此处 npmRebuild: false 让打包阶段跳过重编，直接复用上述预编译结果。
+# 如需在支持 node-pty 编译的 node(18/20 LTS)上恢复重编，可移除此项。
+npmRebuild: false
+
+directories:
+  output: release/${version}
+  buildResources: build
+
+files:
+  - dist/**/*
+  - resources/**/*
+  - package.json
+  - "!**/*.map"
+  - "!**/node_modules/.cache/**/*"
+
+extraResources:
+  - from: resources/fonts
+    to: fonts
+  - from: resources/icons
+    to: icons
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  icon: resources/icons/icon.ico
+  sign: null
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: LyShell
+  displayLanguageSelector: true
+  installerLanguages:
+    - zh_CN
+    - en_US
+  language: 2052
+  license: resources/licenses/LyShell-LICENSE.txt
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: resources/icons/icon.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+dmg:
+  artifactName: ${productName}-${version}.${ext}
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  icon: resources/icons/
+  category: Utilities
+  synopsis: 智能终端软件
+  description: LyShell - SSH/Telnet/串口终端 + Python脚本 + AI辅助
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+publish:
+  provider: github
+  owner: lyshell
+  repo: lyshell
+  releaseType: release

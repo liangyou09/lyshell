@@ -1,9 +1,23 @@
-# 行尾统一为 LF，避免 Windows 贡献者混入 CRLF
+# 仓库统一文本归一化：所有文本类文件按 LF 行尾、UTF-8 入库。
+# 项目注释含中文，Windows 本机 PowerShell/Git 默认 GBK 解码非 UTF-8 文本会乱码——
+# 仓库本身已经是 UTF-8，这里只做最小约定：text 自动检测 + 二进制白名单。
 * text=auto eol=lf
 
-# 二进制文件不参与换行转换
-*.jpg binary
-*.jpeg binary
-*.png binary
-*.gif binary
-*.zip binary
+# Windows 批处理保持 CRLF
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# 二进制：禁止 EOL/编码归一化
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.ttf   binary
+*.woff  binary
+*.woff2 binary
+*.zip   binary
+*.7z    binary
+*.exe   binary
+*.dll   binary
+*.node  binary

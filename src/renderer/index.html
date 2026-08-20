@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="rack-graphite">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:;">
+    <title>LyShell</title>
+    <!-- 早期主题预设：必须在 React 挂载前同步还原 data-theme，避免 FOUC -->
+    <script type="module" src="./theme-init.ts"></script>
+    <!-- 早期语言预设：React 挂载前同步设 <html lang>，供 a11y；i18next 在 main.tsx 里初始化 -->
+    <script type="module" src="./lang-init.ts"></script>
+    <style>
+      body {
+        background-color: #11151A;
+        margin: 0;
+        padding: 0;
+      }
+      /* Maple Mono NF CN：打包进 app 的圆角等宽字体，中文严格 2:1 且自带 Nerd Font 图标。
+         scripts/subset-maple-font.py 子集化(去掉生僻字/稀有脚本)后转 woff2,
+         Regular+Bold 合计 ~11.6MB(原 ttf ~41MB)。font-display: swap 避免加载期文字不可见。
+         @font-face 的 family 名必须与 DEFAULT_FONT_FAMILY（@shared/constants）首项一致。 */
+      @font-face {
+        font-family: 'Maple Mono NF CN';
+        src: url('./fonts/MapleMono-NF-CN-Regular.woff2') format('woff2');
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'Maple Mono NF CN';
+        src: url('./fonts/MapleMono-NF-CN-Bold.woff2') format('woff2');
+        font-weight: 700;
+        font-style: normal;
+        font-display: swap;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>
