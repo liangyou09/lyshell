@@ -1,0 +1,74 @@
+LyShell — Third-Party Notices
+==============================
+
+LyShell distributes the third-party open-source components listed below.
+Each component remains subject to its own license terms; LyShell does not
+relicense them. The full text of the MIT License, under which the runtime
+dependencies listed here are distributed, is reproduced at the end of this
+file. The MapleMono font is distributed under the SIL Open Font License 1.1
+(see resources/licenses/MapleMono-NF-CN-LICENSE.txt).
+
+Runtime dependencies (bundled into the application):
+
+  @modelcontextprotocol/sdk    MIT     https://www.npmjs.com/package/@modelcontextprotocol/sdk
+  @xterm/addon-fit             MIT     https://www.npmjs.com/package/@xterm/addon-fit
+  @xterm/addon-search          MIT     https://www.npmjs.com/package/@xterm/addon-search
+  @xterm/xterm                 MIT     https://www.npmjs.com/package/@xterm/xterm
+  adm-zip                      MIT     https://www.npmjs.com/package/adm-zip
+  classnames                   MIT     https://www.npmjs.com/package/classnames
+  dayjs                        MIT     https://www.npmjs.com/package/dayjs
+  eastasianwidth               MIT     https://www.npmjs.com/package/eastasianwidth
+  electron-log                 MIT     https://www.npmjs.com/package/electron-log
+  electron-updater             MIT     https://www.npmjs.com/package/electron-updater
+  emoji-regex                  MIT     https://www.npmjs.com/package/emoji-regex
+  i18next                      MIT     https://www.npmjs.com/package/i18next
+  iconv-lite                   MIT     https://www.npmjs.com/package/iconv-lite
+  js-yaml                      MIT     https://www.npmjs.com/package/js-yaml
+  lodash-es                    MIT     https://www.npmjs.com/package/lodash-es
+  node-pty                     MIT     https://www.npmjs.com/package/node-pty
+  react                        MIT     https://www.npmjs.com/package/react
+  react-dom                    MIT     https://www.npmjs.com/package/react-dom
+  react-i18next                MIT     https://www.npmjs.com/package/react-i18next
+  react-router-dom             MIT     https://www.npmjs.com/package/react-router-dom
+  serialport                   MIT     https://www.npmjs.com/package/serialport
+  ssh2                         MIT     https://www.npmjs.com/package/ssh2
+  uuid                         MIT     https://www.npmjs.com/package/uuid
+  zustand                      MIT     https://www.npmjs.com/package/zustand
+
+Runtime framework:
+
+  Electron                     MIT     https://www.electronjs.org/
+    Copyright (c) Electron contributors. Copyright (c) 2013-2021 GitHub Inc.
+
+Bundled font:
+
+  MapleMono NF CN               SIL OFL 1.1
+    Copyright 2022 The Maple Mono Project Authors
+    https://github.com/subframe7536/maple-font
+    Full text: resources/licenses/MapleMono-NF-CN-LICENSE.txt
+
+Each MIT-licensed component is Copyright (c) its respective authors; see the
+component's own LICENSE file in its package (node_modules/<name>/LICENSE) for
+the exact copyright lines. The MIT permission notice that applies to these
+components is reproduced below.
+
+----------------------------------------------------------------------------
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
