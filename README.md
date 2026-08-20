@@ -1,7 +1,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/LyShell-v1.0.5-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
-  <img src="https://img.shields.io/badge/license-Freeware-orange?style=flat-square" alt="license">
+  <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
   <img src="https://img.shields.io/badge/DeepSeek%20Harness-ready-4D6BFE?style=flat-square" alt="deepseek-harness">
 </p>
@@ -337,9 +337,9 @@ Default `~/Downloads/LyShell/`. Change in settings.
 
 ## 📄 License
 
-LyShell is free to download and use, but the source code is not yet open. **Reverse engineering and redistribution of the binary are not permitted** without prior permission. See [LICENSE](LICENSE).
+LyShell is open-source software released under the [MIT License](LICENSE). You are free to use, modify, and redistribute it, provided the original copyright and license notices are preserved.
 
-© 2026 liangyou. All rights reserved.
+© 2026 liangyou
 
 ---
 
