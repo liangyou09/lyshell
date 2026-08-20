@@ -3,15 +3,15 @@
   "version": "1.0.5",
   "description": "智能终端软件 - SSH/Telnet/串口连接 + Python脚本 + AI辅助",
   "main": "dist/main/index.js",
-  "author": "LyShell Team",
+  "author": "liangyou",
   "license": "MIT",
-  "homepage": "https://github.com/lyshell/lyshell#readme",
+  "homepage": "https://github.com/liangyou09/lyshell#readme",
   "bugs": {
-    "url": "https://github.com/lyshell/lyshell/issues"
+    "url": "https://github.com/liangyou09/lyshell/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/lyshell/lyshell.git"
+    "url": "https://github.com/liangyou09/lyshell.git"
   },
   "scripts": {
     "dev": "electron-vite dev",

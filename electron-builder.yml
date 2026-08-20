@@ -18,12 +18,11 @@ files:
   - dist/**/*
   - resources/**/*
   - package.json
+  - THIRD-PARTY-NOTICES.txt
   - "!**/*.map"
   - "!**/node_modules/.cache/**/*"
 
 extraResources:
-  - from: resources/fonts
-    to: fonts
   - from: resources/icons
     to: icons
 
@@ -92,6 +91,6 @@ linux:
 
 publish:
   provider: github
-  owner: lyshell
+  owner: liangyou09
   repo: lyshell
   releaseType: release
