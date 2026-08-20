@@ -1,0 +1,307 @@
+import { Client, ClientChannel } from 'ssh2'
+import type { ConnectConfig } from 'ssh2'
+import log from 'electron-log'
+import iconv from 'iconv-lite'
+import { BaseConnector } from './base'
+
+/**
+ * SSH 配置
+ */
+export interface SSHConfig {
+  host: string
+  port: number
+  username: string
+  password?: string
+  privateKey?: string
+  passphrase?: string
+  keepaliveInterval?: number
+  readyTimeout?: number
+  encoding?: 'utf-8' | 'gbk' | 'gb2312'
+}
+
+/**
+ * SSH 连接器
+ */
+export class SSHConnector extends BaseConnector {
+  private config: SSHConfig
+  private client: Client | null = null
+  private channel: ClientChannel | null = null
+  private sharedClient: Client | null = null  // 共享的 SSH client
+  private decoder: ReturnType<typeof iconv.decodeStream> | null = null
+  private _connecting: boolean = false  // 是否正在连接中
+  private _connectReject: ((error: Error) => void) | null = null  // 连接 Promise 的 reject 函数
+  private _cols: number = 80  // 终端列数
+  private _rows: number = 24  // 终端行数
+
+  constructor(sessionId: string, config: SSHConfig) {
+    super(sessionId)
+    this.config = config
+  }
+
+  /**
+   * 创建流式解码器，避免多字节字符被 TCP 拆包截断
+   */
+  private createDecoder(): void {
+    const dec = iconv.decodeStream(this.config.encoding || 'utf-8')
+    dec.on('data', (str: string) => this.emitData(str))
+    dec.on('error', (err: Error) => log.warn('SSH decode stream error:', err))
+    this.decoder = dec
+  }
+
+  /**
+   * 设置共享的 SSH client（用于克隆渠道）
+   */
+  setSharedClient(client: Client): void {
+    this.sharedClient = client
+    this.client = client
+    this.connected = true
+  }
+
+  /**
+   * 获取 SSH client（用于克隆）
+   */
+  getClient(): Client | null {
+    return this.client
+  }
+
+  /**
+   * 只启动 shell（用于克隆渠道，不建立新连接）
+   */
+  async startShellOnly(): Promise<void> {
+    const client = this.sharedClient || this.client
+    if (!client) {
+      throw new Error('SSH client not available')
+    }
+
+    // 传入终端窗口尺寸，避免默认 80x24
+    const windowOpts = {
+      rows: this._rows || 24,
+      cols: this._cols || 80
+    }
+
+    return new Promise((resolve, reject) => {
+      client.shell({ term: 'xterm-256color', ...windowOpts }, (err, channel) => {
+        if (err) {
+          log.error('SSH shell error:', err)
+          reject(err)
+          return
+        }
+
+        this.channel = channel
+        this.connected = true
+
+        // 共享 client 复用路径上也需要独立的解码器
+        this.createDecoder()
+
+        // 接收数据（写入流式解码器，避免多字节字符被拆包截断）
+        channel.on('data', (data: Buffer) => {
+          this.decoder?.write(data)
+        })
+
+        // Shell 关闭
+        channel.on('close', () => {
+          log.info('SSH shell closed')
+          this.channel = null
+          // 共享 client 时，只关闭 channel，不关闭整个连接
+          if (!this.sharedClient) {
+            this.connected = false
+            this.emitClose()
+          }
+        })
+
+        log.info('SSH shell started (clone channel)')
+        resolve()
+      })
+    })
+  }
+
+  /**
+   * 连接到 SSH 服务器
+   */
+  async connect(config?: SSHConfig): Promise<void> {
+    if (config) {
+      this.config = config
+    }
+
+    log.info(`SSH connecting to ${this.config.host}:${this.config.port}`)
+
+    this.client = new Client()
+    this._connecting = true
+
+    this.client.on('ready', () => {
+      log.info('SSH connection ready')
+      this._connecting = false
+      this._connectReject = null
+      this.connected = true
+      this.emit('connected')
+
+      // 每个连接单独一个流式解码器
+      this.createDecoder()
+
+      // 启动 shell
+      this.startShell()
+    })
+
+    this.client.on('error', (err) => {
+      // 提取关键错误信息（去掉堆栈）
+      const errMsg = err.message?.split('\n')[0]?.replace(/^Error:\s*/, '') || err.toString()
+      log.error(`SSH connection error: ${errMsg}`)
+      this._connecting = false
+      this._connectReject = null
+      this.connected = false
+      this.emitError(err)
+    })
+
+    this.client.on('close', () => {
+      log.info('SSH connection closed')
+      this._connecting = false
+      this._connectReject = null
+      this.connected = false
+      this.emitClose()
+    })
+
+    // 连接配置
+    const connectionConfig: ConnectConfig = {
+      host: this.config.host,
+      port: this.config.port,
+      username: this.config.username,
+      readyTimeout: this.config.readyTimeout || 10000,
+      keepaliveInterval: this.config.keepaliveInterval || 10000, // 默认 10 秒心跳
+      keepaliveCountMax: 3, // 3 次心跳失败后断开
+    }
+
+    // 认证方式
+    if (this.config.password) {
+      connectionConfig.password = this.config.password
+    } else if (this.config.privateKey) {
+      connectionConfig.privateKey = this.config.privateKey
+      if (this.config.passphrase) {
+        connectionConfig.passphrase = this.config.passphrase
+      }
+    }
+
+    return new Promise((resolve, reject) => {
+      this._connectReject = reject  // 保存 reject 函数，以便 disconnect 时调用
+
+      // 使用 once 确保只触发一次，避免重复 reject
+      this.client!.once('ready', () => {
+        this._connecting = false
+        this._connectReject = null
+        resolve()
+      })
+      this.client!.once('error', (err) => {
+        if (this._connecting) {
+          this._connecting = false
+          this._connectReject = null
+          reject(err)
+        }
+      })
+      this.client!.once('close', () => {
+        if (this._connecting) {
+          this._connecting = false
+          this._connectReject = null
+          reject(new Error('Connection closed'))
+        }
+      })
+
+      this.client!.connect(connectionConfig)
+    })
+  }
+
+  /**
+   * 启动 Shell
+   */
+  private startShell(): void {
+    if (!this.client) return
+
+    // 传入终端窗口尺寸，避免默认 80x24
+    const windowOpts = {
+      rows: this._rows || 24,
+      cols: this._cols || 80
+    }
+
+    this.client.shell({ term: 'xterm-256color', ...windowOpts }, (err, channel) => {
+      if (err) {
+        log.error('SSH shell error:', err)
+        this.emitError(err)
+        return
+      }
+
+      this.channel = channel
+
+      // 接收数据（写入流式解码器，避免多字节字符被拆包截断）
+      channel.on('data', (data: Buffer) => {
+        this.decoder?.write(data)
+      })
+
+      // Shell 关闭
+      channel.on('close', () => {
+        log.info('SSH shell closed')
+        this.channel = null
+        this.emitClose()
+      })
+
+      log.info('SSH shell started')
+    })
+  }
+
+  /**
+   * 断开连接
+   */
+  async disconnect(): Promise<void> {
+    log.info('SSH disconnecting')
+
+    // 如果正在连接中，主动取消连接
+    if (this._connecting && this._connectReject) {
+      this._connectReject(new Error('Connection cancelled by user'))
+      this._connectReject = null
+      this._connecting = false
+    }
+
+    if (this.channel) {
+      this.channel.close()
+      this.channel = null
+    }
+
+    // 共享 client 时，不关闭整个连接
+    if (!this.sharedClient && this.client) {
+      this.client.end()
+      this.client = null
+    }
+
+    if (this.decoder) {
+      try { this.decoder.end() } catch { /* ignore */ }
+      this.decoder = null
+    }
+
+    this.connected = false
+  }
+
+  /**
+   * 写入数据
+   */
+  write(data: string | Buffer): void {
+    if (!this.channel) {
+      log.warn('SSH channel not available')
+      return
+    }
+
+    this.channel.write(data)
+  }
+
+  /**
+   * 调整终端尺寸
+   */
+  resize(cols: number, rows: number): void {
+    // 保存尺寸，用于后续 shell 创建
+    this._cols = cols
+    this._rows = rows
+
+    if (!this.channel) {
+      log.warn('SSH channel not available')
+      return
+    }
+
+    this.channel.setWindow(rows, cols, rows, cols)
+  }
+}

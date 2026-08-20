@@ -1,0 +1,356 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 全局样式 - 历史 token（终端基线），不受主题影响 */
+:root {
+  --color-bg-primary: #1E1E1E;
+  --color-bg-secondary: #252526;
+  --color-bg-card: #2D2D30;
+  --color-bg-input: #3C3C3C;
+  --color-bg-selected: #264F78;
+  --color-text-primary: #E0E0E0;
+  --color-text-secondary: #808080;
+  --color-accent: #0078D4;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   主题系统
+   ──────────────
+   chrome（背景层级 + rule + 文字 5 阶 + amber 焦点）随主题切换；
+   semantic 颜色（live / reachable / error / 协议色 / 文件类型色）
+   跨主题保持一致——它们承载语义，不该被"心情"改变。
+   每个主题完整定义所有 token，便于一眼审计。
+   ───────────────────────────────────────────────────────────── */
+
+/* 默认 = Rack Graphite */
+:root,
+[data-theme="rack-graphite"] {
+  --terminal-bg:    #0C0C0C;  /* 终端画布底色 -- 深色主题统一近黑(经 :root 继承);rack-paper 覆盖为浅纸 */
+  --bg-base:        #11151A;
+  --bg-rack:        #161B20;
+  --bg-slot:        #1C2228;
+  --bg-elev:        #1F262D;
+  --bg-strip:       #14181D;
+  --rule:           #232A31;
+  --rule-soft:      #1B2127;
+  --text-rack:      #E4E7EA;
+  --text-rack-mute: #6E767D;
+  --text-rack-data: #9AA3AB;
+  --text-rack-dim:  #4A5159;
+  --text-rack-faint:#353C42;
+  --amber:          #E8A33D;
+  --amber-soft:     #E8A33D22;
+  --amber-glow:     #E8A33D33;
+  --proto-ssh:      #4FA8FF;
+  --proto-tel:      #7CC576;
+  --proto-ser:      #E8A33D;
+  --proto-loc:      #B07CFF;
+  --ft-dir:         #4FA8FF;
+  --ft-src:         #7CC576;
+  --ft-log:         #E8A33D;
+  --ft-arch:        #FF6B6B;
+  --ft-img:         #6CD4FF;
+  --ft-bin:         #B07CFF;
+  --ft-other:       #4A5159;
+  --live:           #3DDC97;  /* 偏青绿,与 --proto-tel(#7CC576 草绿) 拉开 —— LIVE 段呼吸点不再被 TEL 协议色淹没 */
+  --reachable:      #6CD4FF;
+  --warn-rack:      #E8A33D;
+  --error-rack:     #FF6B6B;
+}
+
+/* Rack Slate — 偏蓝石板，amber 焦点不变 */
+[data-theme="rack-slate"] {
+  --bg-base:        #0E141B;
+  --bg-rack:        #131A23;
+  --bg-slot:        #18212C;
+  --bg-elev:        #1C2632;
+  --bg-strip:       #11181F;
+  --rule:           #232E39;
+  --rule-soft:      #1B232D;
+  --text-rack:      #E2E6EC;
+  --text-rack-mute: #6B7480;
+  --text-rack-data: #98A2AE;
+  --text-rack-dim:  #48515C;
+  --text-rack-faint:#333C46;
+  /* amber / semantic / proto / ft 全部继承默认 */
+}
+
+/* Rack Carbon — 中性炭灰，弱蓝，更冷峻 */
+[data-theme="rack-carbon"] {
+  --bg-base:        #131313;
+  --bg-rack:        #181818;
+  --bg-slot:        #1E1E1E;
+  --bg-elev:        #232323;
+  --bg-strip:       #161616;
+  --rule:           #2A2A2A;
+  --rule-soft:      #1F1F1F;
+  --text-rack:      #E6E6E6;
+  --text-rack-mute: #757575;
+  --text-rack-data: #A0A0A0;
+  --text-rack-dim:  #4E4E4E;
+  --text-rack-faint:#383838;
+}
+
+/* Rack Paper - 自然浅纸:暖中性石色底 + 石墨墨字 + 铜调红铅笔焦点,
+   未漂白纸/卵石质感,刻意避开淡青(原版偏冷绿、不自然)与暖米黄(AI 默认);与机柜暗主题材质互补 */
+[data-theme="rack-paper"] {
+  --terminal-bg:    #ECEAE4;  /* 浅纸终端画布,对齐 --bg-base */
+  --bg-base:        #ECEAE4;
+  --bg-rack:        #E4E2DB;
+  --bg-slot:        #DBD9D1;
+  --bg-elev:        #D2D0C7;
+  --bg-strip:       #E8E6DF;
+  --rule:           #C0BEB4;
+  --rule-soft:      #D3D1C8;
+  --text-rack:      #1F1E1A;
+  --text-rack-mute: #67655D;
+  --text-rack-data: #34332C;
+  --text-rack-dim:  #86847B;
+  --text-rack-faint:#AFAEA3;
+  --amber:          #B8741D;
+  --amber-soft:     #B8741D22;
+  --amber-glow:     #B8741D33;
+  /* proto / ft / live / reachable / error 全部继承默认 —— 语义不该被主题改 */
+}
+
+/* Rack Ember — 暖色暗主题,胡桃木褐底,amber 更艳 */
+[data-theme="rack-ember"] {
+  --bg-base:        #1A140E;
+  --bg-rack:        #221A12;
+  --bg-slot:        #2A2018;
+  --bg-elev:        #34281E;
+  --bg-strip:       #1D1610;
+  --rule:           #3B2D20;
+  --rule-soft:      #2E2218;
+  --text-rack:      #EFE7DA;
+  --text-rack-mute: #826F58;
+  --text-rack-data: #A89476;
+  --text-rack-dim:  #5E4F3C;
+  --text-rack-faint:#3F3424;
+  --amber:          #F5B556;
+  --amber-soft:     #F5B55622;
+  --amber-glow:     #F5B55633;
+}
+
+/* Rack Custom — RGB 自定义,真值由 theme-store 通过 inline style 注入到 :root,
+   这里只保留一个 fallback(等同 graphite),防止用户清空 localStorage 后裸渲染 */
+[data-theme="rack-custom"] {
+  --bg-base:        #11151A;
+  --bg-rack:        #161B20;
+  --bg-slot:        #1C2228;
+  --bg-elev:        #1F262D;
+  --bg-strip:       #14181D;
+  --rule:           #232A31;
+  --rule-soft:      #1B2127;
+  --text-rack:      #E4E7EA;
+  --text-rack-mute: #6E767D;
+  --text-rack-data: #9AA3AB;
+  --text-rack-dim:  #4A5159;
+  --text-rack-faint:#353C42;
+}
+
+/* connecting 协议色条脉冲 */
+@keyframes pulse-amber {
+  0%, 100% { filter: brightness(.6); box-shadow: 0 0 0 var(--amber-glow); }
+  50%      { filter: brightness(1.4); box-shadow: 0 0 8px var(--amber-glow); }
+}
+.animate-pulse-amber {
+  animation: pulse-amber 1.4s ease-in-out infinite;
+}
+
+/* 底部 live 计数呼吸 */
+@keyframes breathe {
+  0%, 100% { opacity: .4; }
+  50%      { opacity: 1; }
+}
+.animate-breathe {
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+/* 轨上激活图标呼吸辉光 -- "通电"的通电感,随 amber 焦点 */
+@keyframes rail-icon-glow {
+  0%, 100% { filter: drop-shadow(0 0 2px var(--amber-glow)); }
+  50%      { filter: drop-shadow(0 0 6px var(--amber-glow)); }
+}
+.animate-rail-icon-glow {
+  animation: rail-icon-glow 2.2s ease-in-out infinite;
+}
+
+/* 基础样式 */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  user-select: none;
+}
+
+/* 设置面板等宽字体 — 与状态栏右侧连接状态簇一致
+   (ui-monospace 兜底,优先 JetBrains Mono / Cascadia Code)。
+   未包裹在 @layer 内,故优先于 Tailwind utilities 层的 font-mono,无需 !important。 */
+.settings-panel,
+.settings-panel .font-mono {
+  font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+}
+
+/* 侧边栏、标签栏、状态栏完全禁止选择 */
+.sidebar-container,
+.tab-bar-container,
+.status-bar-container {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  margin: 0;
+  padding: 0;
+}
+
+/* 终端容器 */
+.terminal-wrapper {
+  overflow: hidden;
+  position: relative;
+}
+
+/* xterm 终端填满容器 */
+/* .xterm 和 .xterm-viewport 需要填满容器;
+   .xterm-screen 和 .xterm-rows 的高度由 xterm.js 通过 JS 精确计算(含 DPI 取整),
+   CSS 的 height:100%!important 会覆盖 JS 设置的 inline style,
+   导致 box 高度与内部记录不一致,滚动时第一列文字出现子像素漂移。 */
+.xterm,
+.xterm-viewport {
+  padding: 0 !important;
+  margin: 0 !important;
+  height: 100% !important;
+  box-sizing: border-box !important;
+}
+.xterm-viewport {
+  overflow-x: hidden !important;
+}
+.xterm-screen,
+.xterm-rows {
+  padding: 0 !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* xterm-helpers 只承载 textarea / composition-view，必须固定为左上角 0x0 定位上下文，
+   否则 textarea 的 absolute left/top 会随父元素尺寸或滚动漂移，导致 IME 候选框/预编辑
+   字母出现在错误位置（如页面末尾）。 */
+.xterm .xterm-helpers {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  z-index: 5 !important;
+  box-sizing: border-box !important;
+}
+
+/* IME 候选框定位：textarea 宽度由 TerminalView.tsx 的 patchCompositionHelper
+   猴补丁在 updateCompositionElements 后压回 1px，使 caret 固定在光标处。
+   非合成期间 xterm 默认将 textarea 置于 -9999em；合成开始时补丁会立即将其拉到光标，
+   因此这里不再覆盖 .xterm-helper-textarea 的位置规则。 */
+
+/* 终端滚动条 — rack 调性 / 比 chrome 宽一档，因为是高频画布 */
+.xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+
+.xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--text-rack-faint);
+  border-radius: 0;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: var(--text-rack-dim);
+}
+
+.xterm-viewport::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 通用滚动条样式 - 对话框 / 未挂 .rack-scroll 的兜底 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border-radius: 0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-rack-dim);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 隐藏滚动条但保持滚动功能 */
+.scrollbar-hide {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Opera */
+}
+
+/* 细滚动条样式 - 用于快速命令栏 */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* === Rack 滚动条 — 侧栏 / 文件管理器共享 === */
+.rack-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.rack-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rack-scroll::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border-radius: 0;
+}
+
+.rack-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--text-rack-dim);
+}
+
+.rack-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 无障碍 */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
