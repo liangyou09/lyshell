@@ -363,8 +363,8 @@ server.bind(("127.0.0.1", 0))
 server.listen(1)
 port = server.getsockname()[1]
 token_hex = os.urandom(32).hex()
-print("===NOVASHELL_PORT:" + str(port) + "===")
-print("===NOVASHELL_TOKEN:" + token_hex + "===")
+print("===LYSHELL_PORT:" + str(port) + "===")
+print("===LYSHELL_TOKEN:" + token_hex + "===")
 sys.stdout.flush()
 
 # 握手：循环 accept，直到收到正确 token；总 deadline 防 Worker 失败后远端永久阻塞。
@@ -443,7 +443,7 @@ try:
     os.unlink(__file__)  # 自删临时脚本，避免 /tmp 残留（脚本已载入内存，删除不影响执行）
 except Exception:
     pass
-print("===NOVASHELL_DONE:" + str(received) + "===")
+print("===LYSHELL_DONE:" + str(received) + "===")
 sys.stdout.flush()
 `
 
@@ -503,7 +503,7 @@ python3 "$_NVSH_UL" || python "$_NVSH_UL" || echo "PYTHON_FAILED"`
 
         // 检测端口与 token
         if (phase === 'waiting_port') {
-          const portMatch = shellOutput.match(/===NOVASHELL_PORT:(\d+)===/)
+          const portMatch = shellOutput.match(/===LYSHELL_PORT:(\d+)===/)
           if (portMatch) {
             pythonPort = parseInt(portMatch[1], 10)
             log('info', `Python TCP Server port: ${pythonPort}`)
@@ -511,7 +511,7 @@ python3 "$_NVSH_UL" || python "$_NVSH_UL" || echo "PYTHON_FAILED"`
           }
         }
         if (phase === 'waiting_token') {
-          const tokenMatch = shellOutput.match(/===NOVASHELL_TOKEN:([0-9a-fA-F]+)===/)
+          const tokenMatch = shellOutput.match(/===LYSHELL_TOKEN:([0-9a-fA-F]+)===/)
           if (tokenMatch) {
             pythonToken = tokenMatch[1]
             log('info', `Got auth token, opening SSH tunnel...`)
@@ -521,7 +521,7 @@ python3 "$_NVSH_UL" || python "$_NVSH_UL" || echo "PYTHON_FAILED"`
         }
 
         // 检测完成（所有阶段都检测）
-        const doneMatch = shellOutput.match(/===NOVASHELL_DONE:(\d+)===/)
+        const doneMatch = shellOutput.match(/===LYSHELL_DONE:(\d+)===/)
         if (doneMatch && !uploadFinished) {
           log('info', `Python done: ${doneMatch[1]} bytes received`)
           uploadFinished = true
@@ -568,7 +568,7 @@ python3 "$_NVSH_UL" || python "$_NVSH_UL" || echo "PYTHON_FAILED"`
           client.end()
           reject(new Error(errorMsg))
         } else if (!uploadFinished) {
-          // stream 关闭但未收到 NOVASHELL_DONE：远端 Python 未完成 / stdout 丢失 / 提前关闭。
+          // stream 关闭但未收到 LYSHELL_DONE：远端 Python 未完成 / stdout 丢失 / 提前关闭。
           // 不应报成功--远端文件可能不完整。报错让调用方知晓。
           const errMsg = 'Upload stream closed without remote completion acknowledgment'
           log('error', errMsg)
@@ -630,7 +630,7 @@ python3 "$_NVSH_UL" || python "$_NVSH_UL" || echo "PYTHON_FAILED"`
         }
 
         if (phase === 'waiting_port') {
-          const portMatch = execOutput.match(/===NOVASHELL_PORT:(\d+)===/)
+          const portMatch = execOutput.match(/===LYSHELL_PORT:(\d+)===/)
           if (portMatch) {
             pythonPort = parseInt(portMatch[1], 10)
             log('info', `Python TCP Server port: ${pythonPort}`)
@@ -638,7 +638,7 @@ python3 "$_NVSH_UL" || python "$_NVSH_UL" || echo "PYTHON_FAILED"`
           }
         }
         if (phase === 'waiting_token') {
-          const tokenMatch = execOutput.match(/===NOVASHELL_TOKEN:([0-9a-fA-F]+)===/)
+          const tokenMatch = execOutput.match(/===LYSHELL_TOKEN:([0-9a-fA-F]+)===/)
           if (tokenMatch) {
             pythonToken = tokenMatch[1]
             log('info', `Got auth token, opening SSH tunnel...`)
@@ -648,7 +648,7 @@ python3 "$_NVSH_UL" || python "$_NVSH_UL" || echo "PYTHON_FAILED"`
         }
 
         // 检测完成（所有阶段都检测，与 shell 模式一致）
-        const doneMatch = execOutput.match(/===NOVASHELL_DONE:(\d+)===/)
+        const doneMatch = execOutput.match(/===LYSHELL_DONE:(\d+)===/)
         if (doneMatch && !uploadFinished) {
           log('info', `Python done: ${doneMatch[1]} bytes received`)
           uploadFinished = true
@@ -693,7 +693,7 @@ python3 "$_NVSH_UL" || python "$_NVSH_UL" || echo "PYTHON_FAILED"`
           client.end()
           reject(new Error(errorMsg))
         } else if (!uploadFinished) {
-          // stream 关闭但未收到 NOVASHELL_DONE：远端 Python 未完成 / stdout 丢失 / 提前关闭。
+          // stream 关闭但未收到 LYSHELL_DONE：远端 Python 未完成 / stdout 丢失 / 提前关闭。
           // 不应报成功--远端文件可能不完整。报错让调用方知晓。
           const errMsg = 'Upload stream closed without remote completion acknowledgment'
           log('error', errMsg)
@@ -749,7 +749,7 @@ python3 "$_NVSH_UL" || python "$_NVSH_UL" || echo "PYTHON_FAILED"`
 
       readStream.on('end', () => {
         log('info', `File read complete, transferred: ${transferred}`)
-        // 不立即关闭，等待远程确认（通过 shell 的 NOVASHELL_DONE）
+        // 不立即关闭，等待远程确认（通过 shell 的 LYSHELL_DONE）
         // 保持连接，让 finishUpload 处理关闭
       })
 
@@ -798,7 +798,7 @@ python3 "$_NVSH_UL" || python "$_NVSH_UL" || echo "PYTHON_FAILED"`
   function finishUpload(receivedByRemote?: number) {
     if (uploadResolved) return  // 已处理，防止重复
 
-    // 校验远端实际写入字节数：Python server 回报 NOVASHELL_DONE:<received>。
+    // 校验远端实际写入字节数：Python server 回报 LYSHELL_DONE:<received>。
     // 隧道 EOF / 对端只写部分时 received < fileSize，此时远端文件不完整，必须报错。
     // 必须在置 uploadResolved 之前校验：reject() 包装器见已 resolved 会直接 no-op，
     // 先置位会让字节数不匹配的失败被吞掉——promise 不 reject、Worker 也不退出。

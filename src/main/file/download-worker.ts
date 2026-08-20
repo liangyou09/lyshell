@@ -343,8 +343,8 @@ port = server.getsockname()[1]
 # 一次性 token：由 server 生成，经 SSH stdout（加密）回传给 Worker；Worker 通过 SSH 隧道回送 token 完成握手，
 # 阻断同主机其他用户抢连 127.0.0.1 端口劫持传输（first-connection-wins）
 token_hex = os.urandom(32).hex()
-print("===NOVASHELL_PORT:" + str(port) + "===")
-print("===NOVASHELL_TOKEN:" + token_hex + "===")
+print("===LYSHELL_PORT:" + str(port) + "===")
+print("===LYSHELL_TOKEN:" + token_hex + "===")
 sys.stdout.flush()
 
 # 握手：循环 accept，直到收到正确 token；总 deadline 防 Worker 失败后远端永久阻塞。
@@ -400,7 +400,7 @@ try:
     os.unlink(__file__)  # 自删临时脚本，避免 /tmp 残留（脚本已载入内存，删除不影响执行）
 except Exception:
     pass
-print("===NOVASHELL_DONE:" + str(file_size) + "===")
+print("===LYSHELL_DONE:" + str(file_size) + "===")
 sys.stdout.flush()
 `
 
@@ -467,7 +467,7 @@ python3 "$_NVSH_DL" || python "$_NVSH_DL" || echo "PYTHON_FAILED"`
         }
 
         if (phase === 'waiting_port') {
-          const portMatch = shellOutput.match(/===NOVASHELL_PORT:(\d+)===/)
+          const portMatch = shellOutput.match(/===LYSHELL_PORT:(\d+)===/)
           if (portMatch) {
             pythonPort = parseInt(portMatch[1], 10)
             log('info', `Python TCP Server port: ${pythonPort}`)
@@ -475,7 +475,7 @@ python3 "$_NVSH_DL" || python "$_NVSH_DL" || echo "PYTHON_FAILED"`
           }
         }
         if (phase === 'waiting_token') {
-          const tokenMatch = shellOutput.match(/===NOVASHELL_TOKEN:([0-9a-fA-F]+)===/)
+          const tokenMatch = shellOutput.match(/===LYSHELL_TOKEN:([0-9a-fA-F]+)===/)
           if (tokenMatch) {
             pythonToken = tokenMatch[1]
             log('info', `Got auth token, opening SSH tunnel...`)
@@ -484,7 +484,7 @@ python3 "$_NVSH_DL" || python "$_NVSH_DL" || echo "PYTHON_FAILED"`
           }
         }
 
-        const doneMatch = shellOutput.match(/===NOVASHELL_DONE:(\d+)===/)
+        const doneMatch = shellOutput.match(/===LYSHELL_DONE:(\d+)===/)
         if (doneMatch) {
           log('info', `Python done: ${doneMatch[1]} bytes`)
           remoteDone = true
@@ -545,12 +545,12 @@ python3 "$_NVSH_DL" || python "$_NVSH_DL" || echo "PYTHON_FAILED"`
         execOutput += output
 
         const trimmed = output.trim()
-        if (trimmed.includes('NOVASHELL')) {
+        if (trimmed.includes('LYSHELL')) {
           log('info', `Exec: ${trimmed}`)
         }
 
         if (phase === 'waiting_port') {
-          const portMatch = execOutput.match(/===NOVASHELL_PORT:(\d+)===/)
+          const portMatch = execOutput.match(/===LYSHELL_PORT:(\d+)===/)
           if (portMatch) {
             pythonPort = parseInt(portMatch[1], 10)
             log('info', `Python TCP Server port: ${pythonPort}`)
@@ -558,7 +558,7 @@ python3 "$_NVSH_DL" || python "$_NVSH_DL" || echo "PYTHON_FAILED"`
           }
         }
         if (phase === 'waiting_token') {
-          const tokenMatch = execOutput.match(/===NOVASHELL_TOKEN:([0-9a-fA-F]+)===/)
+          const tokenMatch = execOutput.match(/===LYSHELL_TOKEN:([0-9a-fA-F]+)===/)
           if (tokenMatch) {
             pythonToken = tokenMatch[1]
             log('info', `Got auth token, opening SSH tunnel...`)
@@ -567,7 +567,7 @@ python3 "$_NVSH_DL" || python "$_NVSH_DL" || echo "PYTHON_FAILED"`
           }
         }
 
-        const doneMatch = execOutput.match(/===NOVASHELL_DONE:(\d+)===/)
+        const doneMatch = execOutput.match(/===LYSHELL_DONE:(\d+)===/)
         if (doneMatch) {
           log('info', `Python done: ${doneMatch[1]} bytes`)
           remoteDone = true
@@ -680,7 +680,7 @@ python3 "$_NVSH_DL" || python "$_NVSH_DL" || echo "PYTHON_FAILED"`
               })
               log('info', `Download bytes received: ${fileName} (${transferred} bytes)`)
               streamRef?.destroy()
-              // 数据全部到达即收敛：NOVASHELL_DONE 走 exec stdout、文件数据走 SSH 隧道，两条流独立。
+              // 数据全部到达即收敛：LYSHELL_DONE 走 exec stdout、文件数据走 SSH 隧道，两条流独立。
               // 若 DONE 先到，finishDownload 此前因 !transferComplete 且 remoteDone 早退；
               // 此处补调使其发出 complete，避免 exec close 也早退后最终被超时计时器判定失败。
               finishDownload()
