@@ -34,7 +34,7 @@ describe('exec/Python-TCP 传输安全不变量', () => {
 
       it('有一次 token 握手防同主机抢连劫持', () => {
         // server 生成 token 经 SSH stdout 回传
-        expect(src).toContain('===NOVASHELL_TOKEN:')
+        expect(src).toContain('===LYSHELL_TOKEN:')
         expect(src).toContain('token_hex = os.urandom(32).hex()')
         // accept 循环：收到错误 token 不放行，继续 accept 下一个连接
         expect(src).toContain('while conn is None')
@@ -65,7 +65,7 @@ describe('exec/Python-TCP 传输安全不变量', () => {
   })
 
   it('download-worker 数据接收完成即调用 finishDownload 收敛（防 DONE 先于数据到达的竞态）', () => {
-    // NOVASHELL_DONE 走 exec stdout、文件数据走 SSH 隧道，两条流独立；DONE 可能先于最后数据到达，
+    // LYSHELL_DONE 走 exec stdout、文件数据走 SSH 隧道，两条流独立；DONE 可能先于最后数据到达，
     // 此时 finishDownload 因 !transferComplete && remoteDone 早退。数据置 transferComplete 后必须再调
     // finishDownload() 发出 complete，否则 exec close 也早退时 complete 永不发出，最终被超时判定失败。
     const normalStart = DL.indexOf('if (transferred >= expectedSize)')
@@ -111,7 +111,7 @@ describe('exec/Python-TCP 传输安全不变量', () => {
 
   it('log() 经 redactSecrets 闸口脱敏，一次性握手 token 不进日志', () => {
     // worker 把原始 shell/exec stdout 行打日志（如 `Shell: ${line}`），其中含
-    // ===NOVASHELL_TOKEN:<hex>===；log() 必须经 redactSecrets 脱敏，防 electron-log 落盘。
+    // ===LYSHELL_TOKEN:<hex>===；log() 必须经 redactSecrets 脱敏，防 electron-log 落盘。
     for (const src of [DL, UL]) {
       expect(src).toContain("import { redactSecrets } from './redact'")
       expect(src).toMatch(/message:\s*redactSecrets\(message\)/)
