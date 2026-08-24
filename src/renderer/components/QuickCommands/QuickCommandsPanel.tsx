@@ -1,113 +1,40 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import type { QuickCommand, QuickCommandGroup } from '@shared/types'
-import { processInputEscapeSequences } from '@shared/escape-sequences'
-import { useTerminalStore } from '../../stores/terminal-store'
-import { useSessionStore } from '../../stores/session-store'
+import { useQuickCommandsStore } from '../../stores/quick-commands-store'
 
-/**
- * 终端尺寸显示组件
- */
-const TerminalSize: React.FC<{ sessionId: string }> = ({ sessionId }) => {
-  const { getTerminal } = useTerminalStore()
-  const { t } = useTranslation()
-  const [size, setSize] = useState<{ cols: number; rows: number; bufferLines: number } | null>(null)
-  // 行数单击/双击区分:单击滚回底部、双击清空 scrollback,用定时器避免单击动作在双击时先行触发
-  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    const updateSize = () => {
-      const instance = getTerminal(sessionId)
-      if (instance) {
-        const cols = instance.terminal.cols
-        const rows = instance.terminal.rows
-        const bufferLines = instance.terminal.buffer.active.length
-        if (cols && rows) {
-          setSize({ cols, rows, bufferLines })
-        }
-      }
-    }
-    updateSize()
-    const interval = setInterval(updateSize, 2000)
-    return () => clearInterval(interval)
-  }, [sessionId, getTerminal])
-
-  // 卸载时清掉待触发的单击定时器,避免组件销毁后仍 scrollToBottom
-  useEffect(() => {
-    return () => {
-      if (clickTimer.current) clearTimeout(clickTimer.current)
-    }
-  }, [])
-
-  if (!size) return null
-  const lines = size.bufferLines
-  const formattedLines = lines >= 10000 ? `${Math.floor(lines / 1000)}k`
-    : lines >= 1000 ? `${(lines / 1000).toFixed(1)}k`
-    : `${lines}`
-
-  // size 单击:往 PTY 发 Ctrl+L(\x0c),清当前屏并重绘提示符,保留 scrollback
-  const handleSizeClick = () => {
-    window.electronAPI?.terminalWrite(sessionId, '\x0c')
-  }
-
-  // 行数:首次点击起一个 250ms 定时器做"滚回底部";定时器未到期又来一次点击则取消并"清空 scrollback"
-  const handleLinesClick = () => {
-    const instance = getTerminal(sessionId)
-    if (!instance) return
-    if (clickTimer.current) {
-      clearTimeout(clickTimer.current)
-      clickTimer.current = null
-      instance.terminal.clear()
-    } else {
-      clickTimer.current = setTimeout(() => {
-        clickTimer.current = null
-        instance.terminal.scrollToBottom()
-      }, 250)
-    }
-  }
-
-  return (
-    <>
-      <button
-        type="button"
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={handleSizeClick}
-        title={t('statusbar.clearScreenHint')}
-        className="bg-transparent border-0 p-0 cursor-pointer [font-family:inherit] [font-size:inherit] [line-height:inherit] hover:text-[var(--text-rack)] transition-colors"
-      >
-        {size.cols}×{size.rows}
-      </button>
-      <span aria-hidden className="w-px h-[10px] bg-[var(--rule)] flex-shrink-0" />
-      <button
-        type="button"
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={handleLinesClick}
-        title={t('statusbar.scrollBottomHint')}
-        className="tabular-nums bg-transparent border-0 p-0 cursor-pointer [font-family:inherit] [font-size:inherit] [line-height:inherit] hover:text-[var(--text-rack)] transition-colors"
-      >
-        {formattedLines}
-      </button>
-    </>
-  )
+interface QuickCommandsPanelProps {
+  /** 快捷命令派发（由 MainWindow 提供,拆行/转义规则统一在 dispatchCommand；可选以容错无宿主场景） */
+  onExecuteCommand?: (cmd: QuickCommand) => void
+  /** dsh web 接管活动分屏时置灰：命令会发进被 webview 挡住的终端，必须禁发 */
+  disabled?: boolean
 }
 
-interface StatusBarProps {
-  sessionId: string | null
-  onExecuteCommand: (content: string) => void
-  refreshKey?: number  // 用于触发刷新
-}
+/** 折叠态持久化 key（对齐 protoFilter 的 localStorage 做法） */
+const COLLAPSED_KEY = 'lyshell.quickCmdCollapsed.v1'
+
+// 预定义分组颜色（1 默认 + 4 用户槽位共用色板）
+const PREDEFINED_COLORS = ['#0078D4', '#E81123', '#107C10', '#FFB900', '#FF69B4']
 
 /**
- * 状态栏组件 - 包含快速命令（支持分组）
+ * 快捷命令侧栏模块 —— 从 StatusBar.tsx 迁入会话栏（搜索框下方）。
+ *
+ * 结构：标题行（折叠 chevron + 分组 LED 色点 + ＋）+ 键帽 wrap 区。
+ * 数据来自 quick-commands-store（Ctrl+F1-F12 直发监听在 MainWindow 常驻，
+ * 依赖同一 store，侧栏收起/切页签时快捷键不受影响）。
  */
-const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refreshKey }) => {
-  const [commands, setCommands] = useState<QuickCommand[]>([])
-  const { sessions } = useSessionStore()
+const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteCommand, disabled }) => {
+  // 细粒度选择器：键帽区 DOM 较多,避免无关字段变化(如别的分组被编辑)触发整面板重渲
+  const commands = useQuickCommandsStore(s => s.commands)
+  const groups = useQuickCommandsStore(s => s.groups)
+  const defaultGroupColor = useQuickCommandsStore(s => s.defaultGroupColor)
+  const selectedGroupId = useQuickCommandsStore(s => s.selectedGroupId)
+  const loadAll = useQuickCommandsStore(s => s.loadAll)
+  const setSelectedGroupId = useQuickCommandsStore(s => s.setSelectedGroupId)
   const { t } = useTranslation()
-  const [groups, setGroups] = useState<QuickCommandGroup[]>([])
-  const [defaultGroupColor, setDefaultGroupColor] = useState<string>('')
-  const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
+
+  const [collapsed, setCollapsed] = useState(false)
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [showBatchGroupDialog, setShowBatchGroupDialog] = useState(false)  // 批量编辑分组对话框
   const [batchGroups, setBatchGroups] = useState<{id: string, name: string, color: string}[]>([])  // 批量编辑的分组数据
@@ -123,39 +50,46 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
 
-  const dropdownRef = useRef<HTMLDivElement>(null)
-  const groupButtonRef = useRef<HTMLButtonElement>(null)
-  // 初始化时选中默认分组
-  const [selectedGroupId, setSelectedGroupId] = useState<string>('default')
-  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 })
-
-  // 加载命令和分组
+  // 恢复折叠态
   useEffect(() => {
-    loadCommands()
-    loadGroups()
-    loadDefaultGroupColor()
-  }, [refreshKey])
-
-  // 加载命令
-  const loadCommands = async () => {
     try {
-      const result = await window.electronAPI?.getQuickCommands()
-      if (result && Array.isArray(result)) {
-        const validCommands = result
-          .filter(cmd => cmd && cmd.name && cmd.content)
-          .map((cmd, index) => ({
-            ...cmd,
-            id: cmd.id || Date.now().toString() + Math.random().toString(36).slice(2),
-            groupId: cmd.groupId || undefined,
-            order: cmd.order ?? index
-          }))
-          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-        setCommands(validCommands)
-      }
-    } catch (err) {
-      console.error('Failed to load quick commands:', err)
-    }
+      if (localStorage.getItem(COLLAPSED_KEY) === '1') setCollapsed(true)
+    } catch { /* localStorage 不可用,回退展开 */ }
+  }, [])
+
+  const toggleCollapsed = () => {
+    setCollapsed(prev => {
+      const next = !prev
+      try { localStorage.setItem(COLLAPSED_KEY, next ? '1' : '0') } catch { /* quota */ }
+      return next
+    })
   }
+
+  // 重置对话框状态 —— 只调稳定 setter,useCallback 空依赖使其引用稳定,
+  // ESC 监听据此显式声明依赖(不再依赖"事件触发时变量恰好已初始化"的巧合闭包)
+  const resetDialogState = useCallback(() => {
+    setEditCommand(undefined)
+    setNewName('')
+    setNewContent('')
+    setNewGroupId('')
+    setNewEscape(false)
+    setNameError(false)
+    setContentError(false)
+  }, [])
+
+  // ESC键关闭对话框
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowAddDialog(false)
+        setShowBatchGroupDialog(false)
+        setEditingCommandId(null)
+        resetDialogState()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [resetDialogState])
 
   // 默认分组（始终存在，不可删除，名称固定，颜色持久化到偏好设置）
   const DEFAULT_GROUP: QuickCommandGroup = {
@@ -168,121 +102,8 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
   // 合并默认分组和用户分组（过滤掉名称为空的分组）
   const allGroups = [DEFAULT_GROUP, ...groups.filter(g => g.name && g.name.trim().length > 0)]
 
-  // 加载分组
-  const loadGroups = async () => {
-    try {
-      const result = await window.electronAPI?.commandGroupList()
-      if (result && Array.isArray(result)) {
-        // 过滤掉没有有效 ID 的分组，排除默认分组（避免重复）
-        const validGroups = result.filter(g => g && g.id && g.id !== 'default')
-        setGroups(validGroups)
-      }
-    } catch (err) {
-      console.error('Failed to load groups:', err)
-    }
-  }
-
-  // 加载默认分组颜色（从偏好设置持久化，未设置时默认粉色）
-  const loadDefaultGroupColor = async () => {
-    try {
-      const color = await window.electronAPI?.getConfig?.('quickCommand.defaultGroupColor')
-      if (typeof color === 'string') {
-        setDefaultGroupColor(color)
-      } else {
-        setDefaultGroupColor('#0078D4')
-      }
-    } catch (err) {
-      console.error('Failed to load default group color:', err)
-    }
-  }
-
-  // 关闭下拉菜单（点击外部）
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setActiveDropdown(null)
-      }
-    }
-    window.addEventListener('click', handleClickOutside)
-    return () => window.removeEventListener('click', handleClickOutside)
-  }, [])
-
-  // ESC键关闭对话框
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setShowAddDialog(false)
-        setShowBatchGroupDialog(false)
-        setActiveDropdown(null)
-        setEditingCommandId(null)
-        resetDialogState()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
-
-  // 把单行 content 展开成待发送文本：勾选转义时解析 \n \r \t \xHH，否则 trim。
-  const expandLine = (escapeSequences: boolean | undefined, line: string): string | null => {
-    const processed = escapeSequences ? processInputEscapeSequences(line) : line.trim()
-    return processed || null
-  }
-
-  // Ctrl + F1-F12 快捷键执行快速命令
-  useEffect(() => {
-    const handleShortcut = (e: KeyboardEvent) => {
-      if (!e.ctrlKey) return
-
-      // F1-F12 对应快捷键索引 0-11
-      const fKeyMatch = e.key.match(/^F([1-9]|1[0-2])$/)
-      if (!fKeyMatch) return
-
-      // 必须 stopPropagation:capture 阶段截断后阻止事件继续传到 xterm,
-      // 否则 xterm 仍会把 F1-F12 解析成转义序列发进 PTY(快捷命令与转义序列双发)。
-      e.preventDefault()
-      e.stopPropagation()
-
-      const index = parseInt(fKeyMatch[1]) - 1
-      if (index >= 0 && index < 12) {
-        // 直接根据当前 selectedGroupId 过滤命令
-        const groupId = selectedGroupId || 'default'
-        const currentCommands = groupId === 'default'
-          ? commands.filter(c => !c.groupId || c.groupId === '')
-          : commands.filter(c => c.groupId === groupId)
-
-        const sortedCommands = [...currentCommands].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-
-        if (index < sortedCommands.length) {
-          const cmd = sortedCommands[index]
-          const lines = cmd.content.split('\n')
-          lines.forEach(line => {
-            const processed = expandLine(cmd.escapeSequences, line)
-            if (processed) {
-              onExecuteCommand(processed)
-            }
-          })
-        }
-      }
-    }
-    // 用 capture 阶段:焦点在终端时 xterm 会先在 textarea 上处理 F1-F12 并
-    // stopPropagation,冒泡阶段的 window 监听收不到事件;capture 抢在 xterm 之前截走。
-    window.addEventListener('keydown', handleShortcut, true)
-    return () => window.removeEventListener('keydown', handleShortcut, true)
-  }, [selectedGroupId, commands, onExecuteCommand])
-
-  // 重置对话框状态
-  const resetDialogState = () => {
-    setEditCommand(undefined)
-    setNewName('')
-    setNewContent('')
-    setNewGroupId('')
-    setNewEscape(false)
-    setNameError(false)
-    setContentError(false)
-  }
-
-  // 双击添加命令
-  const handleDoubleClick = () => {
+  // 新建命令（＋ 按钮 / 空态入口；沿袭原轨道双击语义）
+  const handleAddNew = () => {
     setEditCommand(undefined)
     setEditingCommandId(null)
     setNewName('')
@@ -295,16 +116,10 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     setShowAddDialog(true)
   }
 
-  // 单击执行命令
+  // 单击执行命令 —— 整条交给宿主派发（dispatchCommand 统一拆行/转义/结尾符）
   const handleExecute = (cmd: QuickCommand) => {
-    const lines = cmd.content.split('\n')
-    lines.forEach(line => {
-      const processed = expandLine(cmd.escapeSequences, line)
-      if (processed) {
-        onExecuteCommand(processed)
-      }
-    })
-    setActiveDropdown(null)
+    if (disabled || !onExecuteCommand) return
+    onExecuteCommand(cmd)
   }
 
   // 右键编辑命令
@@ -320,7 +135,6 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     setNameError(false)
     setContentError(false)
     setShowAddDialog(true)
-    setActiveDropdown(null)
   }
 
   // 保存命令
@@ -360,7 +174,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
       await window.electronAPI?.commandAdd(command)
     }
 
-    await loadCommands()
+    await loadAll()
     setShowAddDialog(false)
     setEditingCommandId(null)
     resetDialogState()
@@ -370,7 +184,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
   const handleDeleteCommand = async () => {
     if (editCommand) {
       await window.electronAPI?.commandDelete(editCommand.id)
-      await loadCommands()
+      await loadAll()
       setShowAddDialog(false)
       setEditingCommandId(null)
       resetDialogState()
@@ -422,7 +236,6 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
   const handleSaveBatchGroups = async () => {
     // 持久化默认分组颜色（名称固定，存到偏好设置）
     const newDefaultColor = batchGroups[0].color || ''
-    setDefaultGroupColor(newDefaultColor)
     await window.electronAPI?.setConfig?.('quickCommand.defaultGroupColor', newDefaultColor)
 
     const userGroups = batchGroups.slice(1)
@@ -465,7 +278,13 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
       // 空槽位（无 id 且无名称）直接跳过
     }
 
-    await loadGroups()
+    await loadAll()
+    // 选中的分组可能刚被删掉 —— 回落检查必须对着重载后的真实分组做:
+    // 本地 batchGroups 里被删槽位(清空名称)的 id 仍在,若查它则恒判"存在",回落永不触发
+    const freshGroups = useQuickCommandsStore.getState().groups
+    if (selectedGroupId !== 'default' && !freshGroups.some(g => g.id === selectedGroupId)) {
+      setSelectedGroupId('default')
+    }
     setShowBatchGroupDialog(false)
   }
 
@@ -504,20 +323,23 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     return commands.filter(c => c.groupId === groupId)
   }
 
-  // 获取当前显示的命令（按顺序排列）
+  // 当前显示的命令 —— store loadAll 时已按 order 全局排序,filter 保序,渲染期无需再 sort
   const currentGroup = allGroups.find(g => g.id === selectedGroupId) || DEFAULT_GROUP
-  const displayCommands = getCommandsByGroup(selectedGroupId || 'default')
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-
-  // 预定义颜色
-  const predefinedColors = ['#0078D4', '#E81123', '#107C10', '#FFB900', '#FF69B4']
+  const displayCommands = useMemo(() => {
+    const gid = selectedGroupId || 'default'
+    return gid === 'default'
+      ? commands.filter(c => !c.groupId || c.groupId === '')
+      : commands.filter(c => c.groupId === gid)
+  }, [commands, selectedGroupId])
+  // 当前分组颜色（用于键帽底部 2px 色条）
+  const currentGroupColor = currentGroup?.color || ''
 
   // 限制字符串的视觉宽度不超过最大值（中文字符算1，英文字符算0.5）
   const limitVisualWidth = (str: string, maxWidth: number): string => {
     let result = ''
     let width = 0
     for (const char of str) {
-      const charWidth = /[\u4e00-\u9fff]/.test(char) ? 1 : 0.5
+      const charWidth = /[一-鿿]/.test(char) ? 1 : 0.5
       if (width + charWidth <= maxWidth) {
         result += char
         width += charWidth
@@ -528,242 +350,171 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
     return result
   }
 
-  // 当前分组颜色（用于键帽底部 2px 色条 + 分组键色点）
-  const currentGroupColor = currentGroup?.color || ''
+  // LED 槽位：默认分组 + 用户分组，补齐到 5 个（空槽位虚线圆，点击开分组编辑）
+  const ledSlots = [...allGroups, ...Array.from({ length: Math.max(0, 5 - allGroups.length) }, () => null)]
 
   return (
-    <div
-      className="flex items-stretch justify-between bg-[var(--bg-base)] border-t border-[var(--rule)] h-[30px] text-xs text-[var(--text-rack-mute)] relative"
-      ref={dropdownRef}
-    >
-      {/* 分组选择键 - 最左侧 */}
-      <button
-        ref={groupButtonRef}
-        onClick={(e) => {
-          e.stopPropagation()
-          const newDropdown = activeDropdown === 'groups' ? null : 'groups'
-          // 计算下拉菜单位置（按钮上方）
-          if (newDropdown === 'groups' && groupButtonRef.current) {
-            const rect = groupButtonRef.current.getBoundingClientRect()
-            setDropdownPosition({
-              top: rect.top - 2,
-              left: rect.left
-            })
-          }
-          setActiveDropdown(newDropdown)
-        }}
+    <div className="flex-shrink-0">
+      {/* ===== 标题行 —— 对齐 SessionsPanel GroupHeader 视觉语言 ===== */}
+      <div
+        onClick={toggleCollapsed}
         onContextMenu={(e) => {
           e.preventDefault()
           e.stopPropagation()
-          // 右键打开批量编辑分组对话框
+          // 右键打开批量编辑分组对话框（沿袭原分组键右键语义）
           handleOpenGroupDialog()
         }}
-        className={cn(
-          'h-full flex items-center gap-1.5 flex-shrink-0',
-          'bg-[var(--bg-rack)] hover:bg-[var(--bg-slot)]',
-          'border-r border-[var(--rule)]',
-          'cursor-pointer transition-colors px-2.5',
-          activeDropdown === 'groups' && 'bg-[var(--bg-slot)]',
-          showBatchGroupDialog && 'ring-1 ring-inset ring-[var(--amber)]'
-        )}
         title={t('statusbar.groupSwitchHint')}
+        className="flex items-center gap-2.5 px-3 py-1.5 text-[10px] text-[var(--text-rack-mute)] bg-[var(--bg-rack)] border-b border-[var(--rule-soft)] cursor-pointer hover:bg-[var(--bg-slot)] select-none"
       >
+        {/* 折叠 caret —— 与 GroupHeader 同款三角,展开时 rotate-90 */}
         <span
-          className="w-1.5 h-1.5 rounded-full flex-shrink-0 shadow-[inset_0_0_0_1px_rgba(0,0,0,.5)]"
-          style={{
-            backgroundColor: currentGroupColor || 'var(--text-rack-dim)'
-          }}
-        />
-        <span className="text-[11px] text-[var(--text-rack)] font-medium">{currentGroup ? currentGroup.name : 'Default'}</span>
-        <span className="text-[9px] text-[var(--text-rack-dim)] -translate-y-px">▾</span>
-      </button>
-
-      {/* 中间：键帽轨道 */}
-      <div
-        className="flex items-center gap-1.5 overflow-x-auto scrollbar-thin flex-1 min-w-0 px-2"
-        onDoubleClick={handleDoubleClick}
-      >
-        {/* 当前显示的命令键帽 */}
-        {displayCommands.map((cmd, index) => (
-          <button
-            key={cmd.id}
-            data-cmd
-            // 阻止鼠标点击时抢走焦点,点完后光标仍留在终端,避免按回车再次触发该命令
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => handleExecute(cmd)}
-            onContextMenu={(e) => handleCommandContextMenu(cmd, e)}
-            className={cn(
-              'group/key relative flex-shrink-0 h-[22px] rounded-[3px]',
-              'pl-2 pr-2.5 flex items-center',
-              'bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)] active:bg-[var(--rule)]',
-              'text-[var(--text-rack)] cursor-pointer transition-colors',
-              editingCommandId === cmd.id && 'ring-1 ring-inset ring-[var(--amber)]'
-            )}
-            style={{
-              boxShadow:
-                'inset 0 1px 0 rgba(255,255,255,.045), inset 0 -1px 0 rgba(0,0,0,.35), 0 1px 0 rgba(0,0,0,.25)'
-            }}
-            title={index < 12 ? `Ctrl+F${index + 1}` : undefined}
-          >
-            {/* F 键丝印 — 左上 8.5px tabular-nums */}
-            {index < 12 && (
-              <span
-                className="absolute top-[1px] left-[4px] text-[8.5px] leading-none text-[var(--text-rack-dim)] pointer-events-none"
-                style={{
-                  fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace',
-                  fontFeatureSettings: '"tnum" 1',
-                  letterSpacing: '0.02em'
-                }}
-              >
-                F{index + 1}
-              </span>
-            )}
-            {/* 命令名 — 主字，向下让出丝印位置 */}
-            <span className="text-[11px] font-medium leading-none mt-1">{cmd.name}</span>
-
-            {/* 分组色底条 — 2px signature */}
-            {currentGroupColor && (
-              <span
-                className="absolute left-[2px] right-[2px] bottom-[1px] h-[2px] rounded-[1px] pointer-events-none"
-                style={{ backgroundColor: currentGroupColor, opacity: 0.92 }}
-              />
-            )}
-          </button>
-        ))}
-
-        {/* 常驻提示：紧跟最后一个键帽右侧，无命令时同样显示，点击新建 */}
-        <button
-          onClick={handleDoubleClick}
           className={cn(
-            'flex-shrink-0 h-[22px] rounded-[3px] px-2 flex items-center gap-1',
-            'text-[var(--amber)] hover:text-[var(--bg-base)] hover:bg-[var(--amber)]',
-            'cursor-pointer transition-colors'
+            'inline-flex transition-transform text-[var(--text-rack-dim)]',
+            !collapsed && 'rotate-90'
           )}
-          title={t('statusbar.clickToAddHint')}
         >
-          <span className="text-[11px] leading-none font-semibold">+</span>
-          <span className="text-[10.5px] leading-none font-medium">{t('statusbar.clickToAddHint')}</span>
-        </button>
-      </div>
-
-      {/* 分组选择下拉菜单（使用 fixed 定位） */}
-      {activeDropdown === 'groups' && (
-        <div
-          className="fixed bg-[var(--bg-rack)] border border-[var(--rule)] rounded-[2px] shadow-xl z-[100] p-1"
-          style={{
-            top: `${dropdownPosition.top}px`,
-            left: `${dropdownPosition.left}px`,
-            width: '168px',
-            transform: 'translateY(-100%)',
-            boxShadow: '0 12px 28px rgba(0,0,0,.4), 0 2px 4px rgba(0,0,0,.3)'
-          }}
+          <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><path d="M2 1l4 3-4 3z"/></svg>
+        </span>
+        {/* 段落图标 —— 命令行 >_ 提示符,amber 调(PINNED 段同用 amber 系) */}
+        <span className="inline-flex text-[var(--amber)]">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M1 2l3 3-3 3" />
+            <path d="M5.5 8H9" />
+          </svg>
+        </span>
+        <span className="flex-shrink-0 [font-family:inherit] font-bold text-[11px] text-[var(--text-rack)]">
+          {t('sidebar.quickCmdSection')}
+        </span>
+        {/* 当前分组名 —— 颜色跟随分组 LED,一眼对上当前在哪组;字号与段标签同级 */}
+        <span
+          className="flex-shrink-0 text-[11px] font-semibold tracking-[.04em]"
+          style={{ color: currentGroupColor || 'var(--text-rack-dim)' }}
         >
-          {/* 分组列表（包含默认分组和用户分组） */}
-          {allGroups.map(group => {
-            const groupCommands = getCommandsByGroup(group.id)
-            const isActive = selectedGroupId === group.id
-            return (
-              <div
-                key={group.id}
-                className={cn(
-                  'flex items-center gap-2 px-2 py-1.5 text-[11.5px] rounded-[2px] cursor-pointer',
-                  isActive ? 'bg-[var(--bg-slot)] text-[var(--text-rack)]' : 'text-[var(--text-rack-data)] hover:bg-[var(--bg-slot)]'
-                )}
+          · {currentGroup.name}
+        </span>
+        <span className="flex-1 h-px bg-[var(--rule)]" />
+        <span className="[font-family:inherit] text-[10px] text-[var(--text-rack-data)] tracking-[.04em] normal-case tabular-nums">
+          {displayCommands.length}
+        </span>
+        {/* action 簇: LED 分组色点 + ＋ —— 同 LIVE 段 close-all 的按钮语言 */}
+        <span className="flex items-center gap-[5px] ml-1.5">
+          {ledSlots.map((g, i) =>
+            g ? (
+              <button
+                key={g.id}
                 onClick={(e) => {
                   e.stopPropagation()
-                  setSelectedGroupId(group.id)
-                  setActiveDropdown(null)
+                  setSelectedGroupId(g.id)
                 }}
                 onContextMenu={(e) => {
                   e.preventDefault()
+                  e.stopPropagation()
+                  handleOpenGroupDialog()
                 }}
-              >
-                <span
-                  className="w-2 h-2 rounded-full flex-shrink-0 shadow-[inset_0_0_0_1px_rgba(0,0,0,.5)]"
-                  style={{
-                    backgroundColor: group.color || 'var(--text-rack-dim)'
-                  }}
-                />
-                <span className="flex-1">{group.name}</span>
-                <span
-                  className="text-[var(--text-rack-dim)] text-[10px]"
-                  style={{
-                    fontFamily: 'ui-monospace, "JetBrains Mono", monospace',
-                    fontFeatureSettings: '"tnum" 1'
-                  }}
-                >
-                  {groupCommands.length > 0 ? groupCommands.length : ''}
-                </span>
-              </div>
+                title={t('sidebar.quickCmdSwitchGroup', { name: g.name, n: getCommandsByGroup(g.id).length })}
+                aria-pressed={selectedGroupId === g.id}
+                className={cn(
+                  // LED 单选圆:选中/未选中都保持可读;未选中态不压暗
+                  'w-[8px] h-[8px] rounded-full flex-shrink-0 transition-all',
+                  selectedGroupId === g.id ? 'opacity-100' : 'opacity-60 hover:opacity-100'
+                )}
+                style={{
+                  backgroundColor: g.color || 'var(--text-rack-dim)',
+                  boxShadow: selectedGroupId === g.id && g.color
+                    ? `0 0 8px ${g.color}`
+                    : undefined
+                }}
+              />
+            ) : (
+              // 空槽位：虚线圆，点击开分组编辑去命名
+              <button
+                key={`slot-${i}`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleOpenGroupDialog()
+                }}
+                title={t('statusbar.editGroups')}
+                className="w-[8px] h-[8px] rounded-full flex-shrink-0 border border-dashed border-[var(--text-rack-dim)] opacity-80 hover:opacity-100 transition-opacity"
+              />
             )
-          })}
-          {/* 分隔 + 编辑入口（升格为明示项） */}
-          <div className="h-px bg-[var(--rule)] my-1 mx-1.5" />
-          <div
-            className="flex items-center gap-2 px-2 py-1.5 text-[11px] rounded-[2px] cursor-pointer text-[var(--text-rack-dim)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-slot)]"
-            onClick={(e) => {
-              e.stopPropagation()
-              setActiveDropdown(null)
-              handleOpenGroupDialog()
-            }}
-          >
-            <span
-              className="w-2 h-2 rounded-full flex-shrink-0 border border-dashed border-[var(--text-rack-dim)]"
-            />
-            <span className="flex-1">Edit groups…</span>
-          </div>
+          )}
+        </span>
+        {/* ＋ 新建命令（不随面板折叠消失） */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            handleAddNew()
+          }}
+          title={t('statusbar.clickToAddHint')}
+          className="ml-1 h-[20px] w-[20px] inline-flex items-center justify-center rounded-[3px] cursor-pointer text-[14px] leading-none text-[var(--text-rack-mute)] hover:text-[var(--amber)] hover:bg-[var(--bg-elev)] transition-colors"
+        >
+          ＋
+        </button>
+      </div>
+
+      {/* ===== 键帽区 —— 基底对齐协议筛选 chips strip（bg-strip + rule 边），最多 12 条约 4 行 ===== */}
+      {!collapsed && (
+        <div className="flex flex-wrap gap-[4px] px-2 py-2 bg-[var(--bg-strip)] border-b border-[var(--rule)] max-h-[120px] overflow-y-auto content-start">
+          {displayCommands.length === 0 ? (
+            <span className="text-[11px] text-[var(--text-rack-dim)] tracking-[.04em] py-[3px] px-1">
+              {t('sidebar.quickCmdEmpty')}
+              <button
+                onClick={handleAddNew}
+                className="ml-1 text-[var(--amber)] hover:underline cursor-pointer"
+              >
+                {t('sidebar.quickCmdAddNew')}
+              </button>
+            </span>
+          ) : (
+            displayCommands.map((cmd, index) => (
+              <button
+                key={cmd.id}
+                data-cmd
+                // 阻止鼠标点击时抢走焦点,点完后光标仍留在终端,避免按回车再次触发该命令
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleExecute(cmd)}
+                onContextMenu={(e) => handleCommandContextMenu(cmd, e)}
+                className={cn(
+                  // 按钮语言对齐 ShellPill/协议 chips:透明底 + rule 边框,hover 才点亮;
+                  // 分组色走边框信号(--kc-accent 由 style 注入,hover 边框亮成分组色)
+                  'group/key relative flex-shrink-0 h-[24px] rounded-[3px]',
+                  'pl-[16px] pr-[8px] flex items-center',
+                  'border transition-colors text-[var(--text-rack)]',
+                  disabled
+                    ? 'cursor-not-allowed opacity-40 border-[var(--rule-soft)]'
+                    : 'cursor-pointer border-[var(--rule)] hover:bg-[var(--bg-slot)] hover:border-[var(--kc-accent)] active:bg-[var(--bg-elev)]',
+                  editingCommandId === cmd.id && 'ring-1 ring-inset ring-[var(--amber)]'
+                )}
+                style={{ '--kc-accent': currentGroupColor || 'var(--text-rack-dim)' } as React.CSSProperties}
+                title={disabled
+                  ? t('sidebar.quickCmdDisabled')
+                  : `${index < 12 ? `Ctrl+F${index + 1} · ` : ''}${cmd.content}`}
+              >
+                {/* F 键丝印 — 左上 8px tabular-nums（面板根已是 mono,继承即可） */}
+                {index < 12 && (
+                  <span
+                    className="absolute top-[2px] left-[4px] text-[8px] leading-none text-[var(--text-rack-dim)] pointer-events-none tabular-nums"
+                    style={{ letterSpacing: '0.02em' }}
+                  >
+                    F{index + 1}
+                  </span>
+                )}
+                {/* 命令名 — 主字，向下让出丝印位置 */}
+                <span className="text-[11px] font-medium leading-none mt-[3px]">{cmd.name}</span>
+
+                {/* 分组色底条 — 2px signature */}
+                {currentGroupColor && (
+                  <span
+                    className="absolute left-[2px] right-[2px] bottom-[1px] h-[2px] rounded-[1px] pointer-events-none"
+                    style={{ backgroundColor: currentGroupColor, opacity: 0.92 }}
+                  />
+                )}
+              </button>
+            ))
+          )}
         </div>
       )}
-
-      {/* 右侧：连接状态簇 — 字段分色 + 1px 分隔条 */}
-      <div
-        className="flex items-center gap-2.5 flex-shrink-0 px-3 bg-[var(--bg-rack)] border-l border-[var(--rule)] text-[var(--text-rack-data)]"
-        style={{
-          fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace',
-          fontSize: '12px',
-          fontFeatureSettings: '"tnum" 1'
-        }}
-      >
-        {sessionId ? (
-          <>
-            {/* 状态点 — 不再配冗余的 OK 字 */}
-            <span
-              className="w-[6px] h-[6px] rounded-full flex-shrink-0"
-              style={{ backgroundColor: 'var(--live)', boxShadow: '0 0 6px rgba(124,197,118,.5)' }}
-              title={t('statusbar.connected')}
-            />
-            <span aria-hidden className="w-px h-[10px] bg-[var(--rule)] flex-shrink-0" />
-            {/* 协议 — 用协议色，和会话行同语言 */}
-            {(() => {
-              const s = sessions.find(s => s.id === sessionId)
-              const t = s?.config?.type
-              const code = t === 'ssh' ? 'SSH' : t === 'telnet' ? 'TEL' : t === 'serial' ? 'SER' : t === 'local' ? 'LOC' : ''
-              const color = t === 'ssh' ? 'var(--proto-ssh)'
-                : t === 'telnet' ? 'var(--proto-tel)'
-                : t === 'serial' ? 'var(--proto-ser)'
-                : t === 'local' ? 'var(--proto-loc)'
-                : 'var(--text-rack-data)'
-              return code ? <span style={{ color }} className="font-semibold tracking-[.08em]">{code}</span> : null
-            })()}
-            <span aria-hidden className="w-px h-[10px] bg-[var(--rule)] flex-shrink-0" />
-            <TerminalSize sessionId={sessionId} />
-            <span aria-hidden className="w-px h-[10px] bg-[var(--rule)] flex-shrink-0" />
-            <span className="lowercase">utf-8</span>
-          </>
-        ) : (
-          <>
-            {/* 空心点 + 小写 mono "no session"，调子和上下文一致 */}
-            <span
-              className="w-[6px] h-[6px] rounded-full flex-shrink-0"
-              style={{ border: '1px solid var(--text-rack-dim)' }}
-              title={t('statusbar.noSession')}
-            />
-            <span className="lowercase">{t('statusbar.noSession')}</span>
-          </>
-        )}
-        <span aria-hidden className="w-px h-[10px] bg-[var(--rule)] flex-shrink-0" />
-        <span className="lowercase">v1.0.5</span>
-      </div>
 
       {/* Quick-command editor */}
       {showAddDialog && (
@@ -1025,7 +776,7 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
 
                     {/* Color swatches */}
                     <div className="flex items-center gap-[2px] h-7">
-                      {predefinedColors.map(color => {
+                      {PREDEFINED_COLORS.map(color => {
                         const selected = bg.color === color
                         return (
                           <button
@@ -1086,4 +837,4 @@ const StatusBar: React.FC<StatusBarProps> = ({ sessionId, onExecuteCommand, refr
   )
 }
 
-export default StatusBar
+export default QuickCommandsPanel

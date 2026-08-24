@@ -3,6 +3,7 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from 'tailwindcss'
 import autoprefixer from 'autoprefixer'
+import pkg from './package.json'
 
 export default defineConfig({
   // 主进程构建配置
@@ -69,6 +70,11 @@ export default defineConfig({
     root: resolve(__dirname, 'src/renderer'),
     server: {
       host: '127.0.0.1'
+    },
+    // 编译期注入版本号 —— 只带一个字符串常量进 bundle,
+    // 避免 import package.json 把全部依赖/scripts 打进渲染产物
+    define: {
+      __APP_VERSION__: JSON.stringify(pkg.version)
     },
     plugins: [react()],
     resolve: {

@@ -1,0 +1,832 @@
+<meta charset="utf-8">
+<title>LyShell 快捷命令合入侧栏原型</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   LyShell 状态栏原型 · 快捷命令合入会话栏
+   快捷命令模块进侧栏，放在搜索框下面；
+   底部状态栏整行退场，诊断簇上移到页签条右端。
+   token 全部取自 globals.css 的 rack-graphite / rack-paper 原值
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --terminal-bg:#0C0C0C; --bg-base:#11151A; --bg-rack:#161B20; --bg-slot:#1C2228;
+  --bg-elev:#1F262D; --bg-strip:#14181D; --rule:#232A31; --rule-soft:#1B2127;
+  --text-rack:#E4E7EA; --text-rack-mute:#6E767D; --text-rack-data:#9AA3AB;
+  --text-rack-dim:#4A5159; --text-rack-faint:#353C42;
+  --amber:#E8A33D; --amber-soft:rgba(232,163,61,.13); --amber-glow:rgba(232,163,61,.25);
+  --proto-ssh:#4FA8FF; --proto-tel:#7CC576; --proto-ser:#E8A33D; --proto-loc:#B07CFF;
+  --live:#3DDC97; --error-rack:#FF6B6B;
+  --key-top:rgba(255,255,255,.045); --key-bot:rgba(0,0,0,.35); --key-drop:rgba(0,0,0,.25);
+  --mono:ui-monospace,"JetBrains Mono","Cascadia Code",Consolas,monospace;
+}
+.app[data-theme="paper"] {
+  --terminal-bg:#ECEAE4; --bg-base:#ECEAE4; --bg-rack:#E4E2DB; --bg-slot:#DBD9D1;
+  --bg-elev:#D2D0C7; --bg-strip:#E8E6DF; --rule:#C0BEB4; --rule-soft:#D3D1C8;
+  --text-rack:#1F1E1A; --text-rack-mute:#67655D; --text-rack-data:#34332C;
+  --text-rack-dim:#86847B; --text-rack-faint:#AFAEA3;
+  --amber:#B8741D; --amber-soft:rgba(184,116,29,.12); --amber-glow:rgba(184,116,29,.25);
+  --key-top:rgba(255,255,255,.6); --key-bot:rgba(0,0,0,.14); --key-drop:rgba(60,50,30,.18);
+}
+
+* { box-sizing:border-box; margin:0; padding:0; }
+html { scrollbar-width:thin; scrollbar-color:var(--rule) transparent; }
+body {
+  font-family:var(--mono); background:var(--bg-strip); color:var(--text-rack);
+  min-height:100vh; display:flex; flex-direction:column; align-items:center;
+  padding:18px 16px 26px; gap:12px;
+}
+button { font-family:inherit; cursor:pointer; border:0; background:none; color:inherit; }
+:focus-visible { outline:1px solid var(--amber); outline-offset:-1px; }
+
+/* ── 原型工具条（非应用 chrome） ─────────────────────────── */
+.proto-bar { width:min(1180px,100%); display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+.proto-bar h1 { font-size:12px; font-weight:600; letter-spacing:.14em; color:var(--text-rack); }
+.proto-bar h1 em { font-style:normal; color:var(--amber); }
+.proto-bar .spacer { flex:1; }
+.seg { display:flex; border:1px solid var(--rule); background:var(--bg-rack); }
+.seg button {
+  padding:5px 14px; font-size:11px; letter-spacing:.06em; color:var(--text-rack-mute);
+  transition:color .15s, background .15s;
+}
+.seg button[aria-pressed="true"] {
+  background:var(--bg-slot); color:var(--text-rack);
+  box-shadow:inset 0 -2px 0 var(--amber);
+}
+.gains { width:min(1180px,100%); display:flex; gap:8px; flex-wrap:wrap; min-height:24px; }
+.gain {
+  font-size:10.5px; color:var(--text-rack-data); background:var(--bg-rack);
+  border:1px solid var(--rule-soft); padding:3px 9px; letter-spacing:.03em;
+  opacity:0; transform:translateY(3px); transition:opacity .3s, transform .3s; pointer-events:none;
+}
+.gain b { color:var(--amber); font-weight:600; margin-right:4px; }
+.app[data-mode="merged"] .gain { opacity:1; transform:none; pointer-events:auto; }
+
+/* ── 模式可见性 ───────────────────────────────────────────── */
+.app[data-mode="current"] .qc-wrap { display:none; }   /* 侧栏模块：仅合入模式 */
+.app[data-mode="current"] .diag    { display:none; }   /* 页签条诊断簇：仅合入模式 */
+.app[data-mode="merged"]  .statusbar { display:none; } /* 底部状态栏：仅现状模式 */
+
+/* ── 应用窗口 ─────────────────────────────────────────────── */
+.app {
+  width:min(1180px,100%); height:clamp(560px, calc(100vh - 190px), 780px);
+  background:var(--bg-base); border:1px solid var(--rule);
+  display:flex; flex-direction:column; overflow:hidden;
+}
+.titlebar {
+  height:34px; flex-shrink:0; background:var(--bg-rack); border-bottom:1px solid var(--rule);
+  display:flex; align-items:center; gap:10px; padding-left:12px; user-select:none;
+}
+.titlebar .app-name { font-size:10.5px; letter-spacing:.2em; color:var(--text-rack-mute); }
+.titlebar .app-name b { color:var(--text-rack); font-weight:600; }
+.titlebar .flex { flex:1; }
+.winbtn {
+  width:34px; height:33px; display:flex; align-items:center; justify-content:center;
+  color:var(--text-rack-mute); font-size:11px; transition:background .12s, color .12s;
+}
+.winbtn:hover { background:var(--bg-slot); color:var(--text-rack); }
+.winbtn.close:hover { background:var(--error-rack); color:#fff; }
+
+.app-body { flex:1; display:flex; min-height:0; }
+
+/* ── 活动轨 ───────────────────────────────────────────────── */
+.rail {
+  width:40px; flex-shrink:0; background:var(--bg-strip); border-right:1px solid var(--rule);
+  display:flex; flex-direction:column; align-items:center; padding:8px 0; gap:2px;
+}
+.rail button {
+  width:32px; height:32px; display:flex; align-items:center; justify-content:center;
+  color:var(--text-rack-dim); position:relative; transition:color .15s;
+}
+.rail button:hover { color:var(--text-rack-data); }
+.rail button.on { color:var(--amber); }
+.rail button.on::before {
+  content:""; position:absolute; left:-4px; top:6px; bottom:6px; width:2px;
+  background:var(--amber); box-shadow:0 0 4px var(--amber-glow);
+}
+.rail .flex { flex:1; }
+
+/* ── 侧栏（会话栏） ───────────────────────────────────────── */
+.sidebar {
+  width:240px; flex-shrink:0; background:var(--bg-base); border-right:1px solid var(--rule);
+  display:flex; flex-direction:column; min-height:0;
+}
+.sb-head {
+  height:34px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between;
+  padding:0 10px; border-bottom:1px solid var(--rule);
+}
+.sb-head .logo { font-size:11px; font-weight:600; letter-spacing:.18em; }
+.sb-head .logo i { font-style:normal; color:var(--amber); margin:0 5px; font-weight:400; }
+.sb-head .logo small { color:var(--text-rack-mute); font-weight:500; letter-spacing:.12em; }
+.iconbtn {
+  width:24px; height:24px; display:flex; align-items:center; justify-content:center;
+  color:var(--text-rack-mute); border-radius:3px; transition:background .12s, color .12s;
+}
+.iconbtn:hover { background:var(--bg-slot); color:var(--text-rack); }
+.iconbtn.amber:hover { color:var(--amber); }
+.iconbtn svg { display:block; }
+
+/* LAUNCH strip */
+.striprow {
+  display:grid; grid-template-columns:52px 1fr; align-items:center; gap:8px;
+  padding:5px 10px; background:var(--bg-strip); border-bottom:1px solid var(--rule-soft);
+  min-height:28px;
+}
+.striprow .lb { font-size:11px; font-weight:700; letter-spacing:.06em; color:var(--text-rack); }
+.striprow .cells { display:flex; gap:4px; overflow:hidden; }
+.shellopt {
+  display:inline-flex; align-items:center; gap:5px; padding:3px 9px; font-size:11.5px;
+  color:var(--text-rack); border:1px solid var(--rule); border-radius:3px; white-space:nowrap;
+  transition:background .12s, border-color .12s;
+}
+.shellopt:hover { background:var(--bg-slot); }
+.shellopt i { font-style:normal; font-size:11px; }
+.shellopt.w-cmd i { color:var(--text-rack-data); }
+.shellopt.w-ps  i { color:var(--proto-ssh); }
+.shellopt.w-ps7 i { color:var(--proto-loc); }
+
+/* 过滤区 */
+.filterbar {
+  display:flex; gap:6px; padding:8px 10px; border-bottom:1px solid var(--rule); align-items:center;
+}
+.search {
+  flex:1; display:flex; align-items:center; gap:7px; background:var(--bg-rack);
+  border:1px solid var(--rule); border-radius:3px; padding:5px 9px; transition:border-color .15s;
+}
+.search:focus-within { border-color:var(--amber); }
+.search svg { flex-shrink:0; color:var(--text-rack-mute); }
+.search input {
+  flex:1; min-width:0; background:transparent; border:0; outline:0; color:var(--text-rack);
+  font:12px var(--mono); letter-spacing:.02em;
+}
+.search input::placeholder { color:var(--text-rack-dim); }
+.foldbtn {
+  width:26px; height:26px; flex-shrink:0; display:flex; align-items:center; justify-content:center;
+  border:1px solid var(--rule); border-radius:3px; color:var(--text-rack-mute);
+  transition:color .12s, border-color .12s;
+}
+.foldbtn:hover { color:var(--text-rack); border-color:var(--text-rack-mute); }
+
+/* ── ★ 快捷命令模块：搜索框下面，会话列表上面 ─────────────── */
+.qc-wrap { flex-shrink:0; border-bottom:1px solid var(--rule); background:var(--bg-base); }
+.qc-head {
+  height:24px; display:flex; align-items:center; gap:5px; padding:0 10px; cursor:pointer;
+  background:var(--bg-strip); border-bottom:1px solid var(--rule-soft); user-select:none;
+}
+.qc-head .chev { width:14px; height:14px; display:flex; align-items:center; justify-content:center;
+  color:var(--text-rack-dim); transition:transform .2s; }
+.qc-head.off .chev { transform:rotate(-90deg); }
+.qc-head.off { border-bottom-color:transparent; }
+.qc-head .lb { font-size:10px; font-weight:700; letter-spacing:.14em; color:var(--text-rack-mute); }
+.qc-head .gname { font-size:10px; color:var(--gc,var(--text-rack-dim)); letter-spacing:.04em; }
+.qc-head .cnt { font-size:9.5px; color:var(--text-rack-dim); font-variant-numeric:tabular-nums; }
+.qc-head .flex { flex:1; }
+.qc-leds { display:flex; gap:4px; align-items:center; }
+.led {
+  width:8px; height:8px; border-radius:50%; padding:0; flex-shrink:0;
+  background:var(--gc); opacity:.32;
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.5);
+  transition:opacity .15s, box-shadow .15s, transform .15s;
+}
+.led:hover { opacity:.75; }
+.led.on { opacity:1; box-shadow:inset 0 0 0 1px rgba(0,0,0,.5), 0 0 6px var(--gc); transform:scale(1.15); }
+.led.empty { background:transparent; border:1px dashed var(--text-rack-dim); opacity:.6; box-shadow:none; }
+.led.empty:hover { opacity:1; }
+.qc-add {
+  width:16px; height:16px; display:flex; align-items:center; justify-content:center;
+  color:var(--amber); font-size:11px; border-radius:3px; margin-left:2px;
+}
+.qc-add:hover { background:var(--amber); color:var(--bg-base); }
+.qc-body {
+  display:flex; flex-wrap:wrap; gap:5px; padding:8px 10px; align-content:flex-start;
+  max-height:120px; overflow-y:auto; scrollbar-width:thin; scrollbar-color:var(--rule) transparent;
+}
+.qc-body::-webkit-scrollbar { width:5px; }
+.qc-body::-webkit-scrollbar-thumb { background:var(--rule); border-radius:3px; }
+.qc-empty { font-size:10.5px; color:var(--text-rack-dim); letter-spacing:.04em; }
+.qc-empty button { color:var(--amber); font-size:10.5px; }
+.qc-empty button:hover { text-decoration:underline; }
+
+/* 键帽（侧栏换行版 / 现状状态栏轨道版共用基型） */
+.keycap {
+  position:relative; flex-shrink:0; height:22px; display:flex; align-items:center;
+  padding:0 9px 0 20px; border-radius:3px; background:var(--bg-slot); color:var(--text-rack);
+  font-size:11px; font-weight:500; overflow:hidden; white-space:nowrap;
+  box-shadow:inset 0 1px 0 var(--key-top), inset 0 -1px 0 var(--key-bot), 0 1px 0 var(--key-drop);
+  transition:background .12s, transform .06s;
+}
+.keycap:hover { background:var(--bg-elev); }
+.keycap:active, .keycap.flash { transform:translateY(1px); }
+.keycap .sf {
+  position:absolute; top:1px; left:4px; font-size:8.5px; line-height:1;
+  color:var(--text-rack-dim); font-variant-numeric:tabular-nums; letter-spacing:.02em;
+}
+.keycap .kbar { position:absolute; left:2px; right:2px; bottom:1px; height:2px; border-radius:1px;
+  background:var(--gc); opacity:.92; }
+.qc-body .keycap { padding:0 7px 0 17px; font-size:10.5px; }
+.qc-body .keycap .sf { left:3px; font-size:8px; }
+
+/* 会话列表 */
+.sess { flex:1; overflow-y:auto; min-height:80px; }
+.sess::-webkit-scrollbar, .term::-webkit-scrollbar { width:6px; }
+.sess::-webkit-scrollbar-thumb, .term::-webkit-scrollbar-thumb { background:var(--rule); border-radius:3px; }
+.ghead {
+  height:24px; display:flex; align-items:center; gap:6px; padding:0 10px; user-select:none;
+  background:var(--bg-strip); border-bottom:1px solid var(--rule-soft); cursor:pointer;
+}
+.ghead .chev { width:14px; height:14px; display:flex; align-items:center; justify-content:center;
+  color:var(--text-rack-dim); transition:transform .2s; }
+.ghead.off .chev { transform:rotate(-90deg); }
+.ghead .lb { font-size:10px; font-weight:700; letter-spacing:.14em; color:var(--text-rack-mute); }
+.ghead.live .lb { color:var(--live); }
+.ghead.pin  .lb { color:var(--amber); }
+.ghead .cnt { font-size:9.5px; color:var(--text-rack-dim); font-variant-numeric:tabular-nums; }
+.ghead .flex { flex:1; }
+.livedot { width:6px; height:6px; border-radius:50%; background:var(--live);
+  box-shadow:0 0 6px rgba(61,220,151,.5); animation:breath 2.4s ease-in-out infinite; }
+@keyframes breath { 50% { opacity:.4; } }
+
+.slot {
+  position:relative; display:grid; grid-template-columns:4px auto minmax(0,auto) minmax(0,1fr);
+  align-items:center; gap:9px; min-height:34px; padding:4px 10px 4px 0; cursor:pointer;
+  background:var(--bg-rack); border-bottom:1px solid var(--rule-soft);
+  box-shadow:inset 0 -1px 0 var(--bg-base);
+}
+.slot:hover { background:var(--bg-slot); }
+.slot .pstrip { width:4px; height:100%; align-self:stretch; }
+.slot[data-proto="ssh"] .pstrip { background:var(--proto-ssh); }
+.slot[data-proto="tel"] .pstrip { background:var(--proto-tel); }
+.slot[data-proto="ser"] .pstrip { background:var(--proto-ser); }
+.slot[data-proto="loc"] .pstrip { background:var(--proto-loc); }
+.slot[data-status="connecting"] .pstrip { background:var(--amber); animation:breath 1.1s ease-in-out infinite; }
+.plabel {
+  display:flex; align-items:flex-end; justify-content:center; height:22px; min-width:30px;
+  padding:0 5px; border:2px solid var(--bc,var(--text-rack-dim)); border-radius:3px;
+  font-size:11px; font-weight:700; letter-spacing:.04em; align-self:center;
+}
+.slot[data-proto="ssh"] .plabel { color:var(--proto-ssh); }
+.slot[data-proto="tel"] .plabel { color:var(--proto-tel); }
+.slot[data-proto="ser"] .plabel { color:var(--proto-ser); }
+.slot[data-proto="loc"] .plabel { color:var(--proto-loc); }
+.slot .pname {
+  font-size:12.5px; font-weight:600; letter-spacing:.01em; color:var(--text-rack);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:96px;
+}
+.slot .pmeta {
+  font-size:10.5px; color:var(--text-rack-data); white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; text-align:right;
+}
+
+/* 协议 chips */
+.chips { display:flex; gap:4px; padding:8px 10px; background:var(--bg-strip); border-bottom:1px solid var(--rule); }
+.chip {
+  flex:1; height:26px; display:flex; align-items:center; gap:6px; padding:0 8px;
+  border:2px solid; border-radius:2px; font-size:10px; font-weight:600; letter-spacing:.08em;
+}
+.chip .cled { width:5px; height:5px; border-radius:50%; }
+.chip .n { margin-left:auto; font-weight:400; color:var(--text-rack-dim); font-variant-numeric:tabular-nums; }
+
+/* 文件管理器 */
+.filemgr { height:140px; flex-shrink:0; border-top:1px solid var(--rule); display:flex; flex-direction:column; background:var(--bg-base); }
+.fm-head {
+  height:24px; display:flex; align-items:center; gap:8px; padding:0 10px;
+  background:var(--bg-rack); border-bottom:1px solid var(--rule-soft);
+  font-size:10px; letter-spacing:.14em; font-weight:700; color:var(--text-rack-mute);
+}
+.fm-head .n { color:var(--text-rack-data); font-weight:400; letter-spacing:0; font-variant-numeric:tabular-nums; }
+.fm-head .flex { flex:1; }
+.fm-row {
+  display:grid; grid-template-columns:3px 12px 1fr auto; gap:8px; align-items:center;
+  padding:5px 10px 5px 0; border-bottom:1px solid var(--rule-soft); font-size:11px;
+}
+.fm-row .st { width:3px; height:16px; border-radius:0 2px 2px 0; align-self:stretch; }
+.fm-row .glyph { font-size:10px; width:12px; text-align:center; }
+.fm-row .fn { color:var(--text-rack); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fm-row .fs { color:var(--text-rack-data); font-variant-numeric:tabular-nums; font-size:10px; }
+.fm-bar { height:3px; background:var(--rule); border-radius:2px; overflow:hidden; margin-top:2px; }
+.fm-bar i { display:block; height:100%; background:var(--amber); }
+
+/* ── 终端列 ───────────────────────────────────────────────── */
+.termcol { flex:1; display:flex; flex-direction:column; min-width:0; }
+.tabstrip {
+  height:30px; flex-shrink:0; background:var(--bg-rack); border-bottom:1px solid var(--rule);
+  display:flex; align-items:stretch; min-width:0;
+}
+.tab {
+  display:flex; align-items:center; gap:7px; padding:0 12px; font-size:11.5px;
+  color:var(--text-rack-mute); border-right:1px solid var(--rule-soft); position:relative;
+  white-space:nowrap;
+}
+.tab .tdot { width:6px; height:6px; border-radius:50%; }
+.tab.on { background:var(--bg-base); color:var(--text-rack); box-shadow:inset 0 2px 0 var(--amber); }
+.tab .x { color:var(--text-rack-dim); font-size:10px; padding:2px; }
+.tab .x:hover { color:var(--error-rack); }
+.tabbar-flex { flex:1; min-width:0; }
+.newtab { width:28px; color:var(--text-rack-mute); font-size:13px; }
+.newtab:hover { color:var(--amber); }
+
+/* ★ 诊断簇：合入模式上移到页签条右端 */
+.diag {
+  display:flex; align-items:center; gap:8px; padding:0 12px; flex-shrink:0;
+  border-left:1px solid var(--rule); background:var(--bg-rack); color:var(--text-rack-data);
+  font-size:11px; font-variant-numeric:tabular-nums;
+}
+.diag .dsep { width:1px; height:10px; background:var(--rule); }
+.diag .dot { width:6px; height:6px; border-radius:50%; background:var(--live);
+  box-shadow:0 0 6px rgba(61,220,151,.5); }
+.diag .proto { color:var(--proto-ssh); font-weight:600; letter-spacing:.08em; }
+.diag .enc { color:var(--text-rack-dim); }
+.diag .clk { cursor:pointer; }
+.diag .clk:hover { color:var(--text-rack); }
+
+.term {
+  flex:1; min-height:0; background:var(--terminal-bg); overflow-y:auto; padding:10px 14px;
+  font-size:12.5px; line-height:1.55; color:var(--text-rack); white-space:pre-wrap;
+  word-break:break-all;
+}
+.term .p { color:var(--proto-ssh); }
+.term .d { color:var(--text-rack-mute); }
+.term .g { color:var(--live); }
+.term .cur { display:inline-block; width:7px; height:14px; background:var(--text-rack);
+  vertical-align:-2px; animation:blink 1.1s steps(1) infinite; }
+@keyframes blink { 50% { opacity:0; } }
+
+/* ── 底部状态栏（仅现状模式） ─────────────────────────────── */
+.statusbar {
+  height:30px; flex-shrink:0; display:flex; align-items:stretch; justify-content:space-between;
+  background:var(--bg-base); border-top:1px solid var(--rule); font-size:11px;
+  color:var(--text-rack-mute); overflow:hidden;
+}
+.sb-group {
+  display:flex; align-items:center; gap:6px; padding:0 10px; flex-shrink:0;
+  background:var(--bg-rack); border-right:1px solid var(--rule); font-size:11px;
+}
+.sb-group:hover { background:var(--bg-slot); }
+.sb-group .gdot { width:6px; height:6px; border-radius:50%; background:var(--gc,var(--text-rack-dim));
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.5); }
+.sb-group .gn { color:var(--text-rack); font-weight:500; }
+.sb-mid { flex:1; min-width:0; }
+.ktrack {
+  flex:1; min-width:0; display:flex; align-items:center; gap:6px; padding:0 8px;
+  overflow-x:auto; scrollbar-width:none;
+}
+.ktrack::-webkit-scrollbar { display:none; }
+.ktrack .add {
+  flex-shrink:0; height:22px; display:flex; align-items:center; gap:4px; padding:0 8px;
+  color:var(--amber); font-size:10.5px; border-radius:3px; transition:background .12s, color .12s;
+}
+.ktrack .add:hover { background:var(--amber); color:var(--bg-base); }
+
+/* ── 页脚：代价（诚实陈列） ───────────────────────────────── */
+.proto-foot { width:min(1180px,100%); font-size:10.5px; color:var(--text-rack-dim);
+  letter-spacing:.03em; line-height:1.7; }
+.proto-foot b { color:var(--text-rack-mute); font-weight:600; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition:none !important; animation:none !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="proto-bar">
+  <h1><em>LyShell</em> 状态栏合入原型 · 快捷命令进会话栏</h1>
+  <span class="spacer"></span>
+  <div class="seg" role="group" aria-label="布局模式">
+    <button data-m="current" aria-pressed="false">现状</button>
+    <button data-m="merged" aria-pressed="true">侧栏合入</button>
+  </div>
+  <div class="seg" role="group" aria-label="主题">
+    <button data-t="graphite" aria-pressed="true">graphite</button>
+    <button data-t="paper" aria-pressed="false">paper</button>
+  </div>
+</header>
+
+<div class="gains" aria-live="polite">
+  <span class="gain"><b>整行退场</b>底部状态栏消失，还给终端 30px</span>
+  <span class="gain"><b>就近收纳</b>快捷命令就在搜索框下面，与会话同栏</span>
+  <span class="gain"><b>分组即色点</b>标题行 LED 代替下拉切换</span>
+  <span class="gain"><b>试试</b>点 LED 换分组、Ctrl+F1–F4 直发、点标题折叠</span>
+</div>
+
+<main class="app" data-mode="merged" data-theme="graphite">
+
+  <div class="titlebar">
+    <span class="app-name"><b>LYSHELL</b> — rack-01</span>
+    <span class="flex"></span>
+    <button class="winbtn" tabindex="-1">—</button>
+    <button class="winbtn" tabindex="-1">□</button>
+    <button class="winbtn close" tabindex="-1">✕</button>
+  </div>
+
+  <div class="app-body">
+
+    <!-- 活动轨 -->
+    <nav class="rail">
+      <button class="on" title="会话" aria-label="会话">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2.5" width="13" height="9" rx="1"/><path d="M5 13.5h6"/></svg>
+      </button>
+      <button title="AI Agent" aria-label="AI Agent">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4.5" y="4.5" width="7" height="7" rx="1"/><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3"/></svg>
+      </button>
+      <button title="dsh" aria-label="dsh">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 12l3-6 3 4 3-7 3 9"/></svg>
+      </button>
+      <button title="插件" aria-label="插件">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M6 2v3M10 2v3M5 5h6v4a3 3 0 0 1-6 0zM8 12v2"/></svg>
+      </button>
+      <span class="flex"></span>
+      <button title="设置" aria-label="设置">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6L11 5M5 11l-1.4 1.4"/></svg>
+      </button>
+    </nav>
+
+    <!-- 会话栏 -->
+    <aside class="sidebar">
+      <div class="sb-head">
+        <span class="logo">LYSHELL<i>·</i><small>RACK</small></span>
+        <span style="display:flex;gap:2px">
+          <button class="iconbtn amber" title="新建会话">
+            <svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.6" fill="none"><path d="M6 1.5v9M1.5 6h9"/></svg>
+          </button>
+          <button class="iconbtn" title="导出/导入">
+            <svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.4" fill="none"><path d="M6 1v7M3.5 5.5L6 8l2.5-2.5M2 10.5h8"/></svg>
+          </button>
+        </span>
+      </div>
+
+      <div class="striprow">
+        <span class="lb">LAUNCH</span>
+        <span class="cells">
+          <button class="shellopt w-cmd"><i>▮</i>cmd</button>
+          <button class="shellopt w-ps"><i>◆</i>ps</button>
+          <button class="shellopt w-ps7"><i>◇</i>ps7</button>
+        </span>
+      </div>
+
+      <div class="filterbar">
+        <label class="search">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5" cy="5" r="3"/><path d="m11 11-3.5-3.5"/></svg>
+          <input type="text" placeholder="过滤会话 / IP / 端口">
+        </label>
+        <button class="foldbtn" title="折叠/展开全部分组">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2l3 3 3-3M3 10l3-3 3 3"/></svg>
+        </button>
+      </div>
+
+      <!-- ★ 快捷命令模块：搜索框下面 -->
+      <div class="qc-wrap" id="qcWrap">
+        <div class="qc-head" id="qcHead" title="点此折叠/展开 · 色点切换分组">
+          <span class="chev"><svg width="8" height="8" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 3L4.5 6L7.5 3"/></svg></span>
+          <span class="lb">QUICK CMD</span>
+          <span class="gname" id="qcGName"></span>
+          <span class="cnt" id="qcCnt"></span>
+          <span class="flex"></span>
+          <span class="qc-leds" id="qcLeds"></span>
+          <button class="qc-add" id="qcAdd" title="新建命令">＋</button>
+        </div>
+        <div class="qc-body" id="qcBody"></div>
+      </div>
+
+      <div class="sess">
+        <div class="ghead live" data-fold="liveSec">
+          <span class="chev"><svg width="8" height="8" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 3L4.5 6L7.5 3"/></svg></span>
+          <span class="lb">LIVE</span><span class="cnt">2</span><span class="flex"></span><span class="livedot" aria-hidden="true"></span>
+        </div>
+        <div id="liveSec">
+          <div class="slot" data-proto="ssh" data-status="connected">
+            <span class="pstrip"></span>
+            <span class="plabel" style="--bc:var(--live)">SSH</span>
+            <span class="pname">Core-SW01</span><span class="pmeta">192.168.10.1</span>
+          </div>
+          <div class="slot" data-proto="ssh" data-status="connecting">
+            <span class="pstrip"></span>
+            <span class="plabel" style="--bc:var(--amber)">SSH</span>
+            <span class="pname">Access-SW07</span><span class="pmeta">192.168.10.7</span>
+          </div>
+        </div>
+
+        <div class="ghead pin" data-fold="pinSec">
+          <span class="chev"><svg width="8" height="8" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 3L4.5 6L7.5 3"/></svg></span>
+          <span class="lb">PINNED</span><span class="cnt">2</span>
+        </div>
+        <div id="pinSec">
+          <div class="slot" data-proto="tel" data-status="disconnected">
+            <span class="pstrip"></span>
+            <span class="plabel">TEL</span>
+            <span class="pname">RT-Branch-01</span><span class="pmeta">10.0.0.9</span>
+          </div>
+          <div class="slot" data-proto="ser" data-status="disconnected">
+            <span class="pstrip"></span>
+            <span class="plabel">SER</span>
+            <span class="pname">Console-烧录</span><span class="pmeta">COM5 · 115200</span>
+          </div>
+        </div>
+
+        <div class="chips">
+          <button class="chip" style="border-color:rgba(79,168,255,.35);color:var(--text-rack-data)">
+            <span class="cled" style="background:rgba(79,168,255,.3)"></span>SSH<span class="n">12</span>
+          </button>
+          <button class="chip" style="border-color:rgba(124,197,118,.35);color:var(--text-rack-data)">
+            <span class="cled" style="background:rgba(124,197,118,.3)"></span>TEL<span class="n">3</span>
+          </button>
+          <button class="chip" style="border-color:rgba(176,124,255,.35);color:var(--text-rack-data)">
+            <span class="cled" style="background:rgba(176,124,255,.3)"></span>LOC<span class="n">2</span>
+          </button>
+        </div>
+
+        <div class="ghead" data-fold="subnet1">
+          <span class="chev"><svg width="8" height="8" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 3L4.5 6L7.5 3"/></svg></span>
+          <span class="lb">192.168.10.0/24</span><span class="cnt">2</span>
+        </div>
+        <div id="subnet1">
+          <div class="slot" data-proto="ssh" data-status="disconnected">
+            <span class="pstrip"></span><span class="plabel">SSH</span>
+            <span class="pname">SW-Dev-03</span><span class="pmeta">192.168.10.3</span>
+          </div>
+          <div class="slot" data-proto="ssh" data-status="disconnected">
+            <span class="pstrip"></span><span class="plabel">SSH</span>
+            <span class="pname">SW-Dev-04</span><span class="pmeta">192.168.10.4</span>
+          </div>
+        </div>
+        <div class="ghead" data-fold="subnet2">
+          <span class="chev"><svg width="8" height="8" viewBox="0 0 9 9" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 3L4.5 6L7.5 3"/></svg></span>
+          <span class="lb">10.0.0.0/24</span><span class="cnt">1</span>
+        </div>
+        <div id="subnet2">
+          <div class="slot" data-proto="tel" data-status="disconnected">
+            <span class="pstrip"></span><span class="plabel">TEL</span>
+            <span class="pname">RT-HQ-02</span><span class="pmeta">10.0.0.2</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="filemgr">
+        <div class="fm-head">FILES <span class="n">3 项传输</span><span class="flex"></span>
+          <button class="iconbtn" title="刷新" style="width:18px;height:18px">
+            <svg width="10" height="10" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M1.5 3.5a4 4 0 1 1-.3 3.5M1.5 1v2.5h2.5"/></svg>
+          </button>
+        </div>
+        <div class="fm-row">
+          <span class="st" style="background:var(--live)"></span><span class="glyph" style="color:var(--live)">✓</span>
+          <span class="fn">config-backup-0824.zip</span><span class="fs">2.4M · 刚刚</span>
+        </div>
+        <div class="fm-row">
+          <span class="st" style="background:var(--amber)"></span><span class="glyph" style="color:var(--amber)">↓</span>
+          <span class="fn"><div>firmware-v700r021.bin</div><div class="fm-bar"><i style="width:87%"></i></div></span>
+          <span class="fs">87% · 16.3M</span>
+        </div>
+        <div class="fm-row">
+          <span class="st" style="background:var(--error-rack)"></span><span class="glyph" style="color:var(--error-rack)">✕</span>
+          <span class="fn">logs-export.tar.gz</span><span class="fs">失败 · 重试</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 终端列 -->
+    <section class="termcol">
+      <div class="tabstrip">
+        <div class="tab on"><span class="tdot" style="background:var(--live)"></span>Core-SW01<span class="x" aria-label="关闭">×</span></div>
+        <div class="tab"><span class="tdot" style="background:var(--amber)"></span>Access-SW07<span class="x">×</span></div>
+        <button class="newtab" title="新页签">＋</button>
+        <span class="tabbar-flex"></span>
+        <!-- ★ 诊断簇：合入模式挂在页签条右端 -->
+        <div class="diag" title="连接状态簇">
+          <span class="dot"></span>
+          <span class="dsep"></span>
+          <span class="proto">SSH</span>
+          <span class="dsep"></span>
+          <span class="clk" data-diag="size" title="Ctrl+L 清屏">120×32</span>
+          <span class="dsep"></span>
+          <span class="clk" data-diag="lines" title="单击回底 · 双击清空回滚">8.4k</span>
+          <span class="dsep"></span>
+          <span class="enc">utf-8</span>
+        </div>
+      </div>
+
+      <div class="term" id="term"><span class="p">&lt;Core-SW01&gt;</span>display interface brief
+<span class="d">PHY: Physical
+*down: administratively down
+Interface                PHY   Protocol  InUti OutUti   inErrors  outErrors</span>
+Eth-Trunk1               <span class="g">up</span>    <span class="g">up</span>        0.01%  0.01%          0          0
+GigabitEthernet0/0/1     <span class="g">up</span>    <span class="g">up</span>        3.14%  12.4%         21          0
+GigabitEthernet0/0/2     <span class="d">down</span>  <span class="d">down</span>        0%     0%            0          0
+Vlanif100                <span class="g">up</span>    <span class="g">up</span>          --     --          0          0
+<span class="p">&lt;Core-SW01&gt;</span><span class="cur"></span></div>
+
+      <!-- 底部状态栏（仅现状模式显示） -->
+      <div class="statusbar">
+        <button class="sb-group" id="sbGroup" title="切换分组">
+          <span class="gdot" id="sbGDot"></span>
+          <span class="gn" id="sbGName">默认</span>
+        </button>
+        <div class="ktrack" id="sbTrack" ondblclick="flashAdd(this)"></div>
+        <div class="sb-mid"></div>
+        <div class="diag" title="连接状态簇">
+          <span class="dot"></span>
+          <span class="dsep"></span>
+          <span class="proto">SSH</span>
+          <span class="dsep"></span>
+          <span class="clk" data-diag="size" title="Ctrl+L 清屏">120×32</span>
+          <span class="dsep"></span>
+          <span class="clk" data-diag="lines" title="单击回底 · 双击清空回滚">8.4k</span>
+          <span class="dsep"></span>
+          <span class="enc">utf-8</span>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer class="proto-foot">
+  <b>代价：</b>键帽离终端视线远了一截（高频点发多一次左右扫视，F 键直发不受影响）· 侧栏 240px 内命令名超长靠 tooltip 看全文 · 模块最多占 120px 纵向（可点标题折叠）· 诊断簇上移页签条后点击目标变小。
+</footer>
+
+<script>
+/* ── 数据：分组 + 命令（与 StatusBar 的 1+4 分组模型一致） ── */
+const GROUPS = [
+  { id:'default', name:'默认', color:'#0078D4' },
+  { id:'inspect', name:'巡检', color:'#107C10' },
+  { id:'rescue',  name:'救援', color:'#E81123' },
+  { id:'commit',  name:'提交', color:'#FFB900' },
+  { id:'slot5',   name:'',     color:'' },
+];
+const CMDS = {
+  default: [
+    { name:'进入配置',   content:'system-view' },
+    { name:'保存配置',   content:'save' },
+    { name:'显示版本',   content:'display version' },
+    { name:'显示接口',   content:'display interface brief' },
+    { name:'返回用户视图', content:'return' },
+    { name:'显示路由表', content:'display ip routing-table' },
+  ],
+  inspect: [
+    { name:'CPU/内存',  content:'display health' },
+    { name:'查看日志',  content:'display logbuffer' },
+    { name:'接口错包',  content:'display interface | include error' },
+    { name:'ping 网关', content:'ping 192.168.10.1' },
+    { name:'风扇状态',  content:'display fan' },
+  ],
+  rescue: [
+    { name:'重启设备',   content:'reboot fast' },
+    { name:'清空配置',   content:'reset saved-configuration' },
+    { name:'强制主备倒换', content:'switchover force' },
+  ],
+  commit: [
+    { name:'提交变更',   content:'commit' },
+  ],
+  slot5: [],
+};
+
+let activeGroup = 'default';
+const app = document.querySelector('.app');
+const term = document.getElementById('term');
+const qcHead = document.getElementById('qcHead');
+const qcLeds = document.getElementById('qcLeds');
+const qcBody = document.getElementById('qcBody');
+const qcGName = document.getElementById('qcGName');
+const qcCnt = document.getElementById('qcCnt');
+const sbTrack = document.getElementById('sbTrack');
+const sbGDot = document.getElementById('sbGDot');
+const sbGName = document.getElementById('sbGName');
+const sbGroup = document.getElementById('sbGroup');
+
+const group = () => GROUPS.find(g => g.id === activeGroup);
+const cmds = () => CMDS[activeGroup] || [];
+
+/* ── 渲染：侧栏 QUICK CMD 模块 ── */
+function renderLeds() {
+  qcLeds.innerHTML = '';
+  GROUPS.forEach(g => {
+    const b = document.createElement('button');
+    b.className = 'led' + (g.id === activeGroup ? ' on' : '') + (g.name ? '' : ' empty');
+    if (g.color) b.style.setProperty('--gc', g.color);
+    b.title = g.name ? `切到「${g.name}」· ${CMDS[g.id].length} 条` : '空分组槽位';
+    b.setAttribute('aria-pressed', g.id === activeGroup);
+    b.onclick = e => { e.stopPropagation(); activeGroup = g.id; renderAll(); };
+    qcLeds.appendChild(b);
+  });
+}
+
+function renderQcBody() {
+  const g = group();
+  qcBody.innerHTML = '';
+  if (!cmds().length) {
+    qcBody.innerHTML = '<span class="qc-empty">此分组还没有命令 <button onclick="flashAdd(this)">＋ 新建</button></span>';
+  } else {
+    cmds().forEach((c, i) => {
+      qcBody.appendChild(makeKeycap(c, i, g));
+    });
+  }
+  qcGName.textContent = g.name ? `· ${g.name}` : '';
+  qcGName.style.setProperty('--gc', g.color || 'var(--text-rack-dim)');
+  qcCnt.textContent = cmds().length ? String(cmds().length) : '';
+}
+
+function makeKeycap(c, i, g) {
+  const b = document.createElement('button');
+  b.className = 'keycap';
+  b.style.setProperty('--gc', g.color || 'var(--text-rack-dim)');
+  b.title = `Ctrl+F${i + 1} · ${c.content}`;
+  b.innerHTML = `<span class="sf">F${i + 1}</span>${c.name}<span class="kbar"></span>`;
+  b.onclick = () => fire(b, c);
+  return b;
+}
+
+/* ── 渲染：现状模式状态栏轨道 ── */
+function renderSbTrack() {
+  const g = group();
+  sbTrack.innerHTML = '';
+  cmds().forEach((c, i) => sbTrack.appendChild(makeKeycap(c, i, g)));
+  const add = document.createElement('button');
+  add.className = 'add';
+  add.innerHTML = '＋ 添加';
+  add.onclick = () => flashAdd(add);
+  sbTrack.appendChild(add);
+  sbGDot.style.setProperty('--gc', g.color || 'var(--text-rack-dim)');
+  sbGName.textContent = g.name || '—';
+}
+
+function renderAll() { renderLeds(); renderQcBody(); renderSbTrack(); }
+
+/* ── 命令点发：回显进终端 + 键帽按压反馈 ── */
+function fire(btn, c) {
+  btn && btn.classList.add('flash');
+  btn && setTimeout(() => btn.classList.remove('flash'), 160);
+  send(c.content);
+}
+function send(line) {
+  const cur = term.querySelector('.cur');
+  cur.remove();
+  term.insertAdjacentHTML('beforeend', line + '\n');
+  term.insertAdjacentHTML('beforeend', '<span class="d">…</span>\n');
+  term.insertAdjacentHTML('beforeend', '<span class="p">&lt;Core-SW01&gt;</span><span class="cur"></span>');
+  term.scrollTop = term.scrollHeight;
+}
+function flashAdd(el) {
+  el.animate?.([{ transform:'translateY(0)' }, { transform:'translateY(2px)' }, { transform:'translateY(0)' }], { duration:200 });
+}
+
+/* ── 诊断簇交互（页签条 / 状态栏两份都接） ── */
+function clearTerm() {
+  term.innerHTML = '<span class="p">&lt;Core-SW01&gt;</span><span class="cur"></span>';
+}
+document.querySelectorAll('[data-diag]').forEach(el => {
+  if (el.dataset.diag === 'size') {
+    el.onclick = () => clearTerm();
+  } else {
+    el.onclick = () => { flashAdd(el); term.scrollTop = term.scrollHeight; };
+  }
+});
+
+/* ── 折叠交互 ── */
+qcHead.onclick = e => {
+  if (e.target.closest('.led') || e.target.closest('#qcAdd')) return;
+  const off = qcHead.classList.toggle('off');
+  qcBody.style.display = off ? 'none' : '';
+};
+document.getElementById('qcAdd').onclick = e => { e.stopPropagation(); flashAdd(e.currentTarget); };
+document.querySelectorAll('.ghead[data-fold]').forEach(h => h.onclick = () => {
+  const sec = document.getElementById(h.dataset.fold);
+  const off = h.classList.toggle('off');
+  sec.style.display = off ? 'none' : '';
+});
+
+/* ── 现状模式：分组键循环（模拟下拉） ── */
+sbGroup.onclick = () => {
+  const idx = GROUPS.findIndex(g => g.id === activeGroup);
+  activeGroup = GROUPS[(idx + 1) % GROUPS.length].id;
+  renderAll();
+};
+
+/* ── 模式 / 主题切换 ── */
+document.querySelectorAll('.seg [data-m]').forEach(b => b.onclick = () => {
+  app.dataset.mode = b.dataset.m;
+  document.querySelectorAll('.seg [data-m]').forEach(x => x.setAttribute('aria-pressed', x === b));
+});
+document.querySelectorAll('.seg [data-t]').forEach(b => b.onclick = () => {
+  app.dataset.theme = b.dataset.t;
+  document.querySelectorAll('.seg [data-t]').forEach(x => x.setAttribute('aria-pressed', x === b));
+});
+
+/* ── Ctrl+F1–F12：直发（capture，对齐 xterm 抢占不变量） ──
+   两种模式都闪各自轨道里的键帽；侧栏折叠时闪标题行 */
+window.addEventListener('keydown', e => {
+  if (!e.ctrlKey) return;
+  const m = e.key.match(/^F([1-9]|1[0-2])$/);
+  if (!m) return;
+  e.preventDefault(); e.stopPropagation();
+  const i = parseInt(m[1], 10) - 1;
+  if (i >= cmds().length) return;
+  const c = cmds()[i];
+  const caps = qcBody.querySelectorAll('.keycap');
+  if (app.dataset.mode === 'merged' && qcHead.classList.contains('off')) {
+    flashAdd(qcHead);
+    send(c.content);
+  } else {
+    fire(caps[i], c);
+  }
+}, true);
+
+renderAll();
+</script>
+</body>
+</html>
