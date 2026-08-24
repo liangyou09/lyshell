@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next'
 import SessionsPanel from './SessionsPanel'
 import ActivityRail, { type NavTab, RAIL_WIDTH } from './ActivityRail'
 import AgentsPanel from './AgentsPanel'
-import StatusBar from './StatusBar'
 import SplitPaneContainer from './SplitPaneContainer'
 import FloatWindow from '../FloatWindow/FloatWindow'
 import { McpActivityChip } from './McpActivityChip'
@@ -15,7 +14,9 @@ import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import { useThemeStore } from '../../stores/theme-store'
 import { useLocaleStore } from '../../stores/locale-store'
-import type { SessionConfig } from '@shared/types'
+import { useQuickCommandsStore } from '../../stores/quick-commands-store'
+import { dispatchCommand } from '../../utils/dispatch-command'
+import type { SessionConfig, QuickCommand } from '@shared/types'
 
 /**
  * 主窗口布局组件
@@ -37,7 +38,6 @@ const MainWindow: React.FC = () => {
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
   const [floatVisible, setFloatVisible] = useState(false) // 浮窗默认隐藏
   const [isMaximized, setIsMaximized] = useState(false)
-  const [quickCommandsRefreshKey, setQuickCommandsRefreshKey] = useState(0)  // 用于刷新 StatusBar
   const { sessions, loadSessions, refreshSavedSessions, syncSessionsFromBackend } = useSessionStore()
   const { getAllLeafPanes, layout, dshWebActive, dshWebPaneId } = usePaneStore()
   const { initFromStorage } = useThemeStore()
@@ -274,6 +274,57 @@ const MainWindow: React.FC = () => {
     return cleanup
   }, [])
 
+  // 快捷命令数据常驻加载（原 StatusBar 挂载时加载的逻辑上移）：
+  // F 键直发监听在 MainWindow，侧栏面板（SessionsPanel）只是这份数据的视图，
+  // 保证切到其他页签/收起侧栏时 Ctrl+F1-F12 仍可用。
+  useEffect(() => {
+    useQuickCommandsStore.getState().loadAll()
+  }, [])
+
+  // Ctrl + F1-F12 快捷键执行快速命令（从 StatusBar 迁移，常驻 MainWindow）
+  useEffect(() => {
+    const handleShortcut = (e: KeyboardEvent) => {
+      if (!e.ctrlKey) return
+
+      // F1-F12 对应快捷键索引 0-11
+      const fKeyMatch = e.key.match(/^F([1-9]|1[0-2])$/)
+      if (!fKeyMatch) return
+
+      // 必须 stopPropagation:capture 阶段截断后阻止事件继续传到 xterm,
+      // 否则 xterm 仍会把 F1-F12 解析成转义序列发进 PTY(快捷命令与转义序列双发)。
+      e.preventDefault()
+      e.stopPropagation()
+
+      // dsh web 接管活动分屏时不发（对齐原"dsh web 激活时快捷命令不可用"语义）
+      const paneSt = usePaneStore.getState()
+      if (paneSt.dshWebActive && paneSt.dshWebPaneId === paneSt.layout.activePaneId) return
+
+      // 发送到活动分屏的活动会话（同 handleExecuteCommand,内联避免 use-before-define）
+      const activePane = paneSt.getAllLeafPanes().find(p => p.id === paneSt.layout.activePaneId)
+      if (!activePane?.activeSessionId) return
+
+      const index = parseInt(fKeyMatch[1]) - 1
+      if (index < 0 || index >= 12) return
+
+      // 直接根据当前 selectedGroupId 过滤命令（store 里取最新值,监听器无需随数据变化重挂）
+      const { commands, selectedGroupId } = useQuickCommandsStore.getState()
+      const groupId = selectedGroupId || 'default'
+      const currentCommands = groupId === 'default'
+        ? commands.filter(c => !c.groupId || c.groupId === '')
+        : commands.filter(c => c.groupId === groupId)
+
+      const sortedCommands = [...currentCommands].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+
+      if (index < sortedCommands.length) {
+        dispatchCommand(sortedCommands[index], activePane.activeSessionId)
+      }
+    }
+    // 用 capture 阶段:焦点在终端时 xterm 会先在 textarea 上处理 F1-F12 并
+    // stopPropagation,冒泡阶段的 window 监听收不到事件;capture 抢在 xterm 之前截走。
+    window.addEventListener('keydown', handleShortcut, true)
+    return () => window.removeEventListener('keydown', handleShortcut, true)
+  }, [])
+
   // MCP open_connection_dialog 工具（C4）：主进程推送 → 派发 newSession 事件，
   // 由 SessionsPanel 监听并打开"新建连接"对话框。agent 把凭据填写交还给用户（MCP 通道不接受凭据）。
   useEffect(() => {
@@ -345,18 +396,15 @@ const MainWindow: React.FC = () => {
     }
   }
 
-  // 执行快速命令 - 发送到活动分屏的活动会话
-  const handleExecuteCommand = (content: string) => {
+  // 执行快速命令 - 派发到活动分屏的活动会话（拆行/转义/结尾符统一在 dispatchCommand）
+  const handleExecuteCommand = (cmd: QuickCommand) => {
     const activePane = getAllLeafPanes().find(p => p.id === layout.activePaneId)
     if (activePane?.activeSessionId) {
-      window.electronAPI?.terminalWrite(activePane.activeSessionId, content + '\r')
+      dispatchCommand(cmd, activePane.activeSessionId)
     }
   }
 
-  // 获取活动分屏的活动会话ID用于状态栏
-  const activePane = getAllLeafPanes().find(p => p.id === layout.activePaneId)
-  const activeSessionIdForStatusBar = activePane?.activeSessionId || null
-  // dsh web 仅在其承载分屏为当前活动分屏且正显示时，才接管底部状态栏（隐藏快捷命令）。
+  // dsh web 仅在其承载分屏为当前活动分屏且正显示时，才禁用快捷命令（键帽置灰、F 键不发）。
   // 否则即便 web 仍挂在别的分屏上，活动分屏是终端时快捷命令仍应指向该终端。
   const dshWebActiveHere = dshWebActive && dshWebPaneId === layout.activePaneId
   // 在线会话数 -- ActivityRail 的 sessions 槽位 LED 读数
@@ -472,7 +520,8 @@ const MainWindow: React.FC = () => {
               {activeNav === 'sessions' && (
                 <SessionsPanel
                   onConnect={handleConnect}
-                  onQuickCommandsChange={() => setQuickCommandsRefreshKey(k => k + 1)}
+                  onExecuteCommand={handleExecuteCommand}
+                  quickCommandsDisabled={dshWebActiveHere}
                 />
               )}
               {activeNav === 'agents' && <AgentsPanel />}
@@ -497,7 +546,7 @@ const MainWindow: React.FC = () => {
 
         {/* 终端内容区 */}
         <div className="flex flex-col flex-1 min-w-0 min-h-0">
-          {/* 终端内容区 - 分屏布局 */}
+          {/* 终端内容区 - 分屏布局（原底部状态栏已退场：快捷命令合入会话栏，诊断簇迁至各分屏页签条） */}
           <div ref={terminalWrapperRef} className="terminal-wrapper flex-1 min-h-0 bg-[var(--terminal-bg)] overflow-hidden relative pb-0">
             <SplitPaneContainer />
 
@@ -508,11 +557,6 @@ const MainWindow: React.FC = () => {
               </div>
             )}
           </div>
-
-          {/* 状态栏：dsh web 激活时直接隐藏整条状态栏（含快捷命令），webview 占满剩余高度；否则维持终端快速命令栏 */}
-          {!dshWebActiveHere && (
-            <StatusBar sessionId={activeSessionIdForStatusBar} onExecuteCommand={handleExecuteCommand} refreshKey={quickCommandsRefreshKey} />
-          )}
         </div>
       </div>
 

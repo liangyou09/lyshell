@@ -5,6 +5,9 @@ declare global {
   interface Window {
     electronAPI: ElectronAPI
   }
+
+  /** 应用版本号 —— electron.vite.config.ts 编译期注入（来自 package.json 的 version） */
+  const __APP_VERSION__: string
 }
 
 // Electron <webview> 标签 —— React 18 未内置其 JSX 类型，须手动声明。

@@ -1,27 +1,27 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
-import type { SessionConfig, PaneNode } from '@shared/types'
+import type { SessionConfig, PaneNode, QuickCommand } from '@shared/types'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import SessionDialog from '../SessionDialog/SessionDialog'
 import ExportImportDialog from '../ExportImportDialog/ExportImportDialog'
 import FileManagerPanel from '../FileManager/FileManagerPanel'
+import QuickCommandsPanel from '../QuickCommands/QuickCommandsPanel'
+import TerminalSize from './TerminalSize'
+import { useQuickCommandsStore } from '../../stores/quick-commands-store'
 import i18n from '../../i18n'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 类型
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface QuickCommand {
-  id: string
-  name: string
-  content: string
-}
-
 interface SessionsPanelProps {
   onConnect?: (sessionId: string, config: SessionConfig) => void
-  onQuickCommandsChange?: () => void
+  /** 快捷命令派发：写入活动分屏的活动会话（由 MainWindow 提供,规则见 utils/dispatch-command） */
+  onExecuteCommand?: (cmd: QuickCommand) => void
+  /** dsh web 接管活动分屏时置灰键帽、禁发（F 键侧由 MainWindow 监听器拦截） */
+  quickCommandsDisabled?: boolean
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -292,9 +292,11 @@ const GroupHeader: React.FC<{
   /** 可折叠时传入；undefined 表示不可折叠 */
   collapsed?: boolean
   onToggle?: () => void
+  /** label 右边的补充内容(LIVE 段的终端状态读数用),hairline 之前 */
+  extra?: React.ReactNode
   /** 右侧可选 action 按钮(LIVE 段的 close-all 用) */
   action?: React.ReactNode
-}> = ({ icon, label, count, amber, tone, monoLabel, collapsed, onToggle, action }) => {
+}> = ({ icon, label, count, amber, tone, monoLabel, collapsed, onToggle, extra, action }) => {
   const collapsible = typeof collapsed === 'boolean' && !!onToggle
   const effectiveTone = tone ?? (amber ? 'amber' : undefined)
   const iconColorClass =
@@ -333,6 +335,10 @@ const GroupHeader: React.FC<{
       >
         {label}
       </span>
+      {/* 补充读数 —— LIVE 段的终端状态(协议/尺寸/行数),label 右边,与 label 拉开一点间距 */}
+      {extra && (
+        <span className="inline-flex items-center min-w-0 flex-shrink-0 ml-1.5">{extra}</span>
+      )}
       <span className="flex-1 h-px bg-[var(--rule)]" />
       <span className="[font-family:inherit] text-[10px] text-[var(--text-rack-data)] tracking-[.04em] normal-case">{count}</span>
       {action}
@@ -496,12 +502,15 @@ const ActBtn: React.FC<{
  * 会话面板(机柜左列 Sessions 页签内容)- 会话机架 + 底部嵌入文件管理器。
  * 列宽度由 MainWindow 列容器统一管(三栏共享);本组件只持文件管理器高度(分割线拖动)。
  */
-const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommandsChange }) => {
+const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteCommand, quickCommandsDisabled }) => {
   const [showDialog, setShowDialog] = useState(false)
   const [editConfig, setEditConfig] = useState<SessionConfig | undefined>(undefined)
   const [searchQuery, setSearchQuery] = useState('')
   const [showExportImport, setShowExportImport] = useState(false)
-  const [quickCommands, setQuickCommands] = useState<QuickCommand[]>([])
+  // 快捷命令数据 —— 常驻 store（MainWindow 挂载时加载、面板 CRUD 后 loadAll 刷新），
+  // 这里订阅给 ExportImportDialog 用
+  const quickCommands = useQuickCommandsStore(s => s.commands)
+  const loadQuickCommands = useQuickCommandsStore(s => s.loadAll)
   const { savedSessions, sessions, reachability, refreshSavedSessions, disconnectSession, removeLiveSession } = useSessionStore()
   const removeSessionFromAllPanes = usePaneStore(s => s.removeSessionFromAllPanes)
   const { t } = useTranslation()
@@ -523,6 +532,10 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommand
     visit(layoutRoot)
     return ids
   }, [layoutRoot])
+  // 活动分屏的活动会话 —— LIVE 段头右侧终端状态读数(协议/尺寸/行数)的数据源
+  const activeTerminalSessionId = usePaneStore(s =>
+    s.getAllLeafPanes().find(p => p.id === s.layout.activePaneId)?.activeSessionId ?? ''
+  )
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const isUpdating = useRef(false)
@@ -563,12 +576,10 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommand
     })
   }
 
-  // 加载快速命令
+  // 加载快速命令（store；MainWindow 已常驻加载，这里兜底刷新）
   useEffect(() => {
-    window.electronAPI?.getQuickCommands().then((cmds: unknown) => {
-      if (Array.isArray(cmds)) setQuickCommands(cmds as QuickCommand[])
-    }).catch(err => console.error('Failed to load quick commands:', err))
-  }, [])
+    loadQuickCommands()
+  }, [loadQuickCommands])
 
   // 监听新建会话事件
   useEffect(() => {
@@ -627,25 +638,13 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommand
   // ──────────── 处理函数 ────────────
 
   const handleOpenExportImport = () => {
-    const saved = localStorage.getItem('quickCommands')
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved)
-        if (Array.isArray(parsed)) setQuickCommands(parsed)
-      } catch {
-        setQuickCommands([])
-      }
-    } else {
-      setQuickCommands([])
-    }
     setShowExportImport(true)
   }
 
   const handleImportComplete = async () => {
+    // 导入可能写入新命令 —— 刷新常驻 store（侧栏快捷命令模块/F 键直发共用）
     try {
-      const cmds = await window.electronAPI?.getQuickCommands()
-      if (Array.isArray(cmds)) setQuickCommands(cmds as QuickCommand[])
-      onQuickCommandsChange?.()
+      await loadQuickCommands()
     } catch (err) {
       console.error('Failed to refresh quick commands:', err)
     }
@@ -1089,6 +1088,9 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommand
           </button>
         </div>
 
+        {/* ===== 快捷命令（原底部状态栏迁入，搜索框下方） ===== */}
+        <QuickCommandsPanel onExecuteCommand={onExecuteCommand} disabled={quickCommandsDisabled} />
+
         {/* ===== 列表 ===== */}
         <div className="flex-1 overflow-y-auto min-h-[100px] rack-scroll">
           {/* LIVE — 当下已连接 */}
@@ -1101,6 +1103,25 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommand
                 count={liveSessions.length}
                 collapsed={liveCollapsed}
                 onToggle={() => setLiveCollapsed(c => !c)}
+                /* 终端状态合入 LIVE 段头:label 右边显示活动会话的协议码 + 尺寸/行数。
+                   协议码用协议色(与会话行同语言);TerminalSize 点击已 stopPropagation,不会触发段头折叠 */
+                extra={activeTerminalSessionId ? (() => {
+                  const activeSession = sessions.find(s => s.id === activeTerminalSessionId)
+                  const proto = activeSession?.config ? mapProtocol(activeSession.config.type) : undefined
+                  return (
+                    <span
+                      className="inline-flex items-center gap-1.5 [font-family:inherit] text-[10.5px] text-[var(--text-rack-data)]"
+                      style={{ fontFeatureSettings: '"tnum" 1' }}
+                    >
+                      {proto && (
+                        <span className={cn('font-semibold tracking-[.08em]', PROTO_TEXT_CLS[proto])}>
+                          {PROTO_LABEL[proto]}
+                        </span>
+                      )}
+                      <TerminalSize sessionId={activeTerminalSessionId} />
+                    </span>
+                  )
+                })() : undefined}
                 action={
                   <button
                     onClick={handleCloseAllClick}
@@ -1303,7 +1324,12 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onQuickCommand
               <span className="ml-1">{t('sidebar.footerIdle')}</span>
             </span>
           </span>
-          <span>{t('sidebar.footerShortcut', { n: 7 })}</span>
+          <span className="inline-flex items-center gap-2">
+            <span>{t('sidebar.footerShortcut', { n: 7 })}</span>
+            {/* 版本号 —— 编译期 __APP_VERSION__ 注入(vite define),升版不再手改这里 */}
+            <span aria-hidden className="w-px h-[10px] bg-[var(--rule)]" />
+            <span className="lowercase">v{__APP_VERSION__}</span>
+          </span>
         </div>
       </div>
 

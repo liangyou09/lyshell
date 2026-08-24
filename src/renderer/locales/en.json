@@ -392,7 +392,7 @@
     "notes": "Notes"
   },
   "statusbar": {
-    "groupSwitchHint": "Click to switch group · Right-click to edit groups",
+    "groupSwitchHint": "Click to collapse · Dots switch group · Right-click to edit groups",
     "clickToAddHint": "Click to add a command",
     "editGroups": "Edit groups",
     "connected": "connected",
@@ -454,6 +454,11 @@
     "footerLive": "live",
     "footerIdle": "idle",
     "footerShortcut": "alt + 1…{{n}}",
+    "quickCmdSection": "Quick Cmd",
+    "quickCmdEmpty": "No commands in this group",
+    "quickCmdAddNew": "＋ New",
+    "quickCmdDisabled": "dsh web is taking over this pane — quick commands unavailable",
+    "quickCmdSwitchGroup": "Switch to \"{{name}}\" · {{n}} cmds",
     "statusConnected": "Connected",
     "statusConnecting": "Connecting",
     "statusConnectionFailed": "Connection failed",

@@ -392,7 +392,7 @@
     "notes": "备注"
   },
   "statusbar": {
-    "groupSwitchHint": "单击切换分组 · 右键编辑分组",
+    "groupSwitchHint": "点击折叠/展开 · 色点切换分组 · 右键编辑分组",
     "clickToAddHint": "点击新建快捷命令",
     "editGroups": "编辑分组",
     "connected": "已连接",
@@ -452,6 +452,11 @@
     "footerLive": "在线",
     "footerIdle": "空闲",
     "footerShortcut": "alt + 1…{{n}}",
+    "quickCmdSection": "快捷命令",
+    "quickCmdEmpty": "此分组还没有命令",
+    "quickCmdAddNew": "＋ 新建",
+    "quickCmdDisabled": "dsh web 正接管此分屏，快捷命令暂不可用",
+    "quickCmdSwitchGroup": "切到「{{name}}」· {{n}} 条",
     "statusConnected": "已连接",
     "statusConnecting": "连接中",
     "statusConnectionFailed": "连接失败",
