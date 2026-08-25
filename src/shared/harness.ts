@@ -29,6 +29,22 @@ export interface HarnessWorkspace {
   /** 显式绑定的变量组 id；缺省表示「跟随已启用的变量组」 */
   envProfileId?: string
   model?: string         // 可选启动模型（dsh 走 cordis 补丁，codex/claude 走 --model CLI）
+  /**
+   * 工作目录隔离模式：缺省/'shared' = 直接在 cwd 启动（现状，零变化）；
+   * 'worktree' = 在 <仓库根>/.lyshell-worktrees/<key> 的专属 git worktree 中启动
+   * （多 agent 指向同一仓库时互不踩踏）。worktree 持久化：首次启动建分支 lyshell/<key>，
+   * 此后每次复用，未提交修改跨启动保留；删除工作区不动 worktree/分支（脏树强删会毁掉改动，
+   * 需要清理时由用户手动 git worktree remove）。git 仓库校验在启动时做，保存时只校验枚举值。
+   */
+  isolation?: 'shared' | 'worktree'
+  /**
+   * worktree 共享名：isolation = 'worktree' 时生效。缺省 = 私有 worktree（key 取 <kind>-<id>，
+   * 各工作区各用各的树）；填了则 key 取该名字 —— 同名工作区（跨 dsh/codex/claude 也行）
+   * 共用同一个 .lyshell-worktrees/<共享名> 与同一分支 lyshell/<共享名>，在同一份检出上协作、
+   * 互相看得见改动。同一分支同时只能检出在一处，共用恰恰依赖「同一目录」而非「各自检出」。
+   * 取值约束见 worktree.ts 的 validateWorktreeKey（保存即拒非法名，不做静默折叠）。
+   */
+  worktreeKey?: string
 }
 
 /**
@@ -40,6 +56,8 @@ export interface HarnessEnvProfile {
   name: string           // 显示名称，如 "生产密钥"
   order: number
   env: Record<string, string>   // 至少一个变量（空组无意义，仓库层过滤）
+  /** 可选模型选项列表 —— 供工作区模型输入框的建议（如中转变量组的 GLM-5.2），空则不写 */
+  models?: string[]
   active?: boolean       // 至多一条为 true —— 由仓库层在 load/setActive 两侧保证
   note?: string          // 可选备注
 }
@@ -91,7 +109,9 @@ export const HARNESS_AGENT_VIEWS: Record<HarnessAgentKind, HarnessAgentView> = {
     i18nPrefix: 'codex',
     dependencies: ['codex'],
     envDefaults: [
-      { key: 'OPENAI_API_KEY', value: '' }
+      { key: 'OPENAI_API_KEY', value: '' },
+      { key: 'OPENAI_BASE_URL', value: '' },
+      { key: 'CODEX_HOME', value: '' }
     ],
     modelSuggestions: ['gpt-5-codex', 'gpt-5', 'o3'],
     installCommand: 'npm install -g @openai/codex',
@@ -105,7 +125,9 @@ export const HARNESS_AGENT_VIEWS: Record<HarnessAgentKind, HarnessAgentView> = {
     i18nPrefix: 'claude',
     dependencies: ['claude'],
     envDefaults: [
-      { key: 'ANTHROPIC_API_KEY', value: '' }
+      { key: 'ANTHROPIC_AUTH_TOKEN', value: '' },
+      { key: 'ANTHROPIC_BASE_URL', value: '' },
+      { key: 'CLAUDE_CONFIG_DIR', value: '' }
     ],
     modelSuggestions: ['claude-sonnet-5', 'claude-opus-5', 'claude-haiku-4-5'],
     installCommand: 'npm install -g @anthropic-ai/claude-code',

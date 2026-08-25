@@ -172,4 +172,38 @@ describe('HarnessEnvProfileRepository', () => {
     expect(repo2.getAll().map((p) => p.name)).toEqual(['a'])
     expect(repo2.getActive()?.name).toBe('a')
   })
+
+  it('models 脏数据过滤：非字符串/空串丢弃、trim、去重；全空则不写键', () => {
+    seed(JSON.stringify([
+      { id: 'a', name: 'a', order: 0, env: { K: '1' }, models: [' GLM-5.2 ', 'GLM-5.2', '', 42, null, 'gpt-5-codex'] },
+      { id: 'b', name: 'b', order: 1, env: { K: '2' }, models: 'not-an-array' },
+      { id: 'c', name: 'c', order: 2, env: { K: '3' }, models: ['', '   '] }
+    ]))
+    const all = newRepo().getAll()
+    expect(all[0].models).toEqual(['GLM-5.2', 'gpt-5-codex'])
+    expect(all[1].models).toBeUndefined() // 非数组按缺失处理
+    expect(all[2].models).toBeUndefined() // 归一化后为空不写键
+  })
+
+  it('models 超上限截断到 64（兜手工编辑的病态文件）', () => {
+    seed(JSON.stringify([
+      { id: 'a', name: 'a', order: 0, env: { K: '1' }, models: Array.from({ length: 100 }, (_, i) => `m-${i}`) }
+    ]))
+    expect(newRepo().get('a')?.models?.length).toBe(64)
+  })
+
+  it('add / update 透传 models，且 update 整条替换（缺席即清空）', () => {
+    const repo = newRepo()
+    const a = repo.add({ name: 'a', env: { K: '1' }, models: ['GLM-5.2'] })!
+    expect(repo.get(a.id)?.models).toEqual(['GLM-5.2'])
+    // 换一组模型
+    expect(repo.update({ ...a, env: { K: '1' }, models: ['GLM-5.2', 'GLM-5.2-air'] })).toBe(true)
+    expect(repo.get(a.id)?.models).toEqual(['GLM-5.2', 'GLM-5.2-air'])
+    // payload 不带 models 即清空（与 note 同一套整条替换语义）
+    const current = repo.get(a.id)!
+    expect(repo.update({ id: current.id, name: current.name, order: current.order, env: current.env })).toBe(true)
+    expect(repo.get(a.id)?.models).toBeUndefined()
+    // 持久化可读回
+    expect(newRepo().get(a.id)?.models).toBeUndefined()
+  })
 })

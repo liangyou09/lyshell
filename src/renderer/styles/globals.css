@@ -12,6 +12,15 @@
   --color-text-primary: #E0E0E0;
   --color-text-secondary: #808080;
   --color-accent: #0078D4;
+  /* 第一行右上控制簇实测宽 -- TopRightControls 挂载后由 ResizeObserver 实时写入
+     (chip 文案随语言/审计条数变宽,静态常量要么常态浪费 ~100px 页签宽度,
+     要么最坏情况(en 文案 + 4 位数计数 ≈265px)盖不住);此处 252px 只是
+     首帧兜底,首个测量帧即被覆盖。PaneTabBar 以 var() 做右留白。 */
+  --top-right-reserve: 252px;
+  /* 侧栏收起时的 L 形内框线宽 -- 单一真相源:.edge-frame 的两条边框、两条 .edge-hit
+     命中条、终端画布的让位 inset(见 MainWindow)全部读此变量,调线宽只改这一处。
+     与 SIDEBAR_DIVIDER_WIDTH(调宽条)概念独立,数值相同纯属巧合。 */
+  --edge-frame-width: 4px;
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -208,6 +217,40 @@ body {
 .terminal-wrapper {
   overflow: hidden;
   position: relative;
+}
+
+/* 无边框窗口拖拽区工具类 -- 集中定义,替代组件内联 style cast。
+   drag 区域吞鼠标事件(可拖动窗口/双击最大化),区域内的交互子元素须显式 no-drag。 */
+.win-drag {
+  -webkit-app-region: drag;
+}
+
+.win-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* 侧栏收起时的 L 形内框 -- 单元素画整框:左+下两条等宽线(宽读 --edge-frame-width),
+   线色与第一行页签条(bg-rack)一致,框线读作机架材质的延续而非终端内容;
+   左下角 8px 圆角贴住窗口自身圆角连续拐弯,把左/下两边包成一体。
+   命中条(.edge-hit,画在终端让出的槽位里的透明条)悬停时整框通电(amber)。 */
+.edge-frame {
+  border-left: var(--edge-frame-width) solid var(--bg-rack);
+  border-bottom: var(--edge-frame-width) solid var(--bg-rack);
+  border-top-left-radius: 2px;     /* 左线上端圆头 */
+  border-bottom-right-radius: 2px; /* 底线右端圆头 */
+  border-bottom-left-radius: 8px;  /* 左下角:贴窗口圆角把两线连成连续弧 */
+  pointer-events: none;
+  transition: border-color 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
+}
+
+.edge-hit {
+  cursor: pointer;
+}
+
+.edge-hit:hover ~ .edge-frame {
+  border-left-color: var(--amber);
+  border-bottom-color: var(--amber);
+  filter: drop-shadow(0 0 4px var(--amber-glow));
 }
 
 /* xterm 终端填满容器 */

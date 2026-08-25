@@ -141,6 +141,14 @@ export function assertBoolean(value: unknown, name: string): boolean {
   return value
 }
 
+/** 枚举字符串校验：值必须是 allowed 之一（workspace.isolation 等小枚举字段用）。 */
+export function assertEnum<T extends string>(value: unknown, name: string, allowed: readonly T[]): T {
+  if (typeof value !== 'string' || !allowed.includes(value as T)) {
+    throw new ValidationError(`${name} must be one of: ${allowed.join(', ')}`)
+  }
+  return value as T
+}
+
 export function normalizeTimeout(value: unknown, defaultMs: number, maxMs: number): number {
   if (value === undefined || value === null) {
     return defaultMs

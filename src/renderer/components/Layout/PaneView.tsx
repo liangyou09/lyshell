@@ -12,12 +12,22 @@ type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center' | null
 
 interface PaneViewProps {
   node: PaneNode
+  /** 处于窗口第一行(顶排) -- 该 pane 的页签条成为窗口第一行,启用拖拽区/留白 */
+  isTop?: boolean
+  /** 第一行最左叶子 -- 页签条左侧为侧栏开关 pill 留白 */
+  isTopLeft?: boolean
+  /** 第一行最右叶子 -- 页签条右侧为控制簇留白 */
+  isTopRight?: boolean
 }
 
 /**
- * 分屏视图组件 - 递归渲染分屏树
+ * 分屏视图组件 - 递归渲染分屏树。
+ *
+ * 顶排 flag 沿递归下传,判定规则:
+ * - horizontal(左右并排):两子都继承 isTop;isTopLeft 归 firstChild,isTopRight 归 secondChild
+ * - vertical(上下堆叠):仅 firstChild 继承三个 flag(下 pane 的页签条在窗口中部,不是第一行)
  */
-const PaneView: React.FC<PaneViewProps> = ({ node }) => {
+const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight }) => {
   const { layout, setActivePane, addSessionToPane, splitPaneWithPosition, swapPanePosition, mcpAuditPaneId, closeMcpAudit, dshWeb, dshWebPaneId, dshWebActive, draggingDshWeb, setDraggingDshWeb, moveDshWebToPane, splitDshWebIntoPane } = usePaneStore()
   const { getPaneBySessionId, getParentPane, getPanePositionInParent } = usePaneStore.getState()
   // 被隐藏的终端页签记录(Sidebar LIVE 段会话标签点击 toggle);订阅整个记录,任何 toggle 都会触发本组件重渲染。
@@ -359,7 +369,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
           ${isActive ? 'ring-1 ring-[#0078D4]' : ''}
         `}
       >
-        <PaneTabBar pane={node} />
+        <PaneTabBar pane={node} isTop={isTop} isTopLeft={isTopLeft} isTopRight={isTopRight} />
 
         <div
           ref={dropRef}
@@ -442,7 +452,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
     )
   }
 
-  // 分屏节点 - 渲染两个子节点
+  // 分屏节点 - 渲染两个子节点(顶排 flag 按方向规则传播,见组件头注释)
   return (
     <div
       className={`
@@ -456,13 +466,17 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
         }}
         className="flex-shrink-0 overflow-hidden"
       >
-        <PaneView node={node.firstChild} />
+        <PaneView node={node.firstChild} isTop={isTop} isTopLeft={isTopLeft}
+          isTopRight={node.direction === 'horizontal' ? false : isTopRight} />
       </div>
 
       <SplitDivider paneId={node.id} direction={node.direction} />
 
       <div className="flex-1 overflow-hidden">
-        <PaneView node={node.secondChild} />
+        {/* secondChild 恒非最左;vertical 时它整列位于下方,三个 flag 全 false */}
+        <PaneView node={node.secondChild}
+          isTop={node.direction === 'horizontal' ? isTop : false}
+          isTopRight={node.direction === 'horizontal' ? isTopRight : false} />
       </div>
     </div>
   )
