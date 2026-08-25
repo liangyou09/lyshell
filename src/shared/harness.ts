@@ -40,6 +40,8 @@ export interface HarnessEnvProfile {
   name: string           // 显示名称，如 "生产密钥"
   order: number
   env: Record<string, string>   // 至少一个变量（空组无意义，仓库层过滤）
+  /** 可选模型选项列表 —— 供工作区模型输入框的建议（如中转变量组的 GLM-5.2），空则不写 */
+  models?: string[]
   active?: boolean       // 至多一条为 true —— 由仓库层在 load/setActive 两侧保证
   note?: string          // 可选备注
 }
@@ -91,7 +93,9 @@ export const HARNESS_AGENT_VIEWS: Record<HarnessAgentKind, HarnessAgentView> = {
     i18nPrefix: 'codex',
     dependencies: ['codex'],
     envDefaults: [
-      { key: 'OPENAI_API_KEY', value: '' }
+      { key: 'OPENAI_API_KEY', value: '' },
+      { key: 'OPENAI_BASE_URL', value: '' },
+      { key: 'CODEX_HOME', value: '' }
     ],
     modelSuggestions: ['gpt-5-codex', 'gpt-5', 'o3'],
     installCommand: 'npm install -g @openai/codex',
@@ -105,7 +109,9 @@ export const HARNESS_AGENT_VIEWS: Record<HarnessAgentKind, HarnessAgentView> = {
     i18nPrefix: 'claude',
     dependencies: ['claude'],
     envDefaults: [
-      { key: 'ANTHROPIC_API_KEY', value: '' }
+      { key: 'ANTHROPIC_AUTH_TOKEN', value: '' },
+      { key: 'ANTHROPIC_BASE_URL', value: '' },
+      { key: 'CLAUDE_CONFIG_DIR', value: '' }
     ],
     modelSuggestions: ['claude-sonnet-5', 'claude-opus-5', 'claude-haiku-4-5'],
     installCommand: 'npm install -g @anthropic-ai/claude-code',

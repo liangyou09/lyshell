@@ -1820,6 +1820,12 @@ export function registerIPCHandlers(): void {
       return detectDependencies(runtime.dependencies, readSystemPath() ?? undefined)
     })
 
+    // 变量组「补全默认」的取值 —— CODEX_HOME 等须按系统环境/默认路径在主进程解析
+    // （渲染层沙箱读不到 process.env）；无入参，无需校验。
+    ipcMain.handle(`${kind}:env:defaults`, async () => {
+      return runtime.envDefaults()
+    })
+
     // ========== <kind> 工作区 ==========
     // 每个工作区 = 名称 + 工作目录，单击在对应目录启动对应 CLI（参照 agent:launch 的 cwd 语义）。
 
@@ -1847,6 +1853,15 @@ export function registerIPCHandlers(): void {
       return normalized.env
     }
 
+    // 模型选项：结构校验后做与渲染层 handleSaveProfile 一致的清洗（trim、滤空、去重），
+    // IPC 边界即落干净数据；仓库层 normalizeModels 仍兜底（防手工编辑 JSON 绕过此处）。
+    // 清洗后为空（全空白/全重复）返回 undefined —— 与「未提供」同语义，update 整条替换即清空。
+    const assertProfileModels = (raw: unknown): string[] | undefined => {
+      const models = assertStringArray(raw, 'profile.models', { maxItems: 64, maxItemLength: 256 })
+      const cleaned = [...new Set(models.map((m) => m.trim()).filter((m) => m.length > 0))]
+      return cleaned.length > 0 ? cleaned : undefined
+    }
+
     ipcMain.handle(`${kind}:env:add`, async (_event, profile) => {
       try {
         const safe = assertObject(profile, 'profile')
@@ -1855,6 +1870,9 @@ export function registerIPCHandlers(): void {
           env: assertProfileEnv(safe.env)
         }
         if (safe.note !== undefined) newProfile.note = assertString(safe.note, 'profile.note', { maxLength: 2000 })
+        // 模型选项（供工作区模型建议）；空数组/清洗后为空视同未提供 —— 与 note 同一套「缺省即不写」语义
+        const addedModels = safe.models !== undefined ? assertProfileModels(safe.models) : undefined
+        if (addedModels !== undefined) newProfile.models = addedModels
         const added = runtime.envRepository.add(newProfile)
         if (!added) return { success: false, error: 'Failed to save env profile' }
         return { success: true, profile: added }
@@ -1879,6 +1897,9 @@ export function registerIPCHandlers(): void {
             : assertNumber(safe.order, 'profile.order', { min: 0, max: 10000, integer: true })
         }
         if (safe.note !== undefined) updated.note = assertString(safe.note, 'profile.note', { maxLength: 2000 })
+        // 模型选项：整条替换，payload 缺席/空数组/清洗后为空即清空（与 note 的清空语义一致）
+        const updatedModels = safe.models !== undefined ? assertProfileModels(safe.models) : undefined
+        if (updatedModels !== undefined) updated.models = updatedModels
         // active 不从这里改（仓库层 update 也会保留现状）—— 启用态只经 setActive
         const success = runtime.envRepository.update(updated)
         return success ? { success: true } : { success: false, error: 'Env profile not found' }
@@ -2017,9 +2038,10 @@ export function registerIPCHandlers(): void {
         }
         const launchEnv = envResult.env
 
-        // 预设启动模型：dsh 写/清 cordis.patch.yml（model 是 per-workspace、补丁是全局，留空必须
-        // 显式清除 provider/model 才能回落默认）；codex/claude 无需（模型走 --model CLI）。
-        // 写失败（用户补丁无法解析等）则拒绝启动，避免静默用错模型。
+        // 预设启动模型路由：dsh 写/清 cordis.patch.yml（model 是 per-workspace、补丁是全局，留空必须
+        // 显式清除 provider/model 才能回落默认）；codex 把变量组的 OPENAI_BASE_URL 写进 config.toml
+        // （没写则不动文件）；claude 无需（模型走 --model CLI、路由走环境变量）。
+        // 写失败（用户配置无法解析等）则拒绝启动，避免静默用错模型。
         const preset = runtime.prepareModel(workspace, launchEnv)
         if (!preset.ok) {
           return { success: false, error: preset.error }
