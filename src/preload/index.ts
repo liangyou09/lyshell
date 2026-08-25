@@ -109,8 +109,12 @@ const IPC_CHANNELS = {
   DSH_ENV_UPDATE: 'dsh:env:update',
   DSH_ENV_DELETE: 'dsh:env:delete',
   DSH_ENV_SET_ACTIVE: 'dsh:env:setActive',
+  DSH_ENV_DEFAULTS: 'dsh:env:defaults',
   DSH_WEB_OPEN: 'dsh:web:open',
   DSH_WEB_CLOSE: 'dsh:web:close',
+
+  // Harness worktree 检测（kind 无关：列出仓库已有 worktree 共享名，编辑对话框下拉用）
+  HARNESS_WORKTREE_LIST: 'harness:worktree:list',
 
   // Codex Harness
   CODEX_DETECT: 'codex:detect',
@@ -124,6 +128,7 @@ const IPC_CHANNELS = {
   CODEX_ENV_UPDATE: 'codex:env:update',
   CODEX_ENV_DELETE: 'codex:env:delete',
   CODEX_ENV_SET_ACTIVE: 'codex:env:setActive',
+  CODEX_ENV_DEFAULTS: 'codex:env:defaults',
 
   // Claude Harness
   CLAUDE_DETECT: 'claude:detect',
@@ -137,6 +142,7 @@ const IPC_CHANNELS = {
   CLAUDE_ENV_UPDATE: 'claude:env:update',
   CLAUDE_ENV_DELETE: 'claude:env:delete',
   CLAUDE_ENV_SET_ACTIVE: 'claude:env:setActive',
+  CLAUDE_ENV_DEFAULTS: 'claude:env:defaults',
 
   // Plugin 管理(install[dev]/zip/url/enable/disable/uninstall/list)
   PLUGIN_LIST: 'plugin:list',
@@ -271,8 +277,12 @@ const electronAPI = {
   updateDshEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_UPDATE, profile),
   deleteDshEnvProfile: (profileId: string) => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_DELETE, profileId),
   setDshEnvProfileActive: (profileId: string | null) => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_SET_ACTIVE, profileId),
+  getDshEnvDefaults: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_DEFAULTS),
   openDshWeb: (target: { workspaceId?: string; cwd?: string }) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_OPEN, target),
   closeDshWeb: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_CLOSE),
+
+  // 列出 cwd 所属仓库 .lyshell-worktrees/ 下的共享名（worktree 隔离编辑框的下拉选项）
+  listHarnessWorktrees: (cwd: string) => ipcRenderer.invoke(IPC_CHANNELS.HARNESS_WORKTREE_LIST, cwd),
 
   // Codex Harness
   detectCodex: () => ipcRenderer.invoke(IPC_CHANNELS.CODEX_DETECT),
@@ -286,6 +296,7 @@ const electronAPI = {
   updateCodexEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ENV_UPDATE, profile),
   deleteCodexEnvProfile: (profileId: string) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ENV_DELETE, profileId),
   setCodexEnvProfileActive: (profileId: string | null) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ENV_SET_ACTIVE, profileId),
+  getCodexEnvDefaults: () => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ENV_DEFAULTS),
 
   // Claude Harness
   detectClaude: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_DETECT),
@@ -299,6 +310,7 @@ const electronAPI = {
   updateClaudeEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ENV_UPDATE, profile),
   deleteClaudeEnvProfile: (profileId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ENV_DELETE, profileId),
   setClaudeEnvProfileActive: (profileId: string | null) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ENV_SET_ACTIVE, profileId),
+  getClaudeEnvDefaults: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ENV_DEFAULTS),
 
   // Plugin 管理
   listPlugins: () => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_LIST),
