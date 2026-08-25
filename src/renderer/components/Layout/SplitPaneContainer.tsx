@@ -87,8 +87,8 @@ const SplitPaneContainer: React.FC = () => {
       ref={containerRef}
       className="w-full h-full bg-[var(--terminal-bg)] overflow-hidden relative"
     >
-      {/* 分屏内容 */}
-      <PaneView node={layout.root} />
+      {/* 分屏内容 -- 根节点即窗口第一行,三个顶排 flag 全部置真(由 PaneView 沿分屏树传播) */}
+      <PaneView node={layout.root} isTop isTopLeft isTopRight />
     </div>
   )
 }

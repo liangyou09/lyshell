@@ -16,6 +16,7 @@ const SplitDivider: React.FC<SplitDividerProps> = ({ paneId, direction }) => {
   const { t } = useTranslation()
   const startPosRef = useRef(0)
   const startRatioRef = useRef(0.5)
+  const containerSizeRef = useRef(0) // 拖拽开始时实测的分屏容器尺寸
   const { setSplitRatio } = usePaneStore()
 
   // 获取当前比例
@@ -28,6 +29,10 @@ const SplitDivider: React.FC<SplitDividerProps> = ({ paneId, direction }) => {
     setIsDragging(true)
     startPosRef.current = direction === 'horizontal' ? e.clientX : e.clientY
     startRatioRef.current = currentRatio
+    // 实测父容器(即本 split 的 flex 容器)尺寸 -- 替代旧 window.innerWidth/Height 估算,
+    // 后者在侧栏可收起/可调宽后早已不准(嵌套分屏时也错)
+    const rect = e.currentTarget.parentElement?.getBoundingClientRect()
+    containerSizeRef.current = direction === 'horizontal' ? (rect?.width ?? 0) : (rect?.height ?? 0)
   }
 
   // 拖拽中
@@ -38,11 +43,8 @@ const SplitDivider: React.FC<SplitDividerProps> = ({ paneId, direction }) => {
       const parentPane = usePaneStore.getState().getParentPane(paneId)
       if (!parentPane) return
 
-      // 计算容器尺寸
-      // 这里简化处理，假设容器是整个窗口
-      const containerSize = direction === 'horizontal'
-        ? window.innerWidth - 240 // 减去侧边栏宽度
-        : window.innerHeight - 100 // 减去顶部和底部高度
+      const containerSize = containerSizeRef.current
+      if (containerSize <= 0) return
 
       const delta = direction === 'horizontal'
         ? e.clientX - startPosRef.current

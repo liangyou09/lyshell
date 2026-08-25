@@ -5,15 +5,22 @@ import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import { setDraggingSessionId as setGlobalDraggingId } from './SplitPaneContainer'
 import type { PaneLeaf } from '@shared/types'
+import { TOPBAR_HEIGHT, TOP_LEFT_RESERVE } from './topbar-metrics'
 
 interface PaneTabBarProps {
   pane: PaneLeaf
+  /** 处于窗口第一行(顶排 pane) -- 根容器启用窗口拖拽区;无页签时也渲染等高空条承载拖拽区 */
+  isTop?: boolean
+  /** 第一行最左 pane -- 左侧为侧栏开关 pill 留白(TOP_LEFT_RESERVE) */
+  isTopLeft?: boolean
+  /** 第一行最右 pane -- 右侧为控制簇留白(--top-right-reserve,由 TopRightControls 实测发布) */
+  isTopRight?: boolean
 }
 
 /**
  * 分屏内的标签栏组件 - 显示该分屏内的会话标签
  */
-const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
+const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRight }) => {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [draggingSessionId, setDraggingSessionIdLocal] = useState<string | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)  // 悬停位置索引
@@ -301,8 +308,21 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
     return cleanError
   }
 
-  // 无会话且本 pane 未开 MCP / dsh Web 时不渲染标签栏，避免空 28px 条；打开时仍需标签栏承载页签
-  if (paneSessions.length === 0 && mcpAuditPaneId !== pane.id && dshWebPaneId !== pane.id) return null
+  // 无会话且本 pane 未开 MCP / dsh Web 时不渲染标签栏，避免中部空条；打开时仍需标签栏承载页签。
+  // 顶排 pane 例外：渲染与第一行等高的空条，保证窗口第一行永远存在(承载窗口拖拽区 + pill/控制簇浮层下方的底色)
+  if (paneSessions.length === 0 && mcpAuditPaneId !== pane.id && dshWebPaneId !== pane.id) {
+    if (!isTop) return null
+    return (
+      <div
+        className="win-drag select-none bg-[var(--bg-rack)] border-b border-[var(--rule)]"
+        style={{
+          height: TOPBAR_HEIGHT,
+          paddingLeft: isTopLeft ? TOP_LEFT_RESERVE : undefined,
+          paddingRight: isTopRight ? 'var(--top-right-reserve)' : undefined
+        }}
+      />
+    )
+  }
 
   // 计算会话名称编号 - 基于全局所有分屏的同名会话
   const getNameWithIndex = (session: typeof paneSessions[0]) => {
@@ -329,12 +349,24 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
   const webActiveHere = dshWebPaneId === pane.id && dshWebActive
 
   return (
-    <div className="flex items-center bg-[var(--bg-rack)] border-b border-[var(--rule)] h-[28px]">
+    <div
+      className={cn(
+        'flex items-center bg-[var(--bg-rack)] border-b border-[var(--rule)]',
+        // 顶排 pane 的页签条即窗口第一行：空白处作为窗口拖拽区(drag 区吞鼠标事件，
+        // 交互子元素须显式 win-no-drag)；左右留白给侧栏 pill / 控制簇浮层，防页签滚入其下方
+        isTop && 'win-drag select-none'
+      )}
+      style={{
+        height: TOPBAR_HEIGHT,
+        paddingLeft: isTop && isTopLeft ? TOP_LEFT_RESERVE : undefined,
+        paddingRight: isTop && isTopRight ? 'var(--top-right-reserve)' : undefined
+      }}
+    >
       {/* 左滚动按钮 */}
       <button
         onClick={scrollLeft}
         title={t('pane.scrollLeft')}
-        className="w-[20px] h-full flex items-center justify-center text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-elev)] transition-colors"
+        className="win-no-drag w-[20px] h-full flex items-center justify-center text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-elev)] transition-colors"
       >
         ‹
       </button>
@@ -363,7 +395,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
             onDrop={(e) => handleDropOnTab(e, index)}
             title={t('pane.tabHint')}
             className={cn(
-              'flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
+              'win-no-drag flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
               pane.activeSessionId === session.id && mcpAuditPaneId !== pane.id && !webActiveHere
                 ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
                 : session.hasActivity
@@ -426,7 +458,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
                 removeLiveSession(sessionId)
               }}
               title={t('pane.closeConnection')}
-              className="ml-auto w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
+              className="win-no-drag ml-auto w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
             >
               ✕
             </button>
@@ -438,13 +470,13 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
             data-tab-id="__mcp_audit__"
             onClick={handleMcpTabClick}
             title={t('pane.mcpTabHint')}
-            className="flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px] bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]"
+            className="win-no-drag flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px] bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]"
           >
             <span className="text-xs truncate max-w-[150px]">{t('pane.mcpTab')}</span>
             <button
               onClick={(e) => { e.stopPropagation(); usePaneStore.getState().closeMcpAudit() }}
               title={t('mcpAudit.close')}
-              className="ml-auto w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
+              className="win-no-drag ml-auto w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
             >
               ✕
             </button>
@@ -465,7 +497,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
             }}
             onDragEnd={() => setDraggingDshWeb(false)}
             className={cn(
-              'flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
+              'win-no-drag flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
               webActiveHere
                 ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
                 : 'bg-[var(--bg-rack)] text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)]'
@@ -475,7 +507,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
             <button
               onClick={(e) => { e.stopPropagation(); usePaneStore.getState().closeDshWeb() }}
               title={t('dsh.webClose')}
-              className="ml-auto w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
+              className="win-no-drag ml-auto w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
             >
               ✕
             </button>
@@ -487,7 +519,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane }) => {
       <button
         onClick={scrollRight}
         title={t('pane.scrollRight')}
-        className="w-[20px] h-full flex items-center justify-center text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-elev)] transition-colors"
+        className="win-no-drag w-[20px] h-full flex items-center justify-center text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-elev)] transition-colors"
       >
         ›
       </button>
