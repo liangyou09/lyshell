@@ -29,6 +29,22 @@ export interface HarnessWorkspace {
   /** 显式绑定的变量组 id；缺省表示「跟随已启用的变量组」 */
   envProfileId?: string
   model?: string         // 可选启动模型（dsh 走 cordis 补丁，codex/claude 走 --model CLI）
+  /**
+   * 工作目录隔离模式：缺省/'shared' = 直接在 cwd 启动（现状，零变化）；
+   * 'worktree' = 在 <仓库根>/.lyshell-worktrees/<key> 的专属 git worktree 中启动
+   * （多 agent 指向同一仓库时互不踩踏）。worktree 持久化：首次启动建分支 lyshell/<key>，
+   * 此后每次复用，未提交修改跨启动保留；删除工作区不动 worktree/分支（脏树强删会毁掉改动，
+   * 需要清理时由用户手动 git worktree remove）。git 仓库校验在启动时做，保存时只校验枚举值。
+   */
+  isolation?: 'shared' | 'worktree'
+  /**
+   * worktree 共享名：isolation = 'worktree' 时生效。缺省 = 私有 worktree（key 取 <kind>-<id>，
+   * 各工作区各用各的树）；填了则 key 取该名字 —— 同名工作区（跨 dsh/codex/claude 也行）
+   * 共用同一个 .lyshell-worktrees/<共享名> 与同一分支 lyshell/<共享名>，在同一份检出上协作、
+   * 互相看得见改动。同一分支同时只能检出在一处，共用恰恰依赖「同一目录」而非「各自检出」。
+   * 取值约束见 worktree.ts 的 validateWorktreeKey（保存即拒非法名，不做静默折叠）。
+   */
+  worktreeKey?: string
 }
 
 /**

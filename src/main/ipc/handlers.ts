@@ -14,6 +14,7 @@ import { dshWebManager } from '../dsh/web'
 import { resolveDshHome } from '../dsh/env'
 import { readSystemPath } from '../env/refresh'
 import { resolveWorkspaceCwd } from '../harness/cwd'
+import { ensureWorktree, listWorktreeKeys, validateWorktreeKey } from '../harness/worktree'
 import { detectDependencies } from '../harness/detect'
 import { HARNESS_AGENTS, resolveWorkspaceEnv } from '../harness/config'
 import { migrateInlineEnvToProfiles } from '../harness/migrate-env'
@@ -25,6 +26,7 @@ import { ConnectionType } from '@shared/types'
 import { fileManager, startDownloadWorker, registerTaskMeta, startUploadWorker, cancelDownload, cancelUpload, assertSafeLocalPath } from '../file'
 import type { SessionConfig } from '@shared/types'
 import {
+  assertEnum,
   assertNumber,
   assertObject,
   assertString,
@@ -1808,6 +1810,11 @@ export function registerIPCHandlers(): void {
     return { success: true, id: session.id, status: ConnectionStatus.CONNECTING, config: session.config }
   }
 
+  // worktree key：共享名（worktreeKey）优先 —— 同名工作区跨 kind 共用同一 worktree/分支，
+  // 在同一份检出上协作；缺省私有 <kind>-<id>，各工作区各用各的树。
+  const resolveWorktreeKey = (kind: string, ws: HarnessWorkspace): string =>
+    ws.worktreeKey && ws.worktreeKey.length > 0 ? ws.worktreeKey : `${kind}-${ws.id}`
+
   // 遍历 HARNESS_AGENTS 注册通用通道族：<kind>:detect / <kind>:workspace:list|add|update|delete|launch。
   // 三份实例（dsh/codex/claude）共享同一套逻辑，仅通过 runtime 注入差异点：
   // 依赖集 / 仓库 / env 归一化 / 模型预设 / 启动命令构造（见 harness/config.ts 的 HARNESS_AGENTS）。
@@ -1949,6 +1956,16 @@ export function registerIPCHandlers(): void {
         if (safe.envProfileId !== undefined) {
           newWorkspace.envProfileId = assertString(safe.envProfileId, 'workspace.envProfileId', { maxLength: 128 })
         }
+        // 目录隔离模式；缺省即 shared（现状语义）。git 仓库校验留到启动时做——「先开隔离、后 git init」是合法工作流
+        if (safe.isolation !== undefined) {
+          newWorkspace.isolation = assertEnum(safe.isolation, 'workspace.isolation', ['shared', 'worktree'] as const)
+        }
+        // worktree 共享名；非法字符保存即拒（不做静默折叠，见 validateWorktreeKey）
+        if (safe.worktreeKey !== undefined) {
+          const key = validateWorktreeKey(assertString(safe.worktreeKey, 'workspace.worktreeKey', { maxLength: 128 }))
+          if (!key.ok) return { success: false, error: key.error }
+          newWorkspace.worktreeKey = key.value
+        }
         // env 是 legacy 字段，新建一律不写 —— 环境变量走变量组
         const added = runtime.repository.add(newWorkspace)
         if (!added) return { success: false, error: 'Failed to save workspace' }
@@ -1988,6 +2005,23 @@ export function registerIPCHandlers(): void {
           updated.envProfileId = safe.envProfileId === undefined
             ? undefined
             : assertString(safe.envProfileId, 'workspace.envProfileId', { maxLength: 128 })
+        }
+        // isolation 同 model/envProfileId 用「键存在」判断：编辑时切回共享目录（传 undefined）
+        // 应生效，否则旧 worktree 隔离会残留（worktree 目录本身不动，仅下次启动回 shared cwd）。
+        if ('isolation' in safe) {
+          updated.isolation = safe.isolation === undefined
+            ? undefined
+            : assertEnum(safe.isolation, 'workspace.isolation', ['shared', 'worktree'] as const)
+        }
+        // worktreeKey 同样用「键存在」判断：编辑时清空共享名（传 undefined）应回到私有 worktree。
+        if ('worktreeKey' in safe) {
+          if (safe.worktreeKey === undefined) {
+            updated.worktreeKey = undefined
+          } else {
+            const key = validateWorktreeKey(assertString(safe.worktreeKey, 'workspace.worktreeKey', { maxLength: 128 }))
+            if (!key.ok) return { success: false, error: key.error }
+            updated.worktreeKey = key.value
+          }
         }
         // legacy env 一律沿用仓库现状，渲染层无权改它（前端已无 inline 编辑器，不会传这个字段）。
         // 迁移成功的记录这里恒为 undefined；迁移失败还带着 env 的记录，不该因为用户改了个名字
@@ -2029,6 +2063,17 @@ export function registerIPCHandlers(): void {
           return { success: false, error: cwd.error }
         }
 
+        // worktree 隔离：在仓库根下的专属 worktree 中启动（幂等创建/复用，未提交修改跨启动保留，
+        // 见 harness/worktree.ts）。放在 env 解析之前——env/prepareModel/launchCommand 均与 cwd 无关。
+        let launchCwd = cwd.path
+        if (workspace.isolation === 'worktree') {
+          const wt = await ensureWorktree(cwd.path, resolveWorktreeKey(kind, workspace))
+          if (!wt.ok) {
+            return { success: false, error: wt.error }
+          }
+          launchCwd = wt.path
+        }
+
         // 解析实际注入的环境变量：绑定的变量组 → 已启用的变量组 → legacy ws.env → 系统环境变量。
         // 再归一化兜底：手工编辑的变量组/历史 env 可绕过 add/update 校验（dsh 校验 DSH_HOME
         // 相对路径拒绝启动；codex/claude 恒等透传）。
@@ -2054,12 +2099,30 @@ export function registerIPCHandlers(): void {
         }
 
         // env 缺省时 opts.env 为 undefined，LocalConnector 以 {...process.env} 启动 —— 即系统环境变量
-        return await spawnLocalCommandSession(workspace.name, launch.command, [`${kind}:${safeId}`], { cwd: cwd.path, env: launchEnv })
+        return await spawnLocalCommandSession(workspace.name, launch.command, [`${kind}:${safeId}`], { cwd: launchCwd, env: launchEnv })
       } catch (error) {
         return validationFailure(error) || { success: false, error: (error as Error).message }
       }
     })
   }
+
+  // ========== Harness worktree 检测（kind 无关） ==========
+  // 供工作区编辑对话框做「已有 worktree」下拉：列出 cwd 所属仓库 .lyshell-worktrees/ 下的共享名。
+  // cwd 先过 resolveWorkspaceCwd（展开 ~ + 须为存在的绝对目录），与启动路径同口径 ——
+  // 否则 ~/xxx 这类字面路径探测到的结果不等于实际启动目录，下拉会给出错误选项。
+  // 非 git 目录返回 error，渲染层静默置空（硬校验在启动时的 ensureWorktree）。
+  ipcMain.handle('harness:worktree:list', async (_event, cwd: string) => {
+    try {
+      const safeCwd = assertString(cwd, 'cwd', { maxLength: 4096 })
+      const resolved = resolveWorkspaceCwd(safeCwd)
+      if (!resolved.ok) return { success: false, error: resolved.error }
+      const result = await listWorktreeKeys(resolved.path)
+      if (!result.ok) return { success: false, error: result.error }
+      return { success: true, keys: result.keys }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
 
   // ========== DeepSeek Harness Web UI (dsh 专属) ==========
   // 启动 Web UI：spawn `dsh web --port 0` + 解析 stdout 端口，返回 URL 供渲染层 <webview> 加载。
@@ -2110,6 +2173,12 @@ export function registerIPCHandlers(): void {
         const cwd = resolveWorkspaceCwd(workspace.cwd)
         if (!cwd.ok) return { success: false, error: cwd.error }
         cwdPath = cwd.path
+        // worktree 隔离与 TUI 启动同语义：Web 也在专属 worktree 里跑（幂等创建/复用）
+        if (workspace.isolation === 'worktree') {
+          const wt = await ensureWorktree(cwd.path, resolveWorktreeKey('dsh', workspace))
+          if (!wt.ok) return { success: false, error: wt.error }
+          cwdPath = wt.path
+        }
         // 与 TUI 启动同一份解析结果（绑定组 → 已启用组 → legacy → 系统）
         envSource = resolveWorkspaceEnv(dshRuntime, workspace)
       } else {

@@ -113,6 +113,9 @@ const IPC_CHANNELS = {
   DSH_WEB_OPEN: 'dsh:web:open',
   DSH_WEB_CLOSE: 'dsh:web:close',
 
+  // Harness worktree 检测（kind 无关：列出仓库已有 worktree 共享名，编辑对话框下拉用）
+  HARNESS_WORKTREE_LIST: 'harness:worktree:list',
+
   // Codex Harness
   CODEX_DETECT: 'codex:detect',
   CODEX_WORKSPACE_LIST: 'codex:workspace:list',
@@ -277,6 +280,9 @@ const electronAPI = {
   getDshEnvDefaults: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_DEFAULTS),
   openDshWeb: (target: { workspaceId?: string; cwd?: string }) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_OPEN, target),
   closeDshWeb: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_CLOSE),
+
+  // 列出 cwd 所属仓库 .lyshell-worktrees/ 下的共享名（worktree 隔离编辑框的下拉选项）
+  listHarnessWorktrees: (cwd: string) => ipcRenderer.invoke(IPC_CHANNELS.HARNESS_WORKTREE_LIST, cwd),
 
   // Codex Harness
   detectCodex: () => ipcRenderer.invoke(IPC_CHANNELS.CODEX_DETECT),
