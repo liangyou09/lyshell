@@ -26,6 +26,7 @@ import { ConnectionType } from '@shared/types'
 import { fileManager, startDownloadWorker, registerTaskMeta, startUploadWorker, cancelDownload, cancelUpload, assertSafeLocalPath } from '../file'
 import type { SessionConfig } from '@shared/types'
 import {
+  assertBoolean,
   assertEnum,
   assertNumber,
   assertObject,
@@ -1966,6 +1967,10 @@ export function registerIPCHandlers(): void {
           if (!key.ok) return { success: false, error: key.error }
           newWorkspace.worktreeKey = key.value
         }
+        // 跳过权限确认：claude 专属字段，其余 kind 忽略不落盘 —— 防 API 调用方攒出看不见的脏状态
+        if (runtime.kind === 'claude' && safe.skipPermissions !== undefined) {
+          newWorkspace.skipPermissions = assertBoolean(safe.skipPermissions, 'workspace.skipPermissions')
+        }
         // env 是 legacy 字段，新建一律不写 —— 环境变量走变量组
         const added = runtime.repository.add(newWorkspace)
         if (!added) return { success: false, error: 'Failed to save workspace' }
@@ -2022,6 +2027,13 @@ export function registerIPCHandlers(): void {
             if (!key.ok) return { success: false, error: key.error }
             updated.worktreeKey = key.value
           }
+        }
+        // skipPermissions 同 model/envProfileId 用「键存在」判断：编辑时关掉开关（传 undefined/false）
+        // 应生效，否则旧的危险模式标记会残留。仅 claude 接受，其余 kind 忽略。
+        if (runtime.kind === 'claude' && 'skipPermissions' in safe) {
+          updated.skipPermissions = safe.skipPermissions === undefined
+            ? undefined
+            : assertBoolean(safe.skipPermissions, 'workspace.skipPermissions')
         }
         // legacy env 一律沿用仓库现状，渲染层无权改它（前端已无 inline 编辑器，不会传这个字段）。
         // 迁移成功的记录这里恒为 undefined；迁移失败还带着 env 的记录，不该因为用户改了个名字

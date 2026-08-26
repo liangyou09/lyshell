@@ -45,6 +45,12 @@ export interface HarnessWorkspace {
    * 取值约束见 worktree.ts 的 validateWorktreeKey（保存即拒非法名，不做静默折叠）。
    */
   worktreeKey?: string
+  /**
+   * 跳过权限确认（仅 claude 有意义）：true 时启动命令追加
+   * `--dangerously-skip-permissions`，Claude Code 不再逐个工具弹权限确认。
+   * 缺省/false = 正常权限模式。渲染层开关与列表角标由 hasSkipPermissions 控制。
+   */
+  skipPermissions?: boolean
 }
 
 /**
@@ -85,6 +91,10 @@ export interface HarnessAgentView {
   installCommand: string           // 缺失依赖时展示的安装命令
   repos: HarnessRepo[]             // 各依赖的源码仓库（提示卡每行一条）
   hasWeb: boolean                  // 是否有 Web UI 入口（仅 dsh）
+  /** 工作区表单是否保留「备注」字段（仅 dsh；codex/claude 表单更紧凑，备注退场） */
+  hasWorkspaceNote: boolean
+  /** 是否提供「跳过权限确认」开关（仅 claude，对应 --dangerously-skip-permissions） */
+  hasSkipPermissions: boolean
 }
 
 export const HARNESS_AGENT_VIEWS: Record<HarnessAgentKind, HarnessAgentView> = {
@@ -102,7 +112,9 @@ export const HARNESS_AGENT_VIEWS: Record<HarnessAgentKind, HarnessAgentView> = {
       { dep: 'dsh', url: 'https://github.com/deepseek-ai/deepseek-harness' },
       { dep: 'dsh-tui', url: 'https://github.com/ccch1mneyyy/dsh-TUI' }
     ],
-    hasWeb: true
+    hasWeb: true,
+    hasWorkspaceNote: true,
+    hasSkipPermissions: false
   },
   codex: {
     kind: 'codex',
@@ -118,7 +130,9 @@ export const HARNESS_AGENT_VIEWS: Record<HarnessAgentKind, HarnessAgentView> = {
     repos: [
       { dep: 'codex', url: 'https://github.com/openai/codex' }
     ],
-    hasWeb: false
+    hasWeb: false,
+    hasWorkspaceNote: false,
+    hasSkipPermissions: false
   },
   claude: {
     kind: 'claude',
@@ -134,6 +148,8 @@ export const HARNESS_AGENT_VIEWS: Record<HarnessAgentKind, HarnessAgentView> = {
     repos: [
       { dep: 'claude', url: 'https://github.com/anthropics/claude-code' }
     ],
-    hasWeb: false
+    hasWeb: false,
+    hasWorkspaceNote: false,
+    hasSkipPermissions: true
   }
 }

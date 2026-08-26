@@ -67,4 +67,20 @@ describe('buildCliLaunchCommand', () => {
     expect(buildCliLaunchCommand('claude', '`id`').ok).toBe(false)
     expect(buildCliLaunchCommand('claude', 'x"y').ok).toBe(false)
   })
+
+  it('skipPermissions 追加固定字面量 flag（不经用户输入，无注入面）', () => {
+    expect(buildCliLaunchCommand('claude', undefined, true)).toEqual({
+      ok: true,
+      command: 'claude --dangerously-skip-permissions'
+    })
+    expect(buildCliLaunchCommand('claude', 'claude-sonnet-5', true)).toEqual({
+      ok: true,
+      command: 'claude --model claude-sonnet-5 --dangerously-skip-permissions'
+    })
+  })
+
+  it('skipPermissions 缺省/false 不追加 flag', () => {
+    expect(buildCliLaunchCommand('claude', undefined, false)).toEqual({ ok: true, command: 'claude' })
+    expect(buildCliLaunchCommand('codex', 'gpt-5', false)).toEqual({ ok: true, command: 'codex --model gpt-5' })
+  })
 })

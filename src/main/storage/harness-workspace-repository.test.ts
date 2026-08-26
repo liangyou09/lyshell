@@ -212,4 +212,21 @@ describe('HarnessWorkspaceRepository', () => {
     expect(all.find((w) => w.id === 'c')?.worktreeKey).toBeUndefined()
     expect(all.find((w) => w.id === 'd')?.worktreeKey).toBe('legal-name')
   })
+
+  it('skipPermissions 仅保留字面量 true，false/脏数据按缺失（= 正常权限模式）处理', () => {
+    seed(JSON.stringify([
+      { id: 'a', name: 'a', cwd: '/a', order: 0, skipPermissions: true },
+      { id: 'b', name: 'b', cwd: '/b', order: 1, skipPermissions: false },
+      { id: 'c', name: 'c', cwd: '/c', order: 2, skipPermissions: 'true' },
+      { id: 'd', name: 'd', cwd: '/d', order: 3, skipPermissions: 1 },
+      { id: 'e', name: 'e', cwd: '/e', order: 4 }
+    ]))
+    const repo = newRepo()
+    const all = repo.getAll()
+    expect(all.find((w) => w.id === 'a')?.skipPermissions).toBe(true)
+    expect(all.find((w) => w.id === 'b')?.skipPermissions).toBeUndefined()
+    expect(all.find((w) => w.id === 'c')?.skipPermissions).toBeUndefined()
+    expect(all.find((w) => w.id === 'd')?.skipPermissions).toBeUndefined()
+    expect(all.find((w) => w.id === 'e')?.skipPermissions).toBeUndefined()
+  })
 })

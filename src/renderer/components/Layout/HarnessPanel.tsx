@@ -177,6 +177,8 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   const [wsCwd, setWsCwd] = useState('')
   const [wsNote, setWsNote] = useState('')
   const [wsModel, setWsModel] = useState('')
+  // 跳过权限确认（仅 claude 显示此开关）：true = 启动追加 --dangerously-skip-permissions
+  const [wsSkipPermissions, setWsSkipPermissions] = useState(false)
   // 目录隔离模式：shared = 直接在 cwd 启动（现状）；worktree = 仓库根下专属 git worktree
   const [wsIsolation, setWsIsolation] = useState<'shared' | 'worktree'>('shared')
   // worktree 共享名：空 = 私有（kind-id 各用各的树）；填了则同名工作区跨 kind 共用同一 worktree/分支
@@ -362,13 +364,13 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   // ── 对话框 ──
   const handleAdd = () => {
     setEditWorkspace(undefined)
-    setWsName(''); setWsCwd(''); setWsNote(''); setWsModel(''); setWsEnvProfileId(undefined); setWsIsolation('shared'); setWsWorktreeKey('')
+    setWsName(''); setWsCwd(''); setWsNote(''); setWsModel(''); setWsSkipPermissions(false); setWsEnvProfileId(undefined); setWsIsolation('shared'); setWsWorktreeKey('')
     setTriedSubmit(false); setConfirmDelete(false); setSaveError(null)
     setShowDialog(true)
   }
   const handleEdit = (ws: HarnessWorkspace) => {
     setEditWorkspace(ws)
-    setWsName(ws.name); setWsCwd(ws.cwd); setWsNote(ws.note || ''); setWsModel(ws.model || '')
+    setWsName(ws.name); setWsCwd(ws.cwd); setWsNote(ws.note || ''); setWsModel(ws.model || ''); setWsSkipPermissions(ws.skipPermissions === true)
     setWsIsolation(ws.isolation === 'worktree' ? 'worktree' : 'shared')
     setWsWorktreeKey(ws.worktreeKey || '')
     // 绑定的变量组已被删除时按「跟随已启用」呈现 —— 与主进程 resolveWorkspaceEnv 的回落一致，
@@ -406,16 +408,23 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     setSaveError(null)
     const name = wsName.trim()
     const cwd = wsCwd.trim()
-    const note = wsNote.trim()
+    // 备注：仅 dsh 有此字段（hasWorkspaceNote）。codex/claude 字段不可见时透传历史值 ——
+    // UI 退场不该让「改个名字」顺手清掉 JSON 里的旧备注（静默数据丢失，同 legacy env 的保留策略）
+    const note = view.hasWorkspaceNote ? wsNote.trim() || undefined : editWorkspace?.note
     const model = wsModel.trim()
     const modelPayload = model.length > 0 ? model : undefined
+    // 跳过权限确认：仅 claude 有此开关（其余 kind 连键都不带，主进程也按 kind 忽略）；
+    // 关闭时传 undefined（键存在）以清掉旧标记
+    const skipPermissionsPayload = view.hasSkipPermissions
+      ? { skipPermissions: wsSkipPermissions || undefined }
+      : {}
     // order 由主进程仓库分配递增，前端不再传 workspaces.length（删除后可能产生重复）
     // envProfileId 传 undefined 即「跟随已启用的变量组」；主进程按「键存在」判断，故必须显式带上这个键
     // worktreeKey 同理：空串 trim 后传 undefined = 私有 worktree（键必须显式存在才能清掉旧共享名）
     const worktreeKeyPayload = wsWorktreeKey.trim().length > 0 ? wsWorktreeKey.trim() : undefined
     const res = editWorkspace
-      ? await api.update({ ...editWorkspace, name, cwd, note: note || undefined, model: modelPayload, envProfileId: wsEnvProfileId, isolation: wsIsolation, worktreeKey: worktreeKeyPayload })
-      : await api.add({ name, cwd, note: note || undefined, model: modelPayload, envProfileId: wsEnvProfileId, isolation: wsIsolation, worktreeKey: worktreeKeyPayload })
+      ? await api.update({ ...editWorkspace, name, cwd, note, model: modelPayload, envProfileId: wsEnvProfileId, isolation: wsIsolation, worktreeKey: worktreeKeyPayload, ...skipPermissionsPayload })
+      : await api.add({ name, cwd, note, model: modelPayload, envProfileId: wsEnvProfileId, isolation: wsIsolation, worktreeKey: worktreeKeyPayload, ...skipPermissionsPayload })
     // 保存失败（校验未通过 / 落盘失败）：保留表单，展示具体错误，不关闭对话框
     if (res && res.success === false) {
       setSaveError(typeof res.error === 'string' ? res.error : t(`${prefix}.wsSaveFailed`))
@@ -830,7 +839,15 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                           </span>
                         </span>
                       )}
-                      {ws.note && (
+                      {/* 跳过权限确认标出来 —— 行文即 flag 本身（琥珀=已通电，与面板语义一致），
+                          点之前就看得见危险模式；不引入任何文案 */}
+                      {ws.skipPermissions && (
+                        <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--amber)] leading-tight min-w-0">
+                          <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--amber)] flex-shrink-0" />
+                          <span className="truncate">--dangerously-skip-permissions</span>
+                        </span>
+                      )}
+                      {view.hasWorkspaceNote && ws.note && (
                         <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] truncate leading-tight">{ws.note}</span>
                       )}
                     </span>
@@ -1046,7 +1063,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
             <div className="py-3.5 px-4 border-b border-[var(--rule)]">
               <div className="mb-2">
                 <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsIsolation`)}</span>
-                <div className="mt-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t(`${prefix}.wsIsolationHint`)}</div>
               </div>
               <div role="radiogroup" aria-label={t(`${prefix}.wsIsolation`)} className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm overflow-hidden">
                 <button
@@ -1095,26 +1111,26 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
               )}
             </div>
 
-            {/* 备注（可选，仅用于记录） */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--text-rack)]">{t(`${prefix}.wsNote`)}</span>
-                <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t(`${prefix}.wsNoteHint`)}</span>
+            {/* 备注（可选，仅用于记录）—— 仅 dsh 保留（hasWorkspaceNote）；codex/claude 表单更紧凑，备注退场 */}
+            {view.hasWorkspaceNote && (
+              <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--text-rack)]">{t(`${prefix}.wsNote`)}</span>
+                </div>
+                <textarea
+                  value={wsNote}
+                  onChange={(e) => setWsNote(e.target.value)}
+                  placeholder={t(`${prefix}.wsNotePh`)}
+                  rows={2}
+                  className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)] resize-none"
+                />
               </div>
-              <textarea
-                value={wsNote}
-                onChange={(e) => setWsNote(e.target.value)}
-                placeholder={t(`${prefix}.wsNotePh`)}
-                rows={2}
-                className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)] resize-none"
-              />
-            </div>
+            )}
 
             {/* 模型 —— dsh 走补丁、codex/claude 走 --model；留空则用各 CLI 默认 */}
             <div className="py-3.5 px-4 border-b border-[var(--rule)]">
               <div className="flex items-baseline gap-2 mb-2">
                 <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsModel`)}</span>
-                <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]" title={t(`${prefix}.wsModelHintTitle`)}>· {t(`${prefix}.wsModelHint`)}</span>
               </div>
               <input
                 type="text"
@@ -1131,11 +1147,45 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
               </datalist>
             </div>
 
+            {/* 跳过权限确认（仅 claude）—— 启动追加 --dangerously-skip-permissions。
+                单格开关沿用 BusLed 通话语义：行文恒为 flag 本身（要拼什么一目了然），
+                点亮 = 琥珀生效，熄灭 = 灰置未启用；不放任何说明文字 */}
+            {view.hasSkipPermissions && (
+              <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+                <div className="mb-2">
+                  <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsSkipPerms`)}</span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={wsSkipPermissions}
+                  aria-label={t(`${prefix}.wsSkipPerms`)}
+                  onClick={() => setWsSkipPermissions((v) => !v)}
+                  className={cn(
+                    'relative w-full text-left flex items-center gap-2 px-2.5 py-1.5 rounded-sm border transition-colors cursor-pointer',
+                    'bg-[var(--bg-base)] hover:bg-[var(--bg-slot)] focus:outline-none focus-visible:border-[var(--amber)]',
+                    wsSkipPermissions
+                      ? 'border-[color-mix(in_srgb,var(--amber)_28%,var(--rule))]'
+                      : 'border-[var(--rule)]'
+                  )}
+                >
+                  <BusLed on={wsSkipPermissions} />
+                  <code
+                    className={cn(
+                      'flex-1 min-w-0 text-[11px] [font-family:inherit] truncate transition-colors',
+                      wsSkipPermissions ? 'text-[var(--amber)]' : 'text-[var(--text-rack)]'
+                    )}
+                  >
+                    --dangerously-skip-permissions
+                  </code>
+                </button>
+              </div>
+            )}
+
             {/* 环境变量 —— 选一组预配置变量；不选则跟随已启用的那组（三级链在这里就地摊开） */}
             <div className="py-3.5 px-4 border-b border-[var(--rule)]">
               <div className="mb-2">
                 <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsEnvProfile`)}</span>
-                <div className="mt-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t(`${prefix}.wsEnvProfileHint`)}</div>
               </div>
               <div role="radiogroup" aria-label={t(`${prefix}.wsEnvProfile`)} className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm overflow-hidden max-h-[168px] overflow-y-auto rack-scroll">
                 {/* 跟随档位：默认值。就地显示解析结果，免得用户还要切页签才知道实际会用哪份 */}
