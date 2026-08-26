@@ -55,7 +55,9 @@ function normalizeWorkspace(raw: unknown): HarnessWorkspace | null {
   const worktreeKeyRaw = typeof w.worktreeKey === 'string' ? w.worktreeKey.trim() : ''
   const keyCheck = worktreeKeyRaw.length > 0 ? validateWorktreeKey(worktreeKeyRaw) : undefined
   const worktreeKey = keyCheck && keyCheck.ok ? keyCheck.value : undefined
-  return { id: w.id, name: w.name, cwd: w.cwd, order: w.order, ...(note !== undefined ? { note } : {}), ...(model !== undefined ? { model } : {}), ...(env !== undefined ? { env } : {}), ...(envProfileId !== undefined ? { envProfileId } : {}), ...(isolation !== undefined ? { isolation } : {}), ...(worktreeKey !== undefined ? { worktreeKey } : {}) }
+  // skipPermissions 仅接受字面 true（其余一律按缺省 = 正常权限模式）
+  const skipPermissions = w.skipPermissions === true ? true : undefined
+  return { id: w.id, name: w.name, cwd: w.cwd, order: w.order, ...(note !== undefined ? { note } : {}), ...(model !== undefined ? { model } : {}), ...(env !== undefined ? { env } : {}), ...(envProfileId !== undefined ? { envProfileId } : {}), ...(isolation !== undefined ? { isolation } : {}), ...(worktreeKey !== undefined ? { worktreeKey } : {}), ...(skipPermissions !== undefined ? { skipPermissions } : {}) }
 }
 
 /**

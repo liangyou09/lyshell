@@ -43,7 +43,7 @@ export interface HarnessAgentRuntime {
    * 解析；渲染层沙箱读不到 process.env，只能主进程代解后经 <kind>:env:defaults 下发。
    */
   envDefaults: () => HarnessEnvDefault[]
-  /** 构造启动命令（dsh 固定 dsh-tui；codex/claude 拼 --model） */
+  /** 构造启动命令（dsh 固定 dsh-tui；codex/claude 拼 --model；claude 另可拼 --dangerously-skip-permissions） */
   buildLaunchCommand: (ws: HarnessWorkspace) => LaunchCommandResult
   /** 归一化工作区 env（dsh 校验 DSH_HOME；codex/claude 恒等） */
   normalizeEnv: (env?: Record<string, string>) => NormalizedEnvResult
@@ -131,7 +131,7 @@ export const HARNESS_AGENTS: Record<HarnessAgentKind, HarnessAgentRuntime> = {
       { key: 'ANTHROPIC_BASE_URL', value: '' },
       { key: 'CLAUDE_CONFIG_DIR', value: resolveConfigDirDefault('CLAUDE_CONFIG_DIR', '.claude') }
     ],
-    buildLaunchCommand: (ws) => buildCliLaunchCommand('claude', ws.model),
+    buildLaunchCommand: (ws) => buildCliLaunchCommand('claude', ws.model, ws.skipPermissions),
     normalizeEnv: identityEnv,
     prepareModel: noModel
   }
