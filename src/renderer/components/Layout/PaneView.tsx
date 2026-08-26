@@ -28,13 +28,30 @@ interface PaneViewProps {
  * - vertical(上下堆叠):仅 firstChild 继承三个 flag(下 pane 的页签条在窗口中部,不是第一行)
  */
 const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight }) => {
-  const { layout, setActivePane, addSessionToPane, splitPaneWithPosition, swapPanePosition, mcpAuditPaneId, closeMcpAudit, dshWeb, dshWebPaneId, dshWebActive, draggingDshWeb, setDraggingDshWeb, moveDshWebToPane, splitDshWebIntoPane } = usePaneStore()
+  // 逐字段 selector 订阅：本组件从 store 只读 activePaneId（布局树由 node prop 传入，
+  // activePaneId 是字符串 —— 拖分屏比例等高频 layout 写入只换对象引用，选中值不变，
+  // 不再触发所有 PaneView 重渲染）。action 引用在 create 时即固定，选中它们零成本
+  const setActivePane = usePaneStore(s => s.setActivePane)
+  const addSessionToPane = usePaneStore(s => s.addSessionToPane)
+  const splitPaneWithPosition = usePaneStore(s => s.splitPaneWithPosition)
+  const swapPanePosition = usePaneStore(s => s.swapPanePosition)
+  const closeMcpAudit = usePaneStore(s => s.closeMcpAudit)
+  const setDraggingDshWeb = usePaneStore(s => s.setDraggingDshWeb)
+  const moveDshWebToPane = usePaneStore(s => s.moveDshWebToPane)
+  const splitDshWebIntoPane = usePaneStore(s => s.splitDshWebIntoPane)
+  const activePaneId = usePaneStore(s => s.layout.activePaneId)
+  const mcpAuditPaneId = usePaneStore(s => s.mcpAuditPaneId)
+  const mcpAuditActive = usePaneStore(s => s.mcpAuditActive)
+  const dshWeb = usePaneStore(s => s.dshWeb)
+  const dshWebPaneId = usePaneStore(s => s.dshWebPaneId)
+  const dshWebActive = usePaneStore(s => s.dshWebActive)
+  const draggingDshWeb = usePaneStore(s => s.draggingDshWeb)
   const { getPaneBySessionId, getParentPane, getPanePositionInParent } = usePaneStore.getState()
   // 被隐藏的终端页签记录(Sidebar LIVE 段会话标签点击 toggle);订阅整个记录,任何 toggle 都会触发本组件重渲染。
   // 实际负载很小(仅 visibility 切换),未做按 pane 过滤的选择器。
   const hiddenTabSessions = usePaneStore(s => s.hiddenTabSessions)
   const { t } = useTranslation()
-  const isActive = layout.activePaneId === node.id
+  const isActive = activePaneId === node.id
   const [dropZone, setDropZone] = useState<DropZone>(null)
   const [dropAction, setDropAction] = useState<'swap' | 'changeDirection' | 'split' | 'moveWeb' | null>(null)
   const dropRef = useRef<HTMLDivElement>(null)
@@ -416,8 +433,9 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
             </div>
           )}
 
-          {/* MCP 活动页签覆盖层 -- 单例，仅本 pane 激活时挂载；终端实例在底层继续接收数据，关掉页签原样复现 */}
-          {mcpAuditPaneId === node.id && (
+          {/* MCP 活动页签覆盖层 -- 单例，仅本 pane 且激活时挂载；切到终端/web 页签只退为未激活（页签保留， */}
+          {/* 面板卸载、重进回第 1 页），点 MCP 页签 / chip 切回。终端实例在底层继续接收数据。 */}
+          {mcpAuditPaneId === node.id && mcpAuditActive && (
             <div className="absolute inset-0 z-10">
               <McpAuditPanel onClose={closeMcpAudit} />
             </div>

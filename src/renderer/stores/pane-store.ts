@@ -62,10 +62,13 @@ interface PaneStore {
   splitPaneWithPosition: (paneId: string, direction: SplitDirection, sessionId: string, position: 'first' | 'second') => void
   closePane: (paneId: string) => void
   setActivePane: (paneId: string) => void
-  // MCP 活动页签 -- 单例：当前显示 MCP 审计面板的 paneId（null=未打开）。瞬态，不随布局持久化。
+  // MCP 活动页签 -- 单例：当前挂着 MCP 审计页签的 paneId（null=未打开）。瞬态，不随布局持久化。
   mcpAuditPaneId: string | null
-  openMcpAuditInPane: (paneId: string) => void  // 在指定 pane 打开 MCP 页签覆盖层
-  closeMcpAudit: () => void                      // 关闭 MCP 页签覆盖层
+  // MCP 页签当前是否显示：切到终端/web 页签只隐藏（页签保留，点 MCP 页签切回），对齐 dshWebActive 语义
+  mcpAuditActive: boolean
+  openMcpAuditInPane: (paneId: string) => void  // 在指定 pane 打开并激活 MCP 页签覆盖层
+  deactivateMcpAudit: () => void                 // 隐藏 MCP 覆盖层（页签保留）
+  closeMcpAudit: () => void                      // 真正关闭 MCP 页签（✕ / chip / ESC）
   // dsh Web UI 页签 -- 单例：dshWeb 非空即打开，承载在 dshWebPaneId 指定 pane 的页签+覆盖层。瞬态。
   // dshWebActive 区分「打开中」与「当前显示」：切到终端标签只隐藏不回收，点 ✕ 才真正关闭。
   dshWeb: { url: string; name: string; cwd?: string } | null
@@ -77,6 +80,11 @@ interface PaneStore {
   activateDshWeb: () => void
   deactivateDshWeb: () => void
   closeDshWeb: () => void
+  // web 页签在承载 pane 页签条内的插入序号（pane.sessions 原始坐标；null=钉在末尾）。
+  // 页签条内拖动排序时写入；关闭/重排会话时由 store 按删除/插入位置同步修正，否则索引会
+  // 随左侧会话关闭而漂移；web 改挂载/重开/关闭时复位。瞬态，不持久化。
+  dshWebTabIndex: number | null
+  setDshWebTabIndex: (index: number | null) => void
   // Web 页签拖拽标记：拖拽期间隐藏 webview（webview 会吞掉宿主页的 drag 事件），
   // 使 drop 目标区（终端/空 pane）暴露出来可接收 dragover/drop。瞬态，不持久化。
   draggingDshWeb: boolean
@@ -92,6 +100,13 @@ interface PaneStore {
   removeSessionFromAllPanes: (sessionId: string) => void
   setActiveSessionInPane: (paneId: string, sessionId: string | null) => void
   reorderSessionsInPane: (paneId: string, fromIndex: number, toIndex: number) => void
+  // 会话页签拖到 web 页签上的落点：把会话插到 web 紧前/紧后并同步 web 插槽（一次 set 完成，
+  // 避免组件侧"先 reorder 再改插槽"两步写与 reorder 的插槽自动修正互相打架）
+  insertSessionAtWebSlot: (paneId: string, sessionId: string) => void
+  // web 页签拖到普通会话页签上的落点：只写 web 插槽，不动 pane.sessions —— 方向推导与
+  // splice 重排语义对齐（往左拖 = 插目标前，往右拖 = 插目标后），坐标逻辑与其它插槽
+  // 维护路径集中在 store 单点维护
+  moveDshWebToSessionTab: (paneId: string, targetSessionId: string) => void
   swapPanePosition: (paneId: string) => void  // 交换分屏位置
   changeSplitDirection: (paneId: string) => void  // 改变分屏方向
   saveLayout: () => void  // 保存布局
@@ -646,12 +661,24 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
 
   // MCP 活动页签（单例覆盖层）：在指定 pane 打开；空 paneId 忽略（activePaneId 未就绪时点 chip 无害）
   mcpAuditPaneId: null,
+  mcpAuditActive: false,
   openMcpAuditInPane: (paneId) => {
     if (!paneId) return
-    set({ mcpAuditPaneId: paneId })
+    // 同 pane 的 web 覆盖层与 MCP 覆盖层互斥：webview 是原生视图，同 z-index 时按 DOM 顺序
+    // 盖在 MCP 面板上并吞掉其全部点击（面板开了却不可见的根因）。激活 MCP 只隐藏 web
+    // （web 页签保留），与 activateDshWeb 隐藏 MCP 对称；web 在其他 pane 则互不影响。
+    const { dshWebPaneId, dshWebActive } = get()
+    set({
+      mcpAuditPaneId: paneId,
+      mcpAuditActive: true,
+      dshWebActive: dshWebPaneId === paneId ? false : dshWebActive
+    })
+  },
+  deactivateMcpAudit: () => {
+    set({ mcpAuditActive: false })
   },
   closeMcpAudit: () => {
-    set({ mcpAuditPaneId: null })
+    set({ mcpAuditPaneId: null, mcpAuditActive: false })
   },
 
   // dsh Web UI 页签（单例覆盖层）：打开时指定承载 pane；空 paneId 回落首个叶子 pane。
@@ -660,15 +687,21 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
   dshWebPaneId: null,
   dshWebActive: false,
   draggingDshWeb: false,
+  dshWebTabIndex: null,
   openDshWebInPane: (paneId, info) => {
     const target = paneId || get().getAllLeafPanes()[0]?.id
     if (!target) return
-    set({ dshWeb: info, dshWebPaneId: target, dshWebActive: true })
+    const { mcpAuditPaneId, mcpAuditActive } = get()
+    set({
+      dshWeb: info, dshWebPaneId: target, dshWebActive: true, dshWebTabIndex: null,
+      // 互斥：web 挂到 MCP 页签所在 pane 时隐藏 MCP（页签保留，点 MCP 页签可切回）
+      mcpAuditActive: mcpAuditPaneId === target ? false : mcpAuditActive
+    })
   },
   // 拖拽 Web 页签到某 pane 边缘 → 把 web 拆进独立 pane（左/右/上/下由 position 决定），
   // 原 pane 的终端会话留在另一侧。目标 pane 本就无会话时直接改挂载，不再 split。
   splitDshWebIntoPane: (paneId, direction, position) => {
-    const { layout, dshWeb, dshWebPaneId } = get()
+    const { layout, dshWeb, dshWebPaneId, mcpAuditPaneId, mcpAuditActive } = get()
     if (!dshWeb) return
     const targetLeaf = findPane(layout.root, paneId) as PaneLeaf | undefined
     if (!targetLeaf || targetLeaf.type !== 'leaf') return
@@ -678,7 +711,12 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
       if (paneId === dshWebPaneId) return
       // 以新 paneId 覆盖判定：新 web pane 受保护，原 web pane 空出即清理
       const pruned = removeEmptyPanes(layout.root, paneId)
-      set({ dshWebPaneId: paneId, dshWebActive: true, layout: { root: pruned, activePaneId: paneId } })
+      // 目标 pane 可能挂着 MCP 页签 -- web 激活时隐藏 MCP（互斥，页签保留）
+      set({
+        dshWebPaneId: paneId, dshWebActive: true, dshWebTabIndex: null,
+        mcpAuditActive: mcpAuditPaneId === paneId ? false : mcpAuditActive,
+        layout: { root: pruned, activePaneId: paneId }
+      })
       return
     }
 
@@ -696,15 +734,22 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     }
     // 以新 webPaneId 覆盖判定：新空 leaf 受保护，原 web pane（若存在）空出即清理
     const pruned = removeEmptyPanes(replacePane(layout.root, paneId, newSplit), webPaneId)
-    set({ dshWebPaneId: webPaneId, dshWebActive: true, layout: { root: pruned, activePaneId: webPaneId } })
+    // dshWebTabIndex 是旧 pane sessions 的原始坐标，web 换 pane 后无意义，复位钉尾
+    //（与上方空目标分支的 reset 一致；残留旧索引虽然会被追加时的末位同步自愈，但属于无意义状态）
+    set({ dshWebPaneId: webPaneId, dshWebActive: true, dshWebTabIndex: null, layout: { root: pruned, activePaneId: webPaneId } })
   },
   // 拖拽 Web 页签到某 pane 中心 → 改挂载 pane（web 仍作覆盖层叠加在该 pane 上），原 pane 空出则清理
   moveDshWebToPane: (paneId) => {
-    const { dshWeb, dshWebPaneId, layout } = get()
+    const { dshWeb, dshWebPaneId, layout, mcpAuditPaneId, mcpAuditActive } = get()
     if (!dshWeb || !paneId || paneId === dshWebPaneId) return
     // 以新 paneId 覆盖判定：新 web pane 受保护，原 web pane 空出即清理
     const pruned = removeEmptyPanes(layout.root, paneId)
-    set({ dshWebPaneId: paneId, dshWebActive: true, layout: { root: pruned, activePaneId: paneId } })
+    // 目标 pane 可能挂着 MCP 页签 -- web 激活时隐藏 MCP（互斥，页签保留）
+    set({
+      dshWebPaneId: paneId, dshWebActive: true, dshWebTabIndex: null,
+      mcpAuditActive: mcpAuditPaneId === paneId ? false : mcpAuditActive,
+      layout: { root: pruned, activePaneId: paneId }
+    })
   },
   activateDshWeb: () => {
     if (!get().dshWeb) return
@@ -712,6 +757,10 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     // 否则 activePaneId 仍停在终端 pane，导致底部状态栏判定（dshWebActiveHere）与分屏高亮环不一致
     set(state => ({
       dshWebActive: true,
+      // 反向互斥：MCP 覆盖层若开在本 pane 会被 webview 盖住 -- 只隐藏（页签保留），点 MCP 页签可切回
+      mcpAuditActive: state.mcpAuditPaneId != null && state.mcpAuditPaneId === state.dshWebPaneId
+        ? false
+        : state.mcpAuditActive,
       // 用 state.dshWebPaneId 而非闭包值，与 set 内其它 state 读取一致；空则维持原 activePaneId
       layout: { ...state.layout, activePaneId: state.dshWebPaneId ?? state.layout.activePaneId }
     }))
@@ -720,11 +769,24 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     set({ dshWebActive: false })
   },
   closeDshWeb: () => {
-    set({ dshWeb: null, dshWebPaneId: null, dshWebActive: false, draggingDshWeb: false })
+    set({ dshWeb: null, dshWebPaneId: null, dshWebActive: false, draggingDshWeb: false, dshWebTabIndex: null })
     void window.electronAPI?.closeDshWeb?.()
   },
   setDraggingDshWeb: (dragging) => {
     set({ draggingDshWeb: dragging })
+  },
+  setDshWebTabIndex: (index) => {
+    // 收紧 API：web 未挂载时索引无意义（重开/关闭路径都直接 set 复位，不走这里）；
+    // 挂载时 clamp 到 [0, 承载 pane 会话数]，组件侧传入的坐标不要求自身保证边界
+    const st = get()
+    if (st.dshWeb === null || st.dshWebPaneId === null) return
+    if (index === null) {
+      set({ dshWebTabIndex: null })
+      return
+    }
+    const pane = findPane(st.layout.root, st.dshWebPaneId) as PaneLeaf | undefined
+    if (!pane || pane.type !== 'leaf') return
+    set({ dshWebTabIndex: Math.min(Math.max(index, 0), pane.sessions.length) })
   },
 
   hiddenTabSessions: {},
@@ -824,7 +886,18 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
       activeSessionId: sessionId  // 自动激活新会话
     }
 
+    // web 插槽同步：web 钉在末尾（显式末位索引 == 追加前长度）时，新页签追加后 web 应
+    // 跟着保持在末尾，否则它会跳到新页签与 MCP 页签之前；web 在中段则无需动 —— 新页签
+    // 本就落在 web 之后的末位，插槽所指的相邻关系不变
+    const st = get()
+    const webEndPatch: { dshWebTabIndex?: number } = {}
+    if (st.dshWebPaneId === targetPane.id && st.dshWebTabIndex != null &&
+        st.dshWebTabIndex >= targetPane.sessions.length) {
+      webEndPatch.dshWebTabIndex = newSessions.length
+    }
+
     set({
+      ...webEndPatch,
       layout: {
         root: replacePane(newRoot, targetPane.id, leafWithSession),
         activePaneId: targetPane.id
@@ -875,8 +948,27 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
         }
       })
     } else {
+      // 终端页签清空、pane 因承载 web/MCP 页签而保留：若此刻没有任何页签在显示（刚关的是
+      // 最后一个终端），自动切到剩余的 web/MCP 页签 —— 否则窗格只剩空态占位，页签悬着要手动点。
+      // web 与 MCP 同 pane 时优先 web（二者同 pane 互斥，另一个保持未激活的页签态）。
+      const st = get()
+      let overlayPatch: { dshWebActive?: boolean; mcpAuditActive?: boolean; dshWebTabIndex?: number } = {}
+      if (newSessions.length === 0 &&
+          !(st.dshWebPaneId === paneId && st.dshWebActive) &&
+          !(st.mcpAuditPaneId === paneId && st.mcpAuditActive)) {
+        if (st.dshWebPaneId === paneId) overlayPatch = { dshWebActive: true }
+        else if (st.mcpAuditPaneId === paneId) overlayPatch = { mcpAuditActive: true }
+      }
+      // web 插槽同步：被关会话在 web 页签左侧时，pane.sessions 整体左移一位，插槽索引须跟着
+      // 减一，否则 web 会随左侧会话逐个关闭而向右漂移（左侧隐藏页签被关同理，索引是原始坐标）
+      if (st.dshWebPaneId === paneId && st.dshWebTabIndex != null &&
+          pane.sessions.indexOf(sessionId) !== -1 &&
+          pane.sessions.indexOf(sessionId) < st.dshWebTabIndex) {
+        overlayPatch.dshWebTabIndex = Math.max(st.dshWebTabIndex - 1, 0)
+      }
       set({
         ...(hiddenChanged ? { hiddenTabSessions: nextHidden } : {}),
+        ...overlayPatch,
         layout: {
           root: newRoot,
           activePaneId: paneId
@@ -930,12 +1022,75 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
       sessions
     }
 
+    // web 插槽同步：splice 语义下"先删后插"，插槽索引按同一坐标修正 ——
+    // 左侧会话移走 → 插槽左移一位；插入点在插槽左侧 → 插槽右移一位。
+    // 插入点恰好落进 web 所在空隙（toIndex==删后插槽）时按拖拽方向消歧：
+    // 从左往右拖入空隙 → 新页签落 web 前面，插槽 +1；从右往左拖入 → 落 web 后面，插槽不动。
+    // （若一律 +1，从右侧拖到 web 右邻页签上时 web 会被多顶一位，视觉上 web "跳过"了落点页签）
+    const st = get()
+    const webPatch: { dshWebTabIndex?: number } = {}
+    if (st.dshWebPaneId === paneId && st.dshWebTabIndex != null) {
+      const afterRemove = fromIndex < st.dshWebTabIndex ? st.dshWebTabIndex - 1 : st.dshWebTabIndex
+      const bumped = toIndex < afterRemove || (toIndex === afterRemove && fromIndex < toIndex)
+      const final = bumped ? afterRemove + 1 : afterRemove
+      webPatch.dshWebTabIndex = Math.min(Math.max(final, 0), sessions.length)
+    }
+
     set({
+      ...webPatch,
       layout: {
         root: replacePane(layout.root, paneId, updatedPane),
         activePaneId: paneId
       }
     })
+  },
+
+  // 会话页签拖到 web 页签上的落点：把该会话插到 web 紧前或紧后并同步 web 插槽。
+  // 方向语义与页签重排一致：会话原在 web 左侧（往右拖）= 插 web 后，反之插 web 前。
+  insertSessionAtWebSlot: (paneId, sessionId) => {
+    // 校验 web 确实挂在该 pane —— 与 moveDshWebToSessionTab 对齐，作为 store API 自防御
+    if (get().dshWebPaneId !== paneId || get().dshWeb === null) return
+    const layout = get().layout
+    const pane = findPane(layout.root, paneId) as PaneLeaf | undefined
+    if (!pane || pane.type !== 'leaf') return
+
+    const fromOrig = pane.sessions.indexOf(sessionId)
+    if (fromOrig === -1) return
+
+    const webOrig = get().dshWebTabIndex ?? pane.sessions.length
+    const sessions = [...pane.sessions]
+    const [removed] = sessions.splice(fromOrig, 1)
+    // 与 reorderSessionsInPane 相同的"先删后插"坐标：删后 web 原槽位可能左移一位
+    const webOrigAdj = fromOrig < webOrig ? webOrig - 1 : webOrig
+    sessions.splice(webOrigAdj, 0, removed)
+    // 插 web 后：会话正好落进 web 原槽位，web 顺移到它右侧（槽位不变）；
+    // 插 web 前：会话占住 web 槽位，web 让到它右侧（槽位 +1）
+    const webIdx = fromOrig < webOrig ? webOrigAdj : webOrigAdj + 1
+
+    set({
+      dshWebTabIndex: Math.min(webIdx, sessions.length),
+      layout: {
+        root: replacePane(layout.root, paneId, { ...pane, sessions }),
+        activePaneId: paneId
+      }
+    })
+  },
+
+  // web 页签拖到普通会话页签上的落点：只改 web 插槽，不动 pane.sessions。
+  // 方向语义与 splice 重排对齐：往左拖落某页签 = 插它前面（取目标原坐标）；
+  // 往右拖 = 插它后面（原坐标 +1，封顶末尾）—— 若恒为"插前面"，拖到右侧相邻
+  // 页签上是 no-op，体感变成只能从右往左排。
+  moveDshWebToSessionTab: (paneId, targetSessionId) => {
+    const st = get()
+    if (st.dshWebPaneId !== paneId || st.dshWeb === null) return
+    const pane = findPane(st.layout.root, paneId) as PaneLeaf | undefined
+    if (!pane || pane.type !== 'leaf') return
+
+    const toOrig = pane.sessions.indexOf(targetSessionId)
+    if (toOrig === -1) return
+
+    const webOrig = st.dshWebTabIndex ?? pane.sessions.length
+    set({ dshWebTabIndex: toOrig < webOrig ? toOrig : Math.min(toOrig + 1, pane.sessions.length) })
   },
 
   // 查询方法

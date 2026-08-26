@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { usePaneStore } from '../../stores/pane-store'
 import type { SplitDirection } from '@shared/types'
@@ -24,8 +24,12 @@ const SplitDivider: React.FC<SplitDividerProps> = ({ paneId, direction }) => {
   const currentRatio = pane?.type === 'split' ? pane.splitRatio : 0.5
 
   // 开始拖拽
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const handlePointerDown = (e: React.PointerEvent) => {
     e.preventDefault()
+    // 指针捕获:拖拽跟随与指针下元素解耦 -- 相邻 pane 显示 harness webview 时,指针一进
+    // webview 范围 mousemove 就被 guest 吞掉(同跨域 iframe),捕获后 pointermove 恒回流本元素。
+    // move/up 监听直接挂在本元素上(捕获事件重定向到捕获元素后从它起冒泡),不依赖 window 级监听
+    e.currentTarget.setPointerCapture(e.pointerId)
     setIsDragging(true)
     startPosRef.current = direction === 'horizontal' ? e.clientX : e.clientY
     startRatioRef.current = currentRatio
@@ -35,41 +39,35 @@ const SplitDivider: React.FC<SplitDividerProps> = ({ paneId, direction }) => {
     containerSizeRef.current = direction === 'horizontal' ? (rect?.width ?? 0) : (rect?.height ?? 0)
   }
 
-  // 拖拽中
-  useEffect(() => {
+  // 拖拽中 -- 捕获生效时事件恒重定向到本元素,这里的 React 监听即拖拽全程的接收方
+  const handlePointerMove = (e: React.PointerEvent) => {
     if (!isDragging) return
 
-    const handleMouseMove = (e: MouseEvent) => {
-      const parentPane = usePaneStore.getState().getParentPane(paneId)
-      if (!parentPane) return
+    const parentPane = usePaneStore.getState().getParentPane(paneId)
+    if (!parentPane) return
 
-      const containerSize = containerSizeRef.current
-      if (containerSize <= 0) return
+    const containerSize = containerSizeRef.current
+    if (containerSize <= 0) return
 
-      const delta = direction === 'horizontal'
-        ? e.clientX - startPosRef.current
-        : e.clientY - startPosRef.current
+    const delta = direction === 'horizontal'
+      ? e.clientX - startPosRef.current
+      : e.clientY - startPosRef.current
 
-      const newRatio = startRatioRef.current + delta / containerSize
-      setSplitRatio(paneId, newRatio)
-    }
+    const newRatio = startRatioRef.current + delta / containerSize
+    setSplitRatio(paneId, newRatio)
+  }
 
-    const handleMouseUp = () => {
-      setIsDragging(false)
-    }
-
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mouseup', handleMouseUp)
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
-    }
-  }, [isDragging, paneId, direction, setSplitRatio])
+  const endDragging = () => {
+    setIsDragging(false)
+  }
 
   return (
     <div
-      onMouseDown={handleMouseDown}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={endDragging}
+      onPointerCancel={endDragging}
+      onLostPointerCapture={endDragging}
       className={`
         ${direction === 'horizontal' ? 'w-[4px] cursor-col-resize' : 'h-[4px] cursor-row-resize'}
         ${isDragging ? 'bg-[#0078D4]' : 'bg-[#3C3C3C] hover:bg-[#0078D4]'}

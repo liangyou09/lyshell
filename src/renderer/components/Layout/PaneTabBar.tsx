@@ -24,9 +24,27 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
   const scrollRef = useRef<HTMLDivElement>(null)
   const [draggingSessionId, setDraggingSessionIdLocal] = useState<string | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)  // 悬停位置索引
-  const { sessions, removeLiveSession } = useSessionStore()
-  const { setActiveSessionInPane, removeSessionFromPane, addSessionToPane, reorderSessionsInPane, mcpAuditPaneId, dshWeb, dshWebPaneId, dshWebActive, setDraggingDshWeb } = usePaneStore()
+  const [dragOverWebTab, setDragOverWebTab] = useState(false)  // 会话悬停在 web 页签上（排序落点指示）
+  const sessions = useSessionStore(s => s.sessions)
+  const removeLiveSession = useSessionStore(s => s.removeLiveSession)
+  // 逐字段 selector 订阅：本组件不读 layout 树（pane 由 prop 传入），整体解构会让无关的
+  // pane-store 写入（拖分屏比例的高频 setSplitRatio、其它 pane 的布局变更）也触发所有
+  // 页签条重渲染。action 引用在 create 时即固定，选中它们零成本。
+  // 注意该结论只对"不消费 layout"的组件成立 —— PaneView 等真依赖布局的组件另论
+  const setActiveSessionInPane = usePaneStore(s => s.setActiveSessionInPane)
+  const removeSessionFromPane = usePaneStore(s => s.removeSessionFromPane)
+  const addSessionToPane = usePaneStore(s => s.addSessionToPane)
+  const reorderSessionsInPane = usePaneStore(s => s.reorderSessionsInPane)
   const toggleLiveSessionTabs = usePaneStore(s => s.toggleLiveSessionTabs)
+  const setDraggingDshWeb = usePaneStore(s => s.setDraggingDshWeb)
+  const setDshWebTabIndex = usePaneStore(s => s.setDshWebTabIndex)
+  const mcpAuditPaneId = usePaneStore(s => s.mcpAuditPaneId)
+  const mcpAuditActive = usePaneStore(s => s.mcpAuditActive)
+  const dshWeb = usePaneStore(s => s.dshWeb)
+  const dshWebPaneId = usePaneStore(s => s.dshWebPaneId)
+  const dshWebActive = usePaneStore(s => s.dshWebActive)
+  const dshWebTabIndex = usePaneStore(s => s.dshWebTabIndex)
+  const draggingDshWeb = usePaneStore(s => s.draggingDshWeb)
   const { t } = useTranslation()
   // 被隐藏的页签(Sidebar LIVE 段会话标签点击 toggle)——不渲染对应页签,但终端实例保留
   const hiddenTabSessions = usePaneStore(s => s.hiddenTabSessions)
@@ -66,9 +84,10 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
 
   // 点击标签时切换会话
   const handleTabClick = (sessionId: string) => {
-    // 切到 session 页签前关掉本 pane 的 MCP 覆盖层，否则它会挡住刚选中的终端
+    // 切到 session 页签前隐藏本 pane 的 MCP 覆盖层，否则它会挡住刚选中的终端
+    // （MCP 页签保留，点 MCP 页签可切回 -- 对齐 web 页签的 deactivate 语义）
     const paneSt = usePaneStore.getState()
-    if (paneSt.mcpAuditPaneId === pane.id) paneSt.closeMcpAudit()
+    if (paneSt.mcpAuditPaneId === pane.id) paneSt.deactivateMcpAudit()
     // 本 pane 正显示 dsh web 时，切到终端页签仅隐藏（webview 保持挂载、子进程不回收），点 web 页签可切回
     if (paneSt.dshWebPaneId === pane.id && paneSt.dshWebActive) paneSt.deactivateDshWeb()
     setActiveSessionInPane(pane.id, sessionId)
@@ -81,9 +100,12 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
     }, 50)
   }
 
-  // 点击 MCP 页签（仅本 pane 已开 MCP 时渲染）：关闭 MCP，切回当前 session
+  // 点击 MCP 页签（仅本 pane 已开 MCP 时渲染）：显示中 → 关闭（toggle，原语义）；
+  // 被终端/web 页签盖住 → 切回 MCP（openMcpAuditInPane 会隐藏同 pane 的 web）
   const handleMcpTabClick = () => {
-    usePaneStore.getState().closeMcpAudit()
+    const paneSt = usePaneStore.getState()
+    if (paneSt.mcpAuditPaneId === pane.id && paneSt.mcpAuditActive) paneSt.closeMcpAudit()
+    else paneSt.openMcpAuditInPane(pane.id)
   }
 
   // 双击左键：断开状态重连，已连接状态克隆会话
@@ -190,6 +212,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
     setGlobalDraggingId(null)
     setDraggingSessionIdLocal(null)
     setDragOverIndex(null)
+    setDragOverWebTab(false)
   }
 
   // 拖拽悬停在标签上
@@ -204,6 +227,20 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
     setDragOverIndex(null)
   }
 
+  // 拖拽放下到页签条空白处：仅对 web 页签拖拽有义 —— 移到末尾；
+  // 会话拖放落空白处维持现状（无操作），与既有行为一致
+  const handleDropOnBarEmpty = (e: React.DragEvent) => {
+    // 拖拽标记与 dataTransfer 双重校验：标记可能在异常拖拽序列（dragend 未触发）下残留，
+    // dataTransfer 是本次拖拽的事实。但部分浏览器/模式下 drop 里 getData 可能取不到（返回
+    // 空串）—— 空串时退回标记判定，只有明确读到"不是 web 页签"的数据才拒绝，避免空白区落点失效
+    const dragData = e.dataTransfer.getData('text/plain')
+    if (!draggingDshWeb || (dragData !== '' && dragData !== '__dsh_web__')) return
+    e.preventDefault()
+    e.stopPropagation()
+    setDraggingDshWeb(false)
+    setDshWebTabIndex(pane.sessions.length)
+  }
+
   // 拖拽放下到标签上
   const handleDropOnTab = (e: React.DragEvent, targetIndex: number) => {
     e.preventDefault()
@@ -211,6 +248,18 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
 
     const dragSessionId = e.dataTransfer.getData('text/plain')
     if (!dragSessionId) return
+
+    // web 页签拖到会话页签上：页签条内排序 —— 只写 web 的插入序号，不动 pane.sessions。
+    // 落点方向推导（往左拖 = 插目标前，往右拖 = 插目标后）下沉在 store 的
+    // moveDshWebToSessionTab，与其它插槽维护路径单点维护
+    if (dragSessionId === '__dsh_web__') {
+      // 先复位拖拽态（onDragEnd 亦会触发，幂等），让 webview 立即恢复显隐
+      setDraggingDshWeb(false)
+      // 过滤后可见索引映射回目标会话，原始坐标换算在 store 侧完成
+      usePaneStore.getState().moveDshWebToSessionTab(pane.id, paneSessions[targetIndex].id)
+      setDragOverIndex(null)
+      return
+    }
 
     // 找到拖拽会话的当前索引(在过滤后的 paneSessions 里)
     const dragIndex = paneSessions.findIndex(s => s.id === dragSessionId)
@@ -347,6 +396,72 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
 
   // 本 pane 是否正显示 dsh web（web 页签激活态 / 终端标签激活态都据此判定）
   const webActiveHere = dshWebPaneId === pane.id && dshWebActive
+  // 本 pane 是否正显示 MCP 面板（MCP 页签激活态 / 终端标签激活态都据此判定；未激活时页签保留）
+  const mcpActiveHere = mcpAuditPaneId === pane.id && mcpAuditActive
+
+  // web 页签插入位置：pane.sessions 原始坐标的序号换算到过滤隐藏页签后的可见序列
+  // （null / 越界随会话关闭自然钳到末尾）。中段位置在下方 map 内按索引插入，末尾渲染在 MCP 页签后。
+  const webInPane = dshWebPaneId === pane.id && dshWeb !== null
+  const webInsertAt = webInPane && dshWebTabIndex != null
+    ? paneSessions.filter(s => pane.sessions.indexOf(s.id) < dshWebTabIndex).length
+    : paneSessions.length
+
+  // dsh Web UI 页签 -- 单例，仅本 pane 打开 web 时渲染；点页签切回 web，✕ 关闭并回收子进程。
+  // 始终可拖：拖到页签条内的会话页签上 = 排序，拖到页签条空白处 = 移到末尾，
+  // 拖到本 pane 或其他 pane 的边缘 = 拆成独立分屏，拖到中心 = 改挂载到该 pane。
+  const webTabEl = (dshWebPaneId === pane.id && dshWeb) ? (
+    <div
+      data-tab-id="__dsh_web__"
+      onClick={() => usePaneStore.getState().activateDshWeb()}
+      title={dshWeb.cwd ?? t('dsh.webTitle')}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData('text/plain', '__dsh_web__')
+        e.dataTransfer.effectAllowed = 'move'
+        setDraggingDshWeb(true)
+      }}
+      onDragOver={(e) => {
+        // 会话拖到 web 页签上：合法排序落点（preventDefault 允许 drop），亮指示条；
+        // 同时清掉普通页签残留的落点高亮 —— 相邻元素间 dragleave 并非总可靠触发，
+        // 不清的话从普通页签滑到 web 页签时两条指示会同亮
+        e.preventDefault()
+        setDragOverWebTab(true)
+        setDragOverIndex(null)
+      }}
+      onDragLeave={() => setDragOverWebTab(false)}
+      onDragEnd={() => setDraggingDshWeb(false)}
+      onDrop={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setDragOverWebTab(false)
+        const dragSessionId = e.dataTransfer.getData('text/plain')
+        // web 拖到自身上：无操作（拦下防止冒泡到页签条空白处的"移到末尾"）
+        if (!dragSessionId || dragSessionId === '__dsh_web__') return
+        // 会话拖到 web 页签上：插到 web 紧前/紧后，方向语义与其他落点一致
+        // （从右往左拖 = 插 web 前，从左往右拖 = 插 web 后），web 顺位让位。
+        // 会话重排 + web 插槽在 store 侧一次 set 完成，避免两步写的中间态。
+        usePaneStore.getState().insertSessionAtWebSlot(pane.id, dragSessionId)
+        setDragOverIndex(null)
+      }}
+      className={cn(
+        'win-no-drag flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
+        webActiveHere
+          ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
+          : 'bg-[var(--bg-rack)] text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)]',
+        // 排序落点指示 —— 与会话页签的 amber border-l 同语言（仅会话拖拽悬停时亮）
+        dragOverWebTab && draggingSessionId && 'border-l-2 border-l-[var(--amber)]'
+      )}
+    >
+      <span className="text-xs truncate max-w-[150px]">{dshWeb.name}</span>
+      <button
+        onClick={(e) => { e.stopPropagation(); usePaneStore.getState().closeDshWeb() }}
+        title={t('dsh.webClose')}
+        className="win-no-drag ml-auto w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
+      >
+        ✕
+      </button>
+    </div>
+  ) : null
 
   return (
     <div
@@ -378,12 +493,15 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
           e.preventDefault()
           // 不阻止传播，让终端区域也能接收 dragover
         }}
+        onDrop={handleDropOnBarEmpty}
         className="flex flex-nowrap items-center h-full overflow-x-auto scrollbar-hide overflow-y-hidden flex-1"
       >
         {paneSessions.map((session, index) => (
-          <div
-            key={session.id}
-            data-tab-id={session.id}
+          <React.Fragment key={session.id}>
+            {/* web 页签的中段插入位：按排序序号插在对应会话页签之前 */}
+            {webInsertAt === index && webTabEl}
+            <div
+              data-tab-id={session.id}
             onClick={() => handleTabClick(session.id)}
             onDoubleClick={() => handleTabDoubleClick(session.id)}
             onContextMenu={() => handleTabRightClick(session.id, session.config.type)}
@@ -396,7 +514,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
             title={t('pane.tabHint')}
             className={cn(
               'win-no-drag flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
-              pane.activeSessionId === session.id && mcpAuditPaneId !== pane.id && !webActiveHere
+              pane.activeSessionId === session.id && !mcpActiveHere && !webActiveHere
                 ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
                 : session.hasActivity
                   ? 'bg-[var(--reachable)]/25 text-[var(--text-rack)] hover:bg-[var(--reachable)]/35 shadow-[inset_2px_0_0_var(--reachable)]' // 有未读输出:reachable 青调底 + 左侧 stripe
@@ -462,15 +580,22 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
             >
               ✕
             </button>
-          </div>
+            </div>
+          </React.Fragment>
         ))}
-        {/* MCP 活动页签 -- 仅在本 pane 打开 MCP 时出现（非常驻）；入口为标题栏 MCP 状态片；✕ / 点标签 / ESC 关闭 */}
+        {/* MCP 活动页签 -- 仅在本 pane 打开 MCP 时出现（非常驻）；入口为标题栏 MCP 状态片。 */}
+        {/* 激活时 amber 高亮；切到终端/web 页签退为未激活（页签保留），点它切回；✕ / 显示中再点 / ESC 关闭 */}
         {mcpAuditPaneId === pane.id && (
           <div
             data-tab-id="__mcp_audit__"
             onClick={handleMcpTabClick}
             title={t('pane.mcpTabHint')}
-            className="win-no-drag flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px] bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]"
+            className={cn(
+              'win-no-drag flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
+              mcpActiveHere
+                ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
+                : 'bg-[var(--bg-rack)] text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)]'
+            )}
           >
             <span className="text-xs truncate max-w-[150px]">{t('pane.mcpTab')}</span>
             <button
@@ -482,37 +607,8 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
             </button>
           </div>
         )}
-        {/* dsh Web UI 页签 -- 单例，仅本 pane 打开 web 时渲染；点页签切回 web，✕ 关闭并回收子进程。
-            可拖拽：拖到本 pane 或其他 pane 的边缘拆成独立分屏，拖到中心则改挂载到该 pane。 */}
-        {dshWebPaneId === pane.id && dshWeb && (
-          <div
-            data-tab-id="__dsh_web__"
-            onClick={() => usePaneStore.getState().activateDshWeb()}
-            title={dshWeb.cwd ?? t('dsh.webTitle')}
-            draggable={webActiveHere}
-            onDragStart={(e) => {
-              e.dataTransfer.setData('text/plain', '__dsh_web__')
-              e.dataTransfer.effectAllowed = 'move'
-              setDraggingDshWeb(true)
-            }}
-            onDragEnd={() => setDraggingDshWeb(false)}
-            className={cn(
-              'win-no-drag flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
-              webActiveHere
-                ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
-                : 'bg-[var(--bg-rack)] text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)]'
-            )}
-          >
-            <span className="text-xs truncate max-w-[150px]">{dshWeb.name}</span>
-            <button
-              onClick={(e) => { e.stopPropagation(); usePaneStore.getState().closeDshWeb() }}
-              title={t('dsh.webClose')}
-              className="win-no-drag ml-auto w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
-            >
-              ✕
-            </button>
-          </div>
-        )}
+        {/* web 页签位于末尾时渲染在 MCP 页签之后（与既有次序一致）；中段位置已在上方 map 内插入 */}
+        {webInsertAt >= paneSessions.length && webTabEl}
       </div>
 
       {/* 右滚动按钮 */}
