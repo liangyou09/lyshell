@@ -43,9 +43,11 @@ beforeEach(() => {
   useSessionStore.setState({ sessions: [] })
   usePaneStore.setState({
     mcpAuditPaneId: null,
+    mcpAuditActive: false,
     dshWeb: null,
     dshWebPaneId: null,
     dshWebActive: false,
+    dshWebTabIndex: null,
     hiddenTabSessions: {}
   })
 })
@@ -86,6 +88,7 @@ describe('PaneTabBar 顶排页签条(渲染断言)', () => {
   it('MCP 页签与 dsh web 页签同样脱离拖拽区', () => {
     usePaneStore.setState({
       mcpAuditPaneId: 'pane-1',
+      mcpAuditActive: true,
       dshWeb: { url: 'http://127.0.0.1:3080', name: 'dsh web' },
       dshWebPaneId: 'pane-1'
     })
@@ -94,6 +97,49 @@ describe('PaneTabBar 顶排页签条(渲染断言)', () => {
     const webTab = container.querySelector('[data-tab-id="__dsh_web__"]') as HTMLElement
     expect(mcpTab.className).toContain('win-no-drag')
     expect(webTab.className).toContain('win-no-drag')
+  })
+
+  // web 插槽存 pane.sessions 原始坐标，渲染时换算成"过滤隐藏页签后的可见索引"。
+  // 这里对 DOM 页签顺序断言 —— 防止后续把可见坐标当原始坐标用（或反之）的回归；
+  // store 侧的坐标推导已由 pane-store.webtab.test.ts 覆盖，两层各锁一半
+  it('web 中段插槽 + 隐藏页签：DOM 页签顺序 = 隐藏过滤后按插槽插入', () => {
+    useSessionStore.setState({
+      sessions: [makeSession('s1', 'alpha'), makeSession('s2', 'beta'), makeSession('s3', 'gamma')]
+    })
+    usePaneStore.setState({
+      dshWeb: { url: 'http://127.0.0.1:3080', name: 'dsh web' },
+      dshWebPaneId: 'pane-1',
+      dshWebActive: false,
+      // 原始坐标 [s1, s2(隐藏), s3]，插槽 1（s2 之前）→ 可见顺序 s1, web, s3
+      dshWebTabIndex: 1,
+      hiddenTabSessions: { s2: true }
+    })
+    const { container } = render(<PaneTabBar pane={makePane(['s1', 's2', 's3'])} isTop />)
+    const tabIds = Array.from(container.querySelectorAll('[data-tab-id]'))
+      .map(el => el.getAttribute('data-tab-id'))
+    expect(tabIds).toEqual(['s1', '__dsh_web__', 's3'])
+  })
+
+  it('web 插槽 0 / 钉尾 null：分别渲染在最前 / 最后', () => {
+    useSessionStore.setState({
+      sessions: [makeSession('s1', 'alpha'), makeSession('s2', 'beta')]
+    })
+    usePaneStore.setState({
+      dshWeb: { url: 'http://127.0.0.1:3080', name: 'dsh web' },
+      dshWebPaneId: 'pane-1',
+      dshWebActive: false,
+      dshWebTabIndex: 0
+    })
+    const first = render(<PaneTabBar pane={makePane(['s1', 's2'])} isTop />)
+    expect(
+      Array.from(first.container.querySelectorAll('[data-tab-id]')).map(el => el.getAttribute('data-tab-id'))
+    ).toEqual(['__dsh_web__', 's1', 's2'])
+
+    usePaneStore.setState({ dshWebTabIndex: null })
+    const last = render(<PaneTabBar pane={makePane(['s1', 's2'])} isTop />)
+    expect(
+      Array.from(last.container.querySelectorAll('[data-tab-id]')).map(el => el.getAttribute('data-tab-id'))
+    ).toEqual(['s1', 's2', '__dsh_web__'])
   })
 })
 

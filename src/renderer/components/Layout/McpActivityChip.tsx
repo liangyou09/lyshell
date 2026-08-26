@@ -63,12 +63,13 @@ export function McpActivityChip(): JSX.Element {
 
   const active = mcpAuditPaneId !== null
 
-  // 点击：在当前活跃分屏切换 MCP 页签。已开在本 pane -> 关；否则开在本 pane（单例，会从别的 pane 移过来）。
+  // 点击：在当前活跃分屏切换 MCP 页签。正显示在本 pane -> 关；未开 / 开在别的 pane /
+  // 开在本 pane 但被终端或 web 页签盖住 -> 打开并置顶（单例，会从别的 pane 移过来）。
   const handleClick = () => {
     const st = usePaneStore.getState()
     const ap = st.layout.activePaneId
     if (!ap) return
-    if (st.mcpAuditPaneId === ap) st.closeMcpAudit()
+    if (st.mcpAuditPaneId === ap && st.mcpAuditActive) st.closeMcpAudit()
     else st.openMcpAuditInPane(ap)
   }
 

@@ -263,17 +263,13 @@ const MainWindow: React.FC = () => {
     }, 500)
     return () => clearTimeout(t)
   }, [sidebarWidth])
-  useEffect(() => {
+  // 侧栏调宽：pointer 捕获期间事件恒重定向到捕获元素并从它冒泡，move/up 监听直接挂在
+  // 分隔条/热区元素上即可覆盖拖拽全程（旧 document 级监听依赖隐式捕获语义，已收拢到元素上）
+  const handleSidebarResizeMove = (e: React.PointerEvent) => {
     if (!isResizingSidebar) return
-    const handleMouseMove = (e: MouseEvent) => setSidebarWidth(Math.max(180, Math.min(400, e.clientX - RAIL_WIDTH)))
-    const handleMouseUp = () => setIsResizingSidebar(false)
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-    }
-  }, [isResizingSidebar])
+    setSidebarWidth(Math.max(180, Math.min(400, e.clientX - RAIL_WIDTH)))
+  }
+  const endSidebarResize = () => setIsResizingSidebar(false)
 
   // Alt+1..7 切换左列页签(实现 footer 既有 "alt + 1…7" 提示;capture 抢在 xterm 前)
   useEffect(() => {
@@ -516,13 +512,29 @@ const MainWindow: React.FC = () => {
           <div
             style={{ width: SIDEBAR_DIVIDER_WIDTH }}
             className="bg-[var(--rule)] cursor-col-resize hover:bg-[var(--amber)] transition-colors flex-shrink-0 relative"
-            onMouseDown={() => setIsResizingSidebar(true)}
+            onPointerDown={(e) => {
+              // 指针捕获:拖拽跟随与指针下元素解耦 -- harness webview 激活时往右拖,指针一进
+              // webview 范围 mousemove 就被 guest 吞掉(同跨域 iframe),捕获后 pointermove 恒回流本元素
+              e.currentTarget.setPointerCapture(e.pointerId)
+              setIsResizingSidebar(true)
+            }}
+            onPointerMove={handleSidebarResizeMove}
+            onPointerUp={endSidebarResize}
+            onPointerCancel={endSidebarResize}
+            onLostPointerCapture={endSidebarResize}
           >
             {/* 左侧 4px 命中热区(面板边缘最右 4px 可见条 + 面板内容最后 4px),扩命中不扩可见宽 */}
             <div
               style={{ left: -SIDEBAR_DIVIDER_WIDTH, width: SIDEBAR_DIVIDER_WIDTH }}
               className="absolute top-0 bottom-0 cursor-col-resize"
-              onMouseDown={() => setIsResizingSidebar(true)}
+              onPointerDown={(e) => {
+                e.currentTarget.setPointerCapture(e.pointerId)
+                setIsResizingSidebar(true)
+              }}
+              onPointerMove={handleSidebarResizeMove}
+              onPointerUp={endSidebarResize}
+              onPointerCancel={endSidebarResize}
+              onLostPointerCapture={endSidebarResize}
             />
           </div>
         </div>
