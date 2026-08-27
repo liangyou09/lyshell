@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
-import { HARNESS_AGENT_VIEWS, type HarnessAgentKind, type HarnessEnvDefault, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
+import { HARNESS_AGENT_VIEWS, isSecretEnvKey, type HarnessAgentKind, type HarnessEnvDefault, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
+import { TOPBAR_HEIGHT } from './topbar-metrics'
+import { ensureDetected, getCachedDetect, redetectHarness } from './harness-detect'
 
 /**
  * AI Harness 面板 —— dsh / codex / claude 三份第一等终端 Agent 的通用外壳。
@@ -95,6 +97,21 @@ const IconEdit: React.FC = () => (
 
 const IconX: React.FC = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 2l7 7M9 2l-7 7" /></svg>
+)
+
+/** 明文查看敏感 env 值(默认打码,点击切换) */
+const IconEye: React.FC = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" />
+    <circle cx="8" cy="8" r="2" />
+  </svg>
+)
+
+const IconEyeOff: React.FC = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M2.6 5.1C1.7 6.2 1.5 8 1.5 8s2.5 4.5 6.5 4.5c1.2 0 2.2-.3 3-.8M6.7 3.7c.4-.1.8-.2 1.3-.2 4 0 6.5 4.5 6.5 4.5s-.6 1.1-1.6 2.1" />
+    <path d="M2.5 13.5l11-11" />
+  </svg>
 )
 
 /**
@@ -211,22 +228,21 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   const [triedEnvSubmit, setTriedEnvSubmit] = useState(false)
   const [envConfirmDelete, setEnvConfirmDelete] = useState(false)
   const [envSaveError, setEnvSaveError] = useState<string | null>(null)
+  // 敏感值(API key/token)明文展示的行号集 —— 默认打码,点眼睛逐行切换;改 key/开新对话框即复位
+  const [revealedEnvIdx, setRevealedEnvIdx] = useState<Set<number>>(new Set())
 
+  // 检测走应用级缓存(harness-detect):启动时已预热,这里只把缓存结果装进本组件状态。
+  // runDetect 是「强制重检」—— 手动「重新检测」按钮与启动失败后的复核用,
+  // 落地后覆盖缓存,下次切页签回来读到的就是新结果
   const runDetect = useCallback(async () => {
     setDetecting(true)
     try {
-      const res = await api.detect()
-      if (res && typeof res === 'object') {
-        const next: Record<string, boolean> = {}
-        for (const dep of deps) next[dep] = Boolean(res[dep])
-        setStatus(next)
-      }
-    } catch (err) {
-      console.error(`Failed to detect ${agent}:`, err)
+      const next = await redetectHarness(agent)
+      if (next) setStatus(next)
     } finally {
       setDetecting(false)
     }
-  }, [api, agent, deps])
+  }, [agent])
 
   const loadWorkspaces = useCallback(async () => {
     try {
@@ -262,13 +278,29 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     }
   }, [api, agent])
 
-  // 挂载即检测 + 拉取工作区与变量组（工作区对话框要用变量组渲染选择器，故两者同时拉）
+  // 挂载:检测结果读应用级缓存(启动时已预热,切页签回来不再打检测 IPC;
+  // 预热漏掉/失败时 ensureDetected 兜底发起一次)。工作区与变量组列表仍按需拉取
+  // (工作区对话框要用变量组渲染选择器,故两者同时拉)
   useEffect(() => {
-    void runDetect()
+    let active = true
+    const cached = getCachedDetect(agent)
+    if (cached) {
+      setStatus(cached)
+    } else {
+      setDetecting(true)
+      void ensureDetected(agent).then((next) => {
+        if (!active) return
+        if (next) setStatus(next)
+        setDetecting(false)
+      })
+    }
     void loadWorkspaces()
     void loadEnvProfiles()
     void loadEnvDefaults()
-  }, [runDetect, loadWorkspaces, loadEnvProfiles, loadEnvDefaults])
+    return () => {
+      active = false
+    }
+  }, [agent, loadWorkspaces, loadEnvProfiles, loadEnvDefaults])
 
   const copy = async (text: string, key: string) => {
     try {
@@ -386,6 +418,24 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     setTriedSubmit(false); setConfirmDelete(false); setSaveError(null)
     setShowDialog(true)
   }
+  /**
+   * 复制工作区：以既有配置预填「新增」对话框（名称加后缀便于区分），保存才落盘，取消无副作用。
+   * envProfileId 归一化与 handleEdit 同一条规则 —— 别把源工作区的悬空绑定原样带进副本。
+   */
+  const handleDuplicateWorkspace = (ws: HarnessWorkspace) => {
+    setEditWorkspace(undefined)
+    setWsName(`${ws.name}${t(`${prefix}.copySuffix`)}`)
+    setWsCwd(ws.cwd); setWsNote(ws.note || ''); setWsModel(ws.model || ''); setWsSkipPermissions(ws.skipPermissions === true)
+    setWsIsolation(ws.isolation === 'worktree' ? 'worktree' : 'shared')
+    setWsWorktreeKey(ws.worktreeKey || '')
+    setWsEnvProfileId(
+      !envProfilesLoaded || (ws.envProfileId && envProfiles.some((p) => p.id === ws.envProfileId))
+        ? ws.envProfileId
+        : undefined
+    )
+    setTriedSubmit(false); setConfirmDelete(false); setSaveError(null)
+    setShowDialog(true)
+  }
   const handlePickCwd = async () => {
     const result = await window.electronAPI.showOpenDialog({
       title: t(`${prefix}.browse`),
@@ -444,9 +494,30 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
 
   // ── 变量组：环境变量行编辑（对齐 AgentsPanel 的 env 编辑器） ──
   const addEnvRow = () => setProfileEnv((prev) => [...prev, { key: '', value: '' }])
-  const updateEnvRow = (i: number, field: 'key' | 'value', value: string) =>
+  const updateEnvRow = (i: number, field: 'key' | 'value', value: string) => {
     setProfileEnv((prev) => prev.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)))
-  const removeEnvRow = (i: number) => setProfileEnv((prev) => prev.filter((_, idx) => idx !== i))
+    // 改 key 即复位该行的明文状态:改名前后是不是敏感值可能不同,保证「默认打码」语义
+    if (field === 'key') setRevealedEnvIdx((prev) => { const next = new Set(prev); next.delete(i); return next })
+  }
+  const removeEnvRow = (i: number) => {
+    setProfileEnv((prev) => prev.filter((_, idx) => idx !== i))
+    // 行号前移同步修正,避免「明文」状态串到别的行
+    setRevealedEnvIdx((prev) => {
+      const next = new Set<number>()
+      for (const idx of prev) {
+        if (idx < i) next.add(idx)
+        else if (idx > i) next.add(idx - 1)
+      }
+      return next
+    })
+  }
+  const toggleEnvReveal = (i: number) =>
+    setRevealedEnvIdx((prev) => {
+      const next = new Set(prev)
+      if (next.has(i)) next.delete(i)
+      else next.add(i)
+      return next
+    })
   // ── 变量组：模型选项行编辑（单列，供工作区模型建议） ──
   const addModelRow = () => setProfileModels((prev) => [...prev, ''])
   const updateModelRow = (i: number, value: string) =>
@@ -482,6 +553,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     setProfileEnv(envDefaults.map((d) => ({ key: d.key, value: d.value })))
     setProfileModels([])
     setTriedEnvSubmit(false); setEnvConfirmDelete(false); setEnvSaveError(null)
+    setRevealedEnvIdx(new Set())
     setShowEnvDialog(true)
   }
   const handleEditProfile = (p: HarnessEnvProfile) => {
@@ -490,6 +562,21 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     setProfileEnv(Object.entries(p.env).map(([key, value]) => ({ key, value })))
     setProfileModels(p.models ? [...p.models] : [])
     setTriedEnvSubmit(false); setEnvConfirmDelete(false); setEnvSaveError(null)
+    setRevealedEnvIdx(new Set())
+    setShowEnvDialog(true)
+  }
+  /**
+   * 复制变量组：以既有配置预填「新增」对话框（名称加后缀便于区分），保存才落盘，取消无副作用。
+   * 走新增链路即不携带 active —— 副本默认停用，不会抢走源组的「启用」档位。
+   */
+  const handleDuplicateProfile = (p: HarnessEnvProfile) => {
+    setEditProfile(undefined)
+    setProfileName(`${p.name}${t(`${prefix}.copySuffix`)}`)
+    setProfileNote(p.note || '')
+    setProfileEnv(Object.entries(p.env).map(([key, value]) => ({ key, value })))
+    setProfileModels(p.models ? [...p.models] : [])
+    setTriedEnvSubmit(false); setEnvConfirmDelete(false); setEnvSaveError(null)
+    setRevealedEnvIdx(new Set())
     setShowEnvDialog(true)
   }
 
@@ -583,36 +670,46 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
 
   return (
     <div
-      className="w-full h-full flex flex-col bg-[var(--bg-base)] p-3 space-y-2"
+      className="w-full h-full flex flex-col bg-[var(--bg-base)]"
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
-      {/* 标题 + 重新检测。
-          hasWeb 的 kind（目前只有 dsh）标题本身就是 Web UI 入口：它是面板里最稳的一块 ——
+      {/* 头条：面板铭牌 + 重新检测 —— 与 SessionsPanel(LyShell 徽牌)/AgentsPanel 头行同族：
+          行高对齐终端第一行(TOPBAR_HEIGHT)、满幅 border-b 发丝线、
+          铭牌走系统 UI 字体(设备徽章的「厂牌丝印」,Segoe UI Variable Display,
+          hinting 完整任何字号都锐利),LED 是琥珀锚点。
+          hasWeb 的 kind（目前只有 dsh）铭牌本身就是 Web UI 入口：它是面板里最稳的一块 ——
           不随页签、不随数据增减改位置，故入口挂这儿比挂一个会来会去的图标按钮更可达。
-          点标题直接开 Web，落在 deepseek-harness 自己的默认工作区（$DSH_HOME/web），与 TUI 工作区解耦。
+          点铭牌直接开 Web，落在 deepseek-harness 自己的默认工作区（$DSH_HOME/web），与 TUI 工作区解耦。
           不加边框与状态字，仅靠悬停变琥珀提示可按；启动中同样标黄（琥珀=此刻与 Web 有关）。
-          codex/claude 无 Web UI，标题不可按 —— 有能力的地方才有控件。 */}
-      <div className="flex items-center justify-between gap-1 flex-shrink-0">
+          codex/claude 无 Web UI，铭牌不可按 —— 有能力的地方才有控件。
+          通电 LED 是铭牌的琥珀锚点（不表示 Web 状态），对应 LYSHELL·RACK 头行的琥珀「·」。 */}
+      <div
+        className="flex items-center justify-between gap-1 px-3 border-b border-[var(--rule)] flex-shrink-0"
+        style={{ height: TOPBAR_HEIGHT }}
+      >
         {view.hasWeb ? (
           <button
             onClick={handleNameplate}
             disabled={!titleEnabled}
             title={t(`${prefix}.webDefault`)}
+            style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
             className={cn(
               'flex-1 min-w-0 flex items-center gap-2 p-0 bg-transparent border-none text-left',
-              'text-[15px] font-semibold tracking-[0.02em] [font-family:inherit] transition-colors',
+              'text-[16px] font-bold tracking-[-0.01em] transition-colors',
               'focus:outline-none focus-visible:text-[var(--amber)] focus-visible:underline underline-offset-[3px]',
               webOpening && 'text-[var(--amber)] cursor-wait',
               !webOpening && titleEnabled && 'text-[var(--text-rack)] cursor-pointer hover:text-[var(--amber)]',
               !webOpening && !titleEnabled && 'text-[var(--text-rack)] cursor-default'
             )}
           >
-            {/* 通电 LED —— 面板标题的琥珀锚点，与对话框头条同源（不表示 Web 状态） */}
             <span aria-hidden className="w-[6px] h-[6px] rounded-full bg-[var(--amber)] shadow-[0_0_5px_var(--amber-glow)] flex-shrink-0" />
             <span className="min-w-0 truncate">{t(`${prefix}.title`)}</span>
           </button>
         ) : (
-          <span className="flex-1 min-w-0 flex items-center gap-2 text-[15px] font-semibold tracking-[0.02em] [font-family:inherit] text-[var(--text-rack)]">
+          <span
+            className="flex-1 min-w-0 flex items-center gap-2 text-[16px] font-bold tracking-[-0.01em] text-[var(--text-rack)] select-none"
+            style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
+          >
             <span aria-hidden className="w-[6px] h-[6px] rounded-full bg-[var(--amber)] shadow-[0_0_5px_var(--amber-glow)] flex-shrink-0" />
             <span className="truncate">{t(`${prefix}.title`)}</span>
           </span>
@@ -630,6 +727,9 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
           )}
         </div>
       </div>
+
+      {/* 内容笼：p-3 + space-y-2 自根容器下移到这层，头条得以满幅贴顶（与 SessionsPanel 同构） */}
+      <div className="flex-1 min-h-0 flex flex-col p-3 space-y-2">
 
       {/* 未就绪：首个依赖缺失 → 依赖状态行 + 提示卡（无首个依赖则列表/启动均不可用） */}
       {!listReady && (
@@ -853,6 +953,13 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                     </span>
                     <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-slot)] from-[24%] to-transparent">
                       <button
+                        onClick={(e) => { e.stopPropagation(); handleDuplicateWorkspace(ws) }}
+                        title={t(`${prefix}.copy`)}
+                        className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
+                      >
+                        <IconCopy />
+                      </button>
+                      <button
                         onClick={(e) => { e.stopPropagation(); handleEdit(ws) }}
                         title={t(`${prefix}.wsEditTitle`)}
                         className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
@@ -964,6 +1071,13 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                       </span>
                     </span>
                     <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-slot)] from-[24%] to-transparent">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDuplicateProfile(p) }}
+                        title={t(`${prefix}.copy`)}
+                        className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
+                      >
+                        <IconCopy />
+                      </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleEditProfile(p) }}
                         title={t(`${prefix}.envEditTitle`)}
@@ -1358,7 +1472,12 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                   </button>
                 ) : (
                   <>
-                    {profileEnv.map((row, i) => (
+                    {profileEnv.map((row, i) => {
+                      // 敏感值(API key/token)默认打码:用 -webkit-text-security 而非 type=password,
+                      // 免去 Chromium 自带的「小眼睛」,明文切换只走右侧按钮
+                      const secret = isSecretEnvKey(row.key)
+                      const revealed = revealedEnvIdx.has(i)
+                      return (
                       <div key={i} className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0">
                         <input
                           type="text"
@@ -1373,8 +1492,20 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                           value={row.value}
                           onChange={(e) => updateEnvRow(i, 'value', e.target.value)}
                           placeholder={t(`${prefix}.wsEnvValuePh`)}
-                          className="flex-[2] min-w-0 bg-transparent border-none text-[12px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] focus:outline-none"
+                          className={cn(
+                            'flex-[2] min-w-0 bg-transparent border-none text-[12px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] focus:outline-none',
+                            secret && !revealed && '[-webkit-text-security:disc]'
+                          )}
                         />
+                        {secret && (
+                          <button
+                            onClick={() => toggleEnvReveal(i)}
+                            title={revealed ? t(`${prefix}.envHideValue`) : t(`${prefix}.envShowValue`)}
+                            className="w-[18px] h-[18px] flex-shrink-0 inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] text-[var(--text-rack-faint)] hover:text-[var(--amber)] transition-colors"
+                          >
+                            {revealed ? <IconEyeOff /> : <IconEye />}
+                          </button>
+                        )}
                         <button
                           onClick={() => removeEnvRow(i)}
                           title={t(`${prefix}.wsDelete`)}
@@ -1383,7 +1514,8 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                           <IconX />
                         </button>
                       </div>
-                    ))}
+                      )
+                    })}
                     <button
                       onClick={addEnvRow}
                       className="w-full text-left py-1.5 px-2.5 text-[11.5px] [font-family:inherit] text-[var(--text-rack-data)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] transition-colors"
@@ -1492,6 +1624,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }

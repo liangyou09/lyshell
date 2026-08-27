@@ -32,10 +32,10 @@ const makePane = (sessions: string[]): PaneLeaf => ({
   activeSessionId: sessions[0] ?? null
 })
 
-const makeSession = (id: string, name: string) => ({
+const makeSession = (id: string, name: string, tags?: string[]) => ({
   id,
-  // 渲染只读 name;完整 SessionConfig 字段(terminal/tags/时间戳等)与本测试无关
-  config: { id, name, type: 'ssh' } as unknown as SessionConfig,
+  // 渲染只读 name 与 tags(页签品牌来源标);其余 SessionConfig 字段与本测试无关
+  config: { id, name, type: 'ssh', tags } as unknown as SessionConfig,
   status: ConnectionStatus.CONNECTED
 })
 
@@ -99,6 +99,31 @@ describe('PaneTabBar 顶排页签条(渲染断言)', () => {
     expect(webTab.className).toContain('win-no-drag')
   })
 
+  // harness 工作区启动的瞬态会话 tags 带 <kind>:<id>(handlers.ts 的 spawnLocalCommandSession),
+  // 页签名左侧据此亮品牌来源标;普通会话、通用 Agent(agent:<id>)与用户自建的裸 kind 名标签不亮
+  it('harness 会话页签亮品牌来源标(codex/claude/dsh),普通、agent: 与裸 kind 名标签不亮', () => {
+    useSessionStore.setState({
+      sessions: [
+        makeSession('s1', 'ws', ['codex:ws-1']),
+        makeSession('s2', 'ws', ['claude:ws-2']),
+        makeSession('s3', 'ws', ['dsh:ws-3']),
+        makeSession('s4', 'plain'),
+        makeSession('s5', 'agent', ['agent:a-1']),
+        makeSession('s6', 'bare', ['codex'])
+      ]
+    })
+    const { container } = render(<PaneTabBar pane={makePane(['s1', 's2', 's3', 's4', 's5', 's6'])} isTop />)
+    const markOf = (id: string) =>
+      container.querySelector(`[data-tab-id="${id}"] [data-harness-mark]`)
+    expect(markOf('s1')?.getAttribute('data-harness-mark')).toBe('codex')
+    expect(markOf('s2')?.getAttribute('data-harness-mark')).toBe('claude')
+    expect(markOf('s3')?.getAttribute('data-harness-mark')).toBe('dsh')
+    expect(markOf('s4')).toBeNull()
+    expect(markOf('s5')).toBeNull()
+    // 只认 <kind>: 前缀(主进程打标约定)—— 用户自建的裸 "codex" 纯标签不命中品牌标
+    expect(markOf('s6')).toBeNull()
+  })
+
   // web 插槽存 pane.sessions 原始坐标，渲染时换算成"过滤隐藏页签后的可见索引"。
   // 这里对 DOM 页签顺序断言 —— 防止后续把可见坐标当原始坐标用（或反之）的回归；
   // store 侧的坐标推导已由 pane-store.webtab.test.ts 覆盖，两层各锁一半
@@ -149,6 +174,7 @@ const read = (rel: string) =>
   fs.readFileSync(path.join(process.cwd(), rel), 'utf-8')
 
 const MAIN_WINDOW = read('src/renderer/components/Layout/MainWindow.tsx')
+const ACTIVITY_RAIL = read('src/renderer/components/Layout/ActivityRail.tsx')
 const TOP_RIGHT = read('src/renderer/components/Layout/TopRightControls.tsx')
 const METRICS = read('src/renderer/components/Layout/topbar-metrics.ts')
 const CSS = read('src/renderer/styles/globals.css')
@@ -159,9 +185,28 @@ describe('topbar-metrics 单一真相源', () => {
     expect(METRICS).toContain('TOPBAR_HEIGHT')
     expect(METRICS).toContain('TOP_LEFT_RESERVE')
     expect(METRICS).toContain('SIDEBAR_DIVIDER_WIDTH')
+    expect(METRICS).toContain('SIDEBAR_PILL_HEIGHT')
     expect(TAB_BAR).toContain("from './topbar-metrics'")
     expect(MAIN_WINDOW).toContain("from './topbar-metrics'")
     expect(TOP_RIGHT).toContain("from './topbar-metrics'")
+    // 轨顶收起槽与终端第一行齐平 -- ActivityRail 也读 TOPBAR_HEIGHT
+    expect(ACTIVITY_RAIL).toContain("from './topbar-metrics'")
+    expect(ACTIVITY_RAIL).toContain('style={{ height: TOPBAR_HEIGHT }}')
+    // 收起槽画底线(与面板头条/页签条同色同 y)—— 第一行底线横贯整个窗口,整行读作一条横带
+    expect(ACTIVITY_RAIL).toContain('border-b border-[var(--rule)]')
+    // 左列四个内容面板头条同族(SessionsPanel/AgentsPanel/HarnessPanel/PluginPanel):
+    // 都是 TOPBAR_HEIGHT 高 + border-b 发丝线的满幅头条,窗口第一行横带在哪个页签都连续
+    const SESSIONS_PANEL = read('src/renderer/components/Layout/SessionsPanel.tsx')
+    const AGENTS_PANEL = read('src/renderer/components/Layout/AgentsPanel.tsx')
+    const HARNESS_PANEL = read('src/renderer/components/Layout/HarnessPanel.tsx')
+    const PLUGIN_PANEL = read('src/renderer/components/Layout/PluginPanel.tsx')
+    for (const panel of [SESSIONS_PANEL, AGENTS_PANEL, HARNESS_PANEL, PLUGIN_PANEL]) {
+      expect(panel).toContain("from './topbar-metrics'")
+      expect(panel).toContain('style={{ height: TOPBAR_HEIGHT }}')
+      expect(panel).toContain('border-b border-[var(--rule)]')
+      // 铭牌字体同源:设备徽章系统,厂牌走系统 UI 字体(与终端画布的等宽栈刻意拉开字面)
+      expect(panel).toContain('Segoe UI Variable Display')
+    }
   })
 
   it('右留白走实测链路:CSS 变量兜底定义 + TopRightControls ResizeObserver 发布', () => {
@@ -202,5 +247,16 @@ describe('MainWindow 布局不变量', () => {
     expect(MAIN_WINDOW).toContain(
       "sidebarCollapsed && 'pl-[var(--edge-frame-width)] pb-[var(--edge-frame-width)]'"
     )
+  })
+
+  it('侧栏开关双控位:展开=轨顶收起槽,收起=左上 pill(交叉淡变)', () => {
+    // 展开态的收起开关在机柜轨顶槽(非页签),MainWindow 注入 onCollapse
+    expect(ACTIVITY_RAIL).toContain('onCollapse')
+    expect(MAIN_WINDOW).toContain('onCollapse')
+    // pill 悬停不联动点亮内框(反馈只留在 pill 自身),globals 只保留 edge-hit 通电链路
+    expect(CSS).not.toContain('.edge-pill')
+    // 展开态 pill 淡出并退出交互/Tab 序(同一开关在窗口左上角变形,不重复出现)
+    expect(MAIN_WINDOW).toContain('!sidebarCollapsed && \'opacity-0 pointer-events-none\'')
+    expect(MAIN_WINDOW).toContain('tabIndex={sidebarCollapsed ? 0 : -1}')
   })
 })

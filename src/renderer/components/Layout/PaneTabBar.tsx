@@ -4,8 +4,56 @@ import { useTranslation } from 'react-i18next'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import { setDraggingSessionId as setGlobalDraggingId } from './SplitPaneContainer'
+import { harnessKindFromTags, type HarnessAgentKind } from '@shared/harness'
+import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
 import type { PaneLeaf } from '@shared/types'
 import { TOPBAR_HEIGHT, TOP_LEFT_RESERVE } from './topbar-metrics'
+
+// codex/claude 品牌标资产 —— 与 ActivityRail 左轨同源（assets/agent-icons/*.png），
+// mask 取资产 alpha 作剪影、bg-current 随页签文字色着色（空闲 dim / 激活亮）
+const codexMarkIcon = new URL('../../assets/agent-icons/codex.png', import.meta.url).href
+const claudeMarkIcon = new URL('../../assets/agent-icons/claude.png', import.meta.url).href
+
+/**
+ * harness 会话页签的品牌小标 —— 页签名左侧 13px 标识启动来源面板：
+ * dsh 鲸鱼（currentColor 线稿）/ codex 花朵・claude 太阳花（mask 剪影）。
+ * 悬停 tooltip 显示来源面板名（nav.dsh / nav.codex / nav.claude）。
+ */
+const HarnessKindMark: React.FC<{ kind: HarnessAgentKind | null }> = ({ kind }) => {
+  const { t } = useTranslation()
+  if (!kind) return null
+  if (kind === 'dsh') {
+    return (
+      <span
+        aria-hidden
+        data-harness-mark={kind}
+        title={t(`nav.${kind}`)}
+        className="w-[13px] h-[13px] inline-flex flex-shrink-0"
+      >
+        <DeepSeekWhaleIcon className="w-full h-full" />
+      </span>
+    )
+  }
+  const src = kind === 'codex' ? codexMarkIcon : claudeMarkIcon
+  return (
+    <span
+      aria-hidden
+      data-harness-mark={kind}
+      title={t(`nav.${kind}`)}
+      className="w-[13px] h-[13px] inline-flex flex-shrink-0 bg-current"
+      style={{
+        maskImage: `url(${src})`,
+        WebkitMaskImage: `url(${src})`,
+        maskSize: 'contain',
+        WebkitMaskSize: 'contain',
+        maskPosition: 'center',
+        WebkitMaskPosition: 'center',
+        maskRepeat: 'no-repeat',
+        WebkitMaskRepeat: 'no-repeat'
+      }}
+    />
+  )
+}
 
 interface PaneTabBarProps {
   pane: PaneLeaf
@@ -525,6 +573,8 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
               dragOverIndex === index && draggingSessionId !== session.id && 'border-l-2 border-l-[var(--amber)]'
             )}
           >
+            {/* harness 启动来源标识 —— tags 带 <kind>:<id> 的瞬态会话在名称左侧亮品牌小标 */}
+            <HarnessKindMark kind={harnessKindFromTags(session.config.tags)} />
             <span className="text-xs truncate max-w-[150px]">{getNameWithIndex(session)}</span>
             {session.lockedByMcp && (
               <span

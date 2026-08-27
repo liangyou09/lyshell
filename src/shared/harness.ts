@@ -79,6 +79,23 @@ export interface HarnessRepo {
 }
 
 /**
+ * 判定 env key 是否携带敏感值(API key / token 类)—— 命中的行在变量组编辑器里
+ * 值默认打码(· 点阵),点眼睛按钮才明文展示。按 key 名后缀判定:
+ * OPENAI_API_KEY / ANTHROPIC_AUTH_TOKEN / DEEPSEEK_API_KEY 命中,
+ * OPENAI_BASE_URL / CLAUDE_CONFIG_DIR 这类非敏感配置不命中。
+ */
+export const isSecretEnvKey = (key: string): boolean => {
+  const k = key.trim().toUpperCase()
+  if (!k) return false
+  return (
+    k === 'KEY' || k === 'TOKEN' || k === 'SECRET' ||
+    k.endsWith('_KEY') || k.endsWith('_TOKEN') || k.endsWith('_SECRET') ||
+    k.endsWith('_PASSWD') || k.endsWith('_PASSWORD') || k.endsWith('_CREDENTIAL') ||
+    k.includes('API_KEY')
+  )
+}
+
+/**
  * 渲染层面板配置 —— 每个 kind 一份。i18nPrefix 对应 locales 里的顶层 key（`dsh`/`codex`/`claude`），
  * 面板统一用 `t(`${prefix}.xxx`)` 取文案。dependencies 是检测并展示的二进制名（PATH 扫描）。
  */
@@ -95,6 +112,22 @@ export interface HarnessAgentView {
   hasWorkspaceNote: boolean
   /** 是否提供「跳过权限确认」开关（仅 claude，对应 --dangerously-skip-permissions） */
   hasSkipPermissions: boolean
+}
+
+/**
+ * 从会话 tags 解析 harness 启动来源 —— 主进程 spawnLocalCommandSession 给三类工作区的
+ * 瞬态会话打 `<kind>:<workspaceId>` 标签（通用 Agent 走 `agent:<id>`），渲染层据此在
+ * 终端页签名左侧标识 dsh / codex / claude 品牌。只认 `<kind>:` 前缀，与主进程的打标
+ * 约定严格一致 —— 用户自建的裸 `codex` / `claude` 等纯标签不命中。非 harness 会话返回 null。
+ */
+export function harnessKindFromTags(tags: string[] | undefined | null): HarnessAgentKind | null {
+  if (!tags) return null
+  for (const tag of tags) {
+    for (const kind of HARNESS_AGENT_KINDS) {
+      if (tag.startsWith(`${kind}:`)) return kind
+    }
+  }
+  return null
 }
 
 export const HARNESS_AGENT_VIEWS: Record<HarnessAgentKind, HarnessAgentView> = {

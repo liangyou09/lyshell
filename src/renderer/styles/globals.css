@@ -232,7 +232,8 @@ body {
 /* 侧栏收起时的 L 形内框 -- 单元素画整框:左+下两条等宽线(宽读 --edge-frame-width),
    线色与第一行页签条(bg-rack)一致,框线读作机架材质的延续而非终端内容;
    左下角 8px 圆角贴住窗口自身圆角连续拐弯,把左/下两边包成一体。
-   命中条(.edge-hit,画在终端让出的槽位里的透明条)悬停时整框通电(amber)。 */
+   命中条(.edge-hit,画在终端让出的槽位里的透明条)悬停时整框通电(amber)。
+   左上展开 pill 不联动点亮内框 -- 悬停反馈只留在 pill 自身(amber 边框/图标/辉光)。 */
 .edge-frame {
   border-left: var(--edge-frame-width) solid var(--bg-rack);
   border-bottom: var(--edge-frame-width) solid var(--bg-rack);

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { TOPBAR_HEIGHT } from './topbar-metrics'
 // 内置品牌图标:Vite new URL 模式取打包后资产 URL(免 *.png 模块声明)
 const claudeIcon = new URL('../../assets/agent-icons/claude.png', import.meta.url).href
 const codexIcon = new URL('../../assets/agent-icons/codex.png', import.meta.url).href
@@ -282,12 +283,27 @@ const AgentsPanel: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg-base)] min-w-0">
-      {/* 头条:AGENTS · 计数 + 添加 */}
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--rule)] flex-shrink-0">
-        <span className="font-semibold tracking-[.18em] text-[12px] text-[var(--text-rack)] select-none">
-          {t('agents.title')}
-          <span className="text-[var(--text-rack-dim)] mx-1.5 font-normal">·</span>
-          <span className="text-[var(--text-rack)] font-medium tabular-nums">{agents.length}</span>
+      {/* 头条:AGENTS · 计数 + 添加 -- 行高对齐终端第一行(TOPBAR_HEIGHT),与 SessionsPanel 头行同高 */}
+      <div
+        className="flex items-center justify-between px-3 border-b border-[var(--rule)] flex-shrink-0"
+        style={{ height: TOPBAR_HEIGHT }}
+      >
+        {/* 铭牌与 SessionsPanel 同系统(设备徽章):标签走系统 UI 字体做「厂牌丝印」。
+            计数是徽章的「型号后缀」(如 IBM x3650 M4)——同字体、小一档字号(12/16)、
+            降一档字重 + mute,读作 Agent 3 一个词 */}
+        <span className="flex items-baseline gap-1.5 select-none">
+          <span
+            className="font-bold tracking-[-0.01em] text-[16px] text-[var(--text-rack)]"
+            style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
+          >
+            {t('agents.title')}
+          </span>
+          <span
+            className="font-semibold text-[12px] text-[var(--text-rack-mute)] tabular-nums"
+            style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
+          >
+            {agents.length}
+          </span>
         </span>
         <button
           onClick={handleAdd}
