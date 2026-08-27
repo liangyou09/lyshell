@@ -32,10 +32,10 @@ const makePane = (sessions: string[]): PaneLeaf => ({
   activeSessionId: sessions[0] ?? null
 })
 
-const makeSession = (id: string, name: string) => ({
+const makeSession = (id: string, name: string, tags?: string[]) => ({
   id,
-  // 渲染只读 name;完整 SessionConfig 字段(terminal/tags/时间戳等)与本测试无关
-  config: { id, name, type: 'ssh' } as unknown as SessionConfig,
+  // 渲染只读 name 与 tags(页签品牌来源标);其余 SessionConfig 字段与本测试无关
+  config: { id, name, type: 'ssh', tags } as unknown as SessionConfig,
   status: ConnectionStatus.CONNECTED
 })
 
@@ -97,6 +97,31 @@ describe('PaneTabBar 顶排页签条(渲染断言)', () => {
     const webTab = container.querySelector('[data-tab-id="__dsh_web__"]') as HTMLElement
     expect(mcpTab.className).toContain('win-no-drag')
     expect(webTab.className).toContain('win-no-drag')
+  })
+
+  // harness 工作区启动的瞬态会话 tags 带 <kind>:<id>(handlers.ts 的 spawnLocalCommandSession),
+  // 页签名左侧据此亮品牌来源标;普通会话、通用 Agent(agent:<id>)与用户自建的裸 kind 名标签不亮
+  it('harness 会话页签亮品牌来源标(codex/claude/dsh),普通、agent: 与裸 kind 名标签不亮', () => {
+    useSessionStore.setState({
+      sessions: [
+        makeSession('s1', 'ws', ['codex:ws-1']),
+        makeSession('s2', 'ws', ['claude:ws-2']),
+        makeSession('s3', 'ws', ['dsh:ws-3']),
+        makeSession('s4', 'plain'),
+        makeSession('s5', 'agent', ['agent:a-1']),
+        makeSession('s6', 'bare', ['codex'])
+      ]
+    })
+    const { container } = render(<PaneTabBar pane={makePane(['s1', 's2', 's3', 's4', 's5', 's6'])} isTop />)
+    const markOf = (id: string) =>
+      container.querySelector(`[data-tab-id="${id}"] [data-harness-mark]`)
+    expect(markOf('s1')?.getAttribute('data-harness-mark')).toBe('codex')
+    expect(markOf('s2')?.getAttribute('data-harness-mark')).toBe('claude')
+    expect(markOf('s3')?.getAttribute('data-harness-mark')).toBe('dsh')
+    expect(markOf('s4')).toBeNull()
+    expect(markOf('s5')).toBeNull()
+    // 只认 <kind>: 前缀(主进程打标约定)—— 用户自建的裸 "codex" 纯标签不命中品牌标
+    expect(markOf('s6')).toBeNull()
   })
 
   // web 插槽存 pane.sessions 原始坐标，渲染时换算成"过滤隐藏页签后的可见索引"。
