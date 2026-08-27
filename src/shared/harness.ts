@@ -69,6 +69,22 @@ export interface HarnessAgentView {
   hasWeb: boolean                  // 是否有 Web UI 入口（仅 dsh）
 }
 
+/**
+ * 从会话 tags 解析 harness 启动来源 —— 主进程 spawnLocalCommandSession 给三类工作区的
+ * 瞬态会话打 `<kind>:<workspaceId>` 标签（通用 Agent 走 `agent:<id>`），渲染层据此在
+ * 终端页签名左侧标识 dsh / codex / claude 品牌。只认 `<kind>:` 前缀，与主进程的打标
+ * 约定严格一致 —— 用户自建的裸 `codex` / `claude` 等纯标签不命中。非 harness 会话返回 null。
+ */
+export function harnessKindFromTags(tags: string[] | undefined | null): HarnessAgentKind | null {
+  if (!tags) return null
+  for (const tag of tags) {
+    for (const kind of HARNESS_AGENT_KINDS) {
+      if (tag.startsWith(`${kind}:`)) return kind
+    }
+  }
+  return null
+}
+
 export const HARNESS_AGENT_VIEWS: Record<HarnessAgentKind, HarnessAgentView> = {
   dsh: {
     kind: 'dsh',
