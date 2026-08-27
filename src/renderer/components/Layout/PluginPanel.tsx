@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { usePluginStore } from '../../stores/plugin-store'
 import { normalizeLifecycle } from '@shared/plugin-types'
 import type { LyShellPluginManifest, PluginLifecycle } from '@shared/plugin-types'
+import { TOPBAR_HEIGHT } from './topbar-metrics'
 
 /** 安装来源(dev=文件夹/file=本地 zip/url=URL 下载)。决定走 installDev 还是 installZip。 */
 type PickedSource = 'dev' | 'file' | 'url'
@@ -164,13 +165,25 @@ const PluginPanel: React.FC = () => {
 
   return (
     <div
-      className="w-full h-full flex flex-col bg-[var(--bg-base)] p-3 space-y-2"
+      className="w-full h-full flex flex-col bg-[var(--bg-base)]"
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
-      {/* 标题 + 三种安装入口(dev 文件夹 / 本地 zip / URL) */}
-      <div className="flex flex-wrap items-center justify-between gap-1">
-        <span className="text-[12px] [font-family:inherit] text-[var(--text-rack)]">{t('plugin.title')}</span>
-        <div className="flex items-center gap-1">
+      {/* 头条：插件铭牌 + 三种安装入口(dev 文件夹 / 本地 zip / URL) ——
+          与 SessionsPanel/AgentsPanel/HarnessPanel 头行同族(设备徽章系统):
+          行高对齐终端第一行(TOPBAR_HEIGHT)、满幅 border-b 发丝线、
+          铭牌走系统 UI 字体做「厂牌丝印」,hinting 完整任何字号都锐利。
+          铭牌可截断让位，安装入口 chips 固定不折行。 */}
+      <div
+        className="flex items-center justify-between gap-1 px-3 border-b border-[var(--rule)] flex-shrink-0"
+        style={{ height: TOPBAR_HEIGHT }}
+      >
+        <span
+          className="flex-1 min-w-0 truncate font-bold tracking-[-0.01em] text-[16px] text-[var(--text-rack)] select-none"
+          style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
+        >
+          {t('plugin.title')}
+        </span>
+        <div className="flex items-center gap-1 flex-shrink-0">
           <button
             onClick={handlePickDev}
             disabled={busy}
@@ -194,6 +207,9 @@ const PluginPanel: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* 内容笼：p-3 + space-y-2 自根容器下移到这层，头条得以满幅贴顶（与 SessionsPanel 同构） */}
+      <div className="flex-1 min-h-0 flex flex-col p-3 space-y-2">
 
       {/* URL 输入行 */}
       {showUrlInput && (
@@ -370,6 +386,7 @@ const PluginPanel: React.FC = () => {
           ))}
         </div>
       )}
+      </div>
     </div>
   )
 }

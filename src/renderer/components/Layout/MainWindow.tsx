@@ -7,7 +7,8 @@ import AgentsPanel from './AgentsPanel'
 import SplitPaneContainer from './SplitPaneContainer'
 import FloatWindow from '../FloatWindow/FloatWindow'
 import TopRightControls from './TopRightControls'
-import { TOPBAR_HEIGHT, TOP_LEFT_RESERVE, SIDEBAR_DIVIDER_WIDTH } from './topbar-metrics'
+import { TOPBAR_HEIGHT, TOP_LEFT_RESERVE, SIDEBAR_DIVIDER_WIDTH, SIDEBAR_PILL_HEIGHT } from './topbar-metrics'
+import { startAllHarnessDetects } from './harness-detect'
 import PluginPanel from './PluginPanel'
 import HarnessPanel from './HarnessPanel'
 import SettingsPanel from './SettingsPanel'
@@ -85,6 +86,12 @@ const MainWindow: React.FC = () => {
   useEffect(() => {
     if (typeof localStorage === 'undefined') return
     localStorage.removeItem('lyshell.recents.v1')
+  }, [])
+
+  // 启动预热 dsh/codex/claude 依赖检测(各一次,并行):结果进应用级缓存,
+  // 之后切页签直接读缓存,不再重复打检测 IPC(见 harness-detect.ts)
+  useEffect(() => {
+    startAllHarnessDetects()
   }, [])
 
   // 加载会话列表
@@ -492,7 +499,7 @@ const MainWindow: React.FC = () => {
       >
         {/* 内层固定宽:动画期间内容不被压缩(squish),只被左缘裁剪 */}
         <div className="flex h-full" style={{ width: leftColumnWidth }}>
-          <ActivityRail active={activeNav} onChange={handleNavChange} liveCount={liveCount} />
+          <ActivityRail active={activeNav} onChange={handleNavChange} liveCount={liveCount} onCollapse={() => setSidebarCollapsed(true)} />
           <div style={{ width: `${sidebarWidth}px` }} className="flex-shrink-0 min-w-0 h-full">
             {activeNav === 'sessions' && (
               <SessionsPanel
@@ -550,29 +557,46 @@ const MainWindow: React.FC = () => {
             <SplitPaneContainer />
           </div>
 
-          {/* 左上侧栏开关 pill(Edge 式) -- 悬浮于第一行页签条左端,始终可见;
-              侧栏展开时随终端列右移自动贴到面板右缘。页签条侧的留白见 TOP_LEFT_RESERVE */}
+          {/* 左上侧栏展开控位(ghost,无按钮形) -- 仅收起态可见:静息 chevron 走
+              mute(与轨顶收起槽同档),悬停整块托起(bg-elev)+ chevron 提亮到 data,点击展开;展开态的收起开关
+              在机柜轨顶槽(ActivityRail onCollapse)。第一行其余区域是窗口拖拽区,
+              收不到 click,故命中区收敛在这块 win-no-drag 条带里(TOP_LEFT_RESERVE 宽)。
+              淡出时 strip 整体 pointer-events-none,这片留白还给第一行窗口拖拽区。
+              32×36 命中区恰好齐平 36px 的第一行(SIDEBAR_PILL_HEIGHT = TOPBAR_HEIGHT);
+              顶左角 8px 随窗口圆角收圆(镜像 edge-frame 左下角)。 */}
           <div
-            className="win-no-drag absolute top-0 left-0 z-40 flex items-center pl-[4px] bg-[var(--bg-rack)] select-none"
-            style={{ height: TOPBAR_HEIGHT, width: TOP_LEFT_RESERVE }}
+            className={cn(
+              'win-no-drag absolute top-0 left-0 z-40 flex items-center bg-[var(--bg-rack)] select-none',
+              'transition-opacity duration-150 ease-out',
+              !sidebarCollapsed && 'opacity-0 pointer-events-none'
+            )}
+            style={{ height: SIDEBAR_PILL_HEIGHT, width: TOP_LEFT_RESERVE }}
+            aria-hidden={!sidebarCollapsed}
           >
-            <div
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              className="w-[24px] h-[24px] bg-[var(--bg-slot)] flex items-center justify-center rounded-[2px] hover:bg-[var(--bg-elev)] transition-colors cursor-pointer group"
-              title={sidebarCollapsed ? t('settings.expandSidebar') : t('settings.collapseSidebar')}
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed(false)}
+              tabIndex={sidebarCollapsed ? 0 : -1}
+              title={t('settings.expandSidebar')}
+              aria-label={t('settings.expandSidebar')}
+              className={cn(
+                'w-full h-full rounded-[8px_2px_2px_2px]',
+                'flex items-center justify-center cursor-pointer group',
+                'transition-[background-color] duration-150',
+                // 无按钮形:无边框无底色,悬停整块托起 + chevron 提亮,不点亮边缘
+                'hover:bg-[var(--bg-elev)]',
+                'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--amber)]'
+              )}
             >
-              <svg width="14" height="11" viewBox="0 0 14 11" fill="none"
-                className="text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)] transition-colors">
-                {/* 窗框 */}
-                <rect x="0.5" y="0.5" width="13" height="10" stroke="currentColor" strokeWidth="1" />
-                {/* 左侧条：开时实填，关时虚线 */}
-                {sidebarCollapsed ? (
-                  <line x1="4.5" y1="0.5" x2="4.5" y2="10.5" stroke="currentColor" strokeWidth="1" strokeDasharray="1.5 1.5" />
-                ) : (
-                  <rect x="0.5" y="0.5" width="4" height="10" fill="currentColor" />
-                )}
+              {/* 单层 » 余痕 -- Edge 收起侧栏后的展开惯例,指向左列滑入方向 */}
+              <svg
+                width="18" height="18" viewBox="0 0 16 16" fill="none"
+                stroke="currentColor" strokeWidth="1.6" strokeLinecap="square" strokeLinejoin="miter"
+                className="text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack-data)] group-focus-visible:text-[var(--text-rack-data)] transition-colors"
+              >
+                <path d="M6 4.5 L10.5 8 L6 11.5" />
               </svg>
-            </div>
+            </button>
           </div>
 
           {/* 侧栏收起时的 L 形内框 -- 左+下两条等宽线(--edge-frame-width),左下角随窗口圆角(8px)连续拐弯

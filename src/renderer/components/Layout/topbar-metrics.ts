@@ -9,10 +9,15 @@
  */
 
 /** 第一行高度 -- 页签条(含空态条)/pill/控制簇浮层/会话浮窗挂载点共用 */
-export const TOPBAR_HEIGHT = 28
+export const TOPBAR_HEIGHT = 36
 
-/** 左上侧栏开关 pill 预留宽(pl 4 + 按钮 24 + 右隙 4) -- MainWindow 浮层挂载 / PaneTabBar 左留白共用 */
+/** 左上侧栏开关 pill 预留宽 -- MainWindow 浮层挂载 / PaneTabBar 左留白共用 */
 export const TOP_LEFT_RESERVE = 32
+
+/** 收起态展开 pill 的高度 -- 与 TOPBAR_HEIGHT 同值:32×36 方块恰好填满第一行左端,
+ *  不探进终端画布;顶左角按窗口圆角 8px 收圆(镜像 edge-frame 左下角的做法)。
+ *  刻意保留独立常量而非直接引用:行高与 pill 高是两个语义,允许再次分叉 */
+export const SIDEBAR_PILL_HEIGHT = 36
 
 /** 右上控制簇的右留白不在此定义 -- 控制簇宽度随 chip 文案(语言/审计条数)伸缩,
  *  由 TopRightControls 实测发布到 CSS 变量 --top-right-reserve(globals.css :root

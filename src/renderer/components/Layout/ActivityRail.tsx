@@ -2,6 +2,7 @@ import React from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
+import { TOPBAR_HEIGHT } from './topbar-metrics'
 
 /**
  * 左侧机柜竖版页签轨 -- 把"会话 / Agent / 插件"三权并立成等高的机柜卡槽。
@@ -9,6 +10,10 @@ import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
  * 视觉语言沿用 active SessionSlot:激活槽用 amber 左边条 + bg-slot 填充 + amber 图标,
  * 像"通电的 1U 卡片";槽间用 rule-soft hairline + inset 凹陷阴影做卡笼分隔。
  * 这是本组件的 signature -- 导航本身读作机柜插卡,而非通用图标条。
+ *
+ * 轨顶第一槽是左列收起控位(非页签):与收起态终端列左上的展开 pill 构成同一开关的
+ * 两个形态 -- 开关永远停在窗口左上角,展开时是本槽,收起时是 pill,150ms 交叉淡变。
+ * 槽高读 TOPBAR_HEIGHT,与终端第一行页签条齐平。
  */
 export type NavTab = 'sessions' | 'agents' | 'dsh' | 'codex' | 'claude' | 'plugins' | 'settings'
 
@@ -85,6 +90,15 @@ const IconPlugins: React.FC = () => (
   </svg>
 )
 
+/** 收起控位 = 双层 « 指向左列滑出方向(与收起态 pill 的单层 » 成对:« 收 / » 展)。
+ *  双层的份量对齐相邻的机架/机器人头/齿轮图标;square cap 同轨上直线图标语言。 */
+const IconCollapseRail: React.FC = () => (
+  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" strokeLinejoin="miter">
+    <path d="M10.5 5.5 L5.5 10 L10.5 14.5" />
+    <path d="M15.5 5.5 L10.5 10 L15.5 14.5" />
+  </svg>
+)
+
 /** 设置 = 齿轮(工具位,轨底独立槽)。
  *  齿轮是曲线形态,round cap/join 更自然,故不随其余直线图标用 square;
  *  24 viewBox 缩小到 20 渲染,strokeWidth 取 1.7 使有效线宽对齐其余图标的 1.4。 */
@@ -113,6 +127,8 @@ const TAB_ICON: Record<NavTab, React.FC> = {
 interface ActivityRailProps {
   active: NavTab
   onChange: (tab: NavTab) => void
+  /** 收起左列 -- 轨顶收起控位点击;收起后由终端列左上的展开 pill 接棒 */
+  onCollapse: () => void
   /** 在线会话数 -- sessions 槽位显示 live LED */
   liveCount?: number
 }
@@ -120,6 +136,7 @@ interface ActivityRailProps {
 const ActivityRail: React.FC<ActivityRailProps> = ({
   active,
   onChange,
+  onCollapse,
   liveCount = 0,
 }) => {
   const { t } = useTranslation()
@@ -139,11 +156,43 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
 
   return (
     <div
-      className="flex flex-col items-stretch h-full flex-shrink-0 bg-[var(--bg-base)] border-r border-[var(--rule)] select-none"
+      className="flex flex-col items-stretch h-full flex-shrink-0 bg-[var(--bg-base)] select-none"
       style={{ width: RAIL_WIDTH }}
-      role="tablist"
-      aria-orientation="vertical"
     >
+      {/* 轨顶收起控位 -- 左列展开时的收起开关(收起态由终端列左上 ghost 控位接棒,见 MainWindow)。
+          非页签:无 role=tab/激活态。槽高对齐终端第一行(TOPBAR_HEIGHT),底部 rule 线与
+          面板头条的 border-b 同色同 y -- 它是横贯窗口的"第一行底线"(收起槽 → 面板头条 →
+          页签条连成一条),不是收起槽与内容页签的槽位分隔;第一行内部(右侧)不画竖线,
+          整行读作无分割的一条横带,下方内容页签保持 44 高不变。
+          ghost 语言与收起态 pill 同源:静息线走 mute(与面板头条文字同档,
+          第一行的读数亮度),悬停 bg-rack 托起(轨槽的一步抬升,对应 pill 的
+          bg-elev)+ chevron 提亮到 data */}
+      <button
+        type="button"
+        onClick={onCollapse}
+        title={t('settings.collapseSidebar')}
+        aria-label={t('settings.collapseSidebar')}
+        style={{ height: TOPBAR_HEIGHT }}
+        className={cn(
+          'relative flex items-center justify-center transition-colors group',
+          'border-b border-[var(--rule)]',
+          'hover:bg-[var(--bg-rack)]',
+          'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--amber)]'
+        )}
+      >
+        <span className="text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack-data)] group-focus-visible:text-[var(--text-rack-data)] transition-colors">
+          <IconCollapseRail />
+        </span>
+      </button>
+
+      {/* 页签笼 -- 机柜轨与面板的竖分隔线(border-r)画在这里而不是轨容器上:
+          收起槽所在的窗口第一行不画竖线,收起槽 + 面板头条读作一条连续横带,
+          竖线从第一行以下才开始。tablist 也落在这层:笼里全是真页签,收起控件不混入 */}
+      <div
+        className="flex flex-col flex-1 border-r border-[var(--rule)]"
+        role="tablist"
+        aria-orientation="vertical"
+      >
       {TABS.map((tab, i) => {
         const isActive = active === tab
         const Icon = TAB_ICON[tab]
@@ -238,6 +287,7 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
           <IconSettings />
         </span>
       </button>
+      </div>
     </div>
   )
 }
