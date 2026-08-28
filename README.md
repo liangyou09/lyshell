@@ -8,11 +8,11 @@
 
 # 💻 LyShell
 
-> 🔌 **Your terminal, now AI's terminal too.** LyShell is a Windows terminal with a built-in MCP server — letting Claude Code and other AI clients drive your SSH / Telnet / serial / local PTY sessions directly. Plus DeepSeek Harness workspaces (TUI + embedded Web UI), AI Agent launcher, plugin system, and Python scripting.
+> 🔌 **Your terminal, now AI's terminal too.** LyShell is a Windows terminal with a built-in MCP server — letting Claude Code and other AI clients drive your SSH / Telnet / serial / local PTY sessions directly. Plus AI Harness workspaces with git-worktree isolation (TUI + embedded Web UI), in-app web tabs, AI Agent launcher, plugin system, and Python scripting.
 
 **English** | [简体中文](README.zh.md)
 
-[✨ Highlights](#-highlights) · [🐋 DeepSeek Harness](#-deepseek-harness) · [🔗 MCP](#-mcp-integration) · [🤖 AI Agents](#-ai-agents) · [🧩 Plugins](#-plugin-system--python-scripting) · [🚀 Quick Start](#-quick-start) · [❓ FAQ](#-faq)
+[✨ Highlights](#-highlights) · [🐋 DeepSeek Harness](#-deepseek-harness) · [🌐 Web Tabs](#-web-tabs) · [🔗 MCP](#-mcp-integration) · [🤖 AI Agents](#-ai-agents) · [🧩 Plugins](#-plugin-system--python-scripting) · [🚀 Quick Start](#-quick-start) · [❓ FAQ](#-faq)
 
 ---
 
@@ -23,6 +23,7 @@
 | 🔗 **MCP Server** — Expose your terminals to Claude Code and other AI clients, with per-session authorization and audit log | 🤖 **Agent Launcher** — Run Claude Code, Aider, Copilot CLI, or any custom CLI in a clean transient terminal |
 | 🧩 **Plugin System** — Extend with Python or Node.js plugins, each running under granular permissions | 🐍 **Python Engine** — Script terminal automation through a built-in `LyShell` API |
 | 🐋 **DeepSeek Harness** — Manage workspaces with variable sets & model presets, launch TUI and embedded Web UI side by side | 🔐 **Embedded Web UI** — Run `dsh web` in an in-app `<webview>` tab, loopback-locked and URL-validated |
+| 🌳 **Worktree isolation** — Launch each Harness workspace in its own git worktree, so multiple agents on one repo never stomp each other | 🌐 **Web tabs** — Open any URL as an in-app tab, with recent-access history and autocomplete |
 
 ---
 
@@ -98,7 +99,7 @@ Agent-agnostic terminal — no lock-in to any AI tool. Launch any CLI agent and 
 | 🤝 Aider | `aider` |
 | 🐙 Copilot CLI | `gh copilot` |
 
-**First-class Harness agents** — `dsh`, `codex`, and `claude` are first-class in the Harness panel: each gets its own left-rail tab, a dedicated workspace list, dependency detection, and per-workspace model & environment variables (model passed as `--model`, with `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` defaults).
+**First-class Harness agents** — `dsh`, `codex`, and `claude` are first-class in the Harness panel: each gets its own left-rail tab, a dedicated workspace list, dependency detection, and per-workspace model & environment variables (model passed as `--model`, with `OPENAI_API_KEY` / `ANTHROPIC_AUTH_TOKEN` defaults). Claude workspaces add an optional **skip-permissions** switch (launches with `--dangerously-skip-permissions`), and any workspace can opt into **worktree isolation** — see [DeepSeek Harness](#-deepseek-harness).
 
 **Custom agents**: Any CLI tool can be registered — name, command, icon, working directory, env vars. Sessions are transient: close the tab, it's gone.
 
@@ -116,16 +117,27 @@ A first-class home for **DeepSeek Harness** workspaces. Manage every workspace i
 |---|---|
 | 🗂️ **Workspace panel** — create, edit, delete | 🔧 **Variable sets** — pre-configure env sets, switch the enabled one |
 | 🎛️ **Model presets** — save & switch models per workspace | 🖥️ **TUI launch** — `dsh-tui` in a native terminal tab |
+| 🌳 **Worktree isolation** — dedicated git worktree per workspace | 🏷️ **Brand badge** — session tabs show which harness launched them |
 
 ### Dependency detection & install
 
-Each Harness tab auto-detects its CLI dependencies on open — `dsh` + `dsh-tui` for DeepSeek Harness, `codex` / `claude` for the others — by scanning PATH. When something is missing, the panel shows which dependency is absent, its one-line install command, and the source-repo link — it never installs anything for you. A **Re-detect** button re-scans on demand, and PATH is read live from the registry, so a freshly installed CLI is picked up without restarting LyShell.
+CLI dependencies — `dsh` + `dsh-tui` for DeepSeek Harness, `codex` / `claude` for the others — are detected by scanning PATH **once at app startup** (all three agents in parallel) and cached: opening a Harness tab reads the cached result instantly, no repeated scans. When something is missing, the panel shows which dependency is absent, its one-line install command, and the source-repo link — it never installs anything for you. A **Re-detect** button forces a fresh scan, and PATH is read live from the registry, so a freshly installed CLI is picked up without restarting LyShell.
 
 ### Environment tab: pre-configure, then switch
 
 The panel splits into **Workspaces** and **Environment** tabs. In the **Environment** tab, pre-configure named **variable sets** — collections of `KEY=VALUE` (`DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DSH_HOME`, …). At most one set is **enabled** at a time; click a set to switch to it, or click the always-on **System environment** slot to fall back to LyShell's own process environment.
 
 Each workspace can bind to a specific set, or **follow the enabled set** — pick nothing and it inherits whichever set is currently enabled (or the system environment when none is). Enter secrets once, then switch between environments without touching each workspace.
+
+Secret-looking values (`*_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, …) are **masked as dots** in the profile editor — click the eye toggle to reveal one. For **codex** workspaces, the set's `OPENAI_BASE_URL` is additionally written into `$CODEX_HOME/config.toml` (`[model_providers.*].base_url`) right before launch — the Rust codex CLI ignores the env var. That edit is line-surgical (comments, formatting and other providers preserved verbatim), idempotent, atomic, and the original file is backed up once as `.bak`.
+
+### Worktree isolation
+
+Point multiple agents at the same repository without them stomping each other. Flip a workspace to **worktree** isolation and it launches inside a dedicated git worktree at `<repo>/.lyshell-worktrees/<key>` on branch `lyshell/<key>` — created on first launch, reused ever after, so **uncommitted changes survive restarts**. Deleting the workspace never deletes its worktree.
+
+- **Private (default)** — a readable key is auto-generated (`claude-myapp-x7k2`); each workspace gets its own checkout.
+- **Shared** — set the key explicitly, and every workspace that fills in the same key shares one checkout *and* one branch, even across dsh / codex / claude — they see each other's edits live.
+- The form **previews the exact worktree path** before you save; invalid keys (path separators, ref-hostile characters) are rejected up front.
 
 ### Launch: TUI or Web UI
 
@@ -167,6 +179,16 @@ Drag the Web UI tab to a pane edge to split it into its own pane — the TUI and
 <p align="center">
   <img src="docs/assets/screenshot-deepseek-webui.jpg" alt="Embedded Web UI tab" width="80%">
 </p>
+
+---
+
+## 🌐 Web Tabs
+
+The left-rail **Web** panel gives LyShell a light built-in browser for dashboards and docs. Type a URL (no scheme → `https://` is prepended), press Enter, and it opens as a regular tab in the active split pane — same drag-to-split and tab semantics as the embedded `dsh web` UI, so a dashboard can sit right next to the terminal that feeds it.
+
+- **Open-tabs list** — click to jump to the hosting pane and activate the tab, ✕ to close.
+- **Recent history** — successfully loaded URLs are remembered (30 most recent, deduplicated, persisted locally) and offered as native autocomplete in the input; click to reopen, ✕ to delete a single entry, or clear all.
+- **Safety** — only `http`/`https` URLs pass validation; webview navigation and popups route through a dedicated partition in the main process.
 
 ---
 
@@ -227,7 +249,7 @@ Click a session → `Ctrl+Shift+V` to split vertically → click another session
 - **Download directory** — default `~/Downloads/LyShell/`, optional auto-create server subdirectory for archiving
 
 ### Quick Commands
-Right-click the quick commands bar → **Edit Group** → add commands like `tail -f /var/log/syslog`. Trigger with `Ctrl+F1`–`F12`. Up to 12 commands × 5 groups.
+Quick commands live at the bottom of the session panel — right-click → **Edit Group** → add commands like `tail -f /var/log/syslog`. `Ctrl+F1`–`F12` fires them from anywhere, even with the sidebar collapsed. Up to 12 commands × 5 groups.
 
 ### Session Management
 - 📌 Pin — hover card → click 📌
@@ -239,8 +261,8 @@ Right-click the quick commands bar → **Edit Group** → add commands like `tai
 - Select text → auto-copy · Right-click → paste · Middle-click → search bar
 - `Ctrl+F` → in-terminal search (regex, case-sensitive, cross-tab)
 - Encoding issues → edit session, switch UTF-8 / GBK / GB2312
-- Click `cols × rows` in status bar → clear screen
-- Click buffer count → scroll to bottom; double-click → clear scrollback
+- Browser-style tab bar sits on the first row; the sidebar collapses when you need full width
+- In the sidebar LIVE row, click `cols × rows` → clear screen; click the buffer count → scroll to bottom, double-click → clear scrollback
 
 ---
 
@@ -253,7 +275,7 @@ Right-click the quick commands bar → **Edit Group** → add commands like `tai
 | 🔌 **Serial** | COM port, baud `115200` (9600–921600), 8N1 | Auto-detects ports |
 | 💻 **Local PTY** | cmd.exe / PowerShell | Configurable working directory + env |
 
-**Terminal**: GPU-accelerated rendering, full ANSI + 256 colors. Scrollback up to 100,000 lines. Split panes (horizontal/vertical), drag-to-split. Quick commands bar `Ctrl+F1–F12`. Tab status: 🟢 Connected · 🔴 Error · ⚪ Disconnected · 🔵 New output.
+**Terminal**: GPU-accelerated rendering, full ANSI + 256 colors. Scrollback up to 100,000 lines. Split panes (horizontal/vertical), drag-to-split. Browser-style tab bar on the first row, collapsible sidebar. Global quick commands `Ctrl+F1–F12`. Tab status: 🟢 Connected · 🔴 Error · ⚪ Disconnected · 🔵 New output — plus a harness brand mark (🐋 dsh · 🛠️ codex · 🧠 claude) on tabs launched from a Harness workspace.
 
 ---
 

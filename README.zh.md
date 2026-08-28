@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/LyShell-v1.0.5-0078D4?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/LyShell-v1.0.6-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
@@ -8,11 +8,11 @@
 
 # 💻 LyShell
 
-> 🔌 **你的终端，也是 AI 的终端。** LyShell 是一款内置 MCP 服务端的 Windows 终端 — 让 Claude Code 等 AI 客户端直接操控你的 SSH / Telnet / 串口 / 本地 PTY 会话。还集成了 DeepSeek Harness 工作区（TUI + 内嵌 Web UI）、AI Agent 启动栏、插件系统和 Python 脚本引擎。
+> 🔌 **你的终端，也是 AI 的终端。** LyShell 是一款内置 MCP 服务端的 Windows 终端 — 让 Claude Code 等 AI 客户端直接操控你的 SSH / Telnet / 串口 / 本地 PTY 会话。还集成了 AI Harness 工作区（TUI + 内嵌 Web UI，支持 git worktree 隔离）、通用网页页签、AI Agent 启动栏、插件系统和 Python 脚本引擎。
 
 **简体中文** | [English](README.md)
 
-[✨ 核心亮点](#-核心亮点) · [🐋 DeepSeek Harness](#-deepseek-harness) · [🔗 MCP 集成](#-mcp-集成) · [🤖 AI Agent](#-ai-agent) · [🧩 插件与脚本](#-插件系统--python-脚本) · [🚀 快速上手](#-快速上手) · [❓ 常见问题](#-常见问题)
+[✨ 核心亮点](#-核心亮点) · [🐋 DeepSeek Harness](#-deepseek-harness) · [🌐 网页页签](#-网页页签) · [🔗 MCP 集成](#-mcp-集成) · [🤖 AI Agent](#-ai-agent) · [🧩 插件与脚本](#-插件系统--python-脚本) · [🚀 快速上手](#-快速上手) · [❓ 常见问题](#-常见问题)
 
 ---
 
@@ -23,6 +23,7 @@
 | 🔗 **MCP 服务端** — 将终端暴露给 AI 客户端，会话级授权 + 审计日志 | 🤖 **Agent 启动栏** — 一键启动 Claude Code / Aider / Copilot CLI / 任意自定义 CLI |
 | 🧩 **插件系统** — Python + Node.js 插件，细粒度权限隔离 | 🐍 **Python 引擎** — 内置 `LyShell` API 驱动终端自动化 |
 | 🐋 **DeepSeek Harness** — 变量组 + 模型预设管理工作区，TUI 与内嵌 Web UI 可同框并排 | 🔐 **内嵌 Web UI** — 应用内 `<webview>` 标签页运行 `dsh web`，回环锁定 + URL 校验 |
+| 🌳 **worktree 隔离** — 每个 Harness 工作区在专属 git worktree 中启动，多 agent 指向同一仓库互不踩踏 | 🌐 **网页页签** — 任意 URL 开成应用内页签，带最近访问历史与自动补全 |
 
 ---
 
@@ -98,7 +99,7 @@ LyShell 是**与 Agent 无关的终端** — 不绑定任何特定 AI 工具。�
 | 🤝 Aider | `aider` |
 | 🐙 Copilot CLI | `gh copilot` |
 
-**一等 Harness Agent** — `dsh`、`codex`、`claude` 在 Harness 面板中为一等公民：各自拥有独立左侧标签、专属工作区列表、依赖检测，以及按工作区的模型与环境变量（模型以 `--model` 传入，环境变量默认 `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`）。
+**一等 Harness Agent** — `dsh`、`codex`、`claude` 在 Harness 面板中为一等公民：各自拥有独立左侧标签、专属工作区列表、依赖检测，以及按工作区的模型与环境变量（模型以 `--model` 传入，环境变量默认 `OPENAI_API_KEY` / `ANTHROPIC_AUTH_TOKEN`）。Claude 工作区另有「跳过权限确认」开关（启动时附加 `--dangerously-skip-permissions`），任意工作区还可开启 **worktree 隔离** — 见 [DeepSeek Harness](#-deepseek-harness)。
 
 **自定义 Agent**：任意 CLI 工具都能注册 — 名称、命令、图标、工作目录、环境变量。Agent 会话为**瞬态**，关闭标签即消失，不残留。
 
@@ -116,16 +117,27 @@ LyShell 是**与 Agent 无关的终端** — 不绑定任何特定 AI 工具。�
 |---|---|
 | 🗂️ **工作区面板** — 创建、编辑、删除 | 🔧 **变量组** — 预配置环境变量组，一键切换启用 |
 | 🎛️ **模型预设** — 按工作区保存并切换模型 | 🖥️ **TUI 启动** — 在原生终端标签页运行 `dsh-tui` |
+| 🌳 **worktree 隔离** — 每个工作区一个专属 git worktree | 🏷️ **品牌来源标** — 页签上标明由哪个 harness 启动 |
 
 ### 依赖检测与安装方法
 
-每个 Harness 标签打开时自动检测其 CLI 依赖 — DeepSeek Harness 需 `dsh` + `dsh-tui`，codex / claude 各自单个 — 通过扫描 PATH。缺失时面板会指出缺哪个依赖、给出对应的一行安装命令与源码仓库链接 — 但不会替你安装。**重新检测** 按钮可随时重扫，PATH 从注册表实时读取，新装的 CLI 无需重启 LyShell 即可识别。
+CLI 依赖 — DeepSeek Harness 需 `dsh` + `dsh-tui`，codex / claude 各自单个 — 在**应用启动时统一检测一次**（三个 agent 并行）并缓存：切到 Harness 标签直接读缓存，不重复扫描。缺失时面板会指出缺哪个依赖、给出对应的一行安装命令与源码仓库链接 — 但不会替你安装。**重新检测** 按钮强制重扫，PATH 从注册表实时读取，新装的 CLI 无需重启 LyShell 即可识别。
 
 ### 环境变量标签：先预配置，再切换
 
 面板分为「工作区」与「环境变量」两个标签。在「环境变量」标签里预配置具名的**变量组** — 一组 `KEY=VALUE`（`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`、`DSH_HOME` 等）。同一时刻至多启用一组，点击即可切换；再点已启用的一组可停用，落回常驻的「系统环境变量」。
 
 每个工作区可绑定到特定变量组，也可**跟随已启用的变量组** — 不选则继承当前启用的一组（都未启用时用系统环境变量）。密钥录入一次，切换环境无需逐工作区改动。
+
+敏感值（`*_KEY`、`*_TOKEN`、`*_SECRET`、`*_PASSWORD` 等）在变量组编辑器里**默认打码** — 点眼睛按钮才明文展示。**codex** 工作区启动前，还会把变量组里的 `OPENAI_BASE_URL` 写入 `$CODEX_HOME/config.toml`（`[model_providers.*].base_url`）— Rust 版 codex 不读这个环境变量。该写入为行级手术式编辑（注释、排版与其它 provider 逐字保留）、幂等且原子，首次修改前自动备份 `.bak`。
+
+### worktree 目录隔离
+
+让多个 agent 指向同一个仓库而互不踩踏：把工作区切到 **worktree** 隔离模式，它将在 `<仓库根>/.lyshell-worktrees/<key>` 的专属 git worktree 中、于 `lyshell/<key>` 分支上启动 — 首次启动创建，此后每次复用，**未提交修改跨启动保留**。删除工作区不会动它的 worktree。
+
+- **私有（默认）** — 自动生成可读 key（如 `claude-myapp-x7k2`），每个工作区一份独立检出。
+- **共享** — 显式指定共享名后，填了同一共享名的工作区共用同一份检出与同一分支，跨 dsh / codex / claude 也行 — 彼此实时可见对方的改动。
+- 表单在保存前**预览 worktree 完整路径**；非法 key（路径分隔符、ref 非法字符等）当场拒绝。
 
 ### 启动方式：TUI 或 Web UI
 
@@ -167,6 +179,16 @@ LyShell 是**与 Agent 无关的终端** — 不绑定任何特定 AI 工具。�
 <p align="center">
   <img src="docs/assets/screenshot-deepseek-webui.jpg" alt="内嵌 Web UI 标签页" width="80%">
 </p>
+
+---
+
+## 🌐 网页页签
+
+左侧机柜的 **Web** 面板给 LyShell 装上一个轻量内置浏览器，用来看监控大盘和文档再合适不过。输入完整网址（无 scheme 自动补 `https://`）回车，即以普通页签形式打开在当前活动分屏 — 拖拽拆分、页签语义与 `dsh web` 内嵌 Web UI 完全一致，大盘可以和喂数据的终端同框并排。
+
+- **打开列表** — 点击跳到承载分屏并激活页签，✕ 关闭。
+- **最近访问** — 成功加载过的 URL 会被记住（去重、最近优先、本地持久化、封顶 30 条），在输入框做原生自动补全；点击重开、✕ 删除单条、一键清空。
+- **安全** — 仅放行 `http`/`https` URL；webview 的导航与弹窗由主进程走专属 partition 分流。
 
 ---
 
@@ -227,7 +249,7 @@ Python 路径自动检测系统 PATH，可在设置中配置自定义解释器�
 - **下载目录**：默认 `~/Downloads/LyShell/`，可选"自动创建服务器子目录"归档
 
 ### 快捷命令
-右键快捷命令栏 → **编辑分组** → 添加 `tail -f /var/log/syslog` 等命令。`Ctrl+F1`–`F12` 触发，最多 12 条命令 × 5 组。
+快捷命令位于会话面板底部 — 右键 → **编辑分组** → 添加 `tail -f /var/log/syslog` 等命令。`Ctrl+F1`–`F12` 随处可触发，侧栏收起时同样有效。最多 12 条命令 × 5 组。
 
 ### 会话管理
 - 📌 置顶 — 悬停卡片 → 点击 📌
@@ -239,8 +261,8 @@ Python 路径自动检测系统 PATH，可在设置中配置自定义解释器�
 - 选中文本 → 自动复制 · 右键粘贴 · 鼠标中键 → 搜索栏
 - `Ctrl+F` → 终端内搜索（正则、区分大小写、跨标签）
 - 中文乱码 → 编辑会话，UTF-8 / GBK / GB2312 切换
-- 点击右下角「列 × 行」→ 清屏
-- 点击缓冲行数 → 滚回底部；双击 → 清空回滚
+- 终端页签提顶为浏览器式第一行；侧栏可收起，还你全宽终端
+- 侧栏 LIVE 行中点击「列 × 行」→ 清屏；点击缓冲行数 → 滚回底部，双击 → 清空回滚
 
 ---
 
@@ -253,7 +275,7 @@ Python 路径自动检测系统 PATH，可在设置中配置自定义解释器�
 | 🔌 **串口** | COM 口，波特率 `115200`（9600–921600），8N1 | 自动检测端口 |
 | 💻 **本地 PTY** | cmd.exe / PowerShell | 可配工作目录 + 环境变量 |
 
-**终端**：GPU 加速渲染，完整 ANSI + 256 色。回滚最多 100,000 行。分屏（水平/垂直）、拖拽拆分。快捷命令栏 `Ctrl+F1–F12`。标签状态：🟢 已连接 · 🔴 错误 · ⚪ 未连接 · 🔵 新输出。
+**终端**：GPU 加速渲染，完整 ANSI + 256 色。回滚最多 100,000 行。分屏（水平/垂直）、拖拽拆分。浏览器式页签栏置于第一行，侧栏可收起。全局快捷命令 `Ctrl+F1–F12`。标签状态：🟢 已连接 · 🔴 错误 · ⚪ 未连接 · 🔵 新输出 — 从 Harness 工作区启动的页签还带品牌标（🐋 dsh · 🛠️ codex · 🧠 claude）。
 
 ---
 
