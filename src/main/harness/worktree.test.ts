@@ -3,7 +3,7 @@ import { tmpdir } from 'os'
 import { join, resolve } from 'path'
 import { execFileSync } from 'child_process'
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
-import { ensureWorktree, listWorktreeKeys, sanitizeRefSegment, validateWorktreeKey } from './worktree'
+import { ensureWorktree, listWorktreeKeys, resolveLaunchWorktree, sanitizeRefSegment, validateWorktreeKey, WORKTREE_DIR } from './worktree'
 
 /**
  * git 环境探测：无 git 的环境整组跳过（describe.skipIf），而非红测。
@@ -84,6 +84,129 @@ describe('validateWorktreeKey', () => {
     expect(validateWorktreeKey('a/b').ok).toBe(false)
     expect(validateWorktreeKey('/').ok).toBe(false)
     expect(validateWorktreeKey('a\\b').ok).toBe(false)
+  })
+})
+
+describe.skipIf(!gitAvailable)('resolveLaunchWorktree', () => {
+  /** 固定代号的 generateCode 桩：让「自动生成的 key」可断言 */
+  const fixedCode = () => 'x7k2'
+
+  it('已有共享名：直接复用对应 worktree，不生成也不持久化', async () => {
+    const repo = makeTempRepo()
+    try {
+      const persisted: Array<string | undefined> = []
+      const r = await resolveLaunchWorktree(repo, 'claude', { id: 'ws5', name: 'x', worktreeKey: 'shared-1' }, (k) => { persisted.push(k); return true }, fixedCode)
+      expect(r).toEqual({ ok: true, path: join(repo, WORKTREE_DIR, 'shared-1'), key: 'shared-1', migrated: false })
+      expect(persisted).toEqual([])
+      expect(existsSync(join(repo, WORKTREE_DIR, 'shared-1'))).toBe(true)
+    } finally {
+      rmSync(repo, { recursive: true, force: true })
+    }
+  })
+
+  it('存量工作区：旧 <kind>-<id> worktree 原地改名迁移，未提交修改与分支跟着走', async () => {
+    const repo = makeTempRepo()
+    try {
+      // 预置旧回落形态：legacy worktree 已建 + 脏文件
+      const first = await ensureWorktree(repo, 'claude-ws1')
+      expect(first.ok).toBe(true)
+      writeFileSync(join(repo, WORKTREE_DIR, 'claude-ws1', 'dirty.txt'), 'kept')
+      const persisted: Array<string | undefined> = []
+      const r = await resolveLaunchWorktree(repo, 'claude', { id: 'ws1', name: 'LyShell' }, (k) => { persisted.push(k); return true }, fixedCode)
+      expect(r).toEqual({ ok: true, path: join(repo, WORKTREE_DIR, 'claude-LyShell-x7k2'), key: 'claude-LyShell-x7k2', migrated: true })
+      // 未提交修改原地延续（拿到上次的 worktree）
+      expect(readFileSync(join(repo, WORKTREE_DIR, 'claude-LyShell-x7k2', 'dirty.txt'), 'utf-8')).toBe('kept')
+      // 旧目录不复存在；分支同步改名
+      expect(existsSync(join(repo, WORKTREE_DIR, 'claude-ws1'))).toBe(false)
+      expect(gitSync(['branch', '--list', 'lyshell/claude-LyShell-x7k2'], repo).trim()).toContain('claude-LyShell-x7k2')
+      expect(gitSync(['branch', '--list', 'lyshell/claude-ws1'], repo).trim()).toBe('')
+      expect(persisted).toEqual(['claude-LyShell-x7k2'])
+    } finally {
+      rmSync(repo, { recursive: true, force: true })
+    }
+  })
+
+  it('连续性：迁移/创建后再启动（key 已持久化）复用同一 worktree，未提交修改保留', async () => {
+    const repo = makeTempRepo()
+    try {
+      const ws = { id: 'ws2', name: 'LyShell' }
+      const r1 = await resolveLaunchWorktree(repo, 'claude', ws, () => true, fixedCode)
+      expect(r1.ok).toBe(true)
+      if (!r1.ok) return
+      writeFileSync(join(r1.path, 'dirty.txt'), 'kept')
+      const r2 = await resolveLaunchWorktree(repo, 'claude', { ...ws, worktreeKey: 'claude-LyShell-x7k2' }, () => true, fixedCode)
+      expect(r2).toEqual({ ok: true, path: r1.path, key: 'claude-LyShell-x7k2', migrated: false })
+      expect(readFileSync(join(r1.path, 'dirty.txt'), 'utf-8')).toBe('kept')
+    } finally {
+      rmSync(repo, { recursive: true, force: true })
+    }
+  })
+
+  it('目标位置被占（手放目录）：不迁移不持久化，原样复用旧路径', async () => {
+    const repo = makeTempRepo()
+    try {
+      await ensureWorktree(repo, 'claude-ws3')
+      // 在目标位置预放一个非空普通目录：git worktree move 对已存在目录是「移入其中」
+      // 而非报错（mv 语义），实现须前置守卫避免嵌套错位
+      const occupied = join(repo, WORKTREE_DIR, 'claude-LyShell-x7k2')
+      mkdirSync(occupied, { recursive: true })
+      writeFileSync(join(occupied, 'blocker.txt'), 'x')
+      const persisted: Array<string | undefined> = []
+      const r = await resolveLaunchWorktree(repo, 'claude', { id: 'ws3', name: 'LyShell' }, (k) => { persisted.push(k); return true }, fixedCode)
+      expect(r).toEqual({ ok: true, path: join(repo, WORKTREE_DIR, 'claude-ws3'), key: 'claude-ws3', migrated: false })
+      expect(existsSync(join(repo, WORKTREE_DIR, 'claude-ws3'))).toBe(true)
+      expect(persisted).toEqual([])
+    } finally {
+      rmSync(repo, { recursive: true, force: true })
+    }
+  })
+
+  it('move 失败（旧 worktree 被锁定）：回滚持久化并原样复用旧路径', async () => {
+    const repo = makeTempRepo()
+    try {
+      await ensureWorktree(repo, 'claude-ws8')
+      gitSync(['worktree', 'lock', join(repo, WORKTREE_DIR, 'claude-ws8')], repo)
+      const persisted: Array<string | undefined> = []
+      const r = await resolveLaunchWorktree(repo, 'claude', { id: 'ws8', name: 'LyShell' }, (k) => { persisted.push(k); return true }, fixedCode)
+      expect(r).toEqual({ ok: true, path: join(repo, WORKTREE_DIR, 'claude-ws8'), key: 'claude-ws8', migrated: false })
+      expect(existsSync(join(repo, WORKTREE_DIR, 'claude-ws8'))).toBe(true)
+      // 持久化先写后撤销
+      expect(persisted).toEqual(['claude-LyShell-x7k2', undefined])
+    } finally {
+      rmSync(repo, { recursive: true, force: true })
+    }
+  })
+
+  it('迁移时持久化失败：不动磁盘上的树，继续用旧路径', async () => {
+    const repo = makeTempRepo()
+    try {
+      await ensureWorktree(repo, 'claude-ws6')
+      const r = await resolveLaunchWorktree(repo, 'claude', { id: 'ws6', name: 'LyShell' }, () => false, fixedCode)
+      expect(r).toEqual({ ok: true, path: join(repo, WORKTREE_DIR, 'claude-ws6'), key: 'claude-ws6', migrated: false })
+      expect(existsSync(join(repo, WORKTREE_DIR, 'claude-ws6'))).toBe(true)
+    } finally {
+      rmSync(repo, { recursive: true, force: true })
+    }
+  })
+
+  it('无旧 worktree 且持久化失败：回落稳定私有 key <kind>-<id>（防随机 key 漂移）', async () => {
+    const repo = makeTempRepo()
+    try {
+      const r = await resolveLaunchWorktree(repo, 'claude', { id: 'ws4', name: 'LyShell' }, () => false, fixedCode)
+      expect(r).toEqual({ ok: true, path: join(repo, WORKTREE_DIR, 'claude-ws4'), key: 'claude-ws4', migrated: false })
+    } finally {
+      rmSync(repo, { recursive: true, force: true })
+    }
+  })
+
+  it('非 git 目录 → 明确报错', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lyshell-wt-nogit2-'))
+    try {
+      const r = await resolveLaunchWorktree(dir, 'claude', { id: 'ws7', name: 'x' }, () => true, fixedCode)
+      expect(r.ok).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 

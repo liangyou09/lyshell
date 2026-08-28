@@ -14,7 +14,8 @@ import { dshWebManager } from '../dsh/web'
 import { resolveDshHome } from '../dsh/env'
 import { readSystemPath } from '../env/refresh'
 import { resolveWorkspaceCwd } from '../harness/cwd'
-import { ensureWorktree, listWorktreeKeys, validateWorktreeKey } from '../harness/worktree'
+import { listWorktreeKeys, resolveLaunchWorktree, validateWorktreeKey } from '../harness/worktree'
+import { createTaskSerializer } from '../harness/task-serializer'
 import { detectDependencies } from '../harness/detect'
 import { HARNESS_AGENTS, resolveWorkspaceEnv } from '../harness/config'
 import { migrateInlineEnvToProfiles } from '../harness/migrate-env'
@@ -1812,10 +1813,11 @@ export function registerIPCHandlers(): void {
     return { success: true, id: session.id, status: ConnectionStatus.CONNECTING, config: session.config }
   }
 
-  // worktree key：共享名（worktreeKey）优先 —— 同名工作区跨 kind 共用同一 worktree/分支，
-  // 在同一份检出上协作；缺省私有 <kind>-<id>，各工作区各用各的树。
-  const resolveWorktreeKey = (kind: string, ws: HarnessWorkspace): string =>
-    ws.worktreeKey && ws.worktreeKey.length > 0 ? ws.worktreeKey : `${kind}-${ws.id}`
+  // Harness 工作区启动解析的串行化器（按 <kind>:<workspaceId>）：并发双启动同一工作区会同时
+  // 命中旧 worktree 迁移 —— 后执行的 move 失败后会把前者已持久化的 key 回滚成 undefined，
+  // 甚至返回已被前者迁走的旧路径。锁罩住「锁内重读记录 + resolveLaunchWorktree」全程：
+  // 后来者读到前者刚持久化的 key，自然走复用分支。TUI launch 与 dsh web 共用同一实例。
+  const serializeLaunchResolve = createTaskSerializer()
 
   // 遍历 HARNESS_AGENTS 注册通用通道族：<kind>:detect / <kind>:workspace:list|add|update|delete|launch。
   // 三份实例（dsh/codex/claude）共享同一套逻辑，仅通过 runtime 注入差异点：
@@ -2078,9 +2080,16 @@ export function registerIPCHandlers(): void {
 
         // worktree 隔离：在仓库根下的专属 worktree 中启动（幂等创建/复用，未提交修改跨启动保留，
         // 见 harness/worktree.ts）。放在 env 解析之前——env/prepareModel/launchCommand 均与 cwd 无关。
+        // key 决策与存量迁移在 resolveLaunchWorktree：已有共享名优先；缺省自动生成可读 key 并
+        // 回填持久化；旧 <kind>-<id> 形态的 worktree 原地改名迁移（拿到的仍是上次那棵树）。
         let launchCwd = cwd.path
         if (workspace.isolation === 'worktree') {
-          const wt = await ensureWorktree(cwd.path, resolveWorktreeKey(kind, workspace))
+          const wt = await serializeLaunchResolve(`${kind}:${safeId}`, async () => {
+            // 锁内重读记录：并发的前一次启动可能刚把生成的可读 key 持久化进仓库
+            const fresh = runtime.repository.get(safeId)
+            if (!fresh) return { ok: false as const, error: 'Workspace not found' }
+            return resolveLaunchWorktree(cwd.path, kind, fresh, (key) => runtime.repository.update({ ...fresh, worktreeKey: key }))
+          })
           if (!wt.ok) {
             return { success: false, error: wt.error }
           }
@@ -2187,9 +2196,15 @@ export function registerIPCHandlers(): void {
         const cwd = resolveWorkspaceCwd(workspace.cwd)
         if (!cwd.ok) return { success: false, error: cwd.error }
         cwdPath = cwd.path
-        // worktree 隔离与 TUI 启动同语义：Web 也在专属 worktree 里跑（幂等创建/复用）
+        // worktree 隔离与 TUI 启动同语义：Web 也在专属 worktree 里跑；key 决策与存量迁移
+        // 同 TUI 启动（resolveLaunchWorktree：共享名优先，缺省生成可读 key 并回填持久化），
+        // 且共用同一串行化器 —— TUI 与 Web 同时启动同一工作区也不会撞迁移
         if (workspace.isolation === 'worktree') {
-          const wt = await ensureWorktree(cwd.path, resolveWorktreeKey('dsh', workspace))
+          const wt = await serializeLaunchResolve(`dsh:${workspaceId}`, async () => {
+            const fresh = dshRuntime.repository.get(workspaceId)
+            if (!fresh) return { ok: false as const, error: 'Workspace not found' }
+            return resolveLaunchWorktree(cwd.path, 'dsh', fresh, (key) => dshRuntime.repository.update({ ...fresh, worktreeKey: key }))
+          })
           if (!wt.ok) return { success: false, error: wt.error }
           cwdPath = wt.path
         }

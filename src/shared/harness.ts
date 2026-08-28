@@ -38,10 +38,15 @@ export interface HarnessWorkspace {
    */
   isolation?: 'shared' | 'worktree'
   /**
-   * worktree 共享名：isolation = 'worktree' 时生效。缺省 = 私有 worktree（key 取 <kind>-<id>，
-   * 各工作区各用各的树）；填了则 key 取该名字 —— 同名工作区（跨 dsh/codex/claude 也行）
-   * 共用同一个 .lyshell-worktrees/<共享名> 与同一分支 lyshell/<共享名>，在同一份检出上协作、
-   * 互相看得见改动。同一分支同时只能检出在一处，共用恰恰依赖「同一目录」而非「各自检出」。
+   * worktree 共享名：isolation = 'worktree' 时生效。填了则 key 取该名字 —— 同名工作区
+   * （跨 dsh/codex/claude 也行）共用同一个 .lyshell-worktrees/<共享名> 与同一分支
+   * lyshell/<共享名>，在同一份检出上协作、互相看得见改动。同一分支同时只能检出在一处，
+   * 共用恰恰依赖「同一目录」而非「各自检出」。
+   * 缺省 = 私有 worktree：首次启动自动生成可读 key（<kind>-<工作区名>-<代号>，见
+   * @shared/worktree 的 generateWorktreeKey）并回填持久化，此后固定复用 —— 旧回落形态
+   * <kind>-<id> 的 worktree 会被原地改名迁移（目录 + 分支，未提交修改跟着走），已保存的
+   * 工作区拿到的仍是上次那棵树；迁移被占用等失败则原样复用旧路径、下次再试，落盘失败
+   * 才回落稳定私有 key <kind>-<id>（详见 resolveLaunchWorktree）。
    * 取值约束见 worktree.ts 的 validateWorktreeKey（保存即拒非法名，不做静默折叠）。
    */
   worktreeKey?: string

@@ -195,6 +195,9 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   const [wsCwd, setWsCwd] = useState('')
   const [wsNote, setWsNote] = useState('')
   const [wsModel, setWsModel] = useState('')
+  // 模型处于自动跟随档位（由变量组选择自动填充、未被手动编辑）：切换变量组时重取生效组的首个
+  // 模型选项；手动输入/清空即退出自动档位，之后的变量组切换不再覆盖（与 wsKeyAuto 同一套模式）
+  const [wsModelAuto, setWsModelAuto] = useState(false)
   // 跳过权限确认（仅 claude 显示此开关）：true = 启动追加 --dangerously-skip-permissions
   const [wsSkipPermissions, setWsSkipPermissions] = useState(false)
   // 目录隔离模式：shared = 直接在 cwd 启动（现状）；worktree = 仓库根下专属 git worktree
@@ -348,6 +351,9 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
       setActionError(err instanceof Error ? err.message : t(`${prefix}.launchFailed`))
     } finally {
       setLaunchingId(null)
+      // 启动路径会给缺省 worktreeKey 的工作区回填自动生成的 key（主进程 resolveLaunchWorktree），
+      // 失败分支也可能已落盘 —— 统一刷新列表让角标/编辑对话框立即反映回填结果
+      void loadWorkspaces()
     }
   }
 
@@ -436,14 +442,14 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   }
   const handleAdd = () => {
     setEditWorkspace(undefined)
-    setWsName(''); setWsCwd(''); setWsNote(''); setWsModel(''); setWsSkipPermissions(false); setWsEnvProfileId(undefined); setWsIsolation('shared'); setWsWorktreeKey('')
+    setWsName(''); setWsCwd(''); setWsNote(''); setWsModel(''); setWsModelAuto(false); setWsSkipPermissions(false); setWsEnvProfileId(undefined); setWsIsolation('shared'); setWsWorktreeKey('')
     setWsKeyAuto(false); setWsKeyCode(generateWorktreeCode())
     setTriedSubmit(false); setConfirmDelete(false); setSaveError(null)
     setShowDialog(true)
   }
   const handleEdit = (ws: HarnessWorkspace) => {
     setEditWorkspace(ws)
-    setWsName(ws.name); setWsCwd(ws.cwd); setWsNote(ws.note || ''); setWsModel(ws.model || ''); setWsSkipPermissions(ws.skipPermissions === true)
+    setWsName(ws.name); setWsCwd(ws.cwd); setWsNote(ws.note || ''); setWsModel(ws.model || ''); setWsModelAuto(false); setWsSkipPermissions(ws.skipPermissions === true)
     setWsIsolation(ws.isolation === 'worktree' ? 'worktree' : 'shared')
     setWsWorktreeKey(ws.worktreeKey || '')
     // 编辑既有工作区永不自动派生：key 即 worktree 身份，改名不该换树
@@ -468,7 +474,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   const handleDuplicateWorkspace = (ws: HarnessWorkspace) => {
     setEditWorkspace(undefined)
     setWsName(`${ws.name}${t(`${prefix}.copySuffix`)}`)
-    setWsCwd(ws.cwd); setWsNote(ws.note || ''); setWsModel(ws.model || ''); setWsSkipPermissions(ws.skipPermissions === true)
+    setWsCwd(ws.cwd); setWsNote(ws.note || ''); setWsModel(ws.model || ''); setWsModelAuto(false); setWsSkipPermissions(ws.skipPermissions === true)
     setWsIsolation(ws.isolation === 'worktree' ? 'worktree' : 'shared')
     setWsWorktreeKey(ws.worktreeKey || '')
     // 源是私有 worktree（无显式 key）时直接给副本自动派生新 key：副本是新 id，本就各用各的树；
@@ -506,8 +512,10 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     }
   }
   const valid = wsName.trim().length > 0 && wsCwd.trim().length > 0
-  // worktree 生效 key 与路径预览派生值：显式 key 优先；空 key 的既有工作区回落私有 kind-<id>
-  // （与主进程 resolveWorktreeKey 同口径）；新工作区空 key 则 id 保存后才存在，无法预览
+  // worktree 生效 key 与路径预览派生值：显式 key 优先；空 key 的既有工作区预览回落私有
+  // kind-<id>（迁移前的旧形态 —— 实际启动时 resolveLaunchWorktree 会生成可读 key 并把旧
+  // worktree 原地改名迁移，随机代号无法预知，故预览只能显示旧路径）；新工作区空 key 则
+  // id 保存后才存在，无法预览
   const effectiveWorktreeKey = wsWorktreeKey.trim().length > 0
     ? wsWorktreeKey.trim()
     : editWorkspace ? `${agent}-${editWorkspace.id}` : null
@@ -607,6 +615,25 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   const modelSuggestions = [
     ...new Set([...(effectiveProfile?.models ?? []), ...view.modelSuggestions])
   ]
+  /**
+   * 选中/切换变量组时模型默认跟随：自动档位（或模型为空）下取「生效变量组」的首个模型选项
+   * 预填 —— 与 datalist 建议同一条生效链（显式绑定 → 已启用组）。手动改过模型则不覆盖；
+   * 跟随档位同样生效（其生效组就是已启用组）。自动档位下切到无模型选项的组时清掉旧值，
+   * 避免残留上一个组的模型。
+   */
+  const selectEnvProfile = (profileId: string | undefined) => {
+    setWsEnvProfileId(profileId)
+    if (!wsModelAuto && wsModel.trim().length > 0) return
+    const effective = envProfiles.find((p) => p.id === profileId) ?? activeProfile
+    const first = effective?.models?.[0]
+    if (first) {
+      setWsModel(first)
+      setWsModelAuto(true)
+    } else if (wsModelAuto) {
+      setWsModel('')
+      setWsModelAuto(false)
+    }
+  }
 
   const handleAddProfile = () => {
     setEditProfile(undefined)
@@ -1196,18 +1223,16 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
               </span>
             </div>
 
-            {/* 名称 */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsName`)}</span>
-              </div>
+            {/* 名称 —— label 与输入框同行（label 定宽，与下方模型行对齐） */}
+            <div className="py-3.5 px-4 border-b border-[var(--rule)] flex items-center gap-3">
+              <span className="flex-shrink-0 w-[3.5rem] text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsName`)}</span>
               <input
                 type="text"
                 value={wsName}
                 onChange={(e) => updateWsName(e.target.value)}
                 placeholder={t(`${prefix}.wsNamePh`)}
                 autoFocus
-                className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
+                className="flex-1 min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
               />
             </div>
 
@@ -1322,24 +1347,69 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
               </div>
             )}
 
-            {/* 模型 —— dsh 走补丁、codex/claude 走 --model；留空则用各 CLI 默认 */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsModel`)}</span>
-              </div>
+            {/* 模型 —— dsh 走补丁、codex/claude 走 --model；留空则用各 CLI 默认。
+                label 与输入框同行（label 定宽，与上方名称行对齐） */}
+            <div className="py-3.5 px-4 border-b border-[var(--rule)] flex items-center gap-3">
+              <span className="flex-shrink-0 w-[3.5rem] text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsModel`)}</span>
               <input
                 type="text"
                 list={`${agent}-model-suggestions`}
                 value={wsModel}
-                onChange={(e) => setWsModel(e.target.value)}
+                onChange={(e) => { setWsModel(e.target.value); setWsModelAuto(false) }}
                 placeholder={t(`${prefix}.wsModelPh`)}
-                className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
+                className="flex-1 min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
               />
               <datalist id={`${agent}-model-suggestions`}>
                 {modelSuggestions.map((m) => (
                   <option key={m} value={m} />
                 ))}
               </datalist>
+            </div>
+
+            {/* 环境变量 —— 选一组预配置变量；不选则跟随已启用的那组（三级链在这里就地摊开） */}
+            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+              <div className="mb-2">
+                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsEnvProfile`)}</span>
+              </div>
+              <div role="radiogroup" aria-label={t(`${prefix}.wsEnvProfile`)} className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm overflow-hidden max-h-[168px] overflow-y-auto rack-scroll">
+                {/* 跟随档位：默认值。就地显示解析结果，免得用户还要切页签才知道实际会用哪份 */}
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={wsEnvProfileId === undefined}
+                  onClick={() => selectEnvProfile(undefined)}
+                  className="relative w-full text-left flex items-center gap-2 px-2.5 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0 bg-transparent cursor-pointer hover:bg-[var(--bg-slot)] transition-colors"
+                >
+                  <BusLed on={wsEnvProfileId === undefined} />
+                  <span className="flex-1 min-w-0 text-[12px] [font-family:inherit] text-[var(--text-rack)] truncate">
+                    {t(`${prefix}.wsEnvFollow`)}
+                  </span>
+                  <span className="flex-shrink-0 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] truncate max-w-[46%]">
+                    {t(`${prefix}.wsEnvFollowNow`, { name: activeProfile ? activeProfile.name : t(`${prefix}.envSystem`) })}
+                  </span>
+                </button>
+                {envProfiles.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={wsEnvProfileId === p.id}
+                    onClick={() => selectEnvProfile(p.id)}
+                    className="relative w-full text-left flex items-center gap-2 px-2.5 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0 bg-transparent cursor-pointer hover:bg-[var(--bg-slot)] transition-colors"
+                  >
+                    <BusLed on={wsEnvProfileId === p.id} />
+                    <span className="flex-1 min-w-0 text-[12px] [font-family:inherit] text-[var(--text-rack)] truncate">{p.name}</span>
+                    <span className="flex-shrink-0 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] tabular-nums">
+                      {t(`${prefix}.envVars`, { count: Object.keys(p.env).length })}
+                    </span>
+                  </button>
+                ))}
+                {envProfiles.length === 0 && (
+                  <div className="px-2.5 py-1.5 text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">
+                    {t(`${prefix}.wsEnvNone`)}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* 跳过权限确认（仅 claude）—— 启动追加 --dangerously-skip-permissions。
@@ -1376,52 +1446,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                 </button>
               </div>
             )}
-
-            {/* 环境变量 —— 选一组预配置变量；不选则跟随已启用的那组（三级链在这里就地摊开） */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="mb-2">
-                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsEnvProfile`)}</span>
-              </div>
-              <div role="radiogroup" aria-label={t(`${prefix}.wsEnvProfile`)} className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm overflow-hidden max-h-[168px] overflow-y-auto rack-scroll">
-                {/* 跟随档位：默认值。就地显示解析结果，免得用户还要切页签才知道实际会用哪份 */}
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={wsEnvProfileId === undefined}
-                  onClick={() => setWsEnvProfileId(undefined)}
-                  className="relative w-full text-left flex items-center gap-2 px-2.5 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0 bg-transparent cursor-pointer hover:bg-[var(--bg-slot)] transition-colors"
-                >
-                  <BusLed on={wsEnvProfileId === undefined} />
-                  <span className="flex-1 min-w-0 text-[12px] [font-family:inherit] text-[var(--text-rack)] truncate">
-                    {t(`${prefix}.wsEnvFollow`)}
-                  </span>
-                  <span className="flex-shrink-0 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] truncate max-w-[46%]">
-                    {t(`${prefix}.wsEnvFollowNow`, { name: activeProfile ? activeProfile.name : t(`${prefix}.envSystem`) })}
-                  </span>
-                </button>
-                {envProfiles.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={wsEnvProfileId === p.id}
-                    onClick={() => setWsEnvProfileId(p.id)}
-                    className="relative w-full text-left flex items-center gap-2 px-2.5 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0 bg-transparent cursor-pointer hover:bg-[var(--bg-slot)] transition-colors"
-                  >
-                    <BusLed on={wsEnvProfileId === p.id} />
-                    <span className="flex-1 min-w-0 text-[12px] [font-family:inherit] text-[var(--text-rack)] truncate">{p.name}</span>
-                    <span className="flex-shrink-0 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] tabular-nums">
-                      {t(`${prefix}.envVars`, { count: Object.keys(p.env).length })}
-                    </span>
-                  </button>
-                ))}
-                {envProfiles.length === 0 && (
-                  <div className="px-2.5 py-1.5 text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">
-                    {t(`${prefix}.wsEnvNone`)}
-                  </div>
-                )}
-              </div>
-            </div>
 
             {/* 校验提示（仅尝试提交后显示） */}
             {triedSubmit && !valid && (
