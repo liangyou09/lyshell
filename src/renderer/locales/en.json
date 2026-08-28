@@ -120,7 +120,19 @@
     "codex": "Codex",
     "claude": "Claude",
     "plugins": "Plugins",
+    "web": "Web",
     "settings": "Settings"
+  },
+  "webBar": {
+    "title": "Web",
+    "placeholder": "Enter a URL to open a web page",
+    "open": "Open",
+    "invalid": "Invalid URL (http/https only)",
+    "openTabs": "Open web pages",
+    "empty": "No web pages open yet",
+    "recent": "Recent",
+    "clear": "Clear",
+    "removeRecent": "Remove from recent"
   },
   "agents": {
     "title": "Agents",
@@ -591,6 +603,7 @@
     "tabHint": "Click to switch · Double-click left to clone session · Double-click right to clone channel (SSH)",
     "mcpTab": "MCP Activity",
     "mcpTabHint": "MCP activity audit · click to toggle · ESC to close",
+    "webTabClose": "Close web tab",
     "closeConnection": "Close connection",
     "connecting": "Connecting",
     "actionSwap": "Swap",

@@ -1,6 +1,8 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { WebviewTag } from 'electron'
 import { usePaneStore } from '../../stores/pane-store'
+import type { WebTabEntry } from '../../stores/pane-store'
 import TerminalView from '../Terminal/TerminalView'
 import PaneTabBar from './PaneTabBar'
 import { McpAuditPanel } from './McpAuditPanel'
@@ -9,6 +11,52 @@ import { getDraggingSessionId, setDraggingSessionId } from './SplitPaneContainer
 import type { PaneNode, SplitDirection } from '@shared/types'
 
 type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center' | null
+
+/**
+ * 网页访问栏页签的 webview 覆盖层（单页签实例）。
+ * partition 固定 persist:webbar（与 dsh web 隔离的浏览会话）；导航/弹窗由主进程
+ * did-attach-webview 按 partition 分流锁定（仅 http/https）。标题经 page-title-updated
+ * 回写 store，页签显示页面标题而非裸 hostname。首次 did-finish-load 时把 URL 记入
+ * 「最近访问」历史（加载失败的 URL 不算访问过）。
+ */
+const WebTabOverlay: React.FC<{ tab: WebTabEntry }> = ({ tab }) => {
+  const setWebTabTitle = usePaneStore(s => s.setWebTabTitle)
+  const recordWebTabVisit = usePaneStore(s => s.recordWebTabVisit)
+  const ref = useRef<WebviewTag | null>(null)
+  // 每 tab 只记一次：did-finish-load 对页内刷新/锚点跳转也会触发，重复记录靠 store 去重，
+  // 这里用 ref 闸掉后续事件省 setState（tab.url 固定为打开时的 URL，页内导航不另记）
+  const historyRecorded = useRef(false)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const onTitle = (e: Event): void => {
+      // webview DOM 事件是 CustomEvent，page-title-updated 的 detail 带 { title }
+      const title = (e as CustomEvent<{ title?: string }>).detail?.title
+      if (title) setWebTabTitle(tab.id, title)
+    }
+    const onLoadFinish = (): void => {
+      if (historyRecorded.current) return
+      historyRecorded.current = true
+      recordWebTabVisit(tab.url)
+    }
+    el.addEventListener('page-title-updated', onTitle)
+    el.addEventListener('did-finish-load', onLoadFinish)
+    return () => {
+      el.removeEventListener('page-title-updated', onTitle)
+      el.removeEventListener('did-finish-load', onLoadFinish)
+    }
+  }, [tab.id, tab.url, setWebTabTitle, recordWebTabVisit])
+
+  return (
+    <webview
+      ref={ref}
+      partition="persist:webbar"
+      src={tab.url}
+      className="w-full h-full"
+    />
+  )
+}
 
 interface PaneViewProps {
   node: PaneNode
@@ -46,6 +94,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
   const dshWebPaneId = usePaneStore(s => s.dshWebPaneId)
   const dshWebActive = usePaneStore(s => s.dshWebActive)
   const draggingDshWeb = usePaneStore(s => s.draggingDshWeb)
+  const webTabs = usePaneStore(s => s.webTabs)
   const { getPaneBySessionId, getParentPane, getPanePositionInParent } = usePaneStore.getState()
   // 被隐藏的终端页签记录(Sidebar LIVE 段会话标签点击 toggle);订阅整个记录,任何 toggle 都会触发本组件重渲染。
   // 实际负载很小(仅 visibility 切换),未做按 pane 过滤的选择器。
@@ -458,6 +507,21 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
               />
             </div>
           )}
+
+          {/* 网页访问栏页签覆盖层 —— 多开，每个 tab 一个 webview；切到终端/其它页签用 visibility */}
+          {/* 隐藏（webview 保持挂载、页面状态不丢），✕ 才卸载销毁。每 pane 至多一个 active。 */}
+          {webTabs.filter(t => t.paneId === node.id).map(tab => (
+            <div
+              key={tab.id}
+              className="absolute inset-0"
+              style={{
+                visibility: tab.active ? 'visible' : 'hidden',
+                zIndex: tab.active ? 10 : 0
+              }}
+            >
+              <WebTabOverlay tab={tab} />
+            </div>
+          ))}
 
           {/* 分屏指示器 */}
           {dropZone && getDropZoneStyle(dropZone, dropAction) && (

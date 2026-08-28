@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, screen, session } from 'electron'
 import { join, resolve } from 'path'
 import log from 'electron-log'
 import * as fs from 'fs'
@@ -51,6 +51,10 @@ process.on('unhandledRejection', (reason) => {
 let mainWindow: BrowserWindow | null = null
 let stopMcpHttpServerImpl: (() => Promise<void>) | undefined
 
+// 网页访问栏 webview 的会话 partition（插件面板 URL 栏打开的通用网页）。
+// 与 dsh web（persist:dshweb）隔离：通用浏览可保留自己的 cookie/登录态，互不污染。
+const WEBBAR_PARTITION = 'persist:webbar'
+
 // dsh web 导航白名单：取当前实例规范化 URL 的 origin（127.0.0.1:实际端口）。无实例时返回 null。
 function getDshWebAllowedOrigin(): string | null {
   const u = dshWebManager.currentUrl
@@ -59,6 +63,16 @@ function getDshWebAllowedOrigin(): string | null {
     return new URL(u).origin
   } catch {
     return null
+  }
+}
+
+// 网页访问栏 URL 判定：仅放行 http/https（file:/chrome: 等一律拦，对齐渲染层 normalizeWebBarUrl）
+function isHttpUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw)
+    return u.protocol === 'http:' || u.protocol === 'https:'
+  } catch {
+    return false
   }
 }
 
@@ -150,23 +164,38 @@ function createMainWindow(): void {
     return { action: 'deny' }
   })
 
-  // 锁定 <webview> 客体（dsh web 面板）：初始 src 与后续导航都只放行 dshWebManager 当前实例
-  // 的 origin（127.0.0.1:实际端口），弹窗一律 deny —— 杜绝 webview 逃逸到外站或本机其它服务。
+  // 锁定 <webview> 客体，按 partition 分流：
+  //   - dsh web 面板（默认）：初始 src 与后续导航都只放行 dshWebManager 当前实例的
+  //     origin（127.0.0.1:实际端口），弹窗一律 deny —— 杜绝 webview 逃逸到外站或本机其它服务。
+  //   - 网页访问栏（persist:webbar）：src 仅要求 http/https（用户在插件面板输入任意网址），
+  //     后续导航同策略；弹窗仍 deny。
+  //   注意：persist:webbar 专属网页访问栏，后续若新增外部网页拖拽/插件注入等入口，
+  //   请另开独立 partition（如 persist:pluginweb），不要复用本通道 —— 该 partition 的
+  //   导航策略是「放行任意 http/https」，复用等于把放宽后的策略扩散到所有新入口。
   mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
     const src = params?.src || ''
-    const allowed = (() => {
-      const origin = getDshWebAllowedOrigin()
-      if (!origin) return false
-      try {
-        return new URL(src).origin === origin
-      } catch {
-        return false
+    if (params?.partition === WEBBAR_PARTITION) {
+      // 网页访问栏：只校验协议（渲染层 normalizeWebBarUrl 已做同样归一化，这里是服务端兜底）
+      if (!isHttpUrl(src)) {
+        log.warn('Blocked webbar webview attach with non-http(s) src:', src)
+        event.preventDefault()
+        return
       }
-    })()
-    if (!allowed) {
-      log.warn('Blocked webview attach with unexpected src:', src)
-      event.preventDefault()
-      return
+    } else {
+      const allowed = (() => {
+        const origin = getDshWebAllowedOrigin()
+        if (!origin) return false
+        try {
+          return new URL(src).origin === origin
+        } catch {
+          return false
+        }
+      })()
+      if (!allowed) {
+        log.warn('Blocked webview attach with unexpected src:', src)
+        event.preventDefault()
+        return
+      }
     }
     // 显式锁定 webview 的 webPreferences（防注入；主窗口已 sandbox/contextIsolation）
     webPreferences.nodeIntegration = false
@@ -176,6 +205,10 @@ function createMainWindow(): void {
   })
 
   mainWindow.webContents.on('did-attach-webview', (_event, webContents) => {
+    // 按 session partition 分流：网页访问栏 webview 放行任意 http/https 导航（自由浏览），
+    // 其余（dsh web）维持 origin 锁定。fromPartition 返回同 partition 的 session 单例，
+    // webview 挂载的 session 与之身份相等即网页访问栏。
+    const isWebbar = webContents.session === session.fromPartition(WEBBAR_PARTITION)
     webContents.setWindowOpenHandler(({ url }) => {
       // webview 不允许开新窗口/弹窗，直接 deny（dsh UI 不需要 popup，也不交系统浏览器避免泄 URL）
       log.warn('Blocked webview window.open:', url)
@@ -184,6 +217,13 @@ function createMainWindow(): void {
     webContents.on('will-navigate', (event, url) => {
       try {
         const target = new URL(url)
+        if (isWebbar) {
+          // 网页访问栏：仅拦非 http/https（file://、chrome:// 等）
+          if (target.protocol === 'http:' || target.protocol === 'https:') return
+          event.preventDefault()
+          log.warn('Blocked webbar webview navigation:', url)
+          return
+        }
         const origin = getDshWebAllowedOrigin()
         if (origin && target.origin === origin) return
         event.preventDefault()

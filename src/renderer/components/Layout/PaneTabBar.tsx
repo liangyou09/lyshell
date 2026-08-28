@@ -93,6 +93,10 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
   const dshWebActive = usePaneStore(s => s.dshWebActive)
   const dshWebTabIndex = usePaneStore(s => s.dshWebTabIndex)
   const draggingDshWeb = usePaneStore(s => s.draggingDshWeb)
+  const webTabs = usePaneStore(s => s.webTabs)
+  // 本 pane 的网页访问栏页签（多开）；激活态判定用于会话页签高亮互斥
+  const paneWebTabs = webTabs.filter(t => t.paneId === pane.id)
+  const webTabActiveHere = paneWebTabs.some(t => t.active)
   const { t } = useTranslation()
   // 被隐藏的页签(Sidebar LIVE 段会话标签点击 toggle)——不渲染对应页签,但终端实例保留
   const hiddenTabSessions = usePaneStore(s => s.hiddenTabSessions)
@@ -138,6 +142,8 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
     if (paneSt.mcpAuditPaneId === pane.id) paneSt.deactivateMcpAudit()
     // 本 pane 正显示 dsh web 时，切到终端页签仅隐藏（webview 保持挂载、子进程不回收），点 web 页签可切回
     if (paneSt.dshWebPaneId === pane.id && paneSt.dshWebActive) paneSt.deactivateDshWeb()
+    // 网页访问栏页签同理：仅隐藏（webview 保持挂载、页面状态不丢），点网页页签可切回
+    if (paneSt.webTabs.some(t => t.paneId === pane.id && t.active)) paneSt.deactivateWebTabsInPane(pane.id)
     setActiveSessionInPane(pane.id, sessionId)
     // 清除活动状态
     useSessionStore.getState().setSessionActivity(sessionId, false)
@@ -405,9 +411,9 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
     return cleanError
   }
 
-  // 无会话且本 pane 未开 MCP / dsh Web 时不渲染标签栏，避免中部空条；打开时仍需标签栏承载页签。
+  // 无会话且本 pane 未开 MCP / dsh Web / 网页页签时不渲染标签栏，避免中部空条；打开时仍需标签栏承载页签。
   // 顶排 pane 例外：渲染与第一行等高的空条，保证窗口第一行永远存在(承载窗口拖拽区 + pill/控制簇浮层下方的底色)
-  if (paneSessions.length === 0 && mcpAuditPaneId !== pane.id && dshWebPaneId !== pane.id) {
+  if (paneSessions.length === 0 && mcpAuditPaneId !== pane.id && dshWebPaneId !== pane.id && paneWebTabs.length === 0) {
     if (!isTop) return null
     return (
       <div
@@ -562,7 +568,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
             title={t('pane.tabHint')}
             className={cn(
               'win-no-drag flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
-              pane.activeSessionId === session.id && !mcpActiveHere && !webActiveHere
+              pane.activeSessionId === session.id && !mcpActiveHere && !webActiveHere && !webTabActiveHere
                 ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
                 : session.hasActivity
                   ? 'bg-[var(--reachable)]/25 text-[var(--text-rack)] hover:bg-[var(--reachable)]/35 shadow-[inset_2px_0_0_var(--reachable)]' // 有未读输出:reachable 青调底 + 左侧 stripe
@@ -657,6 +663,31 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
             </button>
           </div>
         )}
+        {/* 网页访问栏页签（多开）—— 插件面板 URL 栏打开的通用网页；点页签切回（activateWebTab */}
+        {/* 会去活同 pane 其它 overlay），✕ 关闭并销毁 webview。样式对齐 dsh Web 页签。 */}
+        {paneWebTabs.map(tab => (
+          <div
+            key={tab.id}
+            data-tab-id={tab.id}
+            onClick={() => usePaneStore.getState().activateWebTab(tab.id)}
+            title={tab.url}
+            className={cn(
+              'win-no-drag flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
+              tab.active
+                ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
+                : 'bg-[var(--bg-rack)] text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)]'
+            )}
+          >
+            <span className="text-xs truncate max-w-[150px]">{tab.title}</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); usePaneStore.getState().closeWebTab(tab.id) }}
+              title={t('pane.webTabClose')}
+              className="win-no-drag ml-auto w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
         {/* web 页签位于末尾时渲染在 MCP 页签之后（与既有次序一致）；中段位置已在上方 map 内插入 */}
         {webInsertAt >= paneSessions.length && webTabEl}
       </div>

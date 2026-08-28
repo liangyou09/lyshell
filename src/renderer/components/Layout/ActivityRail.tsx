@@ -15,10 +15,10 @@ import { TOPBAR_HEIGHT } from './topbar-metrics'
  * 两个形态 -- 开关永远停在窗口左上角,展开时是本槽,收起时是 pill,150ms 交叉淡变。
  * 槽高读 TOPBAR_HEIGHT,与终端第一行页签条齐平。
  */
-export type NavTab = 'sessions' | 'agents' | 'dsh' | 'codex' | 'claude' | 'plugins' | 'settings'
+export type NavTab = 'sessions' | 'agents' | 'dsh' | 'codex' | 'claude' | 'plugins' | 'web' | 'settings'
 
-// 内容页签(上组):会话 / Agent / DeepSeek Harness / Codex / Claude / 插件。settings 是轨底独立工具槽,不在此列。
-const ALL_TABS: NavTab[] = ['sessions', 'agents', 'dsh', 'codex', 'claude', 'plugins']
+// 内容页签(上组):会话 / Agent / DeepSeek Harness / Codex / Claude / 插件 / 网页。settings 是轨底独立工具槽,不在此列。
+const ALL_TABS: NavTab[] = ['sessions', 'agents', 'dsh', 'codex', 'claude', 'plugins', 'web']
 const TABS: NavTab[] = ALL_TABS
 
 /** 轨宽(px) -- 单一真相源:本组件容器宽与 MainWindow 宽度拖拽算式共用,防两处漂移 */
@@ -90,6 +90,15 @@ const IconPlugins: React.FC = () => (
   </svg>
 )
 
+/** 网页 = 地球仪(圆 + 赤道/经线,通用"网页/网络"约定;square cap 同轨上直线图标语言) */
+const IconWeb: React.FC = () => (
+  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" strokeLinejoin="miter">
+    <circle cx="10" cy="10" r="7" />
+    <path d="M3 10 h14" />
+    <path d="M10 3 c2.4 2 2.4 12 0 14 c-2.4 -2 -2.4 -12 0 -14 z" />
+  </svg>
+)
+
 /** 收起控位 = 双层 « 指向左列滑出方向(与收起态 pill 的单层 » 成对:« 收 / » 展)。
  *  双层的份量对齐相邻的机架/机器人头/齿轮图标;square cap 同轨上直线图标语言。 */
 const IconCollapseRail: React.FC = () => (
@@ -116,6 +125,7 @@ const TAB_ICON: Record<NavTab, React.FC> = {
   codex: IconCodex,
   claude: IconClaude,
   plugins: IconPlugins,
+  web: IconWeb,
   settings: IconSettings,
 }
 
@@ -148,7 +158,8 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
           : tab === 'codex' ? t('nav.codex')
             : tab === 'claude' ? t('nav.claude')
               : tab === 'plugins' ? t('nav.plugins')
-                : t('nav.settings')
+                : tab === 'web' ? t('nav.web')
+                  : t('nav.settings')
 
   /** sessions 槽位:有在线会话时亮 live LED;其余槽位无徽章 */
   const ledFor = (tab: NavTab): string | undefined =>

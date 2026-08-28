@@ -10,7 +10,7 @@
  * 这里的用例锁住各路径的坐标推导 —— 组件侧只做事件搬运，不掺坐标计算。
  */
 import { describe, expect, it } from 'vitest'
-import { usePaneStore } from './pane-store'
+import { usePaneStore, normalizeWebBarUrl, loadWebTabHistory, recordWebTabUrlToHistory } from './pane-store'
 import type { PaneLeaf, PaneLayout, PaneNode } from '@shared/types'
 
 const leaf = (id: string, sessions: string[]): PaneLeaf => ({
@@ -335,5 +335,348 @@ describe('web 挂载/激活/关闭时的插槽复位', () => {
     usePaneStore.getState().closeDshWeb()
     expect(tabIndex()).toBe(null)
     expect(usePaneStore.getState().dshWeb).toBe(null)
+  })
+})
+
+// ===== 网页访问栏页签（webTabs，多开）=====
+// 基线：单 pane + 可选 dshWeb/MCP 共存，webTabs 由用例自行构造。
+// setupWeb 复用 setup 的 dshWeb 基线并重置 webTabs 与历史（含 localStorage），避免用例间泄漏。
+const setupWeb = (extra: Record<string, unknown> = {}, sessions = ['s-a', 's-b']) => {
+  localStorage.removeItem('lyshell.webTabHistory.v1')
+  usePaneStore.setState({
+    layout: layoutOf(leaf('pane-1', sessions)),
+    dshWeb: null,
+    dshWebPaneId: null,
+    dshWebActive: false,
+    dshWebTabIndex: null,
+    mcpAuditPaneId: null,
+    mcpAuditActive: false,
+    draggingDshWeb: false,
+    hiddenTabSessions: {},
+    webTabs: [],
+    webTabHistory: [],
+    ...extra
+  })
+}
+
+const webTabIds = (): string[] => usePaneStore.getState().webTabs.map(t => t.id)
+const activeWebTabInPane = (paneId: string): string | undefined =>
+  usePaneStore.getState().webTabs.find(t => t.paneId === paneId && t.active)?.id
+
+describe('normalizeWebBarUrl：网页访问栏 URL 归一化', () => {
+  it('无 scheme 补 https', () => {
+    expect(normalizeWebBarUrl('example.com/path')).toBe('https://example.com/path')
+  })
+
+  it('已有 scheme 原样保留（仅归一化）', () => {
+    expect(normalizeWebBarUrl('http://127.0.0.1:8080/')).toBe('http://127.0.0.1:8080/')
+  })
+
+  it('非 http/https 协议拒绝', () => {
+    expect(normalizeWebBarUrl('file:///C:/Windows')).toBeNull()
+    expect(normalizeWebBarUrl('javascript:alert(1)')).toBeNull()
+  })
+
+  it('不可解析 / 空输入拒绝', () => {
+    expect(normalizeWebBarUrl('')).toBeNull()
+    expect(normalizeWebBarUrl('   ')).toBeNull()
+    expect(normalizeWebBarUrl('https://')).toBeNull() // 无 hostname
+  })
+})
+
+describe('openWebTab：打开网页页签', () => {
+  it('挂到活动 pane 并激活，activePaneId 同步切换', () => {
+    setupWeb()
+    const res = usePaneStore.getState().openWebTab('example.com')
+    expect(res.ok).toBe(true)
+    const st = usePaneStore.getState()
+    expect(st.webTabs).toHaveLength(1)
+    expect(st.webTabs[0].paneId).toBe('pane-1')
+    expect(st.webTabs[0].url).toBe('https://example.com/')
+    expect(st.webTabs[0].title).toBe('example.com')
+    expect(st.webTabs[0].active).toBe(true)
+    expect(st.layout.activePaneId).toBe('pane-1')
+  })
+
+  it('activePaneId 未就绪时回落首个叶子 pane', () => {
+    setupWeb()
+    usePaneStore.setState({ layout: { ...layoutOf(leaf('pane-1', [])), activePaneId: '' } })
+    const res = usePaneStore.getState().openWebTab('https://example.com')
+    expect(res.ok).toBe(true)
+    expect(usePaneStore.getState().webTabs[0].paneId).toBe('pane-1')
+  })
+
+  it('非法 URL 拒绝且不动 store', () => {
+    setupWeb()
+    const res = usePaneStore.getState().openWebTab('not a url')
+    expect(res.ok).toBe(false)
+    expect(usePaneStore.getState().webTabs).toHaveLength(0)
+  })
+
+  it('多开：每个 URL 一个独立页签，旧页签被去活（每 pane 至多一个激活）', () => {
+    setupWeb()
+    usePaneStore.getState().openWebTab('https://a.example.com')
+    usePaneStore.getState().openWebTab('https://b.example.com')
+    const st = usePaneStore.getState()
+    expect(st.webTabs).toHaveLength(2)
+    expect(activeWebTabInPane('pane-1')).toBe(st.webTabs[1].id)
+  })
+
+  it('同 pane 互斥：激活网页页签去活 dshWeb 与 MCP', () => {
+    setupWeb({
+      dshWeb: WEB_INFO, dshWebPaneId: 'pane-1', dshWebActive: true,
+      mcpAuditPaneId: 'pane-1', mcpAuditActive: true
+    })
+    usePaneStore.getState().openWebTab('https://example.com')
+    const st = usePaneStore.getState()
+    expect(st.dshWebActive).toBe(false)
+    expect(st.mcpAuditActive).toBe(false)
+    expect(activeWebTabInPane('pane-1')).toBeTruthy()
+  })
+
+  it('反向互斥：激活 dshWeb / MCP 去活同 pane 网页页签（页签保留）', () => {
+    setupWeb({ dshWeb: WEB_INFO, dshWebPaneId: 'pane-1' })
+    usePaneStore.getState().openWebTab('https://example.com')
+    usePaneStore.getState().activateDshWeb()
+    expect(usePaneStore.getState().dshWebActive).toBe(true)
+    expect(activeWebTabInPane('pane-1')).toBeUndefined()
+    expect(webTabIds()).toHaveLength(1) // 仅隐藏未删除
+
+    usePaneStore.getState().openMcpAuditInPane('pane-1')
+    expect(usePaneStore.getState().mcpAuditActive).toBe(true)
+    expect(usePaneStore.getState().dshWebActive).toBe(false)
+  })
+})
+
+describe('activateWebTab / deactivateWebTabsInPane', () => {
+  it('点页签激活目标、去活同 pane 其余 webTab，activePaneId 切到承载 pane', () => {
+    setupWeb()
+    usePaneStore.getState().openWebTab('https://a.example.com')
+    usePaneStore.getState().openWebTab('https://b.example.com')
+    const first = webTabIds()[0]
+    usePaneStore.getState().activateWebTab(first)
+    const st = usePaneStore.getState()
+    expect(activeWebTabInPane('pane-1')).toBe(first)
+    expect(st.layout.activePaneId).toBe('pane-1')
+  })
+
+  it('deactivateWebTabsInPane 隐藏本 pane 全部网页页签（页签保留）', () => {
+    setupWeb()
+    usePaneStore.getState().openWebTab('https://a.example.com')
+    usePaneStore.getState().deactivateWebTabsInPane('pane-1')
+    const st = usePaneStore.getState()
+    expect(st.webTabs).toHaveLength(1)
+    expect(st.webTabs[0].active).toBe(false)
+  })
+})
+
+describe('closeWebTab：关闭网页页签', () => {
+  it('关掉激活页签 → 切到同 pane 最后一个网页页签（浏览器惯例）', () => {
+    setupWeb()
+    usePaneStore.getState().openWebTab('https://a.example.com')
+    usePaneStore.getState().openWebTab('https://b.example.com')
+    const second = webTabIds()[1]
+    usePaneStore.getState().closeWebTab(second)
+    const st = usePaneStore.getState()
+    expect(st.webTabs).toHaveLength(1)
+    expect(st.webTabs[0].active).toBe(true)
+  })
+
+  it('关掉非激活页签 → 不动当前激活页签', () => {
+    setupWeb()
+    usePaneStore.getState().openWebTab('https://a.example.com')
+    usePaneStore.getState().openWebTab('https://b.example.com')
+    const first = webTabIds()[0]
+    usePaneStore.getState().closeWebTab(first)
+    const st = usePaneStore.getState()
+    expect(st.webTabs).toHaveLength(1)
+    expect(st.webTabs[0].active).toBe(true)
+  })
+
+  it('关掉唯一激活页签且无其余 webTab → 回到终端（页签清空，无激活残留）', () => {
+    setupWeb()
+    usePaneStore.getState().openWebTab('https://a.example.com')
+    usePaneStore.getState().closeWebTab(webTabIds()[0])
+    expect(usePaneStore.getState().webTabs).toHaveLength(0)
+  })
+})
+
+describe('webTabs 与 pane 生命周期', () => {
+  it('关掉最后一个终端页签 → pane 因承载网页页签保留，并自动切到该网页页签', () => {
+    setupWeb({}, ['s-a'])
+    usePaneStore.getState().openWebTab('https://example.com')
+    usePaneStore.getState().deactivateWebTabsInPane('pane-1')
+    usePaneStore.getState().removeSessionFromPane('pane-1', 's-a')
+    const st = usePaneStore.getState()
+    // pane 未被 removePaneAndMerge 删除（isOverlayPane 保护）
+    expect(st.getPaneById('pane-1')).toBeTruthy()
+    // 自动激活剩余的网页页签（否则窗格只剩空态占位）
+    expect(activeWebTabInPane('pane-1')).toBeTruthy()
+  })
+
+  it('承载 pane 被 closePane 删除 → 网页页签一并回收（无孤儿 webview 状态）', () => {
+    setupWeb()
+    usePaneStore.getState().openWebTab('https://example.com')
+    usePaneStore.getState().closePane('pane-1')
+    expect(usePaneStore.getState().webTabs).toHaveLength(0)
+  })
+
+  it('仅剩网页页签的空 pane 不随会话清空被 removeEmptyPanes 合并掉', () => {
+    setupWeb({}, ['s-a'])
+    usePaneStore.getState().openWebTab('https://example.com')
+    usePaneStore.getState().removeSessionFromPane('pane-1', 's-a')
+    expect(usePaneStore.getState().getPaneById('pane-1')).toBeTruthy()
+  })
+})
+
+// ===== 拖拽分屏 × 覆盖层迁移 =====
+// splitPane / splitPaneWithPosition 会把目标叶子原地替换为 split（叶子 id 变成 split id，
+// 会话落到新建 id 的子叶子）—— 承载在该叶子上的 webTabs / dshWeb 若不随迁会变成僵尸：
+// findPane 按 id 仍能找到 split 节点，prune 不触发，但没有任何叶子渲染它。
+describe('splitPane / splitPaneWithPosition：拖拽分屏时覆盖层迁移', () => {
+  it('splitPane 拆分承载 webTab 的 pane → webTab 迁到继承原会话的第一子叶子', () => {
+    setupWeb({}, ['s-a', 's-b'])
+    usePaneStore.getState().openWebTab('https://example.com')
+    usePaneStore.getState().splitPane('pane-1', 'vertical', 's-b')
+    const st = usePaneStore.getState()
+    expect(st.webTabs).toHaveLength(1)
+    // 挂载点是叶子（而非变成 split 的 pane-1），且承载原会话
+    const host = st.getPaneById(st.webTabs[0].paneId) as PaneLeaf
+    expect(host.type).toBe('leaf')
+    expect(host.sessions).toContain('s-a')
+    expect(st.webTabs[0].active).toBe(true)
+  })
+
+  it("splitPaneWithPosition position='first' → webTab 迁到继承原会话的第二子叶子（position 反侧）", () => {
+    setupWeb({}, ['s-a', 's-b'])
+    usePaneStore.getState().openWebTab('https://example.com')
+    usePaneStore.getState().splitPaneWithPosition('pane-1', 'vertical', 's-c', 'first')
+    const st = usePaneStore.getState()
+    const host = st.getPaneById(st.webTabs[0].paneId) as PaneLeaf
+    expect(host.type).toBe('leaf')
+    expect(host.sessions).toEqual(['s-a', 's-b']) // 原会话整组继承，不含新拖入的 s-c
+  })
+
+  it('splitPane 同步迁移 dshWeb 承载 pane（不触发孤儿回收，dshWebPaneId 指向新叶子）', () => {
+    setupWeb({ dshWeb: WEB_INFO, dshWebPaneId: 'pane-1', dshWebActive: true }, ['s-a', 's-b'])
+    usePaneStore.getState().splitPane('pane-1', 'vertical', 's-b')
+    const st = usePaneStore.getState()
+    expect(st.dshWeb).toBeTruthy() // 未被 pruneOrphanedDshWeb 误关
+    expect(st.dshWebPaneId).not.toBe('pane-1')
+    const host = st.getPaneById(st.dshWebPaneId!) as PaneLeaf
+    expect(host.type).toBe('leaf')
+    expect(host.sessions).toContain('s-a')
+  })
+
+  it('承载 pane 无覆盖层时 splitPane → 迁移为空操作（布局不受影响）', () => {
+    setupWeb({}, ['s-a', 's-b'])
+    usePaneStore.getState().splitPane('pane-1', 'vertical', 's-b')
+    const st = usePaneStore.getState()
+    expect(st.webTabs).toEqual([])
+    expect(st.getAllLeafPanes()).toHaveLength(2)
+  })
+})
+
+// ===== 网页访问栏历史（webTabHistory，localStorage 持久化）=====
+describe('recordWebTabUrlToHistory：纯函数记录规则', () => {
+  it('新 URL 前置插入', () => {
+    expect(recordWebTabUrlToHistory(['https://a.example.com'], 'https://b.example.com'))
+      .toEqual(['https://b.example.com', 'https://a.example.com'])
+  })
+
+  it('重复 URL 去重并前移到最近', () => {
+    const history = ['https://a.example.com', 'https://b.example.com', 'https://c.example.com']
+    expect(recordWebTabUrlToHistory(history, 'https://b.example.com'))
+      .toEqual(['https://b.example.com', 'https://a.example.com', 'https://c.example.com'])
+  })
+
+  it('超出封顶截尾（最近优先保留）', () => {
+    const history = Array.from({ length: 40 }, (_, i) => `https://old${i}.example.com`)
+    const next = recordWebTabUrlToHistory(history, 'https://new.example.com')
+    expect(next).toHaveLength(30)
+    expect(next[0]).toBe('https://new.example.com')
+    expect(next[next.length - 1]).toBe('https://old28.example.com')
+  })
+})
+
+describe('openWebTab 与历史的边界：打开动作本身不记录', () => {
+  it('openWebTab 成功 → 不写历史（记录时机在 webview did-finish-load）', () => {
+    setupWeb()
+    usePaneStore.getState().openWebTab('example.com')
+    expect(usePaneStore.getState().webTabHistory).toEqual([])
+    expect(localStorage.getItem('lyshell.webTabHistory.v1')).toBeNull()
+  })
+
+  it('openWebTab 非法 URL → 同样不记录', () => {
+    setupWeb()
+    usePaneStore.getState().openWebTab('not a url')
+    expect(usePaneStore.getState().webTabHistory).toEqual([])
+    expect(localStorage.getItem('lyshell.webTabHistory.v1')).toBeNull()
+  })
+})
+
+describe('recordWebTabVisit：页面加载成功后记录历史', () => {
+  it('记录 URL 并持久化到 localStorage', () => {
+    setupWeb()
+    usePaneStore.getState().recordWebTabVisit('https://a.example.com/')
+    const st = usePaneStore.getState()
+    expect(st.webTabHistory).toEqual(['https://a.example.com/'])
+    expect(JSON.parse(localStorage.getItem('lyshell.webTabHistory.v1') ?? '[]'))
+      .toEqual(['https://a.example.com/'])
+  })
+
+  it('重复记录同 URL → 去重前移，不产生重复条目', () => {
+    setupWeb()
+    usePaneStore.getState().recordWebTabVisit('https://a.example.com/')
+    usePaneStore.getState().recordWebTabVisit('https://b.example.com/')
+    usePaneStore.getState().recordWebTabVisit('https://a.example.com/')
+    expect(usePaneStore.getState().webTabHistory)
+      .toEqual(['https://a.example.com/', 'https://b.example.com/'])
+  })
+
+  it('已在顶部时重复记录 → 直接跳过（did-finish-load 幂等闸）', () => {
+    setupWeb()
+    usePaneStore.getState().recordWebTabVisit('https://a.example.com/')
+    usePaneStore.getState().recordWebTabVisit('https://a.example.com/')
+    expect(usePaneStore.getState().webTabHistory).toEqual(['https://a.example.com/'])
+  })
+})
+
+describe('loadWebTabHistory：localStorage 读取容错', () => {
+  it('正常数组原样读出', () => {
+    localStorage.setItem('lyshell.webTabHistory.v1', JSON.stringify(['https://a.example.com']))
+    expect(loadWebTabHistory()).toEqual(['https://a.example.com'])
+  })
+
+  it('坏数据容错：非数组/非法 JSON/缺失 → 空数组；混杂元素只保留字符串', () => {
+    localStorage.setItem('lyshell.webTabHistory.v1', '{"a":1}')
+    expect(loadWebTabHistory()).toEqual([])
+    localStorage.setItem('lyshell.webTabHistory.v1', '["ok", 42, null]')
+    expect(loadWebTabHistory()).toEqual(['ok'])
+    localStorage.setItem('lyshell.webTabHistory.v1', 'not json')
+    expect(loadWebTabHistory()).toEqual([])
+    localStorage.removeItem('lyshell.webTabHistory.v1')
+    expect(loadWebTabHistory()).toEqual([])
+  })
+})
+
+describe('removeWebTabHistory / clearWebTabHistory：历史删改', () => {
+  it('删除单条：store 与 localStorage 同步', () => {
+    setupWeb()
+    usePaneStore.getState().recordWebTabVisit('https://a.example.com/')
+    usePaneStore.getState().recordWebTabVisit('https://b.example.com/')
+    usePaneStore.getState().removeWebTabHistory('https://a.example.com/')
+    const st = usePaneStore.getState()
+    expect(st.webTabHistory).toEqual(['https://b.example.com/'])
+    expect(JSON.parse(localStorage.getItem('lyshell.webTabHistory.v1') ?? '[]'))
+      .toEqual(['https://b.example.com/'])
+  })
+
+  it('清空：store 置空且 localStorage 键移除', () => {
+    setupWeb()
+    usePaneStore.getState().recordWebTabVisit('https://a.example.com/')
+    usePaneStore.getState().clearWebTabHistory()
+    expect(usePaneStore.getState().webTabHistory).toEqual([])
+    expect(localStorage.getItem('lyshell.webTabHistory.v1')).toBeNull()
   })
 })

@@ -10,6 +10,7 @@ import TopRightControls from './TopRightControls'
 import { TOPBAR_HEIGHT, TOP_LEFT_RESERVE, SIDEBAR_DIVIDER_WIDTH, SIDEBAR_PILL_HEIGHT } from './topbar-metrics'
 import { startAllHarnessDetects } from './harness-detect'
 import PluginPanel from './PluginPanel'
+import WebPanel from './WebPanel'
 import HarnessPanel from './HarnessPanel'
 import SettingsPanel from './SettingsPanel'
 import { useSessionStore } from '../../stores/session-store'
@@ -39,7 +40,7 @@ const MainWindow: React.FC = () => {
   const [activeNav, setActiveNav] = useState<NavTab>(() => {
     try {
       const saved = localStorage.getItem('lyshell.navTab.v1')
-      if (saved === 'sessions' || saved === 'agents' || saved === 'dsh' || saved === 'codex' || saved === 'claude' || saved === 'plugins' || saved === 'settings') {
+      if (saved === 'sessions' || saved === 'agents' || saved === 'dsh' || saved === 'codex' || saved === 'claude' || saved === 'plugins' || saved === 'web' || saved === 'settings') {
         return saved
       }
     } catch { /* localStorage 不可用,回退默认 */ }
@@ -57,7 +58,7 @@ const MainWindow: React.FC = () => {
   const [floatVisible, setFloatVisible] = useState(false) // 浮窗默认隐藏
   const [isMaximized, setIsMaximized] = useState(false)
   const { sessions, loadSessions, refreshSavedSessions, syncSessionsFromBackend } = useSessionStore()
-  const { getAllLeafPanes, layout, dshWebActive, dshWebPaneId } = usePaneStore()
+  const { getAllLeafPanes, layout, dshWebActive, dshWebPaneId, webTabs } = usePaneStore()
   const { initFromStorage } = useThemeStore()
   const { initFromStorage: initLocaleFromStorage } = useLocaleStore()
   const { t } = useTranslation()
@@ -278,11 +279,11 @@ const MainWindow: React.FC = () => {
   }
   const endSidebarResize = () => setIsResizingSidebar(false)
 
-  // Alt+1..7 切换左列页签(实现 footer 既有 "alt + 1…7" 提示;capture 抢在 xterm 前)
+  // Alt+1..8 切换左列页签(实现 footer 既有 "alt + 1…8" 提示;capture 抢在 xterm 前)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!e.altKey) return
-      // 文本输入中不拦截(避免劫持 PluginPanel URL 输入等)
+      // 文本输入中不拦截(避免劫持 PluginPanel/WebPanel URL 输入等)
       const el = e.target as HTMLElement | null
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
       let tab: NavTab | null = null
@@ -292,7 +293,8 @@ const MainWindow: React.FC = () => {
       else if (e.key === '4') tab = 'codex'
       else if (e.key === '5') tab = 'claude'
       else if (e.key === '6') tab = 'plugins'
-      else if (e.key === '7') tab = 'settings'
+      else if (e.key === '7') tab = 'web'
+      else if (e.key === '8') tab = 'settings'
       if (!tab) return
       e.preventDefault()
       e.stopPropagation()
@@ -359,9 +361,10 @@ const MainWindow: React.FC = () => {
       e.preventDefault()
       e.stopPropagation()
 
-      // dsh web 接管活动分屏时不发（对齐原"dsh web 激活时快捷命令不可用"语义）
+      // dsh web / 网页访问栏页签接管活动分屏时不发（对齐原"dsh web 激活时快捷命令不可用"语义）
       const paneSt = usePaneStore.getState()
       if (paneSt.dshWebActive && paneSt.dshWebPaneId === paneSt.layout.activePaneId) return
+      if (paneSt.webTabs.some(t => t.active && t.paneId === paneSt.layout.activePaneId)) return
 
       // 发送到活动分屏的活动会话（同 handleExecuteCommand,内联避免 use-before-define）
       const activePane = paneSt.getAllLeafPanes().find(p => p.id === paneSt.layout.activePaneId)
@@ -470,7 +473,9 @@ const MainWindow: React.FC = () => {
 
   // dsh web 仅在其承载分屏为当前活动分屏且正显示时，才禁用快捷命令（键帽置灰、F 键不发）。
   // 否则即便 web 仍挂在别的分屏上，活动分屏是终端时快捷命令仍应指向该终端。
+  // 网页访问栏页签激活时同理（webview 盖住终端，命令发进去不可见）。
   const dshWebActiveHere = dshWebActive && dshWebPaneId === layout.activePaneId
+  const webTabActiveHere = webTabs.some(t => t.active && t.paneId === layout.activePaneId)
   // 在线会话数 -- ActivityRail 的 sessions 槽位 LED 读数
   const liveCount = sessions.filter(s => s.status === 'connected').length
 
@@ -505,7 +510,7 @@ const MainWindow: React.FC = () => {
               <SessionsPanel
                 onConnect={handleConnect}
                 onExecuteCommand={handleExecuteCommand}
-                quickCommandsDisabled={dshWebActiveHere}
+                quickCommandsDisabled={dshWebActiveHere || webTabActiveHere}
               />
             )}
             {activeNav === 'agents' && <AgentsPanel />}
@@ -513,6 +518,7 @@ const MainWindow: React.FC = () => {
             {activeNav === 'codex' && <HarnessPanel agent="codex" />}
             {activeNav === 'claude' && <HarnessPanel agent="claude" />}
             {activeNav === 'plugins' && <PluginPanel />}
+            {activeNav === 'web' && <WebPanel />}
             {activeNav === 'settings' && <SettingsPanel />}
           </div>
           {/* 宽度调整条 */}

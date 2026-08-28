@@ -4,6 +4,40 @@ import type { PaneNode, PaneLeaf, PaneSplit, PaneLayout, SplitDirection } from '
 // 布局持久化 key
 const LAYOUT_STORAGE_KEY = 'lyshell_pane_layout'
 
+// 网页访问栏历史持久化 key + 封顶条数（去重后按最近优先，超量截尾）
+const WEB_TAB_HISTORY_KEY = 'lyshell.webTabHistory.v1'
+const WEB_TAB_HISTORY_MAX = 30
+
+/** 从 localStorage 读历史（坏数据容错为空数组）。纯函数，便于单测。 */
+export function loadWebTabHistory(): string[] {
+  try {
+    const raw = localStorage.getItem(WEB_TAB_HISTORY_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((u): u is string => typeof u === 'string')
+  } catch {
+    return []
+  }
+}
+
+/** 去重前置 + 截尾后写回 localStorage。纯函数，便于单测。 */
+export function recordWebTabUrlToHistory(history: string[], url: string): string[] {
+  return [url, ...history.filter(u => u !== url)].slice(0, WEB_TAB_HISTORY_MAX)
+}
+
+/**
+ * 网页访问栏页签条目 —— 插件面板 URL 栏打开的通用网页（区别于 dshWeb 单例：多开、无子进程、
+ * URL 不受回环锁定）。瞬态：不随布局持久化，webview 随覆盖层卸载即销毁。
+ */
+export interface WebTabEntry {
+  id: string        // 运行时唯一 id
+  url: string       // 归一化后的绝对 http(s) URL
+  title: string     // 初始取 hostname，后续由 webview page-title-updated 回写
+  paneId: string    // 承载 pane
+  active: boolean   // 当前在该 pane 中显示（每 pane 至多一个 overlay 激活）
+}
+
 // 自动保存布局的订阅函数
 const subscribeToLayoutChanges = (store: any) => {
   store.subscribe((state: PaneStore, prevState: PaneStore) => {
@@ -89,6 +123,23 @@ interface PaneStore {
   // 使 drop 目标区（终端/空 pane）暴露出来可接收 dragover/drop。瞬态，不持久化。
   draggingDshWeb: boolean
   setDraggingDshWeb: (dragging: boolean) => void
+  // 网页访问栏页签（多开）—— 插件面板 URL 栏打开的通用网页，每个 URL 一个独立页签。
+  // 与 dshWeb/MCP 同为 pane 覆盖层，同 pane 内互斥（激活一个去活其余）。瞬态，不持久化。
+  webTabs: WebTabEntry[]
+  openWebTab: (rawUrl: string) => { ok: true } | { ok: false; error: string }
+  activateWebTab: (id: string) => void
+  setWebTabTitle: (id: string, title: string) => void
+  closeWebTab: (id: string) => void
+  closeWebTabsInPane: (paneId: string) => void
+  deactivateWebTabsInPane: (paneId: string) => void  // 隐藏本 pane 的网页页签（页签保留，点页签切回）
+  // 网页访问栏历史 —— 实际加载成功（did-finish-load）过的 URL，localStorage 持久化
+  // （去重、最近优先、封顶）。页签本身仍是瞬态的，这里只记 URL 供「最近访问」列表
+  // 与输入框补全。记录时机在 WebTabOverlay 的 did-finish-load 回调（recordWebTabVisit），
+  // 而非 openWebTab —— 打开但没加载出来（DNS 失败/超时）的 URL 不算「访问过」。
+  webTabHistory: string[]
+  recordWebTabVisit: (url: string) => void
+  removeWebTabHistory: (url: string) => void
+  clearWebTabHistory: () => void
   // 隐藏的终端页签 —— key 为 runtime sessionId,true 表示该页签(及终端)被折叠隐藏
   // xterm 实例不卸载,连接与输出保留;Sidebar LIVE 段会话标签点击 toggle
   hiddenTabSessions: Record<string, boolean>
@@ -124,6 +175,25 @@ interface PaneStore {
 // 生成唯一ID
 const generateId = () => Date.now().toString() + Math.random().toString(36).slice(2, 6)
 
+/**
+ * 网页访问栏 URL 归一化：trim；无 scheme 视为 https；仅放行 http/https 且 hostname 非空。
+ * 纯函数，便于单测；通过返回归一化 URL 字符串，失败返回 null（调用方给 i18n 错误文案）。
+ */
+export function normalizeWebBarUrl(raw: string): string | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const candidate = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed) ? trimmed : `https://${trimmed}`
+  let url: URL
+  try {
+    url = new URL(candidate)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+  if (!url.hostname) return null
+  return url.toString()
+}
+
 // 初始布局 - 单个叶子节点，空会话列表
 const createInitialLayout = (): PaneLayout => ({
   root: {
@@ -148,20 +218,45 @@ const findPane = (node: PaneNode, paneId: string): PaneNode | undefined => {
 // 若 dsh web 承载 pane 已不在新布局树中（被 removeEmptyPanes / removePaneAndMerge 删除），
 // 关闭并回收子进程 —— 避免 webview 随 pane 卸载后 dsh 子进程残留成孤儿。
 // 每次 layout 树变更后统一调用（见各 action 末尾 removeEmptyPanes/removePaneAndMerge 之后）。
+// 同型回收网页访问栏页签：其 pane 不在树中即从 webTabs 移除（无子进程，仅 store 清理）。
 const pruneOrphanedDshWeb = (root: PaneNode): void => {
-  const { dshWebPaneId, closeDshWeb } = usePaneStore.getState()
+  const { dshWebPaneId, closeDshWeb, webTabs } = usePaneStore.getState()
   if (dshWebPaneId && !findPane(root, dshWebPaneId)) {
     closeDshWeb()
   }
+  const orphaned = webTabs.filter(t => !findPane(root, t.paneId))
+  if (orphaned.length > 0) {
+    usePaneStore.setState({ webTabs: webTabs.filter(t => findPane(root, t.paneId)) })
+  }
 }
 
-// 承载 dsh web / MCP 审计覆盖层的 pane 即便没有终端会话也不应被判为空删除 ——
-// 覆盖层以顶层 store 字段（dshWebPaneId / mcpAuditPaneId）挂在 pane 上，而非 pane 树的 session；
-// removeEmptyPanes / removePaneAndMerge 只看 sessions.length，会把仍承载覆盖层的 pane 误删，
-// 进而触发 pruneOrphanedDshWeb 把 web 一并关闭（关最后一个终端页签连带关 web 的根因）。
+// 拖拽分屏（splitPane / splitPaneWithPosition）会把目标叶子原地替换为 split 节点：叶子 id
+// 变成 split id、会话落到新建 id 的子叶子。承载在该叶子上的覆盖层（dsh web / MCP 审计 /
+// webTabs）若不随迁会变成僵尸 —— findPane 按 id 仍能找到 split 节点，pruneOrphanedDshWeb
+// 不触发，但没有任何叶子渲染它（webview 静默消失、store 条目残留）。
+// 迁到继承原会话列表的子叶子：覆盖层语义上跟随原会话留在原半区；dshWebTabIndex 引用的是
+// pane.sessions 坐标，继承子叶子的 sessions 原样保留，插槽坐标无需修正。
+const migrateOverlaysToPane = (fromPaneId: string, toPaneId: string): void => {
+  const { dshWebPaneId, mcpAuditPaneId, webTabs } = usePaneStore.getState()
+  const patch: { dshWebPaneId?: string; mcpAuditPaneId?: string; webTabs?: typeof webTabs } = {}
+  if (dshWebPaneId === fromPaneId) patch.dshWebPaneId = toPaneId
+  if (mcpAuditPaneId === fromPaneId) patch.mcpAuditPaneId = toPaneId
+  if (webTabs.some(t => t.paneId === fromPaneId)) {
+    patch.webTabs = webTabs.map(t => t.paneId === fromPaneId ? { ...t, paneId: toPaneId } : t)
+  }
+  if (patch.dshWebPaneId !== undefined || patch.mcpAuditPaneId !== undefined || patch.webTabs !== undefined) {
+    usePaneStore.setState(patch)
+  }
+}
+
+// 承载 dsh web / MCP 审计 / 网页访问栏覆盖层的 pane 即便没有终端会话也不应被判为空删除 ——
+// 覆盖层以顶层 store 字段（dshWebPaneId / mcpAuditPaneId / webTabs[].paneId）挂在 pane 上，
+// 而非 pane 树的 session；removeEmptyPanes / removePaneAndMerge 只看 sessions.length，会把仍
+// 承载覆盖层的 pane 误删，进而触发 pruneOrphanedDshWeb 把 web 一并关闭（关最后一个终端页签
+// 连带关 web 的根因）。
 const isOverlayPane = (paneId: string): boolean => {
-  const { dshWebPaneId, mcpAuditPaneId } = usePaneStore.getState()
-  return paneId === dshWebPaneId || paneId === mcpAuditPaneId
+  const { dshWebPaneId, mcpAuditPaneId, webTabs } = usePaneStore.getState()
+  return paneId === dshWebPaneId || paneId === mcpAuditPaneId || webTabs.some(t => t.paneId === paneId)
 }
 
 // 查找父节点
@@ -221,9 +316,9 @@ const removeEmptyPanes = (root: PaneNode, dshWebPaneIdOverride?: string | null):
     const newFirstChild = removeEmptyPanes(root.firstChild, dshWebPaneIdOverride)
     const newSecondChild = removeEmptyPanes(root.secondChild, dshWebPaneIdOverride)
 
-    const { dshWebPaneId, mcpAuditPaneId } = usePaneStore.getState()
+    const { dshWebPaneId, mcpAuditPaneId, webTabs } = usePaneStore.getState()
     const webPaneId = dshWebPaneIdOverride ?? dshWebPaneId
-    const isProtected = (id: string) => id === webPaneId || id === mcpAuditPaneId
+    const isProtected = (id: string) => id === webPaneId || id === mcpAuditPaneId || webTabs.some(t => t.paneId === id)
 
     // 检查子节点是否是空叶子
     const firstEmpty = newFirstChild.type === 'leaf' && newFirstChild.sessions.length === 0 && !isProtected(newFirstChild.id)
@@ -457,6 +552,8 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
           activePaneId: newPaneId2
         }
       })
+      // 目标叶子已变成 split：覆盖层迁到继承原会话（这里为空、原会话就是拖拽源）的第一子叶子
+      migrateOverlaysToPane(targetPaneId, newPaneId1)
       return
     }
 
@@ -505,6 +602,8 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
         activePaneId: newPaneId2  // 激活新分屏
       }
     })
+    // 目标叶子已变成 split：覆盖层迁到继承原会话列表的第一子叶子
+    migrateOverlaysToPane(targetPaneId, newPaneId1)
   },
 
   // 分屏操作 - 指定新会话的位置（first=左/上，second=右/下）
@@ -563,6 +662,8 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
           activePaneId: position === 'first' ? newPaneId1 : newPaneId2
         }
       })
+      // 目标叶子已变成 split：覆盖层迁到未接收拖拽会话（继承原会话残留）的子叶子
+      migrateOverlaysToPane(targetPaneId, position === 'first' ? newPaneId2 : newPaneId1)
       return
     }
 
@@ -617,6 +718,8 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
         activePaneId: position === 'first' ? newPaneId1 : newPaneId2
       }
     })
+    // 目标叶子已变成 split：覆盖层迁到继承原会话列表的子叶子（position 反侧）
+    migrateOverlaysToPane(targetPaneId, position === 'first' ? newPaneId2 : newPaneId1)
   },
 
   // 关闭分屏
@@ -667,11 +770,13 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     // 同 pane 的 web 覆盖层与 MCP 覆盖层互斥：webview 是原生视图，同 z-index 时按 DOM 顺序
     // 盖在 MCP 面板上并吞掉其全部点击（面板开了却不可见的根因）。激活 MCP 只隐藏 web
     // （web 页签保留），与 activateDshWeb 隐藏 MCP 对称；web 在其他 pane 则互不影响。
-    const { dshWebPaneId, dshWebActive } = get()
+    // 网页访问栏页签同属 webview 覆盖层，一并隐藏（页签保留）。
+    const { dshWebPaneId, dshWebActive, webTabs } = get()
     set({
       mcpAuditPaneId: paneId,
       mcpAuditActive: true,
-      dshWebActive: dshWebPaneId === paneId ? false : dshWebActive
+      dshWebActive: dshWebPaneId === paneId ? false : dshWebActive,
+      webTabs: webTabs.map(t => t.paneId === paneId ? { ...t, active: false } : t)
     })
   },
   deactivateMcpAudit: () => {
@@ -691,11 +796,13 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
   openDshWebInPane: (paneId, info) => {
     const target = paneId || get().getAllLeafPanes()[0]?.id
     if (!target) return
-    const { mcpAuditPaneId, mcpAuditActive } = get()
+    const { mcpAuditPaneId, mcpAuditActive, webTabs } = get()
     set({
       dshWeb: info, dshWebPaneId: target, dshWebActive: true, dshWebTabIndex: null,
-      // 互斥：web 挂到 MCP 页签所在 pane 时隐藏 MCP（页签保留，点 MCP 页签可切回）
-      mcpAuditActive: mcpAuditPaneId === target ? false : mcpAuditActive
+      // 互斥：web 挂到 MCP 页签所在 pane 时隐藏 MCP（页签保留，点 MCP 页签可切回）；
+      // 网页访问栏页签同属 webview 覆盖层，同 pane 一并隐藏（页签保留）
+      mcpAuditActive: mcpAuditPaneId === target ? false : mcpAuditActive,
+      webTabs: webTabs.map(t => t.paneId === target ? { ...t, active: false } : t)
     })
   },
   // 拖拽 Web 页签到某 pane 边缘 → 把 web 拆进独立 pane（左/右/上/下由 position 决定），
@@ -757,10 +864,14 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     // 否则 activePaneId 仍停在终端 pane，导致底部状态栏判定（dshWebActiveHere）与分屏高亮环不一致
     set(state => ({
       dshWebActive: true,
-      // 反向互斥：MCP 覆盖层若开在本 pane 会被 webview 盖住 -- 只隐藏（页签保留），点 MCP 页签可切回
+      // 反向互斥：MCP 覆盖层若开在本 pane 会被 webview 盖住 -- 只隐藏（页签保留），点 MCP 页签可切回；
+      // 网页访问栏页签同属 webview 覆盖层，同 pane 一并隐藏（页签保留，点页签可切回）
       mcpAuditActive: state.mcpAuditPaneId != null && state.mcpAuditPaneId === state.dshWebPaneId
         ? false
         : state.mcpAuditActive,
+      webTabs: state.dshWebPaneId != null
+        ? state.webTabs.map(t => t.paneId === state.dshWebPaneId ? { ...t, active: false } : t)
+        : state.webTabs,
       // 用 state.dshWebPaneId 而非闭包值，与 set 内其它 state 读取一致；空则维持原 activePaneId
       layout: { ...state.layout, activePaneId: state.dshWebPaneId ?? state.layout.activePaneId }
     }))
@@ -787,6 +898,107 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     const pane = findPane(st.layout.root, st.dshWebPaneId) as PaneLeaf | undefined
     if (!pane || pane.type !== 'leaf') return
     set({ dshWebTabIndex: Math.min(Math.max(index, 0), pane.sessions.length) })
+  },
+
+  // ===== 网页访问栏页签（多开，插件面板 URL 栏入口） =====
+  webTabs: [],
+  webTabHistory: loadWebTabHistory(),
+  openWebTab: (rawUrl) => {
+    const url = normalizeWebBarUrl(rawUrl)
+    if (!url) return { ok: false, error: 'invalid URL' }
+
+    const st = get()
+    // 挂到当前活动 pane；activePaneId 未就绪时回落首个叶子 pane
+    const target = st.layout.activePaneId || st.getAllLeafPanes()[0]?.id
+    if (!target) return { ok: false, error: 'no pane available' }
+
+    const entry: WebTabEntry = {
+      id: `web-${generateId()}`,
+      url,
+      title: new URL(url).hostname,
+      paneId: target,
+      active: true
+    }
+    // 历史不在这里记 —— 等 WebTabOverlay 的 did-finish-load 再记（recordWebTabVisit），
+    // 打开但加载失败的 URL 不进「最近访问」
+    set({
+      // 同 pane 互斥：webview 同 z-index 按 DOM 顺序互盖，激活新页签先去活旧 overlay（页签保留）
+      webTabs: [...st.webTabs.map(t => t.paneId === target ? { ...t, active: false } : t), entry],
+      ...(st.dshWebPaneId === target ? { dshWebActive: false } : {}),
+      ...(st.mcpAuditPaneId === target ? { mcpAuditActive: false } : {}),
+      layout: { ...st.layout, activePaneId: target }
+    })
+    return { ok: true }
+  },
+  activateWebTab: (id) => {
+    const st = get()
+    const tab = st.webTabs.find(t => t.id === id)
+    if (!tab) return
+    set({
+      // 本 pane 内单选：激活目标、去活其余 webTab；其它 pane 不受影响
+      webTabs: st.webTabs.map(t => t.paneId === tab.paneId ? { ...t, active: t.id === id } : t),
+      ...(st.dshWebPaneId === tab.paneId ? { dshWebActive: false } : {}),
+      ...(st.mcpAuditPaneId === tab.paneId ? { mcpAuditActive: false } : {}),
+      // 对齐 activateDshWeb：activePaneId 切到承载 pane，保证分屏高亮环与状态栏判定一致
+      layout: { ...st.layout, activePaneId: tab.paneId }
+    })
+  },
+  setWebTabTitle: (id, title) => {
+    const st = get()
+    const tab = st.webTabs.find(t => t.id === id)
+    if (!tab || !title || tab.title === title) return
+    set({ webTabs: st.webTabs.map(t => t.id === id ? { ...t, title } : t) })
+  },
+  closeWebTab: (id) => {
+    const st = get()
+    const tab = st.webTabs.find(t => t.id === id)
+    if (!tab) return
+    const remaining = st.webTabs.filter(t => t.id !== id)
+    // 关掉的是该 pane 当前激活的页签 → 浏览器惯例：切到同 pane 最后一个 webTab；
+    // 没有其它 webTab 则回到终端（activeSessionId 不曾被动过，覆盖层卸载即显示）
+    if (tab.active) {
+      const next = [...remaining].reverse().find(t => t.paneId === tab.paneId)
+      if (next) {
+        set({ webTabs: remaining.map(t => t.id === next.id ? { ...t, active: true } : t) })
+        return
+      }
+    }
+    set({ webTabs: remaining })
+  },
+  closeWebTabsInPane: (paneId) => {
+    const st = get()
+    if (!st.webTabs.some(t => t.paneId === paneId)) return
+    set({ webTabs: st.webTabs.filter(t => t.paneId !== paneId) })
+  },
+  deactivateWebTabsInPane: (paneId) => {
+    const st = get()
+    if (!st.webTabs.some(t => t.paneId === paneId && t.active)) return
+    set({ webTabs: st.webTabs.map(t => t.paneId === paneId ? { ...t, active: false } : t) })
+  },
+  recordWebTabVisit: (url) => {
+    const st = get()
+    // 已在顶部（重复 did-finish-load，如页内锚点刷新）直接跳过，少一次 setState
+    if (st.webTabHistory[0] === url) return
+    const history = recordWebTabUrlToHistory(st.webTabHistory, url)
+    try {
+      localStorage.setItem(WEB_TAB_HISTORY_KEY, JSON.stringify(history))
+    } catch { /* 隐私模式/存储满时静默降级为仅内存态 */ }
+    set({ webTabHistory: history })
+  },
+  removeWebTabHistory: (url) => {
+    const st = get()
+    if (!st.webTabHistory.includes(url)) return
+    const history = st.webTabHistory.filter(u => u !== url)
+    try {
+      localStorage.setItem(WEB_TAB_HISTORY_KEY, JSON.stringify(history))
+    } catch { /* 同上：持久化失败仅内存态 */ }
+    set({ webTabHistory: history })
+  },
+  clearWebTabHistory: () => {
+    try {
+      localStorage.removeItem(WEB_TAB_HISTORY_KEY)
+    } catch { /* 同上 */ }
+    set({ webTabHistory: [] })
   },
 
   hiddenTabSessions: {},
@@ -950,14 +1162,22 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     } else {
       // 终端页签清空、pane 因承载 web/MCP 页签而保留：若此刻没有任何页签在显示（刚关的是
       // 最后一个终端），自动切到剩余的 web/MCP 页签 —— 否则窗格只剩空态占位，页签悬着要手动点。
-      // web 与 MCP 同 pane 时优先 web（二者同 pane 互斥，另一个保持未激活的页签态）。
+      // dsh web / 网页访问栏 / MCP 同 pane 时优先 web 系（同 pane 互斥，其余保持未激活的页签态）。
       const st = get()
-      let overlayPatch: { dshWebActive?: boolean; mcpAuditActive?: boolean; dshWebTabIndex?: number } = {}
+      let overlayPatch: { dshWebActive?: boolean; mcpAuditActive?: boolean; dshWebTabIndex?: number; webTabs?: WebTabEntry[] } = {}
       if (newSessions.length === 0 &&
           !(st.dshWebPaneId === paneId && st.dshWebActive) &&
-          !(st.mcpAuditPaneId === paneId && st.mcpAuditActive)) {
-        if (st.dshWebPaneId === paneId) overlayPatch = { dshWebActive: true }
-        else if (st.mcpAuditPaneId === paneId) overlayPatch = { mcpAuditActive: true }
+          !(st.mcpAuditPaneId === paneId && st.mcpAuditActive) &&
+          !st.webTabs.some(t => t.paneId === paneId && t.active)) {
+        if (st.dshWebPaneId === paneId) {
+          overlayPatch = { dshWebActive: true }
+        } else if (st.webTabs.some(t => t.paneId === paneId)) {
+          // 切到该 pane 最后打开的网页页签
+          const next = [...st.webTabs].reverse().find(t => t.paneId === paneId)
+          if (next) overlayPatch = { webTabs: st.webTabs.map(t => t.id === next.id ? { ...t, active: true } : t) }
+        } else if (st.mcpAuditPaneId === paneId) {
+          overlayPatch = { mcpAuditActive: true }
+        }
       }
       // web 插槽同步：被关会话在 web 页签左侧时，pane.sessions 整体左移一位，插槽索引须跟着
       // 减一，否则 web 会随左侧会话逐个关闭而向右漂移（左侧隐藏页签被关同理，索引是原始坐标）
@@ -1177,6 +1397,9 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     const savedLayout = loadSavedLayout(validSessionIds)
     if (savedLayout) {
       set({ layout: savedLayout })
+      // 恢复的树来自持久化存储，pane id 与运行时覆盖层（dshWeb/MCP/webTabs，瞬态）的挂载
+      // id 对不上 —— 统一按孤儿回收，避免僵尸条目（不渲染也清不掉）
+      pruneOrphanedDshWeb(savedLayout.root)
     }
   }
 }))

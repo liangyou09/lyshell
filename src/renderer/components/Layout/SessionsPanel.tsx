@@ -1344,7 +1344,7 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
             </span>
           </span>
           <span className="inline-flex items-center gap-2">
-            <span>{t('sidebar.footerShortcut', { n: 7 })}</span>
+            <span>{t('sidebar.footerShortcut', { n: 8 })}</span>
           </span>
         </div>
       </div>
