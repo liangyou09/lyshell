@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
+import type { WorktreeListResult } from '@shared/worktree'
 
 // IPC 通道定义
 const IPC_CHANNELS = {
@@ -281,8 +282,11 @@ const electronAPI = {
   openDshWeb: (target: { workspaceId?: string; cwd?: string }) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_OPEN, target),
   closeDshWeb: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_CLOSE),
 
-  // 列出 cwd 所属仓库 .lyshell-worktrees/ 下的共享名（worktree 隔离编辑框的下拉选项）
-  listHarnessWorktrees: (cwd: string) => ipcRenderer.invoke(IPC_CHANNELS.HARNESS_WORKTREE_LIST, cwd),
+  // 列出 cwd 所属仓库 .lyshell-worktrees/ 下的共享名（worktree 隔离编辑框的下拉选项），
+  // 一并返回 worktree 根目录绝对路径（渲染层预览自动生成 key 的完整路径）。
+  // 返回类型是 @shared/worktree 的 WorktreeListResult（success 判别联合，与主进程 handler 对齐）
+  listHarnessWorktrees: (cwd: string): Promise<WorktreeListResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.HARNESS_WORKTREE_LIST, cwd),
 
   // Codex Harness
   detectCodex: () => ipcRenderer.invoke(IPC_CHANNELS.CODEX_DETECT),

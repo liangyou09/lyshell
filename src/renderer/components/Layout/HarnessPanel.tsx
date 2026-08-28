@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { HARNESS_AGENT_VIEWS, isSecretEnvKey, type HarnessAgentKind, type HarnessEnvDefault, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
+import { BRANCH_PREFIX, generateWorktreeCode, generateWorktreeKey, joinWorktreePath } from '@shared/worktree'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { ensureDetected, getCachedDetect, redetectHarness } from './harness-detect'
 
@@ -198,10 +199,17 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   const [wsSkipPermissions, setWsSkipPermissions] = useState(false)
   // 目录隔离模式：shared = 直接在 cwd 启动（现状）；worktree = 仓库根下专属 git worktree
   const [wsIsolation, setWsIsolation] = useState<'shared' | 'worktree'>('shared')
-  // worktree 共享名：空 = 私有（kind-id 各用各的树）；填了则同名工作区跨 kind 共用同一 worktree/分支
+  // worktree 共享名：空 = 私有（kind-id 各用各的树）；填了则同名工作区跨 kind 共用同一 worktree/分支。
+  // 切到 worktree 时自动生成 <kind>-<名称>-<代号> 预填（可改可清空），保存即持久化 → 下次仍是同一 worktree
   const [wsWorktreeKey, setWsWorktreeKey] = useState('')
+  // key 处于自动派生模式（未被手动编辑）：改名时 key 的名称段跟随重派生，代号保持稳定
+  const [wsKeyAuto, setWsKeyAuto] = useState(false)
+  // 本次对话框会话的随机代号（打开时生成一次；保存前重生成无副作用——worktree 只在启动时创建）
+  const [wsKeyCode, setWsKeyCode] = useState('')
   // 当前目录所属仓库里已有的 worktree 共享名（下拉选项；检测失败静默置空，硬校验在启动时）
   const [wtKeys, setWtKeys] = useState<string[]>([])
+  // 主进程解析的 .lyshell-worktrees 绝对路径（路径预览用；null = 未解析/非 git 目录）
+  const [wtRoot, setWtRoot] = useState<string | null>(null)
   // 工作区绑定的变量组 id；undefined = 跟随已启用的变量组
   const [wsEnvProfileId, setWsEnvProfileId] = useState<string | undefined>(undefined)
   const [triedSubmit, setTriedSubmit] = useState(false)
@@ -360,21 +368,36 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     return () => document.removeEventListener('keydown', onKey)
   }, [showDialog, confirmDelete])
 
-  // worktree 模式下检测当前目录所属仓库的已有共享名（防抖 300ms，供共享名下拉）。
+  // worktree 模式下检测当前目录所属仓库的已有共享名与 worktree 根路径（防抖 300ms，供下拉与路径预览）。
   // 检测失败（非 git 目录 / git 缺失）静默置空 —— 保存与启动自有各自的校验，这里只管选项。
   useEffect(() => {
     if (!showDialog || wsIsolation !== 'worktree' || wsCwd.trim().length === 0) {
       setWtKeys([])
+      setWtRoot(null)
       return
     }
+    // 竞态防护：防抖只能取消未发出的请求；已发出的在途响应由 cancelled 标志拦下 ——
+    // cwd 快速连续变化时旧响应可能晚于新响应到达，晚写回会把下拉/路径预览留在旧仓库
+    let cancelled = false
     const timer = setTimeout(() => {
       window.electronAPI.listHarnessWorktrees(wsCwd.trim())
-        .then((res: { success: boolean; keys?: string[] }) => {
-          setWtKeys(res.success && Array.isArray(res.keys) ? res.keys : [])
+        .then((res) => {
+          if (cancelled) return
+          // WorktreeListResult 判别联合（preload 已标类型）：失败侧带 error，静默置空即可
+          if (res && res.success) {
+            setWtKeys(res.keys)
+            setWtRoot(res.worktreeRoot)
+          } else {
+            setWtKeys([])
+            setWtRoot(null)
+          }
         })
-        .catch(() => setWtKeys([]))
+        .catch(() => {
+          if (cancelled) return
+          setWtKeys([]); setWtRoot(null)
+        })
     }, 300)
-    return () => clearTimeout(timer)
+    return () => { cancelled = true; clearTimeout(timer) }
   }, [showDialog, wsIsolation, wsCwd])
 
   // 变量组对话框同上（两个对话框互斥，各自监听自己的开关）
@@ -394,9 +417,27 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   }, [showEnvDialog, envConfirmDelete])
 
   // ── 对话框 ──
+  // 名称统一入口：自动模式下 key 的名称段跟随重派生（代号稳定）。手输与「选目录自动填名」
+  // （handlePickCwd）两条路径都必须走这里，否则自动 key 会与名称脱节。
+  const updateWsName = (value: string) => {
+    setWsName(value)
+    if (triedSubmit) setTriedSubmit(false)
+    if (wsKeyAuto) setWsWorktreeKey(generateWorktreeKey(agent, value, wsKeyCode))
+  }
+  // 隔离模式切换：切到 worktree 且 key 为空时进入自动模式并预填 <kind>-<名称>-<代号>。
+  // 「已持久化 worktree 隔离的既有工作区」不自动填 —— 其空 key 的生效树是 kind-<uuid>，
+  // 静默换成新 key 会让既有 worktree（含未提交修改）被遗弃。
+  const selectIsolation = (mode: 'shared' | 'worktree') => {
+    setWsIsolation(mode)
+    if (mode === 'worktree' && wsWorktreeKey.trim().length === 0 && editWorkspace?.isolation !== 'worktree') {
+      setWsKeyAuto(true)
+      setWsWorktreeKey(generateWorktreeKey(agent, wsName, wsKeyCode))
+    }
+  }
   const handleAdd = () => {
     setEditWorkspace(undefined)
     setWsName(''); setWsCwd(''); setWsNote(''); setWsModel(''); setWsSkipPermissions(false); setWsEnvProfileId(undefined); setWsIsolation('shared'); setWsWorktreeKey('')
+    setWsKeyAuto(false); setWsKeyCode(generateWorktreeCode())
     setTriedSubmit(false); setConfirmDelete(false); setSaveError(null)
     setShowDialog(true)
   }
@@ -405,6 +446,8 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     setWsName(ws.name); setWsCwd(ws.cwd); setWsNote(ws.note || ''); setWsModel(ws.model || ''); setWsSkipPermissions(ws.skipPermissions === true)
     setWsIsolation(ws.isolation === 'worktree' ? 'worktree' : 'shared')
     setWsWorktreeKey(ws.worktreeKey || '')
+    // 编辑既有工作区永不自动派生：key 即 worktree 身份，改名不该换树
+    setWsKeyAuto(false); setWsKeyCode(generateWorktreeCode())
     // 绑定的变量组已被删除时按「跟随已启用」呈现 —— 与主进程 resolveWorkspaceEnv 的回落一致，
     // 否则选择器会显示成「什么都没选中」，看不出实际会用哪份变量。
     // 但这条归一化只在变量组列表确实拉到之后才成立：工作区与变量组是两条并发 IPC，
@@ -428,6 +471,15 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     setWsCwd(ws.cwd); setWsNote(ws.note || ''); setWsModel(ws.model || ''); setWsSkipPermissions(ws.skipPermissions === true)
     setWsIsolation(ws.isolation === 'worktree' ? 'worktree' : 'shared')
     setWsWorktreeKey(ws.worktreeKey || '')
+    // 源是私有 worktree（无显式 key）时直接给副本自动派生新 key：副本是新 id，本就各用各的树；
+    // 源有显式 key 则照抄（沿用现状语义：副本与源共用同一 worktree —— 同名共享本就是显式 key 的功能）。
+    // key 用局部值（副本名 + 新代号）计算，避免读到尚未生效的 state。
+    const dupCode = generateWorktreeCode()
+    setWsKeyAuto(ws.isolation === 'worktree' && !(ws.worktreeKey || '').trim())
+    setWsKeyCode(dupCode)
+    if (ws.isolation === 'worktree' && !(ws.worktreeKey || '').trim()) {
+      setWsWorktreeKey(generateWorktreeKey(agent, `${ws.name}${t(`${prefix}.copySuffix`)}`, dupCode))
+    }
     setWsEnvProfileId(
       !envProfilesLoaded || (ws.envProfileId && envProfiles.some((p) => p.id === ws.envProfileId))
         ? ws.envProfileId
@@ -445,14 +497,24 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     if (result && !result.canceled && result.filePaths.length > 0) {
       const dir = result.filePaths[0]
       setWsCwd(dir)
-      // 名称为空时自动用目录基名填充（镜像 agent 交互，减少手填）
+      // 名称为空时自动用目录基名填充（镜像 agent 交互，减少手填）。
+      // 走 updateWsName 而非直接 setWsName：worktree 自动模式下 key 的名称段要跟着刷新
       if (!wsName.trim()) {
         const base = dir.split(/[\\/]/).filter(Boolean).pop() || dir
-        setWsName(base)
+        updateWsName(base)
       }
     }
   }
   const valid = wsName.trim().length > 0 && wsCwd.trim().length > 0
+  // worktree 生效 key 与路径预览派生值：显式 key 优先；空 key 的既有工作区回落私有 kind-<id>
+  // （与主进程 resolveWorktreeKey 同口径）；新工作区空 key 则 id 保存后才存在，无法预览
+  const effectiveWorktreeKey = wsWorktreeKey.trim().length > 0
+    ? wsWorktreeKey.trim()
+    : editWorkspace ? `${agent}-${editWorkspace.id}` : null
+  // 完整路径预览：joinWorktreePath 沿用主进程返回根路径里的原生分隔符，渲染层不猜平台
+  const effectiveWorktreePath = wtRoot && effectiveWorktreeKey
+    ? joinWorktreePath(wtRoot, effectiveWorktreeKey)
+    : null
   const handleSave = async () => {
     if (!valid) { setTriedSubmit(true); return }
     setSaveError(null)
@@ -1142,7 +1204,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
               <input
                 type="text"
                 value={wsName}
-                onChange={(e) => { setWsName(e.target.value); if (triedSubmit) setTriedSubmit(false) }}
+                onChange={(e) => updateWsName(e.target.value)}
                 placeholder={t(`${prefix}.wsNamePh`)}
                 autoFocus
                 className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
@@ -1183,7 +1245,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                   type="button"
                   role="radio"
                   aria-checked={wsIsolation === 'shared'}
-                  onClick={() => setWsIsolation('shared')}
+                  onClick={() => selectIsolation('shared')}
                   className="relative w-full text-left flex items-center gap-2 px-2.5 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0 bg-transparent cursor-pointer hover:bg-[var(--bg-slot)] transition-colors"
                 >
                   <BusLed on={wsIsolation === 'shared'} />
@@ -1195,7 +1257,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                   type="button"
                   role="radio"
                   aria-checked={wsIsolation === 'worktree'}
-                  onClick={() => setWsIsolation('worktree')}
+                  onClick={() => selectIsolation('worktree')}
                   className="relative w-full text-left flex items-center gap-2 px-2.5 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0 bg-transparent cursor-pointer hover:bg-[var(--bg-slot)] transition-colors"
                 >
                   <BusLed on={wsIsolation === 'worktree'} />
@@ -1204,15 +1266,15 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                   </span>
                 </button>
               </div>
-              {/* 共享名：仅 worktree 模式有意义。空 = 私有（各用各的树）；填了则同名工作区跨 kind 共用同一棵树与分支。
-                  datalist 下拉列出该仓库已有的共享名 —— 选中即加入既有 worktree，也可自由输入新名字 */}
+              {/* 共享名：仅 worktree 模式有意义。切到 worktree 时自动生成 <kind>-<名称>-<代号> 预填（可改可清空，
+                  空则私有各用各的树）；datalist 下拉列出该仓库已有的共享名 —— 选中即加入既有 worktree，也可自由输入 */}
               {wsIsolation === 'worktree' && (
                 <>
                   <input
                     type="text"
                     list={`${agent}-worktree-keys`}
                     value={wsWorktreeKey}
-                    onChange={(e) => setWsWorktreeKey(e.target.value)}
+                    onChange={(e) => { setWsKeyAuto(false); setWsWorktreeKey(e.target.value) }}
                     placeholder={t(`${prefix}.wsWorktreeKeyPh`)}
                     className="mt-2 w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
                   />
@@ -1221,6 +1283,25 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                       <option key={k} value={k} />
                     ))}
                   </datalist>
+                  {/* 路径预览：选定 worktree 即可见完整路径与分支（实际目录点击启动时才创建） */}
+                  <div className="mt-1.5 px-0.5 text-[11px] leading-[1.6] [font-family:inherit] text-[var(--text-rack-data)] select-text break-all">
+                    {effectiveWorktreeKey ? (
+                      <>
+                        <div title={effectiveWorktreePath ?? undefined}>
+                          {t(`${prefix}.wsWorktreePath`)}{' '}
+                          {effectiveWorktreePath ?? t(`${prefix}.wsWorktreeNoRepo`)}
+                        </div>
+                        <div>
+                          {t(`${prefix}.wsWorktreeBranch`)} {`${BRANCH_PREFIX}/${effectiveWorktreeKey}`}
+                          <span className="mx-1.5 opacity-60">·</span>
+                          {t(`${prefix}.wsWorktreeLaunchNote`)}
+                        </div>
+                        {wsKeyAuto && <div>{t(`${prefix}.wsWorktreeAutoHint`)}</div>}
+                      </>
+                    ) : (
+                      <div>{t(`${prefix}.wsWorktreePrivateHint`)}</div>
+                    )}
+                  </div>
                 </>
               )}
             </div>

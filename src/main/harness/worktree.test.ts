@@ -227,13 +227,19 @@ describe.skipIf(!gitAvailable)('ensureWorktree', () => {
       await ensureWorktree(repo, 'alpha')
       const r = await listWorktreeKeys(repo)
       expect(r.ok).toBe(true)
-      if (r.ok) expect(r.keys).toEqual(['alpha', 'beta'])
+      if (r.ok) {
+        expect(r.keys).toEqual(['alpha', 'beta'])
+        expect(r.worktreeRoot).toBe(resolve(join(repo, '.lyshell-worktrees')))
+      }
       // 从仓库子目录探测也返回同一份（--show-toplevel 归一到根）
       const sub = join(repo, 'sub')
       mkdirSync(sub)
       const r2 = await listWorktreeKeys(sub)
       expect(r2.ok).toBe(true)
-      if (r2.ok) expect(r2.keys).toEqual(['alpha', 'beta'])
+      if (r2.ok) {
+        expect(r2.keys).toEqual(['alpha', 'beta'])
+        expect(r2.worktreeRoot).toBe(resolve(join(repo, '.lyshell-worktrees')))
+      }
     } finally {
       rmSync(repo, { recursive: true, force: true })
     }
@@ -244,7 +250,10 @@ describe.skipIf(!gitAvailable)('ensureWorktree', () => {
     try {
       const r = await listWorktreeKeys(repo)
       expect(r.ok).toBe(true)
-      if (r.ok) expect(r.keys).toEqual([])
+      if (r.ok) {
+        expect(r.keys).toEqual([])
+        expect(r.worktreeRoot).toBe(resolve(join(repo, '.lyshell-worktrees')))
+      }
     } finally {
       rmSync(repo, { recursive: true, force: true })
     }

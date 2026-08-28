@@ -6,27 +6,30 @@
  * 幂等：已存在则原样复用（未提交修改跨启动保留）；分支 lyshell/<key> 首次创建后固定复用，
  * worktree 目录被手删但分支还在时重挂同一分支。
  *
+ * key 的纯函数（校验/清洗/自动生成，WORKTREE_DIR/BRANCH_PREFIX 常量）在 @shared/worktree ——
+ * 渲染层编辑对话框共用同一套规则（自动生成的 key 保存时必过校验）；此处 re-export 保持
+ * 既有 importer（handlers / repository / 测试）不动。
+ *
  * 本模块不 import Electron，可独立单测；中文注释、英文错误串（对齐 cwd.ts 风格）。
  */
 import { execFile } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
+import { BRANCH_PREFIX, WORKTREE_DIR, validateWorktreeKey } from '@shared/worktree'
 
-/** worktree 根目录名（仓库根下），同时是写入 .git/info/exclude 的排除条目 */
-const WORKTREE_DIR = '.lyshell-worktrees'
-/** 分支前缀：lyshell/<kind>-<workspaceId>，kind 前缀便于在 git branch 输出里人工审计 */
-const BRANCH_PREFIX = 'lyshell'
+export { BRANCH_PREFIX, WORKTREE_DIR, sanitizeRefSegment, validateWorktreeKey } from '@shared/worktree'
 
 export type WorktreeResult =
   | { ok: true; path: string; created: boolean }
   | { ok: false; error: string }
 
 export type WorktreeKeysResult =
-  | { ok: true; keys: string[] }
+  | { ok: true; keys: string[]; worktreeRoot: string }
   | { ok: false; error: string }
 
 /**
- * 列出 cwd 所属仓库 .lyshell-worktrees/ 下已注册的 worktree 共享名（去重、按字典序）。
+ * 列出 cwd 所属仓库 .lyshell-worktrees/ 下已注册的 worktree 共享名（去重、按字典序），
+ * 一并返回 worktree 根目录绝对路径（原生分隔符）供渲染层做路径预览。
  * 供工作区编辑对话框做「已有 worktree」下拉；非 git 目录 / git 失败返回 error，
  * 调用方静默置空即可（真正的硬校验在启动时的 ensureWorktree）。
  */
@@ -51,39 +54,7 @@ export async function listWorktreeKeys(repoCwd: string): Promise<WorktreeKeysRes
     if (rel.length === 0 || rel.startsWith('..') || isAbsolute(rel)) continue
     keys.add(rel.split(/[\\/]/)[0])
   }
-  return { ok: true, keys: Array.from(keys).sort((a, b) => a.localeCompare(b)) }
-}
-
-/**
- * 校验 worktree 共享名（worktreeKey）：trim 后非空、≤64 字符、非 ./..、不含路径分隔符（/ 与 \），
- * 且 sanitizeRefSegment 往返一致（即不含会被折叠的空白/ref 非法字符、不以 -/. 开头结尾）。
- * 用往返一致而非另写一套白名单，保证「保存的名字 === 实际的目录名与分支名」—— 两个只差一个
- * 空格的键折叠成同一个 worktree 是最坏的静默歧义；显式拒绝分隔符则是防嵌套目录与嵌套分支
- * （'a/b' 能过往返校验，但会落到 .lyshell-worktrees/a/b 并建 lyshell/a/b，下拉也只显示首段）。
- * 中文等 Unicode 字母合法（git ref 支持）。
- */
-export function validateWorktreeKey(raw: string): { ok: true; value: string } | { ok: false; error: string } {
-  const trimmed = raw.trim()
-  if (trimmed.length === 0) return { ok: false, error: 'workspace.worktreeKey must not be empty' }
-  if (trimmed.length > 64) return { ok: false, error: 'workspace.worktreeKey must be at most 64 characters' }
-  if (trimmed === '.' || trimmed === '..' || trimmed.includes('/') || trimmed.includes('\\')) {
-    return { ok: false, error: 'workspace.worktreeKey must not be ., .., or contain path separators' }
-  }
-  if (sanitizeRefSegment(trimmed) !== trimmed) {
-    return { ok: false, error: 'workspace.worktreeKey contains characters not allowed (whitespace or ~^:?*[\\ and leading/trailing -.)' }
-  }
-  return { ok: true, value: trimmed }
-}
-
-/**
- * 分支/目录名段清洗：空白与 ref 非法字符（~ ^ : ? * [ \ 及控制符）折成 '-'，去首尾 '-'/'.'。
- * 仅供 validateWorktreeKey 的往返校验使用；ensureWorktree 对非法 key fail-fast，不再靠它兜底清洗。
- */
-export function sanitizeRefSegment(key: string): string {
-  // 控制字符类是有意为之：清洗的是 git ref 语法非法字符（~ ^ : ? * [ \ 与控制符）
-  // eslint-disable-next-line no-control-regex, no-useless-escape
-  const folded = key.trim().replace(/[~^:?*\[\s\\\x00-\x1f\x7f]+/g, '-').replace(/^[.-]+|[.-]+$/g, '')
-  return folded.length > 0 ? folded : 'wt'
+  return { ok: true, keys: Array.from(keys).sort((a, b) => a.localeCompare(b)), worktreeRoot: root }
 }
 
 /** execFile 的 git 封装：不走 shell（避免 Windows 引号问题），失败抛出可读错误（stderr 首个非空行）。 */

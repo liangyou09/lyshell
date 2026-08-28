@@ -19,6 +19,7 @@ import { detectDependencies } from '../harness/detect'
 import { HARNESS_AGENTS, resolveWorkspaceEnv } from '../harness/config'
 import { migrateInlineEnvToProfiles } from '../harness/migrate-env'
 import type { HarnessEnvProfile, HarnessWorkspace } from '@shared/harness'
+import type { WorktreeListResult } from '@shared/worktree'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { ConnectionStatus } from '../connectors'
 import { reachabilityProber, type ReachabilityTarget } from '../reachability/reachability-prober'
@@ -2119,18 +2120,19 @@ export function registerIPCHandlers(): void {
   }
 
   // ========== Harness worktree 检测（kind 无关） ==========
-  // 供工作区编辑对话框做「已有 worktree」下拉：列出 cwd 所属仓库 .lyshell-worktrees/ 下的共享名。
+  // 供工作区编辑对话框做「已有 worktree」下拉：列出 cwd 所属仓库 .lyshell-worktrees/ 下的共享名，
+  // 并返回 worktree 根目录绝对路径（渲染层据此预览「选择 worktree 时自动生成的 key」的完整路径）。
   // cwd 先过 resolveWorkspaceCwd（展开 ~ + 须为存在的绝对目录），与启动路径同口径 ——
   // 否则 ~/xxx 这类字面路径探测到的结果不等于实际启动目录，下拉会给出错误选项。
   // 非 git 目录返回 error，渲染层静默置空（硬校验在启动时的 ensureWorktree）。
-  ipcMain.handle('harness:worktree:list', async (_event, cwd: string) => {
+  ipcMain.handle('harness:worktree:list', async (_event, cwd: string): Promise<WorktreeListResult> => {
     try {
       const safeCwd = assertString(cwd, 'cwd', { maxLength: 4096 })
       const resolved = resolveWorkspaceCwd(safeCwd)
       if (!resolved.ok) return { success: false, error: resolved.error }
       const result = await listWorktreeKeys(resolved.path)
       if (!result.ok) return { success: false, error: result.error }
-      return { success: true, keys: result.keys }
+      return { success: true, keys: result.keys, worktreeRoot: result.worktreeRoot }
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }
