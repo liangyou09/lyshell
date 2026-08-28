@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/LyShell-v1.0.5-0078D4?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/LyShell-v1.0.6-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">

@@ -640,7 +640,7 @@
     "dragToResize": "拖拽调整分屏比例"
   },
   "terminal": {
-    "banner": "LyShell v1.0.5",
+    "banner": "LyShell v1.0.6",
     "buildLabel": "Build: {{date}}",
     "startingLocal": "正在启动本地终端...",
     "connecting": "正在连接 {{host}}:{{port}}...",
