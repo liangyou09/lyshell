@@ -1,827 +1,374 @@
-# LyShell
+<p align="center">
+  <img src="https://img.shields.io/badge/LyShell-v1.0.6-0078D4?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
+  <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="license">
+  <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
+  <img src="https://img.shields.io/badge/DeepSeek%20Harness-ready-4D6BFE?style=flat-square" alt="deepseek-harness">
+</p>
 
-A cross-platform terminal application supporting SSH, Telnet, serial, and local PTY connections — with a built-in SFTP file manager, quick commands, AI Agent launchers, a Python scripting engine, a plugin system, and an MCP HTTP API for external tooling.
+# 💻 LyShell
 
-Built on Electron 28 + React 18 + xterm.js.
+> 🔌 **Your terminal, now AI's terminal too.** LyShell is a Windows terminal with a built-in MCP server — letting Claude Code and other AI clients drive your SSH / Telnet / serial / local PTY sessions directly. Plus AI Harness workspaces with git-worktree isolation (TUI + embedded Web UI), in-app web tabs, AI Agent launcher, plugin system, and Python scripting.
+
+**English** | [简体中文](README.zh.md)
+
+[✨ Highlights](#-highlights) · [🐋 DeepSeek Harness](#-deepseek-harness) · [🌐 Web Tabs](#-web-tabs) · [🔗 MCP](#-mcp-integration) · [🤖 AI Agents](#-ai-agents) · [🧩 Plugins](#-plugin-system--python-scripting) · [🚀 Quick Start](#-quick-start) · [❓ FAQ](#-faq)
+
+---
+
+## ✨ Highlights
+
+| | |
+|---|---|
+| 🔗 **MCP Server** — Expose your terminals to Claude Code and other AI clients, with per-session authorization and audit log | 🤖 **Agent Launcher** — Run Claude Code, Aider, Copilot CLI, or any custom CLI in a clean transient terminal |
+| 🧩 **Plugin System** — Extend with Python or Node.js plugins, each running under granular permissions | 🐍 **Python Engine** — Script terminal automation through a built-in `LyShell` API |
+| 🐋 **DeepSeek Harness** — Manage workspaces with variable sets & model presets, launch TUI and embedded Web UI side by side | 🔐 **Embedded Web UI** — Run `dsh web` in an in-app `<webview>` tab, loopback-locked and URL-validated |
+| 🌳 **Worktree isolation** — Launch each Harness workspace in its own git worktree, so multiple agents on one repo never stomp each other | 🌐 **Web tabs** — Open any URL as an in-app tab, with recent-access history and autocomplete |
+
+---
 
 <p align="center">
-  <img src="resources/icon.png" alt="LyShell" width="128" />
+  <img src="docs/assets/screenshot-main.jpg" alt="LyShell main interface" width="80%">
 </p>
 
 ---
 
-## Table of Contents
+## 📥 Install
 
-- [Features](#features)
-- [Usage Guide](#usage-guide)
-- [Quick Start](#quick-start)
-- [Installation](#installation)
-- [Development](#development)
-- [Architecture](#architecture)
-- [Connection Types](#connection-types)
-- [Terminal](#terminal)
-- [Split Panes & Tabs](#split-panes--tabs)
-- [Quick Commands](#quick-commands)
-- [File Manager](#file-manager)
-- [AI Agents](#ai-agents)
-- [Plugin System](#plugin-system)
-- [Python Scripting](#python-scripting)
-- [MCP Integration](#mcp-integration)
-- [Float Window](#float-window)
-- [Internationalization](#internationalization)
-- [Themes](#themes)
-- [Keyboard Shortcuts](#keyboard-shortcuts)
-- [Configuration](#configuration)
-- [Project Structure](#project-structure)
-- [Build & Package](#build--package)
-- [FAQ](#faq)
-- [License](#license)
+Download the latest portable build from [Releases](https://github.com/liangyou09/lyshell_release/releases) — **no installation needed**, just download and run.
+
+| Platform | Format | Architecture | Requirements |
+|----------|--------|--------------|--------------|
+| 🪟 Windows | Portable (.exe) | x64 | Windows 10 / 11, 64-bit |
+
+> 🚧 Currently **Windows only** — macOS and Linux builds are not yet available.
 
 ---
 
-## Features
+## 🔗 MCP Integration
 
-| Category | Details |
-|----------|---------|
-| **Multi-protocol** | SSH, Telnet, serial port, local PTY — all in one window |
-| **Split panes** | Arbitrary horizontal/vertical splits with drag-to-split, tab swapping, and layout persistence |
-| **Quick commands** | Grouped shortcut bar with Ctrl+F1–F12 keybindings |
-| **File manager** | Built-in SFTP/SSH file browser with upload/download, progress tracking, and MD5 verification |
-| **AI Agents** | One-click launch for Claude Code, Aider, Copilot CLI, and custom agents |
-| **Plugin system** | Capability-gated plugin host, per-plugin tokens, dev install UI, ZIP/URL install |
-| **Python engine** | Embedded Python scripting with a terminal automation API |
-| **MCP API** | Full Model Context Protocol server over stdio + HTTP, with audit logging and per-session tokens |
-| **Float window** | Global hotkey (Ctrl+Alt+F) quick-connect overlay |
-| **i18n** | Chinese (zh) and English (en) with i18next |
-| **Themes** | Light/dark themes with a unified `--terminal-bg` token system |
-| **Data security** | AES-256-CBC encrypted export for sensitive session data |
-| **Window persistence** | Window size, position, and split layout remembered across restarts |
+**This is what makes LyShell different.** It serves as an MCP server, letting external AI clients like Claude Code control terminals via the MCP protocol — listing sessions, sending commands, reading output, transferring files, and managing connections.
 
----
-
-## Usage Guide
-
-### UI Layout
-
-```
-┌──────────────────────────────────────────────────────────┐
-│  Title Bar  │  Tabs (session tabs × N)          │ ⚙ — ✕ │
-├────────────┬─────────────────────────────────────────────┤
-│            │                                             │
-│  Activity  │                                             │
-│  Rail      │          Terminal / Split Panes             │
-│  (sidebar) │                                             │
-│            │                                             │
-│  ┌───────┐ │                                             │
-│  │Session│ │                                             │
-│  │ List  │ │                                             │
-│  │       │ │                                             │
-│  │  🔍   │ │                                             │
-│  │       │ │                                             │
-│  │ sess1 │ │                                             │
-│  │ sess2 │ │                                             │
-│  │ sess3 │ │                                             │
-│  │  ...  │ │                                             │
-│  └───────┘ │                                             │
-│  ┌───────┐ │                                             │
-│  │ Agent │ │                                             │
-│  │ Quick │ │                                             │
-│  │Launch │ │                                             │
-│  └───────┘ │                                             │
-│  ┌───────┐ │                                             │
-│  │ File  │ │                                             │
-│  │ Panel │ │                                             │
-│  └───────┘ │                                             │
-├────────────┴─────────────────────────────────────────────┤
-│  Quick Commands Bar  │  Cols×Rows  │  Status             │
-└──────────────────────────────────────────────────────────┘
-```
-
-| Area | What it does |
-|------|-------------|
-| **Activity Rail** | Switch between Sessions, Agents, File Manager, and Plugins panels |
-| **Session List** | All saved sessions — click to connect, right-click for context menu, drag to pin/reorder |
-| **Agent Quick Launch** | One-click launch for AI coding tools (Claude Code, Aider, etc.) |
-| **File Panel** | Remote file browser (SSH only) — browse, upload, download |
-| **Terminal Area** | The main terminal canvas — supports split panes, tabs, and drag-to-split |
-| **Quick Commands Bar** | Configurable shortcut buttons at the bottom — click to run, Ctrl+F1–F12 to trigger |
-| **Status Bar** | Terminal dimensions (click to toggle), connection status, encoding indicator |
-| **Title Bar** | Gear icon for settings, MCP audit panel access, float window toggle |
-
----
-
-### First Launch Walkthrough
-
-#### 1. Create Your First SSH Session
-
-1. Click the **+** button at the top of the session list, or press `Ctrl+Alt+F` to open the float window
-2. Select **SSH** as the connection type
-3. Fill in:
-   - **Name** — a friendly label (e.g. "Production Web")
-   - **Host** — server IP or hostname (e.g. `192.168.1.100`)
-   - **Port** — defaults to `22`
-   - **Username** — your SSH user
-   - **Password** or **Private Key** — authentication
-4. Click **Connect** — the terminal opens in a new tab
-
-> 💡 **Tip**: Use the **Summary** and **Tags** fields to document each session. Tags like `prod-env`, `database-server`, `bastion` help you filter later.
-
-#### 2. Configure Startup Commands
-
-For sessions that need initialization after login, edit the session and add **Startup Commands** — one per line:
-
-```
-cd /var/log/myapp
-export NODE_ENV=production
-```
-
-These execute sequentially after the SSH handshake completes.
-
-#### 3. Quick Connect Anytime
-
-Press `Ctrl+Alt+F` from any application to bring up the float window. Search for a session by name or host, press Enter to connect instantly.
-
----
-
-### Daily Workflows
-
-#### Multi-Server Monitoring (Split Panes)
-
-```
-┌──────────────────┬──────────────────┐
-│  Web Server      │  DB Server       │
-│  $ tail -f       │  $ htop          │
-│  /var/log/nginx  │                  │
-├──────────────────┴──────────────────┤
-│  Jump Host                          │
-│  $ ssh internal-box                 │
-└─────────────────────────────────────┘
-```
-
-1. Click a saved session to open it in the first pane
-2. Press `Ctrl+Shift+V` to split vertically
-3. Click another session — it opens in the new pane
-4. Press `Ctrl+Shift+H` to split horizontally
-5. Drag the dividers to adjust ratios
-
-The layout is saved automatically and restored on restart.
-
-#### Log Tailing with Quick Commands
-
-1. Right-click the quick commands bar → **Edit Group**
-2. Add commands for the current group:
-   - `tail -f /var/log/syslog` → "Syslog"
-   - `tail -f /var/log/nginx/access.log` → "Nginx"
-   - `journalctl -fu sshd` → "SSH"
-3. Switch between servers by clicking their tabs, then click the command button or press `Ctrl+F1`/`Ctrl+F2`/`Ctrl+F3`
-
-Create separate groups for different server roles — "Web Tier" commands on one group, "DB Tier" on another.
-
-#### File Transfer
-
-**Upload** — drag a file from your desktop or file explorer onto the File Panel
-
-**Download** — double-click a remote file in the File Panel, or right-click → Download
-
-**Track progress** — the status bar shows active transfers with speed and ETA. Completed downloads get an MD5 checksum for verification.
-
-#### AI Agent in Context
-
-1. Navigate to a project directory in your local terminal
-2. Click an Agent button in the sidebar (e.g. Claude Code)
-3. A new terminal tab opens with the AI tool launched in that directory
-4. The Agent session is transient — close the tab and it's gone, no session list pollution
-
-#### Python Automation
-
-```python
-# Save as check_servers.py, run via the Python panel
-import time
-
-sessions = LyShell.list_sessions(tag="prod-env")
-for s in sessions:
-    LyShell.connect(s.id)
-    LyShell.wait_for("$")
-    LyShell.execute("uptime")
-    LyShell.execute("df -h /")
-    print(f"--- {s.name} done ---")
-```
-
-Open the Python panel from the Activity Rail, paste or load your script, and execute — it drives the terminal automatically.
-
----
-
-### Session Management
-
-| Action | How |
-|--------|-----|
-| **Pin a session** | Hover over the session card → click 📌 |
-| **Clone a session** | Double-click the tab's left half |
-| **Clone channel** (SSH, no re-auth) | Double-click the tab's right half |
-| **Search sessions** | Type in the search box above the session list |
-| **Edit a session** | Right-click the session → ✏️, or hover → click ✏️ |
-| **Export sessions** | Click the import/export button in the session list header |
-| **Tag & filter** | Add tags when creating/editing — filter by tag in the search box |
-
-### Terminal Tips
-
-- **Select text** → automatically copied to clipboard
-- **Right-click** → paste
-- **Middle-click** → open search bar
-- **Ctrl+F** → search within terminal output (supports regex and all-tabs mode)
-- **Encoding issues** → edit the session and switch between UTF-8 / GBK / GB2312
-- **Resize** → the status bar shows current terminal dimensions; click to toggle cols×rows display
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- **Node.js** ≥ 18 (LTS 18 or 20 recommended — node-pty 1.0.0 cannot compile on Node 24)
-- **Python 3** (for node-gyp native module compilation)
-- **Windows**: Visual Studio Build Tools ("Desktop development with C++" workload)
-- **macOS**: Xcode Command Line Tools
-- **Linux**: `build-essential`, `libx11-dev`, and related packages
-
-### Install & Run
-
-```bash
-git clone https://github.com/lyshell/lyshell.git
-cd lyshell
-npm install          # installs deps; postinstall rebuilds native modules on Node 18/20
-npm run rebuild      # rebuild native modules (serialport, node-pty) for current Electron ABI
-npm run dev          # start in development mode with HMR
-```
-
----
-
-## Installation
-
-Download the latest installer from [Releases](https://github.com/lyshell/lyshell/releases).
-
-| Platform | Format | Architecture |
-|----------|--------|--------------|
-| Windows | NSIS installer (.exe) + portable | x64 |
-| macOS | DMG | x64 + arm64 |
-| Linux | AppImage + .deb | x64 |
-
-Auto-update is supported via `electron-updater` on all platforms.
-
----
-
-## Development
-
-```bash
-npm install              # install dependencies
-npm run rebuild          # rebuild native modules for current Electron ABI
-npm run dev              # electron-vite dev (renderer HMR + main reload)
-npm run typecheck        # tsc --noEmit for both renderer and node configs
-npm run lint             # eslint src --ext .ts,.tsx
-npm run lint:fix         # auto-fix lint issues
-npm run test             # vitest run
-npm run test:watch       # vitest in watch mode
-npx vitest run path/to/file.test.ts  # single test file
-```
-
----
-
-## Architecture
-
-LyShell follows the standard Electron three-process model:
-
-```
-┌──────────────────────────────────────────────────────┐
-│  Renderer Process (React 18 + TailwindCSS + xterm)   │
-│  sandbox: true, contextIsolation: true               │
-│  No Node.js access — IPC only via preload bridge     │
-├──────────────────────────────────────────────────────┤
-│  Preload (contextBridge)                              │
-│  Exposes typed IPC channels to the renderer          │
-├──────────────────────────────────────────────────────┤
-│  Main Process (Node.js)                               │
-│  ┌──────────┐ ┌──────────┐ ┌────────┐ ┌───────────┐ │
-│  │Connectors│ │ Session  │ │  MCP   │ │  Plugin   │ │
-│  │SSH/TELNET│ │ Manager  │ │ HTTP   │ │   Host    │ │
-│  │SERIAL/LCL│ │          │ │ Server │ │           │ │
-│  └──────────┘ └──────────┘ └────────┘ └───────────┘ │
-│  ┌──────────┐ ┌──────────┐ ┌──────────────────────┐ │
-│  │  File    │ │  Python  │ │      Storage         │ │
-│  │Transfers │ │  Engine  │ │  (JSON file repos)   │ │
-│  └──────────┘ └──────────┘ └──────────────────────┘ │
-├──────────────────────────────────────────────────────┤
-│  Child Processes                                     │
-│  ┌────────────────┐ ┌─────────────────────────────┐ │
-│  │Download Worker │ │  MCP Server (stdio child)    │ │
-│  │Upload Worker   │ │  Speaks MCP to external      │ │
-│  │(SFTP transfer) │ │  clients, proxies to HTTP    │ │
-│  └────────────────┘ └─────────────────────────────┘ │
-└──────────────────────────────────────────────────────┘
-```
-
-### State Management
-
-Zustand stores in the renderer process:
-
-| Store | Responsibility |
-|-------|---------------|
-| `session-store` | Known sessions + connection metadata |
-| `terminal-store` | Open xterm instances, attach/detach to connectors via IPC |
-| `pane-store` | Recursive split-tree layout |
-| `file-store` | File manager state |
-| `transfer-store` | Transfer queue and progress |
-| `theme-store` | Theme switching (light/dark) |
-| `locale-store` | Language preference (zh/en) |
-| `plugin-store` | Installed plugins and their status |
-
-### Path Aliases
-
-Configured in `electron.vite.config.ts` and `tsconfig.json`:
-
-| Alias | Path |
-|-------|------|
-| `@main` | `src/main/` |
-| `@shared` | `src/shared/` |
-| `@preload` | `src/preload/` |
-| `@` | `src/renderer/` |
-
----
-
-## Connection Types
-
-### SSH
-
-Built on the `ssh2` library. Supports password and private key authentication, keepalive, custom shell entry commands (sent sequentially after login), and configurable timeouts.
-
-**Session cloning:**
-- **Double-click tab left side** — clone session (new SSH connection, re-authenticates)
-- **Double-click tab right side** (SSH only) — clone channel (shares the existing SSH connection, no re-auth)
-
-### Telnet
-
-Raw TCP socket with full Telnet protocol support (IAC negotiation).
-
-### Serial
-
-Built on `serialport`. Supports configurable baud rate, data bits, stop bits, and parity. Auto-detects available COM ports on the system.
-
-### Local
-
-Built on `node-pty`. Opens a local shell (cmd.exe / bash / zsh / PowerShell) inside the app with configurable working directory and environment variables.
-
----
-
-## Terminal
-
-Powered by xterm.js 5.5 with WebGL addon for GPU-accelerated rendering.
-
-### Features
-
-- **Search**: Ctrl+F or middle-click to open the search bar. Supports regex, case-sensitive matching, and cross-tab search.
-- **Scrollback**: Configurable 1,000–100,000 lines.
-- **Encoding**: Per-session charset — UTF-8 (default), GBK, GB2312.
-- **Startup commands**: Per-session command sequences auto-executed after connection.
-- **Selection**: Auto-copy on selection; right-click to paste.
-- **IME**: CJK composition handled via a CompositionHelper monkey-patch for correct candidate positioning.
-- **Cursor blink**: Off by default for performance; toggleable in settings.
-
-### Tab Status Indicators
-
-- 🟢 **Green** — Connected
-- 🔴 **Red** — Connection error
-- ⚪ **Gray** — Disconnected
-- 🔵 **Blue highlight** — Inactive tab has new output
-
----
-
-## Split Panes & Tabs
-
-### Split Operations
-
-| Action | Shortcut |
-|--------|----------|
-| Horizontal split | `Ctrl + Shift + H` |
-| Vertical split | `Ctrl + Shift + V` |
-| Drag tab to pane edge | Split (blue = split, green = reverse, orange = swap) |
-| Drag divider | Resize split ratio (10%–90%) |
-
-Split layouts persist across restarts via localStorage.
-
-### Tab Operations
-
-- Click to switch
-- Double-click to clone/reconnect
-- Drag to reorder within a pane or move between panes
-- × to close
-
----
-
-## Quick Commands
-
-A shortcut bar in the status bar for one-click command execution in the active terminal.
-
-- **Left-click** a command button to execute
-- **Right-click** to edit
-- **Double-click empty area** to add a new command
-- **Ctrl+F1–F12** to trigger commands 1–12 in the current group
-
-Commands are organized into up to 5 named, color-coded groups of 12 commands each. Three preset groups (System Admin, Network Tools, Log Viewer) ship by default.
-
----
-
-## File Manager
-
-Embedded in the sidebar, available for SSH sessions only.
-
-### Capabilities
-
-- SFTP-based browsing with automatic fallback to SSH exec mode
-- Drag-and-drop upload from the local filesystem
-- Double-click to download remote files
-- Right-click context menu: download, delete, rename, new directory
-- Independent SSH connection for file operations (never blocks the terminal)
-
-### Transfer Engine
-
-- Worker-thread pool for concurrent uploads/downloads
-- Real-time progress and speed display
-- Automatic MD5 checksum on download completion
-- TCP-over-SSH tunnel with token handshake when SFTP is unavailable
-- Secure: no plaintext fallback when `AllowTcpForwarding` is disabled
-
-### Download History
-
-Persistent history with filename, remote path, local path, file size, timestamp, status, and MD5. Supports re-download and open-local-file actions.
-
----
-
-## AI Agents
-
-A quick-launch bar for AI coding tools, located in the sidebar below the search box.
-
-### Built-in Agents
-
-| Agent | Command | Icon |
-|-------|---------|------|
-| Claude Code | `claude` | Claude brand icon |
-| Aider | `aider` | 🤝 |
-| Copilot CLI | `gh copilot` | 🐙 |
-
-### Custom Agents
-
-Each agent is configurable with:
-- **Name** — display name
-- **Command** — shell launch command
-- **Icon** — emoji picker or brand icon (auto-matched by command name)
-- **Working directory** — native folder picker
-- **Environment variables** — extra env vars injected at launch
-
-Agent sessions are transient — they never leak into the persistent session list. Click an agent to launch it in a new local terminal with the configured command, working directory, and environment.
-
----
-
-## Plugin System
-
-LyShell includes a capability-gated plugin host. Plugins run in a dedicated child process that connects back to the main process via HTTP API, sandboxed behind per-plugin tokens with fine-grained capability toggles.
-
-### Installation Methods
-
-- **Local dev install** — point to a plugin directory for development
-- **ZIP install** — import a packaged plugin archive
-- **URL install** — fetch and install from a remote URL
-
-### Security Model
-
-Each plugin receives its own MCP token scoped to granted capabilities only. The capability gate (`read` / `interactiveWrite` / `execute` / `fileWrite` / `sessionControl`) is enforced server-side on every call. Multi-layer security checks include path safety validation, destructive-command confirmation, and shared PTY locking to prevent MCP and human input from colliding.
-
-### Plugin API
-
-Plugins can:
-- List, read, and interact with sessions
-- Execute commands and send terminal input
-- Access the file manager
-- Spawn controlled processes via `spawnControlled` API
-
-See `docs/plugin-system-design.md` for the full API reference.
-
----
-
-## Python Scripting
-
-LyShell embeds a Python execution engine for terminal automation.
-
-### LyShell API
-
-```python
-# Get current session info
-session = LyShell.get_current_session()
-
-# Execute a command in the current terminal
-LyShell.execute("ls -la")
-
-# Send raw data to the terminal
-LyShell.send("hello\n")
-
-# Wait for a specific output pattern
-LyShell.wait_for("prompt$")
-```
-
-### Injected Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `LYSHELL_SESSION_ID` | Current session ID |
-| `LYSHELL_SESSION_TYPE` | Session type (ssh/telnet/serial/local) |
-| `LYSHELL_HOST` | Connection host |
-| `LYSHELL_PORT` | Connection port |
-
-Python path defaults to the bundled portable Python in `resources/`, falling back to the system PATH.
-
----
-
-## MCP Integration
-
-LyShell exposes its sessions and capabilities to external MCP clients through two layers:
-
-### Architecture
-
-```
-External MCP Client (e.g. Claude Code)
-        │ stdio (MCP protocol)
-        ▼
-┌───────────────────┐
-│  MCP Server       │  Child process (dist/main/mcpServer.js)
-│  (stdio → HTTP)   │  Proxies MCP tool calls to the local HTTP API
-└───────┬───────────┘
-        │ HTTP (127.0.0.1, random port)
-        ▼
-┌───────────────────┐
-│  HTTP API Server  │  Inside the main process
-│  + Auth + Audit   │  Gates each endpoint by capability
-└───────────────────┘
-```
+> 📖 **Configuration** — see [MCP Configuration](docs/mcp-config.md). In most cases you don't configure anything by hand: launch an agent from the **Agent Launcher** and ask it to configure LyShell as its MCP server itself. Registration configs are emitted in **JSON / CLI / TOML** to fit different clients.
 
 ### Tools
 
 | Tool | Capability | Description |
 |------|-----------|-------------|
-| `list_sessions` | `read` | List sessions in the sidebar |
-| `send_input` | `interactiveWrite` | Send text to an interactive terminal |
-| `send_and_wait` | `interactiveWrite` | Send input and capture the terminal response |
-| `execute_command` | `execute` | Run a command via exec channel (SSH only) |
-| `run_on_sessions` | `execute` | Broadcast a command across multiple sessions |
-| `read_output` | `read` | Read recent terminal output |
+| `list_sessions` | `read` | List sidebar sessions |
+| `send_input` | `interactiveWrite` | Send text, autoNewline support |
+| `send_and_wait` | `interactiveWrite` | Send and capture response, strips echo + ANSI |
+| `execute_command` | `execute` / `localExecute` | Run via independent exec channel (SSH only) |
+| `run_on_sessions` | `execute` / `localExecute` | Broadcast command, max 50 sessions, concurrency 10 |
+| `read_output` | `read` | Read N lines of terminal output |
 | `upload_file` / `download_file` | `fileWrite` | SFTP file transfer |
-| `read_file` / `stat_file` / `list_files` | `read` | Remote file system inspection |
-| `create_session` | `sessionControl` | Create or reuse a saved session |
-| `reconnect_session` | `sessionControl` | Reconnect a dropped connection |
-| `read_session_notes` / `write_session_notes` | `read` / `sessionMetadataWrite` | Manage per-session metadata |
-| `close_session` | `sessionControl` | Close a session's terminal connection, preserving the saved session |
-| `open_connection_dialog` | `sessionControl` | Open the new connection dialog for interactive credential entry |
-| `wait_for_prompt` | `read` | Wait for a shell prompt or regex pattern |
-| `tail_until` | `read` | Poll output until a pattern matches |
+| `read_file` / `stat_file` / `list_files` | `read` | Remote file inspection, recursive + glob |
+| `create_session` | `sessionControl` | Create/reuse saved session, auto-dedup by target |
+| `reconnect_session` | `sessionControl` | Reconnect dropped connection |
+| `close_session` | `sessionControl` | Disconnect without deleting the saved session |
+| `open_connection_dialog` | `sessionControl` | Open the new-connection dialog for user input |
+| `read_session_notes` | `read` | Read session summary, notes, tags |
+| `write_session_notes` | `sessionMetadataWrite` | Update summary, notes, tags |
+| `wait_for_prompt` | `read` | Wait for shell prompt or regex |
+| `tail_until` | `read` | Poll output until pattern matches |
 
 ### Security
 
-- **Per-session tokens**: Each PTY spawned by MCP receives its own scoped token via environment variable
-- **Capability gates**: Every endpoint enforces the caller's capabilities
-- **Destructive-command confirmation**: Scans `send_input` / `execute_command` / `send_and_wait` payloads for known destructive patterns
-- **Shared PTY locking**: Prevents MCP and human input from colliding in the same terminal
-- **Audit logging**: All MCP calls are logged with timestamp, tool, session, and result
-- **Audit panel**: Real-time activity log with calendar picker, filtering, and pagination, accessible from the title bar
+- 🔑 **Per-session authorization** — each terminal gets its own scoped permission
+- 🚪 **Capability gates** — enforced server-side on every endpoint
+- 🛡️ **Destructive-command check** — scans for `rm -rf`, `dd if=`, fork bombs
+- 🔒 **Shared PTY locking** — MCP vs human input never collide
+- 📊 **Audit panel** — calendar + filter + pagination, accessible from the title bar
 
-### Limitations (by design)
+> ⚠️ Full-screen TUI apps (vim, htop, less) are not supported over MCP — ANSI stripping garbles alternate-screen sequences. Use the LyShell UI native terminal instead.
 
-- Full-screen TUI apps (vim, htop, less, gdb TUI) are not supported over `send_and_wait` / `read_output` — the MCP layer strips ANSI, so alternate-screen sequences render as garbled text. Use the real terminal in the LyShell UI for interactive TUIs.
-- Destructive-command confirmation scans a single payload; it cannot catch a destructive command assembled across multiple calls. Use the capability toggle as the backstop.
-
----
-
-## Float Window
-
-A lightweight quick-connect overlay invoked with `Ctrl+Alt+F` (global shortcut, works from any application).
-
-### Features
-
-- Search and quick-connect to saved sessions
-- View pinned sessions and recent connections
-- Create new sessions
-- Collapsible to a thin sidebar strip that expands on hover
-
-### Configurable Behaviors
-
-- Position (four corners or custom)
-- Opacity
-- Auto-close after execution, connection, or focus loss
-- Hover-to-expand mode
-- Default tab (Sessions / Commands / History)
+<p align="center">
+  <img src="docs/assets/screenshot-mcp-audit.jpg" alt="MCP audit panel" width="80%">
+</p>
 
 ---
 
-## Internationalization
+## 🤖 AI Agents
 
-LyShell uses `i18next` with `react-i18next` for UI localization. Currently supported:
+Agent-agnostic terminal — no lock-in to any AI tool. Launch any CLI agent and it runs in a regular terminal with full scrollback, split panes, and IME support.
 
-- **zh** — Simplified Chinese
-- **en** — English
+| Agent | Command |
+|-------|---------|
+| 🧠 Claude Code | `claude` |
+| 🛠️ OpenAI Codex | `codex` |
+| 🤝 Aider | `aider` |
+| 🐙 Copilot CLI | `gh copilot` |
 
-Language preference is persisted in the locale store. The framework is wired into all renderer components; adding a new language requires only a translation JSON bundle.
+**First-class Harness agents** — `dsh`, `codex`, and `claude` are first-class in the Harness panel: each gets its own left-rail tab, a dedicated workspace list, dependency detection, and per-workspace model & environment variables (model passed as `--model`, with `OPENAI_API_KEY` / `ANTHROPIC_AUTH_TOKEN` defaults). Claude workspaces add an optional **skip-permissions** switch (launches with `--dangerously-skip-permissions`), and any workspace can opt into **worktree isolation** — see [DeepSeek Harness](#-deepseek-harness).
 
----
+**Custom agents**: Any CLI tool can be registered — name, command, icon, working directory, env vars. Sessions are transient: close the tab, it's gone.
 
-## Themes
-
-LyShell uses a `[data-theme]` attribute on the root element for theme switching, with a unified `--terminal-bg` CSS custom property that propagates to all terminal surfaces (canvas, tabs, MCP audit panel).
-
-### Light Theme
-| Element | Color |
-|---------|-------|
-| Foreground | `#333333` |
-| Background | `#FFFFFF` |
-| Cursor | `#333333` |
-
-### Dark Theme (default)
-| Element | Color |
-|---------|-------|
-| Foreground | `#CCCCCC` |
-| Background | `#0C0C0C` |
-| Cursor | `#FFFFFF` |
-
-Both themes include full ANSI 16-color palettes. Terminal colors are resolved at runtime based on luminance and hot-updated when the theme changes — no restart required.
-
-### Application Chrome
-
-| Element | Dark | Light |
-|---------|------|-------|
-| Main background | `#1E1E1E` | `#F3F3F3` |
-| Secondary background | `#252526` | `#FFFFFF` |
-| Card background | `#2D2D30` | `#E8E8E8` |
-| Accent | `#0078D4` | `#0078D4` |
+<p align="center">
+  <img src="docs/assets/screenshot-agents.jpg" alt="AI Agent launcher" width="80%">
+</p>
 
 ---
 
-## Keyboard Shortcuts
+## 🐋 DeepSeek Harness
 
-### Global
+A first-class home for **DeepSeek Harness** workspaces. Manage every workspace in one dedicated panel, then launch each one as a terminal TUI **or** an embedded Web UI — inside LyShell, not a separate browser window. The two can even run **side by side in split panes**.
+
+| | |
+|---|---|
+| 🗂️ **Workspace panel** — create, edit, delete | 🔧 **Variable sets** — pre-configure env sets, switch the enabled one |
+| 🎛️ **Model presets** — save & switch models per workspace | 🖥️ **TUI launch** — `dsh-tui` in a native terminal tab |
+| 🌳 **Worktree isolation** — dedicated git worktree per workspace | 🏷️ **Brand badge** — session tabs show which harness launched them |
+
+### Dependency detection & install
+
+CLI dependencies — `dsh` + `dsh-tui` for DeepSeek Harness, `codex` / `claude` for the others — are detected by scanning PATH **once at app startup** (all three agents in parallel) and cached: opening a Harness tab reads the cached result instantly, no repeated scans. When something is missing, the panel shows which dependency is absent, its one-line install command, and the source-repo link — it never installs anything for you. A **Re-detect** button forces a fresh scan, and PATH is read live from the registry, so a freshly installed CLI is picked up without restarting LyShell.
+
+### Environment tab: pre-configure, then switch
+
+The panel splits into **Workspaces** and **Environment** tabs. In the **Environment** tab, pre-configure named **variable sets** — collections of `KEY=VALUE` (`DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DSH_HOME`, …). At most one set is **enabled** at a time; click a set to switch to it, or click the always-on **System environment** slot to fall back to LyShell's own process environment.
+
+Each workspace can bind to a specific set, or **follow the enabled set** — pick nothing and it inherits whichever set is currently enabled (or the system environment when none is). Enter secrets once, then switch between environments without touching each workspace.
+
+Secret-looking values (`*_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, …) are **masked as dots** in the profile editor — click the eye toggle to reveal one. For **codex** workspaces, the set's `OPENAI_BASE_URL` is additionally written into `$CODEX_HOME/config.toml` (`[model_providers.*].base_url`) right before launch — the Rust codex CLI ignores the env var. That edit is line-surgical (comments, formatting and other providers preserved verbatim), idempotent, atomic, and the original file is backed up once as `.bak`.
+
+### Worktree isolation
+
+Point multiple agents at the same repository without them stomping each other. Flip a workspace to **worktree** isolation and it launches inside a dedicated git worktree at `<repo>/.lyshell-worktrees/<key>` on branch `lyshell/<key>` — created on first launch, reused ever after, so **uncommitted changes survive restarts**. Deleting the workspace never deletes its worktree.
+
+- **Private (default)** — a readable key is auto-generated (`claude-myapp-x7k2`); each workspace gets its own checkout.
+- **Shared** — set the key explicitly, and every workspace that fills in the same key shares one checkout *and* one branch, even across dsh / codex / claude — they see each other's edits live.
+- The form **previews the exact worktree path** before you save; invalid keys (path separators, ref-hostile characters) are rejected up front.
+
+### Launch: TUI or Web UI
+
+Every workspace opens two ways:
+
+- **Terminal TUI** — `dsh-tui` runs as a standard terminal tab with full scrollback, split panes, and IME support.
+- **Embedded Web UI** — spawned as `dsh web --port 0`; LyShell parses the real port from stdout and renders the app in an in-app `<webview>` tab. No browser, no manual port juggling.
+
+### TUI + Web UI, side by side
+
+Drag the Web UI tab to a pane edge to split it into its own pane — the TUI and the embedded Web UI run **in the same frame, side by side**. Drag it back onto a pane's center to remount it as a regular tab.
+
+### Web UI acts like a terminal tab
+
+- **✕ close** — only ✕ tears the tab down and terminates the subprocess.
+- **Switch away** — switching to another tab hides the Web UI but keeps the page state and the `dsh web` subprocess alive; switching back resumes instantly.
+
+### Security
+
+- 🔒 **Loopback-locked** — navigation and popups are pinned to the workspace's loopback origin.
+- ✅ **Validated URL** — the echoed URL is checked (loopback + explicit port, no embedded credentials) *before* the `<webview>` ever loads it.
+
+<p align="center">
+  <img src="docs/assets/screenshot-deepseek-panel.jpg" alt="DeepSeek Harness workspace panel" width="80%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-deepseek-detect.jpg" alt="Missing dependency — install command and repo links" width="80%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-deepseek-env.jpg" alt="Environment tab — switch between variable sets" width="80%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-deepseek-split.jpg" alt="TUI and embedded Web UI side by side in split panes" width="80%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-deepseek-webui.jpg" alt="Embedded Web UI tab" width="80%">
+</p>
+
+---
+
+## 🌐 Web Tabs
+
+The left-rail **Web** panel gives LyShell a light built-in browser for dashboards and docs. Type a URL (no scheme → `https://` is prepended), press Enter, and it opens as a regular tab in the active split pane — same drag-to-split and tab semantics as the embedded `dsh web` UI, so a dashboard can sit right next to the terminal that feeds it.
+
+- **Open-tabs list** — click to jump to the hosting pane and activate the tab, ✕ to close.
+- **Recent history** — successfully loaded URLs are remembered (30 most recent, deduplicated, persisted locally) and offered as native autocomplete in the input; click to reopen, ✕ to delete a single entry, or clear all.
+- **Safety** — only `http`/`https` URLs pass validation; webview navigation and popups route through a dedicated partition in the main process.
+
+---
+
+## 🧩 Plugin System & Python Scripting
+
+### Plugins
+
+Permission-gated host for **Python** (one-shot / persistent) and **Node.js** (persistent) plugins. Install from local directory, ZIP, or remote URL. Each plugin runs with its own scoped authorization — granular permissions (read / write / execute / file / session control) with path safety, destructive-command confirmation, and shared-PTY locking.
+
+> ⚠️ Plugins activate on startup (`onStartup`) today. Event-based activation and declarative UI contributions are not wired up yet.
+
+📦 Ready-to-run examples in [`examples/`](examples/).
+
+### Python Engine
+
+Embedded Python with `LyShell` API for terminal automation:
+
+```python
+session = LyShell.get_current_session()
+LyShell.execute("ls -la")
+LyShell.send("hello\n")
+LyShell.wait_for("prompt$")
+```
+
+Environment variables: `LYSHELL_SESSION_ID` · `LYSHELL_SESSION_TYPE` · `LYSHELL_HOST` · `LYSHELL_PORT`.
+
+Python path auto-detected from system PATH, configurable in settings.
+
+> 💡 For long-running or scheduled tasks, consider **Node.js plugins** via the [Plugin System](#-plugin-system--python-scripting) — they're a better fit.
+
+---
+
+## 🚀 Quick Start
+
+### First Connection
+1. Click **+** at the top of the session list → **SSH**
+2. Fill in host, port, username, password/private key
+3. Click **Connect** — tab turns 🟢 green
+
+> 💡 For network devices needing `shell` → `enable`, add those in **Shell Enter Commands** — LyShell sends them sequentially.
+
+### Quick Connect
+`Ctrl+Alt+F` from any app → search → Enter to connect.
+
+<p align="center">
+  <img src="docs/assets/screenshot-float-window.jpg" alt="Float window quick connect" width="60%">
+</p>
+
+### Multi-Server Monitoring
+Click a session → `Ctrl+Shift+V` to split vertically → click another session. Layout auto-saves.
+
+### File Transfer
+- **Upload** — drag from desktop to File Panel
+- **Download** — double-click remote file or right-click → Download
+- **Progress** — real-time speed + ETA, auto MD5 on completion
+- **History** — file, size, path, MD5 recorded; supports re-download
+- **Security** — independent SSH connection (never blocks terminal), SFTP or TCP-over-SSH tunnel; no plaintext fallback even when `AllowTcpForwarding` is disabled
+- **Download directory** — default `~/Downloads/LyShell/`, optional auto-create server subdirectory for archiving
+
+### Quick Commands
+Quick commands live at the bottom of the session panel — right-click → **Edit Group** → add commands like `tail -f /var/log/syslog`. `Ctrl+F1`–`F12` fires them from anywhere, even with the sidebar collapsed. Up to 12 commands × 5 groups.
+
+### Session Management
+- 📌 Pin — hover card → click 📌
+- 📋 Clone session — double-click tab left half
+- ⚡ Clone channel (no re-auth) — double-click tab right half (SSH only)
+- 🔍 Search — type name/host/tag in search box
+
+### Terminal Tips
+- Select text → auto-copy · Right-click → paste · Middle-click → search bar
+- `Ctrl+F` → in-terminal search (regex, case-sensitive, cross-tab)
+- Encoding issues → edit session, switch UTF-8 / GBK / GB2312
+- Browser-style tab bar sits on the first row; the sidebar collapses when you need full width
+- In the sidebar LIVE row, click `cols × rows` → clear screen; click the buffer count → scroll to bottom, double-click → clear scrollback
+
+---
+
+## 🔌 Connection Types & Terminal
+
+| Type | Key params | Notes |
+|------|-----------|-------|
+| 🖥️ **SSH** | password or private key; port `22` | Post-login commands, keepalive; dual-click clone |
+| 📟 **Telnet** | host + port `23` | Full IAC negotiation |
+| 🔌 **Serial** | COM port, baud `115200` (9600–921600), 8N1 | Auto-detects ports |
+| 💻 **Local PTY** | cmd.exe / PowerShell | Configurable working directory + env |
+
+**Terminal**: GPU-accelerated rendering, full ANSI + 256 colors. Scrollback up to 100,000 lines. Split panes (horizontal/vertical), drag-to-split. Browser-style tab bar on the first row, collapsible sidebar. Global quick commands `Ctrl+F1–F12`. Tab status: 🟢 Connected · 🔴 Error · ⚪ Disconnected · 🔵 New output — plus a harness brand mark (🐋 dsh · 🛠️ codex · 🧠 claude) on tabs launched from a Harness workspace.
+
+---
+
+## 🎨 Themes
+
+5 presets + custom. Instant switch, no restart.
+
+| Theme | Style | Mode |
+|-------|-------|------|
+| **Graphite** | Deep graphite + tungsten amber (default) | Dark |
+| **Slate** | Blue-tinted slate, amber accent | Dark |
+| **Carbon** | Neutral charcoal, no blue cast | Dark |
+| **Ember** | Warm walnut brown + warm amber | Dark |
+| **Paper** | Natural warm paper, graphite ink | Light |
+
+**Custom**: pick a background and accent color, LyShell auto-builds a complete harmonious theme.
+
+<p align="center">
+  <img src="docs/assets/screenshot-theme-comparison.jpg" alt="Theme presets and custom color picker" width="80%">
+</p>
+
+---
+
+## ⌨️ Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
 | `Ctrl + Alt + F` | Toggle float window |
-
-### Terminal
-
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl + F` | Open terminal search |
-| `Ctrl + F1` ~ `Ctrl + F12` | Execute quick command 1–12 |
-| Right-click | Paste clipboard |
-| Middle-click | Open search bar |
-
-### Split Panes
-
-| Shortcut | Action |
-|----------|--------|
+| `Ctrl + F` | Terminal search |
+| `Ctrl + F1` ~ `F12` | Quick command 1–12 |
 | `Ctrl + Shift + H` | Horizontal split |
 | `Ctrl + Shift + V` | Vertical split |
+| Right-click | Paste |
+| Middle-click | Search bar |
 
 ---
 
-## Configuration
+## ⚙️ Configuration
 
-All configuration is stored as JSON files under the user data directory:
+JSON files in `%APPDATA%\lyshell\`:
 
-| File | Contents |
-|------|----------|
-| `sessions.json` | All saved session configurations |
-| `preferences.json` | User preferences |
-| `quickCommands.json` | Quick command groups and entries |
-| `agents.json` | AI Agent definitions |
-| `download-history.json` | File transfer history |
-| `download-config.json` | Download directory settings |
-| `mcp-server.json` | MCP server port and auth tokens |
+`sessions.json` · `preferences.json` · `quickCommands.json` · `agents.json` · `download-history.json` · `download-config.json` · `mcp-server.json`
 
-### User Data Locations
-
-| Platform | Path |
-|----------|------|
-| Windows | `%APPDATA%\lyshell\` |
-| macOS | `~/Library/Application Support/lyshell/` |
-| Linux | `~/.config/lyshell/` |
-
-### Export / Import
-
-Session configurations and quick commands can be exported to JSON with optional AES-256-CBC encryption. Import supports password-protected files with a preview-and-confirm workflow.
+AES-256-CBC encrypted export/import for sessions and quick commands.
 
 ---
 
-## Project Structure
+## ❓ FAQ
 
-```
-src/
-├── main/                    # Main process (Node.js)
-│   ├── index.ts             # App bootstrap, BrowserWindow creation
-│   ├── connectors/          # Connection protocol implementations
-│   │   ├── base.ts          # BaseConnector (EventEmitter)
-│   │   ├── ssh.ts           # SSHConnector (ssh2)
-│   │   ├── telnet.ts        # TelnetConnector (raw TCP + IAC)
-│   │   ├── serial.ts        # SerialConnector (serialport)
-│   │   └── local.ts         # LocalConnector (node-pty)
-│   ├── terminal/            # Session manager, output buffer
-│   ├── ipc/                 # IPC handler registration + validation
-│   ├── file/                # SFTP client, transfer Workers, path safety
-│   ├── mcp/                 # HTTP API server, auth, destructive checks
-│   ├── mcp-server/          # Stdio MCP child process (tools, HTTP client)
-│   ├── plugin/              # Plugin host, capability gate, API routes
-│   ├── plugin-host/         # Plugin process management
-│   ├── python/              # Python engine integration
-│   ├── storage/             # JSON file repositories
-│   └── types/               # Main-process-only types
-├── preload/                 # Preload script
-│   └── index.ts             # contextBridge IPC exposure
-├── renderer/                # Renderer process (React)
-│   ├── index.html           # Entry HTML
-│   ├── App.tsx              # Root component
-│   ├── components/          # React components
-│   │   ├── Layout/          # SplitPaneContainer, SessionsPanel, ActivityRail
-│   │   ├── Terminal/        # TerminalView, search, tabs
-│   │   ├── FileManager/     # FilePanel, transfer UI
-│   │   ├── QuickCommands/   # Status bar command bar
-│   │   ├── FloatWindow/     # Quick-connect overlay
-│   │   ├── SessionDialog/   # Create/edit session dialogs
-│   │   └── ExportImportDialog/
-│   ├── stores/              # Zustand stores
-│   └── styles/              # Tailwind + global CSS
-└── shared/                  # Shared types and constants
-    └── types/               # Session, file, pane, IPC channel types
-```
+<details>
+<summary><b>SSH garbled Chinese characters?</b></summary>
+Edit session, switch encoding from UTF-8 to GBK or GB2312.
+</details>
+
+<details>
+<summary><b>Serial port no output?</b></summary>
+Verify port + baud rate → check no other program uses it → some devices need Enter to activate.
+</details>
+
+<details>
+<summary><b>File manager not showing?</b></summary>
+SSH sessions only. Ensure the active tab is an SSH connection.
+</details>
+
+<details>
+<summary><b>How to reset all configuration?</b></summary>
+Delete all JSON files in `%APPDATA%\lyshell\` and restart.
+</details>
+
+<details>
+<summary><b>Ctrl+Alt+F not working?</b></summary>
+May be taken by another app. Reconfigure in LyShell settings.
+</details>
+
+<details>
+<summary><b>Where are downloaded files?</b></summary>
+Default `~/Downloads/LyShell/`. Change in settings.
+</details>
 
 ---
 
-## Build & Package
+## 📄 License
 
-```bash
-npm run build              # electron-vite build → dist/
-npm run dist:win           # build + package for Windows (NSIS + portable)
-npm run dist:mac           # build + package for macOS (DMG)
-npm run dist:linux         # build + package for Linux (AppImage + .deb)
-npm run clean              # remove dist/ and release/
-```
+LyShell is open-source software released under the [MIT License](LICENSE). You are free to use, modify, and redistribute it, provided the original copyright and license notices are preserved.
 
-Build output goes to `dist/` (loaded by Electron); installers go to `release/`.
-
----
-
-## FAQ
-
-### SSH shows garbled Chinese characters?
-
-Edit the session and switch the encoding from UTF-8 to GBK or GB2312.
-
-### Serial port has no output?
-
-1. Verify the COM port and baud rate are correct
-2. Check that no other program is using the port
-3. Some devices require pressing Enter to activate output
-
-### File manager is not visible?
-
-The file manager is only available for SSH sessions. Make sure the active tab is an SSH connection.
-
-### Native modules fail to compile on Windows?
-
-Install Visual Studio Build Tools with the "Desktop development with C++" workload, then run `npm run rebuild`. If `electron-builder install-app-deps` fails due to a newer Visual Studio version, compile manually with `npx node-gyp`:
-
-```bash
-ELECTRON_VERSION=$(node -p "require('./node_modules/electron/package.json').version")
-
-npx node-gyp rebuild --directory=node_modules/cpu-features \
-  --target=$ELECTRON_VERSION --arch=x64 --dist-url=https://www.electronjs.org/headers
-
-npx node-gyp rebuild --directory=node_modules/@serialport/bindings-cpp \
-  --target=$ELECTRON_VERSION --arch=x64 --dist-url=https://www.electronjs.org/headers
-
-cd node_modules/node-pty && npx node-gyp rebuild \
-  --target=$ELECTRON_VERSION --arch=x64 --dist-url=https://www.electronjs.org/headers && cd ../..
-```
-
-### How do I reset all configuration?
-
-Delete all `.json` files in the user data directory and restart the app.
-
-### Global shortcut Ctrl+Alt+F doesn't work?
-
-It may be taken by another application. The float window shortcut can be reconfigured in LyShell settings.
-
----
-
-## License
-
-Proprietary © 2026 liangyou. See the End-User License Agreement (`resources/licenses/LyShell-LICENSE.txt`).
+© 2026 liangyou
 
 ---
 
 <p align="center">
-  <a href="https://github.com/lyshell/lyshell">GitHub</a> ·
-  <a href="https://github.com/lyshell/lyshell/issues">Issues</a> ·
-  <a href="https://github.com/lyshell/lyshell/releases">Releases</a>
+  <a href="https://github.com/liangyou09/lyshell_release">GitHub</a> ·
+  <a href="https://github.com/liangyou09/lyshell_release/issues">Issues</a> ·
+  <a href="https://github.com/liangyou09/lyshell_release/releases">Releases</a> ·
+  <a href="CHANGELOG.md">Changelog</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a>
 </p>

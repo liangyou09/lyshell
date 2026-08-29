@@ -6,8 +6,11 @@ import ActivityRail, { type NavTab, RAIL_WIDTH } from './ActivityRail'
 import AgentsPanel from './AgentsPanel'
 import SplitPaneContainer from './SplitPaneContainer'
 import FloatWindow from '../FloatWindow/FloatWindow'
-import { McpActivityChip } from './McpActivityChip'
+import TopRightControls from './TopRightControls'
+import { TOPBAR_HEIGHT, TOP_LEFT_RESERVE, SIDEBAR_DIVIDER_WIDTH, SIDEBAR_PILL_HEIGHT } from './topbar-metrics'
+import { startAllHarnessDetects } from './harness-detect'
 import PluginPanel from './PluginPanel'
+import WebPanel from './WebPanel'
 import HarnessPanel from './HarnessPanel'
 import SettingsPanel from './SettingsPanel'
 import { useSessionStore } from '../../stores/session-store'
@@ -18,28 +21,44 @@ import { useQuickCommandsStore } from '../../stores/quick-commands-store'
 import { dispatchCommand } from '../../utils/dispatch-command'
 import type { SessionConfig, QuickCommand } from '@shared/types'
 
+// 左列收起态/宽度的 localStorage 镜像 key -- 主进程 config 异步,首帧用它同步定态防闪
+// (activeNav 的 lyshell.navTab.v1 同款规避);懒读与双写共用常量,防两处字面量漂移
+const COLLAPSED_STORAGE_KEY = 'lyshell.sidebarCollapsed.v1'
+const WIDTH_STORAGE_KEY = 'lyshell.sidebarWidth.v1'
+
 /**
  * 主窗口布局组件
  */
 const MainWindow: React.FC = () => {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  // 左列收起态:localStorage 同步懒读定首帧 -- 主进程 config 是异步的,直接以它初始化会
+  // "先展开后收起"闪一帧;config 仍是对账权威(见下方载回 effect),变更时双写
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem(COLLAPSED_STORAGE_KEY) === '1' } catch { return false }
+  })
+  const [collapsedLoaded, setCollapsedLoaded] = useState(false) // config 对账回来前禁用宽度动画(纠正路径不播 150ms 滑动)
   // 左列机柜页签轨当前页签 -- 持久化到 localStorage
   const [activeNav, setActiveNav] = useState<NavTab>(() => {
     try {
       const saved = localStorage.getItem('lyshell.navTab.v1')
-      if (saved === 'sessions' || saved === 'agents' || saved === 'dsh' || saved === 'codex' || saved === 'claude' || saved === 'plugins' || saved === 'settings') {
+      if (saved === 'sessions' || saved === 'agents' || saved === 'dsh' || saved === 'codex' || saved === 'claude' || saved === 'plugins' || saved === 'web' || saved === 'settings') {
         return saved
       }
     } catch { /* localStorage 不可用,回退默认 */ }
     return 'sessions'
   })
-  // 左列宽度(三栏共享) -- 从会话面板(SessionsPanel)上移到此;ActivityRail 固定 RAIL_WIDTH 在其左,面板填剩余宽
-  const [sidebarWidth, setSidebarWidth] = useState(240)
+  // 左列宽度(三栏共享) -- localStorage 同步懒读定首帧(同 sidebarCollapsed),config 异步对账;
+  // ActivityRail 固定 RAIL_WIDTH 在其左,面板填剩余宽,拖动范围钳在 180-400
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try {
+      const w = Number(localStorage.getItem(WIDTH_STORAGE_KEY))
+      return Number.isFinite(w) && w > 0 ? Math.max(180, Math.min(400, w)) : 240
+    } catch { return 240 }
+  })
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
   const [floatVisible, setFloatVisible] = useState(false) // 浮窗默认隐藏
   const [isMaximized, setIsMaximized] = useState(false)
   const { sessions, loadSessions, refreshSavedSessions, syncSessionsFromBackend } = useSessionStore()
-  const { getAllLeafPanes, layout, dshWebActive, dshWebPaneId } = usePaneStore()
+  const { getAllLeafPanes, layout, dshWebActive, dshWebPaneId, webTabs } = usePaneStore()
   const { initFromStorage } = useThemeStore()
   const { initFromStorage: initLocaleFromStorage } = useLocaleStore()
   const { t } = useTranslation()
@@ -68,6 +87,12 @@ const MainWindow: React.FC = () => {
   useEffect(() => {
     if (typeof localStorage === 'undefined') return
     localStorage.removeItem('lyshell.recents.v1')
+  }, [])
+
+  // 启动预热 dsh/codex/claude 依赖检测(各一次,并行):结果进应用级缓存,
+  // 之后切页签直接读缓存,不再重复打检测 IPC(见 harness-detect.ts)
+  useEffect(() => {
+    startAllHarnessDetects()
   }, [])
 
   // 加载会话列表
@@ -217,35 +242,48 @@ const MainWindow: React.FC = () => {
     })
   }, [])
 
-  // 左列宽度:加载 / 防抖保存 / 拖动(rail RAIL_WIDTH 在左,面板宽 = clientX - RAIL_WIDTH)
+  // 左列收起态:config 异步对账 + 变更双写。对账纠正 localStorage 被清/升级首启
+  // (镜像缺、config 还在)的场景;collapsedLoaded 守卫让纠正不播动画 -- 懒读命中的
+  // 常态路径首帧即终态,守卫只在纠正路径生效
+  useEffect(() => {
+    window.electronAPI?.getConfig('sidebarCollapsed').then((v: unknown) => {
+      if (typeof v === 'boolean') setSidebarCollapsed(v)
+    }).catch(() => {}).finally(() => setCollapsedLoaded(true))
+  }, [])
+  useEffect(() => {
+    try { localStorage.setItem(COLLAPSED_STORAGE_KEY, sidebarCollapsed ? '1' : '0') } catch { /* quota */ }
+    const t = setTimeout(() => {
+      window.electronAPI?.setConfig('sidebarCollapsed', sidebarCollapsed)
+    }, 500)
+    return () => clearTimeout(t)
+  }, [sidebarCollapsed])
+
+  // 左列宽度:config 异步对账 + 变更双写(localStorage 镜像即时写,config 防抖写)/ 拖动
   useEffect(() => {
     window.electronAPI?.getConfig('sidebarWidth').then((w: unknown) => {
       if (typeof w === 'number' && w > 0) setSidebarWidth(w)
     }).catch(() => {})
   }, [])
   useEffect(() => {
+    try { localStorage.setItem(WIDTH_STORAGE_KEY, String(sidebarWidth)) } catch { /* quota */ }
     const t = setTimeout(() => {
       window.electronAPI?.setConfig('sidebarWidth', sidebarWidth)
     }, 500)
     return () => clearTimeout(t)
   }, [sidebarWidth])
-  useEffect(() => {
+  // 侧栏调宽：pointer 捕获期间事件恒重定向到捕获元素并从它冒泡，move/up 监听直接挂在
+  // 分隔条/热区元素上即可覆盖拖拽全程（旧 document 级监听依赖隐式捕获语义，已收拢到元素上）
+  const handleSidebarResizeMove = (e: React.PointerEvent) => {
     if (!isResizingSidebar) return
-    const handleMouseMove = (e: MouseEvent) => setSidebarWidth(Math.max(180, Math.min(400, e.clientX - RAIL_WIDTH)))
-    const handleMouseUp = () => setIsResizingSidebar(false)
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-    }
-  }, [isResizingSidebar])
+    setSidebarWidth(Math.max(180, Math.min(400, e.clientX - RAIL_WIDTH)))
+  }
+  const endSidebarResize = () => setIsResizingSidebar(false)
 
-  // Alt+1..7 切换左列页签(实现 footer 既有 "alt + 1…7" 提示;capture 抢在 xterm 前)
+  // Alt+1..8 切换左列页签(实现 footer 既有 "alt + 1…8" 提示;capture 抢在 xterm 前)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!e.altKey) return
-      // 文本输入中不拦截(避免劫持 PluginPanel URL 输入等)
+      // 文本输入中不拦截(避免劫持 PluginPanel/WebPanel URL 输入等)
       const el = e.target as HTMLElement | null
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
       let tab: NavTab | null = null
@@ -255,7 +293,8 @@ const MainWindow: React.FC = () => {
       else if (e.key === '4') tab = 'codex'
       else if (e.key === '5') tab = 'claude'
       else if (e.key === '6') tab = 'plugins'
-      else if (e.key === '7') tab = 'settings'
+      else if (e.key === '7') tab = 'web'
+      else if (e.key === '8') tab = 'settings'
       if (!tab) return
       e.preventDefault()
       e.stopPropagation()
@@ -272,6 +311,33 @@ const MainWindow: React.FC = () => {
       setFloatVisible(prev => !prev)
     })
     return cleanup
+  }, [])
+
+  // 页签 HTML5 拖拽进行中(文档级监听) -- 左缘感应条临时穿透+隐身,不挡最左 pane 的
+  // 左缘分屏落点。只认页签类拖拽源(data-tab-id,会话/MCP/dsh web 页签):文件面板等
+  // 其他 DnD 与分屏落点无关,不触发让位。dragend 正常会触发,但源元素中途卸载等
+  // 异常路径可能丢失,故补 drop / visibilitychange 两道复位兜底,防拖拽态永久卡死
+  const [isTabDragging, setIsTabDragging] = useState(false)
+  useEffect(() => {
+    const isTabSource = (e: DragEvent) =>
+      !!(e.target as HTMLElement | null)?.closest?.('[data-tab-id]')
+    const onDragStart = (e: DragEvent) => {
+      if (isTabSource(e)) setIsTabDragging(true)
+    }
+    const reset = () => setIsTabDragging(false)
+    const onVisibilityChange = () => {
+      if (document.hidden) reset()
+    }
+    document.addEventListener('dragstart', onDragStart)
+    document.addEventListener('dragend', reset)
+    document.addEventListener('drop', reset)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      document.removeEventListener('dragstart', onDragStart)
+      document.removeEventListener('dragend', reset)
+      document.removeEventListener('drop', reset)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [])
 
   // 快捷命令数据常驻加载（原 StatusBar 挂载时加载的逻辑上移）：
@@ -295,9 +361,10 @@ const MainWindow: React.FC = () => {
       e.preventDefault()
       e.stopPropagation()
 
-      // dsh web 接管活动分屏时不发（对齐原"dsh web 激活时快捷命令不可用"语义）
+      // dsh web / 网页访问栏页签接管活动分屏时不发（对齐原"dsh web 激活时快捷命令不可用"语义）
       const paneSt = usePaneStore.getState()
       if (paneSt.dshWebActive && paneSt.dshWebPaneId === paneSt.layout.activePaneId) return
+      if (paneSt.webTabs.some(t => t.active && t.paneId === paneSt.layout.activePaneId)) return
 
       // 发送到活动分屏的活动会话（同 handleExecuteCommand,内联避免 use-before-define）
       const activePane = paneSt.getAllLeafPanes().find(p => p.id === paneSt.layout.activePaneId)
@@ -406,157 +473,195 @@ const MainWindow: React.FC = () => {
 
   // dsh web 仅在其承载分屏为当前活动分屏且正显示时，才禁用快捷命令（键帽置灰、F 键不发）。
   // 否则即便 web 仍挂在别的分屏上，活动分屏是终端时快捷命令仍应指向该终端。
+  // 网页访问栏页签激活时同理（webview 盖住终端，命令发进去不可见）。
   const dshWebActiveHere = dshWebActive && dshWebPaneId === layout.activePaneId
+  const webTabActiveHere = webTabs.some(t => t.active && t.paneId === layout.activePaneId)
   // 在线会话数 -- ActivityRail 的 sessions 槽位 LED 读数
   const liveCount = sessions.filter(s => s.status === 'connected').length
 
+  // 左列展开时的总宽(rail + 面板 + 调宽条) -- 常挂载收起动画的 width 切换值
+  const leftColumnWidth = RAIL_WIDTH + sidebarWidth + SIDEBAR_DIVIDER_WIDTH
+
   return (
-    <div className="flex flex-col h-screen bg-[var(--bg-base)] text-[var(--text-rack)] overflow-hidden">
-      {/* 自定义标题栏 */}
-      <div className="h-[28px] bg-[var(--bg-rack)] border-b border-[var(--rule)] flex items-center justify-between select-none relative" style={{ WebkitAppRegion: 'drag' } as any}>
-        {/* 左侧按钮组 */}
-        <div className="flex items-center gap-[2px] pl-1 relative" style={{ WebkitAppRegion: 'no-drag' } as any}>
-          {/* 侧栏开关 — 自绘 SVG，左条 fill 状态映射侧栏开/关 */}
+    /* 浏览器式单行布局:左列(机柜轨+面板,全高) + 终端列。终端页签条提顶 --
+       终端列从窗口顶部开始,最顶排 pane 的页签条即第一行(窗口拖拽区/留白见 PaneTabBar);
+       窗口控制与侧栏开关以浮层挂在第一行两端(见 terminal-wrapper 内)。 */
+    <div className="flex h-screen bg-[var(--bg-base)] text-[var(--text-rack)] overflow-hidden">
+      {/* 左列:全高机柜轨 + 面板 + 宽度调整条。收起时宽度动画到 0(内容保持挂载、overflow 裁剪、
+          不可交互) -- 常挂载让收起/展开有 150ms 推挤动画,也保留面板滚动位置等局部状态;
+          副作用是收起时面板的事件监听仍存活(均为 store 写入类,无 UI 后果) */}
+      <div
+        className={cn(
+          'flex-shrink-0 h-full overflow-hidden transition-[width] duration-150 ease-out',
+          (isResizingSidebar || !collapsedLoaded) && 'transition-none', // 拖宽跟手 / config 未载回
+          sidebarCollapsed && 'pointer-events-none' // 收起瞬间即不可交互
+        )}
+        style={{ width: sidebarCollapsed ? 0 : leftColumnWidth }}
+        aria-hidden={sidebarCollapsed}
+        /* inert 把收起的左列整体移出 Tab 序列与无障碍树 -- aria-hidden 只藏不撤焦,
+           focus 仍会落进不可见面板;React 18 不识别 inert 布尔 prop,故用展开注入空串 */
+        {...(sidebarCollapsed ? { inert: '' } : {})}
+      >
+        {/* 内层固定宽:动画期间内容不被压缩(squish),只被左缘裁剪 */}
+        <div className="flex h-full" style={{ width: leftColumnWidth }}>
+          <ActivityRail active={activeNav} onChange={handleNavChange} liveCount={liveCount} onCollapse={() => setSidebarCollapsed(true)} />
+          <div style={{ width: `${sidebarWidth}px` }} className="flex-shrink-0 min-w-0 h-full">
+            {activeNav === 'sessions' && (
+              <SessionsPanel
+                onConnect={handleConnect}
+                onExecuteCommand={handleExecuteCommand}
+                quickCommandsDisabled={dshWebActiveHere || webTabActiveHere}
+              />
+            )}
+            {activeNav === 'agents' && <AgentsPanel />}
+            {activeNav === 'dsh' && <HarnessPanel agent="dsh" onOpenWeb={handleOpenWeb} />}
+            {activeNav === 'codex' && <HarnessPanel agent="codex" />}
+            {activeNav === 'claude' && <HarnessPanel agent="claude" />}
+            {activeNav === 'plugins' && <PluginPanel />}
+            {activeNav === 'web' && <WebPanel />}
+            {activeNav === 'settings' && <SettingsPanel />}
+          </div>
+          {/* 宽度调整条 */}
           <div
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="w-[24px] h-[24px] bg-[var(--bg-slot)] flex items-center justify-center rounded-[2px] hover:bg-[var(--bg-elev)] transition-colors cursor-pointer group"
-            title={sidebarCollapsed ? t('settings.expandSidebar') : t('settings.collapseSidebar')}
+            style={{ width: SIDEBAR_DIVIDER_WIDTH }}
+            className="bg-[var(--rule)] cursor-col-resize hover:bg-[var(--amber)] transition-colors flex-shrink-0 relative"
+            onPointerDown={(e) => {
+              // 指针捕获:拖拽跟随与指针下元素解耦 -- harness webview 激活时往右拖,指针一进
+              // webview 范围 mousemove 就被 guest 吞掉(同跨域 iframe),捕获后 pointermove 恒回流本元素
+              e.currentTarget.setPointerCapture(e.pointerId)
+              setIsResizingSidebar(true)
+            }}
+            onPointerMove={handleSidebarResizeMove}
+            onPointerUp={endSidebarResize}
+            onPointerCancel={endSidebarResize}
+            onLostPointerCapture={endSidebarResize}
           >
-            <svg width="14" height="11" viewBox="0 0 14 11" fill="none"
-              className="text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)] transition-colors">
-              {/* 窗框 */}
-              <rect x="0.5" y="0.5" width="13" height="10" stroke="currentColor" strokeWidth="1" />
-              {/* 左侧条：开时实填，关时虚线 */}
-              {sidebarCollapsed ? (
-                <line x1="4.5" y1="0.5" x2="4.5" y2="10.5" stroke="currentColor" strokeWidth="1" strokeDasharray="1.5 1.5" />
-              ) : (
-                <rect x="0.5" y="0.5" width="4" height="10" fill="currentColor" />
-              )}
-            </svg>
-          </div>
-
-          {/* 标题 */}
-          <span className="text-[10px] uppercase tracking-[.18em] text-[var(--text-rack)] px-2 font-mono font-semibold">lyshell</span>
-
-        </div>
-
-        {/* 右侧按钮组 — 应用控制 │ 系统窗口控制，两簇分隔 */}
-        <div className="flex items-center pr-1" style={{ WebkitAppRegion: 'no-drag' } as any}>
-          {/* 应用控制簇 */}
-          <div className="flex items-center gap-[2px]">
-            {/* MCP 活动状态片 -- 浮窗键左边；从设置页 MCP tab 提升出来，随时可达。
-                圆点(amber=最近有活动/灰=空闲)+标签+记录条数，点击打开 MCP 活动面板(ESC 可关) */}
-            <McpActivityChip />
-            {/* 浮窗按钮 — 两矩形错位，PIP/分窗形态 */}
+            {/* 左侧 4px 命中热区(面板边缘最右 4px 可见条 + 面板内容最后 4px),扩命中不扩可见宽 */}
             <div
-              onClick={() => setFloatVisible(!floatVisible)}
-              className={cn(
-                'w-[24px] h-[24px] flex items-center justify-center rounded-[2px] cursor-pointer group transition-colors',
-                floatVisible
-                  ? 'bg-[var(--bg-elev)]'
-                  : 'bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)]'
-              )}
-              title={t('settings.floatWindow')}
-            >
-              <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-                <rect x="1" y="2.5" width="9" height="7" stroke="currentColor" strokeWidth="1.3"
-                  className={cn(floatVisible ? 'text-[var(--amber)]' : 'text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)]', 'transition-colors')} />
-                <rect x="5.5" y="6" width="7.5" height="6" fill="currentColor"
-                  className={cn(floatVisible ? 'text-[var(--amber)]' : 'text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)]', 'transition-colors')} />
-              </svg>
-            </div>
-          </div>
-
-          {/* 簇分隔 hairline */}
-          <span aria-hidden className="w-px h-[14px] bg-[var(--rule)] mx-1.5" />
-
-          {/* 系统窗口控制簇 */}
-          <div className="flex items-center gap-[2px]">
-            {/* 缩小 */}
-            <div
-              onClick={handleMinimize}
-              className="w-[24px] h-[24px] bg-[var(--bg-slot)] flex items-center justify-center rounded-[2px] hover:bg-[var(--bg-elev)] transition-colors cursor-pointer group"
-              title={t('settings.minimize')}
-            >
-              <span className="text-[var(--text-rack-mute)] text-base leading-none group-hover:text-[var(--text-rack)] transition-colors">─</span>
-            </div>
-            {/* 放大 */}
-            <div
-              onClick={handleMaximize}
-              className="w-[24px] h-[24px] bg-[var(--bg-slot)] flex items-center justify-center rounded-[2px] hover:bg-[var(--bg-elev)] transition-colors cursor-pointer group"
-              title={isMaximized ? t('settings.restore') : t('settings.maximize')}
-            >
-              {isMaximized ? (
-                <svg width="14" height="14" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <rect x="3" y="7" width="8" height="8" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)] transition-colors"/>
-                  <path d="M7 3H15V11" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)] transition-colors"/>
-                  <path d="M5 11V5H11" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)] transition-colors"/>
-                </svg>
-              ) : (
-                <svg width="14" height="14" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <rect x="3" y="3" width="12" height="12" stroke="currentColor" strokeWidth="2" fill="none" className="text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)] transition-colors"/>
-                </svg>
-              )}
-            </div>
-            {/* 关闭 */}
-            <div
-              onClick={handleClose}
-              className="w-[24px] h-[24px] bg-[var(--bg-slot)] flex items-center justify-center rounded-[2px] hover:bg-[var(--error-rack)] transition-colors cursor-pointer group"
-              title={t('settings.close')}
-            >
-              <span className="text-[var(--text-rack-mute)] text-base leading-none group-hover:text-white transition-colors">✕</span>
-            </div>
+              style={{ left: -SIDEBAR_DIVIDER_WIDTH, width: SIDEBAR_DIVIDER_WIDTH }}
+              className="absolute top-0 bottom-0 cursor-col-resize"
+              onPointerDown={(e) => {
+                e.currentTarget.setPointerCapture(e.pointerId)
+                setIsResizingSidebar(true)
+              }}
+              onPointerMove={handleSidebarResizeMove}
+              onPointerUp={endSidebarResize}
+              onPointerCancel={endSidebarResize}
+              onLostPointerCapture={endSidebarResize}
+            />
           </div>
         </div>
       </div>
 
-      {/* 主内容区 */}
-      <div className="flex flex-1 min-w-0 min-h-0 main-content">
-        {/* 左列:机柜页签轨 + 面板 + 宽度调整条。sidebarCollapsed 时整列隐藏 */}
-        {!sidebarCollapsed && (
-          <>
-            <ActivityRail active={activeNav} onChange={handleNavChange} liveCount={liveCount} />
-            <div style={{ width: `${sidebarWidth}px` }} className="flex-shrink-0 min-w-0 h-full">
-              {activeNav === 'sessions' && (
-                <SessionsPanel
-                  onConnect={handleConnect}
-                  onExecuteCommand={handleExecuteCommand}
-                  quickCommandsDisabled={dshWebActiveHere}
-                />
-              )}
-              {activeNav === 'agents' && <AgentsPanel />}
-              {activeNav === 'dsh' && <HarnessPanel agent="dsh" onOpenWeb={handleOpenWeb} />}
-              {activeNav === 'codex' && <HarnessPanel agent="codex" />}
-              {activeNav === 'claude' && <HarnessPanel agent="claude" />}
-              {activeNav === 'plugins' && <PluginPanel />}
-              {activeNav === 'settings' && <SettingsPanel />}
-            </div>
-            {/* 宽度调整条 */}
-            <div
-              className="w-[4px] bg-[var(--rule)] cursor-col-resize hover:bg-[var(--amber)] transition-colors flex-shrink-0 relative"
-              onMouseDown={() => setIsResizingSidebar(true)}
-            >
-              <div
-                className="absolute -left-[4px] top-0 bottom-0 w-[4px] cursor-col-resize"
-                onMouseDown={() => setIsResizingSidebar(true)}
-              />
-            </div>
-          </>
-        )}
-
-        {/* 终端内容区 */}
-        <div className="flex flex-col flex-1 min-w-0 min-h-0">
-          {/* 终端内容区 - 分屏布局（原底部状态栏已退场：快捷命令合入会话栏，诊断簇迁至各分屏页签条） */}
-          <div ref={terminalWrapperRef} className="terminal-wrapper flex-1 min-h-0 bg-[var(--terminal-bg)] overflow-hidden relative pb-0">
+      {/* 终端列:顶部即窗口第一行(页签条由 SplitPaneContainer 内顶排 pane 渲染) */}
+      <div className="flex flex-col flex-1 min-w-0 min-h-0">
+        <div
+          ref={terminalWrapperRef}
+          className="terminal-wrapper flex-1 min-h-0 bg-[var(--terminal-bg)] overflow-hidden relative pb-0"
+          /* 第一行最左页签条的左留白 -- 收起时给展开 pill 让位(TOP_LEFT_RESERVE),
+             展开时归零让页签紧贴左列;PaneTabBar 读 var() 消费(镜像右端 --top-right-reserve
+             的变量架构,但值随侧栏状态同步切换,无需实测) */
+          style={{ '--top-left-reserve': sidebarCollapsed ? `${TOP_LEFT_RESERVE}px` : '0px' } as React.CSSProperties}
+        >
+          {/* 侧栏收起时,终端画布向内让出框线宽的槽位给内框线 -- 框线画在槽里而不是浮在
+              终端内容上方;画布缩量由 pane-resize ResizeObserver 感知,xterm 随之重新 fit。
+              槽宽读 --edge-frame-width,与 .edge-frame 边框 / .edge-hit 命中条同源 */}
+          <div className={cn('h-full', sidebarCollapsed && 'pl-[var(--edge-frame-width)] pb-[var(--edge-frame-width)]')}>
             <SplitPaneContainer />
-
-            {/* 右上角会话浮窗 */}
-            {floatVisible && (
-              <div className="absolute top-[28px] right-[12px] z-50 w-[300px] h-[400px] bg-[var(--bg-slot)] border border-[var(--rule)] overflow-hidden shadow-lg">
-                <FloatWindow onConnect={handleConnect} />
-              </div>
-            )}
           </div>
+
+          {/* 左上侧栏展开控位(ghost,无按钮形) -- 仅收起态可见:静息 chevron 走
+              mute(与轨顶收起槽同档),悬停整块托起(bg-elev)+ chevron 提亮到 data,点击展开;展开态的收起开关
+              在机柜轨顶槽(ActivityRail onCollapse)。第一行其余区域是窗口拖拽区,
+              收不到 click,故命中区收敛在这块 win-no-drag 条带里(TOP_LEFT_RESERVE 宽)。
+              淡出时 strip 整体 pointer-events-none,这片留白还给第一行窗口拖拽区。
+              32×36 命中区恰好齐平 36px 的第一行(SIDEBAR_PILL_HEIGHT = TOPBAR_HEIGHT);
+              顶左角 8px 随窗口圆角收圆(镜像 edge-frame 左下角)。 */}
+          <div
+            className={cn(
+              'win-no-drag absolute top-0 left-0 z-40 flex items-center bg-[var(--bg-rack)] select-none',
+              'transition-opacity duration-150 ease-out',
+              !sidebarCollapsed && 'opacity-0 pointer-events-none'
+            )}
+            style={{ height: SIDEBAR_PILL_HEIGHT, width: TOP_LEFT_RESERVE }}
+            aria-hidden={!sidebarCollapsed}
+          >
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed(false)}
+              tabIndex={sidebarCollapsed ? 0 : -1}
+              title={t('settings.expandSidebar')}
+              aria-label={t('settings.expandSidebar')}
+              className={cn(
+                'w-full h-full rounded-[8px_2px_2px_2px]',
+                'flex items-center justify-center cursor-pointer group',
+                'transition-[background-color] duration-150',
+                // 无按钮形:无边框无底色,悬停整块托起 + chevron 提亮,不点亮边缘
+                'hover:bg-[var(--bg-elev)]',
+                'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--amber)]'
+              )}
+            >
+              {/* 单层 » 余痕 -- Edge 收起侧栏后的展开惯例,指向左列滑入方向 */}
+              <svg
+                width="18" height="18" viewBox="0 0 16 16" fill="none"
+                stroke="currentColor" strokeWidth="1.6" strokeLinecap="square" strokeLinejoin="miter"
+                className="text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack-data)] group-focus-visible:text-[var(--text-rack-data)] transition-colors"
+              >
+                <path d="M6 4.5 L10.5 8 L6 11.5" />
+              </svg>
+            </button>
+          </div>
+
+          {/* 侧栏收起时的 L 形内框 -- 左+下两条等宽线(--edge-frame-width),左下角随窗口圆角(8px)连续拐弯
+              (单元素 border 画整框,见 globals .edge-frame),不占页签行高度。
+              框线画在终端让出的 4px 槽位里(见上方 inset 包裹),不压终端内容。
+              两条槽位内的透明命中条(.edge-hit)负责交互:悬停整框通电(amber),点击展开左列;
+              页签拖拽分屏期间整框隐身让位。
+              注意 DOM 顺序:frame 必须排在两条 hit 条之后 -- 悬停通电靠
+              .edge-hit:hover ~ .edge-frame 兄弟选择器,调换顺序选择器即失效 */}
+          {sidebarCollapsed && (
+            <>
+              <div
+                className={cn('edge-hit absolute left-0 z-40 w-[var(--edge-frame-width)]', isTabDragging && 'pointer-events-none')}
+                style={{ top: TOPBAR_HEIGHT, bottom: 0 }}
+                onClick={() => setSidebarCollapsed(false)}
+                title={t('settings.expandSidebar')}
+              />
+              <div
+                className={cn('edge-hit absolute bottom-0 left-0 right-0 z-40 h-[var(--edge-frame-width)]', isTabDragging && 'pointer-events-none')}
+                onClick={() => setSidebarCollapsed(false)}
+                title={t('settings.expandSidebar')}
+              />
+              <div
+                aria-hidden
+                className={cn('edge-frame absolute left-0 right-0 bottom-0 z-40', isTabDragging && 'opacity-0')}
+                style={{ top: TOPBAR_HEIGHT }}
+              />
+            </>
+          )}
+
+          {/* 右上控制簇 -- MCP 状态片 + 浮窗键 │ 窗口控制,悬浮于第一行页签条右端
+              (留白见 TopRightControls 实测发布的 --top-right-reserve) */}
+          <div className="absolute top-0 right-0 z-40">
+            <TopRightControls
+              isMaximized={isMaximized}
+              onMinimize={handleMinimize}
+              onMaximize={handleMaximize}
+              onClose={handleClose}
+              floatVisible={floatVisible}
+              onToggleFloat={() => setFloatVisible(!floatVisible)}
+            />
+          </div>
+
+          {/* 右上角会话浮窗 -- 锚在第一行页签条正下方(top 与第一行高度强绑定,引用常量防错位) */}
+          {floatVisible && (
+            <div
+              className="absolute right-[12px] z-50 w-[300px] h-[400px] bg-[var(--bg-slot)] border border-[var(--rule)] overflow-hidden shadow-lg"
+              style={{ top: TOPBAR_HEIGHT }}
+            >
+              <FloatWindow onConnect={handleConnect} />
+            </div>
+          )}
         </div>
       </div>
 

@@ -1,6 +1,8 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { WebviewTag } from 'electron'
 import { usePaneStore } from '../../stores/pane-store'
+import type { WebTabEntry } from '../../stores/pane-store'
 import TerminalView from '../Terminal/TerminalView'
 import PaneTabBar from './PaneTabBar'
 import { McpAuditPanel } from './McpAuditPanel'
@@ -10,21 +12,150 @@ import type { PaneNode, SplitDirection } from '@shared/types'
 
 type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center' | null
 
-interface PaneViewProps {
-  node: PaneNode
+// favicon 代取缓存：成功（data URI）永久缓存；失败不缓存——下次 page-favicon-updated
+// （切回页签/页内刷新触发）自然重试，事件只在 favicon 列表变化时才发，天然限频。
+const faviconCache = new Map<string, Promise<string | null>>()
+function fetchFaviconDataUri(url: string): Promise<string | null> {
+  // 内联 data:image/* favicon 无需代取，直接透传
+  if (url.startsWith('data:image/')) return Promise.resolve(url)
+  const cached = faviconCache.get(url)
+  if (cached) return cached
+  const p: Promise<string | null> = window.electronAPI.fetchFavicon(url)
+    .then(r => {
+      if (r.success) return r.dataUri
+      faviconCache.delete(url)
+      return null
+    })
+    .catch(() => {
+      faviconCache.delete(url)
+      return null
+    })
+  faviconCache.set(url, p)
+  return p
+}
+
+// 从 page-favicon-updated 事件提取首个 favicon URL。Electron 28 实测（探针验证）：
+// 参数挂在事件自身属性上（e.favicons），detail 为 undefined；兼容 detail 形状只为稳妥。
+function faviconUrlFromEvent(e: Event): string | undefined {
+  const detail = (e as CustomEvent<unknown>).detail
+  const candidates: unknown[] = [
+    (e as { favicons?: unknown }).favicons,
+    (detail as { favicons?: unknown } | undefined)?.favicons,
+    Array.isArray(detail) ? detail : undefined
+  ]
+  for (const c of candidates) {
+    if (Array.isArray(c)) {
+      const first = c.find(u => typeof u === 'string' && u.length > 0)
+      if (first) return first
+    }
+  }
+  return undefined
 }
 
 /**
- * 分屏视图组件 - 递归渲染分屏树
+ * 网页访问栏页签的 webview 覆盖层（单页签实例）。
+ * partition 固定 persist:webbar（与 dsh web 隔离的浏览会话）；导航/弹窗由主进程
+ * did-attach-webview 按 partition 分流锁定（仅 http/https）。标题经 page-title-updated
+ * 回写 store，页签显示页面标题而非裸 hostname；favicon 经 page-favicon-updated 由
+ * 主进程代取转 data URI 回写（渲染层 CSP 只放行 data: 图）。首次 did-finish-load 时
+ * 把 URL 记入「最近访问」历史（加载失败的 URL 不算访问过）。
  */
-const PaneView: React.FC<PaneViewProps> = ({ node }) => {
-  const { layout, setActivePane, addSessionToPane, splitPaneWithPosition, swapPanePosition, mcpAuditPaneId, closeMcpAudit, dshWeb, dshWebPaneId, dshWebActive, draggingDshWeb, setDraggingDshWeb, moveDshWebToPane, splitDshWebIntoPane } = usePaneStore()
+const WebTabOverlay: React.FC<{ tab: WebTabEntry }> = ({ tab }) => {
+  const setWebTabTitle = usePaneStore(s => s.setWebTabTitle)
+  const setWebTabFavicon = usePaneStore(s => s.setWebTabFavicon)
+  const recordWebTabVisit = usePaneStore(s => s.recordWebTabVisit)
+  const ref = useRef<WebviewTag | null>(null)
+  // 每 tab 只记一次：did-finish-load 对页内刷新/锚点跳转也会触发，重复记录靠 store 去重，
+  // 这里用 ref 闸掉后续事件省 setState（tab.url 固定为打开时的 URL，页内导航不另记）
+  const historyRecorded = useRef(false)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const onTitle = (e: Event): void => {
+      // Electron 28 实测：webview 事件参数挂在事件自身属性上（e.title），detail 为
+      // undefined —— 原来只读 detail 的写法一直取不到，两者兼容
+      const evt = e as CustomEvent<{ title?: string }> & { title?: string }
+      const title = evt.title ?? evt.detail?.title
+      if (title) setWebTabTitle(tab.id, title)
+    }
+    const onFavicon = (e: Event): void => {
+      // 取首个 favicon，代取失败静默回落纯文字页签（下次事件自动重试）
+      const src = faviconUrlFromEvent(e)
+      if (!src) return
+      void fetchFaviconDataUri(src).then(dataUri => {
+        // 异步回来时页签可能已关闭，setWebTabFavicon 对未知 id 是 no-op
+        if (dataUri) setWebTabFavicon(tab.id, dataUri)
+      })
+    }
+    const onLoadFinish = (): void => {
+      if (historyRecorded.current) return
+      historyRecorded.current = true
+      recordWebTabVisit(tab.url)
+    }
+    el.addEventListener('page-title-updated', onTitle)
+    el.addEventListener('page-favicon-updated', onFavicon)
+    el.addEventListener('did-finish-load', onLoadFinish)
+    return () => {
+      el.removeEventListener('page-title-updated', onTitle)
+      el.removeEventListener('page-favicon-updated', onFavicon)
+      el.removeEventListener('did-finish-load', onLoadFinish)
+    }
+  }, [tab.id, tab.url, setWebTabTitle, setWebTabFavicon, recordWebTabVisit])
+
+  return (
+    <webview
+      ref={ref}
+      partition="persist:webbar"
+      src={tab.url}
+      className="w-full h-full"
+    />
+  )
+}
+
+interface PaneViewProps {
+  node: PaneNode
+  /** 处于窗口第一行(顶排) -- 该 pane 的页签条成为窗口第一行,启用拖拽区/留白 */
+  isTop?: boolean
+  /** 第一行最左叶子 -- 页签条左侧为侧栏开关 pill 留白 */
+  isTopLeft?: boolean
+  /** 第一行最右叶子 -- 页签条右侧为控制簇留白 */
+  isTopRight?: boolean
+}
+
+/**
+ * 分屏视图组件 - 递归渲染分屏树。
+ *
+ * 顶排 flag 沿递归下传,判定规则:
+ * - horizontal(左右并排):两子都继承 isTop;isTopLeft 归 firstChild,isTopRight 归 secondChild
+ * - vertical(上下堆叠):仅 firstChild 继承三个 flag(下 pane 的页签条在窗口中部,不是第一行)
+ */
+const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight }) => {
+  // 逐字段 selector 订阅：本组件从 store 只读 activePaneId（布局树由 node prop 传入，
+  // activePaneId 是字符串 —— 拖分屏比例等高频 layout 写入只换对象引用，选中值不变，
+  // 不再触发所有 PaneView 重渲染）。action 引用在 create 时即固定，选中它们零成本
+  const setActivePane = usePaneStore(s => s.setActivePane)
+  const addSessionToPane = usePaneStore(s => s.addSessionToPane)
+  const splitPaneWithPosition = usePaneStore(s => s.splitPaneWithPosition)
+  const swapPanePosition = usePaneStore(s => s.swapPanePosition)
+  const closeMcpAudit = usePaneStore(s => s.closeMcpAudit)
+  const setDraggingDshWeb = usePaneStore(s => s.setDraggingDshWeb)
+  const moveDshWebToPane = usePaneStore(s => s.moveDshWebToPane)
+  const splitDshWebIntoPane = usePaneStore(s => s.splitDshWebIntoPane)
+  const activePaneId = usePaneStore(s => s.layout.activePaneId)
+  const mcpAuditPaneId = usePaneStore(s => s.mcpAuditPaneId)
+  const mcpAuditActive = usePaneStore(s => s.mcpAuditActive)
+  const dshWeb = usePaneStore(s => s.dshWeb)
+  const dshWebPaneId = usePaneStore(s => s.dshWebPaneId)
+  const dshWebActive = usePaneStore(s => s.dshWebActive)
+  const draggingDshWeb = usePaneStore(s => s.draggingDshWeb)
+  const webTabs = usePaneStore(s => s.webTabs)
   const { getPaneBySessionId, getParentPane, getPanePositionInParent } = usePaneStore.getState()
   // 被隐藏的终端页签记录(Sidebar LIVE 段会话标签点击 toggle);订阅整个记录,任何 toggle 都会触发本组件重渲染。
   // 实际负载很小(仅 visibility 切换),未做按 pane 过滤的选择器。
   const hiddenTabSessions = usePaneStore(s => s.hiddenTabSessions)
   const { t } = useTranslation()
-  const isActive = layout.activePaneId === node.id
+  const isActive = activePaneId === node.id
   const [dropZone, setDropZone] = useState<DropZone>(null)
   const [dropAction, setDropAction] = useState<'swap' | 'changeDirection' | 'split' | 'moveWeb' | null>(null)
   const dropRef = useRef<HTMLDivElement>(null)
@@ -359,7 +490,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
           ${isActive ? 'ring-1 ring-[#0078D4]' : ''}
         `}
       >
-        <PaneTabBar pane={node} />
+        <PaneTabBar pane={node} isTop={isTop} isTopLeft={isTopLeft} isTopRight={isTopRight} />
 
         <div
           ref={dropRef}
@@ -406,8 +537,9 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
             </div>
           )}
 
-          {/* MCP 活动页签覆盖层 -- 单例，仅本 pane 激活时挂载；终端实例在底层继续接收数据，关掉页签原样复现 */}
-          {mcpAuditPaneId === node.id && (
+          {/* MCP 活动页签覆盖层 -- 单例，仅本 pane 且激活时挂载；切到终端/web 页签只退为未激活（页签保留， */}
+          {/* 面板卸载、重进回第 1 页），点 MCP 页签 / chip 切回。终端实例在底层继续接收数据。 */}
+          {mcpAuditPaneId === node.id && mcpAuditActive && (
             <div className="absolute inset-0 z-10">
               <McpAuditPanel onClose={closeMcpAudit} />
             </div>
@@ -431,6 +563,21 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
             </div>
           )}
 
+          {/* 网页访问栏页签覆盖层 —— 多开，每个 tab 一个 webview；切到终端/其它页签用 visibility */}
+          {/* 隐藏（webview 保持挂载、页面状态不丢），✕ 才卸载销毁。每 pane 至多一个 active。 */}
+          {webTabs.filter(t => t.paneId === node.id).map(tab => (
+            <div
+              key={tab.id}
+              className="absolute inset-0"
+              style={{
+                visibility: tab.active ? 'visible' : 'hidden',
+                zIndex: tab.active ? 10 : 0
+              }}
+            >
+              <WebTabOverlay tab={tab} />
+            </div>
+          ))}
+
           {/* 分屏指示器 */}
           {dropZone && getDropZoneStyle(dropZone, dropAction) && (
             <div style={getDropZoneStyle(dropZone, dropAction) as React.CSSProperties}>
@@ -442,7 +589,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
     )
   }
 
-  // 分屏节点 - 渲染两个子节点
+  // 分屏节点 - 渲染两个子节点(顶排 flag 按方向规则传播,见组件头注释)
   return (
     <div
       className={`
@@ -456,13 +603,17 @@ const PaneView: React.FC<PaneViewProps> = ({ node }) => {
         }}
         className="flex-shrink-0 overflow-hidden"
       >
-        <PaneView node={node.firstChild} />
+        <PaneView node={node.firstChild} isTop={isTop} isTopLeft={isTopLeft}
+          isTopRight={node.direction === 'horizontal' ? false : isTopRight} />
       </div>
 
       <SplitDivider paneId={node.id} direction={node.direction} />
 
       <div className="flex-1 overflow-hidden">
-        <PaneView node={node.secondChild} />
+        {/* secondChild 恒非最左;vertical 时它整列位于下方,三个 flag 全 false */}
+        <PaneView node={node.secondChild}
+          isTop={node.direction === 'horizontal' ? isTop : false}
+          isTopRight={node.direction === 'horizontal' ? isTopRight : false} />
       </div>
     </div>
   )

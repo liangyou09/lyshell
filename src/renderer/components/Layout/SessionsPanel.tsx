@@ -9,6 +9,7 @@ import ExportImportDialog from '../ExportImportDialog/ExportImportDialog'
 import FileManagerPanel from '../FileManager/FileManagerPanel'
 import QuickCommandsPanel from '../QuickCommands/QuickCommandsPanel'
 import TerminalSize from './TerminalSize'
+import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { useQuickCommandsStore } from '../../stores/quick-commands-store'
 import i18n from '../../i18n'
 
@@ -238,7 +239,11 @@ const IconBtn: React.FC<{
 
 const StripRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="grid grid-cols-[52px_1fr] items-center gap-2 px-3 py-1.5 bg-[var(--bg-strip)] border-b border-[var(--rule-soft)]">
-    <span className="[font-family:inherit] font-bold text-[12px] text-[var(--text-rack)]">
+    {/* 区段标签与头条铭牌同字体(设备徽章的「厂牌丝印」sans),不再是等宽栈 */}
+    <span
+      className="font-bold text-[12px] text-[var(--text-rack)]"
+      style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
+    >
       {label}
     </span>
     <div className="flex items-center gap-1 min-w-0 overflow-x-auto scrollbar-hide">
@@ -1035,11 +1040,25 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
         className="bg-[var(--bg-base)] flex flex-col h-full sidebar-container"
         style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
       >
-        {/* ===== 系统区 ===== */}
-        <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--rule)]">
-          <span className="font-semibold tracking-[.18em] text-[11px] text-[var(--text-rack)] select-none">
-            LYSHELL<span className="text-[var(--amber)] mx-1.5 font-normal">·</span>
-            <span className="text-[var(--text-rack-mute)] font-medium">RACK</span>
+        {/* ===== 系统区 ===== 头行高对齐终端第一行(TOPBAR_HEIGHT):轨顶收起槽 / 本头行 /
+             页签条在窗口顶部读作同一条横线。铭牌 = 产品名 + 编译期版本号
+             (__APP_VERSION__ 由 vite define 注入,升版不用手改这里) */}
+        <div
+          className="flex items-center justify-between px-3 border-b border-[var(--rule)]"
+          style={{ height: TOPBAR_HEIGHT }}
+        >
+          {/* 铭牌 = 设备徽章的语言:厂牌丝印 + 打字机固件号。品牌名走系统 UI 字体
+              (Segoe UI Variable Display,Win11 自带、hinting 完整,任何字号都锐利不发虚),
+              微收的 tracking 是 logotype 的紧凑感;版本号留在面板等宽栈里做「读数」--
+              两种字面的并置就是机柜徽章的辨识度,等宽粗体做铭牌反而像玩具打字机 */}
+          <span className="flex items-baseline gap-2 select-none">
+            <span
+              className="font-bold tracking-[-0.01em] text-[16px] text-[var(--text-rack)]"
+              style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
+            >
+              LyShell
+            </span>
+            <span className="text-[12px] text-[var(--text-rack-mute)] tabular-nums">v{__APP_VERSION__}</span>
           </span>
           <div className="flex gap-0.5">
             <IconBtn amber onClick={handleNewSession} title={t('sidebar.newSession')}><IconPlus /></IconBtn>
@@ -1325,10 +1344,7 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
             </span>
           </span>
           <span className="inline-flex items-center gap-2">
-            <span>{t('sidebar.footerShortcut', { n: 7 })}</span>
-            {/* 版本号 —— 编译期 __APP_VERSION__ 注入(vite define),升版不再手改这里 */}
-            <span aria-hidden className="w-px h-[10px] bg-[var(--rule)]" />
-            <span className="lowercase">v{__APP_VERSION__}</span>
+            <span>{t('sidebar.footerShortcut', { n: 8 })}</span>
           </span>
         </div>
       </div>

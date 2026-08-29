@@ -1,4 +1,4 @@
-# Logs
+﻿# Logs
 logs
 *.log
 npm-debug.log*
@@ -168,3 +168,6 @@ __pycache__/
 
 # 字体子集化脚本的本地源字体（scripts/subset-maple-font.py 的默认输入目录，不入库）
 fonts-src/
+
+# Temporary scratch files
+tmp/

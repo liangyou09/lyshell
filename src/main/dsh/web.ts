@@ -10,7 +10,9 @@ import { resolveDshHome } from './env'
  * 关键事实（源码 + 实测双确认，见 memory/dsh-web-port-process-behavior.md）：
  *   - `dsh web` = `dsh --profile web`，无独立二进制；
  *   - `--port 0` → OS 随机分配；stdout 单行 `dsh web: http://127.0.0.1:PORT` 即 ready 信号；
- *   - 冷启动 ~18s（加载 ~200 插件），故 ready 超时给足 60s；单前台 node 进程，不自动开浏览器。
+ *   - 冷启动 ~18s（加载 ~200 插件），故 ready 超时给足 60s；单前台 node 进程。
+ *   - `dsh web` 默认会在启动后调起系统默认浏览器（web-app 的 openBrowser 默认 true），
+ *     但 LyShell 把 UI 嵌在自家 <webview> 里，无需系统浏览器，故 spawn 时固定追加 `--no-open`。
  */
 
 const READY_TIMEOUT_MS = 60_000
@@ -93,7 +95,7 @@ class DshWebManager {
       if (systemPath) baseEnv.PATH = systemPath
       if (baseEnv.DSH_HOME) baseEnv.DSH_HOME = resolveDshHome(baseEnv.DSH_HOME)
 
-      const child = spawn('dsh', ['web', '--port', '0'], {
+      const child = spawn('dsh', ['web', '--port', '0', '--no-open'], {
         cwd: opts.cwd,
         env: opts.env ? { ...baseEnv, ...opts.env } : baseEnv,
         // Windows：经 shell 解析 npm 的 dsh.cmd shim；POSIX 直接执行 dsh 软链

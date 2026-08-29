@@ -1,17 +1,17 @@
 {
   "name": "lyshell",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "智能终端软件 - SSH/Telnet/串口连接 + Python脚本 + AI辅助",
   "main": "dist/main/index.js",
-  "author": "LyShell Team",
-  "license": "UNLICENSED",
-  "homepage": "https://github.com/lyshell/lyshell#readme",
+  "author": "liangyou",
+  "license": "MIT",
+  "homepage": "https://github.com/liangyou09/lyshell#readme",
   "bugs": {
-    "url": "https://github.com/lyshell/lyshell/issues"
+    "url": "https://github.com/liangyou09/lyshell/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/lyshell/lyshell.git"
+    "url": "https://github.com/liangyou09/lyshell.git"
   },
   "scripts": {
     "dev": "electron-vite dev",
@@ -62,6 +62,7 @@
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/tsconfig": "^1.0.1",
     "@electron-toolkit/utils": "^3.0.0",
+    "@testing-library/react": "^16.3.2",
     "@types/adm-zip": "^0.5.8",
     "@types/js-yaml": "^4.0.9",
     "@types/lodash-es": "^4.17.12",
@@ -82,6 +83,7 @@
     "eslint": "^8.56.0",
     "eslint-plugin-react": "^7.33.2",
     "eslint-plugin-react-hooks": "^4.6.0",
+    "jsdom": "^30.0.1",
     "node-gyp": "^13.0.0",
     "postcss": "^8.4.35",
     "rimraf": "^5.0.5",

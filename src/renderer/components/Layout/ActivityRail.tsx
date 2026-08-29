@@ -2,6 +2,8 @@ import React from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
+import { McpActivityRailSlot } from './McpActivityRailSlot'
+import { TOPBAR_HEIGHT } from './topbar-metrics'
 
 /**
  * 左侧机柜竖版页签轨 -- 把"会话 / Agent / 插件"三权并立成等高的机柜卡槽。
@@ -9,11 +11,15 @@ import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
  * 视觉语言沿用 active SessionSlot:激活槽用 amber 左边条 + bg-slot 填充 + amber 图标,
  * 像"通电的 1U 卡片";槽间用 rule-soft hairline + inset 凹陷阴影做卡笼分隔。
  * 这是本组件的 signature -- 导航本身读作机柜插卡,而非通用图标条。
+ *
+ * 轨顶第一槽是左列收起控位(非页签):与收起态终端列左上的展开 pill 构成同一开关的
+ * 两个形态 -- 开关永远停在窗口左上角,展开时是本槽,收起时是 pill,150ms 交叉淡变。
+ * 槽高读 TOPBAR_HEIGHT,与终端第一行页签条齐平。
  */
-export type NavTab = 'sessions' | 'agents' | 'dsh' | 'codex' | 'claude' | 'plugins' | 'settings'
+export type NavTab = 'sessions' | 'agents' | 'dsh' | 'codex' | 'claude' | 'plugins' | 'web' | 'settings'
 
-// 内容页签(上组):会话 / Agent / DeepSeek Harness / Codex / Claude / 插件。settings 是轨底独立工具槽,不在此列。
-const ALL_TABS: NavTab[] = ['sessions', 'agents', 'dsh', 'codex', 'claude', 'plugins']
+// 内容页签(上组):会话 / Agent / DeepSeek Harness / Codex / Claude / 插件 / 网页。settings 是轨底独立工具槽,不在此列。
+const ALL_TABS: NavTab[] = ['sessions', 'agents', 'dsh', 'codex', 'claude', 'plugins', 'web']
 const TABS: NavTab[] = ALL_TABS
 
 /** 轨宽(px) -- 单一真相源:本组件容器宽与 MainWindow 宽度拖拽算式共用,防两处漂移 */
@@ -85,6 +91,24 @@ const IconPlugins: React.FC = () => (
   </svg>
 )
 
+/** 网页 = 地球仪(圆 + 赤道/经线,通用"网页/网络"约定;square cap 同轨上直线图标语言) */
+const IconWeb: React.FC = () => (
+  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" strokeLinejoin="miter">
+    <circle cx="10" cy="10" r="7" />
+    <path d="M3 10 h14" />
+    <path d="M10 3 c2.4 2 2.4 12 0 14 c-2.4 -2 -2.4 -12 0 -14 z" />
+  </svg>
+)
+
+/** 收起控位 = 双层 « 指向左列滑出方向(与收起态 pill 的单层 » 成对:« 收 / » 展)。
+ *  双层的份量对齐相邻的机架/机器人头/齿轮图标;square cap 同轨上直线图标语言。 */
+const IconCollapseRail: React.FC = () => (
+  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" strokeLinejoin="miter">
+    <path d="M10.5 5.5 L5.5 10 L10.5 14.5" />
+    <path d="M15.5 5.5 L10.5 10 L15.5 14.5" />
+  </svg>
+)
+
 /** 设置 = 齿轮(工具位,轨底独立槽)。
  *  齿轮是曲线形态,round cap/join 更自然,故不随其余直线图标用 square;
  *  24 viewBox 缩小到 20 渲染,strokeWidth 取 1.7 使有效线宽对齐其余图标的 1.4。 */
@@ -102,6 +126,7 @@ const TAB_ICON: Record<NavTab, React.FC> = {
   codex: IconCodex,
   claude: IconClaude,
   plugins: IconPlugins,
+  web: IconWeb,
   settings: IconSettings,
 }
 
@@ -113,6 +138,8 @@ const TAB_ICON: Record<NavTab, React.FC> = {
 interface ActivityRailProps {
   active: NavTab
   onChange: (tab: NavTab) => void
+  /** 收起左列 -- 轨顶收起控位点击;收起后由终端列左上的展开 pill 接棒 */
+  onCollapse: () => void
   /** 在线会话数 -- sessions 槽位显示 live LED */
   liveCount?: number
 }
@@ -120,6 +147,7 @@ interface ActivityRailProps {
 const ActivityRail: React.FC<ActivityRailProps> = ({
   active,
   onChange,
+  onCollapse,
   liveCount = 0,
 }) => {
   const { t } = useTranslation()
@@ -131,7 +159,8 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
           : tab === 'codex' ? t('nav.codex')
             : tab === 'claude' ? t('nav.claude')
               : tab === 'plugins' ? t('nav.plugins')
-                : t('nav.settings')
+                : tab === 'web' ? t('nav.web')
+                  : t('nav.settings')
 
   /** sessions 槽位:有在线会话时亮 live LED;其余槽位无徽章 */
   const ledFor = (tab: NavTab): string | undefined =>
@@ -139,17 +168,48 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
 
   return (
     <div
-      className="flex flex-col items-stretch h-full flex-shrink-0 bg-[var(--bg-base)] border-r border-[var(--rule)] select-none"
+      className="flex flex-col items-stretch h-full flex-shrink-0 bg-[var(--bg-base)] select-none"
       style={{ width: RAIL_WIDTH }}
-      role="tablist"
-      aria-orientation="vertical"
     >
-      {TABS.map((tab, i) => {
+      {/* 轨顶收起控位 -- 左列展开时的收起开关(收起态由终端列左上 ghost 控位接棒,见 MainWindow)。
+          非页签:无 role=tab/激活态。槽高对齐终端第一行(TOPBAR_HEIGHT),底部 rule 线与
+          面板头条的 border-b 同色同 y -- 它是横贯窗口的"第一行底线"(收起槽 → 面板头条 →
+          页签条连成一条),不是收起槽与内容页签的槽位分隔;第一行内部(右侧)不画竖线,
+          整行读作无分割的一条横带,下方内容页签保持 44 高不变。
+          ghost 语言与收起态 pill 同源:静息线走 mute(与面板头条文字同档,
+          第一行的读数亮度),悬停 bg-rack 托起(轨槽的一步抬升,对应 pill 的
+          bg-elev)+ chevron 提亮到 data */}
+      <button
+        type="button"
+        onClick={onCollapse}
+        title={t('settings.collapseSidebar')}
+        aria-label={t('settings.collapseSidebar')}
+        style={{ height: TOPBAR_HEIGHT }}
+        className={cn(
+          'relative flex items-center justify-center transition-colors group',
+          'border-b border-[var(--rule)]',
+          'hover:bg-[var(--bg-rack)]',
+          'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--amber)]'
+        )}
+      >
+        <span className="text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack-data)] group-focus-visible:text-[var(--text-rack-data)] transition-colors">
+          <IconCollapseRail />
+        </span>
+      </button>
+
+      {/* 页签笼 -- 机柜轨与面板的竖分隔线(border-r)画在这里而不是轨容器上:
+          收起槽所在的窗口第一行不画竖线,收起槽 + 面板头条读作一条连续横带,
+          竖线从第一行以下才开始。tablist 也落在这层:笼里全是真页签,收起控件不混入 */}
+      <div
+        className="flex flex-col flex-1 border-r border-[var(--rule)]"
+        role="tablist"
+        aria-orientation="vertical"
+      >
+      {TABS.map((tab) => {
         const isActive = active === tab
         const Icon = TAB_ICON[tab]
         const led = ledFor(tab)
         const label = labelFor(tab)
-        const isLast = i === TABS.length - 1
         return (
           <button
             key={tab}
@@ -160,10 +220,12 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
             title={label}
             onClick={() => onChange(tab)}
             className={cn(
-              // 卡笼 1U 槽位:hairline 分隔 + inset 凹陷(槽嵌入框架感),与 SessionSlot 同语言
+              // 卡笼 1U 槽位:hairline 分隔 + inset 凹陷(槽嵌入框架感),与 SessionSlot 同语言。
+              // 所有槽位(含末位 web)一律带底部分隔线:页签笼以闭合的横线收底,
+              // 与轨底工具槽组(MCP/设置)之间的空档不读作"缺线"
               'relative h-[44px] flex items-center justify-center transition-colors group',
               'shadow-[inset_0_-1px_0_var(--bg-base)]',
-              !isLast && 'border-b border-[var(--rule-soft)]',
+              'border-b border-[var(--rule-soft)]',
               isActive
                 // 激活:通电槽 -- bg-slot 填充 + 上下 amber-soft inset(被"拉出"的通电感),镜像 SessionSlot active
                 ? 'bg-[var(--bg-slot)] shadow-[inset_0_1px_0_var(--amber-soft),inset_0_-1px_0_var(--amber-soft)]'
@@ -203,7 +265,12 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
         )
       })}
 
-      {/* 轨底 settings 工具槽 -- mt-auto 推到底,与内容页签隔开(border-t hairline);无 LED。
+      {/* 轨底工具槽组 -- MCP 活动槽(McpActivityRailSlot 自带 mt-auto 整组推底) + 设置槽。
+          MCP 槽非页签(切换 pane 覆盖层而非导航),置于设置槽上方;组内两槽间以
+          MCP 槽的 border-b 做 hairline 分隔(卡笼语言)。 */}
+      <McpActivityRailSlot />
+
+      {/* settings 工具槽 -- 轨底最末位;无 LED。
           active 语言与内容槽一致:amber 左条 + bg-slot 填充,读作"通电的工具卡"。 */}
       <button
         type="button"
@@ -213,8 +280,7 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
         title={labelFor('settings')}
         onClick={() => onChange('settings')}
         className={cn(
-          'relative h-[44px] flex items-center justify-center transition-colors group mt-auto',
-          'border-t border-[var(--rule-soft)]',
+          'relative h-[44px] flex items-center justify-center transition-colors group',
           active === 'settings'
             ? 'bg-[var(--bg-slot)] shadow-[inset_0_1px_0_var(--amber-soft),inset_0_-1px_0_var(--amber-soft)]'
             : 'hover:bg-[var(--bg-rack)]',
@@ -238,6 +304,7 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
           <IconSettings />
         </span>
       </button>
+      </div>
     </div>
   )
 }

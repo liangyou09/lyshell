@@ -44,7 +44,7 @@ const SEARCH_DECORATIONS = {
 
 /**
  * 解析当前主题下的 xterm 终端配色。
- * 终端画布底色取自 --terminal-bg(深色主题近黑 #0C0C0C、rack-paper 浅纸 #ECEAE4);
+ * 终端画布底色取自 --terminal-bg(深色主题近黑 #0C0C0C、rack-paper 纯白 #FFFFFF);
  * 按其亮度选择深/浅配色集(DARK/LIGHT 仅 foreground/cursor/black/white 不同,ANSI 色共用),
  * 再把 background 覆写为 --terminal-bg,使终端画布与页签/审计面板的 var(--terminal-bg) 严丝合缝。
  * 主题切换时由下方 useEffect 实时调用,无需重建终端(xterm 5.5 支持 options.theme 热更新)。
@@ -431,7 +431,10 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       terminal.onSelectionChange(() => {
         const selection = terminal.getSelection()
         if (selection) {
-          navigator.clipboard.writeText(selection)
+          // writeText 同样可能因 document 未聚焦被拒,吞掉避免未处理 rejection
+          navigator.clipboard.writeText(selection).catch(err => {
+            console.warn('[TerminalView] clipboard writeText failed:', err)
+          })
         }
       })
     }
@@ -476,8 +479,19 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       }
       navigator.clipboard.readText().then(text => {
         if (text) {
-          window.electronAPI?.terminalWrite(sessionId, text)
+          // 走 xterm 粘贴管线（terminal.paste → onData → terminalWrite）而非裸写 PTY：
+          // 裸写会把剪贴板文本当按键流发给应用 —— 对开了括号粘贴模式(ESC[?2004h)的
+          // raw-mode TUI(Claude Code 等)，尾部换行被当成回车，文本先插入输入框又被
+          // 提交一次，表现为"粘贴两下"。paste() 会做行尾归一化并按需包 ESC[200~…201~，
+          // 与 Ctrl+V 行为一致；MCP 锁定仍由 onData 里的 blockInputRef 兜底。
+          const instance = getTerminal(sessionId)
+          if (instance) {
+            instance.terminal.paste(text)
+          }
         }
+      }).catch(err => {
+        // 剪贴板读取失败(如 document 未聚焦时 Electron 会拒绝)——静默降级为不粘贴
+        console.warn('[TerminalView] clipboard readText failed:', err)
       })
     }
 
@@ -588,13 +602,17 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
     }
 
     window.addEventListener('resize', handleWindowResize)
-    containerRef.current.addEventListener('contextmenu', handleContextMenu)
-    containerRef.current.addEventListener('mousedown', handleMouseDown)
-    containerRef.current.addEventListener('click', handleClick)
+    // 监听器统一挂到局部捕获的 container 上:cleanup 时 containerRef.current 可能已被
+    // React 置空/换节点(HMR 重挂载、卸载竞态),届时 removeEventListener 会静默失败,
+    // 在同一 DOM 容器上累积出重复的 contextmenu 监听 —— 表现为右键粘贴一次触发两下(dev 特有)。
+    const container = containerRef.current
+    container.addEventListener('contextmenu', handleContextMenu)
+    container.addEventListener('mousedown', handleMouseDown)
+    container.addEventListener('click', handleClick)
     // Ctrl + 滚轮缩放字号(capture + passive:false 才能 preventDefault 截住)
-    containerRef.current.addEventListener('wheel', handleWheel, { capture: true, passive: false })
+    container.addEventListener('wheel', handleWheel, { capture: true, passive: false })
     // 钉死 containerRef 的滚动位置,防止 IME 聚焦 textarea 触发 focus 自动滚动把终端内容左移
-    containerRef.current.addEventListener('scroll', handleContainerScroll)
+    container.addEventListener('scroll', handleContainerScroll)
 
     // 监听字体大小变化事件
     const handleFontSizeChanged = (e: CustomEvent) => {
@@ -632,11 +650,12 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         resizeTimeoutRef.current = null
       }
       window.removeEventListener('resize', handleWindowResize)
-      containerRef.current?.removeEventListener('contextmenu', handleContextMenu)
-      containerRef.current?.removeEventListener('mousedown', handleMouseDown)
-      containerRef.current?.removeEventListener('click', handleClick)
-      containerRef.current?.removeEventListener('wheel', handleWheel, { capture: true })
-      containerRef.current?.removeEventListener('scroll', handleContainerScroll)
+      // 用 effect 挂载时捕获的 container 解绑,保证 remove 一定命中当初 add 的那个节点
+      container.removeEventListener('contextmenu', handleContextMenu)
+      container.removeEventListener('mousedown', handleMouseDown)
+      container.removeEventListener('click', handleClick)
+      container.removeEventListener('wheel', handleWheel, { capture: true })
+      container.removeEventListener('scroll', handleContainerScroll)
       window.removeEventListener('terminalFontSizeChanged', handleFontSizeChanged as EventListener)
       window.removeEventListener('terminalCursorBlinkChanged', handleCursorBlinkChanged as EventListener)
       // 解绑搜索匹配计数订阅;否则切换 tab 时旧组件的回调还活在 SearchAddon 上,

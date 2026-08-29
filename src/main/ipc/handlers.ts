@@ -1,6 +1,7 @@
-import { ipcMain, BrowserWindow, dialog, shell, app } from 'electron'
+import { ipcMain, BrowserWindow, dialog, shell, app, net } from 'electron'
 import type { MessageBoxOptions, OpenDialogOptions, SaveDialogOptions } from 'electron'
 import { writeFile, readFile } from 'fs/promises'
+import { lookup as dnsLookup } from 'dns/promises'
 import * as path from 'path'
 import * as fs from 'fs'
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypto'
@@ -14,10 +15,13 @@ import { dshWebManager } from '../dsh/web'
 import { resolveDshHome } from '../dsh/env'
 import { readSystemPath } from '../env/refresh'
 import { resolveWorkspaceCwd } from '../harness/cwd'
+import { listWorktreeKeys, resolveLaunchWorktree, validateWorktreeKey } from '../harness/worktree'
+import { createTaskSerializer } from '../harness/task-serializer'
 import { detectDependencies } from '../harness/detect'
 import { HARNESS_AGENTS, resolveWorkspaceEnv } from '../harness/config'
 import { migrateInlineEnvToProfiles } from '../harness/migrate-env'
 import type { HarnessEnvProfile, HarnessWorkspace } from '@shared/harness'
+import type { WorktreeListResult } from '@shared/worktree'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { ConnectionStatus } from '../connectors'
 import { reachabilityProber, type ReachabilityTarget } from '../reachability/reachability-prober'
@@ -25,6 +29,8 @@ import { ConnectionType } from '@shared/types'
 import { fileManager, startDownloadWorker, registerTaskMeta, startUploadWorker, cancelDownload, cancelUpload, assertSafeLocalPath } from '../file'
 import type { SessionConfig } from '@shared/types'
 import {
+  assertBoolean,
+  assertEnum,
   assertNumber,
   assertObject,
   assertString,
@@ -1808,6 +1814,12 @@ export function registerIPCHandlers(): void {
     return { success: true, id: session.id, status: ConnectionStatus.CONNECTING, config: session.config }
   }
 
+  // Harness 工作区启动解析的串行化器（按 <kind>:<workspaceId>）：并发双启动同一工作区会同时
+  // 命中旧 worktree 迁移 —— 后执行的 move 失败后会把前者已持久化的 key 回滚成 undefined，
+  // 甚至返回已被前者迁走的旧路径。锁罩住「锁内重读记录 + resolveLaunchWorktree」全程：
+  // 后来者读到前者刚持久化的 key，自然走复用分支。TUI launch 与 dsh web 共用同一实例。
+  const serializeLaunchResolve = createTaskSerializer()
+
   // 遍历 HARNESS_AGENTS 注册通用通道族：<kind>:detect / <kind>:workspace:list|add|update|delete|launch。
   // 三份实例（dsh/codex/claude）共享同一套逻辑，仅通过 runtime 注入差异点：
   // 依赖集 / 仓库 / env 归一化 / 模型预设 / 启动命令构造（见 harness/config.ts 的 HARNESS_AGENTS）。
@@ -1818,6 +1830,12 @@ export function registerIPCHandlers(): void {
     // 再据此做纯文件系统扫描；readSystemPath 失败时回落 process.env.PATH。
     ipcMain.handle(`${kind}:detect`, async () => {
       return detectDependencies(runtime.dependencies, readSystemPath() ?? undefined)
+    })
+
+    // 变量组「补全默认」的取值 —— CODEX_HOME 等须按系统环境/默认路径在主进程解析
+    // （渲染层沙箱读不到 process.env）；无入参，无需校验。
+    ipcMain.handle(`${kind}:env:defaults`, async () => {
+      return runtime.envDefaults()
     })
 
     // ========== <kind> 工作区 ==========
@@ -1847,6 +1865,15 @@ export function registerIPCHandlers(): void {
       return normalized.env
     }
 
+    // 模型选项：结构校验后做与渲染层 handleSaveProfile 一致的清洗（trim、滤空、去重），
+    // IPC 边界即落干净数据；仓库层 normalizeModels 仍兜底（防手工编辑 JSON 绕过此处）。
+    // 清洗后为空（全空白/全重复）返回 undefined —— 与「未提供」同语义，update 整条替换即清空。
+    const assertProfileModels = (raw: unknown): string[] | undefined => {
+      const models = assertStringArray(raw, 'profile.models', { maxItems: 64, maxItemLength: 256 })
+      const cleaned = [...new Set(models.map((m) => m.trim()).filter((m) => m.length > 0))]
+      return cleaned.length > 0 ? cleaned : undefined
+    }
+
     ipcMain.handle(`${kind}:env:add`, async (_event, profile) => {
       try {
         const safe = assertObject(profile, 'profile')
@@ -1855,6 +1882,9 @@ export function registerIPCHandlers(): void {
           env: assertProfileEnv(safe.env)
         }
         if (safe.note !== undefined) newProfile.note = assertString(safe.note, 'profile.note', { maxLength: 2000 })
+        // 模型选项（供工作区模型建议）；空数组/清洗后为空视同未提供 —— 与 note 同一套「缺省即不写」语义
+        const addedModels = safe.models !== undefined ? assertProfileModels(safe.models) : undefined
+        if (addedModels !== undefined) newProfile.models = addedModels
         const added = runtime.envRepository.add(newProfile)
         if (!added) return { success: false, error: 'Failed to save env profile' }
         return { success: true, profile: added }
@@ -1879,6 +1909,9 @@ export function registerIPCHandlers(): void {
             : assertNumber(safe.order, 'profile.order', { min: 0, max: 10000, integer: true })
         }
         if (safe.note !== undefined) updated.note = assertString(safe.note, 'profile.note', { maxLength: 2000 })
+        // 模型选项：整条替换，payload 缺席/空数组/清洗后为空即清空（与 note 的清空语义一致）
+        const updatedModels = safe.models !== undefined ? assertProfileModels(safe.models) : undefined
+        if (updatedModels !== undefined) updated.models = updatedModels
         // active 不从这里改（仓库层 update 也会保留现状）—— 启用态只经 setActive
         const success = runtime.envRepository.update(updated)
         return success ? { success: true } : { success: false, error: 'Env profile not found' }
@@ -1928,6 +1961,20 @@ export function registerIPCHandlers(): void {
         if (safe.envProfileId !== undefined) {
           newWorkspace.envProfileId = assertString(safe.envProfileId, 'workspace.envProfileId', { maxLength: 128 })
         }
+        // 目录隔离模式；缺省即 shared（现状语义）。git 仓库校验留到启动时做——「先开隔离、后 git init」是合法工作流
+        if (safe.isolation !== undefined) {
+          newWorkspace.isolation = assertEnum(safe.isolation, 'workspace.isolation', ['shared', 'worktree'] as const)
+        }
+        // worktree 共享名；非法字符保存即拒（不做静默折叠，见 validateWorktreeKey）
+        if (safe.worktreeKey !== undefined) {
+          const key = validateWorktreeKey(assertString(safe.worktreeKey, 'workspace.worktreeKey', { maxLength: 128 }))
+          if (!key.ok) return { success: false, error: key.error }
+          newWorkspace.worktreeKey = key.value
+        }
+        // 跳过权限确认：claude 专属字段，其余 kind 忽略不落盘 —— 防 API 调用方攒出看不见的脏状态
+        if (runtime.kind === 'claude' && safe.skipPermissions !== undefined) {
+          newWorkspace.skipPermissions = assertBoolean(safe.skipPermissions, 'workspace.skipPermissions')
+        }
         // env 是 legacy 字段，新建一律不写 —— 环境变量走变量组
         const added = runtime.repository.add(newWorkspace)
         if (!added) return { success: false, error: 'Failed to save workspace' }
@@ -1967,6 +2014,30 @@ export function registerIPCHandlers(): void {
           updated.envProfileId = safe.envProfileId === undefined
             ? undefined
             : assertString(safe.envProfileId, 'workspace.envProfileId', { maxLength: 128 })
+        }
+        // isolation 同 model/envProfileId 用「键存在」判断：编辑时切回共享目录（传 undefined）
+        // 应生效，否则旧 worktree 隔离会残留（worktree 目录本身不动，仅下次启动回 shared cwd）。
+        if ('isolation' in safe) {
+          updated.isolation = safe.isolation === undefined
+            ? undefined
+            : assertEnum(safe.isolation, 'workspace.isolation', ['shared', 'worktree'] as const)
+        }
+        // worktreeKey 同样用「键存在」判断：编辑时清空共享名（传 undefined）应回到私有 worktree。
+        if ('worktreeKey' in safe) {
+          if (safe.worktreeKey === undefined) {
+            updated.worktreeKey = undefined
+          } else {
+            const key = validateWorktreeKey(assertString(safe.worktreeKey, 'workspace.worktreeKey', { maxLength: 128 }))
+            if (!key.ok) return { success: false, error: key.error }
+            updated.worktreeKey = key.value
+          }
+        }
+        // skipPermissions 同 model/envProfileId 用「键存在」判断：编辑时关掉开关（传 undefined/false）
+        // 应生效，否则旧的危险模式标记会残留。仅 claude 接受，其余 kind 忽略。
+        if (runtime.kind === 'claude' && 'skipPermissions' in safe) {
+          updated.skipPermissions = safe.skipPermissions === undefined
+            ? undefined
+            : assertBoolean(safe.skipPermissions, 'workspace.skipPermissions')
         }
         // legacy env 一律沿用仓库现状，渲染层无权改它（前端已无 inline 编辑器，不会传这个字段）。
         // 迁移成功的记录这里恒为 undefined；迁移失败还带着 env 的记录，不该因为用户改了个名字
@@ -2008,6 +2079,24 @@ export function registerIPCHandlers(): void {
           return { success: false, error: cwd.error }
         }
 
+        // worktree 隔离：在仓库根下的专属 worktree 中启动（幂等创建/复用，未提交修改跨启动保留，
+        // 见 harness/worktree.ts）。放在 env 解析之前——env/prepareModel/launchCommand 均与 cwd 无关。
+        // key 决策与存量迁移在 resolveLaunchWorktree：已有共享名优先；缺省自动生成可读 key 并
+        // 回填持久化；旧 <kind>-<id> 形态的 worktree 原地改名迁移（拿到的仍是上次那棵树）。
+        let launchCwd = cwd.path
+        if (workspace.isolation === 'worktree') {
+          const wt = await serializeLaunchResolve(`${kind}:${safeId}`, async () => {
+            // 锁内重读记录：并发的前一次启动可能刚把生成的可读 key 持久化进仓库
+            const fresh = runtime.repository.get(safeId)
+            if (!fresh) return { ok: false as const, error: 'Workspace not found' }
+            return resolveLaunchWorktree(cwd.path, kind, fresh, (key) => runtime.repository.update({ ...fresh, worktreeKey: key }))
+          })
+          if (!wt.ok) {
+            return { success: false, error: wt.error }
+          }
+          launchCwd = wt.path
+        }
+
         // 解析实际注入的环境变量：绑定的变量组 → 已启用的变量组 → legacy ws.env → 系统环境变量。
         // 再归一化兜底：手工编辑的变量组/历史 env 可绕过 add/update 校验（dsh 校验 DSH_HOME
         // 相对路径拒绝启动；codex/claude 恒等透传）。
@@ -2017,9 +2106,10 @@ export function registerIPCHandlers(): void {
         }
         const launchEnv = envResult.env
 
-        // 预设启动模型：dsh 写/清 cordis.patch.yml（model 是 per-workspace、补丁是全局，留空必须
-        // 显式清除 provider/model 才能回落默认）；codex/claude 无需（模型走 --model CLI）。
-        // 写失败（用户补丁无法解析等）则拒绝启动，避免静默用错模型。
+        // 预设启动模型路由：dsh 写/清 cordis.patch.yml（model 是 per-workspace、补丁是全局，留空必须
+        // 显式清除 provider/model 才能回落默认）；codex 把变量组的 OPENAI_BASE_URL 写进 config.toml
+        // （没写则不动文件）；claude 无需（模型走 --model CLI、路由走环境变量）。
+        // 写失败（用户配置无法解析等）则拒绝启动，避免静默用错模型。
         const preset = runtime.prepareModel(workspace, launchEnv)
         if (!preset.ok) {
           return { success: false, error: preset.error }
@@ -2032,12 +2122,31 @@ export function registerIPCHandlers(): void {
         }
 
         // env 缺省时 opts.env 为 undefined，LocalConnector 以 {...process.env} 启动 —— 即系统环境变量
-        return await spawnLocalCommandSession(workspace.name, launch.command, [`${kind}:${safeId}`], { cwd: cwd.path, env: launchEnv })
+        return await spawnLocalCommandSession(workspace.name, launch.command, [`${kind}:${safeId}`], { cwd: launchCwd, env: launchEnv })
       } catch (error) {
         return validationFailure(error) || { success: false, error: (error as Error).message }
       }
     })
   }
+
+  // ========== Harness worktree 检测（kind 无关） ==========
+  // 供工作区编辑对话框做「已有 worktree」下拉：列出 cwd 所属仓库 .lyshell-worktrees/ 下的共享名，
+  // 并返回 worktree 根目录绝对路径（渲染层据此预览「选择 worktree 时自动生成的 key」的完整路径）。
+  // cwd 先过 resolveWorkspaceCwd（展开 ~ + 须为存在的绝对目录），与启动路径同口径 ——
+  // 否则 ~/xxx 这类字面路径探测到的结果不等于实际启动目录，下拉会给出错误选项。
+  // 非 git 目录返回 error，渲染层静默置空（硬校验在启动时的 ensureWorktree）。
+  ipcMain.handle('harness:worktree:list', async (_event, cwd: string): Promise<WorktreeListResult> => {
+    try {
+      const safeCwd = assertString(cwd, 'cwd', { maxLength: 4096 })
+      const resolved = resolveWorkspaceCwd(safeCwd)
+      if (!resolved.ok) return { success: false, error: resolved.error }
+      const result = await listWorktreeKeys(resolved.path)
+      if (!result.ok) return { success: false, error: result.error }
+      return { success: true, keys: result.keys, worktreeRoot: result.worktreeRoot }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
 
   // ========== DeepSeek Harness Web UI (dsh 专属) ==========
   // 启动 Web UI：spawn `dsh web --port 0` + 解析 stdout 端口，返回 URL 供渲染层 <webview> 加载。
@@ -2088,6 +2197,18 @@ export function registerIPCHandlers(): void {
         const cwd = resolveWorkspaceCwd(workspace.cwd)
         if (!cwd.ok) return { success: false, error: cwd.error }
         cwdPath = cwd.path
+        // worktree 隔离与 TUI 启动同语义：Web 也在专属 worktree 里跑；key 决策与存量迁移
+        // 同 TUI 启动（resolveLaunchWorktree：共享名优先，缺省生成可读 key 并回填持久化），
+        // 且共用同一串行化器 —— TUI 与 Web 同时启动同一工作区也不会撞迁移
+        if (workspace.isolation === 'worktree') {
+          const wt = await serializeLaunchResolve(`dsh:${workspaceId}`, async () => {
+            const fresh = dshRuntime.repository.get(workspaceId)
+            if (!fresh) return { ok: false as const, error: 'Workspace not found' }
+            return resolveLaunchWorktree(cwd.path, 'dsh', fresh, (key) => dshRuntime.repository.update({ ...fresh, worktreeKey: key }))
+          })
+          if (!wt.ok) return { success: false, error: wt.error }
+          cwdPath = wt.path
+        }
         // 与 TUI 启动同一份解析结果（绑定组 → 已启用组 → legacy → 系统）
         envSource = resolveWorkspaceEnv(dshRuntime, workspace)
       } else {
@@ -2126,6 +2247,107 @@ export function registerIPCHandlers(): void {
     dshWebManager.close()
     return { success: true }
   })
+
+  // ========== 网页访问栏（通用网页页签） ==========
+  // 渲染层 CSP 锁死 img-src 'self' data:，favicon 走主进程代取并转 data URI 回传。
+  // 仅放行 http(s)、限制体积与超时；返回判别联合与其它 handler 对齐。
+  // favicon URL 来自页面事件（页面可控）：封禁回环/私网/链路本地/组播地址，不让页面
+  // 借 LyShell 之手对内网发请求（响应页面虽读不到，也不留这个触发面）。
+
+  /** IPv4 点分字面量 → 私网/保留段判定（a/b 为前两段） */
+  const isPrivateV4 = (a: number, b: number): boolean =>
+    a === 0 || a === 10 || a === 127 ||
+    (a === 169 && b === 254) ||          // 链路本地（含云 metadata 169.254.169.254）
+    (a === 172 && b >= 16 && b <= 31) || // 172.16/12 私网
+    (a === 192 && b === 168) ||          // 192.168/16 私网
+    a >= 224                             // 组播/保留段
+
+  /** IP 字面量（v4 点分 / v6 冒号，含 ::ffff: 映射形式）→ 私网/保留段判定。
+      hostname 与 DNS 解析结果（dns.lookup 的 address 字段）共用。 */
+  const isPrivateIpLiteral = (addr: string): boolean => {
+    const h = addr.toLowerCase()
+    const v4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+    if (v4) return isPrivateV4(Number(v4[1]), Number(v4[2]))
+    if (h.includes(':')) { // IPv6（端口已被 URL 解析剥离 / lookup 结果无端口，含冒号即地址本体）
+      const mapped = h.match(/^::ffff:(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/) // IPv4-mapped
+      if (mapped) return isPrivateV4(Number(mapped[1]), Number(mapped[2]))
+      return (
+        h === '::' || h === '::1' ||
+        /^f[cd][0-9a-f]*:/.test(h) ||     // fc00::/7 唯一本地
+        /^fe[89ab][0-9a-f]*:/.test(h)     // fe80::/10 链路本地
+      )
+    }
+    return false
+  }
+
+  const isBlockedFaviconHost = (hostname: string): boolean => {
+    const h = hostname.toLowerCase()
+    if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) {
+      return true
+    }
+    return isPrivateIpLiteral(h)
+  }
+  ipcMain.handle(
+    'webbar:fetch-favicon',
+    async (_event, req: { url?: unknown }): Promise<{ success: true; dataUri: string } | { success: false; error: string }> => {
+      try {
+        const raw = assertString(req?.url, 'url', { maxLength: 4096 })
+        let parsed: URL
+        try {
+          parsed = new URL(raw)
+        } catch {
+          return { success: false, error: '无效的 favicon URL' }
+        }
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          return { success: false, error: 'favicon URL 仅支持 http/https' }
+        }
+        if (isBlockedFaviconHost(parsed.hostname)) {
+          return { success: false, error: '内网/回环地址已封禁' }
+        }
+        // 字面量之外再补 DNS 解析侧校验:公网域名 A/AAAA 记录指向私网/回环
+        // (SSRF 常见姿势,如解析到 169.254.169.254 云 metadata)同样拒。
+        // 已知残留:① 校验后 net.fetch 会再自行解析一次,DNS rebinding(两次解析
+        // 之间记录翻转)理论上可绕过;② 配置了系统代理时域名由代理解析,本地
+        // 结果可能与代理侧不同 —— 此处只求收窄触发面,配合下方超时/体积/类型
+        // 三道闸与"响应内容回不到页面"的边界,风险可接受。
+        if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(parsed.hostname) && !parsed.hostname.includes(':')) {
+          try {
+            const records = await Promise.race([
+              dnsLookup(parsed.hostname, { all: true }),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('DNS 解析超时')), 3000)
+              )
+            ])
+            if (records.length === 0 || records.some(r => isPrivateIpLiteral(r.address))) {
+              return { success: false, error: '内网/回环地址已封禁' }
+            }
+          } catch (error) {
+            return { success: false, error: `DNS 解析失败: ${(error as Error).message}` }
+          }
+        }
+        const FAVICON_MAX_BYTES = 512 * 1024
+        // 用 Electron net.fetch（Chromium 网络栈）：走系统代理（本机外站直连不通的场景
+        // 全局 fetch(undici) 会静默失败），证书/重定向行为也与浏览器一致
+        const res = await net.fetch(parsed.toString(), {
+          signal: AbortSignal.timeout(8000),
+          headers: { 'User-Agent': 'LyShell-Favicon/1.0' }
+        })
+        if (!res.ok) return { success: false, error: `HTTP ${res.status}` }
+        const len = Number(res.headers.get('content-length') || 0)
+        if (len > FAVICON_MAX_BYTES) return { success: false, error: 'favicon 过大' }
+        const buf = Buffer.from(await res.arrayBuffer())
+        if (buf.length === 0 || buf.length > FAVICON_MAX_BYTES) {
+          return { success: false, error: 'favicon 过大或为空' }
+        }
+        const ct = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
+        // 非 image/* 一律拒收（image/svg+xml 作为 <img> data URI 加载不会执行脚本）
+        if (!ct.startsWith('image/')) return { success: false, error: `非图片类型: ${ct || 'unknown'}` }
+        return { success: true, dataUri: `data:${ct};base64,${buf.toString('base64')}` }
+      } catch (error) {
+        return validationFailure(error) || { success: false, error: (error as Error).message }
+      }
+    }
+  )
 
   // ========== Plugin ==========
   // 插件管理(install[dev]/enable/disable/uninstall/list)。详见 docs/plugin-system-design.md §8。

@@ -29,6 +29,33 @@ export interface HarnessWorkspace {
   /** 显式绑定的变量组 id；缺省表示「跟随已启用的变量组」 */
   envProfileId?: string
   model?: string         // 可选启动模型（dsh 走 cordis 补丁，codex/claude 走 --model CLI）
+  /**
+   * 工作目录隔离模式：缺省/'shared' = 直接在 cwd 启动（现状，零变化）；
+   * 'worktree' = 在 <仓库根>/.lyshell-worktrees/<key> 的专属 git worktree 中启动
+   * （多 agent 指向同一仓库时互不踩踏）。worktree 持久化：首次启动建分支 lyshell/<key>，
+   * 此后每次复用，未提交修改跨启动保留；删除工作区不动 worktree/分支（脏树强删会毁掉改动，
+   * 需要清理时由用户手动 git worktree remove）。git 仓库校验在启动时做，保存时只校验枚举值。
+   */
+  isolation?: 'shared' | 'worktree'
+  /**
+   * worktree 共享名：isolation = 'worktree' 时生效。填了则 key 取该名字 —— 同名工作区
+   * （跨 dsh/codex/claude 也行）共用同一个 .lyshell-worktrees/<共享名> 与同一分支
+   * lyshell/<共享名>，在同一份检出上协作、互相看得见改动。同一分支同时只能检出在一处，
+   * 共用恰恰依赖「同一目录」而非「各自检出」。
+   * 缺省 = 私有 worktree：首次启动自动生成可读 key（<kind>-<工作区名>-<代号>，见
+   * @shared/worktree 的 generateWorktreeKey）并回填持久化，此后固定复用 —— 旧回落形态
+   * <kind>-<id> 的 worktree 会被原地改名迁移（目录 + 分支，未提交修改跟着走），已保存的
+   * 工作区拿到的仍是上次那棵树；迁移被占用等失败则原样复用旧路径、下次再试，落盘失败
+   * 才回落稳定私有 key <kind>-<id>（详见 resolveLaunchWorktree）。
+   * 取值约束见 worktree.ts 的 validateWorktreeKey（保存即拒非法名，不做静默折叠）。
+   */
+  worktreeKey?: string
+  /**
+   * 跳过权限确认（仅 claude 有意义）：true 时启动命令追加
+   * `--dangerously-skip-permissions`，Claude Code 不再逐个工具弹权限确认。
+   * 缺省/false = 正常权限模式。渲染层开关与列表角标由 hasSkipPermissions 控制。
+   */
+  skipPermissions?: boolean
 }
 
 /**
@@ -40,6 +67,8 @@ export interface HarnessEnvProfile {
   name: string           // 显示名称，如 "生产密钥"
   order: number
   env: Record<string, string>   // 至少一个变量（空组无意义，仓库层过滤）
+  /** 可选模型选项列表 —— 供工作区模型输入框的建议（如中转变量组的 GLM-5.2），空则不写 */
+  models?: string[]
   active?: boolean       // 至多一条为 true —— 由仓库层在 load/setActive 两侧保证
   note?: string          // 可选备注
 }
@@ -55,6 +84,23 @@ export interface HarnessRepo {
 }
 
 /**
+ * 判定 env key 是否携带敏感值(API key / token 类)—— 命中的行在变量组编辑器里
+ * 值默认打码(· 点阵),点眼睛按钮才明文展示。按 key 名后缀判定:
+ * OPENAI_API_KEY / ANTHROPIC_AUTH_TOKEN / DEEPSEEK_API_KEY 命中,
+ * OPENAI_BASE_URL / CLAUDE_CONFIG_DIR 这类非敏感配置不命中。
+ */
+export const isSecretEnvKey = (key: string): boolean => {
+  const k = key.trim().toUpperCase()
+  if (!k) return false
+  return (
+    k === 'KEY' || k === 'TOKEN' || k === 'SECRET' ||
+    k.endsWith('_KEY') || k.endsWith('_TOKEN') || k.endsWith('_SECRET') ||
+    k.endsWith('_PASSWD') || k.endsWith('_PASSWORD') || k.endsWith('_CREDENTIAL') ||
+    k.includes('API_KEY')
+  )
+}
+
+/**
  * 渲染层面板配置 —— 每个 kind 一份。i18nPrefix 对应 locales 里的顶层 key（`dsh`/`codex`/`claude`），
  * 面板统一用 `t(`${prefix}.xxx`)` 取文案。dependencies 是检测并展示的二进制名（PATH 扫描）。
  */
@@ -67,6 +113,10 @@ export interface HarnessAgentView {
   installCommand: string           // 缺失依赖时展示的安装命令
   repos: HarnessRepo[]             // 各依赖的源码仓库（提示卡每行一条）
   hasWeb: boolean                  // 是否有 Web UI 入口（仅 dsh）
+  /** 工作区表单是否保留「备注」字段（仅 dsh；codex/claude 表单更紧凑，备注退场） */
+  hasWorkspaceNote: boolean
+  /** 是否提供「跳过权限确认」开关（仅 claude，对应 --dangerously-skip-permissions） */
+  hasSkipPermissions: boolean
 }
 
 /**
@@ -100,34 +150,44 @@ export const HARNESS_AGENT_VIEWS: Record<HarnessAgentKind, HarnessAgentView> = {
       { dep: 'dsh', url: 'https://github.com/deepseek-ai/deepseek-harness' },
       { dep: 'dsh-tui', url: 'https://github.com/ccch1mneyyy/dsh-TUI' }
     ],
-    hasWeb: true
+    hasWeb: true,
+    hasWorkspaceNote: true,
+    hasSkipPermissions: false
   },
   codex: {
     kind: 'codex',
     i18nPrefix: 'codex',
     dependencies: ['codex'],
     envDefaults: [
-      { key: 'OPENAI_API_KEY', value: '' }
+      { key: 'OPENAI_API_KEY', value: '' },
+      { key: 'OPENAI_BASE_URL', value: '' },
+      { key: 'CODEX_HOME', value: '' }
     ],
     modelSuggestions: ['gpt-5-codex', 'gpt-5', 'o3'],
     installCommand: 'npm install -g @openai/codex',
     repos: [
       { dep: 'codex', url: 'https://github.com/openai/codex' }
     ],
-    hasWeb: false
+    hasWeb: false,
+    hasWorkspaceNote: false,
+    hasSkipPermissions: false
   },
   claude: {
     kind: 'claude',
     i18nPrefix: 'claude',
     dependencies: ['claude'],
     envDefaults: [
-      { key: 'ANTHROPIC_API_KEY', value: '' }
+      { key: 'ANTHROPIC_AUTH_TOKEN', value: '' },
+      { key: 'ANTHROPIC_BASE_URL', value: '' },
+      { key: 'CLAUDE_CONFIG_DIR', value: '' }
     ],
     modelSuggestions: ['claude-sonnet-5', 'claude-opus-5', 'claude-haiku-4-5'],
     installCommand: 'npm install -g @anthropic-ai/claude-code',
     repos: [
       { dep: 'claude', url: 'https://github.com/anthropics/claude-code' }
     ],
-    hasWeb: false
+    hasWeb: false,
+    hasWorkspaceNote: false,
+    hasSkipPermissions: true
   }
 }

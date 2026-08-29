@@ -5,11 +5,11 @@ import { redactSecrets } from './redact'
 // 经 log() 闸口脱敏后不得残留任何 hex，防止 electron-log 明文落盘。
 
 describe('redactSecrets', () => {
-  it('脱敏 ===NOVASHELL_TOKEN:<hex>=== 中的 token', () => {
-    const line = 'Shell: ===NOVASHELL_TOKEN:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789==='
+  it('脱敏 ===LYSHELL_TOKEN:<hex>=== 中的 token', () => {
+    const line = 'Shell: ===LYSHELL_TOKEN:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789==='
     const redacted = redactSecrets(line)
     expect(redacted).not.toContain('abcdef0123456789')
-    expect(redacted).toContain('===NOVASHELL_TOKEN:***REDACTED***===')
+    expect(redacted).toContain('===LYSHELL_TOKEN:***REDACTED***===')
     // 保留 Shell: 前缀等非敏感上下文
     expect(redacted).toContain('Shell:')
   })
@@ -20,12 +20,12 @@ describe('redactSecrets', () => {
   })
 
   it('一行中多次出现 token 全部脱敏', () => {
-    const line = '===NOVASHELL_TOKEN:aaaa=== ===NOVASHELL_TOKEN:bbbb==='
-    expect(redactSecrets(line)).toBe('===NOVASHELL_TOKEN:***REDACTED***=== ===NOVASHELL_TOKEN:***REDACTED***===')
+    const line = '===LYSHELL_TOKEN:aaaa=== ===LYSHELL_TOKEN:bbbb==='
+    expect(redactSecrets(line)).toBe('===LYSHELL_TOKEN:***REDACTED***=== ===LYSHELL_TOKEN:***REDACTED***===')
   })
 
   it('大小写 hex 均脱敏', () => {
-    const line = '===NOVASHELL_TOKEN:ABCDEF0123456789==='
+    const line = '===LYSHELL_TOKEN:ABCDEF0123456789==='
     expect(redactSecrets(line)).not.toContain('ABCDEF0123456789')
   })
 

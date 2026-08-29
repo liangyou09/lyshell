@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next'
 import { useThemeStore, AVAILABLE_THEMES, CUSTOM_THEME_ID } from '../../stores/theme-store'
 import { useLocaleStore, AVAILABLE_LOCALES } from '../../stores/locale-store'
 import { isCursorBlinkEnabled, DEFAULT_TERMINAL_FONT_SIZE, TERMINAL_FONT_SIZE_MIN, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_STEP, snapTerminalFontSize } from '@shared/constants'
+import { TOPBAR_HEIGHT } from './topbar-metrics'
+import PanelTabs from './PanelTabs'
 
 /**
  * 设置面板(机柜左列 Settings 页签内容)。
@@ -199,27 +201,28 @@ const SettingsPanel: React.FC = () => {
 
   return (
     <div className="settings-panel h-full flex flex-col bg-[var(--bg-rack)]">
-      {/* 页签栏 —— bg-strip;active 用 amber 底边线标识,沿用原悬浮面板视觉语言(去掉拖拽把手/关闭钮) */}
-      <div className="flex bg-[var(--bg-strip)] border-b border-[var(--rule)] flex-shrink-0">
-        {SETTINGS_TABS.map(tab => {
-          const active = settingsTab === tab
-          return (
-            <button
-              key={tab}
-              onClick={() => setSettingsTab(tab)}
-              className={cn(
-                // flex 居中 + leading-none:CJK("终端")满 em 与 Latin("MCP")cap-height 同字号下天然不等高,
-                // 收紧行高并垂直居中,让两个页签的文字框一致,消除"大小不一样"的错觉
-                'relative flex-1 h-[26px] flex items-center justify-center leading-none text-[12px] font-mono font-semibold transition-colors',
-                active ? 'text-[var(--amber)]' : 'text-[var(--text-rack-mute)] hover:text-[var(--text-rack)]'
-              )}
-            >
-              {tab === 'terminal' ? t('settings.tabTerminal') : t('settings.tabMcp')}
-              {/* amber 底边线 —— bottom-[-1px] 压住 strip 的 border-b,让选中页签"咬合"进下方主体 */}
-              {active && <span aria-hidden className="absolute inset-x-0 bottom-[-1px] h-[2px] bg-[var(--amber)]" />}
-            </button>
-          )
-        })}
+      {/* 头条:SETTINGS -- 行高对齐终端第一行(TOPBAR_HEIGHT),与 Sessions/Agents 等面板头行同高,
+          设置页签嵌进行右端(同 FileManager/Harness 挂法):amber 下划线咬住第一行发丝线,
+          与窗口顶排终端页签的激活下边线同处一条横带,整窗横线贯穿。
+          铭牌走设备徽章字体(同族面板共用) */}
+      <div
+        className="flex items-center gap-1.5 px-3 border-b border-[var(--rule)] flex-shrink-0"
+        style={{ height: TOPBAR_HEIGHT }}
+      >
+        <span
+          className="flex-1 min-w-0 font-bold tracking-[-0.01em] text-[16px] text-[var(--text-rack)] select-none"
+          style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
+        >
+          {t('settings.title')}
+        </span>
+        <PanelTabs
+          tabs={SETTINGS_TABS.map(tab => ({
+            key: tab,
+            label: tab === 'terminal' ? t('settings.tabTerminal') : t('settings.tabMcp')
+          }))}
+          active={settingsTab}
+          onChange={setSettingsTab}
+        />
       </div>
 
       {/* 内容区 —— 滚动适配 180–400px 可调栏宽;两页签同格重叠,非激活页签 display:none 使其高度互不影响 */}

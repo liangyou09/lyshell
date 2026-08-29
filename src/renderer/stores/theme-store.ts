@@ -24,6 +24,10 @@ export interface ThemeMeta {
   id: string
   name: string
   description: string
+  /** 浅色主题标记 —— applyTheme 据此在 <html> 打 data-theme-mode="light",
+      供 CSS 做明暗分叉(如暗色 favicon 不反转)。Custom 主题不设此值,
+      运行时按 base 底色亮度派生。 */
+  isLight?: boolean
   /**
    * 主题在选择器里的"自我预览"——直接渲染该主题的真实色，不依赖当前文档主题。
    * 3 阶 chrome（base → rack → slot）+ 行字色，足够在 30px 行里让差异肉眼可辨。
@@ -68,8 +72,16 @@ export const AVAILABLE_THEMES: ThemeMeta[] = [
   {
     id: 'rack-paper',
     name: 'Paper',
-    description: '自然浅纸 · 石墨墨 + 铜铅笔',
-    preview: { bgBase: '#ECEAE4', bgRack: '#E4E2DB', bgSlot: '#DBD9D1', text: '#1F1E1A' }
+    description: 'Edge 风亮色 · 白画布 + 铜铅笔',
+    isLight: true,
+    preview: { bgBase: '#F3F3F3', bgRack: '#EBEBEB', bgSlot: '#E2E2E2', text: '#202020' }
+  },
+  {
+    id: 'rack-lark',
+    name: 'Lark',
+    description: '飞书风亮色 · 白画布 + 品牌蓝',
+    isLight: true,
+    preview: { bgBase: '#F5F6F7', bgRack: '#EDEEF0', bgSlot: '#E5E6EB', text: '#1F2329' }
   },
   {
     id: 'rack-ember',
@@ -259,6 +271,12 @@ function applyTheme(id: string, customColors: CustomThemeColors) {
   if (typeof document === 'undefined') return
   const valid = AVAILABLE_THEMES.some(t => t.id === id) ? id : DEFAULT_THEME_ID
   document.documentElement.dataset.theme = valid
+  // 明暗标记:预设取元数据,Custom 按 base 底色亮度派生(浅底 Custom 同样算浅色主题)。
+  // CSS 侧明暗分叉(如 .webtab-favicon-dark 豁免反转)看 data-theme-mode,不再枚举主题名。
+  const isLight = valid === CUSTOM_THEME_ID
+    ? isLightColor(customColors.base)
+    : !!AVAILABLE_THEMES.find(t => t.id === valid)?.isLight
+  document.documentElement.dataset.themeMode = isLight ? 'light' : 'dark'
   if (valid === CUSTOM_THEME_ID) {
     applyCustomColors(customColors)
   } else {

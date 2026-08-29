@@ -17,6 +17,25 @@ import type { HarnessEnvProfile } from '@shared/harness'
 /** 变量组总数上限 —— 兜手工编辑出的病态文件，超出部分丢弃（正常使用远达不到） */
 const MAX_PROFILES = 256
 
+/** 单组模型选项上限 —— 与 MAX_PROFILES 同思路，兜手工编辑的病态文件 */
+const MAX_MODELS = 64
+
+/**
+ * 归一化模型选项：非数组按缺失处理；非字符串/空串项丢弃；trim + 去重 + 截断到上限。
+ * 归一化后为空返回 undefined（不写键）。
+ */
+function normalizeModels(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const seen = new Set<string>()
+  for (const item of raw) {
+    if (typeof item !== 'string') continue
+    const model = item.trim()
+    if (model) seen.add(model)
+    if (seen.size >= MAX_MODELS) break
+  }
+  return seen.size > 0 ? [...seen] : undefined
+}
+
 /**
  * 归一化单条 JSON 记录：非法记录返回 null（由 load 过滤）。
  * env 走与工作区同一份 normalizeEnv（空 key / NUL / 非字符串一律丢弃），
@@ -32,9 +51,18 @@ function normalizeProfile(raw: unknown): HarnessEnvProfile | null {
   if (env === undefined) return null
   // note 非字符串按缺失处理（不因备注脏数据丢整条记录）
   const note = typeof p.note === 'string' && p.note.length > 0 ? p.note : undefined
+  const models = normalizeModels(p.models)
   // active 非布尔按 false 处理；「至多一条」的裁剪在 load 里统一做
   const active = typeof p.active === 'boolean' ? p.active : false
-  return { id: p.id, name: p.name, order: p.order, env, active, ...(note !== undefined ? { note } : {}) }
+  return {
+    id: p.id,
+    name: p.name,
+    order: p.order,
+    env,
+    active,
+    ...(note !== undefined ? { note } : {}),
+    ...(models !== undefined ? { models } : {})
+  }
 }
 
 export class HarnessEnvProfileRepository {

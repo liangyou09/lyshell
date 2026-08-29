@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { TOPBAR_HEIGHT } from './topbar-metrics'
 // 内置品牌图标:Vite new URL 模式取打包后资产 URL(免 *.png 模块声明)
 const claudeIcon = new URL('../../assets/agent-icons/claude.png', import.meta.url).href
 const codexIcon = new URL('../../assets/agent-icons/codex.png', import.meta.url).href
@@ -282,12 +283,27 @@ const AgentsPanel: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg-base)] min-w-0">
-      {/* 头条:AGENTS · 计数 + 添加 */}
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--rule)] flex-shrink-0">
-        <span className="font-semibold tracking-[.18em] text-[12px] text-[var(--text-rack)] select-none">
-          {t('agents.title')}
-          <span className="text-[var(--text-rack-dim)] mx-1.5 font-normal">·</span>
-          <span className="text-[var(--text-rack)] font-medium tabular-nums">{agents.length}</span>
+      {/* 头条:AGENTS · 计数 + 添加 -- 行高对齐终端第一行(TOPBAR_HEIGHT),与 SessionsPanel 头行同高 */}
+      <div
+        className="flex items-center justify-between px-3 border-b border-[var(--rule)] flex-shrink-0"
+        style={{ height: TOPBAR_HEIGHT }}
+      >
+        {/* 铭牌与 SessionsPanel 同系统(设备徽章):标签走系统 UI 字体做「厂牌丝印」。
+            计数是徽章的「型号后缀」(如 IBM x3650 M4)——同字体、小一档字号(12/16)、
+            降一档字重 + mute,读作 Agent 3 一个词 */}
+        <span className="flex items-baseline gap-1.5 select-none">
+          <span
+            className="font-bold tracking-[-0.01em] text-[16px] text-[var(--text-rack)]"
+            style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
+          >
+            {t('agents.title')}
+          </span>
+          <span
+            className="font-semibold text-[12px] text-[var(--text-rack-mute)] tabular-nums"
+            style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
+          >
+            {agents.length}
+          </span>
         </span>
         <button
           onClick={handleAdd}
@@ -298,8 +314,10 @@ const AgentsPanel: React.FC = () => {
         </button>
       </div>
 
-      {/* 列表 */}
-      <div className="flex-1 overflow-y-auto min-h-0 rack-scroll">
+      {/* 列表 —— 内缩槽位:px-3 两侧收进,框线跟着每张卡片走(有卡片的地方才有线,
+          空态/不满列时线不延伸);槽位逐格 44px 连排,格子边界钉在左侧 ActivityRail
+          槽位网格上(首格 y36–80) */}
+      <div className="flex-1 overflow-y-auto min-h-0 px-3 pb-3 rack-scroll">
         {agents.length === 0 ? (
           // 空状态 -- 沿用机柜 ─ · ─ 分隔 + 提示
           <div className="flex flex-col items-center justify-center h-full gap-2 px-4 text-center">
@@ -314,7 +332,11 @@ const AgentsPanel: React.FC = () => {
               onClick={() => handleLaunch(agent.id)}
               onContextMenu={(e) => handleContextMenu(agent, e)}
               title={`${agent.name}: ${agent.command}`}
-              className="group relative flex items-center gap-2.5 px-3 min-h-[42px] py-1.5 cursor-pointer transition-colors bg-[var(--bg-rack)] border-b border-[var(--rule-soft)] shadow-[inset_0_-1px_0_var(--bg-base)] hover:bg-[var(--bg-slot)]"
+              // 44px 1U 卡笼槽位:左右框线(border-x)与底部分隔线都挂在卡片自身 ——
+              // 有卡片的地方才有线,卡片之间互不干扰,空态/不满列时线不延伸。
+              // 槽位逐格连排、边界钉在轨的槽位网格上;容器 px-3 已收侧距,行内 px-2
+              // 让图标落在与 Harness 工作区卡片相同的 20px 左沿
+              className="group relative flex items-center gap-2.5 px-2 h-[44px] cursor-pointer transition-colors bg-[var(--bg-rack)] border-x border-b border-[var(--rule)] shadow-[inset_0_-1px_0_var(--bg-base)] hover:bg-[var(--bg-slot)]"
             >
               {/* 图标槽:emoji > 内置品牌图标 > 默认机器人头 */}
               <span className="flex-shrink-0 w-[24px] h-[24px] inline-flex items-center justify-center text-[15px] leading-none text-[var(--text-rack-mute)] group-hover:text-[var(--amber)] transition-colors">

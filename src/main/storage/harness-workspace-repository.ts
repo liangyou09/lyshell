@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from 'fs'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 import { getConfigDir } from './repository'
+import { validateWorktreeKey } from '../harness/worktree'
 import type { HarnessWorkspace } from '@shared/harness'
 
 /**
@@ -47,7 +48,16 @@ function normalizeWorkspace(raw: unknown): HarnessWorkspace | null {
   const env = normalizeEnv(w.env)
   // envProfileId 非字符串/空串按缺失处理（缺省即「跟随已启用的变量组」）
   const envProfileId = typeof w.envProfileId === 'string' && w.envProfileId.length > 0 ? w.envProfileId : undefined
-  return { id: w.id, name: w.name, cwd: w.cwd, order: w.order, ...(note !== undefined ? { note } : {}), ...(model !== undefined ? { model } : {}), ...(env !== undefined ? { env } : {}), ...(envProfileId !== undefined ? { envProfileId } : {}) }
+  // isolation 仅接受字面量 'worktree'；'shared'/其它脏数据一律按缺省（shared）处理，不丢整条记录
+  const isolation = w.isolation === 'worktree' ? 'worktree' as const : undefined
+  // worktreeKey 非字符串/空白按缺失处理；值复用 validateWorktreeKey 兜底 —— 手工编辑 JSON
+  // 可绕过 add/update 的保存校验，这里不过滤的话非法 key 会在启动时被 ensureWorktree fail-fast 拒绝
+  const worktreeKeyRaw = typeof w.worktreeKey === 'string' ? w.worktreeKey.trim() : ''
+  const keyCheck = worktreeKeyRaw.length > 0 ? validateWorktreeKey(worktreeKeyRaw) : undefined
+  const worktreeKey = keyCheck && keyCheck.ok ? keyCheck.value : undefined
+  // skipPermissions 仅接受字面 true（其余一律按缺省 = 正常权限模式）
+  const skipPermissions = w.skipPermissions === true ? true : undefined
+  return { id: w.id, name: w.name, cwd: w.cwd, order: w.order, ...(note !== undefined ? { note } : {}), ...(model !== undefined ? { model } : {}), ...(env !== undefined ? { env } : {}), ...(envProfileId !== undefined ? { envProfileId } : {}), ...(isolation !== undefined ? { isolation } : {}), ...(worktreeKey !== undefined ? { worktreeKey } : {}), ...(skipPermissions !== undefined ? { skipPermissions } : {}) }
 }
 
 /**

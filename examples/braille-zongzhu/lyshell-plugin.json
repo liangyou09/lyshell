@@ -1,0 +1,11 @@
+{
+  "id": "braille-zongzhu",
+  "name": "Braille Character Animation (shoulder strike / basketball)",
+  "version": "0.1.0",
+  "engines": { "lyshell": "^1.0" },
+  "runtime": "node",
+  "lifecycle": "oneshot",
+  "main": "main.js",
+  "activationEvents": ["onStartup"],
+  "capabilities": ["read", "interactiveWrite"]
+}

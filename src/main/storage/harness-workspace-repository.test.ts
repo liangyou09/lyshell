@@ -163,4 +163,70 @@ describe('HarnessWorkspaceRepository', () => {
     expect(all.find((w) => w.id === 'c')?.model).toBeUndefined()
     expect(all.find((w) => w.id === 'd')?.model).toBeUndefined()
   })
+
+  it('isolation 仅保留字面量 worktree，shared/脏数据按缺失（= shared）处理', () => {
+    seed(JSON.stringify([
+      { id: 'a', name: 'a', cwd: '/a', order: 0, isolation: 'worktree' },
+      { id: 'b', name: 'b', cwd: '/b', order: 1, isolation: 'shared' },
+      { id: 'c', name: 'c', cwd: '/c', order: 2, isolation: 'banana' },
+      { id: 'd', name: 'd', cwd: '/d', order: 3, isolation: 42 },
+      { id: 'e', name: 'e', cwd: '/e', order: 4, isolation: null },
+      { id: 'f', name: 'f', cwd: '/f', order: 5 }
+    ]))
+    const repo = newRepo()
+    const all = repo.getAll()
+    expect(all.find((w) => w.id === 'a')?.isolation).toBe('worktree')
+    expect(all.find((w) => w.id === 'b')?.isolation).toBeUndefined()
+    expect(all.find((w) => w.id === 'c')?.isolation).toBeUndefined()
+    expect(all.find((w) => w.id === 'd')?.isolation).toBeUndefined()
+    expect(all.find((w) => w.id === 'e')?.isolation).toBeUndefined()
+    expect(all.find((w) => w.id === 'f')?.isolation).toBeUndefined()
+  })
+
+  it('worktreeKey trim 后保留，非字符串/空白按缺失处理', () => {
+    seed(JSON.stringify([
+      { id: 'a', name: 'a', cwd: '/a', order: 0, worktreeKey: '  feature-x  ' },
+      { id: 'b', name: 'b', cwd: '/b', order: 1, worktreeKey: '   ' },
+      { id: 'c', name: 'c', cwd: '/c', order: 2, worktreeKey: 42 },
+      { id: 'd', name: 'd', cwd: '/d', order: 3 }
+    ]))
+    const repo = newRepo()
+    const all = repo.getAll()
+    expect(all.find((w) => w.id === 'a')?.worktreeKey).toBe('feature-x')
+    expect(all.find((w) => w.id === 'b')?.worktreeKey).toBeUndefined()
+    expect(all.find((w) => w.id === 'c')?.worktreeKey).toBeUndefined()
+    expect(all.find((w) => w.id === 'd')?.worktreeKey).toBeUndefined()
+  })
+
+  it('worktreeKey 非法值（手工编辑 JSON 绕过保存校验）按缺失处理，不在启动时静默清洗', () => {
+    seed(JSON.stringify([
+      { id: 'a', name: 'a', cwd: '/a', order: 0, worktreeKey: 'a/b' },
+      { id: 'b', name: 'b', cwd: '/b', order: 1, worktreeKey: '..' },
+      { id: 'c', name: 'c', cwd: '/c', order: 2, worktreeKey: 'x'.repeat(65) },
+      { id: 'd', name: 'd', cwd: '/d', order: 3, worktreeKey: 'legal-name' }
+    ]))
+    const repo = newRepo()
+    const all = repo.getAll()
+    expect(all.find((w) => w.id === 'a')?.worktreeKey).toBeUndefined()
+    expect(all.find((w) => w.id === 'b')?.worktreeKey).toBeUndefined()
+    expect(all.find((w) => w.id === 'c')?.worktreeKey).toBeUndefined()
+    expect(all.find((w) => w.id === 'd')?.worktreeKey).toBe('legal-name')
+  })
+
+  it('skipPermissions 仅保留字面量 true，false/脏数据按缺失（= 正常权限模式）处理', () => {
+    seed(JSON.stringify([
+      { id: 'a', name: 'a', cwd: '/a', order: 0, skipPermissions: true },
+      { id: 'b', name: 'b', cwd: '/b', order: 1, skipPermissions: false },
+      { id: 'c', name: 'c', cwd: '/c', order: 2, skipPermissions: 'true' },
+      { id: 'd', name: 'd', cwd: '/d', order: 3, skipPermissions: 1 },
+      { id: 'e', name: 'e', cwd: '/e', order: 4 }
+    ]))
+    const repo = newRepo()
+    const all = repo.getAll()
+    expect(all.find((w) => w.id === 'a')?.skipPermissions).toBe(true)
+    expect(all.find((w) => w.id === 'b')?.skipPermissions).toBeUndefined()
+    expect(all.find((w) => w.id === 'c')?.skipPermissions).toBeUndefined()
+    expect(all.find((w) => w.id === 'd')?.skipPermissions).toBeUndefined()
+    expect(all.find((w) => w.id === 'e')?.skipPermissions).toBeUndefined()
+  })
 })

@@ -1,0 +1,19 @@
+# Screenshot placeholders
+
+Replace each placeholder image in the READMEs with the actual screenshot:
+
+Replace each placeholder image in the READMEs with the actual screenshot.
+Current screenshots are JPG. Replace with any format — just match `src` in README.
+
+| File | Description |
+|--------------------------|-------------|
+| `screenshot-main.*` | Full window: terminal + sidebar + quick commands bar + split panes |
+| `screenshot-split-panes.*` | Multi-tab + different servers + split pane layout |
+| `screenshot-quick-commands.*` | Bottom bar + group dropdown + hover effect |
+| `screenshot-float-window.*` | Popup window + search filter + session list |
+| `screenshot-file-manager.*` | File tree + download progress + right-click menu |
+| `screenshot-agents.*` | Sidebar agent buttons + Claude Code running in terminal |
+| `screenshot-mcp-audit.*` | Activity log + calendar picker + filter |
+| `screenshot-theme-comparison.*` | Light vs dark theme side by side |
+
+Recommended: 2x resolution (retina), ~90% width in README (70% for float window).

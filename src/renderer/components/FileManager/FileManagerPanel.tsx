@@ -6,6 +6,8 @@ import FileBrowser from './FileBrowser'
 import DownloadProgressBar, { registerDownloadFileName } from './DownloadProgressBar'
 import { usePaneStore } from '../../stores/pane-store'
 import { useSessionStore } from '../../stores/session-store'
+import PanelTabs from '../Layout/PanelTabs'
+import { PANEL_STRIP_HEIGHT } from '../Layout/topbar-metrics'
 
 interface FileInfo {
   name: string
@@ -386,8 +388,11 @@ const FileManagerPanel: React.FC = () => {
         </div>
       )}
 
-      {/* 标题栏 — 协议色条 + 会话名 + uppercase 文字 tabs */}
-      <div className="h-[30px] bg-[var(--bg-strip)] border-b border-[var(--rule)] flex items-center justify-between px-2.5 gap-2">
+      {/* 标题栏 — 协议色条 + 会话名居左,页签 inline 挂右端,单条 PANEL_STRIP_HEIGHT 横带 */}
+      <div
+        className="bg-[var(--bg-strip)] border-b border-[var(--rule)] flex items-center justify-between px-2.5 gap-2 flex-shrink-0"
+        style={{ height: PANEL_STRIP_HEIGHT }}
+      >
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
           <span
             className="w-[3px] h-[14px] rounded-r-[1px] flex-shrink-0"
@@ -406,30 +411,14 @@ const FileManagerPanel: React.FC = () => {
             <span className="text-[13px] text-[var(--text-rack-mute)] truncate">{t('fileManager.noActiveSession')}</span>
           )}
         </div>
-        <div className="flex gap-0 flex-shrink-0">
-          <button
-            onClick={() => setActiveTab('files')}
-            className={cn(
-              'px-2 py-1 -mb-px font-semibold text-[11px] bg-transparent border-none border-b cursor-pointer transition-colors',
-              activeTab === 'files'
-                ? 'text-[var(--text-rack)] border-[var(--amber)]'
-                : 'text-[var(--text-rack-mute)] border-transparent hover:text-[var(--text-rack)]'
-            )}
-          >
-            {t('fileManager.tabFiles')}
-          </button>
-          <button
-            onClick={() => setActiveTab('history')}
-            className={cn(
-              'px-2 py-1 -mb-px font-semibold text-[11px] bg-transparent border-none border-b cursor-pointer transition-colors',
-              activeTab === 'history'
-                ? 'text-[var(--text-rack)] border-[var(--amber)]'
-                : 'text-[var(--text-rack-mute)] border-transparent hover:text-[var(--text-rack)]'
-            )}
-          >
-            {t('fileManager.tabHistory')}
-          </button>
-        </div>
+        <PanelTabs
+          tabs={[
+            { key: 'files' as const, label: t('fileManager.tabFiles') },
+            { key: 'history' as const, label: t('fileManager.tabHistory') }
+          ]}
+          active={activeTab}
+          onChange={setActiveTab}
+        />
       </div>
 
       {/* 内容区 */}
