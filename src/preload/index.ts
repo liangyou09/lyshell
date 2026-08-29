@@ -114,6 +114,9 @@ const IPC_CHANNELS = {
   DSH_WEB_OPEN: 'dsh:web:open',
   DSH_WEB_CLOSE: 'dsh:web:close',
 
+  // 网页访问栏（通用网页页签）
+  WEBBAR_FETCH_FAVICON: 'webbar:fetch-favicon',
+
   // Harness worktree 检测（kind 无关：列出仓库已有 worktree 共享名，编辑对话框下拉用）
   HARNESS_WORKTREE_LIST: 'harness:worktree:list',
 
@@ -281,6 +284,10 @@ const electronAPI = {
   getDshEnvDefaults: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_DEFAULTS),
   openDshWeb: (target: { workspaceId?: string; cwd?: string }) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_OPEN, target),
   closeDshWeb: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_CLOSE),
+
+  // 网页访问栏 favicon 代取（主进程限制 http/https + 体积，返回 data URI；渲染层 CSP 不放行远程图）
+  fetchFavicon: (url: string): Promise<{ success: true; dataUri: string } | { success: false; error: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WEBBAR_FETCH_FAVICON, { url }),
 
   // 列出 cwd 所属仓库 .lyshell-worktrees/ 下的共享名（worktree 隔离编辑框的下拉选项），
   // 一并返回 worktree 根目录绝对路径（渲染层预览自动生成 key 的完整路径）。

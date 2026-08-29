@@ -8,6 +8,41 @@ const LAYOUT_STORAGE_KEY = 'lyshell_pane_layout'
 const WEB_TAB_HISTORY_KEY = 'lyshell.webTabHistory.v1'
 const WEB_TAB_HISTORY_MAX = 30
 
+// 「最近访问」各 URL 的 favicon data URI 映射（key=URL）。随历史同生命周期：保存时
+// 裁剪到当前历史键，删除/清空历史同步移除，不会无限增长。
+const WEB_TAB_FAVICON_KEY = 'lyshell.webTabFavicons.v1'
+
+// favicon data URI 字符上限：主进程侧限制原始图 ≤512KB，base64 后 ≈683k 字符，取整
+// 700k。读取（loadWebTabFavicons）与写入（setWebTabFavicon）两侧都卡这道闸——坏/被
+// 注入的 localStorage 超长字符串不至于直写 DOM。
+const WEB_TAB_FAVICON_MAX_CHARS = 700_000
+
+/** 从 localStorage 读 favicon 映射（坏数据容错为空对象；只收 data:image/* 且限长）。纯函数，便于单测。 */
+export function loadWebTabFavicons(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(WEB_TAB_FAVICON_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === 'string' && v.startsWith('data:image/') && v.length <= WEB_TAB_FAVICON_MAX_CHARS) {
+        out[k] = v
+      }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/** 写回 localStorage（失败静默降级为仅内存态，与历史持久化同策略）。纯函数，便于单测。 */
+function persistWebTabFavicons(map: Record<string, string>): void {
+  try {
+    localStorage.setItem(WEB_TAB_FAVICON_KEY, JSON.stringify(map))
+  } catch { /* 隐私模式/存储满 */ }
+}
+
 /** 从 localStorage 读历史（坏数据容错为空数组）。纯函数，便于单测。 */
 export function loadWebTabHistory(): string[] {
   try {
@@ -34,6 +69,7 @@ export interface WebTabEntry {
   id: string        // 运行时唯一 id
   url: string       // 归一化后的绝对 http(s) URL
   title: string     // 初始取 hostname，后续由 webview page-title-updated 回写
+  favicon?: string  // data URI；由 webview page-favicon-updated 经主进程代取回写（页签图标）
   paneId: string    // 承载 pane
   active: boolean   // 当前在该 pane 中显示（每 pane 至多一个 overlay 激活）
 }
@@ -129,6 +165,7 @@ interface PaneStore {
   openWebTab: (rawUrl: string) => { ok: true } | { ok: false; error: string }
   activateWebTab: (id: string) => void
   setWebTabTitle: (id: string, title: string) => void
+  setWebTabFavicon: (id: string, favicon: string) => void
   closeWebTab: (id: string) => void
   closeWebTabsInPane: (paneId: string) => void
   deactivateWebTabsInPane: (paneId: string) => void  // 隐藏本 pane 的网页页签（页签保留，点页签切回）
@@ -137,6 +174,7 @@ interface PaneStore {
   // 与输入框补全。记录时机在 WebTabOverlay 的 did-finish-load 回调（recordWebTabVisit），
   // 而非 openWebTab —— 打开但没加载出来（DNS 失败/超时）的 URL 不算「访问过」。
   webTabHistory: string[]
+  webTabFavicons: Record<string, string>  // 历史 URL → favicon data URI（随历史同生命周期）
   recordWebTabVisit: (url: string) => void
   removeWebTabHistory: (url: string) => void
   clearWebTabHistory: () => void
@@ -903,6 +941,7 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
   // ===== 网页访问栏页签（多开，插件面板 URL 栏入口） =====
   webTabs: [],
   webTabHistory: loadWebTabHistory(),
+  webTabFavicons: loadWebTabFavicons(),
   openWebTab: (rawUrl) => {
     const url = normalizeWebBarUrl(rawUrl)
     if (!url) return { ok: false, error: 'invalid URL' }
@@ -949,6 +988,29 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     if (!tab || !title || tab.title === title) return
     set({ webTabs: st.webTabs.map(t => t.id === id ? { ...t, title } : t) })
   },
+  setWebTabFavicon: (id, favicon) => {
+    // 超长 data URI 视为坏数据整体丢弃（主进程已限 512KB 原始图，这是存储侧第二道闸）
+    if (!favicon || favicon.length > WEB_TAB_FAVICON_MAX_CHARS) return
+    // 函数式 set 原子更新：多个网页页签的 favicon 异步回写交错时，
+    // 各自基于最新 state 计算，不会用陈旧快照覆盖掉先完成者的映射
+    set(st => {
+      const tab = st.webTabs.find(t => t.id === id)
+      if (!tab || tab.favicon === favicon) return {}
+      // 同步落「最近访问」favicon 映射。注意 page-favicon-updated 常先于 did-finish-load
+      // （历史记录时机），裁剪键集合须并入 tab.url，否则刚捕获的图标会被当孤儿裁掉
+      const merged = { ...st.webTabFavicons, [tab.url]: favicon }
+      const keep = new Set([...st.webTabHistory, tab.url])
+      const pruned: Record<string, string> = {}
+      for (const u of keep) {
+        if (merged[u]) pruned[u] = merged[u]
+      }
+      persistWebTabFavicons(pruned)
+      return {
+        webTabs: st.webTabs.map(t => t.id === id ? { ...t, favicon } : t),
+        webTabFavicons: pruned
+      }
+    })
+  },
   closeWebTab: (id) => {
     const st = get()
     const tab = st.webTabs.find(t => t.id === id)
@@ -983,7 +1045,19 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     try {
       localStorage.setItem(WEB_TAB_HISTORY_KEY, JSON.stringify(history))
     } catch { /* 隐私模式/存储满时静默降级为仅内存态 */ }
-    set({ webTabHistory: history })
+    // favicon 映射按截尾后的历史键同步裁剪：被 30 条封顶截掉的历史，其图标一并回收，
+    // 否则映射会随时间残留脏键并持续持久化
+    const favicons: Record<string, string> = {}
+    for (const u of history) {
+      if (st.webTabFavicons[u]) favicons[u] = st.webTabFavicons[u]
+    }
+    // 裁剪只会删键：长度相等即无变化，免一次无谓的 setState/落盘
+    if (Object.keys(favicons).length !== Object.keys(st.webTabFavicons).length) {
+      persistWebTabFavicons(favicons)
+      set({ webTabHistory: history, webTabFavicons: favicons })
+    } else {
+      set({ webTabHistory: history })
+    }
   },
   removeWebTabHistory: (url) => {
     const st = get()
@@ -992,13 +1066,22 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     try {
       localStorage.setItem(WEB_TAB_HISTORY_KEY, JSON.stringify(history))
     } catch { /* 同上：持久化失败仅内存态 */ }
-    set({ webTabHistory: history })
+    // favicon 映射随历史同生命周期：条目删了图标也删
+    if (st.webTabFavicons[url]) {
+      const favicons = { ...st.webTabFavicons }
+      delete favicons[url]
+      persistWebTabFavicons(favicons)
+      set({ webTabHistory: history, webTabFavicons: favicons })
+    } else {
+      set({ webTabHistory: history })
+    }
   },
   clearWebTabHistory: () => {
     try {
       localStorage.removeItem(WEB_TAB_HISTORY_KEY)
+      localStorage.removeItem(WEB_TAB_FAVICON_KEY)
     } catch { /* 同上 */ }
-    set({ webTabHistory: [] })
+    set({ webTabHistory: [], webTabFavicons: {} })
   },
 
   hiddenTabSessions: {},

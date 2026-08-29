@@ -1,6 +1,7 @@
-import { ipcMain, BrowserWindow, dialog, shell, app } from 'electron'
+import { ipcMain, BrowserWindow, dialog, shell, app, net } from 'electron'
 import type { MessageBoxOptions, OpenDialogOptions, SaveDialogOptions } from 'electron'
 import { writeFile, readFile } from 'fs/promises'
+import { lookup as dnsLookup } from 'dns/promises'
 import * as path from 'path'
 import * as fs from 'fs'
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypto'
@@ -2246,6 +2247,107 @@ export function registerIPCHandlers(): void {
     dshWebManager.close()
     return { success: true }
   })
+
+  // ========== 网页访问栏（通用网页页签） ==========
+  // 渲染层 CSP 锁死 img-src 'self' data:，favicon 走主进程代取并转 data URI 回传。
+  // 仅放行 http(s)、限制体积与超时；返回判别联合与其它 handler 对齐。
+  // favicon URL 来自页面事件（页面可控）：封禁回环/私网/链路本地/组播地址，不让页面
+  // 借 LyShell 之手对内网发请求（响应页面虽读不到，也不留这个触发面）。
+
+  /** IPv4 点分字面量 → 私网/保留段判定（a/b 为前两段） */
+  const isPrivateV4 = (a: number, b: number): boolean =>
+    a === 0 || a === 10 || a === 127 ||
+    (a === 169 && b === 254) ||          // 链路本地（含云 metadata 169.254.169.254）
+    (a === 172 && b >= 16 && b <= 31) || // 172.16/12 私网
+    (a === 192 && b === 168) ||          // 192.168/16 私网
+    a >= 224                             // 组播/保留段
+
+  /** IP 字面量（v4 点分 / v6 冒号，含 ::ffff: 映射形式）→ 私网/保留段判定。
+      hostname 与 DNS 解析结果（dns.lookup 的 address 字段）共用。 */
+  const isPrivateIpLiteral = (addr: string): boolean => {
+    const h = addr.toLowerCase()
+    const v4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+    if (v4) return isPrivateV4(Number(v4[1]), Number(v4[2]))
+    if (h.includes(':')) { // IPv6（端口已被 URL 解析剥离 / lookup 结果无端口，含冒号即地址本体）
+      const mapped = h.match(/^::ffff:(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/) // IPv4-mapped
+      if (mapped) return isPrivateV4(Number(mapped[1]), Number(mapped[2]))
+      return (
+        h === '::' || h === '::1' ||
+        /^f[cd][0-9a-f]*:/.test(h) ||     // fc00::/7 唯一本地
+        /^fe[89ab][0-9a-f]*:/.test(h)     // fe80::/10 链路本地
+      )
+    }
+    return false
+  }
+
+  const isBlockedFaviconHost = (hostname: string): boolean => {
+    const h = hostname.toLowerCase()
+    if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) {
+      return true
+    }
+    return isPrivateIpLiteral(h)
+  }
+  ipcMain.handle(
+    'webbar:fetch-favicon',
+    async (_event, req: { url?: unknown }): Promise<{ success: true; dataUri: string } | { success: false; error: string }> => {
+      try {
+        const raw = assertString(req?.url, 'url', { maxLength: 4096 })
+        let parsed: URL
+        try {
+          parsed = new URL(raw)
+        } catch {
+          return { success: false, error: '无效的 favicon URL' }
+        }
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          return { success: false, error: 'favicon URL 仅支持 http/https' }
+        }
+        if (isBlockedFaviconHost(parsed.hostname)) {
+          return { success: false, error: '内网/回环地址已封禁' }
+        }
+        // 字面量之外再补 DNS 解析侧校验:公网域名 A/AAAA 记录指向私网/回环
+        // (SSRF 常见姿势,如解析到 169.254.169.254 云 metadata)同样拒。
+        // 已知残留:① 校验后 net.fetch 会再自行解析一次,DNS rebinding(两次解析
+        // 之间记录翻转)理论上可绕过;② 配置了系统代理时域名由代理解析,本地
+        // 结果可能与代理侧不同 —— 此处只求收窄触发面,配合下方超时/体积/类型
+        // 三道闸与"响应内容回不到页面"的边界,风险可接受。
+        if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(parsed.hostname) && !parsed.hostname.includes(':')) {
+          try {
+            const records = await Promise.race([
+              dnsLookup(parsed.hostname, { all: true }),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('DNS 解析超时')), 3000)
+              )
+            ])
+            if (records.length === 0 || records.some(r => isPrivateIpLiteral(r.address))) {
+              return { success: false, error: '内网/回环地址已封禁' }
+            }
+          } catch (error) {
+            return { success: false, error: `DNS 解析失败: ${(error as Error).message}` }
+          }
+        }
+        const FAVICON_MAX_BYTES = 512 * 1024
+        // 用 Electron net.fetch（Chromium 网络栈）：走系统代理（本机外站直连不通的场景
+        // 全局 fetch(undici) 会静默失败），证书/重定向行为也与浏览器一致
+        const res = await net.fetch(parsed.toString(), {
+          signal: AbortSignal.timeout(8000),
+          headers: { 'User-Agent': 'LyShell-Favicon/1.0' }
+        })
+        if (!res.ok) return { success: false, error: `HTTP ${res.status}` }
+        const len = Number(res.headers.get('content-length') || 0)
+        if (len > FAVICON_MAX_BYTES) return { success: false, error: 'favicon 过大' }
+        const buf = Buffer.from(await res.arrayBuffer())
+        if (buf.length === 0 || buf.length > FAVICON_MAX_BYTES) {
+          return { success: false, error: 'favicon 过大或为空' }
+        }
+        const ct = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
+        // 非 image/* 一律拒收（image/svg+xml 作为 <img> data URI 加载不会执行脚本）
+        if (!ct.startsWith('image/')) return { success: false, error: `非图片类型: ${ct || 'unknown'}` }
+        return { success: true, dataUri: `data:${ct};base64,${buf.toString('base64')}` }
+      } catch (error) {
+        return validationFailure(error) || { success: false, error: (error as Error).message }
+      }
+    }
+  )
 
   // ========== Plugin ==========
   // 插件管理(install[dev]/enable/disable/uninstall/list)。详见 docs/plugin-system-design.md §8。

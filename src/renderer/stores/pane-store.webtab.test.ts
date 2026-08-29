@@ -10,7 +10,7 @@
  * 这里的用例锁住各路径的坐标推导 —— 组件侧只做事件搬运，不掺坐标计算。
  */
 import { describe, expect, it } from 'vitest'
-import { usePaneStore, normalizeWebBarUrl, loadWebTabHistory, recordWebTabUrlToHistory } from './pane-store'
+import { usePaneStore, normalizeWebBarUrl, loadWebTabHistory, recordWebTabUrlToHistory, loadWebTabFavicons } from './pane-store'
 import type { PaneLeaf, PaneLayout, PaneNode } from '@shared/types'
 
 const leaf = (id: string, sessions: string[]): PaneLeaf => ({
@@ -343,6 +343,7 @@ describe('web 挂载/激活/关闭时的插槽复位', () => {
 // setupWeb 复用 setup 的 dshWeb 基线并重置 webTabs 与历史（含 localStorage），避免用例间泄漏。
 const setupWeb = (extra: Record<string, unknown> = {}, sessions = ['s-a', 's-b']) => {
   localStorage.removeItem('lyshell.webTabHistory.v1')
+  localStorage.removeItem('lyshell.webTabFavicons.v1')
   usePaneStore.setState({
     layout: layoutOf(leaf('pane-1', sessions)),
     dshWeb: null,
@@ -355,6 +356,7 @@ const setupWeb = (extra: Record<string, unknown> = {}, sessions = ['s-a', 's-b']
     hiddenTabSessions: {},
     webTabs: [],
     webTabHistory: [],
+    webTabFavicons: {},
     ...extra
   })
 }
@@ -467,6 +469,116 @@ describe('activateWebTab / deactivateWebTabsInPane', () => {
     const st = usePaneStore.getState()
     expect(st.webTabs).toHaveLength(1)
     expect(st.webTabs[0].active).toBe(false)
+  })
+})
+
+describe('setWebTabFavicon：favicon 回写', () => {
+  it('回写 data URI 到指定页签并落历史映射，未知 id / 空值 / 同值 no-op', () => {
+    setupWeb()
+    usePaneStore.getState().openWebTab('https://a.example.com')
+    const id = webTabIds()[0]
+
+    usePaneStore.getState().setWebTabFavicon(id, 'data:image/x-icon;base64,AAA')
+    const st = usePaneStore.getState()
+    expect(st.webTabs[0].favicon).toBe('data:image/x-icon;base64,AAA')
+    // 同步落「最近访问」favicon 映射（page-favicon-updated 先于历史记录，tab.url 须保住）
+    expect(st.webTabFavicons['https://a.example.com/']).toBe('data:image/x-icon;base64,AAA')
+    expect(JSON.parse(localStorage.getItem('lyshell.webTabFavicons.v1') || '{}'))
+      .toEqual({ 'https://a.example.com/': 'data:image/x-icon;base64,AAA' })
+
+    // 同值不重复 setState（结果不变即可）
+    usePaneStore.getState().setWebTabFavicon(id, 'data:image/x-icon;base64,AAA')
+    expect(usePaneStore.getState().webTabs[0].favicon).toBe('data:image/x-icon;base64,AAA')
+
+    // 空值忽略
+    usePaneStore.getState().setWebTabFavicon(id, '')
+    expect(usePaneStore.getState().webTabs[0].favicon).toBe('data:image/x-icon;base64,AAA')
+
+    // 未知 id 不炸不动
+    usePaneStore.getState().setWebTabFavicon('web-nope', 'data:image/png;base64,BBB')
+    expect(usePaneStore.getState().webTabs).toHaveLength(1)
+    expect(usePaneStore.getState().webTabs[0].favicon).toBe('data:image/x-icon;base64,AAA')
+
+    // 超长 data URI 视为坏数据丢弃（主进程 512KB 之外的存储侧第二道闸）
+    usePaneStore.getState().setWebTabFavicon(id, 'data:image/png;base64,' + 'A'.repeat(700_001))
+    expect(usePaneStore.getState().webTabs[0].favicon).toBe('data:image/x-icon;base64,AAA')
+  })
+
+  it('recordWebTabVisit 历史封顶截尾时同步裁剪 favicon 映射', () => {
+    // 构造已满 30 条的历史，每条都带 favicon
+    const urls = Array.from({ length: 30 }, (_, i) => `https://h${i}.example.com/`)
+    const favicons: Record<string, string> = {}
+    for (const u of urls) favicons[u] = 'data:image/png;base64,QUFB'
+    setupWeb({ webTabHistory: [...urls], webTabFavicons: { ...favicons } })
+
+    // 第 31 条访问 → 最旧的 h29 被截掉，其 favicon 一并回收（映射与持久化同步）
+    usePaneStore.getState().recordWebTabVisit('https://new.example.com/')
+    const st = usePaneStore.getState()
+    expect(st.webTabHistory).toHaveLength(30)
+    expect(st.webTabHistory[0]).toBe('https://new.example.com/')
+    expect(st.webTabFavicons['https://h29.example.com/']).toBeUndefined()
+    expect(Object.keys(st.webTabFavicons)).toHaveLength(29)
+    expect(JSON.parse(localStorage.getItem('lyshell.webTabFavicons.v1') || '{}'))
+      .not.toHaveProperty('https://h29.example.com/')
+  })
+
+  it('映射裁剪到「历史键 ∪ 当前页签 URL」——孤儿条目不保留', () => {
+    setupWeb({
+      webTabFavicons: { 'https://old.example.com/': 'data:image/png;base64,OLD' }
+    })
+    usePaneStore.getState().openWebTab('https://a.example.com')
+    const id = webTabIds()[0]
+    usePaneStore.getState().setWebTabFavicon(id, 'data:image/x-icon;base64,AAA')
+    // old 不在历史也不属于任何页签 → 被裁掉
+    expect(usePaneStore.getState().webTabFavicons).toEqual({
+      'https://a.example.com/': 'data:image/x-icon;base64,AAA'
+    })
+  })
+
+  it('removeWebTabHistory / clearWebTabHistory 同步移除 favicon 映射', () => {
+    setupWeb()
+    usePaneStore.getState().openWebTab('https://a.example.com')
+    const id = webTabIds()[0]
+    usePaneStore.getState().setWebTabFavicon(id, 'data:image/x-icon;base64,AAA')
+    usePaneStore.getState().recordWebTabVisit('https://a.example.com/')
+
+    usePaneStore.getState().removeWebTabHistory('https://a.example.com/')
+    expect(usePaneStore.getState().webTabFavicons).toEqual({})
+    expect(localStorage.getItem('lyshell.webTabFavicons.v1')).toBe('{}')
+
+    // 清空路径
+    usePaneStore.getState().openWebTab('https://b.example.com')
+    const id2 = webTabIds()[0]
+    usePaneStore.getState().setWebTabFavicon(id2, 'data:image/x-icon;base64,BBB')
+    usePaneStore.getState().clearWebTabHistory()
+    expect(usePaneStore.getState().webTabFavicons).toEqual({})
+    expect(localStorage.getItem('lyshell.webTabFavicons.v1')).toBeNull()
+  })
+})
+
+describe('loadWebTabFavicons：坏数据容错', () => {
+  it('非对象 / 非法条目过滤为空对象', () => {
+    expect(loadWebTabFavicons()).toEqual({})
+    localStorage.setItem('lyshell.webTabFavicons.v1', '[1,2]')
+    expect(loadWebTabFavicons()).toEqual({})
+    localStorage.setItem(
+      'lyshell.webTabFavicons.v1',
+      JSON.stringify({ ok: 'data:image/png;base64,OK', bad: 'https://not-a-data-uri' })
+    )
+    expect(loadWebTabFavicons()).toEqual({ ok: 'data:image/png;base64,OK' })
+    localStorage.removeItem('lyshell.webTabFavicons.v1')
+  })
+
+  it('超长 data URI 条目拒收（限长闸的读取侧）', () => {
+    localStorage.setItem(
+      'lyshell.webTabFavicons.v1',
+      JSON.stringify({
+        ok: 'data:image/png;base64,OK',
+        huge: 'data:image/png;base64,' + 'A'.repeat(700_001)
+      })
+    )
+    expect(loadWebTabFavicons()).toEqual({ ok: 'data:image/png;base64,OK' })
+    localStorage.removeItem('lyshell.webTabFavicons.v1')
   })
 })
 
