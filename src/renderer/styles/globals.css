@@ -13,10 +13,13 @@
   --color-text-secondary: #808080;
   --color-accent: #0078D4;
   /* 第一行右上控制簇实测宽 -- TopRightControls 挂载后由 ResizeObserver 实时写入
-     (chip 文案随语言/审计条数变宽,静态常量要么常态浪费 ~100px 页签宽度,
-     要么最坏情况(en 文案 + 4 位数计数 ≈265px)盖不住);此处 252px 只是
-     首帧兜底,首个测量帧即被覆盖。PaneTabBar 以 var() 做右留白。 */
-  --top-right-reserve: 252px;
+     (MCP 状态片移轨后本簇为固定宽:浮窗键 + hairline + 窗口控制三键 ≈120px);
+     此处 130px 只是首帧兜底,首个测量帧即被覆盖。PaneTabBar 以 var() 做右留白。 */
+  --top-right-reserve: 130px;
+  /* 第一行最左页签条的左留白 -- MainWindow 按侧栏收起态实时写入(收起 32px 给展开
+     pill 让位 / 展开 0px 页签紧贴左列);此处 32px 只是 MainWindow 之外的兜底
+     (如独立渲染 PaneTabBar 的测试环境)。PaneTabBar 以 var() 做左留白。 */
+  --top-left-reserve: 32px;
   /* 侧栏收起时的 L 形内框线宽 -- 单一真相源:.edge-frame 的两条边框、两条 .edge-hit
      命中条、终端画布的让位 inset(见 MainWindow)全部读此变量,调线宽只改这一处。
      与 SIDEBAR_DIVIDER_WIDTH(调宽条)概念独立,数值相同纯属巧合。 */
@@ -175,6 +178,16 @@
 }
 .animate-breathe {
   animation: breathe 2.4s ease-in-out infinite;
+}
+
+/* MCP 活动槽 LED 慢呼吸 -- 轨底常驻信号位,live LED 的 2.4s + 0.4↔1 大幅度
+   在视野边缘读作"急促闪烁";放缓到 4.8s、收窄幅度(.55↔1),读作缓慢的存在感呼吸 */
+@keyframes mcp-breathe {
+  0%, 100% { opacity: .55; }
+  50%      { opacity: 1; }
+}
+.animate-mcp-breathe {
+  animation: mcp-breathe 4.8s ease-in-out infinite;
 }
 
 /* 轨上激活图标呼吸辉光 -- "通电"的通电感,随 amber 焦点 */

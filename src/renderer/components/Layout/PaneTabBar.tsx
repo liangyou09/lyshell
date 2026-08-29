@@ -7,7 +7,7 @@ import { setDraggingSessionId as setGlobalDraggingId } from './SplitPaneContaine
 import { harnessKindFromTags, type HarnessAgentKind } from '@shared/harness'
 import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
 import type { PaneLeaf } from '@shared/types'
-import { TOPBAR_HEIGHT, TOP_LEFT_RESERVE } from './topbar-metrics'
+import { TOPBAR_HEIGHT } from './topbar-metrics'
 
 // codex/claude 品牌标资产 —— 与 ActivityRail 左轨同源（assets/agent-icons/*.png），
 // mask 取资产 alpha 作剪影、bg-current 随页签文字色着色（空闲 dim / 激活亮）
@@ -59,7 +59,7 @@ interface PaneTabBarProps {
   pane: PaneLeaf
   /** 处于窗口第一行(顶排 pane) -- 根容器启用窗口拖拽区;无页签时也渲染等高空条承载拖拽区 */
   isTop?: boolean
-  /** 第一行最左 pane -- 左侧为侧栏开关 pill 留白(TOP_LEFT_RESERVE) */
+  /** 第一行最左 pane -- 左侧为侧栏开关 pill 留白(var(--top-left-reserve):收起 32px / 展开 0,MainWindow 发布) */
   isTopLeft?: boolean
   /** 第一行最右 pane -- 右侧为控制簇留白(--top-right-reserve,由 TopRightControls 实测发布) */
   isTopRight?: boolean
@@ -417,10 +417,10 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
     if (!isTop) return null
     return (
       <div
-        className="win-drag select-none bg-[var(--bg-rack)] border-b border-[var(--rule)]"
+        className="win-drag select-none bg-[var(--bg-rack)] border-b border-[var(--rule)] transition-[padding-left] duration-150 ease-out"
         style={{
           height: TOPBAR_HEIGHT,
-          paddingLeft: isTopLeft ? TOP_LEFT_RESERVE : undefined,
+          paddingLeft: isTopLeft ? 'var(--top-left-reserve)' : undefined,
           paddingRight: isTopRight ? 'var(--top-right-reserve)' : undefined
         }}
       />
@@ -521,13 +521,16 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
     <div
       className={cn(
         'flex items-center bg-[var(--bg-rack)] border-b border-[var(--rule)]',
+        // 左留白随侧栏收起态切换(0↔32px),与左列宽度滑动同为 150ms ease-out --
+        // 收起/展开时页签与滑动中的左列边缘同步让位,不跳变
+        'transition-[padding-left] duration-150 ease-out',
         // 顶排 pane 的页签条即窗口第一行：空白处作为窗口拖拽区(drag 区吞鼠标事件，
         // 交互子元素须显式 win-no-drag)；左右留白给侧栏 pill / 控制簇浮层，防页签滚入其下方
         isTop && 'win-drag select-none'
       )}
       style={{
         height: TOPBAR_HEIGHT,
-        paddingLeft: isTop && isTopLeft ? TOP_LEFT_RESERVE : undefined,
+        paddingLeft: isTop && isTopLeft ? 'var(--top-left-reserve)' : undefined,
         paddingRight: isTop && isTopRight ? 'var(--top-right-reserve)' : undefined
       }}
     >

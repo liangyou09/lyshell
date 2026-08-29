@@ -16,7 +16,7 @@ import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import { ConnectionStatus } from '@shared/types'
 import type { PaneLeaf, SessionConfig } from '@shared/types'
-import { TOPBAR_HEIGHT, TOP_LEFT_RESERVE } from './topbar-metrics'
+import { TOPBAR_HEIGHT } from './topbar-metrics'
 
 // PaneTabBar 仅从 SplitPaneContainer 导入 setDraggingSessionId;真实模块会拖入
 // PaneView → TerminalView → xterm 整条渲染链,与页签条渲染无关,桩掉
@@ -61,8 +61,9 @@ describe('PaneTabBar 顶排页签条(渲染断言)', () => {
     expect(bar).toBeTruthy()
     expect(bar.className).toContain('win-drag')
     expect(bar.style.height).toBe(`${TOPBAR_HEIGHT}px`)
-    expect(bar.style.paddingLeft).toBe(`${TOP_LEFT_RESERVE}px`)
-    // 右留白读 CSS 变量 -- 由 TopRightControls 实测发布(globals.css :root 兜底 252px)
+    // 左留白读 CSS 变量 -- MainWindow 按侧栏收起态发布(收起 32px / 展开 0,globals.css :root 兜底 32px)
+    expect(bar.style.paddingLeft).toBe('var(--top-left-reserve)')
+    // 右留白读 CSS 变量 -- 由 TopRightControls 实测发布(globals.css :root 兜底 130px)
     expect(bar.style.paddingRight).toBe('var(--top-right-reserve)')
   })
 
@@ -210,10 +211,18 @@ describe('topbar-metrics 单一真相源', () => {
   })
 
   it('右留白走实测链路:CSS 变量兜底定义 + TopRightControls ResizeObserver 发布', () => {
-    // globals.css :root 提供首帧兜底值,首个测量帧被 TopRightControls 覆盖
-    expect(CSS).toContain('--top-right-reserve: 252px')
+    // globals.css :root 提供首帧兜底值(MCP 状态片移轨后控制簇为固定宽 ~120px),
+    // 首个测量帧被 TopRightControls 覆盖
+    expect(CSS).toContain('--top-right-reserve: 130px')
     expect(TOP_RIGHT).toContain("setProperty('--top-right-reserve'")
     expect(TOP_RIGHT).toContain('ResizeObserver')
+  })
+
+  it('左留白随侧栏收起态:MainWindow 发布 --top-left-reserve(收起 32 / 展开 0) + globals.css 兜底', () => {
+    // 展开时 pill 隐形,留白归零让第一行页签紧贴左列;收起时给展开 pill 让位
+    expect(CSS).toContain('--top-left-reserve: 32px')
+    expect(MAIN_WINDOW).toContain("'--top-left-reserve'")
+    expect(MAIN_WINDOW).toContain('sidebarCollapsed ? `')
   })
 })
 

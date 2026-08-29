@@ -555,7 +555,14 @@ const MainWindow: React.FC = () => {
 
       {/* 终端列:顶部即窗口第一行(页签条由 SplitPaneContainer 内顶排 pane 渲染) */}
       <div className="flex flex-col flex-1 min-w-0 min-h-0">
-        <div ref={terminalWrapperRef} className="terminal-wrapper flex-1 min-h-0 bg-[var(--terminal-bg)] overflow-hidden relative pb-0">
+        <div
+          ref={terminalWrapperRef}
+          className="terminal-wrapper flex-1 min-h-0 bg-[var(--terminal-bg)] overflow-hidden relative pb-0"
+          /* 第一行最左页签条的左留白 -- 收起时给展开 pill 让位(TOP_LEFT_RESERVE),
+             展开时归零让页签紧贴左列;PaneTabBar 读 var() 消费(镜像右端 --top-right-reserve
+             的变量架构,但值随侧栏状态同步切换,无需实测) */
+          style={{ '--top-left-reserve': sidebarCollapsed ? `${TOP_LEFT_RESERVE}px` : '0px' } as React.CSSProperties}
+        >
           {/* 侧栏收起时,终端画布向内让出框线宽的槽位给内框线 -- 框线画在槽里而不是浮在
               终端内容上方;画布缩量由 pane-resize ResizeObserver 感知,xterm 随之重新 fit。
               槽宽读 --edge-frame-width,与 .edge-frame 边框 / .edge-hit 命中条同源 */}
