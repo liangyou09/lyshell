@@ -125,11 +125,8 @@
   },
   "webBar": {
     "title": "Web",
-    "placeholder": "Enter a URL to open a web page",
-    "open": "Open",
+    "placeholder": "Enter a URL and press Enter",
     "invalid": "Invalid URL (http/https only)",
-    "openTabs": "Open web pages",
-    "empty": "No web pages open yet",
     "recent": "Recent",
     "clear": "Clear",
     "removeRecent": "Remove from recent"

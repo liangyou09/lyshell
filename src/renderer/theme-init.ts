@@ -14,6 +14,9 @@ try {
   const saved = localStorage.getItem('lyshell.theme')
   if (saved && VALID_THEMES.includes(saved)) {
     document.documentElement.dataset.theme = saved
+    // 明暗标记(浅色主题不反转暗色 favicon 等 CSS 据此分叉)—— 须与 theme-store
+    // 的 isLight 判定保持一致:预设硬编码 rack-paper/rack-lark,Custom 下方按 base 亮度算
+    document.documentElement.dataset.themeMode = saved === 'rack-paper' || saved === 'rack-lark' ? 'light' : 'dark'
     // Custom 主题需要早期注入 inline 颜色 —— 否则会闪一帧 fallback(graphite)。
     // 这里走最轻路径:解析 JSON + setProperty,不引入 HSL 派生(那部分代码在 theme-store)。
     // 若 customColors 缺失或脏数据,store 挂载后会补一次完整 applyTheme。
@@ -36,6 +39,8 @@ try {
             // 阈值 0.55 须与 @shared/color-utils 的 LIGHT_LUMINANCE_THRESHOLD 保持一致
             // (早期 FOUC 脚本须自包含,不能 import;改阈值时两处同步)
             document.documentElement.style.setProperty('--terminal-bg', tbLum > 0.55 ? c.base : '#0C0C0C')
+            // Custom 的明暗随 base 底色 —— 与 theme-store 的 isLightColor 派生同规则
+            document.documentElement.dataset.themeMode = tbLum > 0.55 ? 'light' : 'dark'
           }
         }
       } catch {

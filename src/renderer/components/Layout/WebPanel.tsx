@@ -1,10 +1,12 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { usePaneStore } from '../../stores/pane-store'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
+import { WebTabFavicon } from './PaneTabBar'
 
-/** 历史行展示用:取 hostname,取不到回落原样字符串(与页签 title 初始值同源) */
+/** datalist 选项 label 用:取 hostname,取不到回落原样字符串(与页签 title 初始值同源);
+    历史行本身直接显示完整 URL,不再缩略为 hostname */
 function hostOf(url: string): string {
   try {
     return new URL(url).hostname || url
@@ -13,11 +15,97 @@ function hostOf(url: string): string {
   }
 }
 
+// 历史行 favicon 的回落猜测:多数站点在根路径放 /favicon.ico。按 origin 缓存 Promise
+// (成功/失败都缓存,本次会话不重试 —— 猜测是尽力而为,不该反复打网络)。
+const originFaviconCache = new Map<string, Promise<string | null>>()
+
+// 并发闸:历史列表首帧渲染会按 origin 逐行触发猜测,30 条历史不该 30 个请求同时
+// 在飞。FIFO 队列限 3 并发;排队中也计数,后来者看到满员直接排到队尾不插队。
+const GUESS_MAX_INFLIGHT = 3
+let guessInflight = 0
+const guessQueue: Array<() => void> = []
+async function withGuessSlot<T>(task: () => Promise<T>): Promise<T> {
+  guessInflight++
+  if (guessInflight > GUESS_MAX_INFLIGHT) {
+    await new Promise<void>(resolve => guessQueue.push(resolve))
+  }
+  try {
+    return await task()
+  } finally {
+    guessInflight--
+    const next = guessQueue.shift()
+    if (next) next()
+  }
+}
+
+function guessOriginFavicon(url: string): Promise<string | null> {
+  let origin: string
+  try {
+    origin = new URL(url).origin
+  } catch {
+    return Promise.resolve(null)
+  }
+  const cached = originFaviconCache.get(origin)
+  if (cached) return cached
+  const p: Promise<string | null> = withGuessSlot(() =>
+    window.electronAPI
+      .fetchFavicon(`${origin}/favicon.ico`)
+      .then(r => (r.success ? r.dataUri : null))
+      .catch(() => null)
+  )
+  originFaviconCache.set(origin, p)
+  return p
+}
+
+/** 垃圾桶图标(lucide trash 线稿风格,stroke 随 currentColor)——「清空」按钮用 */
+const TrashIcon: React.FC = () => (
+  <svg
+    width="12"
+    height="12"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    <path d="M3 6h18" />
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    <line x1="10" y1="11" x2="10" y2="17" />
+    <line x1="14" y1="11" x2="14" y2="17" />
+  </svg>
+)
+
+/**
+ * 历史行 favicon:优先取持久化映射(打开网页页签时捕获的官方 favicon),
+ * 没有再回落猜 origin/favicon.ico。两者都没有则不占位,行内只显示 URL。
+ */
+const RecentFavicon: React.FC<{ url: string; favicon?: string }> = ({ url, favicon }) => {
+  const [src, setSrc] = useState<string | null>(favicon ?? null)
+  useEffect(() => {
+    if (favicon) {
+      setSrc(favicon)
+      return
+    }
+    let alive = true
+    void guessOriginFavicon(url).then(uri => {
+      if (alive && uri) setSrc(uri)
+    })
+    return () => {
+      alive = false
+    }
+  }, [url, favicon])
+  if (!src) return null
+  return <WebTabFavicon src={src} />
+}
+
 /**
  * 网页访问面板(机柜左列 Web 页签)。
  * 顶部 URL 栏输入完整网址,以终端页签形式打开在活动分屏(多页签,类似 dsh Web 页签);
- * 下方列出打开的网页:点击跳到承载分屏并激活页签,✕ 关闭。
- * 再下方是「最近访问」历史(localStorage 持久化,pane-store webTabHistory):
+ * 打开的网页一律走终端页签栏切换/关闭,面板不再列清单。
+ * 下方是「最近访问」历史(localStorage 持久化,pane-store webTabHistory):
  * 点击重开、✕ 删除单条、段头清空;输入框挂 datalist 原生补全。
  * URL 归一化/校验在 pane-store 的 normalizeWebBarUrl;webview 的导航/弹窗由主进程
  * 按 persist:webbar partition 分流锁定(仅 http/https,见 main/index.ts)。
@@ -28,10 +116,8 @@ function hostOf(url: string): string {
 const WebPanel: React.FC = () => {
   const { t } = useTranslation()
   const openWebTab = usePaneStore((s) => s.openWebTab)
-  const activateWebTab = usePaneStore((s) => s.activateWebTab)
-  const closeWebTab = usePaneStore((s) => s.closeWebTab)
-  const webTabs = usePaneStore((s) => s.webTabs)
   const webTabHistory = usePaneStore((s) => s.webTabHistory)
+  const webTabFavicons = usePaneStore((s) => s.webTabFavicons)
   const removeWebTabHistory = usePaneStore((s) => s.removeWebTabHistory)
   const clearWebTabHistory = usePaneStore((s) => s.clearWebTabHistory)
   const [webBarInput, setWebBarInput] = useState('')
@@ -86,7 +172,7 @@ const WebPanel: React.FC = () => {
             }}
             placeholder={t('webBar.placeholder')}
             spellCheck={false}
-            className="flex-1 min-w-0 px-1.5 py-0.5 text-[11px] [font-family:inherit] rounded-[2px] bg-[var(--bg-elev)] border border-[var(--rule)] text-[var(--text-rack)] placeholder:text-[var(--text-rack-mute)] focus:outline-none focus:border-[var(--amber)]"
+            className="flex-1 min-w-0 px-2 h-[32px] text-xs [font-family:inherit] rounded-[2px] bg-[var(--bg-elev)] border border-[var(--rule)] text-[var(--text-rack)] placeholder:text-[var(--text-rack-mute)] focus:outline-none focus:border-[var(--amber)]"
           />
           {/* datalist 选项 = 全量历史(store 已封顶 30 条,无需再截) */}
           <datalist id="lyshell-webbar-history">
@@ -94,81 +180,43 @@ const WebPanel: React.FC = () => {
               <option key={url} value={url}>{hostOf(url)}</option>
             ))}
           </datalist>
-          <button
-            onClick={handleOpenWebTab}
-            disabled={!webBarInput.trim()}
-            className="px-2 py-0.5 text-[11px] [font-family:inherit] rounded-[2px] bg-[var(--amber)] text-black hover:brightness-110 disabled:opacity-50 cursor-pointer whitespace-nowrap"
-          >
-            {t('webBar.open')}
-          </button>
         </div>
 
         {notice && <div className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] break-all">{notice}</div>}
 
-        {/* 打开的网页 —— 点击跳到承载分屏并激活页签,✕ 关闭(模式对齐 SessionsPanel LIVE 段) */}
-        {webTabs.length > 0 ? (
-          <div className="border border-[var(--rule)] rounded-[2px] flex-1 min-h-0 overflow-y-auto">
-            <div className="px-1.5 py-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] select-none border-b border-[var(--rule)] sticky top-0 bg-[var(--bg-base)]">
-              {t('webBar.openTabs')}
-            </div>
-            {webTabs.map(tab => (
-              <div key={tab.id} className="flex items-center gap-1.5 px-1.5 py-1 border-b border-[var(--rule-soft)] last:border-b-0">
-                <button
-                  onClick={() => activateWebTab(tab.id)}
-                  title={tab.url}
-                  className={cn(
-                    'flex-1 min-w-0 text-left text-[11px] [font-family:inherit] truncate cursor-pointer transition-colors',
-                    tab.active
-                      ? 'text-[var(--amber)]'
-                      : 'text-[var(--text-rack)] hover:text-[var(--amber)]'
-                  )}
-                >
-                  {tab.title}
-                </button>
-                <button
-                  onClick={() => closeWebTab(tab.id)}
-                  title={t('pane.webTabClose')}
-                  className="w-[14px] h-[14px] flex-shrink-0 flex items-center justify-center text-xs text-[var(--text-rack-mute)] hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors cursor-pointer"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-[11px] [font-family:inherit] text-[var(--text-rack-mute)] py-2 text-center">
-            {t('webBar.empty')}
-          </div>
-        )}
-
-        {/* 最近访问 —— localStorage 持久化历史:点击重开、✕ 删除单条、段头清空。
-            有打开的网页时压缩高度(max-h-40%),没有时占满剩余空间 */}
+        {/* 最近访问 —— localStorage 持久化历史:行样式对齐终端页签(favicon + 单行
+            truncate+tooltip 看全量、bg-rack 底、hover bg-slot、行高 32px);点击重开、
+            ✕ 删除单条、段头清空。常占剩余空间(打开的网页不再在此列出,切换/关闭走终端页签栏) */}
         {webTabHistory.length > 0 && (
           <div
             className={cn(
-              'border border-[var(--rule)] rounded-[2px] min-h-0 overflow-y-auto flex-shrink-0',
-              webTabs.length > 0 ? 'max-h-[40%]' : 'flex-1'
+              'border border-[var(--rule)] rounded-[2px] min-h-0 overflow-y-auto flex-1 flex-shrink-0'
             )}
           >
             <div className="flex items-center justify-between gap-1 px-1.5 py-1 border-b border-[var(--rule)] sticky top-0 bg-[var(--bg-base)]">
-              <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] select-none">
+              <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack)] select-none">
                 {t('webBar.recent')}
               </span>
               <button
                 onClick={clearWebTabHistory}
-                className="text-[10px] [font-family:inherit] text-[var(--text-rack-mute)] hover:text-[var(--error-rack)] cursor-pointer select-none"
+                title={t('webBar.clear')}
+                className="w-[18px] h-[18px] flex items-center justify-center text-[var(--text-rack)] hover:text-[var(--error-rack)] hover:bg-[var(--error-rack)]/10 rounded-[2px] cursor-pointer transition-colors"
               >
-                {t('webBar.clear')}
+                <TrashIcon />
               </button>
             </div>
             {webTabHistory.map(url => (
-              <div key={url} className="flex items-center gap-1.5 px-1.5 py-1 border-b border-[var(--rule-soft)] last:border-b-0">
+              <div
+                key={url}
+                className="flex items-center gap-1.5 px-2 h-[32px] border-b border-[var(--rule-soft)] last:border-b-0 bg-[var(--bg-rack)] hover:bg-[var(--bg-slot)] transition-colors"
+              >
+                <RecentFavicon url={url} favicon={webTabFavicons[url]} />
                 <button
                   onClick={() => openWebTab(url)}
                   title={url}
-                  className="flex-1 min-w-0 text-left text-[11px] [font-family:inherit] truncate text-[var(--text-rack)] hover:text-[var(--amber)] cursor-pointer transition-colors"
+                  className="flex-1 min-w-0 text-left text-xs [font-family:inherit] truncate text-[var(--text-rack)] hover:text-[var(--amber)] cursor-pointer transition-colors"
                 >
-                  {hostOf(url)}
+                  {url}
                 </button>
                 <button
                   onClick={() => removeWebTabHistory(url)}

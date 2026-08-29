@@ -186,6 +186,13 @@
   --text-rack-faint:#353C42;
 }
 
+/* 暗色 favicon 适配:整体很暗的灰阶图标(如 GitHub 黑猫标)在深色页签上不可辨,
+   由 JS 判定(见 PaneTabBar 的 isDarkGrayscaleIcon)挂 .webtab-favicon-dark 反转成亮色;
+   浅色 chrome 不反转(黑标在浅底本来就清晰)。明暗由 theme-store 打的
+   data-theme-mode 标记决定 —— rack-custom 配浅底时同样豁免,不硬编码主题名。 */
+.webtab-favicon-dark { filter: invert(1); }
+[data-theme-mode="light"] .webtab-favicon-dark { filter: none; }
+
 /* connecting 协议色条脉冲 */
 @keyframes pulse-amber {
   0%, 100% { filter: brightness(.6); box-shadow: 0 0 0 var(--amber-glow); }

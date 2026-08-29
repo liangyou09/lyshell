@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { useSessionStore } from '../../stores/session-store'
@@ -13,6 +13,87 @@ import { TOPBAR_HEIGHT } from './topbar-metrics'
 // mask 取资产 alpha 作剪影、bg-current 随页签文字色着色（空闲 dim / 激活亮）
 const codexMarkIcon = new URL('../../assets/agent-icons/codex.png', import.meta.url).href
 const claudeMarkIcon = new URL('../../assets/agent-icons/claude.png', import.meta.url).href
+
+// 暗色灰阶图标判定:整体很暗的黑白标(GitHub 黑猫标是典型)在深色页签上不可辨。
+// data URI 画到 16x16 canvas(不污染画布,可 getImageData),取不透明像素的平均亮度
+// (HSL 的 L)与平均饱和度(max-min):亮度低且接近灰阶 → 判暗,交 CSS 按主题反转。
+// 彩色暗标(深蓝/深紫 logo)不反转——invert 会把品牌色翻成怪色,宁可保持原样。
+// 结果按 src 缓存,同一 data URI 只分析一次。
+const darkIconCache = new Map<string, boolean>()
+function isDarkGrayscaleIcon(src: string): Promise<boolean> {
+  const cached = darkIconCache.get(src)
+  if (cached !== undefined) return Promise.resolve(cached)
+  const p = new Promise<boolean>(resolve => {
+    const img = new Image()
+    img.onload = () => {
+      try {
+        const size = 16
+        const canvas = document.createElement('canvas')
+        canvas.width = size
+        canvas.height = size
+        const ctx = canvas.getContext('2d', { willReadFrequently: true })
+        if (!ctx) return resolve(false)
+        ctx.drawImage(img, 0, 0, size, size)
+        const data = ctx.getImageData(0, 0, size, size).data
+        let lSum = 0
+        let sSum = 0
+        let n = 0
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i + 3] < 128) continue
+          const r = data[i]
+          const g = data[i + 1]
+          const b = data[i + 2]
+          const max = Math.max(r, g, b)
+          const min = Math.min(r, g, b)
+          lSum += (max + min) / 2
+          sSum += max - min
+          n++
+        }
+        // 无不透明像素(全透明图)或亮/彩不判暗
+        resolve(n > 0 && lSum / n < 64 && sSum / n < 48)
+      } catch {
+        resolve(false)
+      }
+    }
+    img.onerror = () => resolve(false)
+    img.src = src
+  })
+  void p.then(v => darkIconCache.set(src, v))
+  return p
+}
+
+/**
+ * 网页页签 favicon —— data URI 由主进程代取（渲染层 CSP img-src 仅 'self' data:，
+ * 远程图直挂 <img> 会被拦）。坏数据 onError 整块隐藏，页签回落纯文字；暗色灰阶标
+ * 挂 .webtab-favicon-dark 由 CSS 按主题反转（浅色主题不反转）。
+ * key 绑 src：favicon 更新时重挂组件清掉 broken/dark 态。
+ */
+export const WebTabFavicon: React.FC<{ src: string }> = ({ src }) => {
+  const [broken, setBroken] = useState(false)
+  const [dark, setDark] = useState(false)
+  useEffect(() => {
+    let alive = true
+    void isDarkGrayscaleIcon(src).then(d => {
+      if (alive) setDark(d)
+    })
+    return () => {
+      alive = false
+    }
+  }, [src])
+  if (broken) return null
+  return (
+    <img
+      src={src}
+      alt=""
+      draggable={false}
+      onError={() => setBroken(true)}
+      className={cn(
+        'w-[14px] h-[14px] flex-shrink-0 rounded-[2px] object-contain',
+        dark && 'webtab-favicon-dark'
+      )}
+    />
+  )
+}
 
 /**
  * harness 会话页签的品牌小标 —— 页签名左侧 13px 标识启动来源面板：
@@ -681,6 +762,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
                 : 'bg-[var(--bg-rack)] text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)]'
             )}
           >
+            {tab.favicon && <WebTabFavicon key={tab.favicon} src={tab.favicon} />}
             <span className="text-xs truncate max-w-[150px]">{tab.title}</span>
             <button
               onClick={(e) => { e.stopPropagation(); usePaneStore.getState().closeWebTab(tab.id) }}

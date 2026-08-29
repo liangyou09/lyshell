@@ -12,15 +12,57 @@ import type { PaneNode, SplitDirection } from '@shared/types'
 
 type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center' | null
 
+// favicon 代取缓存：成功（data URI）永久缓存；失败不缓存——下次 page-favicon-updated
+// （切回页签/页内刷新触发）自然重试，事件只在 favicon 列表变化时才发，天然限频。
+const faviconCache = new Map<string, Promise<string | null>>()
+function fetchFaviconDataUri(url: string): Promise<string | null> {
+  // 内联 data:image/* favicon 无需代取，直接透传
+  if (url.startsWith('data:image/')) return Promise.resolve(url)
+  const cached = faviconCache.get(url)
+  if (cached) return cached
+  const p: Promise<string | null> = window.electronAPI.fetchFavicon(url)
+    .then(r => {
+      if (r.success) return r.dataUri
+      faviconCache.delete(url)
+      return null
+    })
+    .catch(() => {
+      faviconCache.delete(url)
+      return null
+    })
+  faviconCache.set(url, p)
+  return p
+}
+
+// 从 page-favicon-updated 事件提取首个 favicon URL。Electron 28 实测（探针验证）：
+// 参数挂在事件自身属性上（e.favicons），detail 为 undefined；兼容 detail 形状只为稳妥。
+function faviconUrlFromEvent(e: Event): string | undefined {
+  const detail = (e as CustomEvent<unknown>).detail
+  const candidates: unknown[] = [
+    (e as { favicons?: unknown }).favicons,
+    (detail as { favicons?: unknown } | undefined)?.favicons,
+    Array.isArray(detail) ? detail : undefined
+  ]
+  for (const c of candidates) {
+    if (Array.isArray(c)) {
+      const first = c.find(u => typeof u === 'string' && u.length > 0)
+      if (first) return first
+    }
+  }
+  return undefined
+}
+
 /**
  * 网页访问栏页签的 webview 覆盖层（单页签实例）。
  * partition 固定 persist:webbar（与 dsh web 隔离的浏览会话）；导航/弹窗由主进程
  * did-attach-webview 按 partition 分流锁定（仅 http/https）。标题经 page-title-updated
- * 回写 store，页签显示页面标题而非裸 hostname。首次 did-finish-load 时把 URL 记入
- * 「最近访问」历史（加载失败的 URL 不算访问过）。
+ * 回写 store，页签显示页面标题而非裸 hostname；favicon 经 page-favicon-updated 由
+ * 主进程代取转 data URI 回写（渲染层 CSP 只放行 data: 图）。首次 did-finish-load 时
+ * 把 URL 记入「最近访问」历史（加载失败的 URL 不算访问过）。
  */
 const WebTabOverlay: React.FC<{ tab: WebTabEntry }> = ({ tab }) => {
   const setWebTabTitle = usePaneStore(s => s.setWebTabTitle)
+  const setWebTabFavicon = usePaneStore(s => s.setWebTabFavicon)
   const recordWebTabVisit = usePaneStore(s => s.recordWebTabVisit)
   const ref = useRef<WebviewTag | null>(null)
   // 每 tab 只记一次：did-finish-load 对页内刷新/锚点跳转也会触发，重复记录靠 store 去重，
@@ -31,9 +73,20 @@ const WebTabOverlay: React.FC<{ tab: WebTabEntry }> = ({ tab }) => {
     const el = ref.current
     if (!el) return
     const onTitle = (e: Event): void => {
-      // webview DOM 事件是 CustomEvent，page-title-updated 的 detail 带 { title }
-      const title = (e as CustomEvent<{ title?: string }>).detail?.title
+      // Electron 28 实测：webview 事件参数挂在事件自身属性上（e.title），detail 为
+      // undefined —— 原来只读 detail 的写法一直取不到，两者兼容
+      const evt = e as CustomEvent<{ title?: string }> & { title?: string }
+      const title = evt.title ?? evt.detail?.title
       if (title) setWebTabTitle(tab.id, title)
+    }
+    const onFavicon = (e: Event): void => {
+      // 取首个 favicon，代取失败静默回落纯文字页签（下次事件自动重试）
+      const src = faviconUrlFromEvent(e)
+      if (!src) return
+      void fetchFaviconDataUri(src).then(dataUri => {
+        // 异步回来时页签可能已关闭，setWebTabFavicon 对未知 id 是 no-op
+        if (dataUri) setWebTabFavicon(tab.id, dataUri)
+      })
     }
     const onLoadFinish = (): void => {
       if (historyRecorded.current) return
@@ -41,12 +94,14 @@ const WebTabOverlay: React.FC<{ tab: WebTabEntry }> = ({ tab }) => {
       recordWebTabVisit(tab.url)
     }
     el.addEventListener('page-title-updated', onTitle)
+    el.addEventListener('page-favicon-updated', onFavicon)
     el.addEventListener('did-finish-load', onLoadFinish)
     return () => {
       el.removeEventListener('page-title-updated', onTitle)
+      el.removeEventListener('page-favicon-updated', onFavicon)
       el.removeEventListener('did-finish-load', onLoadFinish)
     }
-  }, [tab.id, tab.url, setWebTabTitle, recordWebTabVisit])
+  }, [tab.id, tab.url, setWebTabTitle, setWebTabFavicon, recordWebTabVisit])
 
   return (
     <webview
