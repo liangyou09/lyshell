@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
-import { McpActivityChip } from './McpActivityChip'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 
 export interface TopRightControlsProps {
@@ -16,11 +15,12 @@ export interface TopRightControlsProps {
 
 /**
  * 窗口第一行右侧控制簇 -- 原自定义标题栏右侧按钮组的整块搬迁
- * (MCP 状态片 + 浮窗按钮 │ hairline │ ─ □ ✕),样式零改动。
+ * (浮窗按钮 │ hairline │ ─ □ ✕),样式零改动。
+ * (MCP 活动状态片曾在此,现移至左侧 ActivityRail 轨底设置槽上方 -- McpActivityRailSlot)
  *
  * 页签条提顶后本簇悬浮在第一行最右上 pane 的页签条上方(absolute,带 bg-rack 底色
  * 遮住下层);对应页签条以 --top-right-reserve 做右留白防页签滚入簇下方 --
- * 该变量由本组件实测自身宽发布(见下方 effect),随 chip 文案伸缩,页签条留白始终刚好。
+ * 该变量由本组件实测自身宽发布(见下方 effect),增删按钮时页签条留白始终刚好。
  */
 const TopRightControls: React.FC<TopRightControlsProps> = ({
   isMaximized,
@@ -33,9 +33,9 @@ const TopRightControls: React.FC<TopRightControlsProps> = ({
   const { t } = useTranslation()
   const rootRef = useRef<HTMLDivElement>(null)
 
-  // 实测本簇宽度发布到 :root 的 --top-right-reserve -- chip 文案随语言(zh/en)与审计
-  // 条数变宽,静态常量两头不讨好:常态 ~150px 浪费留白,en 最坏 ~265px 又盖不住。
-  // 实测随内容伸缩,语言切换/计数增长时 ResizeObserver 自动跟进
+  // 实测本簇宽度发布到 :root 的 --top-right-reserve -- MCP 状态片移轨后本簇为固定
+  // 宽(~120px:浮窗键 + hairline + 窗口控制三键),但保留实测链路:后续增删按钮
+  // 无需同步改常量,ResizeObserver 自动跟进
   useEffect(() => {
     // 测试环境(jsdom)无 ResizeObserver,保留 globals.css 的 252px 兜底值
     if (typeof ResizeObserver === 'undefined') return
@@ -58,9 +58,6 @@ const TopRightControls: React.FC<TopRightControlsProps> = ({
     >
       {/* 应用控制簇 */}
       <div className="flex items-center gap-[2px]">
-        {/* MCP 活动状态片 -- 浮窗键左边；从设置页 MCP tab 提升出来，随时可达。
-            圆点(amber=最近有活动/灰=空闲)+标签+记录条数，点击打开 MCP 活动面板(ESC 可关) */}
-        <McpActivityChip />
         {/* 浮窗按钮 — 两矩形错位，PIP/分窗形态 */}
         <div
           onClick={onToggleFloat}

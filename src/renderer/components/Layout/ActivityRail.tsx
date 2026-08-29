@@ -2,6 +2,7 @@ import React from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
+import { McpActivityRailSlot } from './McpActivityRailSlot'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 
 /**
@@ -263,7 +264,12 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
         )
       })}
 
-      {/* 轨底 settings 工具槽 -- mt-auto 推到底,与内容页签隔开(border-t hairline);无 LED。
+      {/* 轨底工具槽组 -- MCP 活动槽(McpActivityRailSlot 自带 mt-auto 整组推底) + 设置槽。
+          MCP 槽非页签(切换 pane 覆盖层而非导航),置于设置槽上方;组内两槽间以
+          MCP 槽的 border-b 做 hairline 分隔(卡笼语言)。 */}
+      <McpActivityRailSlot />
+
+      {/* settings 工具槽 -- 轨底最末位;无 LED。
           active 语言与内容槽一致:amber 左条 + bg-slot 填充,读作"通电的工具卡"。 */}
       <button
         type="button"
@@ -273,8 +279,7 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
         title={labelFor('settings')}
         onClick={() => onChange('settings')}
         className={cn(
-          'relative h-[44px] flex items-center justify-center transition-colors group mt-auto',
-          'border-t border-[var(--rule-soft)]',
+          'relative h-[44px] flex items-center justify-center transition-colors group',
           active === 'settings'
             ? 'bg-[var(--bg-slot)] shadow-[inset_0_1px_0_var(--amber-soft),inset_0_-1px_0_var(--amber-soft)]'
             : 'hover:bg-[var(--bg-rack)]',
