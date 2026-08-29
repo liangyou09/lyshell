@@ -229,11 +229,11 @@ body {
   user-select: none;
 }
 
-/* 设置面板等宽字体 — 与状态栏右侧连接状态簇一致
-   (ui-monospace 兜底,优先 JetBrains Mono / Cascadia Code)。
-   未包裹在 @layer 内,故优先于 Tailwind utilities 层的 font-mono,无需 !important。 */
-.settings-panel,
-.settings-panel .font-mono {
+/* 设置面板整体走等宽 —— 与状态栏右侧连接状态簇一致(设备铭牌审美)。
+   字体栈已在 tailwind.config.js 的 fontFamily.mono 统一,这里只需管面板整体,
+   不再需要 .font-mono 二次覆盖(那会让设置页签与其他面板页签字体分叉)。
+   未包裹在 @layer 内,故优先于 Tailwind utilities 层的字体设置,无需 !important。 */
+.settings-panel {
   font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace;
 }
 

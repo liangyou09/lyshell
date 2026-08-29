@@ -205,12 +205,11 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
         role="tablist"
         aria-orientation="vertical"
       >
-      {TABS.map((tab, i) => {
+      {TABS.map((tab) => {
         const isActive = active === tab
         const Icon = TAB_ICON[tab]
         const led = ledFor(tab)
         const label = labelFor(tab)
-        const isLast = i === TABS.length - 1
         return (
           <button
             key={tab}
@@ -221,10 +220,12 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
             title={label}
             onClick={() => onChange(tab)}
             className={cn(
-              // 卡笼 1U 槽位:hairline 分隔 + inset 凹陷(槽嵌入框架感),与 SessionSlot 同语言
+              // 卡笼 1U 槽位:hairline 分隔 + inset 凹陷(槽嵌入框架感),与 SessionSlot 同语言。
+              // 所有槽位(含末位 web)一律带底部分隔线:页签笼以闭合的横线收底,
+              // 与轨底工具槽组(MCP/设置)之间的空档不读作"缺线"
               'relative h-[44px] flex items-center justify-center transition-colors group',
               'shadow-[inset_0_-1px_0_var(--bg-base)]',
-              !isLast && 'border-b border-[var(--rule-soft)]',
+              'border-b border-[var(--rule-soft)]',
               isActive
                 // 激活:通电槽 -- bg-slot 填充 + 上下 amber-soft inset(被"拉出"的通电感),镜像 SessionSlot active
                 ? 'bg-[var(--bg-slot)] shadow-[inset_0_1px_0_var(--amber-soft),inset_0_-1px_0_var(--amber-soft)]'

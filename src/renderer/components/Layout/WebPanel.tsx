@@ -156,31 +156,39 @@ const WebPanel: React.FC = () => {
         </span>
       </div>
 
-      {/* 内容笼:p-3 + space-y-2(与 PluginPanel 同构) */}
-      <div className="flex-1 min-h-0 flex flex-col p-3 space-y-2">
-
-        {/* 网页访问栏 —— 输入完整 URL 回车即开;无 scheme 自动补 https://;
-            datalist 挂最近历史做原生补全 */}
-        <div className="flex items-center gap-1">
-          <input
-            type="text"
-            list="lyshell-webbar-history"
-            value={webBarInput}
-            onChange={(e) => setWebBarInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleOpenWebTab()
-            }}
-            placeholder={t('webBar.placeholder')}
-            spellCheck={false}
-            className="flex-1 min-w-0 px-2 h-[32px] text-xs [font-family:inherit] rounded-[2px] bg-[var(--bg-elev)] border border-[var(--rule)] text-[var(--text-rack)] placeholder:text-[var(--text-rack-mute)] focus:outline-none focus:border-[var(--amber)]"
-          />
-          {/* datalist 选项 = 全量历史(store 已封顶 30 条,无需再截) */}
-          <datalist id="lyshell-webbar-history">
-            {webTabHistory.map(url => (
-              <option key={url} value={url}>{hostOf(url)}</option>
-            ))}
-          </datalist>
+      {/* 输入动作位 —— 与 HarnessPanel 新增条同构:44px 占位对齐 ActivityRail 槽位,
+          输入框 32px 居中悬浮,底部一条随卡片宽度的分割线(px-3 收进,不连接面板
+          左右边缘)把动作区与历史区分开 */}
+      <div className="flex-shrink-0 h-[44px] px-3 flex flex-col">
+        <div className="flex-1 flex items-center">
+          {/* 网页访问栏 —— 输入完整 URL 回车即开;无 scheme 自动补 https://;
+              datalist 挂最近历史做原生补全 */}
+          <div className="flex items-center gap-1 w-full">
+            <input
+              type="text"
+              list="lyshell-webbar-history"
+              value={webBarInput}
+              onChange={(e) => setWebBarInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleOpenWebTab()
+              }}
+              placeholder={t('webBar.placeholder')}
+              spellCheck={false}
+              className="flex-1 min-w-0 px-2 h-[32px] text-xs [font-family:inherit] rounded-[2px] bg-[var(--bg-elev)] border border-[var(--rule)] text-[var(--text-rack)] placeholder:text-[var(--text-rack-mute)] focus:outline-none focus:border-[var(--amber)]"
+            />
+            {/* datalist 选项 = 全量历史(store 已封顶 30 条,无需再截) */}
+            <datalist id="lyshell-webbar-history">
+              {webTabHistory.map(url => (
+                <option key={url} value={url}>{hostOf(url)}</option>
+              ))}
+            </datalist>
+          </div>
         </div>
+        <div aria-hidden className="h-px bg-[var(--rule-soft)]" />
+      </div>
+
+      {/* 内容笼:p-3 + space-y-2(与 PluginPanel 同构);顶部 pt-1.5 贴分割线起排 */}
+      <div className="flex-1 min-h-0 flex flex-col px-3 pt-1.5 pb-3 space-y-2">
 
         {notice && <div className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] break-all">{notice}</div>}
 

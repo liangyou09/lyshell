@@ -12,6 +12,11 @@
 /** 第一行高度 -- 页签条(含空态条)/pill/控制簇浮层/会话浮窗挂载点共用 */
 export const TOPBAR_HEIGHT = 36
 
+/** 面板内二级横带高度 -- PanelTabs 页签条 / FileManager 标题条共用。
+ *  与铭牌头行(TOPBAR_HEIGHT)拉开 36/30 两级节奏,再往下是 26px 级的状态条
+ *  (FileBrowser 工具条 / Sessions 底条),形成头行>控制条>状态条的主次层级 */
+export const PANEL_STRIP_HEIGHT = 30
+
 /** 左上侧栏开关 pill 预留宽 -- MainWindow 浮层挂载 / PaneTabBar 左留白共用 */
 export const TOP_LEFT_RESERVE = 32
 

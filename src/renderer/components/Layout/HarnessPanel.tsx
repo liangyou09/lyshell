@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { HARNESS_AGENT_VIEWS, isSecretEnvKey, type HarnessAgentKind, type HarnessEnvDefault, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
 import { BRANCH_PREFIX, generateWorktreeCode, generateWorktreeKey, joinWorktreePath } from '@shared/worktree'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
+import PanelTabs from './PanelTabs'
 import { ensureDetected, getCachedDetect, redetectHarness } from './harness-detect'
 
 /**
@@ -155,19 +156,27 @@ const slotShell = (on: boolean): string =>
  * 因为琥珀在本面板里稀缺地表示"通电/启用"，整块染琥珀会和环境变量页签的"已启用"读混。
  * 名字直接用它要打开的对话框标题，点下去与看到的一致。
  */
+/** 新增条 —— 占据贴头行首槽的 44px 动作位(与 ActivityRail 页签槽位同高,轨上 36–80px):
+ *  卡片本体 32px 居中悬浮,上下各留间隙,不顶头行也不压底部分割线;分割线只随卡片
+ *  宽度走(px-3 收进,不连接面板左右边缘),作为动作区的局部收束而非满幅横带。
+ *  px-3 + px-2 = 原笼内左沿,加号图标与下方列表行的文件夹图标同列。 */
 const AddBar: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
-  <button
-    onClick={onClick}
-    className="group flex-shrink-0 w-full flex items-center gap-2.5 px-2 py-2 rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] cursor-pointer transition-colors hover:border-[var(--amber)] hover:bg-[var(--bg-elev)] focus:outline-none focus-visible:border-[var(--amber)]"
-  >
-    {/* 20px 与列表行的文件夹图标同宽，标签落在条目名的同一左沿上 */}
-    <span aria-hidden className="flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center text-[var(--amber)]">
-      <IconPlus />
-    </span>
-    <span className="min-w-0 truncate text-[13px] font-semibold [font-family:inherit] text-[var(--text-rack)] group-hover:text-[var(--amber)] transition-colors">
-      {label}
-    </span>
-  </button>
+  <div className="flex-shrink-0 h-[44px] px-3 flex flex-col">
+    <div className="flex-1 flex items-center">
+      <button
+        onClick={onClick}
+        className="group w-full flex items-center gap-2.5 px-2 h-[32px] rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] cursor-pointer transition-colors hover:border-[var(--amber)] hover:bg-[var(--bg-elev)] focus:outline-none focus-visible:border-[var(--amber)]"
+      >
+        <span aria-hidden className="flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center text-[var(--amber)]">
+          <IconPlus />
+        </span>
+        <span className="min-w-0 truncate text-[13px] font-semibold [font-family:inherit] text-[var(--text-rack)] group-hover:text-[var(--amber)] transition-colors">
+          {label}
+        </span>
+      </button>
+    </div>
+    <div aria-hidden className="h-px bg-[var(--rule-soft)]" />
+  </div>
 )
 
 const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { workspaceId?: string; cwd?: string }, name?: string) => Promise<{ success: boolean; error?: string }> }> = ({ agent, onOpenWeb }) => {
@@ -803,7 +812,9 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
             <span className="truncate">{t(`${prefix}.title`)}</span>
           </span>
         )}
-        <div className="flex items-center gap-0 flex-shrink-0">
+        {/* h-full:簇满高,内嵌 PanelTabs 的 h-full 才有参照,否则按钮退化成内容高度、
+            amber 下划线贴到字底(中间层断链,同 FileManager 那次) */}
+        <div className="flex items-center gap-1.5 flex-shrink-0 h-full">
           {/* 依赖齐全时无需重新检测（隐藏）；检测中/缺依赖时保留 */}
           {!launchReady && (
             <button
@@ -814,11 +825,32 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
               {detecting ? t(`${prefix}.detecting`) : t(`${prefix}.redetect`)}
             </button>
           )}
+          {/* 页签嵌进铭牌行右端(同 FileManager 标题条挂法):amber 下划线咬住第一行
+              发丝线,与窗口顶排终端页签的激活下边线同处一条横带,整窗横线贯穿 */}
+          {listReady && (
+            <PanelTabs
+              tabs={[
+                { key: 'workspaces' as const, label: <>{t(`${prefix}.tabWorkspaces`)}<span className="ml-1.5 tabular-nums text-[var(--text-rack-dim)]">{workspaces.length}</span></> },
+                { key: 'env' as const, label: <>{t(`${prefix}.tabEnv`)}<span className="ml-1.5 tabular-nums text-[var(--text-rack-dim)]">{envProfiles.length}</span></> }
+              ]}
+              active={activeTab}
+              onChange={setActiveTab}
+            />
+          )}
         </div>
       </div>
 
-      {/* 内容笼：p-3 + space-y-2 自根容器下移到这层，头条得以满幅贴顶（与 SessionsPanel 同构） */}
-      <div className="flex-1 min-h-0 flex flex-col p-3 space-y-2">
+      {/* 新增条外提出笼、满幅贴头行 —— 它是页签的固定动作，位置不随临时横幅/列表滚动挪动，
+          上下边缘与左侧轨上第一个页签槽位持平（44px） */}
+      {listReady && activeTab === 'workspaces' && <AddBar label={t(`${prefix}.wsAddTitle`)} onClick={handleAdd} />}
+      {listReady && activeTab === 'env' && (
+        /* 排在 radiogroup 之外、之上：它是动作不是档位，混进单选组会破坏「系统档位常驻列首」的读法 */
+        <AddBar label={t(`${prefix}.envAddTitle`)} onClick={handleAddProfile} />
+      )}
+
+      {/* 内容笼：p-3 + space-y-2 自根容器下移到这层，头条得以满幅贴顶（与 SessionsPanel 同构）。
+          顶部只留 pt-1.5：就绪态上方有新增条分割线，内容贴近分割线起排，不再隔一整段 p-3 */}
+      <div className="flex-1 min-h-0 flex flex-col px-3 pt-1.5 pb-3 space-y-2">
 
       {/* 未就绪：首个依赖缺失 → 依赖状态行 + 提示卡（无首个依赖则列表/启动均不可用） */}
       {!listReady && (
@@ -926,40 +958,9 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
         </>
       )}
 
-      {/* 就绪：工作区 / 环境变量两个平级页签（首个依赖就绪即可） */}
-      {listReady && (
-        <>
-          {/* 页签条 —— 沿用 FileManagerPanel 的语汇：齐平文字按钮 + 琥珀下划线压在容器发丝线上 */}
-          <div className="flex items-center gap-0 flex-shrink-0 border-b border-[var(--rule)]">
-            {([
-              { key: 'workspaces' as const, label: t(`${prefix}.tabWorkspaces`), count: workspaces.length },
-              { key: 'env' as const, label: t(`${prefix}.tabEnv`), count: envProfiles.length }
-            ]).map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                aria-selected={activeTab === tab.key}
-                className={cn(
-                  'px-2 py-1 -mb-px font-semibold text-[11px] tracking-[0.08em] [font-family:inherit] bg-transparent border-none border-b cursor-pointer transition-colors',
-                  activeTab === tab.key
-                    ? 'text-[var(--text-rack)] border-[var(--amber)]'
-                    : 'text-[var(--text-rack-mute)] border-transparent hover:text-[var(--text-rack)]'
-                )}
-              >
-                {tab.label}
-                <span className="ml-1.5 tabular-nums text-[var(--text-rack-dim)]">{tab.count}</span>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-
       {/* 工作区页签 */}
       {listReady && activeTab === 'workspaces' && (
         <>
-          {/* 新建排在告警/错误横幅之前：它是本页签的固定动作，位置不该被临时横幅推来推去 */}
-          <AddBar label={t(`${prefix}.wsAddTitle`)} onClick={handleAdd} />
-
           {/* 其余依赖未装：启动禁用（dsh 仅装了 dsh 缺 dsh-tui 时出现） */}
           {!launchReady && (
             <div className="flex items-start gap-2 rounded-[2px] border border-[color-mix(in_srgb,var(--amber)_28%,var(--rule))] bg-[color-mix(in_srgb,var(--amber)_7%,var(--bg-slot))] px-2 py-1.5">
@@ -1089,10 +1090,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
       {/* 环境变量页签 —— N+1 单选组（母线）：系统档位常驻列首，恒有且仅有一格通电 */}
       {listReady && activeTab === 'env' && (
         <>
-          {/* 排在 radiogroup 之外、之上：它是动作不是档位，混进单选组会同时破坏「系统档位常驻列首」
-              的读法与 radiogroup 的 role 语义。虚线换实线后与下方档位的实心槽也不会混淆。 */}
-          <AddBar label={t(`${prefix}.envAddTitle`)} onClick={handleAddProfile} />
-
           {envActionError && (
             <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words">{envActionError}</div>
           )}
