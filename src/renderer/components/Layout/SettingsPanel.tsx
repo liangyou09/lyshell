@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { useThemeStore, AVAILABLE_THEMES, CUSTOM_THEME_ID } from '../../stores/theme-store'
 import { useLocaleStore, AVAILABLE_LOCALES } from '../../stores/locale-store'
 import { isCursorBlinkEnabled, DEFAULT_TERMINAL_FONT_SIZE, TERMINAL_FONT_SIZE_MIN, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_STEP, snapTerminalFontSize } from '@shared/constants'
+import { TOPBAR_HEIGHT } from './topbar-metrics'
 
 /**
  * 设置面板(机柜左列 Settings 页签内容)。
@@ -199,6 +200,20 @@ const SettingsPanel: React.FC = () => {
 
   return (
     <div className="settings-panel h-full flex flex-col bg-[var(--bg-rack)]">
+      {/* 头条:SETTINGS -- 行高对齐终端第一行(TOPBAR_HEIGHT),与 Sessions/Agents 等面板头行同高,
+          设置页签下窗口第一行横带不断线。铭牌走设备徽章字体(同族面板共用) */}
+      <div
+        className="flex items-center px-3 border-b border-[var(--rule)] flex-shrink-0"
+        style={{ height: TOPBAR_HEIGHT }}
+      >
+        <span
+          className="font-bold tracking-[-0.01em] text-[16px] text-[var(--text-rack)] select-none"
+          style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
+        >
+          {t('settings.title')}
+        </span>
+      </div>
+
       {/* 页签栏 —— bg-strip;active 用 amber 底边线标识,沿用原悬浮面板视觉语言(去掉拖拽把手/关闭钮) */}
       <div className="flex bg-[var(--bg-strip)] border-b border-[var(--rule)] flex-shrink-0">
         {SETTINGS_TABS.map(tab => {

@@ -104,25 +104,49 @@
   --text-rack-faint:#383838;
 }
 
-/* Rack Paper - 自然浅纸:暖中性石色底 + 石墨墨字 + 铜调红铅笔焦点,
-   未漂白纸/卵石质感,刻意避开淡青(原版偏冷绿、不自然)与暖米黄(AI 默认);与机柜暗主题材质互补 */
+/* Rack Paper - Edge 风亮色:冷中性灰白镶边 + 纯白画布 + 石墨墨字 + 铜调红铅笔焦点,
+   对齐 Edge 浅色模式的材质分工(灰 chrome 承载面板/页签,白页面承载内容);
+   原暖纸(#ECEAE4 石色)按用户要求调亮,与机柜暗主题材质互补 */
 [data-theme="rack-paper"] {
-  --terminal-bg:    #ECEAE4;  /* 浅纸终端画布,对齐 --bg-base */
-  --bg-base:        #ECEAE4;
-  --bg-rack:        #E4E2DB;
-  --bg-slot:        #DBD9D1;
-  --bg-elev:        #D2D0C7;
-  --bg-strip:       #E8E6DF;
-  --rule:           #C0BEB4;
-  --rule-soft:      #D3D1C8;
-  --text-rack:      #1F1E1A;
-  --text-rack-mute: #67655D;
-  --text-rack-data: #34332C;
-  --text-rack-dim:  #86847B;
-  --text-rack-faint:#AFAEA3;
+  --terminal-bg:    #FFFFFF;  /* 纯白终端画布 -- Edge 内容页的白 */
+  --bg-base:        #F3F3F3;  /* Edge chrome 灰 -- 窗口底/面板底 */
+  --bg-rack:        #EBEBEB;
+  --bg-slot:        #E2E2E2;
+  --bg-elev:        #D9D9D9;
+  --bg-strip:       #EFEFEF;
+  --rule:           #C7C7C7;
+  --rule-soft:      #DBDBDB;
+  --text-rack:      #202020;
+  --text-rack-mute: #616161;
+  --text-rack-data: #333333;
+  --text-rack-dim:  #8C8C8C;
+  --text-rack-faint:#ADADAD;
   --amber:          #B8741D;
   --amber-soft:     #B8741D22;
   --amber-glow:     #B8741D33;
+  /* proto / ft / live / reachable / error 全部继承默认 —— 语义不该被主题改 */
+}
+
+/* Rack Lark - 飞书风亮色:冷灰白 chrome + 纯白画布 + 墨蓝字 + 品牌蓝焦点,
+   对齐飞书桌面客户端浅色模式的材质分工(#F5F6F7 导航灰承托面板,白页面承载内容,
+   #E5E6EB 经典分隔灰);焦点色破例离开琥珀/铜家族,采用飞书品牌蓝 #3370FF */
+[data-theme="rack-lark"] {
+  --terminal-bg:    #FFFFFF;  /* 纯白终端画布 -- 飞书内容页的白 */
+  --bg-base:        #F5F6F7;  /* 飞书导航灰 -- 窗口底/面板底 */
+  --bg-rack:        #EDEEF0;
+  --bg-slot:        #E5E6EB;  /* 飞书经典分隔/hover 灰 */
+  --bg-elev:        #DDE0E4;
+  --bg-strip:       #F2F3F5;
+  --rule:           #D5D7DB;
+  --rule-soft:      #E5E6EB;
+  --text-rack:      #1F2329;
+  --text-rack-mute: #646A73;
+  --text-rack-data: #33383E;
+  --text-rack-dim:  #8F959E;
+  --text-rack-faint:#B9BEC4;
+  --amber:          #3370FF;  /* 飞书品牌蓝 */
+  --amber-soft:     #3370FF22;
+  --amber-glow:     #3370FF33;
   /* proto / ft / live / reachable / error 全部继承默认 —— 语义不该被主题改 */
 }
 
@@ -178,16 +202,6 @@
 }
 .animate-breathe {
   animation: breathe 2.4s ease-in-out infinite;
-}
-
-/* MCP 活动槽 LED 慢呼吸 -- 轨底常驻信号位,live LED 的 2.4s + 0.4↔1 大幅度
-   在视野边缘读作"急促闪烁";放缓到 4.8s、收窄幅度(.55↔1),读作缓慢的存在感呼吸 */
-@keyframes mcp-breathe {
-  0%, 100% { opacity: .55; }
-  50%      { opacity: 1; }
-}
-.animate-mcp-breathe {
-  animation: mcp-breathe 4.8s ease-in-out infinite;
 }
 
 /* 轨上激活图标呼吸辉光 -- "通电"的通电感,随 amber 焦点 */

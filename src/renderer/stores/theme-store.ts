@@ -68,8 +68,14 @@ export const AVAILABLE_THEMES: ThemeMeta[] = [
   {
     id: 'rack-paper',
     name: 'Paper',
-    description: '自然浅纸 · 石墨墨 + 铜铅笔',
-    preview: { bgBase: '#ECEAE4', bgRack: '#E4E2DB', bgSlot: '#DBD9D1', text: '#1F1E1A' }
+    description: 'Edge 风亮色 · 白画布 + 铜铅笔',
+    preview: { bgBase: '#F3F3F3', bgRack: '#EBEBEB', bgSlot: '#E2E2E2', text: '#202020' }
+  },
+  {
+    id: 'rack-lark',
+    name: 'Lark',
+    description: '飞书风亮色 · 白画布 + 品牌蓝',
+    preview: { bgBase: '#F5F6F7', bgRack: '#EDEEF0', bgSlot: '#E5E6EB', text: '#1F2329' }
   },
   {
     id: 'rack-ember',

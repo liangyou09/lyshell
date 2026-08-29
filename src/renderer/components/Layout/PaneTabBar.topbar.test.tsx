@@ -195,13 +195,14 @@ describe('topbar-metrics 单一真相源', () => {
     expect(ACTIVITY_RAIL).toContain('style={{ height: TOPBAR_HEIGHT }}')
     // 收起槽画底线(与面板头条/页签条同色同 y)—— 第一行底线横贯整个窗口,整行读作一条横带
     expect(ACTIVITY_RAIL).toContain('border-b border-[var(--rule)]')
-    // 左列四个内容面板头条同族(SessionsPanel/AgentsPanel/HarnessPanel/PluginPanel):
+    // 左列五个内容面板头条同族(SessionsPanel/AgentsPanel/HarnessPanel/PluginPanel/SettingsPanel):
     // 都是 TOPBAR_HEIGHT 高 + border-b 发丝线的满幅头条,窗口第一行横带在哪个页签都连续
     const SESSIONS_PANEL = read('src/renderer/components/Layout/SessionsPanel.tsx')
     const AGENTS_PANEL = read('src/renderer/components/Layout/AgentsPanel.tsx')
     const HARNESS_PANEL = read('src/renderer/components/Layout/HarnessPanel.tsx')
     const PLUGIN_PANEL = read('src/renderer/components/Layout/PluginPanel.tsx')
-    for (const panel of [SESSIONS_PANEL, AGENTS_PANEL, HARNESS_PANEL, PLUGIN_PANEL]) {
+    const SETTINGS_PANEL = read('src/renderer/components/Layout/SettingsPanel.tsx')
+    for (const panel of [SESSIONS_PANEL, AGENTS_PANEL, HARNESS_PANEL, PLUGIN_PANEL, SETTINGS_PANEL]) {
       expect(panel).toContain("from './topbar-metrics'")
       expect(panel).toContain('style={{ height: TOPBAR_HEIGHT }}')
       expect(panel).toContain('border-b border-[var(--rule)]')

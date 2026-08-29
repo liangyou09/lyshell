@@ -25,7 +25,7 @@ const IconMcpActivity: React.FC = () => (
 
 /**
  * 轨底 MCP 活动工具槽 -- 原右上控制簇状态片(McpActivityChip)的轨上版,置于设置槽上方。
- * 脉冲图标 + 最近活动 LED(amber 呼吸 = 5 分钟内有审计记录,同 sessions 槽 live LED 语言);
+ * 脉冲图标 + 最近活动 LED(amber 常亮 = 5 分钟内有审计记录);
  * 审计计数收进 title 提示(轨上不叠计数读数,保持克制)。点击在当前活跃分屏打开/关闭
  * MCP 活动页签(整面覆盖该 pane)。active 态 = MCP 页签正打开在某个 pane,
  * 读作"通电的工具卡"(镜像设置槽激活语言)。
@@ -120,12 +120,13 @@ export function McpActivityRailSlot(): JSX.Element {
         <IconMcpActivity />
       </span>
 
-      {/* 最近活动 LED -- 5 分钟内有 MCP 审计记录时亮 amber 慢呼吸
-          (mcp-breathe 4.8s 缓于 live LED 的 2.4s:轨底常驻位,急促节律在视野边缘抢眼) */}
+      {/* 最近活动 LED -- 5 分钟内有 MCP 审计记录时亮 amber 常亮(静态)。
+          不做呼吸动画:MCP 客户端持续调用时 recent 恒为 true,周期性明灭在视野
+          边缘读作持续闪烁打扰;常亮 + 辉光足以承载"最近有活动"的信号 */}
       {recent && (
         <span
           aria-hidden
-          className="absolute top-[7px] right-[7px] w-[6px] h-[6px] rounded-full animate-mcp-breathe"
+          className="absolute top-[7px] right-[7px] w-[6px] h-[6px] rounded-full"
           style={{ backgroundColor: 'var(--amber)', boxShadow: '0 0 5px var(--amber)' }}
         />
       )}

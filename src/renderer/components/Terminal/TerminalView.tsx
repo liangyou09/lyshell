@@ -44,7 +44,7 @@ const SEARCH_DECORATIONS = {
 
 /**
  * 解析当前主题下的 xterm 终端配色。
- * 终端画布底色取自 --terminal-bg(深色主题近黑 #0C0C0C、rack-paper 浅纸 #ECEAE4);
+ * 终端画布底色取自 --terminal-bg(深色主题近黑 #0C0C0C、rack-paper 纯白 #FFFFFF);
  * 按其亮度选择深/浅配色集(DARK/LIGHT 仅 foreground/cursor/black/white 不同,ANSI 色共用),
  * 再把 background 覆写为 --terminal-bg,使终端画布与页签/审计面板的 var(--terminal-bg) 严丝合缝。
  * 主题切换时由下方 useEffect 实时调用,无需重建终端(xterm 5.5 支持 options.theme 热更新)。

@@ -8,7 +8,7 @@
  *   1. src/renderer/stores/theme-store.ts → AVAILABLE_THEMES
  *   2. 这里的 VALID_THEMES
  */
-const VALID_THEMES = ['rack-graphite', 'rack-slate', 'rack-carbon', 'rack-paper', 'rack-ember', 'rack-custom']
+const VALID_THEMES = ['rack-graphite', 'rack-slate', 'rack-carbon', 'rack-paper', 'rack-lark', 'rack-ember', 'rack-custom']
 
 try {
   const saved = localStorage.getItem('lyshell.theme')
