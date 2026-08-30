@@ -9,6 +9,7 @@ import type { FileInfo } from '@shared/types'
 interface FileTreeProps {
   sessionId: string
   onFileSelect?: (file: FileInfo) => void
+  onFileDoubleClick?: (file: FileInfo) => void
   onFileDownload?: (file: FileInfo) => void
   onFileUpload?: (targetDir: string) => void
   onFileDelete?: (file: FileInfo) => void
@@ -22,6 +23,7 @@ interface FileTreeProps {
 const FileTree: React.FC<FileTreeProps> = ({
   sessionId,
   onFileSelect,
+  onFileDoubleClick,
   onFileDownload,
   onFileUpload,
   onFileDelete,
@@ -152,6 +154,19 @@ const FileTree: React.FC<FileTreeProps> = ({
           )}
           style={{ paddingLeft: `${depth * 16 + 8}px` }}
           onClick={() => handleNodeClick(node)}
+          onDoubleClick={() => {
+            // 双击文件触发回调（文档预览入口：.md/.html 双击开文档页签）
+            if (!node.isDir && onFileDoubleClick) {
+              onFileDoubleClick({
+                name: node.name,
+                path: node.path,
+                isDir: false,
+                size: node.size,
+                modifyTime: node.modifyTime,
+                permissions: node.permissions
+              })
+            }
+          }}
           onContextMenu={(e) => handleContextMenu(e, node)}
         >
           {/* 展开/折叠图标 */}

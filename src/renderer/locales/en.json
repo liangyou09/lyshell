@@ -639,6 +639,24 @@
     "closePane": "Close pane",
     "dragToResize": "Drag to resize split ratio"
   },
+  "doc": {
+    "close": "Close document tab",
+    "refresh": "Refresh",
+    "remoteChip": "Remote document",
+    "localChip": "Local document",
+    "loadErrorTitle": "Failed to load document",
+    "loading": "Loading…",
+    "outline": "Outline",
+    "openTitle": "Open document",
+    "ctrlClickHint": "Ctrl+Click to open document",
+    "copy": "Copy",
+    "copied": "Copied",
+    "railResize": "Drag to resize, double-click to reset",
+    "zoomReset": "Zoom: Ctrl+scroll to adjust, click to reset",
+    "panToggle": "Hand tool: drag to pan (middle-drag also works in md)",
+    "fold": "Collapse subheadings",
+    "unfold": "Expand subheadings"
+  },
   "terminal": {
     "banner": "LyShell v1.0.6",
     "buildLabel": "Build: {{date}}",

@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next'
 import i18n from '../../i18n'
 import { ConnectionStatus, type SessionConfig } from '@shared/types'
 import { Unicode15Provider } from './unicode15-provider'
+import { registerDocLinkProvider } from '../DocPanel/registerDocLinkProvider'
 
 // 注意：本组件依赖 xterm.js 内部私有 API，无稳定性承诺，xterm 任何版本更新都可能改名或移除。
 //   - IME 定位：_core、_compositionHelper、_textarea、updateCompositionElements、compositionstart
@@ -438,6 +439,11 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         }
       })
     }
+
+    // 文档链接 provider：输出行内 .md/.html/.txt 路径 Ctrl+点击开文档页签。
+    // 创建/复用两分支统一挂（幂等）：terminal-store 跨组件重挂载保留实例，
+    // 只挂创建分支会让"实例创建早于代码更新"的终端永远没有链接。
+    registerDocLinkProvider(terminal, sessionId)
 
     // 把 searchAddon 同步到 ref:无论是新建还是复用终端,都必须拿到搜索器,
     // 否则搜索框打开了但 findNext/clearDecorations 全打在 null 上。

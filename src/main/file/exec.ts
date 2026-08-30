@@ -905,6 +905,34 @@ export class ExecFileConnector extends BaseFileConnector {
     }
   }
 
+  /**
+   * 读取文件原始字节（文档预览用）—— 优先走 base64 通道（字节精确，任意编码安全）。
+   * 远端无 base64 时退化 cat：输出已被 execRaw 按 utf-8 解码，非 UTF-8 会话编码
+   * 下必产生不可逆乱码 —— 此时直接抛错，宁可拒绝也不展示错误内容。
+   */
+  async readFileBytes(filePath: string, maxSize: number, encoding = 'utf-8'): Promise<Buffer> {
+    const hasBase64 = await this.checkBase64Available()
+    if (hasBase64) {
+      // 与 downloadWithBase64 相同的超时公式：基础60秒 + 每MB额外30秒
+      const timeoutMs = 60000 + Math.ceil(maxSize / 1024 / 1024) * 30000
+      const b64 = await this.execShellCommand(`base64 ${this.quotePath(filePath)}`, timeoutMs)
+      const buf = Buffer.from(b64.replace(/[\s\r\n]/g, ''), 'base64')
+      if (buf.length > maxSize) {
+        throw new Error(`File too large (>${maxSize} bytes)`)
+      }
+      return buf
+    }
+    if (encoding !== 'utf-8') {
+      throw new Error(`Remote has no base64; cannot read ${encoding} documents losslessly on this connection`)
+    }
+    const out = await this.execRaw(`cat -- ${this.quotePath(filePath)}`)
+    const buf = Buffer.from(out, 'utf-8')
+    if (buf.length > maxSize) {
+      throw new Error(`File too large (>${maxSize} bytes)`)
+    }
+    return buf
+  }
+
   // ========== Python Agent 方法 ==========
 
   /**

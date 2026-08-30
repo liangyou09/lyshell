@@ -636,6 +636,24 @@
     "closePane": "关闭分屏",
     "dragToResize": "拖拽调整分屏比例"
   },
+  "doc": {
+    "close": "关闭文档页签",
+    "refresh": "刷新",
+    "remoteChip": "远端文档",
+    "localChip": "本地文档",
+    "loadErrorTitle": "文档读取失败",
+    "loading": "加载中…",
+    "outline": "大纲",
+    "openTitle": "打开文档",
+    "ctrlClickHint": "Ctrl+点击 打开文档",
+    "copy": "复制",
+    "copied": "已复制",
+    "railResize": "拖动调整宽度，双击复位",
+    "zoomReset": "缩放：Ctrl+滚轮调节，点击复位",
+    "panToggle": "抓手工具：按住拖动平移（md 也可随时中键拖拽）",
+    "fold": "收起子标题",
+    "unfold": "展开子标题"
+  },
   "terminal": {
     "banner": "LyShell v1.0.6",
     "buildLabel": "Build: {{date}}",

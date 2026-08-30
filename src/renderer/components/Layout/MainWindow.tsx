@@ -19,6 +19,8 @@ import { useThemeStore } from '../../stores/theme-store'
 import { useLocaleStore } from '../../stores/locale-store'
 import { useQuickCommandsStore } from '../../stores/quick-commands-store'
 import { dispatchCommand } from '../../utils/dispatch-command'
+import { openLocalDoc } from '../DocPanel/readDoc'
+import { isDocPath } from '@shared/types'
 import type { SessionConfig, QuickCommand } from '@shared/types'
 
 // 左列收起态/宽度的 localStorage 镜像 key -- 主进程 config 异步,首帧用它同步定态防闪
@@ -361,10 +363,11 @@ const MainWindow: React.FC = () => {
       e.preventDefault()
       e.stopPropagation()
 
-      // dsh web / 网页访问栏页签接管活动分屏时不发（对齐原"dsh web 激活时快捷命令不可用"语义）
+      // dsh web / 网页访问栏 / 文档页签接管活动分屏时不发（对齐原"dsh web 激活时快捷命令不可用"语义）
       const paneSt = usePaneStore.getState()
       if (paneSt.dshWebActive && paneSt.dshWebPaneId === paneSt.layout.activePaneId) return
       if (paneSt.webTabs.some(t => t.active && t.paneId === paneSt.layout.activePaneId)) return
+      if (paneSt.docTabs.some(t => t.active && t.paneId === paneSt.layout.activePaneId)) return
 
       // 发送到活动分屏的活动会话（同 handleExecuteCommand,内联避免 use-before-define）
       const activePane = paneSt.getAllLeafPanes().find(p => p.id === paneSt.layout.activePaneId)
@@ -391,6 +394,46 @@ const MainWindow: React.FC = () => {
     window.addEventListener('keydown', handleShortcut, true)
     return () => window.removeEventListener('keydown', handleShortcut, true)
   }, [])
+
+  // Ctrl+O 打开本地文档（拖放之外的第二个本地入口）：系统文件对话框 → openLocalDoc。
+  // 同 Ctrl+F1-F12 用 capture：焦点在终端时 xterm 先于冒泡处理按键，会吃掉 O。
+  useEffect(() => {
+    const handleOpenDoc = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return
+      if (e.key !== 'o' && e.key !== 'O') return
+      e.preventDefault()
+      e.stopPropagation()
+      window.electronAPI?.showOpenDialog({
+        title: t('doc.openTitle'),
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: 'Documents', extensions: ['md', 'markdown', 'html', 'htm', 'txt'] }]
+      }).then((result) => {
+        if (!result || result.canceled) return
+        for (const p of result.filePaths) {
+          if (isDocPath(p)) void openLocalDoc(p)
+        }
+      }).catch(() => { /* 对话框失败静默 */ })
+    }
+    window.addEventListener('keydown', handleOpenDoc, true)
+    return () => window.removeEventListener('keydown', handleOpenDoc, true)
+  }, [t])
+
+  // 本地文档拖入：OS 文件拖放（HTML5 FileList 在 Electron 28 携带绝对路径，先例
+  // FileManagerPanel）。只认 Files 类型的拖拽 —— 内部页签 HTML5 拖拽（data-tab-id）
+  // 与文本拖放不沾边，dragover 也不 preventDefault，避免全窗口变落点破坏分屏落点语义。
+  // 已知限制：harness webview 区域会吞宿主 drop 事件（既有问题，见 webview 记忆）。
+  const handleRootDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer?.types?.includes('Files')) e.preventDefault()
+  }
+  const handleRootDrop = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return
+    e.preventDefault()
+    e.stopPropagation()
+    for (const file of Array.from(e.dataTransfer.files)) {
+      const p = (file as unknown as { path?: string }).path
+      if (p && isDocPath(p)) void openLocalDoc(p)
+    }
+  }
 
   // MCP open_connection_dialog 工具（C4）：主进程推送 → 派发 newSession 事件，
   // 由 SessionsPanel 监听并打开"新建连接"对话框。agent 把凭据填写交还给用户（MCP 通道不接受凭据）。
@@ -486,7 +529,11 @@ const MainWindow: React.FC = () => {
     /* 浏览器式单行布局:左列(机柜轨+面板,全高) + 终端列。终端页签条提顶 --
        终端列从窗口顶部开始,最顶排 pane 的页签条即第一行(窗口拖拽区/留白见 PaneTabBar);
        窗口控制与侧栏开关以浮层挂在第一行两端(见 terminal-wrapper 内)。 */
-    <div className="flex h-screen bg-[var(--bg-base)] text-[var(--text-rack)] overflow-hidden">
+    <div
+      className="flex h-screen bg-[var(--bg-base)] text-[var(--text-rack)] overflow-hidden"
+      onDragOver={handleRootDragOver}
+      onDrop={handleRootDrop}
+    >
       {/* 左列:全高机柜轨 + 面板 + 宽度调整条。收起时宽度动画到 0(内容保持挂载、overflow 裁剪、
           不可交互) -- 常挂载让收起/展开有 150ms 推挤动画,也保留面板滚动位置等局部状态;
           副作用是收起时面板的事件监听仍存活(均为 store 写入类,无 UI 后果) */}

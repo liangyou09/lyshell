@@ -68,6 +68,8 @@ const IPC_CHANNELS = {
   FILE_OPEN_FOLDER: 'file:open-folder',
   FILE_MD5: 'file:md5',
   FILE_PWD: 'file:pwd',
+  FILE_READ_DOC: 'file:read-doc',  // 读取远端文档（预览用）
+  FILE_READ_LOCAL_DOC: 'file:read-local-doc',  // 读取本地文档（预览用）
 
   // 下载记录
   DOWNLOAD_HISTORY_LIST: 'download-history:list',
@@ -365,6 +367,8 @@ const electronAPI = {
   openFolder: (filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_OPEN_FOLDER, filePath),
   fileMd5: (sessionId: string, filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_MD5, sessionId, filePath),
   filePwd: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_PWD, sessionId),
+  fileReadDoc: (sessionId: string, path: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_READ_DOC, sessionId, path),
+  fileReadLocalDoc: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_READ_LOCAL_DOC, path),
   onFileProgress: (callback: (progress: unknown) => void) => {
     const listener = (_event: IpcRendererEvent, progress: unknown) => callback(progress)
     ipcRenderer.on(IPC_CHANNELS.FILE_PROGRESS, listener)

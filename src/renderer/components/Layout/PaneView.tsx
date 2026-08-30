@@ -6,6 +6,7 @@ import type { WebTabEntry } from '../../stores/pane-store'
 import TerminalView from '../Terminal/TerminalView'
 import PaneTabBar from './PaneTabBar'
 import { McpAuditPanel } from './McpAuditPanel'
+import DocTabOverlay from '../DocPanel/DocTabOverlay'
 import SplitDivider from './SplitDivider'
 import { getDraggingSessionId, setDraggingSessionId } from './SplitPaneContainer'
 import type { PaneNode, SplitDirection } from '@shared/types'
@@ -150,6 +151,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
   const dshWebActive = usePaneStore(s => s.dshWebActive)
   const draggingDshWeb = usePaneStore(s => s.draggingDshWeb)
   const webTabs = usePaneStore(s => s.webTabs)
+  const docTabs = usePaneStore(s => s.docTabs)
   const { getPaneBySessionId, getParentPane, getPanePositionInParent } = usePaneStore.getState()
   // 被隐藏的终端页签记录(Sidebar LIVE 段会话标签点击 toggle);订阅整个记录,任何 toggle 都会触发本组件重渲染。
   // 实际负载很小(仅 visibility 切换),未做按 pane 过滤的选择器。
@@ -575,6 +577,21 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
               }}
             >
               <WebTabOverlay tab={tab} />
+            </div>
+          ))}
+
+          {/* 文档页签覆盖层 —— 多开，纯 DOM 渲染（无 webview）；切到终端/其它页签用 */}
+          {/* visibility 隐藏（保滚动位置与组件状态），✕ 才卸载。每 pane 至多一个 active。 */}
+          {docTabs.filter(t => t.paneId === node.id).map(tab => (
+            <div
+              key={tab.id}
+              className="absolute inset-0"
+              style={{
+                visibility: tab.active ? 'visible' : 'hidden',
+                zIndex: tab.active ? 10 : 0
+              }}
+            >
+              <DocTabOverlay tab={tab} />
             </div>
           ))}
 

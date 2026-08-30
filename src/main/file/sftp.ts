@@ -173,6 +173,42 @@ export class SFTPFileConnector extends BaseFileConnector {
   }
 
   /**
+   * 读取文件原始字节（文档预览用）—— open/read 按块循环读到 EOF，超限抛错（不截断）。
+   * 返回未解码 Buffer，由调用方按会话编码 iconv.decode（execRaw 的 utf-8 解码对 GBK 有损）。
+   */
+  async readFileBytes(filePath: string, maxSize: number): Promise<Buffer> {
+    const sftp = await this.initSFTP()
+
+    const handle = await new Promise<Buffer>((resolve, reject) => {
+      sftp.open(filePath, 'r', (err, h) => (err ? reject(err) : resolve(h)))
+    })
+
+    try {
+      const chunks: Buffer[] = []
+      let total = 0
+      const chunkSize = 64 * 1024
+      const buf = Buffer.alloc(chunkSize)
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const bytesRead = await new Promise<number>((resolve, reject) => {
+          sftp.read(handle, buf, 0, chunkSize, total, (err, n) => (err ? reject(err) : resolve(n)))
+        })
+        if (bytesRead <= 0) break
+        total += bytesRead
+        if (total > maxSize) {
+          throw new Error(`File too large (>${maxSize} bytes)`)
+        }
+        chunks.push(Buffer.from(buf.subarray(0, bytesRead)))
+      }
+      return Buffer.concat(chunks)
+    } finally {
+      await new Promise<void>((resolve) => {
+        sftp.close(handle, () => resolve())
+      })
+    }
+  }
+
+  /**
    * 测试连接是否可用
    */
   async testConnection(): Promise<boolean> {

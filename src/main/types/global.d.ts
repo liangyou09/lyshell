@@ -59,4 +59,7 @@ export interface SFTPWrapper extends EventEmitter {
   rmdir(path: string, callback: (err: Error | undefined) => void): void
   rename(oldPath: string, newPath: string, callback: (err: Error | undefined) => void): void
   mkdir(path: string, callback: (err: Error | undefined) => void): void
+  open(path: string, flags: string, callback: (err: Error | undefined, handle: Buffer) => void): void
+  read(handle: Buffer, buffer: Buffer, offset: number, length: number, position: number, callback: (err: Error | undefined, bytesRead: number) => void): void
+  close(handle: Buffer, callback: (err: Error | undefined) => void): void
 }

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import FileTree from './FileTree'
 import FileToolbar from './FileToolbar'
+import { openRemoteDoc } from '../DocPanel/readDoc'
 import { useFileStore, useSessionStore } from '../../stores'
 import type { FileInfo } from '@shared/types'
 
@@ -272,6 +273,10 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
       <div className="flex-1 overflow-hidden">
         <FileTree
           sessionId={sessionId}
+          onFileDoubleClick={(file) => {
+            // 文档预览入口：白名单外的双击无操作（readDoc 内部同样再验一次）
+            void openRemoteDoc(sessionId, file.path)
+          }}
           onFileDownload={handleDownload}
           onFileUpload={handleUpload}
           onFileDelete={handleDelete}

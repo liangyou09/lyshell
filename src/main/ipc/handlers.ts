@@ -25,7 +25,9 @@ import type { WorktreeListResult } from '@shared/worktree'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { ConnectionStatus } from '../connectors'
 import { reachabilityProber, type ReachabilityTarget } from '../reachability/reachability-prober'
-import { ConnectionType } from '@shared/types'
+import { ConnectionType, isDocPath, DOC_MAX_REMOTE_BYTES, DOC_MAX_LOCAL_BYTES } from '@shared/types'
+import type { DocReadResult } from '@shared/types'
+import * as iconv from 'iconv-lite'
 import { fileManager, startDownloadWorker, registerTaskMeta, startUploadWorker, cancelDownload, cancelUpload, assertSafeLocalPath } from '../file'
 import type { SessionConfig } from '@shared/types'
 import {
@@ -202,6 +204,8 @@ export const IPC_CHANNELS = {
   FILE_OPEN_FOLDER: 'file:open-folder',  // 打开文件夹
   FILE_MD5: 'file:md5',  // 计算远程文件MD5
   FILE_PWD: 'file:pwd',  // 获取当前工作目录
+  FILE_READ_DOC: 'file:read-doc',  // 读取远端文档（预览用，按会话编码解码）
+  FILE_READ_LOCAL_DOC: 'file:read-local-doc',  // 读取本地文档（预览用，扩展名白名单只读）
 
   // 下载记录
   DOWNLOAD_HISTORY_LIST: 'download-history:list',
@@ -1259,6 +1263,83 @@ export function registerIPCHandlers(): void {
       return { success: false, error: 'Cannot execute command' }
     } catch (error) {
       log.error('File pwd error:', error)
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  // 读取远端文档（文档预览用）：扩展名白名单 → stat 拒目录/超限 → 读原始字节 → 按会话编码 iconv 解码
+  ipcMain.handle(IPC_CHANNELS.FILE_READ_DOC, async (_event, _sessionId: string, _path: string) => {
+    try {
+      const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+      const docPath = assertString(_path, 'path', { maxLength: 4096 })
+      if (!isDocPath(docPath)) {
+        return { success: false, error: 'Unsupported file type' }
+      }
+      const connector = await fileManager.getConnector(sessionId)
+      if (!connector) {
+        return { success: false, error: 'No file connector for session' }
+      }
+      if (!connector.readFileBytes) {
+        return { success: false, error: 'Connector does not support reading files' }
+      }
+      const info = await connector.stat(docPath)
+      if (info.isDir) {
+        return { success: false, error: 'Path is a directory' }
+      }
+      // exec 连接器走 base64 shell 通道，读大文件慢且易触超时 —— 单独限 512KB
+      const maxSize = connector.getType() === 'exec'
+        ? Math.min(DOC_MAX_REMOTE_BYTES, 512 * 1024)
+        : DOC_MAX_REMOTE_BYTES
+      if (info.size > maxSize) {
+        return { success: false, error: `File too large (${info.size} bytes > ${maxSize} limit)` }
+      }
+      const session = sessionManager.getSession(sessionId)
+      const encoding = session?.config.terminal?.encoding ?? 'utf-8'
+      // encoding 传给读取层：exec 连接无 base64 时，非 UTF-8 编码直接报错而非有损 cat
+      const buf = await connector.readFileBytes(docPath, maxSize, encoding)
+      const result: DocReadResult = {
+        content: iconv.decode(buf, encoding),
+        size: info.size,
+        mtime: info.modifyTime.getTime(),
+        encoding
+      }
+      return { success: true, data: result }
+    } catch (error) {
+      log.error('File read-doc error:', error)
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  // 读取本地文档（文档预览用）：绝对路径 + 扩展名白名单 + assertSafeLocalPath 只读闸门 + 10MB 上限
+  ipcMain.handle(IPC_CHANNELS.FILE_READ_LOCAL_DOC, async (_event, _path: string) => {
+    try {
+      const docPath = assertString(_path, 'path', { maxLength: 4096 })
+      if (!path.isAbsolute(docPath)) {
+        return { success: false, error: 'Path must be absolute' }
+      }
+      if (!isDocPath(docPath)) {
+        return { success: false, error: 'Unsupported file type' }
+      }
+      // 复用本地路径闸门（敏感路径黑名单），只读
+      assertSafeLocalPath(docPath, { write: false })
+      const stat = await fs.promises.stat(docPath)
+      if (stat.isDirectory()) {
+        return { success: false, error: 'Path is a directory' }
+      }
+      if (stat.size > DOC_MAX_LOCAL_BYTES) {
+        return { success: false, error: `File too large (${stat.size} bytes > ${DOC_MAX_LOCAL_BYTES} limit)` }
+      }
+      // 本地文档暂按 utf-8 读（不做编码探测）
+      const buf = await readFile(docPath)
+      const result: DocReadResult = {
+        content: buf.toString('utf-8'),
+        size: stat.size,
+        mtime: stat.mtimeMs,
+        encoding: 'utf-8'
+      }
+      return { success: true, data: result }
+    } catch (error) {
+      log.error('File read-local-doc error:', error)
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }
   })

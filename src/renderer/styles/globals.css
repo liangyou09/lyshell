@@ -425,6 +425,462 @@ body {
   background: transparent;
 }
 
+/* === 文档页签（DocPanel）— 全部走 rack 变量，7 主题自动适配 ===
+   设计语言（design/markdown-viewer.html）：等宽正文、幽灵 # 记号标题、
+   148px sticky 大纲轨、codehead 代码块、amber 引用缘 */
+
+/* 阅读画布：滚动容器 + 容器查询锚点（窄 pane 收起大纲栏）。
+   size 容器（高度由 inset-0 外部决定，size containment 安全）：
+   @container 宽度查询照旧，另为目录轨提供 100cqh = pane 高 */
+.doc-body {
+  container-type: size;
+  background: var(--bg-base);
+}
+
+/* HTML iframe 缩放护盾：默认穿透（文档自身滚动），平移模式或按住 Ctrl 时接管 */
+.doc-html-shield {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.doc-html-shield.on {
+  pointer-events: auto;
+}
+
+.doc-html-shield.on.zoom { cursor: zoom-in; }
+.doc-html-shield.on.pan { cursor: grab; }
+.doc-html-shield.on.pan.dragging { cursor: grabbing; }
+
+/* 抓手平移（md）：内容区抓手光标；拖动中全局 grabbing + 禁选中（!important 压过子元素光标） */
+.doc-body.doc-pan { cursor: grab; }
+
+body.doc-pan-dragging,
+body.doc-pan-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+.doc-grid {
+  display: grid;
+  /* 列宽走 --doc-rail-w（目录边线可拖拽调宽，OutlineRail 写入 :root 并持久化） */
+  grid-template-columns: var(--doc-rail-w, 160px) minmax(0, 1fr);
+  min-height: 100%;
+}
+
+/* 无标题文档：不留大纲死槽 */
+.doc-grid-plain {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* 大纲栏 — 全高轨道（右边线拉到底）+ sticky 目录 + 沿分隔线滑动的 amber 手柄 */
+.doc-rail-track {
+  position: relative;
+  border-right: 1px solid var(--rule-soft);
+  min-width: 0;
+}
+
+/* 拖拽热区：覆盖边线的 7px 竖条；hover/拖拽时整条边线亮起 amber 预览 */
+.doc-rail-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 7px;
+  z-index: 5;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.doc-rail-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 2px;
+  background: var(--amber);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.doc-rail-resizer:hover::after { opacity: 0.4; }
+.doc-rail-resizer.dragging::after { opacity: 0.8; }
+
+.doc-rail-resizer:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: -1px;
+}
+
+/* 拖拽期间：全局列宽光标 + 禁止正文本选中（拖动横扫正文时防误选） */
+body.doc-rail-dragging {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* 目录轨自身可滚：超过 pane 高（100cqh）时出滚动条（rack-scroll 样式），
+   激活项变化时组件负责把它滚进可视区 */
+.doc-rail {
+  position: sticky;
+  top: 0;
+  max-height: 100cqh;
+  overflow-y: auto;
+  padding: 28px 0 24px 16px;
+  font-size: 14px;
+}
+
+.doc-rail-label {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 0 10px 10px;
+  color: var(--text-rack-faint);
+  letter-spacing: 1.5px;
+}
+
+/* 条目计数 —— tabular 对齐，不参与 letterspacing */
+.doc-rail-count {
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.doc-rail-list { position: relative; }
+
+.doc-rail-item {
+  display: block;
+  width: 100%;
+  padding: 4px 14px 4px 10px;
+  color: var(--text-rack-mute);
+  background: none;
+  border: none;
+  text-align: left;
+  font: inherit;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: color 0.12s;
+}
+
+/* 标题层级：字号/缩进 + 灰度编码，灰度整体上移一档 —— rack(粗)→rack→data→mute，
+   dim/faint 在深底上不可读，弃用（明暗主题两系阶梯方向均单调） */
+.doc-rail-item[data-level="1"] { font-weight: 600; color: var(--text-rack); }
+.doc-rail-item[data-level="2"] { padding-left: 22px; color: var(--text-rack); }
+.doc-rail-item[data-level="3"] { padding-left: 32px; font-size: 13px; color: var(--text-rack-data); }
+.doc-rail-item[data-level="4"] { padding-left: 40px; font-size: 13px; color: var(--text-rack-mute); }
+
+/* 折叠钮：CSS 边框画实心三角（字形随字号缩放不精确，边框像素可控）——
+   展开时 ▼ 向下、收起时 ▶ 向右；叶子渲染占位（visibility 保宽）对齐同级文本 */
+.doc-rail-fold {
+  display: inline-block;
+  width: 14px;
+  margin-right: 1px;
+  color: var(--text-rack-mute);
+  text-align: center;
+  transition: color 0.12s;
+  user-select: none;
+}
+.doc-rail-fold::before {
+  content: '';
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-top: 5px solid currentColor;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  vertical-align: middle;
+}
+.doc-rail-fold.closed::before {
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid currentColor;
+  border-right: 0;
+}
+.doc-rail-fold:hover { color: var(--text-rack); }
+.doc-rail-fold.leaf { visibility: hidden; pointer-events: none; }
+
+/* hover/on 排在层级规则之后，同特异度靠后者胜 */
+.doc-rail-item:hover { color: var(--text-rack); }
+.doc-rail-item.on { color: var(--amber); }
+
+/* amber 手柄：贴右缘分隔线，随 scrollspy 沿边线滑动 */
+.doc-rail-marker {
+  position: absolute;
+  right: 0;
+  width: 2px;
+  background: var(--amber);
+  transition: top 0.18s ease, height 0.18s ease, opacity 0.12s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-rail-marker { transition: none; }
+  .doc-rail-fold { transition: none; }
+}
+
+.doc-rail-item:focus-visible,
+.doc-copy:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: -2px;
+}
+
+/* 正文 — 全文等宽（字体由组件内联 DEFAULT_FONT_FAMILY） */
+.doc-content {
+  padding: 28px 40px 70px;
+  min-width: 0;
+  color: var(--text-rack);
+  font-size: 13.5px;
+  line-height: 1.8;
+}
+
+.doc-content > :first-child { margin-top: 0; }
+
+/* 幽灵 # 记号标题 — 记号悬于标题左侧凹槽 */
+.doc-content h1,
+.doc-content h2 {
+  position: relative;
+  font-weight: 700;
+  letter-spacing: .2px;
+  text-wrap: balance;
+  scroll-margin-top: 14px;
+}
+
+.doc-content h1 { font-size: 19px; margin: 0 0 14px; line-height: 1.5; }
+.doc-content h2 { font-size: 15.5px; margin: 34px 0 10px; }
+.doc-content h3 { font-size: 14px; font-weight: 700; margin: 26px 0 8px; }
+.doc-content h4 { font-size: 12.5px; font-weight: 700; color: var(--text-rack-data); margin: 22px 0 8px; }
+
+.doc-content h1::before,
+.doc-content h2::before {
+  position: absolute;
+  right: calc(100% + 10px);
+  color: var(--text-rack-faint);
+  opacity: .6;
+  font-weight: 400;
+}
+
+.doc-content h1::before { content: "#"; }
+.doc-content h2::before { content: "##"; }
+
+.doc-content p { margin: 12px 0; }
+.doc-content strong { font-weight: 700; }
+.doc-content del { color: var(--text-rack-mute); }
+.doc-content hr { border: none; border-top: 1px solid var(--rule); margin: 24px 0; }
+
+/* 行内码 chip */
+.doc-ic {
+  background: var(--bg-slot);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: .92em;
+  color: var(--amber);
+  white-space: nowrap;
+}
+
+/* 文档内链接：只读（外链/锚点/非文档）灰虚线；可打开的文档链接 amber 实线 */
+.doc-link {
+  color: var(--text-rack-mute);
+  text-decoration: underline dashed;
+  text-decoration-color: var(--rule);
+  text-underline-offset: 3px;
+}
+
+.doc-link-file {
+  color: var(--amber);
+  text-decoration-style: solid;
+  text-decoration-color: var(--amber-soft, var(--amber));
+  cursor: pointer;
+}
+
+.doc-link-file:hover { color: var(--text-rack); }
+
+/* 列表 — 自定义 "–" / 计数记号 */
+.doc-content ul,
+.doc-content ol { margin: 12px 0; padding: 0; list-style: none; }
+.doc-content li { position: relative; padding-left: 2ch; margin: 6px 0; }
+.doc-content ul li::before { content: "–"; position: absolute; left: 0; color: var(--text-rack-faint); }
+.doc-content ol { counter-reset: step; }
+.doc-content ol li { counter-increment: step; padding-left: 2.6ch; }
+.doc-content ol li::before {
+  content: counter(step) ".";
+  position: absolute;
+  left: 0;
+  color: var(--text-rack-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* GFM 任务列表 — 原生 checkbox，去自定义记号 */
+.doc-content li:has(> input[type="checkbox"]) { padding-left: 0; }
+.doc-content li:has(> input[type="checkbox"])::before { content: none; }
+.doc-content input[type="checkbox"] { margin-right: 6px; accent-color: var(--amber); }
+
+/* 引用 — amber 左缘 + 淡染底 */
+.doc-content blockquote {
+  margin: 16px 0;
+  border-left: 2px solid var(--amber);
+  background: var(--amber-soft);
+  border-radius: 0 6px 6px 0;
+  padding: 10px 14px;
+  font-size: 13px;
+}
+
+/* 代码块 — codehead（语言 chip + 复制）+ hljs 高亮体（底色用终端画布色） */
+.doc-codeblock {
+  margin: 16px 0;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--terminal-bg);
+}
+
+.doc-codehead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 8px 5px 12px;
+  background: var(--bg-slot);
+  border-bottom: 1px solid var(--rule);
+}
+
+.doc-lang {
+  font-size: 11px;
+  color: var(--text-rack-mute);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  letter-spacing: .5px;
+}
+
+.doc-lang::before { content: ""; width: 6px; height: 6px; border-radius: 2px; background: var(--amber); }
+
+.doc-copy {
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--text-rack-mute);
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 2px 9px;
+  cursor: pointer;
+}
+
+.doc-copy:hover { color: var(--text-rack); border-color: var(--text-rack-dim); }
+
+.doc-code {
+  margin: 0;
+  padding: 13px 16px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--text-rack);
+}
+
+/* hljs token → rack 语义色（amber=关键字 / live=字符串 / reachable=数值 / proto-*=类型与属性） */
+.doc-code .hljs-keyword,
+.doc-code .hljs-selector-tag,
+.doc-code .hljs-tag,
+.doc-code .hljs-doctag { color: var(--amber); }
+
+.doc-code .hljs-string,
+.doc-code .hljs-regexp,
+.doc-code .hljs-addition { color: var(--live); }
+
+.doc-code .hljs-comment,
+.doc-code .hljs-quote { color: var(--text-rack-mute); font-style: italic; }
+
+.doc-code .hljs-number,
+.doc-code .hljs-literal,
+.doc-code .hljs-symbol { color: var(--reachable); }
+
+.doc-code .hljs-title,
+.doc-code .hljs-title.function_,
+.doc-code .hljs-section,
+.doc-code .hljs-name { color: var(--proto-ssh); }
+
+.doc-code .hljs-title.class_,
+.doc-code .hljs-type,
+.doc-code .hljs-built_in { color: var(--reachable); }
+
+.doc-code .hljs-attr,
+.doc-code .hljs-attribute,
+.doc-code .hljs-variable,
+.doc-code .hljs-params,
+.doc-code .hljs-selector-attr,
+.doc-code .hljs-selector-class,
+.doc-code .hljs-selector-id { color: var(--proto-loc); }
+
+.doc-code .hljs-meta,
+.doc-code .hljs-meta .hljs-keyword { color: var(--text-rack-data); }
+
+.doc-code .hljs-deletion { color: var(--error-rack); }
+.doc-code .hljs-strong { font-weight: 700; }
+.doc-code .hljs-emphasis { font-style: italic; }
+
+/* 表格 — 表头 slot 底、首列 amber、数字等宽；宽表在自容器内横滚 */
+.doc-table-wrap { overflow-x: auto; margin: 16px 0; }
+
+.doc-content table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+
+.doc-content th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-rack-mute);
+  font-size: 11px;
+  letter-spacing: 1px;
+  background: var(--bg-slot);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.doc-content td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule);
+  font-variant-numeric: tabular-nums;
+}
+
+.doc-content td:first-child { color: var(--amber); }
+
+/* 图片 — data: 直显；被 CSP 拦的远端图由组件降级为占位 chip */
+.doc-img { max-width: 100%; }
+
+.doc-img-off {
+  background: var(--bg-slot);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: .92em;
+  color: var(--text-rack-mute);
+  white-space: nowrap;
+}
+
+/* 终端文档链接悬浮提示（registerDocLinkProvider 自建浮层） */
+.doc-link-tip {
+  position: fixed;
+  z-index: 1000;
+  display: none;
+  background: var(--bg-elev);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  color: var(--text-rack);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .25);
+}
+
+/* 窄 pane — 收起大纲栏、收紧正文内距 */
+@container (max-width: 620px) {
+  .doc-grid { grid-template-columns: minmax(0, 1fr); }
+  .doc-rail-track { display: none; }
+  .doc-content { padding: 22px 18px 50px; }
+  .doc-content h1::before,
+  .doc-content h2::before { display: none; }
+}
+
 /* 无障碍 */
 @media (prefers-reduced-motion: reduce) {
   * {

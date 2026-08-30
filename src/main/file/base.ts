@@ -94,6 +94,15 @@ export abstract class BaseFileConnector extends EventEmitter {
   execRaw?(command: string, timeout?: number): Promise<string>
 
   /**
+   * 读取文件原始字节（可选，文档预览用）。返回未解码 Buffer，
+   * 由调用方按会话编码 iconv.decode —— execRaw 的 utf-8 解码对 GBK 文件有损。
+   * encoding 为会话编码：exec 连接的无损 base64 通道不可用时，非 UTF-8 编码
+   * 只能走有损 cat 兜底，此时直接抛错而不是回错误内容。
+   * 超过 maxSize 抛错（不截断）。
+   */
+  readFileBytes?(path: string, maxSize: number, encoding?: string): Promise<Buffer>
+
+  /**
    * 流式执行命令（可选）：stdout/stderr 增量通过 onData 回调推送，
    * 最终 resolve { output, exitCode }。用于 MCP execute_command stream 模式。
    * signal 可用于客户端断开时中止执行（best-effort）。

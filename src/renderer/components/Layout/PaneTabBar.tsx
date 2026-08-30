@@ -175,9 +175,13 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
   const dshWebTabIndex = usePaneStore(s => s.dshWebTabIndex)
   const draggingDshWeb = usePaneStore(s => s.draggingDshWeb)
   const webTabs = usePaneStore(s => s.webTabs)
+  const docTabs = usePaneStore(s => s.docTabs)
   // 本 pane 的网页访问栏页签（多开）；激活态判定用于会话页签高亮互斥
   const paneWebTabs = webTabs.filter(t => t.paneId === pane.id)
   const webTabActiveHere = paneWebTabs.some(t => t.active)
+  // 本 pane 的文档页签（多开）；激活态判定同上
+  const paneDocTabs = docTabs.filter(t => t.paneId === pane.id)
+  const docTabActiveHere = paneDocTabs.some(t => t.active)
   const { t } = useTranslation()
   // 被隐藏的页签(Sidebar LIVE 段会话标签点击 toggle)——不渲染对应页签,但终端实例保留
   const hiddenTabSessions = usePaneStore(s => s.hiddenTabSessions)
@@ -225,6 +229,8 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
     if (paneSt.dshWebPaneId === pane.id && paneSt.dshWebActive) paneSt.deactivateDshWeb()
     // 网页访问栏页签同理：仅隐藏（webview 保持挂载、页面状态不丢），点网页页签可切回
     if (paneSt.webTabs.some(t => t.paneId === pane.id && t.active)) paneSt.deactivateWebTabsInPane(pane.id)
+    // 文档页签同理：仅隐藏（滚动位置保留），点文档页签可切回
+    if (paneSt.docTabs.some(t => t.paneId === pane.id && t.active)) paneSt.deactivateDocTabsInPane(pane.id)
     setActiveSessionInPane(pane.id, sessionId)
     // 清除活动状态
     useSessionStore.getState().setSessionActivity(sessionId, false)
@@ -652,7 +658,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
             title={t('pane.tabHint')}
             className={cn(
               'win-no-drag flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
-              pane.activeSessionId === session.id && !mcpActiveHere && !webActiveHere && !webTabActiveHere
+              pane.activeSessionId === session.id && !mcpActiveHere && !webActiveHere && !webTabActiveHere && !docTabActiveHere
                 ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
                 : session.hasActivity
                   ? 'bg-[var(--reachable)]/25 text-[var(--text-rack)] hover:bg-[var(--reachable)]/35 shadow-[inset_2px_0_0_var(--reachable)]' // 有未读输出:reachable 青调底 + 左侧 stripe
@@ -775,6 +781,40 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
         ))}
         {/* web 页签位于末尾时渲染在 MCP 页签之后（与既有次序一致）；中段位置已在上方 map 内插入 */}
         {webInsertAt >= paneSessions.length && webTabEl}
+
+        {/* 文档页签（多开）—— 文件树双击 / 拖放 / Ctrl+O / 终端 Ctrl+点击打开的只读文档； */}
+        {/* 点页签切回（activateDocTab 会去活同 pane 其它 overlay），✕ 关闭。 */}
+        {/* 来源点色：琥珀=远端、青=本地（与 DocHeader 一致）。 */}
+        {paneDocTabs.map(tab => (
+          <div
+            key={tab.id}
+            data-tab-id={tab.id}
+            onClick={() => usePaneStore.getState().activateDocTab(tab.id)}
+            title={tab.path}
+            className={cn(
+              'win-no-drag flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
+              tab.active
+                ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
+                : 'bg-[var(--bg-rack)] text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)]'
+            )}
+          >
+            <span
+              aria-hidden
+              className={cn(
+                'w-[7px] h-[7px] rounded-full flex-shrink-0',
+                tab.source === 'remote' ? 'bg-[var(--amber)]' : 'bg-[var(--reachable)]'
+              )}
+            />
+            <span className="text-xs truncate max-w-[150px]">{tab.title}</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); usePaneStore.getState().closeDocTab(tab.id) }}
+              title={t('doc.close')}
+              className="win-no-drag ml-auto w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
       </div>
 
       {/* 右滚动按钮 */}
