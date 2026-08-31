@@ -135,7 +135,7 @@ Secret-looking values (`*_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, …) are **
 
 Point multiple agents at the same repository without them stomping each other. Flip a workspace to **worktree** isolation and it launches inside a dedicated git worktree at `<repo>/.lyshell-worktrees/<key>` on branch `lyshell/<key>` — created on first launch, reused ever after, so **uncommitted changes survive restarts**. Deleting the workspace never deletes its worktree.
 
-- **Private (default)** — a readable key is auto-generated (`claude-myapp-x7k2`); each workspace gets its own checkout.
+- **Private (default)** — a readable key is auto-generated (`claude-myapp-20260708-160745`, the trailing stamp is the creation time, second-precise); each workspace gets its own checkout.
 - **Shared** — set the key explicitly, and every workspace that fills in the same key shares one checkout *and* one branch, even across dsh / codex / claude — they see each other's edits live.
 - The form **previews the exact worktree path** before you save; invalid keys (path separators, ref-hostile characters) are rejected up front.
 
