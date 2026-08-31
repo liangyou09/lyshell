@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
+import { generateWorktreeStamp } from '@shared/worktree'
 // 内置品牌图标:Vite new URL 模式取打包后资产 URL(免 *.png 模块声明)
 const claudeIcon = new URL('../../assets/agent-icons/claude.png', import.meta.url).href
 const codexIcon = new URL('../../assets/agent-icons/codex.png', import.meta.url).href
@@ -211,10 +212,13 @@ const AgentsPanel: React.FC = () => {
     setShowDialog(true)
   }
   const handleSave = async () => {
-    if (!agentName.trim() || !agentCommand.trim()) {
+    if (!agentCommand.trim()) {
       setTriedSubmit(true)
       return
     }
+    // 名称留空 → 默认名「工作区-<时间戳>」（与 Harness 工作区同一套默认命名,
+    // 时间戳格式同为 @shared/worktree 的 generateWorktreeStamp:YYYYMMDD-HHmm）
+    const name = agentName.trim() || `${t('agents.edit.defaultName')}-${generateWorktreeStamp()}`
     // 折叠 env:丢弃空 key 行;同名 key 后者覆盖
     const env: Record<string, string> = {}
     for (const row of agentEnv) {
@@ -225,7 +229,7 @@ const AgentsPanel: React.FC = () => {
     if (editAgent) {
       await window.electronAPI?.updateAgent({
         ...editAgent,
-        name: agentName.trim(),
+        name,
         command: agentCommand.trim(),
         icon: agentIcon || undefined,
         cwd: agentCwd || undefined,
@@ -233,7 +237,7 @@ const AgentsPanel: React.FC = () => {
       })
     } else {
       await window.electronAPI?.addAgent({
-        name: agentName.trim(),
+        name,
         command: agentCommand.trim(),
         icon: agentIcon || undefined,
         cwd: agentCwd || undefined,
@@ -276,7 +280,8 @@ const AgentsPanel: React.FC = () => {
     }
   }
 
-  const valid = agentName.trim().length > 0 && agentCommand.trim().length > 0
+  // 名称可留空(保存时默认「工作区-<时间戳>」),命令必填 —— 它才是 Agent 的身份
+  const valid = agentCommand.trim().length > 0
   const envKeys = agentEnv.map(r => r.key.trim()).filter(Boolean)
   // 编辑中 command 对应的内置图标(emoji 为空时在选择器按钮上预览)
   const previewIcon = bundledIconFor(agentCommand)

@@ -5,7 +5,9 @@
  *   - validateWorktreeKey / sanitizeRefSegment 自 main/harness/worktree.ts 下沉而来（单一事实源，
  *     两侧共用同一套校验规则，避免渲染层自动生成的 key 在保存时被主进程拒绝）；
  *   - generateWorktreeCode / generateWorktreeKey 供渲染层在「选择 worktree 隔离」时自动生成
- *     <kind>-<工作区名>-<随机代号> 形态的可读 key（随机代号保证同名工作区不意外共用）。
+ *     <kind>-<工作区名>-<秒级时间戳> 形态的可读 key（时间戳保证同名工作区不意外共用，且可读出
+ *     创建时间）。工作区/Agent 名称留空时的默认命名（工作区-<时间戳>）用分钟级的
+ *     generateWorktreeStamp —— 同一套拼装、两种粒度。
  */
 export const WORKTREE_DIR = '.lyshell-worktrees'
 export const BRANCH_PREFIX = 'lyshell'
@@ -42,48 +44,44 @@ export function sanitizeRefSegment(key: string): string {
   return folded.length > 0 ? folded : 'wt'
 }
 
-/** 随机码字符集：小写字母 + 数字（ref 安全，且避免大小写折叠带来的视觉歧义）。 */
-const CODE_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789'
+/** 时间戳拼接（本地时区）：withSeconds=false 为 YYYYMMDD-HHmm，true 为 YYYYMMDD-HHmmss。 */
+function formatStamp(date: Date, withSeconds: boolean): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const base = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}`
+  return withSeconds ? `${base}${pad(date.getSeconds())}` : base
+}
 
 /**
- * 生成随机代号（默认 4 位小写字母数字，36^4 ≈ 168 万组合）。随机源优先 WebCrypto
- * （渲染层与 Node 18 主进程均可用），缺省回落 Math.random —— 代号只求可读唯一，无密码学要求。
+ * 生成分钟级时间戳（本地时区 YYYYMMDD-HHmm，如 20260708-1607）：
+ * 工作区/Agent 名称留空时的默认命名后缀（工作区-<时间戳>）与「选目录自动填名」的基名后缀。
+ * 分钟粒度与用户示例格式一致；同一分钟内连建多个会重名，由列表的 cwd 行区分。
  */
-export function generateWorktreeCode(length = 4): string {
-  let out = ''
-  for (let i = 0; i < length; i++) {
-    out += CODE_CHARS[randomInt(CODE_CHARS.length)]
-  }
-  return out
-}
-
-function randomInt(maxExclusive: number): number {
-  // 结构化类型而非 Crypto：本模块同时跑 node/web 两套 tsconfig，不依赖任何一侧的 lib 定义
-  const cryptoObj = (globalThis as { crypto?: { getRandomValues?: (buf: Uint32Array) => Uint32Array } }).crypto
-  if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
-    // 拒绝采样：Uint32 落在最后一个完整周期外时重抽，保证均匀
-    const limit = Math.floor(0x100000000 / maxExclusive) * maxExclusive
-    const buf = new Uint32Array(1)
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      cryptoObj.getRandomValues(buf)
-      if (buf[0] < limit) return buf[0] % maxExclusive
-    }
-  }
-  return Math.floor(Math.random() * maxExclusive)
+export function generateWorktreeStamp(): string {
+  return formatStamp(new Date(), false)
 }
 
 /**
- * 生成自动 key：<kind>-<工作区名清洗段>-<代号>（如 claude-lyshell-x7k2）。
- * kind/code 当前调用方恒传安全值（kind 为小写字母、代号为 [a-z0-9]），这里同样过彻底清洗 ——
- * 使「恒过 validateWorktreeKey」的不变量对任意输入成立，未来暴露为通用 API 也无需先校验。
+ * 生成秒级时间戳代号（本地时区 YYYYMMDD-HHmmss，如 20260708-160745）：
+ * worktree 自动 key 的代号段，取代旧随机代号 —— 仍承担「同名工作区不意外共用」的区分职责
+ * （秒级粒度下经 UI 流程实际撞不了车），同时一眼可读出创建时间。
+ * 纯 Date 拼接、无随机源，主进程与渲染层（两套 tsconfig）行为一致。
+ */
+export function generateWorktreeCode(): string {
+  return formatStamp(new Date(), true)
+}
+
+/**
+ * 生成自动 key：<kind>-<工作区名清洗段>-<代号>（如 claude-lyshell-20260708-160745，代号现恒为
+ * generateWorktreeCode 的秒级时间戳）。kind/code 当前调用方恒传安全值（kind 为小写字母、时间戳
+ * 为数字与连字符），这里同样过彻底清洗 —— 使「恒过 validateWorktreeKey」的不变量对任意输入成立，
+ * 未来暴露为通用 API 也无需先校验。
  * 名称段按总长 64 预算截断；名称为空、或全被折叠（sanitize 兜底成 'wt' 伪影）时丢弃名称段，
  * 退化为 <kind>-<代号>。
  */
 export function generateWorktreeKey(kind: string, name: string, code: string): string {
   const safeKind = sanitizeKeySegment(kind)
   const safeCode = sanitizeKeySegment(code)
-  // 两个连接符各占 1 字符；kind/codex 最长 5 + 代号默认 4 → 名称预算 53
+  // 两个连接符各占 1 字符；kind 最长 5 + 秒级代号 15 → 名称预算 42
   const budget = 64 - safeKind.length - safeCode.length - 2
   const sliced = sliceCodeUnits(name.trim(), Math.max(0, budget))
   const sanitized = sanitizeKeySegment(sliced)

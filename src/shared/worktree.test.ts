@@ -1,19 +1,50 @@
 import { describe, it, expect } from 'vitest'
-import { generateWorktreeCode, generateWorktreeKey, joinWorktreePath, validateWorktreeKey } from './worktree'
+import { generateWorktreeCode, generateWorktreeStamp, generateWorktreeKey, joinWorktreePath, validateWorktreeKey } from './worktree'
 
 /** 悬空代理检测：先剔除完整代理对，仍剩代理单元才真悬空（会渲染成 U+FFFD） */
 const hasLoneSurrogate = (s: string) =>
   /[\uD800-\uDFFF]/.test(s.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, ''))
 
-describe('generateWorktreeCode', () => {
-  it('恒为默认 4 位小写字母数字', () => {
-    for (let i = 0; i < 200; i++) {
-      expect(generateWorktreeCode()).toMatch(/^[a-z0-9]{4}$/)
+/** 与 formatStamp 相同的拼装，供「与当前时间一致」断言复用 */
+const fmtStamp = (d: Date, withSeconds: boolean) => {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const base = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`
+  return withSeconds ? `${base}${pad(d.getSeconds())}` : base
+}
+
+describe('generateWorktreeStamp', () => {
+  it('恒为本地时间 YYYYMMDD-HHmm 形态（分钟级，名称默认命名用）', () => {
+    for (let i = 0; i < 5; i++) {
+      expect(generateWorktreeStamp()).toMatch(/^\d{8}-\d{4}$/)
     }
   })
 
-  it('自定义长度生效', () => {
-    expect(generateWorktreeCode(8)).toMatch(/^[a-z0-9]{8}$/)
+  it('与当前本地时间一致（含补零）', () => {
+    // 跨分钟边界容错：调用恰好横跨 HH:mm → HH:mm+1 时，接受前/后两次期望值之一
+    const before = fmtStamp(new Date(), false)
+    const stamp = generateWorktreeStamp()
+    const after = fmtStamp(new Date(), false)
+    expect([before, after]).toContain(stamp)
+  })
+})
+
+describe('generateWorktreeCode', () => {
+  it('恒为本地时间 YYYYMMDD-HHmmss 形态（秒级，worktree key 代号段用）', () => {
+    for (let i = 0; i < 5; i++) {
+      expect(generateWorktreeCode()).toMatch(/^\d{8}-\d{6}$/)
+    }
+  })
+
+  it('与当前本地时间一致（含补零）', () => {
+    // 跨秒边界容错，理由同上
+    const before = fmtStamp(new Date(), true)
+    const code = generateWorktreeCode()
+    const after = fmtStamp(new Date(), true)
+    expect([before, after]).toContain(code)
+  })
+
+  it('时间戳代号 ref 安全：恒过 validateWorktreeKey', () => {
+    expect(validateWorktreeKey(generateWorktreeCode()).ok).toBe(true)
   })
 })
 

@@ -135,7 +135,7 @@ CLI 依赖 — DeepSeek Harness 需 `dsh` + `dsh-tui`，codex / claude 各自单
 
 让多个 agent 指向同一个仓库而互不踩踏：把工作区切到 **worktree** 隔离模式，它将在 `<仓库根>/.lyshell-worktrees/<key>` 的专属 git worktree 中、于 `lyshell/<key>` 分支上启动 — 首次启动创建，此后每次复用，**未提交修改跨启动保留**。删除工作区不会动它的 worktree。
 
-- **私有（默认）** — 自动生成可读 key（如 `claude-myapp-x7k2`），每个工作区一份独立检出。
+- **私有（默认）** — 自动生成可读 key（如 `claude-myapp-20260708-160745`，尾段时间戳为创建时刻、精确到秒），每个工作区一份独立检出。
 - **共享** — 显式指定共享名后，填了同一共享名的工作区共用同一份检出与同一分支，跨 dsh / codex / claude 也行 — 彼此实时可见对方的改动。
 - 表单在保存前**预览 worktree 完整路径**；非法 key（路径分隔符、ref 非法字符等）当场拒绝。
 

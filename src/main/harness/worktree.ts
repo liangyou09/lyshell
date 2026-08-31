@@ -45,7 +45,7 @@ export type LaunchWorktreeResult =
  * 启动期 worktree 解析（含存量迁移）—— workspace:launch 与 dsh:web:open 的统一入口：
  *
  * 1. 已有共享名（worktreeKey）：ensureWorktree 原语义，幂等复用（跨 kind 共用同一棵树协作）。
- * 2. 缺省（含共享名字段上线前保存的存量工作区）：生成可读 key preferred（<kind>-<名>-<代号>，
+ * 2. 缺省（含共享名字段上线前保存的存量工作区）：生成可读 key preferred（<kind>-<名>-<时间戳>，
  *    见 @shared/worktree 的 generateWorktreeKey），并按「旧回落 key <kind>-<id> 的 worktree
  *    是否已注册」分两路：
  *    a. 已注册（该工作区此前用旧回落形态启动过、已有专属树）→ 迁移而非另起：目录
@@ -59,7 +59,8 @@ export type LaunchWorktreeResult =
  *       会在两棵树间漂移），再 ensureWorktree 创建。
  *
  * persist 回调同时承担写入/撤销：传 undefined 即清除共享名（回落到下次重新生成）。
- * generateCode 参数仅为可测性注入（固定代号），生产调用走默认的 generateWorktreeCode。
+ * generateCode 参数仅为可测性注入（固定代号），生产调用走默认的 generateWorktreeCode
+ * （秒级时间戳，UI 流程内实际不会同秒撞车）。
  *
  * 调用方须按工作区（kind + id）串行化，且锁要罩住「读仓库记录 → 本函数」全程（handlers
  * 已用 createTaskSerializer 实现）：并发双启动会同时进入迁移分支 —— 后执行的 move 失败后

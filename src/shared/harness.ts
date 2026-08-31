@@ -16,7 +16,7 @@ export const HARNESS_AGENT_KINDS: HarnessAgentKind[] = ['dsh', 'codex', 'claude'
 
 export interface HarnessWorkspace {
   id: string
-  name: string           // 显示名称，如 "lyshell"
+  name: string           // 显示名称，如 "lyshell"；留空由渲染层兜底为「工作区-<时间戳>」（主进程校验仍要求非空）
   cwd: string            // 工作目录（启动 cwd）
   order: number
   note?: string          // 可选备注，仅用于记录/说明
@@ -42,7 +42,7 @@ export interface HarnessWorkspace {
    * （跨 dsh/codex/claude 也行）共用同一个 .lyshell-worktrees/<共享名> 与同一分支
    * lyshell/<共享名>，在同一份检出上协作、互相看得见改动。同一分支同时只能检出在一处，
    * 共用恰恰依赖「同一目录」而非「各自检出」。
-   * 缺省 = 私有 worktree：首次启动自动生成可读 key（<kind>-<工作区名>-<代号>，见
+   * 缺省 = 私有 worktree：首次启动自动生成可读 key（<kind>-<工作区名>-<时间戳>，见
    * @shared/worktree 的 generateWorktreeKey）并回填持久化，此后固定复用 —— 旧回落形态
    * <kind>-<id> 的 worktree 会被原地改名迁移（目录 + 分支，未提交修改跟着走），已保存的
    * 工作区拿到的仍是上次那棵树；迁移被占用等失败则原样复用旧路径、下次再试，落盘失败
