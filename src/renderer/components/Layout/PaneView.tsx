@@ -74,21 +74,27 @@ function faviconUrlFromEvent(e: Event): string | undefined {
 }
 
 /**
- * 网页访问栏页签的 webview 覆盖层（单页签实例）。
+ * 网页页签的 webview 覆盖层（单页签实例，访问栏 URL 与终端 Ctrl+点击共用）。
  * partition 固定 persist:webbar（与 dsh web 隔离的浏览会话）；导航/弹窗由主进程
  * did-attach-webview 按 partition 分流锁定（仅 http/https）。标题经 page-title-updated
  * 回写 store，页签显示页面标题而非裸 hostname；favicon 经 page-favicon-updated 由
  * 主进程代取转 data URI 回写（渲染层 CSP 只放行 data: 图）。首次 did-finish-load 时
- * 把 URL 记入「最近访问」历史（加载失败的 URL 不算访问过）。
+ * 把 URL 记入「最近访问」历史（加载失败的 URL 不算访问过）。加载中/失败铺
+ * 浮层提示（webview 无内建 UI，失败原先是纯白屏零反馈）。
  */
 const WebTabOverlay: React.FC<{ id: string; url: string }> = ({ id, url }) => {
   const setWebTabTitle = usePaneStore(s => s.setWebTabTitle)
   const setWebTabFavicon = usePaneStore(s => s.setWebTabFavicon)
   const recordWebTabVisit = usePaneStore(s => s.recordWebTabVisit)
+  const { t } = useTranslation()
   const ref = useRef<WebviewTag | null>(null)
   // 每 tab 只记一次：did-finish-load 对页内刷新/锚点跳转也会触发，重复记录靠 store 去重，
   // 这里用 ref 闸掉后续事件省 setState（url 固定为打开时的 URL，页内导航不另记）
   const historyRecorded = useRef(false)
+  // 加载态：webview 无内建 UI，失败=纯白屏零反馈（外站不可达与「没打开」无法
+  // 区分）。loading 铺轻提示挡白闪，failed 铺错误浮层把 errno 直接亮出来
+  const [loadState, setLoadState] = useState<'loading' | 'done' | 'failed'>('loading')
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     const el = ref.current
@@ -114,23 +120,63 @@ const WebTabOverlay: React.FC<{ id: string; url: string }> = ({ id, url }) => {
       historyRecorded.current = true
       recordWebTabVisit(url)
     }
+    const onStartLoading = (): void => {
+      setLoadState('loading')
+      setLoadError(null)
+    }
+    // did-stop-loading 在成功/失败后都会到；失败浮层由 did-fail-load 先铺，
+    // 这里收尾时保住 failed 不被冲掉
+    const onStopLoading = (): void => {
+      setLoadState(prev => (prev === 'failed' ? 'failed' : 'done'))
+    }
+    const onLoadFail = (e: Event): void => {
+      const evt = e as CustomEvent<unknown> & {
+        errorCode?: number; errorDescription?: string; isMainFrame?: boolean
+      }
+      // 子框架资源失败不铺满屏浮层；ERR_ABORTED(-3) 是重定向/中途取消的常态噪音
+      if (evt.isMainFrame === false) return
+      if (evt.errorCode === -3) return
+      setLoadError(evt.errorDescription || (evt.errorCode !== undefined ? `ERR_${evt.errorCode}` : 'ERROR'))
+      setLoadState('failed')
+    }
     el.addEventListener('page-title-updated', onTitle)
     el.addEventListener('page-favicon-updated', onFavicon)
     el.addEventListener('did-finish-load', onLoadFinish)
+    el.addEventListener('did-start-loading', onStartLoading)
+    el.addEventListener('did-stop-loading', onStopLoading)
+    el.addEventListener('did-fail-load', onLoadFail)
     return () => {
       el.removeEventListener('page-title-updated', onTitle)
       el.removeEventListener('page-favicon-updated', onFavicon)
       el.removeEventListener('did-finish-load', onLoadFinish)
+      el.removeEventListener('did-start-loading', onStartLoading)
+      el.removeEventListener('did-stop-loading', onStopLoading)
+      el.removeEventListener('did-fail-load', onLoadFail)
     }
   }, [id, url, setWebTabTitle, setWebTabFavicon, recordWebTabVisit])
 
   return (
-    <webview
-      ref={ref}
-      partition="persist:webbar"
-      src={url}
-      className="w-full h-full"
-    />
+    <div className="relative w-full h-full">
+      <webview
+        ref={ref}
+        partition="persist:webbar"
+        src={url}
+        className="w-full h-full"
+      />
+      {loadState === 'loading' && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--terminal-bg)] text-sm text-gray-400 pointer-events-none">
+          {t('webBar.loading')}
+        </div>
+      )}
+      {loadState === 'failed' && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[var(--terminal-bg)]">
+          <p className="text-sm text-gray-300">{t('webBar.loadFailed')}</p>
+          <p className="max-w-[80%] truncate font-mono text-xs text-gray-500">
+            {t('webBar.loadFailedHint', { error: loadError ?? 'ERROR', url })}
+          </p>
+        </div>
+      )}
+    </div>
   )
 }
 

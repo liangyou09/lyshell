@@ -199,7 +199,7 @@ interface PaneStore {
   openMcpAuditInPane: (paneId: string) => void
   closeMcpAudit: () => void
   openDshWebInPane: (paneId: string, info: { url: string; name: string; cwd?: string }) => void
-  openWebTab: (rawUrl: string) => { ok: true } | { ok: false; error: string }
+  openWebTab: (rawUrl: string, paneId?: string) => { ok: true } | { ok: false; error: string }
   setWebTabTitle: (id: string, title: string) => void
   setWebTabFavicon: (id: string, favicon: string) => void
   openDocTab: (paneId: string | undefined, info: DocOverlayPayload) => string
@@ -1028,13 +1028,14 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     get().mountOverlay(target, { kind: 'dshWeb', ...info })
   },
 
-  // ===== 网页访问栏页签（多开，插件面板 URL 栏入口） =====
-  openWebTab: (rawUrl) => {
+  // ===== 网页页签（多开，插件面板 URL 栏 / 终端 Ctrl+点击 URL 入口） =====
+  openWebTab: (rawUrl, paneId) => {
     const url = normalizeWebBarUrl(rawUrl)
     if (!url) return { ok: false, error: 'invalid URL' }
     // 历史不在这里记 —— 等 WebTabOverlay 的 did-finish-load 再记（recordWebTabVisit），
-    // 打开但加载失败的 URL 不进「最近访问」
-    const id = get().mountOverlay(undefined, { kind: 'web', url, title: new URL(url).hostname })
+    // 打开但加载失败的 URL 不进「最近访问」。
+    // paneId：终端 Ctrl+点击的落点（点击终端所在 pane）；未指定回落活动 pane（URL 栏语义）
+    const id = get().mountOverlay(paneId, { kind: 'web', url, title: new URL(url).hostname })
     return id ? { ok: true } : { ok: false, error: 'no pane available' }
   },
   setWebTabTitle: (id, title) => {

@@ -1,5 +1,6 @@
 /**
- * 终端文档链接 provider —— Ctrl+点击输出行内的 .md/.html/.txt 路径开文档页签。
+ * 终端链接 provider —— Ctrl+点击输出行内的 .md/.html/.txt 路径开文档页签，
+ * http(s) URL 开网页页签（web 覆盖层，URL 识别见 urlLink.ts）。
  *
  * 坐标系（xterm 5.5 源码核实，Linkifier2/OscLinkProvider）：provideLinks 的
  * 行号与 ILink.range 的 y 均为 1-based 绝对缓冲行（buffer.lines.get(n-1)），
@@ -15,13 +16,15 @@
  * - 分组列表（`prototypes/（2 个）` 组头 + `- a.html` 裸名条目、`design/（9 个）— …`
  *   组头 + 表格）里的裸文件名会向上（至多 40 行）找最近的目录头行拼上目录再
  *   归并；空行仅在上方首个非空行也是目录头时跨过（组头与表格间的排版空行）。
- * - telnet/serial 会话无文件读取通道，不响应。
+ * - telnet/serial 会话无文件读取通道，文档路径不响应；URL 打开不依赖会话
+ *   类型，任何会话都能点。
  */
 import type { Terminal, ILinkProvider, ILink, IBufferLine, IBuffer } from '@xterm/xterm'
 import i18n from '../../i18n'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import { matchDocPaths, resolveDocPath, matchPromptCwd, localJoin, stripLeadingDash, matchDirHeader } from './docLink'
+import { matchHttpUrls } from './urlLink'
 import { openLocalDoc, openRemoteDoc } from './readDoc'
 
 /** 会话 → shell cwd 缓存（相对路径归并用；只在首次命中时查询一次） */
@@ -57,16 +60,16 @@ function buildLineIndex(line: IBufferLine): { text: string; cols: number[] } {
   return { text, cols }
 }
 
-/** 悬浮提示（xterm link 无内建 tooltip，自建一枚复用的浮层） */
+/** 悬浮提示（xterm link 无内建 tooltip，自建一枚复用的浮层；文案按链接种类传入） */
 let tipEl: HTMLDivElement | null = null
 
-function showTip(clientX: number, clientY: number): void {
+function showTip(clientX: number, clientY: number, message: string): void {
   if (!tipEl) {
     tipEl = document.createElement('div')
     tipEl.className = 'doc-link-tip'
     document.body.appendChild(tipEl)
   }
-  tipEl.textContent = i18n.t('doc.ctrlClickHint')
+  tipEl.textContent = message
   tipEl.style.display = 'block'
   tipEl.style.left = `${Math.max(4, clientX - 10)}px`
   // 优先浮在指针上方；太靠顶就翻到下方
@@ -181,6 +184,15 @@ async function activateLink(terminal: Terminal, sessionId: string, rawPath0: str
   }
 }
 
+/** Ctrl+点击 URL：开网页页签。落点 pane 同样实时查；URL 打开不依赖会话类型
+ *  （无文件读取）。失败要出声——识别成链但打不开的情形不能静默（与 activateLink
+ *  的 warn 惯例一致，排查「点了没反应」时这是唯一的线索出口） */
+function openTerminalUrl(sessionId: string, url: string): void {
+  const paneId = usePaneStore.getState().getPaneBySessionId(sessionId)?.id
+  const res = usePaneStore.getState().openWebTab(url, paneId)
+  if (!res.ok) console.warn('[docLink] 打开网页页签失败:', res.error, url)
+}
+
 /** 幂等守卫：同一 terminal 实例只挂一次（terminal-store 跨组件重挂载保留实例，复用分支会重复走到）。
  *  记录 disposable 与注册时的 sessionId —— 同实例换会话重挂时（理论路径：实例被复用
  *  绑到别的会话）先注销旧 provider，避免旧链接继续用旧 sessionId 开文档页签。 */
@@ -214,7 +226,27 @@ export function createDocLinkProvider(terminal: Terminal, sessionId: string): IL
             if (!(event.ctrlKey || event.metaKey)) return
             void activateLink(terminal, sessionId, m.path, bufferLineNumber)
           },
-          hover: (event: MouseEvent) => showTip(event.clientX, event.clientY),
+          hover: (event: MouseEvent) => showTip(event.clientX, event.clientY, i18n.t('doc.ctrlClickHint')),
+          leave: () => hideTip()
+        })
+      }
+      // URL 与文档路径无重叠（路径正则的 lookbehind 挡住 https://…/x.md 的
+      // 一切子串起点），两条扫描直接并排追加即可
+      for (const u of matchHttpUrls(text)) {
+        const startX = cols[u.start]
+        const endX = cols[u.end - 1]
+        if (startX === undefined || endX === undefined) continue
+        links.push({
+          range: {
+            start: { x: startX + 1, y: bufferLineNumber },
+            end: { x: endX + 1, y: bufferLineNumber }
+          },
+          text: u.url,
+          activate: (event: MouseEvent) => {
+            if (!(event.ctrlKey || event.metaKey)) return
+            openTerminalUrl(sessionId, u.url)
+          },
+          hover: (event: MouseEvent) => showTip(event.clientX, event.clientY, i18n.t('doc.ctrlClickUrlHint')),
           leave: () => hideTip()
         })
       }

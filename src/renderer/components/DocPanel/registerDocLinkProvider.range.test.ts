@@ -3,11 +3,15 @@
  * link provider 端到端坐标测试：真实 xterm 实例写入文本 → createDocLinkProvider
  * 直调 provideLinks → 校验 range 的 1-based 列区间精确覆盖匹配文本。
  * 回归点：「- 文件名」弹点行不得把前导破折号/空格划进链接。
+ * URL 链接另有激活端到端用例：provideLinks → activate(Ctrl+点击) → openWebTab
+ * 网页页签挂载（真实 pane-store，锁住 provider → store 的整条接线）。
  */
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { Terminal } from '@xterm/xterm'
 import type { ILink } from '@xterm/xterm'
 import { createDocLinkProvider, guessLocalCwd, findGroupDir } from './registerDocLinkProvider'
+import { usePaneStore } from '../../stores/pane-store'
+import type { OverlayPayload, OverlayRef, PaneLeaf, PaneLayout } from '@shared/types'
 
 interface RangeCase {
   line: string
@@ -24,7 +28,12 @@ const CASES: RangeCase[] = [
   // 多段相对（无 ./ 前缀）：error␣ 占 6 列，路径 41 字符 → 1-based [7..47]
   { line: 'error src/renderer/assets/agent-icons/README.md not found', expectedText: 'src/renderer/assets/agent-icons/README.md', expectedStartX: 7, expectedEndX: 47 },
   // 「见」宽字符占 2 列：路径 0-based 列 3..21 → 1-based [4..22]
-  { line: '见 D:\\docs\\report.html 详情', expectedText: 'D:\\docs\\report.html', expectedStartX: 4, expectedEndX: 22 }
+  { line: '见 D:\\docs\\report.html 详情', expectedText: 'D:\\docs\\report.html', expectedStartX: 4, expectedEndX: 22 },
+  // URL 链接：「见」宽字符 + 空格占 3 列，URL 24 字符 → 1-based [4..27]；
+  // 同行的 .md 后缀不得被文档路径识别截走（整条归 URL）
+  { line: '见 https://example.com/a.md 详情', expectedText: 'https://example.com/a.md', expectedStartX: 4, expectedEndX: 27 },
+  // URL 行尾句读剥离：`docs:␣` 占 6 列，URL 29 字符（末尾的 . 不入链接）
+  { line: 'docs: https://example.com/docs.html.', expectedText: 'https://example.com/docs.html', expectedStartX: 7, expectedEndX: 35 }
 ]
 
 async function linksOf(line: string): Promise<ILink[]> {
@@ -55,6 +64,87 @@ describe('createDocLinkProvider：range 列区间精确性', () => {
 
   it('无匹配行返回空数组', async () => {
     expect(await linksOf('no docs here')).toEqual([])
+  })
+
+  // 混合行锁住「两扫描并排不重叠」：文档路径与 URL 各成一条链，互不截断
+  it('同一行既有文档路径又有 URL：两条链各自完整', async () => {
+    const links = await linksOf('error in src/a.md, see https://example.com/x for details')
+    expect(links).toHaveLength(2)
+    expect(links.map(l => l.text)).toEqual(['src/a.md', 'https://example.com/x'])
+    // 区间互不重叠（1-based x：src/a.md ∈ [10..17]，URL ∈ [24..44]）
+    expect(links[0].range.start.x).toBe(10)
+    expect(links[0].range.end.x).toBe(17)
+    expect(links[1].range.start.x).toBe(24)
+    expect(links[1].range.end.x).toBe(44)
+  })
+})
+
+// ===== URL 链接激活端到端：provideLinks → activate → openWebTab =====
+
+type WebPayload = Extract<OverlayPayload, { kind: 'web' }>
+
+/** 投影全部 web 覆盖层（叶序 × 引用序） */
+const webOverlayViews = (): { paneId: string; ref: OverlayRef; payload: WebPayload }[] => {
+  const st = usePaneStore.getState()
+  const out: { paneId: string; ref: OverlayRef; payload: WebPayload }[] = []
+  for (const pane of st.getAllLeafPanes()) {
+    for (const r of pane.overlays) {
+      const p = st.overlayPayloads[r.id]
+      if (r.kind === 'web' && p?.kind === 'web') out.push({ paneId: pane.id, ref: r, payload: p })
+    }
+  }
+  return out
+}
+
+describe('URL 链接激活端到端：Ctrl+点击 → openWebTab', () => {
+  // 全局 zustand store 每例重置：断言「无残留覆盖层」依赖干净起点，
+  // beforeEach 兜住后续新增用例漏调 setup 的坑（漏了会读到上一例的挂载）
+  const setupUrlPane = (): void => {
+    const leafNode: PaneLeaf = {
+      id: 'pane-url', type: 'leaf', sessions: ['sess-url'],
+      activeSessionId: 'sess-url', overlays: []
+    }
+    const layout: PaneLayout = { root: leafNode, activePaneId: 'pane-url' }
+    usePaneStore.setState({ layout, overlayPayloads: {}, draggingOverlayId: null, hiddenTabSessions: {} })
+  }
+  beforeEach(setupUrlPane)
+
+  it('Ctrl+点击 → 网页页签挂到会话所在 pane 并激活，URL 归一化', async () => {
+    const t = new Terminal({ cols: 80, rows: 10 })
+    try {
+      await writeAndDrain(t, 'see https://example.com/x\r\n')
+      const provider = createDocLinkProvider(t, 'sess-url')
+      const links = await new Promise<ILink[]>(resolve => provider.provideLinks(1, ls => resolve(ls ?? [])))
+      expect(links).toHaveLength(1)
+      expect(links[0].text).toBe('https://example.com/x')
+      // 普通点击不劫持（保留给终端聚焦）
+      links[0].activate?.(new MouseEvent('click', { ctrlKey: false }), links[0].text)
+      expect(webOverlayViews()).toHaveLength(0)
+      // Ctrl+点击开网页页签
+      links[0].activate?.(new MouseEvent('click', { ctrlKey: true }), links[0].text)
+      const views = webOverlayViews()
+      expect(views).toHaveLength(1)
+      expect(views[0].paneId).toBe('pane-url')
+      expect(views[0].ref.active).toBe(true)
+      expect(views[0].payload.url).toBe('https://example.com/x')
+    } finally {
+      t.dispose()
+    }
+  })
+
+  it('Cmd（metaKey）+点击同样触发；悬浮提示用 URL 文案', async () => {
+    const t = new Terminal({ cols: 80, rows: 10 })
+    try {
+      await writeAndDrain(t, 'docs: https://example.com/a.md.\r\n')
+      const provider = createDocLinkProvider(t, 'sess-url')
+      const links = await new Promise<ILink[]>(resolve => provider.provideLinks(1, ls => resolve(ls ?? [])))
+      expect(links).toHaveLength(1) // 整条 URL，不被文档路径截走
+      links[0].activate?.(new MouseEvent('click', { metaKey: true }), links[0].text)
+      expect(webOverlayViews()).toHaveLength(1)
+      expect(webOverlayViews()[0].payload.url).toBe('https://example.com/a.md')
+    } finally {
+      t.dispose()
+    }
   })
 })
 

@@ -129,7 +129,10 @@
     "invalid": "Invalid URL (http/https only)",
     "recent": "Recent",
     "clear": "Clear",
-    "removeRecent": "Remove from recent"
+    "removeRecent": "Remove from recent",
+    "loading": "Loading…",
+    "loadFailed": "Failed to load page",
+    "loadFailedHint": "{{error}} · {{url}}"
   },
   "agents": {
     "title": "Agents",
@@ -654,6 +657,7 @@
     "outline": "Outline",
     "openTitle": "Open document",
     "ctrlClickHint": "Ctrl+Click to open document",
+    "ctrlClickUrlHint": "Ctrl+Click to open web page",
     "copy": "Copy",
     "copied": "Copied",
     "railResize": "Drag to resize, double-click to reset",

@@ -451,6 +451,26 @@ describe('openWebTab：打开网页页签', () => {
     expect(webTabs()[0].paneId).toBe('pane-1')
   })
 
+  it('指定 paneId 挂目标 pane（终端 Ctrl+点击落点），activePaneId 同步切换', () => {
+    setupWeb()
+    usePaneStore.setState({
+      layout: {
+        root: {
+          id: 'split-1', type: 'split', direction: 'horizontal', splitRatio: 0.5,
+          firstChild: leaf('pane-1', ['s-a']), secondChild: leaf('pane-2', ['s-b'])
+        },
+        activePaneId: 'pane-1'
+      }
+    })
+    const res = usePaneStore.getState().openWebTab('https://example.com', 'pane-2')
+    expect(res.ok).toBe(true)
+    const tabs = webTabs()
+    expect(tabs).toHaveLength(1)
+    expect(tabs[0].paneId).toBe('pane-2')
+    expect(tabs[0].active).toBe(true)
+    expect(usePaneStore.getState().layout.activePaneId).toBe('pane-2')
+  })
+
   it('非法 URL 拒绝且不动 store', () => {
     setupWeb()
     const res = usePaneStore.getState().openWebTab('not a url')
