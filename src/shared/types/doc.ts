@@ -16,15 +16,12 @@ export type DocSource = 'remote' | 'local'
 export type DocKind = 'markdown' | 'html'
 
 /**
- * 文档页签条目 —— 同 webTabs 为瞬态：仅 pane 布局树持久化，
- * docTabs 不落盘，孤儿条目在加载布局时回收。
+ * 文档覆盖层 payload —— 挂载态（id/paneId/active/slot）在 pane 树的 OverlayRef 上，
+ * 这里只留内容数据。瞬态：仅 pane 布局树持久化，覆盖层不落盘，重启即回收。
  */
-export interface DocTabEntry {
-  id: string            // `doc-${uuid}` 运行时唯一
-  paneId: string        // 承载 pane
-  active: boolean       // 每 pane 至多一个覆盖层激活
+export interface DocOverlayPayload {
   source: DocSource
-  kind: DocKind
+  docKind: DocKind
   path: string          // 绝对路径（remote=posix，local=win32）
   title: string         // basename
   sessionId?: string    // remote 来源会话（刷新 / 编码上下文）
@@ -32,7 +29,11 @@ export interface DocTabEntry {
   mtime: number         // epoch ms
   content: string       // 已解码文本（markdown 渲染源 / html srcdoc）
   loadError?: string    // 读取失败态（渲染错误占位而非空白）
-  readVersion?: number  // 刷新竞态守卫：每次刷新自增，慢响应回写前校验（随页签生命周期，无泄漏）
+  // 开-开竞态守卫：读取「发起时」分配的版本（readDoc 的 openVersions，按文档身份自增）。
+  // 同 pane 并发打开同一路径时，后触发先到的旧响应（含旧失败）版本更小，
+  // openDocTab 复用分支据此拒绝覆写内容。刷新排序走 readDoc 的 readVersions，
+  // 不经过此字段。不带版本（直接调用 openDocTab）= 无条件覆写的刷新语义
+  readVersion?: number
 }
 
 /**

@@ -1,40 +1,52 @@
 // @vitest-environment jsdom
 /**
- * dshWebTabIndex 维护逻辑的 store 级测试（纯逻辑，不渲染组件）。
+ * dsh web 插槽维护逻辑的 store 级测试（纯逻辑，不渲染组件）。
  *
- * web 页签插槽存的是 pane.sessions 原始坐标的插入位，四条维护路径：
+ * 归一化后 dsh web 是挂在 pane 树叶子上的 OverlayRef（单例哨兵 __dsh_web__），
+ * 插槽存 pane.sessions 原始坐标的插入位，四条维护路径：
  * 1) 关闭会话 → removeSessionFromPane 按删除位置递减
  * 2) 会话重排 → reorderSessionsInPane 按"先删后插"坐标修正（含落点恰在 web 空隙的方向消歧）
- * 3) 会话拖到 web 页签 → insertSessionAtWebSlot 一次 set 完成重排+插槽
+ * 3) 会话拖到 web 页签 → insertSessionAtOverlaySlot(DSH_WEB_OVERLAY_ID, …) 一次 set 完成重排+插槽
  * 4) web 挂载/激活/关闭 → 复位或保留
  * 这里的用例锁住各路径的坐标推导 —— 组件侧只做事件搬运，不掺坐标计算。
  */
 import { describe, expect, it } from 'vitest'
-import { usePaneStore, normalizeWebBarUrl, loadWebTabHistory, recordWebTabUrlToHistory, loadWebTabFavicons } from './pane-store'
-import type { PaneLeaf, PaneLayout, PaneNode } from '@shared/types'
+import {
+  usePaneStore, normalizeWebBarUrl, loadWebTabHistory, recordWebTabUrlToHistory,
+  loadWebTabFavicons, findOverlayRef
+} from './pane-store'
+import { DSH_WEB_OVERLAY_ID, MCP_AUDIT_OVERLAY_ID } from './overlay-kinds'
+import type { OverlayPayload, OverlayRef, PaneLeaf, PaneLayout, PaneNode } from '@shared/types'
 
-const leaf = (id: string, sessions: string[]): PaneLeaf => ({
+const leaf = (id: string, sessions: string[], overlays: OverlayRef[] = []): PaneLeaf => ({
   id,
   type: 'leaf',
   sessions,
-  activeSessionId: sessions[0] ?? null
+  activeSessionId: sessions[0] ?? null,
+  overlays
 })
 
 const layoutOf = (root: PaneNode): PaneLayout => ({ root, activePaneId: root.type === 'leaf' ? root.id : '' })
 
 const WEB_INFO = { url: 'http://127.0.0.1:3080', name: 'dsh web' }
 
+const dshRef = (slot: number | null, active = true): OverlayRef =>
+  ({ id: DSH_WEB_OVERLAY_ID, kind: 'dshWeb', active, slot })
+
+const mcpRef = (active = true): OverlayRef =>
+  ({ id: MCP_AUDIT_OVERLAY_ID, kind: 'mcpAudit', active, slot: null })
+
 // 基线：单 pane + web 挂同 pane。tabIndex 指定插槽（pane.sessions 原始坐标，null=钉尾）
-const setup = (tabIndex: number | null, sessions = ['s-a', 's-b', 's-c'], extra: Record<string, unknown> = {}) => {
+const setup = (
+  tabIndex: number | null,
+  sessions = ['s-a', 's-b', 's-c'],
+  extra: Record<string, unknown> = {},
+  dshActive = true
+) => {
   usePaneStore.setState({
-    layout: layoutOf(leaf('pane-1', sessions)),
-    dshWeb: WEB_INFO,
-    dshWebPaneId: 'pane-1',
-    dshWebActive: true,
-    dshWebTabIndex: tabIndex,
-    mcpAuditPaneId: null,
-    mcpAuditActive: false,
-    draggingDshWeb: false,
+    layout: layoutOf(leaf('pane-1', sessions, [dshRef(tabIndex, dshActive)])),
+    overlayPayloads: { [DSH_WEB_OVERLAY_ID]: { kind: 'dshWeb', ...WEB_INFO } },
+    draggingOverlayId: null,
     hiddenTabSessions: {},
     ...extra
   })
@@ -43,7 +55,10 @@ const setup = (tabIndex: number | null, sessions = ['s-a', 's-b', 's-c'], extra:
 const paneSessions = (): string[] =>
   (usePaneStore.getState().getPaneById('pane-1') as PaneLeaf).sessions
 
-const tabIndex = (): number | null => usePaneStore.getState().dshWebTabIndex
+const tabIndex = (): number | null =>
+  findOverlayRef(usePaneStore.getState().layout.root, DSH_WEB_OVERLAY_ID)?.ref.slot ?? null
+
+const dshActive = (): boolean => usePaneStore.getState().isOverlayActive(DSH_WEB_OVERLAY_ID)
 
 describe('removeSessionFromPane：关闭会话时 web 插槽递减', () => {
   it('关闭 web 左侧会话 → 插槽左移一位', () => {
@@ -69,9 +84,9 @@ describe('removeSessionFromPane：关闭会话时 web 插槽递减', () => {
   })
 
   it('关掉最后一个终端页签（web 未激活）→ 自动切到 web 页签，插槽保持 null 不被误写', () => {
-    setup(null, ['s-a'], { dshWebActive: false })
+    setup(null, ['s-a'], {}, false)
     usePaneStore.getState().removeSessionFromPane('pane-1', 's-a')
-    expect(usePaneStore.getState().dshWebActive).toBe(true)
+    expect(dshActive()).toBe(true)
     expect(tabIndex()).toBe(null)
     // pane 因承载 web 保留，不随会话清空被合并掉
     expect(usePaneStore.getState().getPaneById('pane-1')).toBeTruthy()
@@ -150,31 +165,31 @@ describe('reorderSessionsInPane：会话重排时 web 插槽同步修正', () =>
   })
 })
 
-describe('insertSessionAtWebSlot：会话拖到 web 页签上的落点', () => {
+describe('insertSessionAtOverlaySlot(DSH_WEB_OVERLAY_ID, …)：会话拖到 web 页签上的落点', () => {
   it('从左侧拖来（往右拖）→ 插 web 后面', () => {
     setup(1) // s-a, web, s-b, s-c
-    usePaneStore.getState().insertSessionAtWebSlot('pane-1', 's-a')
+    usePaneStore.getState().insertSessionAtOverlaySlot(DSH_WEB_OVERLAY_ID, 'pane-1', 's-a')
     expect(paneSessions()).toEqual(['s-a', 's-b', 's-c'])
     expect(tabIndex()).toBe(0) // web, s-a, s-b, s-c
   })
 
   it('从右侧拖来（往左拖，紧邻 web 的页签）→ 插 web 前面', () => {
     setup(1)
-    usePaneStore.getState().insertSessionAtWebSlot('pane-1', 's-b')
+    usePaneStore.getState().insertSessionAtOverlaySlot(DSH_WEB_OVERLAY_ID, 'pane-1', 's-b')
     expect(paneSessions()).toEqual(['s-a', 's-b', 's-c'])
     expect(tabIndex()).toBe(2) // s-a, s-b, web, s-c
   })
 
   it('从右侧远处拖来 → 插 web 前面，原相对顺序保持', () => {
     setup(1)
-    usePaneStore.getState().insertSessionAtWebSlot('pane-1', 's-c')
+    usePaneStore.getState().insertSessionAtOverlaySlot(DSH_WEB_OVERLAY_ID, 'pane-1', 's-c')
     expect(paneSessions()).toEqual(['s-a', 's-c', 's-b'])
     expect(tabIndex()).toBe(2) // s-a, s-c, web, s-b
   })
 
   it('web 钉尾（插槽 null）时从左侧拖来 → 落 web 后面即队尾', () => {
     setup(null)
-    usePaneStore.getState().insertSessionAtWebSlot('pane-1', 's-a')
+    usePaneStore.getState().insertSessionAtOverlaySlot(DSH_WEB_OVERLAY_ID, 'pane-1', 's-a')
     expect(paneSessions()).toEqual(['s-b', 's-c', 's-a'])
     expect(tabIndex()).toBe(2) // s-b, s-c, web, s-a
   })
@@ -211,61 +226,61 @@ describe('addSessionToPane：追加会话时的插槽同步', () => {
   })
 })
 
-describe('moveDshWebToSessionTab：web 页签拖到普通页签上的落点', () => {
+describe('moveOverlayToSessionTab(DSH_WEB_OVERLAY_ID, …)：web 页签拖到普通页签上的落点', () => {
   it('往左拖（目标在 web 左侧）→ 插到目标前面', () => {
     setup(1) // s-a, web, s-b, s-c
-    usePaneStore.getState().moveDshWebToSessionTab('pane-1', 's-a')
+    usePaneStore.getState().moveOverlayToSessionTab(DSH_WEB_OVERLAY_ID, 'pane-1', 's-a')
     expect(paneSessions()).toEqual(['s-a', 's-b', 's-c']) // 不动 sessions
     expect(tabIndex()).toBe(0) // web, s-a, s-b, s-c
   })
 
   it('往右拖（目标在 web 右侧）→ 插到目标后面', () => {
     setup(1)
-    usePaneStore.getState().moveDshWebToSessionTab('pane-1', 's-b')
+    usePaneStore.getState().moveOverlayToSessionTab(DSH_WEB_OVERLAY_ID, 'pane-1', 's-b')
     expect(tabIndex()).toBe(2) // s-a, s-b, web, s-c —— 拖到右侧相邻页签不再是 no-op
   })
 
   it('往右拖到更远的目标 → 同样落在目标后面', () => {
     setup(1)
-    usePaneStore.getState().moveDshWebToSessionTab('pane-1', 's-c')
+    usePaneStore.getState().moveOverlayToSessionTab(DSH_WEB_OVERLAY_ID, 'pane-1', 's-c')
     expect(tabIndex()).toBe(3) // s-a, s-b, s-c, web
   })
 
   it('web 钉尾（null）时往左拖 → 落到目标前面（null 视作末尾参与方向判定）', () => {
     setup(null)
-    usePaneStore.getState().moveDshWebToSessionTab('pane-1', 's-b')
+    usePaneStore.getState().moveOverlayToSessionTab(DSH_WEB_OVERLAY_ID, 'pane-1', 's-b')
     expect(tabIndex()).toBe(1) // s-a, web, s-b, s-c
   })
 
   it('web 不在该 pane / 目标会话不在 pane → 不动', () => {
     setup(1)
-    usePaneStore.getState().moveDshWebToSessionTab('pane-other', 's-a')
-    usePaneStore.getState().moveDshWebToSessionTab('pane-1', 's-missing')
+    usePaneStore.getState().moveOverlayToSessionTab(DSH_WEB_OVERLAY_ID, 'pane-other', 's-a')
+    usePaneStore.getState().moveOverlayToSessionTab(DSH_WEB_OVERLAY_ID, 'pane-1', 's-missing')
     expect(tabIndex()).toBe(1)
   })
 })
 
 describe('store API 防御性边界', () => {
-  it('setDshWebTabIndex clamp 到 [0, 承载 pane 会话数]', () => {
+  it('setOverlaySlot(DSH_WEB_OVERLAY_ID, …) clamp 到 [0, 承载 pane 会话数]', () => {
     setup(1)
-    usePaneStore.getState().setDshWebTabIndex(99)
+    usePaneStore.getState().setOverlaySlot(DSH_WEB_OVERLAY_ID, 99)
     expect(tabIndex()).toBe(3)
-    usePaneStore.getState().setDshWebTabIndex(-5)
+    usePaneStore.getState().setOverlaySlot(DSH_WEB_OVERLAY_ID, -5)
     expect(tabIndex()).toBe(0)
-    usePaneStore.getState().setDshWebTabIndex(null)
+    usePaneStore.getState().setOverlaySlot(DSH_WEB_OVERLAY_ID, null)
     expect(tabIndex()).toBe(null)
   })
 
-  it('web 未挂载时 setDshWebTabIndex 忽略（复位路径不走此 action）', () => {
+  it('web 未挂载时 setOverlaySlot(DSH_WEB_OVERLAY_ID, …) 忽略（复位路径不走此 action）', () => {
     setup(1)
-    usePaneStore.getState().closeDshWeb()
-    usePaneStore.getState().setDshWebTabIndex(2)
+    usePaneStore.getState().closeOverlay(DSH_WEB_OVERLAY_ID)
+    usePaneStore.getState().setOverlaySlot(DSH_WEB_OVERLAY_ID, 2)
     expect(tabIndex()).toBe(null)
   })
 
-  it('insertSessionAtWebSlot 对非 web 承载 pane 拒绝（不动 sessions 不动插槽）', () => {
+  it('insertSessionAtOverlaySlot(DSH_WEB_OVERLAY_ID, …) 对非 web 承载 pane 拒绝（不动 sessions 不动插槽）', () => {
     setup(1)
-    // 双 pane 布局：web 挂 pane-1，往 pane-2 塞会话不应触碰 pane-1 的 web 插槽
+    // 双 pane 布局：web 挂 pane-1（ref 随叶子构造），往 pane-2 塞会话不应触碰 pane-1 的 web 插槽
     usePaneStore.setState({
       layout: {
         root: {
@@ -273,25 +288,25 @@ describe('store API 防御性边界', () => {
           type: 'split',
           direction: 'horizontal',
           splitRatio: 0.5,
-          firstChild: leaf('pane-1', ['s-a', 's-b', 's-c']),
+          firstChild: leaf('pane-1', ['s-a', 's-b', 's-c'], [dshRef(1)]),
           secondChild: leaf('pane-2', ['s-z'])
         },
         activePaneId: 'pane-1'
       }
     })
-    usePaneStore.getState().insertSessionAtWebSlot('pane-2', 's-z')
+    usePaneStore.getState().insertSessionAtOverlaySlot(DSH_WEB_OVERLAY_ID, 'pane-2', 's-z')
     expect(tabIndex()).toBe(1)
     expect((usePaneStore.getState().getPaneById('pane-2') as PaneLeaf).sessions).toEqual(['s-z'])
   })
 })
 
-describe('splitDshWebIntoPane：web 拆进独立 pane 时的插槽复位', () => {
+describe('splitOverlayIntoPane(DSH_WEB_OVERLAY_ID, …)：web 拆进独立 pane 时的插槽复位', () => {
   it('目标 pane 有会话（走 split 分支）→ 复位 null，旧 pane 坐标不残留', () => {
     setup(1) // s-a, web, s-b, s-c
-    usePaneStore.getState().splitDshWebIntoPane('pane-1', 'horizontal', 'second')
+    usePaneStore.getState().splitOverlayIntoPane(DSH_WEB_OVERLAY_ID, 'pane-1', 'horizontal', 'second')
     expect(tabIndex()).toBe(null)
     // web 已挂到新空 pane；原 pane 的会话留在另一侧
-    const webPaneId = usePaneStore.getState().dshWebPaneId
+    const webPaneId = usePaneStore.getState().getOverlayPaneId(DSH_WEB_OVERLAY_ID)
     expect(webPaneId).not.toBe('pane-1')
     expect((usePaneStore.getState().getPaneById(webPaneId!) as PaneLeaf).sessions).toEqual([])
   })
@@ -305,22 +320,22 @@ describe('splitDshWebIntoPane：web 拆进独立 pane 时的插槽复位', () =>
           type: 'split',
           direction: 'horizontal',
           splitRatio: 0.5,
-          firstChild: leaf('pane-1', ['s-a', 's-b', 's-c']),
+          firstChild: leaf('pane-1', ['s-a', 's-b', 's-c'], [dshRef(1)]),
           secondChild: leaf('pane-2', [])
         },
         activePaneId: 'pane-1'
       }
     })
-    usePaneStore.getState().splitDshWebIntoPane('pane-2', 'horizontal', 'first')
+    usePaneStore.getState().splitOverlayIntoPane(DSH_WEB_OVERLAY_ID, 'pane-2', 'horizontal', 'first')
     expect(tabIndex()).toBe(null)
-    expect(usePaneStore.getState().dshWebPaneId).toBe('pane-2')
+    expect(usePaneStore.getState().getOverlayPaneId(DSH_WEB_OVERLAY_ID)).toBe('pane-2')
   })
 })
 
 describe('web 挂载/激活/关闭时的插槽复位', () => {
-  it('activateDshWeb 保留插槽（仅切换显隐不动排序）', () => {
-    setup(1, ['s-a', 's-b', 's-c'], { dshWebActive: false })
-    usePaneStore.getState().activateDshWeb()
+  it('activateOverlay(DSH_WEB_OVERLAY_ID) 保留插槽（仅切换显隐不动排序）', () => {
+    setup(1, ['s-a', 's-b', 's-c'], {}, false)
+    usePaneStore.getState().activateOverlay(DSH_WEB_OVERLAY_ID)
     expect(tabIndex()).toBe(1)
   })
 
@@ -330,40 +345,68 @@ describe('web 挂载/激活/关闭时的插槽复位', () => {
     expect(tabIndex()).toBe(null)
   })
 
-  it('closeDshWeb 关闭 → 插槽复位 null', () => {
+  it('closeOverlay 关闭 dshWeb → 插槽复位 null，payload 一并回收', () => {
     setup(1)
-    usePaneStore.getState().closeDshWeb()
+    usePaneStore.getState().closeOverlay(DSH_WEB_OVERLAY_ID)
     expect(tabIndex()).toBe(null)
-    expect(usePaneStore.getState().dshWeb).toBe(null)
+    expect(usePaneStore.getState().getOverlayByKind('dshWeb')).toBeNull()
+    expect(usePaneStore.getState().getOverlayPayload(DSH_WEB_OVERLAY_ID)).toBeUndefined()
   })
 })
 
-// ===== 网页访问栏页签（webTabs，多开）=====
-// 基线：单 pane + 可选 dshWeb/MCP 共存，webTabs 由用例自行构造。
-// setupWeb 复用 setup 的 dshWeb 基线并重置 webTabs 与历史（含 localStorage），避免用例间泄漏。
-const setupWeb = (extra: Record<string, unknown> = {}, sessions = ['s-a', 's-b']) => {
+// ===== 网页访问栏页签（web 覆盖层，多开）=====
+// 基线：单 pane + 可选 dshWeb/MCP 共存（refs 参数构造到 pane-1 叶子上），
+// 网页页签由用例自行通过 openWebTab 创建。setupWeb 重置树/payload/历史
+// （含 localStorage），避免用例间泄漏。
+
+interface WebTabView {
+  id: string
+  paneId: string
+  active: boolean
+  payload: Extract<OverlayPayload, { kind: 'web' }>
+}
+
+// 从树 + payload 字典投影出旧 webTabs 视图（叶序 × 引用序 = 打开序）
+const webTabs = (): WebTabView[] => {
+  const st = usePaneStore.getState()
+  const tabs: WebTabView[] = []
+  for (const pane of st.getAllLeafPanes()) {
+    for (const r of pane.overlays) {
+      const p = st.overlayPayloads[r.id]
+      if (r.kind === 'web' && p?.kind === 'web') {
+        tabs.push({ id: r.id, paneId: pane.id, active: r.active, payload: p })
+      }
+    }
+  }
+  return tabs
+}
+
+const setupWeb = (
+  extra: Record<string, unknown> = {},
+  sessions = ['s-a', 's-b'],
+  refs: OverlayRef[] = []
+) => {
   localStorage.removeItem('lyshell.webTabHistory.v1')
   localStorage.removeItem('lyshell.webTabFavicons.v1')
+  const payloads: Record<string, OverlayPayload> = {}
+  for (const r of refs) {
+    if (r.id === DSH_WEB_OVERLAY_ID) payloads[r.id] = { kind: 'dshWeb', ...WEB_INFO }
+    else if (r.id === MCP_AUDIT_OVERLAY_ID) payloads[r.id] = { kind: 'mcpAudit' }
+  }
   usePaneStore.setState({
-    layout: layoutOf(leaf('pane-1', sessions)),
-    dshWeb: null,
-    dshWebPaneId: null,
-    dshWebActive: false,
-    dshWebTabIndex: null,
-    mcpAuditPaneId: null,
-    mcpAuditActive: false,
-    draggingDshWeb: false,
+    layout: layoutOf(leaf('pane-1', sessions, refs)),
+    overlayPayloads: payloads,
+    draggingOverlayId: null,
     hiddenTabSessions: {},
-    webTabs: [],
     webTabHistory: [],
     webTabFavicons: {},
     ...extra
   })
 }
 
-const webTabIds = (): string[] => usePaneStore.getState().webTabs.map(t => t.id)
+const webTabIds = (): string[] => webTabs().map(t => t.id)
 const activeWebTabInPane = (paneId: string): string | undefined =>
-  usePaneStore.getState().webTabs.find(t => t.paneId === paneId && t.active)?.id
+  webTabs().find(t => t.paneId === paneId && t.active)?.id
 
 describe('normalizeWebBarUrl：网页访问栏 URL 归一化', () => {
   it('无 scheme 补 https', () => {
@@ -391,13 +434,13 @@ describe('openWebTab：打开网页页签', () => {
     setupWeb()
     const res = usePaneStore.getState().openWebTab('example.com')
     expect(res.ok).toBe(true)
-    const st = usePaneStore.getState()
-    expect(st.webTabs).toHaveLength(1)
-    expect(st.webTabs[0].paneId).toBe('pane-1')
-    expect(st.webTabs[0].url).toBe('https://example.com/')
-    expect(st.webTabs[0].title).toBe('example.com')
-    expect(st.webTabs[0].active).toBe(true)
-    expect(st.layout.activePaneId).toBe('pane-1')
+    const tabs = webTabs()
+    expect(tabs).toHaveLength(1)
+    expect(tabs[0].paneId).toBe('pane-1')
+    expect(tabs[0].payload.url).toBe('https://example.com/')
+    expect(tabs[0].payload.title).toBe('example.com')
+    expect(tabs[0].active).toBe(true)
+    expect(usePaneStore.getState().layout.activePaneId).toBe('pane-1')
   })
 
   it('activePaneId 未就绪时回落首个叶子 pane', () => {
@@ -405,70 +448,67 @@ describe('openWebTab：打开网页页签', () => {
     usePaneStore.setState({ layout: { ...layoutOf(leaf('pane-1', [])), activePaneId: '' } })
     const res = usePaneStore.getState().openWebTab('https://example.com')
     expect(res.ok).toBe(true)
-    expect(usePaneStore.getState().webTabs[0].paneId).toBe('pane-1')
+    expect(webTabs()[0].paneId).toBe('pane-1')
   })
 
   it('非法 URL 拒绝且不动 store', () => {
     setupWeb()
     const res = usePaneStore.getState().openWebTab('not a url')
     expect(res.ok).toBe(false)
-    expect(usePaneStore.getState().webTabs).toHaveLength(0)
+    expect(webTabs()).toHaveLength(0)
   })
 
   it('多开：每个 URL 一个独立页签，旧页签被去活（每 pane 至多一个激活）', () => {
     setupWeb()
     usePaneStore.getState().openWebTab('https://a.example.com')
     usePaneStore.getState().openWebTab('https://b.example.com')
-    const st = usePaneStore.getState()
-    expect(st.webTabs).toHaveLength(2)
-    expect(activeWebTabInPane('pane-1')).toBe(st.webTabs[1].id)
+    const tabs = webTabs()
+    expect(tabs).toHaveLength(2)
+    expect(activeWebTabInPane('pane-1')).toBe(tabs[1].id)
   })
 
   it('同 pane 互斥：激活网页页签去活 dshWeb 与 MCP', () => {
-    setupWeb({
-      dshWeb: WEB_INFO, dshWebPaneId: 'pane-1', dshWebActive: true,
-      mcpAuditPaneId: 'pane-1', mcpAuditActive: true
-    })
+    setupWeb({}, ['s-a', 's-b'], [dshRef(null, true), mcpRef(true)])
     usePaneStore.getState().openWebTab('https://example.com')
     const st = usePaneStore.getState()
-    expect(st.dshWebActive).toBe(false)
-    expect(st.mcpAuditActive).toBe(false)
+    expect(st.isOverlayActive(DSH_WEB_OVERLAY_ID)).toBe(false)
+    expect(st.isOverlayActive(MCP_AUDIT_OVERLAY_ID)).toBe(false)
     expect(activeWebTabInPane('pane-1')).toBeTruthy()
   })
 
   it('反向互斥：激活 dshWeb / MCP 去活同 pane 网页页签（页签保留）', () => {
-    setupWeb({ dshWeb: WEB_INFO, dshWebPaneId: 'pane-1' })
+    setupWeb({}, ['s-a', 's-b'], [dshRef(null, false)])
     usePaneStore.getState().openWebTab('https://example.com')
-    usePaneStore.getState().activateDshWeb()
-    expect(usePaneStore.getState().dshWebActive).toBe(true)
+    usePaneStore.getState().activateOverlay(DSH_WEB_OVERLAY_ID)
+    expect(usePaneStore.getState().isOverlayActive(DSH_WEB_OVERLAY_ID)).toBe(true)
     expect(activeWebTabInPane('pane-1')).toBeUndefined()
     expect(webTabIds()).toHaveLength(1) // 仅隐藏未删除
 
     usePaneStore.getState().openMcpAuditInPane('pane-1')
-    expect(usePaneStore.getState().mcpAuditActive).toBe(true)
-    expect(usePaneStore.getState().dshWebActive).toBe(false)
+    expect(usePaneStore.getState().isOverlayActive(MCP_AUDIT_OVERLAY_ID)).toBe(true)
+    expect(usePaneStore.getState().isOverlayActive(DSH_WEB_OVERLAY_ID)).toBe(false)
   })
 })
 
-describe('activateWebTab / deactivateWebTabsInPane', () => {
+describe('activateOverlay / deactivateOverlaysInPane(web)', () => {
   it('点页签激活目标、去活同 pane 其余 webTab，activePaneId 切到承载 pane', () => {
     setupWeb()
     usePaneStore.getState().openWebTab('https://a.example.com')
     usePaneStore.getState().openWebTab('https://b.example.com')
     const first = webTabIds()[0]
-    usePaneStore.getState().activateWebTab(first)
+    usePaneStore.getState().activateOverlay(first)
     const st = usePaneStore.getState()
     expect(activeWebTabInPane('pane-1')).toBe(first)
     expect(st.layout.activePaneId).toBe('pane-1')
   })
 
-  it('deactivateWebTabsInPane 隐藏本 pane 全部网页页签（页签保留）', () => {
+  it('deactivateOverlaysInPane(web) 隐藏本 pane 全部网页页签（页签保留）', () => {
     setupWeb()
     usePaneStore.getState().openWebTab('https://a.example.com')
-    usePaneStore.getState().deactivateWebTabsInPane('pane-1')
-    const st = usePaneStore.getState()
-    expect(st.webTabs).toHaveLength(1)
-    expect(st.webTabs[0].active).toBe(false)
+    usePaneStore.getState().deactivateOverlaysInPane('pane-1', 'web')
+    const tabs = webTabs()
+    expect(tabs).toHaveLength(1)
+    expect(tabs[0].active).toBe(false)
   })
 })
 
@@ -480,7 +520,7 @@ describe('setWebTabFavicon：favicon 回写', () => {
 
     usePaneStore.getState().setWebTabFavicon(id, 'data:image/x-icon;base64,AAA')
     const st = usePaneStore.getState()
-    expect(st.webTabs[0].favicon).toBe('data:image/x-icon;base64,AAA')
+    expect(webTabs()[0].payload.favicon).toBe('data:image/x-icon;base64,AAA')
     // 同步落「最近访问」favicon 映射（page-favicon-updated 先于历史记录，tab.url 须保住）
     expect(st.webTabFavicons['https://a.example.com/']).toBe('data:image/x-icon;base64,AAA')
     expect(JSON.parse(localStorage.getItem('lyshell.webTabFavicons.v1') || '{}'))
@@ -488,20 +528,20 @@ describe('setWebTabFavicon：favicon 回写', () => {
 
     // 同值不重复 setState（结果不变即可）
     usePaneStore.getState().setWebTabFavicon(id, 'data:image/x-icon;base64,AAA')
-    expect(usePaneStore.getState().webTabs[0].favicon).toBe('data:image/x-icon;base64,AAA')
+    expect(webTabs()[0].payload.favicon).toBe('data:image/x-icon;base64,AAA')
 
     // 空值忽略
     usePaneStore.getState().setWebTabFavicon(id, '')
-    expect(usePaneStore.getState().webTabs[0].favicon).toBe('data:image/x-icon;base64,AAA')
+    expect(webTabs()[0].payload.favicon).toBe('data:image/x-icon;base64,AAA')
 
     // 未知 id 不炸不动
     usePaneStore.getState().setWebTabFavicon('web-nope', 'data:image/png;base64,BBB')
-    expect(usePaneStore.getState().webTabs).toHaveLength(1)
-    expect(usePaneStore.getState().webTabs[0].favicon).toBe('data:image/x-icon;base64,AAA')
+    expect(webTabs()).toHaveLength(1)
+    expect(webTabs()[0].payload.favicon).toBe('data:image/x-icon;base64,AAA')
 
     // 超长 data URI 视为坏数据丢弃（主进程 512KB 之外的存储侧第二道闸）
     usePaneStore.getState().setWebTabFavicon(id, 'data:image/png;base64,' + 'A'.repeat(700_001))
-    expect(usePaneStore.getState().webTabs[0].favicon).toBe('data:image/x-icon;base64,AAA')
+    expect(webTabs()[0].payload.favicon).toBe('data:image/x-icon;base64,AAA')
   })
 
   it('recordWebTabVisit 历史封顶截尾时同步裁剪 favicon 映射', () => {
@@ -549,7 +589,7 @@ describe('setWebTabFavicon：favicon 回写', () => {
     // 清空路径
     usePaneStore.getState().openWebTab('https://b.example.com')
     const id2 = webTabIds()[0]
-    usePaneStore.getState().setWebTabFavicon(id2, 'data:image/x-icon;base64,BBB')
+    usePaneStore.getState().setWebTabFavicon(id2, 'data:image/png;base64,BBB')
     usePaneStore.getState().clearWebTabHistory()
     expect(usePaneStore.getState().webTabFavicons).toEqual({})
     expect(localStorage.getItem('lyshell.webTabFavicons.v1')).toBeNull()
@@ -582,16 +622,16 @@ describe('loadWebTabFavicons：坏数据容错', () => {
   })
 })
 
-describe('closeWebTab：关闭网页页签', () => {
+describe('closeOverlay：关闭网页页签', () => {
   it('关掉激活页签 → 切到同 pane 最后一个网页页签（浏览器惯例）', () => {
     setupWeb()
     usePaneStore.getState().openWebTab('https://a.example.com')
     usePaneStore.getState().openWebTab('https://b.example.com')
     const second = webTabIds()[1]
-    usePaneStore.getState().closeWebTab(second)
-    const st = usePaneStore.getState()
-    expect(st.webTabs).toHaveLength(1)
-    expect(st.webTabs[0].active).toBe(true)
+    usePaneStore.getState().closeOverlay(second)
+    const tabs = webTabs()
+    expect(tabs).toHaveLength(1)
+    expect(tabs[0].active).toBe(true)
   })
 
   it('关掉非激活页签 → 不动当前激活页签', () => {
@@ -599,17 +639,17 @@ describe('closeWebTab：关闭网页页签', () => {
     usePaneStore.getState().openWebTab('https://a.example.com')
     usePaneStore.getState().openWebTab('https://b.example.com')
     const first = webTabIds()[0]
-    usePaneStore.getState().closeWebTab(first)
-    const st = usePaneStore.getState()
-    expect(st.webTabs).toHaveLength(1)
-    expect(st.webTabs[0].active).toBe(true)
+    usePaneStore.getState().closeOverlay(first)
+    const tabs = webTabs()
+    expect(tabs).toHaveLength(1)
+    expect(tabs[0].active).toBe(true)
   })
 
   it('关掉唯一激活页签且无其余 webTab → 回到终端（页签清空，无激活残留）', () => {
     setupWeb()
     usePaneStore.getState().openWebTab('https://a.example.com')
-    usePaneStore.getState().closeWebTab(webTabIds()[0])
-    expect(usePaneStore.getState().webTabs).toHaveLength(0)
+    usePaneStore.getState().closeOverlay(webTabIds()[0])
+    expect(webTabs()).toHaveLength(0)
   })
 })
 
@@ -617,10 +657,10 @@ describe('webTabs 与 pane 生命周期', () => {
   it('关掉最后一个终端页签 → pane 因承载网页页签保留，并自动切到该网页页签', () => {
     setupWeb({}, ['s-a'])
     usePaneStore.getState().openWebTab('https://example.com')
-    usePaneStore.getState().deactivateWebTabsInPane('pane-1')
+    usePaneStore.getState().deactivateOverlaysInPane('pane-1', 'web')
     usePaneStore.getState().removeSessionFromPane('pane-1', 's-a')
     const st = usePaneStore.getState()
-    // pane 未被 removePaneAndMerge 删除（isOverlayPane 保护）
+    // pane 未被 removePaneAndMerge 删除（overlays 保护）
     expect(st.getPaneById('pane-1')).toBeTruthy()
     // 自动激活剩余的网页页签（否则窗格只剩空态占位）
     expect(activeWebTabInPane('pane-1')).toBeTruthy()
@@ -629,8 +669,11 @@ describe('webTabs 与 pane 生命周期', () => {
   it('承载 pane 被 closePane 删除 → 网页页签一并回收（无孤儿 webview 状态）', () => {
     setupWeb()
     usePaneStore.getState().openWebTab('https://example.com')
+    const id = webTabIds()[0]
     usePaneStore.getState().closePane('pane-1')
-    expect(usePaneStore.getState().webTabs).toHaveLength(0)
+    expect(webTabs()).toHaveLength(0)
+    // payload 字典也随孤儿回收，不留悬空引用
+    expect(usePaneStore.getState().getOverlayPayload(id)).toBeUndefined()
   })
 
   it('仅剩网页页签的空 pane 不随会话清空被 removeEmptyPanes 合并掉', () => {
@@ -643,7 +686,7 @@ describe('webTabs 与 pane 生命周期', () => {
 
 // ===== 拖拽分屏 × 覆盖层迁移 =====
 // splitPane / splitPaneWithPosition 会把目标叶子原地替换为 split（叶子 id 变成 split id，
-// 会话落到新建 id 的子叶子）—— 承载在该叶子上的 webTabs / dshWeb 若不随迁会变成僵尸：
+// 会话落到新建 id 的子叶子）—— 承载在该叶子上的覆盖层若不随迁会变成僵尸：
 // findPane 按 id 仍能找到 split 节点，prune 不触发，但没有任何叶子渲染它。
 describe('splitPane / splitPaneWithPosition：拖拽分屏时覆盖层迁移', () => {
   it('splitPane 拆分承载 webTab 的 pane → webTab 迁到继承原会话的第一子叶子', () => {
@@ -651,12 +694,13 @@ describe('splitPane / splitPaneWithPosition：拖拽分屏时覆盖层迁移', (
     usePaneStore.getState().openWebTab('https://example.com')
     usePaneStore.getState().splitPane('pane-1', 'vertical', 's-b')
     const st = usePaneStore.getState()
-    expect(st.webTabs).toHaveLength(1)
+    const tabs = webTabs()
+    expect(tabs).toHaveLength(1)
     // 挂载点是叶子（而非变成 split 的 pane-1），且承载原会话
-    const host = st.getPaneById(st.webTabs[0].paneId) as PaneLeaf
+    const host = st.getPaneById(tabs[0].paneId) as PaneLeaf
     expect(host.type).toBe('leaf')
     expect(host.sessions).toContain('s-a')
-    expect(st.webTabs[0].active).toBe(true)
+    expect(tabs[0].active).toBe(true)
   })
 
   it("splitPaneWithPosition position='first' → webTab 迁到继承原会话的第二子叶子（position 反侧）", () => {
@@ -664,18 +708,19 @@ describe('splitPane / splitPaneWithPosition：拖拽分屏时覆盖层迁移', (
     usePaneStore.getState().openWebTab('https://example.com')
     usePaneStore.getState().splitPaneWithPosition('pane-1', 'vertical', 's-c', 'first')
     const st = usePaneStore.getState()
-    const host = st.getPaneById(st.webTabs[0].paneId) as PaneLeaf
+    const host = st.getPaneById(webTabs()[0].paneId) as PaneLeaf
     expect(host.type).toBe('leaf')
     expect(host.sessions).toEqual(['s-a', 's-b']) // 原会话整组继承，不含新拖入的 s-c
   })
 
-  it('splitPane 同步迁移 dshWeb 承载 pane（不触发孤儿回收，dshWebPaneId 指向新叶子）', () => {
-    setupWeb({ dshWeb: WEB_INFO, dshWebPaneId: 'pane-1', dshWebActive: true }, ['s-a', 's-b'])
+  it('splitPane 同步迁移 dshWeb 承载 pane（不触发孤儿回收，挂载点指向新叶子）', () => {
+    setupWeb({}, ['s-a', 's-b'], [dshRef(null, true)])
     usePaneStore.getState().splitPane('pane-1', 'vertical', 's-b')
     const st = usePaneStore.getState()
-    expect(st.dshWeb).toBeTruthy() // 未被 pruneOrphanedDshWeb 误关
-    expect(st.dshWebPaneId).not.toBe('pane-1')
-    const host = st.getPaneById(st.dshWebPaneId!) as PaneLeaf
+    expect(st.getOverlayByKind('dshWeb')).toBeTruthy() // 未被孤儿回收误关
+    const dshPaneId = st.getOverlayPaneId(DSH_WEB_OVERLAY_ID)
+    expect(dshPaneId).not.toBe('pane-1')
+    const host = st.getPaneById(dshPaneId!) as PaneLeaf
     expect(host.type).toBe('leaf')
     expect(host.sessions).toContain('s-a')
   })
@@ -684,7 +729,7 @@ describe('splitPane / splitPaneWithPosition：拖拽分屏时覆盖层迁移', (
     setupWeb({}, ['s-a', 's-b'])
     usePaneStore.getState().splitPane('pane-1', 'vertical', 's-b')
     const st = usePaneStore.getState()
-    expect(st.webTabs).toEqual([])
+    expect(webTabs()).toEqual([])
     expect(st.getAllLeafPanes()).toHaveLength(2)
   })
 })

@@ -14,7 +14,7 @@ import WebPanel from './WebPanel'
 import HarnessPanel from './HarnessPanel'
 import SettingsPanel from './SettingsPanel'
 import { useSessionStore } from '../../stores/session-store'
-import { usePaneStore } from '../../stores/pane-store'
+import { usePaneStore, findPane } from '../../stores/pane-store'
 import { useThemeStore } from '../../stores/theme-store'
 import { useLocaleStore } from '../../stores/locale-store'
 import { useQuickCommandsStore } from '../../stores/quick-commands-store'
@@ -60,7 +60,9 @@ const MainWindow: React.FC = () => {
   const [floatVisible, setFloatVisible] = useState(false) // 浮窗默认隐藏
   const [isMaximized, setIsMaximized] = useState(false)
   const { sessions, loadSessions, refreshSavedSessions, syncSessionsFromBackend } = useSessionStore()
-  const { getAllLeafPanes, layout, dshWebActive, dshWebPaneId, webTabs } = usePaneStore()
+  // 不订阅 layout：本组件 JSX 不消费布局树（activePaneId 只在事件回调里经
+  // getState 现取），订阅会让高频布局写入（拖分屏比例的 setSplitRatio ~60Hz）
+  // 逐帧重渲整个窗口 chrome
   const { initFromStorage } = useThemeStore()
   const { initFromStorage: initLocaleFromStorage } = useLocaleStore()
   const { t } = useTranslation()
@@ -363,11 +365,10 @@ const MainWindow: React.FC = () => {
       e.preventDefault()
       e.stopPropagation()
 
-      // dsh web / 网页访问栏 / 文档页签接管活动分屏时不发（对齐原"dsh web 激活时快捷命令不可用"语义）
+      // 任何覆盖层（web / 文档 / dsh web / MCP）接管活动分屏时不发：盖住终端时命令发进去
+      // 不可见（对齐原"dsh web 激活时快捷命令不可用"语义；归一前漏算 docTabs / MCP，在此修正）
       const paneSt = usePaneStore.getState()
-      if (paneSt.dshWebActive && paneSt.dshWebPaneId === paneSt.layout.activePaneId) return
-      if (paneSt.webTabs.some(t => t.active && t.paneId === paneSt.layout.activePaneId)) return
-      if (paneSt.docTabs.some(t => t.active && t.paneId === paneSt.layout.activePaneId)) return
+      if (paneSt.activeOverlayInPane(paneSt.layout.activePaneId)) return
 
       // 发送到活动分屏的活动会话（同 handleExecuteCommand,内联避免 use-before-define）
       const activePane = paneSt.getAllLeafPanes().find(p => p.id === paneSt.layout.activePaneId)
@@ -508,17 +509,22 @@ const MainWindow: React.FC = () => {
 
   // 执行快速命令 - 派发到活动分屏的活动会话（拆行/转义/结尾符统一在 dispatchCommand）
   const handleExecuteCommand = (cmd: QuickCommand) => {
-    const activePane = getAllLeafPanes().find(p => p.id === layout.activePaneId)
+    const st = usePaneStore.getState()
+    const activePane = st.getAllLeafPanes().find(p => p.id === st.layout.activePaneId)
     if (activePane?.activeSessionId) {
       dispatchCommand(cmd, activePane.activeSessionId)
     }
   }
 
-  // dsh web 仅在其承载分屏为当前活动分屏且正显示时，才禁用快捷命令（键帽置灰、F 键不发）。
-  // 否则即便 web 仍挂在别的分屏上，活动分屏是终端时快捷命令仍应指向该终端。
-  // 网页访问栏页签激活时同理（webview 盖住终端，命令发进去不可见）。
-  const dshWebActiveHere = dshWebActive && dshWebPaneId === layout.activePaneId
-  const webTabActiveHere = webTabs.some(t => t.active && t.paneId === layout.activePaneId)
+  // 快捷命令键帽置灰条件：任何覆盖层（web / 文档 / dsh web / MCP）激活在当前活动分屏
+  // （webview/面板盖住终端，命令发进去不可见）。树与 activePaneId 都从 selector 的
+  // 快照 s 读取（不经过 activeOverlayInPane 这类内部走 get() 的方法 —— 那会撕裂
+  // 快照与活 store，React 18 并发渲染下出错位中间态）。
+  // 即便覆盖层挂在别的分屏上，活动分屏是终端时快捷命令仍应指向该终端。
+  const overlayActiveHere = usePaneStore(s => {
+    const pane = findPane(s.layout.root, s.layout.activePaneId)
+    return pane?.type === 'leaf' ? pane.overlays.some(r => r.active) : false
+  })
   // 在线会话数 -- ActivityRail 的 sessions 槽位 LED 读数
   const liveCount = sessions.filter(s => s.status === 'connected').length
 
@@ -557,7 +563,7 @@ const MainWindow: React.FC = () => {
               <SessionsPanel
                 onConnect={handleConnect}
                 onExecuteCommand={handleExecuteCommand}
-                quickCommandsDisabled={dshWebActiveHere || webTabActiveHere}
+                quickCommandsDisabled={overlayActiveHere}
               />
             )}
             {activeNav === 'agents' && <AgentsPanel />}
@@ -712,7 +718,7 @@ const MainWindow: React.FC = () => {
         </div>
       </div>
 
-      {/* MCP 活动面板以页签形式挂在各分屏 PaneView 内，由 pane-store.mcpAuditPaneId 驱动 */}
+      {/* MCP 活动面板以页签形式挂在各分屏 PaneView 内，由布局树里的 mcpAudit 覆盖层引用驱动 */}
     </div>
   )
 }

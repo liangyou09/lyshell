@@ -67,6 +67,7 @@
   --ft-other:       #4A5159;
   --live:           #3DDC97;  /* 偏青绿,与 --proto-tel(#7CC576 草绿) 拉开 —— LIVE 段呼吸点不再被 TEL 协议色淹没 */
   --reachable:      #6CD4FF;
+  --reachable-glow: #6CD4FF33;  /* reachable 的落区/悬停伴生透明层(同 amber/amber-glow 配对模式) */
   --warn-rack:      #E8A33D;
   --error-rack:     #FF6B6B;
 }
@@ -426,12 +427,20 @@ body {
 }
 
 /* === 文档页签（DocPanel）— 全部走 rack 变量，7 主题自动适配 ===
-   设计语言（design/markdown-viewer.html）：等宽正文、幽灵 # 记号标题、
-   148px sticky 大纲轨、codehead 代码块、amber 引用缘 */
+   设计语言（design/markdown-viewer.html）：等宽正文、飞书式纯净标题（# 记号已移除）、
+   sticky 大纲轨（可整轨收起，头条最左 ◀/▶ 切换）、codehead 代码块、amber 引用缘 */
 
-/* 阅读画布：滚动容器 + 容器查询锚点（窄 pane 收起大纲栏）。
+/* 文档页签整体（头条 + 阅读画布的公共父层，DocTabOverlay 根节点）：命名容器
+   查询锚点 —— 两条 620px 规则（收大纲栏 / 藏头条目录开关）都查它，单一测量
+   锚，不会因头条 px-3 内距而翻转点错开（否则 620-644px 段轨还开着、开关已隐藏） */
+.doc-pane {
+  container-type: inline-size;
+  container-name: docpane;
+}
+
+/* 阅读画布：滚动容器 + 容器查询锚点。
    size 容器（高度由 inset-0 外部决定，size containment 安全）：
-   @container 宽度查询照旧，另为目录轨提供 100cqh = pane 高 */
+   100cqh = pane 高（目录轨用）；宽度类规则已统一走上面的 docpane 命名锚 */
 .doc-body {
   container-type: size;
   background: var(--bg-base);
@@ -470,9 +479,21 @@ body.doc-pan-dragging * {
   min-height: 100%;
 }
 
-/* 无标题文档：不留大纲死槽 */
+/* 无标题文档 / 整轨收起：不留大纲死槽，正文单列 */
 .doc-grid-plain {
   grid-template-columns: minmax(0, 1fr);
+}
+
+/* 目录横线图标（展开态符号，DocHeader 头条钮）：三横线长度递减 —— 大纲层级意象；
+   尺寸 14×12 与收起态 `<<`（15×12 SVG）同量级；currentColor 随按钮态着色 */
+.doc-rail-toggle-lines {
+  flex: none;
+  width: 14px;
+  height: 12px;
+  background:
+    linear-gradient(currentColor 0 0) 0 0 / 14px 1.5px no-repeat,
+    linear-gradient(currentColor 0 0) 0 5.25px / 11.5px 1.5px no-repeat,
+    linear-gradient(currentColor 0 0) 0 10.5px / 9px 1.5px no-repeat;
 }
 
 /* 大纲栏 — 全高轨道（右边线拉到底）+ sticky 目录 + 沿分隔线滑动的 amber 手柄 */
@@ -529,21 +550,6 @@ body.doc-rail-dragging {
   overflow-y: auto;
   padding: 28px 0 24px 16px;
   font-size: 14px;
-}
-
-.doc-rail-label {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-  padding: 0 10px 10px;
-  color: var(--text-rack-faint);
-  letter-spacing: 1.5px;
-}
-
-/* 条目计数 —— tabular 对齐，不参与 letterspacing */
-.doc-rail-count {
-  letter-spacing: 0;
-  font-variant-numeric: tabular-nums;
 }
 
 .doc-rail-list { position: relative; }
@@ -637,10 +643,9 @@ body.doc-rail-dragging {
 
 .doc-content > :first-child { margin-top: 0; }
 
-/* 幽灵 # 记号标题 — 记号悬于标题左侧凹槽 */
+/* 标题 — 飞书式纯净标题（无 # 记号，层级只靠字号/字重表达） */
 .doc-content h1,
 .doc-content h2 {
-  position: relative;
   font-weight: 700;
   letter-spacing: .2px;
   text-wrap: balance;
@@ -651,18 +656,6 @@ body.doc-rail-dragging {
 .doc-content h2 { font-size: 15.5px; margin: 34px 0 10px; }
 .doc-content h3 { font-size: 14px; font-weight: 700; margin: 26px 0 8px; }
 .doc-content h4 { font-size: 12.5px; font-weight: 700; color: var(--text-rack-data); margin: 22px 0 8px; }
-
-.doc-content h1::before,
-.doc-content h2::before {
-  position: absolute;
-  right: calc(100% + 10px);
-  color: var(--text-rack-faint);
-  opacity: .6;
-  font-weight: 400;
-}
-
-.doc-content h1::before { content: "#"; }
-.doc-content h2::before { content: "##"; }
 
 .doc-content p { margin: 12px 0; }
 .doc-content strong { font-weight: 700; }
@@ -872,13 +865,19 @@ body.doc-rail-dragging {
   box-shadow: 0 6px 18px rgba(0, 0, 0, .25);
 }
 
-/* 窄 pane — 收起大纲栏、收紧正文内距 */
-@container (max-width: 620px) {
+/* 窄 pane — 收起大纲栏、收紧正文内距（docpane 命名锚 = 整片文档页签宽） */
+@container docpane (max-width: 620px) {
   .doc-grid { grid-template-columns: minmax(0, 1fr); }
   .doc-rail-track { display: none; }
   .doc-content { padding: 22px 18px 50px; }
-  .doc-content h1::before,
-  .doc-content h2::before { display: none; }
+}
+
+/* 窄 pane 下轨已被上面那条规则收起，头条的目录开关跟着隐藏 —— 留着就是对着
+   不可见的轨显示「收起大纲」，点击翻转的还是全局偏好，其它 pane 会遭殃。
+   同查 docpane 命名锚（.doc-header 是 .doc-body 的兄弟，做自己的容器会因
+   px-3 内距量窄 24px，两条规则的翻转点须严格同锚同时翻转） */
+@container docpane (max-width: 620px) {
+  .doc-rail-toggle { display: none; }
 }
 
 /* 无障碍 */

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { usePaneStore } from '../../stores/pane-store'
+import { MCP_AUDIT_OVERLAY_ID } from '../../stores'
 
 /**
  * "最近有活动" 判定窗口：最近一条审计记录距现在不超过该阈值时，LED 亮 amber。
@@ -36,18 +37,23 @@ export function McpActivityRailSlot(): JSX.Element {
   const { t } = useTranslation()
   const [count, setCount] = useState(0)
   const [recent, setRecent] = useState(false)
-  const mcpAuditPaneId = usePaneStore(s => s.mcpAuditPaneId)
+  // MCP 审计面板是单例覆盖层，开关态只消费 null 性（active 判定 + 关闭跳变检测）。
+  // 布尔 selector 一次字典查找即答：payload 哨兵与树同 set 原子增删（挂载即建、
+  // closeRefsTail 回收即删），字典在 ≡ 面板开着。此前按 paneId 订阅要在每次
+  // store 写入（含拖分屏调宽的逐帧 setSplitRatio）付一次全树遍历，只为了
+  // 学一个布尔值 —— 挂载 pane id 需要时点击处 getState 现查即可
+  const mcpAuditOpen = usePaneStore(s => !!s.overlayPayloads[MCP_AUDIT_OVERLAY_ID])
 
-  // MCP 页签关闭(非空 -> null)时自增 refreshKey，触发立即拉取最新计数
+  // MCP 页签关闭(true -> false)时自增 refreshKey，触发立即拉取最新计数
   // （保留"关闭即刷新计数"的体验，不等 30s 轮询）
   const [refreshKey, setRefreshKey] = useState(0)
-  const prevMcpPaneId = useRef<string | null>(mcpAuditPaneId)
+  const prevMcpOpen = useRef<boolean>(mcpAuditOpen)
   useEffect(() => {
-    if (prevMcpPaneId.current !== null && mcpAuditPaneId === null) {
+    if (prevMcpOpen.current && !mcpAuditOpen) {
       setRefreshKey(k => k + 1)
     }
-    prevMcpPaneId.current = mcpAuditPaneId
-  }, [mcpAuditPaneId])
+    prevMcpOpen.current = mcpAuditOpen
+  }, [mcpAuditOpen])
 
   useEffect(() => {
     let cancelled = false
@@ -72,7 +78,7 @@ export function McpActivityRailSlot(): JSX.Element {
     return () => { cancelled = true; clearInterval(timer) }
   }, [refreshKey])
 
-  const active = mcpAuditPaneId !== null
+  const active = mcpAuditOpen
 
   // 点击：在当前活跃分屏切换 MCP 页签。正显示在本 pane -> 关；未开 / 开在别的 pane /
   // 开在本 pane 但被终端或 web 页签盖住 -> 打开并置顶（单例，会从别的 pane 移过来）。
@@ -80,7 +86,8 @@ export function McpActivityRailSlot(): JSX.Element {
     const st = usePaneStore.getState()
     const ap = st.layout.activePaneId
     if (!ap) return
-    if (st.mcpAuditPaneId === ap && st.mcpAuditActive) st.closeMcpAudit()
+    const mcp = st.getOverlayByKind('mcpAudit')
+    if (mcp && mcp.paneId === ap && mcp.ref.active) st.closeMcpAudit()
     else st.openMcpAuditInPane(ap)
   }
 

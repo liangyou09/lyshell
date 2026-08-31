@@ -2,14 +2,15 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { WebviewTag } from 'electron'
 import { usePaneStore } from '../../stores/pane-store'
-import type { WebTabEntry } from '../../stores/pane-store'
+import { OVERLAY_KINDS } from '../../stores'
 import TerminalView from '../Terminal/TerminalView'
 import PaneTabBar from './PaneTabBar'
 import { McpAuditPanel } from './McpAuditPanel'
 import DocTabOverlay from '../DocPanel/DocTabOverlay'
 import SplitDivider from './SplitDivider'
 import { getDraggingSessionId, setDraggingSessionId } from './SplitPaneContainer'
-import type { PaneNode, SplitDirection } from '@shared/types'
+import { resolveOverlayDragId } from './overlay-drag'
+import type { PaneNode, SplitDirection, OverlayKind, OverlayPayload, OverlayRef } from '@shared/types'
 
 type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center' | null
 
@@ -61,13 +62,13 @@ function faviconUrlFromEvent(e: Event): string | undefined {
  * 主进程代取转 data URI 回写（渲染层 CSP 只放行 data: 图）。首次 did-finish-load 时
  * 把 URL 记入「最近访问」历史（加载失败的 URL 不算访问过）。
  */
-const WebTabOverlay: React.FC<{ tab: WebTabEntry }> = ({ tab }) => {
+const WebTabOverlay: React.FC<{ id: string; url: string }> = ({ id, url }) => {
   const setWebTabTitle = usePaneStore(s => s.setWebTabTitle)
   const setWebTabFavicon = usePaneStore(s => s.setWebTabFavicon)
   const recordWebTabVisit = usePaneStore(s => s.recordWebTabVisit)
   const ref = useRef<WebviewTag | null>(null)
   // 每 tab 只记一次：did-finish-load 对页内刷新/锚点跳转也会触发，重复记录靠 store 去重，
-  // 这里用 ref 闸掉后续事件省 setState（tab.url 固定为打开时的 URL，页内导航不另记）
+  // 这里用 ref 闸掉后续事件省 setState（url 固定为打开时的 URL，页内导航不另记）
   const historyRecorded = useRef(false)
 
   useEffect(() => {
@@ -78,7 +79,7 @@ const WebTabOverlay: React.FC<{ tab: WebTabEntry }> = ({ tab }) => {
       // undefined —— 原来只读 detail 的写法一直取不到，两者兼容
       const evt = e as CustomEvent<{ title?: string }> & { title?: string }
       const title = evt.title ?? evt.detail?.title
-      if (title) setWebTabTitle(tab.id, title)
+      if (title) setWebTabTitle(id, title)
     }
     const onFavicon = (e: Event): void => {
       // 取首个 favicon，代取失败静默回落纯文字页签（下次事件自动重试）
@@ -86,13 +87,13 @@ const WebTabOverlay: React.FC<{ tab: WebTabEntry }> = ({ tab }) => {
       if (!src) return
       void fetchFaviconDataUri(src).then(dataUri => {
         // 异步回来时页签可能已关闭，setWebTabFavicon 对未知 id 是 no-op
-        if (dataUri) setWebTabFavicon(tab.id, dataUri)
+        if (dataUri) setWebTabFavicon(id, dataUri)
       })
     }
     const onLoadFinish = (): void => {
       if (historyRecorded.current) return
       historyRecorded.current = true
-      recordWebTabVisit(tab.url)
+      recordWebTabVisit(url)
     }
     el.addEventListener('page-title-updated', onTitle)
     el.addEventListener('page-favicon-updated', onFavicon)
@@ -102,15 +103,90 @@ const WebTabOverlay: React.FC<{ tab: WebTabEntry }> = ({ tab }) => {
       el.removeEventListener('page-favicon-updated', onFavicon)
       el.removeEventListener('did-finish-load', onLoadFinish)
     }
-  }, [tab.id, tab.url, setWebTabTitle, setWebTabFavicon, recordWebTabVisit])
+  }, [id, url, setWebTabTitle, setWebTabFavicon, recordWebTabVisit])
 
   return (
     <webview
       ref={ref}
       partition="persist:webbar"
-      src={tab.url}
+      src={url}
       className="w-full h-full"
     />
+  )
+}
+
+// 「去活即卸载」的种类行为规则已上移 OVERLAY_KINDS 注册表，此处直接查表；
+// webview/iframe 吞宿主拖拽事件的问题由渲染层的拖拽盾（见下方 JSX）统一兜住
+
+/**
+ * 覆盖层内容渲染注册表 —— PaneView 侧「每种类一个渲染器」。
+ * 外壳（absolute 定位 / visibility 显隐 / 层级）由 OverlayHost 统一处理，
+ * 这里只管「这一种覆盖层长什么样」。新增覆盖层种类 = 此处加一个条目。
+ * 全员 React.memo：PaneView 整体重渲染时，props 未变的覆盖层（ref 对象与
+ * payload 对象都还是旧引用）直接跳过 —— 否则一次重渲染会让本 pane 所有
+ * 文档面板跟着重跑 react-markdown。
+ */
+interface OverlayContentProps {
+  paneId: string
+  overlay: OverlayRef
+  payload: OverlayPayload
+}
+
+// MCP 审计面板：单例纯 DOM；「去活即卸载」由 OVERLAY_KINDS.unmountWhenInactive 承担
+const McpAuditOverlay = React.memo<OverlayContentProps>(({ overlay }) => {
+  const closeOverlay = usePaneStore(s => s.closeOverlay)
+  return <McpAuditPanel onClose={() => closeOverlay(overlay.id)} />
+})
+McpAuditOverlay.displayName = 'McpAuditOverlay'
+
+// dsh Web UI：webview 单例。partition 与主进程 will-attach-webview 分流锁定耦合，勿改
+const DshWebOverlay = React.memo<OverlayContentProps>(({ payload }) => (
+  payload.kind === 'dshWeb'
+    ? <webview partition="persist:dshweb" src={payload.url} className="w-full h-full" />
+    : null
+))
+DshWebOverlay.displayName = 'DshWebOverlay'
+
+const WebOverlay = React.memo<OverlayContentProps>(({ overlay, payload }) => (
+  payload.kind === 'web'
+    ? <WebTabOverlay id={overlay.id} url={payload.url} />
+    : null
+))
+WebOverlay.displayName = 'WebOverlay'
+
+const DocOverlay = React.memo<OverlayContentProps>(({ paneId, overlay, payload }) => (
+  payload.kind === 'doc'
+    ? <DocTabOverlay id={overlay.id} paneId={paneId} payload={payload} />
+    : null
+))
+DocOverlay.displayName = 'DocOverlay'
+
+
+const overlayContentRenderers: Record<OverlayKind, React.FC<OverlayContentProps>> = {
+  mcpAudit: McpAuditOverlay,
+  dshWeb: DshWebOverlay,
+  web: WebOverlay,
+  doc: DocOverlay
+}
+
+/**
+ * 覆盖层挂载 gate：payload 订阅按实例收敛（s => s.overlayPayloads[id]）——
+ * 任一 payload 回写（标题/favicon/文档刷新）只重渲染所属实例，不再整字典换
+ * 引用联动所有 pane。外壳统一 absolute inset-0 + visibility（保 webview/滚动
+ * 状态）+ 激活态层级；「去活即卸载」的种类（MCP）在这里拦截。
+ */
+const OverlayHost: React.FC<{ paneId: string; overlay: OverlayRef }> = ({ paneId, overlay }) => {
+  const payload = usePaneStore(s => s.overlayPayloads[overlay.id])
+  if (!payload) return null // 防御：引用无 payload（异常中间态）不渲染
+  if (!overlay.active && OVERLAY_KINDS[overlay.kind].unmountWhenInactive) return null
+  const Renderer = overlayContentRenderers[overlay.kind]
+  return (
+    <div
+      className="absolute inset-0"
+      style={{ visibility: overlay.active ? 'visible' : 'hidden', zIndex: overlay.active ? 10 : 0 }}
+    >
+      <Renderer paneId={paneId} overlay={overlay} payload={payload} />
+    </div>
   )
 }
 
@@ -132,26 +208,19 @@ interface PaneViewProps {
  * - vertical(上下堆叠):仅 firstChild 继承三个 flag(下 pane 的页签条在窗口中部,不是第一行)
  */
 const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight }) => {
-  // 逐字段 selector 订阅：本组件从 store 只读 activePaneId（布局树由 node prop 传入，
-  // activePaneId 是字符串 —— 拖分屏比例等高频 layout 写入只换对象引用，选中值不变，
-  // 不再触发所有 PaneView 重渲染）。action 引用在 create 时即固定，选中它们零成本
+  // 逐字段 selector 订阅：本组件从 store 只读 activePaneId / 拖拽态
+  // （布局树由 node prop 传入；payload 字典的订阅收敛在 OverlayHost 按实例进行，
+  //  任一 payload 回写不再联动所有 pane 重渲染）。
+  // action 引用在 create 时即固定，选中它们零成本
   const setActivePane = usePaneStore(s => s.setActivePane)
   const addSessionToPane = usePaneStore(s => s.addSessionToPane)
   const splitPaneWithPosition = usePaneStore(s => s.splitPaneWithPosition)
   const swapPanePosition = usePaneStore(s => s.swapPanePosition)
-  const closeMcpAudit = usePaneStore(s => s.closeMcpAudit)
-  const setDraggingDshWeb = usePaneStore(s => s.setDraggingDshWeb)
-  const moveDshWebToPane = usePaneStore(s => s.moveDshWebToPane)
-  const splitDshWebIntoPane = usePaneStore(s => s.splitDshWebIntoPane)
+  const setDraggingOverlay = usePaneStore(s => s.setDraggingOverlay)
+  const moveOverlayToPane = usePaneStore(s => s.moveOverlayToPane)
+  const splitOverlayIntoPane = usePaneStore(s => s.splitOverlayIntoPane)
   const activePaneId = usePaneStore(s => s.layout.activePaneId)
-  const mcpAuditPaneId = usePaneStore(s => s.mcpAuditPaneId)
-  const mcpAuditActive = usePaneStore(s => s.mcpAuditActive)
-  const dshWeb = usePaneStore(s => s.dshWeb)
-  const dshWebPaneId = usePaneStore(s => s.dshWebPaneId)
-  const dshWebActive = usePaneStore(s => s.dshWebActive)
-  const draggingDshWeb = usePaneStore(s => s.draggingDshWeb)
-  const webTabs = usePaneStore(s => s.webTabs)
-  const docTabs = usePaneStore(s => s.docTabs)
+  const draggingOverlayId = usePaneStore(s => s.draggingOverlayId)
   const { getPaneBySessionId, getParentPane, getPanePositionInParent } = usePaneStore.getState()
   // 被隐藏的终端页签记录(Sidebar LIVE 段会话标签点击 toggle);订阅整个记录,任何 toggle 都会触发本组件重渲染。
   // 实际负载很小(仅 visibility 切换),未做按 pane 过滤的选择器。
@@ -159,8 +228,13 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
   const { t } = useTranslation()
   const isActive = activePaneId === node.id
   const [dropZone, setDropZone] = useState<DropZone>(null)
-  const [dropAction, setDropAction] = useState<'swap' | 'changeDirection' | 'split' | 'moveWeb' | null>(null)
+  const [dropAction, setDropAction] = useState<'swap' | 'changeDirection' | 'split' | 'moveOverlay' | null>(null)
   const dropRef = useRef<HTMLDivElement>(null)
+  // 拖拽中覆盖层的种类（落区配色/文案分族用）：响应式从 payload 字典取（payload 与
+  // 引用同 set 原子增删，kind 一致；不用 getState 读树 —— 渲染期非响应式读取在并发
+  // set 下会撕裂）。拖拽中就被关掉的异常态回落 undefined → 按 web 系配色
+  const draggedOverlayKind = usePaneStore(s =>
+    s.draggingOverlayId ? s.overlayPayloads[s.draggingOverlayId]?.kind : undefined)
 
   // 点击激活分屏
   const handleClick = () => {
@@ -173,8 +247,10 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
   if (node.type === 'leaf') {
     const handleDragOver = (e: React.DragEvent) => {
       const sessionId = getDraggingSessionId()
-      const draggingWeb = draggingDshWeb
-      if (!sessionId && !draggingWeb) {
+      // 会话标记优先：异常拖拽序列（源页签 dragend 丢失）下覆盖层标记可能残留，
+      // 此刻用户又在拖会话页签 —— 按会话处理，别让僵尸标记劫持落区
+      const draggingOverlay = draggingOverlayId !== null && !sessionId
+      if (!sessionId && !draggingOverlay) {
         setDropZone(null)
         setDropAction(null)
         return
@@ -200,12 +276,13 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
       const xPos = x / rect.width
       const yPos = y / rect.height
 
-      // dsh Web 拖拽分屏：四边 = 独立分屏，中心 = 改挂载到本 pane（live 预览沿用 dropZone 指示器）
-      if (draggingWeb) {
+      // 覆盖层页签拖拽（web / 文档 / dsh web / MCP 通用）：
+      // 四边 = 独立分屏，中心 = 改挂载到本 pane（live 预览沿用 dropZone 指示器）
+      if (draggingOverlay) {
         const isHorizontalEdge = xPos < 0.3 || xPos > 0.7
         const isVerticalEdge = yPos < 0.25 || yPos > 0.7
         const isCenter = !isHorizontalEdge && !isVerticalEdge
-        setDropAction(isCenter ? 'moveWeb' : 'split')
+        setDropAction(isCenter ? 'moveOverlay' : 'split')
         if (isCenter) {
           setDropZone('center')
         } else if (isHorizontalEdge) {
@@ -216,7 +293,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
         return
       }
 
-      // 非 web 拖拽：顶部 guard 已拦下「两者皆空」，此处仅为收窄 sessionId 类型
+      // 非覆盖层拖拽：顶部 guard 已拦下「两者皆空」，此处仅为收窄 sessionId 类型
       if (!sessionId) return
 
       // 判断拖拽位置
@@ -303,8 +380,14 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
       setDropZone(null)
       setDropAction(null)
 
-      // dsh Web 拖拽落下：中心 = 改挂载，四边 = 独立分屏
-      if (draggingDshWeb) {
+      // 覆盖层页签落下（所有种类同一落点语义）：中心 = 改挂载，四边 = 拆独立分屏。
+      // 与 handleDragOver 同序：会话标记优先；再以 dataTransfer 交叉校验覆盖层
+      // 标记（标记残留时 dataTransfer 是本次拖拽的事实，非覆盖层数据不放行）
+      const overlayDragId = resolveOverlayDragId(
+        e.dataTransfer.getData('text/plain'),
+        getDraggingSessionId() ? null : draggingOverlayId
+      )
+      if (overlayDragId) {
         const rect = dropRef.current?.getBoundingClientRect()
         if (!rect) return
         if (e.clientX < rect.left || e.clientX > rect.right ||
@@ -315,18 +398,20 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
         const y = e.clientY - rect.top
         const xPos = x / rect.width
         const yPos = y / rect.height
-        setDraggingDshWeb(false)
+        const overlayId = overlayDragId
+        // 先复位拖拽态（onDragEnd 亦会触发，幂等），让 webview 立即恢复显隐
+        setDraggingOverlay(null)
 
         const isHorizontalEdge = xPos < 0.3 || xPos > 0.7
         const isVerticalEdge = yPos < 0.25 || yPos > 0.7
         const isCenter = !isHorizontalEdge && !isVerticalEdge
 
         if (isCenter) {
-          moveDshWebToPane(node.id)
+          moveOverlayToPane(overlayId, node.id)
         } else if (isHorizontalEdge) {
-          splitDshWebIntoPane(node.id, 'horizontal', xPos < 0.5 ? 'first' : 'second')
+          splitOverlayIntoPane(overlayId, node.id, 'horizontal', xPos < 0.5 ? 'first' : 'second')
         } else {
-          splitDshWebIntoPane(node.id, 'vertical', yPos < 0.5 ? 'first' : 'second')
+          splitOverlayIntoPane(overlayId, node.id, 'vertical', yPos < 0.5 ? 'first' : 'second')
         }
         return
       }
@@ -435,14 +520,20 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
       }
     }
 
-    const getDropZoneStyle = (zone: DropZone, action: 'swap' | 'changeDirection' | 'split' | 'moveWeb' | null) => {
+    const getDropZoneStyle = (zone: DropZone, action: 'swap' | 'changeDirection' | 'split' | 'moveOverlay' | null) => {
       if (!zone) return null
 
+      // moveOverlay 配色/文案按拖拽中种类从注册表取（doc=amber、web 系=reachable，
+      // 均与各自页签点色同源的主题令牌）；异常态（拖拽中就被关掉）按 web 系兜底
+      const dragDef = draggedOverlayKind ? OVERLAY_KINDS[draggedOverlayKind] : undefined
+      const moveColor = dragDef?.dropAccent ?? OVERLAY_KINDS.web.dropAccent
+      const moveLabel = t(dragDef?.dropLabelKey ?? OVERLAY_KINDS.web.dropLabelKey)
+
       const colors = {
-        swap: { bg: 'rgba(255, 140, 0, 0.3)', border: '#FF8C00' },      // 橙色 - 交换
+        swap: { bg: 'rgba(255, 140, 0, 0.3)', border: '#FF8C00' },          // 橙色 - 交换
         changeDirection: { bg: 'rgba(0, 200, 83, 0.3)', border: '#00C853' }, // 绿色 - 改变方向
-        split: { bg: 'rgba(0, 120, 212, 0.3)', border: '#0078D4' },      // 蓝色 - 分屏
-        moveWeb: { bg: 'rgba(0, 200, 200, 0.3)', border: '#00C8C8' }     // 青色 - 移动 Web 挂载
+        split: { bg: 'rgba(0, 120, 212, 0.3)', border: '#0078D4' },          // 蓝色 - 分屏
+        moveOverlay: moveColor
       }
 
       const color = colors[action || 'split']
@@ -463,7 +554,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
         swap: t('pane.actionSwap'),
         changeDirection: t('pane.actionChangeDirection'),
         split: t('pane.actionSplit'),
-        moveWeb: t('pane.moveWebHere')
+        moveOverlay: moveLabel
       }
       const label = labels[action || 'split']
 
@@ -477,7 +568,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
         case 'bottom':
           return { ...baseStyle, left: 0, bottom: 0, width: '100%', height: '25%', label: t('pane.zoneBottom', { label }) }
         case 'center':
-          return { ...baseStyle, left: '30%', top: '25%', width: '40%', height: '50%', label: action === 'moveWeb' ? t('pane.moveWebHere') : t('pane.merge') }
+          return { ...baseStyle, left: '30%', top: '25%', width: '40%', height: '50%', label: action === 'moveOverlay' ? moveLabel : t('pane.merge') }
         default:
           return null
       }
@@ -539,61 +630,20 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
             </div>
           )}
 
-          {/* MCP 活动页签覆盖层 -- 单例，仅本 pane 且激活时挂载；切到终端/web 页签只退为未激活（页签保留， */}
-          {/* 面板卸载、重进回第 1 页），点 MCP 页签 / chip 切回。终端实例在底层继续接收数据。 */}
-          {mcpAuditPaneId === node.id && mcpAuditActive && (
-            <div className="absolute inset-0 z-10">
-              <McpAuditPanel onClose={closeMcpAudit} />
-            </div>
-          )}
-
-          {/* dsh Web UI 覆盖层 -- 单例，打开后挂载在本 pane；切到终端标签用 visibility 隐藏（webview 保持挂载、页面状态不丢），点 ✕ 才卸载销毁。导航由主进程锁定 */}
-          {/* 拖拽 web 页签期间同样隐藏 webview：webview 是独立原生视图、会吞掉宿主页 dragover/drop，隐藏后 drop 目标区（终端/空 pane）才可接收 */}
-          {dshWebPaneId === node.id && dshWeb && (
-            <div
-              className="absolute inset-0"
-              style={{
-                visibility: dshWebActive && !draggingDshWeb ? 'visible' : 'hidden',
-                zIndex: dshWebActive && !draggingDshWeb ? 10 : 0
-              }}
-            >
-              <webview
-                partition="persist:dshweb"
-                src={dshWeb.url}
-                className="w-full h-full"
-              />
-            </div>
-          )}
-
-          {/* 网页访问栏页签覆盖层 —— 多开，每个 tab 一个 webview；切到终端/其它页签用 visibility */}
-          {/* 隐藏（webview 保持挂载、页面状态不丢），✕ 才卸载销毁。每 pane 至多一个 active。 */}
-          {webTabs.filter(t => t.paneId === node.id).map(tab => (
-            <div
-              key={tab.id}
-              className="absolute inset-0"
-              style={{
-                visibility: tab.active ? 'visible' : 'hidden',
-                zIndex: tab.active ? 10 : 0
-              }}
-            >
-              <WebTabOverlay tab={tab} />
-            </div>
+          {/* 覆盖层统一循环 —— 挂载点在 pane 树上（node.overlays）；外壳/卸载规则/ */}
+          {/* payload 订阅收敛在 OverlayHost（按实例 gate）。 */}
+          {node.overlays.map(ref => (
+            <OverlayHost key={ref.id} paneId={node.id} overlay={ref} />
           ))}
 
-          {/* 文档页签覆盖层 —— 多开，纯 DOM 渲染（无 webview）；切到终端/其它页签用 */}
-          {/* visibility 隐藏（保滚动位置与组件状态），✕ 才卸载。每 pane 至多一个 active。 */}
-          {docTabs.filter(t => t.paneId === node.id).map(tab => (
-            <div
-              key={tab.id}
-              className="absolute inset-0"
-              style={{
-                visibility: tab.active ? 'visible' : 'hidden',
-                zIndex: tab.active ? 10 : 0
-              }}
-            >
-              <DocTabOverlay tab={tab} />
-            </div>
-          ))}
+          {/* 拖拽盾：任何覆盖层页签拖拽期间盖在内容区最上层的无 handler 薄层。 */}
+          {/* webview / html iframe 是独立浏览上下文会吞宿主 dragover/drop —— 事件打到 */}
+          {/* 盾上再冒泡回本容器的落区判定（handleDragLeave 的 contains 判定把盾当 */}
+          {/* 子节点，不会误清指示器），落区恒可达且 webview 保持可见；替代原先 */}
+          {/* 「吞没种类拖拽期 visibility:hidden」造成的整 pane 闪空 */}
+          {draggingOverlayId !== null && (
+            <div className="absolute inset-0 z-20" aria-hidden="true" />
+          )}
 
           {/* 分屏指示器 */}
           {dropZone && getDropZoneStyle(dropZone, dropAction) && (

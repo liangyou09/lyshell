@@ -4,32 +4,15 @@ import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { DEFAULT_FONT_FAMILY } from '@shared/constants'
-import type { DocTabEntry } from '@shared/types'
+import type { DocOverlayPayload } from '@shared/types'
 import { hljsToReact, normalizeLang } from './hljsToReact'
-import OutlineRail, { DocHeading } from './OutlineRail'
+import OutlineRail from './OutlineRail'
 import { docLinkTarget, docDirFromPath } from './docLink'
 import { openLocalDoc, openRemoteDoc } from './readDoc'
 import { useDocZoom, adjustDocZoom, DOC_ZOOM_STEP } from './docZoom'
 import { usePanMode } from './docPan'
-
-/** 从 markdown 源提取标题（跳过围栏代码块内的 # 行）；去粗体/行内码标记取纯文本 */
-function extractHeadings(src: string): DocHeading[] {
-  const out: DocHeading[] = []
-  let inFence = false
-  for (const line of src.split(/\r?\n/)) {
-    if (/^\s*(```|~~~)/.test(line)) {
-      inFence = !inFence
-      continue
-    }
-    if (inFence) continue
-    const m = /^(#{1,4})\s+(.+?)\s*#*\s*$/.exec(line)
-    if (m) {
-      const text = m[2].replace(/[*_`~]/g, '').trim()
-      if (text) out.push({ level: m[1].length, text })
-    }
-  }
-  return out
-}
+import { useDocRailOpen } from './docRail'
+import { extractHeadings } from './docHeadings'
 
 /** 递归取 React 子树的纯文本（code 元素的 children 可能嵌套） */
 function flattenText(node: React.ReactNode): string {
@@ -79,17 +62,24 @@ const CodeBlock: React.FC<{ code: string; lang: string | null }> = ({ code, lang
 
 /**
  * Markdown 文档渲染 —— react-markdown + remark-gfm 管线。
- * 设计语言（设计稿）：全文等宽（MapleMono）、幽灵 # 记号标题、
- * prompt 行页头（DocHeader）、左侧大纲轨（OutlineRail）。
+ * 设计语言（设计稿）：全文等宽（MapleMono）、飞书式纯净标题（无 # 记号）、
+ * prompt 行页头（DocHeader，最左目录开关）、左侧大纲轨（OutlineRail，可整轨收起）。
  * 主题全部走 rack CSS 变量（globals.css 的 .doc-* 段），7 主题自动适配。
  */
-const MarkdownDoc: React.FC<{ content: string; tab: DocTabEntry }> = ({ content, tab }) => {
+const MarkdownDoc: React.FC<{ content: string; payload: DocOverlayPayload; paneId: string }> = ({ content, payload, paneId }) => {
   const scrollRef = useRef<HTMLDivElement>(null)
   const headings = useMemo(() => extractHeadings(content), [content])
+  // 整轨收起态：全局偏好（docRail.ts，唯一入口是 DocHeader 最左开关）；无标题文档不渲染轨
+  const railOpen = useDocRailOpen()
+  const showRail = railOpen && headings.length > 0
   const zoom = useDocZoom()
   const panMode = usePanMode()
   // 文档内链接的解析基准：当前文档所在目录（相对链接 ./x.md ../y.html 都归并到这里）
-  const docDir = useMemo(() => docDirFromPath(tab.path), [tab.path])
+  const docDir = useMemo(() => docDirFromPath(payload.path), [payload.path])
+  // 组件表闭包只消费这三个 payload 字段：deps 收窄到字段而非 payload 对象——
+  // 刷新回写 / 标题更新等任何 payload 字典写都不再重建组件表（那会让 react-markdown
+  // 把全部代码块当新子树重挂并重跑 hljs）
+  const { source, sessionId } = payload
 
   // Ctrl+滚轮调缩放：原生非 passive 监听（React 合成 wheel 走 passive，preventDefault 无效）
   useEffect(() => {
@@ -171,7 +161,7 @@ const MarkdownDoc: React.FC<{ content: string; tab: DocTabEntry }> = ({ content,
     // 文档内链接：指向可打开文档（.md/.html/.txt，相对当前文档目录归并）的
     // 点击即开新文档页签；外链/锚点/其他扩展名保持只读渲染
     a: ({ href, children }) => {
-      const target = typeof href === 'string' ? docLinkTarget(href, tab.source === 'local', docDir) : null
+      const target = typeof href === 'string' ? docLinkTarget(href, source === 'local', docDir) : null
       if (!target) {
         return (
           <a href={href} title={typeof href === 'string' ? href : undefined} className="doc-link" onClick={(e) => e.preventDefault()}>
@@ -186,8 +176,8 @@ const MarkdownDoc: React.FC<{ content: string; tab: DocTabEntry }> = ({ content,
           className="doc-link doc-link-file"
           onClick={(e) => {
             e.preventDefault()
-            if (tab.source === 'local') void openLocalDoc(target, tab.paneId)
-            else if (tab.sessionId) void openRemoteDoc(tab.sessionId, target, tab.paneId)
+            if (source === 'local') void openLocalDoc(target, paneId)
+            else if (sessionId) void openRemoteDoc(sessionId, target, paneId)
           }}
         >
           {children}
@@ -206,13 +196,14 @@ const MarkdownDoc: React.FC<{ content: string; tab: DocTabEntry }> = ({ content,
         ? <img src={src} alt={alt ?? ''} className="doc-img" />
         : <span className="doc-img-off" title={typeof src === 'string' ? src : undefined}>[img] {alt || ''}</span>
     )
-  }), [tab, docDir])
+  }), [source, sessionId, paneId, docDir])
 
   return (
     <div ref={scrollRef} className={`doc-body h-full overflow-y-auto${panMode ? ' doc-pan' : ''}`} style={{ fontFamily: DEFAULT_FONT_FAMILY }}>
-      {/* doc-grid 内层网格：滚动容器兼容器查询锚点（窄 pane 收起大纲栏须改网格自身） */}
-      <div className={headings.length > 0 ? 'doc-grid' : 'doc-grid doc-grid-plain'}>
-        <OutlineRail headings={headings} scrollRef={scrollRef} />
+      {/* doc-grid 内层网格：滚动容器兼容器查询锚点（窄 pane 收起大纲栏须改网格自身）。
+          两态列布局：有轨两列 / 收起或无标题单列（唯一展开入口是 DocHeader 最左开关） */}
+      <div className={`doc-grid${showRail ? '' : ' doc-grid-plain'}`}>
+        {showRail && <OutlineRail headings={headings} scrollRef={scrollRef} />}
         {/* zoom 挂内容列：整体缩放（含 px 字号/代码块/表格），块级自适应宽度回流不出横向滚动条；大纲轨不缩 */}
         <div className="doc-content" style={{ zoom }}>
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>

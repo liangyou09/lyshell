@@ -68,7 +68,7 @@ const SplitPaneContainer: React.FC = () => {
     if (leaves.length > 0 && !layout.activePaneId) {
       setActivePane(leaves[0].id)
     }
-  }, [layout.root, getAllLeafPanes, setActivePane])
+  }, [layout.root, layout.activePaneId, getAllLeafPanes, setActivePane])
 
   // resize 时通知所有终端
   useEffect(() => {
@@ -80,6 +80,26 @@ const SplitPaneContainer: React.FC = () => {
 
     resizeObserver.observe(containerRef.current)
     return () => resizeObserver.disconnect()
+  }, [])
+
+  // 丢失 dragend 兜底：dragend 只挂在源页签（OverlayTab / 会话页签）上，源元素
+  // 中途卸载（如拖拽中布局变化）或 Electron 异常序列下 dragend 可能不再触发，
+  // 残留的拖拽标记会让拖拽盾常驻挡住内容区、并误路由下一次 drop。window 级
+  // capture 监听兜两道险：dragend 无论源元素是否存活都会冒泡到 window（capture
+  // 确保先于各页签自己的 reset，幂等无妨）；pointerdown 兜 dragend 彻底丢失的
+  // 场景 —— 拖拽期间不会有 pointer 事件，下一次按下必然意味着拖拽已结束，自愈
+  useEffect(() => {
+    const clearDraggingMarkers = () => {
+      globalDraggingSessionId = null
+      // setDraggingOverlay 自带同值短路，这里可以无条件清
+      usePaneStore.getState().setDraggingOverlay(null)
+    }
+    window.addEventListener('dragend', clearDraggingMarkers, true)
+    window.addEventListener('pointerdown', clearDraggingMarkers, true)
+    return () => {
+      window.removeEventListener('dragend', clearDraggingMarkers, true)
+      window.removeEventListener('pointerdown', clearDraggingMarkers, true)
+    }
   }, [])
 
   return (

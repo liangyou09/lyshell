@@ -75,6 +75,8 @@ export function displayActiveIdx(headings: DocHeading[], visibleIdxs: number[], 
  * 有子标题的行首有 ▾ 折叠钮（收起隐藏全部后代；激活标题被折叠隐藏时高亮
  * 最近的可见祖先）。激活标记是贴着右缘分隔线的 amber 手柄，随 scrollspy
  * 沿边线滑动；边线可拖拽调宽（双击复位，←/→ 微调），宽度全局共享并持久化。
+ * 无标签行 —— 轨首直接是标题条目；整轨收起/展开唯一入口在 DocHeader
+ * 最左（开态 `<<` 收起 / 合态目录横线展开，docRail 全局偏好）。
  */
 const OutlineRail: React.FC<{
   headings: DocHeading[]
@@ -211,12 +213,6 @@ const OutlineRail: React.FC<{
   return (
     <div className="doc-rail-track">
       <nav ref={navRef} className="doc-rail rack-scroll" aria-label={t('doc.outline')}>
-        <div className="doc-rail-label">
-          {t('doc.outline')}
-          <span className="doc-rail-count">
-            {collapsed.size > 0 ? `${visibleIdxs.length}/${headings.length}` : headings.length}
-          </span>
-        </div>
         <div className="doc-rail-list">
           {visibleIdxs.map(i => {
             const h = headings[i]

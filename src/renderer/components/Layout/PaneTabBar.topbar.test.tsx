@@ -15,7 +15,7 @@ import PaneTabBar from './PaneTabBar'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import { ConnectionStatus } from '@shared/types'
-import type { PaneLeaf, SessionConfig } from '@shared/types'
+import type { OverlayPayload, OverlayRef, PaneLeaf, SessionConfig } from '@shared/types'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 
 // PaneTabBar 仅从 SplitPaneContainer 导入 setDraggingSessionId;真实模块会拖入
@@ -25,11 +25,17 @@ vi.mock('./SplitPaneContainer', () => ({
   getDraggingSessionId: () => null
 }))
 
-const makePane = (sessions: string[]): PaneLeaf => ({
+const DSH_REF = (slot: number | null, active = false): OverlayRef =>
+  ({ id: '__dsh_web__', kind: 'dshWeb', active, slot })
+
+const DSH_PAYLOAD: OverlayPayload = { kind: 'dshWeb', url: 'http://127.0.0.1:3080', name: 'dsh web' }
+
+const makePane = (sessions: string[], overlays: OverlayRef[] = []): PaneLeaf => ({
   id: 'pane-1',
   type: 'leaf',
   sessions,
-  activeSessionId: sessions[0] ?? null
+  activeSessionId: sessions[0] ?? null,
+  overlays
 })
 
 const makeSession = (id: string, name: string, tags?: string[]) => ({
@@ -42,12 +48,8 @@ const makeSession = (id: string, name: string, tags?: string[]) => ({
 beforeEach(() => {
   useSessionStore.setState({ sessions: [] })
   usePaneStore.setState({
-    mcpAuditPaneId: null,
-    mcpAuditActive: false,
-    dshWeb: null,
-    dshWebPaneId: null,
-    dshWebActive: false,
-    dshWebTabIndex: null,
+    overlayPayloads: {},
+    draggingOverlayId: null,
     hiddenTabSessions: {}
   })
 })
@@ -88,16 +90,44 @@ describe('PaneTabBar 顶排页签条(渲染断言)', () => {
 
   it('MCP 页签与 dsh web 页签同样脱离拖拽区', () => {
     usePaneStore.setState({
-      mcpAuditPaneId: 'pane-1',
-      mcpAuditActive: true,
-      dshWeb: { url: 'http://127.0.0.1:3080', name: 'dsh web' },
-      dshWebPaneId: 'pane-1'
+      overlayPayloads: {
+        __mcp_audit__: { kind: 'mcpAudit' },
+        __dsh_web__: DSH_PAYLOAD
+      }
     })
-    const { container } = render(<PaneTabBar pane={makePane([])} isTop />)
+    const { container } = render(
+      <PaneTabBar
+        pane={makePane([], [
+          { id: '__mcp_audit__', kind: 'mcpAudit', active: true, slot: null },
+          DSH_REF(null)
+        ])}
+        isTop
+      />
+    )
     const mcpTab = container.querySelector('[data-tab-id="__mcp_audit__"]') as HTMLElement
     const webTab = container.querySelector('[data-tab-id="__dsh_web__"]') as HTMLElement
     expect(mcpTab.className).toContain('win-no-drag')
     expect(webTab.className).toContain('win-no-drag')
+  })
+
+  // 拖拽分屏拆出的纯文档 pane（无会话）也必须有页签条承载文档页签——
+  // 空条早退条件漏算覆盖层会让拆出的文档 pane 连页签都看不见（拖不动、点不回）
+  it('纯文档 pane（无会话、非顶排）渲染页签条，文档页签可拖拽', () => {
+    usePaneStore.setState({
+      overlayPayloads: {
+        'doc-1': {
+          kind: 'doc', source: 'local', docKind: 'markdown',
+          path: '/tmp/a.md', title: 'a.md', size: 1024, mtime: 1700000000000, content: '# hi'
+        }
+      }
+    })
+    const { container } = render(
+      <PaneTabBar pane={makePane([], [{ id: 'doc-1', kind: 'doc', active: true, slot: null }])} />
+    )
+    const docTab = container.querySelector('[data-tab-id="doc-1"]') as HTMLElement
+    expect(docTab).toBeTruthy()
+    expect(docTab.className).toContain('win-no-drag')
+    expect(docTab.draggable).toBe(true)
   })
 
   // harness 工作区启动的瞬态会话 tags 带 <kind>:<id>(handlers.ts 的 spawnLocalCommandSession),
@@ -133,14 +163,13 @@ describe('PaneTabBar 顶排页签条(渲染断言)', () => {
       sessions: [makeSession('s1', 'alpha'), makeSession('s2', 'beta'), makeSession('s3', 'gamma')]
     })
     usePaneStore.setState({
-      dshWeb: { url: 'http://127.0.0.1:3080', name: 'dsh web' },
-      dshWebPaneId: 'pane-1',
-      dshWebActive: false,
+      overlayPayloads: { __dsh_web__: DSH_PAYLOAD },
       // 原始坐标 [s1, s2(隐藏), s3]，插槽 1（s2 之前）→ 可见顺序 s1, web, s3
-      dshWebTabIndex: 1,
       hiddenTabSessions: { s2: true }
     })
-    const { container } = render(<PaneTabBar pane={makePane(['s1', 's2', 's3'])} isTop />)
+    const { container } = render(
+      <PaneTabBar pane={makePane(['s1', 's2', 's3'], [DSH_REF(1)])} isTop />
+    )
     const tabIds = Array.from(container.querySelectorAll('[data-tab-id]'))
       .map(el => el.getAttribute('data-tab-id'))
     expect(tabIds).toEqual(['s1', '__dsh_web__', 's3'])
@@ -151,18 +180,14 @@ describe('PaneTabBar 顶排页签条(渲染断言)', () => {
       sessions: [makeSession('s1', 'alpha'), makeSession('s2', 'beta')]
     })
     usePaneStore.setState({
-      dshWeb: { url: 'http://127.0.0.1:3080', name: 'dsh web' },
-      dshWebPaneId: 'pane-1',
-      dshWebActive: false,
-      dshWebTabIndex: 0
+      overlayPayloads: { __dsh_web__: DSH_PAYLOAD }
     })
-    const first = render(<PaneTabBar pane={makePane(['s1', 's2'])} isTop />)
+    const first = render(<PaneTabBar pane={makePane(['s1', 's2'], [DSH_REF(0)])} isTop />)
     expect(
       Array.from(first.container.querySelectorAll('[data-tab-id]')).map(el => el.getAttribute('data-tab-id'))
     ).toEqual(['__dsh_web__', 's1', 's2'])
 
-    usePaneStore.setState({ dshWebTabIndex: null })
-    const last = render(<PaneTabBar pane={makePane(['s1', 's2'])} isTop />)
+    const last = render(<PaneTabBar pane={makePane(['s1', 's2'], [DSH_REF(null)])} isTop />)
     expect(
       Array.from(last.container.querySelectorAll('[data-tab-id]')).map(el => el.getAttribute('data-tab-id'))
     ).toEqual(['s1', 's2', '__dsh_web__'])

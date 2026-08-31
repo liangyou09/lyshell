@@ -4,7 +4,7 @@
  * Markdown 侧用 CSS zoom 挂 .doc-content（字号散落 px，zoom 整体缩放且
  * 块级自适应宽度会回流，不横向溢出）；HTML 侧把 zoom 注入 iframe srcdoc。
  */
-import { useEffect, useState } from 'react'
+import { usePrefBroadcast } from './docPrefSync'
 
 const ZOOM_KEY = 'docZoom'
 const ZOOM_EVENT = 'docZoomChanged'
@@ -41,11 +41,5 @@ export function resetDocZoom(): void {
 
 /** 订阅缩放（MarkdownDoc / HtmlDoc / DocHeader 各自订阅，跨页签同步） */
 export function useDocZoom(): number {
-  const [zoom, setZoom] = useState(readDocZoom)
-  useEffect(() => {
-    const h = (e: Event) => setZoom((e as CustomEvent<number>).detail)
-    window.addEventListener(ZOOM_EVENT, h as EventListener)
-    return () => window.removeEventListener(ZOOM_EVENT, h as EventListener)
-  }, [])
-  return zoom
+  return usePrefBroadcast(ZOOM_EVENT, readDocZoom)
 }

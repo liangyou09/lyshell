@@ -5,7 +5,7 @@
  * md 侧中键拖拽随时可平移，不依赖本开关。
  * 状态广播沿用 docZoom 的 CustomEvent 约定。
  */
-import { useEffect, useState } from 'react'
+import { usePrefBroadcast } from './docPrefSync'
 
 const PAN_EVENT = 'docPanModeChanged'
 
@@ -27,11 +27,5 @@ export function togglePanMode(): void {
 
 /** 订阅平移模式（DocHeader 按钮 / MarkdownDoc / HtmlDoc 各自订阅，跨页签同步） */
 export function usePanMode(): boolean {
-  const [on, setOn] = useState(panMode)
-  useEffect(() => {
-    const h = (e: Event) => setOn((e as CustomEvent<boolean>).detail)
-    window.addEventListener(PAN_EVENT, h as EventListener)
-    return () => window.removeEventListener(PAN_EVENT, h as EventListener)
-  }, [])
-  return on
+  return usePrefBroadcast(PAN_EVENT, isPanMode)
 }
