@@ -220,21 +220,41 @@ describe.each(CASES)('$kind：归一化覆盖层契约', (c) => {
     expect(st.layout.activePaneId).toBe(overlayPane.id)
   })
 
-  it('拆屏退化：目标 pane 无会话 → 改挂载不拆屏（无新 split 层级）', () => {
+  it('拆屏（纯覆盖层目标）：目标 pane 无会话但有驻留覆盖层 → 照常拆屏（keep 侧留驻留项）', () => {
     reset(splitLayout(leaf('pane-1', ['s-a']), leaf('pane-2', [])))
-    // 真正的空白 pane 在任意树操作后即被回并（mountOverlay 自带 prune）——
-    // 退化分支的现实前置是「无会话的纯覆盖层 pane」，先驻留一个 web 让它稳定存在
+    // 无会话的纯覆盖层 pane（真正空白 pane 在任意树操作后即被回并，无法稳定存在）
     const resident = usePaneStore.getState().mountOverlay('pane-2', { kind: 'web', url: 'https://stay.example.com/', title: 'stay' })!
     const id = open(c, 'pane-1')
-    usePaneStore.getState().splitOverlayIntoPane(id, 'pane-2', 'horizontal', 'first')
+    usePaneStore.getState().splitOverlayIntoPane(id, 'pane-2', 'vertical', 'first')
+    const st = usePaneStore.getState()
+    expect(st.layout.root.type).toBe('split') // 外层 split 不变
+    if (st.layout.root.type !== 'split') return
+    expect(st.layout.root.firstChild.type).toBe('leaf') // pane-1（源）仍是叶子
+    // pane-2 被替换为新 split：position 'first' → 拖拽项 first，驻留项 keep 到 second
+    const inner = st.layout.root.secondChild
+    expect(inner.type).toBe('split')
+    if (inner.type !== 'split') return
+    expect(inner.direction).toBe('vertical')
+    const draggedPane = inner.firstChild as PaneLeaf
+    const keepPane = inner.secondChild as PaneLeaf
+    expect(st.getOverlayPaneId(id)).toBe(draggedPane.id)
+    expect(st.isOverlayActive(id)).toBe(true)
+    expect(st.getOverlayPaneId(resident)).toBe(keepPane.id) // 驻留覆盖层留 keep 侧
+    expect(st.layout.activePaneId).toBe(draggedPane.id)
+  })
+
+  it('拆屏退化：目标 pane 无会话且无可留覆盖层（拖回自己的纯覆盖层 pane）→ 改挂载 no-op，无新 split 层级', () => {
+    // 拖拽项是目标 pane 的唯一内容：拆出后 keep 侧为空叶必被回并，拆了等于没拆
+    reset(splitLayout(leaf('pane-1', []), leaf('pane-2', ['s-a'])))
+    const id = open(c, 'pane-1') // pane-1 成为纯覆盖层 pane
+    usePaneStore.getState().splitOverlayIntoPane(id, 'pane-1', 'vertical', 'second')
     const st = usePaneStore.getState()
     expect(st.layout.root.type).toBe('split') // 仍是原 split，没有再包一层
     if (st.layout.root.type !== 'split') return
     expect(st.layout.root.firstChild.type).toBe('leaf') // 无嵌套新层级
     expect(st.layout.root.secondChild.type).toBe('leaf')
-    expect(st.getOverlayPaneId(id)).toBe('pane-2')
-    expect(st.isOverlayActive(id)).toBe(true) // 改挂载路径radio 激活
-    expect(st.isOverlayActive(resident)).toBe(false) // 驻留覆盖层让位
+    expect(st.getOverlayPaneId(id)).toBe('pane-1') // 原位未动
+    expect(st.isOverlayActive(id)).toBe(true)
   })
 
   it('回并：纯覆盖层 pane 关最后一个页签 → split 回并，焦点落吸收侧，payload 回收', () => {

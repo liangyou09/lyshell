@@ -8,20 +8,39 @@ import PaneTabBar from './PaneTabBar'
 import { McpAuditPanel } from './McpAuditPanel'
 import DocTabOverlay from '../DocPanel/DocTabOverlay'
 import SplitDivider from './SplitDivider'
-import { getDraggingSessionId, setDraggingSessionId } from './SplitPaneContainer'
 import { resolveOverlayDragId } from './overlay-drag'
 import type { PaneNode, SplitDirection, OverlayKind, OverlayPayload, OverlayRef } from '@shared/types'
 
 type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center' | null
 
-// favicon 代取缓存：成功（data URI）永久缓存；失败不缓存——下次 page-favicon-updated
+// 落区分带阈值（pane 内归一化坐标）：近侧边缘带宽度（水平 30% / 垂直 25%，垂直
+// 空间紧张收得更窄）与远侧边缘线 70%。dragOver 预览与 handleDrop 判定共用 ——
+// 此前 0.3/0.25 在两处混抄（垂直 swap 判定一处 0.3 一处 0.25），靠外围条件才
+// 没有行为分叉
+const EDGE_NEAR_X = 0.3
+const EDGE_NEAR_Y = 0.25
+const EDGE_FAR = 0.7
+
+// favicon 代取缓存：成功（data URI）LRU 缓存；失败不缓存——下次 page-favicon-updated
 // （切回页签/页内刷新触发）自然重试，事件只在 favicon 列表变化时才发，天然限频。
+// 超限逐出最旧一条（Map 迭代序 = 插入序，首键即最旧）而非整表清空——高频页签组
+// 在容量边界反复进出时，整表清空会触发整轮重新代取，逐出只多取一条
+const FAVICON_CACHE_MAX = 200
 const faviconCache = new Map<string, Promise<string | null>>()
 function fetchFaviconDataUri(url: string): Promise<string | null> {
   // 内联 data:image/* favicon 无需代取，直接透传
   if (url.startsWith('data:image/')) return Promise.resolve(url)
   const cached = faviconCache.get(url)
-  if (cached) return cached
+  if (cached) {
+    // 命中刷新新鲜度：删掉重插挪到 Map 尾部
+    faviconCache.delete(url)
+    faviconCache.set(url, cached)
+    return cached
+  }
+  if (faviconCache.size >= FAVICON_CACHE_MAX) {
+    const oldest = faviconCache.keys().next().value
+    if (oldest !== undefined) faviconCache.delete(oldest)
+  }
   const p: Promise<string | null> = window.electronAPI.fetchFavicon(url)
     .then(r => {
       if (r.success) return r.dataUri
@@ -217,10 +236,12 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
   const splitPaneWithPosition = usePaneStore(s => s.splitPaneWithPosition)
   const swapPanePosition = usePaneStore(s => s.swapPanePosition)
   const setDraggingOverlay = usePaneStore(s => s.setDraggingOverlay)
+  const setDraggingSession = usePaneStore(s => s.setDraggingSession)
   const moveOverlayToPane = usePaneStore(s => s.moveOverlayToPane)
   const splitOverlayIntoPane = usePaneStore(s => s.splitOverlayIntoPane)
   const activePaneId = usePaneStore(s => s.layout.activePaneId)
   const draggingOverlayId = usePaneStore(s => s.draggingOverlayId)
+  const draggingSessionId = usePaneStore(s => s.draggingSessionId)
   const { getPaneBySessionId, getParentPane, getPanePositionInParent } = usePaneStore.getState()
   // 被隐藏的终端页签记录(Sidebar LIVE 段会话标签点击 toggle);订阅整个记录,任何 toggle 都会触发本组件重渲染。
   // 实际负载很小(仅 visibility 切换),未做按 pane 过滤的选择器。
@@ -228,7 +249,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
   const { t } = useTranslation()
   const isActive = activePaneId === node.id
   const [dropZone, setDropZone] = useState<DropZone>(null)
-  const [dropAction, setDropAction] = useState<'swap' | 'changeDirection' | 'split' | 'moveOverlay' | null>(null)
+  const [dropAction, setDropAction] = useState<'swap' | 'split' | 'moveOverlay' | null>(null)
   const dropRef = useRef<HTMLDivElement>(null)
   // 拖拽中覆盖层的种类（落区配色/文案分族用）：响应式从 payload 字典取（payload 与
   // 引用同 set 原子增删，kind 一致；不用 getState 读树 —— 渲染期非响应式读取在并发
@@ -246,11 +267,10 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
   // 叶子节点 - 渲染标签栏 + 终端
   if (node.type === 'leaf') {
     const handleDragOver = (e: React.DragEvent) => {
-      const sessionId = getDraggingSessionId()
       // 会话标记优先：异常拖拽序列（源页签 dragend 丢失）下覆盖层标记可能残留，
       // 此刻用户又在拖会话页签 —— 按会话处理，别让僵尸标记劫持落区
-      const draggingOverlay = draggingOverlayId !== null && !sessionId
-      if (!sessionId && !draggingOverlay) {
+      const draggingOverlay = draggingOverlayId !== null && !draggingSessionId
+      if (!draggingSessionId && !draggingOverlay) {
         setDropZone(null)
         setDropAction(null)
         return
@@ -279,8 +299,8 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
       // 覆盖层页签拖拽（web / 文档 / dsh web / MCP 通用）：
       // 四边 = 独立分屏，中心 = 改挂载到本 pane（live 预览沿用 dropZone 指示器）
       if (draggingOverlay) {
-        const isHorizontalEdge = xPos < 0.3 || xPos > 0.7
-        const isVerticalEdge = yPos < 0.25 || yPos > 0.7
+        const isHorizontalEdge = xPos < EDGE_NEAR_X || xPos > EDGE_FAR
+        const isVerticalEdge = yPos < EDGE_NEAR_Y || yPos > EDGE_FAR
         const isCenter = !isHorizontalEdge && !isVerticalEdge
         setDropAction(isCenter ? 'moveOverlay' : 'split')
         if (isCenter) {
@@ -294,11 +314,12 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
       }
 
       // 非覆盖层拖拽：顶部 guard 已拦下「两者皆空」，此处仅为收窄 sessionId 类型
+      const sessionId = draggingSessionId
       if (!sessionId) return
 
       // 判断拖拽位置
-      const isHorizontalEdge = xPos < 0.3 || xPos > 0.7
-      const isVerticalEdge = yPos < 0.25 || yPos > 0.7
+      const isHorizontalEdge = xPos < EDGE_NEAR_X || xPos > EDGE_FAR
+      const isVerticalEdge = yPos < EDGE_NEAR_Y || yPos > EDGE_FAR
       const isCenter = !isHorizontalEdge && !isVerticalEdge
 
       // 如果是自己的会话拖到中心区域，不显示drop提示
@@ -309,13 +330,14 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
         return
       }
 
-      // 检查是否是兄弟分屏（可以交换位置或改变方向）
+      // 检查是否是兄弟分屏（可以交换位置或在目标内嵌套分屏）
       const sourcePane = getPaneBySessionId(sessionId)
       const sourceParent = sourcePane ? getParentPane(sourcePane.id) : undefined
       const targetParent = getParentPane(node.id)
 
-      // 判断操作类型
-      let action: 'swap' | 'changeDirection' | 'split' | null = 'split'
+      // 判断操作类型：默认 split（drop 侧在目标 pane 内做嵌套分屏），
+      // 兄弟同向对边时为 swap（源/目标整体换位）
+      let action: 'swap' | 'split' | null = 'split'
 
       if (sourcePane && sourceParent && targetParent &&
           sourceParent.id === targetParent.id &&
@@ -336,24 +358,24 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
           // 逻辑：拖到左边缘期望源在左边，如果源在右边则需要交换
           // 拖到右边缘期望源在右边，如果源在左边则需要交换
           if (parentDirection === 'horizontal') {
-            const targetLeft = xPos < 0.3
-            const targetRight = xPos > 0.7
+            const targetLeft = xPos < EDGE_NEAR_X
+            const targetRight = xPos > EDGE_FAR
             // 拖到左边缘但源在右边 → 交换让源去左边
             if (targetLeft && sourcePosition === 'second') action = 'swap'
             // 拖到右边缘但源在左边 → 交换让源去右边
             if (targetRight && sourcePosition === 'first') action = 'swap'
           } else {
-            const targetTop = yPos < 0.3
-            const targetBottom = yPos > 0.7
+            const targetTop = yPos < EDGE_NEAR_Y
+            const targetBottom = yPos > EDGE_FAR
             // 拖到上边缘但源在下边 → 交换让源去上边
             if (targetTop && sourcePosition === 'second') action = 'swap'
             // 拖到下边缘但源在上边 → 交换让源去下边
             if (targetBottom && sourcePosition === 'first') action = 'swap'
           }
-        } else {
-          // 方向不同，可以改变分屏方向
-          action = 'changeDirection'
         }
+        // 方向不同（垂直于父 split）：drop 侧同样是在目标 pane 内做嵌套分屏
+        // （见 handleDrop 同分支），预览保持 split —— 不再显示与实际行为不符的
+        // 「改变方向」
       }
 
       setDropAction(action)
@@ -385,7 +407,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
       // 标记（标记残留时 dataTransfer 是本次拖拽的事实，非覆盖层数据不放行）
       const overlayDragId = resolveOverlayDragId(
         e.dataTransfer.getData('text/plain'),
-        getDraggingSessionId() ? null : draggingOverlayId
+        draggingSessionId ? null : draggingOverlayId
       )
       if (overlayDragId) {
         const rect = dropRef.current?.getBoundingClientRect()
@@ -402,8 +424,8 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
         // 先复位拖拽态（onDragEnd 亦会触发，幂等），让 webview 立即恢复显隐
         setDraggingOverlay(null)
 
-        const isHorizontalEdge = xPos < 0.3 || xPos > 0.7
-        const isVerticalEdge = yPos < 0.25 || yPos > 0.7
+        const isHorizontalEdge = xPos < EDGE_NEAR_X || xPos > EDGE_FAR
+        const isVerticalEdge = yPos < EDGE_NEAR_Y || yPos > EDGE_FAR
         const isCenter = !isHorizontalEdge && !isVerticalEdge
 
         if (isCenter) {
@@ -416,7 +438,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
         return
       }
 
-      const sessionId = getDraggingSessionId()
+      const sessionId = draggingSessionId
       if (!sessionId) return
 
       // 检查鼠标是否在自己的区域内
@@ -430,7 +452,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
       }
 
       // 先清除拖拽状态，防止其他处理
-      setDraggingSessionId(null)
+      setDraggingSession(null)
 
       // 计算拖放位置
       const x = e.clientX - rect.left
@@ -444,8 +466,8 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
       }
 
       // 使用与 handleDragOver 一致的判断逻辑
-      const isHorizontalEdge = xPos < 0.3 || xPos > 0.7
-      const isVerticalEdge = yPos < 0.25 || yPos > 0.7
+      const isHorizontalEdge = xPos < EDGE_NEAR_X || xPos > EDGE_FAR
+      const isVerticalEdge = yPos < EDGE_NEAR_Y || yPos > EDGE_FAR
       const isCenter = !isHorizontalEdge && !isVerticalEdge
 
       // 如果是自己的会话拖到中心区域，不处理
@@ -480,13 +502,13 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
             let needSwap = false
 
             if (parentDirection === 'horizontal') {
-              const targetLeft = xPos < 0.3
-              const targetRight = xPos > 0.7
+              const targetLeft = xPos < EDGE_NEAR_X
+              const targetRight = xPos > EDGE_FAR
               if (targetLeft && sourcePosition === 'second') needSwap = true
               if (targetRight && sourcePosition === 'first') needSwap = true
             } else {
-              const targetTop = yPos < 0.25
-              const targetBottom = yPos > 0.7
+              const targetTop = yPos < EDGE_NEAR_Y
+              const targetBottom = yPos > EDGE_FAR
               if (targetTop && sourcePosition === 'second') needSwap = true
               if (targetBottom && sourcePosition === 'first') needSwap = true
             }
@@ -497,30 +519,33 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
               // 方向相同但不需要交换，在目标分屏内创建新分屏
               const nestedDirection: SplitDirection = parentDirection === 'horizontal' ? 'vertical' : 'horizontal'
               const position: 'first' | 'second' = isHorizontalEdge
-                ? (xPos < 0.3 ? 'first' : 'second')
-                : (yPos < 0.25 ? 'first' : 'second')
+                ? (xPos < EDGE_NEAR_X ? 'first' : 'second')
+                : (yPos < EDGE_NEAR_Y ? 'first' : 'second')
               splitPaneWithPosition(node.id, nestedDirection, sessionId, position)
             }
           } else {
-            // 方向不同，在目标分屏内创建新分屏
+            // 方向不同（垂直于父 split）：在目标分屏内做垂直方向的嵌套分屏
             const nestedDirection: SplitDirection = isHorizontalEdge ? 'horizontal' : 'vertical'
             const position: 'first' | 'second' = isHorizontalEdge
-              ? (xPos < 0.3 ? 'first' : 'second')
-              : (yPos < 0.25 ? 'first' : 'second')
+              ? (xPos < EDGE_NEAR_X ? 'first' : 'second')
+              : (yPos < EDGE_NEAR_Y ? 'first' : 'second')
             splitPaneWithPosition(node.id, nestedDirection, sessionId, position)
           }
         } else {
           // 否则创建新分屏
           const direction: SplitDirection = isHorizontalEdge ? 'horizontal' : 'vertical'
           const position: 'first' | 'second' = isHorizontalEdge
-            ? (xPos < 0.3 ? 'first' : 'second')
-            : (yPos < 0.25 ? 'first' : 'second')
+            ? (xPos < EDGE_NEAR_X ? 'first' : 'second')
+            : (yPos < EDGE_NEAR_Y ? 'first' : 'second')
           splitPaneWithPosition(node.id, direction, sessionId, position)
         }
       }
     }
 
-    const getDropZoneStyle = (zone: DropZone, action: 'swap' | 'changeDirection' | 'split' | 'moveOverlay' | null) => {
+    // 落区指示器视图模型：样式与文案分开返回 —— 此前 label 混进 style 对象里
+    // （靠浏览器忽略未知 CSS 属性才没炸），且一次渲染重复调用三次
+    const getDropZoneView = (zone: DropZone, action: 'swap' | 'split' | 'moveOverlay' | null):
+      { style: React.CSSProperties; label: string } | null => {
       if (!zone) return null
 
       // moveOverlay 配色/文案按拖拽中种类从注册表取（doc=amber、web 系=reachable，
@@ -530,15 +555,14 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
       const moveLabel = t(dragDef?.dropLabelKey ?? OVERLAY_KINDS.web.dropLabelKey)
 
       const colors = {
-        swap: { bg: 'rgba(255, 140, 0, 0.3)', border: '#FF8C00' },          // 橙色 - 交换
-        changeDirection: { bg: 'rgba(0, 200, 83, 0.3)', border: '#00C853' }, // 绿色 - 改变方向
-        split: { bg: 'rgba(0, 120, 212, 0.3)', border: '#0078D4' },          // 蓝色 - 分屏
+        swap: { bg: 'rgba(255, 140, 0, 0.3)', border: '#FF8C00' },  // 橙色 - 交换
+        split: { bg: 'rgba(0, 120, 212, 0.3)', border: '#0078D4' }, // 蓝色 - 分屏
         moveOverlay: moveColor
       }
 
       const color = colors[action || 'split']
 
-      const baseStyle = {
+      const baseStyle: React.CSSProperties = {
         position: 'absolute',
         backgroundColor: color.bg,
         border: `2px dashed ${color.border}`,
@@ -552,27 +576,27 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
 
       const labels = {
         swap: t('pane.actionSwap'),
-        changeDirection: t('pane.actionChangeDirection'),
         split: t('pane.actionSplit'),
         moveOverlay: moveLabel
       }
-      const label = labels[action || 'split']
+      const actionLabel = labels[action || 'split']
 
       switch (zone) {
         case 'left':
-          return { ...baseStyle, left: 0, top: 0, width: '30%', height: '100%', label: t('pane.zoneLeft', { label }) }
+          return { style: { ...baseStyle, left: 0, top: 0, width: '30%', height: '100%' }, label: t('pane.zoneLeft', { label: actionLabel }) }
         case 'right':
-          return { ...baseStyle, right: 0, top: 0, width: '30%', height: '100%', label: t('pane.zoneRight', { label }) }
+          return { style: { ...baseStyle, right: 0, top: 0, width: '30%', height: '100%' }, label: t('pane.zoneRight', { label: actionLabel }) }
         case 'top':
-          return { ...baseStyle, left: 0, top: 0, width: '100%', height: '25%', label: t('pane.zoneTop', { label }) }
+          return { style: { ...baseStyle, left: 0, top: 0, width: '100%', height: '25%' }, label: t('pane.zoneTop', { label: actionLabel }) }
         case 'bottom':
-          return { ...baseStyle, left: 0, bottom: 0, width: '100%', height: '25%', label: t('pane.zoneBottom', { label }) }
+          return { style: { ...baseStyle, left: 0, bottom: 0, width: '100%', height: '25%' }, label: t('pane.zoneBottom', { label: actionLabel }) }
         case 'center':
-          return { ...baseStyle, left: '30%', top: '25%', width: '40%', height: '50%', label: action === 'moveOverlay' ? moveLabel : t('pane.merge') }
+          return { style: { ...baseStyle, left: '30%', top: '25%', width: '40%', height: '50%' }, label: action === 'moveOverlay' ? moveLabel : t('pane.merge') }
         default:
           return null
       }
     }
+    const dropZoneView = dropZone ? getDropZoneView(dropZone, dropAction) : null
 
     return (
       <div
@@ -636,19 +660,21 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
             <OverlayHost key={ref.id} paneId={node.id} overlay={ref} />
           ))}
 
-          {/* 拖拽盾：任何覆盖层页签拖拽期间盖在内容区最上层的无 handler 薄层。 */}
-          {/* webview / html iframe 是独立浏览上下文会吞宿主 dragover/drop —— 事件打到 */}
-          {/* 盾上再冒泡回本容器的落区判定（handleDragLeave 的 contains 判定把盾当 */}
-          {/* 子节点，不会误清指示器），落区恒可达且 webview 保持可见；替代原先 */}
-          {/* 「吞没种类拖拽期 visibility:hidden」造成的整 pane 闪空 */}
-          {draggingOverlayId !== null && (
+          {/* 拖拽盾：任何页签拖拽（覆盖层 / 会话）期间盖在内容区最上层的无 handler */}
+          {/* 薄层。webview / html iframe 是独立浏览上下文会吞宿主 dragover/drop —— */}
+          {/* 会话拖拽同样会被吞（此前只给覆盖层拖拽挂盾，拖会话页签经过显示 web 系 */}
+          {/* 覆盖层的 pane 时落区无指示、drop 静默失效）。事件打到盾上再冒泡回本 */}
+          {/* 容器的落区判定（handleDragLeave 的 contains 判定把盾当子节点，不会误清 */}
+          {/* 指示器），落区恒可达且 webview 保持可见；替代原先「吞没种类拖拽期 */}
+          {/* visibility:hidden」造成的整 pane 闪空 */}
+          {(draggingOverlayId !== null || draggingSessionId !== null) && (
             <div className="absolute inset-0 z-20" aria-hidden="true" />
           )}
 
           {/* 分屏指示器 */}
-          {dropZone && getDropZoneStyle(dropZone, dropAction) && (
-            <div style={getDropZoneStyle(dropZone, dropAction) as React.CSSProperties}>
-              {getDropZoneStyle(dropZone, dropAction)?.label}
+          {dropZoneView && (
+            <div style={dropZoneView.style}>
+              {dropZoneView.label}
             </div>
           )}
         </div>

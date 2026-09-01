@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest'
 import { usePaneStore } from './pane-store'
 import { DSH_WEB_OVERLAY_ID, MCP_AUDIT_OVERLAY_ID } from './overlay-kinds'
-import type { DocOverlayPayload, OverlayPayload, OverlayRef, PaneLeaf, PaneLayout, PaneNode } from '@shared/types'
+import type { DocOverlayPayload, OverlayPayload, OverlayRef, PaneLeaf, PaneLayout, PaneNode, PaneSplit } from '@shared/types'
 
 const leaf = (id: string, sessions: string[], overlays: OverlayRef[] = []): PaneLeaf => ({
   id,
@@ -581,7 +581,7 @@ describe('文档页签拖拽：setDraggingOverlay / moveOverlayToPane / splitOve
     expect(keepPane.sessions).toEqual(['s-a'])
   })
 
-  it('目标 pane 无会话：退化为改挂载不拆屏；拖回自己 pane 是 no-op', () => {
+  it('目标 pane 无会话但有驻留覆盖层：照常拆屏（keep 侧留驻留文档）；拖回自己 pane 是 no-op', () => {
     setup({}, ['s-a'])
     usePaneStore.getState().openDocTab('pane-1', docInfo('/a.md', 'sess-1'))
     const id = docTabIds()[0]
@@ -596,16 +596,25 @@ describe('文档页签拖拽：setDraggingOverlay / moveOverlayToPane / splitOve
       }
     })
     usePaneStore.getState().openDocTab('pane-2', docInfo('/b.md', 'sess-1'))
+    const residentId = docTabs().find(t => t.paneId === 'pane-2')!.id
 
-    // 边缘落点到无会话的 pane-2 → 退化改挂载（不产生新 split 层级）
+    // 边缘落点到无会话但驻留着 b.md 的 pane-2 → 拆屏（doc/doc 对拆是合法诉求，
+    // 仅当目标拆空后无内容可留才退化改挂载）：pane-2 变嵌套 split，
+    // position 'first' → 拖拽项在前，驻留项 keep 到后侧
     usePaneStore.getState().splitOverlayIntoPane(id, 'pane-2', 'horizontal', 'first')
     const st = usePaneStore.getState()
-    expect(docTabs().find(t => t.id === id)?.paneId).toBe('pane-2')
-    expect(st.layout.root.type).toBe('split') // 仍是原 split，没有再包一层
+    expect(st.layout.root.type).toBe('split')
+    const inner = (st.layout.root as PaneSplit).secondChild
+    expect(inner.type).toBe('split') // pane-2 被替换为嵌套 split
+    if (inner.type !== 'split') return
+    const draggedPane = inner.firstChild as PaneLeaf
+    const keepPane = inner.secondChild as PaneLeaf
+    expect(docTabs().find(t => t.id === id)?.paneId).toBe(draggedPane.id)
+    expect(docTabs().find(t => t.id === residentId)?.paneId).toBe(keepPane.id)
 
     // 拖回自己 pane 中心 → no-op
-    usePaneStore.getState().moveOverlayToPane(id, 'pane-2')
-    expect(docTabs().find(t => t.id === id)?.paneId).toBe('pane-2')
+    usePaneStore.getState().moveOverlayToPane(id, draggedPane.id)
+    expect(docTabs().find(t => t.id === id)?.paneId).toBe(draggedPane.id)
   })
 })
 

@@ -7,7 +7,7 @@
  * MainWindow / globals.css 无法整树渲染(依赖 electronAPI / xterm),只保留少量
  * 结构断言:持久化键名、内框类名落点、CSS 关键规则,不做逐字 className 匹配。
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -17,13 +17,6 @@ import { usePaneStore } from '../../stores/pane-store'
 import { ConnectionStatus } from '@shared/types'
 import type { OverlayPayload, OverlayRef, PaneLeaf, SessionConfig } from '@shared/types'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
-
-// PaneTabBar 仅从 SplitPaneContainer 导入 setDraggingSessionId;真实模块会拖入
-// PaneView → TerminalView → xterm 整条渲染链,与页签条渲染无关,桩掉
-vi.mock('./SplitPaneContainer', () => ({
-  setDraggingSessionId: () => {},
-  getDraggingSessionId: () => null
-}))
 
 const DSH_REF = (slot: number | null, active = false): OverlayRef =>
   ({ id: '__dsh_web__', kind: 'dshWeb', active, slot })

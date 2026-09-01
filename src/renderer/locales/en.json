@@ -626,7 +626,6 @@
     "closeConnection": "Close connection",
     "connecting": "Connecting",
     "actionSwap": "Swap",
-    "actionChangeDirection": "Change direction",
     "actionSplit": "Split",
     "zoneLeft": "{{label}} left",
     "zoneRight": "{{label}} right",

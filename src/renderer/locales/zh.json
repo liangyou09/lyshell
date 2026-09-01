@@ -623,7 +623,6 @@
     "closeConnection": "关闭连接",
     "connecting": "连接中",
     "actionSwap": "交换",
-    "actionChangeDirection": "改变方向",
     "actionSplit": "分屏",
     "zoneLeft": "{{label}}左侧",
     "zoneRight": "{{label}}右侧",

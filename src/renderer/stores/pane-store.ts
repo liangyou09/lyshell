@@ -167,10 +167,15 @@ interface PaneStore {
   // id → payload 字典。瞬态：不随布局持久化；引用（OverlayRef）挂在树叶子上的才是挂载点，
   // 树操作丢掉引用后由 pruneOverlayPayloads 按孤儿回收（含关闭副作用）。
   overlayPayloads: Record<string, OverlayPayload>
-  // 拖拽中的覆盖层实例 id（null=无）。拖拽期间 PaneView 隐藏会吞拖拽事件的 webview/iframe
-  // 系覆盖层，使 drop 落区暴露。瞬态。（终端会话拖拽仍走 SplitPaneContainer 模块变量。）
+  // 拖拽中的覆盖层实例 id（null=无）。拖拽期间 PaneView 挂拖拽盾盖住会吞拖拽事件的
+  // webview/iframe 系覆盖层，使 drop 落区暴露。瞬态。
   draggingOverlayId: string | null
   setDraggingOverlay: (id: string | null) => void
+  // 拖拽中的会话页签 id（null=无）。与覆盖层标记对称：落区分流按「会话优先」消歧，
+  // 同时也是拖拽盾的挂起条件之一 —— 会话拖拽经过 webview 系覆盖层同样被吞事件。
+  // 瞬态。（取代原 SplitPaneContainer 模块变量：盾需要响应式订阅，模块变量做不到）
+  draggingSessionId: string | null
+  setDraggingSession: (id: string | null) => void
   // 通用核心操作 —— 所有种类共用；种类差异全部由 overlay-kinds 注册表驱动
   mountOverlay: (paneId: string | undefined, payload: OverlayPayload, opts?: { id?: string }) => string | null  // 挂载并激活，返回实例 id（无可用 pane 返回 null）
   activateOverlay: (id: string) => void       // 激活（叶子内跨种类 radio + activePaneId 切换）
@@ -229,7 +234,6 @@ interface PaneStore {
   setActiveSessionInPane: (paneId: string, sessionId: string | null) => void
   reorderSessionsInPane: (paneId: string, fromIndex: number, toIndex: number) => void
   swapPanePosition: (paneId: string) => void  // 交换分屏位置
-  changeSplitDirection: (paneId: string) => void  // 改变分屏方向
 
   // 查询方法
   getPaneById: (paneId: string) => PaneNode | undefined
@@ -417,14 +421,20 @@ const stripOverlays = (node: PaneNode): PaneNode =>
 const isEmptyLeaf = (node: PaneNode): node is PaneLeaf =>
   node.type === 'leaf' && node.sessions.length === 0 && node.overlays.length === 0
 
-// 移除所有空分屏并合并
-const removeEmptyPanes = (root: PaneNode): PaneNode => {
+// 移除所有空分屏并合并。keepId：豁免回收的叶子 id —— 「会话正要落入的目标 pane」
+// 此刻必然是空的，但在本次操作内马上承接会话，不能被中途回收（否则目标被合并、
+// 会话落进 leaves[0] 兜底：拖进空 pane 变成跨 pane 传送或 drop 被静默吞掉）
+const removeEmptyPanes = (root: PaneNode, keepId?: string): PaneNode => {
   if (root.type === 'split') {
-    const newFirstChild = removeEmptyPanes(root.firstChild)
-    const newSecondChild = removeEmptyPanes(root.secondChild)
+    const newFirstChild = removeEmptyPanes(root.firstChild, keepId)
+    const newSecondChild = removeEmptyPanes(root.secondChild, keepId)
+
+    // keepId 豁免：被保护叶子即便空也视作不空（承口在本次操作内保留）
+    const firstEmpty = isEmptyLeaf(newFirstChild) && newFirstChild.id !== keepId
+    const secondEmpty = isEmptyLeaf(newSecondChild) && newSecondChild.id !== keepId
 
     // 如果两个都空，返回空叶子
-    if (isEmptyLeaf(newFirstChild) && isEmptyLeaf(newSecondChild)) {
+    if (firstEmpty && secondEmpty) {
       return {
         id: root.id,
         type: 'leaf',
@@ -434,9 +444,9 @@ const removeEmptyPanes = (root: PaneNode): PaneNode => {
       }
     }
     // 如果第一个空，用第二个替换
-    if (isEmptyLeaf(newFirstChild)) return newSecondChild
+    if (firstEmpty) return newSecondChild
     // 如果第二个空，用第一个替换
-    if (isEmptyLeaf(newSecondChild)) return newFirstChild
+    if (secondEmpty) return newFirstChild
     // 都不空，保持 split
     return {
       ...root,
@@ -511,32 +521,37 @@ const pruneOverlayPayloads = (
     : { overlayPayloads: next }
 }
 
+// 关闭/移除 pane 后的焦点兜底（settleLayoutAfterPrune / closePane /
+// removeSessionFromPane 共用同一语义）：activePaneId 仍有效则保持 —— 此前
+// closePane / removeSessionFromPane 无条件重置 leaves[0]，关后台 pane 会把焦点
+// 抢到第一个 pane、关中间 pane 焦点不去吸收侧。失效则优先「吸收侧」：closedPaneId
+// 在回并前原树里兄弟子树的首个存活叶子（兄弟子树整体接管 closedPaneId 让出的空间，
+// 焦点落它身上最近于原地）；再退而求整树首个叶子。activePaneId 悬空会让
+// mountOverlay（target 解析到死 id 返回 null）与快捷命令派发（find 不到活动
+// pane）静默失效，直到用户手动点某个 pane
+const settleActivePaneAfterClose = (
+  treeAfterClose: PaneNode,
+  treeBeforeClose: PaneNode,
+  closedPaneId: string,
+  activePaneId: string
+): string => {
+  if (findPane(treeAfterClose, activePaneId)) return activePaneId
+  const parent = findParent(treeBeforeClose, closedPaneId)
+  const sibling = parent
+    ? (parent.firstChild.id === closedPaneId ? parent.secondChild : parent.firstChild)
+    : undefined
+  const siblingLeaf = sibling
+    ? collectLeaves(sibling).find(l => findPane(treeAfterClose, l.id))
+    : undefined
+  return siblingLeaf?.id ?? collectLeaves(treeAfterClose)[0]?.id ?? activePaneId
+}
+
 // 关闭覆盖层后的空 pane 回并 + 焦点兜底：纯覆盖层 pane（拆屏产物）空出即从树里清掉、
-// split 随之回并（分屏还原）。activePaneId 若正落在被清 pane 上，切到吸收它的兄弟侧
-// 首个叶子（焦点不悬空）。树无变化时跳过 —— removeEmptyPanes 对 split 总是重建新对象，
-// 引用比较判不了「真的清了 pane」，改用叶子数判定。
+// split 随之回并（分屏还原）。焦点兜底收敛在 settleActivePaneAfterClose —— 无 pane
+// 被清时 activePaneId 必然仍有效，由它直接保持
 const settleLayoutAfterPrune = (root: PaneNode, closedPaneId: string, activePaneId: string): PaneLayout => {
   const pruned = removeEmptyPanes(root)
-  if (collectLeaves(pruned).length === collectLeaves(root).length) {
-    return { root: pruned, activePaneId }
-  }
-  let next = activePaneId
-  if (!findPane(pruned, next)) {
-    // 在回并前的原树里找兄弟侧：closedPaneId 的父 split 的另一个子树
-    const parent = findParent(root, closedPaneId)
-    const sibling = parent
-      ? (parent.firstChild.id === closedPaneId ? parent.secondChild : parent.firstChild)
-      : undefined
-    next = collectLeaves(sibling ?? pruned)[0]?.id ?? next
-    // 双空子叶塌缩：兄弟侧自身也被合并掉（removeEmptyPanes 把整个 split 换成带
-    // split id 的新叶），上面取到的 id 在 pruned 里不存在 —— 回落到 pruned 首个
-    // 叶子。activePaneId 悬空会让 mountOverlay（target 解析到死 id 返回 null）与
-    // 快捷命令派发（find 不到活动 pane）静默失效，直到用户手动点某个 pane
-    if (!findPane(pruned, next)) {
-      next = collectLeaves(pruned)[0]?.id ?? next
-    }
-  }
-  return { root: pruned, activePaneId: next }
+  return { root: pruned, activePaneId: settleActivePaneAfterClose(pruned, root, closedPaneId, activePaneId) }
 }
 
 // 关闭管线尾部（closeOverlay / closeOverlaysInPane 共享）：回并空 pane → 回收 payload
@@ -691,6 +706,7 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
 
   overlayPayloads: {},
   draggingOverlayId: null,
+  draggingSessionId: null,
 
   // 网页访问栏的持久化伴生数据（与挂载无关，保留原顶层形态）
   webTabHistory: loadWebTabHistory(),
@@ -700,6 +716,11 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     // 同值短路：SplitPaneContainer 的 pointerdown/dragend 兜底每次点击都会清，
     // 无短路会生成新 state 通知全部订阅者，整窗点击变成全量订阅回调重跑
     if (get().draggingOverlayId !== id) set({ draggingOverlayId: id })
+  },
+
+  setDraggingSession: (id) => {
+    // 同值短路：与 setDraggingOverlay 同因（兜底监听每次点击都清）
+    if (get().draggingSessionId !== id) set({ draggingSessionId: id })
   },
 
   // ===== 通用核心操作 =====
@@ -859,8 +880,13 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     const targetLeaf = findPane(st.layout.root, paneId)
     if (targetLeaf?.type !== 'leaf') return
 
-    // 目标 pane 无终端会话（含拖回自己所在的纯覆盖层 pane）：无屏可拆，退化为改挂载
-    if (targetLeaf.sessions.length === 0) {
+    // 目标 pane 拆出拖拽覆盖层后仍有内容可留（终端会话，或其他覆盖层 —— 纯文档
+    // pane 里 a.md/b.md 对拆、文档压着驻留 web 拆都是合法诉求）才拆屏；无可留
+    // 内容（无会话且除拖拽项外无覆盖层，含拖回自己所在的纯覆盖层 pane）无屏可
+    // 拆，退化为改挂载
+    const keepHasContent = targetLeaf.sessions.length > 0 ||
+      targetLeaf.overlays.some(r => r.id !== id)
+    if (!keepHasContent) {
       get().moveOverlayToPane(id, paneId)
       return
     }
@@ -1142,8 +1168,9 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     let newRoot = layout.root
     if (sessionId) {
       newRoot = removeSessionFromAllPanes(newRoot, sessionId)
-      // 移除空分屏（承载覆盖层的 pane 受 overlays 保护不会被误删，无需善后回收）
-      newRoot = removeEmptyPanes(newRoot)
+      // 移除空分屏（承载覆盖层的 pane 受 overlays 保护不会被误删；目标 pane 传
+      // keepId 豁免 —— 空目标正是下方「直接加入会话」分支的承口，不能被中途回收）
+      newRoot = removeEmptyPanes(newRoot, paneId)
     }
 
     // 找到目标分屏
@@ -1227,7 +1254,8 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     let newRoot = layout.root
     if (sessionId) {
       newRoot = removeSessionFromAllPanes(newRoot, sessionId)
-      newRoot = removeEmptyPanes(newRoot)
+      // 目标 pane 传 keepId 豁免（同 splitPane：空目标是合法承口，不能被中途回收）
+      newRoot = removeEmptyPanes(newRoot, paneId)
     }
 
     // 找到目标分屏
@@ -1318,7 +1346,6 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     const newRoot = removePaneAndMerge(layout.root, paneId)
     // pane 连同其覆盖层引用一起被删：悬空 payload 按孤儿回收（dsh web 由此杀子进程）
     const payloadPatch = pruneOverlayPayloads(newRoot, get().overlayPayloads, get().draggingOverlayId)
-    const leaves = collectLeaves(newRoot)
 
     // 清理这些 session 的 hidden 标记
     const nextHidden = { ...get().hiddenTabSessions }
@@ -1335,7 +1362,9 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
       ...(hiddenChanged ? { hiddenTabSessions: nextHidden } : {}),
       layout: {
         root: newRoot,
-        activePaneId: leaves.length > 0 ? leaves[0].id : ''
+        // 焦点兜底：active 仍有效保持（关后台 pane 不抢焦点）；关的是活动 pane
+        // 则落到吸收侧兄弟首个存活叶子（而非无条件 leaves[0]）
+        activePaneId: settleActivePaneAfterClose(newRoot, layout.root, paneId, layout.activePaneId)
       }
     })
   },
@@ -1418,8 +1447,10 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     // 先从所有分屏中移除该会话
     let newRoot = removeSessionFromAllPanes(layout.root, sessionId)
 
-    // 移除空分屏并合并（承载覆盖层的 pane 受 overlays 保护不会被误删）
-    newRoot = removeEmptyPanes(newRoot)
+    // 移除空分屏并合并（承载覆盖层的 pane 受 overlays 保护不会被误删；目标 pane
+    // 传 keepId 豁免 —— 拖会话进空 pane 是合法落点，中途回收会让会话落进
+    // leaves[0] 兜底、目标 pane 凭空消失）
+    newRoot = removeEmptyPanes(newRoot, paneId)
 
     // 找到目标分屏（可能 id 变了，需要重新查找或保持原位置）
     let targetPane = findPane(newRoot, paneId) as PaneLeaf | undefined
@@ -1503,12 +1534,13 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     // 如果分屏没有会话了也不承载覆盖层，关闭该分屏；仍承载覆盖层则保留（覆盖层不是 session，不占会话位）
     if (newSessions.length === 0 && updatedPane.overlays.length === 0) {
       newRoot = removePaneAndMerge(newRoot, paneId)
-      const leaves = collectLeaves(newRoot)
       set({
         ...(hiddenChanged ? { hiddenTabSessions: nextHidden } : {}),
         layout: {
           root: newRoot,
-          activePaneId: leaves.length > 0 ? leaves[0].id : ''
+          // 焦点兜底：active 仍有效保持（关后台 pane 的最后一个页签不抢焦点）；
+          // 关的是活动 pane 则落到吸收侧兄弟首个存活叶子
+          activePaneId: settleActivePaneAfterClose(newRoot, layout.root, paneId, layout.activePaneId)
         }
       })
     } else {
@@ -1530,7 +1562,9 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
         ...(hiddenChanged ? { hiddenTabSessions: nextHidden } : {}),
         layout: {
           root: replacePane(layout.root, paneId, { ...updatedPane, overlays }),
-          activePaneId: paneId
+          // pane 因承载覆盖层保留：active 仍有效保持（关后台 pane 的最后一个终端
+          // 页签不抢焦点），无效则落本 pane（自动激活的覆盖层就在这里）
+          activePaneId: findPane(layout.root, layout.activePaneId) ? layout.activePaneId : paneId
         }
       })
     }
@@ -1626,35 +1660,6 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     set({
       layout: {
         root: swapSplitChildren(layout.root, parent.id),
-        activePaneId: layout.activePaneId
-      }
-    })
-  },
-
-  // 改变分屏方向（水平变垂直，垂直变水平）
-  changeSplitDirection: (paneId) => {
-    const layout = get().layout
-    const parent = findParent(layout.root, paneId)
-
-    if (!parent) return
-
-    const newDirection: SplitDirection = parent.direction === 'horizontal' ? 'vertical' : 'horizontal'
-
-    const updateDirection = (root: PaneNode, parentId: string, direction: SplitDirection): PaneNode => {
-      if (root.type === 'leaf') return root
-      if (root.id === parentId) {
-        return { ...root, direction }
-      }
-      return {
-        ...root,
-        firstChild: updateDirection(root.firstChild, parentId, direction),
-        secondChild: updateDirection(root.secondChild, parentId, direction)
-      }
-    }
-
-    set({
-      layout: {
-        root: updateDirection(layout.root, parent.id, newDirection),
         activePaneId: layout.activePaneId
       }
     })

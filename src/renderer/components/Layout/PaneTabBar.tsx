@@ -3,7 +3,6 @@ import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
-import { setDraggingSessionId as setGlobalDraggingId } from './SplitPaneContainer'
 import { OVERLAY_DRAG_MARKER, parseOverlayDragMarker, resolveOverlayDragId } from './overlay-drag'
 import { harnessKindFromTags, type HarnessAgentKind } from '@shared/harness'
 import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
@@ -324,23 +323,8 @@ interface PaneTabBarProps {
  */
 const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRight }) => {
   const scrollRef = useRef<HTMLDivElement>(null)
-  const [draggingSessionId, setDraggingSessionIdLocal] = useState<string | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)  // 悬停位置索引（可见坐标）
   const [dragOverOverlayId, setDragOverOverlayId] = useState<string | null>(null)  // 会话悬停在覆盖层页签上（排序落点指示）
-  // 丢失 dragend 兜底（本地标记份）：源页签中途卸载等异常序列下自身 onDragEnd 不
-  // 触发，SplitPaneContainer 的 window 级兜底够不到本组件的 useState —— 残留的
-  // draggingSessionId 会在日后覆盖层拖拽的 getData('') 兜底里被误吞（把会话页签
-  // 传送进覆盖层插槽）。pointerdown 先于 dragstart、dragend 兜 drop 之后，不会
-  // 误清进行中的标记；React 对同值 setState 自带跳过
-  useEffect(() => {
-    const clear = () => setDraggingSessionIdLocal(null)
-    window.addEventListener('dragend', clear, true)
-    window.addEventListener('pointerdown', clear, true)
-    return () => {
-      window.removeEventListener('dragend', clear, true)
-      window.removeEventListener('pointerdown', clear, true)
-    }
-  }, [])
   const sessions = useSessionStore(s => s.sessions)
   const removeLiveSession = useSessionStore(s => s.removeLiveSession)
   // 逐字段 selector 订阅：本组件不读 layout 树（pane 由 prop 传入），整体解构会让无关的
@@ -352,6 +336,10 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
   const addSessionToPane = usePaneStore(s => s.addSessionToPane)
   const reorderSessionsInPane = usePaneStore(s => s.reorderSessionsInPane)
   const toggleLiveSessionTabs = usePaneStore(s => s.toggleLiveSessionTabs)
+  // 会话拖拽标记（原本地 useState + 模块变量）：迁进 store 后由 SplitPaneContainer
+  // 的 window 级 dragend/pointerdown 兜底统一复位，本组件无须再挂自己的兜底监听
+  const draggingSessionId = usePaneStore(s => s.draggingSessionId)
+  const setDraggingSession = usePaneStore(s => s.setDraggingSession)
   const { t } = useTranslation()
   // 被隐藏的页签(Sidebar LIVE 段会话标签点击 toggle)——不渲染对应页签,但终端实例保留
   const hiddenTabSessions = usePaneStore(s => s.hiddenTabSessions)
@@ -365,8 +353,9 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
     .filter((s): s is typeof sessions[0] => s !== undefined)
     .filter(s => !hiddenTabSessions[s.id])
 
-  // 获取所有分屏内的活跃会话（用于全局编号计算，只统计活跃的）
-  const allPaneSessions = sessions.filter(s =>
+  // 全局已连接/连接中的会话（含尚未挂进任何 pane 的）—— 同名页签编号用全局口径
+  // 才稳定：会话在 pane 间移动或暂未挂载都不改变编号
+  const connectedSessions = sessions.filter(s =>
     (s.status === 'connected' || s.status === 'connecting')
   )
 
@@ -500,16 +489,14 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
 
   // 开始拖拽
   const handleDragStart = (e: React.DragEvent, sessionId: string) => {
-    setGlobalDraggingId(sessionId)
-    setDraggingSessionIdLocal(sessionId)
+    setDraggingSession(sessionId)
     e.dataTransfer.setData('text/plain', sessionId)
     e.dataTransfer.effectAllowed = 'move'
   }
 
   // 结束拖拽
   const handleDragEnd = () => {
-    setGlobalDraggingId(null)
-    setDraggingSessionIdLocal(null)
+    setDraggingSession(null)
     setDragOverIndex(null)
     setDragOverOverlayId(null)
   }
@@ -694,10 +681,10 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
     )
   }
 
-  // 计算会话名称编号 - 基于全局所有分屏的同名会话
+  // 计算会话名称编号 - 基于全局同名会话
   const getNameWithIndex = (session: typeof paneSessions[0]) => {
-    // 使用所有分屏内的会话来计算编号，保持名称稳定
-    const sameNameSessions = allPaneSessions.filter(s => s.config.name === session.config.name)
+    // 使用全局已连接会话来计算编号，保持名称稳定
+    const sameNameSessions = connectedSessions.filter(s => s.config.name === session.config.name)
     if (sameNameSessions.length <= 1) {
       return session.config.name
     }

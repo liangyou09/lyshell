@@ -17,11 +17,10 @@ const SplitDivider: React.FC<SplitDividerProps> = ({ paneId, direction }) => {
   const startPosRef = useRef(0)
   const startRatioRef = useRef(0.5)
   const containerSizeRef = useRef(0) // 拖拽开始时实测的分屏容器尺寸
-  const { setSplitRatio } = usePaneStore()
-
-  // 获取当前比例
-  const pane = usePaneStore.getState().getPaneById(paneId)
-  const currentRatio = pane?.type === 'split' ? pane.splitRatio : 0.5
+  // 逐字段 selector 订阅（对齐 PaneTabBar 的既有模式）：无 selector 的整 store 订阅
+  // 会让任何 pane-store 写入（含拖拽期间每个 pointermove 的 setSplitRatio 自身）
+  // 重渲染全部分隔条
+  const setSplitRatio = usePaneStore(s => s.setSplitRatio)
 
   // 开始拖拽
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -32,7 +31,10 @@ const SplitDivider: React.FC<SplitDividerProps> = ({ paneId, direction }) => {
     e.currentTarget.setPointerCapture(e.pointerId)
     setIsDragging(true)
     startPosRef.current = direction === 'horizontal' ? e.clientX : e.clientY
-    startRatioRef.current = currentRatio
+    // 起始比例在按下时从 store 现读（而非渲染期快照）—— 本组件不订阅布局，
+    // 渲染期快照可能滞后，拖起来会从旧比例跳变
+    const pane = usePaneStore.getState().getPaneById(paneId)
+    startRatioRef.current = pane?.type === 'split' ? pane.splitRatio : 0.5
     // 实测父容器(即本 split 的 flex 容器)尺寸 -- 替代旧 window.innerWidth/Height 估算,
     // 后者在侧栏可收起/可调宽后早已不准(嵌套分屏时也错)
     const rect = e.currentTarget.parentElement?.getBoundingClientRect()
