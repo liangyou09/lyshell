@@ -8,12 +8,7 @@ import {
   codexWorkspaceRepository,
   claudeWorkspaceRepository
 } from '../storage/harness-workspace-repository'
-import type { HarnessEnvProfileRepository } from '../storage/harness-env-profile-repository'
-import {
-  dshEnvProfileRepository,
-  codexEnvProfileRepository,
-  claudeEnvProfileRepository
-} from '../storage/harness-env-profile-repository'
+import { envProfileRepository as envRepository, type EnvProfileRepository } from '../storage/env-profile-repository'
 import { detectDependencies } from './detect'
 import { buildCliLaunchCommand, type LaunchCommandResult } from './launch'
 import { normalizeDshHomeEnv, type NormalizedEnvResult } from '../dsh/env'
@@ -28,13 +23,16 @@ import { presetCodexBaseUrl } from '../codex/base-url-preset'
  * 差异点集中在 dsh：模型走 cordis.patch.yml（prepareModel）+ DSH_HOME 归一化（normalizeEnv）；
  * codex/claude 模型走 --model CLI（buildLaunchCommand），env 原样透传；
  * codex 另有上游地址预设（OPENAI_BASE_URL → config.toml，见 codex/base-url-preset.ts）。
+ *
+ * 变量组是全局一份库（storage/env-profile-repository.ts）：三个 kind 与通用 Agent
+ * 共用同一组集合，「启用」是每 kind 一根指针（getActiveProfile(kind)）。
  */
 
 export interface HarnessAgentRuntime {
   kind: HarnessAgentKind
   repository: HarnessWorkspaceRepository
-  /** 具名环境变量组仓库（与工作区平级的一等配置，见 resolveWorkspaceEnv） */
-  envRepository: HarnessEnvProfileRepository
+  /** 全局变量组库（与工作区平级的一等配置，见 resolveWorkspaceEnv；三个 kind 共享同一实例） */
+  envRepository: EnvProfileRepository
   /** 启动前须全部在 PATH 上的二进制（dsh 须 dsh+dsh-tui；codex/claude 单个） */
   dependencies: string[]
   /**
@@ -59,10 +57,10 @@ export function detectAgentDependencies(kind: HarnessAgentKind): Record<string, 
 /**
  * 解析某工作区启动时实际注入的环境变量 —— 唯一的真相来源，launch 与 dsh web 两侧都走它。
  *
- *   工作区显式绑定的变量组 → 已启用的变量组 → ws.env（legacy）→ undefined（系统环境变量）
+ *   工作区显式绑定的变量组 → 该 kind 已启用的变量组 → ws.env（legacy）→ undefined（系统环境变量）
  *
- * envProfileId 悬空（组已被删）时等同「没选」，回落已启用组 —— 删掉一个组不该让工作区
- * 变成「无 env」的第三种状态。
+ * envProfileId 悬空（组已被删）时等同「没选」，回落该 kind 的启用组 —— 删掉一个组不该
+ * 让工作区变成「无 env」的第三种状态。
  *
  * 第三级 legacy 分支不是第四种语义，而是迁移失败的防御：迁移横跨两个文件两次落盘
  * （先建组，再回写工作区），若后一次写失败，没有这一级该工作区的 API key 会静默消失。
@@ -75,7 +73,7 @@ export function resolveWorkspaceEnv(
   const bound = workspace.envProfileId
     ? runtime.envRepository.get(workspace.envProfileId)
     : undefined
-  const profile = bound ?? runtime.envRepository.getActive()
+  const profile = bound ?? runtime.envRepository.getActiveProfile(runtime.kind)
   if (profile) return profile.env
   return workspace.env
 }
@@ -98,7 +96,7 @@ export const HARNESS_AGENTS: Record<HarnessAgentKind, HarnessAgentRuntime> = {
   dsh: {
     kind: 'dsh',
     repository: dshWorkspaceRepository,
-    envRepository: dshEnvProfileRepository,
+    envRepository,
     dependencies: HARNESS_AGENT_VIEWS.dsh.dependencies,
     envDefaults: () => HARNESS_AGENT_VIEWS.dsh.envDefaults,
     buildLaunchCommand: () => ({ ok: true, command: 'dsh-tui' }),
@@ -109,7 +107,7 @@ export const HARNESS_AGENTS: Record<HarnessAgentKind, HarnessAgentRuntime> = {
   codex: {
     kind: 'codex',
     repository: codexWorkspaceRepository,
-    envRepository: codexEnvProfileRepository,
+    envRepository,
     dependencies: HARNESS_AGENT_VIEWS.codex.dependencies,
     envDefaults: () => [
       { key: 'OPENAI_API_KEY', value: '' },
@@ -124,7 +122,7 @@ export const HARNESS_AGENTS: Record<HarnessAgentKind, HarnessAgentRuntime> = {
   claude: {
     kind: 'claude',
     repository: claudeWorkspaceRepository,
-    envRepository: claudeEnvProfileRepository,
+    envRepository,
     dependencies: HARNESS_AGENT_VIEWS.claude.dependencies,
     envDefaults: () => [
       { key: 'ANTHROPIC_AUTH_TOKEN', value: '' },

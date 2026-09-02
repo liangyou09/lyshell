@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from 'fs'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 import { getConfigDir } from './repository'
+import { normalizeEnv } from './harness-workspace-repository'
 
 /**
  * AI Agent 配置
@@ -14,7 +15,28 @@ export interface AgentConfig {
   icon?: string          // 图标（emoji），如 "🤖"
   cwd?: string           // 工作目录
   env?: Record<string, string>
+  /** 绑定的全局变量组 id（storage/env-profile-repository.ts）；缺省 = 未绑定 */
+  envProfileId?: string
   order: number
+}
+
+/**
+ * 解析通用 Agent 启动时实际注入的环境变量 —— 与 harness 的 resolveWorkspaceEnv 同构
+ * （命中即用、不合并）：
+ *
+ *   agent.envProfileId 绑定的变量组 → agent.env（内联 legacy）→ undefined（系统环境变量）
+ *
+ * 绑定悬空（组已被删）时等同「没绑」，回落内联 env —— 删组不该让 agent 变成「无 env」。
+ */
+export function resolveAgentLaunchEnv(
+  agent: Pick<AgentConfig, 'envProfileId' | 'env'>,
+  store: { get(id: string): { env: Record<string, string> } | undefined }
+): Record<string, string> | undefined {
+  if (agent.envProfileId !== undefined) {
+    const profile = store.get(agent.envProfileId)
+    if (profile) return profile.env
+  }
+  return agent.env
 }
 
 const DEFAULT_AGENTS: AgentConfig[] = [
@@ -53,7 +75,17 @@ export class AgentRepository {
 
     try {
       const content = readFileSync(this.filePath, 'utf-8')
-      this.agents = JSON.parse(content) as AgentConfig[]
+      const parsed = JSON.parse(content)
+      // 非数组按损坏处理（回落默认 Agent）
+      if (!Array.isArray(parsed)) {
+        log.warn('agents.json is not an array, falling back to defaults')
+        this.agents = [...DEFAULT_AGENTS]
+        this.loaded = true
+        return
+      }
+      // 每条记录的 env 走与 harness 同一份清洗（空 key / NUL / 非字符串丢弃）——
+      // 手工编辑的脏数据直通 node-pty spawn 会拿到 EINVAL
+      this.agents = (parsed as AgentConfig[]).map((a) => ({ ...a, env: normalizeEnv(a.env) }))
       log.info(`Loaded ${this.agents.length} agents from storage`)
       this.loaded = true
     } catch (error) {

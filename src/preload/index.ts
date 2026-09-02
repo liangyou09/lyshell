@@ -100,6 +100,9 @@ const IPC_CHANNELS = {
   AGENT_DELETE: 'agent:delete',
   AGENT_LAUNCH: 'agent:launch',
 
+  // 全局环境变量组（Agent 编辑对话框的绑定下拉；harness 面板走 <kind>:env:list）
+  ENV_PROFILE_LIST: 'env-profile:list',
+
   // DeepSeek Harness (dsh)
   DSH_DETECT: 'dsh:detect',
   DSH_WORKSPACE_LIST: 'dsh:workspace:list',
@@ -270,6 +273,8 @@ const electronAPI = {
   updateAgent: (agent: unknown) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_UPDATE, agent),
   deleteAgent: (agentId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_DELETE, agentId),
   launchAgent: (agentId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_LAUNCH, agentId),
+  // 全局环境变量组（Agent 编辑对话框的绑定下拉）
+  listEnvProfiles: () => ipcRenderer.invoke(IPC_CHANNELS.ENV_PROFILE_LIST),
 
   // DeepSeek Harness (dsh)
   detectDsh: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_DETECT),

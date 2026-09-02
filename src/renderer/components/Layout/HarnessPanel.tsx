@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
-import { HARNESS_AGENT_VIEWS, isSecretEnvKey, type HarnessAgentKind, type HarnessEnvDefault, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
+import { HARNESS_AGENT_VIEWS, type HarnessAgentKind, type HarnessEnvDefault, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
 import { BRANCH_PREFIX, generateWorktreeCode, generateWorktreeKey, generateWorktreeStamp, joinWorktreePath } from '@shared/worktree'
+import EnvRowsEditor from '../EnvRowsEditor'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import PanelTabs from './PanelTabs'
 import { ensureDetected, getCachedDetect, redetectHarness } from './harness-detect'
@@ -99,21 +100,6 @@ const IconEdit: React.FC = () => (
 
 const IconX: React.FC = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 2l7 7M9 2l-7 7" /></svg>
-)
-
-/** 明文查看敏感 env 值(默认打码,点击切换) */
-const IconEye: React.FC = () => (
-  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" />
-    <circle cx="8" cy="8" r="2" />
-  </svg>
-)
-
-const IconEyeOff: React.FC = () => (
-  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M2.6 5.1C1.7 6.2 1.5 8 1.5 8s2.5 4.5 6.5 4.5c1.2 0 2.2-.3 3-.8M6.7 3.7c.4-.1.8-.2 1.3-.2 4 0 6.5 4.5 6.5 4.5s-.6 1.1-1.6 2.1" />
-    <path d="M2.5 13.5l11-11" />
-  </svg>
 )
 
 /**
@@ -232,6 +218,8 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
 
   // ── 环境变量组 ──
   const [envProfiles, setEnvProfiles] = useState<HarnessEnvProfile[]>([])
+  // 该 kind 的启用指针（全局库列表 + per-kind activeProfileId 由 <kind>:env:list 一并下发）
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null)
   // 变量组列表是否已成功拉到 —— 空列表有两种含义（「一个都没有」与「还没拉到/拉失败」），
   // 只有前者才允许把工作区的悬空绑定判为悬空，见 handleEdit
   const [envProfilesLoaded, setEnvProfilesLoaded] = useState(false)
@@ -248,8 +236,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   const [triedEnvSubmit, setTriedEnvSubmit] = useState(false)
   const [envConfirmDelete, setEnvConfirmDelete] = useState(false)
   const [envSaveError, setEnvSaveError] = useState<string | null>(null)
-  // 敏感值(API key/token)明文展示的行号集 —— 默认打码,点眼睛逐行切换;改 key/开新对话框即复位
-  const [revealedEnvIdx, setRevealedEnvIdx] = useState<Set<number>>(new Set())
 
   // 检测走应用级缓存(harness-detect):启动时已预热,这里只把缓存结果装进本组件状态。
   // runDetect 是「强制重检」—— 手动「重新检测」按钮与启动失败后的复核用,
@@ -276,8 +262,10 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   const loadEnvProfiles = useCallback(async () => {
     try {
       const result = await api.envList()
-      if (Array.isArray(result)) {
-        setEnvProfiles(result as HarnessEnvProfile[])
+      // 返回形状 { profiles, activeProfileId }：全局变量组 + 该 kind 的启用指针
+      if (result && Array.isArray(result.profiles)) {
+        setEnvProfiles(result.profiles as HarnessEnvProfile[])
+        setActiveProfileId(typeof result.activeProfileId === 'string' ? result.activeProfileId : null)
         setEnvProfilesLoaded(true)
       }
     } catch (err) {
@@ -576,32 +564,16 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     }
   }
 
-  // ── 变量组：环境变量行编辑（对齐 AgentsPanel 的 env 编辑器） ──
-  const addEnvRow = () => setProfileEnv((prev) => [...prev, { key: '', value: '' }])
-  const updateEnvRow = (i: number, field: 'key' | 'value', value: string) => {
-    setProfileEnv((prev) => prev.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)))
-    // 改 key 即复位该行的明文状态:改名前后是不是敏感值可能不同,保证「默认打码」语义
-    if (field === 'key') setRevealedEnvIdx((prev) => { const next = new Set(prev); next.delete(i); return next })
+  // ── 变量组：环境变量行编辑（脱敏/明文切换逻辑在共享组件 EnvRowsEditor 内） ──
+  const envRowsTexts = {
+    keyPh: t(`${prefix}.wsEnvKeyPh`),
+    valuePh: t(`${prefix}.wsEnvValuePh`),
+    addRow: t(`${prefix}.wsEnvAdd`),
+    deleteTitle: t(`${prefix}.wsDelete`),
+    showValue: t(`${prefix}.envShowValue`),
+    hideValue: t(`${prefix}.envHideValue`)
   }
-  const removeEnvRow = (i: number) => {
-    setProfileEnv((prev) => prev.filter((_, idx) => idx !== i))
-    // 行号前移同步修正,避免「明文」状态串到别的行
-    setRevealedEnvIdx((prev) => {
-      const next = new Set<number>()
-      for (const idx of prev) {
-        if (idx < i) next.add(idx)
-        else if (idx > i) next.add(idx - 1)
-      }
-      return next
-    })
-  }
-  const toggleEnvReveal = (i: number) =>
-    setRevealedEnvIdx((prev) => {
-      const next = new Set(prev)
-      if (next.has(i)) next.delete(i)
-      else next.add(i)
-      return next
-    })
+  const resetTriedEnvSubmit = () => { if (triedEnvSubmit) setTriedEnvSubmit(false) }
   // ── 变量组：模型选项行编辑（单列，供工作区模型建议） ──
   const addModelRow = () => setProfileModels((prev) => [...prev, ''])
   const updateModelRow = (i: number, value: string) =>
@@ -622,7 +594,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   }
 
   // ── 变量组：对话框与单选启用 ──
-  const activeProfile = envProfiles.find((p) => p.active === true)
+  const activeProfile = envProfiles.find((p) => p.id === activeProfileId)
   // 工作区表单实际生效的变量组（显式绑定 → 已启用组，与主进程 resolveWorkspaceEnv 同一条链）；
   // 其模型选项排在内置建议之前，供工作区「模型」输入框的 datalist
   const effectiveProfile = envProfiles.find((p) => p.id === wsEnvProfileId) ?? activeProfile
@@ -656,7 +628,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     setProfileEnv(envDefaults.map((d) => ({ key: d.key, value: d.value })))
     setProfileModels([])
     setTriedEnvSubmit(false); setEnvConfirmDelete(false); setEnvSaveError(null)
-    setRevealedEnvIdx(new Set())
     setShowEnvDialog(true)
   }
   const handleEditProfile = (p: HarnessEnvProfile) => {
@@ -665,7 +636,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     setProfileEnv(Object.entries(p.env).map(([key, value]) => ({ key, value })))
     setProfileModels(p.models ? [...p.models] : [])
     setTriedEnvSubmit(false); setEnvConfirmDelete(false); setEnvSaveError(null)
-    setRevealedEnvIdx(new Set())
     setShowEnvDialog(true)
   }
   /**
@@ -679,7 +649,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     setProfileEnv(Object.entries(p.env).map(([key, value]) => ({ key, value })))
     setProfileModels(p.models ? [...p.models] : [])
     setTriedEnvSubmit(false); setEnvConfirmDelete(false); setEnvSaveError(null)
-    setRevealedEnvIdx(new Set())
     setShowEnvDialog(true)
   }
 
@@ -745,7 +714,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     }
   }
   // 点已通电的那格即停用 —— 系统那格随之点亮，构成一个可关的单选组
-  const toggleProfile = (p: HarnessEnvProfile) => applyActiveProfile(p.active === true ? null : p.id)
+  const toggleProfile = (p: HarnessEnvProfile) => applyActiveProfile(p.id === activeProfileId ? null : p.id)
 
   const missing: string[] = status ? deps.filter((d) => !status[d]) : []
   // 标题按钮：有 Web UI 的 kind（dsh）总是可点 —— 直接开 Web，落在 deepseek-harness 自己的
@@ -1133,7 +1102,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
               </div>
             ) : (
               envProfiles.map((p) => {
-                const on = p.active === true
+                const on = p.id === activeProfileId
                 return (
                   <div
                     key={p.id}
@@ -1569,69 +1538,12 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                 </div>
                 <div className="mt-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t(`${prefix}.wsEnvHint`)}</div>
               </div>
-              <div className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm overflow-hidden">
-                {profileEnv.length === 0 ? (
-                  <button
-                    onClick={addEnvRow}
-                    className="w-full text-left py-1.5 px-2.5 text-[11.5px] [font-family:inherit] text-[var(--text-rack-data)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] transition-colors"
-                  >
-                    + {t(`${prefix}.wsEnvAdd`)}
-                  </button>
-                ) : (
-                  <>
-                    {profileEnv.map((row, i) => {
-                      // 敏感值(API key/token)默认打码:用 -webkit-text-security 而非 type=password,
-                      // 免去 Chromium 自带的「小眼睛」,明文切换只走右侧按钮
-                      const secret = isSecretEnvKey(row.key)
-                      const revealed = revealedEnvIdx.has(i)
-                      return (
-                      <div key={i} className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0">
-                        <input
-                          type="text"
-                          value={row.key}
-                          onChange={(e) => { updateEnvRow(i, 'key', e.target.value); if (triedEnvSubmit) setTriedEnvSubmit(false) }}
-                          placeholder={t(`${prefix}.wsEnvKeyPh`)}
-                          className="flex-1 min-w-0 bg-transparent border-none text-[12px] [font-family:inherit] text-[var(--amber)] placeholder:text-[var(--text-rack-data)] focus:outline-none"
-                        />
-                        <span className="text-[var(--text-rack-mute)] [font-family:inherit] text-[12px] select-none">=</span>
-                        <input
-                          type="text"
-                          value={row.value}
-                          onChange={(e) => updateEnvRow(i, 'value', e.target.value)}
-                          placeholder={t(`${prefix}.wsEnvValuePh`)}
-                          className={cn(
-                            'flex-[2] min-w-0 bg-transparent border-none text-[12px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] focus:outline-none',
-                            secret && !revealed && '[-webkit-text-security:disc]'
-                          )}
-                        />
-                        {secret && (
-                          <button
-                            onClick={() => toggleEnvReveal(i)}
-                            title={revealed ? t(`${prefix}.envHideValue`) : t(`${prefix}.envShowValue`)}
-                            className="w-[18px] h-[18px] flex-shrink-0 inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] text-[var(--text-rack-faint)] hover:text-[var(--amber)] transition-colors"
-                          >
-                            {revealed ? <IconEyeOff /> : <IconEye />}
-                          </button>
-                        )}
-                        <button
-                          onClick={() => removeEnvRow(i)}
-                          title={t(`${prefix}.wsDelete`)}
-                          className="w-[18px] h-[18px] flex-shrink-0 inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] text-[var(--text-rack-faint)] hover:text-[var(--error-rack)] transition-colors"
-                        >
-                          <IconX />
-                        </button>
-                      </div>
-                      )
-                    })}
-                    <button
-                      onClick={addEnvRow}
-                      className="w-full text-left py-1.5 px-2.5 text-[11.5px] [font-family:inherit] text-[var(--text-rack-data)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] transition-colors"
-                    >
-                      + {t(`${prefix}.wsEnvAdd`)}
-                    </button>
-                  </>
-                )}
-              </div>
+              <EnvRowsEditor
+                value={profileEnv}
+                onChange={setProfileEnv}
+                texts={envRowsTexts}
+                onKeyChange={resetTriedEnvSubmit}
+              />
             </div>
 
             {/* 模型选项 —— 单列可增删，供工作区「模型」输入框的建议（生效组排在内置建议之前） */}

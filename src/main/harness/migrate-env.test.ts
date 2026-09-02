@@ -11,7 +11,7 @@ vi.mock('electron', () => ({
 }))
 
 import { HarnessWorkspaceRepository } from '../storage/harness-workspace-repository'
-import { HarnessEnvProfileRepository } from '../storage/harness-env-profile-repository'
+import { EnvProfileRepository } from '../storage/env-profile-repository'
 import { resolveWorkspaceEnv, type HarnessAgentRuntime } from './config'
 import { migrateInlineEnvToProfiles } from './migrate-env'
 
@@ -27,7 +27,7 @@ function makeRuntime(): HarnessAgentRuntime {
   return {
     kind: 'codex',
     repository: new HarnessWorkspaceRepository(wsFile),
-    envRepository: new HarnessEnvProfileRepository(envFile)
+    envRepository: new EnvProfileRepository(envFile)
   } as unknown as HarnessAgentRuntime
 }
 
@@ -58,7 +58,7 @@ describe('resolveWorkspaceEnv', () => {
     const rt = makeRuntime()
     const a = rt.envRepository.add({ name: 'A', env: { K: 'a' } })!
     rt.envRepository.add({ name: 'B', env: { K: 'b' } })
-    rt.envRepository.setActive(a.id)
+    rt.envRepository.setActiveProfile('codex', a.id)
     const ws = rt.repository.add({ name: 'w', cwd: '/w' })!
     expect(resolveWorkspaceEnv(rt, ws)).toEqual({ K: 'a' })
   })
@@ -67,7 +67,7 @@ describe('resolveWorkspaceEnv', () => {
     const rt = makeRuntime()
     const a = rt.envRepository.add({ name: 'A', env: { K: 'a' } })!
     const b = rt.envRepository.add({ name: 'B', env: { K: 'b' } })!
-    rt.envRepository.setActive(a.id)
+    rt.envRepository.setActiveProfile('codex', a.id)
     const ws = rt.repository.add({ name: 'w', cwd: '/w', envProfileId: b.id })!
     expect(resolveWorkspaceEnv(rt, ws)).toEqual({ K: 'b' })
   })
@@ -76,7 +76,7 @@ describe('resolveWorkspaceEnv', () => {
     const rt = makeRuntime()
     const a = rt.envRepository.add({ name: 'A', env: { K: 'a' } })!
     const b = rt.envRepository.add({ name: 'B', env: { K: 'b' } })!
-    rt.envRepository.setActive(a.id)
+    rt.envRepository.setActiveProfile('codex', a.id)
     const ws = rt.repository.add({ name: 'w', cwd: '/w', envProfileId: b.id })!
     rt.envRepository.delete(b.id)
     expect(resolveWorkspaceEnv(rt, ws)).toEqual({ K: 'a' })
@@ -85,8 +85,8 @@ describe('resolveWorkspaceEnv', () => {
   it('全部停用时回落系统环境变量，即使存在变量组', () => {
     const rt = makeRuntime()
     const a = rt.envRepository.add({ name: 'A', env: { K: 'a' } })!
-    rt.envRepository.setActive(a.id)
-    rt.envRepository.setActive(null)
+    rt.envRepository.setActiveProfile('codex', a.id)
+    rt.envRepository.setActiveProfile('codex', null)
     const ws = rt.repository.add({ name: 'w', cwd: '/w' })!
     expect(resolveWorkspaceEnv(rt, ws)).toBeUndefined()
   })
@@ -98,7 +98,7 @@ describe('resolveWorkspaceEnv', () => {
     expect(resolveWorkspaceEnv(rt, ws)).toEqual({ LEGACY: '1' })
     // 一旦有启用组，legacy 就让位
     const a = rt.envRepository.add({ name: 'A', env: { K: 'a' } })!
-    rt.envRepository.setActive(a.id)
+    rt.envRepository.setActiveProfile('codex', a.id)
     expect(resolveWorkspaceEnv(rt, ws)).toEqual({ K: 'a' })
   })
 })
@@ -188,7 +188,7 @@ describe('migrateInlineEnvToProfiles', () => {
     seedWorkspaces([{ id: 'w1', name: 'proj', cwd: '/w1', order: 0, env: { K: '1' } }])
     const rt = makeRuntime()
     migrateInlineEnvToProfiles(rt)
-    expect(rt.envRepository.getActive()).toBeUndefined()
+    expect(rt.envRepository.getActiveProfile('codex')).toBeUndefined()
     // 但该工作区已显式绑定，仍能拿到原来的变量
     expect(resolveWorkspaceEnv(rt, rt.repository.get('w1')!)).toEqual({ K: '1' })
   })

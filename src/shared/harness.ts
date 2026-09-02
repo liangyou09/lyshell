@@ -59,8 +59,10 @@ export interface HarnessWorkspace {
 }
 
 /**
- * 具名环境变量组 —— 与工作区平级的一等配置，每个 kind 一份列表。
- * 同一时刻至多一条 active（单选，可全关）；全关时启动即用系统环境变量。
+ * 具名环境变量组 —— 全局一份库（env-profiles.json），dsh / codex / claude 与通用 Agent 共用。
+ * 组本身不携带启用态：harness kind 经 activeByKind 指针启用（每 kind 至多一根，
+ * 同组可被多个 kind 同时启用）；通用 Agent 只有显式绑定（AgentConfig.envProfileId）。
+ * 全部未启用/未绑定时启动即用系统环境变量。
  */
 export interface HarnessEnvProfile {
   id: string
@@ -69,8 +71,13 @@ export interface HarnessEnvProfile {
   env: Record<string, string>   // 至少一个变量（空组无意义，仓库层过滤）
   /** 可选模型选项列表 —— 供工作区模型输入框的建议（如中转变量组的 GLM-5.2），空则不写 */
   models?: string[]
-  active?: boolean       // 至多一条为 true —— 由仓库层在 load/setActive 两侧保证
   note?: string          // 可选备注
+}
+
+/** <kind>:env:list 的返回形状 —— 全局变量组列表 + 该 kind 的启用指针（per-kind 视角） */
+export interface HarnessEnvListResult {
+  profiles: HarnessEnvProfile[]
+  activeProfileId: string | null
 }
 
 export interface HarnessEnvDefault {
@@ -158,6 +165,9 @@ export const HARNESS_AGENT_VIEWS: Record<HarnessAgentKind, HarnessAgentView> = {
     kind: 'codex',
     i18nPrefix: 'codex',
     dependencies: ['codex'],
+    // CODEX_HOME 的 value: '' 只是渲染层初始化/IPC 失败时的降级兜底（HarnessPanel 以此为初始 state）；
+    // 主进程 runtime.envDefaults()（harness/config.ts）会用「系统环境变量，否则 ~/.codex」解析出的
+    // 真实路径覆盖下发给 <kind>:env:defaults，请勿据此推断显示值
     envDefaults: [
       { key: 'OPENAI_API_KEY', value: '' },
       { key: 'OPENAI_BASE_URL', value: '' },
@@ -176,6 +186,7 @@ export const HARNESS_AGENT_VIEWS: Record<HarnessAgentKind, HarnessAgentView> = {
     kind: 'claude',
     i18nPrefix: 'claude',
     dependencies: ['claude'],
+    // 同 codex：CLAUDE_CONFIG_DIR 的空 value 是渲染层降级兜底，主进程会覆盖为解析后的真实路径
     envDefaults: [
       { key: 'ANTHROPIC_AUTH_TOKEN', value: '' },
       { key: 'ANTHROPIC_BASE_URL', value: '' },

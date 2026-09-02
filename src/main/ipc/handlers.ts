@@ -20,6 +20,9 @@ import { createTaskSerializer } from '../harness/task-serializer'
 import { detectDependencies } from '../harness/detect'
 import { HARNESS_AGENTS, resolveWorkspaceEnv } from '../harness/config'
 import { migrateInlineEnvToProfiles } from '../harness/migrate-env'
+import { migrateKindEnvProfilesToGlobal } from '../harness/migrate-profiles'
+import { resolveAgentLaunchEnv } from '../storage/agent-repository'
+import { envProfileRepository } from '../storage/env-profile-repository'
 import type { HarnessEnvProfile, HarnessWorkspace } from '@shared/harness'
 import type { WorktreeListResult } from '@shared/worktree'
 import { downloadHistory, DownloadRecord } from '../storage'
@@ -337,6 +340,11 @@ function sanitizeMessageBoxOptions(options: unknown): MessageBoxOptions {
  */
 export function registerIPCHandlers(): void {
   log.info('Registering IPC handlers...')
+
+  // 旧 per-kind 变量组文件（dsh/codex/claude-env-profiles.json）并入全局库的一次性迁移
+  // （幂等，见 harness/migrate-profiles.ts）。必须先于 inline env 迁移：随后
+  // migrateInlineEnvToProfiles 新建的组直接写进的就是全局库。
+  migrateKindEnvProfilesToGlobal()
 
   // AI Harness legacy inline env → 具名变量组的一次性迁移（幂等，见 harness/migrate-env.ts）。
   // 放在处理器注册之前：注册虽在同一次同步调用里完成，但要等事件循环才会被触发，
@@ -1766,6 +1774,12 @@ export function registerIPCHandlers(): void {
     return agentRepository.getAll()
   })
 
+  // 全局变量组列表（无启用语义，供 Agent 编辑对话框的绑定下拉）；
+  // harness 面板走 <kind>:env:list（带该 kind 的启用指针），不走这条
+  ipcMain.handle('env-profile:list', async () => {
+    return envProfileRepository.getAll()
+  })
+
   ipcMain.handle('agent:add', async (_event, agent) => {
     try {
       const safeAgent = assertObject(agent, 'agent')
@@ -1777,6 +1791,14 @@ export function registerIPCHandlers(): void {
       if (safeAgent.icon !== undefined) newAgent.icon = assertString(safeAgent.icon, 'agent.icon', { maxLength: 20 })
       if (safeAgent.cwd !== undefined) newAgent.cwd = assertString(safeAgent.cwd, 'agent.cwd', { maxLength: 4096 })
       if (safeAgent.env !== undefined) newAgent.env = assertStringRecord(safeAgent.env, 'agent.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
+      // 绑定变量组：保存即拒悬空 id —— 通用 Agent 是新字段没有历史包袱，从严校验
+      if (safeAgent.envProfileId !== undefined) {
+        const profileId = assertString(safeAgent.envProfileId, 'agent.envProfileId', { maxLength: 128 })
+        if (!envProfileRepository.get(profileId)) {
+          return { success: false, error: 'Env profile not found' }
+        }
+        newAgent.envProfileId = profileId
+      }
       return agentRepository.add(newAgent)
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
@@ -1795,6 +1817,21 @@ export function registerIPCHandlers(): void {
       if (safeAgent.icon !== undefined) updatedAgent.icon = assertString(safeAgent.icon, 'agent.icon', { maxLength: 20 })
       if (safeAgent.cwd !== undefined) updatedAgent.cwd = assertString(safeAgent.cwd, 'agent.cwd', { maxLength: 4096 })
       if (safeAgent.env !== undefined) updatedAgent.env = assertStringRecord(safeAgent.env, 'agent.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
+      // 绑定变量组用「键存在」判断：编辑时取消绑定（传 undefined）应生效，否则旧绑定残留；
+      // 传 id 则保存即拒悬空（与 add 同一套从严校验）
+      if ('envProfileId' in safeAgent) {
+        if (safeAgent.envProfileId !== undefined) {
+          const profileId = assertString(safeAgent.envProfileId, 'agent.envProfileId', { maxLength: 128 })
+          if (!envProfileRepository.get(profileId)) {
+            return { success: false, error: 'Env profile not found' }
+          }
+          updatedAgent.envProfileId = profileId
+        }
+      } else {
+        // payload 不带键时沿用仓库现状（外部调用方可能只改名字）
+        const existing = agentRepository.get(updatedAgent.id)
+        if (existing?.envProfileId !== undefined) updatedAgent.envProfileId = existing.envProfileId
+      }
       const success = agentRepository.update(updatedAgent)
       return { success }
     } catch (error) {
@@ -1818,9 +1855,11 @@ export function registerIPCHandlers(): void {
       const agent = agentRepository.get(safeAgentId)
       if (!agent) return { success: false, error: 'Agent not found' }
 
+      // env 解析链（与 harness 的 resolveWorkspaceEnv 同构，命中即用不合并）：
+      // 绑定的变量组 → 内联 env（legacy）→ undefined（系统环境变量）
       return await spawnLocalCommandSession(agent.name, agent.command, [`agent:${safeAgentId}`], {
         cwd: agent.cwd,
-        env: agent.env
+        env: resolveAgentLaunchEnv(agent, envProfileRepository)
       })
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
@@ -1923,11 +1962,16 @@ export function registerIPCHandlers(): void {
     // 每个工作区 = 名称 + 工作目录，单击在对应目录启动对应 CLI（参照 agent:launch 的 cwd 语义）。
 
     // ========== <kind> 环境变量组 ==========
-    // 与工作区平级的一等配置：具名 KEY=value 组，同一时刻至多启用一条（单选，可全关）。
+    // 与工作区平级的一等配置：具名 KEY=value 组，存全局一份库（三个 kind + 通用 Agent 共用）；
+    // 每个 kind 一根「启用」指针（同一时刻至多一根，可全关）。
     // 启动时的解析链见 harness/config.ts 的 resolveWorkspaceEnv。
 
+    // 返回全局变量组列表 + 该 kind 的启用指针（per-kind 视角；列表本身三份相同）
     ipcMain.handle(`${kind}:env:list`, async () => {
-      return runtime.envRepository.getAll()
+      return {
+        profiles: runtime.envRepository.getAll(),
+        activeProfileId: runtime.envRepository.getActiveProfileId(kind) ?? null
+      }
     })
 
     /** 校验并归一化变量组的 env：先过通用记录校验，再过 kind 专属规则（dsh 的 DSH_HOME 须绝对路径）。 */
@@ -1993,7 +2037,7 @@ export function registerIPCHandlers(): void {
         // 模型选项：整条替换，payload 缺席/空数组/清洗后为空即清空（与 note 的清空语义一致）
         const updatedModels = safe.models !== undefined ? assertProfileModels(safe.models) : undefined
         if (updatedModels !== undefined) updated.models = updatedModels
-        // active 不从这里改（仓库层 update 也会保留现状）—— 启用态只经 setActive
+        // 启用态不在记录上（每 kind 一根指针），只能经 <kind>:env:setActive 改
         const success = runtime.envRepository.update(updated)
         return success ? { success: true } : { success: false, error: 'Env profile not found' }
       } catch (error) {
@@ -2011,11 +2055,11 @@ export function registerIPCHandlers(): void {
       }
     })
 
-    // 单选启用：传 id 启用该条并清其余，传 null 全部停用（回落系统环境变量）
+    // 单选启用该 kind 的指针：传 id 启用该组（替换原指针），传 null 停用（回落系统环境变量）
     ipcMain.handle(`${kind}:env:setActive`, async (_event, profileId: unknown) => {
       try {
         const safeId = profileId === null ? null : assertString(profileId, 'profileId', { maxLength: 128 })
-        const success = runtime.envRepository.setActive(safeId)
+        const success = runtime.envRepository.setActiveProfile(kind, safeId)
         return success ? { success: true } : { success: false, error: 'Env profile not found' }
       } catch (error) {
         return validationFailure(error) || { success: false, error: (error as Error).message }
@@ -2294,7 +2338,7 @@ export function registerIPCHandlers(): void {
         envSource = resolveWorkspaceEnv(dshRuntime, workspace)
       } else {
         // 无工作区可绑：env 走「已启用组 → 系统」
-        envSource = dshRuntime.envRepository.getActive()?.env
+        envSource = dshRuntime.envRepository.getActiveProfile('dsh')?.env
         if (rawCwd !== undefined) {
           const cwd = resolveWorkspaceCwd(rawCwd)
           if (!cwd.ok) return { success: false, error: cwd.error }

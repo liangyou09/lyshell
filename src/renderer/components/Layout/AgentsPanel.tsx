@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { generateWorktreeStamp } from '@shared/worktree'
+import EnvRowsEditor from '../EnvRowsEditor'
 // 内置品牌图标:Vite new URL 模式取打包后资产 URL(免 *.png 模块声明)
 const claudeIcon = new URL('../../assets/agent-icons/claude.png', import.meta.url).href
 const codexIcon = new URL('../../assets/agent-icons/codex.png', import.meta.url).href
@@ -31,6 +32,7 @@ interface AgentConfig {
   icon?: string
   cwd?: string
   env?: Record<string, string>
+  envProfileId?: string
   order: number
 }
 
@@ -140,6 +142,10 @@ const AgentsPanel: React.FC = () => {
   const [agentCwd, setAgentCwd] = useState('')
   // 环境变量:以行数组编辑,保存时折叠为 Record<string,string>(空 key 行丢弃)
   const [agentEnv, setAgentEnv] = useState<{ key: string; value: string }[]>([])
+  // 绑定的全局变量组 id(null = 不绑定,回落内联 env → 系统环境变量)
+  const [agentEnvProfileId, setAgentEnvProfileId] = useState<string | null>(null)
+  // 全局变量组列表(绑定下拉用;拉失败不阻断编辑 —— 下拉只有「不绑定」一项)
+  const [envProfiles, setEnvProfiles] = useState<{ id: string; name: string }[]>([])
   // 校验:首次提交前不报错;删除两步确认(复用 closeAll 的"再点一次"语义)
   const [triedSubmit, setTriedSubmit] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -155,7 +161,13 @@ const AgentsPanel: React.FC = () => {
       console.error('Failed to load agents:', err)
     }
   }
-  useEffect(() => { loadAgents() }, [])
+  useEffect(() => {
+    void loadAgents()
+    // 全局变量组与 agent 列表一并拉取(绑定下拉的数据源)
+    window.electronAPI?.listEnvProfiles().then((result) => {
+      if (Array.isArray(result)) setEnvProfiles(result as { id: string; name: string }[])
+    }).catch((err) => console.error('Failed to load env profiles:', err))
+  }, [])
 
   // 图标选择器浮层:外部点击关闭
   useEffect(() => {
@@ -198,7 +210,7 @@ const AgentsPanel: React.FC = () => {
   const handleAdd = () => {
     setEditAgent(undefined)
     setAgentName(''); setAgentCommand(''); setAgentIcon(''); setAgentCwd('')
-    setAgentEnv([])
+    setAgentEnv([]); setAgentEnvProfileId(null)
     setTriedSubmit(false); setConfirmDelete(false); setIconPickerOpen(false)
     setShowDialog(true)
   }
@@ -208,6 +220,7 @@ const AgentsPanel: React.FC = () => {
     setAgentName(agent.name); setAgentCommand(agent.command)
     setAgentIcon(agent.icon || ''); setAgentCwd(agent.cwd || '')
     setAgentEnv(agent.env ? Object.entries(agent.env).map(([key, value]) => ({ key, value })) : [])
+    setAgentEnvProfileId(agent.envProfileId ?? null)
     setTriedSubmit(false); setConfirmDelete(false); setIconPickerOpen(false)
     setShowDialog(true)
   }
@@ -226,6 +239,8 @@ const AgentsPanel: React.FC = () => {
       if (k) env[k] = row.value
     }
     const envPayload = Object.keys(env).length > 0 ? env : undefined
+    // 绑定的变量组:「键存在」语义 —— null 显式传 undefined 即取消绑定(主进程不会沿用旧值)
+    const envProfileIdPayload = agentEnvProfileId ?? undefined
     if (editAgent) {
       await window.electronAPI?.updateAgent({
         ...editAgent,
@@ -233,7 +248,8 @@ const AgentsPanel: React.FC = () => {
         command: agentCommand.trim(),
         icon: agentIcon || undefined,
         cwd: agentCwd || undefined,
-        env: envPayload
+        env: envPayload,
+        envProfileId: envProfileIdPayload
       })
     } else {
       await window.electronAPI?.addAgent({
@@ -242,6 +258,7 @@ const AgentsPanel: React.FC = () => {
         icon: agentIcon || undefined,
         cwd: agentCwd || undefined,
         env: envPayload,
+        envProfileId: envProfileIdPayload,
         order: agents.length
       })
     }
@@ -261,11 +278,15 @@ const AgentsPanel: React.FC = () => {
     }
   }
 
-  // 环境变量行编辑
-  const addEnvRow = () => setAgentEnv(prev => [...prev, { key: '', value: '' }])
-  const updateEnvRow = (i: number, field: 'key' | 'value', value: string) =>
-    setAgentEnv(prev => prev.map((row, idx) => (idx === i ? { ...row, [field]: value } : row)))
-  const removeEnvRow = (i: number) => setAgentEnv(prev => prev.filter((_, idx) => idx !== i))
+  // 环境变量行编辑：脱敏/明文切换逻辑在共享组件 EnvRowsEditor 内
+  const envRowsTexts = {
+    keyPh: t('agents.edit.envKeyPh'),
+    valuePh: t('agents.edit.envValuePh'),
+    addRow: t('agents.edit.envAdd'),
+    deleteTitle: t('sidebar.agentDelete'),
+    showValue: t('agents.edit.envShowValue'),
+    hideValue: t('agents.edit.envHideValue')
+  }
 
   // 工作目录:复用通用目录选择器(与下载设置同源),弹原生选择框;以当前填入路径为起始目录
   const handlePickCwd = async () => {
@@ -490,57 +511,34 @@ const AgentsPanel: React.FC = () => {
               </div>
             </div>
 
-            {/* ENVIRONMENT -- 后端早已支持 env(注入孵化终端),此前 UI 未暴露;此处补齐 key-value 行编辑器 */}
+            {/* ENV PROFILE -- 绑定全局变量组(优先于下方内联变量;与 Harness 工作区同一套绑定语义) */}
+            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+              <div className="flex items-baseline gap-2 mb-2">
+                <span className="text-[12px] font-mono tracking-[0.06em] text-[var(--amber)]">{t('agents.edit.envProfile')}</span>
+                <span className="text-[10.5px] text-[var(--text-rack-mute)]">· {t('agents.edit.envProfileHint')}</span>
+              </div>
+              <select
+                value={agentEnvProfileId ?? ''}
+                onChange={(e) => setAgentEnvProfileId(e.target.value || null)}
+                className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] text-[var(--text-rack)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)] appearance-none cursor-pointer"
+              >
+                <option value="">{t('agents.edit.envProfileNone')}</option>
+                {envProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* ENVIRONMENT -- 后端早已支持 env(注入孵化终端),此前 UI 未暴露;此处补齐 key-value 行编辑器(与 Harness 变量组共用组件,敏感值默认打码)。
+                绑定了变量组时提示「内联不生效」—— 解析链是绑定组 → 内联 → 系统(命中即用不合并) */}
             <div className="py-3.5 px-4 border-b border-[var(--rule)]">
               <div className="flex items-baseline gap-2 mb-2">
                 <span className="text-[12px] font-mono tracking-[0.06em] text-[var(--amber)]">{t('agents.edit.env')}</span>
-                <span className="text-[10.5px] text-[var(--text-rack-mute)]">· {t('agents.edit.envHint')}</span>
+                <span className="text-[10.5px] text-[var(--text-rack-mute)]">
+                  · {agentEnvProfileId ? t('agents.edit.envInlineBound') : t('agents.edit.envHint')}
+                </span>
               </div>
-              <div className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm overflow-hidden">
-                {agentEnv.length === 0 ? (
-                  <button
-                    onClick={addEnvRow}
-                    className="w-full text-left py-1.5 px-2.5 text-[11.5px] font-mono text-[var(--text-rack-data)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] transition-colors"
-                  >
-                    + {t('agents.edit.envAdd')}
-                  </button>
-                ) : (
-                  <>
-                    {agentEnv.map((row, i) => (
-                      <div key={i} className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0">
-                        <input
-                          type="text"
-                          value={row.key}
-                          onChange={(e) => updateEnvRow(i, 'key', e.target.value)}
-                          placeholder={t('agents.edit.envKeyPh')}
-                          className="flex-1 min-w-0 bg-transparent border-none text-[12px] font-mono text-[var(--amber)] placeholder:text-[var(--text-rack-data)] focus:outline-none"
-                        />
-                        <span className="text-[var(--text-rack-mute)] font-mono text-[12px] select-none">=</span>
-                        <input
-                          type="text"
-                          value={row.value}
-                          onChange={(e) => updateEnvRow(i, 'value', e.target.value)}
-                          placeholder={t('agents.edit.envValuePh')}
-                          className="flex-[2] min-w-0 bg-transparent border-none text-[12px] font-mono text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] focus:outline-none"
-                        />
-                        <button
-                          onClick={() => removeEnvRow(i)}
-                          title={t('sidebar.agentDelete')}
-                          className="w-[18px] h-[18px] flex-shrink-0 inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] text-[var(--text-rack-faint)] hover:text-[var(--error-rack)] transition-colors"
-                        >
-                          <IconX />
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      onClick={addEnvRow}
-                      className="w-full text-left py-1.5 px-2.5 text-[11.5px] font-mono text-[var(--text-rack-data)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] transition-colors"
-                    >
-                      + {t('agents.edit.envAdd')}
-                    </button>
-                  </>
-                )}
-              </div>
+              <EnvRowsEditor value={agentEnv} onChange={setAgentEnv} texts={envRowsTexts} />
             </div>
 
             {/* PREVIEW -- 签名:实时渲染启动时真正执行的命令行(终端口吻,随输入更新) */}

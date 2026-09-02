@@ -2385,6 +2385,8 @@ async function handleListAgents(res: http.ServerResponse, binding: TokenBinding)
       icon: a.icon,
       cwd: a.cwd,
       order: a.order,
+      // 绑定的全局变量组 id（组内容不在此展开；env 内联值仍脱敏）
+      envProfileId: a.envProfileId,
       env: a.env ? redactSecretEnv(a.env) : undefined
     }))
     sendJson(res, 200, { success: true, data: agents })
