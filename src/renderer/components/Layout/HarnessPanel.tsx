@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next'
 import { HARNESS_AGENT_VIEWS, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
 import { BRANCH_PREFIX, generateWorktreeCode, generateWorktreeKey, generateWorktreeStamp, joinWorktreePath } from '@shared/worktree'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
-import PanelTabs from './PanelTabs'
 import { ensureDetected, getCachedDetect, redetectHarness } from './harness-detect'
 
 /**
@@ -16,6 +15,8 @@ import { ensureDetected, getCachedDetect, redetectHarness } from './harness-dete
  *
  * 缺失依赖时只提示 + 给出安装命令与仓库链接（不自动安装）。就绪后管理多个「工作区」：
  * 每个工作区 = 名称 + 工作目录，单击在对应目录内启动对应 CLI（参照 Agent 面板交互）。
+ * 环境变量的增删改与启用切换都在左侧「环境变量」面板；这里仅为工作区对话框的绑定
+ * 下拉与模型建议拉一份只读变量组列表 + 该 kind 的启用指针。
  * 样式沿用机柜令牌（--bg-base/--bg-slot/--rule/--amber/--text-rack*）与 12px 等宽基线。
  * Web 入口挂标题（仅 hasWeb 时可按，目前只有 dsh），落在 deepseek-harness 自己的默认工作区。
  */
@@ -29,8 +30,7 @@ const HARNESS_API = {
     update: (ws: unknown) => window.electronAPI.updateDshWorkspace(ws),
     delete: (id: string) => window.electronAPI.deleteDshWorkspace(id),
     launch: (id: string) => window.electronAPI.launchDshWorkspace(id),
-    envList: () => window.electronAPI.listDshEnvProfiles(),
-    envSetActive: (id: string | null) => window.electronAPI.setDshEnvProfileActive(id)
+    envList: () => window.electronAPI.listDshEnvProfiles()
   },
   codex: {
     detect: () => window.electronAPI.detectCodex(),
@@ -39,8 +39,7 @@ const HARNESS_API = {
     update: (ws: unknown) => window.electronAPI.updateCodexWorkspace(ws),
     delete: (id: string) => window.electronAPI.deleteCodexWorkspace(id),
     launch: (id: string) => window.electronAPI.launchCodexWorkspace(id),
-    envList: () => window.electronAPI.listCodexEnvProfiles(),
-    envSetActive: (id: string | null) => window.electronAPI.setCodexEnvProfileActive(id)
+    envList: () => window.electronAPI.listCodexEnvProfiles()
   },
   claude: {
     detect: () => window.electronAPI.detectClaude(),
@@ -49,8 +48,7 @@ const HARNESS_API = {
     update: (ws: unknown) => window.electronAPI.updateClaudeWorkspace(ws),
     delete: (id: string) => window.electronAPI.deleteClaudeWorkspace(id),
     launch: (id: string) => window.electronAPI.launchClaudeWorkspace(id),
-    envList: () => window.electronAPI.listClaudeEnvProfiles(),
-    envSetActive: (id: string | null) => window.electronAPI.setClaudeEnvProfileActive(id)
+    envList: () => window.electronAPI.listClaudeEnvProfiles()
   }
 } as const
 
@@ -115,18 +113,12 @@ const BusLed: React.FC<{ on: boolean }> = ({ on }) => (
   </>
 )
 
-/** 档位行外壳的通用配色：通电格用琥珀薄底，其余用常规机柜行 */
-const slotShell = (on: boolean): string =>
-  on
-    ? 'border-[color-mix(in_srgb,var(--amber)_28%,var(--rule))] bg-[color-mix(in_srgb,var(--amber)_7%,var(--bg-slot))]'
-    : 'border-[var(--rule)] bg-[var(--bg-rack)] hover:bg-[var(--bg-slot)]'
-
 /**
  * 新建条 —— 钉在页签条下方、列表上方的主动作。
  *
  * 位置：紧贴页签，不随列表长短漂移，也不被滚动带走 —— 它是这个页签的动作，不是列表的尾巴。
  * 分量：实线 + 内凹底色 + 半粗标签，比条目更重（它是动作，条目是数据）；只有 + 号用琥珀，
- * 因为琥珀在本面板里稀缺地表示"通电/启用"，整块染琥珀会和环境变量页签的"已启用"读混。
+ * 因为琥珀在本面板里稀缺地表示"通电/启用"，整块染琥珀会和列表里的绑定标记读混。
  * 名字直接用它要打开的对话框标题，点下去与看到的一致。
  */
 /** 新增条 —— 占据贴头行首槽的 44px 动作位(与 ActivityRail 页签槽位同高,轨上 36–80px):
@@ -162,8 +154,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   const [status, setStatus] = useState<Record<string, boolean> | null>(null)
   const [detecting, setDetecting] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
-  // 页签：工作区 / 环境变量（两者平级）
-  const [activeTab, setActiveTab] = useState<'workspaces' | 'env'>('workspaces')
   // 工作区列表与启动状态
   const [workspaces, setWorkspaces] = useState<HarnessWorkspace[]>([])
   const [launchingId, setLaunchingId] = useState<string | null>(null)
@@ -203,15 +193,14 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   // 列表行内删除的两步确认：记录待确认的工作区 id（null = 无待确认）
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
-  // ── 环境变量组（本页签只做启用切换；增删改在左侧「环境变量」面板，走全局通道） ──
+  // ── 环境变量组（管理入口已整体收编到左侧「环境变量」面板；这里仅为工作区
+  //    对话框的绑定下拉与模型建议拉一份只读列表 + 该 kind 的启用指针） ──
   const [envProfiles, setEnvProfiles] = useState<HarnessEnvProfile[]>([])
   // 该 kind 的启用指针（全局库列表 + per-kind activeProfileId 由 <kind>:env:list 一并下发）
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null)
   // 变量组列表是否已成功拉到 —— 空列表有两种含义（「一个都没有」与「还没拉到/拉失败」），
   // 只有前者才允许把工作区的悬空绑定判为悬空，见 handleEdit
   const [envProfilesLoaded, setEnvProfilesLoaded] = useState(false)
-  const [envActionError, setEnvActionError] = useState<string | null>(null)
-  const [switchingActive, setSwitchingActive] = useState(false)
 
   // 检测走应用级缓存(harness-detect):启动时已预热,这里只把缓存结果装进本组件状态。
   // runDetect 是「强制重检」—— 手动「重新检测」按钮与启动失败后的复核用,
@@ -539,28 +528,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     }
   }
 
-  /** 单选启用：传 id 启用该条，传 null 全部停用（回落系统环境变量） */
-  const applyActiveProfile = async (id: string | null) => {
-    if (switchingActive) return
-    setSwitchingActive(true)
-    setEnvActionError(null)
-    try {
-      const res = await api.envSetActive(id)
-      if (res && res.success === false) {
-        setEnvActionError(typeof res.error === 'string' ? res.error : t(`${prefix}.envActiveFailed`))
-      }
-    } catch (err) {
-      console.error(`${agent} env profile activation failed:`, err)
-      setEnvActionError(err instanceof Error ? err.message : t(`${prefix}.envActiveFailed`))
-    } finally {
-      setSwitchingActive(false)
-      // 无论成败都重新拉取，失败时回落到真实状态
-      await loadEnvProfiles()
-    }
-  }
-  // 点已通电的那格即停用 —— 系统那格随之点亮，构成一个可关的单选组
-  const toggleProfile = (p: HarnessEnvProfile) => applyActiveProfile(p.id === activeProfileId ? null : p.id)
-
   const missing: string[] = status ? deps.filter((d) => !status[d]) : []
   // 标题按钮：有 Web UI 的 kind（dsh）总是可点 —— 直接开 Web，落在 deepseek-harness 自己的
   // 默认工作区（$DSH_HOME/web），与 TUI 工作区解耦。
@@ -631,9 +598,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
             <span className="truncate">{t(`${prefix}.title`)}</span>
           </span>
         )}
-        {/* h-full:簇满高,内嵌 PanelTabs 的 h-full 才有参照,否则按钮退化成内容高度、
-            amber 下划线贴到字底(中间层断链,同 FileManager 那次) */}
-        <div className="flex items-center gap-1.5 flex-shrink-0 h-full">
+        <div className="flex items-center gap-1.5 flex-shrink-0">
           {/* 依赖齐全时无需重新检测（隐藏）；检测中/缺依赖时保留 */}
           {!launchReady && (
             <button
@@ -644,24 +609,12 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
               {detecting ? t(`${prefix}.detecting`) : t(`${prefix}.redetect`)}
             </button>
           )}
-          {/* 页签嵌进铭牌行右端(同 FileManager 标题条挂法):amber 下划线咬住第一行
-              发丝线,与窗口顶排终端页签的激活下边线同处一条横带,整窗横线贯穿 */}
-          {listReady && (
-            <PanelTabs
-              tabs={[
-                { key: 'workspaces' as const, label: <>{t(`${prefix}.tabWorkspaces`)}<span className="ml-1.5 tabular-nums text-[var(--text-rack-dim)]">{workspaces.length}</span></> },
-                { key: 'env' as const, label: <>{t(`${prefix}.tabEnv`)}<span className="ml-1.5 tabular-nums text-[var(--text-rack-dim)]">{envProfiles.length}</span></> }
-              ]}
-              active={activeTab}
-              onChange={setActiveTab}
-            />
-          )}
         </div>
       </div>
 
-      {/* 新增条外提出笼、满幅贴头行 —— 它是页签的固定动作，位置不随临时横幅/列表滚动挪动，
+      {/* 新增条外提出笼、满幅贴头行 —— 面板的固定动作，位置不随临时横幅/列表滚动挪动，
           上下边缘与左侧轨上第一个页签槽位持平（44px） */}
-      {listReady && activeTab === 'workspaces' && <AddBar label={t(`${prefix}.wsAddTitle`)} onClick={handleAdd} />}
+      {listReady && <AddBar label={t(`${prefix}.wsAddTitle`)} onClick={handleAdd} />}
 
       {/* 内容笼：p-3 + space-y-2 自根容器下移到这层，头条得以满幅贴顶（与 SessionsPanel 同构）。
           顶部只留 pt-1.5：就绪态上方有新增条分割线，内容贴近分割线起排，不再隔一整段 p-3 */}
@@ -773,8 +726,8 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
         </>
       )}
 
-      {/* 工作区页签 */}
-      {listReady && activeTab === 'workspaces' && (
+      {/* 工作区列表（环境变量的管理/启用入口已收编到左侧「环境变量」面板） */}
+      {listReady && (
         <>
           {/* 其余依赖未装：启动禁用（dsh 仅装了 dsh 缺 dsh-tui 时出现） */}
           {!launchReady && (
@@ -894,81 +847,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                         <IconX />
                       </button>
                     </div>
-                  </div>
-                )
-              })
-            )}
-          </div>
-        </>
-      )}
-
-      {/* 环境变量页签 —— N+1 单选组（母线）：系统档位常驻列首，恒有且仅有一格通电 */}
-      {listReady && activeTab === 'env' && (
-        <>
-          {envActionError && (
-            <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words">{envActionError}</div>
-          )}
-
-          <div role="radiogroup" aria-label={t(`${prefix}.tabEnv`)} className="flex-1 overflow-y-auto min-h-0 space-y-1 rack-scroll">
-            {/* 系统档位：不是「无选择」，而是与各变量组平级的一格。全部停用时它通电。 */}
-            <div
-              role="radio"
-              aria-checked={!activeProfile}
-              tabIndex={0}
-              onClick={() => void applyActiveProfile(null)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void applyActiveProfile(null) } }}
-              title={activeProfile ? t(`${prefix}.envUseSystem`) : undefined}
-              className={cn(
-                'relative overflow-hidden flex items-center gap-2.5 px-2 py-1.5 rounded-[2px] cursor-pointer border transition-colors focus:outline-none focus-visible:border-[var(--amber)]',
-                slotShell(!activeProfile),
-                switchingActive && 'opacity-60 cursor-wait'
-              )}
-            >
-              <BusLed on={!activeProfile} />
-              <span className="flex flex-col min-w-0 flex-1">
-                <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">
-                  {t(`${prefix}.envSystem`)}
-                </span>
-                <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] truncate leading-tight">
-                  {t(`${prefix}.envSystemHint`)}
-                </span>
-              </span>
-            </div>
-
-            {envProfiles.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-2 px-4 pt-8 text-center">
-                <span className="font-mono text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
-                <span className="text-[11.5px] [font-family:inherit] text-[var(--text-rack-mute)]">{t(`${prefix}.envEmpty`)}</span>
-                <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">{t(`${prefix}.envEmptyHint`)}</span>
-              </div>
-            ) : (
-              envProfiles.map((p) => {
-                const on = p.id === activeProfileId
-                return (
-                  <div
-                    key={p.id}
-                    role="radio"
-                    aria-checked={on}
-                    tabIndex={0}
-                    onClick={() => void toggleProfile(p)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void toggleProfile(p) } }}
-                    title={on ? t(`${prefix}.envDisable`) : t(`${prefix}.envEnable`)}
-                    className={cn(
-                      'group relative overflow-hidden flex items-center gap-2.5 px-2 py-1.5 rounded-[2px] cursor-pointer border transition-colors focus:outline-none focus-visible:border-[var(--amber)]',
-                      slotShell(on),
-                      switchingActive && 'opacity-60 cursor-wait'
-                    )}
-                  >
-                    <BusLed on={on} />
-                    <span className="flex flex-col min-w-0 flex-1">
-                      <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">
-                        {p.name}
-                      </span>
-                      <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">
-                        {t(`${prefix}.envVars`, { count: Object.keys(p.env).length })}
-                        {p.note && <span className="text-[var(--text-rack-mute)]"> · {p.note}</span>}
-                      </span>
-                    </span>
                   </div>
                 )
               })

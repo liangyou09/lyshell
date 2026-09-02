@@ -86,12 +86,17 @@ const IconCodex: React.FC = () => <BrandMaskIcon src={codexIcon} />
 /** claude = Anthropic 太阳花(官方内置品牌标,mask 取 alpha 剪影、随主题着色) */
 const IconClaude: React.FC = () => <BrandMaskIcon src={claudeIcon} />
 
-/** 变量组 = 终端提示符 $ —— 环境变量的宿主语汇(KEY=value 之于 shell)。
+/** 变量组 = 花括号里的等号 —— shell 的 ${VAR} 插值语汇,KEY=value 的容器。
+ *  (竖线穿 S 弧的旧形读作美元符,与「环境变量」的本意拧了,弃。)
  *  曲线形态,round cap/join(与齿轮同例外,曲线用 square 会断),其余对齐轨上图标。 */
 const IconEnv: React.FC = () => (
   <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M10 3 v14" />
-    <path d="M14 6.2 H7.9 a2.9 2.9 0 1 0 0 5.8 h4.2 a2.9 2.9 0 1 1 0 5.8 H5.9" />
+    {/* 左花括号:上钩 → 左沿 → 中点尖角朝外 → 左沿 → 下钩 */}
+    <path d="M8.4 3.4 C7 3.4 6.4 4.2 6.4 5.6 V8.2 C6.4 9.4 5.8 9.8 4.6 10 C5.8 10.2 6.4 10.6 6.4 11.8 V14.4 C6.4 15.8 7 16.6 8.4 16.6" />
+    {/* 右花括号(镜像) */}
+    <path d="M11.6 3.4 C13 3.4 13.6 4.2 13.6 5.6 V8.2 C13.6 9.4 14.2 9.8 15.4 10 C14.2 10.2 13.6 10.6 13.6 11.8 V14.4 C13.6 15.8 13 16.6 11.6 16.6" />
+    {/* 中间 = 号:KEY=value */}
+    <path d="M8.6 9.2 h2.8 M8.6 10.8 h2.8" />
   </svg>
 )
 
