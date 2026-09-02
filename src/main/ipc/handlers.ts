@@ -1775,7 +1775,7 @@ export function registerIPCHandlers(): void {
   })
 
   // 全局变量组库面板视角:组 + 每 kind 启用指针 + 引用方(按名字列出,供引用计数与删除警示)。
-  // harness 面板的 per-kind 视角走 <kind>:env:list;AgentsPanel 的绑定下拉也走这条(只读 profiles)
+  // AgentsPanel 的绑定下拉只读这里的 profiles 部分;harness 面板的 per-kind 视角走 <kind>:env:list
   ipcMain.handle('env-profile:list', async (): Promise<EnvProfileLibraryResult> => {
     const profiles = envProfileRepository.getAll()
     const activeByKind: Partial<Record<HarnessAgentKind, string>> = {}
@@ -1822,8 +1822,8 @@ export function registerIPCHandlers(): void {
     return cleaned.length > 0 ? cleaned : undefined
   }
 
-  // 全局变量组 CRUD(kind 无关) —— 左列 ENV 面板的管理入口;harness 面板的 env 页签只保留
-  // 启用切换(读 <kind>:env:list / 写 <kind>:env:setActive),不再各带一份增删改
+  // 全局变量组 CRUD(kind 无关) —— 左列 ENV 面板是唯一管理入口;harness 面板不再有 env
+  // 页签,工作区对话框的绑定下拉/模型建议走下方 <kind>:env:list(per-kind 读视图)
   ipcMain.handle('env-profile:add', async (_event, profile) => {
     try {
       const safe = assertObject(profile, 'profile')
