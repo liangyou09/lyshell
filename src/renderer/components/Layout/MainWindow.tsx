@@ -12,6 +12,7 @@ import { startAllHarnessDetects } from './harness-detect'
 import PluginPanel from './PluginPanel'
 import WebPanel from './WebPanel'
 import HarnessPanel from './HarnessPanel'
+import EnvProfilePanel from './EnvProfilePanel'
 import SettingsPanel from './SettingsPanel'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore, findPane } from '../../stores/pane-store'
@@ -42,7 +43,7 @@ const MainWindow: React.FC = () => {
   const [activeNav, setActiveNav] = useState<NavTab>(() => {
     try {
       const saved = localStorage.getItem('lyshell.navTab.v1')
-      if (saved === 'sessions' || saved === 'agents' || saved === 'dsh' || saved === 'codex' || saved === 'claude' || saved === 'plugins' || saved === 'web' || saved === 'settings') {
+      if (saved === 'sessions' || saved === 'agents' || saved === 'dsh' || saved === 'codex' || saved === 'claude' || saved === 'env' || saved === 'plugins' || saved === 'web' || saved === 'settings') {
         return saved
       }
     } catch { /* localStorage 不可用,回退默认 */ }
@@ -283,7 +284,7 @@ const MainWindow: React.FC = () => {
   }
   const endSidebarResize = () => setIsResizingSidebar(false)
 
-  // Alt+1..8 切换左列页签(实现 footer 既有 "alt + 1…8" 提示;capture 抢在 xterm 前)
+  // Alt+1..9 切换左列页签(实现 footer 既有 "alt + 1…n" 提示;capture 抢在 xterm 前)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!e.altKey) return
@@ -296,9 +297,10 @@ const MainWindow: React.FC = () => {
       else if (e.key === '3') tab = 'dsh'
       else if (e.key === '4') tab = 'codex'
       else if (e.key === '5') tab = 'claude'
-      else if (e.key === '6') tab = 'plugins'
-      else if (e.key === '7') tab = 'web'
-      else if (e.key === '8') tab = 'settings'
+      else if (e.key === '6') tab = 'env'
+      else if (e.key === '7') tab = 'plugins'
+      else if (e.key === '8') tab = 'web'
+      else if (e.key === '9') tab = 'settings'
       if (!tab) return
       e.preventDefault()
       e.stopPropagation()
@@ -570,6 +572,7 @@ const MainWindow: React.FC = () => {
             {activeNav === 'dsh' && <HarnessPanel agent="dsh" onOpenWeb={handleOpenWeb} />}
             {activeNav === 'codex' && <HarnessPanel agent="codex" />}
             {activeNav === 'claude' && <HarnessPanel agent="claude" />}
+            {activeNav === 'env' && <EnvProfilePanel />}
             {activeNav === 'plugins' && <PluginPanel />}
             {activeNav === 'web' && <WebPanel />}
             {activeNav === 'settings' && <SettingsPanel />}

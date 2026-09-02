@@ -16,10 +16,12 @@ import { TOPBAR_HEIGHT } from './topbar-metrics'
  * 两个形态 -- 开关永远停在窗口左上角,展开时是本槽,收起时是 pill,150ms 交叉淡变。
  * 槽高读 TOPBAR_HEIGHT,与终端第一行页签条齐平。
  */
-export type NavTab = 'sessions' | 'agents' | 'dsh' | 'codex' | 'claude' | 'plugins' | 'web' | 'settings'
+export type NavTab = 'sessions' | 'agents' | 'dsh' | 'codex' | 'claude' | 'env' | 'plugins' | 'web' | 'settings'
 
-// 内容页签(上组):会话 / Agent / DeepSeek Harness / Codex / Claude / 插件 / 网页。settings 是轨底独立工具槽,不在此列。
-const ALL_TABS: NavTab[] = ['sessions', 'agents', 'dsh', 'codex', 'claude', 'plugins', 'web']
+// 内容页签(上组):会话 / Agent / DeepSeek Harness / Codex / Claude / 变量组 / 插件 / 网页。
+// env 是三个 harness 与通用 Agent 共享的全局变量组库,排在启动面(sessions..claude)之后、
+// 资源组(plugins/web)之首。settings 是轨底独立工具槽,不在此列。
+const ALL_TABS: NavTab[] = ['sessions', 'agents', 'dsh', 'codex', 'claude', 'env', 'plugins', 'web']
 const TABS: NavTab[] = ALL_TABS
 
 /** 轨宽(px) -- 单一真相源:本组件容器宽与 MainWindow 宽度拖拽算式共用,防两处漂移 */
@@ -84,6 +86,15 @@ const IconCodex: React.FC = () => <BrandMaskIcon src={codexIcon} />
 /** claude = Anthropic 太阳花(官方内置品牌标,mask 取 alpha 剪影、随主题着色) */
 const IconClaude: React.FC = () => <BrandMaskIcon src={claudeIcon} />
 
+/** 变量组 = 终端提示符 $ —— 环境变量的宿主语汇(KEY=value 之于 shell)。
+ *  曲线形态,round cap/join(与齿轮同例外,曲线用 square 会断),其余对齐轨上图标。 */
+const IconEnv: React.FC = () => (
+  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10 3 v14" />
+    <path d="M14 6.2 H7.9 a2.9 2.9 0 1 0 0 5.8 h4.2 a2.9 2.9 0 1 1 0 5.8 H5.9" />
+  </svg>
+)
+
 /** 插件 = 拼图块(通用约定,识别度优先于主题化) */
 const IconPlugins: React.FC = () => (
   <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" strokeLinejoin="miter">
@@ -125,6 +136,7 @@ const TAB_ICON: Record<NavTab, React.FC> = {
   dsh: DeepSeekWhaleIcon,
   codex: IconCodex,
   claude: IconClaude,
+  env: IconEnv,
   plugins: IconPlugins,
   web: IconWeb,
   settings: IconSettings,
@@ -158,9 +170,10 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
         : tab === 'dsh' ? t('nav.dsh')
           : tab === 'codex' ? t('nav.codex')
             : tab === 'claude' ? t('nav.claude')
-              : tab === 'plugins' ? t('nav.plugins')
-                : tab === 'web' ? t('nav.web')
-                  : t('nav.settings')
+              : tab === 'env' ? t('nav.env')
+                : tab === 'plugins' ? t('nav.plugins')
+                  : tab === 'web' ? t('nav.web')
+                    : t('nav.settings')
 
   /** sessions 槽位:有在线会话时亮 live LED;其余槽位无徽章 */
   const ledFor = (tab: NavTab): string | undefined =>

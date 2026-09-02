@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
-import { HARNESS_AGENT_VIEWS, type HarnessAgentKind, type HarnessEnvDefault, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
+import { HARNESS_AGENT_VIEWS, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
 import { BRANCH_PREFIX, generateWorktreeCode, generateWorktreeKey, generateWorktreeStamp, joinWorktreePath } from '@shared/worktree'
-import EnvRowsEditor from '../EnvRowsEditor'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import PanelTabs from './PanelTabs'
 import { ensureDetected, getCachedDetect, redetectHarness } from './harness-detect'
@@ -31,11 +30,7 @@ const HARNESS_API = {
     delete: (id: string) => window.electronAPI.deleteDshWorkspace(id),
     launch: (id: string) => window.electronAPI.launchDshWorkspace(id),
     envList: () => window.electronAPI.listDshEnvProfiles(),
-    envAdd: (p: unknown) => window.electronAPI.addDshEnvProfile(p),
-    envUpdate: (p: unknown) => window.electronAPI.updateDshEnvProfile(p),
-    envDelete: (id: string) => window.electronAPI.deleteDshEnvProfile(id),
-    envSetActive: (id: string | null) => window.electronAPI.setDshEnvProfileActive(id),
-    envDefaults: () => window.electronAPI.getDshEnvDefaults()
+    envSetActive: (id: string | null) => window.electronAPI.setDshEnvProfileActive(id)
   },
   codex: {
     detect: () => window.electronAPI.detectCodex(),
@@ -45,11 +40,7 @@ const HARNESS_API = {
     delete: (id: string) => window.electronAPI.deleteCodexWorkspace(id),
     launch: (id: string) => window.electronAPI.launchCodexWorkspace(id),
     envList: () => window.electronAPI.listCodexEnvProfiles(),
-    envAdd: (p: unknown) => window.electronAPI.addCodexEnvProfile(p),
-    envUpdate: (p: unknown) => window.electronAPI.updateCodexEnvProfile(p),
-    envDelete: (id: string) => window.electronAPI.deleteCodexEnvProfile(id),
-    envSetActive: (id: string | null) => window.electronAPI.setCodexEnvProfileActive(id),
-    envDefaults: () => window.electronAPI.getCodexEnvDefaults()
+    envSetActive: (id: string | null) => window.electronAPI.setCodexEnvProfileActive(id)
   },
   claude: {
     detect: () => window.electronAPI.detectClaude(),
@@ -59,11 +50,7 @@ const HARNESS_API = {
     delete: (id: string) => window.electronAPI.deleteClaudeWorkspace(id),
     launch: (id: string) => window.electronAPI.launchClaudeWorkspace(id),
     envList: () => window.electronAPI.listClaudeEnvProfiles(),
-    envAdd: (p: unknown) => window.electronAPI.addClaudeEnvProfile(p),
-    envUpdate: (p: unknown) => window.electronAPI.updateClaudeEnvProfile(p),
-    envDelete: (id: string) => window.electronAPI.deleteClaudeEnvProfile(id),
-    envSetActive: (id: string | null) => window.electronAPI.setClaudeEnvProfileActive(id),
-    envDefaults: () => window.electronAPI.getClaudeEnvDefaults()
+    envSetActive: (id: string | null) => window.electronAPI.setClaudeEnvProfileActive(id)
   }
 } as const
 
@@ -216,7 +203,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   // 列表行内删除的两步确认：记录待确认的工作区 id（null = 无待确认）
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
-  // ── 环境变量组 ──
+  // ── 环境变量组（本页签只做启用切换；增删改在左侧「环境变量」面板，走全局通道） ──
   const [envProfiles, setEnvProfiles] = useState<HarnessEnvProfile[]>([])
   // 该 kind 的启用指针（全局库列表 + per-kind activeProfileId 由 <kind>:env:list 一并下发）
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null)
@@ -225,17 +212,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   const [envProfilesLoaded, setEnvProfilesLoaded] = useState(false)
   const [envActionError, setEnvActionError] = useState<string | null>(null)
   const [switchingActive, setSwitchingActive] = useState(false)
-  const [envDeleteConfirmId, setEnvDeleteConfirmId] = useState<string | null>(null)
-  // 变量组新增/编辑对话框
-  const [showEnvDialog, setShowEnvDialog] = useState(false)
-  const [editProfile, setEditProfile] = useState<HarnessEnvProfile | undefined>(undefined)
-  const [profileName, setProfileName] = useState('')
-  const [profileNote, setProfileNote] = useState('')
-  const [profileEnv, setProfileEnv] = useState<{ key: string; value: string }[]>([])
-  const [profileModels, setProfileModels] = useState<string[]>([])
-  const [triedEnvSubmit, setTriedEnvSubmit] = useState(false)
-  const [envConfirmDelete, setEnvConfirmDelete] = useState(false)
-  const [envSaveError, setEnvSaveError] = useState<string | null>(null)
 
   // 检测走应用级缓存(harness-detect):启动时已预热,这里只把缓存结果装进本组件状态。
   // runDetect 是「强制重检」—— 手动「重新检测」按钮与启动失败后的复核用,
@@ -274,18 +250,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     }
   }, [api, agent])
 
-  // 变量组「补全默认」—— CODEX_HOME 等要主进程按系统环境/默认路径解析，静态值仅作初始兜底
-  const [envDefaults, setEnvDefaults] = useState<HarnessEnvDefault[]>(view.envDefaults)
-  const loadEnvDefaults = useCallback(async () => {
-    try {
-      const result = await api.envDefaults()
-      if (Array.isArray(result)) setEnvDefaults(result as HarnessEnvDefault[])
-    } catch (err) {
-      // 拉失败保留静态兜底（HARNESS_AGENT_VIEWS.envDefaults），不影响补全可用
-      console.error(`Failed to load ${agent} env defaults:`, err)
-    }
-  }, [api, agent])
-
   // 挂载:检测结果读应用级缓存(启动时已预热,切页签回来不再打检测 IPC;
   // 预热漏掉/失败时 ensureDetected 兜底发起一次)。工作区与变量组列表仍按需拉取
   // (工作区对话框要用变量组渲染选择器,故两者同时拉)
@@ -304,11 +268,10 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     }
     void loadWorkspaces()
     void loadEnvProfiles()
-    void loadEnvDefaults()
     return () => {
       active = false
     }
-  }, [agent, loadWorkspaces, loadEnvProfiles, loadEnvDefaults])
+  }, [agent, loadWorkspaces, loadEnvProfiles])
 
   const copy = async (text: string, key: string) => {
     try {
@@ -402,22 +365,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     }, 300)
     return () => { cancelled = true; clearTimeout(timer) }
   }, [showDialog, wsIsolation, wsCwd])
-
-  // 变量组对话框同上（两个对话框互斥，各自监听自己的开关）
-  useEffect(() => {
-    if (!showEnvDialog) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.stopPropagation()
-      if (envConfirmDelete) {
-        setEnvConfirmDelete(false)
-        return
-      }
-      setShowEnvDialog(false)
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [showEnvDialog, envConfirmDelete])
 
   // ── 对话框 ──
   // 名称统一入口：自动模式下 key 的名称段跟随重派生（时间戳稳定）。手输与「选目录自动填名」
@@ -564,36 +511,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     }
   }
 
-  // ── 变量组：环境变量行编辑（脱敏/明文切换逻辑在共享组件 EnvRowsEditor 内） ──
-  const envRowsTexts = {
-    keyPh: t(`${prefix}.wsEnvKeyPh`),
-    valuePh: t(`${prefix}.wsEnvValuePh`),
-    addRow: t(`${prefix}.wsEnvAdd`),
-    deleteTitle: t(`${prefix}.wsDelete`),
-    showValue: t(`${prefix}.envShowValue`),
-    hideValue: t(`${prefix}.envHideValue`)
-  }
-  const resetTriedEnvSubmit = () => { if (triedEnvSubmit) setTriedEnvSubmit(false) }
-  // ── 变量组：模型选项行编辑（单列，供工作区模型建议） ──
-  const addModelRow = () => setProfileModels((prev) => [...prev, ''])
-  const updateModelRow = (i: number, value: string) =>
-    setProfileModels((prev) => prev.map((m, idx) => (idx === i ? value : m)))
-  const removeModelRow = (i: number) => setProfileModels((prev) => prev.filter((_, idx) => idx !== i))
-  // 当前 env 行里尚缺的默认变量（按 key 名精确匹配）
-  const missingEnv = envDefaults.filter(
-    (d) => !profileEnv.some((row) => row.key.trim() === d.key)
-  )
-  // 一键补全缺失的默认变量（保留已有行，仅追加缺失项）
-  const fillEnv = () => {
-    setProfileEnv((prev) => [
-      ...prev,
-      ...envDefaults
-        .filter((d) => !prev.some((row) => row.key.trim() === d.key))
-        .map((d) => ({ key: d.key, value: d.value }))
-    ])
-  }
-
-  // ── 变量组：对话框与单选启用 ──
+  // ── 变量组：单选启用（增删改在左侧「环境变量」面板，本页签只拨指针） ──
   const activeProfile = envProfiles.find((p) => p.id === activeProfileId)
   // 工作区表单实际生效的变量组（显式绑定 → 已启用组，与主进程 resolveWorkspaceEnv 同一条链）；
   // 其模型选项排在内置建议之前，供工作区「模型」输入框的 datalist
@@ -618,79 +536,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     } else if (wsModelAuto) {
       setWsModel('')
       setWsModelAuto(false)
-    }
-  }
-
-  const handleAddProfile = () => {
-    setEditProfile(undefined)
-    setProfileName(''); setProfileNote('')
-    // 新建即预填该 kind 的默认变量（API key 等），省掉「先加行再想 key 叫什么」这一步
-    setProfileEnv(envDefaults.map((d) => ({ key: d.key, value: d.value })))
-    setProfileModels([])
-    setTriedEnvSubmit(false); setEnvConfirmDelete(false); setEnvSaveError(null)
-    setShowEnvDialog(true)
-  }
-  const handleEditProfile = (p: HarnessEnvProfile) => {
-    setEditProfile(p)
-    setProfileName(p.name); setProfileNote(p.note || '')
-    setProfileEnv(Object.entries(p.env).map(([key, value]) => ({ key, value })))
-    setProfileModels(p.models ? [...p.models] : [])
-    setTriedEnvSubmit(false); setEnvConfirmDelete(false); setEnvSaveError(null)
-    setShowEnvDialog(true)
-  }
-  /**
-   * 复制变量组：以既有配置预填「新增」对话框（名称加后缀便于区分），保存才落盘，取消无副作用。
-   * 走新增链路即不携带 active —— 副本默认停用，不会抢走源组的「启用」档位。
-   */
-  const handleDuplicateProfile = (p: HarnessEnvProfile) => {
-    setEditProfile(undefined)
-    setProfileName(`${p.name}${t(`${prefix}.copySuffix`)}`)
-    setProfileNote(p.note || '')
-    setProfileEnv(Object.entries(p.env).map(([key, value]) => ({ key, value })))
-    setProfileModels(p.models ? [...p.models] : [])
-    setTriedEnvSubmit(false); setEnvConfirmDelete(false); setEnvSaveError(null)
-    setShowEnvDialog(true)
-  }
-
-  // 折叠 env 行：丢弃空 key；同名 key 后者覆盖
-  const collapseEnv = (rows: { key: string; value: string }[]): Record<string, string> => {
-    const env: Record<string, string> = {}
-    for (const row of rows) {
-      const k = row.key.trim()
-      if (k) env[k] = row.value
-    }
-    return env
-  }
-  const profilePayloadEnv = collapseEnv(profileEnv)
-  const profileValid = profileName.trim().length > 0 && Object.keys(profilePayloadEnv).length > 0
-
-  const handleSaveProfile = async () => {
-    if (!profileValid) { setTriedEnvSubmit(true); return }
-    setEnvSaveError(null)
-    const name = profileName.trim()
-    // note 传 undefined 即清空：主进程 `if (safe.note !== undefined)` 不写这个键，
-    // 记录整条替换后备注即消失（与工作区对话框同一套语义）；models 同理（空数组清空）
-    const note = profileNote.trim() || undefined
-    const models = [...new Set(profileModels.map((m) => m.trim()).filter((m) => m.length > 0))]
-    const modelsPayload = models.length > 0 ? models : undefined
-    const res = editProfile
-      ? await api.envUpdate({ ...editProfile, name, note, env: profilePayloadEnv, models: modelsPayload })
-      : await api.envAdd({ name, note, env: profilePayloadEnv, models: modelsPayload })
-    if (res && res.success === false) {
-      setEnvSaveError(typeof res.error === 'string' ? res.error : t(`${prefix}.envSaveFailed`))
-      return
-    }
-    await loadEnvProfiles()
-    setShowEnvDialog(false)
-  }
-
-  const handleDeleteProfile = async () => {
-    if (!envConfirmDelete) { setEnvConfirmDelete(true); return }
-    if (editProfile) {
-      await api.envDelete(editProfile.id)
-      // 变量组是工作区绑定的目标，删除后工作区会回落 —— 一并刷新列表让绑定标记消失
-      await Promise.all([loadEnvProfiles(), loadWorkspaces()])
-      setShowEnvDialog(false)
     }
   }
 
@@ -817,10 +662,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
       {/* 新增条外提出笼、满幅贴头行 —— 它是页签的固定动作，位置不随临时横幅/列表滚动挪动，
           上下边缘与左侧轨上第一个页签槽位持平（44px） */}
       {listReady && activeTab === 'workspaces' && <AddBar label={t(`${prefix}.wsAddTitle`)} onClick={handleAdd} />}
-      {listReady && activeTab === 'env' && (
-        /* 排在 radiogroup 之外、之上：它是动作不是档位，混进单选组会破坏「系统档位常驻列首」的读法 */
-        <AddBar label={t(`${prefix}.envAddTitle`)} onClick={handleAddProfile} />
-      )}
 
       {/* 内容笼：p-3 + space-y-2 自根容器下移到这层，头条得以满幅贴顶（与 SessionsPanel 同构）。
           顶部只留 pt-1.5：就绪态上方有新增条分割线，内容贴近分割线起排，不再隔一整段 p-3 */}
@@ -1111,8 +952,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                     tabIndex={0}
                     onClick={() => void toggleProfile(p)}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void toggleProfile(p) } }}
-                    onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); handleEditProfile(p) }}
-                    onMouseLeave={() => { if (envDeleteConfirmId === p.id) setEnvDeleteConfirmId(null) }}
                     title={on ? t(`${prefix}.envDisable`) : t(`${prefix}.envEnable`)}
                     className={cn(
                       'group relative overflow-hidden flex items-center gap-2.5 px-2 py-1.5 rounded-[2px] cursor-pointer border transition-colors focus:outline-none focus-visible:border-[var(--amber)]',
@@ -1130,44 +969,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                         {p.note && <span className="text-[var(--text-rack-mute)]"> · {p.note}</span>}
                       </span>
                     </span>
-                    <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-slot)] from-[24%] to-transparent">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDuplicateProfile(p) }}
-                        title={t(`${prefix}.copy`)}
-                        className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
-                      >
-                        <IconCopy />
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleEditProfile(p) }}
-                        title={t(`${prefix}.envEditTitle`)}
-                        className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
-                      >
-                        <IconEdit />
-                      </button>
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation()
-                          // 两步确认：首次点击切到确认态，再次点击才真正删除（与工作区一致）
-                          if (envDeleteConfirmId !== p.id) {
-                            setEnvDeleteConfirmId(p.id)
-                            return
-                          }
-                          setEnvDeleteConfirmId(null)
-                          await api.envDelete(p.id)
-                          await Promise.all([loadEnvProfiles(), loadWorkspaces()])
-                        }}
-                        title={envDeleteConfirmId === p.id ? t(`${prefix}.wsConfirmDelete`) : t(`${prefix}.wsDelete`)}
-                        className={cn(
-                          'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
-                          envDeleteConfirmId === p.id
-                            ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
-                            : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]'
-                        )}
-                      >
-                        <IconX />
-                      </button>
-                    </div>
                   </div>
                 )
               })
@@ -1471,178 +1272,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
         </div>
       )}
 
-      {/* 变量组新增/编辑对话框 —— 与工作区对话框同壳，只有名称 + 键值表两段 */}
-      {showEnvDialog && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm w-[448px] max-h-[88vh] overflow-y-auto rack-scroll shadow-xl">
-            <div className="flex items-center h-10 px-4 border-b border-[var(--rule)] gap-2.5">
-              <span
-                className="inline-block w-2 h-2 rounded-full flex-shrink-0"
-                style={{ background: 'var(--amber)', boxShadow: '0 0 5px var(--amber)' }}
-              />
-              <span className="text-[13px] [font-family:inherit] font-medium tracking-[0.04em] text-[var(--text-rack)]">
-                {editProfile ? t(`${prefix}.envEditTitle`) : t(`${prefix}.envAddTitle`)}
-              </span>
-              <span className="flex-1" />
-              <span className="text-[10.5px] [font-family:inherit] tracking-[0.08em] px-1.5 py-px rounded-sm bg-[var(--bg-base)] border border-[var(--rule)] text-[var(--text-rack-mute)]">
-                {agent.toUpperCase()}
-              </span>
-            </div>
-
-            {/* 名称 */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.envName`)}</span>
-              </div>
-              <input
-                type="text"
-                value={profileName}
-                onChange={(e) => { setProfileName(e.target.value); if (triedEnvSubmit) setTriedEnvSubmit(false) }}
-                placeholder={t(`${prefix}.envNamePh`)}
-                autoFocus
-                className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
-              />
-            </div>
-
-            {/* 备注（可选）—— 列表行里跟在「n 个变量」后面单行显示，故用 input 而非 textarea */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--text-rack)]">{t(`${prefix}.wsNote`)}</span>
-                <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t(`${prefix}.wsNoteHint`)}</span>
-              </div>
-              <input
-                type="text"
-                value={profileNote}
-                onChange={(e) => setProfileNote(e.target.value)}
-                placeholder={t(`${prefix}.wsNotePh`)}
-                className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
-              />
-            </div>
-
-            {/* 变量键值表 */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="mb-2">
-                {/* 标题 + fill 按钮一行；说明单独一行，避免长说明与按钮相互挤压 */}
-                <div className="flex items-center gap-2">
-                  <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsEnv`)}</span>
-                  <span className="flex-1" />
-                  {missingEnv.length > 0 && (
-                    <button
-                      onClick={fillEnv}
-                      title={missingEnv.map((d) => d.key).join(', ')}
-                      className="px-1.5 py-0.5 text-[10.5px] [font-family:inherit] rounded-[2px] border border-[color-mix(in_srgb,var(--amber)_40%,var(--rule))] text-[var(--amber)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] transition-colors whitespace-nowrap"
-                    >
-                      + {t(`${prefix}.wsEnvFill`)}
-                    </button>
-                  )}
-                </div>
-                <div className="mt-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t(`${prefix}.wsEnvHint`)}</div>
-              </div>
-              <EnvRowsEditor
-                value={profileEnv}
-                onChange={setProfileEnv}
-                texts={envRowsTexts}
-                onKeyChange={resetTriedEnvSubmit}
-              />
-            </div>
-
-            {/* 模型选项 —— 单列可增删，供工作区「模型」输入框的建议（生效组排在内置建议之前） */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="mb-2">
-                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.envModels`)}</span>
-                <div className="mt-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t(`${prefix}.envModelsHint`)}</div>
-              </div>
-              <div className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm overflow-hidden">
-                {profileModels.length === 0 ? (
-                  <button
-                    onClick={addModelRow}
-                    className="w-full text-left py-1.5 px-2.5 text-[11.5px] [font-family:inherit] text-[var(--text-rack-data)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] transition-colors"
-                  >
-                    + {t(`${prefix}.envModelsAdd`)}
-                  </button>
-                ) : (
-                  <>
-                    {profileModels.map((model, i) => (
-                      <div key={i} className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0">
-                        <input
-                          type="text"
-                          value={model}
-                          onChange={(e) => updateModelRow(i, e.target.value)}
-                          placeholder={t(`${prefix}.envModelsPh`)}
-                          className="flex-1 min-w-0 bg-transparent border-none text-[12px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] focus:outline-none"
-                        />
-                        <button
-                          onClick={() => removeModelRow(i)}
-                          title={t(`${prefix}.wsDelete`)}
-                          className="w-[18px] h-[18px] flex-shrink-0 inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] text-[var(--text-rack-faint)] hover:text-[var(--error-rack)] transition-colors"
-                        >
-                          <IconX />
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      onClick={addModelRow}
-                      className="w-full text-left py-1.5 px-2.5 text-[11.5px] [font-family:inherit] text-[var(--text-rack-data)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] transition-colors"
-                    >
-                      + {t(`${prefix}.envModelsAdd`)}
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* 校验提示（仅尝试提交后显示） */}
-            {triedEnvSubmit && !profileValid && (
-              <div className="px-4 py-2 text-[11px] [font-family:inherit] text-[var(--error-rack)] border-b border-[var(--rule)]">
-                {t(`${prefix}.envRequired`)}
-              </div>
-            )}
-
-            {/* 保存失败提示（校验未通过 / 落盘失败，保留表单） */}
-            {envSaveError && (
-              <div className="px-4 py-2 text-[11px] [font-family:inherit] text-[var(--error-rack)] border-b border-[var(--rule)] break-all">
-                {envSaveError}
-              </div>
-            )}
-
-            {/* footer：删除（两步确认）/ 取消 / 保存 */}
-            <div className="flex items-center justify-between px-4 py-3">
-              {editProfile ? (
-                <button
-                  onClick={() => void handleDeleteProfile()}
-                  className={
-                    envConfirmDelete
-                      ? 'px-2.5 py-1 text-[12px] [font-family:inherit] rounded-sm bg-[var(--error-rack)] text-[var(--bg-base)] font-medium transition-colors'
-                      : 'px-2.5 py-1 text-[12px] [font-family:inherit] text-[var(--error-rack)] hover:bg-[var(--bg-slot)] rounded-sm transition-colors'
-                  }
-                >
-                  {envConfirmDelete ? t(`${prefix}.wsConfirmDelete`) : t(`${prefix}.wsDelete`)}
-                </button>
-              ) : (
-                <span />
-              )}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setShowEnvDialog(false)}
-                  className="px-3 py-1 text-[13px] [font-family:inherit] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] transition-colors"
-                >
-                  {t(`${prefix}.wsCancel`)}
-                </button>
-                <button
-                  onClick={() => void handleSaveProfile()}
-                  className={`px-4 py-1 text-[13px] [font-family:inherit] rounded-sm font-medium transition-opacity ${
-                    profileValid
-                      ? 'bg-[var(--amber)] text-[var(--bg-base)] hover:opacity-90'
-                      : 'bg-[var(--bg-slot)] text-[var(--text-rack-dim)] opacity-70'
-                  }`}
-                >
-                  {t(`${prefix}.wsSave`)}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       </div>
     </div>
   )

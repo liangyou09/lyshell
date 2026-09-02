@@ -80,6 +80,21 @@ export interface HarnessEnvListResult {
   activeProfileId: string | null
 }
 
+/** 单个变量组的引用方（按名字列出，供全局面板的引用计数与删除警示） */
+export interface EnvProfileUsage {
+  /** 绑定该组的通用 Agent 名（AgentConfig.envProfileId） */
+  agents: string[]
+  /** 显式绑定该组的 harness 工作区（按 kind 分列） */
+  workspaces: Array<{ kind: HarnessAgentKind; name: string }>
+}
+
+/** env-profile:list 的返回形状 —— 全局库面板视角：组 + 每 kind 启用指针 + 引用方 */
+export interface EnvProfileLibraryResult {
+  profiles: HarnessEnvProfile[]
+  activeByKind: Partial<Record<HarnessAgentKind, string>>
+  usage: Record<string, EnvProfileUsage>
+}
+
 export interface HarnessEnvDefault {
   key: string
   value: string

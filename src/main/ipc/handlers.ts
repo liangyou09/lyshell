@@ -23,7 +23,7 @@ import { migrateInlineEnvToProfiles } from '../harness/migrate-env'
 import { migrateKindEnvProfilesToGlobal } from '../harness/migrate-profiles'
 import { resolveAgentLaunchEnv } from '../storage/agent-repository'
 import { envProfileRepository } from '../storage/env-profile-repository'
-import type { HarnessEnvProfile, HarnessWorkspace } from '@shared/harness'
+import { HARNESS_AGENT_KINDS, type EnvProfileLibraryResult, type EnvProfileUsage, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
 import type { WorktreeListResult } from '@shared/worktree'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { ConnectionStatus } from '../connectors'
@@ -1774,10 +1774,107 @@ export function registerIPCHandlers(): void {
     return agentRepository.getAll()
   })
 
-  // 全局变量组列表（无启用语义，供 Agent 编辑对话框的绑定下拉）；
-  // harness 面板走 <kind>:env:list（带该 kind 的启用指针），不走这条
-  ipcMain.handle('env-profile:list', async () => {
-    return envProfileRepository.getAll()
+  // 全局变量组库面板视角:组 + 每 kind 启用指针 + 引用方(按名字列出,供引用计数与删除警示)。
+  // harness 面板的 per-kind 视角走 <kind>:env:list;AgentsPanel 的绑定下拉也走这条(只读 profiles)
+  ipcMain.handle('env-profile:list', async (): Promise<EnvProfileLibraryResult> => {
+    const profiles = envProfileRepository.getAll()
+    const activeByKind: Partial<Record<HarnessAgentKind, string>> = {}
+    for (const k of HARNESS_AGENT_KINDS) {
+      const id = envProfileRepository.getActiveProfileId(k)
+      if (id !== undefined) activeByKind[k] = id
+    }
+    // 引用方:显式绑定该组的通用 Agent(AgentConfig.envProfileId)与 harness 工作区(ws.envProfileId)
+    const agentUsage = new Map<string, string[]>()
+    for (const a of agentRepository.getAll()) {
+      if (!a.envProfileId) continue
+      const list = agentUsage.get(a.envProfileId)
+      if (list) list.push(a.name)
+      else agentUsage.set(a.envProfileId, [a.name])
+    }
+    const wsUsage = new Map<string, Array<{ kind: HarnessAgentKind; name: string }>>()
+    for (const rt of Object.values(HARNESS_AGENTS)) {
+      for (const ws of rt.repository.getAll()) {
+        if (!ws.envProfileId) continue
+        const list = wsUsage.get(ws.envProfileId)
+        if (list) list.push({ kind: rt.kind, name: ws.name })
+        else wsUsage.set(ws.envProfileId, [{ kind: rt.kind, name: ws.name }])
+      }
+    }
+    const usage: Record<string, EnvProfileUsage> = {}
+    for (const p of profiles) {
+      usage[p.id] = { agents: agentUsage.get(p.id) ?? [], workspaces: wsUsage.get(p.id) ?? [] }
+    }
+    return { profiles, activeByKind, usage }
+  })
+
+  /** 校验变量组 env:通用记录校验 + 非空(kind 专属规则如 dsh 的 DSH_HOME 绝对路径留给启动链兜底) */
+  const assertProfileEnvRecord = (raw: unknown): Record<string, string> => {
+    const env = assertStringRecord(raw, 'profile.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
+    // 零变量的组没有意义 —— 与其存下来在 UI 里当噪声，不如保存即拒
+    if (Object.keys(env).length === 0) throw new ValidationError('profile.env must not be empty')
+    return env
+  }
+
+  /** 模型选项:结构校验后清洗(trim、滤空、去重),空则 undefined(与「未提供」同语义) */
+  const assertProfileModels = (raw: unknown): string[] | undefined => {
+    const models = assertStringArray(raw, 'profile.models', { maxItems: 64, maxItemLength: 256 })
+    const cleaned = [...new Set(models.map((m) => m.trim()).filter((m) => m.length > 0))]
+    return cleaned.length > 0 ? cleaned : undefined
+  }
+
+  // 全局变量组 CRUD(kind 无关) —— 左列 ENV 面板的管理入口;harness 面板的 env 页签只保留
+  // 启用切换(读 <kind>:env:list / 写 <kind>:env:setActive),不再各带一份增删改
+  ipcMain.handle('env-profile:add', async (_event, profile) => {
+    try {
+      const safe = assertObject(profile, 'profile')
+      const newProfile: Omit<HarnessEnvProfile, 'id' | 'order'> = {
+        name: assertString(safe.name, 'profile.name', { maxLength: 120 }),
+        env: assertProfileEnvRecord(safe.env)
+      }
+      if (safe.note !== undefined) newProfile.note = assertString(safe.note, 'profile.note', { maxLength: 2000 })
+      const addedModels = safe.models !== undefined ? assertProfileModels(safe.models) : undefined
+      if (addedModels !== undefined) newProfile.models = addedModels
+      const added = envProfileRepository.add(newProfile)
+      if (!added) return { success: false, error: 'Failed to save env profile' }
+      return { success: true, profile: added }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('env-profile:update', async (_event, profile) => {
+    try {
+      const safe = assertObject(profile, 'profile')
+      const id = assertString(safe.id, 'profile.id', { maxLength: 128 })
+      const existing = envProfileRepository.get(id)
+      const updated: HarnessEnvProfile = {
+        id,
+        name: assertString(safe.name, 'profile.name', { maxLength: 120 }),
+        env: assertProfileEnvRecord(safe.env),
+        // 缺省沿用仓库现状而非 0:渲染层总会带 order,但外部调用方可能不带,
+        // 落到 0 会与首条撞序(仓库 update 不 reindex)
+        order: safe.order === undefined
+          ? (existing?.order ?? 0)
+          : assertNumber(safe.order, 'profile.order', { min: 0, max: 10000, integer: true })
+      }
+      if (safe.note !== undefined) updated.note = assertString(safe.note, 'profile.note', { maxLength: 2000 })
+      const updatedModels = safe.models !== undefined ? assertProfileModels(safe.models) : undefined
+      if (updatedModels !== undefined) updated.models = updatedModels
+      const success = envProfileRepository.update(updated)
+      return success ? { success: true } : { success: false, error: 'Env profile not found' }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('env-profile:delete', async (_event, profileId: string) => {
+    try {
+      const safeId = assertString(profileId, 'profileId', { maxLength: 128 })
+      const success = envProfileRepository.delete(safeId)
+      return { success }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
   })
 
   ipcMain.handle('agent:add', async (_event, agent) => {
@@ -1965,93 +2062,14 @@ export function registerIPCHandlers(): void {
     // 与工作区平级的一等配置：具名 KEY=value 组，存全局一份库（三个 kind + 通用 Agent 共用）；
     // 每个 kind 一根「启用」指针（同一时刻至多一根，可全关）。
     // 启动时的解析链见 harness/config.ts 的 resolveWorkspaceEnv。
+    // 增删改走 kind 无关的 env-profile:add/update/delete（ENV 面板），本循环只挂
+    // per-kind 视角/指针操作：list（带该 kind 启用指针）与 setActive。
 
     // 返回全局变量组列表 + 该 kind 的启用指针（per-kind 视角；列表本身三份相同）
     ipcMain.handle(`${kind}:env:list`, async () => {
       return {
         profiles: runtime.envRepository.getAll(),
         activeProfileId: runtime.envRepository.getActiveProfileId(kind) ?? null
-      }
-    })
-
-    /** 校验并归一化变量组的 env：先过通用记录校验，再过 kind 专属规则（dsh 的 DSH_HOME 须绝对路径）。 */
-    const assertProfileEnv = (raw: unknown): Record<string, string> => {
-      const env = assertStringRecord(raw, 'profile.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
-      // 零变量的组没有意义 —— 与其存下来在 UI 里当噪声，不如保存即拒
-      if (Object.keys(env).length === 0) {
-        throw new ValidationError('profile.env must not be empty')
-      }
-      const normalized = runtime.normalizeEnv(env)
-      if (!normalized.ok) throw new ValidationError(normalized.error)
-      // normalizeEnv 可能删空键后返回 undefined（如 env 只有一个空 DSH_HOME）
-      if (!normalized.env || Object.keys(normalized.env).length === 0) {
-        throw new ValidationError('profile.env must not be empty')
-      }
-      return normalized.env
-    }
-
-    // 模型选项：结构校验后做与渲染层 handleSaveProfile 一致的清洗（trim、滤空、去重），
-    // IPC 边界即落干净数据；仓库层 normalizeModels 仍兜底（防手工编辑 JSON 绕过此处）。
-    // 清洗后为空（全空白/全重复）返回 undefined —— 与「未提供」同语义，update 整条替换即清空。
-    const assertProfileModels = (raw: unknown): string[] | undefined => {
-      const models = assertStringArray(raw, 'profile.models', { maxItems: 64, maxItemLength: 256 })
-      const cleaned = [...new Set(models.map((m) => m.trim()).filter((m) => m.length > 0))]
-      return cleaned.length > 0 ? cleaned : undefined
-    }
-
-    ipcMain.handle(`${kind}:env:add`, async (_event, profile) => {
-      try {
-        const safe = assertObject(profile, 'profile')
-        const newProfile: Omit<HarnessEnvProfile, 'id' | 'order'> = {
-          name: assertString(safe.name, 'profile.name', { maxLength: 120 }),
-          env: assertProfileEnv(safe.env)
-        }
-        if (safe.note !== undefined) newProfile.note = assertString(safe.note, 'profile.note', { maxLength: 2000 })
-        // 模型选项（供工作区模型建议）；空数组/清洗后为空视同未提供 —— 与 note 同一套「缺省即不写」语义
-        const addedModels = safe.models !== undefined ? assertProfileModels(safe.models) : undefined
-        if (addedModels !== undefined) newProfile.models = addedModels
-        const added = runtime.envRepository.add(newProfile)
-        if (!added) return { success: false, error: 'Failed to save env profile' }
-        return { success: true, profile: added }
-      } catch (error) {
-        return validationFailure(error) || { success: false, error: (error as Error).message }
-      }
-    })
-
-    ipcMain.handle(`${kind}:env:update`, async (_event, profile) => {
-      try {
-        const safe = assertObject(profile, 'profile')
-        const id = assertString(safe.id, 'profile.id', { maxLength: 128 })
-        const existing = runtime.envRepository.get(id)
-        const updated: HarnessEnvProfile = {
-          id,
-          name: assertString(safe.name, 'profile.name', { maxLength: 120 }),
-          env: assertProfileEnv(safe.env),
-          // 缺省沿用仓库现状而非 0：渲染层总会带上 order，但外部调用方（MCP/HTTP）可能不带，
-          // 落到 0 会与首条撞序（仓库 update 不 reindex）
-          order: safe.order === undefined
-            ? (existing?.order ?? 0)
-            : assertNumber(safe.order, 'profile.order', { min: 0, max: 10000, integer: true })
-        }
-        if (safe.note !== undefined) updated.note = assertString(safe.note, 'profile.note', { maxLength: 2000 })
-        // 模型选项：整条替换，payload 缺席/空数组/清洗后为空即清空（与 note 的清空语义一致）
-        const updatedModels = safe.models !== undefined ? assertProfileModels(safe.models) : undefined
-        if (updatedModels !== undefined) updated.models = updatedModels
-        // 启用态不在记录上（每 kind 一根指针），只能经 <kind>:env:setActive 改
-        const success = runtime.envRepository.update(updated)
-        return success ? { success: true } : { success: false, error: 'Env profile not found' }
-      } catch (error) {
-        return validationFailure(error) || { success: false, error: (error as Error).message }
-      }
-    })
-
-    ipcMain.handle(`${kind}:env:delete`, async (_event, profileId: string) => {
-      try {
-        const safeId = assertString(profileId, 'profileId', { maxLength: 128 })
-        const success = runtime.envRepository.delete(safeId)
-        return { success }
-      } catch (error) {
-        return validationFailure(error) || { success: false, error: (error as Error).message }
       }
     })
 

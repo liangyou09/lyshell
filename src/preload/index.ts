@@ -100,8 +100,12 @@ const IPC_CHANNELS = {
   AGENT_DELETE: 'agent:delete',
   AGENT_LAUNCH: 'agent:launch',
 
-  // 全局环境变量组（Agent 编辑对话框的绑定下拉；harness 面板走 <kind>:env:list）
+  // 全局环境变量组库(左列 ENV 面板;Agent 编辑对话框的绑定下拉同用 list)。
+  // harness 面板走 <kind>:env:list/setActive(per-kind 视角与指针),无 per-kind 增删改
   ENV_PROFILE_LIST: 'env-profile:list',
+  ENV_PROFILE_ADD: 'env-profile:add',
+  ENV_PROFILE_UPDATE: 'env-profile:update',
+  ENV_PROFILE_DELETE: 'env-profile:delete',
 
   // DeepSeek Harness (dsh)
   DSH_DETECT: 'dsh:detect',
@@ -111,9 +115,6 @@ const IPC_CHANNELS = {
   DSH_WORKSPACE_DELETE: 'dsh:workspace:delete',
   DSH_WORKSPACE_LAUNCH: 'dsh:workspace:launch',
   DSH_ENV_LIST: 'dsh:env:list',
-  DSH_ENV_ADD: 'dsh:env:add',
-  DSH_ENV_UPDATE: 'dsh:env:update',
-  DSH_ENV_DELETE: 'dsh:env:delete',
   DSH_ENV_SET_ACTIVE: 'dsh:env:setActive',
   DSH_ENV_DEFAULTS: 'dsh:env:defaults',
   DSH_WEB_OPEN: 'dsh:web:open',
@@ -133,9 +134,6 @@ const IPC_CHANNELS = {
   CODEX_WORKSPACE_DELETE: 'codex:workspace:delete',
   CODEX_WORKSPACE_LAUNCH: 'codex:workspace:launch',
   CODEX_ENV_LIST: 'codex:env:list',
-  CODEX_ENV_ADD: 'codex:env:add',
-  CODEX_ENV_UPDATE: 'codex:env:update',
-  CODEX_ENV_DELETE: 'codex:env:delete',
   CODEX_ENV_SET_ACTIVE: 'codex:env:setActive',
   CODEX_ENV_DEFAULTS: 'codex:env:defaults',
 
@@ -147,9 +145,6 @@ const IPC_CHANNELS = {
   CLAUDE_WORKSPACE_DELETE: 'claude:workspace:delete',
   CLAUDE_WORKSPACE_LAUNCH: 'claude:workspace:launch',
   CLAUDE_ENV_LIST: 'claude:env:list',
-  CLAUDE_ENV_ADD: 'claude:env:add',
-  CLAUDE_ENV_UPDATE: 'claude:env:update',
-  CLAUDE_ENV_DELETE: 'claude:env:delete',
   CLAUDE_ENV_SET_ACTIVE: 'claude:env:setActive',
   CLAUDE_ENV_DEFAULTS: 'claude:env:defaults',
 
@@ -275,6 +270,9 @@ const electronAPI = {
   launchAgent: (agentId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_LAUNCH, agentId),
   // 全局环境变量组（Agent 编辑对话框的绑定下拉）
   listEnvProfiles: () => ipcRenderer.invoke(IPC_CHANNELS.ENV_PROFILE_LIST),
+  addEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.ENV_PROFILE_ADD, profile),
+  updateEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.ENV_PROFILE_UPDATE, profile),
+  deleteEnvProfile: (profileId: string) => ipcRenderer.invoke(IPC_CHANNELS.ENV_PROFILE_DELETE, profileId),
 
   // DeepSeek Harness (dsh)
   detectDsh: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_DETECT),
@@ -284,9 +282,6 @@ const electronAPI = {
   deleteDshWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_DELETE, workspaceId),
   launchDshWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_LAUNCH, workspaceId),
   listDshEnvProfiles: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_LIST),
-  addDshEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_ADD, profile),
-  updateDshEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_UPDATE, profile),
-  deleteDshEnvProfile: (profileId: string) => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_DELETE, profileId),
   setDshEnvProfileActive: (profileId: string | null) => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_SET_ACTIVE, profileId),
   getDshEnvDefaults: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_DEFAULTS),
   openDshWeb: (target: { workspaceId?: string; cwd?: string }) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_OPEN, target),
@@ -310,9 +305,6 @@ const electronAPI = {
   deleteCodexWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_WORKSPACE_DELETE, workspaceId),
   launchCodexWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_WORKSPACE_LAUNCH, workspaceId),
   listCodexEnvProfiles: () => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ENV_LIST),
-  addCodexEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ENV_ADD, profile),
-  updateCodexEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ENV_UPDATE, profile),
-  deleteCodexEnvProfile: (profileId: string) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ENV_DELETE, profileId),
   setCodexEnvProfileActive: (profileId: string | null) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ENV_SET_ACTIVE, profileId),
   getCodexEnvDefaults: () => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ENV_DEFAULTS),
 
@@ -324,9 +316,6 @@ const electronAPI = {
   deleteClaudeWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_WORKSPACE_DELETE, workspaceId),
   launchClaudeWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_WORKSPACE_LAUNCH, workspaceId),
   listClaudeEnvProfiles: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ENV_LIST),
-  addClaudeEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ENV_ADD, profile),
-  updateClaudeEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ENV_UPDATE, profile),
-  deleteClaudeEnvProfile: (profileId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ENV_DELETE, profileId),
   setClaudeEnvProfileActive: (profileId: string | null) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ENV_SET_ACTIVE, profileId),
   getClaudeEnvDefaults: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ENV_DEFAULTS),
 
