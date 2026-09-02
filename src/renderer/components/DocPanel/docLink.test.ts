@@ -3,7 +3,7 @@
  * 匹配规则是「宁缺勿滥」：每一条误报用例对应一类真实终端输出场景。
  */
 import { describe, expect, it } from 'vitest'
-import { matchDocPaths, resolveDocPath, matchPromptCwd, localJoin, stripLeadingDash, matchDirHeader, docLinkTarget, docDirFromPath } from './docLink'
+import { matchDocPaths, resolveDocPath, matchPromptCwd, localJoin, stripLeadingDash, matchDirHeader, matchLsDir, matchRemotePrompt, matchRemotePromptCwd, expandPromptTilde, conventionalHome, docLinkTarget, docDirFromPath } from './docLink'
 
 const pathsOf = (text: string): string[] => matchDocPaths(text).map(m => m.path)
 
@@ -258,5 +258,115 @@ describe('docLinkTarget：md 内链接 → 可打开文档路径', () => {
     expect(docLinkTarget('my%20file.md', false, '/srv/docs')).toBe('/srv/docs/my file.md')
     expect(docLinkTarget('a.md', false, '')).toBeNull()
     expect(docLinkTarget('a.md', true, '')).toBeNull()
+  })
+})
+
+describe('matchLsDir：ls 命令行目录提取', () => {
+  it('用户实际场景：提示符 + ls 相对目录（tab 补全带尾斜杠）', () => {
+    expect(matchLsDir('fenghuiyu@docker-IPS:~$ ls project/6080/')).toBe('project/6080/')
+  })
+
+  it('手打无尾斜杠 / 选项混在参数前 / ll 别名 / ~ 与绝对路径', () => {
+    expect(matchLsDir('u@h:~$ ls project/6080')).toBe('project/6080')
+    expect(matchLsDir('u@h:~$ ls -la project/6080/')).toBe('project/6080/')
+    expect(matchLsDir('u@h:~$ ll ~/docs/')).toBe('~/docs/')
+    expect(matchLsDir('u@h:~$ ls /srv/app/')).toBe('/srv/app/')
+  })
+
+  it('管道/续接符处截止；取最后一个命令词与最后一个路径参数', () => {
+    expect(matchLsDir('u@h:~$ ls project/ | head')).toBe('project/')
+    expect(matchLsDir('u@h:~$ cd x; ls b/')).toBe('b/')
+    expect(matchLsDir('u@h:~$ ls -t src/ docs/')).toBe('docs/')
+  })
+
+  it('文件参数原样返回（是否真是目录由调用方 stat 判定后回落）', () => {
+    expect(matchLsDir('u@h:~$ ls project/6080/RELEASE_NOTES_v1.0.6.md')).toBe('project/6080/RELEASE_NOTES_v1.0.6.md')
+  })
+
+  it('引号包裹的目录参数剥引号', () => {
+    expect(matchLsDir(`u@h:~$ ls "project/6080/"`)).toBe('project/6080/')
+    expect(matchLsDir("u@h:~$ ls 'project/6080/'")).toBe('project/6080/')
+  })
+
+  it('无参数 / 仅选项 / 非字面路径不认', () => {
+    expect(matchLsDir('u@h:~$ ls')).toBeNull()
+    expect(matchLsDir('u@h:~$ ls -la')).toBeNull()
+    expect(matchLsDir('u@h:~$ ls $HOME/docs/')).toBeNull()
+    expect(matchLsDir('u@h:~$ ls *.md')).toBeNull()
+  })
+
+  it('非命令行行不认（ls 不独立成词 / 无命令词）', () => {
+    // `~/ls-test$` 的 ls 后跟 -，不是独立命令词
+    expect(matchLsDir('u@h:~/ls-test$ echo hi')).toBeNull()
+    expect(matchLsDir('NGIPS6080SP2  libssh-0.11.4.tar.xz')).toBeNull()
+    expect(matchLsDir('see docs/ for details')).toBeNull()
+    expect(matchLsDir('')).toBeNull()
+  })
+})
+
+describe('matchRemotePromptCwd：远端提示符行交互 cwd 提取', () => {
+  it('用户实际场景：cd 后的 ~ 前缀 cwd（$ 与 # 两种提示符）', () => {
+    expect(matchRemotePromptCwd('fenghuiyu@docker-IPS:~/project/6080$ ls')).toBe('~/project/6080')
+    expect(matchRemotePromptCwd('fenghuiyu@docker-IPS:~$ ls project/6080/')).toBe('~')
+    expect(matchRemotePromptCwd('root@docker-IPS:/etc# cat x.conf')).toBe('/etc')
+  })
+
+  it('行尾裸提示符（无后续命令）也认', () => {
+    expect(matchRemotePromptCwd('fenghuiyu@docker-IPS:~/project/6080$')).toBe('~/project/6080')
+  })
+
+  it('路径含空格 / 深层 ~ 都完整提取', () => {
+    expect(matchRemotePromptCwd('u@h:~/my docs/v2$ ls')).toBe('~/my docs/v2')
+    expect(matchRemotePromptCwd('u@h:~$ ls')).toBe('~')
+  })
+
+  it('非提示符行 / 自定义提示符 / 相对 cwd 不认（宁可不猜）', () => {
+    expect(matchRemotePromptCwd('NGIPS6080SP2  RELEASE_NOTES_v1.0.6.md')).toBeNull()
+    expect(matchRemotePromptCwd('❯ ~/docs')).toBeNull()
+    expect(matchRemotePromptCwd('u@h % ls')).toBeNull()
+    expect(matchRemotePromptCwd('u@h:relative/path$ ls')).toBeNull()
+    expect(matchRemotePromptCwd('')).toBeNull()
+  })
+})
+
+describe('matchRemotePrompt：提示符用户 + cwd 提取', () => {
+  it('用户与 cwd 同时提取（su 场景：提示符用户 ≠ 登录用户）', () => {
+    expect(matchRemotePrompt('test@docker-IPS:~/test$ ls')).toEqual({ user: 'test', cwd: '~/test' })
+    expect(matchRemotePrompt('fenghuiyu@docker-IPS:~/project/6080$ ls')).toEqual({ user: 'fenghuiyu', cwd: '~/project/6080' })
+    expect(matchRemotePrompt('root@docker-IPS:/etc# cat x.conf')).toEqual({ user: 'root', cwd: '/etc' })
+  })
+
+  it('非提示符行 / 相对 cwd 返回 null（与 matchRemotePromptCwd 同判）', () => {
+    expect(matchRemotePrompt('NGIPS6080SP2  RELEASE_NOTES_v1.0.6.md')).toBeNull()
+    expect(matchRemotePrompt('u@h:relative/path$ ls')).toBeNull()
+    expect(matchRemotePrompt('')).toBeNull()
+  })
+
+  it('matchRemotePromptCwd 是 matchRemotePrompt 的 cwd-only 投影', () => {
+    expect(matchRemotePromptCwd('test@docker-IPS:~/test$ ls')).toBe('~/test')
+    expect(matchRemotePromptCwd('u@h:relative$ ls')).toBeNull()
+  })
+})
+
+describe('conventionalHome：提示符用户的惯例家目录', () => {
+  it('root 特判 /root，其余 /home/<user>', () => {
+    expect(conventionalHome('root')).toBe('/root')
+    expect(conventionalHome('test')).toBe('/home/test')
+    expect(conventionalHome('fenghuiyu')).toBe('/home/fenghuiyu')
+  })
+})
+
+describe('expandPromptTilde：提示符 cwd 的 ~ 展开', () => {
+  it('~ / ~/x 按登录目录展开；绝对路径原样', () => {
+    expect(expandPromptTilde('~', '/home/u')).toBe('/home/u')
+    expect(expandPromptTilde('~/project/6080', '/home/u')).toBe('/home/u/project/6080')
+    expect(expandPromptTilde('/srv/app', undefined)).toBe('/srv/app')
+  })
+
+  it('~user 形态 / 无 home 的 ~ 形态 / 相对形态返回 null', () => {
+    expect(expandPromptTilde('~root/x', '/home/u')).toBeNull()
+    expect(expandPromptTilde('~', undefined)).toBeNull()
+    expect(expandPromptTilde('~/x', undefined)).toBeNull()
+    expect(expandPromptTilde('docs', '/home/u')).toBeNull()
   })
 })

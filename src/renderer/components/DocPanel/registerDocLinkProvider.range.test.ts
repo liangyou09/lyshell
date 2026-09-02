@@ -6,12 +6,15 @@
  * URL 链接另有激活端到端用例：provideLinks → activate(Ctrl+点击) → openWebTab
  * 网页页签挂载（真实 pane-store，锁住 provider → store 的整条接线）。
  */
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Terminal } from '@xterm/xterm'
 import type { ILink } from '@xterm/xterm'
-import { createDocLinkProvider, guessLocalCwd, findGroupDir } from './registerDocLinkProvider'
+import { createDocLinkProvider, guessLocalCwd, findGroupDir, findLsDir, findRemotePrompt, pickRemoteDocPath } from './registerDocLinkProvider'
+import type { RemotePromptInfo } from './docLink'
 import { usePaneStore } from '../../stores/pane-store'
-import type { OverlayPayload, OverlayRef, PaneLeaf, PaneLayout } from '@shared/types'
+import { useSessionStore } from '../../stores/session-store'
+import { ConnectionStatus } from '@shared/types'
+import type { SessionConfig, OverlayPayload, OverlayRef, PaneLeaf, PaneLayout } from '@shared/types'
 
 interface RangeCase {
   line: string
@@ -263,6 +266,491 @@ describe('findGroupDir：组头带描述 + 表格（用户实际场景）', () =
       await writeAndDrain(t, 'prototypes/（2 个）\r\n- a.html\r\n\r\n- lonely.md\r\n')
       // lonely.md 上方隔空行是上一组的条目 - a.html，不是目录头 → 不借用
       expect(findGroupDir(t, 4)).toBeNull()
+    } finally {
+      t.dispose()
+    }
+  })
+})
+
+// ===== ls 命令行目录候选：裸文件名 → stat 验证 → 开文档页签 =====
+
+describe('findLsDir：ls 命令行目录上下文（用户实际场景）', () => {
+  // 用户粘贴的原样输出（节选）：提示符 + ls 多列列表，无目录头行
+  const LS_LISTING = [
+    'fenghuiyu@docker-IPS:~$ ls project/6080/',
+    'NGIPS6080SP2              NGIPS6080SP3_VPNCheck_V1s    NGIPS_Main_Branche_20260109           libssh-0.11.4',
+    'NGIPS6080SP3              NGIPS6080SP3_YDJC_20251211   NGIPS_Main_Branche_lite_20250211      libssh-0.11.4.tar.xz',
+    'NGIPS6080SP3_20260721     NGIPS6080SP3_YDJC_20260715   NGIPS_Main_Branche_lite_20260414      rust-1.92.0-x86_64.tar.gz',
+    'NGIPS6080SP3_AI           NGIPS6080_20240130_for_YDJC  NGIPS_Main_Branche_lite_20250211_arm  RELEASE_NOTES_v1.0.6.md'
+  ]
+
+  it('多列列表任意行命中上方命令行的目录参数', async () => {
+    const t = new Terminal({ cols: 200, rows: 10 })
+    try {
+      await writeAndDrain(t, LS_LISTING.join('\r\n') + '\r\n')
+      // 1-based：1=提示符命令行 2..5=列表
+      expect(findLsDir(t, 2)).toBe('project/6080/')
+      expect(findLsDir(t, 5)).toBe('project/6080/')
+    } finally {
+      t.dispose()
+    }
+  })
+
+  it('上方无 ls 命令行返回 null（不误认普通输出）', async () => {
+    const t = new Terminal({ cols: 80, rows: 10 })
+    try {
+      await writeAndDrain(t, 'README.md\r\nnotes.md\r\n')
+      expect(findLsDir(t, 1)).toBeNull()
+    } finally {
+      t.dispose()
+    }
+  })
+})
+
+describe('findRemotePrompt：远端提示符行交互 cwd 上下文（用户实际场景）', () => {
+  it('ls 无参时从上方提示符行提取交互 shell 的用户与 cwd', async () => {
+    const t = new Terminal({ cols: 200, rows: 10 })
+    try {
+      await writeAndDrain(t, 'fenghuiyu@docker-IPS:~/project/6080$ ls\r\nNGIPS6080SP2  RELEASE_NOTES_v1.0.6.md\r\n')
+      // 1-based：1=提示符行 2=列表
+      expect(findRemotePrompt(t, 2)).toEqual({ user: 'fenghuiyu', cwd: '~/project/6080' })
+    } finally {
+      t.dispose()
+    }
+  })
+
+  it('终端里 su 换用户后：提示符行提取的是新用户与其家目录下的 cwd', async () => {
+    const t = new Terminal({ cols: 200, rows: 10 })
+    try {
+      await writeAndDrain(t, 'test@docker-IPS:~/test$ ls\r\nRELEASE_NOTES_v1.0.6.md\r\n')
+      expect(findRemotePrompt(t, 2)).toEqual({ user: 'test', cwd: '~/test' })
+    } finally {
+      t.dispose()
+    }
+  })
+
+  it('列表多行 / 上方是普通输出时都能扫到（至多 40 行窗口）', async () => {
+    const t = new Terminal({ cols: 200, rows: 12 })
+    try {
+      await writeAndDrain(t, 'fenghuiyu@docker-IPS:~$ ls project/6080/\r\nNGIPS6080SP2\r\nNGIPS6080SP3\r\nRELEASE_NOTES_v1.0.6.md\r\n')
+      expect(findRemotePrompt(t, 4)).toEqual({ user: 'fenghuiyu', cwd: '~' })
+    } finally {
+      t.dispose()
+    }
+  })
+
+  it('上方无提示符行返回 null', async () => {
+    const t = new Terminal({ cols: 80, rows: 10 })
+    try {
+      await writeAndDrain(t, 'README.md\r\nnotes.md\r\n')
+      expect(findRemotePrompt(t, 1)).toBeNull()
+    } finally {
+      t.dispose()
+    }
+  })
+})
+
+describe('pickRemoteDocPath：ls 目录 × cwd 双轴候选 + stat 验证', () => {
+  afterEach(() => {
+    delete (window as unknown as { electronAPI?: unknown }).electronAPI
+  })
+
+  const setApi = (statPath: (p: string) => Promise<unknown>): void => {
+    (window as unknown as { electronAPI: unknown }).electronAPI = {
+      filePwd: () => Promise.resolve({ success: true, data: '/home/fenghuiyu' }),
+      fileStat: (_s: string, p: string) => statPath(p)
+    }
+  }
+
+  /** 提示符信息构造糖 */
+  const prompt = (user: string, cwd: string): RemotePromptInfo => ({ user, cwd })
+
+  it('stat 命中 ls 目录候选（用户实际场景一的路径形态）', async () => {
+    setApi(p => Promise.resolve(
+      p === '/home/fenghuiyu/project/6080/RELEASE.md'
+        ? { success: true, data: { isDir: false } }
+        : { success: false, error: 'No such file' }
+    ))
+    expect(await pickRemoteDocPath('ls-pick-1', 'RELEASE.md', 'project/6080/', null)).toBe('/home/fenghuiyu/project/6080/RELEASE.md')
+  })
+
+  it('ls 候选未命中 → cwd 归并候选胜出（启发猜错不致错开页签）', async () => {
+    setApi(p => Promise.resolve(
+      p === '/home/fenghuiyu/RELEASE.md'
+        ? { success: true, data: { isDir: false } }
+        : { success: false, error: 'No such file' }
+    ))
+    expect(await pickRemoteDocPath('ls-pick-2', 'RELEASE.md', 'old/dir/', null)).toBe('/home/fenghuiyu/RELEASE.md')
+  })
+
+  it('ls 候选是目录 → 视为未命中落到 cwd 候选', async () => {
+    setApi(p => Promise.resolve(
+      p === '/home/fenghuiyu/RELEASE.md'
+        ? { success: true, data: { isDir: false } }
+        : { success: true, data: { isDir: true } }
+    ))
+    expect(await pickRemoteDocPath('ls-pick-3', 'RELEASE.md', 'somewhere/', null)).toBe('/home/fenghuiyu/RELEASE.md')
+  })
+
+  it('全部未命中 → 取首选候选（错误页签展示最可能意图；无尾斜杠 lsDir 同样拼对）', async () => {
+    setApi(() => Promise.resolve({ success: false, error: 'No such file' }))
+    expect(await pickRemoteDocPath('ls-pick-4', 'RELEASE.md', 'project/6080', null)).toBe('/home/fenghuiyu/project/6080/RELEASE.md')
+  })
+
+  it('stat 通道异常 → 仍取候选路径（开页签出显式报错）', async () => {
+    setApi(() => Promise.reject(new Error('channel down')))
+    expect(await pickRemoteDocPath('ls-pick-5', 'RELEASE.md', 'project/6080/', null)).toBe('/home/fenghuiyu/project/6080/RELEASE.md')
+  })
+
+  it('无 cwd（filePwd 失败）且目录相对 → null', async () => {
+    (window as unknown as { electronAPI: unknown }).electronAPI = {
+      filePwd: () => Promise.resolve({ success: false, error: 'no connector' }),
+      fileStat: () => Promise.resolve({ success: false })
+    }
+    expect(await pickRemoteDocPath('ls-pick-6', 'RELEASE.md', 'project/6080/', null)).toBeNull()
+  })
+
+  it('提示符 cwd 候选胜出（用户实际场景二：cd 后 ls 无参，登录目录无该文件）', async () => {
+    setApi(p => Promise.resolve(
+      p === '/home/fenghuiyu/project/6080/RELEASE.md'
+        ? { success: true, data: { isDir: false } }
+        : { success: false, error: 'No such file' }
+    ))
+    // ls 无参 → lsDir null；提示符 ~/project/6080 按登录目录展开为候选 cwd
+    // （提示符用户 = 会话 SSH 用户，~ 归登录 home）
+    expect(await pickRemoteDocPath('ls-pick-7', 'RELEASE.md', null, prompt('fenghuiyu', '~/project/6080'), 'fenghuiyu')).toBe('/home/fenghuiyu/project/6080/RELEASE.md')
+  })
+
+  it('提示符用户 ≠ 会话 SSH 用户且 cwd 为 ~ 形态（终端里 su 过，用户实际场景三）→ 弃用提示符 cwd，退回登录 home（读取跟随登录用户）', async () => {
+    setApi(p => Promise.resolve(
+      p === '/home/fenghuiyu/RELEASE_NOTES_v1.0.6.md'
+        ? { success: true, data: { isDir: false } }
+        : { success: false, error: 'No such file' }
+    ))
+    // 会话以 fenghuiyu 连接（filePwd = /home/fenghuiyu），终端里 su 到 test ——
+    // ~/test 属于 test，登录用户解释不了它：不按 /home/test 硬追，也不拼
+    // /home/fenghuiyu/test 假路径，直接退回登录 home 归并
+    expect(await pickRemoteDocPath('ls-pick-8', 'RELEASE_NOTES_v1.0.6.md', null, prompt('test', '~/test'), 'fenghuiyu')).toBe('/home/fenghuiyu/RELEASE_NOTES_v1.0.6.md')
+  })
+
+  it('su 场景退回登录 home 后 stat 全未命中 → 兜底取登录 home 归并候选（错误页签可排查）', async () => {
+    setApi(() => Promise.resolve({ success: false, error: 'No such file' }))
+    // 唯一候选 = 登录 home 归并路径
+    expect(await pickRemoteDocPath('ls-pick-9', 'RELEASE.md', null, prompt('test', '~/test'), 'fenghuiyu')).toBe('/home/fenghuiyu/RELEASE.md')
+  })
+
+  it('root 特判：root 会话 filePwd 失败 → 惯例家目录 /root 作 ~ 基准', async () => {
+    (window as unknown as { electronAPI: unknown }).electronAPI = {
+      filePwd: () => Promise.resolve({ success: false, error: 'no connector' }),
+      fileStat: (_s: string, p: string) => Promise.resolve(
+        p === '/root/RELEASE.md'
+          ? { success: true, data: { isDir: false } }
+          : { success: false, error: 'No such file' }
+      )
+    }
+    // 无登录 home，按会话 SSH 用户名 root 猜惯例家目录 /root
+    expect(await pickRemoteDocPath('ls-pick-10', 'RELEASE.md', null, prompt('root', '~'), 'root')).toBe('/root/RELEASE.md')
+  })
+
+  it('filePwd 失败但会话 SSH 用户已知 → 惯例家目录仍是可用基准（不静默放弃）', async () => {
+    (window as unknown as { electronAPI: unknown }).electronAPI = {
+      filePwd: () => Promise.resolve({ success: false, error: 'no connector' }),
+      fileStat: (_s: string, p: string) => Promise.resolve(
+        p === '/home/test/test/RELEASE.md'
+          ? { success: true, data: { isDir: false } }
+          : { success: false, error: 'No such file' }
+      )
+    }
+    // 无登录 home 且提示符用户与会话 SSH 用户一致 → 惯例家目录是唯一 ~ 基准
+    expect(await pickRemoteDocPath('ls-pick-11', 'RELEASE.md', null, prompt('test', '~/test'), 'test')).toBe('/home/test/test/RELEASE.md')
+  })
+
+  it('提示符 cwd ~/ 前缀无 home 可展开且无提示符用户可用 → 放弃该候选（无候选返回 null）', async () => {
+    (window as unknown as { electronAPI: unknown }).electronAPI = {
+      filePwd: () => Promise.resolve({ success: false, error: 'no connector' }),
+      fileStat: () => Promise.resolve({ success: false })
+    }
+    expect(await pickRemoteDocPath('ls-pick-12', 'RELEASE.md', null, null)).toBeNull()
+  })
+
+  it('提示符 cwd 解析错（stat 未命中）→ 登录目录候选兜底胜出', async () => {
+    setApi(p => Promise.resolve(
+      p === '/home/fenghuiyu/RELEASE.md'
+        ? { success: true, data: { isDir: false } }
+        : { success: false, error: 'No such file' }
+    ))
+    expect(await pickRemoteDocPath('ls-pick-13', 'RELEASE.md', null, prompt('fenghuiyu', '/wrong/place'), 'fenghuiyu')).toBe('/home/fenghuiyu/RELEASE.md')
+  })
+
+  it('多段相对路径 × 提示符 cwd（cd 后点相对路径的同族修复）', async () => {
+    setApi(p => Promise.resolve(
+      p === '/home/fenghuiyu/project/6080/docs/a.md'
+        ? { success: true, data: { isDir: false } }
+        : { success: false, error: 'No such file' }
+    ))
+    expect(await pickRemoteDocPath('ls-pick-14', 'docs/a.md', null, prompt('fenghuiyu', '~/project/6080'), 'fenghuiyu')).toBe('/home/fenghuiyu/project/6080/docs/a.md')
+  })
+
+  it('~/ 前缀路径自身按登录目录展开成 stat 可用候选', async () => {
+    setApi(p => Promise.resolve(
+      p === '/home/fenghuiyu/docs/notes.md'
+        ? { success: true, data: { isDir: false } }
+        : { success: false, error: 'No such file' }
+    ))
+    expect(await pickRemoteDocPath('ls-pick-15', '~/docs/notes.md', null, null)).toBe('/home/fenghuiyu/docs/notes.md')
+  })
+
+  it('~/ 前缀路径 + 提示符用户 ≠ 会话用户：~ 仍按登录 home 展开（不追提示符用户）', async () => {
+    setApi(p => Promise.resolve(
+      p === '/home/fenghuiyu/docs/notes.md'
+        ? { success: true, data: { isDir: false } }
+        : { success: false, error: 'No such file' }
+    ))
+    // 读取跟随登录用户：点击路径里的 ~ 一律按登录 home（filePwd）展开，
+    // 提示符里的 su 身份不改变它
+    expect(await pickRemoteDocPath('ls-pick-16', '~/docs/notes.md', null, prompt('test', '~/test'), 'fenghuiyu')).toBe('/home/fenghuiyu/docs/notes.md')
+  })
+
+  it('ls 目录参数为反斜杠风格（Windows 远端 shell）时按反斜杠拼接', async () => {
+    // posix 归并只按 / 切分：整段反斜杠 rel 作为单个段接上（混合分隔符形态，
+    // Windows 远端侧可 stat）—— 候选至少不再被错误地用 / 拼接反斜杠目录
+    setApi(p => Promise.resolve(
+      p === '/home/fenghuiyu/project\\6080\\RELEASE.md'
+        ? { success: true, data: { isDir: false } }
+        : { success: false, error: 'No such file' }
+    ))
+    expect(await pickRemoteDocPath('ls-pick-17', 'RELEASE.md', 'project\\6080', null)).toBe('/home/fenghuiyu/project\\6080\\RELEASE.md')
+  })
+
+  it('ls 参数即文件本身（用户实际场景四：`ls foo.md` 输出裸名）→ 不作目录上下文，cwd 归并即正解', async () => {
+    setApi(p => Promise.resolve(
+      p === '/tmp/RELEASE_NOTES_v1.0.6.md'
+        ? { success: true, data: { isDir: false } }
+        : { success: false, error: 'No such file' }
+    ))
+    // 参数 foo.md 与点击裸名同名：不再拼出 foo.md/foo.md 候选
+    expect(await pickRemoteDocPath('ls-pick-18', 'RELEASE_NOTES_v1.0.6.md', 'RELEASE_NOTES_v1.0.6.md', prompt('test', '/tmp'), 'fenghuiyu')).toBe('/tmp/RELEASE_NOTES_v1.0.6.md')
+  })
+
+  it('参数即文件本身 + stat 全未命中 → 兜底首选也是 cwd 归并路径（不是 foo.md/foo.md）', async () => {
+    setApi(() => Promise.resolve({ success: false, error: 'No such file' }))
+    expect(await pickRemoteDocPath('ls-pick-19', 'RELEASE_NOTES_v1.0.6.md', 'RELEASE_NOTES_v1.0.6.md', prompt('test', '/tmp'), 'fenghuiyu')).toBe('/tmp/RELEASE_NOTES_v1.0.6.md')
+  })
+})
+
+describe('文档链接激活端到端：Ctrl+点击 ls 列表裸文件名（ssh 会话）', () => {
+  type DocPayload = Extract<OverlayPayload, { kind: 'doc' }>
+
+  /** 投影全部 doc 覆盖层（叶序 × 引用序） */
+  const docOverlayViews = (): { paneId: string; payload: DocPayload }[] => {
+    const st = usePaneStore.getState()
+    const out: { paneId: string; payload: DocPayload }[] = []
+    for (const pane of st.getAllLeafPanes()) {
+      for (const r of pane.overlays) {
+        const p = st.overlayPayloads[r.id]
+        if (r.kind === 'doc' && p?.kind === 'doc') out.push({ paneId: pane.id, payload: p })
+      }
+    }
+    return out
+  }
+
+  beforeEach(() => {
+    const leafNode: PaneLeaf = {
+      id: 'pane-ssh', type: 'leaf', sessions: ['sess-ssh'],
+      activeSessionId: 'sess-ssh', overlays: []
+    }
+    const layout: PaneLayout = { root: leafNode, activePaneId: 'pane-ssh' }
+    usePaneStore.setState({ layout, overlayPayloads: {}, draggingOverlayId: null, hiddenTabSessions: {} })
+    useSessionStore.setState({
+      sessions: [{
+        id: 'sess-ssh',
+        // 会话以 fenghuiyu 连接（filePwd 走它的独立连接 → /home/fenghuiyu）
+        config: { id: 'sess-ssh', name: 'ssh-test', type: 'ssh', tags: [], ssh: { host: 'docker-IPS', port: 22, username: 'fenghuiyu' } } as unknown as SessionConfig,
+        status: ConnectionStatus.CONNECTED
+      }]
+    })
+    ;(window as unknown as { electronAPI: unknown }).electronAPI = {
+      filePwd: () => Promise.resolve({ success: true, data: '/home/fenghuiyu' }),
+      fileStat: (_s: string, p: string) => Promise.resolve(
+        ['/home/fenghuiyu/project/6080/RELEASE_NOTES_v1.0.6.md', '/home/test/test/RELEASE_NOTES_v1.0.6.md', '/tmp/RELEASE_NOTES_v1.0.6.md'].includes(p)
+          ? { success: true, data: { isDir: false } }
+          : { success: false, error: 'No such file' }
+      ),
+      fileReadDoc: (_s: string, p: string) => Promise.resolve(
+        ['/home/fenghuiyu/project/6080/RELEASE_NOTES_v1.0.6.md', '/home/test/test/RELEASE_NOTES_v1.0.6.md', '/tmp/RELEASE_NOTES_v1.0.6.md'].includes(p)
+          ? { success: true, data: { content: '# v1.0.6', size: 7, mtime: 1, encoding: 'utf-8' } }
+          : { success: false, error: 'No such file' }
+      )
+    }
+  })
+
+  afterEach(() => {
+    delete (window as unknown as { electronAPI?: unknown }).electronAPI
+  })
+
+  it('用户实际场景：多列 ls 列表里的裸文件名 → stat 命中 ls 目录候选，开文档页签', async () => {
+    const t = new Terminal({ cols: 200, rows: 10 })
+    try {
+      await writeAndDrain(t, 'fenghuiyu@docker-IPS:~$ ls project/6080/\r\nNGIPS6080SP2              RELEASE_NOTES_v1.0.6.md\r\n')
+      const provider = createDocLinkProvider(t, 'sess-ssh')
+      const links = await new Promise<ILink[]>(resolve => provider.provideLinks(2, ls => resolve(ls ?? [])))
+      const link = links.find(l => l.text === 'RELEASE_NOTES_v1.0.6.md')
+      expect(link).toBeDefined()
+      // Ctrl+点击开文档页签（openRemoteDoc 异步落页签，waitFor 轮询等挂载）
+      link!.activate?.(new MouseEvent('click', { ctrlKey: true }), link!.text)
+      await vi.waitFor(() => {
+        expect(docOverlayViews()).toHaveLength(1)
+      })
+      const [view] = docOverlayViews()
+      expect(view.paneId).toBe('pane-ssh')
+      // 修复点：拼上 ls 命令行的目录，而不是丢掉 project/6080/ 直接并 cwd
+      expect(view.payload.path).toBe('/home/fenghuiyu/project/6080/RELEASE_NOTES_v1.0.6.md')
+      expect(view.payload.content).toBe('# v1.0.6')
+      expect(view.payload.loadError).toBeUndefined()
+    } finally {
+      t.dispose()
+    }
+  })
+
+  it('用户实际场景二：ls 无参、提示符含 cd 后的 cwd → 提示符 cwd 候选命中', async () => {
+    const t = new Terminal({ cols: 200, rows: 10 })
+    try {
+      await writeAndDrain(t, 'fenghuiyu@docker-IPS:~/project/6080$ ls\r\nNGIPS6080SP2              RELEASE_NOTES_v1.0.6.md\r\n')
+      const provider = createDocLinkProvider(t, 'sess-ssh')
+      const links = await new Promise<ILink[]>(resolve => provider.provideLinks(2, ls => resolve(ls ?? [])))
+      const link = links.find(l => l.text === 'RELEASE_NOTES_v1.0.6.md')
+      expect(link).toBeDefined()
+      link!.activate?.(new MouseEvent('click', { ctrlKey: true }), link!.text)
+      await vi.waitFor(() => {
+        expect(docOverlayViews()).toHaveLength(1)
+      })
+      const [view] = docOverlayViews()
+      // 修复点：交互 shell cd 到 ~/project/6080 后，裸名按提示符 cwd 归并
+      // （filePwd 的登录目录 /home/fenghuiyu 下并无该文件）
+      expect(view.payload.path).toBe('/home/fenghuiyu/project/6080/RELEASE_NOTES_v1.0.6.md')
+      expect(view.payload.loadError).toBeUndefined()
+    } finally {
+      t.dispose()
+    }
+  })
+
+  it('用户实际场景三（换用户）：终端 su 到 test 后 ls → 读取跟随登录用户，按登录 home 归并，读不到出显式错误', async () => {
+    const t = new Terminal({ cols: 200, rows: 10 })
+    try {
+      await writeAndDrain(t, 'test@docker-IPS:~/test$ ls\r\nRELEASE_NOTES_v1.0.6.md\r\ntest@docker-IPS:~/test$ pwd\r\n/home/test/test\r\n')
+      const provider = createDocLinkProvider(t, 'sess-ssh')
+      // 点第 2 行列表里的裸文件名（1-based：1=提示符命令行 2=列表）
+      const links = await new Promise<ILink[]>(resolve => provider.provideLinks(2, ls => resolve(ls ?? [])))
+      const link = links.find(l => l.text === 'RELEASE_NOTES_v1.0.6.md')
+      expect(link).toBeDefined()
+      link!.activate?.(new MouseEvent('click', { ctrlKey: true }), link!.text)
+      await vi.waitFor(() => {
+        expect(docOverlayViews()).toHaveLength(1)
+      })
+      const [view] = docOverlayViews()
+      // 读取跟随登录用户：会话以 fenghuiyu 连接，终端里 su 到 test —— ~/test
+      // 的 ~ 形态提示符 cwd 属于 test，登录用户解释不了，弃用退回登录 home
+      // 归并（stat 全未命中取首选候选）。文件实际在 /home/test/test，读不到
+      // 是显式报错而非追错身份 —— 换身份读取请直连目标环境（独立会话）
+      expect(view.payload.path).toBe('/home/fenghuiyu/RELEASE_NOTES_v1.0.6.md')
+      expect(view.payload.loadError).toBe('No such file')
+    } finally {
+      t.dispose()
+    }
+  })
+
+  it('用户实际场景五：绝对路径输出行（`ls /tmp/x.md` 的输出）→ 透传直读', async () => {
+    const t = new Terminal({ cols: 200, rows: 10 })
+    try {
+      await writeAndDrain(t, 'test@docker-IPS:~$ ls /tmp/RELEASE_NOTES_v1.0.6.md\r\n/tmp/RELEASE_NOTES_v1.0.6.md\r\n')
+      const provider = createDocLinkProvider(t, 'sess-ssh')
+      // 点第 2 行输出里的绝对路径（1-based：1=命令行 2=输出）
+      const links = await new Promise<ILink[]>(resolve => provider.provideLinks(2, ls => resolve(ls ?? [])))
+      const link = links.find(l => l.text === '/tmp/RELEASE_NOTES_v1.0.6.md')
+      expect(link).toBeDefined()
+      link!.activate?.(new MouseEvent('click', { ctrlKey: true }), link!.text)
+      await vi.waitFor(() => {
+        expect(docOverlayViews()).toHaveLength(1)
+      })
+      const [view] = docOverlayViews()
+      // 绝对路径无 cwd 参与，原样透传去读
+      expect(view.payload.path).toBe('/tmp/RELEASE_NOTES_v1.0.6.md')
+      expect(view.payload.content).toBe('# v1.0.6')
+      expect(view.payload.loadError).toBeUndefined()
+    } finally {
+      t.dispose()
+    }
+  })
+
+  it('用户实际场景六：root 提示符（绝对 cwd）+ `ls 相对目录` → cwd × ls 目录拼接', async () => {
+    const t = new Terminal({ cols: 200, rows: 10 })
+    try {
+      await writeAndDrain(t, 'root@docker-IPS:/home/test# ls test\r\nRELEASE_NOTES_v1.0.6.md\r\n')
+      const provider = createDocLinkProvider(t, 'sess-ssh')
+      // 点第 2 行输出里的裸文件名（1-based：1=命令行 2=输出）
+      const links = await new Promise<ILink[]>(resolve => provider.provideLinks(2, ls => resolve(ls ?? [])))
+      const link = links.find(l => l.text === 'RELEASE_NOTES_v1.0.6.md')
+      expect(link).toBeDefined()
+      link!.activate?.(new MouseEvent('click', { ctrlKey: true }), link!.text)
+      await vi.waitFor(() => {
+        expect(docOverlayViews()).toHaveLength(1)
+      })
+      const [view] = docOverlayViews()
+      // 路径解析：提示符 cwd /home/test（绝对形态）× ls 参数 test。
+      // 提示符用户 root ≠ 会话用户 fenghuiyu 只影响读权限，不影响路径候选
+      // （cwd 是绝对的，不经过 ~ 展开那套逻辑）
+      expect(view.payload.path).toBe('/home/test/test/RELEASE_NOTES_v1.0.6.md')
+      expect(view.payload.loadError).toBeUndefined()
+    } finally {
+      t.dispose()
+    }
+  })
+
+  it('用户实际场景四：`ls foo.md`（参数即文件本身）→ 裸名按提示符 cwd 归并，不拼 foo.md/foo.md', async () => {
+    const t = new Terminal({ cols: 200, rows: 10 })
+    try {
+      await writeAndDrain(t, 'test@docker-IPS:/tmp$ ls RELEASE_NOTES_v1.0.6.md\r\nRELEASE_NOTES_v1.0.6.md\r\n')
+      const provider = createDocLinkProvider(t, 'sess-ssh')
+      // 点第 2 行输出里的裸文件名（1-based：1=命令行 2=输出）
+      const links = await new Promise<ILink[]>(resolve => provider.provideLinks(2, ls => resolve(ls ?? [])))
+      const link = links.find(l => l.text === 'RELEASE_NOTES_v1.0.6.md')
+      expect(link).toBeDefined()
+      link!.activate?.(new MouseEvent('click', { ctrlKey: true }), link!.text)
+      await vi.waitFor(() => {
+        expect(docOverlayViews()).toHaveLength(1)
+      })
+      const [view] = docOverlayViews()
+      // 修复点：ls 的文件参数不再被当目录拼出
+      // /tmp/RELEASE_NOTES_v1.0.6.md/RELEASE_NOTES_v1.0.6.md，直接 /tmp + 裸名
+      expect(view.payload.path).toBe('/tmp/RELEASE_NOTES_v1.0.6.md')
+      expect(view.payload.loadError).toBeUndefined()
+    } finally {
+      t.dispose()
+    }
+  })
+
+  it('无从落定（filePwd 失败且无提示符行）：以原相对路径开错误页签而非静默无反应', async () => {
+    const w = window as unknown as { electronAPI: unknown }
+    w.electronAPI = {
+      filePwd: () => Promise.resolve({ success: false, error: 'no connector' }),
+      fileStat: () => Promise.resolve({ success: false }),
+      fileReadDoc: () => Promise.resolve({ success: false, error: 'SFTP 会话不可用' })
+    }
+    const t = new Terminal({ cols: 200, rows: 10 })
+    try {
+      await writeAndDrain(t, 'RELEASE_NOTES_v1.0.6.md\r\n')
+      const provider = createDocLinkProvider(t, 'sess-ssh')
+      const links = await new Promise<ILink[]>(resolve => provider.provideLinks(1, ls => resolve(ls ?? [])))
+      const link = links.find(l => l.text === 'RELEASE_NOTES_v1.0.6.md')
+      expect(link).toBeDefined()
+      link!.activate?.(new MouseEvent('click', { ctrlKey: true }), link!.text)
+      // 修复点：不再静默无反应 —— 错误页签展示原路径与显式报错，可排查
+      await vi.waitFor(() => {
+        expect(docOverlayViews()).toHaveLength(1)
+      })
+      const [view] = docOverlayViews()
+      expect(view.payload.path).toBe('RELEASE_NOTES_v1.0.6.md')
+      expect(view.payload.loadError).toBe('SFTP 会话不可用')
     } finally {
       t.dispose()
     }
