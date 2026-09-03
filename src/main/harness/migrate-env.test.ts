@@ -101,6 +101,47 @@ describe('resolveWorkspaceEnv', () => {
     rt.envRepository.setActiveProfile('codex', a.id)
     expect(resolveWorkspaceEnv(rt, ws)).toEqual({ K: 'a' })
   })
+
+  it('结构化核心按 kind 映射注入：baseUrl/apiKey 物化成该 kind 的变量名，附加变量透传', () => {
+    const rt = makeRuntime() // kind: codex
+    const p = rt.envRepository.add({
+      name: 'glm', baseUrl: 'https://1.1.1.3:8443/v1', apiKey: 'sk-x', env: { CODEX_HOME: 'C:/x', NO_PROXY: 'h' }
+    })!
+    rt.envRepository.setActiveProfile('codex', p.id)
+    const ws = rt.repository.add({ name: 'w', cwd: '/w' })!
+    expect(resolveWorkspaceEnv(rt, ws)).toEqual({
+      CODEX_HOME: 'C:/x',
+      NO_PROXY: 'h',
+      OPENAI_BASE_URL: 'https://1.1.1.3:8443/v1',
+      OPENAI_API_KEY: 'sk-x'
+    })
+  })
+
+  it('核心覆盖附加变量里的同名键（结构化是权威来源）', () => {
+    const rt = makeRuntime()
+    // 附加变量里手滑写了同协议的键 —— 物化时核心赢
+    const p = rt.envRepository.add({ name: 'A', baseUrl: 'https://core', env: { OPENAI_BASE_URL: 'https://stale' } })!
+    rt.envRepository.setActiveProfile('codex', p.id)
+    const ws = rt.repository.add({ name: 'w', cwd: '/w' })!
+    expect(resolveWorkspaceEnv(rt, ws)).toEqual({ OPENAI_BASE_URL: 'https://core' })
+  })
+
+  it('同一组喂不同 kind 变量名跟着 kind 走（dsh 与 claude 各得其所）', () => {
+    const make = (kind: 'dsh' | 'claude'): HarnessAgentRuntime =>
+      ({ kind, repository: new HarnessWorkspaceRepository(wsFile), envRepository: new EnvProfileRepository(envFile) }) as unknown as HarnessAgentRuntime
+    const dsh = make('dsh')
+    const p = dsh.envRepository.add({ name: 'A', baseUrl: 'https://u', apiKey: 'k', env: {} })!
+    dsh.envRepository.setActiveProfile('dsh', p.id)
+    const wsD = dsh.repository.add({ name: 'w', cwd: '/w' })!
+    expect(resolveWorkspaceEnv(dsh, wsD)).toEqual({ DEEPSEEK_BASE_URL: 'https://u', DEEPSEEK_API_KEY: 'k' })
+
+    // claude 读同一份库（独立文件名不同实例,种子同一条组）,映射出 ANTHROPIC_*
+    const claude = make('claude')
+    const p2 = claude.envRepository.add({ name: 'A', baseUrl: 'https://u', apiKey: 'k', env: {} })!
+    claude.envRepository.setActiveProfile('claude', p2.id)
+    const wsC = claude.repository.add({ name: 'w', cwd: '/w' })!
+    expect(resolveWorkspaceEnv(claude, wsC)).toEqual({ ANTHROPIC_BASE_URL: 'https://u', ANTHROPIC_AUTH_TOKEN: 'k' })
+  })
 })
 
 describe('migrateInlineEnvToProfiles', () => {
@@ -112,12 +153,14 @@ describe('migrateInlineEnvToProfiles', () => {
     const profiles = rt.envRepository.getAll()
     expect(profiles.length).toBe(1)
     expect(profiles[0].name).toBe('proj')
-    expect(profiles[0].env).toEqual({ OPENAI_API_KEY: 'sk-1' })
+    // 凭据直接提进结构化核心（codex 协议命中），附加变量为空
+    expect(profiles[0].apiKey).toBe('sk-1')
+    expect(profiles[0].env).toEqual({})
 
     const ws = rt.repository.get('w1')!
     expect(ws.envProfileId).toBe(profiles[0].id)
     expect(ws.env).toBeUndefined()
-    // 行为不变：迁移前后解析出的环境变量一致
+    // 行为不变：迁移前后解析出的环境变量一致（codex 映射物化）
     expect(resolveWorkspaceEnv(rt, ws)).toEqual({ OPENAI_API_KEY: 'sk-1' })
   })
 

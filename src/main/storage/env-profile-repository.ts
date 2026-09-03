@@ -4,7 +4,7 @@ import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 import { getConfigDir } from './repository'
 import { normalizeEnv } from './harness-workspace-repository'
-import { HARNESS_AGENT_KINDS, type HarnessAgentKind, type HarnessEnvProfile } from '@shared/harness'
+import { HARNESS_AGENT_KINDS, liftStructuredFields, type HarnessAgentKind, type HarnessEnvProfile } from '@shared/harness'
 
 /**
  * 全局环境变量组存储 —— dsh / codex / claude 三个 harness kind 与通用 Agent 共用一份库
@@ -45,8 +45,12 @@ function normalizeModels(raw: unknown): string[] | undefined {
 
 /**
  * 归一化单条 profile JSON 记录：非法记录返回 null（由 load 过滤）。
- * env 走与工作区同一份 normalizeEnv（空 key / NUL / 非字符串一律丢弃），
- * 归一化后为空的变量组按非法处理 —— 零变量的组没有意义，留着只会在 UI 里当噪声。
+ * 结构化核心（baseUrl/apiKey）按非空字符串解析，trim 后为空按缺省处理；
+ * env（附加变量）走与工作区同一份 normalizeEnv（空 key / NUL / 非字符串一律丢弃），
+ * 但允许归一化为空 —— 核心两字段任一存在即合法（纯附加变量或纯凭据的组都有意义）。
+ * 旧扁平格式（凭据直接写在 env 里）在此防御性提升回结构化核心：迁移只跑一次且
+ * 可能在本仓库加载后才落盘，这一级保证未迁移文件的行为也正确（与 resolveWorkspaceEnv
+ * 的 legacy 分支同纪律）。
  * 导出供 migrate-profiles.ts 解析旧 per-kind 文件的记录（旧记录多一个 active 字段，单独读）。
  */
 export function normalizeProfile(raw: unknown): HarnessEnvProfile | null {
@@ -55,8 +59,22 @@ export function normalizeProfile(raw: unknown): HarnessEnvProfile | null {
   if (typeof p.id !== 'string' || p.id.length === 0) return null
   if (typeof p.name !== 'string' || p.name.length === 0) return null
   if (typeof p.order !== 'number' || !Number.isFinite(p.order)) return null
-  const env = normalizeEnv(p.env)
-  if (env === undefined) return null
+  const baseUrlRaw = typeof p.baseUrl === 'string' ? p.baseUrl.trim() : ''
+  const apiKeyRaw = typeof p.apiKey === 'string' ? p.apiKey.trim() : ''
+  // 附加变量允许为空记录；undefined（键缺失/非对象）与 {} 等价处理
+  const env = normalizeEnv(p.env) ?? {}
+  // 旧扁平记录防御性提升：核心字段缺省但 env 里有已知协议键 → 提回结构化
+  let baseUrl = baseUrlRaw || undefined
+  let apiKey = apiKeyRaw || undefined
+  if (baseUrl === undefined && apiKey === undefined) {
+    const lifted = liftStructuredFields(env)
+    baseUrl = lifted.baseUrl
+    apiKey = lifted.apiKey
+    // 提升后 env 换成剩余附加变量
+    Object.keys(env).forEach((k) => delete env[k])
+    Object.assign(env, lifted.env)
+  }
+  if (baseUrl === undefined && apiKey === undefined && Object.keys(env).length === 0) return null
   // note 非字符串按缺失处理（不因备注脏数据丢整条记录）
   const note = typeof p.note === 'string' && p.note.length > 0 ? p.note : undefined
   const models = normalizeModels(p.models)
@@ -65,6 +83,8 @@ export function normalizeProfile(raw: unknown): HarnessEnvProfile | null {
     name: p.name,
     order: p.order,
     env,
+    ...(baseUrl !== undefined ? { baseUrl } : {}),
+    ...(apiKey !== undefined ? { apiKey } : {}),
     ...(note !== undefined ? { note } : {}),
     ...(models !== undefined ? { models } : {})
   }

@@ -15,6 +15,9 @@ vi.mock('electron', () => ({
 // 其内存态在首次 load 后不再读盘。每个用例 vi.resetModules() 后动态 import 取新单例，
 // 否则上一用例并入的组会泄漏进下一用例的内存态。
 // 旧文件名（dsh/codex/claude-env-profiles.json）由生产代码拼出，本文件独占（其他测试不用）。
+// liftStructuredFields 是 @shared 纯函数，静态 import 不受 resetModules 影响。
+
+import { liftStructuredFields } from '@shared/harness'
 
 const configDir = join(tmpdir(), 'config')
 const globalPath = join(configDir, 'env-profiles.json')
@@ -25,7 +28,7 @@ const oldPaths = {
 } as const
 
 interface GlobalFile {
-  profiles: Array<{ id: string; name: string; order: number; env: Record<string, string> }>
+  profiles: Array<{ id: string; name: string; order: number; env: Record<string, string>; baseUrl?: string; apiKey?: string }>
   activeByKind: Record<string, string>
 }
 
@@ -47,6 +50,7 @@ async function runMigration(): Promise<void> {
 function cleanFiles(): void {
   mkdirSync(configDir, { recursive: true })
   rmSync(globalPath, { force: true })
+  rmSync(`${globalPath}.bak`, { force: true })
   for (const p of Object.values(oldPaths)) {
     rmSync(p, { force: true })
     rmSync(`${p}.bak`, { force: true })
@@ -81,8 +85,13 @@ describe('migrateKindEnvProfilesToGlobal', () => {
     // 按 kind 处理顺序（dsh → codex → claude）追加，order 全局重排
     expect(g.profiles.map((p) => p.id)).toEqual(['d1', 'd2', 'c1', 'l1'])
     expect(g.profiles.map((p) => p.order)).toEqual([0, 1, 2, 3])
-    // env 内容保真
-    expect(g.profiles.find((p) => p.id === 'c1')?.env).toEqual({ OPENAI_API_KEY: 'sk' })
+    // env 内容保真：codex 记录里的 OPENAI_API_KEY 是已知协议键，
+    // 并入时经 normalizeProfile 防御分支提升成结构化核心
+    const c1 = g.profiles.find((p) => p.id === 'c1')!
+    expect(c1.apiKey).toBe('sk')
+    expect(c1.env).toEqual({})
+    // dsh 记录无协议键，env 原样保留
+    expect(g.profiles.find((p) => p.id === 'd1')?.env).toEqual({ DSH_HOME: '/d' })
     // dsh/claude 各有 active 条目 → 指针迁入；codex 无 active → 无指针（回落系统环境变量）
     expect(g.activeByKind).toEqual({ dsh: 'd1', claude: 'l1' })
     // 旧文件改名保留（不删，可回滚）
@@ -183,5 +192,145 @@ describe('migrateKindEnvProfilesToGlobal', () => {
       expect(existsSync(p)).toBe(false)
       expect(existsSync(`${p}.bak`)).toBe(false)
     }
+  })
+})
+
+describe('liftStructuredFields（协议键提升纯函数）', () => {
+  it('单协议命中：该协议的凭据对提走，其余键留在附加变量', () => {
+    const lifted = liftStructuredFields({
+      OPENAI_BASE_URL: 'https://1.1.1.3:8443/v1',
+      OPENAI_API_KEY: 'sk-1',
+      CODEX_HOME: 'C:/x'
+    })
+    expect(lifted.baseUrl).toBe('https://1.1.1.3:8443/v1')
+    expect(lifted.apiKey).toBe('sk-1')
+    expect(lifted.env).toEqual({ CODEX_HOME: 'C:/x' })
+  })
+
+  it('单边命中也算命中：只有 key 没有 url 时照样提走那一维', () => {
+    const lifted = liftStructuredFields({ ANTHROPIC_AUTH_TOKEN: 't', CLAUDE_CONFIG_DIR: 'C:/c' })
+    expect(lifted.baseUrl).toBeUndefined()
+    expect(lifted.apiKey).toBe('t')
+    expect(lifted.env).toEqual({ CLAUDE_CONFIG_DIR: 'C:/c' })
+  })
+
+  it('多协议并存：按 HARNESS_AGENT_KINDS 顺序取首个命中的协议，其余协议键留在附加变量', () => {
+    const lifted = liftStructuredFields({
+      DEEPSEEK_API_KEY: 'd-key',
+      OPENAI_API_KEY: 'o-key',
+      ANTHROPIC_BASE_URL: 'https://a'
+    })
+    // dsh 排最前，只认 DEEPSEEK_API_KEY；codex / claude 的键不抢、也不丢
+    expect(lifted.apiKey).toBe('d-key')
+    expect(lifted.baseUrl).toBeUndefined()
+    expect(lifted.env).toEqual({ OPENAI_API_KEY: 'o-key', ANTHROPIC_BASE_URL: 'https://a' })
+  })
+
+  it('无命中原样返回：核心两字段 undefined，env 逐键拷贝不共享引用', () => {
+    const source = { K: 'v', CODEX_HOME: 'C:/x' }
+    const lifted = liftStructuredFields(source)
+    expect(lifted.baseUrl).toBeUndefined()
+    expect(lifted.apiKey).toBeUndefined()
+    expect(lifted.env).toEqual(source)
+    expect(lifted.env).not.toBe(source)
+  })
+})
+
+describe('migrateProfilesToStructured', () => {
+  /** 结构化迁移不碰单例内存态（直接读写文件），无需 resetModules 也能重入 */
+  async function runStructuredMigration(): Promise<void> {
+    const mod = await import('./migrate-profiles')
+    mod.migrateProfilesToStructured()
+  }
+
+  it('旧扁平组提升为结构化核心：协议键提走、附加变量保留、activeByKind 原样、.bak 备份提升前内容', async () => {
+    writeFileSync(globalPath, JSON.stringify({
+      profiles: [
+        {
+          id: 'glm', name: 'glm', order: 0,
+          env: { OPENAI_BASE_URL: 'https://1.1.1.3:8443/v1', OPENAI_API_KEY: 'sk-1', CODEX_HOME: 'C:/x', NO_PROXY: 'h' }
+        },
+        { id: 'plain', name: 'plain', order: 1, env: { K: 'v' } }
+      ],
+      activeByKind: { codex: 'glm' }
+    }), 'utf-8')
+
+    await runStructuredMigration()
+
+    const g = readGlobal()
+    const glm = g.profiles.find((p) => p.id === 'glm')!
+    expect(glm.baseUrl).toBe('https://1.1.1.3:8443/v1')
+    expect(glm.apiKey).toBe('sk-1')
+    expect(glm.env).toEqual({ CODEX_HOME: 'C:/x', NO_PROXY: 'h' })
+    // 无协议键的组不动
+    const plain = g.profiles.find((p) => p.id === 'plain')!
+    expect(plain.baseUrl).toBeUndefined()
+    expect(plain.env).toEqual({ K: 'v' })
+    expect(g.activeByKind).toEqual({ codex: 'glm' })
+    // 备份是提升前的原始内容（凭据还在 env 里）
+    expect(existsSync(`${globalPath}.bak`)).toBe(true)
+    const bak = JSON.parse(readFileSync(`${globalPath}.bak`, 'utf-8'))
+    expect(bak.profiles[0].env).toHaveProperty('OPENAI_API_KEY', 'sk-1')
+    expect(bak.profiles[0].baseUrl).toBeUndefined()
+  })
+
+  it('幂等：二跑不再改动文件、不覆盖既有备份', async () => {
+    writeFileSync(globalPath, JSON.stringify({
+      profiles: [
+        { id: 'a', name: 'a', order: 0, env: { DEEPSEEK_BASE_URL: 'https://u', DEEPSEEK_API_KEY: 'k' } }
+      ],
+      activeByKind: { dsh: 'a' }
+    }), 'utf-8')
+
+    await runStructuredMigration()
+    const afterFirst = readFileSync(globalPath, 'utf-8')
+    const bakAfterFirst = readFileSync(`${globalPath}.bak`, 'utf-8')
+
+    // 提升后 env 里不再有已知协议键 → 二跑全 no-op
+    await runStructuredMigration()
+
+    expect(readFileSync(globalPath, 'utf-8')).toBe(afterFirst)
+    expect(readFileSync(`${globalPath}.bak`, 'utf-8')).toBe(bakAfterFirst)
+  })
+
+  it('已有结构化核心的组跳过：不改动文件、不建 .bak', async () => {
+    const structured = {
+      profiles: [
+        { id: 'a', name: 'a', order: 0, baseUrl: 'https://u', apiKey: 'sk', env: { CODEX_HOME: 'C:/x' } }
+      ],
+      activeByKind: { codex: 'a' }
+    }
+    const raw = JSON.stringify(structured)
+    writeFileSync(globalPath, raw, 'utf-8')
+
+    await runStructuredMigration()
+
+    expect(readFileSync(globalPath, 'utf-8')).toBe(raw)
+    expect(existsSync(`${globalPath}.bak`)).toBe(false)
+  })
+
+  it('全局库文件缺失时纯 no-op：不抛出、不建文件', async () => {
+    await runStructuredMigration()
+    expect(existsSync(globalPath)).toBe(false)
+    expect(existsSync(`${globalPath}.bak`)).toBe(false)
+  })
+
+  it('与旧 per-kind 并入链路衔接：并入时 normalizeProfile 已防御提升，结构化迁移无事可做', async () => {
+    // handlers.ts 里 migrateKindEnvProfilesToGlobal 之后紧跟 migrateProfilesToStructured
+    seedOld('codex', JSON.stringify([
+      { id: 'c1', name: 'c', order: 0, env: { OPENAI_BASE_URL: 'https://u', OPENAI_API_KEY: 'sk', CODEX_HOME: 'C:/x' } }
+    ]))
+
+    const mod = await import('./migrate-profiles')
+    mod.migrateKindEnvProfilesToGlobal()
+    mod.migrateProfilesToStructured()
+
+    const g = readGlobal()
+    const c1 = g.profiles.find((p) => p.id === 'c1')!
+    // 并入路径经 normalizeProfile 防御分支已是结构化，第二轮迁移零改动
+    expect(c1.baseUrl).toBe('https://u')
+    expect(c1.apiKey).toBe('sk')
+    expect(c1.env).toEqual({ CODEX_HOME: 'C:/x' })
+    expect(existsSync(`${globalPath}.bak`)).toBe(false)
   })
 })

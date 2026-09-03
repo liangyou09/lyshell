@@ -3,6 +3,7 @@ import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import {
   HARNESS_AGENT_KINDS,
+  HARNESS_ENV_KEY_MAP,
   type EnvProfileLibraryResult,
   type HarnessAgentKind,
   type HarnessEnvDefault,
@@ -44,6 +45,66 @@ const IconCopy: React.FC = () => (
   </svg>
 )
 
+/** 卡片 meta 用的上游地址摘要:取 URL 的 host(:port),解析失败回落原文截断显示 */
+const baseUrlHost = (baseUrl: string): string => {
+  try {
+    return new URL(baseUrl).host
+  } catch {
+    return baseUrl.length > 40 ? `${baseUrl.slice(0, 40)}…` : baseUrl
+  }
+}
+
+/** 明文查看敏感值的眼睛(与 EnvRowsEditor 同款字形) */
+const IconEye: React.FC = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" />
+    <circle cx="8" cy="8" r="2" />
+  </svg>
+)
+const IconEyeOff: React.FC = () => (
+  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M2.6 5.1C1.7 6.2 1.5 8 1.5 8s2.5 4.5 6.5 4.5c1.2 0 2.2-.3 3-.8M6.7 3.7c.4-.1.8-.2 1.3-.2 4 0 6.5 4.5 6.5 4.5s-.6 1.1-1.6 2.1" />
+    <path d="M2.5 13.5l11-11" />
+  </svg>
+)
+
+/** 单字段敏感输入(API Key 专用):默认打码,眼睛切换明文 —— 掩码手法与 EnvRowsEditor
+ *  一致(-webkit-text-security:disc,不用 type=password 免去 Chromium 自带小眼睛) */
+interface SecretInputProps {
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  showTitle: string
+  hideTitle: string
+}
+const SecretInput: React.FC<SecretInputProps> = ({ value, onChange, placeholder, showTitle, hideTitle }) => {
+  const [visible, setVisible] = useState(false)
+  return (
+    <div className="flex items-stretch gap-1">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        spellCheck={false}
+        autoComplete="off"
+        className={cn(
+          'flex-1 min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]',
+          !visible && '[-webkit-text-security:disc]'
+        )}
+      />
+      <button
+        type="button"
+        onClick={() => setVisible((v) => !v)}
+        title={visible ? hideTitle : showTitle}
+        className="flex-shrink-0 w-[30px] inline-flex items-center justify-center bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:border-[var(--text-rack-faint)] transition-colors"
+      >
+        {visible ? <IconEyeOff /> : <IconEye />}
+      </button>
+    </div>
+  )
+}
+
 /** 各 kind 推荐变量的拉取（主进程解析后的真实路径覆盖 shared 里的兜底值） */
 const DEFAULTS_LOADERS: Record<HarnessAgentKind, () => Promise<HarnessEnvDefault[] | undefined>> = {
   dsh: () => window.electronAPI?.getDshEnvDefaults(),
@@ -82,6 +143,10 @@ const EnvProfilePanel: React.FC = () => {
   const [editProfile, setEditProfile] = useState<HarnessEnvProfile | undefined>(undefined)
   const [profileName, setProfileName] = useState('')
   const [profileNote, setProfileNote] = useState('')
+  // 结构化核心:上游地址 + 凭据(凭据输入框自带打码/明文切换)
+  const [profileBaseUrl, setProfileBaseUrl] = useState('')
+  const [profileApiKey, setProfileApiKey] = useState('')
+  // 附加变量:核心放不下的其余配置(CODEX_HOME 等)
   const [profileEnv, setProfileEnv] = useState<EnvRow[]>([])
   const [profileModels, setProfileModels] = useState<string[]>([])
   const [triedSubmit, setTriedSubmit] = useState(false)
@@ -168,9 +233,15 @@ const EnvProfilePanel: React.FC = () => {
   const removeModelRow = (i: number) =>
     setProfileModels((prev) => prev.filter((_, idx) => idx !== i))
 
-  // 当前 env 行里尚缺的某 kind 推荐变量（按 key 名精确匹配）
+  // 当前附加变量行里尚缺的某 kind 推荐变量 —— 结构化核心键(HARNESS_ENV_KEY_MAP 涉及的
+  // baseUrl/apiKey 变量名)一律排除:那两个维度由上方专用输入框承载,不该再以附加变量出现
+  const CORE_ENV_KEYS = new Set(
+    HARNESS_AGENT_KINDS.flatMap((k) => [HARNESS_ENV_KEY_MAP[k].baseUrlKey, HARNESS_ENV_KEY_MAP[k].apiKeyKey])
+  )
   const missingFor = (kind: HarnessAgentKind): HarnessEnvDefault[] =>
-    (defaultsByKind[kind] ?? []).filter((d) => !profileEnv.some((row) => row.key.trim() === d.key))
+    (defaultsByKind[kind] ?? []).filter(
+      (d) => !CORE_ENV_KEYS.has(d.key) && !profileEnv.some((row) => row.key.trim() === d.key)
+    )
   // 一键补全该 kind 缺失的推荐变量（保留已有行，仅追加缺失项）
   const fillFromDefaults = (kind: HarnessAgentKind) => {
     setProfileEnv((prev) => [
@@ -189,8 +260,10 @@ const EnvProfilePanel: React.FC = () => {
     setEditProfile(undefined)
     setProfileName('')
     setProfileNote('')
-    // 不预填任何 kind 的默认变量 —— 组是跨 kind 全局的，该配哪家的 key 由下方
-    // 模板开关（+ dsh / + codex / + claude）按需一键补全
+    setProfileBaseUrl('')
+    setProfileApiKey('')
+    // 不预填任何 kind 的默认变量 —— 组是跨 kind 全局的，该补哪家配置由下方
+    // 模板开关（+ codex / + claude）按需一键补全
     setProfileEnv([])
     setProfileModels([])
     resetDialog()
@@ -201,6 +274,8 @@ const EnvProfilePanel: React.FC = () => {
     setEditProfile(p)
     setProfileName(p.name)
     setProfileNote(p.note || '')
+    setProfileBaseUrl(p.baseUrl || '')
+    setProfileApiKey(p.apiKey || '')
     setProfileEnv(Object.entries(p.env).map(([key, value]) => ({ key, value })))
     setProfileModels(p.models ? [...p.models] : [])
     resetDialog()
@@ -215,6 +290,8 @@ const EnvProfilePanel: React.FC = () => {
     setEditProfile(undefined)
     setProfileName(`${p.name}${t('env.copySuffix')}`)
     setProfileNote(p.note || '')
+    setProfileBaseUrl(p.baseUrl || '')
+    setProfileApiKey(p.apiKey || '')
     setProfileEnv(Object.entries(p.env).map(([key, value]) => ({ key, value })))
     setProfileModels(p.models ? [...p.models] : [])
     resetDialog()
@@ -231,7 +308,12 @@ const EnvProfilePanel: React.FC = () => {
     return env
   }
   const profilePayloadEnv = collapseEnv(profileEnv)
-  const profileValid = profileName.trim().length > 0 && Object.keys(profilePayloadEnv).length > 0
+  const profileBaseUrlTrimmed = profileBaseUrl.trim()
+  const profileApiKeyTrimmed = profileApiKey.trim()
+  // 有效 = 名称非空 + 三者至少其一(上游地址 / 凭据 / 附加变量)
+  const profileValid =
+    profileName.trim().length > 0 &&
+    (profileBaseUrlTrimmed.length > 0 || profileApiKeyTrimmed.length > 0 || Object.keys(profilePayloadEnv).length > 0)
 
   const handleSave = async () => {
     if (!profileValid) { setTriedSubmit(true); return }
@@ -240,11 +322,15 @@ const EnvProfilePanel: React.FC = () => {
     // note/models 传 undefined 即清空（主进程 `if (safe.x !== undefined)` 不写这个键，
     // 记录整条替换后旧值即消失）—— 与工作区/变量组对话框同一套语义
     const note = profileNote.trim() || undefined
+    // 核心两字段:trim 后为空传 undefined(主进程「非 undefined 即写入」的整条替换语义下
+    // 即清空);apiKey 不 trim 值本体以外无从校验,与 baseUrl 同样按 trim 判空
+    const baseUrlPayload = profileBaseUrlTrimmed || undefined
+    const apiKeyPayload = profileApiKeyTrimmed || undefined
     const models = [...new Set(profileModels.map((m) => m.trim()).filter((m) => m.length > 0))]
     const modelsPayload = models.length > 0 ? models : undefined
     const res = editProfile
-      ? await window.electronAPI?.updateEnvProfile({ ...editProfile, name, note, env: profilePayloadEnv, models: modelsPayload })
-      : await window.electronAPI?.addEnvProfile({ name, note, env: profilePayloadEnv, models: modelsPayload })
+      ? await window.electronAPI?.updateEnvProfile({ ...editProfile, name, note, baseUrl: baseUrlPayload, apiKey: apiKeyPayload, env: profilePayloadEnv, models: modelsPayload })
+      : await window.electronAPI?.addEnvProfile({ name, note, baseUrl: baseUrlPayload, apiKey: apiKeyPayload, env: profilePayloadEnv, models: modelsPayload })
     if (res && res.success === false) {
       setSaveError(typeof res.error === 'string' ? res.error : t('env.saveFailed'))
       return
@@ -383,10 +469,14 @@ const EnvProfilePanel: React.FC = () => {
                   </div>
                 </div>
 
-                {/* 行 2：变量数 · 备注（与 HarnessPanel 变量组行同款 meta） */}
+                {/* 行 2：上游地址 host · 凭据指示 · 附加变量数 · 备注 —— 结构化核心的读数面 */}
                 <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">
-                  {t('env.vars', { count: Object.keys(p.env).length })}
-                  {p.note && <span className="text-[var(--text-rack-mute)]"> · {p.note}</span>}
+                  {[
+                    p.baseUrl ? baseUrlHost(p.baseUrl) : null,
+                    p.apiKey ? t('env.keyPresent') : null,
+                    Object.keys(p.env).length > 0 ? t('env.vars', { count: Object.keys(p.env).length }) : null,
+                    p.note || null
+                  ].filter(Boolean).join(' · ')}
                 </span>
 
                 {/* 行 3：per-kind 分接开关（本面板的签名元素）+ 引用回读。
@@ -486,13 +576,45 @@ const EnvProfilePanel: React.FC = () => {
               />
             </div>
 
-            {/* 变量键值表 + 各 kind 模板开关。
-                组是跨 kind 全局的，不预填默认值；哪家缺哪家用开关一键补全
-                （title 列出会补进的 key，避免盲按） */}
+            {/* Base URL —— 结构化核心之一:协议无关的上游地址,启动时按消费方映射
+                注入具体变量名(hint 一行列出三家映射,变量名跟着 agent 走不用记) */}
+            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+              <div className="mb-2">
+                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t('env.baseUrl')}</span>
+                <div className="mt-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t('env.baseUrlHint')}</div>
+              </div>
+              <input
+                type="text"
+                value={profileBaseUrl}
+                onChange={(e) => { setProfileBaseUrl(e.target.value); if (triedSubmit) setTriedSubmit(false) }}
+                placeholder={t('env.baseUrlPh')}
+                spellCheck={false}
+                className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
+              />
+            </div>
+
+            {/* API Key —— 结构化核心之二:凭据。默认打码,眼睛切换明文 */}
+            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+              <div className="mb-2">
+                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t('env.apiKey')}</span>
+                <div className="mt-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t('env.apiKeyHint')}</div>
+              </div>
+              <SecretInput
+                value={profileApiKey}
+                onChange={(v) => { setProfileApiKey(v); if (triedSubmit) setTriedSubmit(false) }}
+                placeholder={t('env.apiKeyPh')}
+                showTitle={t('env.showValue')}
+                hideTitle={t('env.hideValue')}
+              />
+            </div>
+
+            {/* 附加变量 + 各 kind 模板开关。
+                核心两字段放不下的其余配置(CODEX_HOME 等)在这里;核心键已被排除,
+                开关只补真正属于附加层的推荐项(title 列出会补进的 key,避免盲按) */}
             <div className="py-3.5 px-4 border-b border-[var(--rule)]">
               <div className="mb-2">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t('env.env')}</span>
+                  <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t('env.extras')}</span>
                   <span className="flex-1" />
                   {HARNESS_AGENT_KINDS.map((kind) => {
                     const missing = missingFor(kind)
@@ -509,7 +631,7 @@ const EnvProfilePanel: React.FC = () => {
                     )
                   })}
                 </div>
-                <div className="mt-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t('env.envHint')}</div>
+                <div className="mt-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t('env.extrasHint')}</div>
               </div>
               <EnvRowsEditor
                 value={profileEnv}

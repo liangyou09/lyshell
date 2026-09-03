@@ -33,6 +33,8 @@ interface AgentConfig {
   cwd?: string
   env?: Record<string, string>
   envProfileId?: string
+  /** 绑定变量组时结构化核心(baseUrl/apiKey)的注入变量名(见主进程 AgentConfig) */
+  envKeyMap?: { baseUrl?: string; apiKey?: string }
   order: number
 }
 
@@ -144,6 +146,10 @@ const AgentsPanel: React.FC = () => {
   const [agentEnv, setAgentEnv] = useState<{ key: string; value: string }[]>([])
   // 绑定的全局变量组 id(null = 不绑定,回落内联 env → 系统环境变量)
   const [agentEnvProfileId, setAgentEnvProfileId] = useState<string | null>(null)
+  // 绑定变量组时结构化核心(baseUrl/apiKey)的注入变量名 —— 命令读哪些变量名只有
+  // agent 作者知道,故映射跟 agent 走(空 = 不注入该维度,绑定的组只透传附加变量)
+  const [agentEnvKeyMapBaseUrl, setAgentEnvKeyMapBaseUrl] = useState('')
+  const [agentEnvKeyMapApiKey, setAgentEnvKeyMapApiKey] = useState('')
   // 全局变量组列表(绑定下拉用;拉失败不阻断编辑 —— 下拉只有「不绑定」一项)
   const [envProfiles, setEnvProfiles] = useState<{ id: string; name: string }[]>([])
   // 校验:首次提交前不报错;删除两步确认(复用 closeAll 的"再点一次"语义)
@@ -211,6 +217,7 @@ const AgentsPanel: React.FC = () => {
     setEditAgent(undefined)
     setAgentName(''); setAgentCommand(''); setAgentIcon(''); setAgentCwd('')
     setAgentEnv([]); setAgentEnvProfileId(null)
+    setAgentEnvKeyMapBaseUrl(''); setAgentEnvKeyMapApiKey('')
     setTriedSubmit(false); setConfirmDelete(false); setIconPickerOpen(false)
     setShowDialog(true)
   }
@@ -221,6 +228,8 @@ const AgentsPanel: React.FC = () => {
     setAgentIcon(agent.icon || ''); setAgentCwd(agent.cwd || '')
     setAgentEnv(agent.env ? Object.entries(agent.env).map(([key, value]) => ({ key, value })) : [])
     setAgentEnvProfileId(agent.envProfileId ?? null)
+    setAgentEnvKeyMapBaseUrl(agent.envKeyMap?.baseUrl || '')
+    setAgentEnvKeyMapApiKey(agent.envKeyMap?.apiKey || '')
     setTriedSubmit(false); setConfirmDelete(false); setIconPickerOpen(false)
     setShowDialog(true)
   }
@@ -241,6 +250,13 @@ const AgentsPanel: React.FC = () => {
     const envPayload = Object.keys(env).length > 0 ? env : undefined
     // 绑定的变量组:「键存在」语义 —— null 显式传 undefined 即取消绑定(主进程不会沿用旧值)
     const envProfileIdPayload = agentEnvProfileId ?? undefined
+    // 注入变量名:trim 后两空 = 未声明(undefined,不写键);主进程按整条替换清掉旧声明
+    const mapBaseUrl = agentEnvKeyMapBaseUrl.trim()
+    const mapApiKey = agentEnvKeyMapApiKey.trim()
+    const envKeyMapPayload =
+      mapBaseUrl || mapApiKey
+        ? { ...(mapBaseUrl ? { baseUrl: mapBaseUrl } : {}), ...(mapApiKey ? { apiKey: mapApiKey } : {}) }
+        : undefined
     if (editAgent) {
       await window.electronAPI?.updateAgent({
         ...editAgent,
@@ -249,7 +265,8 @@ const AgentsPanel: React.FC = () => {
         icon: agentIcon || undefined,
         cwd: agentCwd || undefined,
         env: envPayload,
-        envProfileId: envProfileIdPayload
+        envProfileId: envProfileIdPayload,
+        envKeyMap: envKeyMapPayload
       })
     } else {
       await window.electronAPI?.addAgent({
@@ -259,6 +276,7 @@ const AgentsPanel: React.FC = () => {
         cwd: agentCwd || undefined,
         env: envPayload,
         envProfileId: envProfileIdPayload,
+        envKeyMap: envKeyMapPayload,
         order: agents.length
       })
     }
@@ -527,6 +545,31 @@ const AgentsPanel: React.FC = () => {
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
+              {/* 注入变量名:变量组核心存的是协议无关的 baseURL/apiKey,启动时按这两个
+                  名字注入 —— 命令读哪些变量名只有 agent 作者知道,故跟 agent 走。
+                  留空 = 不注入该维度(绑定的组仍透传附加变量) */}
+              {agentEnvProfileId && (
+                <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                  <input
+                    type="text"
+                    value={agentEnvKeyMapBaseUrl}
+                    onChange={(e) => setAgentEnvKeyMapBaseUrl(e.target.value)}
+                    placeholder={t('agents.edit.mapBaseUrl')}
+                    title={t('agents.edit.mapHint')}
+                    spellCheck={false}
+                    className="w-full min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[12px] font-mono text-[var(--text-rack)] placeholder:text-[var(--text-rack-faint)] py-1 px-2 focus:outline-none focus:border-[var(--amber)]"
+                  />
+                  <input
+                    type="text"
+                    value={agentEnvKeyMapApiKey}
+                    onChange={(e) => setAgentEnvKeyMapApiKey(e.target.value)}
+                    placeholder={t('agents.edit.mapApiKey')}
+                    title={t('agents.edit.mapHint')}
+                    spellCheck={false}
+                    className="w-full min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[12px] font-mono text-[var(--text-rack)] placeholder:text-[var(--text-rack-faint)] py-1 px-2 focus:outline-none focus:border-[var(--amber)]"
+                  />
+                </div>
+              )}
             </div>
 
             {/* ENVIRONMENT -- 后端早已支持 env(注入孵化终端),此前 UI 未暴露;此处补齐 key-value 行编辑器(与 Harness 变量组共用组件,敏感值默认打码)。

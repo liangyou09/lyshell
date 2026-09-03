@@ -71,25 +71,51 @@ describe('AgentRepository.load（env 清洗）', () => {
 })
 
 describe('resolveAgentLaunchEnv（通用 Agent 启动 env 解析链）', () => {
-  const profiles: Array<{ id: string; env: Record<string, string> }> = [
-    { id: 'p1', env: { OPENAI_API_KEY: 'sk-from-profile' } },
+  // 组的形状即仓库真实记录:结构化核心(baseUrl/apiKey) + 附加变量 env
+  const profiles: Array<{ id: string; baseUrl?: string; apiKey?: string; env: Record<string, string> }> = [
+    { id: 'p1', baseUrl: 'https://1.1.1.3:8443/v1', apiKey: 'sk-from-profile', env: { CODEX_HOME: 'C:/x' } },
     { id: 'p2', env: { K: 'p2' } }
   ]
   const store = {
     get: (id: string) => profiles.find((p) => p.id === id)
   }
 
-  it('绑定变量组命中 → 用组的 env（不合并内联）', () => {
-    const agent: Pick<AgentConfig, 'envProfileId' | 'env'> = {
+  it('绑定变量组命中 → 附加变量透传 + 核心按 agent 的 envKeyMap 注入（不合并内联）', () => {
+    const agent: Pick<AgentConfig, 'envProfileId' | 'envKeyMap' | 'env'> = {
+      envProfileId: 'p1',
+      envKeyMap: { baseUrl: 'MY_BASE_URL', apiKey: 'MY_API_KEY' },
+      env: { INLINE: 'inline' }
+    }
+    expect(resolveAgentLaunchEnv(agent, store)).toEqual({
+      CODEX_HOME: 'C:/x',
+      MY_BASE_URL: 'https://1.1.1.3:8443/v1',
+      MY_API_KEY: 'sk-from-profile'
+    })
+  })
+
+  it('envKeyMap 只声明一个维度 → 只注入那个维度，其余核心字段不注入', () => {
+    const agent: Pick<AgentConfig, 'envProfileId' | 'envKeyMap' | 'env'> = {
+      envProfileId: 'p1',
+      envKeyMap: { apiKey: 'MY_API_KEY' }
+    }
+    expect(resolveAgentLaunchEnv(agent, store)).toEqual({
+      CODEX_HOME: 'C:/x',
+      MY_API_KEY: 'sk-from-profile'
+    })
+  })
+
+  it('未声明 envKeyMap → 只透传附加变量（核心两字段不注入）', () => {
+    const agent: Pick<AgentConfig, 'envProfileId' | 'envKeyMap' | 'env'> = {
       envProfileId: 'p1',
       env: { INLINE: 'inline' }
     }
-    expect(resolveAgentLaunchEnv(agent, store)).toEqual({ OPENAI_API_KEY: 'sk-from-profile' })
+    expect(resolveAgentLaunchEnv(agent, store)).toEqual({ CODEX_HOME: 'C:/x' })
   })
 
   it('绑定悬空（组已删）→ 回落内联 env，而不是变成「无 env」', () => {
-    const agent: Pick<AgentConfig, 'envProfileId' | 'env'> = {
+    const agent: Pick<AgentConfig, 'envProfileId' | 'envKeyMap' | 'env'> = {
       envProfileId: 'deleted-id',
+      envKeyMap: { apiKey: 'MY_API_KEY' },
       env: { INLINE: 'inline' }
     }
     expect(resolveAgentLaunchEnv(agent, store)).toEqual({ INLINE: 'inline' })

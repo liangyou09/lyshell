@@ -20,7 +20,7 @@ import { createTaskSerializer } from '../harness/task-serializer'
 import { detectDependencies } from '../harness/detect'
 import { HARNESS_AGENTS, resolveWorkspaceEnv } from '../harness/config'
 import { migrateInlineEnvToProfiles } from '../harness/migrate-env'
-import { migrateKindEnvProfilesToGlobal } from '../harness/migrate-profiles'
+import { migrateKindEnvProfilesToGlobal, migrateProfilesToStructured } from '../harness/migrate-profiles'
 import { resolveAgentLaunchEnv } from '../storage/agent-repository'
 import { envProfileRepository } from '../storage/env-profile-repository'
 import { HARNESS_AGENT_KINDS, type EnvProfileLibraryResult, type EnvProfileUsage, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
@@ -345,6 +345,11 @@ export function registerIPCHandlers(): void {
   // （幂等，见 harness/migrate-profiles.ts）。必须先于 inline env 迁移：随后
   // migrateInlineEnvToProfiles 新建的组直接写进的就是全局库。
   migrateKindEnvProfilesToGlobal()
+
+  // 全局库旧扁平格式（凭据直接写在 env 记录里）→ 结构化核心（baseUrl/apiKey）的
+  // 一次性迁移（幂等，同文件 .bak 备份）。先于 inline env 迁移：新建的组直接就是
+  // 结构化形（migrateInlineEnvToProfiles 建组前先 lift）。
+  migrateProfilesToStructured()
 
   // AI Harness legacy inline env → 具名变量组的一次性迁移（幂等，见 harness/migrate-env.ts）。
   // 放在处理器注册之前：注册虽在同一次同步调用里完成，但要等事件循环才会被触发，
@@ -1807,12 +1812,38 @@ export function registerIPCHandlers(): void {
     return { profiles, activeByKind, usage }
   })
 
-  /** 校验变量组 env:通用记录校验 + 非空(kind 专属规则如 dsh 的 DSH_HOME 绝对路径留给启动链兜底) */
-  const assertProfileEnvRecord = (raw: unknown): Record<string, string> => {
-    const env = assertStringRecord(raw, 'profile.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
-    // 零变量的组没有意义 —— 与其存下来在 UI 里当噪声，不如保存即拒
-    if (Object.keys(env).length === 0) throw new ValidationError('profile.env must not be empty')
-    return env
+  /**
+   * 校验变量组的结构化核心 + 附加变量。核心两字段可选(trim 后为空按缺省),
+   * 附加变量记录允许为空;三者全空的组没有意义 —— 与其存下来在 UI 里当噪声,保存即拒。
+   * (kind 专属规则如 dsh 的 DSH_HOME 绝对路径留给启动链兜底)
+   */
+  const assertProfileCredential = (
+    raw: Record<string, unknown>
+  ): Pick<HarnessEnvProfile, 'baseUrl' | 'apiKey' | 'env'> => {
+    const baseUrl = typeof raw.baseUrl === 'string' && raw.baseUrl.trim().length > 0
+      ? raw.baseUrl.trim()
+      : undefined
+    const apiKey = typeof raw.apiKey === 'string' && raw.apiKey.trim().length > 0
+      ? raw.apiKey.trim()
+      : undefined
+    if (raw.baseUrl !== undefined && typeof raw.baseUrl !== 'string') {
+      throw new ValidationError('profile.baseUrl must be a string')
+    }
+    if (raw.baseUrl !== undefined && raw.baseUrl.length > 2048) {
+      throw new ValidationError('profile.baseUrl exceeds maxLength 2048')
+    }
+    if (raw.apiKey !== undefined && typeof raw.apiKey !== 'string') {
+      throw new ValidationError('profile.apiKey must be a string')
+    }
+    if (raw.apiKey !== undefined && raw.apiKey.length > 32768) {
+      throw new ValidationError('profile.apiKey exceeds maxLength 32768')
+    }
+    // 附加变量缺省 = 空记录(纯凭据组合法);键值仍走通用记录校验
+    const env = assertStringRecord(raw.env ?? {}, 'profile.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
+    if (baseUrl === undefined && apiKey === undefined && Object.keys(env).length === 0) {
+      throw new ValidationError('profile must have at least one of baseUrl / apiKey / env')
+    }
+    return { env, ...(baseUrl !== undefined ? { baseUrl } : {}), ...(apiKey !== undefined ? { apiKey } : {}) }
   }
 
   /** 模型选项:结构校验后清洗(trim、滤空、去重),空则 undefined(与「未提供」同语义) */
@@ -1829,7 +1860,7 @@ export function registerIPCHandlers(): void {
       const safe = assertObject(profile, 'profile')
       const newProfile: Omit<HarnessEnvProfile, 'id' | 'order'> = {
         name: assertString(safe.name, 'profile.name', { maxLength: 120 }),
-        env: assertProfileEnvRecord(safe.env)
+        ...assertProfileCredential(safe)
       }
       if (safe.note !== undefined) newProfile.note = assertString(safe.note, 'profile.note', { maxLength: 2000 })
       const addedModels = safe.models !== undefined ? assertProfileModels(safe.models) : undefined
@@ -1850,7 +1881,7 @@ export function registerIPCHandlers(): void {
       const updated: HarnessEnvProfile = {
         id,
         name: assertString(safe.name, 'profile.name', { maxLength: 120 }),
-        env: assertProfileEnvRecord(safe.env),
+        ...assertProfileCredential(safe),
         // 缺省沿用仓库现状而非 0:渲染层总会带 order,但外部调用方可能不带,
         // 落到 0 会与首条撞序(仓库 update 不 reindex)
         order: safe.order === undefined
@@ -1877,6 +1908,32 @@ export function registerIPCHandlers(): void {
     }
   })
 
+  /**
+   * 校验 agent 的结构化核心注入变量名(envKeyMap):trim 后为空按缺省;非空必须是合法
+   * 环境变量名(字母/下划线开头)—— 坏名字注入了也无效,保存即拒。两维度全空返回
+   * undefined(不写键,等价「未声明」)。
+   */
+  const assertAgentEnvKeyMap = (raw: unknown): { baseUrl?: string; apiKey?: string } | undefined => {
+    if (raw === undefined) return undefined
+    if (typeof raw !== 'object' || raw === null) throw new ValidationError('agent.envKeyMap must be an object')
+    const map = raw as Record<string, unknown>
+    const cleanName = (value: unknown, field: string): string | undefined => {
+      if (value === undefined || value === null) return undefined
+      if (typeof value !== 'string') throw new ValidationError(`agent.envKeyMap.${field} must be a string`)
+      const name = value.trim()
+      if (name.length === 0) return undefined
+      if (name.length > 128) throw new ValidationError(`agent.envKeyMap.${field} exceeds maxLength 128`)
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+        throw new ValidationError(`agent.envKeyMap.${field} "${name}" is not a valid environment variable name`)
+      }
+      return name
+    }
+    const baseUrl = cleanName(map.baseUrl, 'baseUrl')
+    const apiKey = cleanName(map.apiKey, 'apiKey')
+    if (baseUrl === undefined && apiKey === undefined) return undefined
+    return { ...(baseUrl !== undefined ? { baseUrl } : {}), ...(apiKey !== undefined ? { apiKey } : {}) }
+  }
+
   ipcMain.handle('agent:add', async (_event, agent) => {
     try {
       const safeAgent = assertObject(agent, 'agent')
@@ -1896,6 +1953,8 @@ export function registerIPCHandlers(): void {
         }
         newAgent.envProfileId = profileId
       }
+      const envKeyMap = assertAgentEnvKeyMap(safeAgent.envKeyMap)
+      if (envKeyMap !== undefined) newAgent.envKeyMap = envKeyMap
       return agentRepository.add(newAgent)
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
@@ -1928,6 +1987,15 @@ export function registerIPCHandlers(): void {
         // payload 不带键时沿用仓库现状（外部调用方可能只改名字）
         const existing = agentRepository.get(updatedAgent.id)
         if (existing?.envProfileId !== undefined) updatedAgent.envProfileId = existing.envProfileId
+      }
+      // envKeyMap 与 envProfileId 同一套「键存在」语义:取消声明（undefined）生效清掉,
+      // 不带键沿用仓库现状
+      if ('envKeyMap' in safeAgent) {
+        const envKeyMap = assertAgentEnvKeyMap(safeAgent.envKeyMap)
+        if (envKeyMap !== undefined) updatedAgent.envKeyMap = envKeyMap
+      } else {
+        const existing = agentRepository.get(updatedAgent.id)
+        if (existing?.envKeyMap !== undefined) updatedAgent.envKeyMap = existing.envKeyMap
       }
       const success = agentRepository.update(updatedAgent)
       return { success }

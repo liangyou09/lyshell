@@ -1,7 +1,7 @@
-import { existsSync, readFileSync, renameSync } from 'fs'
+import { copyFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import log from 'electron-log'
-import { HARNESS_AGENT_KINDS, type HarnessAgentKind, type HarnessEnvProfile } from '@shared/harness'
+import { HARNESS_AGENT_KINDS, liftStructuredFields, type HarnessAgentKind, type HarnessEnvProfile } from '@shared/harness'
 import { getConfigDir } from '../storage/repository'
 import { envProfileRepository, normalizeProfile } from '../storage/env-profile-repository'
 
@@ -63,5 +63,61 @@ export function migrateKindEnvProfilesToGlobal(): void {
     } catch (error) {
       log.error(`[${kind}] env profile migration aborted:`, error)
     }
+  }
+}
+
+/**
+ * 一次性迁移：把全局库里旧扁平格式的变量组（凭据直接写在 env 记录里，如
+ * OPENAI_API_KEY=sk-…）提升成结构化核心（baseUrl/apiKey 两字段），变量名映射下沉到
+ * 启动链（materializeProfileEnv 按 kind / agent 映射注入）。
+ *
+ * 在 migrateKindEnvProfilesToGlobal 之后跑 —— 旧 per-kind 文件并入的记录经
+ * normalizeProfile 的防御分支已是结构化，这里处理的是「已经先落在全局库」的存量
+ *（先升级应用、后启用结构化的用户）。直接改写 env-profiles.json：
+ * 改写前 copyFileSync 备份 .bak（只建一次，不覆盖既有备份）；activeByKind 原样保留。
+ *
+ * 幂等：提升后 env 里不再有已知协议键，二跑全 no-op、不重写文件（也就不覆盖备份）。
+ * 失败兜底：log 后下启重试；重试落盘成功前 normalizeProfile 的防御分支保证
+ * 运行期行为已正确（读旧格式文件一样能解析出结构化核心）。
+ */
+export function migrateProfilesToStructured(): void {
+  const filePath = join(getConfigDir(), 'env-profiles.json')
+  if (!existsSync(filePath)) return
+  try {
+    const parsed = JSON.parse(readFileSync(filePath, 'utf-8')) as {
+      profiles?: unknown[]
+    }
+    if (!Array.isArray(parsed?.profiles)) return
+    let changed = false
+    const profiles = parsed.profiles.map((raw) => {
+      // 逐条只认「有 env 记录、无结构化核心」的旧扁平形态；normalizeProfile 的完整
+      // 解析这里不重复 —— 提升只碰 baseUrl/apiKey/env 三个键，其余字段原样带回
+      const record = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
+      const env = (typeof record.env === 'object' && record.env !== null ? record.env : {}) as Record<string, unknown>
+      const hasStructuredCore =
+        (typeof record.baseUrl === 'string' && record.baseUrl.trim().length > 0) ||
+        (typeof record.apiKey === 'string' && record.apiKey.trim().length > 0)
+      if (hasStructuredCore || Object.keys(env).length === 0) return raw
+      const typedEnv: Record<string, string> = {}
+      for (const [k, v] of Object.entries(env)) {
+        if (typeof v === 'string') typedEnv[k] = v
+      }
+      const lifted = liftStructuredFields(typedEnv)
+      if (lifted.baseUrl === undefined && lifted.apiKey === undefined) return raw
+      changed = true
+      return {
+        ...record,
+        baseUrl: lifted.baseUrl,
+        apiKey: lifted.apiKey,
+        env: lifted.env
+      }
+    })
+    if (!changed) return
+    const backupPath = `${filePath}.bak`
+    if (!existsSync(backupPath)) copyFileSync(filePath, backupPath)
+    writeFileSync(filePath, JSON.stringify({ ...parsed, profiles }, null, 2), 'utf-8')
+    log.info('env profiles migrated to structured core (baseUrl + apiKey); previous file kept as .bak')
+  } catch (error) {
+    log.error('structured env profile migration aborted (will retry next launch):', error)
   }
 }

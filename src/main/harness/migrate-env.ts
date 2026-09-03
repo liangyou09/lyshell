@@ -1,5 +1,5 @@
 import log from 'electron-log'
-import type { HarnessWorkspace } from '@shared/harness'
+import { liftStructuredFields, type HarnessWorkspace } from '@shared/harness'
 import type { HarnessAgentRuntime } from './config'
 
 /**
@@ -15,9 +15,15 @@ import type { HarnessAgentRuntime } from './config'
 /**
  * 变量组内容的规范化指纹。**必须排序 key**：JSON.stringify 按插入序输出，
  * 不排序则 {A,B} 与 {B,A} 指纹不同，去重会失效、同一套 key 生成两条组。
+ * 基准是结构化三元组（baseUrl/apiKey + 排序后的附加变量）：工作区 inline env
+ * 先 lift 成同形再比对，与既有结构化组的两侧基准一致。
  */
-function canonicalEnv(env: Record<string, string>): string {
-  return JSON.stringify(Object.keys(env).sort().map((k) => [k, env[k]]))
+function canonicalProfile(core: { baseUrl?: string; apiKey?: string; env: Record<string, string> }): string {
+  return JSON.stringify([
+    core.baseUrl,
+    core.apiKey,
+    Object.keys(core.env).sort().map((k) => [k, core.env[k]])
+  ])
 }
 
 /** 在已用名字里取一个不冲突的名称（同名工作区/多次迁移都可能撞名） */
@@ -48,7 +54,7 @@ export function migrateInlineEnvToProfiles(runtime: HarnessAgentRuntime): number
   const byContent = new Map<string, string>()
   const usedNames = new Set<string>()
   for (const p of existing) {
-    const fingerprint = canonicalEnv(p.env)
+    const fingerprint = canonicalProfile(p)
     if (!byContent.has(fingerprint)) byContent.set(fingerprint, p.id)
     usedNames.add(p.name)
   }
@@ -58,12 +64,14 @@ export function migrateInlineEnvToProfiles(runtime: HarnessAgentRuntime): number
     try {
       const env = ws.env
       if (!env) continue
-      const fingerprint = canonicalEnv(env)
+      // inline env 先提升成结构化形（凭据对从扁平键提回核心），指纹与建组共用一份结果
+      const lifted = liftStructuredFields(env)
+      const fingerprint = canonicalProfile(lifted)
       let profileId = byContent.get(fingerprint)
 
       if (!profileId) {
         const name = uniqueName(ws.name, usedNames)
-        const created = runtime.envRepository.add({ name, env })
+        const created = runtime.envRepository.add({ name, baseUrl: lifted.baseUrl, apiKey: lifted.apiKey, env: lifted.env })
         if (!created) {
           log.error(`[${runtime.kind}] env migration: failed to create profile for workspace ${ws.id}`)
           continue

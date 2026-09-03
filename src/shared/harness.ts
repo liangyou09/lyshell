@@ -63,15 +63,94 @@ export interface HarnessWorkspace {
  * 组本身不携带启用态：harness kind 经 activeByKind 指针启用（每 kind 至多一根，
  * 同组可被多个 kind 同时启用）；通用 Agent 只有显式绑定（AgentConfig.envProfileId）。
  * 全部未启用/未绑定时启动即用系统环境变量。
+ *
+ * 核心是结构化的「端点凭据」：baseUrl + apiKey 两字段存储协议无关的凭据，注入时按
+ * 消费方的映射（HARNESS_ENV_KEY_MAP / AgentConfig.envKeyMap）物化成具体变量名 ——
+ * 同一组切换喂给不同协议的 agent 不必重抄变量名。核心放不下的其余配置
+ * （CODEX_HOME / CLAUDE_CONFIG_DIR / NO_PROXY）留在附加变量 env 里原样注入。
  */
 export interface HarnessEnvProfile {
   id: string
   name: string           // 显示名称，如 "生产密钥"
   order: number
-  env: Record<string, string>   // 至少一个变量（空组无意义，仓库层过滤）
+  /** 结构化核心：上游地址。启动时按消费方映射注入（codex → OPENAI_BASE_URL 等），缺省不注入 */
+  baseUrl?: string
+  /** 结构化核心：API key / token。与 isSecretEnvKey 命中值同级敏感，UI 默认打码展示 */
+  apiKey?: string
+  /** 附加变量：核心两字段放不下的其余配置，原样注入；可为空（核心存在即合法） */
+  env: Record<string, string>
   /** 可选模型选项列表 —— 供工作区模型输入框的建议（如中转变量组的 GLM-5.2），空则不写 */
   models?: string[]
   note?: string          // 可选备注
+}
+
+/**
+ * 每 kind 的凭据映射 —— 结构化核心（baseUrl/apiKey）物化成哪些环境变量名。
+ * 变量名由各家 CLI 自己定义，故映射跟着 kind 走；通用 Agent 的映射由 AgentConfig.envKeyMap
+ * 自带（命令是任意的，只有 agent 作者知道读哪些变量名）。
+ */
+export interface EnvCredentialMapping {
+  baseUrlKey: string
+  apiKeyKey: string
+}
+
+/** 三个 harness kind 的固定映射（与各 CLI 实际读取的环境变量一致） */
+export const HARNESS_ENV_KEY_MAP: Record<HarnessAgentKind, EnvCredentialMapping> = {
+  dsh: { baseUrlKey: 'DEEPSEEK_BASE_URL', apiKeyKey: 'DEEPSEEK_API_KEY' },
+  codex: { baseUrlKey: 'OPENAI_BASE_URL', apiKeyKey: 'OPENAI_API_KEY' },
+  claude: { baseUrlKey: 'ANTHROPIC_BASE_URL', apiKeyKey: 'ANTHROPIC_AUTH_TOKEN' }
+}
+
+/**
+ * 物化变量组：结构化核心 + 附加变量 → 实际注入的环境变量记录。
+ * 附加变量在前、核心在后（同名键核心覆盖 —— 核心是权威来源）；baseUrl/apiKey 缺省、
+ * 或调用方映射名传 null（通用 Agent 未声明该维度）时该维度不注入。
+ * 纯函数，主进程唯一注入点（resolveWorkspaceEnv / resolveAgentLaunchEnv）都过这里。
+ */
+export function materializeProfileEnv(
+  profile: Pick<HarnessEnvProfile, 'baseUrl' | 'apiKey' | 'env'>,
+  baseUrlKey: string | null,
+  apiKeyKey: string | null
+): Record<string, string> {
+  const env: Record<string, string> = { ...profile.env }
+  if (profile.baseUrl && baseUrlKey) env[baseUrlKey] = profile.baseUrl
+  if (profile.apiKey && apiKeyKey) env[apiKeyKey] = profile.apiKey
+  return env
+}
+
+/**
+ * 防御性提升：从扁平 env 记录里把已知协议的凭据对提回结构化核心。
+ * 按 HARNESS_AGENT_KINDS 顺序找首个命中（dsh → codex → claude）的协议 —— 实际数据
+ * 一组一协议，多协议并存的组里首个之后的协议键原样留在附加变量里，由用户手动分拆。
+ * 提升后原键从返回的 env 里移除；无任何命中则原样返回（env 逐键拷贝，不共享引用）。
+ * 一次性迁移与 normalizeProfile 的加载防御共用这一份判定。
+ */
+export function liftStructuredFields(
+  env: Record<string, string>
+): Pick<HarnessEnvProfile, 'baseUrl' | 'apiKey' | 'env'> {
+  let baseUrl: string | undefined
+  let apiKey: string | undefined
+  const rest = { ...env }
+  for (const kind of HARNESS_AGENT_KINDS) {
+    const { baseUrlKey, apiKeyKey } = HARNESS_ENV_KEY_MAP[kind]
+    const url = rest[baseUrlKey]
+    const key = rest[apiKeyKey]
+    if (!url && !key) continue
+    if (url) {
+      baseUrl = url
+      delete rest[baseUrlKey]
+    }
+    if (key) {
+      apiKey = key
+      delete rest[apiKeyKey]
+    }
+    break
+  }
+  return {
+    baseUrl,
+    apiKey,
+    env: rest
+  }
 }
 
 /** <kind>:env:list 的返回形状 —— 全局变量组列表 + 该 kind 的启用指针（per-kind 视角） */

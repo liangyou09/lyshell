@@ -2387,6 +2387,8 @@ async function handleListAgents(res: http.ServerResponse, binding: TokenBinding)
       order: a.order,
       // 绑定的全局变量组 id（组内容不在此展开；env 内联值仍脱敏）
       envProfileId: a.envProfileId,
+      // 结构化核心的注入变量名（仅键名，非敏感；未声明时缺省）
+      envKeyMap: a.envKeyMap,
       env: a.env ? redactSecretEnv(a.env) : undefined
     }))
     sendJson(res, 200, { success: true, data: agents })

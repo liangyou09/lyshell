@@ -4,6 +4,7 @@ import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 import { getConfigDir } from './repository'
 import { normalizeEnv } from './harness-workspace-repository'
+import { materializeProfileEnv } from '@shared/harness'
 
 /**
  * AI Agent 配置
@@ -17,6 +18,13 @@ export interface AgentConfig {
   env?: Record<string, string>
   /** 绑定的全局变量组 id（storage/env-profile-repository.ts）；缺省 = 未绑定 */
   envProfileId?: string
+  /**
+   * 绑定变量组时结构化核心（baseUrl/apiKey）的注入变量名 —— 命令是任意的，只有
+   * agent 作者知道读哪些变量名，故映射跟 agent 走而非跟协议走（harness kind 的
+   * 固定映射见 @shared/harness 的 HARNESS_ENV_KEY_MAP）。缺省 = 两个维度都不注入，
+   * 绑定的组只透传附加变量。
+   */
+  envKeyMap?: { baseUrl?: string; apiKey?: string }
   order: number
 }
 
@@ -26,15 +34,19 @@ export interface AgentConfig {
  *
  *   agent.envProfileId 绑定的变量组 → agent.env（内联 legacy）→ undefined（系统环境变量）
  *
- * 绑定悬空（组已被删）时等同「没绑」，回落内联 env —— 删组不该让 agent 变成「无 env」。
+ * 绑定命中后经 materializeProfileEnv 物化：附加变量原样透传，结构化核心按本 agent 的
+ * envKeyMap 注入（未声明的维度不注入）。绑定悬空（组已被删）时等同「没绑」，回落内联
+ * env —— 删组不该让 agent 变成「无 env」。
  */
 export function resolveAgentLaunchEnv(
-  agent: Pick<AgentConfig, 'envProfileId' | 'env'>,
-  store: { get(id: string): { env: Record<string, string> } | undefined }
+  agent: Pick<AgentConfig, 'envProfileId' | 'envKeyMap' | 'env'>,
+  store: { get(id: string): { baseUrl?: string; apiKey?: string; env: Record<string, string> } | undefined }
 ): Record<string, string> | undefined {
   if (agent.envProfileId !== undefined) {
     const profile = store.get(agent.envProfileId)
-    if (profile) return profile.env
+    if (profile) {
+      return materializeProfileEnv(profile, agent.envKeyMap?.baseUrl ?? null, agent.envKeyMap?.apiKey ?? null)
+    }
   }
   return agent.env
 }

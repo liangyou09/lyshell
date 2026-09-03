@@ -61,12 +61,54 @@ describe('EnvProfileRepository（全局变量组库）', () => {
       { id: 'a', name: 'ok', order: 0, env: { K: 'v' } },
       { id: 'b', order: 1, env: { K: 'v' } },
       { id: 'c', name: 'no-order', env: { K: 'v' } },
-      // 零变量的组没有意义，按非法处理
+      // 零变量且无结构化核心的组没有意义，按非法处理
       { id: 'd', name: 'empty-env', order: 3, env: {} },
       { id: 'e', name: 'bad-env', order: 4, env: 'not-an-object' },
       'garbage'
     ] }))
     expect(newRepo().getAll().map((p) => p.id)).toEqual(['a'])
+  })
+
+  describe('结构化核心（baseUrl + apiKey）', () => {
+    it('核心存在即合法：附加变量可为空（纯凭据 / 纯地址的组都有意义）', () => {
+      seed(JSON.stringify({ profiles: [
+        { id: 'a', name: 'both', order: 0, baseUrl: 'https://1.1.1.3:8443/v1', apiKey: 'sk-x', env: {} },
+        { id: 'b', name: 'url-only', order: 1, baseUrl: 'https://u' },
+        { id: 'c', name: 'key-only', order: 2, apiKey: 'sk', env: undefined },
+        // 核心字段 trim 后为空按缺省，与附加变量合并判非法
+        { id: 'd', name: 'blank', order: 3, baseUrl: '   ', apiKey: '' }
+      ] }))
+      const all = newRepo().getAll()
+      expect(all.map((p) => p.id)).toEqual(['a', 'b', 'c'])
+      expect(all[0].env).toEqual({})
+      expect(all[2].apiKey).toBe('sk')
+    })
+
+    it('legacy 扁平凭据防御性提升：无核心但 env 含已知协议键 → 提回结构化核心', () => {
+      // 迁移只跑一次且可能在本仓库加载后才落盘，这一级保证未迁移文件行为也正确
+      seed(JSON.stringify({ profiles: [
+        { id: 'a', name: 'glm', order: 0, env: { OPENAI_BASE_URL: 'https://1.1.1.3:8443/v1', OPENAI_API_KEY: 'sk-1', CODEX_HOME: 'C:/x' } }
+      ] }))
+      const p = newRepo().get('a')!
+      expect(p.baseUrl).toBe('https://1.1.1.3:8443/v1')
+      expect(p.apiKey).toBe('sk-1')
+      expect(p.env).toEqual({ CODEX_HOME: 'C:/x' })
+    })
+
+    it('add / update 透传结构化核心并持久化，update 整条替换（核心缺席即清空）', () => {
+      const repo = newRepo()
+      const a = repo.add({ name: 'a', baseUrl: 'https://u', apiKey: 'sk', env: {} })!
+      expect(repo.get(a.id)?.baseUrl).toBe('https://u')
+      // 持久化可读回
+      expect(newRepo().get(a.id)?.apiKey).toBe('sk')
+      // 换掉核心（保留附加变量）
+      expect(repo.update({ ...repo.get(a.id)!, baseUrl: 'https://v2', apiKey: undefined, env: { K: '1' } })).toBe(true)
+      expect(repo.get(a.id)?.baseUrl).toBe('https://v2')
+      expect(repo.get(a.id)?.apiKey).toBeUndefined()
+      expect(repo.get(a.id)?.env).toEqual({ K: '1' })
+      // 持久化再读回
+      expect(newRepo().get(a.id)?.baseUrl).toBe('https://v2')
+    })
   })
 
   it('env 脏数据过滤：丢空 key / 含 NUL 的 key / 含 NUL 的 value / 非字符串值', () => {

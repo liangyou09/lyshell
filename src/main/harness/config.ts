@@ -1,7 +1,7 @@
 import { homedir } from 'os'
 import { join } from 'path'
 import type { HarnessAgentKind, HarnessEnvDefault, HarnessWorkspace } from '@shared/harness'
-import { HARNESS_AGENT_VIEWS } from '@shared/harness'
+import { HARNESS_AGENT_VIEWS, HARNESS_ENV_KEY_MAP, materializeProfileEnv } from '@shared/harness'
 import type { HarnessWorkspaceRepository } from '../storage/harness-workspace-repository'
 import {
   dshWorkspaceRepository,
@@ -59,6 +59,10 @@ export function detectAgentDependencies(kind: HarnessAgentKind): Record<string, 
  *
  *   工作区显式绑定的变量组 → 该 kind 已启用的变量组 → ws.env（legacy）→ undefined（系统环境变量）
  *
+ * 变量组命中后经 materializeProfileEnv 物化：结构化核心（baseUrl/apiKey）按该 kind 的
+ * HARNESS_ENV_KEY_MAP 映射成具体变量名（codex → OPENAI_* 等），附加变量原样透传 ——
+ * 同一组喂不同协议的 kind 时变量名跟着 kind 走，组里不存变量名。
+ *
  * envProfileId 悬空（组已被删）时等同「没选」，回落该 kind 的启用组 —— 删掉一个组不该
  * 让工作区变成「无 env」的第三种状态。
  *
@@ -74,7 +78,10 @@ export function resolveWorkspaceEnv(
     ? runtime.envRepository.get(workspace.envProfileId)
     : undefined
   const profile = bound ?? runtime.envRepository.getActiveProfile(runtime.kind)
-  if (profile) return profile.env
+  if (profile) {
+    const map = HARNESS_ENV_KEY_MAP[runtime.kind]
+    return materializeProfileEnv(profile, map.baseUrlKey, map.apiKeyKey)
+  }
   return workspace.env
 }
 
