@@ -169,6 +169,7 @@
       "previewNoCmd": "输入命令后可见预览",
       "required": "命令不能为空（名称留空自动命名）",
       "saveFailed": "保存失败，请检查后重试",
+      "deleteFailed": "删除失败，请重试",
       "confirmDelete": "再点一次确认删除"
     }
   },
@@ -194,6 +195,7 @@
     "apiKeyHint": "按 agent 映射注入凭据（dsh → DEEPSEEK_API_KEY · codex → OPENAI_API_KEY · claude → ANTHROPIC_AUTH_TOKEN），默认打码",
     "extras": "附加变量",
     "extrasHint": "核心两字段之外的其余配置（如 CODEX_HOME、NO_PROXY），KEY=value 原样注入",
+    "coreKeyInExtras": "⚠ 附加变量里含协议凭据键（如 OPENAI_API_KEY）：会原样注入所有绑定方，存在跨协议串扰；建议移到上方结构化核心，或拆分成独立变量组",
     "envFillTitle": "补全 {{kind}} 的推荐变量",
     "envKeyPh": "KEY",
     "envValuePh": "value",

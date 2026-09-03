@@ -1,8 +1,8 @@
 import { join } from 'path'
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
-import { getConfigDir } from './repository'
+import { atomicWriteFileSync, getConfigDir } from './repository'
 import { validateWorktreeKey } from '../harness/worktree'
 import type { HarnessWorkspace } from '@shared/harness'
 
@@ -118,7 +118,8 @@ export class HarnessWorkspaceRepository {
   private save(): boolean {
     if (!this.filePath) return false
     try {
-      writeFileSync(this.filePath, JSON.stringify(this.workspaces, null, 2), 'utf-8')
+      // 原子写：崩溃不留截断 JSON（见 repository.ts 的 atomicWriteFileSync）
+      atomicWriteFileSync(this.filePath, JSON.stringify(this.workspaces, null, 2))
       return true
     } catch (error) {
       log.error(`Failed to save harness workspaces (${this.fileName}):`, error)

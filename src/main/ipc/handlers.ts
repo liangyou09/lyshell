@@ -1896,7 +1896,13 @@ export function registerIPCHandlers(): void {
       const updatedModels = safe.models !== undefined ? assertProfileModels(safe.models) : undefined
       if (updatedModels !== undefined) updated.models = updatedModels
       const success = envProfileRepository.update(updated)
-      return success ? { success: true } : { success: false, error: 'Env profile not found' }
+      if (!success) {
+        // 两类失败分开报：目标不存在或落盘失败（仓库已回滚内存）—— 与 agent:update 同一套二分
+        return envProfileRepository.get(id)
+          ? { success: false, error: 'Failed to save env profile' }
+          : { success: false, error: 'Env profile not found' }
+      }
+      return { success: true }
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }
@@ -2191,9 +2197,14 @@ export function registerIPCHandlers(): void {
         }
         if (safe.note !== undefined) newWorkspace.note = assertString(safe.note, 'workspace.note', { maxLength: 2000 })
         if (safe.model !== undefined) newWorkspace.model = assertString(safe.model, 'workspace.model', { maxLength: 256 })
-        // 显式绑定的变量组；缺省表示「跟随已启用的变量组」（见 resolveWorkspaceEnv）
+        // 显式绑定的变量组；缺省表示「跟随已启用的变量组」（见 resolveWorkspaceEnv）。
+        // 保存即拒悬空 id —— 与 agent:add 同一套从严校验（存量悬空由解析链回落兜底，不回溯清理）
         if (safe.envProfileId !== undefined) {
-          newWorkspace.envProfileId = assertString(safe.envProfileId, 'workspace.envProfileId', { maxLength: 128 })
+          const profileId = assertString(safe.envProfileId, 'workspace.envProfileId', { maxLength: 128 })
+          if (!runtime.envRepository.get(profileId)) {
+            return { success: false, error: 'Env profile not found' }
+          }
+          newWorkspace.envProfileId = profileId
         }
         // 目录隔离模式；缺省即 shared（现状语义）。git 仓库校验留到启动时做——「先开隔离、后 git init」是合法工作流
         if (safe.isolation !== undefined) {
@@ -2243,11 +2254,17 @@ export function registerIPCHandlers(): void {
             : assertString(safe.model, 'workspace.model', { maxLength: 256 })
         }
         // envProfileId 同样用「键存在」判断：编辑时取消绑定（传 undefined）应生效，
-        // 回到「跟随已启用的变量组」，否则旧绑定会残留。
+        // 回到「跟随已启用的变量组」，否则旧绑定会残留。传 id 则保存即拒悬空（与 add 同一套）。
         if ('envProfileId' in safe) {
-          updated.envProfileId = safe.envProfileId === undefined
-            ? undefined
-            : assertString(safe.envProfileId, 'workspace.envProfileId', { maxLength: 128 })
+          if (safe.envProfileId === undefined) {
+            updated.envProfileId = undefined
+          } else {
+            const profileId = assertString(safe.envProfileId, 'workspace.envProfileId', { maxLength: 128 })
+            if (!runtime.envRepository.get(profileId)) {
+              return { success: false, error: 'Env profile not found' }
+            }
+            updated.envProfileId = profileId
+          }
         }
         // isolation 同 model/envProfileId 用「键存在」判断：编辑时切回共享目录（传 undefined）
         // 应生效，否则旧 worktree 隔离会残留（worktree 目录本身不动，仅下次启动回 shared cwd）。

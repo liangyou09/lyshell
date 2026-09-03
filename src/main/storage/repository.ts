@@ -1,9 +1,27 @@
 import { app, safeStorage } from 'electron'
 import { join } from 'path'
-import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync, renameSync, rmSync } from 'fs'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 import type { SessionConfig } from '@shared/types'
+
+/**
+ * 原子写文件：先写同目录 .tmp 再 rename 覆盖。直接 writeFileSync 中途崩溃会留下
+ * 截断的 JSON，下次启动整库按损坏处理（回落空库/默认值）；rename 在同一卷上原子
+ * （Windows 上 Node 走 MoveFileEx REPLACE_EXISTING），崩溃时盘上要么旧文件要么
+ * 新文件，没有中间态。rename 失败时清掉 .tmp 再抛，由调用方按普通写失败处理；
+ * 上次崩溃遗留的 .tmp 会被本次写入覆盖，无需启动清理。
+ */
+export function atomicWriteFileSync(filePath: string, data: string): void {
+  const tmpPath = `${filePath}.tmp`
+  writeFileSync(tmpPath, data, 'utf-8')
+  try {
+    renameSync(tmpPath, filePath)
+  } catch (error) {
+    rmSync(tmpPath, { force: true })
+    throw error
+  }
+}
 
 const SAFE_STORAGE_PREFIX = 'safe:v1:'
 const SENSITIVE_SSH_FIELDS = ['password', 'privateKey', 'passphrase'] as const

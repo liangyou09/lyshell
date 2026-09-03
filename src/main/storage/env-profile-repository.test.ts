@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { mkdirSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
 
 // electron-log / electron.app.getPath 在 Node 测试环境不存在，mock 掉（对齐 harness-workspace-repository.test.ts）
 vi.mock('electron-log', () => ({
@@ -26,11 +26,14 @@ function seed(content: string): void {
 
 beforeEach(() => {
   mkdirSync(configDir, { recursive: true })
-  rmSync(filePath, { force: true })
+  // recursive:落盘失败用例会用目录占住文件路径,普通 rm 删不掉;顺手清遗留 .tmp
+  rmSync(filePath, { recursive: true, force: true })
+  rmSync(`${filePath}.tmp`, { force: true })
 })
 
 afterEach(() => {
-  rmSync(filePath, { force: true })
+  rmSync(filePath, { recursive: true, force: true })
+  rmSync(`${filePath}.tmp`, { force: true })
 })
 
 function newRepo(): EnvProfileRepository {
@@ -316,5 +319,27 @@ describe('EnvProfileRepository（全局变量组库）', () => {
     expect(repo.get(a.id)?.models).toBeUndefined()
     // 持久化可读回
     expect(newRepo().get(a.id)?.models).toBeUndefined()
+  })
+
+  describe('落盘失败回滚（原子写）', () => {
+    // 用目录占住文件路径让 rename 必败（.tmp 写得进、盖不过目录）→ 验证回滚与 .tmp 清理
+    it('add 落盘失败返回 null、回滚内存、不留 .tmp', () => {
+      mkdirSync(filePath, { recursive: true })
+      const repo = newRepo()
+      expect(repo.add({ name: 'a', env: { K: '1' } })).toBeNull()
+      expect(repo.getAll().length).toBe(0)
+      expect(existsSync(`${filePath}.tmp`)).toBe(false)
+    })
+
+    it('update 落盘失败返回 false、回滚内存、不留 .tmp', () => {
+      const repo = newRepo()
+      const a = repo.add({ name: 'a', env: { K: '1' } })!
+      // 换坑：删掉库文件、用目录占住路径 → 下一次 rename 必败
+      rmSync(filePath, { force: true })
+      mkdirSync(filePath, { recursive: true })
+      expect(repo.update({ ...a, name: 'a2' })).toBe(false)
+      expect(repo.get(a.id)?.name).toBe('a')
+      expect(existsSync(`${filePath}.tmp`)).toBe(false)
+    })
   })
 })

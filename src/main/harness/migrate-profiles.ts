@@ -1,8 +1,8 @@
-import { copyFileSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
+import { copyFileSync, existsSync, readFileSync, renameSync } from 'fs'
 import { join } from 'path'
 import log from 'electron-log'
 import { HARNESS_AGENT_KINDS, liftStructuredFields, type HarnessAgentKind, type HarnessEnvProfile } from '@shared/harness'
-import { getConfigDir } from '../storage/repository'
+import { atomicWriteFileSync, getConfigDir } from '../storage/repository'
 import { envProfileRepository, normalizeProfile } from '../storage/env-profile-repository'
 
 /**
@@ -118,16 +118,8 @@ export function migrateProfilesToStructured(): void {
     if (!changed) return
     const backupPath = `${filePath}.bak`
     if (!existsSync(backupPath)) copyFileSync(filePath, backupPath)
-    // 原子写入：先写临时文件再 rename 覆盖。上次运行崩溃遗留的 .tmp 会被覆盖，
-    // 不需要启动时清理；rename 失败时把 .tmp 删掉，交给外层 catch 记日志、下启重试
-    const tmpPath = `${filePath}.tmp`
-    writeFileSync(tmpPath, JSON.stringify({ ...parsed, profiles }, null, 2), 'utf-8')
-    try {
-      renameSync(tmpPath, filePath)
-    } catch (error) {
-      rmSync(tmpPath, { force: true })
-      throw error
-    }
+    // 原子写入与仓库层同一份实现（repository.ts 的 atomicWriteFileSync）
+    atomicWriteFileSync(filePath, JSON.stringify({ ...parsed, profiles }, null, 2))
     log.info('env profiles migrated to structured core (baseUrl + apiKey); previous file kept as .bak')
   } catch (error) {
     log.error('structured env profile migration aborted (will retry next launch):', error)

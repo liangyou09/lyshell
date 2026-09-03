@@ -1,8 +1,8 @@
 import { join } from 'path'
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
-import { getConfigDir } from './repository'
+import { atomicWriteFileSync, getConfigDir } from './repository'
 import { normalizeEnv } from './harness-workspace-repository'
 import { materializeProfileEnv } from '@shared/harness'
 
@@ -112,7 +112,8 @@ export class AgentRepository {
     if (!this.filePath) return false
 
     try {
-      writeFileSync(this.filePath, JSON.stringify(this.agents, null, 2), 'utf-8')
+      // 原子写：崩溃不留截断 JSON（见 repository.ts 的 atomicWriteFileSync）
+      atomicWriteFileSync(this.filePath, JSON.stringify(this.agents, null, 2))
       log.info(`Saved ${this.agents.length} agents to storage`)
       return true
     } catch (error) {

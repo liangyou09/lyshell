@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { mkdirSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
 
 // electron-log / electron.app.getPath 在 Node 测试环境不存在，mock 掉（对齐 harness-workspace-repository.test.ts）
 vi.mock('electron-log', () => ({
@@ -155,5 +155,12 @@ describe('落盘失败回滚（内存不领先盘）', () => {
     const repo = new AgentRepository()
     expect(repo.delete('agent-claude-code')).toBe(false)
     expect(repo.get('agent-claude-code')).toBeDefined()
+  })
+
+  it('原子写：rename 失败时 .tmp 被清理，不留半截临时文件', () => {
+    mkdirSync(agentsPath, { recursive: true })
+    const repo = new AgentRepository()
+    expect(repo.add({ name: 'x', command: 'y', order: 0 })).toBeNull()
+    expect(existsSync(`${agentsPath}.tmp`)).toBe(false)
   })
 })

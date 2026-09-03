@@ -169,6 +169,7 @@
       "previewNoCmd": "Enter a command to see the preview",
       "required": "Command is required (empty name is auto-named)",
       "saveFailed": "Save failed; check and retry",
+      "deleteFailed": "Delete failed; try again",
       "confirmDelete": "Click again to confirm"
     }
   },
@@ -194,6 +195,7 @@
     "apiKeyHint": "Credential injected per agent mapping (dsh → DEEPSEEK_API_KEY · codex → OPENAI_API_KEY · claude → ANTHROPIC_AUTH_TOKEN), masked by default",
     "extras": "Extra variables",
     "extrasHint": "Any config beyond the two core fields (e.g. CODEX_HOME, NO_PROXY), injected verbatim as KEY=value",
+    "coreKeyInExtras": "⚠ Extra variables contain protocol credential keys (e.g. OPENAI_API_KEY): they inject verbatim into every consumer and may cross protocols — move them into the structured core above, or split the profile",
     "envFillTitle": "Fill {{kind}} recommended variables",
     "envKeyPh": "KEY",
     "envValuePh": "value",

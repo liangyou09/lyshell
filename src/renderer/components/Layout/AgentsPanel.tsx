@@ -157,6 +157,8 @@ const AgentsPanel: React.FC = () => {
   const [confirmDelete, setConfirmDelete] = useState(false)
   // 保存失败(IPC 返回 success:false 或 invoke reject)—— 保留表单并展示原因
   const [saveError, setSaveError] = useState<string | null>(null)
+  // 列表级操作失败(卡片删除落盘失败等)—— 与 EnvProfilePanel 的 actionError 同族
+  const [actionError, setActionError] = useState<string | null>(null)
   // 图标选择器浮层开合 + 外部点击关闭用 ref
   const [iconPickerOpen, setIconPickerOpen] = useState(false)
   const iconPickerRef = useRef<HTMLDivElement>(null)
@@ -302,7 +304,19 @@ const AgentsPanel: React.FC = () => {
       return
     }
     if (editAgent) {
-      await window.electronAPI?.deleteAgent(editAgent.id)
+      // 失败(落盘失败/agent 已不存在)保留对话框并展示原因,不静默吞掉
+      try {
+        const res = await window.electronAPI?.deleteAgent(editAgent.id)
+        if (res && res.success === false) {
+          setConfirmDelete(false)
+          setSaveError(typeof res.error === 'string' ? res.error : t('agents.edit.deleteFailed'))
+          return
+        }
+      } catch (err) {
+        setConfirmDelete(false)
+        setSaveError(err instanceof Error && err.message ? err.message : t('agents.edit.deleteFailed'))
+        return
+      }
       await loadAgents()
       setShowDialog(false)
     }
@@ -370,6 +384,11 @@ const AgentsPanel: React.FC = () => {
         </button>
       </div>
 
+      {/* 列表级操作错误(卡片删除落盘失败等)—— 对齐 EnvProfilePanel 的 actionError 位 */}
+      {actionError && (
+        <div className="text-[10.5px] text-[var(--error-rack)] break-words px-3 pt-2">{actionError}</div>
+      )}
+
       {/* 列表 —— 内缩槽位:px-3 两侧收进,框线跟着每张卡片走(有卡片的地方才有线,
           空态/不满列时线不延伸);槽位逐格 44px 连排,格子边界钉在左侧 ActivityRail
           槽位网格上(首格 y36–80) */}
@@ -416,8 +435,18 @@ const AgentsPanel: React.FC = () => {
                 <button
                   onClick={async (e) => {
                     e.stopPropagation()
-                    await window.electronAPI?.deleteAgent(agent.id)
-                    await loadAgents()
+                    // 失败(落盘失败/agent 已不存在)不静默:卡片在下方 loadAgents()
+                    // 后"复活"前给出原因 —— 与拨分接开关/变量组卡片删除同族错误位
+                    try {
+                      const res = await window.electronAPI?.deleteAgent(agent.id)
+                      if (res && res.success === false) {
+                        setActionError(typeof res.error === 'string' ? res.error : t('agents.edit.deleteFailed'))
+                      }
+                    } catch (err) {
+                      setActionError(err instanceof Error && err.message ? err.message : t('agents.edit.deleteFailed'))
+                    } finally {
+                      await loadAgents()
+                    }
                   }}
                   title={t('sidebar.agentDelete')}
                   className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]"
