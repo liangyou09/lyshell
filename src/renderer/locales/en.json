@@ -207,6 +207,7 @@
     "required": "Name required, plus a Base URL, API key, or one extra variable",
     "saveFailed": "Save failed; check and retry",
     "activeFailed": "Failed to switch activation; try again",
+    "deleteFailed": "Delete failed; try again",
     "chipOn": "Make active for {{kind}}",
     "chipOff": "Deactivate {{kind}} · fall back to system env",
     "refs": "{{count}} in use",

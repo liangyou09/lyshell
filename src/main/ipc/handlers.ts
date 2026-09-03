@@ -1906,7 +1906,13 @@ export function registerIPCHandlers(): void {
     try {
       const safeId = assertString(profileId, 'profileId', { maxLength: 128 })
       const success = envProfileRepository.delete(safeId)
-      return { success }
+      if (!success) {
+        // 两类失败分开报：目标不存在或落盘失败（仓库已回滚内存）
+        return envProfileRepository.get(safeId)
+          ? { success: false, error: 'Failed to save env profile' }
+          : { success: false, error: 'Env profile not found' }
+      }
+      return { success: true }
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }

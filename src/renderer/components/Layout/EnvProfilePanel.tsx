@@ -353,8 +353,22 @@ const EnvProfilePanel: React.FC = () => {
   const handleDialogDelete = async () => {
     if (!confirmDelete) { setConfirmDelete(true); return }
     if (editProfile) {
-      // 组是 Agent/工作区绑定的目标，删除后绑定方回落下一级 —— 重新拉取让引用计数归零
-      await window.electronAPI?.deleteEnvProfile(editProfile.id)
+      // 组是 Agent/工作区绑定的目标，删除后绑定方回落下一级 —— 重新拉取让引用计数归零。
+      // 失败(落盘失败/组已不存在)保留对话框并展示原因,不静默吞掉
+      try {
+        const res = await window.electronAPI?.deleteEnvProfile(editProfile.id)
+        if (res && (res as { success?: boolean }).success === false) {
+          setConfirmDelete(false)
+          setSaveError(typeof (res as { error?: unknown }).error === 'string'
+            ? (res as { error: string }).error
+            : t('env.deleteFailed'))
+          return
+        }
+      } catch (err) {
+        setConfirmDelete(false)
+        setSaveError(err instanceof Error && err.message ? err.message : t('env.deleteFailed'))
+        return
+      }
       await load()
       setShowDialog(false)
     }
@@ -462,8 +476,20 @@ const EnvProfilePanel: React.FC = () => {
                           return
                         }
                         setDeleteConfirmId(null)
-                        await window.electronAPI?.deleteEnvProfile(p.id)
-                        await load()
+                        // 失败(落盘失败/组已不存在)不静默:卡片在下方 load() 后"复活"
+                        // 前给出原因 —— 与拨分接开关共用面板级 actionError
+                        try {
+                          const res = await window.electronAPI?.deleteEnvProfile(p.id)
+                          if (res && (res as { success?: boolean }).success === false) {
+                            setActionError(typeof (res as { error?: unknown }).error === 'string'
+                              ? (res as { error: string }).error
+                              : t('env.deleteFailed'))
+                          }
+                        } catch (err) {
+                          setActionError(err instanceof Error && err.message ? err.message : t('env.deleteFailed'))
+                        } finally {
+                          await load()
+                        }
                       }}
                       title={deleteConfirmId === p.id
                         ? (total > 0 ? t('env.confirmDeleteRefs', { count: total }) : t('env.confirmDelete'))

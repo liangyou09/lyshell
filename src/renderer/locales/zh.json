@@ -207,6 +207,7 @@
     "required": "名称不能为空，且至少需要 Base URL、API Key 或一个附加变量",
     "saveFailed": "保存失败，请检查后重试",
     "activeFailed": "启用切换失败，请重试",
+    "deleteFailed": "删除失败，请重试",
     "chipOn": "设为 {{kind}} 的启用组",
     "chipOff": "停用 {{kind}} · 改用系统环境变量",
     "refs": "{{count}} 处引用",
