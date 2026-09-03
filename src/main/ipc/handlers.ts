@@ -27,6 +27,7 @@ import { HARNESS_AGENT_KINDS, isValidHttpBaseUrl, type EnvProfileLibraryResult, 
 import type { WorktreeListResult } from '@shared/worktree'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { ConnectionStatus } from '../connectors'
+import { findPwshPath } from '../connectors/local'
 import { reachabilityProber, type ReachabilityTarget } from '../reachability/reachability-prober'
 import { ConnectionType, isDocPath, DOC_MAX_REMOTE_BYTES, DOC_MAX_LOCAL_BYTES } from '@shared/types'
 import type { DocReadResult } from '@shared/types'
@@ -2077,7 +2078,11 @@ export function registerIPCHandlers(): void {
       name,
       type: ConnectionType.LOCAL,
       local: {
-        shell: undefined,
+        // 启动 shell：有 pwsh（PowerShell 7）用 pwsh，没有按现状（Windows: cmd/COMSPEC，
+        // POSIX: $SHELL）。探测用与 LocalConnector 注入 PTY 同源的即时系统 PATH ——
+        // 装完 pwsh 无需重启 app 即生效，也与子进程实际看到的 PATH 视图一致
+        // （自定义安装位置不因主进程 PATH 快照过期而漏检）。
+        shell: findPwshPath(readSystemPath() ?? process.env.PATH ?? '') ?? undefined,
         cwd: opts?.cwd,
         env: opts?.env
       },

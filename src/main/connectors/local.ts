@@ -1,5 +1,7 @@
 import { spawn, IPty } from 'node-pty'
 import log from 'electron-log'
+import { existsSync } from 'fs'
+import { delimiter, join } from 'path'
 import { BaseConnector } from './base'
 import { readSystemPath } from '../env/refresh'
 
@@ -11,6 +13,32 @@ export interface LocalConfig {
   cwd?: string
   env?: Record<string, string>
   encoding?: 'utf-8' | 'gbk' | 'gb2312'
+}
+
+/**
+ * 定位 PowerShell 7（pwsh）的完整可执行路径，未安装返回 null。
+ * agent / harness 启动（spawnLocalCommandSession）的默认 shell 首选 pwsh ——
+ * 命中则显式传 shell，未命中留 undefined 走 getDefaultShell（Windows: COMSPEC/cmd，
+ * POSIX: $SHELL），即「有 ps7 用 ps7，没有按现状」；用户自建的本地会话不受影响。
+ * 先扫传入 PATH（覆盖自定义安装位置与 WindowsApps 执行别名），再兜底常规安装位置
+ * （MSI 的 Program Files、Store 的 WindowsApps —— PATH 被改坏时仍能找到）。
+ * 纯文件系统探测、不 spawn 子进程，与 harness/detect.ts 的纪律一致。
+ */
+export function findPwshPath(path: string = process.env.PATH || ''): string | null {
+  if (process.platform !== 'win32') return null
+  const dirs = (path || '').split(delimiter).filter(Boolean)
+  for (const dir of dirs) {
+    const candidate = join(dir, 'pwsh.exe')
+    if (existsSync(candidate)) return candidate
+  }
+  const fallbacks = [
+    join(process.env.ProgramFiles || 'C:\\Program Files', 'PowerShell', '7', 'pwsh.exe'),
+    process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Microsoft', 'WindowsApps', 'pwsh.exe') : null
+  ]
+  for (const candidate of fallbacks) {
+    if (candidate && existsSync(candidate)) return candidate
+  }
+  return null
 }
 
 /**
