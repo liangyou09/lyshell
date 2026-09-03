@@ -1070,7 +1070,7 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     })
   },
 
-  // ===== 文档页签（多开，文件树双击 / 拖放 / Ctrl+O / 终端 Ctrl+点击入口） =====
+  // ===== 文档页签（多开，文件树双击 / 拖放 / Ctrl+Shift+O / 终端 Ctrl+点击入口） =====
   openDocTab: (paneId, info) => {
     const st = get()
     // 挂到指定 pane；未指定时当前活动 pane，未就绪回落首个叶子 pane（openWebTab 同型）

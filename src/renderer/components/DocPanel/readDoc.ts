@@ -69,7 +69,7 @@ export async function openRemoteDoc(sessionId: string, remotePath: string, paneI
   }
 }
 
-/** 打开本地文档（拖放 / Ctrl+O 入口） */
+/** 打开本地文档（拖放 / Ctrl+Shift+O 入口） */
 export async function openLocalDoc(localPath: string, paneId?: string): Promise<void> {
   const docKind: DocKind | null = docKindFromPath(localPath)
   if (!docKind) return
