@@ -676,6 +676,14 @@ const EnvProfilePanel: React.FC = () => {
                 texts={envRowsTexts}
                 onKeyChange={resetTriedSubmit}
               />
+              {/* 协议核心键混入附加变量的告警：多协议并存的旧组提升时只提走首个协议
+                  (liftStructuredFields 取首),其余协议键留在附加层并会原样注入所有
+                  消费方 —— 凭据串扰风险,提示用户收编到上方核心或拆分成组 */}
+              {profileEnv.some((row) => CORE_ENV_KEYS.has(row.key.trim())) && (
+                <div className="mt-1.5 text-[10.5px] [font-family:inherit] text-[var(--amber)]">
+                  {t('env.coreKeyInExtras')}
+                </div>
+              )}
             </div>
 
             {/* 模型选项 —— 单列可增删，供工作区「模型」输入框的建议（生效组排在内置建议之前） */}
