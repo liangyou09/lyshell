@@ -155,6 +155,8 @@ const AgentsPanel: React.FC = () => {
   // 校验:首次提交前不报错;删除两步确认(复用 closeAll 的"再点一次"语义)
   const [triedSubmit, setTriedSubmit] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // 保存失败(IPC 返回 success:false 或 invoke reject)—— 保留表单并展示原因
+  const [saveError, setSaveError] = useState<string | null>(null)
   // 图标选择器浮层开合 + 外部点击关闭用 ref
   const [iconPickerOpen, setIconPickerOpen] = useState(false)
   const iconPickerRef = useRef<HTMLDivElement>(null)
@@ -218,7 +220,7 @@ const AgentsPanel: React.FC = () => {
     setAgentName(''); setAgentCommand(''); setAgentIcon(''); setAgentCwd('')
     setAgentEnv([]); setAgentEnvProfileId(null)
     setAgentEnvKeyMapBaseUrl(''); setAgentEnvKeyMapApiKey('')
-    setTriedSubmit(false); setConfirmDelete(false); setIconPickerOpen(false)
+    setTriedSubmit(false); setConfirmDelete(false); setIconPickerOpen(false); setSaveError(null)
     setShowDialog(true)
   }
   const handleContextMenu = (agent: AgentConfig, e: React.MouseEvent) => {
@@ -230,7 +232,7 @@ const AgentsPanel: React.FC = () => {
     setAgentEnvProfileId(agent.envProfileId ?? null)
     setAgentEnvKeyMapBaseUrl(agent.envKeyMap?.baseUrl || '')
     setAgentEnvKeyMapApiKey(agent.envKeyMap?.apiKey || '')
-    setTriedSubmit(false); setConfirmDelete(false); setIconPickerOpen(false)
+    setTriedSubmit(false); setConfirmDelete(false); setIconPickerOpen(false); setSaveError(null)
     setShowDialog(true)
   }
   const handleSave = async () => {
@@ -257,28 +259,38 @@ const AgentsPanel: React.FC = () => {
       mapBaseUrl || mapApiKey
         ? { ...(mapBaseUrl ? { baseUrl: mapBaseUrl } : {}), ...(mapApiKey ? { apiKey: mapApiKey } : {}) }
         : undefined
-    if (editAgent) {
-      await window.electronAPI?.updateAgent({
-        ...editAgent,
-        name,
-        command: agentCommand.trim(),
-        icon: agentIcon || undefined,
-        cwd: agentCwd || undefined,
-        env: envPayload,
-        envProfileId: envProfileIdPayload,
-        envKeyMap: envKeyMapPayload
-      })
-    } else {
-      await window.electronAPI?.addAgent({
-        name,
-        command: agentCommand.trim(),
-        icon: agentIcon || undefined,
-        cwd: agentCwd || undefined,
-        env: envPayload,
-        envProfileId: envProfileIdPayload,
-        envKeyMap: envKeyMapPayload,
-        order: agents.length
-      })
+    setSaveError(null)
+    // 双通道失败都落到 saveError:handler 正常返回走 success:false 分支,主进程
+    // 意外抛错(invoke reject)走 catch —— 两边都保留表单,用户能看到原因
+    try {
+      const res = editAgent
+        ? await window.electronAPI?.updateAgent({
+            ...editAgent,
+            name,
+            command: agentCommand.trim(),
+            icon: agentIcon || undefined,
+            cwd: agentCwd || undefined,
+            env: envPayload,
+            envProfileId: envProfileIdPayload,
+            envKeyMap: envKeyMapPayload
+          })
+        : await window.electronAPI?.addAgent({
+            name,
+            command: agentCommand.trim(),
+            icon: agentIcon || undefined,
+            cwd: agentCwd || undefined,
+            env: envPayload,
+            envProfileId: envProfileIdPayload,
+            envKeyMap: envKeyMapPayload,
+            order: agents.length
+          })
+      if (res && res.success === false) {
+        setSaveError(typeof res.error === 'string' ? res.error : t('agents.edit.saveFailed'))
+        return
+      }
+    } catch (err) {
+      setSaveError(err instanceof Error && err.message ? err.message : t('agents.edit.saveFailed'))
+      return
     }
     await loadAgents()
     setShowDialog(false)
@@ -617,6 +629,13 @@ const AgentsPanel: React.FC = () => {
             {triedSubmit && !valid && (
               <div className="px-4 py-2 text-[11px] text-[var(--error-rack)] border-b border-[var(--rule)]">
                 {t('agents.edit.required')}
+              </div>
+            )}
+
+            {/* 保存失败提示(校验未通过 / 落盘失败,保留表单) */}
+            {saveError && (
+              <div className="px-4 py-2 text-[11px] text-[var(--error-rack)] border-b border-[var(--rule)] break-all">
+                {saveError}
               </div>
             )}
 

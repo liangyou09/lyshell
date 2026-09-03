@@ -23,11 +23,12 @@ function seed(content: string): void {
 
 beforeEach(() => {
   mkdirSync(configDir, { recursive: true })
-  rmSync(agentsPath, { force: true })
+  // recursive:落盘失败用例会用目录占住 agents.json 路径,普通 rm 删不掉
+  rmSync(agentsPath, { recursive: true, force: true })
 })
 
 afterEach(() => {
-  rmSync(agentsPath, { force: true })
+  rmSync(agentsPath, { recursive: true, force: true })
 })
 
 describe('AgentRepository.load（env 清洗）', () => {
@@ -70,8 +71,7 @@ describe('AgentRepository.load（env 清洗）', () => {
   })
 })
 
-describe('resolveAgentLaunchEnv（通用 Agent 启动 env 解析链）', () => {
-  // 组的形状即仓库真实记录:结构化核心(baseUrl/apiKey) + 附加变量 env
+describe('resolveAgentLaunchEnv（通用 Agent 启动 env 解析链）', () => {  // 组的形状即仓库真实记录:结构化核心(baseUrl/apiKey) + 附加变量 env
   const profiles: Array<{ id: string; baseUrl?: string; apiKey?: string; env: Record<string, string> }> = [
     { id: 'p1', baseUrl: 'https://1.1.1.3:8443/v1', apiKey: 'sk-from-profile', env: { CODEX_HOME: 'C:/x' } },
     { id: 'p2', env: { K: 'p2' } }
@@ -129,5 +129,31 @@ describe('resolveAgentLaunchEnv（通用 Agent 启动 env 解析链）', () => {
   it('无绑定且无内联 → undefined（即系统环境变量）', () => {
     expect(resolveAgentLaunchEnv({}, store)).toBeUndefined()
     expect(resolveAgentLaunchEnv({ envProfileId: undefined, env: undefined }, store)).toBeUndefined()
+  })
+})
+
+describe('落盘失败回滚（内存不领先盘）', () => {
+  // 用目录占住 agents.json 路径让写必败（读同样失败 → load 回落默认 Agent，
+  // 正好给 update/delete 提供已知 id 的存量记录）
+  it('add 落盘失败返回 null 并回滚内存', () => {
+    mkdirSync(agentsPath, { recursive: true })
+    const repo = new AgentRepository()
+    expect(repo.add({ name: 'x', command: 'y', order: 0 })).toBeNull()
+    expect(repo.getAll().find((a) => a.name === 'x')).toBeUndefined()
+  })
+
+  it('update 落盘失败返回 false 并回滚内存', () => {
+    mkdirSync(agentsPath, { recursive: true })
+    const repo = new AgentRepository()
+    const before = repo.get('agent-claude-code')!
+    expect(repo.update({ ...before, name: 'changed' })).toBe(false)
+    expect(repo.get('agent-claude-code')!.name).toBe(before.name)
+  })
+
+  it('delete 落盘失败返回 false 并回滚内存', () => {
+    mkdirSync(agentsPath, { recursive: true })
+    const repo = new AgentRepository()
+    expect(repo.delete('agent-claude-code')).toBe(false)
+    expect(repo.get('agent-claude-code')).toBeDefined()
   })
 })

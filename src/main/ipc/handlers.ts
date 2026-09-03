@@ -23,7 +23,7 @@ import { migrateInlineEnvToProfiles } from '../harness/migrate-env'
 import { migrateKindEnvProfilesToGlobal, migrateProfilesToStructured } from '../harness/migrate-profiles'
 import { resolveAgentLaunchEnv } from '../storage/agent-repository'
 import { envProfileRepository } from '../storage/env-profile-repository'
-import { HARNESS_AGENT_KINDS, type EnvProfileLibraryResult, type EnvProfileUsage, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
+import { HARNESS_AGENT_KINDS, isValidHttpBaseUrl, type EnvProfileLibraryResult, type EnvProfileUsage, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
 import type { WorktreeListResult } from '@shared/worktree'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { ConnectionStatus } from '../connectors'
@@ -1832,6 +1832,10 @@ export function registerIPCHandlers(): void {
     if (raw.baseUrl !== undefined && raw.baseUrl.length > 2048) {
       throw new ValidationError('profile.baseUrl exceeds maxLength 2048')
     }
+    // 产品语义是上游 API 地址：非空即须是可解析的 http(s) URL（与渲染层预检同一份判定）
+    if (baseUrl !== undefined && !isValidHttpBaseUrl(baseUrl)) {
+      throw new ValidationError('profile.baseUrl must be a valid http(s) URL')
+    }
     if (raw.apiKey !== undefined && typeof raw.apiKey !== 'string') {
       throw new ValidationError('profile.apiKey must be a string')
     }
@@ -1955,7 +1959,9 @@ export function registerIPCHandlers(): void {
       }
       const envKeyMap = assertAgentEnvKeyMap(safeAgent.envKeyMap)
       if (envKeyMap !== undefined) newAgent.envKeyMap = envKeyMap
-      return agentRepository.add(newAgent)
+      const added = agentRepository.add(newAgent)
+      if (!added) return { success: false, error: 'Failed to save agent' }
+      return { success: true, agent: added }
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }
@@ -1998,7 +2004,13 @@ export function registerIPCHandlers(): void {
         if (existing?.envKeyMap !== undefined) updatedAgent.envKeyMap = existing.envKeyMap
       }
       const success = agentRepository.update(updatedAgent)
-      return { success }
+      if (!success) {
+        // 两类失败分开报：目标不存在（调用方视角的 404）或落盘失败（仓库已回滚内存）
+        return agentRepository.get(updatedAgent.id)
+          ? { success: false, error: 'Failed to save agent' }
+          : { success: false, error: 'Agent not found' }
+      }
+      return { success: true }
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }
@@ -2008,7 +2020,12 @@ export function registerIPCHandlers(): void {
     try {
       const safeAgentId = assertString(agentId, 'agentId', { maxLength: 128 })
       const success = agentRepository.delete(safeAgentId)
-      return { success }
+      if (!success) {
+        return agentRepository.get(safeAgentId)
+          ? { success: false, error: 'Failed to save agent' }
+          : { success: false, error: 'Agent not found' }
+      }
+      return { success: true }
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }

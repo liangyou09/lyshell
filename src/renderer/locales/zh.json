@@ -168,6 +168,7 @@
       "previewHint": "启动时实际执行",
       "previewNoCmd": "输入命令后可见预览",
       "required": "命令不能为空（名称留空自动命名）",
+      "saveFailed": "保存失败，请检查后重试",
       "confirmDelete": "再点一次确认删除"
     }
   },
@@ -187,6 +188,7 @@
     "baseUrl": "Base URL",
     "baseUrlPh": "https://api.deepseek.com",
     "baseUrlHint": "按 agent 映射注入：dsh → DEEPSEEK_BASE_URL · codex → OPENAI_BASE_URL · claude → ANTHROPIC_BASE_URL",
+    "baseUrlInvalid": "Base URL 需为 http(s) 网址，如 https://api.deepseek.com",
     "apiKey": "API Key",
     "apiKeyPh": "sk-…",
     "apiKeyHint": "按 agent 映射注入凭据（dsh → DEEPSEEK_API_KEY · codex → OPENAI_API_KEY · claude → ANTHROPIC_AUTH_TOKEN），默认打码",

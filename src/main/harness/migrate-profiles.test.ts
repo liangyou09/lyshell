@@ -17,7 +17,7 @@ vi.mock('electron', () => ({
 // 旧文件名（dsh/codex/claude-env-profiles.json）由生产代码拼出，本文件独占（其他测试不用）。
 // liftStructuredFields 是 @shared 纯函数，静态 import 不受 resetModules 影响。
 
-import { liftStructuredFields } from '@shared/harness'
+import { isValidHttpBaseUrl, liftStructuredFields } from '@shared/harness'
 
 const configDir = join(tmpdir(), 'config')
 const globalPath = join(configDir, 'env-profiles.json')
@@ -51,6 +51,7 @@ function cleanFiles(): void {
   mkdirSync(configDir, { recursive: true })
   rmSync(globalPath, { force: true })
   rmSync(`${globalPath}.bak`, { force: true })
+  rmSync(`${globalPath}.tmp`, { force: true })
   for (const p of Object.values(oldPaths)) {
     rmSync(p, { force: true })
     rmSync(`${p}.bak`, { force: true })
@@ -236,6 +237,22 @@ describe('liftStructuredFields（协议键提升纯函数）', () => {
   })
 })
 
+describe('isValidHttpBaseUrl（baseUrl 写入路径格式校验）', () => {
+  it('http(s) 可解析即合法（含端口 / 路径后缀）', () => {
+    expect(isValidHttpBaseUrl('https://api.deepseek.com')).toBe(true)
+    expect(isValidHttpBaseUrl('https://1.1.1.3:8443/v1')).toBe(true)
+    expect(isValidHttpBaseUrl('http://127.0.0.1:8080')).toBe(true)
+  })
+
+  it('缺协议 / 非 http(s) 协议 / 纯端口串一律拒绝', () => {
+    expect(isValidHttpBaseUrl('api.deepseek.com')).toBe(false)
+    expect(isValidHttpBaseUrl('1.1.1.3:8443')).toBe(false)
+    expect(isValidHttpBaseUrl('ftp://example.com')).toBe(false)
+    expect(isValidHttpBaseUrl('https://')).toBe(false)
+    expect(isValidHttpBaseUrl('')).toBe(false)
+  })
+})
+
 describe('migrateProfilesToStructured', () => {
   /** 结构化迁移不碰单例内存态（直接读写文件），无需 resetModules 也能重入 */
   async function runStructuredMigration(): Promise<void> {
@@ -313,6 +330,21 @@ describe('migrateProfilesToStructured', () => {
     await runStructuredMigration()
     expect(existsSync(globalPath)).toBe(false)
     expect(existsSync(`${globalPath}.bak`)).toBe(false)
+  })
+
+  it('原子写入：上次崩溃遗留的 .tmp 被覆盖，迁移成功后不留临时文件', async () => {
+    writeFileSync(globalPath, JSON.stringify({
+      profiles: [{ id: 'a', name: 'a', order: 0, env: { DEEPSEEK_API_KEY: 'k' } }]
+    }), 'utf-8')
+    // 模拟上次运行写到一半崩溃：留下半截 .tmp
+    writeFileSync(`${globalPath}.tmp`, '{"profiles": [ trunc', 'utf-8')
+
+    await runStructuredMigration()
+
+    const g = readGlobal()
+    expect(g.profiles[0].apiKey).toBe('k')
+    expect(g.profiles[0].env).toEqual({})
+    expect(existsSync(`${globalPath}.tmp`)).toBe(false)
   })
 
   it('与旧 per-kind 并入链路衔接：并入时 normalizeProfile 已防御提升，结构化迁移无事可做', async () => {

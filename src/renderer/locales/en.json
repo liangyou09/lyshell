@@ -168,6 +168,7 @@
       "previewHint": "What fires on launch",
       "previewNoCmd": "Enter a command to see the preview",
       "required": "Command is required (empty name is auto-named)",
+      "saveFailed": "Save failed; check and retry",
       "confirmDelete": "Click again to confirm"
     }
   },
@@ -187,6 +188,7 @@
     "baseUrl": "Base URL",
     "baseUrlPh": "https://api.deepseek.com",
     "baseUrlHint": "Injected per agent mapping: dsh → DEEPSEEK_BASE_URL · codex → OPENAI_BASE_URL · claude → ANTHROPIC_BASE_URL",
+    "baseUrlInvalid": "Base URL must be an http(s) URL, e.g. https://api.deepseek.com",
     "apiKey": "API Key",
     "apiKeyPh": "sk-…",
     "apiKeyHint": "Credential injected per agent mapping (dsh → DEEPSEEK_API_KEY · codex → OPENAI_API_KEY · claude → ANTHROPIC_AUTH_TOKEN), masked by default",

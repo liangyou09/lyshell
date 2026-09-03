@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import {
   HARNESS_AGENT_KINDS,
   HARNESS_ENV_KEY_MAP,
+  isValidHttpBaseUrl,
   type EnvProfileLibraryResult,
   type HarnessAgentKind,
   type HarnessEnvDefault,
@@ -310,9 +311,12 @@ const EnvProfilePanel: React.FC = () => {
   const profilePayloadEnv = collapseEnv(profileEnv)
   const profileBaseUrlTrimmed = profileBaseUrl.trim()
   const profileApiKeyTrimmed = profileApiKey.trim()
-  // 有效 = 名称非空 + 三者至少其一(上游地址 / 凭据 / 附加变量)
+  // baseUrl 非空时必须是可解析的 http(s) URL(与主进程 assertProfileCredential 同一份判定)
+  const profileBaseUrlValid = profileBaseUrlTrimmed.length === 0 || isValidHttpBaseUrl(profileBaseUrlTrimmed)
+  // 有效 = 名称非空 + baseUrl 格式合法 + 三者至少其一(上游地址 / 凭据 / 附加变量)
   const profileValid =
     profileName.trim().length > 0 &&
+    profileBaseUrlValid &&
     (profileBaseUrlTrimmed.length > 0 || profileApiKeyTrimmed.length > 0 || Object.keys(profilePayloadEnv).length > 0)
 
   const handleSave = async () => {
@@ -328,11 +332,18 @@ const EnvProfilePanel: React.FC = () => {
     const apiKeyPayload = profileApiKeyTrimmed || undefined
     const models = [...new Set(profileModels.map((m) => m.trim()).filter((m) => m.length > 0))]
     const modelsPayload = models.length > 0 ? models : undefined
-    const res = editProfile
-      ? await window.electronAPI?.updateEnvProfile({ ...editProfile, name, note, baseUrl: baseUrlPayload, apiKey: apiKeyPayload, env: profilePayloadEnv, models: modelsPayload })
-      : await window.electronAPI?.addEnvProfile({ name, note, baseUrl: baseUrlPayload, apiKey: apiKeyPayload, env: profilePayloadEnv, models: modelsPayload })
-    if (res && res.success === false) {
-      setSaveError(typeof res.error === 'string' ? res.error : t('env.saveFailed'))
+    // 双通道失败都要落到 saveError：handler 正常返回时走 success:false 分支，
+    // 主进程意外抛错（invoke reject）走 catch —— 两边都保留表单，用户能看到原因
+    try {
+      const res = editProfile
+        ? await window.electronAPI?.updateEnvProfile({ ...editProfile, name, note, baseUrl: baseUrlPayload, apiKey: apiKeyPayload, env: profilePayloadEnv, models: modelsPayload })
+        : await window.electronAPI?.addEnvProfile({ name, note, baseUrl: baseUrlPayload, apiKey: apiKeyPayload, env: profilePayloadEnv, models: modelsPayload })
+      if (res && res.success === false) {
+        setSaveError(typeof res.error === 'string' ? res.error : t('env.saveFailed'))
+        return
+      }
+    } catch (err) {
+      setSaveError(err instanceof Error && err.message ? err.message : t('env.saveFailed'))
       return
     }
     await load()
@@ -686,8 +697,13 @@ const EnvProfilePanel: React.FC = () => {
               </div>
             </div>
 
-            {/* 校验提示（仅尝试提交后显示） */}
-            {triedSubmit && !profileValid && (
+            {/* 校验提示（仅尝试提交后显示；baseUrl 格式错误单独一条，不与必填项混报） */}
+            {triedSubmit && !profileBaseUrlValid && (
+              <div className="px-4 py-2 text-[11px] [font-family:inherit] text-[var(--error-rack)] border-b border-[var(--rule)]">
+                {t('env.baseUrlInvalid')}
+              </div>
+            )}
+            {triedSubmit && profileBaseUrlValid && !profileValid && (
               <div className="px-4 py-2 text-[11px] [font-family:inherit] text-[var(--error-rack)] border-b border-[var(--rule)]">
                 {t('env.required')}
               </div>

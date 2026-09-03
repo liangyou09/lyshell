@@ -107,14 +107,17 @@ export class AgentRepository {
     }
   }
 
-  private save(): void {
-    if (!this.filePath) return
+  /** 落盘结果向上透传：add/update/delete 据此回滚内存并向调用方报失败 */
+  private save(): boolean {
+    if (!this.filePath) return false
 
     try {
       writeFileSync(this.filePath, JSON.stringify(this.agents, null, 2), 'utf-8')
       log.info(`Saved ${this.agents.length} agents to storage`)
+      return true
     } catch (error) {
       log.error('Failed to save agents:', error)
+      return false
     }
   }
 
@@ -128,7 +131,8 @@ export class AgentRepository {
     return this.agents.find(a => a.id === id)
   }
 
-  add(agent: Omit<AgentConfig, 'id'>): AgentConfig {
+  /** 落盘失败返回 null 并回滚内存（与 EnvProfileRepository.add 同纪律：内存不领先盘） */
+  add(agent: Omit<AgentConfig, 'id'>): AgentConfig | null {
     this.ensureInitialized()
     const newAgent: AgentConfig = {
       ...agent,
@@ -136,7 +140,10 @@ export class AgentRepository {
       order: agent.order ?? this.agents.length
     }
     this.agents.push(newAgent)
-    this.save()
+    if (!this.save()) {
+      this.agents.pop()
+      return null
+    }
     return newAgent
   }
 
@@ -144,8 +151,12 @@ export class AgentRepository {
     this.ensureInitialized()
     const index = this.agents.findIndex(a => a.id === agent.id)
     if (index === -1) return false
+    const previous = this.agents[index]
     this.agents[index] = agent
-    this.save()
+    if (!this.save()) {
+      this.agents[index] = previous
+      return false
+    }
     return true
   }
 
@@ -153,8 +164,11 @@ export class AgentRepository {
     this.ensureInitialized()
     const index = this.agents.findIndex(a => a.id === id)
     if (index === -1) return false
-    this.agents.splice(index, 1)
-    this.save()
+    const [removed] = this.agents.splice(index, 1)
+    if (!this.save()) {
+      this.agents.splice(index, 0, removed)
+      return false
+    }
     return true
   }
 }

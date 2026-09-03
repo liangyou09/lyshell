@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { copyFileSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import log from 'electron-log'
 import { HARNESS_AGENT_KINDS, liftStructuredFields, type HarnessAgentKind, type HarnessEnvProfile } from '@shared/harness'
@@ -77,6 +77,9 @@ export function migrateKindEnvProfilesToGlobal(): void {
  * 改写前 copyFileSync 备份 .bak（只建一次，不覆盖既有备份）；activeByKind 原样保留。
  *
  * 幂等：提升后 env 里不再有已知协议键，二跑全 no-op、不重写文件（也就不覆盖备份）。
+ * 原子落盘：先写 .tmp 再 rename 覆盖 —— 直接 writeFileSync 中途崩溃会留下截断的
+ * JSON，下次启动整库按损坏处理；rename 在同一卷上原子（Windows 上 Node 走
+ * MoveFileEx REPLACE_EXISTING），崩溃时盘上要么旧文件要么新文件，没有中间态。
  * 失败兜底：log 后下启重试；重试落盘成功前 normalizeProfile 的防御分支保证
  * 运行期行为已正确（读旧格式文件一样能解析出结构化核心）。
  */
@@ -115,7 +118,16 @@ export function migrateProfilesToStructured(): void {
     if (!changed) return
     const backupPath = `${filePath}.bak`
     if (!existsSync(backupPath)) copyFileSync(filePath, backupPath)
-    writeFileSync(filePath, JSON.stringify({ ...parsed, profiles }, null, 2), 'utf-8')
+    // 原子写入：先写临时文件再 rename 覆盖。上次运行崩溃遗留的 .tmp 会被覆盖，
+    // 不需要启动时清理；rename 失败时把 .tmp 删掉，交给外层 catch 记日志、下启重试
+    const tmpPath = `${filePath}.tmp`
+    writeFileSync(tmpPath, JSON.stringify({ ...parsed, profiles }, null, 2), 'utf-8')
+    try {
+      renameSync(tmpPath, filePath)
+    } catch (error) {
+      rmSync(tmpPath, { force: true })
+      throw error
+    }
     log.info('env profiles migrated to structured core (baseUrl + apiKey); previous file kept as .bak')
   } catch (error) {
     log.error('structured env profile migration aborted (will retry next launch):', error)

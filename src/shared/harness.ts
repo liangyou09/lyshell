@@ -153,6 +153,20 @@ export function liftStructuredFields(
   }
 }
 
+/**
+ * baseUrl 格式校验：非空值必须是可解析的 http(s) URL —— 产品语义是上游 API 地址，
+ * 存进来的值最终要喂给 DEEPSEEK_BASE_URL / OPENAI_BASE_URL 等变量，坏格式注入了也连不上。
+ * 只在写入路径（IPC 校验 + 表单预检）使用；读取/迁移路径不校验 —— 防御性解析不丢数据。
+ */
+export function isValidHttpBaseUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 /** <kind>:env:list 的返回形状 —— 全局变量组列表 + 该 kind 的启用指针（per-kind 视角） */
 export interface HarnessEnvListResult {
   profiles: HarnessEnvProfile[]
