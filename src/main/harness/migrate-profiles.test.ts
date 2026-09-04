@@ -29,7 +29,9 @@ const oldPaths = {
 
 interface GlobalFile {
   profiles: Array<{ id: string; name: string; order: number; env: Record<string, string>; baseUrl?: string; apiKey?: string }>
-  activeByKind: Record<string, string>
+  /** 新格式全局单根指针；legacy per-kind 键只在「原样穿过结构化迁移」的用例里出现 */
+  activeProfileId?: string | null
+  activeByKind?: Record<string, string>
 }
 
 /** 读全局库落盘内容 —— 断言以盘上为准 */
@@ -68,7 +70,7 @@ afterEach(() => {
 })
 
 describe('migrateKindEnvProfilesToGlobal', () => {
-  it('三份旧文件并入全局库：保 id、全局重排 order、per-kind 指针正确、旧文件 rename 为 .bak', async () => {
+  it('三份旧文件并入全局库：保 id、全局重排 order、全局启用指针先到先得、旧文件 rename 为 .bak', async () => {
     seedOld('dsh', JSON.stringify([
       { id: 'd1', name: 'dsh组', order: 0, env: { DSH_HOME: '/d' }, active: true },
       { id: 'd2', name: 'dsh组2', order: 1, env: { K: 'v' } }
@@ -93,8 +95,10 @@ describe('migrateKindEnvProfilesToGlobal', () => {
     expect(c1.env).toEqual({})
     // dsh 记录无协议键，env 原样保留
     expect(g.profiles.find((p) => p.id === 'd1')?.env).toEqual({ DSH_HOME: '/d' })
-    // dsh/claude 各有 active 条目 → 指针迁入；codex 无 active → 无指针（回落系统环境变量）
-    expect(g.activeByKind).toEqual({ dsh: 'd1', claude: 'l1' })
+    // dsh/claude 都有 active 条目 → 全局单根指针只补空位，先处理的 dsh 先到先得
+    //（claude 的 active 让位，其组仍在库里可手动启用）；codex 无 active 不参与
+    expect(g.activeProfileId).toBe('d1')
+    expect(g.activeByKind).toBeUndefined()
     // 旧文件改名保留（不删，可回滚）
     for (const p of Object.values(oldPaths)) {
       expect(existsSync(p)).toBe(false)
@@ -124,7 +128,7 @@ describe('migrateKindEnvProfilesToGlobal', () => {
 
     await runMigration()
 
-    expect(readGlobal().activeByKind).toEqual({ codex: 'x2' })
+    expect(readGlobal().activeProfileId).toBe('x2')
   })
 
   it('幂等：重跑同 id 不重复并入（模拟「并入成功但 rename 失败」的重试）', async () => {
@@ -143,11 +147,12 @@ describe('migrateKindEnvProfilesToGlobal', () => {
 
     const g = readGlobal()
     expect(g.profiles.map((p) => p.id)).toEqual(['c1'])
-    expect(g.activeByKind).toEqual({ codex: 'c1' }) // 已有指针不被覆盖
+    expect(g.activeProfileId).toBe('c1') // 已有指针不被覆盖
     expect(existsSync(`${oldPaths.codex}.bak`)).toBe(true)
   })
 
   it('全局库已有指针时，旧文件的 active 不覆盖（本库优先）', async () => {
+    // legacy per-kind 指针种子 —— 兼作加载回落（normalizeFile 读 legacy 键）的集成覆盖
     writeFileSync(globalPath, JSON.stringify({
       profiles: [{ id: 'g1', name: 'g', order: 0, env: { K: 'g' } }],
       activeByKind: { codex: 'g1' }
@@ -160,7 +165,9 @@ describe('migrateKindEnvProfilesToGlobal', () => {
 
     const g = readGlobal()
     expect(g.profiles.map((p) => p.id)).toEqual(['g1', 'c1']) // 并入接在现有之后
-    expect(g.activeByKind).toEqual({ codex: 'g1' }) // 指针不覆盖
+    // 加载时 legacy 指针归一到全局单根，重落盘为新格式
+    expect(g.activeProfileId).toBe('g1') // 指针不覆盖
+    expect(g.activeByKind).toBeUndefined()
   })
 
   it('损坏的旧文件：跳过该 kind 且不 rename（下次启动重试），其他 kind 照常迁移', async () => {

@@ -60,9 +60,10 @@ export interface HarnessWorkspace {
 
 /**
  * 具名环境变量组 —— 全局一份库（env-profiles.json），dsh / codex / claude 与通用 Agent 共用。
- * 组本身不携带启用态：harness kind 经 activeByKind 指针启用（每 kind 至多一根，
- * 同组可被多个 kind 同时启用）；通用 Agent 只有显式绑定（AgentConfig.envProfileId）。
- * 全部未启用/未绑定时启动即用系统环境变量。
+ * 组本身不携带启用态：启用是全应用单选一根指针（activeProfileId），三个 harness kind
+ * 与 dsh Web 共用同一根 —— 同一时刻至多一组通电，结构化核心按消费方映射物化；
+ * 通用 Agent 只有显式绑定（AgentConfig.envProfileId）。
+ * 未启用/未绑定时启动即用系统环境变量。
  *
  * 核心是结构化的「端点凭据」：baseUrl + apiKey 两字段存储协议无关的凭据，注入时按
  * 消费方的映射（HARNESS_ENV_KEY_MAP / AgentConfig.envKeyMap）物化成具体变量名 ——
@@ -167,12 +168,6 @@ export function isValidHttpBaseUrl(value: string): boolean {
   }
 }
 
-/** <kind>:env:list 的返回形状 —— 全局变量组列表 + 该 kind 的启用指针（per-kind 视角） */
-export interface HarnessEnvListResult {
-  profiles: HarnessEnvProfile[]
-  activeProfileId: string | null
-}
-
 /** 单个变量组的引用方（按名字列出，供全局面板的引用计数与删除警示） */
 export interface EnvProfileUsage {
   /** 绑定该组的通用 Agent 名（AgentConfig.envProfileId） */
@@ -181,10 +176,10 @@ export interface EnvProfileUsage {
   workspaces: Array<{ kind: HarnessAgentKind; name: string }>
 }
 
-/** env-profile:list 的返回形状 —— 全局库面板视角：组 + 每 kind 启用指针 + 引用方 */
+/** env-profile:list 的返回形状 —— 全局库面板视角：组 + 全局启用指针 + 引用方 */
 export interface EnvProfileLibraryResult {
   profiles: HarnessEnvProfile[]
-  activeByKind: Partial<Record<HarnessAgentKind, string>>
+  activeProfileId: string | null
   usage: Record<string, EnvProfileUsage>
 }
 

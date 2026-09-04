@@ -25,7 +25,8 @@ import { presetCodexBaseUrl } from '../codex/base-url-preset'
  * codex 另有上游地址预设（OPENAI_BASE_URL → config.toml，见 codex/base-url-preset.ts）。
  *
  * 变量组是全局一份库（storage/env-profile-repository.ts）：三个 kind 与通用 Agent
- * 共用同一组集合，「启用」是每 kind 一根指针（getActiveProfile(kind)）。
+ * 共用同一组集合，「启用」是全应用单选一根指针（getActiveProfile()），
+ * dsh / codex / claude 与 dsh Web 跟随同一根。
  */
 
 export interface HarnessAgentRuntime {
@@ -57,13 +58,13 @@ export function detectAgentDependencies(kind: HarnessAgentKind): Record<string, 
 /**
  * 解析某工作区启动时实际注入的环境变量 —— 唯一的真相来源，launch 与 dsh web 两侧都走它。
  *
- *   工作区显式绑定的变量组 → 该 kind 已启用的变量组 → ws.env（legacy）→ undefined（系统环境变量）
+ *   工作区显式绑定的变量组 → 全局启用的变量组 → ws.env（legacy）→ undefined（系统环境变量）
  *
  * 变量组命中后经 materializeProfileEnv 物化：结构化核心（baseUrl/apiKey）按该 kind 的
  * HARNESS_ENV_KEY_MAP 映射成具体变量名（codex → OPENAI_* 等），附加变量原样透传 ——
  * 同一组喂不同协议的 kind 时变量名跟着 kind 走，组里不存变量名。
  *
- * envProfileId 悬空（组已被删）时等同「没选」，回落该 kind 的启用组 —— 删掉一个组不该
+ * envProfileId 悬空（组已被删）时等同「没选」，回落全局启用组 —— 删掉一个组不该
  * 让工作区变成「无 env」的第三种状态。
  *
  * 第三级 legacy 分支不是第四种语义，而是迁移失败的防御：迁移横跨两个文件两次落盘
@@ -77,12 +78,24 @@ export function resolveWorkspaceEnv(
   const bound = workspace.envProfileId
     ? runtime.envRepository.get(workspace.envProfileId)
     : undefined
-  const profile = bound ?? runtime.envRepository.getActiveProfile(runtime.kind)
+  const profile = bound ?? runtime.envRepository.getActiveProfile()
   if (profile) {
     const map = HARNESS_ENV_KEY_MAP[runtime.kind]
     return materializeProfileEnv(profile, map.baseUrlKey, map.apiKeyKey)
   }
   return workspace.env
+}
+
+/**
+ * 解析全局启用变量组物化后的环境变量 —— 无工作区可绑时的兜底链（dsh Web 默认分支用）：
+ * 全局启用的组（按 kind 物化）→ undefined（系统环境变量）。与 resolveWorkspaceEnv
+ * 同一份物化，结构化核心（baseUrl/apiKey）在这里同样映射成具体变量名。
+ */
+export function resolveActiveProfileEnv(runtime: HarnessAgentRuntime): Record<string, string> | undefined {
+  const profile = runtime.envRepository.getActiveProfile()
+  if (!profile) return undefined
+  const map = HARNESS_ENV_KEY_MAP[runtime.kind]
+  return materializeProfileEnv(profile, map.baseUrlKey, map.apiKeyKey)
 }
 
 const identityEnv = (env?: Record<string, string>): NormalizedEnvResult => ({ ok: true, env })

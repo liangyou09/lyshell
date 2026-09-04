@@ -173,7 +173,7 @@ const AgentsPanel: React.FC = () => {
   }
   useEffect(() => {
     void loadAgents()
-    // 全局变量组与 agent 列表一并拉取(绑定下拉的数据源;返回形状 { profiles, activeByKind, usage })
+    // 全局变量组与 agent 列表一并拉取(绑定下拉的数据源;返回形状 { profiles, activeProfileId, usage })
     window.electronAPI?.listEnvProfiles().then((result) => {
       if (result && Array.isArray(result.profiles)) setEnvProfiles(result.profiles as { id: string; name: string }[])
     }).catch((err) => console.error('Failed to load env profiles:', err))

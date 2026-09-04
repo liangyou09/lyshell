@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 
 // electron-log / electron.app.getPath 在 Node 测试环境不存在，mock 掉（对齐 harness-workspace-repository.test.ts）
 vi.mock('electron-log', () => ({
@@ -56,7 +56,7 @@ describe('EnvProfileRepository（全局变量组库）', () => {
     seed(JSON.stringify([{ id: 'a', name: 'a', order: 0, env: { K: 'v' } }]))
     const repo = newRepo()
     expect(repo.getAll()).toEqual([])
-    expect(repo.getActiveProfileId('codex')).toBeUndefined()
+    expect(repo.getActiveProfileId()).toBeNull()
   })
 
   it('过滤非法记录：缺 name/order、env 为空或非对象一律丢弃', () => {
@@ -142,77 +142,106 @@ describe('EnvProfileRepository（全局变量组库）', () => {
     expect(newRepo().getAll().map((p) => p.name)).toEqual(['first', 'other'])
   })
 
-  it('add 分配连续 order，新建不点亮任何 kind 的启用指针', () => {
+  it('add 分配连续 order，新建不点亮启用指针', () => {
     const repo = newRepo()
     const a = repo.add({ name: 'a', env: { K: '1' } })!
     const b = repo.add({ name: 'b', env: { K: '2' } })!
     expect([a.order, b.order]).toEqual([0, 1])
-    expect(repo.getActiveProfileId('dsh')).toBeUndefined()
-    expect(repo.getActiveProfileId('codex')).toBeUndefined()
-    expect(repo.getActiveProfileId('claude')).toBeUndefined()
+    expect(repo.getActiveProfileId()).toBeNull()
   })
 
-  it('setActiveProfile 单选（per-kind 指针）：同 kind 内切换即替换', () => {
+  it('setActiveProfile 全局单选：启用新组即替换原指针（dsh/codex/claude 共用同一根）', () => {
     const repo = newRepo()
     const a = repo.add({ name: 'a', env: { K: '1' } })!
     const b = repo.add({ name: 'b', env: { K: '2' } })!
-    expect(repo.setActiveProfile('codex', a.id)).toBe(true)
-    expect(repo.getActiveProfile('codex')?.id).toBe(a.id)
-    expect(repo.setActiveProfile('codex', b.id)).toBe(true)
-    expect(repo.getActiveProfile('codex')?.id).toBe(b.id)
+    expect(repo.setActiveProfile(a.id)).toBe(true)
+    expect(repo.getActiveProfile()?.id).toBe(a.id)
+    expect(repo.setActiveProfile(b.id)).toBe(true)
+    expect(repo.getActiveProfile()?.id).toBe(b.id)
   })
 
-  it('各 kind 指针互不影响 —— 同一组可被多个 kind 同时启用', () => {
+  it('setActiveProfile(null) 停用 —— 回落系统环境变量', () => {
     const repo = newRepo()
     const a = repo.add({ name: 'a', env: { K: '1' } })!
-    repo.setActiveProfile('dsh', a.id)
-    repo.setActiveProfile('codex', a.id)
-    expect(repo.getActiveProfile('dsh')?.id).toBe(a.id)
-    expect(repo.getActiveProfile('codex')?.id).toBe(a.id)
-    // 停用 dsh 不牵连 codex
-    repo.setActiveProfile('dsh', null)
-    expect(repo.getActiveProfile('dsh')).toBeUndefined()
-    expect(repo.getActiveProfile('codex')?.id).toBe(a.id)
-  })
-
-  it('setActiveProfile(kind, null) 停用该 kind —— 回落系统环境变量', () => {
-    const repo = newRepo()
-    const a = repo.add({ name: 'a', env: { K: '1' } })!
-    repo.setActiveProfile('codex', a.id)
-    expect(repo.setActiveProfile('codex', null)).toBe(true)
-    expect(repo.getActiveProfile('codex')).toBeUndefined()
+    repo.setActiveProfile(a.id)
+    expect(repo.setActiveProfile(null)).toBe(true)
+    expect(repo.getActiveProfile()).toBeUndefined()
+    expect(repo.getActiveProfileId()).toBeNull()
   })
 
   it('setActiveProfile 指向不存在的 id 返回 false 且不改动现状', () => {
     const repo = newRepo()
     const a = repo.add({ name: 'a', env: { K: '1' } })!
-    repo.setActiveProfile('codex', a.id)
-    expect(repo.setActiveProfile('codex', 'nope')).toBe(false)
-    expect(repo.getActiveProfile('codex')?.id).toBe(a.id)
+    repo.setActiveProfile(a.id)
+    expect(repo.setActiveProfile('nope')).toBe(false)
+    expect(repo.getActiveProfile()?.id).toBe(a.id)
   })
 
-  it('加载时清洗 activeByKind：悬空指针、未知 kind、非字符串值一律丢弃', () => {
-    const repo = newRepo()
-    const a = repo.add({ name: 'a', env: { K: '1' } })!
-    repo.setActiveProfile('codex', a.id)
-    // 手工改坏指针：codex 悬空 + 未知 kind + 非字符串
-    seed(JSON.stringify({
-      profiles: [{ id: a.id, name: 'a', order: 0, env: { K: '1' } }],
-      activeByKind: { codex: 'deleted-id', unknown: a.id, dsh: 42, claude: a.id }
-    }))
-    const repo2 = newRepo()
-    expect(repo2.getActiveProfileId('codex')).toBeUndefined()
-    expect(repo2.getActiveProfileId('dsh')).toBeUndefined()
-    expect(repo2.getActiveProfileId('claude')).toBe(a.id)
-  })
+  describe('启用指针加载归一（新键 activeProfileId + legacy activeByKind）', () => {
+    const seedProfiles = (extra: Record<string, unknown>): void =>
+      seed(JSON.stringify({
+        profiles: [
+          { id: 'x', name: 'x', order: 0, env: { K: '1' } },
+          { id: 'y', name: 'y', order: 1, env: { K: '2' } },
+          { id: 'z', name: 'z', order: 2, env: { K: '3' } }
+        ],
+        ...extra
+      }))
 
-  it('update 不改动启用指针（启用只经 setActiveProfile）', () => {
-    const repo = newRepo()
-    const a = repo.add({ name: 'a', env: { K: '1' } })!
-    repo.setActiveProfile('codex', a.id)
-    expect(repo.update({ ...a, name: 'a2' })).toBe(true)
-    expect(repo.get(a.id)?.name).toBe('a2')
-    expect(repo.getActiveProfile('codex')?.id).toBe(a.id)
+    it('新键悬空/非字符串一律按无启用丢弃，不落回盘上', () => {
+      seedProfiles({ activeProfileId: 'deleted-id' })
+      expect(newRepo().getActiveProfileId()).toBeNull()
+      seedProfiles({ activeProfileId: 42 })
+      expect(newRepo().getActiveProfileId()).toBeNull()
+    })
+
+    it('新键缺席时回落 legacy per-kind 指针：按 dsh → codex → claude 顺序取首个有效', () => {
+      // dsh 与 codex 都有指针 → 取 dsh 的（多根指针不一致只保留一根）
+      seedProfiles({ activeByKind: { dsh: 'x', codex: 'y' } })
+      expect(newRepo().getActiveProfileId()).toBe('x')
+      // dsh 缺席 → 取 codex 的
+      seedProfiles({ activeByKind: { codex: 'y', claude: 'z' } })
+      expect(newRepo().getActiveProfileId()).toBe('y')
+    })
+
+    it('legacy 指针逐根校验：悬空/非字符串/未知 kind 跳过，取首个有效的', () => {
+      seed(JSON.stringify({
+        profiles: [{ id: 'x', name: 'x', order: 0, env: { K: '1' } }],
+        activeByKind: { dsh: 42, codex: 'deleted-id', unknown: 'x', claude: 'x' }
+      }))
+      expect(newRepo().getActiveProfileId()).toBe('x')
+    })
+
+    it('新键与 legacy 并存时新键优先', () => {
+      seedProfiles({ activeProfileId: 'z', activeByKind: { dsh: 'x' } })
+      expect(newRepo().getActiveProfileId()).toBe('z')
+    })
+
+    it('legacy 全悬空/全无效 → 无启用', () => {
+      seedProfiles({ activeByKind: { dsh: 'nope', codex: 'nada' } })
+      expect(newRepo().getActiveProfileId()).toBeNull()
+    })
+
+    it('指针指向被 MAX_PROFILES 截断的组 → 按悬空丢弃（校验对截断后的组集）', () => {
+      const profiles = Array.from({ length: 260 }, (_, i) => ({ id: `p-${i}`, name: `p${i}`, order: i, env: { K: String(i) } }))
+      // order 258 排在截断线（前 256）之外
+      seed(JSON.stringify({ profiles, activeProfileId: 'p-258' }))
+      const repo = newRepo()
+      expect(repo.getAll().length).toBe(256)
+      expect(repo.getActiveProfileId()).toBeNull()
+      // 指向截断线内的组则有效
+      seed(JSON.stringify({ profiles, activeProfileId: 'p-3' }))
+      expect(newRepo().getActiveProfileId()).toBe('p-3')
+    })
+
+    it('mutation 后以新格式落盘（legacy 键不再写回）', () => {
+      seedProfiles({ activeByKind: { codex: 'y' } })
+      const repo = newRepo()
+      expect(repo.setActiveProfile('x')).toBe(true)
+      const onDisk = JSON.parse(readFileSync(filePath, 'utf-8'))
+      expect(onDisk.activeProfileId).toBe('x')
+      expect(onDisk.activeByKind).toBeUndefined()
+    })
   })
 
   it('update 不存在的 id 返回 false', () => {
@@ -225,23 +254,21 @@ describe('EnvProfileRepository（全局变量组库）', () => {
     repo.add({ name: 'a', env: { K: '1' } })
     const b = repo.add({ name: 'b', env: { K: '2' } })!
     repo.add({ name: 'c', env: { K: '3' } })
-    repo.setActiveProfile('dsh', b.id)
-    repo.setActiveProfile('claude', b.id)
+    repo.setActiveProfile(b.id)
     expect(repo.delete(b.id)).toBe(true)
     expect(repo.getAll().map((p) => p.order)).toEqual([0, 1])
-    // dsh / claude 指向被删组 → 清空（等价停用）；无指针的 codex 不受影响
-    expect(repo.getActiveProfileId('dsh')).toBeUndefined()
-    expect(repo.getActiveProfileId('claude')).toBeUndefined()
+    // 全局指针指向被删组 → 清空（等价停用，回落系统环境变量）
+    expect(repo.getActiveProfileId()).toBeNull()
     expect(repo.delete('nope')).toBe(false)
   })
 
   it('add / setActiveProfile 后持久化，新实例可读到', () => {
     const repo = newRepo()
     const a = repo.add({ name: 'a', env: { K: 'v' } })!
-    repo.setActiveProfile('codex', a.id)
+    repo.setActiveProfile(a.id)
     const repo2 = newRepo()
     expect(repo2.getAll().map((p) => p.name)).toEqual(['a'])
-    expect(repo2.getActiveProfile('codex')?.name).toBe('a')
+    expect(repo2.getActiveProfile()?.name).toBe('a')
   })
 
   describe('importProfiles（迁移并入）', () => {
@@ -252,38 +279,37 @@ describe('EnvProfileRepository（全局变量组库）', () => {
         { id: 'old-1', name: 'o1', order: 0, env: { K: '1' } },
         { id: 'old-2', name: 'o2', order: 1, env: { K: '2' } }
       ]
-      expect(repo.importProfiles(imported, { codex: 'old-1' })).toBe(2)
+      expect(repo.importProfiles(imported, 'old-1')).toBe(2)
       const all = repo.getAll()
       expect(all.map((p) => p.id)).toEqual([kept.id, 'old-1', 'old-2'])
       expect(all.map((p) => p.order)).toEqual([0, 1, 2])
-      expect(repo.getActiveProfile('codex')?.id).toBe('old-1')
+      expect(repo.getActiveProfile()?.id).toBe('old-1')
     })
 
     it('幂等：重复 import 同 id 不再并入，已有指针不被覆盖', () => {
       const repo = newRepo()
       const mine = repo.add({ name: 'mine', env: { K: 'm' } })!
-      repo.setActiveProfile('codex', mine.id)
+      repo.setActiveProfile(mine.id)
       const imported = [{ id: 'old-1', name: 'o1', order: 0, env: { K: '1' } }]
-      expect(repo.importProfiles(imported, { codex: 'old-1' })).toBe(1)
-      // 第二轮：old-1 已在库中（跳过），codex 指针已占用（不覆盖）
-      expect(repo.importProfiles(imported, { codex: 'old-1', dsh: 'old-1' })).toBe(0)
+      expect(repo.importProfiles(imported, 'old-1')).toBe(1)
+      // 第二轮：old-1 已在库中（跳过），全局指针已占用（不覆盖）
+      expect(repo.importProfiles(imported, 'old-1')).toBe(0)
       expect(repo.getAll().length).toBe(2)
-      expect(repo.getActiveProfile('codex')?.id).toBe(mine.id)
-      expect(repo.getActiveProfile('dsh')?.id).toBe('old-1')
+      expect(repo.getActiveProfile()?.id).toBe(mine.id)
     })
 
     it('import 的指针指向不存在的组时不落盘（悬空不写）', () => {
       const repo = newRepo()
-      repo.importProfiles([{ id: 'old-1', name: 'o1', order: 0, env: { K: '1' } }], { codex: 'nope' })
-      expect(repo.getActiveProfileId('codex')).toBeUndefined()
+      repo.importProfiles([{ id: 'old-1', name: 'o1', order: 0, env: { K: '1' } }], 'nope')
+      expect(repo.getActiveProfileId()).toBeNull()
     })
 
     it('并入结果持久化，新实例可读到', () => {
       const repo = newRepo()
-      repo.importProfiles([{ id: 'old-1', name: 'o1', order: 0, env: { K: '1' } }], { claude: 'old-1' })
+      repo.importProfiles([{ id: 'old-1', name: 'o1', order: 0, env: { K: '1' } }], 'old-1')
       const repo2 = newRepo()
       expect(repo2.get('old-1')?.name).toBe('o1')
-      expect(repo2.getActiveProfile('claude')?.id).toBe('old-1')
+      expect(repo2.getActiveProfile()?.id).toBe('old-1')
     })
   })
 

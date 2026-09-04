@@ -4,15 +4,18 @@ import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 import { atomicWriteFileSync, getConfigDir } from './repository'
 import { normalizeEnv } from './harness-workspace-repository'
-import { HARNESS_AGENT_KINDS, liftStructuredFields, type HarnessAgentKind, type HarnessEnvProfile } from '@shared/harness'
+import { HARNESS_AGENT_KINDS, liftStructuredFields, type HarnessEnvProfile } from '@shared/harness'
 
 /**
  * 全局环境变量组存储 —— dsh / codex / claude 三个 harness kind 与通用 Agent 共用一份库
- * （单文件 env-profiles.json）。同组可被多个 kind 各自启用、被任意 Agent 绑定。
+ * （单文件 env-profiles.json）。任一组可被任意 Agent / 工作区显式绑定。
  *
- * 文件格式：{ profiles: [...], activeByKind: { dsh?, codex?, claude? } }。
- * profile 本身不携带启用态 —— 「启用」是每个 kind 一根指针（activeByKind），
- * 指针与库同文件落盘，避免「组删了、指针还指着」的跨文件错位（delete 时顺手清指针）。
+ * 文件格式：{ profiles: [...], activeProfileId: string | null }。
+ * profile 本身不携带启用态 —— 「启用」是全应用单选一根指针（activeProfileId），
+ * 三个 kind 与 dsh Web 共用同一根；指针与库同文件落盘，避免「组删了、指针还指着」的
+ * 跨文件错位（delete 时顺手清指针）。加载时防御性读 legacy per-kind 指针
+ * （activeByKind：新键缺席才读，按 kind 顺序取首个有效 —— 多根指针不一致时只保留
+ * 一根，显式绑定不受影响，仅「跟随」缺省变化），落盘一律写新格式。
  * 通用 Agent 无「启用」概念，只有显式绑定（AgentConfig.envProfileId，悬空回落内联 env）。
  *
  * 健壮性纪律照搬 HarnessWorkspaceRepository：
@@ -93,16 +96,18 @@ export function normalizeProfile(raw: unknown): HarnessEnvProfile | null {
 /** 全局库文件内容的运行期形态 */
 interface EnvProfileFile {
   profiles: HarnessEnvProfile[]
-  activeByKind: Partial<Record<HarnessAgentKind, string>>
+  activeProfileId: string | null
 }
 
 /**
  * 归一化整份文件：非对象（含旧数组格式）按损坏处理为空库；profiles 走
- * 过滤 → 去重 → 排序 → reindex 流水线；activeByKind 只认已知 kind 的字符串指针，
- * 且指针指向不存在的组时丢弃（等价「无启用」，不把悬空 id 落回盘上）。
+ * 过滤 → 去重 → 排序 → reindex 流水线；启用指针优先读新键 activeProfileId
+ * （非空字符串且指向存在的组才有效，悬空一律按「无启用」丢弃，不落回盘上），
+ * 新键缺席/无效时回落读 legacy per-kind 指针（activeByKind：按 dsh → codex →
+ * claude 顺序取首个有效，与 liftStructuredFields 的协议判定同一约定）。
  */
 function normalizeFile(raw: unknown): EnvProfileFile {
-  const empty: EnvProfileFile = { profiles: [], activeByKind: {} }
+  const empty: EnvProfileFile = { profiles: [], activeProfileId: null }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return empty
   const obj = raw as Record<string, unknown>
   const rawList = Array.isArray(obj.profiles) ? obj.profiles : []
@@ -121,22 +126,35 @@ function normalizeFile(raw: unknown): EnvProfileFile {
     .slice(0, MAX_PROFILES)
     .map((p, i) => ({ ...p, order: i }))
 
-  const activeByKind: Partial<Record<HarnessAgentKind, string>> = {}
-  const rawActive = obj.activeByKind
-  if (typeof rawActive === 'object' && rawActive !== null) {
-    for (const kind of HARNESS_AGENT_KINDS) {
-      const v = (rawActive as Record<string, unknown>)[kind]
-      if (typeof v === 'string' && v.length > 0 && seen.has(v)) activeByKind[kind] = v
+  // 指针校验对截断后的最终组集（seen 里被 MAX_PROFILES 截掉的 id 不算数），保证
+  // getActiveProfileId() 非 null 时 getActiveProfile() 必能解析出组 —— 与
+  // setActiveProfile / importProfiles 对 this.profiles 的校验同一口径
+  const ids = new Set(profiles.map((p) => p.id))
+  // 新键有效即用；否则 legacy per-kind 指针按 kind 顺序取首个有效；都无则 null（无启用）
+  let activeProfileId: string | null = null
+  const rawActive = obj.activeProfileId
+  if (typeof rawActive === 'string' && rawActive.length > 0 && ids.has(rawActive)) {
+    activeProfileId = rawActive
+  } else {
+    const rawByKind = obj.activeByKind
+    if (typeof rawByKind === 'object' && rawByKind !== null) {
+      for (const kind of HARNESS_AGENT_KINDS) {
+        const v = (rawByKind as Record<string, unknown>)[kind]
+        if (typeof v === 'string' && v.length > 0 && ids.has(v)) {
+          activeProfileId = v
+          break
+        }
+      }
     }
   }
-  return { profiles, activeByKind }
+  return { profiles, activeProfileId }
 }
 
 export class EnvProfileRepository {
   private readonly fileName: string
   private filePath: string | null = null
   private profiles: HarnessEnvProfile[] = []
-  private activeByKind: Partial<Record<HarnessAgentKind, string>> = {}
+  private activeProfileId: string | null = null
   private loaded: boolean = false
 
   constructor(fileName: string) {
@@ -155,7 +173,7 @@ export class EnvProfileRepository {
 
     if (!existsSync(this.filePath)) {
       this.profiles = []
-      this.activeByKind = {}
+      this.activeProfileId = null
       this.loaded = true
       return
     }
@@ -164,13 +182,13 @@ export class EnvProfileRepository {
       const content = readFileSync(this.filePath, 'utf-8')
       const normalized = normalizeFile(JSON.parse(content))
       this.profiles = normalized.profiles
-      this.activeByKind = normalized.activeByKind
+      this.activeProfileId = normalized.activeProfileId
       log.info(`Loaded ${this.profiles.length} env profiles from ${this.fileName}`)
       this.loaded = true
     } catch (error) {
       log.error(`Failed to load env profiles (${this.fileName}):`, error)
       this.profiles = []
-      this.activeByKind = {}
+      this.activeProfileId = null
       this.loaded = true
     }
   }
@@ -179,7 +197,7 @@ export class EnvProfileRepository {
     if (!this.filePath) return false
     try {
       // 原子写：崩溃不留截断 JSON（见 repository.ts 的 atomicWriteFileSync）
-      atomicWriteFileSync(this.filePath, JSON.stringify({ profiles: this.profiles, activeByKind: this.activeByKind }, null, 2))
+      atomicWriteFileSync(this.filePath, JSON.stringify({ profiles: this.profiles, activeProfileId: this.activeProfileId }, null, 2))
       return true
     } catch (error) {
       log.error(`Failed to save env profiles (${this.fileName}):`, error)
@@ -197,17 +215,18 @@ export class EnvProfileRepository {
     return this.profiles.find((p) => p.id === id)
   }
 
-  /** 当前 kind 的启用指针 id；无启用返回 undefined（调用方据此回落系统环境变量） */
-  getActiveProfileId(kind: HarnessAgentKind): string | undefined {
+  /** 全局启用指针 id；无启用返回 null（调用方据此回落系统环境变量） */
+  getActiveProfileId(): string | null {
     this.ensureInitialized()
-    return this.activeByKind[kind]
+    return this.activeProfileId
   }
 
-  /** 当前 kind 启用的变量组；指针悬空（组已删）按无启用处理 */
-  getActiveProfile(kind: HarnessAgentKind): HarnessEnvProfile | undefined {
+  /** 全局启用的变量组；指针悬空（组已删，加载时已清洗）按无启用处理 */
+  getActiveProfile(): HarnessEnvProfile | undefined {
     this.ensureInitialized()
-    const id = this.activeByKind[kind]
-    return id !== undefined ? this.profiles.find((p) => p.id === id) : undefined
+    return this.activeProfileId !== null
+      ? this.profiles.find((p) => p.id === this.activeProfileId)
+      : undefined
   }
 
   add(profile: Omit<HarnessEnvProfile, 'id' | 'order'>): HarnessEnvProfile | null {
@@ -241,56 +260,48 @@ export class EnvProfileRepository {
   }
 
   /**
-   * 单选启用某 kind 的指针：传 id 启用该组（该 kind 原指针被替换），传 null 停用
-   * （回落系统环境变量）。跨 kind 互不影响 —— 同一组可被多个 kind 同时启用。
+   * 全局单选启用：传 id 启用该组（原指针被替换 —— dsh / codex / claude 与 dsh Web
+   * 共用同一根），传 null 停用（回落系统环境变量）。
    * 落盘失败整体回滚，不留「内存已切、文件没切」的错位。
    */
-  setActiveProfile(kind: HarnessAgentKind, id: string | null): boolean {
+  setActiveProfile(id: string | null): boolean {
     this.ensureInitialized()
     if (id !== null && !this.profiles.some((p) => p.id === id)) return false
-    const previous = this.activeByKind
-    if (id === null) {
-      const rest = { ...this.activeByKind }
-      delete rest[kind]
-      this.activeByKind = rest
-    } else {
-      this.activeByKind = { ...this.activeByKind, [kind]: id }
-    }
+    const previous = this.activeProfileId
+    this.activeProfileId = id
     if (!this.save()) {
-      this.activeByKind = previous
+      this.activeProfileId = previous
       return false
     }
     return true
   }
 
   /**
-   * 迁移用：批量并入外部变量组（保留 id，已存在的 id 跳过保证幂等），并写入 per-kind
-   * 启用指针（已存在的指针不覆盖 —— 本库记录优先于旧文件）。单次落盘，失败整体回滚。
+   * 迁移用：批量并入外部变量组（保留 id，已存在的 id 跳过保证幂等），并写入全局
+   * 启用指针（只补空位 —— 已有指针不覆盖，本库记录优先于旧文件；多个旧文件都带
+   * active 时先并入的先到先得）。单次落盘，失败整体回滚。
    * 返回实际并入的条数。
    */
-  importProfiles(
-    profiles: HarnessEnvProfile[],
-    activeByKind: Partial<Record<HarnessAgentKind, string>>
-  ): number {
+  importProfiles(profiles: HarnessEnvProfile[], activeId?: string): number {
     this.ensureInitialized()
     const existing = new Set(this.profiles.map((p) => p.id))
     const incoming = profiles.filter((p) => !existing.has(p.id))
     const previousProfiles = this.profiles
-    const previousActive = this.activeByKind
+    const previousActive = this.activeProfileId
     // 并入的接在现有 order 之后重新编号
     let nextOrder = this.profiles.reduce((max, p) => Math.max(max, p.order), -1) + 1
     this.profiles = [...this.profiles, ...incoming.map((p) => ({ ...p, order: nextOrder++ }))]
     // 指针只补空位；指向的组必须在并入结果里存在（悬空不落盘）
-    const knownIds = new Set(this.profiles.map((p) => p.id))
-    for (const kind of HARNESS_AGENT_KINDS) {
-      const id = activeByKind[kind]
-      if (id !== undefined && this.activeByKind[kind] === undefined && knownIds.has(id)) {
-        this.activeByKind = { ...this.activeByKind, [kind]: id }
-      }
+    if (
+      this.activeProfileId === null &&
+      activeId !== undefined &&
+      this.profiles.some((p) => p.id === activeId)
+    ) {
+      this.activeProfileId = activeId
     }
     if (!this.save()) {
       this.profiles = previousProfiles
-      this.activeByKind = previousActive
+      this.activeProfileId = previousActive
       return -1
     }
     return incoming.length
@@ -304,16 +315,14 @@ export class EnvProfileRepository {
     const [removed] = this.profiles.splice(index, 1)
     // reindex 为 0..n-1，保证运行期 order 恒连续（不留空洞）
     this.profiles.forEach((p, i) => { p.order = i })
-    // 指向被删组的启用指针一并清掉（等价该 kind 停用），不留悬空 id 落盘
-    const previousActive = this.activeByKind
-    for (const kind of HARNESS_AGENT_KINDS) {
-      if (this.activeByKind[kind] === id) delete this.activeByKind[kind]
-    }
+    // 指向被删组的启用指针一并清掉（等价全局停用），不留悬空 id 落盘
+    const previousActive = this.activeProfileId
+    if (this.activeProfileId === id) this.activeProfileId = null
     if (!this.save()) {
       // 回滚：恢复被删项与原 order / 指针
       this.profiles.splice(index, 0, removed)
       previousOrders.forEach((order, i) => { this.profiles[i].order = order })
-      this.activeByKind = previousActive
+      this.activeProfileId = previousActive
       return false
     }
     return true

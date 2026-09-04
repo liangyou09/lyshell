@@ -12,7 +12,8 @@ import { envProfileRepository, normalizeProfile } from '../storage/env-profile-r
  *
  * 每次启动都跑，靠「旧文件不存在」天然 no-op（成功后 rename 成 .bak）。
  * 保 id 不去重 —— workspace 的 envProfileId 绑定与旧启用态一个不丢；
- * 内容重复的组由用户手动清理。
+ * 启用指针并入全局单根后只补空位，多个 kind 的旧文件都带 active 时
+ * 先处理的 kind（dsh 最先）先到先得；内容重复的组由用户手动清理。
  *
  * 失败兜底：某 kind 中途失败则不 rename，下次启动重试；重试幂等靠
  * importProfiles 的「已存在 id 跳过」。迁移期间用户新建的同 id 组不可能出现（uuid）。
@@ -49,10 +50,7 @@ export function migrateKindEnvProfilesToGlobal(): void {
     try {
       const parsed = JSON.parse(readFileSync(oldPath, 'utf-8'))
       const { profiles, activeId } = parseOldFile(parsed)
-      const imported = envProfileRepository.importProfiles(
-        profiles,
-        activeId !== undefined ? { [kind]: activeId } : {}
-      )
+      const imported = envProfileRepository.importProfiles(profiles, activeId)
       if (imported < 0) {
         log.error(`[${kind}] env profile migration: failed to save global store, will retry next launch`)
         continue
@@ -74,7 +72,8 @@ export function migrateKindEnvProfilesToGlobal(): void {
  * 在 migrateKindEnvProfilesToGlobal 之后跑 —— 旧 per-kind 文件并入的记录经
  * normalizeProfile 的防御分支已是结构化，这里处理的是「已经先落在全局库」的存量
  *（先升级应用、后启用结构化的用户）。直接改写 env-profiles.json：
- * 改写前 copyFileSync 备份 .bak（只建一次，不覆盖既有备份）；activeByKind 原样保留。
+ * 改写前 copyFileSync 备份 .bak（只建一次，不覆盖既有备份）；启用指针原样保留
+ * （activeProfileId 新格式 / legacy activeByKind 均为经 spread 原样带回）。
  *
  * 幂等：提升后 env 里不再有已知协议键，二跑全 no-op、不重写文件（也就不覆盖备份）。
  * 原子落盘：先写 .tmp 再 rename 覆盖 —— 直接 writeFileSync 中途崩溃会留下截断的

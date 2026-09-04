@@ -100,12 +100,13 @@ const IPC_CHANNELS = {
   AGENT_DELETE: 'agent:delete',
   AGENT_LAUNCH: 'agent:launch',
 
-  // 全局环境变量组库(左列 ENV 面板;Agent 编辑对话框的绑定下拉同用 list)。
-  // harness 面板走 <kind>:env:list/setActive(per-kind 视角与指针),无 per-kind 增删改
+  // 全局环境变量组库(左列 ENV 面板、Agent 编辑对话框的绑定下拉与 harness 面板共用 list;
+  // 启用指针是全应用单选一根,切换走 setActive)
   ENV_PROFILE_LIST: 'env-profile:list',
   ENV_PROFILE_ADD: 'env-profile:add',
   ENV_PROFILE_UPDATE: 'env-profile:update',
   ENV_PROFILE_DELETE: 'env-profile:delete',
+  ENV_PROFILE_SET_ACTIVE: 'env-profile:setActive',
 
   // DeepSeek Harness (dsh)
   DSH_DETECT: 'dsh:detect',
@@ -114,8 +115,6 @@ const IPC_CHANNELS = {
   DSH_WORKSPACE_UPDATE: 'dsh:workspace:update',
   DSH_WORKSPACE_DELETE: 'dsh:workspace:delete',
   DSH_WORKSPACE_LAUNCH: 'dsh:workspace:launch',
-  DSH_ENV_LIST: 'dsh:env:list',
-  DSH_ENV_SET_ACTIVE: 'dsh:env:setActive',
   DSH_ENV_DEFAULTS: 'dsh:env:defaults',
   DSH_WEB_OPEN: 'dsh:web:open',
   DSH_WEB_CLOSE: 'dsh:web:close',
@@ -133,8 +132,6 @@ const IPC_CHANNELS = {
   CODEX_WORKSPACE_UPDATE: 'codex:workspace:update',
   CODEX_WORKSPACE_DELETE: 'codex:workspace:delete',
   CODEX_WORKSPACE_LAUNCH: 'codex:workspace:launch',
-  CODEX_ENV_LIST: 'codex:env:list',
-  CODEX_ENV_SET_ACTIVE: 'codex:env:setActive',
   CODEX_ENV_DEFAULTS: 'codex:env:defaults',
 
   // Claude Harness
@@ -144,8 +141,6 @@ const IPC_CHANNELS = {
   CLAUDE_WORKSPACE_UPDATE: 'claude:workspace:update',
   CLAUDE_WORKSPACE_DELETE: 'claude:workspace:delete',
   CLAUDE_WORKSPACE_LAUNCH: 'claude:workspace:launch',
-  CLAUDE_ENV_LIST: 'claude:env:list',
-  CLAUDE_ENV_SET_ACTIVE: 'claude:env:setActive',
   CLAUDE_ENV_DEFAULTS: 'claude:env:defaults',
 
   // Plugin 管理(install[dev]/zip/url/enable/disable/uninstall/list)
@@ -268,11 +263,13 @@ const electronAPI = {
   updateAgent: (agent: unknown) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_UPDATE, agent),
   deleteAgent: (agentId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_DELETE, agentId),
   launchAgent: (agentId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_LAUNCH, agentId),
-  // 全局环境变量组（Agent 编辑对话框的绑定下拉）
+  // 全局环境变量组（Agent 编辑对话框的绑定下拉、harness 面板共用 list；
+  // 启用指针全局单选一根，setActive 切换）
   listEnvProfiles: () => ipcRenderer.invoke(IPC_CHANNELS.ENV_PROFILE_LIST),
   addEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.ENV_PROFILE_ADD, profile),
   updateEnvProfile: (profile: unknown) => ipcRenderer.invoke(IPC_CHANNELS.ENV_PROFILE_UPDATE, profile),
   deleteEnvProfile: (profileId: string) => ipcRenderer.invoke(IPC_CHANNELS.ENV_PROFILE_DELETE, profileId),
+  setEnvProfileActive: (profileId: string | null) => ipcRenderer.invoke(IPC_CHANNELS.ENV_PROFILE_SET_ACTIVE, profileId),
 
   // DeepSeek Harness (dsh)
   detectDsh: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_DETECT),
@@ -281,8 +278,6 @@ const electronAPI = {
   updateDshWorkspace: (workspace: unknown) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_UPDATE, workspace),
   deleteDshWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_DELETE, workspaceId),
   launchDshWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_LAUNCH, workspaceId),
-  listDshEnvProfiles: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_LIST),
-  setDshEnvProfileActive: (profileId: string | null) => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_SET_ACTIVE, profileId),
   getDshEnvDefaults: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_DEFAULTS),
   openDshWeb: (target: { workspaceId?: string; cwd?: string }) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_OPEN, target),
   closeDshWeb: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_CLOSE),
@@ -304,8 +299,6 @@ const electronAPI = {
   updateCodexWorkspace: (workspace: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_WORKSPACE_UPDATE, workspace),
   deleteCodexWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_WORKSPACE_DELETE, workspaceId),
   launchCodexWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_WORKSPACE_LAUNCH, workspaceId),
-  listCodexEnvProfiles: () => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ENV_LIST),
-  setCodexEnvProfileActive: (profileId: string | null) => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ENV_SET_ACTIVE, profileId),
   getCodexEnvDefaults: () => ipcRenderer.invoke(IPC_CHANNELS.CODEX_ENV_DEFAULTS),
 
   // Claude Harness
@@ -315,8 +308,6 @@ const electronAPI = {
   updateClaudeWorkspace: (workspace: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_WORKSPACE_UPDATE, workspace),
   deleteClaudeWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_WORKSPACE_DELETE, workspaceId),
   launchClaudeWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_WORKSPACE_LAUNCH, workspaceId),
-  listClaudeEnvProfiles: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ENV_LIST),
-  setClaudeEnvProfileActive: (profileId: string | null) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ENV_SET_ACTIVE, profileId),
   getClaudeEnvDefaults: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ENV_DEFAULTS),
 
   // Plugin 管理

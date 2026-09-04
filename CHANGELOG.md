@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，�
 
 ## [Unreleased]
 
+### 变更 Changed
+
+- **变量组启用改为全局单选**：环境变量组的启用从 dsh / codex / claude 三根独立指针收敛为全应用同一时刻至多一组通电（dsh / codex / claude 与 dsh Web 共用同一根；点亮新组即熄灭旧组，再点一次回落系统环境变量）。升级时按 dsh → codex → claude 顺序保留首个既有指针。*Env profile activation is now a single global switch instead of three per-kind pointers — dsh / codex / claude and the dsh Web UI all follow the same one (lighting a new set dims the old; clicking the lit one again falls back to system env). On upgrade the first existing pointer (dsh → codex → claude order) is kept.*
+
+### 修复 Fixes
+
+- **dsh Web 默认工作区吃不到变量组凭据**：此前无绑定工作区的 dsh Web 启动分支只注入启用组的附加变量，结构化核心（`DEEPSEEK_BASE_URL` / `DEEPSEEK_API_KEY`）从未物化注入；现与 TUI 启动走同一份解析链。*The dsh Web default-workspace launch only injected the enabled set's extra vars and never materialized its structured credentials (`DEEPSEEK_BASE_URL` / `DEEPSEEK_API_KEY`); it now shares the same resolution chain as TUI launches.*
+
 ## [1.0.4] - 2026-08-17
 
 ### 新增 Features

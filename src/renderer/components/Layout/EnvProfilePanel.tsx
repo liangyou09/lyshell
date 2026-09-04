@@ -17,14 +17,16 @@ import { TOPBAR_HEIGHT } from './topbar-metrics'
  * 环境变量面板 —— 全局变量组库的独占入口（左侧轨 env 页签）。
  *
  * 机柜语境里它是「配电盘」：变量组是从母线引出的电源模块，Agent 与各 harness
- * 工作区是从它取电的负载。本面板是唯一做增删改的地方（HarnessPanel 的环境变量
- * 页签瘦身为纯启用切换），卡片的签名元素是每张卡一排 per-kind 分接开关 ——
- * 点亮即把该 kind 的启用指针拨到这组，全应用只有这里能一眼看全「哪组在喂哪个
- * harness」的路由矩阵；卡片右侧的「n 处引用」是负载侧的回读（Agent 显式绑定 +
+ * 工作区是从它取电的负载。本面板是唯一做增删改的地方；启用是主动作 —— 整卡
+ * 即开关（role=switch，单击切换全局启用指针，右键 / 悬停 ✎ 编辑），卡面的签名
+ * 元素是一枚断路器读数：方形拨片内嵌模块灯（未启用=暗槽、悬停=拨亮预览、
+ * 启用=琥珀辉光）+ 丝印大写标签；同一时刻至多一组通电，通电卡的左沿点亮 2px
+ * 琥珀母线导轨（dsh / codex / claude 与 dsh Web 共用同一根指针，结构化核心按
+ * 消费方映射物化）；卡片右侧的「n 处引用」是负载侧的回读（Agent 显式绑定 +
  * 工作区显式绑定），悬停列出引用方名字。
  *
- * CRUD 走 kind 无关的 env-profile:add/update/delete 通道；启用切换复用各 kind
- * 既有的 env:setActive（主进程写的是同一份 activeByKind 指针）。
+ * CRUD 走 kind 无关的 env-profile:add/update/delete 通道；启用切换走
+ * env-profile:setActive（主进程写的是同一份全局 activeProfileId 指针）。
  */
 
 const IconPlus: React.FC = () => (
@@ -113,19 +115,13 @@ const DEFAULTS_LOADERS: Record<HarnessAgentKind, () => Promise<HarnessEnvDefault
   claude: () => window.electronAPI?.getClaudeEnvDefaults()
 }
 
-/** 各 kind 启用指针的写入（主进程写同一份全局 activeByKind） */
-const ACTIVE_SETTERS: Record<HarnessAgentKind, (id: string | null) => Promise<unknown>> = {
-  dsh: (id) => window.electronAPI?.setDshEnvProfileActive(id) ?? Promise.resolve(),
-  codex: (id) => window.electronAPI?.setCodexEnvProfileActive(id) ?? Promise.resolve(),
-  claude: (id) => window.electronAPI?.setClaudeEnvProfileActive(id) ?? Promise.resolve()
-}
-
 const EnvProfilePanel: React.FC = () => {
   const { t } = useTranslation()
 
   // ── 库状态（env-profile:list 一并下发的三段） ──
   const [profiles, setProfiles] = useState<HarnessEnvProfile[]>([])
-  const [activeByKind, setActiveByKind] = useState<Partial<Record<HarnessAgentKind, string>>>({})
+  // 全局启用指针（全应用单选一根；null = 未启用，回落系统环境变量）
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null)
   const [usage, setUsage] = useState<EnvProfileLibraryResult['usage']>({})
   // 空列表有两种含义（「一个都没有」与「还没拉到」），只有前者才给空态提示
   const [loaded, setLoaded] = useState(false)
@@ -159,7 +155,7 @@ const EnvProfilePanel: React.FC = () => {
       const result = await window.electronAPI?.listEnvProfiles() as EnvProfileLibraryResult | undefined
       if (result && Array.isArray(result.profiles)) {
         setProfiles(result.profiles)
-        setActiveByKind(result.activeByKind ?? {})
+        setActiveProfileId(typeof result.activeProfileId === 'string' ? result.activeProfileId : null)
         setUsage(result.usage ?? {})
         setLoaded(true)
       }
@@ -204,26 +200,29 @@ const EnvProfilePanel: React.FC = () => {
     ].join('  ·  ')
   }
 
-  /** 拨分接开关：点亮 = 把该 kind 的启用指针拨到这组；再点亮的 = 拨回系统环境变量 */
-  const toggleKind = async (kind: HarnessAgentKind, profileId: string) => {
+  /** 拨全局总闸：点亮 = 把全应用启用指针拨到这组（原点亮组熄灭）；再点亮中的 =
+   *  拨回系统环境变量。同一时刻全应用至多一组通电 */
+  const toggleActive = async (profileId: string) => {
     if (switching) return
     setSwitching(true)
     setActionError(null)
     try {
-      const on = activeByKind[kind] === profileId
-      const res = await ACTIVE_SETTERS[kind](on ? null : profileId)
+      const on = activeProfileId === profileId
+      const res = await window.electronAPI?.setEnvProfileActive(on ? null : profileId)
       if (res && (res as { success?: boolean }).success === false) {
         setActionError(typeof (res as { error?: unknown }).error === 'string'
           ? (res as { error: string }).error
           : t('env.activeFailed'))
       }
     } catch (err) {
-      console.error(`Env profile activation failed for ${kind}:`, err)
+      console.error('Env profile activation failed:', err)
       setActionError(err instanceof Error ? err.message : t('env.activeFailed'))
     } finally {
-      setSwitching(false)
-      // 无论成败都重新拉取，失败时回落到真实状态
+      // 无论成败都重新拉取，失败时回落到真实状态。重拉落地前保持 switching ——
+      // 「指针已切、列表未刷」的窗口里再点卡会用旧状态误判 on，把「切到 A」
+      // 算成「关闭 A」发给主进程；整卡即开关后快速连点远比旧的小 chip 常见
       await load()
+      setSwitching(false)
     }
   }
 
@@ -436,23 +435,44 @@ const EnvProfilePanel: React.FC = () => {
         ) : (
           profiles.map((p) => {
             const total = usageCount(p.id)
+            const on = activeProfileId === p.id
             return (
               <div
                 key={p.id}
-                role="button"
+                role="switch"
+                aria-checked={on}
                 tabIndex={0}
-                onClick={() => handleEdit(p)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleEdit(p) } }}
+                onClick={() => void toggleActive(p.id)}
+                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); handleEdit(p) }}
+                onKeyDown={(e) => {
+                  // 按键来自悬停操作按钮（⧉/✎/✕）时不归卡片管：冒泡上来的 Enter/Space
+                  // 若在此 preventDefault 会顺带压制按钮自身的 click 合成，变成「拨开关」
+                  if (e.target !== e.currentTarget) return
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void toggleActive(p.id) }
+                }}
                 onMouseLeave={() => { if (deleteConfirmId === p.id) setDeleteConfirmId(null) }}
                 aria-label={p.name}
-                className="group relative flex flex-col gap-1 px-2 py-2 cursor-pointer transition-colors bg-[var(--bg-rack)] border-x border-b border-[var(--rule)] shadow-[inset_0_-1px_0_var(--bg-base)] hover:bg-[var(--bg-slot)] focus:outline-none focus-visible:border-[var(--amber)]"
+                title={on ? t('env.deactivateTitle') : t('env.activateTitle')}
+                className={cn(
+                  'group relative flex flex-col gap-1 px-2 py-2 transition-colors bg-[var(--bg-rack)] border-x border-b border-[var(--rule)] shadow-[inset_0_-1px_0_var(--bg-base)] hover:bg-[var(--bg-slot)] focus:outline-none focus-visible:border-[var(--amber)] overflow-hidden',
+                  switching ? 'cursor-wait' : 'cursor-pointer'
+                )}
               >
+                {/* 通电模块标识：全局启用指针指向本卡时，左沿点亮 2px 琥珀母线导轨
+                    （与 HarnessPanel 缺依赖提示卡同一套通电卡语言）—— 全库至多一张
+                    卡通电，扫一眼面板就能看到哪组在供全应用取电 */}
+                {on && (
+                  <span
+                    aria-hidden
+                    className="absolute left-0 top-0 bottom-0 w-[2px] bg-[var(--amber)] shadow-[0_0_6px_var(--amber-glow)]"
+                  />
+                )}
                 {/* 行 1：组名 + hover 操作（复制/编辑/删除） */}
                 <div className="flex items-center gap-2">
                   <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">
                     {p.name}
                   </span>
-                  <div className="absolute right-1.5 top-[13px] -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-slot)] from-[24%] to-transparent">
+                  <div className="absolute right-1.5 top-[13px] -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-slot)] from-[24%] to-transparent">
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDuplicate(p) }}
                       title={t('env.copy')}
@@ -516,38 +536,39 @@ const EnvProfilePanel: React.FC = () => {
                   ].filter(Boolean).join(' · ')}
                 </span>
 
-                {/* 行 3：per-kind 分接开关（本面板的签名元素）+ 引用回读。
-                    点亮 = 该 kind 的启用指针指向本组（琥珀通电语言：边框/文字/LED 辉光）；
-                    再点点亮的那枚 = 拨回系统环境变量。开关状态既是显示也是控制。 */}
+                {/* 行 3：断路器读数面 + 引用回读。整卡即开关（单击切换启用，右键/
+                    悬停 ✎ 编辑），这里的拨片/灯/丝印是状态读数而非第二个按钮 ——
+                    模块灯三段叙事：暗槽（未启用）→ 悬停拨亮（整卡 hover 的预览，
+                    按下去它就会亮）→ 辉光（启用中）；形状+颜色双编码。 */}
                 <div className="flex items-center gap-1 flex-wrap">
-                  {HARNESS_AGENT_KINDS.map((kind) => {
-                    const on = activeByKind[kind] === p.id
-                    return (
-                      <button
-                        key={kind}
-                        type="button"
-                        aria-pressed={on}
-                        disabled={switching}
-                        onClick={(e) => { e.stopPropagation(); void toggleKind(kind, p.id) }}
-                        title={on ? t('env.chipOff', { kind }) : t('env.chipOn', { kind })}
+                  <div
+                    aria-hidden
+                    className={cn(
+                      'inline-flex items-center gap-1.5 h-[22px] pl-1 pr-2 rounded-[2px] border select-none transition-colors',
+                      'text-[10.5px] font-semibold leading-none tracking-[.06em] uppercase',
+                      on
+                        ? 'border-[var(--amber)] bg-[color-mix(in_srgb,var(--amber)_10%,var(--bg-rack))] text-[var(--amber)]'
+                        : 'border-[var(--text-rack-faint)] text-[var(--text-rack)]',
+                      switching && 'opacity-60'
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'w-[14px] h-[14px] rounded-[2px] border border-[var(--rule)] bg-[var(--bg-base)] flex items-center justify-center transition-colors',
+                        on && 'border-[var(--amber)] bg-[color-mix(in_srgb,var(--amber)_18%,var(--bg-rack))]'
+                      )}
+                    >
+                      <span
                         className={cn(
-                          'inline-flex items-center gap-1 h-[17px] px-1.5 rounded-[2px] border text-[9.5px] leading-none tracking-[.02em] select-none transition-colors',
+                          'w-[5px] h-[5px] rounded-full transition-colors',
                           on
-                            ? 'border-[var(--amber)] text-[var(--amber)]'
-                            : 'border-[var(--rule)] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:border-[var(--text-rack-faint)]',
-                          switching ? 'opacity-60 cursor-wait' : 'cursor-pointer'
+                            ? 'bg-[var(--amber)] shadow-[0_0_4px_var(--amber-glow)]'
+                            : 'bg-[var(--text-rack-faint)] group-hover:bg-[var(--amber)]'
                         )}
-                      >
-                        {on && (
-                          <span
-                            aria-hidden
-                            className="w-[4px] h-[4px] rounded-full bg-[var(--amber)] shadow-[0_0_3px_var(--amber-glow)]"
-                          />
-                        )}
-                        {kind}
-                      </button>
-                    )
-                  })}
+                      />
+                    </span>
+                    {t(on ? 'env.activeBadge' : 'env.inactiveBadge')}
+                  </div>
                   <span className="flex-1" />
                   {total > 0 ? (
                     <span title={usageNames(p.id)} className="shrink-0 text-[10px] [font-family:inherit] text-[var(--text-rack-mute)] tabular-nums">

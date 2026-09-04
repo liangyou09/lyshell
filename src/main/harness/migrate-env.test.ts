@@ -12,7 +12,7 @@ vi.mock('electron', () => ({
 
 import { HarnessWorkspaceRepository } from '../storage/harness-workspace-repository'
 import { EnvProfileRepository } from '../storage/env-profile-repository'
-import { resolveWorkspaceEnv, type HarnessAgentRuntime } from './config'
+import { resolveActiveProfileEnv, resolveWorkspaceEnv, type HarnessAgentRuntime } from './config'
 import { migrateInlineEnvToProfiles } from './migrate-env'
 
 // 独立文件名：vitest 并发跑多个测试文件，与 harness-*-repository.test.ts 共用 tmpdir 会互踩
@@ -54,29 +54,29 @@ describe('resolveWorkspaceEnv', () => {
     expect(resolveWorkspaceEnv(rt, ws)).toBeUndefined()
   })
 
-  it('无绑定时用已启用的组', () => {
+  it('无绑定时用全局启用的组', () => {
     const rt = makeRuntime()
     const a = rt.envRepository.add({ name: 'A', env: { K: 'a' } })!
     rt.envRepository.add({ name: 'B', env: { K: 'b' } })
-    rt.envRepository.setActiveProfile('codex', a.id)
+    rt.envRepository.setActiveProfile(a.id)
     const ws = rt.repository.add({ name: 'w', cwd: '/w' })!
     expect(resolveWorkspaceEnv(rt, ws)).toEqual({ K: 'a' })
   })
 
-  it('显式绑定优先于已启用的组', () => {
+  it('显式绑定优先于全局启用的组', () => {
     const rt = makeRuntime()
     const a = rt.envRepository.add({ name: 'A', env: { K: 'a' } })!
     const b = rt.envRepository.add({ name: 'B', env: { K: 'b' } })!
-    rt.envRepository.setActiveProfile('codex', a.id)
+    rt.envRepository.setActiveProfile(a.id)
     const ws = rt.repository.add({ name: 'w', cwd: '/w', envProfileId: b.id })!
     expect(resolveWorkspaceEnv(rt, ws)).toEqual({ K: 'b' })
   })
 
-  it('绑定的组被删除后回落已启用的组（等同「没选」，不是第三种状态）', () => {
+  it('绑定的组被删除后回落全局启用的组（等同「没选」，不是第三种状态）', () => {
     const rt = makeRuntime()
     const a = rt.envRepository.add({ name: 'A', env: { K: 'a' } })!
     const b = rt.envRepository.add({ name: 'B', env: { K: 'b' } })!
-    rt.envRepository.setActiveProfile('codex', a.id)
+    rt.envRepository.setActiveProfile(a.id)
     const ws = rt.repository.add({ name: 'w', cwd: '/w', envProfileId: b.id })!
     rt.envRepository.delete(b.id)
     expect(resolveWorkspaceEnv(rt, ws)).toEqual({ K: 'a' })
@@ -85,8 +85,8 @@ describe('resolveWorkspaceEnv', () => {
   it('全部停用时回落系统环境变量，即使存在变量组', () => {
     const rt = makeRuntime()
     const a = rt.envRepository.add({ name: 'A', env: { K: 'a' } })!
-    rt.envRepository.setActiveProfile('codex', a.id)
-    rt.envRepository.setActiveProfile('codex', null)
+    rt.envRepository.setActiveProfile(a.id)
+    rt.envRepository.setActiveProfile(null)
     const ws = rt.repository.add({ name: 'w', cwd: '/w' })!
     expect(resolveWorkspaceEnv(rt, ws)).toBeUndefined()
   })
@@ -98,7 +98,7 @@ describe('resolveWorkspaceEnv', () => {
     expect(resolveWorkspaceEnv(rt, ws)).toEqual({ LEGACY: '1' })
     // 一旦有启用组，legacy 就让位
     const a = rt.envRepository.add({ name: 'A', env: { K: 'a' } })!
-    rt.envRepository.setActiveProfile('codex', a.id)
+    rt.envRepository.setActiveProfile(a.id)
     expect(resolveWorkspaceEnv(rt, ws)).toEqual({ K: 'a' })
   })
 
@@ -107,7 +107,7 @@ describe('resolveWorkspaceEnv', () => {
     const p = rt.envRepository.add({
       name: 'glm', baseUrl: 'https://1.1.1.3:8443/v1', apiKey: 'sk-x', env: { CODEX_HOME: 'C:/x', NO_PROXY: 'h' }
     })!
-    rt.envRepository.setActiveProfile('codex', p.id)
+    rt.envRepository.setActiveProfile(p.id)
     const ws = rt.repository.add({ name: 'w', cwd: '/w' })!
     expect(resolveWorkspaceEnv(rt, ws)).toEqual({
       CODEX_HOME: 'C:/x',
@@ -121,26 +121,60 @@ describe('resolveWorkspaceEnv', () => {
     const rt = makeRuntime()
     // 附加变量里手滑写了同协议的键 —— 物化时核心赢
     const p = rt.envRepository.add({ name: 'A', baseUrl: 'https://core', env: { OPENAI_BASE_URL: 'https://stale' } })!
-    rt.envRepository.setActiveProfile('codex', p.id)
+    rt.envRepository.setActiveProfile(p.id)
     const ws = rt.repository.add({ name: 'w', cwd: '/w' })!
     expect(resolveWorkspaceEnv(rt, ws)).toEqual({ OPENAI_BASE_URL: 'https://core' })
   })
 
-  it('同一组喂不同 kind 变量名跟着 kind 走（dsh 与 claude 各得其所）', () => {
+  it('同一根全局指针喂不同 kind 变量名跟着 kind 走（dsh 与 claude 各得其所）', () => {
+    // 共享同一个变量组库实例 —— 与生产一致（envProfileRepository 是单例，
+    // 三个 kind 的 runtime 挂的是同一份、同一根全局指针）
+    const envRepository = new EnvProfileRepository(envFile)
     const make = (kind: 'dsh' | 'claude'): HarnessAgentRuntime =>
-      ({ kind, repository: new HarnessWorkspaceRepository(wsFile), envRepository: new EnvProfileRepository(envFile) }) as unknown as HarnessAgentRuntime
+      ({ kind, repository: new HarnessWorkspaceRepository(wsFile), envRepository }) as unknown as HarnessAgentRuntime
     const dsh = make('dsh')
     const p = dsh.envRepository.add({ name: 'A', baseUrl: 'https://u', apiKey: 'k', env: {} })!
-    dsh.envRepository.setActiveProfile('dsh', p.id)
+    dsh.envRepository.setActiveProfile(p.id)
     const wsD = dsh.repository.add({ name: 'w', cwd: '/w' })!
     expect(resolveWorkspaceEnv(dsh, wsD)).toEqual({ DEEPSEEK_BASE_URL: 'https://u', DEEPSEEK_API_KEY: 'k' })
 
-    // claude 读同一份库（独立文件名不同实例,种子同一条组）,映射出 ANTHROPIC_*
+    // claude 读同一份库、跟随同一根指针，映射出 ANTHROPIC_*
     const claude = make('claude')
-    const p2 = claude.envRepository.add({ name: 'A', baseUrl: 'https://u', apiKey: 'k', env: {} })!
-    claude.envRepository.setActiveProfile('claude', p2.id)
     const wsC = claude.repository.add({ name: 'w', cwd: '/w' })!
     expect(resolveWorkspaceEnv(claude, wsC)).toEqual({ ANTHROPIC_BASE_URL: 'https://u', ANTHROPIC_AUTH_TOKEN: 'k' })
+  })
+})
+
+describe('resolveActiveProfileEnv（无工作区可绑时的兜底链：全局启用组 → 系统）', () => {
+  it('无启用组 → undefined（系统环境变量）', () => {
+    const rt = makeRuntime()
+    rt.envRepository.add({ name: 'A', env: { K: 'a' } })!
+    expect(resolveActiveProfileEnv(rt)).toBeUndefined()
+  })
+
+  it('dsh + 结构化启用组 → 按 dsh 映射物化 DEEPSEEK_*，附加变量透传（dsh Web 默认分支）', () => {
+    const rt = {
+      kind: 'dsh',
+      repository: new HarnessWorkspaceRepository(wsFile),
+      envRepository: new EnvProfileRepository(envFile)
+    } as unknown as HarnessAgentRuntime
+    const p = rt.envRepository.add({
+      name: 'glm', baseUrl: 'https://1.1.1.3:8443/v1', apiKey: 'sk-x', env: { NO_PROXY: 'h' }
+    })!
+    rt.envRepository.setActiveProfile(p.id)
+    expect(resolveActiveProfileEnv(rt)).toEqual({
+      DEEPSEEK_BASE_URL: 'https://1.1.1.3:8443/v1',
+      DEEPSEEK_API_KEY: 'sk-x',
+      NO_PROXY: 'h'
+    })
+  })
+
+  it('停用（null）→ undefined，即使库里还有组', () => {
+    const rt = makeRuntime()
+    const a = rt.envRepository.add({ name: 'A', env: { K: 'a' } })!
+    rt.envRepository.setActiveProfile(a.id)
+    rt.envRepository.setActiveProfile(null)
+    expect(resolveActiveProfileEnv(rt)).toBeUndefined()
   })
 })
 
@@ -231,7 +265,7 @@ describe('migrateInlineEnvToProfiles', () => {
     seedWorkspaces([{ id: 'w1', name: 'proj', cwd: '/w1', order: 0, env: { K: '1' } }])
     const rt = makeRuntime()
     migrateInlineEnvToProfiles(rt)
-    expect(rt.envRepository.getActiveProfile('codex')).toBeUndefined()
+    expect(rt.envRepository.getActiveProfile()).toBeUndefined()
     // 但该工作区已显式绑定，仍能拿到原来的变量
     expect(resolveWorkspaceEnv(rt, rt.repository.get('w1')!)).toEqual({ K: '1' })
   })

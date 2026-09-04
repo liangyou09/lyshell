@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
-import { HARNESS_AGENT_VIEWS, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
+import { HARNESS_AGENT_VIEWS, type EnvProfileLibraryResult, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
 import { BRANCH_PREFIX, generateWorktreeCode, generateWorktreeKey, generateWorktreeStamp, joinWorktreePath } from '@shared/worktree'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { ensureDetected, getCachedDetect, redetectHarness } from './harness-detect'
@@ -29,8 +29,7 @@ const HARNESS_API = {
     add: (ws: unknown) => window.electronAPI.addDshWorkspace(ws),
     update: (ws: unknown) => window.electronAPI.updateDshWorkspace(ws),
     delete: (id: string) => window.electronAPI.deleteDshWorkspace(id),
-    launch: (id: string) => window.electronAPI.launchDshWorkspace(id),
-    envList: () => window.electronAPI.listDshEnvProfiles()
+    launch: (id: string) => window.electronAPI.launchDshWorkspace(id)
   },
   codex: {
     detect: () => window.electronAPI.detectCodex(),
@@ -38,8 +37,7 @@ const HARNESS_API = {
     add: (ws: unknown) => window.electronAPI.addCodexWorkspace(ws),
     update: (ws: unknown) => window.electronAPI.updateCodexWorkspace(ws),
     delete: (id: string) => window.electronAPI.deleteCodexWorkspace(id),
-    launch: (id: string) => window.electronAPI.launchCodexWorkspace(id),
-    envList: () => window.electronAPI.listCodexEnvProfiles()
+    launch: (id: string) => window.electronAPI.launchCodexWorkspace(id)
   },
   claude: {
     detect: () => window.electronAPI.detectClaude(),
@@ -47,8 +45,7 @@ const HARNESS_API = {
     add: (ws: unknown) => window.electronAPI.addClaudeWorkspace(ws),
     update: (ws: unknown) => window.electronAPI.updateClaudeWorkspace(ws),
     delete: (id: string) => window.electronAPI.deleteClaudeWorkspace(id),
-    launch: (id: string) => window.electronAPI.launchClaudeWorkspace(id),
-    envList: () => window.electronAPI.listClaudeEnvProfiles()
+    launch: (id: string) => window.electronAPI.launchClaudeWorkspace(id)
   }
 } as const
 
@@ -194,9 +191,9 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   // ── 环境变量组（管理入口已整体收编到左侧「环境变量」面板；这里仅为工作区
-  //    对话框的绑定下拉与模型建议拉一份只读列表 + 该 kind 的启用指针） ──
+  //    对话框的绑定下拉与模型建议拉一份只读列表 + 全局启用指针） ──
   const [envProfiles, setEnvProfiles] = useState<HarnessEnvProfile[]>([])
-  // 该 kind 的启用指针（全局库列表 + per-kind activeProfileId 由 <kind>:env:list 一并下发）
+  // 全局启用指针（env-profile:list 与变量组列表一并下发，全应用单选一根）
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null)
   // 变量组列表是否已成功拉到 —— 空列表有两种含义（「一个都没有」与「还没拉到/拉失败」），
   // 只有前者才允许把工作区的悬空绑定判为悬空，见 handleEdit
@@ -226,8 +223,9 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
 
   const loadEnvProfiles = useCallback(async () => {
     try {
-      const result = await api.envList()
-      // 返回形状 { profiles, activeProfileId }：全局变量组 + 该 kind 的启用指针
+      // 返回形状 { profiles, activeProfileId, usage }：全局变量组 + 全局启用指针
+      //（usage 本面板不用）—— 变量组列表 kind 无关，与 ENV 面板共用同一通道
+      const result = await window.electronAPI?.listEnvProfiles() as EnvProfileLibraryResult | undefined
       if (result && Array.isArray(result.profiles)) {
         setEnvProfiles(result.profiles as HarnessEnvProfile[])
         setActiveProfileId(typeof result.activeProfileId === 'string' ? result.activeProfileId : null)
@@ -237,7 +235,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
       // 失败时不置 loaded：此后编辑工作区一律透传已有绑定，不拿一份没拉到的列表去判悬空
       console.error(`Failed to load ${agent} env profiles:`, err)
     }
-  }, [api, agent])
+  }, [agent])
 
   // 挂载:检测结果读应用级缓存(启动时已预热,切页签回来不再打检测 IPC;
   // 预热漏掉/失败时 ensureDetected 兜底发起一次)。工作区与变量组列表仍按需拉取

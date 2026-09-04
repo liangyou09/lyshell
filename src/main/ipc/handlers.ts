@@ -18,12 +18,12 @@ import { resolveWorkspaceCwd } from '../harness/cwd'
 import { listWorktreeKeys, resolveLaunchWorktree, validateWorktreeKey } from '../harness/worktree'
 import { createTaskSerializer } from '../harness/task-serializer'
 import { detectDependencies } from '../harness/detect'
-import { HARNESS_AGENTS, resolveWorkspaceEnv } from '../harness/config'
+import { HARNESS_AGENTS, resolveActiveProfileEnv, resolveWorkspaceEnv } from '../harness/config'
 import { migrateInlineEnvToProfiles } from '../harness/migrate-env'
 import { migrateKindEnvProfilesToGlobal, migrateProfilesToStructured } from '../harness/migrate-profiles'
 import { resolveAgentLaunchEnv } from '../storage/agent-repository'
 import { envProfileRepository } from '../storage/env-profile-repository'
-import { HARNESS_AGENT_KINDS, isValidHttpBaseUrl, type EnvProfileLibraryResult, type EnvProfileUsage, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
+import { isValidHttpBaseUrl, type EnvProfileLibraryResult, type EnvProfileUsage, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
 import type { WorktreeListResult } from '@shared/worktree'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { ConnectionStatus } from '../connectors'
@@ -1780,15 +1780,12 @@ export function registerIPCHandlers(): void {
     return agentRepository.getAll()
   })
 
-  // 全局变量组库面板视角:组 + 每 kind 启用指针 + 引用方(按名字列出,供引用计数与删除警示)。
-  // AgentsPanel 的绑定下拉只读这里的 profiles 部分;harness 面板的 per-kind 视角走 <kind>:env:list
+  // 全局变量组库面板视角:组 + 全局启用指针 + 引用方(按名字列出,供引用计数与删除警示)。
+  // AgentsPanel 的绑定下拉只读这里的 profiles 部分;harness 面板(工作区对话框的绑定
+  // 下拉/模型建议)同样共用本通道 —— 变量组列表 kind 无关,启用指针已收敛为全局单根
   ipcMain.handle('env-profile:list', async (): Promise<EnvProfileLibraryResult> => {
     const profiles = envProfileRepository.getAll()
-    const activeByKind: Partial<Record<HarnessAgentKind, string>> = {}
-    for (const k of HARNESS_AGENT_KINDS) {
-      const id = envProfileRepository.getActiveProfileId(k)
-      if (id !== undefined) activeByKind[k] = id
-    }
+    const activeProfileId = envProfileRepository.getActiveProfileId()
     // 引用方:显式绑定该组的通用 Agent(AgentConfig.envProfileId)与 harness 工作区(ws.envProfileId)
     const agentUsage = new Map<string, string[]>()
     for (const a of agentRepository.getAll()) {
@@ -1810,7 +1807,7 @@ export function registerIPCHandlers(): void {
     for (const p of profiles) {
       usage[p.id] = { agents: agentUsage.get(p.id) ?? [], workspaces: wsUsage.get(p.id) ?? [] }
     }
-    return { profiles, activeByKind, usage }
+    return { profiles, activeProfileId, usage }
   })
 
   /**
@@ -1920,6 +1917,18 @@ export function registerIPCHandlers(): void {
           : { success: false, error: 'Env profile not found' }
       }
       return { success: true }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  // 全局启用指针切换（kind 无关）：传 id 启用该组（替换原指针 —— dsh/codex/claude 与
+  // dsh Web 共用同一根），传 null 停用（回落系统环境变量）
+  ipcMain.handle('env-profile:setActive', async (_event, profileId: unknown) => {
+    try {
+      const safeId = profileId === null ? null : assertString(profileId, 'profileId', { maxLength: 128 })
+      const success = envProfileRepository.setActiveProfile(safeId)
+      return success ? { success: true } : { success: false, error: 'Env profile not found' }
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }
@@ -2157,40 +2166,19 @@ export function registerIPCHandlers(): void {
       return detectDependencies(runtime.dependencies, readSystemPath() ?? undefined)
     })
 
-    // 变量组「补全默认」的取值 —— CODEX_HOME 等须按系统环境/默认路径在主进程解析
-    // （渲染层沙箱读不到 process.env）；无入参，无需校验。
+    // ========== <kind> 环境变量组（kind 专属的仅此一个入口） ==========
+    // 变量组本体是全局一等配置：增删改/列表/启用切换均走 kind 无关的 env-profile:*
+    // 通道（ENV 面板与 harness 面板共用；「启用」是全应用单选一根指针，dsh / codex /
+    // claude 与 dsh Web 共用，启动时的解析链见 harness/config.ts 的 resolveWorkspaceEnv）。
+    // 本循环只挂 env:defaults —— 变量组「补全默认」的取值，CODEX_HOME / CLAUDE_CONFIG_DIR
+    // 这类配置目录默认值须按系统环境/默认路径在主进程解析（渲染层沙箱读不到
+    // process.env）；无入参，无需校验。
     ipcMain.handle(`${kind}:env:defaults`, async () => {
       return runtime.envDefaults()
     })
 
     // ========== <kind> 工作区 ==========
     // 每个工作区 = 名称 + 工作目录，单击在对应目录启动对应 CLI（参照 agent:launch 的 cwd 语义）。
-
-    // ========== <kind> 环境变量组 ==========
-    // 与工作区平级的一等配置：具名 KEY=value 组，存全局一份库（三个 kind + 通用 Agent 共用）；
-    // 每个 kind 一根「启用」指针（同一时刻至多一根，可全关）。
-    // 启动时的解析链见 harness/config.ts 的 resolveWorkspaceEnv。
-    // 增删改走 kind 无关的 env-profile:add/update/delete（ENV 面板），本循环只挂
-    // per-kind 视角/指针操作：list（带该 kind 启用指针）与 setActive。
-
-    // 返回全局变量组列表 + 该 kind 的启用指针（per-kind 视角；列表本身三份相同）
-    ipcMain.handle(`${kind}:env:list`, async () => {
-      return {
-        profiles: runtime.envRepository.getAll(),
-        activeProfileId: runtime.envRepository.getActiveProfileId(kind) ?? null
-      }
-    })
-
-    // 单选启用该 kind 的指针：传 id 启用该组（替换原指针），传 null 停用（回落系统环境变量）
-    ipcMain.handle(`${kind}:env:setActive`, async (_event, profileId: unknown) => {
-      try {
-        const safeId = profileId === null ? null : assertString(profileId, 'profileId', { maxLength: 128 })
-        const success = runtime.envRepository.setActiveProfile(kind, safeId)
-        return success ? { success: true } : { success: false, error: 'Env profile not found' }
-      } catch (error) {
-        return validationFailure(error) || { success: false, error: (error as Error).message }
-      }
-    })
 
     ipcMain.handle(`${kind}:workspace:list`, async () => {
       return runtime.repository.getAll()
@@ -2474,8 +2462,9 @@ export function registerIPCHandlers(): void {
         // 与 TUI 启动同一份解析结果（绑定组 → 已启用组 → legacy → 系统）
         envSource = resolveWorkspaceEnv(dshRuntime, workspace)
       } else {
-        // 无工作区可绑：env 走「已启用组 → 系统」
-        envSource = dshRuntime.envRepository.getActiveProfile('dsh')?.env
+        // 无工作区可绑：env 走「全局启用组（按 dsh 映射物化）→ 系统」—— 与 TUI 启动
+        // 同一份解析，结构化核心（baseUrl/apiKey）在此物化成 DEEPSEEK_* 变量名
+        envSource = resolveActiveProfileEnv(dshRuntime)
         if (rawCwd !== undefined) {
           const cwd = resolveWorkspaceCwd(rawCwd)
           if (!cwd.ok) return { success: false, error: cwd.error }
