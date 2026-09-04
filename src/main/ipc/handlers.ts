@@ -2073,16 +2073,19 @@ export function registerIPCHandlers(): void {
     tags: string[],
     opts?: { cwd?: string; env?: Record<string, string> }
   ) {
+    // 启动 shell：有 pwsh（PowerShell 7）用 pwsh 且带 -NoProfile —— 交互 profile 的
+    // Set-Location 会静默改掉工作区/worktree cwd，agent 宿主要的是透明宿主而非用户
+    // 交互环境（cmd 基线本就不读任何 profile，无功能损失）。探测只扫主进程 PATH +
+    // 常规安装位置兜底：每次启动实时 existsSync，MSI/Store 装完即生效，也不为探测
+    // 额外起 powershell 进程（launch 路径上每次同步阻塞 ~100ms 不值当）。
+    const pwshPath = findPwshPath()
     const config: SessionConfig = {
       id: '',
       name,
       type: ConnectionType.LOCAL,
       local: {
-        // 启动 shell：有 pwsh（PowerShell 7）用 pwsh，没有按现状（Windows: cmd/COMSPEC，
-        // POSIX: $SHELL）。探测用与 LocalConnector 注入 PTY 同源的即时系统 PATH ——
-        // 装完 pwsh 无需重启 app 即生效，也与子进程实际看到的 PATH 视图一致
-        // （自定义安装位置不因主进程 PATH 快照过期而漏检）。
-        shell: findPwshPath(readSystemPath() ?? process.env.PATH ?? '') ?? undefined,
+        shell: pwshPath ?? undefined,
+        shellArgs: pwshPath ? ['-NoProfile'] : undefined,
         cwd: opts?.cwd,
         env: opts?.env
       },

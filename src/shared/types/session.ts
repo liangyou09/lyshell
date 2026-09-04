@@ -114,6 +114,8 @@ export interface SerialPortInfo {
  */
 export interface LocalConfig {
   shell?: string
+  /** 启动 shell 的附加参数（如 agent 宿主 pwsh 的 -NoProfile）；缺省无参 */
+  shellArgs?: string[]
   cwd?: string
   env?: Record<string, string>
 }

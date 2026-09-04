@@ -10,6 +10,8 @@ import { readSystemPath } from '../env/refresh'
  */
 export interface LocalConfig {
   shell?: string
+  /** 启动 shell 的附加参数（如 agent 宿主 pwsh 的 -NoProfile）；缺省无参 */
+  shellArgs?: string[]
   cwd?: string
   env?: Record<string, string>
   encoding?: 'utf-8' | 'gbk' | 'gb2312'
@@ -78,7 +80,7 @@ export class LocalConnector extends BaseConnector {
     // 优先级：即时系统 PATH < config.env < extraEnv（工作区/env 显式覆盖仍生效）。
     const systemPath = readSystemPath()
 
-    this.ptyProcess = spawn(shell, [], {
+    this.ptyProcess = spawn(shell, this.config.shellArgs ?? [], {
       name: 'xterm-256color',
       cols: this._cols,
       rows: this._rows,
