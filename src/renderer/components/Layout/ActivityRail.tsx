@@ -86,17 +86,12 @@ const IconCodex: React.FC = () => <BrandMaskIcon src={codexIcon} />
 /** claude = Anthropic 太阳花(官方内置品牌标,mask 取 alpha 剪影、随主题着色) */
 const IconClaude: React.FC = () => <BrandMaskIcon src={claudeIcon} />
 
-/** 变量组 = { ENV } 花括号包字标 —— shell 的 ${VAR} 插值语汇,全局变量库的铭牌。
- *  (前两版弃:竖线穿 S 弧读作美元符;花括号夹等号欠直白,改字面。)
- *  括号是曲线,round cap/join(与齿轮同例外,曲线用 square 会断);ENV 走全局 mono 栈。 */
+/** 变量组 = ENV 字标 —— 全局变量库的铭牌,纯文字不附图形(用户定稿:就写 ENV)。
+ *  (前几版弃:竖线穿 S 弧读作美元符;花括号 { ENV } 欠直白,改字面。)
+ *  mono 栈呼应 shell 语汇;无括号后字号放大,700 字重撑住轨上与线描图标同档的存在感。 */
 const IconEnv: React.FC = () => (
-  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-    {/* 左花括号:上钩 → 左沿 → 中点尖角朝外 → 左沿 → 下钩(压窄给字标腾位) */}
-    <path d="M5 3.4 C3.8 3.4 3.2 4.2 3.2 5.6 V8.4 C3.2 9.4 2.6 9.8 1.6 10 C2.6 10.2 3.2 10.6 3.2 11.6 V14.4 C3.2 15.8 3.8 16.6 5 16.6" />
-    {/* 右花括号(镜像) */}
-    <path d="M15 3.4 C16.2 3.4 16.8 4.2 16.8 5.6 V8.4 C16.8 9.4 17.4 9.8 18.4 10 C17.4 10.2 16.8 10.6 16.8 11.6 V14.4 C16.8 15.8 16.2 16.6 15 16.6" />
-    {/* 字标:ENV */}
-    <text x="10" y="10" textAnchor="middle" dominantBaseline="central" fill="currentColor" stroke="none" fontSize="4.3" fontWeight="700" letterSpacing="0.15" fontFamily='ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace'>ENV</text>
+  <svg width="24" height="24" viewBox="0 0 20 20">
+    <text x="10" y="10" textAnchor="middle" dominantBaseline="central" fill="currentColor" fontSize="9.5" fontWeight="700" letterSpacing="0.1" fontFamily='ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace'>ENV</text>
   </svg>
 )
 
