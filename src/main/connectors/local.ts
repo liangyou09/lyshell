@@ -4,18 +4,15 @@ import { existsSync } from 'fs'
 import { delimiter, join } from 'path'
 import { BaseConnector } from './base'
 import { readSystemPath } from '../env/refresh'
+import type { LocalConfig } from '@shared/types'
 
 /**
- * 本地终端配置
+ * 本地终端配置 —— 复用 @shared/types 的 LocalConfig（单一真相源）。
+ * 本文件历史上有份本地副本（多一个 encoding 字段），但 connector 从不读它、
+ * 唯一调用方 session-manager 传的也是 shared 形状，纯属双处定义漂移；
+ * 统一后新增字段（如 shellArgs）不必两处同步。
  */
-export interface LocalConfig {
-  shell?: string
-  /** 启动 shell 的附加参数（如 agent 宿主 pwsh 的 -NoProfile）；缺省无参 */
-  shellArgs?: string[]
-  cwd?: string
-  env?: Record<string, string>
-  encoding?: 'utf-8' | 'gbk' | 'gb2312'
-}
+export type { LocalConfig }
 
 /**
  * 定位 PowerShell 7（pwsh）的完整可执行路径，未安装返回 null。
@@ -183,7 +180,9 @@ export class LocalConnector extends BaseConnector {
       return 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
     }
     if (lower === 'pwsh') {
-      return 'C:\\Program Files\\PowerShell\\7\\pwsh.exe'
+      // 简称解析与 findPwshPath 同口径：先探测（PATH/WindowsApps 别名/常规位置，
+      // Store 版或自定义安装也能解析到），探测不到才回落硬编码默认安装路径
+      return findPwshPath() ?? 'C:\\Program Files\\PowerShell\\7\\pwsh.exe'
     }
     return shell
   }

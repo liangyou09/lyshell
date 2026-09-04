@@ -2077,7 +2077,10 @@ export function registerIPCHandlers(): void {
     // Set-Location 会静默改掉工作区/worktree cwd，agent 宿主要的是透明宿主而非用户
     // 交互环境（cmd 基线本就不读任何 profile，无功能损失）。探测只扫主进程 PATH +
     // 常规安装位置兜底：每次启动实时 existsSync，MSI/Store 装完即生效，也不为探测
-    // 额外起 powershell 进程（launch 路径上每次同步阻塞 ~100ms 不值当）。
+    // 额外起 powershell 进程（launch 路径上每次同步阻塞 ~100ms 不值当）。已知代价：
+    // app 运行期装到「自定义位置」（PATH 快照未含）的 pwsh 要重启才能识别，期间
+    // 回落 cmd —— 与「没有 ps7 按现状」同语义，普通本地终端的 readSystemPath 注入
+    // 不适用于这里（shell 用完整路径 spawn，不做 PATH 查找）。
     const pwshPath = findPwshPath()
     const config: SessionConfig = {
       id: '',

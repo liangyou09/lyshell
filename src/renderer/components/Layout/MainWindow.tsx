@@ -401,8 +401,10 @@ const MainWindow: React.FC = () => {
   // Ctrl+Shift+O 打开本地文档（拖放之外的第二个本地入口）：系统文件对话框 → openLocalDoc。
   // 同 Ctrl+F1-F12 用 capture：焦点在终端时 xterm 先于冒泡处理按键，会吃掉 O。
   // 曾用 Ctrl+O —— 那是裸控制字符 ^O（\x0F），vim 跳转旧位置 / bash
-  // operate-and-get-next 都靠它，capture 截获会抢走终端 CLI 的按键；Ctrl+Shift+O
-  // 在 xterm 走修饰键 escape 序列而非裸 \x0F，且与分屏 Ctrl+Shift+H/V 同族。
+  // operate-and-get-next 都靠它，capture 截获会抢走终端 CLI 的按键；换成三键和弦后
+  // 不再有抢键问题：xterm.js 只对「无 Shift 的 Ctrl+字母」发控制字符，Ctrl+Shift+O
+  // 本身不产生任何字节，且与分屏 Ctrl+Shift+H/V 同族（和弦全局可用的原则见
+  // SplitPaneContainer 的 isTextEditingTarget 注释）。
   useEffect(() => {
     const handleOpenDoc = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey || !e.shiftKey) return

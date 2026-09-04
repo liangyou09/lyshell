@@ -3,7 +3,7 @@ import { EventEmitter } from 'events'
 import log from 'electron-log'
 import { app } from 'electron'
 import { SSHConnector, TelnetConnector, SerialConnector, LocalConnector, ConnectionStatus, ConnectionType } from '../connectors'
-import type { SessionConfig, SSHConfig, TelnetConfig, SerialConfig, LocalConfig } from '@shared/types'
+import type { SessionConfig, SSHConfig, TelnetConfig, SerialConfig } from '@shared/types'
 import { processInputEscapeSequences, appendAutoNewline } from '@shared/escape-sequences'
 import { OutputBuffer } from './output-buffer'
 import { fileManager, cancelDownloadsBySession, cancelUploadsBySession } from '@main/file'
@@ -353,10 +353,11 @@ export class SessionManager extends EventEmitter {
             log.warn(`[MCP] HTTP server not ready when spawning local session ${id}; MCP env will not be injected`)
           }
 
-          session.connector = new LocalConnector(id, {
-            ...session.config.local as LocalConfig,
-            encoding: session.config.terminal?.encoding
-          }, extraEnv)
+          // local 可能缺省（连接类型是 LOCAL 但未填 local 配置），空对象展开后
+          // connector 走各自默认值（shell/cwd/env 全可选）。曾在此透传 terminal
+          // 的 encoding，但 LocalConnector 从不读它 —— 真正的编码处理在
+          // OutputBuffer/渲染层，死管道随 LocalConfig 统一（见 connectors/local.ts）一并移除。
+          session.connector = new LocalConnector(id, { ...session.config.local }, extraEnv)
           break
         }
         default:

@@ -260,6 +260,11 @@ export class SessionRepository {
     if (a.local && b.local) {
       if (a.local.shell !== b.local.shell ||
           a.local.cwd !== b.local.cwd) return false
+      // shellArgs 参与同一性判定：同 shell 不同参数是不同启动目标（如 pwsh
+      // -NoProfile 的 agent 宿主 vs 交互 pwsh）；缺省与空数组视为等价
+      const argsA = a.local.shellArgs ?? []
+      const argsB = b.local.shellArgs ?? []
+      if (argsA.length !== argsB.length || argsA.some((v, i) => v !== argsB[i])) return false
     } else if (a.local || b.local) {
       return false
     }
