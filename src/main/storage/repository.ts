@@ -31,7 +31,13 @@ const cloneSession = (session: SessionConfig): SessionConfig => ({
   ssh: session.ssh ? { ...session.ssh } : undefined,
   telnet: session.telnet ? { ...session.telnet } : undefined,
   serial: session.serial ? { ...session.serial } : undefined,
-  local: session.local ? { ...session.local, env: session.local.env ? { ...session.local.env } : undefined } : undefined,
+  local: session.local ? {
+    ...session.local,
+    env: session.local.env ? { ...session.local.env } : undefined,
+    // shellArgs 同 tags/startupCommands 的逐层拷贝纪律：cloneSession 的立意就是引用
+    // 隔离（盘边界两侧互不共享可变结构），数组漏拷会留共享引用的后门
+    shellArgs: session.local.shellArgs ? [...session.local.shellArgs] : undefined
+  } : undefined,
   terminal: session.terminal ? { ...session.terminal, theme: { ...session.terminal.theme } } : session.terminal,
   tags: [...(session.tags || [])],
   startupCommands: session.startupCommands ? [...session.startupCommands] : undefined
@@ -514,7 +520,10 @@ export class SessionRepository {
     } else if (session.serial) {
       parts.push(session.serial.path, String(session.serial.baudRate))
     } else if (session.local) {
-      parts.push(session.local.shell || 'default', session.local.cwd || 'default')
+      // shellArgs 参与 key（JSON 编码，防数组元素里的 '|' 撞键分隔符）：同 shell 不同
+      // 参数是不同启动目标 —— isSameConfig 已同口径，这里不跟上会让 session:deduplicate
+      // 误删其一
+      parts.push(session.local.shell || 'default', session.local.cwd || 'default', JSON.stringify(session.local.shellArgs ?? []))
     }
 
     return parts.join('|')

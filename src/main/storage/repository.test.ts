@@ -92,3 +92,30 @@ describe('SessionRepository.saveSession（Local 同一性判定含 shellArgs）'
     expect(b.id).toBe(a.id)
   })
 })
+
+describe('SessionRepository.deduplicate（generateSessionKey 含 shellArgs）', () => {
+  it('同 shell 不同 shellArgs 不被去重误删', () => {
+    const repo = new SessionRepository()
+    const a = repo.saveSession(makeLocalSession({ shell: 'pwsh', shellArgs: ['-NoProfile'] }))
+    const b = repo.saveSession(makeLocalSession({ shell: 'pwsh', shellArgs: ['-Interactive'] }))
+    const result = repo.deduplicate(false)
+    expect(result.removed).toBe(0)
+    expect(repo.get(a.id)).not.toBeNull()
+    expect(repo.get(b.id)).not.toBeNull()
+  })
+})
+
+describe('SessionRepository 落盘引用隔离（cloneSession 逐层拷贝）', () => {
+  it('保存后原地修改调用方数组不影响落盘内容', () => {
+    const repo = new SessionRepository()
+    const args = ['-NoProfile']
+    const saved = repo.saveSession(makeLocalSession({ shell: 'pwsh', shellArgs: args }))
+    // saveSession 内存里存的是调用方对象引用，但 save() 的盘序列化走 cloneSession
+    // 拷贝 + 同步写盘 —— 事后原地改数组不应影响盘上内容。钉住这条边界契约：
+    // 若日后改成延迟序列化或持有加密克隆对象，此测试即红
+    args.push('-NoLogo')
+    const repo2 = new SessionRepository()
+    const reloaded = repo2.get(saved.id)
+    expect(reloaded?.local?.shellArgs).toEqual(['-NoProfile'])
+  })
+})

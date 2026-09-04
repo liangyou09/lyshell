@@ -528,7 +528,9 @@ export const API_ROUTES: ApiRouteMeta[] = [
             shell: { type: 'string', description: 'Absolute path to the shell binary, e.g. powershell / pwsh / cmd.exe / bash. Omit for default.' },
             cwd: { type: 'string', description: 'Working directory. Omit for user home.' }
           },
-          description: 'Local PTY details. Optional when type=local.'
+          // shellArgs 刻意不暴露：它是 LyShell 自己启动 agent 宿主时的内部管道（如 pwsh
+          // -NoProfile）；MCP 创建的是交互终端会话，走默认 shell 行为即可，不扩大外部面。
+          description: 'Local PTY details. Optional when type=local. shellArgs is intentionally NOT accepted here — it is internal plumbing for LyShell-launched agent hosts (e.g. pwsh -NoProfile); MCP-created sessions are interactive terminals and use default shell behavior.'
         },
         summary: { type: 'string', maxLength: 500, description: 'One-sentence summary. Omit to leave empty.' },
         usageNotes: { type: 'string', maxLength: 10000, description: 'Multi-line usage notes / precautions.' },
