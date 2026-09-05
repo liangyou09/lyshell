@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
-import { useSessionStore } from '../../stores/session-store'
+import { useSessionStore, type SessionState } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import { OVERLAY_DRAG_MARKER, parseOverlayDragMarker, resolveOverlayDragId } from './overlay-drag'
 import { harnessKindFromTags, type HarnessAgentKind } from '@shared/harness'
@@ -143,7 +144,7 @@ type OverlayTabContent = React.FC<{ payload: OverlayPayload }>
 
 const DshWebTabContent: OverlayTabContent = ({ payload }) =>
   payload.kind === 'dshWeb'
-    ? <span className="text-xs truncate max-w-[150px]">{payload.name}</span>
+    ? <span className="text-xs truncate flex-1 min-w-0">{payload.name}</span>
     : null
 
 const WebTabContent: OverlayTabContent = ({ payload }) => {
@@ -151,7 +152,7 @@ const WebTabContent: OverlayTabContent = ({ payload }) => {
   return (
     <>
       {payload.favicon && <WebTabFavicon key={payload.favicon} src={payload.favicon} />}
-      <span className="text-xs truncate max-w-[150px]">{payload.title}</span>
+      <span className="text-xs truncate flex-1 min-w-0">{payload.title}</span>
     </>
   )
 }
@@ -168,14 +169,14 @@ const DocTabContent: OverlayTabContent = ({ payload }) => {
           payload.source === 'remote' ? 'bg-[var(--amber)]' : 'bg-[var(--reachable)]'
         )}
       />
-      <span className="text-xs truncate max-w-[150px]">{payload.title}</span>
+      <span className="text-xs truncate flex-1 min-w-0">{payload.title}</span>
     </>
   )
 }
 
 const McpTabContent: OverlayTabContent = () => {
   const { t } = useTranslation()
-  return <span className="text-xs truncate max-w-[150px]">{t('pane.mcpTab')}</span>
+  return <span className="text-xs truncate flex-1 min-w-0">{t('pane.mcpTab')}</span>
 }
 
 /**
@@ -287,7 +288,7 @@ const OverlayTab: React.FC<{
         setDragOverIndex(null)
       }}
       className={cn(
-        'win-no-drag flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
+        'win-no-drag pane-tab flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-1 min-w-0 max-w-[220px]',
         overlay.active
           ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
           : 'bg-[var(--bg-rack)] text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)]',
@@ -299,11 +300,155 @@ const OverlayTab: React.FC<{
       <button
         onClick={(e) => { e.stopPropagation(); closeOverlay(overlay.id) }}
         title={spec.closeTitle(t)}
-        className="win-no-drag ml-auto w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
+        className={cn(
+          'win-no-drag pane-tab-close w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors',
+          // 窄页签上非激活态隐藏关闭钮(悬停恢复),激活页签任何宽度保留 —— Edge 式渐进披露;
+          // pane-tab-close 基类供 80px 极窄档统一隐藏(见 globals.css)
+          !overlay.active && 'pane-tab-close-idle'
+        )}
       >
         ✕
       </button>
     </div>
+  )
+}
+
+// ===== 会话页签悬停详情卡(状态/错误文案工具与页签本体共用) =====
+
+/** 状态短文案(connecting 无文案,由调用方给呼吸点/连接中提示) */
+const getStatusLabel = (status: string, t: (key: string) => string) => {
+  switch (status) {
+    case 'connected': return t('common.status.connected')
+    case 'connecting': return ''
+    case 'error': return t('common.status.error')
+    default: return t('common.status.idle')
+  }
+}
+
+// 获取友好的错误提示
+// errorMap 的 value 现在是 i18n key（而非字面文案）；map 的 key 是技术子串，
+// 用于匹配后端原始错误，永远不展示，不翻译。t 由调用方传入（页签状态字与悬停详情卡共用）。
+const getFriendlyError = (error: string | undefined, t: (key: string) => string): string => {
+  if (!error) return t('error.default')
+
+  // 提取错误关键信息（去掉堆栈）
+  let cleanError = error
+  if (cleanError.includes('\n')) {
+    cleanError = cleanError.split('\n')[0] // 只取第一行
+  }
+  if (cleanError.includes('Error:')) {
+    cleanError = cleanError.replace(/Error:\s*/g, '')
+  }
+
+  // 常见错误转换 —— key=技术子串(匹配用), value=i18n key(展示用)
+  const errorMap: Record<string, string> = {
+    'Timed out while waiting for handshake': 'error.sshHandshakeTimeout',
+    'handshake timeout': 'error.sshHandshakeTimeout',
+    'Authentication failed': 'error.authFailed',
+    'connection refused': 'error.connectionRefused',
+    'Connection refused': 'error.connectionRefused',
+    'Connection timeout': 'error.connectionTimeout',
+    'connection timeout': 'error.connectionTimeout',
+    'Host key verification failed': 'error.hostKeyVerification',
+    'Network is unreachable': 'error.networkUnreachable',
+    'ENOTFOUND': 'error.hostNotFound',
+    'ECONNREFUSED': 'error.connectionRefused',
+    'ETIMEDOUT': 'error.connectionTimeout',
+    'EHOSTUNREACH': 'error.hostUnreachable',
+    'getaddrinfo ENOTFOUND': 'error.dnsResolveFailed',
+    'read ECONNRESET': 'error.connectionReset',
+    'write ECONNRESET': 'error.connectionReset',
+    'socket hang up': 'error.connectionClosed',
+    'SSH connection error': 'error.sshConnectionError',
+    'All configured authentication methods failed': 'error.allAuthMethodsFailed',
+    'private key decrypt failed': 'error.privateKeyDecryptFailed',
+    'no such file': 'error.fileNotFound',
+    'Permission denied': 'error.permissionDenied',
+    'Too many authentication failures': 'error.tooManyAuthFailures',
+  }
+
+  // 查找匹配的错误
+  for (const [key, value] of Object.entries(errorMap)) {
+    if (cleanError.includes(key)) {
+      return t(value)
+    }
+  }
+
+  // 如果还是太长，截断
+  if (cleanError.length > 30) {
+    return cleanError.substring(0, 30) + t('error.truncatedSuffix')
+  }
+  return cleanError
+}
+
+/**
+ * 会话页签悬停详情卡 —— 页签被 Edge 式收缩截断后,悬停补全完整信息:
+ * 完整名称 / 连接类型与目标(等宽字体,终端语汇) / 状态与错误详情 / 用户自述
+ * (summary + usageNotes) / 操作提示。fixed 定位挂 body(不被条内 overflow 裁切),
+ * pointer-events-none 保证卡永不拦截鼠标(不与下方终端争抢,也不会卡住自身显隐)。
+ * 视觉语汇对齐 McpAuditPanel 的悬浮提示(bg-slot + rule 发丝线 + shadow-xl)。
+ */
+const TabHoverCard: React.FC<{ session: SessionState; rect: DOMRect }> = ({ session, rect }) => {
+  const { t } = useTranslation()
+  const { config, status, lastError } = session
+
+  // 连接目标描述:按类型配置取最短可辨识字段(SSH user@host:port / 串口 path+波特率 / 本地 shell)
+  const target =
+    config.ssh ? `${config.ssh.username}@${config.ssh.host}:${config.ssh.port}` :
+    config.telnet ? `${config.telnet.host}:${config.telnet.port}` :
+    config.serial ? `${config.serial.path} · ${config.serial.baudRate}` :
+    config.local?.shell ?? ''
+  const statusText = status === 'connecting' ? t('pane.connecting') : getStatusLabel(status, t)
+  // 双缘钳制:左值先夹进 [8, ∞),再夹到右缘上限(视口宽 - 卡宽 360 - 8px 边距)。
+  // 极窄视口(<376px,实际窗口最小宽远大于此)两个约束冲突时,优先保右缘不出界,
+  // 左侧可能贴 8px 或溢出 —— 卡是右对齐读数的详情,右溢比左溢更遮内容
+  const left = Math.min(Math.max(8, rect.left), window.innerWidth - 368)
+
+  return createPortal(
+    <div
+      aria-hidden
+      className="pane-tab-hover-card fixed z-[300] pointer-events-none w-max max-w-[360px] px-2.5 py-2 rounded-[3px] bg-[var(--bg-slot)] border border-[var(--rule)] shadow-xl flex flex-col gap-1"
+      style={{ top: rect.bottom + 4, left }}
+    >
+      {/* 完整会话名 —— 窄页签截断的补全 */}
+      <div className="text-[13px] text-[var(--text-rack)] font-medium break-all">{config.name}</div>
+      {/* 连接类型 + 目标 —— data 档字色(数据读数专用,mute 档在浮卡上偏暗) */}
+      {target && (
+        <div className="font-mono text-xs text-[var(--text-rack-data)] break-all">
+          {config.type.toUpperCase()} · {target}
+        </div>
+      )}
+      {/* 状态行:与页签同源配色,圆点取字色 */}
+      <div className={cn(
+        'flex items-center gap-1.5 text-xs',
+        status === 'connected' ? 'text-[var(--live)]' :
+        status === 'error' ? 'text-[var(--error-rack)]' : 'text-[var(--text-rack-mute)]'
+      )}>
+        <span aria-hidden className="w-[6px] h-[6px] rounded-full bg-current flex-shrink-0" />
+        <span>{statusText}</span>
+      </div>
+      {/* 错误详情(页签状态字 hover 提示的完整版) */}
+      {status === 'error' && lastError && (
+        <div className="text-xs text-[var(--error-rack)] break-all">{getFriendlyError(lastError, t)}</div>
+      )}
+      {session.lockedByMcp && (
+        <div className="text-xs text-[var(--amber)]">🔒 {t('pane.lockedByMcp')}</div>
+      )}
+      {/* 用户自述:一句话摘要 + 使用说明(说明可长,行数夹取) */}
+      {config.summary && (
+        <div className="text-xs text-[var(--text-rack)] break-all">{config.summary}</div>
+      )}
+      {config.usageNotes && (
+        <div className="text-xs text-[var(--text-rack-data)] whitespace-pre-wrap break-all line-clamp-4">
+          {config.usageNotes}
+        </div>
+      )}
+      {/* 操作提示(原页签 title 文案;dim 档是发丝线级,提示文字最低只降到 mute) */}
+      <div className="mt-1 pt-1.5 border-t border-[var(--rule)] text-[11px] text-[var(--text-rack-mute)]">
+        {t('pane.tabHint')}
+      </div>
+    </div>,
+    document.body
   )
 }
 
@@ -325,6 +470,48 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
   const scrollRef = useRef<HTMLDivElement>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)  // 悬停位置索引（可见坐标）
   const [dragOverOverlayId, setDragOverOverlayId] = useState<string | null>(null)  // 会话悬停在覆盖层页签上（排序落点指示）
+
+  // 会话页签悬停详情卡:悬停 400ms(意图延迟)出卡,移开/拖拽即隐 —— 收缩截断后的信息补全通道
+  const [hoveredTab, setHoveredTab] = useState<{ sessionId: string; rect: DOMRect } | null>(null)
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 悬停中的页签节点 —— 出卡后的跟位/收卡判定要用(见下方 ResizeObserver effect)
+  const hoveredElRef = useRef<HTMLElement | null>(null)
+  const showHoverCard = (sessionId: string, el: HTMLElement) => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current)
+    hoveredElRef.current = el
+    // rect 在定时器触发时取:页签条可能滚动/收缩,enter 时的快照会漂移
+    hoverTimer.current = setTimeout(() => {
+      setHoveredTab({ sessionId, rect: el.getBoundingClientRect() })
+    }, 400)
+  }
+  const hideHoverCard = () => {
+    if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null }
+    hoveredElRef.current = null
+    setHoveredTab(null)
+  }
+  useEffect(() => () => { if (hoverTimer.current) clearTimeout(hoverTimer.current) }, [])
+
+  // 卡片打开期间盯住页签自身尺寸:Edge 式收缩(flex 等分)下任何重排 —— 窗口 resize、
+  // 状态字增删、远端关页签挤宽 —— 都会改页签宽度,变化即重取 rect 让卡跟位。
+  // 页签节点被移出 DOM 时 RO 亦会送一次 0 尺寸通知,顺手收卡,兜住"节点重建导致
+  // mouseleave 丢失"的残留卡(单指针下 React 按 sessionId 复用节点,常态不会发生)。
+  // 测试环境(jsdom)无 ResizeObserver,守卫对齐 TopRightControls 的既有模式
+  const hoverCardOpen = hoveredTab !== null
+  useEffect(() => {
+    if (!hoverCardOpen || typeof ResizeObserver === 'undefined') return
+    const el = hoveredElRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      if (!el.isConnected) {
+        setHoveredTab(null)
+        return
+      }
+      setHoveredTab(prev => (prev ? { ...prev, rect: el.getBoundingClientRect() } : prev))
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [hoverCardOpen])
+
   const sessions = useSessionStore(s => s.sessions)
   const removeLiveSession = useSessionStore(s => s.removeLiveSession)
   // 逐字段 selector 订阅：本组件不读 layout 树（pane 由 prop 传入），整体解构会让无关的
@@ -362,12 +549,40 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
   // 本 pane 是否有激活中的覆盖层（终端页签激活态高亮据此互斥）
   const overlayActiveHere = pane.overlays.some(r => r.active)
 
+  // 终端页签激活态判定（高亮与关闭钮窄页签显隐共用）：
+  // 有覆盖层激活时终端页签一律视为非激活 —— 关闭钮也随非激活规则让位
+  const isSessionTabActive = (sessionId: string) =>
+    pane.activeSessionId === sessionId && !overlayActiveHere
+
+  // 滚动安全网：页签只缩不滚（无地板宽度），仅极端数量把条挤溢出后才接管滚轮 ——
+  // 替代原常驻左右滚动钮（按钮占的 40px 还给页签）。须非被动监听才能拦掉垂直滚动链。
+  // 依赖条是否渲染：空 pane 走下方早退分支不渲染条容器，首个页签出现后条容器才挂载，
+  // mount-once 的空依赖会漏掉"先空后有页签"的条
+  const stripRendered = paneSessions.length > 0 || pane.overlays.length > 0
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      // 页签还能收缩（无溢出）时不接管滚轮 —— Edge 式收缩下的常见态，零干预
+      if (el.scrollWidth <= el.clientWidth) return
+      // 触控板原生横向手势优先，否则竖转横
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+      if (delta === 0) return
+      e.preventDefault()
+      el.scrollLeft += delta
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [stripRendered])
+
   // 滚动到选中的标签
   const scrollToTab = (tabId: string) => {
     const container = scrollRef.current
     if (!container) return
 
-    const tabElement = container.querySelector(`[data-tab-id="${tabId}"]`)
+    // id 目前由系统生成,但 CSS.escape 统一兜底 —— 未来 id 若接受用户输入,
+    // 含引号/反斜杠/冒号也不会拼出越权选择器
+    const tabElement = container.querySelector(`[data-tab-id="${CSS.escape(tabId)}"]`)
     if (tabElement) {
       const containerWidth = container.clientWidth
       const tabLeft = tabElement.getBoundingClientRect().left - container.getBoundingClientRect().left
@@ -489,6 +704,8 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
 
   // 开始拖拽
   const handleDragStart = (e: React.DragEvent, sessionId: string) => {
+    // 拖拽中收起悬停详情卡(拖拽幽灵与悬浮卡同时飘着会互相干扰)
+    hideHoverCard()
     setDraggingSession(sessionId)
     e.dataTransfer.setData('text/plain', sessionId)
     e.dataTransfer.effectAllowed = 'move'
@@ -590,81 +807,6 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
     setDragOverIndex(null)
   }
 
-  // 向左滚动
-  const scrollLeft = () => {
-    scrollRef.current?.scrollBy({ left: -150, behavior: 'smooth' })
-  }
-
-  // 向右滚动
-  const scrollRight = () => {
-    scrollRef.current?.scrollBy({ left: 150, behavior: 'smooth' })
-  }
-
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'connected': return t('common.status.connected')
-      case 'connecting': return ''
-      case 'error': return t('common.status.error')
-      default: return t('common.status.idle')
-    }
-  }
-
-  // 获取友好的错误提示
-  // errorMap 的 value 现在是 i18n key（而非字面文案）；map 的 key 是技术子串，
-  // 用于匹配后端原始错误，永远不展示，不翻译。函数在渲染期调用，t 在闭包作用域。
-  const getFriendlyError = (error?: string): string => {
-    if (!error) return t('error.default')
-
-    // 提取错误关键信息（去掉堆栈）
-    let cleanError = error
-    if (cleanError.includes('\n')) {
-      cleanError = cleanError.split('\n')[0] // 只取第一行
-    }
-    if (cleanError.includes('Error:')) {
-      cleanError = cleanError.replace(/Error:\s*/g, '')
-    }
-
-    // 常见错误转换 —— key=技术子串(匹配用), value=i18n key(展示用)
-    const errorMap: Record<string, string> = {
-      'Timed out while waiting for handshake': 'error.sshHandshakeTimeout',
-      'handshake timeout': 'error.sshHandshakeTimeout',
-      'Authentication failed': 'error.authFailed',
-      'connection refused': 'error.connectionRefused',
-      'Connection refused': 'error.connectionRefused',
-      'Connection timeout': 'error.connectionTimeout',
-      'connection timeout': 'error.connectionTimeout',
-      'Host key verification failed': 'error.hostKeyVerification',
-      'Network is unreachable': 'error.networkUnreachable',
-      'ENOTFOUND': 'error.hostNotFound',
-      'ECONNREFUSED': 'error.connectionRefused',
-      'ETIMEDOUT': 'error.connectionTimeout',
-      'EHOSTUNREACH': 'error.hostUnreachable',
-      'getaddrinfo ENOTFOUND': 'error.dnsResolveFailed',
-      'read ECONNRESET': 'error.connectionReset',
-      'write ECONNRESET': 'error.connectionReset',
-      'socket hang up': 'error.connectionClosed',
-      'SSH connection error': 'error.sshConnectionError',
-      'All configured authentication methods failed': 'error.allAuthMethodsFailed',
-      'private key decrypt failed': 'error.privateKeyDecryptFailed',
-      'no such file': 'error.fileNotFound',
-      'Permission denied': 'error.permissionDenied',
-      'Too many authentication failures': 'error.tooManyAuthFailures',
-    }
-
-    // 查找匹配的错误
-    for (const [key, value] of Object.entries(errorMap)) {
-      if (cleanError.includes(key)) {
-        return t(value)
-      }
-    }
-
-    // 如果还是太长，截断
-    if (cleanError.length > 30) {
-      return cleanError.substring(0, 30) + t('error.truncatedSuffix')
-    }
-    return cleanError
-  }
-
   // 无会话且本 pane 无任何覆盖层页签时不渲染标签栏，避免中部空条；打开时仍需标签栏承载页签。
   // 顶排 pane 例外：渲染与第一行等高的空条，保证窗口第一行永远存在(承载窗口拖拽区 + pill/控制簇浮层下方的底色)
   if (paneSessions.length === 0 && pane.overlays.length === 0) {
@@ -730,6 +872,9 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
     tabItems.push({ kind: 'overlay', overlay: r })
   }
 
+  // 悬停卡数据源:按 id 现查 —— 悬停期间状态/错误实时反映,会话被关闭则查不到即不渲染
+  const hoveredSession = hoveredTab ? sessions.find(s => s.id === hoveredTab.sessionId) : undefined
+
   return (
     <div
       className={cn(
@@ -747,15 +892,6 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
         paddingRight: isTop && isTopRight ? 'var(--top-right-reserve)' : undefined
       }}
     >
-      {/* 左滚动按钮 */}
-      <button
-        onClick={scrollLeft}
-        title={t('pane.scrollLeft')}
-        className="win-no-drag w-[20px] h-full flex items-center justify-center text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-elev)] transition-colors"
-      >
-        ‹
-      </button>
-
       {/* 标签容器 */}
       <div
         ref={scrollRef}
@@ -779,10 +915,12 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
               onDragOver={(e) => handleDragOverTab(e, item.index)}
               onDragLeave={handleDragLeaveTab}
               onDrop={(e) => handleDropOnTab(e, item.index)}
-              title={t('pane.tabHint')}
+              // 悬停详情卡(替代原生 title:收缩截断后的完整信息,见 TabHoverCard)
+              onMouseEnter={(e) => showHoverCard(item.session.id, e.currentTarget)}
+              onMouseLeave={hideHoverCard}
               className={cn(
-                'win-no-drag flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-shrink-0 min-w-[120px]',
-                pane.activeSessionId === item.session.id && !overlayActiveHere
+                'win-no-drag pane-tab flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-1 min-w-0 max-w-[220px]',
+                isSessionTabActive(item.session.id)
                   ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
                   : item.session.hasActivity
                     ? 'bg-[var(--reachable)]/25 text-[var(--text-rack)] hover:bg-[var(--reachable)]/35 shadow-[inset_2px_0_0_var(--reachable)]' // 有未读输出:reachable 青调底 + 左侧 stripe
@@ -797,11 +935,11 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
             >
               {/* harness 启动来源标识 —— tags 带 <kind>:<id> 的瞬态会话在名称左侧亮品牌小标 */}
               <HarnessKindMark kind={harnessKindFromTags(item.session.config.tags)} />
-              <span className="text-xs truncate max-w-[150px]">{getNameWithIndex(item.session)}</span>
+              <span className="text-xs truncate flex-1 min-w-0">{getNameWithIndex(item.session)}</span>
               {item.session.lockedByMcp && (
                 <span
-                  title={t('pane.lockedByMcp', { defaultValue: 'MCP is using this terminal' })}
-                  className="text-[10px] px-1 rounded bg-[var(--amber)]/20 text-[var(--amber)] flex-shrink-0"
+                  title={t('pane.lockedByMcp')}
+                  className="pane-tab-lock text-[10px] px-1 rounded bg-[var(--amber)]/20 text-[var(--amber)] flex-shrink-0"
                 >
                   🔒
                 </span>
@@ -814,16 +952,16 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
                   className="w-[6px] h-[6px] rounded-full bg-[var(--amber)] animate-pulse flex-shrink-0"
                 />
               ) : (
-                getStatusLabel(item.session.status) && (
+                getStatusLabel(item.session.status, t) && (
                   <span
-                    title={item.session.status === 'error' ? getFriendlyError(item.session.lastError) : undefined}
                     className={cn(
-                      'text-xs cursor-default',
+                      // pane-tab-status:极窄页签(<=80px)状态字让位标题,见 globals.css
+                      'pane-tab-status text-xs cursor-default',
                       item.session.status === 'connected' ? 'text-[var(--live)]' :
                       item.session.status === 'error' ? 'text-[var(--error-rack)] hover:opacity-80' : 'text-[var(--text-rack-mute)]'
                     )}
                   >
-                    {getStatusLabel(item.session.status)}
+                    {getStatusLabel(item.session.status, t)}
                   </span>
                 )
               )}
@@ -848,7 +986,12 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
                   removeLiveSession(sessionId)
                 }}
                 title={t('pane.closeConnection')}
-                className="win-no-drag ml-auto w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors"
+                className={cn(
+                  'win-no-drag pane-tab-close w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors',
+                  // 窄页签上非激活态隐藏关闭钮(悬停恢复),激活页签任何宽度保留 —— Edge 式渐进披露;
+                  // pane-tab-close 基类供 80px 极窄档统一隐藏(见 globals.css)
+                  !isSessionTabActive(item.session.id) && 'pane-tab-close-idle'
+                )}
               >
                 ✕
               </button>
@@ -867,14 +1010,22 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
         ))}
       </div>
 
-      {/* 右滚动按钮 */}
-      <button
-        onClick={scrollRight}
-        title={t('pane.scrollRight')}
-        className="win-no-drag w-[20px] h-full flex items-center justify-center text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-elev)] transition-colors"
-      >
-        ›
-      </button>
+      {/* 会话页签悬停详情卡(fixed 挂 body,不占条内布局) */}
+      {hoveredTab && hoveredSession && (
+        <TabHoverCard session={hoveredSession} rect={hoveredTab.rect} />
+      )}
+
+      {/* 最右"+"预留位(仅顶排) —— Edge 顶栏专属视觉:窗口第一行的常驻右边界锚点,
+          页签挤爆后裁切/滚动都止于此;非顶排条以 pane 边框收尾,不放 + 避免中部
+          多出无功能占位。暂为占位,后续接"新建会话"入口 */}
+      {isTop && (
+        <div
+          title={t('pane.newTabReserved')}
+          className="pane-tab-newtab win-no-drag w-[28px] h-full flex-shrink-0 flex items-center justify-center text-sm text-[var(--text-rack-mute)] select-none cursor-default"
+        >
+          +
+        </div>
+      )}
     </div>
   )
 }

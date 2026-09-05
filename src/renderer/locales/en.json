@@ -600,9 +600,9 @@
     "speedM": "{{n}}M/s"
   },
   "pane": {
-    "scrollLeft": "Scroll left",
-    "scrollRight": "Scroll right",
     "tabHint": "Click to switch · Double-click left to clone session · Double-click right to clone channel (SSH)",
+    "newTabReserved": "New session (reserved)",
+    "lockedByMcp": "MCP is using this terminal",
     "mcpTab": "MCP Activity",
     "mcpTabHint": "MCP activity audit · click to toggle · ESC to close",
     "webTabClose": "Close web tab",

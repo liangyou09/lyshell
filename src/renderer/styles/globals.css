@@ -384,6 +384,47 @@ body {
   display: none; /* Chrome/Safari/Opera */
 }
 
+/* === 终端页签 Edge 式收缩 === */
+/* 页签挂 container-type 后成为自身宽度的查询容器,@container 按页签实际宽度
+   启用"窄页签"规则(Chromium 105+ 原生支持,无须 Tailwind 容器查询插件) */
+.pane-tab {
+  container-type: inline-size;
+}
+
+/* 页签条挤窄(<=132px)时非激活页签的关闭钮让位给标题,悬停/激活仍可见 —— 与
+   Edge 浏览器窄页签行为一致 */
+@container (max-width: 132px) {
+  .pane-tab-close-idle {
+    display: none;
+  }
+
+  .pane-tab:hover .pane-tab-close-idle {
+    display: flex;
+  }
+}
+
+/* 再挤(<=80px)进入"仅图标"地界:状态字让位、激活页签的关闭钮也只在悬停出现。
+   页签没有地板宽度(只缩不滚,触底滚动已按需求去掉),这一档保证任何数量下
+   固定内容都不撑破页签;悬停统一恢复关闭钮,状态信息仍在 title 提示里 */
+@container (max-width: 80px) {
+  .pane-tab-status {
+    display: none;
+  }
+
+  /* MCP 锁定徽章同为固定内容,极窄档让位(悬停详情卡里有 🔒 行,信息不丢) */
+  .pane-tab-lock {
+    display: none;
+  }
+
+  .pane-tab-close {
+    display: none;
+  }
+
+  .pane-tab:hover .pane-tab-close {
+    display: flex;
+  }
+}
+
 /* 细滚动条样式 - 用于快速命令栏 */
 .scrollbar-thin::-webkit-scrollbar {
   width: 4px;

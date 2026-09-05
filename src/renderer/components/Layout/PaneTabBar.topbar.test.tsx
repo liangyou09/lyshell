@@ -7,8 +7,8 @@
  * MainWindow / globals.css 无法整树渲染(依赖 electronAPI / xterm),只保留少量
  * 结构断言:持久化键名、内框类名落点、CSS 关键规则,不做逐字 className 匹配。
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { cleanup, render } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import * as fs from 'fs'
 import * as path from 'path'
 import PaneTabBar from './PaneTabBar'
@@ -168,6 +168,70 @@ describe('PaneTabBar 顶排页签条(渲染断言)', () => {
     expect(tabIds).toEqual(['s1', '__dsh_web__', 's3'])
   })
 
+  // Edge 式收缩:条内页签等分收缩(flex-1 + min/max 夹取,挤满前只缩不滚),
+  // 挤到 132px 以下时非激活页签的关闭钮让位标题(容器查询规则在 globals.css)
+  it('Edge 式收缩:页签 flex 等分挂点 + 关闭钮按激活态挂窄页签规则,无左右滚动钮', () => {
+    useSessionStore.setState({ sessions: [makeSession('s1', 'alpha'), makeSession('s2', 'beta')] })
+    const { container } = render(<PaneTabBar pane={makePane(['s1', 's2'])} isTop />)
+    const activeTab = container.querySelector('[data-tab-id="s1"]') as HTMLElement
+    const idleTab = container.querySelector('[data-tab-id="s2"]') as HTMLElement
+    for (const tab of [activeTab, idleTab]) {
+      // 等分收缩挂点:flex-1(basis 0)+ min-w-0(无地板,任何数量只缩不滚)+ max 封顶
+      expect(tab.className).toContain('flex-1')
+      expect(tab.className).toContain('min-w-0')
+      expect(tab.className).toContain('max-w-[220px]')
+    }
+    // 非激活页签的关闭钮挂窄页签隐藏规则;激活页签不挂(任何宽度保留)
+    expect(activeTab.querySelector('button')!.className).not.toContain('pane-tab-close-idle')
+    expect(idleTab.querySelector('button')!.className).toContain('pane-tab-close-idle')
+    // 滚轮取代常驻左右滚动钮(40px 还给页签):全条只剩两个页签关闭钮
+    expect(container.querySelectorAll('button')).toHaveLength(2)
+    // 最右 + 预留位:滚动区之外的常驻右边界锚点(页签挤爆后裁切止于此,永不越过它)
+    const anchor = (container.firstElementChild as HTMLElement).lastElementChild as HTMLElement
+    expect(anchor.textContent).toBe('+')
+    expect(anchor.className).toContain('flex-shrink-0')
+    expect(anchor.className).toContain('pane-tab-newtab')
+    // + 是 Edge 顶栏专属视觉:非顶排条以 pane 边框收尾,中部不放无功能占位
+    const nonTop = render(<PaneTabBar pane={makePane(['s1'])} />)
+    expect(nonTop.container.querySelector('.pane-tab-newtab')).toBeNull()
+  })
+
+  // 悬停详情卡:页签 Edge 式收缩截断后,悬停 400ms(意图延迟)补全名称/连接目标;
+  // 未到延迟不出卡,移开即隐。React 的 enter/leave 合成自 over/out,jsdom 里
+  // 语义事件(mouseenter)不触发合成层,用 mouseOver/mouseOut 驱动
+  it('悬停 400ms 出会话详情卡(完整名称+连接目标),移开即隐', () => {
+    vi.useFakeTimers()
+    try {
+      useSessionStore.setState({
+        sessions: [{
+          id: 's1',
+          config: {
+            id: 's1', name: 'alpha', type: 'ssh',
+            ssh: { host: '10.0.0.8', port: 22, username: 'root' }
+          } as unknown as SessionConfig,
+          status: ConnectionStatus.CONNECTED
+        }]
+      })
+      const { container } = render(<PaneTabBar pane={makePane(['s1'])} isTop />)
+      const tab = container.querySelector('[data-tab-id="s1"]') as HTMLElement
+      fireEvent.mouseOver(tab)
+      // 未到意图延迟不出卡(快速划过不闪卡)
+      act(() => { vi.advanceTimersByTime(399) })
+      expect(document.querySelector('.pane-tab-hover-card')).toBeNull()
+      act(() => { vi.advanceTimersByTime(1) })
+      const card = document.querySelector('.pane-tab-hover-card') as HTMLElement
+      expect(card).toBeTruthy()
+      // 完整会话名 + 连接目标(卡片经 portal 挂 body,不在 container 内)
+      expect(card.textContent).toContain('alpha')
+      expect(card.textContent).toContain('root@10.0.0.8:22')
+      // 移开即隐
+      fireEvent.mouseOut(tab)
+      expect(document.querySelector('.pane-tab-hover-card')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('web 插槽 0 / 钉尾 null：分别渲染在最前 / 最后', () => {
     useSessionStore.setState({
       sessions: [makeSession('s1', 'alpha'), makeSession('s2', 'beta')]
@@ -246,6 +310,17 @@ describe('topbar-metrics 单一真相源', () => {
 })
 
 describe('globals.css 拖拽区与内框', () => {
+  it('页签 Edge 式收缩:容器查询按页签自身宽度隐藏非激活关闭钮', () => {
+    expect(CSS).toContain('container-type: inline-size')
+    expect(CSS).toMatch(/@container \(max-width: 132px\)/)
+    expect(CSS).toContain('.pane-tab-close-idle')
+    // 80px 极窄档:状态字/MCP 锁定徽章/激活页签关闭钮也让位(无地板只缩不滚)
+    expect(CSS).toMatch(/@container \(max-width: 80px\)/)
+    expect(CSS).toContain('.pane-tab-status')
+    expect(CSS).toContain('.pane-tab-lock')
+    expect(CSS).toContain('.pane-tab-close')
+  })
+
   it('拖拽区工具类集中定义,组件不再内联 WebkitAppRegion', () => {
     expect(CSS).toMatch(/\.win-drag\s*\{\s*-webkit-app-region:\s*drag;\s*\}/)
     expect(CSS).toMatch(/\.win-no-drag\s*\{\s*-webkit-app-region:\s*no-drag;\s*\}/)

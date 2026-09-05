@@ -597,9 +597,9 @@
     "speedM": "{{n}}M/s"
   },
   "pane": {
-    "scrollLeft": "向左滚动",
-    "scrollRight": "向右滚动",
     "tabHint": "单击切换 · 双击左键克隆会话 · 双击右键克隆渠道(SSH)",
+    "newTabReserved": "新建会话（预留）",
+    "lockedByMcp": "MCP 正在使用此终端",
     "mcpTab": "MCP 活动",
     "mcpTabHint": "MCP 活动审计 · 点击切换 · ESC 关闭",
     "webTabClose": "关闭网页页签",

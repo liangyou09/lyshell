@@ -7,7 +7,7 @@ import i18n from '../i18n'
 /**
  * 会话状态
  */
-interface SessionState {
+export interface SessionState {
   id: string
   config: SessionConfig
   status: ConnectionStatus
