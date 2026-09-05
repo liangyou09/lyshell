@@ -3,10 +3,12 @@ import { useTranslation } from 'react-i18next'
 import { useTerminalStore } from '../../stores/terminal-store'
 
 /**
- * 终端尺寸显示组件（从 StatusBar.tsx 迁出）
+ * 终端尺寸显示组件（从 StatusBar.tsx 迁出,现嵌在会话面板底部状态栏左槽）
  *
  * size 单击往 PTY 发 Ctrl+L 清屏重绘；行数单击滚回底部、双击清空 scrollback。
- * 嵌在可点击行内使用（侧栏 LIVE 行）——按钮点击都 stopPropagation,不触发行自身的动作。
+ * 按钮点击都 stopPropagation,不触发宿主容器的点击行为。
+ * 行数靠 2s 轮询而非事件驱动:组件可能早于 xterm 实例挂载(会话连接中),轮询天然兜住
+ * 晚到的实例;事件化要把 onResize/onLineFeed 穿进 store 层,已知取舍,后续有需要再换。
  */
 const TerminalSize: React.FC<{ sessionId: string }> = ({ sessionId }) => {
   const { getTerminal } = useTerminalStore()

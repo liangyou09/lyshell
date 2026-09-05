@@ -3,7 +3,7 @@ import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import type { SessionConfig, PaneNode, QuickCommand } from '@shared/types'
 import { useSessionStore } from '../../stores/session-store'
-import { usePaneStore } from '../../stores/pane-store'
+import { usePaneStore, findPane } from '../../stores/pane-store'
 import SessionDialog from '../SessionDialog/SessionDialog'
 import ExportImportDialog from '../ExportImportDialog/ExportImportDialog'
 import FileManagerPanel from '../FileManager/FileManagerPanel'
@@ -297,11 +297,9 @@ const GroupHeader: React.FC<{
   /** 可折叠时传入；undefined 表示不可折叠 */
   collapsed?: boolean
   onToggle?: () => void
-  /** label 右边的补充内容(LIVE 段的终端状态读数用),hairline 之前 */
-  extra?: React.ReactNode
   /** 右侧可选 action 按钮(LIVE 段的 close-all 用) */
   action?: React.ReactNode
-}> = ({ icon, label, count, amber, tone, monoLabel, collapsed, onToggle, extra, action }) => {
+}> = ({ icon, label, count, amber, tone, monoLabel, collapsed, onToggle, action }) => {
   const collapsible = typeof collapsed === 'boolean' && !!onToggle
   const effectiveTone = tone ?? (amber ? 'amber' : undefined)
   const iconColorClass =
@@ -340,10 +338,6 @@ const GroupHeader: React.FC<{
       >
         {label}
       </span>
-      {/* 补充读数 —— LIVE 段的终端状态(协议/尺寸/行数),label 右边,与 label 拉开一点间距 */}
-      {extra && (
-        <span className="inline-flex items-center min-w-0 flex-shrink-0 ml-1.5">{extra}</span>
-      )}
       <span className="flex-1 h-px bg-[var(--rule)]" />
       <span className="[font-family:inherit] text-[10px] text-[var(--text-rack-data)] tracking-[.04em] normal-case">{count}</span>
       {action}
@@ -537,10 +531,25 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
     visit(layoutRoot)
     return ids
   }, [layoutRoot])
-  // 活动分屏的活动会话 —— LIVE 段头右侧终端状态读数(协议/尺寸/行数)的数据源
-  const activeTerminalSessionId = usePaneStore(s =>
-    s.getAllLeafPanes().find(p => p.id === s.layout.activePaneId)?.activeSessionId ?? ''
-  )
+  // 活动分屏的活动会话 —— 底部状态栏左槽终端状态读数(协议/尺寸/行数)的数据源。
+  // 覆盖层(web/文档/dsh web/MCP)盖住活动分屏时置空:底层终端不可见,读数描述的不是
+  // 眼前内容,回落 alt 提示(口径同 MainWindow 快捷命令的 overlayActiveHere 判断)。
+  // 树与 activePaneId 都从 selector 快照 s 读取(findPane;不走内部 get() 的
+  // getAllLeafPanes —— 会撕裂快照与活 store,React 18 并发渲染下出错位中间态,
+  // 同 MainWindow.tsx 的 selector 约定)。
+  // agent 会话刻意不过滤:读数语义是"当前可见的终端"(agent 孵化的也是真 PTY),
+  // 用户正盯着 agent 终端时置空反而误导;LIVE 计数排除 agent 是会话注册表口径,两者各管各的
+  const activeTerminalSessionId = usePaneStore(s => {
+    const pane = findPane(s.layout.root, s.layout.activePaneId)
+    if (pane?.type !== 'leaf' || !pane.activeSessionId || pane.overlays.some(r => r.active)) return ''
+    return pane.activeSessionId
+  })
+  // 底部读数的协议码 —— 活动会话的协议,渲染前算好,JSX 只做展示
+  const activeTerminalProto = useMemo(() => {
+    if (!activeTerminalSessionId) return undefined
+    const activeSession = sessions.find(s => s.id === activeTerminalSessionId)
+    return activeSession?.config ? mapProtocol(activeSession.config.type) : undefined
+  }, [sessions, activeTerminalSessionId])
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const isUpdating = useRef(false)
@@ -1122,25 +1131,6 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
                 count={liveSessions.length}
                 collapsed={liveCollapsed}
                 onToggle={() => setLiveCollapsed(c => !c)}
-                /* 终端状态合入 LIVE 段头:label 右边显示活动会话的协议码 + 尺寸/行数。
-                   协议码用协议色(与会话行同语言);TerminalSize 点击已 stopPropagation,不会触发段头折叠 */
-                extra={activeTerminalSessionId ? (() => {
-                  const activeSession = sessions.find(s => s.id === activeTerminalSessionId)
-                  const proto = activeSession?.config ? mapProtocol(activeSession.config.type) : undefined
-                  return (
-                    <span
-                      className="inline-flex items-center gap-1.5 [font-family:inherit] text-[10.5px] text-[var(--text-rack-data)]"
-                      style={{ fontFeatureSettings: '"tnum" 1' }}
-                    >
-                      {proto && (
-                        <span className={cn('font-semibold tracking-[.08em]', PROTO_TEXT_CLS[proto])}>
-                          {PROTO_LABEL[proto]}
-                        </span>
-                      )}
-                      <TerminalSize sessionId={activeTerminalSessionId} />
-                    </span>
-                  )
-                })() : undefined}
                 action={
                   <button
                     onClick={handleCloseAllClick}
@@ -1325,13 +1315,33 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
 
         {/* ===== 底部 status ===== */}
         <div
-          className="flex items-center justify-between px-3 py-1.5 border-t border-[var(--rule)] bg-[var(--bg-rack)] text-[12px] text-[var(--text-rack-data)] tracking-[.02em] min-h-[26px]"
+          className="flex items-center justify-between overflow-hidden px-2.5 py-1.5 border-t border-[var(--rule)] bg-[var(--bg-rack)] text-[13px] text-[var(--text-rack-data)] min-h-[28px]"
           style={{
             fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace',
             fontFeatureSettings: '"tnum" 1'
           }}
         >
-          <span className="inline-flex items-center gap-2">
+          {/* 终端状态读数 —— 活动分屏的活动会话(协议/尺寸/行数),从 LIVE 段头迁来,常驻可见不受段折叠影响。
+              占左槽,与 alt 快捷键提示互斥:有活动终端且未被覆盖层盖住时读数优先,否则回落提示
+              (读数+提示+计数三段在 240px 默认侧栏放不下);在线/空闲计数固定右槽。
+              收缩策略:计数 flex-shrink-0 恒不缩,左槽 min-w-0 + overflow-hidden 先行裁切,
+              极端窄宽(或行数到 99.9k 级)下溢出被拦在栏内、不上溢到拖宽条;两槽统一 13px、gap-1,
+              按默认侧栏宽校准;协议码用协议色(与会话行同语言);栏本身已是 mono,TerminalSize 直接继承。 */}
+          {activeTerminalSessionId ? (
+            <span className="inline-flex items-center gap-1 min-w-0 overflow-hidden text-[var(--text-rack-data)] whitespace-nowrap">
+              {activeTerminalProto && (
+                <span className={cn('font-semibold tracking-[.08em]', PROTO_TEXT_CLS[activeTerminalProto])}>
+                  {PROTO_LABEL[activeTerminalProto]}
+                </span>
+              )}
+              <TerminalSize sessionId={activeTerminalSessionId} />
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-2 min-w-0 overflow-hidden whitespace-nowrap">
+              <span>{t('sidebar.footerShortcut', { n: 9 })}</span>
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1 flex-shrink-0 whitespace-nowrap">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--live)] animate-breathe flex-shrink-0" />
             <span>
               <span className="text-[var(--text-rack)] tabular-nums">{liveCount}</span>
@@ -1342,9 +1352,6 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
               <span className="text-[var(--text-rack)] tabular-nums">{Math.max(0, idleCount)}</span>
               <span className="ml-1">{t('sidebar.footerIdle')}</span>
             </span>
-          </span>
-          <span className="inline-flex items-center gap-2">
-            <span>{t('sidebar.footerShortcut', { n: 9 })}</span>
           </span>
         </div>
       </div>
