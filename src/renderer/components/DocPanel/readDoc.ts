@@ -7,8 +7,13 @@
  * 读取失败也开页签（置 loadError）：错误占位比静默无反馈好排查。
  */
 import { usePaneStore } from '../../stores/pane-store'
+import i18n from '../../i18n'
 import { docKindFromPath } from '@shared/types'
-import type { DocReadResult, DocKind, DocSource } from '@shared/types'
+import type { DocReadResult, DocKind, DocSource, DocOverlayPayload } from '@shared/types'
+// 内置手册随包打包（?raw 原文引入，不落磁盘）；两种语言都进主包，运行时按 locale 选
+import zhManual from '../../docs/manual.zh-CN.md?raw'
+import enManual from '../../docs/manual.en-US.md?raw'
+import { isInventoryDocPath, refreshInventoryDoc } from '../../commands/inventory'
 
 /** 标题取路径最后一段（posix / win32 通用：按 / 与 \ 切分） */
 export function docTitleFromPath(filePath: string): string {
@@ -109,12 +114,48 @@ usePaneStore.subscribe((state, prev) => {
   }
 })
 
+/** 内置使用手册的文档身份 —— openDocTab 的同 pane 复用键与页签 tooltip；
+ *  lyshell:// 前缀一眼可辨「不是文件系统里的路径」，docKind 直接置 markdown 不走扩展名判定 */
+export const BUILTIN_HELP_PATH = 'lyshell://help.md'
+
+/** 打开内置使用手册（/help 命令入口）。内容随包打包、不走 IPC 读取，按当前 locale
+ *  选语言；lang 参数可显式压过 locale（/help chinese 的直达入口）。同 pane 重复打开
+ *  复用页签并覆写内容（openDocTab 无 readVersion = 刷新语义，切语言后再开一次即换语言）。
+ *  size 用字符数近似，仅供头条元信息展示。 */
+export function openBuiltinHelpDoc(paneId?: string, lang?: 'zh' | 'en'): string {
+  const content = lang === 'zh' || (lang === undefined && i18n.language?.toLowerCase().startsWith('zh'))
+    ? zhManual
+    : enManual
+  return usePaneStore.getState().openDocTab(paneId, {
+    source: 'builtin',
+    docKind: 'markdown',
+    path: BUILTIN_HELP_PATH,
+    title: i18n.t('commandBar.manualTitle'),
+    size: content.length,
+    mtime: 0, // 非文件，无修改时间；DocHeader 对 0 隐藏该项
+    content
+  })
+}
+
+/** 文档页签是否可刷新：远端/本地走重读；内置只有清点页（/ls，时点快照）可刷新，
+ *  手册这类随包内容重读无意义（只随版本更新）。DocHeader 据此禁用刷新钮 ——
+ *  与下方 refreshDocTab 的分支同源，行为与按钮态不会各说各话 */
+export const isDocTabRefreshable = (payload: DocOverlayPayload): boolean =>
+  payload.source !== 'builtin' || isInventoryDocPath(payload.path)
+
 /** 刷新已有文档页签（DocHeader 刷新按钮）：按来源重读，成功回写内容、失败置 loadError（原内容保留在 state）。
  *  版本表见上：快速连点时慢响应不得覆盖快响应。 */
 export async function refreshDocTab(id: string): Promise<void> {
   const { updateDocTab, getOverlayPayload } = usePaneStore.getState()
   const payload = getOverlayPayload(id)
   if (!payload || payload.kind !== 'doc') return
+  // 内置文档随包打包、无外部来源可重读；清点页（/ls，含 /ls <对象> 子清单）例外 ——
+  // 动态时点快照，刷新 = 按页签自己的身份重新聚合（inventory.ts 自带版本守卫与节参数），
+  // 其余静默（内容只随版本更新）
+  if (payload.source === 'builtin') {
+    if (isInventoryDocPath(payload.path)) void refreshInventoryDoc(id)
+    return
+  }
   // 版本号在发起时即同步自增（不等响应）：连点两次各自拿到递增版本
   const version = (readVersions.get(id) ?? 0) + 1
   readVersions.set(id, version)

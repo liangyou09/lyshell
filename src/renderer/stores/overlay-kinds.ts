@@ -26,7 +26,17 @@ export interface OverlayKindDef {
   idPrefix?: string
   /** 关掉激活页签时回落到同 pane 同种类最后一个（浏览器惯例；单例无此语义） */
   fallbackToLastInPane: boolean
-  /** 关最后一个终端页签时的自动激活优先级，小者优先（现行 dsh > web > doc > MCP） */
+  /**
+   * 关最后一个终端页签时是否参与自动激活。活面板（dsh web / 网页 / MCP 审计）
+   * 参与 —— pane 的用途就是它，空出来该弹回来；doc 是被动阅读材料，不参与 ——
+   * 停驻成页签即可，空态命令屏直接接管键盘（/ls 清点里点开 session 再关掉的
+   * 场景：清单弹回来会盖住命令屏，键盘无处落）
+   */
+  activateOnLastTerminalClose: boolean
+  /**
+   * 关最后一个终端页签时（在参与种类中）的自动激活优先级，小者优先
+   * （现行 dsh > web > MCP；doc 不参与，见上）
+   */
   activatePriority: number
   /** 去活即卸载（webview 系「保活挂载只藏显」的反面：MCP 纯 DOM 面板重进回第 1 页） */
   unmountWhenInactive: boolean
@@ -43,6 +53,7 @@ export const OVERLAY_KINDS: Record<OverlayKind, OverlayKindDef> = {
     singleton: true,
     singletonId: DSH_WEB_OVERLAY_ID,
     fallbackToLastInPane: false,
+    activateOnLastTerminalClose: true,
     activatePriority: 0,
     unmountWhenInactive: false,
     dropAccent: { bg: 'var(--reachable-glow)', border: 'var(--reachable)' },
@@ -53,6 +64,7 @@ export const OVERLAY_KINDS: Record<OverlayKind, OverlayKindDef> = {
     singleton: false,
     idPrefix: 'web-',
     fallbackToLastInPane: true,
+    activateOnLastTerminalClose: true,
     activatePriority: 1,
     unmountWhenInactive: false,
     dropAccent: { bg: 'var(--reachable-glow)', border: 'var(--reachable)' },
@@ -62,6 +74,7 @@ export const OVERLAY_KINDS: Record<OverlayKind, OverlayKindDef> = {
     singleton: false,
     idPrefix: 'doc-',
     fallbackToLastInPane: true,
+    activateOnLastTerminalClose: false,
     activatePriority: 2,
     unmountWhenInactive: false,
     // amber 与页签点色同源（remote doc 点色）；lark 主题下 amber=品牌蓝，落区跟着翻
@@ -72,6 +85,7 @@ export const OVERLAY_KINDS: Record<OverlayKind, OverlayKindDef> = {
     singleton: true,
     singletonId: MCP_AUDIT_OVERLAY_ID,
     fallbackToLastInPane: false,
+    activateOnLastTerminalClose: true,
     activatePriority: 3,
     unmountWhenInactive: true,
     dropAccent: { bg: 'var(--reachable-glow)', border: 'var(--reachable)' },

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { generateWorktreeStamp } from '@shared/worktree'
 import EnvRowsEditor from '../EnvRowsEditor'
+import { useUiStore } from '../../stores/ui-store'
 // 内置品牌图标:Vite new URL 模式取打包后资产 URL(免 *.png 模块声明)
 const claudeIcon = new URL('../../assets/agent-icons/claude.png', import.meta.url).href
 const codexIcon = new URL('../../assets/agent-icons/codex.png', import.meta.url).href
@@ -225,6 +226,15 @@ const AgentsPanel: React.FC = () => {
     setTriedSubmit(false); setConfirmDelete(false); setIconPickerOpen(false); setSaveError(null)
     setShowDialog(true)
   }
+
+  // 外部「新建 Agent」请求(ui-store,如 /ls 清点文档的新建链接):本面板条件挂载,
+  // 请求落 store 跨挂载存活,挂载后读到存量也能开对话框,消费后归零防误弹
+  const createRequestId = useUiStore(s => s.createDialogRequests.agents ?? 0)
+  useEffect(() => {
+    if (!createRequestId) return
+    handleAdd()
+    useUiStore.getState().consumeCreateDialogRequest('agents')
+  }, [createRequestId])
   const handleContextMenu = (agent: AgentConfig, e: React.MouseEvent) => {
     e.preventDefault(); e.stopPropagation()
     setEditAgent(agent)

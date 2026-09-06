@@ -51,14 +51,15 @@ interface ContractCase {
   kind: OverlayKind
   singleton: boolean      // 全局唯一：重开 = 换挂载点而非新增实例
   fallback: boolean       // 关激活页签回落同 pane 同种类最后一个（浏览器惯例）
+  autoActivate: boolean   // 关最后一个终端页签后自动弹回（doc 停驻，空态让给命令屏）
   payload: OverlayPayload
 }
 
 const CASES: ContractCase[] = [
-  { kind: 'web', singleton: false, fallback: true, payload: { kind: 'web', url: 'https://example.com/', title: 'example.com' } },
-  { kind: 'doc', singleton: false, fallback: true, payload: { kind: 'doc', ...DOC_INFO } },
-  { kind: 'dshWeb', singleton: true, fallback: false, payload: { kind: 'dshWeb', url: 'http://127.0.0.1:3080', name: 'dsh web' } },
-  { kind: 'mcpAudit', singleton: true, fallback: false, payload: { kind: 'mcpAudit' } }
+  { kind: 'web', singleton: false, fallback: true, autoActivate: true, payload: { kind: 'web', url: 'https://example.com/', title: 'example.com' } },
+  { kind: 'doc', singleton: false, fallback: true, autoActivate: false, payload: { kind: 'doc', ...DOC_INFO } },
+  { kind: 'dshWeb', singleton: true, fallback: false, autoActivate: true, payload: { kind: 'dshWeb', url: 'http://127.0.0.1:3080', name: 'dsh web' } },
+  { kind: 'mcpAudit', singleton: true, fallback: false, autoActivate: true, payload: { kind: 'mcpAudit' } }
 ]
 
 // 挂载门面：单例返回固定哨兵 id，多开返回生成的实例 id。
@@ -290,15 +291,16 @@ describe.each(CASES)('$kind：归一化覆盖层契约', (c) => {
     expect(st.getOverlayPayload(id)).toBeUndefined()
   })
 
-  it('空条保护：仅剩覆盖层的 pane 不随会话清空被合并；关最后终端页签自动激活', () => {
+  it('空条保护：仅剩覆盖层的 pane 不随会话清空被合并；关最后终端页签按种类决定是否自动激活', () => {
     const id = open(c, 'pane-1')
     usePaneStore.getState().deactivateOverlay(id)
     usePaneStore.getState().removeSessionFromPane('pane-1', 's-a')
     usePaneStore.getState().removeSessionFromPane('pane-1', 's-b')
     const st = usePaneStore.getState()
     expect(st.getPaneById('pane-1')).toBeTruthy() // 不被 removePaneAndMerge 删
-    // 终端页签清空后按优先级自动切到剩余覆盖层（否则窗格只剩空态占位）
-    expect(st.isOverlayActive(id)).toBe(true)
+    // 活面板（web / dsh web / MCP）终端页签清空后自动弹回（否则窗格只剩空态占位）；
+    // doc 停驻成页签 —— 空态命令屏接管键盘，不再自动弹回盖屏
+    expect(st.isOverlayActive(id)).toBe(c.autoActivate)
   })
 
   it('slot 契约：RAW 坐标随左侧会话关闭递减，右侧关闭不动（中段插槽不漂移）', () => {
@@ -401,7 +403,7 @@ describe('跨种类契约（四种覆盖层同 pane 共存）', () => {
     expect(st.layout.activePaneId).toBe('pane-1')
   })
 
-  it('关掉最后一个终端页签时按 activatePriority 激活（dsh > web > doc > MCP）', () => {
+  it('关掉最后一个终端页签时在参与种类里按 activatePriority 激活（dsh > web > MCP；doc 不参与）', () => {
     reset(leaf('pane-1', ['s-a']))
     const ids = CASES.map(c => open(c, 'pane-1'))
     // 先全部去活（模拟都在终端视图）
@@ -409,8 +411,22 @@ describe('跨种类契约（四种覆盖层同 pane 共存）', () => {
     usePaneStore.getState().removeSessionFromPane('pane-1', 's-a')
     const st = usePaneStore.getState()
     const dshId = ids[CASES.findIndex(c => c.kind === 'dshWeb')]
-    expect(st.isOverlayActive(dshId)).toBe(true) // 优先级最高者胜出
+    expect(st.isOverlayActive(dshId)).toBe(true) // 参与种类中优先级最高者胜出
     ids.filter(id => id !== dshId).forEach(id => expect(st.isOverlayActive(id)).toBe(false))
+  })
+
+  // doc 是被动阅读材料（activateOnLastTerminalClose=false）：关掉最后一个终端后
+  // 停驻成页签即可，不自动弹回 —— 空态命令屏接管键盘；否则 /ls 清单弹回来盖住
+  // 命令屏，「关掉终端就打不了字」
+  it('只剩 doc 时关掉最后一个终端页签：doc 停驻不自动激活，空态让给命令屏', () => {
+    reset(leaf('pane-1', ['s-a']))
+    const docId = open(CASES.find(c => c.kind === 'doc')!, 'pane-1')
+    usePaneStore.getState().deactivateOverlay(docId)
+    usePaneStore.getState().removeSessionFromPane('pane-1', 's-a')
+    const st = usePaneStore.getState()
+    expect(st.getPaneById('pane-1')).toBeTruthy()   // pane 因承载 doc 保留
+    expect(st.isOverlayActive(docId)).toBe(false)  // 停驻，不自动弹回
+    expect((st.getPaneById('pane-1') as PaneLeaf).overlays.map(r => r.id)).toContain(docId)
   })
 
   // 回归锁：曾把 doomed 谓词原样抄进树编辑的保留过滤 —— 混合 pane 里关一种类会

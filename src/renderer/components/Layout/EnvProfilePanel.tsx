@@ -12,6 +12,7 @@ import {
 } from '@shared/harness'
 import EnvRowsEditor, { type EnvRow } from '../EnvRowsEditor'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
+import { useUiStore } from '../../stores/ui-store'
 
 /**
  * 环境变量面板 —— 全局变量组库的独占入口（左侧轨 env 页签）。
@@ -269,6 +270,35 @@ const EnvProfilePanel: React.FC = () => {
     resetDialog()
     setShowDialog(true)
   }
+
+  // 外部「新建变量组」请求(ui-store,如 /ls 清点文档的新建链接):本面板条件挂载,
+  // 请求落 store 跨挂载存活,挂载后读到存量也能开对话框,消费后归零防误弹
+  const createRequestId = useUiStore(s => s.createDialogRequests.env ?? 0)
+  useEffect(() => {
+    if (!createRequestId) return
+    handleAdd()
+    useUiStore.getState().consumeCreateDialogRequest('env')
+    // 请求消费只看 id;handleAdd 的引用变化不构成「再来一次」
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createRequestId])
+
+  // 外部「打开变量组」请求(/ls 清点文档点行内名称):按 id 找到组开编辑对话框。
+  // 请求可能先于列表到达(刚随 navigate 挂载,load 未返回)—— 未就绪不消费,
+  // 列表到了 effect 重跑;列表就绪仍找不到(快照后已删)也要消费,防陈旧请求
+  // 随后续列表刷新反复触发
+  const openItem = useUiStore(s => s.openItemRequests.env)
+  useEffect(() => {
+    if (!openItem) return
+    const target = profiles.find(p => p.id === openItem.itemId)
+    if (target) {
+      handleEdit(target)
+      useUiStore.getState().consumeOpenItemRequest('env')
+    } else if (loaded) {
+      useUiStore.getState().consumeOpenItemRequest('env')
+    }
+    // 请求消费只看请求与列表;handleEdit 的引用变化不构成「再来一次」
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openItem, profiles, loaded])
 
   const handleEdit = (p: HarnessEnvProfile) => {
     setEditProfile(p)

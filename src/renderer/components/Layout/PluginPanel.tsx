@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { usePluginStore } from '../../stores/plugin-store'
+import { useUiStore } from '../../stores/ui-store'
 import { normalizeLifecycle } from '@shared/plugin-types'
 import type { LyShellPluginManifest, PluginLifecycle } from '@shared/plugin-types'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
@@ -66,6 +67,18 @@ const PluginPanel: React.FC = () => {
       setNotice(res.error)
     }
   }
+
+  // 外部「安装插件」请求(ui-store,如 /ls 清点文档的新建链接):本面板条件挂载,
+  // 请求落 store 跨挂载存活,挂载后读到存量也能走安装流程,消费后归零防误弹。
+  // 对应动作 = 头条的「+ 开发插件」(选文件夹 → 权限确认卡)
+  const createRequestId = useUiStore(s => s.createDialogRequests.plugins ?? 0)
+  useEffect(() => {
+    if (!createRequestId) return
+    void handlePickDev()
+    useUiStore.getState().consumeCreateDialogRequest('plugins')
+    // 请求消费只看 id;handlePickDev 的引用变化不构成「再来一次」
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createRequestId])
 
   const handlePickFile = async (): Promise<void> => {
     setNotice(null)

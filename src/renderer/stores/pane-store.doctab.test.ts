@@ -455,14 +455,18 @@ describe('closeDocTab / closeOverlaysInPane(doc) / deactivateOverlaysInPane(doc)
 })
 
 describe('doc 与 pane 生命周期', () => {
-  it('关掉最后一个终端页签 → pane 因承载 doc 保留，并自动切到该 doc', () => {
+  // doc 是被动阅读材料（OVERLAY_KINDS.activateOnLastTerminalClose=false）：关掉
+  // 最后一个终端后停驻成页签即可，不自动弹回 —— 空态命令屏接管键盘；否则
+  // /ls 清单弹回来盖住命令屏，「关掉终端就打不了字」
+  it('关掉最后一个终端页签 → pane 因承载 doc 保留，doc 停驻不自动弹回（空态让给命令屏）', () => {
     setup({}, ['s-a'])
     usePaneStore.getState().openDocTab('pane-1', docInfo('/a.md', 'sess-1'))
     usePaneStore.getState().deactivateOverlaysInPane('pane-1', 'doc')
     usePaneStore.getState().removeSessionFromPane('pane-1', 's-a')
     const st = usePaneStore.getState()
     expect(st.getPaneById('pane-1')).toBeTruthy()
-    expect(activeDocInPane('pane-1')).toBeTruthy()
+    expect(activeDocInPane('pane-1')).toBeFalsy()  // 不自动激活，停驻成页签
+    expect(docTabs()).toHaveLength(1)            // 页签保留，手动点开仍可
   })
 
   it('承载 pane 被 closePane 删除 → doc 一并回收', () => {

@@ -8,4 +8,5 @@ export { useLocaleStore, AVAILABLE_LOCALES, DEFAULT_LOCALE_ID } from './locale-s
 export type { LocaleMeta } from './locale-store'
 export { usePluginStore } from './plugin-store'
 export { useQuickCommandsStore } from './quick-commands-store'
+export { useUiStore } from './ui-store'
 export * from './overlay-kinds'

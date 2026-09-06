@@ -3,7 +3,7 @@ import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import dayjs from 'dayjs'
 import type { DocOverlayPayload } from '@shared/types'
-import { refreshDocTab } from './readDoc'
+import { refreshDocTab, isDocTabRefreshable } from './readDoc'
 import { useDocZoom, resetDocZoom } from './docZoom'
 import { usePanMode, togglePanMode } from './docPan'
 import { useDocRailOpen, toggleDocRail } from './docRail'
@@ -29,6 +29,7 @@ const DocHeader: React.FC<{ id: string; payload: DocOverlayPayload; hasHeadings:
     formatDocSize(payload.size, t),
     payload.mtime > 0 ? dayjs(payload.mtime).format('YYYY-MM-DD HH:mm') : ''
   ].filter(Boolean).join(' · ')
+  const isRefreshable = isDocTabRefreshable(payload)
 
   return (
     <div className="doc-header flex items-center gap-2 px-3 h-8 border-b border-[var(--rule)] bg-[var(--bg-elev)] flex-shrink-0">
@@ -56,13 +57,15 @@ const DocHeader: React.FC<{ id: string; payload: DocOverlayPayload; hasHeadings:
           )}
         </button>
       )}
-      {/* 来源色点：琥珀=远端（会话 amber 语义）、青=本地（与页签点色一致） */}
+      {/* 来源色点：琥珀=远端（会话 amber 语义）、青=本地（与页签点色一致）、灰=内置（随包内容） */}
       <span
         aria-hidden
-        title={payload.source === 'remote' ? t('doc.remoteChip') : t('doc.localChip')}
+        title={payload.source === 'remote' ? t('doc.remoteChip') : payload.source === 'builtin' ? t('doc.builtinChip') : t('doc.localChip')}
         className={cn(
           'w-[7px] h-[7px] rounded-full flex-shrink-0',
-          payload.source === 'remote' ? 'bg-[var(--amber)]' : 'bg-[var(--reachable)]'
+          payload.source === 'remote' ? 'bg-[var(--amber)]'
+            : payload.source === 'builtin' ? 'bg-[var(--text-rack-dim)]'
+            : 'bg-[var(--reachable)]'
         )}
       />
       <span className="text-xs text-[var(--text-rack)] truncate flex-1" title={payload.path}>
@@ -95,10 +98,19 @@ const DocHeader: React.FC<{ id: string; payload: DocOverlayPayload; hasHeadings:
       >
         ✥
       </button>
+      {/* 刷新钮按可刷新性禁用：手册这类随包内置内容重读无意义（清点页 /ls 是时点
+          快照，可刷），禁用态给 title 说明 —— 静默无操作会让人怀疑按钮坏了 */}
       <button
-        onClick={() => void refreshDocTab(id)}
-        title={t('doc.refresh')}
-        className="win-no-drag w-[18px] h-[18px] flex items-center justify-center text-xs text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-slot)] rounded-[2px] transition-colors flex-shrink-0"
+        onClick={isRefreshable ? () => void refreshDocTab(id) : undefined}
+        disabled={!isRefreshable}
+        title={isRefreshable ? t('doc.refresh') : t('doc.refreshUnavailable')}
+        aria-label={isRefreshable ? t('doc.refresh') : t('doc.refreshUnavailable')}
+        className={cn(
+          'win-no-drag w-[18px] h-[18px] flex items-center justify-center text-xs rounded-[2px] transition-colors flex-shrink-0',
+          isRefreshable
+            ? 'text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-slot)]'
+            : 'text-[var(--text-rack-dim)] cursor-not-allowed'
+        )}
       >
         ↻
       </button>

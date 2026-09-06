@@ -6,9 +6,9 @@
  */
 
 /**
- * 文档来源
+ * 文档来源（builtin = 随应用打包的内置内容，如 /help 使用手册）
  */
-export type DocSource = 'remote' | 'local'
+export type DocSource = 'remote' | 'local' | 'builtin'
 
 /**
  * 文档类型（按扩展名判定）
@@ -22,7 +22,7 @@ export type DocKind = 'markdown' | 'html'
 export interface DocOverlayPayload {
   source: DocSource
   docKind: DocKind
-  path: string          // 绝对路径（remote=posix，local=win32）
+  path: string          // 绝对路径（remote=posix，local=win32；builtin=lyshell:// 身份键）
   title: string         // basename
   sessionId?: string    // remote 来源会话（刷新 / 编码上下文）
   size: number

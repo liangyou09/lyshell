@@ -115,6 +115,23 @@ function createMainWindow(): void {
   setMainWindow(mainWindow)
   setMainWindowForUpload(mainWindow)
 
+  // 页面缩放钉死 100%:Chromium 默认 Ctrl+滚轮/Ctrl+加减 会缩放页面且按 origin 持久化,
+  // 渲染层已有 window capture 兜底(见 MainWindow),这里双保险 ——
+  //   - did-finish-load 归一:治愈历史版本误触后跨重启残留的缩放(dev 下 HMR 整页重载也会走到,同样该归零);
+  //   - zoom-changed 钳回:拦住漏网的用户缩放请求(如键盘 Ctrl+/-),持续压回 100%。
+  // 界面内的 Ctrl+滚轮语义(终端字号/文档缩放)由各组件自行处理,与此互不冲突。
+  mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow?.webContents.setZoomLevel(0)
+  })
+  mainWindow.webContents.on('zoom-changed', () => {
+    // 在事件的同步回调里直接 setZoomLevel 会与触发源(Chromium 缩放变更管线)同步
+    // 重入 —— 退出当前事件回调、排到微任务里再钳回,Electron 事件语义随版本变化
+    // 也留了缓冲;窗口可能已销毁则跳过(setZoomLevel 对已销毁 webContents 会抛)
+    queueMicrotask(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.setZoomLevel(0)
+    })
+  })
+
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
   })

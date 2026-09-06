@@ -221,6 +221,45 @@
   animation: rail-icon-glow 2.2s ease-in-out infinite;
 }
 
+/* ─── CommandScreen:琥珀磷光屏材质 ───
+   命令屏的"硬件感"全部收在这三段:块状光标按 1.06s 经典 BIOS 闪率硬切
+   (不渐变)、CRT 扫描线铺满整屏当"管子材质"(极低透明度,不与内容争读性)、
+   overlay 形态 120ms 快速浮现。全部随 prefers-reduced-motion 静默。 */
+
+/* 块状光标闪烁 —— 输入为空时的待命光标;打字/输入法组合中让位原生 caret */
+@keyframes cs-blink {
+  0%, 49.9% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.cs-blink {
+  animation: cs-blink 1.06s linear infinite;
+}
+
+/* CRT 扫描线:3px 周期,只在隔行压 16% 黑,整屏覆盖 pointer-events-none */
+.cs-scanlines {
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.16) 0px,
+    rgba(0, 0, 0, 0.16) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+/* overlay 命令面板的调出浮现 —— 嵌入态是常驻屏,overlay 是"调出",只做轻浮现 */
+@keyframes cs-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.cs-fade-in {
+  animation: cs-fade-in 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cs-blink { animation: none; }
+  .cs-fade-in { animation: none; }
+}
+
 /* 基础样式 */
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;

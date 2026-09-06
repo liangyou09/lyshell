@@ -161,12 +161,14 @@ const DocTabContent: OverlayTabContent = ({ payload }) => {
   if (payload.kind !== 'doc') return null
   return (
     <>
-      {/* 来源色点：琥珀=远端（会话 amber 语义）、青=本地（与 DocHeader 一致） */}
+      {/* 来源色点：琥珀=远端（会话 amber 语义）、青=本地、灰=内置（与 DocHeader 一致） */}
       <span
         aria-hidden
         className={cn(
           'w-[7px] h-[7px] rounded-full flex-shrink-0',
-          payload.source === 'remote' ? 'bg-[var(--amber)]' : 'bg-[var(--reachable)]'
+          payload.source === 'remote' ? 'bg-[var(--amber)]'
+            : payload.source === 'builtin' ? 'bg-[var(--text-rack-dim)]'
+            : 'bg-[var(--reachable)]'
         )}
       />
       <span className="text-xs truncate flex-1 min-w-0">{payload.title}</span>
@@ -299,6 +301,9 @@ const OverlayTab: React.FC<{
       <Content payload={payload} />
       <button
         onClick={(e) => { e.stopPropagation(); closeOverlay(overlay.id) }}
+        // 点击即关闭、按钮随之卸载:拦下 mousedown 的默认焦点搬迁,键盘留在原地
+        // (空态命令屏的 prompt / 终端),不给"关完页签焦点落到 body"留缝
+        onMouseDown={(e) => e.preventDefault()}
         title={spec.closeTitle(t)}
         className={cn(
           'win-no-drag pane-tab-close w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors',

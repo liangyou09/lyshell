@@ -152,6 +152,12 @@ export class LocalConnector extends BaseConnector {
    * 调整终端尺寸
    */
   resize(cols: number, rows: number): void {
+    // 净零 resize 直接跳过:ConPTY 每次 resize 都会整屏重印,与 raw-mode TUI
+    // (Claude Code/Ink)自身的 SIGWINCH 重绘互相踩踏 —— 字号 +5 再 -5 往返后
+    // TUI 画面被挤压错位的根源。同尺寸重设没有任何收益,不打扰 PTY。
+    if (this._cols === cols && this._rows === rows) {
+      return
+    }
     this._cols = cols
     this._rows = rows
     if (this.ptyProcess) {

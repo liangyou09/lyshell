@@ -73,11 +73,10 @@ export class SSHConnector extends BaseConnector {
       throw new Error('SSH client not available')
     }
 
-    // 传入终端窗口尺寸，避免默认 80x24
-    const windowOpts = {
-      rows: this._rows || 24,
-      cols: this._cols || 80
-    }
+    // 传入终端窗口尺寸，避免默认 80x24(空窗期补发同 startShell)
+    const reqCols = this._cols || 80
+    const reqRows = this._rows || 24
+    const windowOpts = { rows: reqRows, cols: reqCols }
 
     return new Promise((resolve, reject) => {
       client.shell({ term: 'xterm-256color', ...windowOpts }, (err, channel) => {
@@ -88,6 +87,13 @@ export class SSHConnector extends BaseConnector {
         }
 
         this.channel = channel
+
+        // 空窗期补偿(同 startShell):await startShellOnly() 期间到达的 resize
+        // 只改写了 _cols/_rows 而没发 setWindow,这里按最新存储值补发。
+        if (this._cols !== reqCols || this._rows !== reqRows) {
+          channel.setWindow(this._rows || 24, this._cols || 80, this._rows || 24, this._cols || 80)
+        }
+
         this.connected = true
 
         // 共享 client 复用路径上也需要独立的解码器
@@ -214,11 +220,12 @@ export class SSHConnector extends BaseConnector {
   private startShell(): void {
     if (!this.client) return
 
-    // 传入终端窗口尺寸，避免默认 80x24
-    const windowOpts = {
-      rows: this._rows || 24,
-      cols: this._cols || 80
-    }
+    // 传入终端窗口尺寸，避免默认 80x24。
+    // 记下请求时的几何:shell 请求发出到 channel 回来隔一个网络往返,期间落进来的
+    // resize 只会暂存 _cols/_rows、发不出 setWindow(见 resize),回调里据此补发。
+    const reqCols = this._cols || 80
+    const reqRows = this._rows || 24
+    const windowOpts = { rows: reqRows, cols: reqCols }
 
     this.client.shell({ term: 'xterm-256color', ...windowOpts }, (err, channel) => {
       if (err) {
@@ -228,6 +235,16 @@ export class SSHConnector extends BaseConnector {
       }
 
       this.channel = channel
+
+      // 空窗期补偿:channel 以请求时的 windowOpts 开启,而「connect 已 resolve、
+      // channel 未就绪」期间到达的 resize 已改写 _cols/_rows。按最新存储值补发
+      // setWindow,保证 channel 实际几何与 _cols/_rows 一致 —— resize() 的净零
+      // 跳过才有「跳过的一定是已送达的尺寸」这一前提;不补发的话,渲染层连接后
+      // 的重试阶梯(TerminalView 100/500/1000/2000ms)会被同尺寸守卫永久吞掉,
+      // 远端停留 80x24、本地已 fit 到 120x40,整场会话输出错位。
+      if (this._cols !== reqCols || this._rows !== reqRows) {
+        channel.setWindow(this._rows || 24, this._cols || 80, this._rows || 24, this._cols || 80)
+      }
 
       // 接收数据（写入流式解码器，避免多字节字符被拆包截断）
       channel.on('data', (data: Buffer) => {
@@ -293,12 +310,24 @@ export class SSHConnector extends BaseConnector {
    * 调整终端尺寸
    */
   resize(cols: number, rows: number): void {
+    // 净零 resize 跳过(同 LocalConnector):同尺寸 window-change 也会让远端
+    // ncurses/TUI 重绘,字号往返时没必要打扰远端。
+    if (this._cols === cols && this._rows === rows) {
+      return
+    }
     // 保存尺寸，用于后续 shell 创建
     this._cols = cols
     this._rows = rows
 
     if (!this.channel) {
-      log.warn('SSH channel not available')
+      // connect 已 resolve 但 channel 尚未就绪(ready → shell 回调之间的空窗):
+      // 尺寸已暂存到 _cols/_rows,channel 开启时由 startShell/startShellOnly
+      // 补发 setWindow,降为 debug;已断开后的 resize 才是真异常,保持 warn。
+      if (this.connected) {
+        log.debug(`SSH channel not open yet, ${cols}x${rows} deferred for ${this.sessionId}`)
+      } else {
+        log.warn('SSH channel not available')
+      }
       return
     }
 

@@ -11,6 +11,7 @@ import QuickCommandsPanel from '../QuickCommands/QuickCommandsPanel'
 import TerminalSize from './TerminalSize'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { useQuickCommandsStore } from '../../stores/quick-commands-store'
+import { useUiStore } from '../../stores/ui-store'
 import i18n from '../../i18n'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -595,15 +596,17 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
     loadQuickCommands()
   }, [loadQuickCommands])
 
-  // 监听新建会话事件
+  // 新建会话对话框请求(ui-store):请求方(命令 /new、MCP open_connection_dialog)
+  // 可能在本面板未挂载时发起 —— 请求落 store 跨挂载存活,这里挂载后读到存量/
+  // 挂载中收到变更都能开对话框,消费后归零防二次进页签误弹。
+  // 原先的 window 'newSession' 事件在侧栏停于其他页签时监听器不存在、请求丢失,已废弃。
+  const createRequestId = useUiStore(s => s.createDialogRequests.sessions ?? 0)
   useEffect(() => {
-    const handleNewSession = () => {
-      setEditConfig(undefined)
-      setShowDialog(true)
-    }
-    window.addEventListener('newSession', handleNewSession)
-    return () => window.removeEventListener('newSession', handleNewSession)
-  }, [])
+    if (!createRequestId) return
+    setEditConfig(undefined)
+    setShowDialog(true)
+    useUiStore.getState().consumeCreateDialogRequest('sessions')
+  }, [createRequestId])
 
   // 加载保存的会话列表
   useEffect(() => {

@@ -6,6 +6,7 @@ import ActivityRail, { type NavTab, RAIL_WIDTH } from './ActivityRail'
 import AgentsPanel from './AgentsPanel'
 import SplitPaneContainer from './SplitPaneContainer'
 import FloatWindow from '../FloatWindow/FloatWindow'
+import CommandScreen from '../CommandScreen/CommandScreen'
 import TopRightControls from './TopRightControls'
 import { TOPBAR_HEIGHT, TOP_LEFT_RESERVE, SIDEBAR_DIVIDER_WIDTH, SIDEBAR_PILL_HEIGHT } from './topbar-metrics'
 import { startAllHarnessDetects } from './harness-detect'
@@ -19,6 +20,9 @@ import { usePaneStore, findPane } from '../../stores/pane-store'
 import { useThemeStore } from '../../stores/theme-store'
 import { useLocaleStore } from '../../stores/locale-store'
 import { useQuickCommandsStore } from '../../stores/quick-commands-store'
+import { useUiStore } from '../../stores/ui-store'
+import { NAV_EVENT } from '../../commands/command-registry'
+import { connectSession } from '../../commands/launch'
 import { dispatchCommand } from '../../utils/dispatch-command'
 import { openLocalDoc } from '../DocPanel/readDoc'
 import { isDocPath } from '@shared/types'
@@ -59,8 +63,9 @@ const MainWindow: React.FC = () => {
   })
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
   const [floatVisible, setFloatVisible] = useState(false) // 浮窗默认隐藏
+  const [paletteOpen, setPaletteOpen] = useState(false) // 全局命令面板(Ctrl+Shift+P)默认隐藏
   const [isMaximized, setIsMaximized] = useState(false)
-  const { sessions, loadSessions, refreshSavedSessions, syncSessionsFromBackend } = useSessionStore()
+  const { sessions, loadSessions, syncSessionsFromBackend } = useSessionStore()
   // 不订阅 layout：本组件 JSX 不消费布局树（activePaneId 只在事件回调里经
   // getState 现取），订阅会让高频布局写入（拖分屏比例的 setSplitRatio ~60Hz）
   // 逐帧重渲整个窗口 chrome
@@ -98,6 +103,20 @@ const MainWindow: React.FC = () => {
   // 之后切页签直接读缓存,不再重复打检测 IPC(见 harness-detect.ts)
   useEffect(() => {
     startAllHarnessDetects()
+  }, [])
+
+  // 全局压掉 Chromium 默认的「Ctrl+滚轮 = 页面缩放」:Electron 继承该语义且按 origin
+  // 持久化,一旦在未拦截区域(侧栏/页签条/设置面板等)Ctrl+滚轮,整个窗口被缩放并
+  // 跨重启残留,表现为「字体莫名变大变小」。这里在 window capture 阶段只
+  // preventDefault、不 stopPropagation —— 终端字号(TerminalView)与文档缩放
+  // (MarkdownDoc/HtmlDoc)各自的 Ctrl+滚轮监听仍在更深的节点上照常执行。
+  // 残留的历史缩放由主进程 did-finish-load 归一治愈(见 main/index.ts)。
+  useEffect(() => {
+    const guard = (e: WheelEvent) => {
+      if (e.ctrlKey) e.preventDefault()
+    }
+    window.addEventListener('wheel', guard, { capture: true, passive: false })
+    return () => window.removeEventListener('wheel', guard, { capture: true })
   }, [])
 
   // 加载会话列表
@@ -426,6 +445,32 @@ const MainWindow: React.FC = () => {
     return () => window.removeEventListener('keydown', handleOpenDoc, true)
   }, [t])
 
+  // Ctrl+Shift+P 切换全局命令面板（与空状态命令条共用命令集,见 command-registry）。
+  // 同 Ctrl+Shift+O 用 capture：焦点在终端时 xterm 先于冒泡处理按键会吃掉 P；
+  // 三键和弦本身不产生任何字节（无 Shift 的 Ctrl+字母才有控制字符），对 CLI 无抢键问题。
+  useEffect(() => {
+    const handleTogglePalette = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || !e.shiftKey) return
+      if (e.key !== 'p' && e.key !== 'P') return
+      e.preventDefault()
+      e.stopPropagation()
+      setPaletteOpen(open => !open)
+    }
+    window.addEventListener('keydown', handleTogglePalette, true)
+    return () => window.removeEventListener('keydown', handleTogglePalette, true)
+  }, [])
+
+  // 命令注册表的左栏页签切换事件（/sessions 等） —— 注册表与窗口 chrome 经 window
+  // 事件解耦（先例：MCP open_connection_dialog）。复用 handleNavChange 的 localStorage 持久化。
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const tab = (e as CustomEvent<NavTab>).detail
+      if (tab) handleNavChange(tab)
+    }
+    window.addEventListener(NAV_EVENT, handler)
+    return () => window.removeEventListener(NAV_EVENT, handler)
+  }, [handleNavChange])
+
   // 本地文档拖入：OS 文件拖放（HTML5 FileList 在 Electron 28 携带绝对路径，先例
   // FileManagerPanel）。只认 Files 类型的拖拽 —— 内部页签 HTML5 拖拽（data-tab-id）
   // 与文本拖放不沾边，dragover 也不 preventDefault，避免全窗口变落点破坏分屏落点语义。
@@ -443,15 +488,18 @@ const MainWindow: React.FC = () => {
     }
   }
 
-  // MCP open_connection_dialog 工具（C4）：主进程推送 → 派发 newSession 事件，
-  // 由 SessionsPanel 监听并打开"新建连接"对话框。agent 把凭据填写交还给用户（MCP 通道不接受凭据）。
+  // MCP open_connection_dialog 工具（C4）：主进程推送 → 切到会话页签 + 置对话框请求。
+  // 请求走 ui-store：SessionsPanel 是条件挂载的（本组件 activeNav === 'sessions' 才在树上），
+  // 请求落 store 跨挂载存活，挂载后读到存量也能开对话框（原 window 事件在侧栏停于
+  // 其他页签时监听器不存在，请求静默丢失）。agent 把凭据填写交还给用户（MCP 通道不接受凭据）。
   useEffect(() => {
     if (!window.electronAPI?.onMcpOpenConnectionDialog) return
     const cleanup = window.electronAPI.onMcpOpenConnectionDialog(() => {
-      window.dispatchEvent(new Event('newSession'))
+      handleNavChange('sessions')
+      useUiStore.getState().requestCreateDialog('sessions')
     })
     return cleanup
-  }, [])
+  }, [handleNavChange])
 
   // 窗口控制
   const handleMinimize = () => {
@@ -492,26 +540,10 @@ const MainWindow: React.FC = () => {
     }
   }, [])
 
-  // 点击会话直接开启终端
+  // 点击会话直接开启终端 —— 本体在 commands/launch.ts(与 /ls 清点文档的行链接
+  // open-session 共用同一条链:touch 访问时间 + runtime 克隆连接)
   const handleConnect = async (_sessionId: string, config: SessionConfig) => {
-    try {
-      // 更新访问时间（仍用原 saved id）
-      await window.electronAPI?.updateSession({
-        ...config,
-        updatedAt: new Date()
-      })
-      await refreshSavedSessions()
-
-      // 每次点击 saved session 都创建新的 runtime 会话：
-      // 把 id 置空让后端生成新 UUID，避免同一 saved id 只能对应一个终端页签。
-      // 通过 originSavedSessionId 保留与原保存项的关联，供 MCP list_sessions 同步状态。
-      const runtimeConfig: SessionConfig = { ...config, id: '', originSavedSessionId: config.id }
-
-      // 调用后端连接（后端会立即返回 sessionId，前端显示终端）
-      await window.electronAPI?.connect(runtimeConfig)
-    } catch (error) {
-      console.error('Connect failed:', error)
-    }
+    await connectSession(config)
   }
 
   // 执行快速命令 - 派发到活动分屏的活动会话（拆行/转义/结尾符统一在 dispatchCommand）
@@ -721,6 +753,14 @@ const MainWindow: React.FC = () => {
               style={{ top: TOPBAR_HEIGHT }}
             >
               <FloatWindow onConnect={handleConnect} />
+            </div>
+          )}
+
+          {/* 全局命令面板(Ctrl+Shift+P) -- 整屏 TUI 接管终端区(含页签行),与空状态
+              共用 CommandScreen/命令集;Esc 或 /local 这类 closeOverlay 命令经 onClose 退出 */}
+          {paletteOpen && (
+            <div className="absolute inset-0 z-50">
+              <CommandScreen mode="overlay" onClose={() => setPaletteOpen(false)} />
             </div>
           )}
         </div>

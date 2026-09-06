@@ -4,12 +4,13 @@ import type { WebviewTag } from 'electron'
 import { usePaneStore } from '../../stores/pane-store'
 import { OVERLAY_KINDS } from '../../stores'
 import TerminalView from '../Terminal/TerminalView'
+import CommandScreen from '../CommandScreen/CommandScreen'
 import PaneTabBar from './PaneTabBar'
 import { McpAuditPanel } from './McpAuditPanel'
 import DocTabOverlay from '../DocPanel/DocTabOverlay'
 import SplitDivider from './SplitDivider'
 import { resolveOverlayDragId } from './overlay-drag'
-import type { PaneNode, SplitDirection, OverlayKind, OverlayPayload, OverlayRef } from '@shared/types'
+import type { PaneNode, SplitDirection, OverlayKind, OverlayPayload, OverlayRef, DocOverlayPayload } from '@shared/types'
 
 type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center' | null
 
@@ -302,6 +303,15 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
   // set 下会撕裂）。拖拽中就被关掉的异常态回落 undefined → 按 web 系配色
   const draggedOverlayKind = usePaneStore(s =>
     s.draggingOverlayId ? s.overlayPayloads[s.draggingOverlayId]?.kind : undefined)
+
+  // 空态内联文档：无会话 pane 中激活中的 doc 不再整面盖屏，而是内联为命令屏的
+  // 输出区（md 在上、prompt 在下，键盘始终在命令屏）。payload 订阅按实例收敛
+  // （与 OverlayHost 同门面）：刷新/标题回写只重渲染本 pane
+  const inlineDocRef = node.type === 'leaf' && node.sessions.length === 0
+    ? node.overlays.find(r => r.active && r.kind === 'doc')
+    : undefined
+  const inlineDocPayload = usePaneStore(s =>
+    (inlineDocRef ? s.overlayPayloads[inlineDocRef.id] : undefined) as DocOverlayPayload | undefined)
 
   // 点击激活分屏
   const handleClick = () => {
@@ -692,17 +702,29 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
               )}
             </>
           ) : (
-            <div className="flex items-center justify-center flex-1 bg-[var(--terminal-bg)] text-gray-500">
-              <div className="text-center">
-                <p className="text-sm">{t('pane.emptyPane')}</p>
-                <p className="text-xs mt-1">{t('pane.emptyPaneHint')}</p>
-              </div>
-            </div>
+            /* 空状态即全屏 TUI 命令界面(/help 等,命令集见 command-registry)——
+               铺满 pane,banner/输出区/候选列表/prompt/状态栏;pane 激活时聚焦
+               (activePaneId 启动后才落定,由组件内 effect 追平)。激活中的 doc
+               不盖屏而是内联为输出区(inlineDoc,md 在上、prompt 在下);活面板
+               (web / dsh web / MCP)显示时盖住命令屏、让出焦点,全撤后收回。
+               covered 只看 active 的活面板 —— 激活 doc 不算(内联),
+               OverlayHost 把非活动覆盖层 visibility:hidden 渲染在 z0,停驻的
+               页签也不真盖屏。页签拖入落区指示器仍盖在其上(zIndex 更高),
+               拖拽分屏不受影响 */
+            <CommandScreen
+              mode="embedded"
+              paneActive={isActive}
+              covered={node.overlays.some(r => r.active && r.kind !== 'doc')}
+              inlineDoc={inlineDocRef && inlineDocPayload
+                ? { id: inlineDocRef.id, paneId: node.id, payload: inlineDocPayload }
+                : undefined}
+            />
           )}
 
           {/* 覆盖层统一循环 —— 挂载点在 pane 树上（node.overlays）；外壳/卸载规则/ */}
-          {/* payload 订阅收敛在 OverlayHost（按实例 gate）。 */}
-          {node.overlays.map(ref => (
+          {/* payload 订阅收敛在 OverlayHost（按实例 gate）。空态激活中的 doc 除外 —— */}
+          {/* 它内联进了命令屏的输出区（见上 inlineDoc），这里渲染会盖屏、双重渲染 */}
+          {node.overlays.filter(r => r !== inlineDocRef).map(ref => (
             <OverlayHost key={ref.id} paneId={node.id} overlay={ref} />
           ))}
 

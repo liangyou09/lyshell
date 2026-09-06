@@ -1546,12 +1546,18 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
       })
     } else {
       // 终端页签清空、pane 因承载覆盖层而保留：若此刻没有任何覆盖层在显示（刚关的是
-      // 最后一个终端），按种类优先级（注册表 activatePriority）自动切到剩余覆盖层 ——
-      // 否则窗格只剩空态占位，页签悬着要手动点。同种类多个时切到最后打开的一个。
+      // 最后一个终端），在「参与自动激活」的种类里按优先级（注册表 activatePriority）
+      // 自动切到剩余覆盖层 —— 否则窗格只剩空态占位，页签悬着要手动点。同种类多个时
+      // 切到最后打开的一个。doc 不参与（activateOnLastTerminalClose=false）：被动
+      // 阅读材料停驻成页签即可，空态命令屏接管键盘 —— 否则 /ls 清单弹回来会盖住
+      // 命令屏，出现「关掉终端就打不了字」的死局
       let overlays = updatedPane.overlays
       if (newSessions.length === 0 && overlays.length > 0 && !overlays.some(r => r.active)) {
         const byKind = new Map<OverlayKind, OverlayRef>()
-        for (const r of overlays) byKind.set(r.kind, r)  // 后写覆盖 → 每种类取最后一个
+        for (const r of overlays) {
+          if (!OVERLAY_KINDS[r.kind].activateOnLastTerminalClose) continue
+          byKind.set(r.kind, r)  // 后写覆盖 → 每种类取最后一个
+        }
         const candidates = [...byKind.values()].sort((a, b) =>
           OVERLAY_KINDS[a.kind].activatePriority - OVERLAY_KINDS[b.kind].activatePriority)
         const pick = candidates[0]

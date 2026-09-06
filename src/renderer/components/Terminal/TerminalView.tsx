@@ -123,6 +123,9 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   const containerRef = useRef<HTMLDivElement>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
   const resizeTimeoutRef = useRef<number | null>(null)
+  // 字号变化 → PTY resize 的防抖句柄:连续调档(+5/-5 往返、多档连滚)只在
+  // 落定时下发一次终端几何,配合 connector 层的同尺寸跳过,净零往返完全不打扰 PTY
+  const fontResizeTimerRef = useRef<number | null>(null)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const [showSearch, setShowSearch] = useState(false)
   const [searchText, setSearchText] = useState('')
@@ -519,12 +522,46 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
 
     // Ctrl + 滚轮 调整字号:在 capture 阶段截断,抢在 xterm 处理之前,
     // 这样 vim/less 开了鼠标捕获时也做缩放,而不是把滚轮上报给 app。
+    // 步进合并 —— 累积 + 时间门,保证「一格物理滚轮 = 一档」:
+    //   1. 小事件风暴:高分辨率滚轮 / Windows 精密触控板捏合(被 Chromium 合成为
+    //      ctrl+滚轮事件流)一次手势发几十个小 deltaY 事件 —— 按「一格 = ±80」
+    //      累积,攒满才步进一次并清零;
+    //   2. 大事件拆分:部分驱动一格滚轮会发多个 |deltaY|≥阈值 的大事件,若各自
+    //      步进,一格连跳两档(表现为「+5 再 -5 却像减了 10」)—— 步进后 80ms
+    //      时间门内只记账不步进,同格的后续事件被吸收,由静默清零兜底。
+    // 时间门只拦「与上次步进同向」的后续事件(同格尾随必然同向);反向事件是
+    // 用户折返纠正,立即放行 —— 否则 80ms 内的快速反向会被门吞掉,静默清零后丢档。
+    // 惯性/自由滚轮的同向连发会被有意少步(档位仅 10-30 共 5 档,吸收暴风防一把
+    // 从最小甩到最大),是设计取舍而非缺陷。
+    const WHEEL_NOTCH_DELTA = 80
+    const WHEEL_STEP_GATE_MS = 80
+    const WHEEL_IDLE_RESET_MS = 150
+    let wheelAcc = 0
+    let wheelLastStepAt = 0
+    let wheelLastStepDir = 0 // 上次步进方向(+1 放大 / -1 缩小),0=尚未步进;仅与时间门联用
+    let wheelIdleTimer: number | null = null
     const handleWheel = (e: WheelEvent) => {
       if (!e.ctrlKey) return
       e.preventDefault()
       e.stopPropagation()
+      // deltaMode 归一:行/页模式下 deltaY 是行数/页数,换算回像素档再累积
+      const unit = e.deltaMode === WheelEvent.DOM_DELTA_LINE ? 40 : e.deltaMode === WheelEvent.DOM_DELTA_PAGE ? 100 : 1
+      wheelAcc += e.deltaY * unit
+      if (wheelIdleTimer !== null) clearTimeout(wheelIdleTimer)
+      wheelIdleTimer = window.setTimeout(() => {
+        wheelAcc = 0
+        wheelLastStepAt = 0
+        wheelIdleTimer = null
+      }, WHEEL_IDLE_RESET_MS)
+      // 未攒满一格不步进;时间门内且与上次步进同向(同格尾随)也只记账不步进
+      if (Math.abs(wheelAcc) < WHEEL_NOTCH_DELTA) return
+      const direction = wheelAcc < 0 ? 1 : -1
+      if (direction === wheelLastStepDir && performance.now() - wheelLastStepAt < WHEEL_STEP_GATE_MS) return
+      wheelAcc = 0
+      wheelLastStepAt = performance.now()
+      wheelLastStepDir = direction
       const current = fontSizeRef.current
-      const next = snapTerminalFontSize(current + (e.deltaY < 0 ? TERMINAL_FONT_SIZE_STEP : -TERMINAL_FONT_SIZE_STEP))
+      const next = snapTerminalFontSize(current + direction * TERMINAL_FONT_SIZE_STEP)
       if (next === current) return
       fontSizeRef.current = next
       localStorage.setItem('terminalFontSize', next.toString())
@@ -630,9 +667,19 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       if (instance) {
         instance.terminal.options.fontSize = next
         instance.fitAddon.fit()
-        if (instance.terminal.cols && instance.terminal.rows) {
-          window.electronAPI?.terminalResize(sessionId, instance.terminal.cols, instance.terminal.rows)
-        }
+        // PTY resize 走 300ms 防抖,连续调档合并为落定时的一次下发:
+        // ConPTY 每次 resize 都会整屏重印,与 Claude Code(Ink)等 raw-mode TUI
+        // 的 SIGWINCH 重绘竞态,正是「字号 +5 再 -5 往返后 TUI 被挤压错位」的来源;
+        // 往返类净零变化经 connector 层同尺寸跳过后,PTY 全程无感。
+        // xterm 自身的 cols/rows 已在上面 fit() 即时生效,这里只推迟通知 PTY。
+        if (fontResizeTimerRef.current !== null) clearTimeout(fontResizeTimerRef.current)
+        fontResizeTimerRef.current = window.setTimeout(() => {
+          fontResizeTimerRef.current = null
+          const current = getTerminal(sessionId)
+          if (current?.terminal.cols && current.terminal.rows) {
+            window.electronAPI?.terminalResize(sessionId, current.terminal.cols, current.terminal.rows)
+          }
+        }, 300)
         // 字号变化后光标位置变化，解除 IME 位置锁定
         imePatchRef.current?.resetLock()
       }
@@ -661,6 +708,12 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       container.removeEventListener('mousedown', handleMouseDown)
       container.removeEventListener('click', handleClick)
       container.removeEventListener('wheel', handleWheel, { capture: true })
+      // 字号步进累积器随组件销毁一并回收,残留 setTimeout 不再清零已释放的闭包状态
+      if (wheelIdleTimer !== null) clearTimeout(wheelIdleTimer)
+      if (fontResizeTimerRef.current !== null) {
+        clearTimeout(fontResizeTimerRef.current)
+        fontResizeTimerRef.current = null
+      }
       container.removeEventListener('scroll', handleContainerScroll)
       window.removeEventListener('terminalFontSizeChanged', handleFontSizeChanged as EventListener)
       window.removeEventListener('terminalCursorBlinkChanged', handleCursorBlinkChanged as EventListener)

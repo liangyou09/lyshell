@@ -5,6 +5,7 @@ import { HARNESS_AGENT_VIEWS, type EnvProfileLibraryResult, type HarnessAgentKin
 import { BRANCH_PREFIX, generateWorktreeCode, generateWorktreeKey, generateWorktreeStamp, joinWorktreePath } from '@shared/worktree'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { ensureDetected, getCachedDetect, redetectHarness } from './harness-detect'
+import { useUiStore } from '../../stores/ui-store'
 
 /**
  * AI Harness 面板 —— dsh / codex / claude 三份第一等终端 Agent 的通用外壳。
@@ -153,6 +154,9 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   const [copied, setCopied] = useState<string | null>(null)
   // 工作区列表与启动状态
   const [workspaces, setWorkspaces] = useState<HarnessWorkspace[]>([])
+  // 工作区列表是否已拉到(一次拉取完成即为 true,不随失败回退)——
+  // 「打开指定工作区」请求的消费判据:未就绪等列表,就绪仍无此 id 则消费掉
+  const [wsLoaded, setWsLoaded] = useState(false)
   const [launchingId, setLaunchingId] = useState<string | null>(null)
   const [webOpening, setWebOpening] = useState(false)
   // 列表级操作错误横幅：启动失败统一在此展示具体原因
@@ -218,6 +222,8 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
       if (Array.isArray(result)) setWorkspaces(result as HarnessWorkspace[])
     } catch (err) {
       console.error(`Failed to load ${agent} workspaces:`, err)
+    } finally {
+      setWsLoaded(true)
     }
   }, [api, agent])
 
@@ -378,6 +384,35 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     setTriedSubmit(false); setConfirmDelete(false); setSaveError(null)
     setShowDialog(true)
   }
+
+  // 外部「新建工作区」请求(ui-store,如 /ls 清点文档的新建链接):本面板按 kind
+  // 条件挂载,请求落 store 跨挂载存活,挂载后读到存量也能开对话框,消费后归零防误弹
+  const createRequestId = useUiStore(s => s.createDialogRequests[agent] ?? 0)
+  useEffect(() => {
+    if (!createRequestId) return
+    handleAdd()
+    useUiStore.getState().consumeCreateDialogRequest(agent)
+    // 请求消费只看 id;handleAdd 的引用变化不构成「再来一次」
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createRequestId])
+
+  // 外部「打开工作区」请求(/ls 清点文档点行内名称):按 id 找到工作区走启动链
+  // (依赖检测/失败横幅都在 handleLaunch 里,点进来就能看到为什么起不来)。
+  // 请求可能先于列表到达(刚随 navigate 挂载)—— 未就绪等列表,就绪仍无此 id
+  // (快照后已删)则消费掉,防陈旧请求随后续列表刷新反复触发
+  const openItem = useUiStore(s => s.openItemRequests[agent])
+  useEffect(() => {
+    if (!openItem) return
+    const ws = workspaces.find(w => w.id === openItem.itemId)
+    if (ws) {
+      void handleLaunch(ws)
+      useUiStore.getState().consumeOpenItemRequest(agent)
+    } else if (wsLoaded) {
+      useUiStore.getState().consumeOpenItemRequest(agent)
+    }
+    // 请求消费只看请求与列表;handleLaunch 的引用变化不构成「再来一次」
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openItem, workspaces, wsLoaded])
   const handleEdit = (ws: HarnessWorkspace) => {
     setEditWorkspace(ws)
     setWsName(ws.name); setWsCwd(ws.cwd); setWsNote(ws.note || ''); setWsModel(ws.model || ''); setWsModelAuto(false); setWsSkipPermissions(ws.skipPermissions === true)

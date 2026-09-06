@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { DEFAULT_FONT_FAMILY } from '@shared/constants'
@@ -8,11 +8,25 @@ import type { DocOverlayPayload } from '@shared/types'
 import { hljsToReact, normalizeLang } from './hljsToReact'
 import OutlineRail from './OutlineRail'
 import { docLinkTarget, docDirFromPath } from './docLink'
+import { DOC_ACTION_SCHEME, docActionFromHref, runDocAction } from '../../commands/doc-actions'
 import { openLocalDoc, openRemoteDoc } from './readDoc'
 import { useDocZoom, adjustDocZoom, DOC_ZOOM_STEP } from './docZoom'
 import { usePanMode } from './docPan'
 import { useDocRailOpen } from './docRail'
 import { extractHeadings } from './docHeadings'
+
+/**
+ * URL 净化放行表 —— react-markdown v9 默认的 defaultUrlTransform 只放行
+ * http/https/mailto 等白名单协议，lyshell-action://（/ls 清点文档的动作链接）
+ * 会被清成空串，链接渲染成失效锚点。这里只在内置文档（清点/手册，应用自己
+ * 生成的可信内容）对本 scheme 原样放行（解析与路由在 doc-actions 的渲染层
+ * 完成），其余来源一律不放行 —— 门禁落在净化层这一唯一入口，外部 md 里的
+ * 伪动作链接连 href 都落不了地（渲染层另有 source 门禁作第二道防线），
+ * 未来新调用方想绕过渲染层也绕不过这里；其余 URL 仍走默认净化（外部 http
+ * 链接照常被校验）。
+ */
+export const docUrlTransform = (url: string, allowActionScheme: boolean): string =>
+  allowActionScheme && url.startsWith(DOC_ACTION_SCHEME) ? url : defaultUrlTransform(url)
 
 /** 递归取 React 子树的纯文本（code 元素的 children 可能嵌套） */
 function flattenText(node: React.ReactNode): string {
@@ -159,8 +173,29 @@ const MarkdownDoc: React.FC<{ content: string; payload: DocOverlayPayload; paneI
     // 行内码 chip（设计稿 .ic）
     code: ({ children }) => <code className="doc-ic">{children}</code>,
     // 文档内链接：指向可打开文档（.md/.html/.txt，相对当前文档目录归并）的
-    // 点击即开新文档页签；外链/锚点/其他扩展名保持只读渲染
+    // 点击即开新文档页签；lyshell-action:// 动作链接（/ls 清点文档的「新建」入口）
+    // 走 doc-actions 派发 —— 仅内置文档生效（清点/手册都是应用自己生成的可信
+    // 内容），远程/本地拖入的 md 是外部内容，不得借动作链接触发本应用的命令
+    // 动作（open-session 直连、open-agent 启动）。第一道门禁在 docUrlTransform
+    // 净化层（非内置来源的该 scheme 已被清空，href 根本到不了这里），本层再守
+    // 一道；其余外链/锚点/其他扩展名保持只读渲染
     a: ({ href, children }) => {
+      const action = source === 'builtin' && typeof href === 'string' ? docActionFromHref(href) : null
+      if (action) {
+        return (
+          <a
+            href={href}
+            title={href}
+            className="doc-link doc-link-file"
+            onClick={(e) => {
+              e.preventDefault()
+              runDocAction(action)
+            }}
+          >
+            {children}
+          </a>
+        )
+      }
       const target = typeof href === 'string' ? docLinkTarget(href, source === 'local', docDir) : null
       if (!target) {
         return (
@@ -198,6 +233,10 @@ const MarkdownDoc: React.FC<{ content: string; payload: DocOverlayPayload; paneI
     )
   }), [source, sessionId, paneId, docDir])
 
+  // 净化层门禁与组件表同门面：urlTransform 按 source 定是否放行动作 scheme
+  // （identity 随 source 收敛，切换来源才重建，刷新回写不重跑净化）
+  const urlTransform = useMemo(() => (url: string) => docUrlTransform(url, source === 'builtin'), [source])
+
   return (
     <div ref={scrollRef} className={`doc-body h-full overflow-y-auto${panMode ? ' doc-pan' : ''}`} style={{ fontFamily: DEFAULT_FONT_FAMILY }}>
       {/* doc-grid 内层网格：滚动容器兼容器查询锚点（窄 pane 收起大纲栏须改网格自身）。
@@ -206,7 +245,7 @@ const MarkdownDoc: React.FC<{ content: string; payload: DocOverlayPayload; paneI
         {showRail && <OutlineRail headings={headings} scrollRef={scrollRef} />}
         {/* zoom 挂内容列：整体缩放（含 px 字号/代码块/表格），块级自适应宽度回流不出横向滚动条；大纲轨不缩 */}
         <div className="doc-content" style={{ zoom }}>
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
             {content}
           </ReactMarkdown>
         </div>

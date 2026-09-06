@@ -84,6 +84,12 @@ export default defineConfig({
       }
     },
     build: {
+      // 输出目录必须走 Vite 原生 outDir 键,不能只写 rollupOptions.output.dir:
+      // emptyOutDir 的清场只认 build.outDir —— 此前目录挂在 output 下,Vite 每次
+      // 清的都是 electron-vite 默认的 out/renderer(不存在),dist/renderer 从未被
+      // 清,带 hash 的陈旧 chunk 越攒越多,还随 dist/**/* 全部进了安装包
+      outDir: 'dist/renderer',
+      emptyOutDir: true,
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/renderer/index.html')
@@ -93,7 +99,6 @@ export default defineConfig({
           entryFileNames: 'assets/[name]-[hash].js',
           chunkFileNames: 'assets/[name]-[hash].js',
           assetFileNames: 'assets/[name]-[hash].[ext]',
-          dir: 'dist/renderer',
           manualChunks: {
             'xterm': ['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-search'],
             'react': ['react', 'react-dom'],
