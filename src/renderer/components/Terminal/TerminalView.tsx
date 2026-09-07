@@ -3,7 +3,7 @@ import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import '@xterm/xterm/css/xterm.css'
-import { DEFAULT_THEME_DARK, DEFAULT_THEME_LIGHT, DEFAULT_FONT_FAMILY, isCursorBlinkEnabled, DEFAULT_TERMINAL_FONT_SIZE, TERMINAL_FONT_SIZE_STEP, snapTerminalFontSize } from '@shared/constants'
+import { DEFAULT_THEME_DARK, DEFAULT_THEME_LIGHT, DEFAULT_FONT_FAMILY, TERMINAL_WEBFONT_FAMILY, isCursorBlinkEnabled, DEFAULT_TERMINAL_FONT_SIZE, TERMINAL_FONT_SIZE_STEP, snapTerminalFontSize } from '@shared/constants'
 import { isLightColor } from '@shared/color-utils'
 import { useTerminalStore } from '../../stores/terminal-store'
 import { useSessionStore } from '../../stores/session-store'
@@ -20,6 +20,8 @@ import { registerDocLinkProvider } from '../DocPanel/registerDocLinkProvider'
 //     （升级前须人工回归中文 IME 输入）。
 //   - 浮点测量：patchXtermFloatMeasure 依赖 _core._renderService._renderer.value 上的
 //     WidthCache._measure / DomRenderer._setDefaultSpacing / _widthCache（升级前须人工回归滚动对齐）。
+//   - 字体加载兜底重测：依赖 _core._charSizeService.measure 与同上 WidthCache/_setDefaultSpacing
+//     （升级前须人工回归 webfont 竞态自愈：冷启动建终端后字形不应被 letter-spacing 压挤）。
 // 已验证版本：@xterm/xterm@5.5.0、@xterm/addon-fit@0.11.0、@xterm/addon-search@0.16.0。
 // package.json 中已把这些包锁定到确切版本。
 
@@ -448,6 +450,74 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
     // 只挂创建分支会让"实例创建早于代码更新"的终端永远没有链接。
     registerDocLinkProvider(terminal, sessionId)
 
+    // 字体加载批次完成后的兜底重测：Maple 是 @font-face webfont（Regular+Bold ~12MB，
+    // font-display:swap），终端首测若发生在 face 加载完成前，拿到的是回退字体度量
+    // （charW≈8.79 而非 Maple 的 9）；face 换上来后 xterm 不监听 document.fonts、
+    // 不会自己重测，字形被内联字距压进旧网格（每字符 ~-0.21px）——表现为「字体变样」，
+    // 直到下次改字号触发全量重测才自愈。main.tsx 挂载前的 fonts.load 门闩已挡住冷启动
+    // 竞态，这里兜的是门闩失效（family 名漂移时 fonts.load 静默命中 0 个 face，竞态
+    // 重新打开）和晚加载的面 —— 字体文件本身加载失败则无从兜底（face 永远不来，
+    // main.tsx 有告警），只能靠改字号自愈。
+    // 用 loadingdone 而非 fonts.ready：fonts.ready 只在「挂接时刻已 pending 的加载」
+    // 完成后 resolve 一次，晚触发加载的面（bold 面要等首个加粗 span 渲染才开始加载，
+    // 可能晚于 fonts.ready resolve）会漏掉；loadingdone 每个加载批次完成都触发，
+    // 挂在创建/复用公共路径上，重挂载也能重新覆盖。
+    const handleFontsLoadingDone = (e: FontFaceSetLoadEvent): void => {
+      // 只处理本终端字体栈里的 webfont 面，其他字体的加载批次不触发重绘
+      const isTerminalFont = e.fontfaces.some(
+        f => f.family.replace(/['"]/g, '').trim() === TERMINAL_WEBFONT_FAMILY
+      )
+      if (!isTerminalFont) return
+      // 会话可能已关闭、终端已 dispose、store 里的实例可能已换 —— 都直接放弃。
+      // isConnected 而非仅判 element:脱离文档的终端 gBCR=0,清 WidthCache +
+      // _setDefaultSpacing 会把 cellWidth-0 烤进整屏 span 的 letter-spacing
+      // 且不自愈(defaultSpacing 只在字号/charSize/dpr 变化时重算)——
+      // CharSizeService 有 _validateAndSet 的 >0 兜底,WidthCache 没有。
+      const inst = getTerminal(sessionId)
+      if (!inst || inst.terminal !== terminal || !terminal.element?.isConnected) return
+      try {
+        const core = (terminal as any)._core
+        // 先重测 regular 度量：宽度变化会 fire onCharSizeChange → RenderService →
+        // DomRenderer.handleCharSizeChanged，维度链路自动走完。列宽几何只由 regular
+        // 决定，只有它变了才需要 fit + 同步 PTY（创建时按脏度量 fit 出的 cols
+        // 与 PTY 侧不一致，要修正）
+        let geometryChanged = false
+        const charSizeService = core?._charSizeService
+        if (charSizeService && typeof charSizeService.measure === 'function') {
+          const beforeW = charSizeService.width
+          const beforeH = charSizeService.height
+          charSizeService.measure()
+          geometryChanged = charSizeService.width !== beforeW || charSizeService.height !== beforeH
+        }
+        // 无条件清逐字符宽度缓存并整屏重绘：晚到的可能是 bold 面，regular 的
+        // charSize 变化检测不到它；行内 letter-spacing 是烤进 span 的，必须重建行 DOM
+        const renderer = core?._renderService?._renderer?.value
+        renderer?._widthCache?.clear()
+        if (typeof renderer?._setDefaultSpacing === 'function') renderer._setDefaultSpacing()
+        if (terminal.rows > 0) terminal.refresh(0, terminal.rows - 1)
+        if (geometryChanged) {
+          // 零尺寸容器(分屏拖零/未布局)时跳过 fit:0 列会被 xterm 钳到 2 列,白发一次
+          // terminalResize —— 每次 PTY resize 都触发 ConPTY 整屏重印(会吃视口顶部内容),
+          // 不该为病态布局态买单;容器恢复尺寸后 ResizeObserver 会重新 fit。
+          // (isConnected 已由入口守卫保证,此处无需复判。)
+          const rect = containerRef.current?.getBoundingClientRect()
+          if (rect && rect.width > 0 && rect.height > 0) {
+            const before = { cols: terminal.cols, rows: terminal.rows }
+            inst.fitAddon.fit()
+            if ((terminal.cols !== before.cols || terminal.rows !== before.rows)
+              && terminal.cols && terminal.rows) {
+              window.electronAPI?.terminalResize(sessionId, terminal.cols, terminal.rows)
+            }
+            // 网格变化后光标位置变化，解除 IME 位置锁定
+            imePatchRef.current?.resetLock()
+          }
+        }
+      } catch {
+        // 私有 API 布局变化时静默降级：仅损失重测，不影响终端功能
+      }
+    }
+    document.fonts.addEventListener('loadingdone', handleFontsLoadingDone)
+
     // 把 searchAddon 同步到 ref:无论是新建还是复用终端,都必须拿到搜索器,
     // 否则搜索框打开了但 findNext/clearDecorations 全打在 null 上。
     // 订阅匹配计数(显示 "3/5");返回的 disposable 在清理函数里 dispose,
@@ -527,12 +597,12 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
     //      ctrl+滚轮事件流)一次手势发几十个小 deltaY 事件 —— 按「一格 = ±80」
     //      累积,攒满才步进一次并清零;
     //   2. 大事件拆分:部分驱动一格滚轮会发多个 |deltaY|≥阈值 的大事件,若各自
-    //      步进,一格连跳两档(表现为「+5 再 -5 却像减了 10」)—— 步进后 80ms
+    //      步进,一格滚轮却连跳两档(滚一格变了 2px)—— 步进后 80ms
     //      时间门内只记账不步进,同格的后续事件被吸收,由静默清零兜底。
     // 时间门只拦「与上次步进同向」的后续事件(同格尾随必然同向);反向事件是
     // 用户折返纠正,立即放行 —— 否则 80ms 内的快速反向会被门吞掉,静默清零后丢档。
-    // 惯性/自由滚轮的同向连发会被有意少步(档位仅 10-30 共 5 档,吸收暴风防一把
-    // 从最小甩到最大),是设计取舍而非缺陷。
+    // 惯性/自由滚轮的同向连发会被有意少步(一格滚轮 = 一档 1px,吸收暴风防连续
+    // 跳档),是设计取舍而非缺陷。
     const WHEEL_NOTCH_DELTA = 80
     const WHEEL_STEP_GATE_MS = 80
     const WHEEL_IDLE_RESET_MS = 150
@@ -659,8 +729,8 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
 
     // 监听字体大小变化事件
     const handleFontSizeChanged = (e: CustomEvent) => {
-      // 兜底吸附：无论事件来自设置面板还是 Ctrl+滚轮，终端只应用合法档位（5 的整数倍），
-      // 避免任何来源把字号设置到「有问题」的非整数格宽档位。
+      // 兜底吸附：无论事件来自设置面板还是 Ctrl+滚轮，终端只应用合法档位
+      // （整数 px，夹取 [10,30]），避免任何来源把字号设成小数或越界。
       const next = snapTerminalFontSize(e.detail)
       fontSizeRef.current = next
       const instance = getTerminal(sessionId)
@@ -717,6 +787,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       container.removeEventListener('scroll', handleContainerScroll)
       window.removeEventListener('terminalFontSizeChanged', handleFontSizeChanged as EventListener)
       window.removeEventListener('terminalCursorBlinkChanged', handleCursorBlinkChanged as EventListener)
+      document.fonts.removeEventListener('loadingdone', handleFontsLoadingDone)
       // 解绑搜索匹配计数订阅;否则切换 tab 时旧组件的回调还活在 SearchAddon 上,
       // 并且会触发已卸载组件的 setState 警告。
       resultsDisposable?.dispose()

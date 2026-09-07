@@ -104,29 +104,44 @@ export const DEFAULT_THEME_LIGHT = {
 }
 
 /**
+ * 终端主字体的 family 名 —— 单一事实来源。
+ * 该名字在三处使用，必须保持一致：
+ *   1. 本文件 DEFAULT_FONT_FAMILY 的首项（xterm fontFamily 栈）；
+ *   2. main.tsx 挂载前的 fonts.load 预热（写错则静默命中 0 个 face，预热形同虚设）；
+ *   3. index.html 的两段 @font-face 声明（HTML 是静态资源，没法引本常量 ——
+ *      漂移由 main.tsx 的空数组告警 + TerminalView 的 loadingdone 过滤兜底发现）。
+ * 改名时改这里 + index.html，别处全部跟着常量走。
+ */
+export const TERMINAL_WEBFONT_FAMILY = 'Maple Mono NF CN'
+
+/**
  * 默认字体
  * 顺序关键：Maple Mono NF CN 排最前 —— 圆角等宽字体，中文严格 2:1 且自带 Nerd Font 图标，
  * 能让中文/符号在 xterm 的固定列网格里对齐不漂移（见 TerminalView 的 convertEol 与
  * globals.css 的 .xterm-screen 高度修复，本字体栈解决的是第三条根因：行内宽字符列宽不对齐）。
  * 未安装 Maple 时依次回退：Cascadia Mono(拉丁,Win11 自带) → Consolas → NSimSun(等宽 CJK 兜底)。
  */
-export const DEFAULT_FONT_FAMILY = "'Maple Mono NF CN', 'Cascadia Mono', 'Consolas', 'NSimSun', 'Courier New', monospace"
+export const DEFAULT_FONT_FAMILY = `'${TERMINAL_WEBFONT_FAMILY}', 'Cascadia Mono', 'Consolas', 'NSimSun', 'Courier New', monospace`
 
 /**
- * 终端字号 —— 只允许 Maple Mono 渲染稳定的字号。
- * Maple Mono NF CN 的前进宽是 0.6em(600/1000),字号必须是 5 的整数倍时每格像素宽才是整数
- * (15px→9px、20px→12px、25px→15px…)。非整数格宽会触发 xterm DOM renderer 的亚像素
- * letter-spacing 补偿(见 TerminalView 的 patchXtermFloatMeasure),放大成第一列漂移。
- * 故把字号钉死在 10/15/20/25/30 五档,禁止落到 16/17 这类「有问题」的档位。
+ * 终端字号 —— 整数 px,1 步进,夹取 [10,30]。
+ * Maple Mono NF CN 的前进宽是 0.6em(600/1000),仅 5 的整数倍字号才有整数格宽
+ * (15px→9px、20px→12px…),其余字号格宽带小数,xterm DOM renderer 会用
+ * letter-spacing 补偿(defaultSpacing=格宽-字宽,约 ±0.004px/字符)。
+ * 历史上曾因此把字号钉死在 10/15/20/25/30 五档 —— 那是 patchXtermFloatMeasure
+ * 之前的结论:整数 offsetWidth 与浮点 canvas 度量不一致,补偿值每行每字符各不相同,
+ * 放大成第一列漂移。浮点补丁落地后两侧度量同源,补偿在任意字号下都均匀且精确落格
+ * (2026-09 实测 10-30 逐 1px 扫描:ASCII/CJK 行网格误差 ≤0.011px,半/全角字距各只有一个值),
+ * 故放开为 1px 步进;5 的倍数仍是「零补偿」的特殊档位,默认值 15 保留在其中。
  */
 export const DEFAULT_TERMINAL_FONT_SIZE = 15
 export const TERMINAL_FONT_SIZE_MIN = 10
 export const TERMINAL_FONT_SIZE_MAX = 30
-export const TERMINAL_FONT_SIZE_STEP = 5
+export const TERMINAL_FONT_SIZE_STEP = 1
 
 /**
- * 把任意字号吸附到最近的合法档位(5 的整数倍),并夹到 [min,max]。
- * 用于设置输入框、Ctrl+滚轮、以及从 localStorage 恢复旧值时兜底。
+ * 把任意字号取整到合法档位(整数 px),并夹到 [min,max]。
+ * 用于设置输入框失焦、Ctrl+滚轮步进、以及从 localStorage 恢复旧值时兜底。
  */
 export function snapTerminalFontSize(size: number): number {
   if (!Number.isFinite(size)) return DEFAULT_TERMINAL_FONT_SIZE

@@ -18,7 +18,10 @@
       /* Maple Mono NF CN：打包进 app 的圆角等宽字体，中文严格 2:1 且自带 Nerd Font 图标。
          scripts/subset-maple-font.py 子集化(去掉生僻字/稀有脚本)后转 woff2,
          Regular+Bold 合计 ~11.6MB(原 ttf ~41MB)。font-display: swap 避免加载期文字不可见。
-         @font-face 的 family 名必须与 DEFAULT_FONT_FAMILY（@shared/constants）首项一致。 */
+         @font-face 的 family 名必须与 TERMINAL_WEBFONT_FAMILY（@shared/constants，
+         DEFAULT_FONT_FAMILY 首项）一致 —— main.tsx 的预热与 TerminalView 的
+         loadingdone 过滤都引该常量；本文件是静态资源没法引，漂移时靠
+         main.tsx 的空数组告警暴露。改名时改常量 + 这里两处。 */
       @font-face {
         font-family: 'Maple Mono NF CN';
         src: url('./fonts/MapleMono-NF-CN-Regular.woff2') format('woff2');

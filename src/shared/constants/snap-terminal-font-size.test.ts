@@ -2,17 +2,20 @@ import { describe, it, expect } from 'vitest'
 import { snapTerminalFontSize } from './index'
 
 describe('snapTerminalFontSize', () => {
-  it('吸附到最近的 5 的整数倍', () => {
-    expect(snapTerminalFontSize(12)).toBe(10)
-    expect(snapTerminalFontSize(13)).toBe(15)
-    expect(snapTerminalFontSize(17)).toBe(15)
-    expect(snapTerminalFontSize(18)).toBe(20)
+  it('整数原样保留（1px 步进，不再吸附 5 的倍数）', () => {
+    expect(snapTerminalFontSize(12)).toBe(12)
+    expect(snapTerminalFontSize(13)).toBe(13)
+    expect(snapTerminalFontSize(17)).toBe(17)
+    expect(snapTerminalFontSize(18)).toBe(18)
+  })
+
+  it('小数取整到最近的整数', () => {
+    expect(snapTerminalFontSize(15.4)).toBe(15)
+    expect(snapTerminalFontSize(16.6)).toBe(17)
   })
 
   it('夹到 [10,30] 区间（低于 min 上抬、高于 max 下压）', () => {
-    // 7 先吸附到 5，但 5 < MIN(10)，最终被夹到 10
     expect(snapTerminalFontSize(7)).toBe(10)
-    // 33 先吸附到 35，但 35 > MAX(30)，最终被夹到 30
     expect(snapTerminalFontSize(33)).toBe(30)
   })
 

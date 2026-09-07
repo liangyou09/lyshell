@@ -315,7 +315,7 @@ const SettingsPanel: React.FC = () => {
                     setFontSize(Number.isFinite(raw) ? raw : DEFAULT_TERMINAL_FONT_SIZE)
                   }}
                   onBlur={() => {
-                    // 失焦时才吸附 + 持久化 + 派发，保证终端永远拿不到「有问题」的档位
+                    // 失焦时才取整 + 夹取 + 持久化 + 派发，保证终端拿不到小数或越界的字号
                     const next = snapTerminalFontSize(fontSize)
                     setFontSize(next)
                     localStorage.setItem('terminalFontSize', next.toString())
