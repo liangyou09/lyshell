@@ -125,8 +125,12 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   const containerRef = useRef<HTMLDivElement>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
   const resizeTimeoutRef = useRef<number | null>(null)
-  // 字号变化 → PTY resize 的防抖句柄:连续调档(+5/-5 往返、多档连滚)只在
-  // 落定时下发一次终端几何,配合 connector 层的同尺寸跳过,净零往返完全不打扰 PTY
+  // 字号变化 → PTY resize 的防抖句柄:连续调档(+5/-5 往返、多档连滚、设置面板
+  // 步进实时派发后的连点)只在落定时下发一次终端几何,配合 connector 层的同尺寸
+  // 跳过,净零往返完全不打扰 PTY。窗口取 500ms:盖住滚轮手势与快速连点,又不让
+  // PTY 几何落后显示太久(1s 时密集交互下错位行窗口偏长)。更慢的「点-看-再点」
+  // 节奏(>500ms 间隔)会各自落定 —— 每次 ConPTY 都整屏重印一遍(吃视口顶),
+  // TUI 按 SIGWINCH 次数叠加重画,是此窗口的已知代价。
   const fontResizeTimerRef = useRef<number | null>(null)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const [showSearch, setShowSearch] = useState(false)
@@ -737,11 +741,12 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       if (instance) {
         instance.terminal.options.fontSize = next
         instance.fitAddon.fit()
-        // PTY resize 走 300ms 防抖,连续调档合并为落定时的一次下发:
+        // PTY resize 走 500ms 防抖,连续调档合并为落定时的一次下发:
         // ConPTY 每次 resize 都会整屏重印,与 Claude Code(Ink)等 raw-mode TUI
         // 的 SIGWINCH 重绘竞态,正是「字号 +5 再 -5 往返后 TUI 被挤压错位」的来源;
         // 往返类净零变化经 connector 层同尺寸跳过后,PTY 全程无感。
         // xterm 自身的 cols/rows 已在上面 fit() 即时生效,这里只推迟通知 PTY。
+        // 窗口盖住滚轮手势与快速连点;更慢的调档节奏各自落定,TUI 逐次重画是已知代价。
         if (fontResizeTimerRef.current !== null) clearTimeout(fontResizeTimerRef.current)
         fontResizeTimerRef.current = window.setTimeout(() => {
           fontResizeTimerRef.current = null
@@ -749,7 +754,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
           if (current?.terminal.cols && current.terminal.rows) {
             window.electronAPI?.terminalResize(sessionId, current.terminal.cols, current.terminal.rows)
           }
-        }, 300)
+        }, 500)
         // 字号变化后光标位置变化，解除 IME 位置锁定
         imePatchRef.current?.resetLock()
       }

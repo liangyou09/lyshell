@@ -312,7 +312,24 @@ const SettingsPanel: React.FC = () => {
                   onChange={(e) => {
                     // 输入期间只存草稿值（不吸附），避免键入 "25" 时输到 "2" 就被吸成 "20" 而无法键入多位数
                     const raw = parseInt(e.target.value)
-                    setFontSize(Number.isFinite(raw) ? raw : DEFAULT_TERMINAL_FONT_SIZE)
+                    const draft = Number.isFinite(raw) ? raw : DEFAULT_TERMINAL_FONT_SIZE
+                    // 步进（原生 spinner 点击 / ↑↓ 键）立即生效，编辑类输入保持草稿到失焦：
+                    // 只有「裸 Event（不带 inputType）」是已实证的步进签名（CDP harness，
+                    // Chromium 120）；一切声明了 inputType 的来源（insertText 键入、
+                    // insertFromPaste 粘贴、IME composition 等）一律走草稿 —— 未知来源
+                    // 默认安全侧（失焦才生效），不给中间态提前吸附派发留口子。
+                    // 此前步进也只改草稿，终端要等失焦才变 —— 点一下没反应再补一下，
+                    // 失焦时一次性 −2，被当成「− 比 + 减得多」。
+                    // 步进立即派发后按住 spinner 连调（约 20 档/秒）也安全：终端侧
+                    // 字号→PTY resize 已 500ms 防抖（TerminalView handleFontSizeChanged）。
+                    if ((e.nativeEvent as InputEvent).inputType == null) {
+                      const next = snapTerminalFontSize(draft)
+                      setFontSize(next)
+                      localStorage.setItem('terminalFontSize', next.toString())
+                      window.dispatchEvent(new CustomEvent('terminalFontSizeChanged', { detail: next }))
+                    } else {
+                      setFontSize(draft)
+                    }
                   }}
                   onBlur={() => {
                     // 失焦时才取整 + 夹取 + 持久化 + 派发，保证终端拿不到小数或越界的字号
