@@ -678,7 +678,7 @@
   },
   "pane": {
     "tabHint": "Click to switch · Double-click left to clone session · Double-click right to clone channel (SSH)",
-    "newTabReserved": "New session (reserved)",
+    "newTab": "New tab (open command palette)",
     "lockedByMcp": "MCP is using this terminal",
     "mcpTab": "MCP Activity",
     "mcpTabHint": "MCP activity audit · click to toggle · ESC to close",

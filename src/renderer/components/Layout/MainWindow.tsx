@@ -22,6 +22,7 @@ import { useLocaleStore } from '../../stores/locale-store'
 import { useQuickCommandsStore } from '../../stores/quick-commands-store'
 import { useUiStore } from '../../stores/ui-store'
 import { NAV_EVENT } from '../../commands/command-registry'
+import { PALETTE_EVENT } from '../../commands/palette'
 import { connectSession } from '../../commands/launch'
 import { dispatchCommand } from '../../utils/dispatch-command'
 import { openLocalDoc } from '../DocPanel/readDoc'
@@ -458,6 +459,14 @@ const MainWindow: React.FC = () => {
     }
     window.addEventListener('keydown', handleTogglePalette, true)
     return () => window.removeEventListener('keydown', handleTogglePalette, true)
+  }, [])
+
+  // 页签条「+」钮的打开请求（见 commands/palette.ts）—— 与 Ctrl+Shift+P 同一面板，
+  // 语义是打开而非切换；面板打开时 z-50 盖住页签行，「+」不可再点，无重复打开竞态
+  useEffect(() => {
+    const handleOpenPalette = () => setPaletteOpen(true)
+    window.addEventListener(PALETTE_EVENT, handleOpenPalette)
+    return () => window.removeEventListener(PALETTE_EVENT, handleOpenPalette)
   }, [])
 
   // 命令注册表的左栏页签切换事件（/sessions 等） —— 注册表与窗口 chrome 经 window

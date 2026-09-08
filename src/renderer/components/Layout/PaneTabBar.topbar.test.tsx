@@ -17,6 +17,7 @@ import { usePaneStore } from '../../stores/pane-store'
 import { ConnectionStatus } from '@shared/types'
 import type { OverlayPayload, OverlayRef, PaneLeaf, SessionConfig } from '@shared/types'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
+import { PALETTE_EVENT } from '../../commands/palette'
 
 const DSH_REF = (slot: number | null, active = false): OverlayRef =>
   ({ id: '__dsh_web__', kind: 'dshWeb', active, slot })
@@ -184,14 +185,28 @@ describe('PaneTabBar 顶排页签条(渲染断言)', () => {
     // 非激活页签的关闭钮挂窄页签隐藏规则;激活页签不挂(任何宽度保留)
     expect(activeTab.querySelector('button')!.className).not.toContain('pane-tab-close-idle')
     expect(idleTab.querySelector('button')!.className).toContain('pane-tab-close-idle')
-    // 滚轮取代常驻左右滚动钮(40px 还给页签):全条只剩两个页签关闭钮
-    expect(container.querySelectorAll('button')).toHaveLength(2)
-    // 最右 + 预留位:滚动区之外的常驻右边界锚点(页签挤爆后裁切止于此,永不越过它)
-    const anchor = (container.firstElementChild as HTMLElement).lastElementChild as HTMLElement
-    expect(anchor.textContent).toBe('+')
-    expect(anchor.className).toContain('flex-shrink-0')
-    expect(anchor.className).toContain('pane-tab-newtab')
-    // + 是 Edge 顶栏专属视觉:非顶排条以 pane 边框收尾,中部不放无功能占位
+    // 滚轮取代常驻左右滚动钮(40px 还给页签):全条只剩两个页签关闭钮 + 「+」新建钮
+    expect(container.querySelectorAll('button')).toHaveLength(3)
+    // 「+」新建钮:跟随最后一个页签 —— 在滚动区内、末签之后(不钉条尾右缘,页签
+    // 增删它随行进退);flex-shrink-0 常驻占位,页签只缩不滚也挤不掉它的 28px
+    const plus = container.querySelector('.pane-tab-newtab') as HTMLElement
+    expect(plus.querySelector('svg')).toBeTruthy()
+    expect(plus.className).toContain('flex-shrink-0')
+    const scrollArea = (container.firstElementChild as HTMLElement).firstElementChild as HTMLElement
+    expect(plus.parentElement).toBe(scrollArea)
+    expect(plus.previousElementSibling?.getAttribute('data-tab-id')).toBe('s2')
+    // 点击派发打开全局命令面板事件(REPL 入口,常驻挂载的 MainWindow 监听后开面板)。
+    // try/finally 兜清理:断言失败时监听器不能漏在跨用例存活的 window 上
+    // (泄漏的 vi.fn 会继续吃后续用例派发的事件)
+    const onPalette = vi.fn()
+    window.addEventListener(PALETTE_EVENT, onPalette)
+    try {
+      fireEvent.click(plus)
+      expect(onPalette).toHaveBeenCalledTimes(1)
+    } finally {
+      window.removeEventListener(PALETTE_EVENT, onPalette)
+    }
+    // + 是第一行专属视觉:非顶排条以 pane 边框收尾,中部不放无功能占位
     const nonTop = render(<PaneTabBar pane={makePane(['s1'])} />)
     expect(nonTop.container.querySelector('.pane-tab-newtab')).toBeNull()
   })
@@ -337,6 +352,12 @@ describe('globals.css 拖拽区与内框', () => {
 })
 
 describe('MainWindow 布局不变量', () => {
+  it('页签条「+」钮经 window 事件打开全局命令面板(与 Ctrl+Shift+P 同一面板)', () => {
+    // 事件常量与监听落点(面板挂常驻 MainWindow;派发侧的渲染断言在上方顶排测试)
+    expect(MAIN_WINDOW).toContain('PALETTE_EVENT')
+    expect(MAIN_WINDOW).toContain('addEventListener(PALETTE_EVENT')
+  })
+
   it('侧栏收起态持久化(加载 + 防抖保存)', () => {
     expect(MAIN_WINDOW).toContain("getConfig('sidebarCollapsed')")
     expect(MAIN_WINDOW).toContain("setConfig('sidebarCollapsed'")

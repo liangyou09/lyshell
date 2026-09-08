@@ -675,7 +675,7 @@
   },
   "pane": {
     "tabHint": "单击切换 · 双击左键克隆会话 · 双击右键克隆渠道(SSH)",
-    "newTabReserved": "新建会话（预留）",
+    "newTab": "新建页签（打开命令面板）",
     "lockedByMcp": "MCP 正在使用此终端",
     "mcpTab": "MCP 活动",
     "mcpTabHint": "MCP 活动审计 · 点击切换 · ESC 关闭",

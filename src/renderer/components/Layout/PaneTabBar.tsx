@@ -4,6 +4,7 @@ import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { useSessionStore, type SessionState } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
+import { dispatchOpenPalette } from '../../commands/palette'
 import { OVERLAY_DRAG_MARKER, parseOverlayDragMarker, resolveOverlayDragId } from './overlay-drag'
 import { harnessKindFromTags, type HarnessAgentKind } from '@shared/harness'
 import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
@@ -1013,23 +1014,39 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
             setDragOverIndex={setDragOverIndex}
           />
         ))}
+
+        {/* 「+」新建页签钮(仅顶排) —— 跟随最后一个页签:紧贴末签而非钉在条尾
+            右缘,页签增删它随行进退;空 pane 不渲染(命令屏常驻,无须再开 REPL)。
+            flex-shrink-0 常驻占位:页签只缩不滚,28px 永不被挤占。点击打开全局
+            命令面板(与空状态同一 REPL,/new、/local 都在那里)。非顶排条以 pane
+            边框收尾,不放 + 避免中部多出占位 */}
+        {isTop && (
+          <button
+            onClick={dispatchOpenPalette}
+            title={t('pane.newTab')}
+            aria-label={t('pane.newTab')}
+            className="pane-tab-newtab win-no-drag w-[28px] h-full flex-shrink-0 flex items-center justify-center text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)] cursor-pointer select-none transition-colors"
+          >
+            {/* SVG 十字标:以视盒中心对称作图,永远正中 —— 文字 + 挂在字体基线上,
+                大号下光学偏移肉眼可见;描边方头与右上控制簇的 chevron 同语言 */}
+            <svg
+              aria-hidden
+              viewBox="0 0 12 12"
+              className="w-[16px] h-[16px]"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="square"
+            >
+              <path d="M6 1.5 V10.5 M1.5 6 H10.5" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* 会话页签悬停详情卡(fixed 挂 body,不占条内布局) */}
       {hoveredTab && hoveredSession && (
         <TabHoverCard session={hoveredSession} rect={hoveredTab.rect} />
-      )}
-
-      {/* 最右"+"预留位(仅顶排) —— Edge 顶栏专属视觉:窗口第一行的常驻右边界锚点,
-          页签挤爆后裁切/滚动都止于此;非顶排条以 pane 边框收尾,不放 + 避免中部
-          多出无功能占位。暂为占位,后续接"新建会话"入口 */}
-      {isTop && (
-        <div
-          title={t('pane.newTabReserved')}
-          className="pane-tab-newtab win-no-drag w-[28px] h-full flex-shrink-0 flex items-center justify-center text-sm text-[var(--text-rack-mute)] select-none cursor-default"
-        >
-          +
-        </div>
       )}
     </div>
   )
