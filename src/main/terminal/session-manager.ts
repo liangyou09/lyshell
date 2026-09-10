@@ -3,7 +3,7 @@ import { EventEmitter } from 'events'
 import log from 'electron-log'
 import { app } from 'electron'
 import { SSHConnector, TelnetConnector, SerialConnector, LocalConnector, ConnectionStatus, ConnectionType } from '../connectors'
-import type { SessionConfig, SSHConfig, TelnetConfig, SerialConfig } from '@shared/types'
+import type { SessionConfig, SSHConfig, TelnetConfig, SerialConfig, TerminalEncoding } from '@shared/types'
 import { processInputEscapeSequences, appendAutoNewline } from '@shared/escape-sequences'
 import { OutputBuffer } from './output-buffer'
 import { fileManager, cancelDownloadsBySession, cancelUploadsBySession } from '@main/file'
@@ -72,6 +72,16 @@ export function extractErrorMessage(error: Error | string): string {
   }
 
   return cleanMsg.trim()
+}
+
+/**
+ * 协议段 + 运行时编码：connector config.encoding 的唯一派生点 —— terminal.encoding
+ * 是编码的唯一来源，connectSessionAttempt 三分支与 cloneChannel 共用此口径，漏一处
+ * 就回到「克隆渠道按 utf-8 解码而状态栏读数说谎」的漂移。展开浅拷贝还顺带断开与源
+ * config 的共享引用 —— connector.setEncoding 只写进自己的副本，不污染会话/保存配置
+ */
+function withRuntimeEncoding<T extends object>(proto: T, session: Session): T & { encoding?: TerminalEncoding } {
+  return { ...proto, encoding: session.config.terminal?.encoding }
 }
 
 /**
@@ -241,6 +251,43 @@ export class SessionManager extends EventEmitter {
   }
 
   /**
+   * 运行时切换会话编码（状态栏点击 / MCP create_session 复用落位）。
+   * 只改运行时：session.config.terminal.encoding 让 readDoc 等按 config 读取的路径跟随，
+   * 也让 reconnect 复用 config 重建连接器时保持切换值；connector.setEncoding 重建解码流。
+   * 不写回 repository —— 同一会话重连保持，关闭后重开（从保存配置新建）才回到保存值。
+   * 不动 updateSession 的 updatedAt/lastActiveAt（编码切换不算用户活动），
+   * 但推 session:encoding-changed 让渲染层 live 读数跟随（handlers 转发到所有窗口）。
+   * local 会话恒为 UTF-8（ConPTY 不走编码层，LocalConnector.setEncoding 是空实现）——
+   * 前端已隐藏入口，这里再兜一层：返回 false 而不是「成功但无效果」。
+   */
+  setSessionEncoding(id: string, encoding: TerminalEncoding): boolean {
+    const session = this.sessions.get(id)
+    if (!session) return false
+    if (session.config.type === ConnectionType.LOCAL) return false
+    // 同值幂等短路：配置与连接器都已是该值时无事可做 —— 解码流重建会把半截多字节
+    // 序列冲成替换字符（见 replaceDecoder 的 end() 收尾），「重选当前档」不该在终端
+    // 里多落一个 �。connector 缺席（未连接）且配置已同值同样视为命中；config 与
+    // connector 真值漂移则照常落位修复。短路返回 true（调用方语义是「该会话当前即
+    // 此编码」），也不推事件 —— 值没变，渲染层读数本来就对
+    if (session.config.terminal?.encoding === encoding && (!session.connector || session.connector.getEncoding() === encoding)) {
+      return true
+    }
+    // spread 合并而非整体替换，保住 terminal 段其余字段（字体/回滚等）。
+    // 注意是整体换新对象、不是原地改写：session.config 可能与 repository 的内存对象
+    // 同源（MCP create_session 就地连接直接把 repository 对象传入 createSession），
+    // 原地改写会把运行时编码污染进保存值（listSessions/编辑对话框立刻可见，
+    // 之后任何落盘路径再把它写进 sessions.json）
+    session.config = {
+      ...session.config,
+      terminal: { ...session.config.terminal, encoding }
+    }
+    session.connector?.setEncoding(encoding)
+    log.info(`Session encoding switched: ${id} -> ${encoding}`)
+    this.emit('session:encoding-changed', { sessionId: id, encoding })
+    return true
+  }
+
+  /**
    * 删除运行时会话。先复用完整断开流程取消传输、清理连接器并撤销 token，再立即清除缓冲与 Map。
    */
   async deleteSession(id: string): Promise<boolean> {
@@ -311,22 +358,13 @@ export class SessionManager extends EventEmitter {
       // 根据类型创建连接器
       switch (session.config.type) {
         case ConnectionType.SSH:
-          session.connector = new SSHConnector(id, {
-            ...session.config.ssh as SSHConfig,
-            encoding: session.config.terminal?.encoding
-          })
+          session.connector = new SSHConnector(id, withRuntimeEncoding(session.config.ssh as SSHConfig, session))
           break
         case ConnectionType.TELNET:
-          session.connector = new TelnetConnector(id, {
-            ...session.config.telnet as TelnetConfig,
-            encoding: session.config.terminal?.encoding
-          })
+          session.connector = new TelnetConnector(id, withRuntimeEncoding(session.config.telnet as TelnetConfig, session))
           break
         case ConnectionType.SERIAL:
-          session.connector = new SerialConnector(id, {
-            ...session.config.serial as SerialConfig,
-            encoding: session.config.terminal?.encoding
-          })
+          session.connector = new SerialConnector(id, withRuntimeEncoding(session.config.serial as SerialConfig, session))
           break
         case ConnectionType.LOCAL: {
           const extraEnv: Record<string, string> = {}
@@ -629,8 +667,9 @@ export class SessionManager extends EventEmitter {
       return null
     }
 
-    // 创建新的 SSH connector，共享 client
-    const newConnector = new SSHConnector(newId, sourceSession.config.ssh as SSHConfig)
+    // 创建新的 SSH connector，共享 client。encoding 随源会话运行时值派生
+    // （唯一派生点 withRuntimeEncoding，口径同 connectSessionAttempt 的三分支）
+    const newConnector = new SSHConnector(newId, withRuntimeEncoding(sourceSession.config.ssh as SSHConfig, sourceSession))
     newConnector.setSharedClient(sshClient)  // 共享 SSH client
 
     newSession.connector = newConnector

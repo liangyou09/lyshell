@@ -4,7 +4,7 @@ import { existsSync } from 'fs'
 import { delimiter, join } from 'path'
 import { BaseConnector } from './base'
 import { readSystemPath } from '../env/refresh'
-import type { LocalConfig } from '@shared/types'
+import type { LocalConfig, TerminalEncoding } from '@shared/types'
 
 /**
  * 本地终端配置 —— 复用 @shared/types 的 LocalConfig（单一真相源）。
@@ -60,6 +60,14 @@ export class LocalConnector extends BaseConnector {
     super(sessionId)
     this.config = config
     this.extraEnv = extraEnv
+  }
+
+  /**
+   * 运行时切换编码的空实现：local 走 ConPTY 恒为 UTF-8，无编码层可切
+   * （见 BaseConnector.setEncoding；SessionManager 对 LOCAL 会话直接拒绝，这里仅兜底）。
+   */
+  setEncoding(_encoding: TerminalEncoding): void {
+    // 无操作
   }
 
   /**

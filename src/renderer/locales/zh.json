@@ -441,6 +441,7 @@
     "noSession": "无会话",
     "clearScreenHint": "单击清屏(保留滚动历史)",
     "scrollBottomHint": "单击滚回底部 · 双击清空滚动历史",
+    "encodingHint": "点击选择编码 · 立即生效(仅本会话,不写回保存的配置)",
     "commandLimit": "{{name}} 已达 12 条命令上限",
     "deleteGroupConfirm": "删除分组?\n\n该分组内有 {{count}} 条命令,将变为未分组。",
     "editCommandTitle": "编辑命令",

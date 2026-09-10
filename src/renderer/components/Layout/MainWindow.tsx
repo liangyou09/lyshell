@@ -214,6 +214,16 @@ const MainWindow: React.FC = () => {
     return cleanup
   }, [])
 
+  // 运行时编码切换推送（状态栏点击 / MCP create_session 复用落位）—— 更新 live 读数。
+  // 只写 entry 的 runtimeEncoding（config 外的运行时字段），保存值镜像不受影响
+  useEffect(() => {
+    if (!window.electronAPI?.onSessionEncodingChanged) return
+    const cleanup = window.electronAPI.onSessionEncodingChanged(({ sessionId, encoding }) => {
+      useSessionStore.getState().setRuntimeEncoding(sessionId, encoding)
+    })
+    return cleanup
+  }, [])
+
   // 启动时把当前已在终端页签中的会话同步给主进程（覆盖从 localStorage 恢复布局的场景）
   useEffect(() => {
     if (!window.electronAPI?.syncTerminalOpenSessions) return

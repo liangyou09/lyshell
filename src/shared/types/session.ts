@@ -1,3 +1,5 @@
+import { TERMINAL_ENCODINGS } from '../constants'
+
 /**
  * 会话配置
  */
@@ -121,6 +123,14 @@ export interface LocalConfig {
 }
 
 /**
+ * 终端字符编码 —— 读方向(connector 解码流)/写方向(write 编码)共用。
+ * 从 TERMINAL_ENCODINGS 白名单派生(typeof [number]):加编码只改常量一处,
+ * 类型自动跟随,不会与手写的联合漂移。
+ * local 会话不适用(ConPTY 恒为 UTF-8)
+ */
+export type TerminalEncoding = typeof TERMINAL_ENCODINGS[number]
+
+/**
  * 终端配置
  */
 export interface TerminalConfig {
@@ -131,7 +141,7 @@ export interface TerminalConfig {
   cursorStyle: 'block' | 'underline' | 'bar'
   cursorBlink: boolean
   scrollback: number
-  encoding: 'utf-8' | 'gbk' | 'gb2312'
+  encoding: TerminalEncoding
 }
 
 /**

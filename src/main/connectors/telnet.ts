@@ -1,7 +1,7 @@
 import { Socket } from 'net'
 import log from 'electron-log'
-import iconv from 'iconv-lite'
 import { BaseConnector } from './base'
+import type { TerminalEncoding } from '@shared/types'
 
 /**
  * Telnet 配置
@@ -10,7 +10,7 @@ export interface TelnetConfig {
   host: string
   port: number
   timeout?: number
-  encoding?: 'utf-8' | 'gbk' | 'gb2312'
+  encoding?: TerminalEncoding
 }
 
 /**
@@ -19,10 +19,9 @@ export interface TelnetConfig {
 export class TelnetConnector extends BaseConnector {
   private config: TelnetConfig
   private socket: Socket | null = null
-  private decoder: ReturnType<typeof iconv.decodeStream> | null = null
 
   constructor(sessionId: string, config: TelnetConfig) {
-    super(sessionId)
+    super(sessionId, config.encoding)
     this.config = config
   }
 
@@ -32,16 +31,13 @@ export class TelnetConnector extends BaseConnector {
   async connect(config?: TelnetConfig): Promise<void> {
     if (config) {
       this.config = config
+      this.encoding = config.encoding || 'utf-8'
     }
 
     log.info(`Telnet connecting to ${this.config.host}:${this.config.port}`)
 
     this.socket = new Socket()
-    // 用流式解码器避免多字节字符被 TCP 拆包截断产生乱码
-    const dec = iconv.decodeStream(this.config.encoding || 'utf-8')
-    dec.on('data', (str: string) => this.emitData(str))
-    dec.on('error', (err: Error) => log.warn('Telnet decode stream error:', err))
-    this.decoder = dec
+    this.replaceDecoder()
 
     this.socket.on('connect', () => {
       log.info('Telnet connected')
@@ -194,7 +190,7 @@ export class TelnetConnector extends BaseConnector {
       return
     }
 
-    this.socket.write(data)
+    this.socket.write(this.encodeOut(data))
   }
 
   /**

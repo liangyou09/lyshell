@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type { WorktreeListResult } from '@shared/worktree'
+import type { TerminalEncoding } from '@shared/types'
 
 // IPC 通道定义
 const IPC_CHANNELS = {
@@ -19,6 +20,8 @@ const IPC_CHANNELS = {
   SESSION_DELETE: 'session:delete',
   SESSION_LIST: 'session:list',
   SESSION_GET: 'session:get',
+  SESSION_SET_ENCODING: 'session:set-encoding',  // 状态栏点击运行时切换编码
+  SESSION_ENCODING_CHANGED: 'session:encoding-changed',  // 运行时编码切换完成后的推送
   SESSIONS_CHANGED: 'sessions:changed',  // 外部路径（MCP）改动会话列表后的推送
 
   // 串口
@@ -187,6 +190,15 @@ const electronAPI = {
   deleteSession: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.SESSION_DELETE, sessionId),
   listSessions: () => ipcRenderer.invoke(IPC_CHANNELS.SESSION_LIST),
   getSession: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.SESSION_GET, sessionId),
+  // 状态栏点击运行时切换会话编码（只改运行时会话，不写回保存的配置）
+  setSessionEncoding: (sessionId: string, encoding: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SESSION_SET_ENCODING, sessionId, encoding),
+  // 运行时编码切换完成后的推送（状态栏点击 / MCP create_session 复用落位）
+  onSessionEncodingChanged: (callback: (payload: { sessionId: string; encoding: TerminalEncoding }) => void) => {
+    const listener = (_event: IpcRendererEvent, payload: { sessionId: string; encoding: TerminalEncoding }) => callback(payload)
+    ipcRenderer.on(IPC_CHANNELS.SESSION_ENCODING_CHANGED, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.SESSION_ENCODING_CHANGED, listener)
+  },
 
   // 串口枚举
   listSerialPorts: () => ipcRenderer.invoke(IPC_CHANNELS.SERIAL_LIST_PORTS),

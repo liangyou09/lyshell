@@ -30,10 +30,11 @@ import { ConnectionStatus } from '../connectors'
 import { findPwshPath } from '../connectors/local'
 import { reachabilityProber, type ReachabilityTarget } from '../reachability/reachability-prober'
 import { ConnectionType, isDocPath, DOC_MAX_REMOTE_BYTES, DOC_MAX_LOCAL_BYTES } from '@shared/types'
+import { TERMINAL_ENCODINGS } from '@shared/constants'
 import type { DocReadResult } from '@shared/types'
 import * as iconv from 'iconv-lite'
 import { fileManager, startDownloadWorker, registerTaskMeta, startUploadWorker, cancelDownload, cancelUpload, assertSafeLocalPath } from '../file'
-import type { SessionConfig } from '@shared/types'
+import type { SessionConfig, TerminalEncoding } from '@shared/types'
 import {
   assertBoolean,
   assertEnum,
@@ -46,6 +47,7 @@ import {
   validationFailure,
   ValidationError
 } from './validation'
+import { sanitizeSessionEncoding } from '@shared/encoding'
 import { getMcpAddCommandForIpc } from '../mcp/http-server'
 import { mcpAuditRepository } from '../storage/mcp-audit-repository'
 import type { McpAuditQuery } from '../storage/mcp-audit-repository'
@@ -119,6 +121,10 @@ export const IPC_CHANNELS = {
   SESSION_GET: 'session:get',
   SESSION_FAVORITES: 'session:favorites',
   SESSION_RECENT: 'session:recent',
+  // 状态栏点击运行时切换会话编码（只改运行时会话，不写回保存的配置）
+  SESSION_SET_ENCODING: 'session:set-encoding',
+  // 运行时编码切换完成后的推送（状态栏点击 / MCP create_session 复用落位都会触发）
+  SESSION_ENCODING_CHANGED: 'session:encoding-changed',
   // 会话列表被外部路径（MCP 写入/创建）改动后，向所有窗口推送一次，触发渲染层增量同步
   SESSIONS_CHANGED: 'sessions:changed',
 
@@ -374,6 +380,7 @@ export function registerIPCHandlers(): void {
       if (config.id !== undefined) assertString(config.id, 'config.id', { maxLength: 128, allowEmpty: true })
       assertString(config.name, 'config.name', { maxLength: 200 })
       assertString(config.type, 'config.type', { maxLength: 32 })
+      sanitizeSessionEncoding(config)
 
       // 空 id 表示临时会话，直接创建新连接
       if (!config.id || config.id.trim() === '') {
@@ -408,6 +415,24 @@ export function registerIPCHandlers(): void {
       const existingSession = sessionManager.getSession(config.id)
       if (existingSession) {
         sessionManager.updateSession(config.id, savedConfig, { touchLastActive: false })
+        // updateSession 用保存值整体替换 terminal 段 —— 运行时切换过的编码会被静默冲回
+        // 保存值，而 connector 仍按旧值解码（读文档/重连/克隆全部跟着漂移，读数也说谎）。
+        // 连接中/重连中也持有运行时真值（connector 已由 connectSessionAttempt 按
+        // withRuntimeEncoding 构造）：漏掉它们的话冲掉 config 后无人恢复，CONNECTING
+        // 早退返回，connector 与 config 各说各话，下次重连再按被冲掉的值建流、切换
+        // 永久丢失。仍排除 stale：disconnectSession 不清 session.connector，死连接器
+        // 残留的编码不能盖过用户刚改的保存值；保存值缺 terminal.encoding 时也不恢复
+        // （getEncoding() 恒有值，会凭空落一次 utf-8 切换、平推一轮事件）。
+        // setSessionEncoding 会顺带推 session:encoding-changed 让渲染层读数跟齐
+        const connector = existingSession.connector
+        const runtimeEncoding = connector && (connector.isConnected()
+          || existingSession.status === ConnectionStatus.CONNECTING
+          || existingSession.status === ConnectionStatus.RECONNECTING)
+          ? connector.getEncoding()
+          : undefined
+        if (runtimeEncoding && savedConfig.terminal?.encoding !== undefined && savedConfig.terminal?.encoding !== runtimeEncoding) {
+          sessionManager.setSessionEncoding(config.id, runtimeEncoding)
+        }
         if (
           existingSession.status === ConnectionStatus.CONNECTED ||
           existingSession.status === ConnectionStatus.CONNECTING
@@ -543,6 +568,12 @@ export function registerIPCHandlers(): void {
     }
   })
 
+  // 运行时编码切换（状态栏点击 / MCP create_session 复用落位）—— 推送渲染层更新 live 读数。
+  // 渲染层把运行时编码放在 entry 的独立字段 runtimeEncoding（不混进 config），推送只改那个字段
+  sessionManager.on('session:encoding-changed', ({ sessionId, encoding }: { sessionId: string; encoding: TerminalEncoding }) => {
+    sendToAllWindows(IPC_CHANNELS.SESSION_ENCODING_CHANGED, { sessionId, encoding })
+  })
+
   // ===== TCP 可达性探测 =====
   // 把所有保存的 SSH/Telnet 会话作为探测目标，每 30s 跑一遍，结果推到渲染层。
   // 用 config.id 作为 key — 与 saved 行直接对齐，不受 name/host 变更影响，也能区分同 host 不同账号。
@@ -604,6 +635,7 @@ export function registerIPCHandlers(): void {
       assertObject(config, 'config')
       assertString(config.name, 'config.name', { maxLength: 200 })
       assertString(config.type, 'config.type', { maxLength: 32 })
+      sanitizeSessionEncoding(config)
       log.debug('Create session:', config.name)
       const saved = sessionRepository.saveSession(config)
       syncReachabilityTargets()
@@ -619,7 +651,15 @@ export function registerIPCHandlers(): void {
       assertString(config.id, 'config.id', { maxLength: 128 })
       assertString(config.name, 'config.name', { maxLength: 200 })
       assertString(config.type, 'config.type', { maxLength: 32 })
+      sanitizeSessionEncoding(config)
       log.debug('Update session:', config.id)
+      // connectCount 是单调统计(每次连接只增),入参来自渲染层镜像 —— MCP 写回聚合值
+      // (write_session_notes)后镜像刷新落地前存在窄窗口(如编辑对话框开着时收到),
+      // 整包保存会把旧值盖回去。写前钳到与仓库现值的较大者,只增不减
+      const existing = sessionRepository.get(config.id)
+      if (existing && typeof existing.connectCount === 'number') {
+        config.connectCount = Math.max(config.connectCount ?? 0, existing.connectCount)
+      }
       const saved = sessionRepository.saveSession(config)
       syncReachabilityTargets()
       return saved
@@ -664,6 +704,20 @@ export function registerIPCHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.SESSION_FAVORITES, async () => {
     log.debug('Get favorite sessions')
     return sessionRepository.getFavorites()
+  })
+
+  // 状态栏点击切换编码：只改运行时会话（connector 解码流/写编码 + session.config），
+  // 不写回 repository —— 重连沿用切换值（reconnect 复用 Session 与 config），关闭后
+  // 重新打开（从保存配置新建）才回到保存值，与 SessionDialog 的持久配置各管各的
+  ipcMain.handle(IPC_CHANNELS.SESSION_SET_ENCODING, async (_event, _sessionId: string, _encoding: string) => {
+    try {
+      const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
+      const encoding = assertEnum(_encoding, 'encoding', TERMINAL_ENCODINGS)
+      const ok = sessionManager.setSessionEncoding(sessionId, encoding)
+      return { success: ok }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
+    }
   })
 
   ipcMain.handle(IPC_CHANNELS.SESSION_RECENT, async (_event, limit?: number) => {

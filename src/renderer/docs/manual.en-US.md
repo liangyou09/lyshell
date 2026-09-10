@@ -13,7 +13,7 @@ This manual covers everything LyShell can do. Use the outline rail on the left t
 | Left column · panel | Sessions / Agents / DeepSeek Harness / Codex / Claude / Env / Plugins / Web / Settings |
 | Terminal column · tab bar | Browser-style tab bar lifted to the window's first row; doubles as the window drag area |
 | Terminal column · panes | Recursive split tree, horizontal / vertical |
-| Session panel bottom | LIVE-row terminal readouts (cols × rows, buffer lines) + quick-command groups |
+| Session panel bottom | LIVE-row terminal readouts (charset, cols × rows, buffer lines) + quick-command groups |
 
 The sidebar collapses (button at the top of the rail) leaving an L-shaped inner frame that lights up on hover to expand — giving the terminals full width.
 
@@ -66,7 +66,7 @@ Tab status dots: 🟢 connected · 🔴 error · ⚪ disconnected · 🔵 new ou
 
 ### Terminal readouts
 
-In the LIVE row at the bottom of the session sidebar: click "cols × rows" to clear the screen (keeps scrollback); click the buffer-line count to scroll to bottom, double-click to clear scrollback.
+In the LIVE row at the bottom of the session sidebar: click "cols × rows" to clear the screen (keeps scrollback); click the buffer-line count to scroll to bottom, double-click to clear scrollback. The readout also shows the protocol code and charset (shown for SSH / Telnet / serial; local terminals are always UTF-8 via ConPTY and show no charset). Click the charset to open a picker (UTF-8 / GBK / GB2312, current one highlighted) — both directions switch immediately for this session only. The saved session config is left untouched: the same session keeps its current charset across reconnects, and reopening the session falls back to the saved value. Existing garbled text is not retro-fixed; output after the switch decodes with the new charset.
 
 ## Command mode
 

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { SessionConfig, SerialPortInfo } from '@shared/types'
+import type { SessionConfig, SerialPortInfo, TerminalEncoding } from '@shared/types'
 import { ConnectionType } from '@shared/types'
-import { DEFAULT_THEME_DARK } from '@shared/constants'
+import { DEFAULT_THEME_DARK, TERMINAL_ENCODINGS } from '@shared/constants'
+import { useEscDismiss } from '../../hooks'
 
 interface SessionDialogProps {
   open: boolean
@@ -69,7 +70,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
   const [isCustomShell, setIsCustomShell] = useState(false)
   const [localCwd, setLocalCwd] = useState('')
 
-  const [encoding, setEncoding] = useState<'utf-8' | 'gbk' | 'gb2312'>('utf-8')
+  const [encoding, setEncoding] = useState<TerminalEncoding>('utf-8')
 
   // ─── 会话备注 ─────────────────────────────────────────
   const [summary, setSummary] = useState('')
@@ -228,21 +229,16 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
     scanSerialPorts()
   }, [open, type, scanSerialPorts])
 
-  // ─── ESC 关闭 ─────────────────────────────────────────
-  useEffect(() => {
-    if (!open) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleCancel()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
-
   const handleCancel = () => {
     // 提交后 dialog 立即关闭,无 linking 中间态需要回滚 —— 直接关掉即可。
     onCloseRef.current()
   }
+
+  // ─── ESC 关闭 ─────────────────────────────────────────
+  // 入 ESC 回退栈(与浮层/终端搜索条统一层级顺序:栈顶优先、逐层回退),不自留
+  // window 监听 —— 栈顶成员在 document 捕获层截停后自留监听收不到按键,表现为
+  // 第一下 ESC 死掉、要多按一下才轮到本层
+  useEscDismiss(open, handleCancel)
 
   if (!open) return null
 
@@ -280,7 +276,9 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
           cursorBlink: true,
           scrollback: 10000
         },
-        encoding: encoding
+        // local 恒 utf-8：LocalConnector 无编码层，存别的值是与 MCP/状态栏矛盾的脏数据
+        // （也顺带治愈历史存盘里 local+gbk 之类的值）
+        encoding: type === ConnectionType.LOCAL ? 'utf-8' : encoding
       },
       createdAt: initialConfig?.createdAt || new Date(),
       updatedAt: new Date()
@@ -1040,30 +1038,33 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
 
           {/* NOTES — 已合并入 renderMacroPanel 的第三个 tab */}
 
-          {/* META */}
+          {/* META —— Charset 仅远程类型：local 走 ConPTY 恒为 UTF-8，展示可切的
+              编码是与实际不符的谎言（与状态栏读数/MCP 的 local 契约一致） */}
           <div className="py-3.5 px-4">
-            <FieldRow label="Charset" bare labelWidth="w-[56px]">
-              <div className="flex gap-1 flex-1">
-                {(['utf-8', 'gbk', 'gb2312'] as const).map(enc => {
-                  const isOn = encoding === enc
-                  return (
-                    <button
-                      key={enc}
-                      type="button"
-                      onClick={() => setEncoding(enc)}
-                      className="font-mono text-[12px] px-2.5 py-1 border rounded-sm cursor-pointer tracking-[0.04em]"
-                      style={{
-                        color: isOn ? accent : 'var(--text-rack-data)',
-                        borderColor: isOn ? accent : 'var(--rule)',
-                        background: isOn ? `color-mix(in srgb, ${accent} 6%, transparent)` : 'var(--bg-base)'
-                      }}
-                    >
-                      {enc}
-                    </button>
-                  )
-                })}
-              </div>
-            </FieldRow>
+            {type !== ConnectionType.LOCAL && (
+              <FieldRow label="Charset" bare labelWidth="w-[56px]">
+                <div className="flex gap-1 flex-1">
+                  {TERMINAL_ENCODINGS.map(enc => {
+                    const isOn = encoding === enc
+                    return (
+                      <button
+                        key={enc}
+                        type="button"
+                        onClick={() => setEncoding(enc)}
+                        className="font-mono text-[12px] px-2.5 py-1 border rounded-sm cursor-pointer tracking-[0.04em]"
+                        style={{
+                          color: isOn ? accent : 'var(--text-rack-data)',
+                          borderColor: isOn ? accent : 'var(--rule)',
+                          background: isOn ? `color-mix(in srgb, ${accent} 6%, transparent)` : 'var(--bg-base)'
+                        }}
+                      >
+                        {enc}
+                      </button>
+                    )
+                  })}
+                </div>
+              </FieldRow>
+            )}
           </div>
 
           {/* TELEMETRY STRIP */}

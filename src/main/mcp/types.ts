@@ -3,6 +3,8 @@
  * 主进程 HTTP 服务器与 MCP Server 进程之间共享
  */
 
+import type { TerminalEncoding } from '@shared/types'
+
 /**
  * API 统一响应格式
  */
@@ -342,8 +344,8 @@ export interface CreateSessionRequest {
   tags?: string[]
   /** 启动命令行（可选，每行一条） */
   startupCommands?: string[]
-  /** 终端字符集 */
-  encoding?: 'utf-8' | 'gbk' | 'gb2312'
+  /** 终端字符集（白名单见 @shared/constants TERMINAL_ENCODINGS，服务端强校验；local 恒 utf-8，传其他值 400 拒绝） */
+  encoding?: TerminalEncoding
   /** 必须设为 true；服务端强校验，确保 LLM 已在调用前询问用户 */
   userConfirmed: boolean
   /**

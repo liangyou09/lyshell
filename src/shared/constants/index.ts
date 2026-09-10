@@ -115,6 +115,15 @@ export const DEFAULT_THEME_LIGHT = {
 export const TERMINAL_WEBFONT_FAMILY = 'Maple Mono NF CN'
 
 /**
+ * 终端编码取值表（type 见 @shared/types 的 TerminalEncoding）—— 单一事实来源。
+ * 消费方：IPC 校验(handlers assertEnum)、状态栏编码选择菜单、SessionDialog
+ * 的 Charset 选择器。加新编码(如 big5)只改这里 + TerminalEncoding 类型,
+ * 三处消费方自动跟进 —— 漏改任意一处会出现"菜单有值但 IPC 拒收"或反向的静默 no-op。
+ * connector 配置接口(SSHConfig 等)只引 TerminalEncoding 类型,不再复制字面量联合。
+ */
+export const TERMINAL_ENCODINGS = ['utf-8', 'gbk', 'gb2312'] as const
+
+/**
  * 默认字体
  * 顺序关键：Maple Mono NF CN 排最前 —— 圆角等宽字体，中文严格 2:1 且自带 Nerd Font 图标，
  * 能让中文/符号在 xterm 的固定列网格里对齐不漂移（见 TerminalView 的 convertEol 与

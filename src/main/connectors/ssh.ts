@@ -1,8 +1,8 @@
 import { Client, ClientChannel } from 'ssh2'
 import type { ConnectConfig } from 'ssh2'
 import log from 'electron-log'
-import iconv from 'iconv-lite'
 import { BaseConnector } from './base'
+import type { TerminalEncoding } from '@shared/types'
 
 /**
  * SSH 配置
@@ -16,7 +16,7 @@ export interface SSHConfig {
   passphrase?: string
   keepaliveInterval?: number
   readyTimeout?: number
-  encoding?: 'utf-8' | 'gbk' | 'gb2312'
+  encoding?: TerminalEncoding
 }
 
 /**
@@ -27,25 +27,14 @@ export class SSHConnector extends BaseConnector {
   private client: Client | null = null
   private channel: ClientChannel | null = null
   private sharedClient: Client | null = null  // 共享的 SSH client
-  private decoder: ReturnType<typeof iconv.decodeStream> | null = null
   private _connecting: boolean = false  // 是否正在连接中
   private _connectReject: ((error: Error) => void) | null = null  // 连接 Promise 的 reject 函数
   private _cols: number = 80  // 终端列数
   private _rows: number = 24  // 终端行数
 
   constructor(sessionId: string, config: SSHConfig) {
-    super(sessionId)
+    super(sessionId, config.encoding)
     this.config = config
-  }
-
-  /**
-   * 创建流式解码器，避免多字节字符被 TCP 拆包截断
-   */
-  private createDecoder(): void {
-    const dec = iconv.decodeStream(this.config.encoding || 'utf-8')
-    dec.on('data', (str: string) => this.emitData(str))
-    dec.on('error', (err: Error) => log.warn('SSH decode stream error:', err))
-    this.decoder = dec
   }
 
   /**
@@ -97,7 +86,7 @@ export class SSHConnector extends BaseConnector {
         this.connected = true
 
         // 共享 client 复用路径上也需要独立的解码器
-        this.createDecoder()
+        this.replaceDecoder()
 
         // 接收数据（写入流式解码器，避免多字节字符被拆包截断）
         channel.on('data', (data: Buffer) => {
@@ -127,6 +116,7 @@ export class SSHConnector extends BaseConnector {
   async connect(config?: SSHConfig): Promise<void> {
     if (config) {
       this.config = config
+      this.encoding = config.encoding || 'utf-8'
     }
 
     log.info(`SSH connecting to ${this.config.host}:${this.config.port}`)
@@ -142,7 +132,7 @@ export class SSHConnector extends BaseConnector {
       this.emit('connected')
 
       // 每个连接单独一个流式解码器
-      this.createDecoder()
+      this.replaceDecoder()
 
       // 启动 shell
       this.startShell()
@@ -303,7 +293,7 @@ export class SSHConnector extends BaseConnector {
       return
     }
 
-    this.channel.write(data)
+    this.channel.write(this.encodeOut(data))
   }
 
   /**

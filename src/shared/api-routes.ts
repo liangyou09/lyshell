@@ -16,6 +16,8 @@
  * 真相源，使 TOOL_DEFINITIONS 退化为纯投影（tools.ts 仅保留 MCP 专属的旧名别名机制）。
  */
 
+import { TERMINAL_ENCODINGS } from './constants'
+
 /** MCP 能力集。与 src/main/mcp/http-server.ts / mcp/auth.ts 保持一致（此处为唯一来源）。 */
 export type McpCapability =
   | 'read'
@@ -548,8 +550,11 @@ export const API_ROUTES: ApiRouteMeta[] = [
         },
         encoding: {
           type: 'string',
-          enum: ['utf-8', 'gbk', 'gb2312'],
-          description: 'Terminal charset (default utf-8).'
+          // 单一真相源：与 http-server 校验、状态栏菜单、SessionDialog 共用同一常量，
+          // 加新档位只改 TERMINAL_ENCODINGS —— 此处硬编码会漂移成「schema 只列 3 档
+          // 而服务端已收第 4 档」的工具契约不一致
+          enum: [...TERMINAL_ENCODINGS],
+          description: 'Terminal charset (default utf-8). Not applicable to local sessions (always utf-8; other values are rejected). When reusing an existing saved session, the charset is applied to the live session BEFORE connecting; if that connect fails, the session keeps the requested charset for the next connect attempt and only reverts to the saved value after the live session is closed and reopened.'
         },
         userConfirmed: {
           type: 'boolean',

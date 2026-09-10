@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { SessionConfig } from '@shared/types'
+import type { SessionConfig, TerminalEncoding } from '@shared/types'
 import { ConnectionStatus } from '@shared/types'
 import { useTerminalStore } from './terminal-store'
 import i18n from '../i18n'
@@ -10,6 +10,12 @@ import i18n from '../i18n'
 export interface SessionState {
   id: string
   config: SessionConfig
+  /**
+   * 运行时编码（状态栏切档 / MCP 落位的推送字段）—— 放 config 外：
+   * config 始终是保存值的镜像（sync/update 会整体替换），运行时值独立存放
+   * 才不会被同步冲掉、读数也才与 connector 实际解码一致
+   */
+  runtimeEncoding?: TerminalEncoding
   status: ConnectionStatus
   lastError?: string
   isTemporary?: boolean // 临时会话标记
@@ -27,6 +33,13 @@ interface SessionStore {
 
   // 所有会话（包括临时会话）
   sessions: SessionState[]
+
+  // 编码推送早于 entry 建立时的暂存（id -> 编码）：MCP create_session 就地连接时，
+  // main 先后推 session:status（CONNECTING）与 session:encoding-changed，渲染层
+  // onConnectionStatus 收到前者才发起异步 getSession 建 entry —— 后者必然先到、
+  // 直接落位会被丢弃（读数停在保存值而 connector 已按新值解码）。暂存后由
+  // addTemporarySession 建立时带上，deleteSession 时清掉
+  pendingRuntimeEncoding: Record<string, TerminalEncoding>
 
   // 可达性映射：key = saved session.id（与 main/ipc/handlers.ts 中 syncReachabilityTargets 对齐）
   reachability: Record<string, { reachable: boolean; at: number }>
@@ -70,6 +83,14 @@ interface SessionStore {
   updateReachability: (key: string, reachable: boolean) => void
   setActiveSession: (id: string | null) => void
 
+  // 运行时切换会话编码（状态栏点击）—— 只发 IPC，不在这里改 state：main 成功后推
+  // session:encoding-changed，MainWindow 监听落位 setRuntimeEncoding（单一驱动源，
+  // 避免「乐观更新 + 推送回填」双写竞态；不写回 savedSessions，关闭后重新打开才回到保存值）
+  setSessionEncoding: (id: string, encoding: TerminalEncoding) => Promise<void>
+
+  // session:encoding-changed 推送的落点：只写对应 entry 的 runtimeEncoding
+  setRuntimeEncoding: (id: string, encoding: TerminalEncoding) => void
+
   // 获取方法
   getSession: (id: string) => SessionState | undefined
   getActiveSession: () => SessionState | undefined
@@ -88,6 +109,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   savedSessions: [],
   sessions: [],
   reachability: {},
+  pendingRuntimeEncoding: {},
   activeSessionId: null,
   loading: false,
 
@@ -103,6 +125,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   // 外部路径（MCP）改动后的增量同步：savedSessions 全量替换；
   // sessions 数组保留每个既有 entry 的运行态（status/isTemporary/hasActivity），仅用最新 config 覆盖。
+  // 运行时编码不怕被覆盖 —— 它在 entry 的 runtimeEncoding 字段（config 外），
+  // config 换成保存值镜像不影响读数（见 SessionState.runtimeEncoding）。
   // 新会话只进 savedSessions（sidebar SAVED 段以它为源），不强行塞进 sessions——用户没打开就不该出现在 LIVE 段。
   syncSessionsFromBackend: async () => {
     try {
@@ -126,15 +150,19 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set({ loading: true })
     try {
       const sessions = await window.electronAPI.listSessions()
-      set({
+      set(state => ({
         savedSessions: sessions,
+        // 启动窗口内可能有编码推送先到（listSessions 往返期间）：已有 entry 的
+        // runtimeEncoding 保留；暂存里的早到推送在此消费 —— addTemporarySession
+        // 的合并路径会再兜一次，同值重复消费无害
         sessions: sessions.map(s => ({
           id: s.id,
           config: s,
-          status: 'disconnected' as ConnectionStatus
+          status: 'disconnected' as ConnectionStatus,
+          runtimeEncoding: state.sessions.find(e => e.id === s.id)?.runtimeEncoding ?? state.pendingRuntimeEncoding[s.id]
         })),
         loading: false
-      })
+      }))
     } catch (error) {
       console.error('Failed to load sessions:', error)
       set({ loading: false })
@@ -169,29 +197,73 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }))
   },
 
+  // 运行时切换编码（状态栏点击）：只发 IPC。成功后 main 推 session:encoding-changed，
+  // 由 MainWindow 监听调 setRuntimeEncoding 落位 —— 单一驱动源，这里不做乐观更新。
+  // handler 对未知会话/local 兜底拒绝时是「解析 {success:false}」而非抛错，不查就是
+  // 静默 no-op —— 留 warn 供排查（读数保持原值，main 没推事件）
+  setSessionEncoding: async (id, encoding) => {
+    try {
+      const res: { success?: boolean } | undefined = await window.electronAPI.setSessionEncoding(id, encoding)
+      if (!res?.success) {
+        console.warn('Switch session encoding rejected (session gone or local):', id, encoding)
+      }
+    } catch (error) {
+      console.error('Failed to switch session encoding:', error)
+    }
+  },
+
+  // 编码切换推送的落点：只写 runtimeEncoding（config 保持保存值镜像）。
+  // entry 还没建立（见 pendingRuntimeEncoding 的说明）时先暂存，addTemporarySession 建立时带上。
+  // 未命中只动暂存，不做 sessions 数组的无谓拷贝（不触发订阅者重渲染）
+  setRuntimeEncoding: (id, encoding) => {
+    set(state => {
+      if (!state.sessions.some(s => s.id === id)) {
+        return { pendingRuntimeEncoding: { ...state.pendingRuntimeEncoding, [id]: encoding } }
+      }
+      const sessions = state.sessions.map(s => (s.id === id ? { ...s, runtimeEncoding: encoding } : s))
+      if (!(id in state.pendingRuntimeEncoding)) return { sessions }
+      const pendingRuntimeEncoding = { ...state.pendingRuntimeEncoding }
+      delete pendingRuntimeEncoding[id]
+      return { sessions, pendingRuntimeEncoding }
+    })
+  },
+
   // 删除会话
   deleteSession: async (id) => {
     await window.electronAPI.deleteSession(id)
-    set(state => ({
-      savedSessions: state.savedSessions.filter(s => s.id !== id),
-      sessions: state.sessions.filter(s => s.id !== id),
-      activeSessionId: state.activeSessionId === id ? null : state.activeSessionId
-    }))
+    set(state => {
+      const pendingRuntimeEncoding = { ...state.pendingRuntimeEncoding }
+      delete pendingRuntimeEncoding[id]
+      return {
+        savedSessions: state.savedSessions.filter(s => s.id !== id),
+        sessions: state.sessions.filter(s => s.id !== id),
+        activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
+        pendingRuntimeEncoding
+      }
+    })
   },
 
   // 添加临时会话
   // 去重: onConnectionStatus 的 connecting/connected 事件可能在 getSession().then()
   // 返回前先后到达,导致对同一 id 调用两次 addTemporarySession,数组里出现重复 entry。
   // 这里改为: 已存在同 id 则合并更新(保留 isTemporary),否则才 push。
+  // 建立时取回 pendingRuntimeEncoding 暂存的早到编码推送并清掉(见该字段说明)
   addTemporarySession: (state) => {
     set(s => {
+      const runtimeEncoding = s.pendingRuntimeEncoding[state.id]
+      let pendingRuntimeEncoding = s.pendingRuntimeEncoding
+      if (runtimeEncoding !== undefined) {
+        pendingRuntimeEncoding = { ...s.pendingRuntimeEncoding }
+        delete pendingRuntimeEncoding[state.id]
+      }
+      const withRuntime = runtimeEncoding !== undefined ? { ...state, runtimeEncoding } : state
       const idx = s.sessions.findIndex(x => x.id === state.id)
       if (idx >= 0) {
         const next = [...s.sessions]
-        next[idx] = { ...next[idx], ...state, isTemporary: next[idx].isTemporary || state.isTemporary }
-        return { sessions: next }
+        next[idx] = { ...next[idx], ...withRuntime, isTemporary: next[idx].isTemporary || withRuntime.isTemporary }
+        return { sessions: next, pendingRuntimeEncoding }
       }
-      return { sessions: [...s.sessions, { ...state, isTemporary: true }] }
+      return { sessions: [...s.sessions, { ...withRuntime, isTemporary: true }], pendingRuntimeEncoding }
     })
   },
 
@@ -285,6 +357,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       name: newName,
       createdAt: new Date(),
       updatedAt: new Date()
+    }
+    // 运行时编码继承：源 entry 的 config 是保存值镜像（sync/update 会整体替换，
+    // 运行时切换只落在 runtimeEncoding 字段）。不带上的话普通克隆按保存值建流解码
+    // —— GBK 主机上乱码；而克隆渠道（main 侧 withRuntimeEncoding 读源会话的运行时
+    // config）按切换值解码，同一个页签两种克隆手势得到两种字符集、读数也和源分叉
+    if (sourceSession.runtimeEncoding && sourceSession.runtimeEncoding !== newConfig.terminal?.encoding) {
+      newConfig.terminal = { ...newConfig.terminal, encoding: sourceSession.runtimeEncoding }
     }
 
     // 如果是 SSH 且要求克隆渠道

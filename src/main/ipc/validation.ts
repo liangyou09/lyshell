@@ -30,6 +30,11 @@ export class ValidationError extends Error {
   }
 }
 
+/**
+ * sanitizeSessionEncoding 已上移 @shared/encoding —— 收口消费者是 repository
+ * （load/saveSession），IPC 入口与它共用同一实现，此处不再自带真相源。
+ */
+
 export function assertString(value: unknown, name: string, options: StringOptions = {}): string {
   if (typeof value !== 'string') {
     throw new ValidationError(`${name} must be a string`)

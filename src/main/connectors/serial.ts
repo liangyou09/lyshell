@@ -1,8 +1,8 @@
 import { SerialPort } from 'serialport'
 import type { PortInfo } from '@serialport/bindings-interface'
 import log from 'electron-log'
-import iconv from 'iconv-lite'
 import { BaseConnector } from './base'
+import type { TerminalEncoding } from '@shared/types'
 
 /**
  * 串口配置
@@ -13,7 +13,7 @@ export interface SerialConfig {
   dataBits?: 5 | 6 | 7 | 8
   stopBits?: 1 | 2
   parity?: 'none' | 'even' | 'odd' | 'mark' | 'space'
-  encoding?: 'utf-8' | 'gbk' | 'gb2312'
+  encoding?: TerminalEncoding
 }
 
 /**
@@ -22,21 +22,10 @@ export interface SerialConfig {
 export class SerialConnector extends BaseConnector {
   private config: SerialConfig
   private port: SerialPort | null = null
-  private decoder: ReturnType<typeof iconv.decodeStream> | null = null
 
   constructor(sessionId: string, config: SerialConfig) {
-    super(sessionId)
+    super(sessionId, config.encoding)
     this.config = config
-  }
-
-  /**
-   * 创建流式解码器，避免多字节字符被拆包截断
-   */
-  private createDecoder(): void {
-    const dec = iconv.decodeStream(this.config.encoding || 'utf-8')
-    dec.on('data', (str: string) => this.emitData(str))
-    dec.on('error', (err: Error) => log.warn('Serial decode stream error:', err))
-    this.decoder = dec
   }
 
   /**
@@ -45,6 +34,7 @@ export class SerialConnector extends BaseConnector {
   async connect(config?: SerialConfig): Promise<void> {
     if (config) {
       this.config = config
+      this.encoding = config.encoding || 'utf-8'
     }
 
     log.info(`Serial opening ${this.config.path} @ ${this.config.baudRate}`)
@@ -71,7 +61,7 @@ export class SerialConnector extends BaseConnector {
         this.emit('connected')
 
         // 每个串口连接单独一个流式解码器
-        this.createDecoder()
+        this.replaceDecoder()
 
         resolve()
       })
@@ -124,7 +114,7 @@ export class SerialConnector extends BaseConnector {
       return
     }
 
-    this.port.write(data)
+    this.port.write(this.encodeOut(data))
   }
 
   /**

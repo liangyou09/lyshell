@@ -23,7 +23,7 @@ import { agentRepository } from '../storage/agent-repository'
 import { mcpAuditRepository } from '../storage/mcp-audit-repository'
 import { ConnectionType, ConnectionStatus, SessionConfig } from '@shared/types'
 import type { FileInfo } from '@shared/types'
-import { DEFAULT_THEME_DARK } from '@shared/constants'
+import { DEFAULT_THEME_DARK, TERMINAL_ENCODINGS } from '@shared/constants'
 import { type McpCapability } from '@shared/api-routes'
 import * as mcpAuth from './auth'
 import type { TokenBinding, TokenKind } from './auth'
@@ -603,7 +603,11 @@ function buildSessionInfo(config: SessionConfig, terminalOpenIds: Set<string>): 
     // 辅助 agent 选会话
     summary: config.summary || undefined,
     pinned,
-    connectCount: config.connectCount,
+    // 连接计数聚合（保存值 + 所有 runtime 实例取最大，见 maxRuntimeConnectCount）：
+    // connectSessionAttempt 维护在活跃 config 上，「整体换 config 对象」的路径如编码
+    // 切换会断开与 repo 对象的别名、repo 停在旧计数 —— 与 write_session_notes 的
+    // 回填口径一致，两个端点报同一计数
+    connectCount: maxRuntimeConnectCount(config),
     updatedAt: config.updatedAt.toISOString(),
     inTerminal: isInTerminal
   }
@@ -648,6 +652,24 @@ function pickBestRuntimeSession(savedId: string): Session | undefined {
     if (rankB !== rankA) return rankB - rankA
     return b.lastActiveAt.getTime() - a.lastActiveAt.getTime()
   })[0]
+}
+
+/**
+ * 聚合 saved 会话与其所有 runtime 实例（saved id 直查 + origin 反查的克隆）中的最大
+ * 连接计数 —— pickBestRuntimeSession 按状态/活跃度挑「一个」实例，实例断开后排序
+ * 翻转会让报出的计数倒退（克隆 A=6、B=7，B 掉线后排名回到 A，list_sessions 从 7
+ * 掉回 6），write_session_notes 更会把低计数持久化盖过高计数、倒着写。计数语义是
+ * 「累计连接过多少次」，取 max 才单调。无数值时回落 undefined（保持无计数时的契约）
+ */
+function maxRuntimeConnectCount(config: SessionConfig): number | undefined {
+  const counts: number[] = []
+  if (typeof config.connectCount === 'number') counts.push(config.connectCount)
+  for (const s of sessionManager.getAllSessions()) {
+    if (s.id !== config.id && s.config.originSavedSessionId !== config.id) continue
+    const n = s.config.connectCount
+    if (typeof n === 'number') counts.push(n)
+  }
+  return counts.length > 0 ? Math.max(...counts) : undefined
 }
 
 function sortSessionInfos(infos: SessionInfo[]): SessionInfo[] {
@@ -1470,8 +1492,18 @@ async function handleWriteSessionNotes(
       updates.usageNotes = usageNotes.trim() || undefined
     }
 
-    const activeSession = sessionManager.getSession(sessionId)
-    const currentConfig = activeSession ? activeSession.config : config
+    // 持久化以 repository 的保存配置为底（上面的 config），不用活跃会话的 config ——
+    // 后者带运行时状态（状态栏切过的编码只改运行时、约定不落盘），拿它当底会把
+    // 运行时值一并写回保存配置。唯一例外 connectCount：它由 connectSessionAttempt
+    // 维护在活跃会话的 config 上，而「整体换 config 对象」的路径（如编码切换）会
+    // 断开与 repository 对象的别名、repo 停在旧计数 —— 计数按保存值 + 全部 runtime
+    // 实例取最大回填（maxRuntimeConnectCount，与 buildSessionInfo 同一口径），
+    // 单实例读法在实例断开/排序翻转时会倒退，把低计数持久化盖过高计数
+    const connectCount = maxRuntimeConnectCount(config)
+    const currentConfig = connectCount !== undefined ? { ...config, connectCount } : config
+    // 会话查找带 runtime 解析（UI 打开的会话以 runtime 实例在跑，saved id 查不到）——
+    // 找到活跃实例才需要把备注变更同步进它的内存 config
+    const activeSession = sessionManager.getSession(resolveRuntimeSessionId(sessionId))
 
     // 无实际变更 —— 不落盘、不刷新 updatedAt（避免空写扰动"最近会话"排序）、不广播，直接回当前 notes
     if (Object.keys(updates).length === 0) {
@@ -1486,9 +1518,10 @@ async function handleWriteSessionNotes(
 
     if (activeSession) {
       // 用 repository 的 updatedAt 回填内存对象，消除两次 Date 写入的毫秒偏差；
-      // touchLastActive=false，因为修改备注不属于用户终端活动。
+      // touchLastActive=false，因为修改备注不属于用户终端活动。目标必须传解析后的
+      // runtime id —— 原样传 saved id 时查不到会静默 no-op（UI 打开的实例键是 UUID）
       sessionManager.updateSession(
-        sessionId,
+        activeSession.id,
         { ...updates, updatedAt: saved.updatedAt },
         { touchLastActive: false, timestamp: saved.updatedAt }
       )
@@ -1536,6 +1569,27 @@ async function handleCreateSession(
     const type = data.type
     if (type !== 'ssh' && type !== 'telnet' && type !== 'serial' && type !== 'local') {
       sendJson(res, 400, { success: false, error: `Invalid session type: ${type}` })
+      return
+    }
+
+    // 编码白名单校验：非法值在此处 400 拒绝，而不是落盘后到连接时才在
+    // iconv.decodeStream('...') 处炸出难懂的错误（MCP 输入一律不可信，校验在服务端收口）
+    if (data.encoding !== undefined && !TERMINAL_ENCODINGS.includes(data.encoding)) {
+      sendJson(res, 400, {
+        success: false,
+        error: `Invalid encoding: ${String(data.encoding)}. Supported: ${TERMINAL_ENCODINGS.join(', ')}`
+      })
+      return
+    }
+
+    // local 恒为 UTF-8（ConPTY 不走编码层）：请求不可满足的编码直接 400，不做
+    // 「成功但无效」的静默 no-op —— 调用方会误以为会话已按该编码工作。
+    // utf-8 放行（与事实一致，兼容「模板默认带 encoding」的调用方）
+    if (type === 'local' && data.encoding !== undefined && data.encoding !== 'utf-8') {
+      sendJson(res, 400, {
+        success: false,
+        error: 'encoding is not applicable to local sessions (local PTY is always utf-8)'
+      })
       return
     }
 
@@ -1674,6 +1728,8 @@ async function handleCreateSession(
     if (existing) {
       saved = existing
       created = false
+      // 存量非法 terminal.encoding 已由 repository.load/saveSession 收口净化，
+      // 内存 map 恒为合法值，此处无需再兜
       log.info(`[MCP] create_session reused existing ${saved.id} (${saved.name}) for same target`)
     } else {
       saved = sessionRepository.saveSession(config)
@@ -1705,6 +1761,19 @@ async function handleCreateSession(
         if (!live) {
           await sessionManager.createSession(saved)
         }
+        // 连接前落位请求的编码（复用未连上的会话）：连接器构造（withRuntimeEncoding 从
+        // config 派生编码）前 config 就带上请求值 —— waitForReady 的握手输出（banner/
+        // MOTD/首个 prompt）才不会按旧编码解码成永久乱码，异步路径也免去连上后再重建
+        // 一次解码流。新建路径无需处理：config.terminal.encoding 已含请求值。
+        // 语义（工具描述同步写明）：落位在 connect 之前且失败不回滚 —— 连接失败时
+        // 会话保留请求编码，下次重连直接按请求编码连接；关闭 live 会话后从保存配置
+        // 重开才回到保存值（与运行时切换「重连保持、重开回存」的既有语义一致）
+        if (!created && data.encoding !== undefined) {
+          const sess = sessionManager.getSession(saved.id)
+          if (sess && sess.config.terminal?.encoding !== data.encoding) {
+            sessionManager.setSessionEncoding(saved.id, data.encoding)
+          }
+        }
         const liveId = saved.id
         if (data.waitForReady === true) {
           // A7：阻塞等待握手完成。成功 connected；失败 error 并回填 message。
@@ -1730,6 +1799,21 @@ async function handleCreateSession(
     } else {
       message = 'Session saved but not connected (connect=false).'
       status = 'disconnected'
+    }
+
+    // 复用且已连上的会话（含 connect=false 但会话在跑）：按运行时切换落位、重建解码流，
+    // 否则调用方明确要求的编码被静默忽略，GBK 主机上按旧值解码就是乱码。会话查找带
+    // runtime 解析：复用的 saved 会话可能正以 runtime 实例在跑（UI 打开的页签清了
+    // config.id，saved id 直查是 undefined）—— raw getSession 会漏掉它，后续
+    // send_input/read_output 走 resolveRuntimeSessionId 找到的还是旧编码实例，
+    // 调用方拿着 gbk 的假象读乱码。未连上的复用已在上方连接前落位（此处值相等自然
+    // 跳过）；新建路径 config 已含请求值；connect=false / 无凭据且无 live 会话时请求值丢弃
+    if (!created && data.encoding !== undefined) {
+      const liveId = resolveRuntimeSessionId(saved.id)
+      const live = sessionManager.getSession(liveId)
+      if (live && live.status === ConnectionStatus.CONNECTED && live.config.terminal?.encoding !== data.encoding) {
+        sessionManager.setSessionEncoding(liveId, data.encoding)
+      }
     }
 
     const notes = toSessionNotes(saved.id, saved)

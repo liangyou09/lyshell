@@ -1,17 +1,21 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
-import type { SessionConfig, PaneNode, QuickCommand } from '@shared/types'
+import type { SessionConfig, PaneNode, QuickCommand, TerminalEncoding } from '@shared/types'
+import { TERMINAL_WEBFONT_FAMILY, TERMINAL_ENCODINGS } from '@shared/constants'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore, findPane } from '../../stores/pane-store'
 import SessionDialog from '../SessionDialog/SessionDialog'
 import ExportImportDialog from '../ExportImportDialog/ExportImportDialog'
 import FileManagerPanel from '../FileManager/FileManagerPanel'
 import QuickCommandsPanel from '../QuickCommands/QuickCommandsPanel'
-import TerminalSize from './TerminalSize'
+import TerminalSize, { BarRule } from './TerminalSize'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
+import { evaluateStatusbarCompact, type StatusbarCompactState } from './statusbar-compact'
 import { useQuickCommandsStore } from '../../stores/quick-commands-store'
 import { useUiStore } from '../../stores/ui-store'
+import { useDismiss } from '../../hooks'
 import i18n from '../../i18n'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -47,6 +51,11 @@ const getGroupKey = (config: SessionConfig): string => {
   if (m) return `${m[1]}.${m[2]}.${m[3]}.0/24`
   return host
 }
+
+// 状态栏字体栈 —— Maple 优先(圆角等宽、笔画粗,12px 小字号读数清晰),与终端 webfont 同源。
+// 状态栏容器与编码选择菜单两处共用一份:菜单是 portal 挂 body 的(不随容器继承),
+// 字面量复制两份会漂移 —— 菜单值必须和读数同字形才读得出"选的就是显示的这个"
+const STATUSBAR_FONT_STACK = `'${TERMINAL_WEBFONT_FAMILY}', 'Cascadia Mono', Consolas, 'Microsoft YaHei', monospace`
 
 // 四种协议的展示元信息 —— label / 完整 tailwind class(必须是字面量,Tailwind 才能扫到)
 type ProtoKind = 'ssh' | 'telnet' | 'serial' | 'local'
@@ -511,7 +520,7 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
   // 这里订阅给 ExportImportDialog 用
   const quickCommands = useQuickCommandsStore(s => s.commands)
   const loadQuickCommands = useQuickCommandsStore(s => s.loadAll)
-  const { savedSessions, sessions, reachability, refreshSavedSessions, disconnectSession, removeLiveSession } = useSessionStore()
+  const { savedSessions, sessions, reachability, refreshSavedSessions, disconnectSession, removeLiveSession, setSessionEncoding, deleteSession } = useSessionStore()
   const removeSessionFromAllPanes = usePaneStore(s => s.removeSessionFromAllPanes)
   const { t } = useTranslation()
   // 被隐藏的终端页签(SessionsPanel LIVE 段会话标签点击 toggle)——用于给已隐藏的 LIVE 标签置灰
@@ -551,14 +560,123 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
     const activeSession = sessions.find(s => s.id === activeTerminalSessionId)
     return activeSession?.config ? mapProtocol(activeSession.config.type) : undefined
   }, [sessions, activeTerminalSessionId])
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
-  const isUpdating = useRef(false)
-
-  // 文件管理器高度(列宽度由 MainWindow 列容器统一管)
+  // 底部读数的编码(原始值,展示时再大写) —— ssh/telnet/serial 会话的运行时编码,
+  // 点击弹出选择框三选一(见下方 encodingMenu);local 走 ConPTY 恒为 UTF-8、
+  // config 字段不生效(见 connectors/local.ts),不展示也不可切,以免读数失真。
+  // runtimeEncoding 是运行时真值(切档推送字段),config 永远是保存值镜像 ——
+  // 后者仅作会话刚打开尚未切换时的兜底
+  const activeTerminalEncoding = useMemo(() => {
+    if (!activeTerminalProto || activeTerminalProto === 'local') return undefined
+    const activeSession = sessions.find(s => s.id === activeTerminalSessionId)
+    return activeSession?.runtimeEncoding ?? activeSession?.config.terminal?.encoding ?? 'utf-8'
+  }, [sessions, activeTerminalSessionId, activeTerminalProto])
+  // 文件管理器高度(列宽度由 MainWindow 列容器统一管) —— 声明在编码菜单块之前:
+  // 菜单重锚 effect 的 deps 引用它,deps 数组渲染期求值,声明在后会踩 TDZ
   const [fileManagerHeight, setFileManagerHeight] = useState(200)
   const [isResizingHeight, setIsResizingHeight] = useState(false)
   const sidebarRef = useRef<HTMLDivElement>(null)
+  // 编码选择菜单 —— 状态栏在窗口底部,菜单从编码按钮向上弹(portal 挂 body,竖排三项,
+  // 当前项 amber 点亮)。选档即运行时切换:解码流/写编码立即换,只改运行时会话不写回
+  // 保存配置 —— 同一会话重连保持(reconnect 复用 Session 与 config),关闭后重新打开
+  // 才回到保存值;与 SessionDialog 的持久配置各管各的
+  const [encodingMenu, setEncodingMenu] = useState<{ top: number; left: number } | null>(null)
+  const encodingMenuRef = useRef<HTMLDivElement>(null)
+  const encodingBtnRef = useRef<HTMLButtonElement>(null)
+  // 外部点击 / ESC 收起 —— ESC 捕获截停防穿透给终端(xterm 会把裸 \x1b 发给远端),
+  // 目标落在菜单或编码按钮上不收(按钮自己走 toggle 开合),见 useDismiss
+  useDismiss(encodingMenu !== null, () => setEncodingMenu(null), [encodingMenuRef, encodingBtnRef])
+  // 活动会话切换时菜单描述的已是别的会话,收起;读数消失时也收 —— entry 可能被删
+  // 而 pane.activeSessionId 悬空指向旧 id(键盘流删除当前打开的会话,store
+  // deleteSession 不做 pane 清理),菜单不收就成了看不见的 ESC 吞层
+  useEffect(() => {
+    setEncodingMenu(null)
+  }, [activeTerminalSessionId])
+  useEffect(() => {
+    if (activeTerminalEncoding === undefined) setEncodingMenu(null)
+  }, [activeTerminalEncoding])
+  // 挂载后按菜单实际宽度精修左缘 —— 初定位的 -100 只是按当前内容估的预留,
+  // 菜单宽度跟内容走(编码表加长标签时不该和样式里的 min-w 手工联动)。
+  // 幂等:修完再跑一次,值不变即停;窗口 resize 时重锚 —— fixed 定位不跟随视口,
+  // 且状态栏在窗口底部,竖向 resize 时按钮跟着移动,只重钳 left 会让菜单悬在
+  // 旧 top 脱锚。两轴都从按钮矩形重新派生(菜单向上弹:底边贴按钮上沿再留 4px)。
+  // 按钮位置还会被三处拖动改变而窗口尺寸不变:文件管理器高度拖动(本组件状态,
+  // fileManagerHeight 进 deps,拖动中随重挂重锚)、MainWindow 列宽拖动与窗口 resize
+  // (都会改变侧栏容器尺寸 —— ResizeObserver 盯容器一并覆盖,对 resize 冗余但无害)
+  useLayoutEffect(() => {
+    if (!encodingMenu) return
+    const el = encodingMenuRef.current
+    if (!el) return
+    const reclamp = () => {
+      const btn = encodingBtnRef.current
+      if (!btn) return
+      const width = el.getBoundingClientRect().width
+      const rect = btn.getBoundingClientRect()
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))
+      const top = Math.max(8, rect.top - 4)
+      setEncodingMenu(prev => {
+        if (!prev) return prev
+        if (prev.top === top && prev.left === left) return prev
+        return { top, left }
+      })
+    }
+    reclamp()
+    window.addEventListener('resize', reclamp)
+    const ro = new ResizeObserver(reclamp)
+    if (sidebarRef.current) ro.observe(sidebarRef.current)
+    return () => {
+      window.removeEventListener('resize', reclamp)
+      ro.disconnect()
+    }
+    // sidebarRef 来自 useRef、引用恒稳定,进 deps 不触发重挂
+  }, [encodingMenu, fileManagerHeight, sidebarRef])
+  // 状态栏读数的窄宽降级 —— 侧栏宽 180-400 可拖而读数是恒定文案:全家族(协议/编码/
+  // 尺寸/行数)约需 300px+ 才放得下,240px 默认宽下硬塞只会让尾巴在 overflow-hidden
+  // 里被裁成半个字形。按价值分级整段退场:行数(<300)先走、尺寸段(<260)次之,
+  // 协议码与编码读数(本特性的可见性)守住到底。两级阈值各带迟滞防边界抖动;观测
+  // sidebarRef 容器 —— 其宽度只随窗口/列宽拖动变化、不依赖被隐藏的内容,无反馈震荡。
+  // 阈值裁决抽在 statusbar-compact.ts(纯函数,真值表有直测);本 effect 只剩订阅 observer
+  // → setState 的接线
+  const [statusHideLines, setStatusHideLines] = useState(false)
+  const [statusHideSize, setStatusHideSize] = useState(false)
+  useEffect(() => {
+    const el = sidebarRef.current
+    if (!el) return
+    let compact: StatusbarCompactState = { hideLines: false, hideSize: false }
+    const ro = new ResizeObserver(() => {
+      const next = evaluateStatusbarCompact(el.clientWidth, compact)
+      if (next.hideLines !== compact.hideLines) setStatusHideLines(next.hideLines)
+      if (next.hideSize !== compact.hideSize) setStatusHideSize(next.hideSize)
+      compact = next
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const handleEncodingClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (encodingMenu) {
+      setEncodingMenu(null)
+      return
+    }
+    const rect = encodingBtnRef.current?.getBoundingClientRect()
+    if (!rect) return
+    // 向上弹:translateY(-100%) 让菜单底边贴按钮上沿再留 4px;左缘先粗钳进视口,
+    // 挂载后 useLayoutEffect 再按实际宽度精修
+    const left = Math.min(Math.max(8, rect.left), window.innerWidth - 100)
+    setEncodingMenu({ top: rect.top - 4, left })
+  }
+  // 不做「同值跳过」:读数显示值可能与 connector 实际编码漂移,重选当前显示的值也要
+  // 走一遍 IPC 让 main 侧重新落位。同值重选由 main 侧短路(config 与 connector 都已是
+  // 该值才算幂等命中),不会重建解码流 —— mid-多字节被 end() 冲成 � 的事不会发生
+  const handleEncodingPick = (enc: TerminalEncoding) => {
+    setEncodingMenu(null)
+    if (activeTerminalSessionId) {
+      setSessionEncoding(activeTerminalSessionId, enc)
+    }
+  }
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const isUpdating = useRef(false)
 
   // 分组折叠状态 — 放在顶部以维持"hooks 都在顶部"约定
   const [expandedIPs, setExpandedIPs] = useState<Record<string, boolean>>({})
@@ -961,11 +1079,13 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
     }
   }
 
+  // 走 store 的 deleteSession 而非裸 IPC + refreshSavedSessions：store 顺带清
+  // pendingRuntimeEncoding 暂存与 sessions 里的 registry 条目（id=saved.id 的
+  // disconnected 幽灵行），savedSessions 过滤也一并完成
   const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation()
     if (confirm(t('sidebar.deleteSessionConfirm'))) {
-      await window.electronAPI?.deleteSession(sessionId)
-      refreshSavedSessions()
+      await deleteSession(sessionId)
     }
   }
 
@@ -1318,18 +1438,30 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
 
         {/* ===== 底部 status ===== */}
         <div
-          className="flex items-center justify-between overflow-hidden px-2.5 py-1.5 border-t border-[var(--rule)] bg-[var(--bg-rack)] text-[13px] text-[var(--text-rack-data)] min-h-[28px]"
+          className="flex items-center justify-between overflow-hidden px-2.5 py-1.5 border-t border-[var(--rule)] bg-[var(--bg-rack)] text-[12px] font-semibold text-[var(--text-rack-data)] min-h-[28px]"
           style={{
-            fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace',
+            fontFamily: STATUSBAR_FONT_STACK,
             fontFeatureSettings: '"tnum" 1'
           }}
         >
-          {/* 终端状态读数 —— 活动分屏的活动会话(协议/尺寸/行数),从 LIVE 段头迁来,常驻可见不受段折叠影响。
+          {/* 终端状态读数 —— 活动分屏的活动会话(协议/编码/尺寸/行数),从 LIVE 段头迁来,常驻可见不受段折叠影响。
               占左槽,与 alt 快捷键提示互斥:有活动终端且未被覆盖层盖住时读数优先,否则回落提示
               (读数+提示+计数三段在 240px 默认侧栏放不下);在线/空闲计数固定右槽。
-              收缩策略:计数 flex-shrink-0 恒不缩,左槽 min-w-0 + overflow-hidden 先行裁切,
-              极端窄宽(或行数到 99.9k 级)下溢出被拦在栏内、不上溢到拖宽条;两槽统一 13px、gap-1,
-              按默认侧栏宽校准;协议码用协议色(与会话行同语言);栏本身已是 mono,TerminalSize 直接继承。 */}
+              收缩策略:计数 flex-shrink-0 恒不缩,左槽 min-w-0 + overflow-hidden 兜底裁切;
+              常规窄宽先走两级降级(行数 <300 / 尺寸段 <260 整段退场,见 statusHideLines),
+              overflow 裁切只剩极端窄宽(或行数到 99.9k 级)的最终防线,溢出被拦在栏内、
+              不上溢到拖宽条;两槽统一 12px、gap-1,
+              按默认侧栏宽校准;协议码用协议色(与会话行同语言);栏本身已是 mono,TerminalSize 直接继承。
+              字体用打包的 Maple(圆角等宽,即终端 webfont —— TERMINAL_WEBFONT_FAMILY 同源;笔画粗、
+              x-height 大,12px 小字号下比 Cascadia Code 这类轻 hinting 细笔画字体发虚得少,读数更清晰),
+              swap 期回落 Cascadia/Consolas,中文回落雅黑;栏外侧栏其余部分仍走通用 mono 栈,不跟改。
+              整栏 font-semibold:Maple 只捆了 Regular/Bold 两档(无 Medium/SemiBold),600 解析到
+              真实 Bold 字面(非合成加粗,笔画成形不发虚),读数笔画更粗更清晰;协议码原有的
+              font-semibold 随之冗余但保留,栏重改回 normal 时它仍自洽。
+              编码跟在协议码后(local 不显示,见上方 activeTerminalEncoding 注释);左槽各读数段
+              (协议/编码/尺寸/行数)一律竖规(BarRule)隔开,与右槽计数对的分隔同节奏;
+              编码→尺寸的竖规由 TerminalSize 自带(实例注册前的空窗期随尺寸读数一起缺席,
+              不在编码段尾硬挂一条,免得空窗期悬空)。 */}
           {activeTerminalSessionId ? (
             <span className="inline-flex items-center gap-1 min-w-0 overflow-hidden text-[var(--text-rack-data)] whitespace-nowrap">
               {activeTerminalProto && (
@@ -1337,7 +1469,28 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
                   {PROTO_LABEL[activeTerminalProto]}
                 </span>
               )}
-              <TerminalSize sessionId={activeTerminalSessionId} />
+              {activeTerminalEncoding && (
+                <>
+                  <BarRule />
+                  <button
+                    ref={encodingBtnRef}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={handleEncodingClick}
+                    title={t('statusbar.encodingHint')}
+                    className={cn(
+                      'tracking-[.04em] bg-transparent border-0 p-0 cursor-pointer [font-family:inherit] [font-size:inherit] [line-height:inherit] transition-colors',
+                      encodingMenu ? 'text-[var(--text-rack)]' : 'hover:text-[var(--text-rack)]'
+                    )}
+                  >
+                    {activeTerminalEncoding.toUpperCase()}
+                  </button>
+                </>
+              )}
+              {/* 窄宽降级:侧栏拖窄到放不下整段时按价值退场,见上方 statusHideLines 注释 */}
+              {!statusHideSize && (
+                <TerminalSize sessionId={activeTerminalSessionId} hideLines={statusHideLines} />
+              )}
             </span>
           ) : (
             <span className="inline-flex items-center gap-2 min-w-0 overflow-hidden whitespace-nowrap">
@@ -1350,7 +1503,7 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
               <span className="text-[var(--text-rack)] tabular-nums">{liveCount}</span>
               <span className="ml-1">{t('sidebar.footerLive')}</span>
             </span>
-            <span aria-hidden className="w-px h-[10px] bg-[var(--rule)]" />
+            <BarRule />
             <span>
               <span className="text-[var(--text-rack)] tabular-nums">{Math.max(0, idleCount)}</span>
               <span className="ml-1">{t('sidebar.footerIdle')}</span>
@@ -1358,6 +1511,43 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
           </span>
         </div>
       </div>
+
+      {/* 编码选择菜单 —— portal 挂 body 脱离侧栏的 overflow 裁切;样式对齐 PaneTabBar
+          悬停卡(bg-slot + rule 边 + shadow),字体走 STATUSBAR_FONT_STACK 保证菜单值与读数同风格 */}
+      {encodingMenu && activeTerminalEncoding && createPortal(
+        <div
+          ref={encodingMenuRef}
+          className="fixed z-[300] py-1 rounded-[3px] bg-[var(--bg-slot)] border border-[var(--rule)] shadow-xl flex flex-col min-w-[92px]"
+          style={{
+            top: encodingMenu.top,
+            left: encodingMenu.left,
+            transform: 'translateY(-100%)',
+            fontFamily: STATUSBAR_FONT_STACK
+          }}
+        >
+          {TERMINAL_ENCODINGS.map(enc => {
+            const isOn = enc === activeTerminalEncoding
+            return (
+              <button
+                key={enc}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(e) => { e.stopPropagation(); handleEncodingPick(enc) }}
+                className={cn(
+                  'flex items-center justify-between gap-3 px-2.5 py-1 bg-transparent border-0 cursor-pointer [font-size:12px] tracking-[.04em] transition-colors',
+                  isOn
+                    ? 'text-[var(--amber)] bg-[var(--amber-soft)]'
+                    : 'text-[var(--text-rack-data)] hover:text-[var(--text-rack)] hover:bg-[var(--bg-elev)]'
+                )}
+              >
+                <span>{enc.toUpperCase()}</span>
+                {isOn && <span aria-hidden className="text-[11px]">✓</span>}
+              </button>
+            )
+          })}
+        </div>,
+        document.body
+      )}
 
       {/* 会话对话框 */}
       <SessionDialog

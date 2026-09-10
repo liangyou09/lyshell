@@ -4,6 +4,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync, renameSy
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 import type { SessionConfig } from '@shared/types'
+import { sanitizeSessionEncoding } from '@shared/encoding'
 
 /**
  * 原子写文件：先写同目录 .tmp 再 rename 覆盖。直接 writeFileSync 中途崩溃会留下
@@ -155,6 +156,10 @@ export class SessionRepository {
         // 转换日期
         session.createdAt = new Date(session.createdAt)
         session.updatedAt = new Date(session.updatedAt)
+        // 存量净化（收口）：编码白名单是后来才有的，老 sessions.json 可能带非法
+        // terminal.encoding —— 在此归位保证内存 map 恒为合法值（SESSION_GET/LIST、
+        // MCP list_sessions、复用路径全部只面对干净数据），下次任何落盘顺带带走
+        sanitizeSessionEncoding(session)
         this.sessions.set(session.id, session)
       }
 
@@ -323,6 +328,8 @@ export class SessionRepository {
     }
 
     session.updatedAt = now
+    // 写入收口：任何来源（渲染层/agent/MCP）的非法 encoding 在进内存 map、落盘前归位
+    sanitizeSessionEncoding(session)
     this.sessions.set(session.id, session)
     this.save()
 
