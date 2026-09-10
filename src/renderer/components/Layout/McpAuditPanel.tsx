@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import cn from 'classnames'
+import { useDismiss, useEscDismiss } from '../../hooks'
 
 interface McpAuditRecord {
   id: string
@@ -68,16 +69,9 @@ function DateInput({ value, onChange, onKeyDown, title }: DateInputProps): JSX.E
   const [viewDate, setViewDate] = useState<Date>(() => parseYmd(value) || new Date())
   const containerRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!open) return
-    const handle = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handle)
-    return () => document.removeEventListener('mousedown', handle)
-  }, [open])
+  // 外部点击 / ESC 收起日历 —— ESC 捕获截停(useDismiss),不穿透触发面板自身的
+  // ESC 关闭:日历开着时第一次 ESC 只收日历,再按才轮到面板,逐层回退
+  useDismiss(open, () => setOpen(false), [containerRef])
 
   useEffect(() => {
     const d = parseYmd(value)
@@ -124,11 +118,7 @@ function DateInput({ value, onChange, onKeyDown, title }: DateInputProps): JSX.E
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Escape' && open) {
-            e.stopPropagation()
-            setOpen(false)
-            return
-          }
+          // 日历开着时 ESC 由 useDismiss 的捕获监听截停收起,到不了这里;其余按键透传
           onKeyDown?.(e)
         }}
         placeholder="YYYY-MM-DD"
@@ -279,18 +269,11 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
     load(1); loadFacets()
   }, [load, loadFacets])
 
-  // ESC 关闭面板。MainWindow 在 MCP 面板打开时会停用设置面板的 ESC 监听，
-  // 因此这里独占 ESC，不会一次按下同时关掉两层。
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
+  // ESC 关闭面板 —— 入 ESC 回退栈(栈顶优先、逐层回退,IME 组合期不触发),不自留
+  // window 冒泡监听:栈顶成员在捕获层截停后自留监听收不到,第一下 ESC 表现为死键。
+  // 面板作为分屏覆盖层条件挂载,挂载即入栈;与浮层/对话框同开时由栈序裁决,
+  // 一次 ESC 只收最上层(原先跨面板的手动协调已由回退栈统一取代)
+  useEscDismiss(true, onClose)
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 

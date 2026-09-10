@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { useFileStore } from '../../stores'
+import { useEscDismiss } from '../../hooks'
 import i18n from '../../i18n'
 import type { FileNode } from '../../stores/file-store'
 import type { FileInfo } from '@shared/types'
@@ -55,17 +56,9 @@ const FileTree: React.FC<FileTreeProps> = ({
     loading: boolean
   } | null>(null)
 
-  // ESC键关闭MD5对话框
-  useEffect(() => {
-    if (!md5Dialog) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setMd5Dialog(null)
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [md5Dialog])
+  // ESC键关闭MD5对话框 —— 入 ESC 回退栈(栈顶优先、逐层回退,IME 组合期不触发),
+  // 不自留 window 冒泡监听:栈顶成员在捕获层截停后自留监听收不到,第一下 ESC 表现为死键
+  useEscDismiss(md5Dialog !== null, () => setMd5Dialog(null))
 
   const root = fileTrees[sessionId]
   const isLoading = loading[sessionId]

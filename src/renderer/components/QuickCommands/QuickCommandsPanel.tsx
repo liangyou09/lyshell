@@ -3,6 +3,7 @@ import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import type { QuickCommand, QuickCommandGroup } from '@shared/types'
 import { useQuickCommandsStore } from '../../stores/quick-commands-store'
+import { useEscDismiss } from '../../hooks'
 
 interface QuickCommandsPanelProps {
   /** 快捷命令派发（由 MainWindow 提供,拆行/转义规则统一在 dispatchCommand；可选以容错无宿主场景） */
@@ -77,19 +78,18 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
     setContentError(false)
   }, [])
 
-  // ESC键关闭对话框
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setShowAddDialog(false)
-        setShowBatchGroupDialog(false)
-        setEditingCommandId(null)
-        resetDialogState()
-      }
+  // ESC键关闭对话框 —— 入 ESC 回退栈(与浮层/终端搜索条统一层级顺序:栈顶优先、
+  // 逐层回退),门控在「有对话框开着」:原先 window 监听常驻,没开对话框时 ESC
+  // 也会跑一遍全是 no-op 的重置;不自留监听也避免栈顶成员截停后本层收不到
+  useEscDismiss(
+    showAddDialog || showBatchGroupDialog || editingCommandId !== null,
+    () => {
+      setShowAddDialog(false)
+      setShowBatchGroupDialog(false)
+      setEditingCommandId(null)
+      resetDialogState()
     }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [resetDialogState])
+  )
 
   // 默认分组（始终存在，不可删除，名称固定，颜色持久化到偏好设置）
   const DEFAULT_GROUP: QuickCommandGroup = {

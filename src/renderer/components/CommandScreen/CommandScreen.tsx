@@ -4,6 +4,7 @@ import { COMMANDS, matchCommands, normalizeQuery, findExact, splitCommand, split
 import type { CommandEntry } from '../../commands/command-registry'
 import DocTabOverlay from '../DocPanel/DocTabOverlay'
 import type { DocOverlayPayload } from '@shared/types'
+import { useEscDismiss } from '../../hooks'
 
 /**
  * 全屏 TUI 命令界面 —— 空状态(嵌入 pane)与全局面板(Ctrl+Shift+P)共用。
@@ -233,6 +234,14 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
     listRef.current?.children[selectedIndex]?.scrollIntoView({ block: 'nearest' })
   }, [selectedIndex, listLength])
 
+  // overlay 形态的 ESC 关闭入回退栈(与浮层/终端搜索条/对话框统一层级顺序:栈顶优先、
+  // 逐层回退,IME 组合期不触发),原先挂在输入框 onKeyDown 上 —— 栈顶成员在 document
+  // 捕获层截停后收不到,第一下 ESC 表现为死键。embedded 形态的「Esc 清空输入」
+  // 仍留在 handleKeyDown(待命屏不与浮层叠放,不参与回退)。
+  // onClose 缺失时不入栈:栈顶成员会消费并截停 ESC,无动作的层等于把第一下 ESC
+  // 变成死键 —— 没有关闭回调就别占栈位
+  useEscDismiss(mode === 'overlay' && onClose !== undefined, () => onClose?.())
+
   const execute = (entry: CommandEntry, args?: string) => {
     const output = entry.run(args)
     setHistory(h => [...h, { cmd: args ? `${entry.name} ${args}` : entry.name, output: output ?? undefined }])
@@ -361,9 +370,8 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
 
     if (e.key === 'Escape') {
       e.preventDefault()
-      if (mode === 'overlay' && onClose) {
-        onClose()
-      } else {
+      // overlay 的关闭走 useEscDismiss(回退栈裁决);这里只保留 embedded 形态的清行
+      if (mode !== 'overlay') {
         setValue('')
         setSelectedIndex(0)
         setHistoryBrowse(null)

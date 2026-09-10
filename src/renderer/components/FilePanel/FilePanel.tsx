@@ -4,6 +4,7 @@ import FileTree from './FileTree'
 import FileToolbar from './FileToolbar'
 import { openRemoteDoc } from '../DocPanel/readDoc'
 import { useFileStore, useSessionStore } from '../../stores'
+import { useEscDismiss } from '../../hooks'
 import type { FileInfo } from '@shared/types'
 
 interface FilePanelProps {
@@ -34,25 +35,20 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
   const [newFileName, setNewFileName] = useState('')
   const { t } = useTranslation()
 
-  // ESC键关闭弹窗
-  useEffect(() => {
-    if (!mkdirDialogOpen && !renameDialogOpen) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (mkdirDialogOpen) {
-          setMkdirDialogOpen(false)
-          setNewDirName('')
-        }
-        if (renameDialogOpen) {
-          setRenameDialogOpen(false)
-          setRenameFile(null)
-          setNewFileName('')
-        }
-      }
+  // ESC键关闭弹窗 —— 入 ESC 回退栈(栈顶优先、逐层回退,IME 组合期不触发),不自留
+  // window 冒泡监听:栈顶成员在捕获层截停后自留监听收不到,第一下 ESC 表现为死键。
+  // mkdir/rename 互斥打开,关闭时连同各自草稿一并复位(原语义保留)
+  useEscDismiss(mkdirDialogOpen || renameDialogOpen, () => {
+    if (mkdirDialogOpen) {
+      setMkdirDialogOpen(false)
+      setNewDirName('')
     }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [mkdirDialogOpen, renameDialogOpen])
+    if (renameDialogOpen) {
+      setRenameDialogOpen(false)
+      setRenameFile(null)
+      setNewFileName('')
+    }
+  })
 
   const root = fileTrees[sessionId]
   const currentPath = currentPaths[sessionId] || '/'

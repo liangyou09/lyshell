@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SessionConfig } from '@shared/types'
+import { useEscDismiss } from '../../hooks'
 
 interface QuickCommand {
   id: string
@@ -42,17 +43,10 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'warning', text: string } | null>(null)
   const { t } = useTranslation()
 
-  // ESC键关闭弹窗
-  useEffect(() => {
-    if (!open) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [open, onClose])
+  // ESC键关闭弹窗 —— 入 ESC 回退栈(与浮层/终端搜索条统一层级顺序:栈顶优先、
+  // 逐层回退),不自留 window 监听 —— 栈顶成员截停后自留监听收不到,第一下 ESC
+  // 表现为死键
+  useEscDismiss(open, onClose)
 
   if (!open) return null
 

@@ -4,6 +4,7 @@ import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { generateWorktreeStamp } from '@shared/worktree'
 import EnvRowsEditor from '../EnvRowsEditor'
 import { useUiStore } from '../../stores/ui-store'
+import { useDismiss, useEscDismiss } from '../../hooks'
 // 内置品牌图标:Vite new URL 模式取打包后资产 URL(免 *.png 模块声明)
 const claudeIcon = new URL('../../assets/agent-icons/claude.png', import.meta.url).href
 const codexIcon = new URL('../../assets/agent-icons/codex.png', import.meta.url).href
@@ -180,39 +181,22 @@ const AgentsPanel: React.FC = () => {
     }).catch((err) => console.error('Failed to load env profiles:', err))
   }, [])
 
-  // 图标选择器浮层:外部点击关闭
-  useEffect(() => {
-    if (!iconPickerOpen) return
-    const onDown = (e: MouseEvent) => {
-      if (iconPickerRef.current && !iconPickerRef.current.contains(e.target as Node)) {
-        setIconPickerOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [iconPickerOpen])
+  // 图标选择器浮层:外部点击 / ESC 关闭 —— ESC 捕获截停(useDismiss),不穿透进
+  // 下方层;浮层开着时对话框自己的 ESC 监听通常到不了,见下
+  useDismiss(iconPickerOpen, () => setIconPickerOpen(false), [iconPickerRef])
 
-  // ESC 退出对话框 -- 文档级监听,不依赖子元素焦点(覆盖层本身不可聚焦)
-  // 处于删除二次确认态时,首次 ESC 仅回退确认态,再次 ESC 才关闭(与两步确认语义一致)
-  useEffect(() => {
-    if (!showDialog) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.stopPropagation()
-      // 优先级:图标浮层 > 删除二次确认 > 关闭对话框(逐层回退,ESC 不越级跳)
-      if (iconPickerOpen) {
-        setIconPickerOpen(false)
-        return
-      }
-      if (confirmDelete) {
-        setConfirmDelete(false)
-        return
-      }
-      setShowDialog(false)
+  // ESC 退出对话框 —— 入 ESC 回退栈(栈顶优先、逐层回退,IME 组合期不触发),不自留
+  // document 冒泡监听:栈顶成员在捕获层截停后自留监听收不到,第一下 ESC 表现为死键。
+  // 处于删除二次确认态时,首次 ESC 仅回退确认态,再次 ESC 才关闭 —— 两步确认即栈内
+  // 子层级,一次 ESC 退一层,与回退栈语义一致。对话框内的图标浮层(useDismiss)开在
+  // 上层时先收浮层,栈序自动裁决,无需 iconPickerOpen 特判
+  useEscDismiss(showDialog, () => {
+    if (confirmDelete) {
+      setConfirmDelete(false)
+      return
     }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [showDialog, confirmDelete, iconPickerOpen])
+    setShowDialog(false)
+  })
 
   const handleLaunch = async (agentId: string) => {
     await window.electronAPI?.launchAgent(agentId)

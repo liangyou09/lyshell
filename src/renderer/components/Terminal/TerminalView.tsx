@@ -7,8 +7,9 @@ import { DEFAULT_THEME_DARK, DEFAULT_THEME_LIGHT, DEFAULT_FONT_FAMILY, TERMINAL_
 import { isLightColor } from '@shared/color-utils'
 import { useTerminalStore } from '../../stores/terminal-store'
 import { useSessionStore } from '../../stores/session-store'
-import { usePaneStore } from '../../stores/pane-store'
+import { usePaneStore, findPane } from '../../stores/pane-store'
 import { useThemeStore } from '../../stores/theme-store'
+import { useEscDismiss } from '../../hooks'
 import { useTranslation } from 'react-i18next'
 import i18n from '../../i18n'
 import { ConnectionStatus, type SessionConfig } from '@shared/types'
@@ -164,6 +165,19 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   // 初始 blockInput=false；不加 ref，MCP 锁定后用户输入仍会写入 PTY。
   const blockInputRef = useRef(blockInput)
   useEffect(() => { blockInputRef.current = blockInput }, [blockInput])
+
+  // 本实例是否是窗口当前可见的终端（活动分屏的活动页签、未被隐藏、无覆盖层接管）——
+  // 口径同 SessionsPanel 底部读数的 activeTerminalSessionId 选择器。后台页签保持
+  // 挂载（PaneView 以 visibility:hidden 保活），搜索条的 ESC 栈籍与 Ctrl+F 只算
+  // 可见实例：看不见的搜索条占着栈顶时，在活动页签按 ESC 会被它截停一下（表现为
+  // 第一下 ESC 死掉）；Ctrl+F 不门控则所有挂载实例同时各自开一条搜索栏。
+  const isTabActive = usePaneStore(s => {
+    if (!paneId) return true
+    if (s.layout.activePaneId !== paneId) return false
+    const pane = findPane(s.layout.root, paneId)
+    if (pane?.type !== 'leaf') return false
+    return pane.activeSessionId === sessionId && !s.hiddenTabSessions[sessionId] && !pane.overlays.some(r => r.active)
+  })
   // IME 猴补丁控制器：restore 还原补丁，resetLock 解除位置锁定
   const imePatchRef = useRef<{
     restore: () => void
@@ -822,8 +836,10 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
     }
   }, [themeId, sessionId, getTerminal])
 
-  // Ctrl+F 快捷键查找
+  // Ctrl+F 快捷键查找(window 捕获:抢在 xterm 的按键处理前) —— 只在可见实例上开:
+  // 所有页签都常驻挂载,不门控的话一次 Ctrl+F 会在每个后台页签里同时开搜索栏
   useEffect(() => {
+    if (!isTabActive) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault()
@@ -835,17 +851,22 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
           searchInputRef.current?.select()
         }, 0)
       }
-      if (e.key === 'Escape' && showSearch) {
-        setShowSearch(false)
-        // 关闭时永远清掉装饰,避免遗留高亮干扰阅读
-        searchAddonRef.current?.clearDecorations()
-      }
     }
 
     // 使用 capture 模式确保在其他处理器之前捕获
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [showSearch])
+  }, [isTabActive])
+
+  // ESC 收起搜索条 —— 入 useDismiss 的 ESC 回退栈(document 捕获层,与状态栏编码菜单等
+  // 浮层同栈):多层同开时后开的先收,而不是搜索条永远抢第一下;栈顶消费后
+  // stopPropagation,不穿给 xterm 的 textarea(裸 \x1b 发给远端)。仅可见实例占栈籍:
+  // 后台页签里开着的搜索条悬在栈顶会截停活动页签的 ESC(见 isTabActive 注释)
+  useEscDismiss(showSearch && isTabActive, () => {
+    setShowSearch(false)
+    // 关闭时永远清掉装饰,避免遗留高亮干扰阅读
+    searchAddonRef.current?.clearDecorations()
+  })
 
   // 监听分屏 resize 事件（带防抖）
   useEffect(() => {
@@ -1058,14 +1079,12 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
     }
   }
 
-  // 输入框键盘:Enter=next, Shift+Enter=prev, Esc=close, Alt+A=切换 scope
+  // 输入框键盘:Enter=next, Shift+Enter=prev, Alt+A=切换 scope
+  // (Esc 不在这里:useEscDismiss 在 document 捕获层截停收起,到不了 React 的处理器)
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault()
       doSearch(e.shiftKey ? 'prev' : 'next')
-    } else if (e.key === 'Escape') {
-      e.preventDefault()
-      closeSearch()
     } else if (e.altKey && (e.key === 'a' || e.key === 'A')) {
       e.preventDefault()
       setSearchScope(prev => prev === 'current' ? 'all' : 'current')

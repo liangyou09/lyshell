@@ -6,6 +6,7 @@ import { BRANCH_PREFIX, generateWorktreeCode, generateWorktreeKey, generateWorkt
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { ensureDetected, getCachedDetect, redetectHarness } from './harness-detect'
 import { useUiStore } from '../../stores/ui-store'
+import { useEscDismiss } from '../../hooks'
 
 /**
  * AI Harness 面板 —— dsh / codex / claude 三份第一等终端 Agent 的通用外壳。
@@ -310,22 +311,17 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     }
   }
 
-  // ESC 退出对话框 —— 文档级监听，不依赖子元素焦点（覆盖层本身不可聚焦）
-  // 处于删除二次确认态时，首次 ESC 仅回退确认态，再次 ESC 才关闭（与两步确认语义一致）
-  useEffect(() => {
-    if (!showDialog) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.stopPropagation()
-      if (confirmDelete) {
-        setConfirmDelete(false)
-        return
-      }
-      setShowDialog(false)
+  // ESC 退出对话框 —— 入 ESC 回退栈(栈顶优先、逐层回退,IME 组合期不触发),不自留
+  // document 冒泡监听:栈顶成员在捕获层截停后自留监听收不到,第一下 ESC 表现为死键。
+  // 处于删除二次确认态时,首次 ESC 仅回退确认态,再次 ESC 才关闭 —— 两步确认即栈内
+  // 子层级,一次 ESC 退一层,与回退栈语义一致
+  useEscDismiss(showDialog, () => {
+    if (confirmDelete) {
+      setConfirmDelete(false)
+      return
     }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [showDialog, confirmDelete])
+    setShowDialog(false)
+  })
 
   // worktree 模式下检测当前目录所属仓库的已有共享名与 worktree 根路径（防抖 300ms，供下拉与路径预览）。
   // 检测失败（非 git 目录 / git 缺失）静默置空 —— 保存与启动自有各自的校验，这里只管选项。
