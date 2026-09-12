@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
+import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
+import { IconBtn, IconPlus } from './IconBtn'
 import { generateWorktreeStamp } from '@shared/worktree'
 import EnvRowsEditor from '../EnvRowsEditor'
 import { useUiStore } from '../../stores/ui-store'
@@ -44,9 +46,6 @@ interface AgentConfig {
 // 图标(与 Sidebar 既有图标同语言:1.4 stroke / square cap)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const IconPlus = () => (
-  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square"><path d="M7 2v10M2 7h10"/></svg>
-)
 const IconEdit = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 9l1-3 5-5 2 2-5 5z"/></svg>
 )
@@ -127,7 +126,7 @@ const BundledIconView: React.FC<{ entry: BundledIconEntry; className?: string; t
 const AgentSlotIcon: React.FC<{ agent: AgentConfig }> = ({ agent }) => {
   if (agent.icon) return <span className="text-[15px] leading-none">{agent.icon}</span>
   const bundled = bundledIconFor(agent.command)
-  if (bundled) return <BundledIconView entry={bundled} className="w-[18px] h-[18px]" />
+  if (bundled) return <BundledIconView entry={bundled} className="w-[16px] h-[16px]" />
   return <IconRobot />
 }
 
@@ -167,6 +166,9 @@ const AgentsPanel: React.FC = () => {
   const [saveError, setSaveError] = useState<string | null>(null)
   // 列表级操作失败(卡片删除落盘失败等)—— 与 EnvProfilePanel 的 actionError 同族
   const [actionError, setActionError] = useState<string | null>(null)
+  // 列表行内删除的两步确认:记录待确认的 agent id(null = 无待确认)——
+  // 与 Harness 工作区/变量组卡同一套删除仪式
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   // 图标选择器浮层开合 + 外部点击关闭用 ref
   const [iconPickerOpen, setIconPickerOpen] = useState(false)
   const iconPickerRef = useRef<HTMLDivElement>(null)
@@ -370,7 +372,10 @@ const AgentsPanel: React.FC = () => {
   const previewIcon = bundledIconFor(agentCommand)
 
   return (
-    <div className="flex flex-col h-full bg-[var(--bg-base)] min-w-0">
+    <div
+      className="flex flex-col h-full bg-[var(--bg-base)] min-w-0"
+      style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
+    >
       {/* 头条:AGENTS · 计数 + 添加 -- 行高对齐终端第一行(TOPBAR_HEIGHT),与 SessionsPanel 头行同高 */}
       <div
         className="flex items-center justify-between px-3 border-b border-[var(--rule)] flex-shrink-0"
@@ -393,13 +398,8 @@ const AgentsPanel: React.FC = () => {
             {agents.length}
           </span>
         </span>
-        <button
-          onClick={handleAdd}
-          title={t('sidebar.addAgent')}
-          className="w-[24px] h-[24px] flex items-center justify-center bg-transparent border-none rounded-[3px] cursor-pointer transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--amber)]"
-        >
-          <IconPlus />
-        </button>
+        {/* 新增 Agent —— 与会话/变量组/Harness/插件头条同款琥珀「+」图标钮（悬停 tooltip 即对话框标题） */}
+        <IconBtn amber onClick={handleAdd} title={t('sidebar.addAgent')}><IconPlus /></IconBtn>
       </div>
 
       {/* 列表级操作错误(卡片删除落盘失败等)—— 对齐 EnvProfilePanel 的 actionError 位 */}
@@ -414,8 +414,8 @@ const AgentsPanel: React.FC = () => {
           // 空状态 -- 沿用机柜 ─ · ─ 分隔 + 提示
           <div className="flex flex-col items-center justify-center h-full gap-2 px-4 text-center">
             <span className="font-mono text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
-            <span className="text-[11.5px] text-[var(--text-rack-mute)]">{t('agents.empty')}</span>
-            <span className="text-[10.5px] font-mono text-[var(--text-rack-faint)]">{t('agents.emptyHint')}</span>
+            <span className="text-[11.5px] [font-family:inherit] text-[var(--text-rack-mute)]">{t('agents.empty')}</span>
+            <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">{t('agents.emptyHint')}</span>
           </div>
         ) : (
           agents.map(agent => (
@@ -423,25 +423,25 @@ const AgentsPanel: React.FC = () => {
               key={agent.id}
               onClick={() => handleLaunch(agent.id)}
               onContextMenu={(e) => handleContextMenu(agent, e)}
+              onMouseLeave={() => { if (deleteConfirmId === agent.id) setDeleteConfirmId(null) }}
               title={`${agent.name}: ${agent.command}`}
-              // 44px 独立卡(与 Harness 工作区卡同构的卡语法):四边 rule 框 + 2px
-              // 圆角,卡间 6px 暗沟由容器 space-y-1.5 出 —— 颜色阶梯保持原样
-              // (rack 面 / 悬停 slot);容器 px-3 已收侧距,行内 px-2 让图标落在
-              // 与 Harness 工作区卡片相同的 20px 左沿
-              className="group relative flex items-center gap-2.5 px-2 h-[44px] cursor-pointer transition-colors rounded-[2px] border border-[var(--rule)] bg-[var(--bg-rack)] hover:bg-[var(--bg-slot)]"
+              // 44px 独立卡 —— 四边 rule 框 + 2px 圆角,卡间 6px 暗沟由容器
+              // space-y-1.5 出;槽位阶梯与 Harness 工作区卡归一(slot 面 / 悬停
+              // elev);容器 px-3 已收侧距,行内 px-2 让图标落在 20px 左沿
+              className="group relative flex items-center gap-2.5 px-2 h-[44px] cursor-pointer transition-colors rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)] overflow-hidden"
             >
-              {/* 图标槽:emoji > 内置品牌图标 > 默认机器人头 */}
-              <span className="flex-shrink-0 w-[24px] h-[24px] inline-flex items-center justify-center text-[15px] leading-none text-[var(--text-rack-mute)] group-hover:text-[var(--amber)] transition-colors">
+              {/* 图标槽:emoji > 内置品牌图标 > 默认机器人头 —— 20px 槽与工作区卡图标同列 */}
+              <span className="flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center text-[15px] leading-none text-[var(--text-rack-mute)] group-hover:text-[var(--amber)] transition-colors">
                 <AgentSlotIcon agent={agent} />
               </span>
               <span className="flex flex-col min-w-0 flex-1">
-                <span className="text-[14px] font-semibold text-[var(--text-rack)] truncate leading-tight">{agent.name}</span>
-                <span className="font-mono text-[11.5px] text-[var(--text-rack-data)] truncate leading-tight">
+                <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">{agent.name}</span>
+                <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">
                   {agent.command}{agent.cwd ? ` · ${agent.cwd}` : ''}
                 </span>
               </span>
-              {/* hover actions */}
-              <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto pl-8 bg-gradient-to-l from-[var(--bg-slot)] from-[24%] to-transparent">
+              {/* 悬停操作簇遮罩颜色跟悬停面色(elev);focus-within 同步显形,键盘可达 */}
+              <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-elev)] from-[24%] to-transparent">
                 <button
                   onClick={(e) => handleContextMenu(agent, e)}
                   title={t('sidebar.agentEditTitle')}
@@ -452,6 +452,12 @@ const AgentsPanel: React.FC = () => {
                 <button
                   onClick={async (e) => {
                     e.stopPropagation()
+                    // 两步确认:首次点击切到确认态,再次点击才真正删除(与工作区/变量组卡一致)
+                    if (deleteConfirmId !== agent.id) {
+                      setDeleteConfirmId(agent.id)
+                      return
+                    }
+                    setDeleteConfirmId(null)
                     // 失败(落盘失败/agent 已不存在)不静默:卡片在下方 loadAgents()
                     // 后"复活"前给出原因 —— 与拨分接开关/变量组卡片删除同族错误位
                     try {
@@ -465,8 +471,13 @@ const AgentsPanel: React.FC = () => {
                       await loadAgents()
                     }
                   }}
-                  title={t('sidebar.agentDelete')}
-                  className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]"
+                  title={deleteConfirmId === agent.id ? t('agents.edit.confirmDelete') : t('sidebar.agentDelete')}
+                  className={cn(
+                    'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
+                    deleteConfirmId === agent.id
+                      ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
+                      : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]'
+                  )}
                 >
                   <IconX />
                 </button>

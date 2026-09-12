@@ -12,6 +12,7 @@ import {
 } from '@shared/harness'
 import EnvRowsEditor, { type EnvRow } from '../EnvRowsEditor'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
+import { IconBtn, IconPlus } from './IconBtn'
 import { useUiStore } from '../../stores/ui-store'
 
 /**
@@ -29,10 +30,6 @@ import { useUiStore } from '../../stores/ui-store'
  * CRUD 走 kind 无关的 env-profile:add/update/delete 通道；启用切换走
  * env-profile:setActive（主进程写的是同一份全局 activeProfileId 指针）。
  */
-
-const IconPlus: React.FC = () => (
-  <svg width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square"><path d="M7 2v10M2 7h10" /></svg>
-)
 
 const IconEdit: React.FC = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 9l1-3 5-5 2 2-5 5z" /></svg>
@@ -438,13 +435,8 @@ const EnvProfilePanel: React.FC = () => {
             {profiles.length}
           </span>
         </span>
-        <button
-          onClick={handleAdd}
-          title={t('env.addTitle')}
-          className="w-[24px] h-[24px] flex items-center justify-center bg-transparent border-none rounded-[3px] cursor-pointer transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--amber)]"
-        >
-          <IconPlus />
-        </button>
+        {/* 新增变量组 —— 与会话/Agent/Harness/插件头条同款琥珀「+」图标钮（悬停 tooltip 即对话框标题） */}
+        <IconBtn amber onClick={handleAdd} title={t('env.addTitle')}><IconPlus /></IconBtn>
       </div>
 
       {/* 列表级错误横幅 */}
@@ -484,10 +476,11 @@ const EnvProfilePanel: React.FC = () => {
                 aria-label={p.name}
                 title={on ? t('env.deactivateTitle') : t('env.activateTitle')}
                 className={cn(
-                  // 独立卡语法（与 Harness 工作区卡同构）：四边 rule 框 + 2px 圆角 +
-                  // 卡间 6px 暗沟（容器 space-y-1.5）—— 颜色阶梯保持原样（rack 面 /
-                  // 悬停 slot / 琥珀启用语义不动）；overflow-hidden 继续裁导轨圆角
-                  'group relative flex flex-col gap-1 px-2 py-2 transition-colors rounded-[2px] border border-[var(--rule)] bg-[var(--bg-rack)] hover:bg-[var(--bg-slot)] focus:outline-none focus-visible:border-[var(--amber)] overflow-hidden',
+                  // 独立卡语法（与 Harness 工作区卡归一）：四边 rule 框 + 2px 圆角 +
+                  // 卡间 6px 暗沟（容器 space-y-1.5）—— 槽位阶梯与全线一致
+                  // （slot 面 / 悬停 elev / 琥珀启用语义不动）；行距 py-1.5
+                  // 与工作区/Agent 卡同一档（两行卡）；overflow-hidden 裁导轨圆角
+                  'group relative flex flex-col gap-1 px-2 py-1.5 transition-colors rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)] focus:outline-none focus-visible:border-[var(--amber)] overflow-hidden',
                   switching ? 'cursor-wait' : 'cursor-pointer'
                 )}
               >
@@ -500,12 +493,30 @@ const EnvProfilePanel: React.FC = () => {
                     className="absolute left-0 top-0 bottom-0 w-[2px] bg-[var(--amber)] shadow-[0_0_6px_var(--amber-glow)]"
                   />
                 )}
-                {/* 行 1：组名 + hover 操作（复制/编辑/删除） */}
+                {/* 行 1：通电 LED + 组名 + hover 操作（复制/编辑/删除）。
+                    整卡即开关（单击切换启用）—— 状态读数瘦身为名称前的 20px 槽
+                    6px LED（亮=琥珀辉光，暗=熄槽、悬停拨亮预览），与左沿母线
+                    导轨同一套通电语言（BusLed 同款），不再单独占一整行断路器药丸 */}
                 <div className="flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className={cn(
+                      'flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center'
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'w-[6px] h-[6px] rounded-full transition-colors',
+                        on
+                          ? 'bg-[var(--amber)] shadow-[0_0_5px_var(--amber-glow)]'
+                          : 'bg-[var(--text-rack-faint)] group-hover:bg-[var(--amber)]'
+                      )}
+                    />
+                  </span>
                   <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">
                     {p.name}
                   </span>
-                  <div className="absolute right-1.5 top-[13px] -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-slot)] from-[24%] to-transparent">
+                  <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-elev)] from-[24%] to-transparent">
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDuplicate(p) }}
                       title={t('env.copy')}
@@ -559,49 +570,17 @@ const EnvProfilePanel: React.FC = () => {
                   </div>
                 </div>
 
-                {/* 行 2：上游地址 host · 凭据指示 · 附加变量数 · 备注 —— 结构化核心的读数面 */}
-                <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">
-                  {[
-                    p.baseUrl ? baseUrlHost(p.baseUrl) : null,
-                    p.apiKey ? t('env.keyPresent') : null,
-                    Object.keys(p.env).length > 0 ? t('env.vars', { count: Object.keys(p.env).length }) : null,
-                    p.note || null
-                  ].filter(Boolean).join(' · ')}
-                </span>
-
-                {/* 行 3：断路器读数面 + 引用回读。整卡即开关（单击切换启用，右键/
-                    悬停 ✎ 编辑），这里的拨片/灯/丝印是状态读数而非第二个按钮 ——
-                    模块灯三段叙事：暗槽（未启用）→ 悬停拨亮（整卡 hover 的预览，
-                    按下去它就会亮）→ 辉光（启用中）；形状+颜色双编码。 */}
-                <div className="flex items-center gap-1 flex-wrap">
-                  <div
-                    aria-hidden
-                    className={cn(
-                      'inline-flex items-center gap-1.5 h-[22px] pl-1 pr-2 rounded-[2px] border select-none transition-colors',
-                      'text-[10.5px] font-semibold leading-none tracking-[.06em] uppercase',
-                      on
-                        ? 'border-[var(--amber)] bg-[color-mix(in_srgb,var(--amber)_10%,var(--bg-rack))] text-[var(--amber)]'
-                        : 'border-[var(--text-rack-faint)] text-[var(--text-rack)]',
-                      switching && 'opacity-60'
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'w-[14px] h-[14px] rounded-[2px] border border-[var(--rule)] bg-[var(--bg-base)] flex items-center justify-center transition-colors',
-                        on && 'border-[var(--amber)] bg-[color-mix(in_srgb,var(--amber)_18%,var(--bg-rack))]'
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          'w-[5px] h-[5px] rounded-full transition-colors',
-                          on
-                            ? 'bg-[var(--amber)] shadow-[0_0_4px_var(--amber-glow)]'
-                            : 'bg-[var(--text-rack-faint)] group-hover:bg-[var(--amber)]'
-                        )}
-                      />
-                    </span>
-                    {t(on ? 'env.activeBadge' : 'env.inactiveBadge')}
-                  </div>
+                {/* 行 2：上游地址 host · 凭据指示 · 附加变量数 · 备注 + 引用回读 ——
+                    结构化核心的读数面；引用数靠右收尾（悬停见引用方名单） */}
+                <div className="flex items-baseline gap-2 min-w-0">
+                  <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">
+                    {[
+                      p.baseUrl ? baseUrlHost(p.baseUrl) : null,
+                      p.apiKey ? t('env.keyPresent') : null,
+                      Object.keys(p.env).length > 0 ? t('env.vars', { count: Object.keys(p.env).length }) : null,
+                      p.note || null
+                    ].filter(Boolean).join(' · ')}
+                  </span>
                   <span className="flex-1" />
                   {total > 0 ? (
                     <span title={usageNames(p.id)} className="shrink-0 text-[10px] [font-family:inherit] text-[var(--text-rack-mute)] tabular-nums">

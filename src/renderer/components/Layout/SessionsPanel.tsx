@@ -12,6 +12,7 @@ import FileManagerPanel from '../FileManager/FileManagerPanel'
 import QuickCommandsPanel from '../QuickCommands/QuickCommandsPanel'
 import TerminalSize, { BarRule } from './TerminalSize'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
+import { IconBtn, IconPlus } from './IconBtn'
 import { evaluateStatusbarCompact, type StatusbarCompactState } from './statusbar-compact'
 import { useQuickCommandsStore } from '../../stores/quick-commands-store'
 import { useUiStore } from '../../stores/ui-store'
@@ -188,9 +189,6 @@ const protoStripBg = (proto: string): string => {
 // SVG 图标
 // ─────────────────────────────────────────────────────────────────────────────
 
-const IconPlus = () => (
-  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square"><path d="M7 2v10M2 7h10"/></svg>
-)
 const IconDownload = () => (
   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square"><path d="M7 2v8M3 7l4 4 4-4M2 12h10"/></svg>
 )
@@ -227,25 +225,6 @@ const IconPower = () => (
 // ─────────────────────────────────────────────────────────────────────────────
 // 内联子组件
 // ─────────────────────────────────────────────────────────────────────────────
-
-const IconBtn: React.FC<{
-  onClick?: () => void
-  title?: string
-  amber?: boolean
-  children: React.ReactNode
-}> = ({ onClick, title, amber, children }) => (
-  <button
-    onClick={onClick}
-    title={title}
-    className={cn(
-      'w-[24px] h-[24px] flex items-center justify-center bg-transparent border-none rounded-[3px] cursor-pointer transition-colors',
-      'text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)]',
-      amber ? 'hover:text-[var(--amber)]' : 'hover:text-[var(--text-rack)]'
-    )}
-  >
-    {children}
-  </button>
-)
 
 const StripRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="grid grid-cols-[52px_1fr] items-center gap-2 px-3 py-1.5 bg-[var(--bg-strip)] border-b border-[var(--rule-soft)]">

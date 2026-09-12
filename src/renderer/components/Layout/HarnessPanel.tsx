@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { DEFAULT_CLAUDE_PERMISSION_MODE, DEFAULT_CODEX_PERMISSION_PROFILE, HARNESS_AGENT_VIEWS, type ClaudePermissionMode, type CodexPermissionProfile, type EnvProfileLibraryResult, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
 import { BRANCH_PREFIX, generateWorktreeCode, generateWorktreeKey, generateWorktreeStamp, joinWorktreePath } from '@shared/worktree'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
+import { IconBtn, IconPlus } from './IconBtn'
 import { ensureDetected, getCachedDetect, redetectHarness } from './harness-detect'
 import { useUiStore } from '../../stores/ui-store'
 import { useEscDismiss } from '../../hooks'
@@ -74,10 +75,6 @@ const IconFolder: React.FC = () => (
   </svg>
 )
 
-const IconPlus: React.FC = () => (
-  <svg width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square"><path d="M7 2v10M2 7h10" /></svg>
-)
-
 const IconEdit: React.FC = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 9l1-3 5-5 2 2-5 5z" /></svg>
 )
@@ -112,37 +109,6 @@ const BusLed: React.FC<{ on: boolean }> = ({ on }) => (
       )}
     />
   </>
-)
-
-/**
- * 新建条 —— 钉在页签条下方、列表上方的主动作。
- *
- * 位置：紧贴页签，不随列表长短漂移，也不被滚动带走 —— 它是这个页签的动作，不是列表的尾巴。
- * 分量：实线 + 内凹底色 + 半粗标签，比条目更重（它是动作，条目是数据）；只有 + 号用琥珀，
- * 因为琥珀在本面板里稀缺地表示"通电/启用"，整块染琥珀会和列表里的绑定标记读混。
- * 名字直接用它要打开的对话框标题，点下去与看到的一致。
- */
-/** 新增条 —— 占据贴头行首槽的 44px 动作位(与 ActivityRail 页签槽位同高,轨上 36–80px):
- *  卡片本体 32px 居中悬浮,上下各留间隙,不顶头行也不压底部分割线;分割线只随卡片
- *  宽度走(px-3 收进,不连接面板左右边缘),作为动作区的局部收束而非满幅横带。
- *  px-3 + px-2 = 原笼内左沿,加号图标与下方列表行的文件夹图标同列。 */
-const AddBar: React.FC<{ label: string; onClick: () => void }> = ({ label, onClick }) => (
-  <div className="flex-shrink-0 h-[44px] px-3 flex flex-col">
-    <div className="flex-1 flex items-center">
-      <button
-        onClick={onClick}
-        className="group w-full flex items-center gap-2.5 px-2 h-[32px] rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] cursor-pointer transition-colors hover:border-[var(--amber)] hover:bg-[var(--bg-elev)] focus:outline-none focus-visible:border-[var(--amber)]"
-      >
-        <span aria-hidden className="flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center text-[var(--amber)]">
-          <IconPlus />
-        </span>
-        <span className="min-w-0 truncate text-[13px] font-semibold [font-family:inherit] text-[var(--text-rack)] group-hover:text-[var(--amber)] transition-colors">
-          {label}
-        </span>
-      </button>
-    </div>
-    <div aria-hidden className="h-px bg-[var(--rule-soft)]" />
-  </div>
 )
 
 const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { workspaceId?: string; cwd?: string }, name?: string) => Promise<{ success: boolean; error?: string }> }> = ({ agent, onOpenWeb }) => {
@@ -607,7 +573,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
       className="w-full h-full flex flex-col bg-[var(--bg-base)]"
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
-      {/* 头条：面板铭牌 + 重新检测 —— 与 SessionsPanel(LyShell 徽牌)/AgentsPanel 头行同族：
+      {/* 头条：面板铭牌 + 新增工作区/重新检测 —— 与 SessionsPanel(LyShell 徽牌)/AgentsPanel/PluginPanel 头行同族：
           行高对齐终端第一行(TOPBAR_HEIGHT)、满幅 border-b 发丝线、
           铭牌走系统 UI 字体(设备徽章的「厂牌丝印」,Segoe UI Variable Display,
           hinting 完整任何字号都锐利),LED 是琥珀锚点。
@@ -648,7 +614,12 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
             <span className="truncate">{t(`${prefix}.title`)}</span>
           </span>
         )}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {/* 新增工作区 —— 与会话/Agent/变量组/插件头条同款琥珀「+」图标钮（悬停 tooltip
+              即对话框标题）；依赖就绪（列表可用）才出现，缺依赖时此面板只谈安装不谈工作区 */}
+          {listReady && (
+            <IconBtn amber onClick={handleAdd} title={t(`${prefix}.wsAddTitle`)}><IconPlus /></IconBtn>
+          )}
           {/* 依赖齐全时无需重新检测（隐藏）；检测中/缺依赖时保留 */}
           {!launchReady && (
             <button
@@ -662,13 +633,9 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
         </div>
       </div>
 
-      {/* 新增条外提出笼、满幅贴头行 —— 面板的固定动作，位置不随临时横幅/列表滚动挪动，
-          上下边缘与左侧轨上第一个页签槽位持平（44px） */}
-      {listReady && <AddBar label={t(`${prefix}.wsAddTitle`)} onClick={handleAdd} />}
-
-      {/* 内容笼：p-3 + space-y-2 自根容器下移到这层，头条得以满幅贴顶（与 SessionsPanel 同构）。
-          顶部只留 pt-1.5：就绪态上方有新增条分割线，内容贴近分割线起排，不再隔一整段 p-3 */}
-      <div className="flex-1 min-h-0 flex flex-col px-3 pt-1.5 pb-3 space-y-2">
+      {/* 内容笼：p-3 + space-y-2 自根容器下移到这层，头条得以满幅贴顶（与 SessionsPanel/PluginPanel 同构）。
+          新增动作已上收头条右上角 chip，头顶不再有新增条分割线，恢复整段 p-3 顶距 */}
+      <div className="flex-1 min-h-0 flex flex-col px-3 pt-3 pb-3 space-y-2">
 
       {/* 未就绪：首个依赖缺失 → 依赖状态行 + 提示卡（无首个依赖则列表/启动均不可用） */}
       {!listReady && (
@@ -820,7 +787,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                     onMouseLeave={() => { if (deleteConfirmId === ws.id) setDeleteConfirmId(null) }}
                     title={t(`${prefix}.launch`)}
                     className={cn(
-                      'group relative flex items-center gap-2.5 px-2 py-1.5 rounded-[2px] cursor-pointer border transition-colors',
+                      'group relative flex items-center gap-2.5 px-2 py-1.5 rounded-[2px] cursor-pointer border transition-colors overflow-hidden',
                       // 常规面 = 槽位色 bg-slot（比面板底高两档，与 bg-base 沟拉开卡界），
                       // 悬停 elev 再提一档；危险态染底配方见 .danger-card（同走 slot 基）
                       dangerPerm
@@ -896,8 +863,9 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                         <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] truncate leading-tight">{ws.note}</span>
                       )}
                     </span>
-                    {/* 悬停操作簇遮罩颜色跟悬停面色(elev)—— 用面色的不透明渐变盖住按钮底下的字 */}
-                    <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-elev)] from-[24%] to-transparent">
+                    {/* 悬停操作簇遮罩颜色跟悬停面色(elev)—— 用面色的不透明渐变盖住按钮底下的字；
+                        focus-within 同步显形，键盘 Tab 聚到按钮时不必悬停也能操作 */}
+                    <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-elev)] from-[24%] to-transparent">
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDuplicateWorkspace(ws) }}
                         title={t(`${prefix}.copy`)}
@@ -921,8 +889,18 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                             return
                           }
                           setDeleteConfirmId(null)
-                          await api.delete(ws.id)
-                          await loadWorkspaces()
+                          // 失败(落盘失败/工作区已不存在)不静默:卡片在下方 loadWorkspaces()
+                          // "复活"前给出原因 —— 与 Agent/变量组卡同一族错误位
+                          try {
+                            const res = await api.delete(ws.id)
+                            if (res && res.success === false) {
+                              setActionError(typeof res.error === 'string' ? res.error : t(`${prefix}.wsDeleteFailed`))
+                            }
+                          } catch (err) {
+                            setActionError(err instanceof Error ? err.message : t(`${prefix}.wsDeleteFailed`))
+                          } finally {
+                            await loadWorkspaces()
+                          }
                         }}
                         title={deleteConfirmId === ws.id ? t(`${prefix}.wsConfirmDelete`) : t(`${prefix}.wsDelete`)}
                         className={cn(

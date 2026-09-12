@@ -156,7 +156,7 @@ const WebPanel: React.FC = () => {
         </span>
       </div>
 
-      {/* 输入动作位 —— 与 HarnessPanel 新增条同构:44px 占位对齐 ActivityRail 槽位,
+      {/* 输入动作位 —— 44px 占位对齐 ActivityRail 槽位(轨上 36–80px),
           输入框 32px 居中悬浮,底部一条随卡片宽度的分割线(px-3 收进,不连接面板
           左右边缘)把动作区与历史区分开 */}
       <div className="flex-shrink-0 h-[44px] px-3 flex flex-col">
