@@ -22,7 +22,7 @@ import { useLocaleStore } from '../../stores/locale-store'
 import { useQuickCommandsStore } from '../../stores/quick-commands-store'
 import { useUiStore } from '../../stores/ui-store'
 import { NAV_EVENT } from '../../commands/command-registry'
-import { PALETTE_EVENT } from '../../commands/palette'
+import { PALETTE_EVENT, dispatchPaletteClosed } from '../../commands/palette'
 import { connectSession } from '../../commands/launch'
 import { dispatchCommand } from '../../utils/dispatch-command'
 import { openLocalDoc } from '../DocPanel/readDoc'
@@ -64,7 +64,9 @@ const MainWindow: React.FC = () => {
   })
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
   const [floatVisible, setFloatVisible] = useState(false) // 浮窗默认隐藏
-  const [paletteOpen, setPaletteOpen] = useState(false) // 全局命令面板(Ctrl+Shift+P)默认隐藏
+  // 全局命令面板开合落 ui-store(TerminalView 的自动聚焦守卫要跨组件读它,见
+  // ui-store 注释);本组件只订阅渲染,写经 getState
+  const paletteOpen = useUiStore(s => s.paletteOpen)
   const [isMaximized, setIsMaximized] = useState(false)
   const { sessions, loadSessions, syncSessionsFromBackend } = useSessionStore()
   // 不订阅 layout：本组件 JSX 不消费布局树（activePaneId 只在事件回调里经
@@ -79,6 +81,15 @@ const MainWindow: React.FC = () => {
   const handleNavChange = useCallback((tab: NavTab) => {
     setActiveNav(tab)
     try { localStorage.setItem('lyshell.navTab.v1', tab) } catch { /* quota */ }
+  }, [])
+
+  // 关闭全局命令面板 —— 置 false 后延迟一拍派发关闭事件(见 palette.ts):
+  // 面板卸载会把焦点摔到 body,底下被盖住的活动面(终端 / 空态命令屏)靠事件
+  // 把键盘接回;此刻焦点尚未落定、事件太早发出去会读不到 body。Ctrl+Shift+P
+  // 的切换关闭与 overlay 的 onClose 共用
+  const closePalette = useCallback(() => {
+    useUiStore.getState().setPaletteOpen(false)
+    setTimeout(dispatchPaletteClosed, 0)
   }, [])
 
   // 加载主题（index.html 已早期应用，这里仅同步 store 状态）
@@ -465,16 +476,17 @@ const MainWindow: React.FC = () => {
       if (e.key !== 'p' && e.key !== 'P') return
       e.preventDefault()
       e.stopPropagation()
-      setPaletteOpen(open => !open)
+      if (useUiStore.getState().paletteOpen) closePalette()
+      else useUiStore.getState().setPaletteOpen(true)
     }
     window.addEventListener('keydown', handleTogglePalette, true)
     return () => window.removeEventListener('keydown', handleTogglePalette, true)
-  }, [])
+  }, [closePalette])
 
   // 页签条「+」钮的打开请求（见 commands/palette.ts）—— 与 Ctrl+Shift+P 同一面板，
   // 语义是打开而非切换；面板打开时 z-50 盖住页签行，「+」不可再点，无重复打开竞态
   useEffect(() => {
-    const handleOpenPalette = () => setPaletteOpen(true)
+    const handleOpenPalette = () => useUiStore.getState().setPaletteOpen(true)
     window.addEventListener(PALETTE_EVENT, handleOpenPalette)
     return () => window.removeEventListener(PALETTE_EVENT, handleOpenPalette)
   }, [])
@@ -776,10 +788,11 @@ const MainWindow: React.FC = () => {
           )}
 
           {/* 全局命令面板(Ctrl+Shift+P) -- 整屏 TUI 接管终端区(含页签行),与空状态
-              共用 CommandScreen/命令集;Esc 或 /local 这类 closeOverlay 命令经 onClose 退出 */}
+              共用 CommandScreen/命令集;Esc 或 /local 这类 closeOverlay 命令经 onClose 退出
+              (关闭派发焦点接回事件,见 closePalette) */}
           {paletteOpen && (
             <div className="absolute inset-0 z-50">
-              <CommandScreen mode="overlay" onClose={() => setPaletteOpen(false)} />
+              <CommandScreen mode="overlay" onClose={closePalette} />
             </div>
           )}
         </div>

@@ -10,6 +10,7 @@ import { render, cleanup, fireEvent, screen } from '@testing-library/react'
 import CommandScreen from './CommandScreen'
 import { usePaneStore } from '../../stores/pane-store'
 import { BUILTIN_INVENTORY_PATH } from '../../commands/inventory'
+import { PALETTE_CLOSED_EVENT } from '../../commands/palette'
 import type { DocOverlayPayload } from '@shared/types'
 
 // jsdom 未实现 scrollIntoView(候选列表的滚动跟随 effect 会踩到)
@@ -349,6 +350,60 @@ describe('CommandScreen:embedded 焦点让位与收回(覆盖层盖屏)', () => 
     expect(document.activeElement).not.toBe(inputOf())
     fireEvent.mouseDown(container.firstElementChild as HTMLElement)
     expect(document.activeElement).not.toBe(inputOf())
+  })
+})
+
+describe('CommandScreen:点击自愈与面板关闭接回(焦点丢失的真实路径)', () => {
+  // jsdom 不模拟 mousedown 的默认焦点搬迁 —— 真实浏览器里点命令屏留白,浏览器
+  // 会把焦点搬到 body,mousedown 版聚焦被默认动作反杀(点一下 = 失焦)。这里直接
+  // blur 复现"焦点悬空在 body"的终态,验证两道收回:click 时刻的自愈与全局命令
+  // 面板关闭事件的接回
+  const inputOf = (): HTMLInputElement => screen.getByRole('textbox') as HTMLInputElement
+
+  it('失焦后点击屏面留白/纯文本:click 把焦点收回 prompt', () => {
+    const { container } = render(<CommandScreen mode="embedded" paneActive />)
+    const input = inputOf()
+    input.blur()
+    expect(document.activeElement).toBe(document.body)
+    fireEvent.click(container.firstElementChild as HTMLElement)
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('拖选/复制中(有选区)的 click 不抢焦点', () => {
+    const { container } = render(<CommandScreen mode="embedded" paneActive />)
+    const input = inputOf()
+    input.blur()
+    expect(document.activeElement).toBe(document.body)
+    const sel = vi.spyOn(window, 'getSelection').mockReturnValue({ toString: () => '拖选中的文本' } as unknown as Selection)
+    fireEvent.click(container.firstElementChild as HTMLElement)
+    expect(document.activeElement).toBe(document.body)
+    sel.mockRestore()
+  })
+
+  it('covered 态的 click 不抢焦点(键盘属于覆盖层)', () => {
+    const { container } = render(<CommandScreen mode="embedded" paneActive covered />)
+    fireEvent.click(container.firstElementChild as HTMLElement)
+    expect(document.activeElement).not.toBe(inputOf())
+  })
+
+  it('全局命令面板关闭事件:焦点悬空(body)时接回;covered / 非激活 pane 不接', () => {
+    const { rerender } = render(<CommandScreen mode="embedded" paneActive />)
+    const input = inputOf()
+    input.blur()
+    expect(document.activeElement).toBe(document.body)
+    window.dispatchEvent(new CustomEvent(PALETTE_CLOSED_EVENT))
+    expect(document.activeElement).toBe(input)
+
+    // 覆盖层盖屏:面板关了键盘也归覆盖层,不接
+    rerender(<CommandScreen mode="embedded" paneActive covered />)
+    expect(document.activeElement).toBe(document.body)
+    window.dispatchEvent(new CustomEvent(PALETTE_CLOSED_EVENT))
+    expect(document.activeElement).toBe(document.body)
+
+    // 非激活 pane:键盘属于别处(其他 pane 的终端/命令屏),不接
+    rerender(<CommandScreen mode="embedded" paneActive={false} />)
+    window.dispatchEvent(new CustomEvent(PALETTE_CLOSED_EVENT))
+    expect(document.activeElement).toBe(document.body)
   })
 })
 

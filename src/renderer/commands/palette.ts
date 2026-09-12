@@ -14,3 +14,14 @@ export const PALETTE_EVENT = 'lyshell:open-palette'
 export function dispatchOpenPalette(): void {
   window.dispatchEvent(new CustomEvent(PALETTE_EVENT))
 }
+
+/** 全局命令面板关闭事件 —— 面板卸载会把焦点摔到 body,底下被盖住的活动面
+ *  (终端 / 空态命令屏)听它把键盘接回。同样沉在叶子模块:监听方(CommandScreen、
+ *  TerminalView)与派发方(MainWindow)若互相 import 组件会成环。派发时机在
+ *  关闭路径上由 MainWindow 延迟一拍(等面板卸载、焦点落定 body)再发 */
+export const PALETTE_CLOSED_EVENT = 'lyshell:palette-closed'
+
+/** 派发「全局命令面板已关闭」事件 */
+export function dispatchPaletteClosed(): void {
+  window.dispatchEvent(new CustomEvent(PALETTE_CLOSED_EVENT))
+}

@@ -8,6 +8,7 @@ import { isLightColor } from '@shared/color-utils'
 import { useTerminalStore } from '../../stores/terminal-store'
 import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore, findPane } from '../../stores/pane-store'
+import { useUiStore } from '../../stores/ui-store'
 import { useThemeStore } from '../../stores/theme-store'
 import { useEscDismiss } from '../../hooks'
 import { useTranslation } from 'react-i18next'
@@ -15,10 +16,12 @@ import i18n from '../../i18n'
 import { ConnectionStatus, type SessionConfig } from '@shared/types'
 import { Unicode15Provider } from './unicode15-provider'
 import { registerDocLinkProvider } from '../DocPanel/registerDocLinkProvider'
+import { PALETTE_CLOSED_EVENT } from '../../commands/palette'
 
 // 注意：本组件依赖 xterm.js 内部私有 API，无稳定性承诺，xterm 任何版本更新都可能改名或移除。
-//   - IME 定位：_core、_compositionHelper、_textarea、updateCompositionElements、compositionstart
-//     （升级前须人工回归中文 IME 输入）。
+//   - IME 定位与搜狗 Shift 上屏：_core、_compositionHelper、_textarea、updateCompositionElements、
+//     compositionstart、_core._keyDown/_keyDownSeen（升级前须人工回归中文 IME 输入，以及搜狗
+//     中文态「敲字母按 Shift 切英文」时字母应直接上屏）。
 //   - 浮点测量：patchXtermFloatMeasure 依赖 _core._renderService._renderer.value 上的
 //     WidthCache._measure / DomRenderer._setDefaultSpacing / _widthCache（升级前须人工回归滚动对齐）。
 //   - 字体加载兜底重测：依赖 _core._charSizeService.measure 与同上 WidthCache/_setDefaultSpacing
@@ -187,14 +190,34 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   // 聚焦终端（仅当本 session 是其所在 pane 的活跃页签且未被隐藏时）。
   // 同一 pane 内所有 xterm 实例都保持挂载（非活跃用 visibility:hidden 隐藏），
   // 若不设守卫，多个实例会争抢焦点，导致「新建会话后无法直接输入」。
+  // 守卫口径对齐 isTabActive 选择器（活动 pane + 活跃页签 + 未隐藏 + 无活动
+  // 覆盖层），外加全局面板守卫（ui-store）：哪层盖着终端，键盘就属于哪层 ——
+  // 挂载/页签切换的自动聚焦不越权抢（如：全局命令面板开着时，外部渠道异步
+  // create_session 的会话在面板底下挂载，不该把面板的输入焦点抢走）
   const focusTerminalIfActive = useCallback(() => {
     const paneStore = usePaneStore.getState()
+    if (useUiStore.getState().paletteOpen) return
+    if (paneId && paneStore.layout.activePaneId !== paneId) return
     const pane = paneId ? paneStore.getPaneById(paneId) : undefined
-    const isActive = pane?.type === 'leaf' && pane.activeSessionId === sessionId && !paneStore.hiddenTabSessions[sessionId]
+    const isActive = pane?.type === 'leaf'
+      && pane.activeSessionId === sessionId
+      && !paneStore.hiddenTabSessions[sessionId]
+      && !pane.overlays.some(r => r.active)
     if (isActive) {
       getTerminal(sessionId)?.terminal.focus()
     }
   }, [sessionId, paneId, getTerminal])
+
+  // 全局命令面板从本终端上方关闭：面板卸载把焦点摔到 body；焦点仍悬空（没有
+  // 被对话框之类接走）时，可见的活动终端接回键盘 —— 与空态命令屏的接回对称。
+  // focusTerminalIfActive 自带活动 pane/覆盖层守卫，非活动实例零副作用
+  useEffect(() => {
+    const onPaletteClosed = () => {
+      if (document.activeElement === document.body) focusTerminalIfActive()
+    }
+    window.addEventListener(PALETTE_CLOSED_EVENT, onPaletteClosed)
+    return () => window.removeEventListener(PALETTE_CLOSED_EVENT, onPaletteClosed)
+  }, [focusTerminalIfActive])
 
   // 初始化或获取终端实例
   useEffect(() => {
@@ -208,12 +231,41 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
     // textarea 会停留在 -9999em 直到第一次 compositionupdate，导致首字母漂移）。
     const patchCompositionHelper = (terminal: Terminal): { restore: () => void; resetLock: () => void } => {
       const core = (terminal as any)._core
+
+      // ---- 搜狗「敲字母按 Shift 切英文」上屏补丁（与上游 xtermjs#6054 同根因，6.0.0 仍未修） ----
+      // 现象：搜狗中文态敲几个字母后按 Shift（切英文并直接上屏字母），字母进不了终端；
+      //        回车/选词上屏正常，Windows Terminal 等原生终端也正常。
+      // 根因：xterm 的 _keyDown 对每个 keydown（包括纯修饰键）都置 _keyDownSeen=true，该标志
+      //        唯一消费方是 _inputEvent 的 (!composed || !_keyDownSeen) 守卫。搜狗 Shift 切英文的
+      //        上屏文本以 input(insertText, composed=true) 形态到达，且不经 compositionend 的
+      //        setTimeout 补发（Electron 下搜狗的已知事件形态，见 xtermjs#3679/#3680），此刻
+      //        Shift 仍按着、keyup 未发生 → 守卫判负 → 字母被静默丢弃，永远到不了 PTY。
+      // 修复：纯修饰键不产生文本，不可能造成 insertText 重复发送，让纯修饰键 keydown 不置位
+      //        该标志即可（同上游 #6054 的修复方向：wasModifierKeyOnlyEvent 判 16/17/18）。
+      // 守卫与幂等标记风格同 patchXtermFloatMeasure：_keyDown 缺失时跳过而非崩溃（xterm 升级
+      // 预警见文件头），重复调用不二次包裹；且独立于下方 _compositionHelper 的早退——
+      // helper 结构变化只应废掉定位补丁，不应顺带废掉这个键盘补丁。
+      let restoreKeyDown: (() => void) | null = null
+      if (core && typeof core._keyDown === 'function' && !(core._keyDown as any).__lyshellImeShiftPatch) {
+        const origKeyDown = core._keyDown.bind(core)
+        core._keyDown = (e: KeyboardEvent) => {
+          const result = origKeyDown(e)
+          if (e.keyCode === 16 || e.keyCode === 17 || e.keyCode === 18) {
+            core._keyDownSeen = false
+          }
+          return result
+        }
+        ;(core._keyDown as any).__lyshellImeShiftPatch = true
+        // 原方法在原型上，实例上的赋值只是遮蔽；restore 用 delete 让原型链重新生效
+        restoreKeyDown = () => { delete core._keyDown }
+      }
+
       const helper = core?._compositionHelper
       if (!helper || typeof helper.updateCompositionElements !== 'function') {
-        return { restore: () => {}, resetLock: () => {} }
+        return { restore: () => restoreKeyDown?.(), resetLock: () => {} }
       }
       const textarea = helper._textarea as HTMLTextAreaElement | undefined
-      if (!textarea) return { restore: () => {}, resetLock: () => {} }
+      if (!textarea) return { restore: () => restoreKeyDown?.(), resetLock: () => {} }
 
       const origUpdate = helper.updateCompositionElements.bind(helper)
       const origStart = typeof helper.compositionstart === 'function'
@@ -282,6 +334,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         restore: () => {
           helper.updateCompositionElements = origUpdate
           if (origStart) helper.compositionstart = origStart
+          restoreKeyDown?.()
           textarea.removeEventListener('focus', onFocusSyncPosition)
           viewport?.removeEventListener('scroll', onViewportScroll)
           // 卸载时若仍在合成中，等 compositionend 后再清空 textarea value。

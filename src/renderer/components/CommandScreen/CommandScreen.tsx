@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { COMMANDS, matchCommands, normalizeQuery, findExact, splitCommand, splitCommandUi, filterArgCandidates } from '../../commands/command-registry'
 import type { CommandEntry } from '../../commands/command-registry'
+import { PALETTE_CLOSED_EVENT } from '../../commands/palette'
 import DocTabOverlay from '../DocPanel/DocTabOverlay'
 import type { DocOverlayPayload } from '@shared/types'
 import { useEscDismiss } from '../../hooks'
@@ -199,6 +200,21 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
     else if (covered) inputRef.current?.blur()
   }, [mode, paneActive, covered])
 
+  // 全局命令面板(盖在本屏之上)关闭:面板卸载会把焦点摔到 body,而 paneActive/
+  // covered 都没变、上方聚焦 effect 不重跑 —— 听关闭事件把键盘接回。只认活动
+  // pane(多个空 pane 都常驻挂载,不设守卫会互相抢)且焦点悬空(body)的场合:
+  // 被覆盖层或对话框之类接走的,键盘属于它
+  useEffect(() => {
+    if (mode !== 'embedded') return
+    const onPaletteClosed = () => {
+      if (paneActive && !covered && document.activeElement === document.body) {
+        inputRef.current?.focus()
+      }
+    }
+    window.addEventListener(PALETTE_CLOSED_EVENT, onPaletteClosed)
+    return () => window.removeEventListener(PALETTE_CLOSED_EVENT, onPaletteClosed)
+  }, [mode, paneActive, covered])
+
   // 点击任意处聚焦 prompt —— TUI 惯例:整屏就是输入面(xterm 同款 mousedown 聚焦);
   // 也是焦点意外丢失(窗口切回 / 时序竞态)的自愈通道。被覆盖层盖住时不抢焦点
   // (活动覆盖层 zIndex 更高,点击根本到不了这里,守卫只是防御性兜底)。
@@ -218,6 +234,25 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
         e.preventDefault()
         break
       }
+      node = node.parentElement
+    }
+    inputRef.current?.focus()
+  }
+
+  // mousedown 版聚焦在真实浏览器里会被默认动作反杀:浏览器把 mousedown 的默认
+  // 动作用于把焦点搬给点击目标最近的可聚焦祖先 —— 点命令屏留白/纯文本,焦点即
+  // 被搬到 body(mousedown 期间 handler 的 focus() 先后被它盖掉),净效果是
+  // "点一下 = 失焦";块状光标是纯 CSS 闪烁,失焦照样闪,屏面看着能打字实则
+  // 按键全落空。jsdom 不模拟该默认动作,单测里 mousedown 版一直是好的。这里
+  // 在 click(晚于默认动作)把焦点收回:mousedown 保持不拦纯文本/留白,拖选
+  // 维持原生;有选区(拖选/复制中)不抢,命中 prompt/控件早退保持其原生语义
+  const handleRootClick = (e: React.MouseEvent) => {
+    if (covered) return
+    if (window.getSelection()?.toString()) return
+    let node: HTMLElement | null = e.target as HTMLElement
+    while (node && node !== e.currentTarget) {
+      if (node === inputRef.current) return
+      if (node.matches('button, a, input, select, textarea, [tabindex]')) return
       node = node.parentElement
     }
     inputRef.current?.focus()
@@ -382,6 +417,7 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
   return (
     <div
       onMouseDown={handleRootMouseDown}
+      onClick={handleRootClick}
       className={`relative w-full h-full flex flex-col bg-[var(--terminal-bg)] font-mono ${mode === 'overlay' ? 'cs-fade-in' : ''}`}
     >
       {/* 输出区。空态跑出文档页签(/ls、/help)时,激活的文档内联在此 —— 完整的

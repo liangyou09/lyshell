@@ -27,6 +27,14 @@ export interface OpenItemRequest {
 }
 
 interface UiStore {
+  /** 全局命令面板(Ctrl+Shift+P / 页签条「+」)开合状态。MainWindow 渲染面板,
+   *  TerminalView 的自动聚焦守卫读它:面板盖住终端时,新挂载/页签切换不该从
+   *  面板底下抢键盘。落 store 而非 MainWindow useState 即为跨组件可读
+   *  (ui-store 是纯 zustand 叶子,无环)。面板本体仍挂常驻的 MainWindow 上,
+   *  与请求表是两类状态,共居一店 */
+  paletteOpen: boolean
+  /** 开/关全局命令面板(MainWindow 的渲染与快捷键监听调用) */
+  setPaletteOpen: (open: boolean) => void
   /** 待处理的「打开新建对话框」请求 id 表,按面板分格;0/缺省 = 无请求 */
   createDialogRequests: Partial<Record<CreateDialogPanel, number>>
   /** 发起一次「打开某面板新建对话框」请求(对应格自增) */
@@ -42,6 +50,12 @@ interface UiStore {
 }
 
 export const useUiStore = create<UiStore>((set, get) => ({
+  paletteOpen: false,
+
+  setPaletteOpen: (open) => {
+    set({ paletteOpen: open })
+  },
+
   createDialogRequests: {},
 
   requestCreateDialog: (panel) => {

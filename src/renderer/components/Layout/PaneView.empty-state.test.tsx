@@ -15,6 +15,7 @@ import React from 'react'
 import { usePaneStore } from '../../stores/pane-store'
 import { useSessionStore } from '../../stores/session-store'
 import { useTerminalStore } from '../../stores/terminal-store'
+import { PALETTE_CLOSED_EVENT } from '../../commands/palette'
 import { ConnectionType, ConnectionStatus } from '@shared/types'
 import type { DocOverlayPayload, SessionConfig } from '@shared/types'
 import type { PaneLeaf } from '@shared/types'
@@ -202,6 +203,22 @@ describe('PaneView 空态焦点:内容页签全关后命令屏收回键盘', () 
     expect(root.overlays).toHaveLength(0)
     // 命令屏所在叶子必须恰好是活动 pane —— paneActive 为真,焦点才收得回来
     expect(pane().layout.activePaneId).toBe(root.id)
+    expect(document.activeElement).toBe(inputOf())
+  })
+})
+
+describe('PaneView 空态焦点:全局命令面板关闭后接回', () => {
+  // 面板盖在终端区之上(Ctrl+Shift+P / 「+」),关闭卸载时焦点摔到 body;空态
+  // 命令屏的 paneActive/covered 都没变、聚焦 effect 不重跑 —— 靠 PALETTE_CLOSED_EVENT
+  // 接回。这里走真实 PaneView 挂载链(paneActive 由 store 收敛),blur 模拟面板
+  // 卸载后的"焦点悬空"终态
+  it('面板关闭(事件)后,焦点悬空(body)时命令屏接回键盘', () => {
+    render(<Harness />)
+    expect(document.activeElement).toBe(inputOf())
+
+    inputOf().blur()
+    expect(document.activeElement).toBe(document.body)
+    window.dispatchEvent(new CustomEvent(PALETTE_CLOSED_EVENT))
     expect(document.activeElement).toBe(inputOf())
   })
 })

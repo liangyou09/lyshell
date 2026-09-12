@@ -977,6 +977,16 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
                   const sessionId = item.session.id
                   // 1. 先从 pane 移除页签：同步、与连接状态无关，确保 UI 立刻响应
                   removeSessionFromPane(pane.id, sessionId)
+                  // 1.5 关掉的是活动页签且 pane 还有存活页签 → 切换后的新活动终端
+                  // 接回键盘（与点页签同款事件链：focus + fit）；pane 被回收/清空
+                  // 走命令屏挂载聚焦，不发。不发的后果是焦点悬在 body，剩下的
+                  // 终端看得见打不进
+                  const after = usePaneStore.getState().getPaneById(pane.id)
+                  if (after?.type === 'leaf' && after.sessions.length > 0) {
+                    setTimeout(() => {
+                      window.dispatchEvent(new CustomEvent('terminal-tab-switched'))
+                    }, 50)
+                  }
                   // 2. 如果该 session 正被 LIVE 标签折叠隐藏，一并清掉 hidden 标记，避免残留
                   if (hiddenTabSessions[sessionId]) {
                     toggleLiveSessionTabs([sessionId], false)
