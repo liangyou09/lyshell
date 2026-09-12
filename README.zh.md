@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/LyShell-v1.0.6-0078D4?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/LyShell-v1.0.8-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
@@ -8,11 +8,11 @@
 
 # 💻 LyShell
 
-> 🔌 **你的终端，也是 AI 的终端。** LyShell 是一款内置 MCP 服务端的 Windows 终端 — 让 Claude Code 等 AI 客户端直接操控你的 SSH / Telnet / 串口 / 本地 PTY 会话。还集成了 AI Harness 工作区（TUI + 内嵌 Web UI，支持 git worktree 隔离）、通用网页页签、AI Agent 启动栏、插件系统和 Python 脚本引擎。
+> 🔌 **你的终端，也是 AI 的终端。** LyShell 是一款内置 MCP 服务端的 Windows 终端 — 让 Claude Code 等 AI 客户端直接操控你的 SSH / Telnet / 串口 / 本地 PTY 会话。还集成了 `Ctrl+Shift+P` 全屏命令面板、AI Harness 工作区（TUI + 内嵌 Web UI，支持 git worktree 隔离）、文档页签、通用网页页签、AI Agent 启动栏、插件系统和 Python 脚本引擎。
 
 **简体中文** | [English](README.md)
 
-[✨ 核心亮点](#-核心亮点) · [🐋 DeepSeek Harness](#-deepseek-harness) · [🌐 网页页签](#-网页页签) · [🔗 MCP 集成](#-mcp-集成) · [🤖 AI Agent](#-ai-agent) · [🧩 插件与脚本](#-插件系统--python-脚本) · [🚀 快速上手](#-快速上手) · [❓ 常见问题](#-常见问题)
+[✨ 核心亮点](#-核心亮点) · [⌨️ 命令面板与文档页签](#-命令面板与文档页签) · [🐋 DeepSeek Harness](#-deepseek-harness) · [🌐 网页页签](#-网页页签) · [🔗 MCP 集成](#-mcp-集成) · [🤖 AI Agent](#-ai-agent) · [🧩 插件与脚本](#-插件系统--python-脚本) · [🚀 快速上手](#-快速上手) · [❓ 常见问题](#-常见问题)
 
 ---
 
@@ -21,6 +21,7 @@
 | | |
 |---|---|
 | 🔗 **MCP 服务端** — 将终端暴露给 AI 客户端，会话级授权 + 审计日志 | 🤖 **Agent 启动栏** — 一键启动 Claude Code / Aider / Copilot CLI / 任意自定义 CLI |
+| ⌨️ **全屏命令面板** — `Ctrl+Shift+P` 模糊直达所有入口：会话、Agent、工作区、面板、文档 | 📄 **文档页签** — 只读 Markdown 预览带大纲轨，附内置手册与清点文档 |
 | 🧩 **插件系统** — Python + Node.js 插件，细粒度权限隔离 | 🐍 **Python 引擎** — 内置 `LyShell` API 驱动终端自动化 |
 | 🐋 **DeepSeek Harness** — 变量组 + 模型预设管理工作区，TUI 与内嵌 Web UI 可同框并排 | 🔐 **内嵌 Web UI** — 应用内 `<webview>` 标签页运行 `dsh web`，回环锁定 + URL 校验 |
 | 🌳 **worktree 隔离** — 每个 Harness 工作区在专属 git worktree 中启动，多 agent 指向同一仓库互不踩踏 | 🌐 **网页页签** — 任意 URL 开成应用内页签，带最近访问历史与自动补全 |
@@ -42,6 +43,34 @@
 | 🪟 Windows | 便携版 (.exe) | x64 | Windows 10 / 11，64 位 |
 
 > 🚧 目前**仅提供 Windows 版本**，macOS / Linux 暂未发布。
+
+---
+
+## ⌨️ 命令面板与文档页签
+
+### 全屏命令面板
+
+`Ctrl+Shift+P` 唤起全屏命令面板 — **一处直达所有入口**。模糊搜索保存 / 运行中的会话、Agent、dsh / codex / claude 工作区、变量组、插件、网页与设置页签；斜杠命令同样可用：
+
+- `/new` — 新建连接对话框 · `/local` — 直连本地终端
+- `/help` — 打开内置使用手册 · `/ls` — 打开清点文档
+
+ESC 退出；页签条尾也有面板入口。
+
+### 文档页签与内置文档
+
+只读文档预览开成普通页签 — 可多开、可分屏、可拖拽。四个入口：文件树双击、窗口拖放、`Ctrl+Shift+O` 打开系统文件对话框、终端内 **Ctrl+点击** 路径。Markdown 走完整文档渲染管线 — 大纲轨、缩放、主题 — 链接跨页签归一解析（含 SSH 相对路径场景）。
+
+- **内置使用手册** — `/help`（或 `/help chinese` / `/help english`）把使用手册开成文档页签。
+- **清点文档** — `/ls` 把会话 / Agent / 变量组 / harness 工作区 / 插件清点成一份文档页签；文档内 `lyshell-action://` 链接直接跳转打开对应对象，`/ls <对象>`（如 `/ls env`）只看单节。重跑或点页签刷新按钮即可重新清点。
+
+<p align="center">
+  <img src="docs/assets/screenshot-command-palette.jpg" alt="全屏命令面板（Ctrl+Shift+P）" width="80%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-doc-tab.jpg" alt="文档页签 Markdown 预览" width="80%">
+</p>
 
 ---
 
@@ -99,7 +128,7 @@ LyShell 是**与 Agent 无关的终端** — 不绑定任何特定 AI 工具。�
 | 🤝 Aider | `aider` |
 | 🐙 Copilot CLI | `gh copilot` |
 
-**一等 Harness Agent** — `dsh`、`codex`、`claude` 在 Harness 面板中为一等公民：各自拥有独立左侧标签、专属工作区列表、依赖检测，以及按工作区的模型与环境变量（模型以 `--model` 传入，环境变量默认 `OPENAI_API_KEY` / `ANTHROPIC_AUTH_TOKEN`）。Claude 工作区另有「跳过权限确认」开关（启动时附加 `--dangerously-skip-permissions`），任意工作区还可开启 **worktree 隔离** — 见 [DeepSeek Harness](#-deepseek-harness)。
+**一等 Harness Agent** — `dsh`、`codex`、`claude` 在 Harness 面板中为一等公民：各自拥有独立左侧标签、专属工作区列表、依赖检测，以及按工作区的模型、环境变量与**权限档位** — codex 工作区三档 `:read-only` / `:workspace` / `:danger-full-access`（启动拼 `-c default_permissions=<档位>`），claude 工作区四档 `default` / `acceptEdits` / `plan` / `bypassPermissions`（bypass 档启动拼 `--dangerously-skip-permissions`）。选到全开放档位时，工作区卡片穿红染危险态皮肤（启动参数红字标出），爆炸半径点之前就看得见。任意工作区还可开启 **worktree 隔离** — 见 [DeepSeek Harness](#-deepseek-harness)。
 
 **自定义 Agent**：任意 CLI 工具都能注册 — 名称、命令、图标、工作目录、环境变量。Agent 会话为**瞬态**，关闭标签即消失，不残留。
 
@@ -115,21 +144,29 @@ LyShell 是**与 Agent 无关的终端** — 不绑定任何特定 AI 工具。�
 
 | | |
 |---|---|
-| 🗂️ **工作区面板** — 创建、编辑、删除 | 🔧 **变量组** — 预配置环境变量组，一键切换启用 |
+| 🗂️ **工作区面板** — 创建、编辑、删除 | 🔧 **变量组** — 结构化 Base URL + API Key，全局单选切换 |
 | 🎛️ **模型预设** — 按工作区保存并切换模型 | 🖥️ **TUI 启动** — 在原生终端标签页运行 `dsh-tui` |
 | 🌳 **worktree 隔离** — 每个工作区一个专属 git worktree | 🏷️ **品牌来源标** — 页签上标明由哪个 harness 启动 |
+
+### 权限档位 — 看得见的危险态
+
+Claude 工作区选启动权限模式 — `default` / `acceptEdits` / `plan` / `bypassPermissions`（bypass 档启动拼 `--dangerously-skip-permissions`）；codex 工作区选 `-c default_permissions` 档位 — `:read-only` / `:workspace` / `:danger-full-access`。选到完全放开档位时，表单下拉换红染底 + 左沿条纹 + 警示行；工作区卡片本身也穿危险态皮肤（红染底 + 条纹导轨，启动参数红字标出）— 绕过审批跑的工作区在列表里一眼可辨，点之前就看得见。
+
+<p align="center">
+  <img src="docs/assets/screenshot-harness-permissions.jpg" alt="危险态工作区卡片 — 完全放开档位整卡红染" width="80%">
+</p>
 
 ### 依赖检测与安装方法
 
 CLI 依赖 — DeepSeek Harness 需 `dsh` + `dsh-tui`，codex / claude 各自单个 — 在**应用启动时统一检测一次**（三个 agent 并行）并缓存：切到 Harness 标签直接读缓存，不重复扫描。缺失时面板会指出缺哪个依赖、给出对应的一行安装命令与源码仓库链接 — 但不会替你安装。**重新检测** 按钮强制重扫，PATH 从注册表实时读取，新装的 CLI 无需重启 LyShell 即可识别。
 
-### 环境变量标签：先预配置，再切换
+### 环境变量组 — 全局一根总线
 
-面板分为「工作区」与「环境变量」两个标签。在「环境变量」标签里预配置具名的**变量组** — 一组 `KEY=VALUE`（`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`、`DSH_HOME` 等）。同一时刻至多启用一组，点击即可切换；再点已启用的一组可停用，落回常驻的「系统环境变量」。
+变量组住在左侧机柜的**环境变量**面板，dsh / codex / claude 与内嵌 dsh Web UI 共用。同一时刻至多一组**通电** — 卡片本身就是开关：点亮即全应用生效，再点一次回落系统环境变量。
 
-每个工作区可绑定到特定变量组，也可**跟随已启用的变量组** — 不选则继承当前启用的一组（都未启用时用系统环境变量）。密钥录入一次，切换环境无需逐工作区改动。
+凭据结构化为 **Base URL + API Key**，按消费方注入（dsh → `DEEPSEEK_*`、codex → `OPENAI_*`、claude → `ANTHROPIC_*`）；组内其余变量作为附加项透传，通用 Agent 也可显式绑定变量组（绑定组 → 内联 env → 系统环境变量）。每个工作区可绑定特定变量组或跟随已启用的一组 — 密钥录入一次，切换环境无需逐工作区改动。
 
-敏感值（`*_KEY`、`*_TOKEN`、`*_SECRET`、`*_PASSWORD` 等）在变量组编辑器里**默认打码** — 点眼睛按钮才明文展示。**codex** 工作区启动前，还会把变量组里的 `OPENAI_BASE_URL` 写入 `$CODEX_HOME/config.toml`（`[model_providers.*].base_url`）— Rust 版 codex 不读这个环境变量。该写入为行级手术式编辑（注释、排版与其它 provider 逐字保留）、幂等且原子，首次修改前自动备份 `.bak`。
+敏感值（`*_KEY`、`*_TOKEN`、`*_SECRET`、`*_PASSWORD` 等）在编辑器里**默认打码**，点眼睛按钮才明文展示。**codex** 工作区启动前，还会把变量组里的 `OPENAI_BASE_URL` 写入 `$CODEX_HOME/config.toml`（`[model_providers.*].base_url`）— Rust 版 codex 不读这个环境变量。该写入为行级手术式编辑（注释、排版与其它 provider 逐字保留）、幂等且原子，首次修改前自动备份 `.bak`。
 
 ### worktree 目录隔离
 
@@ -169,7 +206,7 @@ CLI 依赖 — DeepSeek Harness 需 `dsh` + `dsh-tui`，codex / claude 各自单
 </p>
 
 <p align="center">
-  <img src="docs/assets/screenshot-deepseek-env.jpg" alt="环境变量标签 — 切换变量组" width="80%">
+  <img src="docs/assets/screenshot-env-panel.jpg" alt="环境变量面板 — 全局一根总线的变量组" width="80%">
 </p>
 
 <p align="center">
@@ -260,8 +297,9 @@ Python 路径自动检测系统 PATH，可在设置中配置自定义解释器�
 ### 终端技巧
 - 选中文本 → 自动复制 · 右键粘贴 · 鼠标中键 → 搜索栏
 - `Ctrl+F` → 终端内搜索（正则、区分大小写、跨标签）
-- 中文乱码 → 编辑会话，UTF-8 / GBK / GB2312 切换
-- 终端页签提顶为浏览器式第一行；侧栏可收起，还你全宽终端
+- 终端内 **Ctrl+点击** — URL 开成网页页签，路径打开文档预览
+- **编码** — 点侧栏 LIVE 行的编码读数，运行时直切 UTF-8 / GBK / GB2312（重连保持；关闭重开回落保存值；本地终端恒 UTF-8）
+- Edge 式收缩页签栏（悬停详情卡）提顶为第一行；侧栏可收起，还你全宽终端
 - 侧栏 LIVE 行中点击「列 × 行」→ 清屏；点击缓冲行数 → 滚回底部，双击 → 清空回滚
 
 ---
@@ -275,13 +313,13 @@ Python 路径自动检测系统 PATH，可在设置中配置自定义解释器�
 | 🔌 **串口** | COM 口，波特率 `115200`（9600–921600），8N1 | 自动检测端口 |
 | 💻 **本地 PTY** | cmd.exe / PowerShell | 可配工作目录 + 环境变量 |
 
-**终端**：GPU 加速渲染，完整 ANSI + 256 色。回滚最多 100,000 行。分屏（水平/垂直）、拖拽拆分。浏览器式页签栏置于第一行，侧栏可收起。全局快捷命令 `Ctrl+F1–F12`。标签状态：🟢 已连接 · 🔴 错误 · ⚪ 未连接 · 🔵 新输出 — 从 Harness 工作区启动的页签还带品牌标（🐋 dsh · 🛠️ codex · 🧠 claude）。
+**终端**：GPU 加速渲染，完整 ANSI + 256 色。回滚最多 100,000 行。分屏（水平/垂直）、拖拽拆分。Edge 式收缩页签栏（悬停详情卡）置于第一行，侧栏可收起。侧栏运行时切换编码（UTF-8 / GBK / GB2312）。全局快捷命令 `Ctrl+F1–F12`。标签状态：🟢 已连接 · 🔴 错误 · ⚪ 未连接 · 🔵 新输出 — 从 Harness 工作区启动的页签还带品牌标（🐋 dsh · 🛠️ codex · 🧠 claude）。
 
 ---
 
 ## 🎨 主题
 
-5 种预设 + 自定义。即时切换，无需重启。
+6 种预设 + 自定义。即时切换，无需重启。
 
 | 主题 | 风格 | 明/暗 |
 |------|------|-------|
@@ -290,6 +328,7 @@ Python 路径自动检测系统 PATH，可在设置中配置自定义解释器�
 | **Carbon** | 中性炭灰，无蓝调 | 暗 |
 | **Ember** | 暖色胡桃木褐 + 暖琥珀 | 暗 |
 | **Paper** | 自然浅纸 · 石墨墨 | 亮 |
+| **Lark** | 飞书风亮色 · 冷灰白 + 纯白画布 + 品牌蓝 | 亮 |
 
 **自定义**：选取背景色和强调色，LyShell 自动生成一整套和谐配色。
 
@@ -303,8 +342,10 @@ Python 路径自动检测系统 PATH，可在设置中配置自定义解释器�
 
 | 快捷键 | 功能 |
 |--------|------|
+| `Ctrl + Shift + P` | 全屏命令面板 |
 | `Ctrl + Alt + F` | 显示/隐藏浮窗 |
 | `Ctrl + F` | 终端搜索 |
+| `Ctrl + Shift + O` | 打开文档（系统文件对话框） |
 | `Ctrl + F1` ~ `F12` | 快捷命令 1–12 |
 | `Ctrl + Shift + H` | 水平分屏 |
 | `Ctrl + Shift + V` | 垂直分屏 |
@@ -317,7 +358,7 @@ Python 路径自动检测系统 PATH，可在设置中配置自定义解释器�
 
 JSON 文件存储于 `%APPDATA%\lyshell\`：
 
-`sessions.json` · `preferences.json` · `quickCommands.json` · `agents.json` · `download-history.json` · `download-config.json` · `mcp-server.json`
+`sessions.json` · `preferences.json` · `quickCommands.json` · `agents.json` · `env-profiles.json` · `dsh-workspaces.json` · `codex-workspaces.json` · `claude-workspaces.json` · `download-history.json` · `download-config.json` · `mcp-server.json` · `mcp-audit.json`
 
 支持 AES-256-CBC 加密导出/导入会话与快捷命令。
 
@@ -327,7 +368,7 @@ JSON 文件存储于 `%APPDATA%\lyshell\`：
 
 <details>
 <summary><b>SSH 连接后中文乱码？</b></summary>
-编辑会话，编码从 UTF-8 切换为 GBK 或 GB2312。
+点侧栏 LIVE 行的编码读数，运行时直切 UTF-8 / GBK / GB2312，无需编辑会话。
 </details>
 
 <details>

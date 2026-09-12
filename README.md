@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/LyShell-v1.0.6-0078D4?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/LyShell-v1.0.8-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
@@ -8,11 +8,11 @@
 
 # 💻 LyShell
 
-> 🔌 **Your terminal, now AI's terminal too.** LyShell is a Windows terminal with a built-in MCP server — letting Claude Code and other AI clients drive your SSH / Telnet / serial / local PTY sessions directly. Plus AI Harness workspaces with git-worktree isolation (TUI + embedded Web UI), in-app web tabs, AI Agent launcher, plugin system, and Python scripting.
+> 🔌 **Your terminal, now AI's terminal too.** LyShell is a Windows terminal with a built-in MCP server — letting Claude Code and other AI clients drive your SSH / Telnet / serial / local PTY sessions directly. Plus a `Ctrl+Shift+P` command palette, AI Harness workspaces with git-worktree isolation (TUI + embedded Web UI), document tabs, in-app web tabs, AI Agent launcher, plugin system, and Python scripting.
 
 **English** | [简体中文](README.zh.md)
 
-[✨ Highlights](#-highlights) · [🐋 DeepSeek Harness](#-deepseek-harness) · [🌐 Web Tabs](#-web-tabs) · [🔗 MCP](#-mcp-integration) · [🤖 AI Agents](#-ai-agents) · [🧩 Plugins](#-plugin-system--python-scripting) · [🚀 Quick Start](#-quick-start) · [❓ FAQ](#-faq)
+[✨ Highlights](#-highlights) · [⌨️ Command Palette](#-command-palette--document-tabs) · [🐋 DeepSeek Harness](#-deepseek-harness) · [🌐 Web Tabs](#-web-tabs) · [🔗 MCP](#-mcp-integration) · [🤖 AI Agents](#-ai-agents) · [🧩 Plugins](#-plugin-system--python-scripting) · [🚀 Quick Start](#-quick-start) · [❓ FAQ](#-faq)
 
 ---
 
@@ -21,6 +21,7 @@
 | | |
 |---|---|
 | 🔗 **MCP Server** — Expose your terminals to Claude Code and other AI clients, with per-session authorization and audit log | 🤖 **Agent Launcher** — Run Claude Code, Aider, Copilot CLI, or any custom CLI in a clean transient terminal |
+| ⌨️ **Command Palette** — `Ctrl+Shift+P` fuzzy-search everything: sessions, agents, workspaces, panels, docs | 📄 **Document Tabs** — Read-only markdown preview with outline rail, plus built-in manual & inventory docs |
 | 🧩 **Plugin System** — Extend with Python or Node.js plugins, each running under granular permissions | 🐍 **Python Engine** — Script terminal automation through a built-in `LyShell` API |
 | 🐋 **DeepSeek Harness** — Manage workspaces with variable sets & model presets, launch TUI and embedded Web UI side by side | 🔐 **Embedded Web UI** — Run `dsh web` in an in-app `<webview>` tab, loopback-locked and URL-validated |
 | 🌳 **Worktree isolation** — Launch each Harness workspace in its own git worktree, so multiple agents on one repo never stomp each other | 🌐 **Web tabs** — Open any URL as an in-app tab, with recent-access history and autocomplete |
@@ -42,6 +43,34 @@ Download the latest portable build from [Releases](https://github.com/liangyou09
 | 🪟 Windows | Portable (.exe) | x64 | Windows 10 / 11, 64-bit |
 
 > 🚧 Currently **Windows only** — macOS and Linux builds are not yet available.
+
+---
+
+## ⌨️ Command Palette & Document Tabs
+
+### Command palette
+
+`Ctrl+Shift+P` opens a full-screen command palette — **one place to reach everything**. Fuzzy-search across saved and running sessions, agents, dsh / codex / claude workspaces, variable groups, plugins, web and settings tabs. Slash commands work here too:
+
+- `/new` — new connection dialog · `/local` — instant local terminal
+- `/help` — open the built-in user manual · `/ls` — open an inventory doc
+
+ESC dismisses; the tab strip has a palette entry too.
+
+### Document tabs & built-in docs
+
+Read-only document preview as regular tabs — open several, split them, drag them. Four ways in: double-click in the file tree, drop a file onto the window, `Ctrl+Shift+O` for the system file dialog, or **Ctrl+click** a path right in the terminal. Markdown renders through the full doc pipeline — outline rail, zoom, theme — and links resolve across panes (including relative paths over SSH).
+
+- **Built-in manual** — `/help` (or `/help chinese` / `/help english`) opens the user manual as a document tab.
+- **Inventory docs** — `/ls` snapshots sessions / agents / variable groups / harness workspaces / plugins into a document tab; `lyshell-action://` links inside jump straight to each object, and `/ls <section>` (e.g. `/ls env`) scopes to one section. Re-run or hit the tab's refresh button to re-inventory.
+
+<p align="center">
+  <img src="docs/assets/screenshot-command-palette.jpg" alt="Command palette (Ctrl+Shift+P)" width="80%">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-doc-tab.jpg" alt="Document tab with markdown preview" width="80%">
+</p>
 
 ---
 
@@ -99,7 +128,7 @@ Agent-agnostic terminal — no lock-in to any AI tool. Launch any CLI agent and 
 | 🤝 Aider | `aider` |
 | 🐙 Copilot CLI | `gh copilot` |
 
-**First-class Harness agents** — `dsh`, `codex`, and `claude` are first-class in the Harness panel: each gets its own left-rail tab, a dedicated workspace list, dependency detection, and per-workspace model & environment variables (model passed as `--model`, with `OPENAI_API_KEY` / `ANTHROPIC_AUTH_TOKEN` defaults). Claude workspaces add an optional **skip-permissions** switch (launches with `--dangerously-skip-permissions`), and any workspace can opt into **worktree isolation** — see [DeepSeek Harness](#-deepseek-harness).
+**First-class Harness agents** — `dsh`, `codex`, and `claude` are first-class in the Harness panel: each gets its own left-rail tab, a dedicated workspace list, dependency detection, and per-workspace model, environment, and **permission tiers** — codex workspaces pick `:read-only` / `:workspace` / `:danger-full-access` (passed as `-c default_permissions=<tier>`), claude workspaces pick `default` / `acceptEdits` / `plan` / `bypassPermissions` (the bypass tier launches with `--dangerously-skip-permissions`). Fully-open tiers dress the workspace card in a red danger skin (launch argument spelled out in red), so the blast radius is always visible before launch. Any workspace can also opt into **worktree isolation** — see [DeepSeek Harness](#-deepseek-harness).
 
 **Custom agents**: Any CLI tool can be registered — name, command, icon, working directory, env vars. Sessions are transient: close the tab, it's gone.
 
@@ -115,21 +144,29 @@ A first-class home for **DeepSeek Harness** workspaces. Manage every workspace i
 
 | | |
 |---|---|
-| 🗂️ **Workspace panel** — create, edit, delete | 🔧 **Variable sets** — pre-configure env sets, switch the enabled one |
+| 🗂️ **Workspace panel** — create, edit, delete | 🔧 **Variable groups** — structured Base URL + API Key, one global switch |
 | 🎛️ **Model presets** — save & switch models per workspace | 🖥️ **TUI launch** — `dsh-tui` in a native terminal tab |
 | 🌳 **Worktree isolation** — dedicated git worktree per workspace | 🏷️ **Brand badge** — session tabs show which harness launched them |
+
+### Permission tiers — danger you can see
+
+Claude workspaces pick a launch permission mode — `default` / `acceptEdits` / `plan` / `bypassPermissions` (the bypass tier launches with `--dangerously-skip-permissions`); codex workspaces pick a `-c default_permissions` tier — `:read-only` / `:workspace` / `:danger-full-access`. Selecting a fully-open tier turns the form field red with a warning line — and the workspace card itself wears the danger skin (red tint + striped rail, launch argument spelled out in red), so a workspace that runs without approvals is identifiable at a glance in the list, before you ever click it.
+
+<p align="center">
+  <img src="docs/assets/screenshot-harness-permissions.jpg" alt="Danger-state workspace card — fully-open permission tier turns the card red" width="80%">
+</p>
 
 ### Dependency detection & install
 
 CLI dependencies — `dsh` + `dsh-tui` for DeepSeek Harness, `codex` / `claude` for the others — are detected by scanning PATH **once at app startup** (all three agents in parallel) and cached: opening a Harness tab reads the cached result instantly, no repeated scans. When something is missing, the panel shows which dependency is absent, its one-line install command, and the source-repo link — it never installs anything for you. A **Re-detect** button forces a fresh scan, and PATH is read live from the registry, so a freshly installed CLI is picked up without restarting LyShell.
 
-### Environment tab: pre-configure, then switch
+### Environment groups — one global bus
 
-The panel splits into **Workspaces** and **Environment** tabs. In the **Environment** tab, pre-configure named **variable sets** — collections of `KEY=VALUE` (`DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DSH_HOME`, …). At most one set is **enabled** at a time; click a set to switch to it, or click the always-on **System environment** slot to fall back to LyShell's own process environment.
+Variable groups live in the left-rail **Environment** panel, shared by dsh / codex / claude and the embedded dsh Web UI. At most one group is **live** at a time — the card itself is the switch: click it to power it on app-wide, click again to fall back to the system environment.
 
-Each workspace can bind to a specific set, or **follow the enabled set** — pick nothing and it inherits whichever set is currently enabled (or the system environment when none is). Enter secrets once, then switch between environments without touching each workspace.
+Credentials are structured as **Base URL + API Key** and injected per consumer (dsh → `DEEPSEEK_*`, codex → `OPENAI_*`, claude → `ANTHROPIC_*`); the rest of the group passes through as extra variables, and generic agents can bind a group explicitly (bound group → inline env → system environment). Each workspace picks a specific group or follows the enabled one — enter secrets once, switch environments without touching each workspace.
 
-Secret-looking values (`*_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, …) are **masked as dots** in the profile editor — click the eye toggle to reveal one. For **codex** workspaces, the set's `OPENAI_BASE_URL` is additionally written into `$CODEX_HOME/config.toml` (`[model_providers.*].base_url`) right before launch — the Rust codex CLI ignores the env var. That edit is line-surgical (comments, formatting and other providers preserved verbatim), idempotent, atomic, and the original file is backed up once as `.bak`.
+Secret-looking values (`*_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD`, …) are **masked as dots** with an eye toggle to reveal. For **codex** workspaces, the group's `OPENAI_BASE_URL` is additionally written into `$CODEX_HOME/config.toml` (`[model_providers.*].base_url`) right before launch — the Rust codex CLI ignores the env var. That edit is line-surgical (comments, formatting and other providers preserved verbatim), idempotent, atomic, and the original file is backed up once as `.bak`.
 
 ### Worktree isolation
 
@@ -169,7 +206,7 @@ Drag the Web UI tab to a pane edge to split it into its own pane — the TUI and
 </p>
 
 <p align="center">
-  <img src="docs/assets/screenshot-deepseek-env.jpg" alt="Environment tab — switch between variable sets" width="80%">
+  <img src="docs/assets/screenshot-env-panel.jpg" alt="Environment panel — variable groups on one global bus" width="80%">
 </p>
 
 <p align="center">
@@ -260,8 +297,9 @@ Quick commands live at the bottom of the session panel — right-click → **Edi
 ### Terminal Tips
 - Select text → auto-copy · Right-click → paste · Middle-click → search bar
 - `Ctrl+F` → in-terminal search (regex, case-sensitive, cross-tab)
-- Encoding issues → edit session, switch UTF-8 / GBK / GB2312
-- Browser-style tab bar sits on the first row; the sidebar collapses when you need full width
+- **Ctrl+click** in the terminal — URLs open in a web tab, paths open in document preview
+- **Encoding** — click the encoding readout in the sidebar LIVE row to switch UTF-8 / GBK / GB2312 at runtime (kept across reconnects; close-and-reopen falls back to the saved value; local terminals stay UTF-8)
+- Edge-style shrinking tab bar with hover detail cards sits on the first row; the sidebar collapses when you need full width
 - In the sidebar LIVE row, click `cols × rows` → clear screen; click the buffer count → scroll to bottom, double-click → clear scrollback
 
 ---
@@ -275,13 +313,13 @@ Quick commands live at the bottom of the session panel — right-click → **Edi
 | 🔌 **Serial** | COM port, baud `115200` (9600–921600), 8N1 | Auto-detects ports |
 | 💻 **Local PTY** | cmd.exe / PowerShell | Configurable working directory + env |
 
-**Terminal**: GPU-accelerated rendering, full ANSI + 256 colors. Scrollback up to 100,000 lines. Split panes (horizontal/vertical), drag-to-split. Browser-style tab bar on the first row, collapsible sidebar. Global quick commands `Ctrl+F1–F12`. Tab status: 🟢 Connected · 🔴 Error · ⚪ Disconnected · 🔵 New output — plus a harness brand mark (🐋 dsh · 🛠️ codex · 🧠 claude) on tabs launched from a Harness workspace.
+**Terminal**: GPU-accelerated rendering, full ANSI + 256 colors. Scrollback up to 100,000 lines. Split panes (horizontal/vertical), drag-to-split. Edge-style shrinking tab bar (hover detail cards) on the first row, collapsible sidebar. Runtime encoding switching from the sidebar (UTF-8 / GBK / GB2312). Global quick commands `Ctrl+F1–F12`. Tab status: 🟢 Connected · 🔴 Error · ⚪ Disconnected · 🔵 New output — plus a harness brand mark (🐋 dsh · 🛠️ codex · 🧠 claude) on tabs launched from a Harness workspace.
 
 ---
 
 ## 🎨 Themes
 
-5 presets + custom. Instant switch, no restart.
+6 presets + custom. Instant switch, no restart.
 
 | Theme | Style | Mode |
 |-------|-------|------|
@@ -290,6 +328,7 @@ Quick commands live at the bottom of the session panel — right-click → **Edi
 | **Carbon** | Neutral charcoal, no blue cast | Dark |
 | **Ember** | Warm walnut brown + warm amber | Dark |
 | **Paper** | Natural warm paper, graphite ink | Light |
+| **Lark** | Feishu-style light: cool-gray chrome + white canvas + brand blue | Light |
 
 **Custom**: pick a background and accent color, LyShell auto-builds a complete harmonious theme.
 
@@ -303,8 +342,10 @@ Quick commands live at the bottom of the session panel — right-click → **Edi
 
 | Shortcut | Action |
 |----------|--------|
+| `Ctrl + Shift + P` | Command palette |
 | `Ctrl + Alt + F` | Toggle float window |
 | `Ctrl + F` | Terminal search |
+| `Ctrl + Shift + O` | Open document (system file dialog) |
 | `Ctrl + F1` ~ `F12` | Quick command 1–12 |
 | `Ctrl + Shift + H` | Horizontal split |
 | `Ctrl + Shift + V` | Vertical split |
@@ -317,7 +358,7 @@ Quick commands live at the bottom of the session panel — right-click → **Edi
 
 JSON files in `%APPDATA%\lyshell\`:
 
-`sessions.json` · `preferences.json` · `quickCommands.json` · `agents.json` · `download-history.json` · `download-config.json` · `mcp-server.json`
+`sessions.json` · `preferences.json` · `quickCommands.json` · `agents.json` · `env-profiles.json` · `dsh-workspaces.json` · `codex-workspaces.json` · `claude-workspaces.json` · `download-history.json` · `download-config.json` · `mcp-server.json` · `mcp-audit.json`
 
 AES-256-CBC encrypted export/import for sessions and quick commands.
 
@@ -327,7 +368,7 @@ AES-256-CBC encrypted export/import for sessions and quick commands.
 
 <details>
 <summary><b>SSH garbled Chinese characters?</b></summary>
-Edit session, switch encoding from UTF-8 to GBK or GB2312.
+Click the encoding readout in the sidebar LIVE row and switch UTF-8 / GBK / GB2312 at runtime — no need to edit the session.
 </details>
 
 <details>
