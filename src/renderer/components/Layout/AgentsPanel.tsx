@@ -154,6 +154,12 @@ const AgentsPanel: React.FC = () => {
   const [agentEnvKeyMapApiKey, setAgentEnvKeyMapApiKey] = useState('')
   // 全局变量组列表(绑定下拉用;拉失败不阻断编辑 —— 下拉只有「不绑定」一项)
   const [envProfiles, setEnvProfiles] = useState<{ id: string; name: string }[]>([])
+  // 全局启用指针(env-profile:list 一并下发) —— 新建 agent 的绑定下拉默认选它,
+  // 与 Harness 工作区对话框同一默认;agent 无「跟随」档,选中即显式绑定
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null)
+  // 变量组列表是否已成功拉到 —— 空列表有两种含义(「一个都没有」与「还没拉到/拉失败」),
+  // 只有前者才允许把 agent 的悬空绑定判为悬空,见 handleContextMenu
+  const [envProfilesLoaded, setEnvProfilesLoaded] = useState(false)
   // 校验:首次提交前不报错;删除两步确认(复用 closeAll 的"再点一次"语义)
   const [triedSubmit, setTriedSubmit] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -177,7 +183,11 @@ const AgentsPanel: React.FC = () => {
     void loadAgents()
     // 全局变量组与 agent 列表一并拉取(绑定下拉的数据源;返回形状 { profiles, activeProfileId, usage })
     window.electronAPI?.listEnvProfiles().then((result) => {
-      if (result && Array.isArray(result.profiles)) setEnvProfiles(result.profiles as { id: string; name: string }[])
+      if (result && Array.isArray(result.profiles)) {
+        setEnvProfiles(result.profiles as { id: string; name: string }[])
+        setActiveProfileId(typeof result.activeProfileId === 'string' ? result.activeProfileId : null)
+        setEnvProfilesLoaded(true)
+      }
     }).catch((err) => console.error('Failed to load env profiles:', err))
   }, [])
 
@@ -205,7 +215,9 @@ const AgentsPanel: React.FC = () => {
   const handleAdd = () => {
     setEditAgent(undefined)
     setAgentName(''); setAgentCommand(''); setAgentIcon(''); setAgentCwd('')
-    setAgentEnv([]); setAgentEnvProfileId(null)
+    // 新建默认选中「已启用的变量组」—— 与 Harness 工作区对话框同一默认(用户拨的那根
+    // 指针就是当下想用的密钥);无启用指针回落「不绑定」(内联 env → 系统环境变量)
+    setAgentEnv([]); setAgentEnvProfileId(activeProfileId)
     setAgentEnvKeyMapBaseUrl(''); setAgentEnvKeyMapApiKey('')
     setTriedSubmit(false); setConfirmDelete(false); setIconPickerOpen(false); setSaveError(null)
     setShowDialog(true)
@@ -218,6 +230,9 @@ const AgentsPanel: React.FC = () => {
     if (!createRequestId) return
     handleAdd()
     useUiStore.getState().consumeCreateDialogRequest('agents')
+    // 请求消费只看 id;handleAdd 的引用变化不构成「再来一次」(它读 activeProfileId
+    // 只为给新建表单预选默认绑定,不参与触发判据)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createRequestId])
   const handleContextMenu = (agent: AgentConfig, e: React.MouseEvent) => {
     e.preventDefault(); e.stopPropagation()
@@ -225,7 +240,16 @@ const AgentsPanel: React.FC = () => {
     setAgentName(agent.name); setAgentCommand(agent.command)
     setAgentIcon(agent.icon || ''); setAgentCwd(agent.cwd || '')
     setAgentEnv(agent.env ? Object.entries(agent.env).map(([key, value]) => ({ key, value })) : [])
-    setAgentEnvProfileId(agent.envProfileId ?? null)
+    // 绑定的变量组已被删除时按「不绑定」呈现 —— 与主进程 resolveAgentLaunchEnv 的回落
+    // (悬空 → 内联 env → 系统)一致,否则下拉会显示成「什么都没选中」,看不出实际生效哪份。
+    // 与 Harness 工作区同一条归一化规则:只在列表确实拉到之后才成立(agent 与变量组是
+    // 并发 IPC,拉取前/拉失败时 envProfiles 还是 [],会把有效绑定误判成悬空,保存后绑定
+    // 就没了) —— 列表状态未知时一律透传原值
+    setAgentEnvProfileId(
+      !envProfilesLoaded || (agent.envProfileId !== undefined && envProfiles.some((p) => p.id === agent.envProfileId))
+        ? agent.envProfileId ?? null
+        : null
+    )
     setAgentEnvKeyMapBaseUrl(agent.envKeyMap?.baseUrl || '')
     setAgentEnvKeyMapApiKey(agent.envKeyMap?.apiKey || '')
     setTriedSubmit(false); setConfirmDelete(false); setIconPickerOpen(false); setSaveError(null)
@@ -383,10 +407,9 @@ const AgentsPanel: React.FC = () => {
         <div className="text-[10.5px] text-[var(--error-rack)] break-words px-3 pt-2">{actionError}</div>
       )}
 
-      {/* 列表 —— 内缩槽位:px-3 两侧收进,框线跟着每张卡片走(有卡片的地方才有线,
-          空态/不满列时线不延伸);槽位逐格 44px 连排,格子边界钉在左侧 ActivityRail
-          槽位网格上(首格 y36–80) */}
-      <div className="flex-1 overflow-y-auto min-h-0 px-3 pb-3 rack-scroll">
+      {/* 列表 —— 内缩槽位:px-3 两侧收进;独立卡连排(与 Harness 工作区卡同构的
+          卡间 6px 暗沟),颜色阶梯不变 —— rack 面 / 悬停 slot */}
+      <div className="flex-1 overflow-y-auto min-h-0 px-3 pt-1.5 pb-3 space-y-1.5 rack-scroll">
         {agents.length === 0 ? (
           // 空状态 -- 沿用机柜 ─ · ─ 分隔 + 提示
           <div className="flex flex-col items-center justify-center h-full gap-2 px-4 text-center">
@@ -401,11 +424,11 @@ const AgentsPanel: React.FC = () => {
               onClick={() => handleLaunch(agent.id)}
               onContextMenu={(e) => handleContextMenu(agent, e)}
               title={`${agent.name}: ${agent.command}`}
-              // 44px 1U 卡笼槽位:左右框线(border-x)与底部分隔线都挂在卡片自身 ——
-              // 有卡片的地方才有线,卡片之间互不干扰,空态/不满列时线不延伸。
-              // 槽位逐格连排、边界钉在轨的槽位网格上;容器 px-3 已收侧距,行内 px-2
-              // 让图标落在与 Harness 工作区卡片相同的 20px 左沿
-              className="group relative flex items-center gap-2.5 px-2 h-[44px] cursor-pointer transition-colors bg-[var(--bg-rack)] border-x border-b border-[var(--rule)] shadow-[inset_0_-1px_0_var(--bg-base)] hover:bg-[var(--bg-slot)]"
+              // 44px 独立卡(与 Harness 工作区卡同构的卡语法):四边 rule 框 + 2px
+              // 圆角,卡间 6px 暗沟由容器 space-y-1.5 出 —— 颜色阶梯保持原样
+              // (rack 面 / 悬停 slot);容器 px-3 已收侧距,行内 px-2 让图标落在
+              // 与 Harness 工作区卡片相同的 20px 左沿
+              className="group relative flex items-center gap-2.5 px-2 h-[44px] cursor-pointer transition-colors rounded-[2px] border border-[var(--rule)] bg-[var(--bg-rack)] hover:bg-[var(--bg-slot)]"
             >
               {/* 图标槽:emoji > 内置品牌图标 > 默认机器人头 */}
               <span className="flex-shrink-0 w-[24px] h-[24px] inline-flex items-center justify-center text-[15px] leading-none text-[var(--text-rack-mute)] group-hover:text-[var(--amber)] transition-colors">

@@ -452,9 +452,9 @@ const EnvProfilePanel: React.FC = () => {
         <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words px-3 pt-2">{actionError}</div>
       )}
 
-      {/* 卡片链 —— 与 AgentsPanel 同构的内缩槽位：框线挂在卡片自身，
-          逐格连排钉在轨的槽位网格上 */}
-      <div className="flex-1 overflow-y-auto min-h-0 px-3 pb-3 rack-scroll">
+      {/* 卡片链 —— 与 AgentsPanel 同构的独立卡：框线挂在卡片自身，
+          卡间 6px 暗沟形成界限（与 Harness 工作区卡同构），颜色阶梯不变 */}
+      <div className="flex-1 overflow-y-auto min-h-0 px-3 pt-1.5 pb-3 space-y-1.5 rack-scroll">
         {loaded && profiles.length === 0 ? (
           // 空状态 —— 沿用机柜 ─ · ─ 分隔 + 提示
           <div className="flex flex-col items-center justify-center h-full gap-2 px-4 text-center">
@@ -484,7 +484,10 @@ const EnvProfilePanel: React.FC = () => {
                 aria-label={p.name}
                 title={on ? t('env.deactivateTitle') : t('env.activateTitle')}
                 className={cn(
-                  'group relative flex flex-col gap-1 px-2 py-2 transition-colors bg-[var(--bg-rack)] border-x border-b border-[var(--rule)] shadow-[inset_0_-1px_0_var(--bg-base)] hover:bg-[var(--bg-slot)] focus:outline-none focus-visible:border-[var(--amber)] overflow-hidden',
+                  // 独立卡语法（与 Harness 工作区卡同构）：四边 rule 框 + 2px 圆角 +
+                  // 卡间 6px 暗沟（容器 space-y-1.5）—— 颜色阶梯保持原样（rack 面 /
+                  // 悬停 slot / 琥珀启用语义不动）；overflow-hidden 继续裁导轨圆角
+                  'group relative flex flex-col gap-1 px-2 py-2 transition-colors rounded-[2px] border border-[var(--rule)] bg-[var(--bg-rack)] hover:bg-[var(--bg-slot)] focus:outline-none focus-visible:border-[var(--amber)] overflow-hidden',
                   switching ? 'cursor-wait' : 'cursor-pointer'
                 )}
               >

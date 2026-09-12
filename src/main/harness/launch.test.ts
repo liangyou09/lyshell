@@ -68,19 +68,87 @@ describe('buildCliLaunchCommand', () => {
     expect(buildCliLaunchCommand('claude', 'x"y').ok).toBe(false)
   })
 
-  it('skipPermissions 追加固定字面量 flag（不经用户输入，无注入面）', () => {
-    expect(buildCliLaunchCommand('claude', undefined, true)).toEqual({
+  it('claudePermissions 四档各自拼参：bypass 档直连 flag，acceptEdits/plan 走 --permission-mode', () => {
+    // bypassPermissions 拼直连 flag（--permission-mode bypassPermissions 形态需额外设置）
+    expect(buildCliLaunchCommand('claude', undefined, 'bypassPermissions')).toEqual({
       ok: true,
       command: 'claude --dangerously-skip-permissions'
     })
-    expect(buildCliLaunchCommand('claude', 'claude-sonnet-5', true)).toEqual({
+    expect(buildCliLaunchCommand('claude', 'claude-sonnet-5', 'bypassPermissions')).toEqual({
       ok: true,
       command: 'claude --model claude-sonnet-5 --dangerously-skip-permissions'
     })
+    expect(buildCliLaunchCommand('claude', undefined, 'acceptEdits')).toEqual({
+      ok: true,
+      command: 'claude --permission-mode acceptEdits'
+    })
+    expect(buildCliLaunchCommand('claude', undefined, 'plan')).toEqual({
+      ok: true,
+      command: 'claude --permission-mode plan'
+    })
   })
 
-  it('skipPermissions 缺省/false 不追加 flag', () => {
-    expect(buildCliLaunchCommand('claude', undefined, false)).toEqual({ ok: true, command: 'claude' })
-    expect(buildCliLaunchCommand('codex', 'gpt-5', false)).toEqual({ ok: true, command: 'codex --model gpt-5' })
+  it('claudePermissions default/缺省不追加参数（claude CLI 默认形态）', () => {
+    expect(buildCliLaunchCommand('claude', undefined, 'default')).toEqual({ ok: true, command: 'claude' })
+    expect(buildCliLaunchCommand('claude', undefined, undefined)).toEqual({ ok: true, command: 'claude' })
+    // codex 路径不受 claude 档位参数影响（字段仅 claude 有意义）
+    expect(buildCliLaunchCommand('codex', 'gpt-5', 'default')).toEqual({ ok: true, command: 'codex --model gpt-5' })
+  })
+
+  it('claudePermissions 非枚举字面量拒绝启动（防手工 JSON 绕过 IPC 校验）', () => {
+    // @ts-expect-error 脏数据路径：运行期值可能来自手工编辑的 JSON，非枚举字面量
+    expect(buildCliLaunchCommand('claude', undefined, 'bypass').ok).toBe(false)
+    // @ts-expect-error 同上 —— 注入串同样按非法档位拒绝
+    expect(buildCliLaunchCommand('claude', undefined, 'default; rm -rf /').ok).toBe(false)
+    // @ts-expect-error 同上 —— auto/dontAsk 是 CLI 有但面板不收的档位
+    expect(buildCliLaunchCommand('claude', undefined, 'auto').ok).toBe(false)
+    // @ts-expect-error 同上 —— dontAsk 同为面板不收的档位
+    expect(buildCliLaunchCommand('claude', undefined, 'dontAsk').ok).toBe(false)
+  })
+
+  it('codexPermissions 三档各自拼 -c default_permissions=<档位>（不加引号，值无 shell 元字符）', () => {
+    expect(buildCliLaunchCommand('codex', undefined, undefined, ':read-only')).toEqual({
+      ok: true,
+      command: 'codex -c default_permissions=:read-only'
+    })
+    expect(buildCliLaunchCommand('codex', undefined, undefined, ':workspace')).toEqual({
+      ok: true,
+      command: 'codex -c default_permissions=:workspace'
+    })
+    // danger 档同时关审批 —— 只关沙箱不关审批不是菜单 Full Access 预设的完整语义
+    expect(buildCliLaunchCommand('codex', undefined, undefined, ':danger-full-access')).toEqual({
+      ok: true,
+      command: 'codex -c default_permissions=:danger-full-access -c approval_policy=never'
+    })
+  })
+
+  it('codexPermissions 与 --model 同时出现时按序拼接', () => {
+    expect(buildCliLaunchCommand('codex', 'gpt-5-codex', undefined, ':danger-full-access')).toEqual({
+      ok: true,
+      command: 'codex --model gpt-5-codex -c default_permissions=:danger-full-access -c approval_policy=never'
+    })
+  })
+
+  it('codexPermissions 非枚举字面量拒绝启动（防手工 JSON 绕过 IPC 校验）', () => {
+    // @ts-expect-error 脏数据路径：运行期值可能来自手工编辑的 JSON，非枚举字面量
+    expect(buildCliLaunchCommand('codex', undefined, undefined, 'danger-full-access').ok).toBe(false)
+    // @ts-expect-error 同上 —— 注入串同样按非法档位拒绝
+    expect(buildCliLaunchCommand('codex', undefined, undefined, ':workspace; rm -rf /').ok).toBe(false)
+    // @ts-expect-error 同上 —— 空串拒绝
+    expect(buildCliLaunchCommand('codex', undefined, undefined, '').ok).toBe(false)
+  })
+
+  it('codexPermissions 缺省（undefined）不追加参数，跟随 Codex 默认链', () => {
+    expect(buildCliLaunchCommand('codex', 'gpt-5', undefined, undefined)).toEqual({
+      ok: true,
+      command: 'codex --model gpt-5'
+    })
+  })
+
+  it('claude 路径不受 codexPermissions 影响（字段仅 codex 有意义）', () => {
+    expect(buildCliLaunchCommand('claude', 'claude-sonnet-5', 'bypassPermissions', undefined)).toEqual({
+      ok: true,
+      command: 'claude --model claude-sonnet-5 --dangerously-skip-permissions'
+    })
   })
 })

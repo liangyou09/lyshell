@@ -42,7 +42,7 @@ export interface HarnessAgentRuntime {
    * 解析；渲染层沙箱读不到 process.env，只能主进程代解后经 <kind>:env:defaults 下发。
    */
   envDefaults: () => HarnessEnvDefault[]
-  /** 构造启动命令（dsh 固定 dsh-tui；codex/claude 拼 --model；claude 另可拼 --dangerously-skip-permissions） */
+  /** 构造启动命令（dsh 固定 dsh-tui；codex/claude 拼 --model；claude 另按权限模式拼 --dangerously-skip-permissions / --permission-mode；codex 另可拼 -c default_permissions，danger 档再拼 -c approval_policy=never） */
   buildLaunchCommand: (ws: HarnessWorkspace) => LaunchCommandResult
   /** 归一化工作区 env（dsh 校验 DSH_HOME；codex/claude 恒等） */
   normalizeEnv: (env?: Record<string, string>) => NormalizedEnvResult
@@ -134,7 +134,7 @@ export const HARNESS_AGENTS: Record<HarnessAgentKind, HarnessAgentRuntime> = {
       { key: 'OPENAI_BASE_URL', value: '' },
       { key: 'CODEX_HOME', value: resolveConfigDirDefault('CODEX_HOME', '.codex') }
     ],
-    buildLaunchCommand: (ws) => buildCliLaunchCommand('codex', ws.model),
+    buildLaunchCommand: (ws) => buildCliLaunchCommand('codex', ws.model, undefined, ws.codexPermissions),
     normalizeEnv: identityEnv,
     // 变量组写了 OPENAI_BASE_URL 才写 config.toml（codex 不读该环境变量），没写则 no-op
     prepareModel: (_ws, env) => presetCodexBaseUrl(env)
@@ -149,7 +149,7 @@ export const HARNESS_AGENTS: Record<HarnessAgentKind, HarnessAgentRuntime> = {
       { key: 'ANTHROPIC_BASE_URL', value: '' },
       { key: 'CLAUDE_CONFIG_DIR', value: resolveConfigDirDefault('CLAUDE_CONFIG_DIR', '.claude') }
     ],
-    buildLaunchCommand: (ws) => buildCliLaunchCommand('claude', ws.model, ws.skipPermissions),
+    buildLaunchCommand: (ws) => buildCliLaunchCommand('claude', ws.model, ws.claudePermissions),
     normalizeEnv: identityEnv,
     prepareModel: noModel
   }

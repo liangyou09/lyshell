@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
-import { HARNESS_AGENT_VIEWS, type EnvProfileLibraryResult, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
+import { DEFAULT_CLAUDE_PERMISSION_MODE, DEFAULT_CODEX_PERMISSION_PROFILE, HARNESS_AGENT_VIEWS, type ClaudePermissionMode, type CodexPermissionProfile, type EnvProfileLibraryResult, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
 import { BRANCH_PREFIX, generateWorktreeCode, generateWorktreeKey, generateWorktreeStamp, joinWorktreePath } from '@shared/worktree'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { ensureDetected, getCachedDetect, redetectHarness } from './harness-detect'
@@ -87,8 +87,10 @@ const IconX: React.FC = () => (
 )
 
 /**
- * 母线档位指示 —— 环境变量单选组每一格的通电状态：左沿 2px 导轨 + LED 圆点。
+ * 母线档位指示 —— 目录隔离单选组每一格的通电状态：左沿 2px 导轨 + LED 圆点。
  * 通电格琥珀点亮并发辉光，其余是空心环（形状差异，不只靠颜色区分）。
+ * 危险档位（codex/claude 权限下拉选中完全放开）不走这里 —— 单选组没有带电警示
+ * 形态，danger 皮肤收在表单 .danger-field 与列表 .danger-card（globals.css）。
  * 依赖父元素 `relative overflow-hidden` 承接绝对定位的导轨。
  */
 const BusLed: React.FC<{ on: boolean }> = ({ on }) => (
@@ -172,8 +174,13 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   // 模型处于自动跟随档位（由变量组选择自动填充、未被手动编辑）：切换变量组时重取生效组的首个
   // 模型选项；手动输入/清空即退出自动档位，之后的变量组切换不再覆盖（与 wsKeyAuto 同一套模式）
   const [wsModelAuto, setWsModelAuto] = useState(false)
-  // 跳过权限确认（仅 claude 显示此开关）：true = 启动追加 --dangerously-skip-permissions
-  const [wsSkipPermissions, setWsSkipPermissions] = useState(false)
+  // 权限模式（仅 claude 显示此下拉）：值即 claude CLI --permission-mode 模式字面量；
+  // bypassPermissions 档启动追加 --dangerously-skip-permissions（直连 flag），
+  // acceptEdits/plan 档追加 --permission-mode <mode>，default 不追加
+  const [wsClaudePermissions, setWsClaudePermissions] = useState<ClaudePermissionMode>(DEFAULT_CLAUDE_PERMISSION_MODE)
+  // 权限档位（仅 codex 显示此下拉）：值即 Codex 档位字面量（含 `:` 前缀），
+  // 启动追加 -c default_permissions=<档位>；表单默认选中 :workspace（保存即显式落盘）
+  const [wsCodexPermissions, setWsCodexPermissions] = useState<CodexPermissionProfile>(DEFAULT_CODEX_PERMISSION_PROFILE)
   // 目录隔离模式：shared = 直接在 cwd 启动（现状）；worktree = 仓库根下专属 git worktree
   const [wsIsolation, setWsIsolation] = useState<'shared' | 'worktree'>('shared')
   // worktree 共享名：空 = 私有（kind-id 各用各的树）；填了则同名工作区跨 kind 共用同一 worktree/分支。
@@ -375,7 +382,10 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   }
   const handleAdd = () => {
     setEditWorkspace(undefined)
-    setWsName(''); setWsCwd(''); setWsNote(''); setWsModel(''); setWsModelAuto(false); setWsSkipPermissions(false); setWsEnvProfileId(undefined); setWsIsolation('shared'); setWsWorktreeKey('')
+    // 新建默认选中「已启用的变量组」（显式绑定）—— 用户在左侧面板拨的那根指针就是当下
+    // 想用的密钥；无启用指针时回落「跟随」（运行时同样落到系统环境变量）。变量组列表
+    // 未拉到的极端竞态下 activeProfileId 还是 null，同样回落跟随，不阻塞开对话框
+    setWsName(''); setWsCwd(''); setWsNote(''); setWsModel(''); setWsModelAuto(false); setWsClaudePermissions(DEFAULT_CLAUDE_PERMISSION_MODE); setWsCodexPermissions(DEFAULT_CODEX_PERMISSION_PROFILE); setWsEnvProfileId(activeProfileId ?? undefined); setWsIsolation('shared'); setWsWorktreeKey('')
     setWsKeyAuto(false); setWsKeyCode(generateWorktreeCode())
     setTriedSubmit(false); setConfirmDelete(false); setSaveError(null)
     setShowDialog(true)
@@ -411,7 +421,12 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   }, [openItem, workspaces, wsLoaded])
   const handleEdit = (ws: HarnessWorkspace) => {
     setEditWorkspace(ws)
-    setWsName(ws.name); setWsCwd(ws.cwd); setWsNote(ws.note || ''); setWsModel(ws.model || ''); setWsModelAuto(false); setWsSkipPermissions(ws.skipPermissions === true)
+    setWsName(ws.name); setWsCwd(ws.cwd); setWsNote(ws.note || ''); setWsModel(ws.model || ''); setWsModelAuto(false)
+    // 老工作区可能没存过档位（字段后加）—— 按表单默认呈现，保存即落盘；
+    // legacy skipPermissions=true 已在主进程归一化折叠成 bypassPermissions
+    setWsClaudePermissions(ws.claudePermissions ?? DEFAULT_CLAUDE_PERMISSION_MODE)
+    // 老工作区可能没存过档位（字段后加）—— 按表单默认 :workspace 呈现，保存即落盘
+    setWsCodexPermissions(ws.codexPermissions ?? DEFAULT_CODEX_PERMISSION_PROFILE)
     setWsIsolation(ws.isolation === 'worktree' ? 'worktree' : 'shared')
     setWsWorktreeKey(ws.worktreeKey || '')
     // 编辑既有工作区永不自动派生：key 即 worktree 身份，改名不该换树
@@ -436,7 +451,9 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   const handleDuplicateWorkspace = (ws: HarnessWorkspace) => {
     setEditWorkspace(undefined)
     setWsName(`${ws.name}${t(`${prefix}.copySuffix`)}`)
-    setWsCwd(ws.cwd); setWsNote(ws.note || ''); setWsModel(ws.model || ''); setWsModelAuto(false); setWsSkipPermissions(ws.skipPermissions === true)
+    setWsCwd(ws.cwd); setWsNote(ws.note || ''); setWsModel(ws.model || ''); setWsModelAuto(false)
+    setWsClaudePermissions(ws.claudePermissions ?? DEFAULT_CLAUDE_PERMISSION_MODE)
+    setWsCodexPermissions(ws.codexPermissions ?? DEFAULT_CODEX_PERMISSION_PROFILE)
     setWsIsolation(ws.isolation === 'worktree' ? 'worktree' : 'shared')
     setWsWorktreeKey(ws.worktreeKey || '')
     // 源是私有 worktree（无显式 key）时直接给副本自动派生新 key：副本是新 id，本就各用各的树；
@@ -500,18 +517,22 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     const note = view.hasWorkspaceNote ? wsNote.trim() || undefined : editWorkspace?.note
     const model = wsModel.trim()
     const modelPayload = model.length > 0 ? model : undefined
-    // 跳过权限确认：仅 claude 有此开关（其余 kind 连键都不带，主进程也按 kind 忽略）；
-    // 关闭时传 undefined（键存在）以清掉旧标记
-    const skipPermissionsPayload = view.hasSkipPermissions
-      ? { skipPermissions: wsSkipPermissions || undefined }
+    // 权限模式：仅 claude 有此下拉（其余 kind 连键都不带，主进程也按 kind 忽略）；
+    // 表单恒有选中值，保存即显式落盘（default 档 = 不追加参数的 CLI 默认形态）
+    const claudePermissionsPayload = view.hasClaudePermissions
+      ? { claudePermissions: wsClaudePermissions }
+      : {}
+    // 权限档位：仅 codex 有此下拉（门控同上）；表单恒有选中值，保存即显式落盘
+    const codexPermissionsPayload = view.hasCodexPermissions
+      ? { codexPermissions: wsCodexPermissions }
       : {}
     // order 由主进程仓库分配递增，前端不再传 workspaces.length（删除后可能产生重复）
     // envProfileId 传 undefined 即「跟随已启用的变量组」；主进程按「键存在」判断，故必须显式带上这个键
     // worktreeKey 同理：空串 trim 后传 undefined = 私有 worktree（键必须显式存在才能清掉旧共享名）
     const worktreeKeyPayload = wsWorktreeKey.trim().length > 0 ? wsWorktreeKey.trim() : undefined
     const res = editWorkspace
-      ? await api.update({ ...editWorkspace, name, cwd, note, model: modelPayload, envProfileId: wsEnvProfileId, isolation: wsIsolation, worktreeKey: worktreeKeyPayload, ...skipPermissionsPayload })
-      : await api.add({ name, cwd, note, model: modelPayload, envProfileId: wsEnvProfileId, isolation: wsIsolation, worktreeKey: worktreeKeyPayload, ...skipPermissionsPayload })
+      ? await api.update({ ...editWorkspace, name, cwd, note, model: modelPayload, envProfileId: wsEnvProfileId, isolation: wsIsolation, worktreeKey: worktreeKeyPayload, ...claudePermissionsPayload, ...codexPermissionsPayload })
+      : await api.add({ name, cwd, note, model: modelPayload, envProfileId: wsEnvProfileId, isolation: wsIsolation, worktreeKey: worktreeKeyPayload, ...claudePermissionsPayload, ...codexPermissionsPayload })
     // 保存失败（校验未通过 / 落盘失败）：保留表单，展示具体错误，不关闭对话框
     if (res && res.success === false) {
       setSaveError(typeof res.error === 'string' ? res.error : t(`${prefix}.wsSaveFailed`))
@@ -658,7 +679,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
               return (
                 <div
                   key={dep}
-                  className="flex items-center gap-2 border border-[var(--rule)] rounded-[2px] px-2 py-1.5"
+                  className="flex items-center gap-2 border border-[var(--rule)] rounded-[2px] bg-[var(--bg-slot)] px-2 py-1.5"
                 >
                   <span
                     aria-hidden
@@ -770,7 +791,9 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
             <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words">{actionError}</div>
           )}
 
-          <div className="flex-1 overflow-y-auto min-h-0 space-y-1 rack-scroll">
+          {/* 工作区卡片列表 —— 6px 暗沟：卡与卡的界限靠「背板沟(bg-base)→ rule
+              机加工边 → 槽位面(bg-slot)」三段明度阶读出来，沟窄了整列会糊成一片 */}
+          <div className="flex-1 overflow-y-auto min-h-0 space-y-1.5 rack-scroll">
             {workspaces.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-2 px-4 text-center">
                 <span className="font-mono text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
@@ -784,6 +807,11 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                 const boundProfile = ws.envProfileId
                   ? envProfiles.find((p) => p.id === ws.envProfileId)
                   : undefined
+                // 危险态：codex 完全放开档 / claude bypassPermissions 档 —— 卡片整体换
+                // .danger-card（红染底 + 左沿条纹导轨，与表单同语），点之前就看得见
+                // 这是个绕过审批跑的工作区
+                const dangerPerm =
+                  ws.codexPermissions === ':danger-full-access' || ws.claudePermissions === 'bypassPermissions'
                 return (
                   <div
                     key={ws.id}
@@ -792,11 +820,19 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                     onMouseLeave={() => { if (deleteConfirmId === ws.id) setDeleteConfirmId(null) }}
                     title={t(`${prefix}.launch`)}
                     className={cn(
-                      'group relative flex items-center gap-2.5 px-2 py-1.5 rounded-[2px] cursor-pointer border border-[var(--rule)] bg-[var(--bg-rack)] hover:bg-[var(--bg-slot)] transition-colors',
+                      'group relative flex items-center gap-2.5 px-2 py-1.5 rounded-[2px] cursor-pointer border transition-colors',
+                      // 常规面 = 槽位色 bg-slot（比面板底高两档，与 bg-base 沟拉开卡界），
+                      // 悬停 elev 再提一档；危险态染底配方见 .danger-card（同走 slot 基）
+                      dangerPerm
+                        ? 'danger-card'
+                        : 'border-[var(--rule)] bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)]',
                       launching && 'opacity-60 cursor-wait'
                     )}
                   >
-                    <span className="flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center text-[var(--text-rack-mute)] group-hover:text-[var(--amber)] transition-colors">
+                    <span className={cn(
+                      'flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center transition-colors',
+                      dangerPerm ? 'text-[var(--error-rack)]' : 'text-[var(--text-rack-mute)] group-hover:text-[var(--amber)]'
+                    )}>
                       <IconFolder />
                     </span>
                     <span className="flex flex-col min-w-0 flex-1">
@@ -826,19 +862,42 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                           </span>
                         </span>
                       )}
-                      {/* 跳过权限确认标出来 —— 行文即 flag 本身（琥珀=已通电，与面板语义一致），
-                          点之前就看得见危险模式；不引入任何文案 */}
-                      {ws.skipPermissions && (
-                        <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--amber)] leading-tight min-w-0">
-                          <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--amber)] flex-shrink-0" />
+                      {/* claude 权限模式标出来 —— 行文即启动实际追加的参数（红=带电警示，
+                          危险态与卡片红染底同源；acceptEdits/plan 灰置，与 codex read-only
+                          角标同族），点之前就看得见；default 即 CLI 默认形态，不标 */}
+                      {ws.claudePermissions === 'bypassPermissions' && (
+                        <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--error-rack)] leading-tight min-w-0">
+                          <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--error-rack)] flex-shrink-0" />
                           <span className="truncate">--dangerously-skip-permissions</span>
+                        </span>
+                      )}
+                      {(ws.claudePermissions === 'acceptEdits' || ws.claudePermissions === 'plan') && (
+                        <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0">
+                          <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--text-rack-mute)] flex-shrink-0" />
+                          <span className="truncate">--permission-mode {ws.claudePermissions}</span>
+                        </span>
+                      )}
+                      {/* 权限档位标出来 —— danger 红（错误令牌，与卡片危险态皮肤同源）；
+                          read-only 灰置（worktree 角标同族：在哪个权限下跑是看得见的承诺）；
+                          workspace/缺省即 Codex 默认形态，不标 */}
+                      {ws.codexPermissions === ':danger-full-access' && (
+                        <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--error-rack)] leading-tight min-w-0">
+                          <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--error-rack)] flex-shrink-0" />
+                          <span className="truncate">:danger-full-access</span>
+                        </span>
+                      )}
+                      {ws.codexPermissions === ':read-only' && (
+                        <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0">
+                          <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--text-rack-mute)] flex-shrink-0" />
+                          <span className="truncate">:read-only</span>
                         </span>
                       )}
                       {view.hasWorkspaceNote && ws.note && (
                         <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] truncate leading-tight">{ws.note}</span>
                       )}
                     </span>
-                    <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-slot)] from-[24%] to-transparent">
+                    {/* 悬停操作簇遮罩颜色跟悬停面色(elev)—— 用面色的不透明渐变盖住按钮底下的字 */}
+                    <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-elev)] from-[24%] to-transparent">
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDuplicateWorkspace(ws) }}
                         title={t(`${prefix}.copy`)}
@@ -1045,84 +1104,101 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
               </datalist>
             </div>
 
-            {/* 环境变量 —— 选一组预配置变量；不选则跟随已启用的那组（三级链在这里就地摊开） */}
+            {/* 环境变量 —— 选一组预配置变量；不选则跟随已启用的那组（三级链在这里就地摊开）。
+                原生 select（与权限档位下拉同款机柜样式，选项名后缀变量数）；「跟随」档位的
+                解析结果摊开在下沿提示行，免得用户还要切页签才知道实际会用哪份 */}
             <div className="py-3.5 px-4 border-b border-[var(--rule)]">
               <div className="mb-2">
                 <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsEnvProfile`)}</span>
               </div>
-              <div role="radiogroup" aria-label={t(`${prefix}.wsEnvProfile`)} className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm overflow-hidden max-h-[168px] overflow-y-auto rack-scroll">
-                {/* 跟随档位：默认值。就地显示解析结果，免得用户还要切页签才知道实际会用哪份 */}
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={wsEnvProfileId === undefined}
-                  onClick={() => selectEnvProfile(undefined)}
-                  className="relative w-full text-left flex items-center gap-2 px-2.5 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0 bg-transparent cursor-pointer hover:bg-[var(--bg-slot)] transition-colors"
-                >
-                  <BusLed on={wsEnvProfileId === undefined} />
-                  <span className="flex-1 min-w-0 text-[12px] [font-family:inherit] text-[var(--text-rack)] truncate">
-                    {t(`${prefix}.wsEnvFollow`)}
-                  </span>
-                  <span className="flex-shrink-0 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] truncate max-w-[46%]">
-                    {t(`${prefix}.wsEnvFollowNow`, { name: activeProfile ? activeProfile.name : t(`${prefix}.envSystem`) })}
-                  </span>
-                </button>
+              <select
+                value={wsEnvProfileId ?? ''}
+                onChange={(e) => selectEnvProfile(e.target.value || undefined)}
+                aria-label={t(`${prefix}.wsEnvProfile`)}
+                className="w-full px-2 py-1.5 border rounded-[2px] text-[12px] [font-family:inherit] cursor-pointer focus:outline-none focus:border-[var(--amber)] transition-colors bg-[var(--bg-base)] border-[var(--rule)] text-[var(--text-rack)]"
+              >
+                {/* 空值 = 「跟随」：主进程按 envProfileId 缺省回落全局启用指针 */}
+                <option value="">{t(`${prefix}.wsEnvFollow`)}</option>
                 {envProfiles.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={wsEnvProfileId === p.id}
-                    onClick={() => selectEnvProfile(p.id)}
-                    className="relative w-full text-left flex items-center gap-2 px-2.5 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0 bg-transparent cursor-pointer hover:bg-[var(--bg-slot)] transition-colors"
-                  >
-                    <BusLed on={wsEnvProfileId === p.id} />
-                    <span className="flex-1 min-w-0 text-[12px] [font-family:inherit] text-[var(--text-rack)] truncate">{p.name}</span>
-                    <span className="flex-shrink-0 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] tabular-nums">
-                      {t(`${prefix}.envVars`, { count: Object.keys(p.env).length })}
-                    </span>
-                  </button>
+                  <option key={p.id} value={p.id}>
+                    {p.name} · {t(`${prefix}.envVars`, { count: Object.keys(p.env).length })}
+                  </option>
                 ))}
-                {envProfiles.length === 0 && (
-                  <div className="px-2.5 py-1.5 text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">
-                    {t(`${prefix}.wsEnvNone`)}
+              </select>
+              {/* 跟随档位选中时才显示：显式绑定自明，不占行。一个组都没有时直接摊开空态说明 */}
+              {wsEnvProfileId === undefined && (
+                <div className="mt-1.5 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-snug">
+                  {envProfiles.length === 0
+                    ? t(`${prefix}.wsEnvNone`)
+                    : t(`${prefix}.wsEnvFollowNow`, { name: activeProfile ? activeProfile.name : t(`${prefix}.envSystem`) })}
+                </div>
+              )}
+            </div>
+
+            {/* 权限模式（仅 claude）—— bypassPermissions 档启动追加 --dangerously-skip-permissions
+                （直连 flag，等价 --permission-mode bypassPermissions 但后者需额外设置），
+                acceptEdits/plan 档追加 --permission-mode <mode>，default 不追加。
+                原生 select（与 codex 权限档位下拉同款机柜样式）；选中 bypassPermissions 时
+                换 .danger-field 危险态皮肤（红染底 + 左沿条纹导轨 + 红字）+ 附警示行
+                —— 完全放开是用户显式选的危险形态 */}
+            {view.hasClaudePermissions && (
+              <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+                <div className="mb-2">
+                  <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsPermissions`)}</span>
+                </div>
+                <select
+                  value={wsClaudePermissions}
+                  onChange={(e) => setWsClaudePermissions(e.target.value as ClaudePermissionMode)}
+                  aria-label={t(`${prefix}.wsPermissions`)}
+                  className={cn(
+                    'w-full px-2 py-1.5 border rounded-[2px] text-[12px] [font-family:inherit] cursor-pointer focus:outline-none focus:border-[var(--amber)] transition-colors',
+                    wsClaudePermissions === 'bypassPermissions'
+                      ? 'danger-field'
+                      : 'bg-[var(--bg-base)] border-[var(--rule)] text-[var(--text-rack)]'
+                  )}
+                >
+                  <option value="default">{t(`${prefix}.wsPermDefault`)}</option>
+                  <option value="acceptEdits">{t(`${prefix}.wsPermAcceptEdits`)}</option>
+                  <option value="plan">{t(`${prefix}.wsPermPlan`)}</option>
+                  <option value="bypassPermissions">{t(`${prefix}.wsPermBypass`)}</option>
+                </select>
+                {wsClaudePermissions === 'bypassPermissions' && (
+                  <div className="mt-1.5 text-[10.5px] [font-family:inherit] text-[var(--error-rack)] leading-snug">
+                    {t(`${prefix}.wsPermBypassDangerHint`)}
                   </div>
                 )}
               </div>
-            </div>
+            )}
 
-            {/* 跳过权限确认（仅 claude）—— 启动追加 --dangerously-skip-permissions。
-                单格开关沿用 BusLed 通话语义：行文恒为 flag 本身（要拼什么一目了然），
-                点亮 = 琥珀生效，熄灭 = 灰置未启用；不放任何说明文字 */}
-            {view.hasSkipPermissions && (
+            {/* 权限档位（仅 codex）—— 启动追加 -c default_permissions=<档位>。
+                原生 select（沿用设置面板下拉的机柜样式）；选中 :danger-full-access 时
+                换 .danger-field 危险态皮肤（红染底 + 左沿条纹导轨 + 红字）+ 附警示行
+                —— 完全放开是用户显式选的危险形态 */}
+            {view.hasCodexPermissions && (
               <div className="py-3.5 px-4 border-b border-[var(--rule)]">
                 <div className="mb-2">
-                  <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsSkipPerms`)}</span>
+                  <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsPermissions`)}</span>
                 </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={wsSkipPermissions}
-                  aria-label={t(`${prefix}.wsSkipPerms`)}
-                  onClick={() => setWsSkipPermissions((v) => !v)}
+                <select
+                  value={wsCodexPermissions}
+                  onChange={(e) => setWsCodexPermissions(e.target.value as CodexPermissionProfile)}
+                  aria-label={t(`${prefix}.wsPermissions`)}
                   className={cn(
-                    'relative w-full text-left flex items-center gap-2 px-2.5 py-1.5 rounded-sm border transition-colors cursor-pointer',
-                    'bg-[var(--bg-base)] hover:bg-[var(--bg-slot)] focus:outline-none focus-visible:border-[var(--amber)]',
-                    wsSkipPermissions
-                      ? 'border-[color-mix(in_srgb,var(--amber)_28%,var(--rule))]'
-                      : 'border-[var(--rule)]'
+                    'w-full px-2 py-1.5 border rounded-[2px] text-[12px] [font-family:inherit] cursor-pointer focus:outline-none focus:border-[var(--amber)] transition-colors',
+                    wsCodexPermissions === ':danger-full-access'
+                      ? 'danger-field'
+                      : 'bg-[var(--bg-base)] border-[var(--rule)] text-[var(--text-rack)]'
                   )}
                 >
-                  <BusLed on={wsSkipPermissions} />
-                  <code
-                    className={cn(
-                      'flex-1 min-w-0 text-[11px] [font-family:inherit] truncate transition-colors',
-                      wsSkipPermissions ? 'text-[var(--amber)]' : 'text-[var(--text-rack)]'
-                    )}
-                  >
-                    --dangerously-skip-permissions
-                  </code>
-                </button>
+                  <option value=":read-only">{t(`${prefix}.wsPermReadOnly`)}</option>
+                  <option value=":workspace">{t(`${prefix}.wsPermWorkspace`)}</option>
+                  <option value=":danger-full-access">{t(`${prefix}.wsPermDanger`)}</option>
+                </select>
+                {wsCodexPermissions === ':danger-full-access' && (
+                  <div className="mt-1.5 text-[10.5px] [font-family:inherit] text-[var(--error-rack)] leading-snug">
+                    {t(`${prefix}.wsPermDangerHint`)}
+                  </div>
+                )}
               </div>
             )}
 

@@ -4,7 +4,7 @@ import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 import { atomicWriteFileSync, getConfigDir } from './repository'
 import { validateWorktreeKey } from '../harness/worktree'
-import type { HarnessWorkspace } from '@shared/harness'
+import { isClaudePermissionMode, isCodexPermissionProfile, type HarnessWorkspace } from '@shared/harness'
 
 /**
  * AI Harness 工作区存储 —— dsh / codex / claude 三份共用（按文件名区分落盘位置）。
@@ -55,9 +55,14 @@ function normalizeWorkspace(raw: unknown): HarnessWorkspace | null {
   const worktreeKeyRaw = typeof w.worktreeKey === 'string' ? w.worktreeKey.trim() : ''
   const keyCheck = worktreeKeyRaw.length > 0 ? validateWorktreeKey(worktreeKeyRaw) : undefined
   const worktreeKey = keyCheck && keyCheck.ok ? keyCheck.value : undefined
-  // skipPermissions 仅接受字面 true（其余一律按缺省 = 正常权限模式）
-  const skipPermissions = w.skipPermissions === true ? true : undefined
-  return { id: w.id, name: w.name, cwd: w.cwd, order: w.order, ...(note !== undefined ? { note } : {}), ...(model !== undefined ? { model } : {}), ...(env !== undefined ? { env } : {}), ...(envProfileId !== undefined ? { envProfileId } : {}), ...(isolation !== undefined ? { isolation } : {}), ...(worktreeKey !== undefined ? { worktreeKey } : {}), ...(skipPermissions !== undefined ? { skipPermissions } : {}) }
+  // claudePermissions 仅接受四档枚举字面量；legacy skipPermissions===true 在此折叠成
+  // bypassPermissions（读取即迁移：列表/启动拿到的都已是新字段，下次落盘旧键自然消失）
+  const claudePermissions = isClaudePermissionMode(w.claudePermissions)
+    ? w.claudePermissions
+    : w.skipPermissions === true ? 'bypassPermissions' as const : undefined
+  // codexPermissions 仅接受三档枚举字面量（其余按缺省 = 不追加参数，跟随 Codex 默认链）
+  const codexPermissions = isCodexPermissionProfile(w.codexPermissions) ? w.codexPermissions : undefined
+  return { id: w.id, name: w.name, cwd: w.cwd, order: w.order, ...(note !== undefined ? { note } : {}), ...(model !== undefined ? { model } : {}), ...(env !== undefined ? { env } : {}), ...(envProfileId !== undefined ? { envProfileId } : {}), ...(isolation !== undefined ? { isolation } : {}), ...(worktreeKey !== undefined ? { worktreeKey } : {}), ...(claudePermissions !== undefined ? { claudePermissions } : {}), ...(codexPermissions !== undefined ? { codexPermissions } : {}) }
 }
 
 /**

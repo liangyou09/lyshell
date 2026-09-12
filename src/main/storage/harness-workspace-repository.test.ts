@@ -213,20 +213,37 @@ describe('HarnessWorkspaceRepository', () => {
     expect(all.find((w) => w.id === 'd')?.worktreeKey).toBe('legal-name')
   })
 
-  it('skipPermissions 仅保留字面量 true，false/脏数据按缺失（= 正常权限模式）处理', () => {
+  it('claudePermissions 仅接受四档枚举字面量；legacy skipPermissions===true 折叠成 bypassPermissions（读取即迁移）', () => {
     seed(JSON.stringify([
       { id: 'a', name: 'a', cwd: '/a', order: 0, skipPermissions: true },
       { id: 'b', name: 'b', cwd: '/b', order: 1, skipPermissions: false },
       { id: 'c', name: 'c', cwd: '/c', order: 2, skipPermissions: 'true' },
-      { id: 'd', name: 'd', cwd: '/d', order: 3, skipPermissions: 1 },
-      { id: 'e', name: 'e', cwd: '/e', order: 4 }
+      { id: 'd', name: 'd', cwd: '/d', order: 3 },
+      { id: 'e', name: 'e', cwd: '/e', order: 4, claudePermissions: 'acceptEdits' },
+      { id: 'f', name: 'f', cwd: '/f', order: 5, claudePermissions: 'bypassPermissions' },
+      { id: 'g', name: 'g', cwd: '/g', order: 6, claudePermissions: 'auto' },
+      { id: 'h', name: 'h', cwd: '/h', order: 7, claudePermissions: 'plan' }
     ]))
     const repo = newRepo()
     const all = repo.getAll()
-    expect(all.find((w) => w.id === 'a')?.skipPermissions).toBe(true)
-    expect(all.find((w) => w.id === 'b')?.skipPermissions).toBeUndefined()
-    expect(all.find((w) => w.id === 'c')?.skipPermissions).toBeUndefined()
-    expect(all.find((w) => w.id === 'd')?.skipPermissions).toBeUndefined()
-    expect(all.find((w) => w.id === 'e')?.skipPermissions).toBeUndefined()
+    // legacy true → bypassPermissions；false/'true'/缺省 → 无档位（CLI 默认形态）
+    expect(all.find((w) => w.id === 'a')?.claudePermissions).toBe('bypassPermissions')
+    expect(all.find((w) => w.id === 'b')?.claudePermissions).toBeUndefined()
+    expect(all.find((w) => w.id === 'c')?.claudePermissions).toBeUndefined()
+    expect(all.find((w) => w.id === 'd')?.claudePermissions).toBeUndefined()
+    // 新字段四档中三档合法保留；auto 是 CLI 有但面板不收的档位 → 按缺失
+    expect(all.find((w) => w.id === 'e')?.claudePermissions).toBe('acceptEdits')
+    expect(all.find((w) => w.id === 'f')?.claudePermissions).toBe('bypassPermissions')
+    expect(all.find((w) => w.id === 'g')?.claudePermissions).toBeUndefined()
+    expect(all.find((w) => w.id === 'h')?.claudePermissions).toBe('plan')
+  })
+
+  it('claudePermissions 已有合法值时 legacy skipPermissions 不再参与折叠（新字段优先）', () => {
+    seed(JSON.stringify([
+      { id: 'a', name: 'a', cwd: '/a', order: 0, claudePermissions: 'default', skipPermissions: true }
+    ]))
+    const repo = newRepo()
+    const all = repo.getAll()
+    expect(all.find((w) => w.id === 'a')?.claudePermissions).toBe('default')
   })
 })

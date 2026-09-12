@@ -70,6 +70,7 @@
   --reachable-glow: #6CD4FF33;  /* reachable 的落区/悬停伴生透明层(同 amber/amber-glow 配对模式) */
   --warn-rack:      #E8A33D;
   --error-rack:     #FF6B6B;
+  --error-rack-glow:#FF6B6B3D;  /* error 的 LED 辉光伴生层(同 amber/amber-glow 配对模式,危险态指示灯用) */
 }
 
 /* Rack Slate — 偏蓝石板，amber 焦点不变 */
@@ -275,6 +276,73 @@ body {
    未包裹在 @layer 内,故优先于 Tailwind utilities 层的字体设置,无需 !important。 */
 .settings-panel {
   font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+}
+
+/* 危险态皮肤 —— 「条纹导轨 + 红染底」(danger-red-prototype.html 用户选定的 B+C 组合)。
+   面板语义三分:琥珀=通电(正常启用),灰=熄灭,红=带电警示 —— 危险不该只读作「开」。
+   claude bypassPermissions 档(--dangerously-skip-permissions) / codex :danger-full-access 档共用:
+   左沿 4px 红色警示条纹导轨(配电柜警示带缩到发丝级)+ 7% 红染底 + 45% 红混边框。
+   红全部派生自 --error-rack(语义色,主题不改值);条纹暗齿 = error 15% 透明层。
+   repeating-linear-gradient 与 :hover 派生写不进 Tailwind 任意值,集中在此定义;
+   本文件在 @tailwind utilities 之后,同特异性能压过工具类,但 TSX 侧 danger 态仍
+   摘掉同属性的 Tailwind 类(bg/border),不靠层叠顺序赢。 */
+/* 危险态卡片:红染底 + 左沿条纹导轨(元素须带 relative,卡片基类已带)。
+   染底基色跟常规卡槽位面(bg-slot),悬停加深一档走 elev —— 与常规卡同一套
+   槽位阶梯,红只是叠在面上的危险语义。overflow-hidden 让导轨吃掉 2px 圆角。 */
+.danger-card {
+  overflow: hidden;
+  border-color: color-mix(in srgb,var(--error-rack) 45%,var(--rule));
+  background-color: color-mix(in srgb,var(--error-rack) 7%,var(--bg-slot));
+  /* 辉光要渐亮渐熄 —— Tailwind 的 transition-colors 不含 box-shadow，这里补上 */
+  transition-property: border-color, background-color, box-shadow;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+/* 危险卡悬停 = 透红亮：辉光外溢到卡间暗沟 + 染底加深一档 + 边框提亮。
+   这是面板「通电」语言的红系对位 —— 琥珀 LED 发琥珀光，危险模块发热发红光；
+   悬停反馈必须一步到位（细步进在红面上不可辨）。 */
+.danger-card:hover {
+  border-color: color-mix(in srgb,var(--error-rack) 65%,var(--rule));
+  background-color: color-mix(in srgb,var(--error-rack) 11%,var(--bg-elev));
+  box-shadow: 0 0 12px var(--error-rack-glow);
+}
+.danger-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--error-rack) 0 3px,
+    color-mix(in srgb,var(--error-rack) 15%,transparent) 3px 6px
+  );
+}
+/* 危险态表单控件(原生 select):border+文字红,底色红染,导轨以 background-image
+   贴左沿(select 是替换元素吃不了 ::before);4px 条纹 + px-2 左内边距不压字。 */
+.danger-field {
+  border-color: color-mix(in srgb,var(--error-rack) 45%,var(--rule));
+  color: var(--error-rack);
+  background-color: color-mix(in srgb,var(--error-rack) 7%,var(--bg-base));
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--error-rack) 0 3px,
+    color-mix(in srgb,var(--error-rack) 15%,transparent) 3px 6px
+  );
+  background-repeat: no-repeat;
+  background-size: 4px 100%;
+  transition-property: border-color, color, background-color, box-shadow;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+/* 危险下拉选中/聚焦 = 透红亮：整边全红 + 辉光外溢 + 染底加深 —— 焦点不走琥珀
+   （琥珀出现在红控件上读作「危险解除」，误导）。本文件在 @tailwind utilities
+   之后，此处能压过工具类的 focus:border-[var(--amber)]。 */
+.danger-field:focus {
+  border-color: var(--error-rack);
+  background-color: color-mix(in srgb,var(--error-rack) 11%,var(--bg-base));
+  box-shadow: 0 0 12px var(--error-rack-glow);
 }
 
 /* 侧边栏、标签栏、状态栏完全禁止选择 */

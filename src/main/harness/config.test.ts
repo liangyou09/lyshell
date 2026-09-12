@@ -12,6 +12,7 @@ vi.mock('electron', () => ({
 }))
 
 import { HARNESS_AGENTS } from './config'
+import type { HarnessWorkspace } from '@shared/harness'
 
 const origCodexHome = process.env.CODEX_HOME
 const origClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
@@ -66,5 +67,54 @@ describe('HarnessAgentRuntime.envDefaults', () => {
 
   it('dsh：静态默认原样返回（无动态解析项）', () => {
     expect(HARNESS_AGENTS.dsh.envDefaults()[0]?.key).toBe('DEEPSEEK_API_KEY')
+  })
+})
+
+describe('HarnessAgentRuntime.buildLaunchCommand（codex 权限档位）', () => {
+  const ws = (codexPermissions?: HarnessWorkspace['codexPermissions']): HarnessWorkspace => ({
+    id: 'w1', name: 'ws', cwd: 'D:\\p', order: 0,
+    ...(codexPermissions !== undefined ? { codexPermissions } : {})
+  })
+
+  it('带档位时拼 -c default_permissions=<档位>（danger 档再拼 -c approval_policy=never）', () => {
+    expect(HARNESS_AGENTS.codex.buildLaunchCommand(ws(':danger-full-access'))).toEqual({
+      ok: true,
+      command: 'codex -c default_permissions=:danger-full-access -c approval_policy=never'
+    })
+    expect(HARNESS_AGENTS.codex.buildLaunchCommand(ws(':read-only'))).toEqual({
+      ok: true,
+      command: 'codex -c default_permissions=:read-only'
+    })
+  })
+
+  it('缺省档位时不追加参数（跟随 Codex 默认链）', () => {
+    expect(HARNESS_AGENTS.codex.buildLaunchCommand(ws())).toEqual({ ok: true, command: 'codex' })
+  })
+})
+
+describe('HarnessAgentRuntime.buildLaunchCommand（claude 权限模式）', () => {
+  const ws = (claudePermissions?: HarnessWorkspace['claudePermissions']): HarnessWorkspace => ({
+    id: 'w1', name: 'ws', cwd: 'D:\\p', order: 0,
+    ...(claudePermissions !== undefined ? { claudePermissions } : {})
+  })
+
+  it('bypassPermissions 档拼 --dangerously-skip-permissions（直连 flag），其余档拼 --permission-mode', () => {
+    expect(HARNESS_AGENTS.claude.buildLaunchCommand(ws('bypassPermissions'))).toEqual({
+      ok: true,
+      command: 'claude --dangerously-skip-permissions'
+    })
+    expect(HARNESS_AGENTS.claude.buildLaunchCommand(ws('acceptEdits'))).toEqual({
+      ok: true,
+      command: 'claude --permission-mode acceptEdits'
+    })
+    expect(HARNESS_AGENTS.claude.buildLaunchCommand(ws('plan'))).toEqual({
+      ok: true,
+      command: 'claude --permission-mode plan'
+    })
+  })
+
+  it('default/缺省档不追加参数（claude CLI 默认形态）', () => {
+    expect(HARNESS_AGENTS.claude.buildLaunchCommand(ws('default'))).toEqual({ ok: true, command: 'claude' })
+    expect(HARNESS_AGENTS.claude.buildLaunchCommand(ws())).toEqual({ ok: true, command: 'claude' })
   })
 })

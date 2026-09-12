@@ -11,6 +11,52 @@
 
 export type HarnessAgentKind = 'dsh' | 'codex' | 'claude'
 
+/**
+ * Codex 权限档位 —— 与 Codex 内置 default_permissions 档位同名（含 `:` 前缀）。
+ * 三档语义：:read-only 只读（改动/联网都要批）；:workspace 工作区读写 + 可跑命令
+ * （联网/外部文件要批）；:danger-full-access 完全绕过沙箱与审批。
+ * 启动时拼 `-c default_permissions=<档位>`（Codex 的 -c value 解析规则是「先试 TOML，
+ * 失败按字面字符串」，故不加引号直接可用）；danger 档另拼 `-c approval_policy=never`
+ * —— 只关沙箱不关审批时 codex /status 显示「No Sandbox (Ask for approval)」，
+ * 补上这条才是 /permissions 菜单 Full Access 预设的完整语义。
+ */
+export type CodexPermissionProfile = ':read-only' | ':workspace' | ':danger-full-access'
+
+/** 档位全集 —— IPC 枚举校验 / 表单选项 / 仓库归一化共用 */
+export const CODEX_PERMISSION_PROFILES = [':read-only', ':workspace', ':danger-full-access'] as const
+
+/** 表单默认选中档位（保存即显式落盘；缺省不追加参数，跟随 Codex 自身默认链） */
+export const DEFAULT_CODEX_PERMISSION_PROFILE: CodexPermissionProfile = ':workspace'
+
+/** unknown → 档位类型守卫（仓库归一化/命令构造兜底共用） */
+export function isCodexPermissionProfile(v: unknown): v is CodexPermissionProfile {
+  return v === ':read-only' || v === ':workspace' || v === ':danger-full-access'
+}
+
+/**
+ * Claude 权限档位 —— 与 claude CLI `--permission-mode` 的内置模式同名。
+ * 四档语义（claude 2.1.268 --help 与 bundle 内描述）：default 标准（危险操作逐项确认）；
+ * acceptEdits 自动接受文件编辑；plan 计划模式只读（不实际执行工具）；
+ * bypassPermissions 完全放开。CLI 另有 auto（模型分类器代批）/ dontAsk（未预批直接拒）
+ * 两档 —— 语义分别依赖黑盒分类器与静默拒绝，不进面板；manual 是 default 的兼容别名
+ * （CLI 内部直接映射，不单列）。启动拼参：bypassPermissions 档拼
+ * `--dangerously-skip-permissions` 直连 flag（`--permission-mode bypassPermissions`
+ * 形态需 allowDangerouslySkipPermissions 设置才生效，直连 flag 是既有已测链路）；
+ * 其余档拼 `--permission-mode <mode>`；default/缺省不追加。
+ */
+export type ClaudePermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
+
+/** 档位全集 —— IPC 枚举校验 / 表单选项 / 仓库归一化共用 */
+export const CLAUDE_PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'] as const
+
+/** 表单默认选中档位（= 不追加参数，claude CLI 自身的默认形态） */
+export const DEFAULT_CLAUDE_PERMISSION_MODE: ClaudePermissionMode = 'default'
+
+/** unknown → 档位类型守卫（仓库归一化/命令构造兜底共用） */
+export function isClaudePermissionMode(v: unknown): v is ClaudePermissionMode {
+  return v === 'default' || v === 'acceptEdits' || v === 'plan' || v === 'bypassPermissions'
+}
+
 /** 面板渲染顺序 —— 即左轨页签顺序里的三个 harness 槽位（dsh 在前，codex/claude 随后） */
 export const HARNESS_AGENT_KINDS: HarnessAgentKind[] = ['dsh', 'codex', 'claude']
 
@@ -51,11 +97,27 @@ export interface HarnessWorkspace {
    */
   worktreeKey?: string
   /**
-   * 跳过权限确认（仅 claude 有意义）：true 时启动命令追加
-   * `--dangerously-skip-permissions`，Claude Code 不再逐个工具弹权限确认。
-   * 缺省/false = 正常权限模式。渲染层开关与列表角标由 hasSkipPermissions 控制。
+   * @deprecated 历史布尔开关，已由 claudePermissions 档位取代（bypassPermissions 档 =
+   * 原 skipPermissions=true）。保留仅为兜住历史 JSON：normalizeWorkspace 读到
+   * skipPermissions===true 时折叠成 claudePermissions:'bypassPermissions'（读取即迁移，
+   * 下次落盘旧键自然消失）；add/update 不再写入，运行期各消费方一律读 claudePermissions。
    */
   skipPermissions?: boolean
+  /**
+   * 权限档位（仅 claude 有意义）：bypassPermissions 档启动追加
+   * `--dangerously-skip-permissions`（直连 flag，等价 --permission-mode bypassPermissions
+   * 但后者需 allowDangerouslySkipPermissions 设置）；acceptEdits/plan 档追加
+   * `--permission-mode <mode>`。default/缺省 = 不追加参数（claude CLI 默认形态，
+   * 危险操作逐项确认）。渲染层下拉与列表角标由 hasClaudePermissions 控制。
+   */
+  claudePermissions?: ClaudePermissionMode
+  /**
+   * 权限档位（仅 codex 有意义）：启动命令追加 `-c default_permissions=<档位>`，
+   * danger 档再追加 `-c approval_policy=never`（沙箱与审批一并关掉）。
+   * 缺省 = 不追加参数，跟随 Codex 自身默认链（trusted + 沙箱可用 → :workspace，
+   * 否则 :read-only）。渲染层下拉与列表角标由 hasCodexPermissions 控制。
+   */
+  codexPermissions?: CodexPermissionProfile
 }
 
 /**
@@ -225,8 +287,10 @@ export interface HarnessAgentView {
   hasWeb: boolean                  // 是否有 Web UI 入口（仅 dsh）
   /** 工作区表单是否保留「备注」字段（仅 dsh；codex/claude 表单更紧凑，备注退场） */
   hasWorkspaceNote: boolean
-  /** 是否提供「跳过权限确认」开关（仅 claude，对应 --dangerously-skip-permissions） */
-  hasSkipPermissions: boolean
+  /** 是否提供「权限模式」下拉（仅 claude，对应 --permission-mode / --dangerously-skip-permissions） */
+  hasClaudePermissions: boolean
+  /** 是否提供「权限档位」下拉（仅 codex，对应 -c default_permissions=<档位>） */
+  hasCodexPermissions: boolean
 }
 
 /**
@@ -262,7 +326,8 @@ export const HARNESS_AGENT_VIEWS: Record<HarnessAgentKind, HarnessAgentView> = {
     ],
     hasWeb: true,
     hasWorkspaceNote: true,
-    hasSkipPermissions: false
+    hasClaudePermissions: false,
+    hasCodexPermissions: false
   },
   codex: {
     kind: 'codex',
@@ -283,7 +348,8 @@ export const HARNESS_AGENT_VIEWS: Record<HarnessAgentKind, HarnessAgentView> = {
     ],
     hasWeb: false,
     hasWorkspaceNote: false,
-    hasSkipPermissions: false
+    hasClaudePermissions: false,
+    hasCodexPermissions: true
   },
   claude: {
     kind: 'claude',
@@ -302,6 +368,7 @@ export const HARNESS_AGENT_VIEWS: Record<HarnessAgentKind, HarnessAgentView> = {
     ],
     hasWeb: false,
     hasWorkspaceNote: false,
-    hasSkipPermissions: true
+    hasClaudePermissions: true,
+    hasCodexPermissions: false
   }
 }

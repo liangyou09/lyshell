@@ -23,7 +23,7 @@ import { migrateInlineEnvToProfiles } from '../harness/migrate-env'
 import { migrateKindEnvProfilesToGlobal, migrateProfilesToStructured } from '../harness/migrate-profiles'
 import { resolveAgentLaunchEnv } from '../storage/agent-repository'
 import { envProfileRepository } from '../storage/env-profile-repository'
-import { isValidHttpBaseUrl, type EnvProfileLibraryResult, type EnvProfileUsage, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
+import { CLAUDE_PERMISSION_MODES, CODEX_PERMISSION_PROFILES, isValidHttpBaseUrl, type EnvProfileLibraryResult, type EnvProfileUsage, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
 import type { WorktreeListResult } from '@shared/worktree'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { ConnectionStatus } from '../connectors'
@@ -36,7 +36,6 @@ import * as iconv from 'iconv-lite'
 import { fileManager, startDownloadWorker, registerTaskMeta, startUploadWorker, cancelDownload, cancelUpload, assertSafeLocalPath } from '../file'
 import type { SessionConfig, TerminalEncoding } from '@shared/types'
 import {
-  assertBoolean,
   assertEnum,
   assertNumber,
   assertObject,
@@ -2269,9 +2268,13 @@ export function registerIPCHandlers(): void {
           if (!key.ok) return { success: false, error: key.error }
           newWorkspace.worktreeKey = key.value
         }
-        // 跳过权限确认：claude 专属字段，其余 kind 忽略不落盘 —— 防 API 调用方攒出看不见的脏状态
-        if (runtime.kind === 'claude' && safe.skipPermissions !== undefined) {
-          newWorkspace.skipPermissions = assertBoolean(safe.skipPermissions, 'workspace.skipPermissions')
+        // 权限模式：claude 专属字段，其余 kind 忽略不落盘 —— 防 API 调用方攒出看不见的脏状态
+        if (runtime.kind === 'claude' && safe.claudePermissions !== undefined) {
+          newWorkspace.claudePermissions = assertEnum(safe.claudePermissions, 'workspace.claudePermissions', CLAUDE_PERMISSION_MODES)
+        }
+        // 权限档位：codex 专属字段，其余 kind 忽略不落盘（同 claudePermissions 的门控理由）
+        if (runtime.kind === 'codex' && safe.codexPermissions !== undefined) {
+          newWorkspace.codexPermissions = assertEnum(safe.codexPermissions, 'workspace.codexPermissions', CODEX_PERMISSION_PROFILES)
         }
         // env 是 legacy 字段，新建一律不写 —— 环境变量走变量组
         const added = runtime.repository.add(newWorkspace)
@@ -2336,12 +2339,19 @@ export function registerIPCHandlers(): void {
             updated.worktreeKey = key.value
           }
         }
-        // skipPermissions 同 model/envProfileId 用「键存在」判断：编辑时关掉开关（传 undefined/false）
-        // 应生效，否则旧的危险模式标记会残留。仅 claude 接受，其余 kind 忽略。
-        if (runtime.kind === 'claude' && 'skipPermissions' in safe) {
-          updated.skipPermissions = safe.skipPermissions === undefined
+        // claudePermissions 同 model/envProfileId 用「键存在」判断：编辑时清掉档位（传 undefined）
+        // 应生效，否则旧档位会残留。仅 claude 接受，其余 kind 忽略。
+        if (runtime.kind === 'claude' && 'claudePermissions' in safe) {
+          updated.claudePermissions = safe.claudePermissions === undefined
             ? undefined
-            : assertBoolean(safe.skipPermissions, 'workspace.skipPermissions')
+            : assertEnum(safe.claudePermissions, 'workspace.claudePermissions', CLAUDE_PERMISSION_MODES)
+        }
+        // codexPermissions 同款「键存在」判断：编辑时清掉档位（传 undefined）应回到
+        // 「不追加参数，跟随 Codex 默认链」，否则旧档位会残留。仅 codex 接受。
+        if (runtime.kind === 'codex' && 'codexPermissions' in safe) {
+          updated.codexPermissions = safe.codexPermissions === undefined
+            ? undefined
+            : assertEnum(safe.codexPermissions, 'workspace.codexPermissions', CODEX_PERMISSION_PROFILES)
         }
         // legacy env 一律沿用仓库现状，渲染层无权改它（前端已无 inline 编辑器，不会传这个字段）。
         // 迁移成功的记录这里恒为 undefined；迁移失败还带着 env 的记录，不该因为用户改了个名字
