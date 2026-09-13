@@ -212,27 +212,35 @@ describe('命令执行:副作用路由与回显', () => {
     expect(out).toBeTruthy()
   })
 
-  it('/help:在活动分屏挂载内置手册文档页签 —— builtin 来源、markdown、随包内容非空;标记 closeOverlay 并回显', () => {
+  it('/help:在活动分屏同步挂载手册页签(占位) —— builtin 来源、markdown;注入完成后覆写为随包手册原文;标记 closeOverlay 并回显', async () => {
     const entry = findExact('help')
     const out = entry?.run()
     expect(entry?.closeOverlay).toBe(true)  // 手册落在分屏上,盖在下面的命令面板得让位
-    const doc = Object.values(usePaneStore.getState().overlayPayloads)
+    // 同步挂载:run() 返回时页签已在(占位内容) —— 命令面板关闭后用户立刻看到落点
+    const docNow = Object.values(usePaneStore.getState().overlayPayloads)
       .find(p => p.kind === 'doc') as DocOverlayPayload | undefined
-    expect(doc).toBeDefined()
-    expect(doc?.source).toBe('builtin')
-    expect(doc?.docKind).toBe('markdown')
-    expect(doc?.path).toBe(BUILTIN_HELP_PATH)
-    expect(doc?.content).toContain('# LyShell')  // ?raw 随包引入的手册原文
+    expect(docNow?.source).toBe('builtin')
+    expect(docNow?.docKind).toBe('markdown')
+    expect(docNow?.path).toBe(BUILTIN_HELP_PATH)
+    expect(docNow?.content).toContain('Opening the user manual')  // 占位(测试环境 en)
+    // MCP 动态段注入是异步的,轮询等待覆写完成
+    await vi.waitFor(() => {
+      const doc = Object.values(usePaneStore.getState().overlayPayloads)
+        .find(p => p.kind === 'doc') as DocOverlayPayload | undefined
+      expect(doc?.content).toContain('# LyShell')  // ?raw 随包引入的手册原文
+    })
     expect(typeof out).toBe('string')
     expect(out).toBeTruthy()
   })
 
-  it('/help chinese:语言参数压过界面 locale,展开中文手册(测试环境界面语言为 en)', () => {
+  it('/help chinese:语言参数压过界面 locale,展开中文手册(测试环境界面语言为 en)', async () => {
     const out = findExact('help')?.run('chinese')
-    const doc = Object.values(usePaneStore.getState().overlayPayloads)
-      .find(p => p.kind === 'doc') as DocOverlayPayload | undefined
-    expect(doc?.path).toBe(BUILTIN_HELP_PATH)
-    expect(doc?.content).toContain('# LyShell 使用手册')  // 中文版 H1,而非 en locale 默认的英文版
+    await vi.waitFor(() => {
+      const doc = Object.values(usePaneStore.getState().overlayPayloads)
+        .find(p => p.kind === 'doc') as DocOverlayPayload | undefined
+      expect(doc?.path).toBe(BUILTIN_HELP_PATH)
+      expect(doc?.content).toContain('# LyShell 使用手册')  // 中文版 H1,而非 en locale 默认的英文版
+    })
     expect(typeof out).toBe('string')
     expect(out).toBeTruthy()
   })
@@ -242,10 +250,12 @@ describe('命令执行:副作用路由与回显', () => {
     await i18n.changeLanguage('zh-CN')
     try {
       const out = findExact('help')?.run('english')
-      const doc = Object.values(usePaneStore.getState().overlayPayloads)
-        .find(p => p.kind === 'doc') as DocOverlayPayload | undefined
-      expect(doc?.content).toContain('# LyShell User Manual')  // 英文版 H1
-      expect(doc?.content).not.toContain('使用手册')
+      await vi.waitFor(() => {
+        const doc = Object.values(usePaneStore.getState().overlayPayloads)
+          .find(p => p.kind === 'doc') as DocOverlayPayload | undefined
+        expect(doc?.content).toContain('# LyShell User Manual')  // 英文版 H1
+        expect(doc?.content).not.toContain('使用手册')
+      })
       expect(typeof out).toBe('string')
     } finally {
       await i18n.changeLanguage(prev)

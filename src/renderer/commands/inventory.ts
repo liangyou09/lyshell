@@ -93,14 +93,30 @@ export interface InventoryData {
 // ─────────────────────────────────────────────────────────────────────────────
 // markdown 生成（纯函数，单测直接喂合成数据）
 
-/** 表格单元格转义：竖线会断列，换行会断行 */
+/** 表格单元格转义：竖线断列、换行断行、反斜杠+方括号+< 断链接语法 —— 用户可控字符串
+ *  （名称/类型/命令/目录/连接目标/runtime 等一切非生成器字段）原样落进内置文档的话，伪造的 [x](lyshell-action://…)
+ *  会渲染成活的动作链接（内置来源双门禁都放行），点击即派发 —— mcp-toggle 一类
+ *  安全开关动作尤其不能被这样触达。< 开启另一条语法路：尖括号 autolink
+ *  <lyshell-action://…> 同样渲染成活链接（连 [x](…) 都不用写），一并转义。
+ *  反斜杠必须最先转义：用户自带的 \ 会与注入的 \] 配对成 \\，让 ] 裸露回
+ *  链接语法；> 不带语法角色（引用块是块级、表格内不成），不必转。
+ *  换行折叠要收 \r:CommonMark 把单独的 \r 也当归一化行结束符,漏折叠会断开
+ *  表格行,名称后半段落成块级内容(标题/列表/围栏,围栏未闭合能把整篇后半
+ *  文档吞成代码块)——[\r\n] 全形态折叠,连 \n\r 之类的混排一并收掉。 */
 const cell = (s: string | undefined | null): string =>
-  (s ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
+  (s ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/([[\]<])/g, '\\$1')
+    .replace(/\|/g, '\\|')
+    .replace(/[\r\n]+/g, ' ')
 
 /** 行内「打开对象」链接:名称格可点,动作语义见 doc-actions.ts 文件头
- *  (会话/Agent 直连启动,变量组/工作区/插件切到对应面板) */
+ *  (会话/Agent 直连启动,变量组/工作区/插件切到对应面板)。
+ *  id 侧 encodeURIComponent 会留下原始 ( ): 未配对的 ) 会在 markdown 层提前
+ *  终结链接目的地(自己的链接被截断),一并换成 %28/%29 —— 解析侧 URLSearchParams
+ *  会解码回原文,往返无损;[]</:?= 等链接成形字符 encodeURIComponent 本就转义 */
 const openLink = (action: string, id: string, label: string): string =>
-  `[${cell(label)}](${DOC_ACTION_SCHEME}${action}?id=${encodeURIComponent(id)})`
+  `[${cell(label)}](${DOC_ACTION_SCHEME}${action}?id=${encodeURIComponent(id).replace(/\(/g, '%28').replace(/\)/g, '%29')})`
 
 /** 会话连接目标的单行摘要（按类型取最关键的一格） */
 function sessionTarget(c: SessionConfig): string {
@@ -172,12 +188,12 @@ export function buildInventoryMarkdown(data: InventoryData, section?: InventoryS
   // saved 行的名称可点(直连启动);临时行没有可再打开的落点,保持纯文本
   const buildSessions = (): void => {
     const savedRows = data.savedSessions.map(c =>
-      `| ${openLink('open-session', c.id, c.name || c.id)} | ${c.type} | ${cell(sessionTarget(c))} | ${statusWord(liveStatusFor(c.id, data.liveSessions))} |`
+      `| ${openLink('open-session', c.id, c.name || c.id)} | ${cell(c.type)} | ${cell(sessionTarget(c))} | ${statusWord(liveStatusFor(c.id, data.liveSessions))} |`
     )
     const linkedIds = new Set(data.savedSessions.map(c => c.id))
     const tempRows = data.liveSessions
       .filter(s => !linkedIds.has(s.config.originSavedSessionId ?? '') && !linkedIds.has(s.id))
-      .map(s => `| ${cell(s.config.name) + t(inv + 'tempSuffix')} | ${s.config.type} | ${cell(sessionTarget(s.config))} | ${statusWord(s.status)} |`)
+      .map(s => `| ${cell(s.config.name) + t(inv + 'tempSuffix')} | ${cell(s.config.type)} | ${cell(sessionTarget(s.config))} | ${statusWord(s.status)} |`)
     const sessionRows = [...savedRows, ...tempRows]
     out.push(renderSection(
       `${t('nav.sessions')} · ${sessionRows.length}`,
@@ -231,7 +247,7 @@ export function buildInventoryMarkdown(data: InventoryData, section?: InventoryS
       plugins && plugins.length > 0
         ? `| ${t(inv + 'colName')} | ${t(inv + 'colVersion')} | ${t(inv + 'colRuntime')} | ${t(inv + 'colLifecycle')} | ${t(inv + 'colState')} |\n| --- | --- | --- | --- | --- |\n` +
             plugins.map(p =>
-              `| ${openLink('open-plugin', p.id, p.name + (p.dev ? ' dev' : ''))} | ${cell(p.version)} | ${p.runtime} | ${t(`plugin.lifecycle${p.lifecycle === 'oneshot' ? 'Oneshot' : 'Persistent'}`)} | ${p.enabled ? t('plugin.enabled') : t('plugin.disabled')} |`).join('\n')
+              `| ${openLink('open-plugin', p.id, p.name + (p.dev ? ' dev' : ''))} | ${cell(p.version)} | ${cell(p.runtime)} | ${t(`plugin.lifecycle${p.lifecycle === 'oneshot' ? 'Oneshot' : 'Persistent'}`)} | ${p.enabled ? t('plugin.enabled') : t('plugin.disabled')} |`).join('\n')
         : plugins ? null : `*${t(inv + 'failed')}*`,
       DOC_ACTION_SCHEME + 'new-plugin',
       t(inv + 'newPlugin')

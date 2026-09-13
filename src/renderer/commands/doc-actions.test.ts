@@ -1,24 +1,31 @@
 // @vitest-environment jsdom
 /**
- * 文档动作链接单测 —— /ls 清点文档的可点入口(新建 + 打开两类):
+ * 文档动作链接单测 —— /ls 清点文档的可点入口(新建 + 打开) + /help 手册的 MCP 安全开关:
  *   docActionFromHref:lyshell-action:// 前缀 + 已知动作 id + 查询参数识别,其余回落 null
  *   runDocAction:new-* 切面板并置新建请求;open-session 直连启动(不切面板);
  *                open-agent 直连 launchAgent;open-env / open-dsh 等切面板并置
  *                条目请求;open-plugin 仅切面板
+ *   mcp-toggle(手册「MCP 集成」段的动作链接):翻转 security 配置(读-合-写)
+ *                并原地换已开手册页签的链接标签;写失败仅留痕,标签不动
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { docActionFromHref, runDocAction } from './doc-actions'
 import { NAV_EVENT } from './command-registry'
 import { useUiStore } from '../stores/ui-store'
 import { useSessionStore } from '../stores/session-store'
+import { usePaneStore } from '../stores/pane-store'
+import { BUILTIN_HELP_PATH } from '../components/DocPanel/readDoc'
+import { buildMcpToggleLink } from '../components/DocPanel/manualMcp'
 import { ConnectionType } from '@shared/types'
-import type { SessionConfig } from '@shared/types'
+import type { SessionConfig, DocOverlayPayload, OverlayPayload } from '@shared/types'
 import type { NavTab } from '../components/Layout/ActivityRail'
 
 const updateSession = vi.fn()
 const connect = vi.fn()
 const listSessions = vi.fn()
 const launchAgent = vi.fn()
+const getConfig = vi.fn()
+const setConfig = vi.fn()
 
 const savedSsh: SessionConfig = {
   id: 'saved-1',
@@ -36,10 +43,12 @@ beforeEach(() => {
   connect.mockReset().mockResolvedValue('session-x')
   listSessions.mockReset().mockResolvedValue([])
   launchAgent.mockReset().mockResolvedValue(undefined)
+  getConfig.mockReset()
+  setConfig.mockReset().mockResolvedValue(undefined)
   // ui-store / session-store 是模块级单例,测试间归零防串扰
   useUiStore.setState({ createDialogRequests: {}, openItemRequests: {} })
   useSessionStore.setState({ savedSessions: [savedSsh] })
-  ;(window as unknown as { electronAPI: unknown }).electronAPI = { updateSession, connect, listSessions, launchAgent }
+  ;(window as unknown as { electronAPI: unknown }).electronAPI = { updateSession, connect, listSessions, launchAgent, getConfig, setConfig }
 })
 
 afterEach(() => {
@@ -58,6 +67,13 @@ describe('docActionFromHref:scheme 与参数识别', () => {
 
   it('重复 key 只取首个(?id=a&id=b 不静默换值)', () => {
     expect(docActionFromHref('lyshell-action://open-session?id=a&id=b')).toEqual({ id: 'open-session', params: { id: 'a' } })
+  })
+
+  it('mcp-toggle 动作(手册 MCP 开关):同一解析路径,href 携带的手册语言只是参数', () => {
+    expect(docActionFromHref('lyshell-action://mcp-toggle-confirm-destructive?lang=zh'))
+      .toEqual({ id: 'mcp-toggle-confirm-destructive', params: { lang: 'zh' } })
+    expect(docActionFromHref('lyshell-action://mcp-toggle-allow-metadata-write?lang=en'))
+      .toEqual({ id: 'mcp-toggle-allow-metadata-write', params: { lang: 'en' } })
   })
 
   it('非本 scheme / 未知名返回 null(调用方回落普通链接处理)', () => {
@@ -178,5 +194,71 @@ describe('runDocAction:路由副作用', () => {
     expect(launchAgent).not.toHaveBeenCalled()
     expect(useUiStore.getState().createDialogRequests).toEqual({})
     expect(useUiStore.getState().openItemRequests).toEqual({})
+  })
+})
+
+// ───────── mcp-toggle(/help 手册「MCP 集成」段的安全开关,设置面板 MCP 页签移入手册后的唯一开关 UI) ─────────
+
+/** 挂一个 zh 手册页签到 pane-1(payload 字典 + 树引用同步构造,整字典替换防跨用例残留) */
+const mountHelpTab = (content: string): void => {
+  usePaneStore.setState({
+    layout: {
+      root: {
+        id: 'pane-1', type: 'leaf', sessions: ['s-a'], activeSessionId: 's-a',
+        overlays: [{ id: 'doc-m', kind: 'doc', active: true, slot: null }]
+      },
+      activePaneId: 'pane-1'
+    },
+    overlayPayloads: {
+      'doc-m': {
+        kind: 'doc', source: 'builtin', docKind: 'markdown', path: BUILTIN_HELP_PATH,
+        title: 'manual', size: content.length, mtime: 0, content
+      } as OverlayPayload
+    }
+  })
+}
+
+/** 取手册页签 payload(不在/不是 doc = 测试自身搭错了脚手架) */
+const helpTab = (): DocOverlayPayload => {
+  const p = usePaneStore.getState().overlayPayloads['doc-m']
+  if (p?.kind !== 'doc') throw new Error('doc payload expected')
+  return p
+}
+
+describe('runDocAction:mcp-toggle 手册安全开关', () => {
+  it('翻转 security 配置(读-合-写保留兄弟键)并按新状态原地换已开手册页签的标签', async () => {
+    getConfig.mockResolvedValue({ mcp: { allowSessionMetadataWrite: true }, unrelated: 'keep' })
+    mountHelpTab(`安全\n${buildMcpToggleLink('confirmDestructive', 'zh', true)}`)
+
+    runDocAction({ id: 'mcp-toggle-confirm-destructive', params: { lang: 'zh' } })
+
+    // 路由是 fire-and-forget 异步:轮询等翻转与标签刷新落地
+    await vi.waitFor(() => {
+      expect(helpTab().content).toContain(buildMcpToggleLink('confirmDestructive', 'zh', false))
+    })
+    expect(setConfig).toHaveBeenCalledTimes(1)
+    expect(setConfig).toHaveBeenCalledWith('security', {
+      mcp: { allowSessionMetadataWrite: true, confirmDestructiveCommands: false },
+      unrelated: 'keep'
+    })
+  })
+
+  it('写失败仅控制台留痕,已开手册页签的标签不动(标签永不指向未写入的状态)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      getConfig.mockResolvedValue({ mcp: {} })
+      setConfig.mockRejectedValue(new Error('write failed'))
+      const onLink = buildMcpToggleLink('confirmDestructive', 'zh', true)
+      mountHelpTab(`安全\n${onLink}`)
+
+      runDocAction({ id: 'mcp-toggle-confirm-destructive', params: { lang: 'zh' } })
+
+      await vi.waitFor(() => {
+        expect(warnSpy).toHaveBeenCalledTimes(1)
+      })
+      expect(helpTab().content).toBe(`安全\n${onLink}`)
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 })

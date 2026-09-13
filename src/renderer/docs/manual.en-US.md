@@ -169,7 +169,11 @@ LyShell runs a built-in MCP server, letting external AI clients like Claude Code
 
 ### Registration
 
-Settings → MCP emits JSON / CLI / TOML registration formats for different clients. Most of the time you configure nothing by hand: launch an agent from the Agent panel and ask it to register LyShell as its own MCP server.
+Three ways, pick one: ① generic JSON — add to any MCP client's `mcpServers` (or hand it to your agent); ② Claude Code — run the command below in a terminal; ③ Codex — append the TOML below to `~/.codex/config.toml`. The primary config uses LyShell's own binary (no Node.js install needed); use the fallback (requires system Node.js) if it fails. Most of the time you configure nothing by hand: launch an agent from the Agent panel and ask it to register LyShell as its own MCP server.
+
+<!-- lyshell:mcp-register -->
+
+Field reference — `command`: the program that launches the MCP server (LyShell's bundled binary, no Node.js needed); `args`: startup arguments for command, i.e. the mcpServer.js path; `LYSHELL_USER_DATA`: LyShell's data dir, lets the script reach the main app for port & auth; `ELECTRON_RUN_AS_NODE`: run the Electron binary in pure Node mode.
 
 ### Tools and capabilities
 
@@ -186,9 +190,13 @@ Settings → MCP emits JSON / CLI / TOML registration formats for different clie
 
 - **Per-session authorization** — each terminal gets its own scoped permission; global and session tokens are separate
 - **Capability gates** — enforced server-side on every endpoint
-- **Destructive-command confirmation** — a human gate for likely-catastrophic commands (`rm -rf /`, `dd` to block devices, fork bombs)
 - **Shared PTY locking** — while MCP owns a terminal, human input is blocked and the tab is marked
 - **Audit panel** — full MCP activity trail, opened as a tab; calendar picker + filters + pagination
+
+Both security toggles below take effect immediately — click a link to flip it:
+
+- **Confirm destructive commands before execution** — {{MCP_TOGGLE_CONFIRM_DESTRUCTIVE}}: shows a confirmation dialog for likely-catastrophic commands: `rm -rf /`, dd to block devices, mkfs, fork bombs, shutdown/reboot, chmod on root. Applies equally to LyShell-spawned terminals (session token) and external MCP clients — the last human gate against prompt-injection triggering disastrous operations
+- **Allow MCP to write session notes** — {{MCP_TOGGLE_ALLOW_METADATA_WRITE}}: only affects external MCP clients (global token): when enabled they can read/write summary, usage notes, and tags. Terminals spawned by LyShell itself can always read/write session notes, unaffected by this toggle; creating/reconnecting sessions requires the separate session-control capability
 
 > Known limitation: full-screen TUI apps (vim, htop, less) are not supported over MCP — ANSI stripping garbles alternate-screen sequences. Use LyShell's native terminal.
 
@@ -244,7 +252,7 @@ Instant switching, no restart.
 
 - **Terminal** — font size applies live; buffer lines and cursor style apply to new sessions
 - **Downloads** — default download directory, per-server subdirectory option
-- **MCP** — registration configs, destructive-command confirmation, session-notes write toggle
+- **MCP** — registration configs & security toggles live in this manual's *MCP integration* section
 - **Appearance** — theme, language (中文 / English)
 - **Python** — custom interpreter path
 

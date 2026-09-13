@@ -112,6 +112,8 @@ export const COMMANDS: CommandEntry[] = [
       // 带了参数但不认识:像 shell 一样报错并保持原状(不开页签),错误行列出可用值。
       // null 只在 args 非空时出现(见 resolveHelpLanguage),故此处 lang 即参数原文
       if (lang === null) return i18n.t('commandBar.helpUnknownLang', { lang: args ?? '' })
+      // 同步挂页签(占位),MCP 动态段注入完成后覆写 —— 失败会把错误写进页签
+      // (命令面板已因 closeOverlay 关闭,页签是唯一可见反馈面)
       openBuiltinHelpDoc(undefined, lang)
       return i18n.t('commandBar.out.help')
     }

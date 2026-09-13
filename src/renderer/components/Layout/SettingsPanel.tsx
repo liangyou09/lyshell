@@ -5,21 +5,21 @@ import { useThemeStore, AVAILABLE_THEMES, CUSTOM_THEME_ID } from '../../stores/t
 import { useLocaleStore, AVAILABLE_LOCALES } from '../../stores/locale-store'
 import { isCursorBlinkEnabled, DEFAULT_TERMINAL_FONT_SIZE, TERMINAL_FONT_SIZE_MIN, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_STEP, snapTerminalFontSize } from '@shared/constants'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
-import PanelTabs from './PanelTabs'
 
 /**
  * 设置面板(机柜左列 Settings 页签内容)。
  *
  * 从 MainWindow 的悬浮覆盖面板迁入左列:去掉拖拽/关闭/位置记忆等「被召唤覆盖物」逻辑,
- * 只保留 terminal + mcp 两个页签的实质内容,按机柜面板令牌(--bg-rack/--bg-strip/--amber/--text-rack*)
- * 组织成整列面板。设置值沿用 localStorage + IPC 持久化,与迁移前一致。
+ * 按机柜面板令牌(--bg-rack/--bg-strip/--amber/--text-rack*)组织成整列面板。
+ * 设置值沿用 localStorage + IPC 持久化,与迁移前一致。
  *
  * 主题/语言两段的 store initFromStorage 仍在 MainWindow 启动时执行(全局副作用),这里只读
  * store 值做选择器消费,不重复 init。
+ *
+ * 原 MCP 页签(注册配置 + 两个安全开关)已整体移入 /help 手册的「MCP 集成」段
+ * (readDoc 打开时经 manualMcp 注入,开关是 lyshell-action:// 动作链接),
+ * 此处只剩终端设置,无页签条。
  */
-
-/** 设置页签列表。插件页签已迁至 ActivityRail 的 plugins 槽,此处只留终端 + MCP。 */
-const SETTINGS_TABS = ['terminal', 'mcp'] as const
 
 /**
  * 主窗口尺寸预设(像素) -- 常见分辨率 + 默认 1200×800
@@ -41,16 +41,11 @@ const SettingCard: React.FC<{
   title: React.ReactNode
   right?: React.ReactNode
   flush?: boolean
-  /** 标题本身是内容(如 MCP 开关 label)时用亮色,否则按分区 caption 弱化 */
-  brightTitle?: boolean
   children: React.ReactNode
-}> = ({ title, right, flush, brightTitle, children }) => (
+}> = ({ title, right, flush, children }) => (
   <div className="border border-[var(--rule)] rounded-[3px] bg-[var(--bg-slot)]/45 overflow-hidden">
     <div className="flex items-center justify-between gap-2 px-2.5 pt-2 pb-1.5">
-      <span className={cn(
-        'font-mono tracking-[.06em]',
-        brightTitle ? 'text-[12px] text-[var(--text-rack)]' : 'text-[11px] text-[var(--text-rack-mute)]'
-      )}>{title}</span>
+      <span className="font-mono tracking-[.06em] text-[11px] text-[var(--text-rack-mute)]">{title}</span>
       {right}
     </div>
     <div className={cn(!flush && 'px-2.5 pb-2')}>{children}</div>
@@ -58,7 +53,6 @@ const SettingCard: React.FC<{
 )
 
 const SettingsPanel: React.FC = () => {
-  const [settingsTab, setSettingsTab] = useState<'terminal' | 'mcp'>('terminal')
   const [scrollbackLines, setScrollbackLines] = useState(() => {
     const saved = localStorage.getItem('terminalScrollback')
     return saved ? parseInt(saved) : 10000
@@ -69,13 +63,6 @@ const SettingsPanel: React.FC = () => {
   })
   const [cursorBlink, setCursorBlink] = useState(() => isCursorBlinkEnabled())
   const [downloadDir, setDownloadDir] = useState('')
-  const [mcpSessionMetadataWrite, setMcpSessionMetadataWrite] = useState(false)
-  // 破坏性命令确认默认开启（与后端 DEFAULT_MCP_SECURITY 一致）
-  const [mcpConfirmDestructive, setMcpConfirmDestructive] = useState(true)
-  // MCP 注册信息(通用 JSON + Claude 命令 + Codex TOML),挂载时加载供展示与复制
-  const [mcpAddInfo, setMcpAddInfo] = useState<{ config: string; systemNodeConfig?: string; claudeCommand: string; codexConfig: string } | null>(null)
-  // 复制反馈:标记刚复制的是哪一块(主配置/备选/Claude/Codex)
-  const [mcpCopied, setMcpCopied] = useState<'primary' | 'fallback' | 'claude' | 'codex' | null>(null)
   // 主窗口尺寸(像素) -- 持久化到 preferences,启动恢复;输入框双向绑定,点应用/预设时调 IPC
   const [windowSize, setWindowSize] = useState<{ width: number; height: number }>({ width: 1200, height: 800 })
   const { themeId, setTheme, customColors, setCustomColors } = useThemeStore()
@@ -117,59 +104,6 @@ const SettingsPanel: React.FC = () => {
     loadDownloadConfig()
   }, [])
 
-  // 加载 MCP 安全开关
-  useEffect(() => {
-    if (!window.electronAPI) return
-    const loadMcpSecurity = async () => {
-      try {
-        const rawSecurity = await window.electronAPI?.getConfig('security')
-        if (rawSecurity && typeof rawSecurity === 'object') {
-          const security = rawSecurity as Record<string, unknown>
-          const mcp = security.mcp && typeof security.mcp === 'object'
-            ? (security.mcp as Record<string, unknown>)
-            : null
-          if (mcp) {
-            setMcpSessionMetadataWrite(mcp.allowSessionMetadataWrite === true)
-            // confirmDestructiveCommands 默认 true：仅在显式 false 时关闭
-            setMcpConfirmDestructive(mcp.confirmDestructiveCommands !== false)
-          }
-        }
-      } catch (e) {
-        console.warn('Failed to load MCP security settings:', e)
-      }
-    }
-    loadMcpSecurity()
-  }, [])
-
-  // 加载 MCP 注册信息(通用 JSON + Claude 命令 + Codex TOML),供设置页展示与复制
-  useEffect(() => {
-    if (!window.electronAPI) return
-    window.electronAPI.getMcpAddCommand()
-      .then(info => {
-        if (info?.config) {
-          setMcpAddInfo({
-            config: info.config,
-            systemNodeConfig: info.systemNodeConfig,
-            claudeCommand: info.claudeCommand,
-            codexConfig: info.codexConfig,
-          })
-        }
-      })
-      .catch(() => { /* 静默:读失败保持空,配置块不渲染 */ })
-  }, [])
-
-  // 复制 MCP 注册配置(主/备选),带 2s 瞬时反馈
-  const copyMcp = async (which: 'primary' | 'fallback' | 'claude' | 'codex', text?: string) => {
-    if (!text) return
-    try {
-      await navigator.clipboard.writeText(text)
-      setMcpCopied(which)
-      setTimeout(() => setMcpCopied(null), 2000)
-    } catch (err) {
-      console.warn('Failed to copy MCP config:', err)
-    }
-  }
-
   // 加载已保存的窗口尺寸(回显输入框与预设高亮)
   useEffect(() => {
     if (!window.electronAPI) return
@@ -201,10 +135,9 @@ const SettingsPanel: React.FC = () => {
 
   return (
     <div className="settings-panel h-full flex flex-col bg-[var(--bg-rack)]">
-      {/* 头条:SETTINGS -- 行高对齐终端第一行(TOPBAR_HEIGHT),与 Sessions/Agents 等面板头行同高,
-          设置页签嵌进行右端(同 FileManager/Harness 挂法):amber 下划线咬住第一行发丝线,
-          与窗口顶排终端页签的激活下边线同处一条横带,整窗横线贯穿。
-          铭牌走设备徽章字体(同族面板共用) */}
+      {/* 头条:SETTINGS -- 行高对齐终端第一行(TOPBAR_HEIGHT),与 Sessions/Agents 等面板头行同高。
+          铭牌走设备徽章字体(同族面板共用)。
+          原右端的 terminal/mcp 页签条已随 MCP 页签移入手册而移除(单栏无页签) */}
       <div
         className="flex items-center gap-1.5 px-3 border-b border-[var(--rule)] flex-shrink-0"
         style={{ height: TOPBAR_HEIGHT }}
@@ -215,20 +148,12 @@ const SettingsPanel: React.FC = () => {
         >
           {t('settings.title')}
         </span>
-        <PanelTabs
-          tabs={SETTINGS_TABS.map(tab => ({
-            key: tab,
-            label: tab === 'terminal' ? t('settings.tabTerminal') : t('settings.tabMcp')
-          }))}
-          active={settingsTab}
-          onChange={setSettingsTab}
-        />
       </div>
 
-      {/* 内容区 —— 滚动适配 180–400px 可调栏宽;两页签同格重叠,非激活页签 display:none 使其高度互不影响 */}
+      {/* 内容区 —— 滚动适配 180–400px 可调栏宽 */}
       <div className="flex-1 overflow-y-auto">
-        <div className="grid p-3">
-          <div className={cn('col-start-1 row-start-1 space-y-2', settingsTab === 'terminal' ? '' : 'hidden')} aria-hidden={settingsTab !== 'terminal'}>
+        <div className="p-3">
+          <div className="space-y-2">
             {/* 窗口大小 —— 预设下拉 + 自定义宽高,持久化到 preferences,启动恢复 */}
             <SettingCard
               title={t('settings.windowSize')}
@@ -541,186 +466,6 @@ const SettingsPanel: React.FC = () => {
             <p className="text-[11px] text-[var(--text-rack-mute)] font-mono leading-relaxed">
               {t('settings.applyHint')}
             </p>
-          </div>
-          <div className={cn('col-start-1 row-start-1 space-y-2', settingsTab === 'mcp' ? '' : 'hidden')} aria-hidden={settingsTab !== 'mcp'}>
-            {/* MCP 会话元数据写入开关 —— 标题即 label,点击整条 caption 也可切换 */}
-            <SettingCard
-              brightTitle
-              title={<label htmlFor="mcp-session-metadata-write" className="cursor-pointer">{t('settings.mcpSessionMetadataWrite')}</label>}
-              right={
-                <input
-                  id="mcp-session-metadata-write"
-                  type="checkbox"
-                  checked={mcpSessionMetadataWrite}
-                  onChange={async (e) => {
-                    const checked = e.target.checked
-                    setMcpSessionMetadataWrite(checked)
-                    try {
-                      const rawSecurity = await window.electronAPI?.getConfig('security')
-                      const security = rawSecurity && typeof rawSecurity === 'object'
-                        ? (rawSecurity as Record<string, unknown>)
-                        : {}
-                      const existingMcp =
-                        security.mcp && typeof security.mcp === 'object'
-                          ? (security.mcp as Record<string, unknown>)
-                          : {}
-                      await window.electronAPI?.setConfig('security', {
-                        ...security,
-                        mcp: {
-                          ...existingMcp,
-                          allowSessionMetadataWrite: checked
-                        }
-                      })
-                    } catch (err) {
-                      console.warn('Failed to save MCP security setting:', err)
-                    }
-                  }}
-                  className="w-3.5 h-3.5 accent-[var(--amber)]"
-                />
-              }
-            >
-              <p className="text-[11px] text-[var(--text-rack-data)] font-mono">
-                {t('settings.mcpSessionMetadataWriteHint')}
-              </p>
-            </SettingCard>
-
-            {/* MCP 破坏性命令确认开关 */}
-            <SettingCard
-              brightTitle
-              title={<label htmlFor="mcp-confirm-destructive" className="cursor-pointer">{t('settings.mcpConfirmDestructive')}</label>}
-              right={
-                <input
-                  id="mcp-confirm-destructive"
-                  type="checkbox"
-                  checked={mcpConfirmDestructive}
-                  onChange={async (e) => {
-                    const checked = e.target.checked
-                    setMcpConfirmDestructive(checked)
-                    try {
-                      const rawSecurity = await window.electronAPI?.getConfig('security')
-                      const security = rawSecurity && typeof rawSecurity === 'object'
-                        ? (rawSecurity as Record<string, unknown>)
-                        : {}
-                      const existingMcp =
-                        security.mcp && typeof security.mcp === 'object'
-                          ? (security.mcp as Record<string, unknown>)
-                          : {}
-                      await window.electronAPI?.setConfig('security', {
-                        ...security,
-                        mcp: {
-                          ...existingMcp,
-                          confirmDestructiveCommands: checked
-                        }
-                      })
-                    } catch (err) {
-                      console.warn('Failed to save MCP security setting:', err)
-                    }
-                  }}
-                  className="w-3.5 h-3.5 accent-[var(--amber)]"
-                />
-              }
-            >
-              <p className="text-[11px] text-[var(--text-rack-data)] font-mono">
-                {t('settings.mcpConfirmDestructiveHint')}
-              </p>
-            </SettingCard>
-
-            {/* MCP 注册配置 —— 展示主/备选 JSON 配置并支持复制,便于手动添加 */}
-            <SettingCard brightTitle title={t('settings.mcpRegister')}>
-              {mcpAddInfo ? (
-                <>
-                  <div className="mb-1.5">
-                    <span className="text-[10px] font-mono text-[var(--text-rack-mute)]">{t('settings.mcpRegisterPrimary')}</span>
-                    <div className="mt-0.5 flex items-start gap-1.5">
-                      <code className="flex-1 min-w-0 px-2 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[2px] text-[10.5px] font-mono text-[var(--text-rack-data)] leading-relaxed whitespace-pre-wrap break-all select-text">
-                        {mcpAddInfo.config}
-                      </code>
-                      <button
-                        onClick={() => copyMcp('primary', mcpAddInfo.config)}
-                        className={cn(
-                          'flex-shrink-0 px-2 h-[24px] rounded-[2px] text-[11px] font-mono border transition-colors',
-                          mcpCopied === 'primary'
-                            ? 'bg-[var(--amber)] border-[var(--amber)] text-[var(--bg-rack)]'
-                            : 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
-                        )}
-                      >
-                        {mcpCopied === 'primary' ? t('settings.mcpRegisterCopied') : t('settings.mcpRegisterCopy')}
-                      </button>
-                    </div>
-                  </div>
-                  {mcpAddInfo.systemNodeConfig && (
-                    <div>
-                      <span className="text-[10px] font-mono text-[var(--text-rack-mute)]">{t('settings.mcpRegisterFallback')}</span>
-                      <div className="mt-0.5 flex items-start gap-1.5">
-                        <code className="flex-1 min-w-0 px-2 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[2px] text-[10.5px] font-mono text-[var(--text-rack-data)] leading-relaxed whitespace-pre-wrap break-all select-text">
-                          {mcpAddInfo.systemNodeConfig}
-                        </code>
-                        <button
-                          onClick={() => copyMcp('fallback', mcpAddInfo.systemNodeConfig)}
-                          className={cn(
-                            'flex-shrink-0 px-2 h-[24px] rounded-[2px] text-[11px] font-mono border transition-colors',
-                            mcpCopied === 'fallback'
-                              ? 'bg-[var(--amber)] border-[var(--amber)] text-[var(--bg-rack)]'
-                              : 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
-                          )}
-                        >
-                          {mcpCopied === 'fallback' ? t('settings.mcpRegisterCopied') : t('settings.mcpRegisterCopy')}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  <div className="mt-1.5">
-                    <span className="text-[10px] font-mono text-[var(--text-rack-mute)]">{t('settings.mcpRegisterClaude')}</span>
-                    <div className="mt-0.5 flex items-start gap-1.5">
-                      <code className="flex-1 min-w-0 px-2 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[2px] text-[10.5px] font-mono text-[var(--text-rack-data)] leading-relaxed whitespace-pre-wrap break-all select-text">
-                        {mcpAddInfo.claudeCommand}
-                      </code>
-                      <button
-                        onClick={() => copyMcp('claude', mcpAddInfo.claudeCommand)}
-                        className={cn(
-                          'flex-shrink-0 px-2 h-[24px] rounded-[2px] text-[11px] font-mono border transition-colors',
-                          mcpCopied === 'claude'
-                            ? 'bg-[var(--amber)] border-[var(--amber)] text-[var(--bg-rack)]'
-                            : 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
-                        )}
-                      >
-                        {mcpCopied === 'claude' ? t('settings.mcpRegisterCopied') : t('settings.mcpRegisterCopy')}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="mt-1.5">
-                    <span className="text-[10px] font-mono text-[var(--text-rack-mute)]">{t('settings.mcpRegisterCodex')}</span>
-                    <div className="mt-0.5 flex items-start gap-1.5">
-                      <code className="flex-1 min-w-0 px-2 py-1.5 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[2px] text-[10.5px] font-mono text-[var(--text-rack-data)] leading-relaxed whitespace-pre-wrap break-all select-text">
-                        {mcpAddInfo.codexConfig}
-                      </code>
-                      <button
-                        onClick={() => copyMcp('codex', mcpAddInfo.codexConfig)}
-                        className={cn(
-                          'flex-shrink-0 px-2 h-[24px] rounded-[2px] text-[11px] font-mono border transition-colors',
-                          mcpCopied === 'codex'
-                            ? 'bg-[var(--amber)] border-[var(--amber)] text-[var(--bg-rack)]'
-                            : 'bg-[var(--bg-slot)] border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
-                        )}
-                      >
-                        {mcpCopied === 'codex' ? t('settings.mcpRegisterCopied') : t('settings.mcpRegisterCopy')}
-                      </button>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <p className="text-[11px] text-[var(--text-rack-data)] font-mono">{t('settings.mcpRegisterUnavailable')}</p>
-              )}
-              <p className="mt-1.5 text-[11px] text-[var(--text-rack-data)] font-mono leading-relaxed">
-                {t('settings.mcpRegisterHint')}
-              </p>
-              <div className="mt-1.5">
-                <span className="text-[10px] font-mono text-[var(--text-rack-mute)]">{t('settings.mcpRegisterExample')}</span>
-                <p className="mt-0.5 text-[11px] font-mono text-[var(--text-rack-data)] leading-relaxed whitespace-pre-wrap">
-                  {t('settings.mcpRegisterFieldLegend')}
-                </p>
-              </div>
-            </SettingCard>
           </div>
         </div>
       </div>

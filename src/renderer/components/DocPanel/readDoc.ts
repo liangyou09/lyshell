@@ -10,6 +10,7 @@ import { usePaneStore } from '../../stores/pane-store'
 import i18n from '../../i18n'
 import { docKindFromPath } from '@shared/types'
 import type { DocReadResult, DocKind, DocSource, DocOverlayPayload } from '@shared/types'
+import { injectManualMcp, swapMcpToggleLink, type McpToggleId } from './manualMcp'
 // 内置手册随包打包（?raw 原文引入，不落磁盘）；两种语言都进主包，运行时按 locale 选
 import zhManual from '../../docs/manual.zh-CN.md?raw'
 import enManual from '../../docs/manual.en-US.md?raw'
@@ -95,15 +96,20 @@ export async function openLocalDoc(localPath: string, paneId?: string): Promise<
   }
 }
 
-/** 刷新竞态守卫的版本表（页签 id → 自增版本）。独立于 payload 存放：
- *  版本自增若走 payload，每次连点刷新都会写 overlayPayloads 字典，触发全量订阅
- *  该字典的 PaneView 重渲染（内容却没变）。页签关闭时随下方订阅剪除，无泄漏。 */
+/** 竞态守卫的版本表（页签 id → 自增版本）：刷新连点、/help 同页签重开共用。
+ *  独立于 payload 存放：版本自增若走 payload，每次连点刷新都会写 overlayPayloads
+ *  字典，触发全量订阅该字典的 PaneView 重渲染（内容却没变）。页签关闭时随下方
+ *  订阅剪除，无泄漏。 */
 const readVersions = new Map<string, number>()
 
-/** 重开使在途刷新过期：openDocTab 同路径复用页签 id，重开不 bump 的话，
- *  复用前发起的 refresh 在响应回来时仍通过 isStale 校验，拿旧内容覆盖新内容 */
-const bumpReadVersion = (id: string | null): void => {
-  if (id) readVersions.set(id, (readVersions.get(id) ?? 0) + 1)
+/** 重开使在途写入过期：openDocTab 同路径复用页签 id，重开不 bump 的话，
+ *  复用前发起的 refresh 在响应回来时仍通过 isStale 校验，拿旧内容覆盖新内容。
+ *  返回本次分配的版本号 —— /help 重开的竞态守卫也以它为令牌 */
+const bumpReadVersion = (id: string | null): number => {
+  if (!id) return 0
+  const next = (readVersions.get(id) ?? 0) + 1
+  readVersions.set(id, next)
+  return next
 }
 
 // 订阅 payload 字典：id 消失（页签关闭 / 回收）即同步删除版本项
@@ -119,22 +125,60 @@ usePaneStore.subscribe((state, prev) => {
 export const BUILTIN_HELP_PATH = 'lyshell://help.md'
 
 /** 打开内置使用手册（/help 命令入口）。内容随包打包、不走 IPC 读取，按当前 locale
- *  选语言；lang 参数可显式压过 locale（/help chinese 的直达入口）。同 pane 重复打开
- *  复用页签并覆写内容（openDocTab 无 readVersion = 刷新语义，切语言后再开一次即换语言）。
+ *  选语言；lang 参数可显式压过 locale（/help chinese 的直达入口）。与 /ls 清点同一
+ *  形态：先同步挂页签（占位内容让用户立刻看到落点），MCP 动态段（注册配置 + 两个
+ *  安全开关链接，见 manualMcp）注入完成后覆写 —— 命令面板因 closeOverlay 已关闭，
+ *  页签就是反馈面：注入失败把错误写进页签（控制台同步留痕），不静默吞掉。
+ *  同 pane 重复打开复用页签并覆写内容（openDocTab 无 readVersion = 刷新语义，
+ *  切语言后再开一次即换语言，MCP 段也拿到最新状态）；两次打开并发时后触发者
+ *  胜出（readVersions 版本守卫，迟到的旧响应连同旧失败一并丢弃）。
  *  size 用字符数近似，仅供头条元信息展示。 */
 export function openBuiltinHelpDoc(paneId?: string, lang?: 'zh' | 'en'): string {
-  const content = lang === 'zh' || (lang === undefined && i18n.language?.toLowerCase().startsWith('zh'))
-    ? zhManual
-    : enManual
-  return usePaneStore.getState().openDocTab(paneId, {
+  const useZh = lang === 'zh' || (lang === undefined && i18n.language?.toLowerCase().startsWith('zh'))
+  const placeholder = `# ${i18n.t('commandBar.helpLoading')}\n`
+  const id = usePaneStore.getState().openDocTab(paneId, {
     source: 'builtin',
     docKind: 'markdown',
     path: BUILTIN_HELP_PATH,
     title: i18n.t('commandBar.manualTitle'),
-    size: content.length,
+    size: placeholder.length,
     mtime: 0, // 非文件，无修改时间；DocHeader 对 0 隐藏该项
-    content
+    content: placeholder
   })
+  // 版本在发起时同步分配（不等注入）：同 pane 连开两次（如切语言）复用同一页签，
+  // 后触发者胜出 —— 先触发的旧响应（含旧失败）迟到只丢弃，不回盖新一轮内容
+  const version = bumpReadVersion(id)
+  const isStale = (): boolean => {
+    const cur = usePaneStore.getState().getOverlayPayload(id)
+    // 页签已关 / 身份已换 / 已被更新的打开取代
+    return !(cur && cur.kind === 'doc' && cur.path === BUILTIN_HELP_PATH && readVersions.get(id) === version)
+  }
+  void (async () => {
+    try {
+      const content = await injectManualMcp(useZh ? zhManual : enManual, useZh ? 'zh' : 'en')
+      if (isStale()) return // 丢弃迟到响应（与 refreshDocTab 的 isStale 同一守卫形态）
+      usePaneStore.getState().updateDocTab(id, { content, size: content.length })
+    } catch (err) {
+      console.error('Failed to open help manual:', err)
+      if (isStale()) return // 同一守卫：迟到的旧失败不得盖掉新一轮内容
+      // 失败写进页签:命令面板已关,这是唯一可见反馈面(留空占位会像卡死)
+      const msg = `# ${i18n.t('commandBar.helpFailed')}\n\n${String(err)}`
+      usePaneStore.getState().updateDocTab(id, { content: msg, size: msg.length })
+    }
+  })()
+  return id
+}
+
+/** 手册里的 MCP 开关被点击（doc-actions 翻转配置后）刷新所有已打开的手册页签：
+ *  链接标签按新状态原地换，不重读整篇手册；语言跟链接 href 自带的 lang 参数走，
+ *  跨 pane 不同语言的手册页签各自保持语言。 */
+export function applyMcpToggleToOpenHelpTabs(toggle: McpToggleId, on: boolean): void {
+  const st = usePaneStore.getState()
+  for (const [id, payload] of Object.entries(st.overlayPayloads)) {
+    if (payload?.kind !== 'doc' || payload.source !== 'builtin' || payload.path !== BUILTIN_HELP_PATH) continue
+    const next = swapMcpToggleLink(payload.content, toggle, on)
+    if (next !== payload.content) st.updateDocTab(id, { content: next, size: next.length })
+  }
 }
 
 /** 文档页签是否可刷新：远端/本地走重读；内置只有清点页（/ls，时点快照）可刷新，

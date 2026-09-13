@@ -169,7 +169,11 @@ LyShell 内置 MCP 服务端，让 Claude Code 等外部 AI 客户端通过 MCP 
 
 ### 注册
 
-设置 → MCP 提供 JSON / 命令 / TOML 三种注册格式，适配不同客户端。多数情况下无需手动配置：从 Agent 启动栏启动 agent，让它自己把 LyShell 配成 MCP 服务端即可。
+三种方式任选：① 通用 JSON —— 写入任意 MCP 客户端的 `mcpServers`（或直接丢给 agent 代配）；② Claude Code —— 在终端运行下方命令；③ Codex —— 把下方 TOML 追加进 `~/.codex/config.toml`。主配置用 LyShell 自带二进制，无需另装 Node；失败改用备选配置（依赖系统 Node）。多数情况下无需手动配置：从 Agent 启动栏启动 agent，让它自己把 LyShell 配成 MCP 服务端即可。
+
+<!-- lyshell:mcp-register -->
+
+字段说明 —— `command`：启动 MCP 服务器的程序（LyShell 自带二进制，无需另装 Node）；`args`：command 的启动参数，即 mcpServer.js 的路径；`LYSHELL_USER_DATA`：LyShell 数据目录，供脚本回连主程序读取端口与鉴权；`ELECTRON_RUN_AS_NODE`：让 Electron 二进制以纯 Node 模式运行脚本。
 
 ### 工具与能力
 
@@ -186,9 +190,13 @@ LyShell 内置 MCP 服务端，让 Claude Code 等外部 AI 客户端通过 MCP 
 
 - **会话级授权** —— 每个终端独立权限范围，全局 token 与会话 token 分离
 - **能力门控** —— 每个端点服务端强制校验
-- **破坏性命令确认** —— 对 `rm -rf /`、`dd` 写块设备、fork bomb 等疑似灾难命令弹人工确认闸
 - **共享 PTY 锁定** —— MCP 占用终端时人工输入被阻塞，页签标注「MCP 正在使用此终端」
 - **审计面板** —— MCP 活动全量留痕，以页签形式打开，日历选择器 + 过滤 + 分页
+
+以下两个安全开关即时生效，点击链接即切换：
+
+- **破坏性命令执行前确认** —— {{MCP_TOGGLE_CONFIRM_DESTRUCTIVE}}：对 `rm -rf /`、`dd` 写块设备、`mkfs`、fork bomb、关机重启、`chmod` 根目录等疑似灾难性命令弹窗确认。对 LyShell 内部终端（session token）和外部 MCP 客户端一视同仁——这是 prompt-injection 触发灾难性操作时的最后一道人工闸
+- **允许 MCP 写入会话备注** —— {{MCP_TOGGLE_ALLOW_METADATA_WRITE}}：仅对外部 MCP 客户端（全局 token）生效：开启后它们可读写摘要、使用说明和标签。LyShell 自身孵化的终端始终可读写会话备注，不受此开关控制；创建/重连会话需另行开启会话控制
 
 > 已知限制：全屏 TUI 应用（vim、htop、less）不支持 MCP 操作 —— ANSI 剥离后交替屏幕为乱码。请用 LyShell 原生终端。
 
@@ -244,7 +252,7 @@ LyShell.wait_for("prompt$")
 
 - **终端** —— 字号实时生效；缓冲行数与光标样式应用于新会话
 - **下载** —— 默认下载目录、按服务器建子目录
-- **MCP** —— 注册配置、破坏性命令确认、会话备注写入等开关
+- **MCP** —— 注册配置与安全开关见本手册「MCP 集成」段
 - **外观** —— 主题、语言（中文 / English）
 - **Python** —— 自定义解释器路径
 

@@ -2,9 +2,11 @@ import { useUiStore, type CreateDialogPanel } from '../stores/ui-store'
 import { useSessionStore } from '../stores/session-store'
 import { dispatchNavigate } from './navigate'
 import { connectSession } from './launch'
+import { MCP_TOGGLE_ACTIONS, MCP_TOGGLE_FLAG_KEYS, flipMcpSecurityFlag } from '../components/DocPanel/manualMcp'
+import { applyMcpToggleToOpenHelpTabs } from '../components/DocPanel/readDoc'
 
 /**
- * 文档内动作链接 —— /ls 清点文档里的可点入口,两类:
+ * 文档内动作链接 —— 可点入口,三类:
  *
  *  - 新建(lyshell-action://new-session 等):切面板 + 请求打开该面板的新建对话框
  *  - 打开(lyshell-action://open-session?id=… 等):把清单里的既有对象打开,语义随对象走:
@@ -13,6 +15,9 @@ import { connectSession } from './launch'
  *      变量组 → 切到 env 面板并打开该组的编辑对话框(内容长在面板里,须走面板)
  *      工作区 → 切到对应面板并启动该工作区(依赖检测/失败横幅都在面板上)
  *      插件   → 只切到 plugins 面板(插件没有「打开」语义,管理动作都在列表卡上)
+ *  - MCP 开关(lyshell-action://mcp-toggle-… 等):/help 手册「MCP 集成」段的两个
+ *      安全开关(设置面板 MCP 页签移入手册后的唯一开关 UI),翻转 security 配置
+ *      并原地换已开手册页签的链接标签
  *
  * markdown 里以 `lyshell-action://<id>?<params>` 形态书写,MarkdownDoc 的链接渲染器
  * 拿到此前缀即走本模块派发,而不是当普通文档链接/只读外链。面板侧请求走 ui-store
@@ -51,7 +56,8 @@ export interface DocAction {
 
 const isKnownAction = (id: string): boolean =>
   Object.prototype.hasOwnProperty.call(CREATE_ACTIONS, id) ||
-  Object.prototype.hasOwnProperty.call(OPEN_ACTIONS, id)
+  Object.prototype.hasOwnProperty.call(OPEN_ACTIONS, id) ||
+  Object.prototype.hasOwnProperty.call(MCP_TOGGLE_ACTIONS, id)
 
 /** 链接 href → 动作;非本 scheme 或未知名返回 null(调用方回落普通链接处理) */
 export function docActionFromHref(href: string): DocAction | null {
@@ -79,6 +85,22 @@ export function runDocAction(action: DocAction): void {
     // 新建:切面板 + 请求打开新建对话框(面板未挂载时请求跨挂载存活)
     dispatchNavigate(createPanel)
     useUiStore.getState().requestCreateDialog(createPanel)
+    return
+  }
+
+  const mcpToggle = MCP_TOGGLE_ACTIONS[action.id]
+  if (mcpToggle) {
+    // 手册里的 MCP 安全开关:翻 security 配置,再按新状态原地换所有已开手册
+    // 页签的链接标签(readDoc.applyMcpToggleToOpenHelpTabs)。异步 fire-and-forget,
+    // 失败仅留控制台痕迹(与原设置面板开关的 catch 惯例一致)
+    void (async () => {
+      try {
+        const on = await flipMcpSecurityFlag(MCP_TOGGLE_FLAG_KEYS[mcpToggle])
+        applyMcpToggleToOpenHelpTabs(mcpToggle, on)
+      } catch (err) {
+        console.warn('Failed to toggle MCP security setting:', err)
+      }
+    })()
     return
   }
 
