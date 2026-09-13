@@ -28,31 +28,31 @@ const TABS: NavTab[] = ALL_TABS
 export const RAIL_WIDTH = 44
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 图标 -- 24px 渲染(20 viewBox 放大 1.2x,有效线宽 ~1.68),方形 cap 与既有图标集同语言
+// 图标 -- 24px 渲染,线宽三档:20-box sw1.4(放大 1.2x,有效 ~1.68)为轨上基准;
+// agents 短划单独 1.6(有效 ~1.92),24-box/28-box 款(env/web/设置)sw1.7 对齐有效线宽。
+// cap:直线族 square,有机形态(写轮眼/齿轮)round —— 明细见各图标注释
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** 会话 = 三层服务器机柜(每层一颗电源灯) */
+/** 会话 = 叠屏(后屏错位叠放,前屏两行内容)。
+ *  「多开」语义直给:错位读出层次,前屏两行读作活跃会话;
+ *  square cap 同轨上直线图标语言(前版机柜塔只有「机柜」没有「管理」,已换)。 */
 const IconSessions: React.FC = () => (
-  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square">
-    <rect x="3" y="3" width="14" height="3.5" />
-    <rect x="3" y="8.25" width="14" height="3.5" />
-    <rect x="3" y="13.5" width="14" height="3.5" />
-    <circle cx="6" cy="4.75" r="0.7" fill="currentColor" stroke="none" />
-    <circle cx="6" cy="10" r="0.7" fill="currentColor" stroke="none" />
-    <circle cx="6" cy="15.25" r="0.7" fill="currentColor" stroke="none" />
+  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" strokeLinejoin="miter">
+    <rect x="4" y="3.5" width="10" height="8" />
+    <rect x="6" y="8.5" width="10" height="8" />
+    <path d="M9 12.2h4" />
+    <path d="M9 14.6h4" />
   </svg>
 )
 
-/** Agent = 机器人头(呼应默认 🤖 agent 图标)。
- *  宽略大于高(12.5×10.5),在「扁」与「方」之间取中;rx=2.5 大圆角去方感,微笑嘴,round cap/join。 */
+/** Agent = HUD 括号核(四角括号锁定 + 中心实心菱形核,「瞄准中的智能体」)。
+ *  科技/HUD 语汇,「锁定中的焦点」读作 Agent 在场;square cap 同轨上直线图标语言。
+ *  strokeWidth 1.6 略重于轨上 1.4 基准(有效 ~1.92):括号是短划,需要一档
+ *  份量才在 24px 下读出 HUD 描边的存在感。 */
 const IconAgents: React.FC = () => (
-  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M10 4.3v1.7" />
-    <circle cx="10" cy="3.4" r="0.9" fill="currentColor" stroke="none" />
-    <rect x="3.75" y="6" width="12.5" height="10.5" rx="2.5" />
-    <circle cx="7.9" cy="10.5" r="1.05" fill="currentColor" stroke="none" />
-    <circle cx="12.1" cy="10.5" r="1.05" fill="currentColor" stroke="none" />
-    <path d="M7.9 13.7q2.1 1.4 4.2 0" />
+  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="square" strokeLinejoin="miter">
+    <path d="M3.5 6.8 V3.5 h3.3 M13.2 3.5 h3.3 v3.3 M16.5 13.2 v3.3 h-3.3 M6.8 16.5 H3.5 v-3.3" />
+    <path d="M10 6.8 L12.4 10 L10 13.2 L7.6 10 Z" fill="currentColor" stroke="none" />
   </svg>
 )
 
@@ -86,28 +86,53 @@ const IconCodex: React.FC = () => <BrandMaskIcon src={codexIcon} />
 /** claude = Anthropic 太阳花(官方内置品牌标,mask 取 alpha 剪影、随主题着色) */
 const IconClaude: React.FC = () => <BrandMaskIcon src={claudeIcon} />
 
-/** 变量组 = ENV 字标 —— 全局变量库的铭牌,纯文字不附图形(用户定稿:就写 ENV)。
- *  (前几版弃:竖线穿 S 弧读作美元符;花括号 { ENV } 欠直白,改字面。)
- *  mono 栈呼应 shell 语汇;无括号后字号放大,700 字重撑住轨上与线描图标同档的存在感。 */
+/** 变量组 = ENV 印章 —— 横幅满框,字标居中,读作机柜资产的钢印/模板标牌。
+ *  28×24 横幅画布(strokeWidth 1.7 同 24-box 有效线宽惯例):字标天生横长,
+ *  24 方画布里可读字号的墨迹缝顶死 ~2.7(字一收就回嫌小的档),拉开字与框的
+ *  空气只能给字标配横长版式 —— 轨上唯一非方图标是刻意的(字标 ≠ 图形)。
+ *  方框 25.7x21.7 外缘 0.3..27.7 / 0.3..23.7(视觉 27.4x23.4 横牌),字标 9.4 居中,
+ *  左右墨迹缝各 ~4.4,上下留白读作印章版心的空气。字标 x/y 按栅格化墨迹实测
+ *  居中(em 盒量不到字齿;ppem 取整随字号漂移,改字号必重标定)。
+ *  (前几版弃:无框 ENV 在 44px 槽里轮廓发虚;花括号 { ENV } 欠直白。)
+ *  mono 栈呼应 shell 语汇;框用 square cap 直线族语言,静息时框先于字读出。 */
 const IconEnv: React.FC = () => (
-  <svg width="24" height="24" viewBox="0 0 20 20">
-    <text x="10" y="10" textAnchor="middle" dominantBaseline="central" fill="currentColor" fontSize="9.5" fontWeight="700" letterSpacing="0.1" fontFamily='ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace'>ENV</text>
+  <svg width="28" height="24" viewBox="0 0 28 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="square" strokeLinejoin="miter">
+    <rect x="1.15" y="1.15" width="25.7" height="21.7" />
+    <text x="14" y="11.8" textAnchor="middle" dominantBaseline="central" fill="currentColor" stroke="none" fontSize="9.4" fontWeight="700" letterSpacing="0.15" fontFamily='ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace'>ENV</text>
   </svg>
 )
 
-/** 插件 = 拼图块(通用约定,识别度优先于主题化) */
+/** 插件 = 方块阵(三方块 + 第 4 块旋转 45°「转体入位」)。
+ *  几何冷静,「入位」那一下读作安装;square cap 同轨上直线图标语言。 */
 const IconPlugins: React.FC = () => (
   <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" strokeLinejoin="miter">
-    <path d="M3 3 h5.5 a1.5 1.5 0 0 1 3 0 h5.5 v5.5 a1.5 1.5 0 0 1 0 3 v5.5 h-14 z" />
+    <rect x="3" y="3" width="6.4" height="6.4" />
+    <rect x="10.6" y="3" width="6.4" height="6.4" />
+    <rect x="3" y="10.6" width="6.4" height="6.4" />
+    <rect x="10.9" y="10.9" width="5.8" height="5.8" transform="rotate(45 13.8 13.8)" />
   </svg>
 )
 
-/** 网页 = 地球仪(圆 + 赤道/经线,通用"网页/网络"约定;square cap 同轨上直线图标语言) */
+/** 网页 = 写轮眼·实心勾玉(眼 = 浏览/观看,Web 面板就是内嵌浏览器)。
+ *  24×24 viewBox 满框(同设置齿轮的 24-box 惯例,strokeWidth 1.7 对齐有效线宽):
+ *  眼眶 r11 外缘 11.85,视觉直径 ~23.7px,是 24px 元素内的极限;
+ *  瞳孔 + 三枚实心蝌蚪勾玉(120° 旋转对称,头部起宽、沿轨道收尖、向瞳孔内钩)。 */
 const IconWeb: React.FC = () => (
-  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" strokeLinejoin="miter">
-    <circle cx="10" cy="10" r="7" />
-    <path d="M3 10 h14" />
-    <path d="M10 3 c2.4 2 2.4 12 0 14 c-2.4 -2 -2.4 -12 0 -14 z" />
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="11" />
+    <circle cx="12" cy="12" r="2.68" fill="currentColor" stroke="none" />
+    <g>
+      <circle cx="12" cy="5.17" r="2.27" fill="currentColor" stroke="none" />
+      <path d="M10.13 3.86 Q7.67 5.14 6.89 9.07 Q9.51 8.88 10.85 7.15 Z" fill="currentColor" stroke="none" />
+    </g>
+    <g transform="rotate(120 12 12)">
+      <circle cx="12" cy="5.17" r="2.27" fill="currentColor" stroke="none" />
+      <path d="M10.13 3.86 Q7.67 5.14 6.89 9.07 Q9.51 8.88 10.85 7.15 Z" fill="currentColor" stroke="none" />
+    </g>
+    <g transform="rotate(240 12 12)">
+      <circle cx="12" cy="5.17" r="2.27" fill="currentColor" stroke="none" />
+      <path d="M10.13 3.86 Q7.67 5.14 6.89 9.07 Q9.51 8.88 10.85 7.15 Z" fill="currentColor" stroke="none" />
+    </g>
   </svg>
 )
 
@@ -257,7 +282,8 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
               className={cn(
                 'transition-[color,transform] duration-200 ease-out group-hover:scale-110',
                 isActive
-                  ? (tab === 'dsh' || tab === 'codex' || tab === 'claude')
+                  // 品牌位 + 写轮眼 web 激活变白(开眼),不亮 amber、不挂辉光
+                  ? (tab === 'dsh' || tab === 'codex' || tab === 'claude' || tab === 'web')
                     ? 'text-[var(--text-rack)]'
                     : 'text-[var(--amber)] animate-rail-icon-glow'
                   : 'text-[var(--text-rack-dim)] group-hover:text-[var(--text-rack-mute)]'

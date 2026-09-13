@@ -155,6 +155,7 @@ release*
 # 本地设计稿/原型 HTML（临时探索产物，不入库）
 design/
 danger-red-prototype.html
+icon-ballot.html
 prototypes/
 
 # 根目录临时截图（设计对照/调试用，不入库）
