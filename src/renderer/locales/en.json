@@ -674,7 +674,6 @@
     "speedM": "{{n}}M/s"
   },
   "pane": {
-    "tabHint": "Click to switch · Double-click left to clone session · Double-click right to clone channel (SSH)",
     "newTab": "New tab (open command palette)",
     "lockedByMcp": "MCP is using this terminal",
     "mcpTab": "MCP Activity",

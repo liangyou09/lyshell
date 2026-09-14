@@ -424,6 +424,11 @@ const TabHoverCard: React.FC<{ session: SessionState; rect: DOMRect }> = ({ sess
           {config.type.toUpperCase()} · {target}
         </div>
       )}
+      {/* local 工作目录 —— spawn 初始值 + OSC 报告实时更新(pwsh 每次 prompt 报告;
+          cmd 不发目录序列,停留在启动值) */}
+      {config.local && session.cwd && (
+        <div className="font-mono text-xs text-[var(--text-rack-data)] break-all">{session.cwd}</div>
+      )}
       {/* 状态行:与页签同源配色,圆点取字色 */}
       <div className={cn(
         'flex items-center gap-1.5 text-xs',
@@ -449,10 +454,6 @@ const TabHoverCard: React.FC<{ session: SessionState; rect: DOMRect }> = ({ sess
           {config.usageNotes}
         </div>
       )}
-      {/* 操作提示(原页签 title 文案;dim 档是发丝线级,提示文字最低只降到 mute) */}
-      <div className="mt-1 pt-1.5 border-t border-[var(--rule)] text-[11px] text-[var(--text-rack-mute)]">
-        {t('pane.tabHint')}
-      </div>
     </div>,
     document.body
   )

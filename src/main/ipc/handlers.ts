@@ -124,6 +124,8 @@ export const IPC_CHANNELS = {
   SESSION_SET_ENCODING: 'session:set-encoding',
   // 运行时编码切换完成后的推送（状态栏点击 / MCP create_session 复用落位都会触发）
   SESSION_ENCODING_CHANGED: 'session:encoding-changed',
+  // local 会话工作目录推送（spawn 初始值 + OSC 报告实时更新，页签悬停详情卡显示）
+  SESSION_CWD_CHANGED: 'session:cwd-changed',
   // 会话列表被外部路径（MCP 写入/创建）改动后，向所有窗口推送一次，触发渲染层增量同步
   SESSIONS_CHANGED: 'sessions:changed',
 
@@ -571,6 +573,12 @@ export function registerIPCHandlers(): void {
   // 渲染层把运行时编码放在 entry 的独立字段 runtimeEncoding（不混进 config），推送只改那个字段
   sessionManager.on('session:encoding-changed', ({ sessionId, encoding }: { sessionId: string; encoding: TerminalEncoding }) => {
     sendToAllWindows(IPC_CHANNELS.SESSION_ENCODING_CHANGED, { sessionId, encoding })
+  })
+
+  // local 会话工作目录（spawn 初始值 + OSC 报告实时更新）—— 推送渲染层更新页签悬停详情卡。
+  // 与运行时编码同款：渲染层放 entry 的独立字段 cwd（不混进 config）
+  sessionManager.on('session:cwd-changed', ({ sessionId, cwd }: { sessionId: string; cwd: string }) => {
+    sendToAllWindows(IPC_CHANNELS.SESSION_CWD_CHANGED, { sessionId, cwd })
   })
 
   // ===== TCP 可达性探测 =====

@@ -247,6 +247,67 @@ describe('PaneTabBar 顶排页签条(渲染断言)', () => {
     }
   })
 
+  it('local 会话悬停详情卡显示工作目录,推送更新实时跟随', () => {
+    vi.useFakeTimers()
+    try {
+      useSessionStore.setState({
+        sessions: [{
+          id: 'l1',
+          config: {
+            id: 'l1', name: 'local term', type: 'local',
+            local: { shell: 'pwsh' }
+          } as unknown as SessionConfig,
+          status: ConnectionStatus.CONNECTED,
+          cwd: 'C:\\Users\\me\\Documents'
+        }]
+      })
+      const { container } = render(<PaneTabBar pane={makePane(['l1'])} isTop />)
+      const tab = container.querySelector('[data-tab-id="l1"]') as HTMLElement
+      fireEvent.mouseOver(tab)
+      act(() => { vi.advanceTimersByTime(400) })
+      const card = document.querySelector('.pane-tab-hover-card') as HTMLElement
+      expect(card).toBeTruthy()
+      // 连接目标行 + 工作目录行(spawn 种子/OSC 报告的 store 读数)
+      expect(card.textContent).toContain('LOCAL · pwsh')
+      expect(card.textContent).toContain('C:\\Users\\me\\Documents')
+      // session:cwd-changed 推送落位(cd 后新目录)—— 悬停中的卡实时跟随
+      act(() => {
+        useSessionStore.getState().setSessionCwd('l1', 'D:\\workspace')
+      })
+      const card2 = document.querySelector('.pane-tab-hover-card') as HTMLElement
+      expect(card2.textContent).toContain('D:\\workspace')
+      expect(card2.textContent).not.toContain('C:\\Users\\me\\Documents')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('非 local 会话不显示工作目录行(cwd 是 local 专属读数)', () => {
+    vi.useFakeTimers()
+    try {
+      useSessionStore.setState({
+        sessions: [{
+          id: 's1',
+          config: {
+            id: 's1', name: 'ssh box', type: 'ssh',
+            ssh: { host: '10.0.0.8', port: 22, username: 'root' }
+          } as unknown as SessionConfig,
+          status: ConnectionStatus.CONNECTED,
+          cwd: '/home/root'  // 即使有值(脏数据/未来其他来源),非 local 不显示
+        }]
+      })
+      const { container } = render(<PaneTabBar pane={makePane(['s1'])} isTop />)
+      const tab = container.querySelector('[data-tab-id="s1"]') as HTMLElement
+      fireEvent.mouseOver(tab)
+      act(() => { vi.advanceTimersByTime(400) })
+      const card = document.querySelector('.pane-tab-hover-card') as HTMLElement
+      expect(card).toBeTruthy()
+      expect(card.textContent).not.toContain('/home/root')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('web 插槽 0 / 钉尾 null：分别渲染在最前 / 最后', () => {
     useSessionStore.setState({
       sessions: [makeSession('s1', 'alpha'), makeSession('s2', 'beta')]

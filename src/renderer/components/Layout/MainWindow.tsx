@@ -235,6 +235,16 @@ const MainWindow: React.FC = () => {
     return cleanup
   }, [])
 
+  // local 会话工作目录推送（spawn 初始值 + OSC 报告实时更新）—— 更新页签悬停详情卡读数。
+  // 只写 entry 的 cwd（config 外的运行时字段），保存值镜像不受影响
+  useEffect(() => {
+    if (!window.electronAPI?.onSessionCwdChanged) return
+    const cleanup = window.electronAPI.onSessionCwdChanged(({ sessionId, cwd }) => {
+      useSessionStore.getState().setSessionCwd(sessionId, cwd)
+    })
+    return cleanup
+  }, [])
+
   // 启动时把当前已在终端页签中的会话同步给主进程（覆盖从 localStorage 恢复布局的场景）
   useEffect(() => {
     if (!window.electronAPI?.syncTerminalOpenSessions) return
