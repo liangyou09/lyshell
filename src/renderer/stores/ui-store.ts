@@ -47,6 +47,16 @@ interface UiStore {
   requestOpenItem: (panel: CreateDialogPanel, itemId: string) => void
   /** 消费掉当前请求(完成打开动作的组件调用,置空防重放) */
   consumeOpenItemRequest: (panel: CreateDialogPanel) => void
+
+  /** 待处理的「聚焦 Web 面板地址栏」请求 id(Ctrl+L 路由用;WebPanel 条件挂载,
+   *  请求须跨挂载存活 —— 请求方 MainWindow 先切面板/展开侧栏再发请求,消费
+   *  effect 在同批提交后跑,面板必然已挂载且脱离收起态的 inert,同步 focus 即成);
+   *  0 = 无请求 */
+  webBarFocusRequest: number
+  /** 发起一次地址栏聚焦请求(MainWindow 的 Ctrl+L 路由调用) */
+  requestWebBarFocus: () => void
+  /** 消费掉当前请求(WebPanel 聚焦完成后调用,归零防二次挂载误聚焦) */
+  consumeWebBarFocusRequest: () => void
 }
 
 export const useUiStore = create<UiStore>((set, get) => ({
@@ -80,6 +90,19 @@ export const useUiStore = create<UiStore>((set, get) => ({
     // 只在仍有未消费请求时置空 —— 消费方 effect 与请求方的重入都调它,幂等
     if (get().openItemRequests[panel]) {
       set({ openItemRequests: { ...get().openItemRequests, [panel]: undefined } })
+    }
+  },
+
+  webBarFocusRequest: 0,
+
+  requestWebBarFocus: () => {
+    set({ webBarFocusRequest: get().webBarFocusRequest + 1 })
+  },
+
+  consumeWebBarFocusRequest: () => {
+    // 只在仍有未消费请求时清零 —— 幂等(消费 effect 与请求方重入都调它)
+    if (get().webBarFocusRequest) {
+      set({ webBarFocusRequest: 0 })
     }
   }
 }))

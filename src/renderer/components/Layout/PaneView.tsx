@@ -10,6 +10,7 @@ import { McpAuditPanel } from './McpAuditPanel'
 import DocTabOverlay from '../DocPanel/DocTabOverlay'
 import SplitDivider from './SplitDivider'
 import { resolveOverlayDragId } from './overlay-drag'
+import { registerWebview, unregisterWebview, activeWebTabId } from './web-tab-controls'
 import type { PaneNode, SplitDirection, OverlayKind, OverlayPayload, OverlayRef, DocOverlayPayload } from '@shared/types'
 
 type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center' | null
@@ -79,23 +80,64 @@ function faviconUrlFromEvent(e: Event): string | undefined {
  * partition 固定 persist:webbar（与 dsh web 隔离的浏览会话）；导航/弹窗由主进程
  * did-attach-webview 按 partition 分流锁定（仅 http/https）。标题经 page-title-updated
  * 回写 store，页签显示页面标题而非裸 hostname；favicon 经 page-favicon-updated 由
- * 主进程代取转 data URI 回写（渲染层 CSP 只放行 data: 图）。首次 did-finish-load 时
- * 把 URL 记入「最近访问」历史（加载失败的 URL 不算访问过）。加载中/失败铺
+ * 主进程代取转 data URI 回写（渲染层 CSP 只放行 data: 图）。did-finish-load 时把
+ * 最近一次主框架导航的落点 URL 记入「最近访问」历史（地址栏导航/redirect 后的
+ * 最终地址同样入册；加载失败的 URL 不算访问过）。加载中/失败铺
  * 浮层提示（webview 无内建 UI，失败原先是纯白屏零反馈）。
+ * 导航态（当前 URL / 前后可用 / 加载中）经 did-navigate 系事件回写 payload.nav，
+ * WebPanel 地址栏与导航按钮消费；元素登记进 web-tab-controls 注册表，
+ * 面板按钮与宿主/主进程快捷键经它对本页签下指令。
  */
 const WebTabOverlay: React.FC<{ id: string; url: string }> = ({ id, url }) => {
   const setWebTabTitle = usePaneStore(s => s.setWebTabTitle)
   const setWebTabFavicon = usePaneStore(s => s.setWebTabFavicon)
+  const setWebTabNav = usePaneStore(s => s.setWebTabNav)
   const recordWebTabVisit = usePaneStore(s => s.recordWebTabVisit)
   const { t } = useTranslation()
   const ref = useRef<WebviewTag | null>(null)
-  // 每 tab 只记一次：did-finish-load 对页内刷新/锚点跳转也会触发，重复记录靠 store 去重，
-  // 这里用 ref 闸掉后续事件省 setState（url 固定为打开时的 URL，页内导航不另记）
-  const historyRecorded = useRef(false)
+  // 最近一次主框架导航的落点 URL：历史记录与地址栏数据都吃它而非打开时的 url ——
+  // redirect 链的每一跳都会触发 did-navigate，落点才是用户真正到达的地址
+  const lastUrlRef = useRef('')
   // 加载态：webview 无内建 UI，失败=纯白屏零反馈（外站不可达与「没打开」无法
   // 区分）。loading 铺轻提示挡白闪，failed 铺错误浮层把 errno 直接亮出来
   const [loadState, setLoadState] = useState<'loading' | 'done' | 'failed'>('loading')
   const [loadError, setLoadError] = useState<string | null>(null)
+
+  // webview 注册表登记：面板按钮/快捷键经 web-tab-controls 对本页签下指令
+  // （元素随 JSX 位置稳定，src 恒为打开时 URL 不触发重挂）
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    registerWebview(id, el)
+    return () => unregisterWebview(id)
+  }, [id])
+
+  // 焦点激活所属 pane：点击网页不冒泡到宿主 DOM，activePaneId 不跟随 ——
+  // 多分屏时快捷键/面板会打错页签。接两个可见信号：focusin（webview 元素
+  // 获得焦点）与 window blur + activeElement（HtmlDoc 焦点陷阱同款反向利用）。
+  // Electron 28 实测（探针验证）：guest→guest 焦点转移（点另一个 pane 的网页）
+  // 既无 focusin 也无 window blur，只派发不冒泡的 focus —— 补 focus 监听兜住。
+  // 幂等：已是活动 pane 不再 set，避免无谓重渲染
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const activate = (): void => {
+      const st = usePaneStore.getState()
+      const paneId = st.getOverlayPaneId(id)
+      if (paneId && st.layout.activePaneId !== paneId) st.setActivePane(paneId)
+    }
+    const onWinBlur = (): void => {
+      if (document.activeElement === el) activate()
+    }
+    el.addEventListener('focusin', activate)
+    el.addEventListener('focus', activate)
+    window.addEventListener('blur', onWinBlur)
+    return () => {
+      el.removeEventListener('focusin', activate)
+      el.removeEventListener('focus', activate)
+      window.removeEventListener('blur', onWinBlur)
+    }
+  }, [id])
 
   useEffect(() => {
     const el = ref.current
@@ -117,18 +159,40 @@ const WebTabOverlay: React.FC<{ id: string; url: string }> = ({ id, url }) => {
       })
     }
     const onLoadFinish = (): void => {
-      if (historyRecorded.current) return
-      historyRecorded.current = true
-      recordWebTabVisit(url)
+      // 落点 URL 记历史（含 redirect 后的最终地址；地址栏导航同样走这里）。
+      // 页内刷新/锚点跳转也会触发 did-finish-load，重复记录靠 store 去重
+      recordWebTabVisit(lastUrlRef.current || url)
+    }
+    // 导航态回写：地址栏显示与导航按钮可用性的数据源。did-navigate（顶层跳转）
+    // 与 did-navigate-in-page（SPA pushState / 锚点）都跟 —— 子框架的页内事件
+    // （isMainFrame=false）不跟。参数双读（事件自身属性 ?? detail，同 onTitle
+    // 的 Electron 28 实测经验）。canGoBack/Forward 是同步 IPC
+    // （guestViewInternal.invokeSync），主进程忙时可阻塞渲染层秒级 —— 只在本
+    // 页签正处于活动态（地址栏正在消费）时读；后台页签只回写 url，停驻期间
+    // 的前后可用性由 WebPanel 重新激活时补读
+    const onNav = (e: Event): void => {
+      const evt = e as CustomEvent<unknown> & { url?: string; isMainFrame?: boolean; detail?: { url?: string; isMainFrame?: boolean } }
+      const url = evt.url ?? evt.detail?.url
+      const isMainFrame = evt.isMainFrame ?? evt.detail?.isMainFrame
+      if (isMainFrame === false) return
+      if (!url) return
+      lastUrlRef.current = url
+      if (activeWebTabId() === id) {
+        setWebTabNav(id, { url, canGoBack: el.canGoBack(), canGoForward: el.canGoForward() })
+      } else {
+        setWebTabNav(id, { url })
+      }
     }
     const onStartLoading = (): void => {
       setLoadState('loading')
       setLoadError(null)
+      setWebTabNav(id, { loading: true })
     }
     // did-stop-loading 在成功/失败后都会到；失败浮层由 did-fail-load 先铺，
     // 这里收尾时保住 failed 不被冲掉
     const onStopLoading = (): void => {
       setLoadState(prev => (prev === 'failed' ? 'failed' : 'done'))
+      setWebTabNav(id, { loading: false })
     }
     const onLoadFail = (e: Event): void => {
       const evt = e as CustomEvent<unknown> & {
@@ -143,6 +207,8 @@ const WebTabOverlay: React.FC<{ id: string; url: string }> = ({ id, url }) => {
     el.addEventListener('page-title-updated', onTitle)
     el.addEventListener('page-favicon-updated', onFavicon)
     el.addEventListener('did-finish-load', onLoadFinish)
+    el.addEventListener('did-navigate', onNav)
+    el.addEventListener('did-navigate-in-page', onNav)
     el.addEventListener('did-start-loading', onStartLoading)
     el.addEventListener('did-stop-loading', onStopLoading)
     el.addEventListener('did-fail-load', onLoadFail)
@@ -150,11 +216,13 @@ const WebTabOverlay: React.FC<{ id: string; url: string }> = ({ id, url }) => {
       el.removeEventListener('page-title-updated', onTitle)
       el.removeEventListener('page-favicon-updated', onFavicon)
       el.removeEventListener('did-finish-load', onLoadFinish)
+      el.removeEventListener('did-navigate', onNav)
+      el.removeEventListener('did-navigate-in-page', onNav)
       el.removeEventListener('did-start-loading', onStartLoading)
       el.removeEventListener('did-stop-loading', onStopLoading)
       el.removeEventListener('did-fail-load', onLoadFail)
     }
-  }, [id, url, setWebTabTitle, setWebTabFavicon, recordWebTabVisit])
+  }, [id, url, setWebTabTitle, setWebTabFavicon, setWebTabNav, recordWebTabVisit])
 
   return (
     <div className="relative w-full h-full">

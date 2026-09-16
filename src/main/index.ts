@@ -15,6 +15,8 @@ import { pluginHostManager } from './plugin/host-mgr'
 import { cleanupDownloadsDir } from './plugin/install-zip'
 import { getPluginsDir } from './storage/plugin-repository'
 import { dshWebManager } from './dsh/web'
+import { IPC_CHANNELS } from '@shared/constants'
+import { matchWebTabShortcut } from '@shared/webtab-shortcut'
 
 // 日志配置
 log.transports.file.level = 'info'
@@ -231,6 +233,18 @@ function createMainWindow(): void {
       log.warn('Blocked webview window.open:', url)
       return { action: 'deny' }
     })
+    // 网页页签快捷键：焦点进 webview 后键盘全被 guest 吃掉，宿主 keydown 收不到。
+    // 在 guest 事件分发前拦截浏览器手势（Ctrl+R/Alt+←→/Ctrl+L 等），掐掉
+    // guest 的默认动作后转发渲染层路由到「活动网页页签」—— 与宿主侧快捷键
+    // 走同一控制层。仅网页访问栏挂（dsh web 保持锁定，无浏览语义）。
+    if (isWebbar) {
+      webContents.on('before-input-event', (event, input) => {
+        const action = matchWebTabShortcut(input)
+        if (!action) return
+        event.preventDefault()
+        mainWindow?.webContents.send(IPC_CHANNELS.WEB_TAB_SHORTCUT, action)
+      })
+    }
     webContents.on('will-navigate', (event, url) => {
       try {
         const target = new URL(url)

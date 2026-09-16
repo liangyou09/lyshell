@@ -124,6 +124,7 @@ const IPC_CHANNELS = {
 
   // 网页访问栏（通用网页页签）
   WEBBAR_FETCH_FAVICON: 'webbar:fetch-favicon',
+  WEB_TAB_SHORTCUT: 'web-tab:shortcut',  // main→renderer：webview 焦点内的浏览器快捷键转发
 
   // Harness worktree 检测（kind 无关：列出仓库已有 worktree 共享名，编辑对话框下拉用）
   HARNESS_WORKTREE_LIST: 'harness:worktree:list',
@@ -247,6 +248,14 @@ const electronAPI = {
     const listener = () => callback()
     ipcRenderer.on(IPC_CHANNELS.FLOAT_TOGGLE, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.FLOAT_TOGGLE, listener)
+  },
+
+  // 网页页签快捷键（main→renderer）：焦点在 webview 内时宿主收不到 keydown，
+  // 主进程 before-input-event 拦截后经此转发，渲染层路由到活动网页页签
+  onWebTabShortcut: (callback: (action: string) => void) => {
+    const listener = (_e: IpcRendererEvent, action: string): void => callback(action)
+    ipcRenderer.on(IPC_CHANNELS.WEB_TAB_SHORTCUT, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.WEB_TAB_SHORTCUT, listener)
   },
 
   // 快速命令

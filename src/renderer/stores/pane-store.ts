@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type {
   PaneNode, PaneLeaf, PaneSplit, PaneLayout, SplitDirection,
-  OverlayKind, OverlayRef, OverlayPayload, DocOverlayPayload
+  OverlayKind, OverlayRef, OverlayPayload, DocOverlayPayload, WebTabNav
 } from '@shared/types'
 import { OVERLAY_KINDS, MCP_AUDIT_OVERLAY_ID } from './overlay-kinds'
 
@@ -202,6 +202,9 @@ interface PaneStore {
   openWebTab: (rawUrl: string, paneId?: string) => { ok: true } | { ok: false; error: string }
   setWebTabTitle: (id: string, title: string) => void
   setWebTabFavicon: (id: string, favicon: string) => void
+  // 导航态回写（WebTabOverlay 的 did-navigate / did-navigate-in-page / loading 事件）：
+  // 地址栏显示与导航按钮可用性的数据源。nav 浅合并 —— 事件只带增量字段
+  setWebTabNav: (id: string, patch: Partial<WebTabNav>) => void
   openDocTab: (paneId: string | undefined, info: DocOverlayPayload) => string
   updateDocTab: (id: string, patch: Partial<Pick<DocOverlayPayload, 'content' | 'size' | 'mtime' | 'title' | 'loadError'>>) => void
   closeDocTab: (id: string) => void
@@ -1067,6 +1070,31 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
         overlayPayloads: { ...st.overlayPayloads, [id]: { ...payload, favicon } },
         webTabFavicons: pruned
       }
+    })
+  },
+
+  setWebTabNav: (id, patch) => {
+    // 函数式 set 原子更新（对齐 setWebTabTitle/favicon）：多个页签的导航事件
+    // 异步回写交错时各自基于最新 state 合并，不用陈旧快照覆盖
+    set(st => {
+      const payload = st.overlayPayloads[id]
+      // 同值早退返回原 state 引用 —— zustand 对函数式 set 的返回值做 Object.is
+      // 比对，同引用直接跳过整树复制与订阅者广播（return {} 仍会通知全体订阅者，
+      // FileManagerPanel 这类无 selector 订阅会真重渲染）
+      if (payload?.kind !== 'web') return st
+      // nav 缺省（首航未完成）回落打开时 URL + 全不可用基线：loading 事件可能
+      // 先于 did-navigate 到达（did-start-loading 先触发），无基线会拼出残缺 nav
+      const prev: WebTabNav = payload.nav
+        ?? { url: payload.url, canGoBack: false, canGoForward: false, loading: false }
+      const next: WebTabNav = { ...prev, ...patch }
+      // 同值不 set：did-navigate 与 loading 事件高频相邻。浅比较 next 的全部
+      // 自有键而非逐字段枚举 —— 未来 nav 加字段，补丁只改新字段也不会漏比
+      let same = true
+      for (const k of Object.keys(next) as Array<keyof WebTabNav>) {
+        if (prev[k] !== next[k]) { same = false; break }
+      }
+      if (same) return st
+      return { overlayPayloads: { ...st.overlayPayloads, [id]: { ...payload, nav: next } } }
     })
   },
 
