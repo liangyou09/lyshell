@@ -60,11 +60,25 @@ export interface PaneLayout {
 }
 
 /**
+ * 网页页签的导航态 —— 地址栏/导航按钮的显示数据，WebTabOverlay 经
+ * did-navigate / did-navigate-in-page 回写。与打开时 URL（payload.url）分离：
+ * src 永远只吃打开时 URL，就地导航经 webview.loadURL，杜绝「payload.url 回写 →
+ * src 属性变化 → 重复导航」。缺省（undefined）= 首次导航尚未完成，面板按钮
+ * 视为不可用、地址栏回落显示打开时 URL。
+ */
+export interface WebTabNav {
+  url: string           // 当前 URL（含 SPA pushState 的页内跳转）
+  canGoBack: boolean
+  canGoForward: boolean
+  loading: boolean
+}
+
+/**
  * 覆盖层 payload（判别联合）—— 内容数据，按 id 存于 pane-store 的 overlayPayloads 字典。
  * 瞬态：与挂载点一样不持久化，重启即回收。
  */
 export type OverlayPayload =
-  | { kind: 'web'; url: string; title: string; favicon?: string }
+  | { kind: 'web'; url: string; title: string; favicon?: string; nav?: WebTabNav }
   | { kind: 'doc' } & DocOverlayPayload
   | { kind: 'dshWeb'; url: string; name: string; cwd?: string }
   | { kind: 'mcpAudit' }

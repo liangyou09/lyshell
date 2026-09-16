@@ -42,6 +42,10 @@ export const IPC_CHANNELS = {
   FLOAT_HIDE: 'float:hide',
   FLOAT_TOGGLE: 'float:toggle',
 
+  // 网页页签快捷键（main → renderer 单向推送：焦点在 webview 内时宿主收不到
+  // keydown，由主进程 before-input-event 拦截后经此通道转发渲染层路由）
+  WEB_TAB_SHORTCUT: 'web-tab:shortcut',
+
   // 窗口
   WINDOW_GET_BOUNDS: 'window:get-bounds'
 }

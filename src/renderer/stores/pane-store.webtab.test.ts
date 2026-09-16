@@ -16,7 +16,7 @@ import {
   loadWebTabFavicons, findOverlayRef
 } from './pane-store'
 import { DSH_WEB_OVERLAY_ID, MCP_AUDIT_OVERLAY_ID } from './overlay-kinds'
-import type { OverlayPayload, OverlayRef, PaneLeaf, PaneLayout, PaneNode } from '@shared/types'
+import type { OverlayPayload, OverlayRef, PaneLeaf, PaneLayout, PaneNode, WebTabNav } from '@shared/types'
 
 const leaf = (id: string, sessions: string[], overlays: OverlayRef[] = []): PaneLeaf => ({
   id,
@@ -855,5 +855,85 @@ describe('removeWebTabHistory / clearWebTabHistory：历史删改', () => {
     usePaneStore.getState().clearWebTabHistory()
     expect(usePaneStore.getState().webTabHistory).toEqual([])
     expect(localStorage.getItem('lyshell.webTabHistory.v1')).toBeNull()
+  })
+})
+
+describe('setWebTabNav：导航态回写（地址栏/导航按钮数据源）', () => {
+  const setupNavTab = (nav?: WebTabNav): void => {
+    usePaneStore.setState({
+      layout: layoutOf(leaf('pane-1', ['s-a'], [
+        { id: 'web-nav-1', kind: 'web', active: true, slot: null }
+      ])),
+      overlayPayloads: {
+        'web-nav-1': nav
+          ? { kind: 'web', url: 'https://example.com/', title: 'example', nav }
+          : { kind: 'web', url: 'https://example.com/', title: 'example' }
+      },
+      draggingOverlayId: null,
+      hiddenTabSessions: {}
+    })
+  }
+
+  it('首次回写创建 nav（did-navigate 携带导航字段；loading 缺省补基线 false）', () => {
+    setupNavTab()
+    usePaneStore.getState().setWebTabNav('web-nav-1', {
+      url: 'https://example.com/page', canGoBack: true, canGoForward: false
+    })
+    const p = usePaneStore.getState().overlayPayloads['web-nav-1']
+    expect(p?.kind === 'web' && p.nav).toEqual({
+      url: 'https://example.com/page', canGoBack: true, canGoForward: false, loading: false
+    })
+  })
+
+  it('nav 缺省时的 loading 先发事件（did-start-loading 早于 did-navigate）也落成完整 nav', () => {
+    setupNavTab()
+    usePaneStore.getState().setWebTabNav('web-nav-1', { loading: true })
+    const p = usePaneStore.getState().overlayPayloads['web-nav-1']
+    // 基线回落打开时 URL + 前后不可用 —— 地址栏/停止按钮即刻可用
+    expect(p?.kind === 'web' && p.nav).toEqual({
+      url: 'https://example.com/', canGoBack: false, canGoForward: false, loading: true
+    })
+  })
+
+  it('增量浅合并：loading 事件不冲掉 url/canGoBack（did-start/stop 只带 loading）', () => {
+    setupNavTab({ url: 'https://example.com/page', canGoBack: true, canGoForward: false, loading: true })
+    usePaneStore.getState().setWebTabNav('web-nav-1', { loading: false })
+    const p = usePaneStore.getState().overlayPayloads['web-nav-1']
+    expect(p?.kind === 'web' && p.nav).toEqual({
+      url: 'https://example.com/page', canGoBack: true, canGoForward: false, loading: false
+    })
+  })
+
+  it('同值不重写且零通知：return st 早退（Object.is 命中,跳过整树复制与订阅者广播）', () => {
+    setupNavTab({ url: 'https://example.com/page', canGoBack: true, canGoForward: false, loading: false })
+    const before = usePaneStore.getState().overlayPayloads
+    let notifications = 0
+    const unsub = usePaneStore.subscribe(() => { notifications++ })
+    try {
+      usePaneStore.getState().setWebTabNav('web-nav-1', {
+        url: 'https://example.com/page', canGoBack: true, canGoForward: false, loading: false
+      })
+      expect(usePaneStore.getState().overlayPayloads).toBe(before)
+      expect(notifications).toBe(0)
+      // 真变化 → 恰好通知一次
+      usePaneStore.getState().setWebTabNav('web-nav-1', { loading: true })
+      expect(notifications).toBe(1)
+      expect(usePaneStore.getState().overlayPayloads).not.toBe(before)
+    } finally {
+      unsub()
+    }
+  })
+
+  it('kind guard：非 web payload 的 id 原样保留（overlayPayloads 引用不变）', () => {
+    usePaneStore.setState({
+      layout: layoutOf(leaf('pane-1', ['s-a'], [])),
+      overlayPayloads: { 'doc-x': { kind: 'doc' } as OverlayPayload },
+      draggingOverlayId: null,
+      hiddenTabSessions: {}
+    })
+    const before = usePaneStore.getState().overlayPayloads
+    usePaneStore.getState().setWebTabNav('doc-x', { url: 'https://example.com/', loading: true })
+    expect(usePaneStore.getState().overlayPayloads).toBe(before)
+    expect(usePaneStore.getState().overlayPayloads['doc-x']).toEqual({ kind: 'doc' })
   })
 })

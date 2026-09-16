@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import SessionsPanel from './SessionsPanel'
 import ActivityRail, { type NavTab, RAIL_WIDTH } from './ActivityRail'
 import AgentsPanel from './AgentsPanel'
-import SplitPaneContainer from './SplitPaneContainer'
+import SplitPaneContainer, { isTextEditingTarget } from './SplitPaneContainer'
 import FloatWindow from '../FloatWindow/FloatWindow'
 import CommandScreen from '../CommandScreen/CommandScreen'
 import TopRightControls from './TopRightControls'
@@ -28,6 +28,10 @@ import { dispatchCommand } from '../../utils/dispatch-command'
 import { openLocalDoc } from '../DocPanel/readDoc'
 import { isDocPath } from '@shared/types'
 import type { SessionConfig, QuickCommand } from '@shared/types'
+import { matchWebTabShortcut, isWebTabShortcutAction, type WebTabShortcutAction } from '@shared/webtab-shortcut'
+import {
+  activeWebTabId, reloadActiveWebTab, activeWebTabGoBack, activeWebTabGoForward
+} from './web-tab-controls'
 
 // 左列收起态/宽度的 localStorage 镜像 key -- 主进程 config 异步,首帧用它同步定态防闪
 // (activeNav 的 lyshell.navTab.v1 同款规避);懒读与双写共用常量,防两处字面量漂移
@@ -476,6 +480,79 @@ const MainWindow: React.FC = () => {
     window.addEventListener('keydown', handleOpenDoc, true)
     return () => window.removeEventListener('keydown', handleOpenDoc, true)
   }, [t])
+
+  // 网页页签浏览器快捷键 —— 路由到活动网页页签(web-tab-controls 控制层)。
+  // 宿主 keydown 与主进程 before-input-event 转发(IPC)两路手势共用本路由
+  const routeWebTabAction = useCallback((action: WebTabShortcutAction): void => {
+    switch (action) {
+      case 'reload': reloadActiveWebTab(false); break
+      case 'reload-hard': reloadActiveWebTab(true); break
+      case 'back': activeWebTabGoBack(); break
+      case 'forward': activeWebTabGoForward(); break
+      case 'focus-address-bar':
+        // Ctrl+L:切到 Web 面板 + 展开侧栏;聚焦经 ui-store 请求令牌 —— 请求与
+        // 「切面板/展开侧栏」同批提交,WebPanel 的消费 effect 在提交后跑,面板
+        // 必然已挂载且脱离收起态的 inert,同步 focus 即成
+        handleNavChange('web')
+        setSidebarCollapsed(false)
+        useUiStore.getState().requestWebBarFocus()
+        break
+    }
+  }, [handleNavChange])
+
+  // 宿主侧快捷键:焦点在宿主 DOM(终端/面板/输入框)时。仅当活动分屏正显示网页
+  // 页签才拦 —— 焦点在别的分屏终端时 activePaneId 跟着那 pane 走,本守卫自然
+  // no-op,终端的 Ctrl+R 反向搜索 / Ctrl+L 清屏等原生控制字符不被劫持。
+  // capture 抢在 xterm 前(同 Ctrl+F1-F12;隐藏终端里残留焦点时活动分屏显示的
+  // 是网页,刷新正是所见即所得的预期)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (activeWebTabId() === null) return
+      // 焦点落点守卫(对齐 Alt+1..9 的输入豁免 + Ctrl+方向的终端归属校验):
+      // - 真输入框(非 xterm):模态/表单里打字时不劫持 —— Ctrl+L 会切走面板,
+      //   未保存的表单状态直接销毁
+      // - xterm 终端:焦点所在 pane 是活动 pane 才拦。Ctrl+方向切 pane 只移
+      //   activePaneId 不移 DOM 焦点,焦点残留在别的 pane 的终端时按键归终端
+      //   (Ctrl+R 反向搜索);活动 pane 自己的隐藏终端残留焦点时,眼前显示的
+      //   正是网页,刷新即所见即所得
+      const target = e.target
+      if (target instanceof HTMLElement) {
+        if (isTextEditingTarget(target)) return
+        if (target.closest('.xterm') &&
+          target.closest('[data-pane-id]')?.getAttribute('data-pane-id') !==
+          usePaneStore.getState().layout.activePaneId) return
+      }
+      const action = matchWebTabShortcut({
+        type: 'keyDown',
+        key: e.key,
+        control: e.ctrlKey,
+        alt: e.altKey,
+        shift: e.shiftKey,
+        isAutoRepeat: e.repeat,
+        meta: e.metaKey,
+        isComposing: e.isComposing
+      })
+      if (!action) return
+      e.preventDefault()
+      e.stopPropagation()
+      routeWebTabAction(action)
+    }
+    window.addEventListener('keydown', handler, true)
+    return () => window.removeEventListener('keydown', handler, true)
+  }, [routeWebTabAction])
+
+  // webview 焦点内快捷键:焦点进 guest 后宿主 keydown 收不到,主进程
+  // before-input-event 拦截后经 IPC 转发到这里,路由同一控制层(转发动作落点
+  // 是活动网页页签 —— guest 键盘焦点所在页签经 WebTabOverlay 的焦点激活
+  // setActivePane 与活动 pane 保持一致)。action 经 preload 边界即不可信输入,
+  // 白名单收窄后才路由(防未来 IPC 通道复用或注入)
+  useEffect(() => {
+    if (!window.electronAPI?.onWebTabShortcut) return
+    return window.electronAPI.onWebTabShortcut(action => {
+      if (!isWebTabShortcutAction(action)) return
+      routeWebTabAction(action)
+    })
+  }, [routeWebTabAction])
 
   // Ctrl+Shift+P 切换全局命令面板（与空状态命令条共用命令集,见 command-registry）。
   // 同 Ctrl+Shift+O 用 capture：焦点在终端时 xterm 先于冒泡处理按键会吃掉 P；

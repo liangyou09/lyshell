@@ -4,12 +4,10 @@ import PaneView from './PaneView'
 import { useShallow } from 'zustand/react/shallow'
 
 // 文本编辑目标判定：INPUT/TEXTAREA/contentEditable（xterm 的隐藏 textarea 除外 ——
-// 终端焦点就落在它身上，不是"输入框"语义）。仅用于 Ctrl+方向 的守卫：
-// 单修饰键 + 方向在输入框里是原生词间跳转/行首行尾的常见编辑手势，必须让位。
-// Ctrl+Shift+H/V 三键和弦不受此限 —— 和弦是刻意按键，用户意图无歧义，
-// 且无输入框原生语义冲突（H 无绑定；V 的 paste-plain 在本应用纯文本输入框里
-// 与 Ctrl+V 等价），保持全局可用（在 URL 栏/查找框里打字时也能拆分屏）
-const isTextEditingTarget = (target: EventTarget | null): boolean => {
+// 终端焦点就落在它身上，不是"输入框"语义）。导出共用：Ctrl+方向 的守卫（本文件）
+// 与 MainWindow 网页页签快捷键的焦点落点守卫（真输入框里打字不劫持浏览器手势）
+// 是同一语义，不复制两份判定
+export const isTextEditingTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) return false
   if (target.closest('.xterm')) return false
   return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
