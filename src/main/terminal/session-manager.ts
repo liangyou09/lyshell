@@ -6,6 +6,7 @@ import { SSHConnector, TelnetConnector, SerialConnector, LocalConnector, Connect
 import type { SessionConfig, SSHConfig, TelnetConfig, SerialConfig, TerminalEncoding } from '@shared/types'
 import { processInputEscapeSequences, appendAutoNewline } from '@shared/escape-sequences'
 import { OutputBuffer } from './output-buffer'
+import { OscCwdTracker } from './osc-cwd-tracker'
 import { fileManager, cancelDownloadsBySession, cancelUploadsBySession } from '@main/file'
 
 /** read_output 读取选项 */
@@ -96,6 +97,7 @@ export interface Session {
   lastActiveAt: Date
   welcomeSent?: boolean
   sourceSessionId?: string  // 克隆来源（用于共享 SSH client）
+  cwd?: string  // 当前工作目录（local：spawn 种子 + OSC 报告实时更新；页签悬停详情卡显示）
   pendingCols?: number  // 等待应用的终端宽度
   pendingRows?: number  // 等待应用的终端高度
   outputBuffer?: OutputBuffer  // 终端输出缓冲区（用于 MCP 读取输出）
@@ -349,6 +351,7 @@ export class SessionManager extends EventEmitter {
       (connector === undefined || session.connector === connector)
 
     session.status = ConnectionStatus.CONNECTING
+    session.cwd = undefined  // 重连不残留上次连接的目录,由下方 tracker 重新落位
     this.emit('session:status', { id, status: ConnectionStatus.CONNECTING })
 
     // 连接信息由前端 TerminalView 显示（Xshell 风格）
@@ -408,10 +411,22 @@ export class SessionManager extends EventEmitter {
       if (!connector || !isCurrentAttempt()) throw new Error(`Connection superseded: ${id}`)
 
       session.outputBuffer = new OutputBuffer()
+      // local 会话挂工作目录解析器:输出流里的 OSC 报告(9;9 / 7)实时刷新,
+      // 推 session:cwd-changed 给页签悬停详情卡。种子(spawn 目录)延到 connect()
+      // 之后才取 —— getSpawnCwd 读 this.config 实时值,connect(config) 传新配置
+      // 会整体替换,连接前读到的还是构造时的旧配置(当前调用链不传 config,防
+      // 后续复用时种子与实际 spawn 目录分叉)。cmd 不发目录序列,停留在种子值
+      // (pwsh/PSReadLine 2.1+ 每次 prompt 都会发)
+      const cwdTracker = connector instanceof LocalConnector ? new OscCwdTracker() : null
       connector.on('data', (data: string) => {
         if (!isCurrentAttempt()) return
         this.emit('terminal:data', { sessionId: id, data })
         session.outputBuffer?.append(data)
+        const nextCwd = cwdTracker?.push(data)
+        if (nextCwd) {
+          session.cwd = nextCwd
+          this.emit('session:cwd-changed', { sessionId: id, cwd: nextCwd })
+        }
       })
       connector.on('close', () => {
         if (!isCurrentAttempt()) return
@@ -448,6 +463,18 @@ export class SessionManager extends EventEmitter {
 
       log.info(`Session connected: ${id}`)
       this.emit('session:status', { id, status: ConnectionStatus.CONNECTED })
+
+      // 工作目录初始落位:连接期间已检出 OSC 更新值时检出值优先(不被种子
+      // 覆盖),否则回落 spawn 种子 —— 此时 connect 已跑完,getSpawnCwd 读到的
+      // 必是本次连接实际使用的 config(见上方 tracker 创建处的说明)
+      if (cwdTracker) {
+        const spawnCwd = connector instanceof LocalConnector ? connector.getSpawnCwd() : null
+        const cwd = cwdTracker.getCwd() ?? spawnCwd
+        if (cwd !== null) {
+          session.cwd = cwd
+          this.emit('session:cwd-changed', { sessionId: id, cwd })
+        }
+      }
 
       // 发送启动命令（如果有）
       if (session.config.startupCommands && session.config.startupCommands.length > 0) {

@@ -684,7 +684,6 @@
     "speedM": "{{n}}M/s"
   },
   "pane": {
-    "tabHint": "单击切换 · 双击左键克隆会话 · 双击右键克隆渠道(SSH)",
     "newTab": "新建页签（打开命令面板）",
     "lockedByMcp": "MCP 正在使用此终端",
     "mcpTab": "MCP 活动",

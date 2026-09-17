@@ -89,7 +89,7 @@ export class LocalConnector extends BaseConnector {
       name: 'xterm-256color',
       cols: this._cols,
       rows: this._rows,
-      cwd: this.config.cwd || process.env.USERPROFILE || process.env.HOME,
+      cwd: this.getSpawnCwd() ?? undefined,
       env: {
         ...process.env,
         ...(systemPath ? { PATH: systemPath } : {}),
@@ -181,6 +181,18 @@ export class LocalConnector extends BaseConnector {
       return process.env.COMSPEC || 'cmd.exe'
     }
     return process.env.SHELL || '/bin/bash'
+  }
+
+  /**
+   * 本次连接实际 spawn 的工作目录(config.cwd 缺省回落用户主目录)。
+   * 读 this.config 实时值而非构造时快照:connect(config) 传新配置会整体替换
+   * this.config,连接后调用读到的即是本次连接的 cwd —— 种子取值须在
+   * connect 之后(session-manager 的 cwdTracker 初始落位即此约定)。
+   * 工作目录报告的种子值 —— cmd 等不发 OSC 目录序列的 shell,
+   * 页签悬停详情卡始终显示这个值。
+   */
+  getSpawnCwd(): string | null {
+    return this.config.cwd || process.env.USERPROFILE || process.env.HOME || null
   }
 
   /**

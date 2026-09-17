@@ -22,6 +22,7 @@ const IPC_CHANNELS = {
   SESSION_GET: 'session:get',
   SESSION_SET_ENCODING: 'session:set-encoding',  // 状态栏点击运行时切换编码
   SESSION_ENCODING_CHANGED: 'session:encoding-changed',  // 运行时编码切换完成后的推送
+  SESSION_CWD_CHANGED: 'session:cwd-changed',  // local 会话工作目录推送（spawn 初始值 + OSC 报告实时更新）
   SESSIONS_CHANGED: 'sessions:changed',  // 外部路径（MCP）改动会话列表后的推送
 
   // 串口
@@ -199,6 +200,12 @@ const electronAPI = {
     const listener = (_event: IpcRendererEvent, payload: { sessionId: string; encoding: TerminalEncoding }) => callback(payload)
     ipcRenderer.on(IPC_CHANNELS.SESSION_ENCODING_CHANGED, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.SESSION_ENCODING_CHANGED, listener)
+  },
+  // local 会话工作目录推送（页签悬停详情卡显示；spawn 初始值 + OSC 报告实时更新）
+  onSessionCwdChanged: (callback: (payload: { sessionId: string; cwd: string }) => void) => {
+    const listener = (_event: IpcRendererEvent, payload: { sessionId: string; cwd: string }) => callback(payload)
+    ipcRenderer.on(IPC_CHANNELS.SESSION_CWD_CHANGED, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.SESSION_CWD_CHANGED, listener)
   },
 
   // 串口枚举

@@ -16,6 +16,12 @@ export interface SessionState {
    * 才不会被同步冲掉、读数也才与 connector 实际解码一致
    */
   runtimeEncoding?: TerminalEncoding
+  /**
+   * 当前工作目录（仅 local：spawn 初始值 + OSC 报告实时更新）—— 与 runtimeEncoding
+   * 同为运行时字段放 config 外（config 是保存值镜像，sync/update 整体替换不冲掉），
+   * 页签悬停详情卡显示
+   */
+  cwd?: string
   status: ConnectionStatus
   lastError?: string
   isTemporary?: boolean // 临时会话标记
@@ -40,6 +46,12 @@ interface SessionStore {
   // 直接落位会被丢弃（读数停在保存值而 connector 已按新值解码）。暂存后由
   // addTemporarySession 建立时带上，deleteSession 时清掉
   pendingRuntimeEncoding: Record<string, TerminalEncoding>
+
+  // cwd 推送早于 entry 建立时的暂存（id -> 目录）：与 pendingRuntimeEncoding 同款竞态
+  //（local 连接的 CONNECTED 与 cwd-changed 推送几乎同时，entry 异步建立期间先到的
+  // cwd 直接落位会被丢弃；cmd 无后续 OSC 自补，丢了就永远没有）—— 同样由
+  // addTemporarySession 建立时带上，deleteSession 时清掉
+  pendingSessionCwd: Record<string, string>
 
   // 可达性映射：key = saved session.id（与 main/ipc/handlers.ts 中 syncReachabilityTargets 对齐）
   reachability: Record<string, { reachable: boolean; at: number }>
@@ -91,6 +103,9 @@ interface SessionStore {
   // session:encoding-changed 推送的落点：只写对应 entry 的 runtimeEncoding
   setRuntimeEncoding: (id: string, encoding: TerminalEncoding) => void
 
+  // session:cwd-changed 推送的落点：只写对应 entry 的 cwd（local 页签悬停详情卡读数）
+  setSessionCwd: (id: string, cwd: string) => void
+
   // 获取方法
   getSession: (id: string) => SessionState | undefined
   getActiveSession: () => SessionState | undefined
@@ -110,6 +125,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   sessions: [],
   reachability: {},
   pendingRuntimeEncoding: {},
+  pendingSessionCwd: {},
   activeSessionId: null,
   loading: false,
 
@@ -159,7 +175,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           id: s.id,
           config: s,
           status: 'disconnected' as ConnectionStatus,
-          runtimeEncoding: state.sessions.find(e => e.id === s.id)?.runtimeEncoding ?? state.pendingRuntimeEncoding[s.id]
+          runtimeEncoding: state.sessions.find(e => e.id === s.id)?.runtimeEncoding ?? state.pendingRuntimeEncoding[s.id],
+          cwd: state.sessions.find(e => e.id === s.id)?.cwd ?? state.pendingSessionCwd[s.id]
         })),
         loading: false
       }))
@@ -228,17 +245,37 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     })
   },
 
+  setSessionCwd: (id, cwd) => {
+    set(state => {
+      const existing = state.sessions.find(s => s.id === id)
+      if (!existing) {
+        // entry 未建立（连接极早期的推送先到）：暂存，addTemporarySession 建立时带上
+        return { pendingSessionCwd: { ...state.pendingSessionCwd, [id]: cwd } }
+      }
+      // 同值短路：pwsh 每个 prompt 都发一条目录报告，没 cd 就不触发页签条重渲染
+      if (existing.cwd === cwd && !(id in state.pendingSessionCwd)) return {}
+      const sessions = state.sessions.map(s => (s.id === id ? { ...s, cwd } : s))
+      if (!(id in state.pendingSessionCwd)) return { sessions }
+      const pendingSessionCwd = { ...state.pendingSessionCwd }
+      delete pendingSessionCwd[id]
+      return { sessions, pendingSessionCwd }
+    })
+  },
+
   // 删除会话
   deleteSession: async (id) => {
     await window.electronAPI.deleteSession(id)
     set(state => {
       const pendingRuntimeEncoding = { ...state.pendingRuntimeEncoding }
       delete pendingRuntimeEncoding[id]
+      const pendingSessionCwd = { ...state.pendingSessionCwd }
+      delete pendingSessionCwd[id]
       return {
         savedSessions: state.savedSessions.filter(s => s.id !== id),
         sessions: state.sessions.filter(s => s.id !== id),
         activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
-        pendingRuntimeEncoding
+        pendingRuntimeEncoding,
+        pendingSessionCwd
       }
     })
   },
@@ -256,14 +293,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         pendingRuntimeEncoding = { ...s.pendingRuntimeEncoding }
         delete pendingRuntimeEncoding[state.id]
       }
-      const withRuntime = runtimeEncoding !== undefined ? { ...state, runtimeEncoding } : state
+      const cwd = s.pendingSessionCwd[state.id]
+      let pendingSessionCwd = s.pendingSessionCwd
+      if (cwd !== undefined) {
+        pendingSessionCwd = { ...s.pendingSessionCwd }
+        delete pendingSessionCwd[state.id]
+      }
+      let withRuntime = runtimeEncoding !== undefined ? { ...state, runtimeEncoding } : state
+      if (cwd !== undefined) withRuntime = { ...withRuntime, cwd }
       const idx = s.sessions.findIndex(x => x.id === state.id)
       if (idx >= 0) {
         const next = [...s.sessions]
         next[idx] = { ...next[idx], ...withRuntime, isTemporary: next[idx].isTemporary || withRuntime.isTemporary }
-        return { sessions: next, pendingRuntimeEncoding }
+        return { sessions: next, pendingRuntimeEncoding, pendingSessionCwd }
       }
-      return { sessions: [...s.sessions, { ...withRuntime, isTemporary: true }], pendingRuntimeEncoding }
+      return { sessions: [...s.sessions, { ...withRuntime, isTemporary: true }], pendingRuntimeEncoding, pendingSessionCwd }
     })
   },
 
@@ -334,10 +378,20 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   // 从 sessions 数组移除 entry —— Sidebar LIVE 段的"真关闭"用,即使已 disconnected 也能彻底摘掉
   removeLiveSession: (id) => {
-    set(state => ({
-      sessions: state.sessions.filter(s => s.id !== id),
-      activeSessionId: state.activeSessionId === id ? null : state.activeSessionId
-    }))
+    set(state => {
+      // pending 暂存一并清掉(与 deleteSession 同款):entry 摘了,早到推送的
+      // 暂存就没有消费方了,留着成孤儿数据
+      const pendingRuntimeEncoding = { ...state.pendingRuntimeEncoding }
+      delete pendingRuntimeEncoding[id]
+      const pendingSessionCwd = { ...state.pendingSessionCwd }
+      delete pendingSessionCwd[id]
+      return {
+        sessions: state.sessions.filter(s => s.id !== id),
+        activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
+        pendingRuntimeEncoding,
+        pendingSessionCwd
+      }
+    })
   },
 
   // 克隆会话

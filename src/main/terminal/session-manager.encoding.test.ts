@@ -64,6 +64,9 @@ vi.mock('../connectors', async () => {
       this.encoding = encoding
     }
     getEncoding(): TerminalEncoding { return this.encoding }
+    // local 桩补齐:四个连接器名共用一个桩类,session-manager 的 LOCAL 分支对
+    // instanceof LocalConnector 的桩(telnet 会话也命中)会调它取 spawn 种子
+    getSpawnCwd(): string | null { return null }
     isConnected(): boolean { return this.connected }
   }
 
