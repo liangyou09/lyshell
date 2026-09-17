@@ -103,11 +103,11 @@
     "claude": "Claude",
     "env": "环境变量",
     "plugins": "插件",
-    "web": "网页",
+    "web": "写轮眼",
     "settings": "设置"
   },
   "webBar": {
-    "title": "网页",
+    "title": "写轮眼",
     "placeholder": "输入 URL 回车打开",
     "invalid": "无效的 URL（仅支持 http/https）",
     "back": "后退（Alt+←）",
@@ -119,7 +119,16 @@
     "removeRecent": "从最近访问中删除",
     "loading": "加载中…",
     "loadFailed": "页面加载失败",
-    "loadFailedHint": "{{error}} · {{url}}"
+    "loadFailedHint": "{{error}} · {{url}}",
+    "mini": "小窗",
+    "miniPlaceholder": "小窗地址，回车浏览",
+    "miniBack": "后退",
+    "miniForward": "前进",
+    "miniReload": "刷新",
+    "miniStop": "停止加载",
+    "miniOpenTab": "升格为网页页签",
+    "miniHintTitle": "小窗浏览器",
+    "miniHint": "输入地址浏览，或 Ctrl+点击历史行在此预览"
   },
   "agents": {
     "title": "Agent",

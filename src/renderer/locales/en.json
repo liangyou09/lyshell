@@ -103,11 +103,11 @@
     "claude": "Claude",
     "env": "Env",
     "plugins": "Plugins",
-    "web": "Web",
+    "web": "Sharingan",
     "settings": "Settings"
   },
   "webBar": {
-    "title": "Web",
+    "title": "Sharingan",
     "placeholder": "Enter a URL and press Enter",
     "invalid": "Invalid URL (http/https only)",
     "back": "Back (Alt+←)",
@@ -119,7 +119,16 @@
     "removeRecent": "Remove from recent",
     "loading": "Loading…",
     "loadFailed": "Failed to load page",
-    "loadFailedHint": "{{error}} · {{url}}"
+    "loadFailedHint": "{{error}} · {{url}}",
+    "mini": "Mini pane",
+    "miniPlaceholder": "Mini address, Enter to browse",
+    "miniBack": "Back",
+    "miniForward": "Forward",
+    "miniReload": "Reload",
+    "miniStop": "Stop loading",
+    "miniOpenTab": "Promote to web tab",
+    "miniHintTitle": "Mini browser",
+    "miniHint": "Type an address, or Ctrl+click a history row to preview here"
   },
   "agents": {
     "title": "Agents",

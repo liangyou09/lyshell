@@ -57,6 +57,13 @@ let stopMcpHttpServerImpl: (() => Promise<void>) | undefined
 // 与 dsh web（persist:dshweb）隔离：通用浏览可保留自己的 cookie/登录态，互不污染。
 const WEBBAR_PARTITION = 'persist:webbar'
 
+// 写轮眼小窗（左列 Web 面板栏底迷你浏览器）的 partition —— 按上方「新入口另开
+// 独立 partition」的告示独立成仓：一来与完整页签互不串扰 cookie/登录态，二来
+// webbar partition 挂的快捷键转发一律指向「活动完整页签」，小窗若复用会出现
+// 「焦点在小窗内按 Ctrl+R 却刷新了别的页签」的错位。小窗不挂 before-input-event
+// 转发（刷新/地址聚焦走工具条按钮），页面级按键原样进页面。
+const WEBBAR_MINI_PARTITION = 'persist:webbar-mini'
+
 // dsh web 导航白名单：取当前实例规范化 URL 的 origin（127.0.0.1:实际端口）。无实例时返回 null。
 function getDshWebAllowedOrigin(): string | null {
   const u = dshWebManager.currentUrl
@@ -188,6 +195,8 @@ function createMainWindow(): void {
   //     origin（127.0.0.1:实际端口），弹窗一律 deny —— 杜绝 webview 逃逸到外站或本机其它服务。
   //   - 网页访问栏（persist:webbar）：src 仅要求 http/https（用户在插件面板输入任意网址），
   //     后续导航同策略；弹窗仍 deny。
+  //   - 写轮眼小窗（persist:webbar-mini）：src 允许为空（渲染层挂载后经 loadURL 起航），
+  //     有 src 则与访问栏同校验；后续导航同策略，弹窗 deny。
   //   注意：persist:webbar 专属网页访问栏，后续若新增外部网页拖拽/插件注入等入口，
   //   请另开独立 partition（如 persist:pluginweb），不要复用本通道 —— 该 partition 的
   //   导航策略是「放行任意 http/https」，复用等于把放宽后的策略扩散到所有新入口。
@@ -197,6 +206,15 @@ function createMainWindow(): void {
       // 网页访问栏：只校验协议（渲染层 normalizeWebBarUrl 已做同样归一化，这里是服务端兜底）
       if (!isHttpUrl(src)) {
         log.warn('Blocked webbar webview attach with non-http(s) src:', src)
+        event.preventDefault()
+        return
+      }
+    } else if (params?.partition === WEBBAR_MINI_PARTITION) {
+      // 写轮眼小窗：挂载可以无 src（导航走渲染层 loadURL，起航前不触发本校验）；
+      // 一旦给 src 则同访问栏口径 —— 仅放行 http/https
+      const miniSrc = params?.src
+      if (miniSrc !== undefined && miniSrc !== '' && !isHttpUrl(miniSrc)) {
+        log.warn('Blocked webbar-mini webview attach with non-http(s) src:', miniSrc)
         event.preventDefault()
         return
       }
@@ -228,6 +246,10 @@ function createMainWindow(): void {
     // 其余（dsh web）维持 origin 锁定。fromPartition 返回同 partition 的 session 单例，
     // webview 挂载的 session 与之身份相等即网页访问栏。
     const isWebbar = webContents.session === session.fromPartition(WEBBAR_PARTITION)
+    // 写轮眼小窗：导航策略与访问栏同款（http/https），但不挂下面的快捷键转发 ——
+    // 转发一律路由到「活动完整页签」，小窗持有焦点时按 Ctrl+R 会刷错页签（见
+    // WEBBAR_MINI_PARTITION 注释）；小窗的刷新/后退走工具条按钮
+    const isWebbarMini = webContents.session === session.fromPartition(WEBBAR_MINI_PARTITION)
     webContents.setWindowOpenHandler(({ url }) => {
       // webview 不允许开新窗口/弹窗，直接 deny（dsh UI 不需要 popup，也不交系统浏览器避免泄 URL）
       log.warn('Blocked webview window.open:', url)
@@ -236,7 +258,8 @@ function createMainWindow(): void {
     // 网页页签快捷键：焦点进 webview 后键盘全被 guest 吃掉，宿主 keydown 收不到。
     // 在 guest 事件分发前拦截浏览器手势（Ctrl+R/Alt+←→/Ctrl+L 等），掐掉
     // guest 的默认动作后转发渲染层路由到「活动网页页签」—— 与宿主侧快捷键
-    // 走同一控制层。仅网页访问栏挂（dsh web 保持锁定，无浏览语义）。
+    // 走同一控制层。仅网页访问栏挂（dsh web 保持锁定，无浏览语义；写轮眼小窗
+    // 也不挂 —— 路由错位问题见 isWebbarMini 注释）。
     if (isWebbar) {
       webContents.on('before-input-event', (event, input) => {
         const action = matchWebTabShortcut(input)
@@ -248,11 +271,11 @@ function createMainWindow(): void {
     webContents.on('will-navigate', (event, url) => {
       try {
         const target = new URL(url)
-        if (isWebbar) {
-          // 网页访问栏：仅拦非 http/https（file://、chrome:// 等）
+        if (isWebbar || isWebbarMini) {
+          // 网页访问栏与写轮眼小窗：仅拦非 http/https（file://、chrome:// 等）
           if (target.protocol === 'http:' || target.protocol === 'https:') return
           event.preventDefault()
-          log.warn('Blocked webbar webview navigation:', url)
+          log.warn('Blocked webbar/webbar-mini webview navigation:', url)
           return
         }
         const origin = getDshWebAllowedOrigin()

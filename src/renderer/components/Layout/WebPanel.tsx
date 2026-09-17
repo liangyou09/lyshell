@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
-import { usePaneStore } from '../../stores/pane-store'
+import type { WebviewTag } from 'electron'
+import { usePaneStore, normalizeWebBarUrl } from '../../stores/pane-store'
 import { useUiStore } from '../../stores/ui-store'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { WebTabFavicon } from './PaneTabBar'
@@ -103,6 +104,69 @@ const NavButton: React.FC<{
   </button>
 )
 
+// ===== 写轮眼小窗（栏底迷你浏览器）的持久化与几何常量 =====
+// 高度走 config（键名/防抖/夹取对齐会话面板 fileManagerHeight 的栏底语法）；上次
+// 浏览地址走 localStorage 镜像 —— 重开面板即恢复原页,小窗是「常在的地方」而非表单
+const MINI_HEIGHT_KEY = 'webMiniHeight'
+const MINI_URL_STORAGE_KEY = 'lyshell.webbarMini.url.v1'
+const MINI_DEFAULT_HEIGHT = 200
+const MINI_MIN_HEIGHT = 110      // 工具条 26px + 网页可视 ~80px 的下限
+const MINI_RESERVE_HEIGHT = 160  // 面板高减去它 = 小窗高度上限（铭牌/地址栏/历史留座）
+const MINI_ABS_MAX_HEIGHT = 4000 // 存档值绝对上限（防手改 config 的离谱值；运行期布局上限另由渲染期 maxHeight 钳）
+
+/** 小窗高度统一夹取（config 恢复与拖动共用同一逻辑）：整数像素，免半像素渲染。
+ *  max 小于 MIN（面板未布局/极矮）时 MIN 兜底 —— 恢复值只可能被夹小不会被夹死 */
+const clampMiniHeight = (v: number, max = MINI_ABS_MAX_HEIGHT): number =>
+  Math.round(Math.max(MINI_MIN_HEIGHT, Math.min(max, v)))
+
+/** webview 方法面调用收口：loadURL/reload/goBack 等返回 Promise，元素已卸载或
+ *  导航竞态的拒绝是常态噪音 —— 吞掉不上未处理拒绝；jsdom 桩返回 undefined 同样
+ *  兼容（非 Promise 直接放过），同步抛错也兜一道（未就绪窗口的理论防线，
+ *  调用点已门在 miniReady，这里不重复门）。吞归吞，留一条 console.warn 落地
+ *  痕迹 —— 异常路径真发生时 devtools 里有迹可循，不至于无声无息难排查 */
+const settleWebview = (task: () => unknown): void => {
+  try {
+    const r = task()
+    if (r instanceof Promise) {
+      r.catch(err => console.warn('[WebPanel] webview call rejected:', err))
+    }
+  } catch (err) {
+    console.warn('[WebPanel] webview call threw:', err)
+  }
+}
+
+/** 勾玉开眼指示 —— 小窗工具条 leading 状态灯：未浏览 = faint（闭眼），有页面 =
+ *  text-rack 点亮（开眼，与活动轨 web 槽位激活同一状态语言）。13px 下细节收敛为
+ *  眼眶 + 瞳孔 + 三枚勾玉圆点（尾迹在此尺寸不可读，略去）。 */
+const MiniEyeGlyph: React.FC<{ lit: boolean; label: string; size?: number }> = ({ lit, label, size = 13 }) => (
+  <span
+    role="img"
+    aria-label={label}
+    title={label}
+    className={cn(
+      'flex-shrink-0 flex items-center justify-center transition-colors',
+      lit ? 'text-[var(--text-rack)]' : 'text-[var(--text-rack-faint)]'
+    )}
+  >
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <circle cx="12" cy="12" r="10.5" />
+      <circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="4.9" r="2.1" fill="currentColor" stroke="none" />
+      <g transform="rotate(120 12 12)"><circle cx="12" cy="4.9" r="2.1" fill="currentColor" stroke="none" /></g>
+      <g transform="rotate(240 12 12)"><circle cx="12" cy="4.9" r="2.1" fill="currentColor" stroke="none" /></g>
+    </svg>
+  </span>
+)
+
+/** 升格图标（lucide external-link 线稿风格）——把小窗当前页开成完整网页页签 */
+const PromoteIcon: React.FC = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M13 4h7v7" />
+    <path d="M20 4 9 15" />
+    <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+  </svg>
+)
+
 /** 垃圾桶图标(lucide trash 线稿风格,stroke 随 currentColor)——「清空」按钮用 */
 const TrashIcon: React.FC = () => (
   <svg
@@ -159,6 +223,11 @@ const RecentFavicon: React.FC<{ url: string; favicon?: string }> = ({ url, favic
  * URL 归一化/校验在 pane-store 的 normalizeWebBarUrl;webview 的导航/弹窗由主进程
  * 按 persist:webbar partition 分流锁定(仅 http/https,见 main/index.ts)。
  *
+ * 栏底是「写轮眼小窗」—— 模拟会话面板文件管理器的栏底语法(4px 拖高条 + config
+ * 持久化高度)的迷你浏览器:不动用终端分屏的快速查阅面,Ctrl+点击历史行在此预览,
+ * ↗ 升格为完整网页页签;webview 走独立 partition persist:webbar-mini(不挂快捷键
+ * 转发,避免路由到活动页签的错位,见 main/index.ts),上次地址 localStorage 恢复。
+ *
  * 样式沿用面板令牌(--bg-elev/--bg-slot/--rule/--amber/--text-rack*)与
  * [font-family:inherit] 12px 基线,头条与 SessionsPanel/PluginPanel 同构。
  */
@@ -172,6 +241,46 @@ const WebPanel: React.FC = () => {
   const setWebTabNav = usePaneStore((s) => s.setWebTabNav)
   const [webBarInput, setWebBarInput] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
+
+  // ───── 写轮眼小窗（栏底迷你浏览器）─────
+  const recordWebTabVisit = usePaneStore((s) => s.recordWebTabVisit)
+  const [miniHeight, setMiniHeight] = useState(MINI_DEFAULT_HEIGHT)
+  const [miniResizing, setMiniResizing] = useState(false)
+  // null = 未开眼（空态指引，不挂 webview）；有值 = 当前浏览地址（did-navigate 回写落点，
+  // redirect 后的真实地址而非输入原值）。挂载即从 localStorage 恢复上次页面 ——
+  // 切回 Web 页签小窗原页还在，像「常驻的地方」而不是每次重填的表单
+  const [miniUrl, setMiniUrl] = useState<string | null>(() => {
+    try {
+      const v = localStorage.getItem(MINI_URL_STORAGE_KEY)
+      // 前缀门 + normalizeWebBarUrl 双校验：存档只可能来自归一化后的地址或导航
+      // 落点（必带 scheme），裸词按毒数据直接落空态；前缀对但畸形的值（手改/
+      // 旧格式残留，如 'https://' 空 host）在 normalize 处解析失败 → 同样落回
+      // 未开眼，而不是挂一个注定失败的 src 去等失败反馈。归一化成功的存档
+      // 顺手自愈（miniUrl 变化触发下方存档 effect 重写）
+      if (!v || !/^https?:\/\//.test(v)) return null
+      return normalizeWebBarUrl(v) || null
+    } catch { return null }
+  })
+  const [miniInput, setMiniInput] = useState(miniUrl ?? '')
+  const [miniLoading, setMiniLoading] = useState(false)
+  const [miniFailed, setMiniFailed] = useState<string | null>(null)
+  const [miniNav, setMiniNav] = useState({ canGoBack: false, canGoForward: false })
+  // webview 元素经回调 ref 落 state：只有开眼后才挂载，事件/导航 effect 以它为 dep
+  const [miniEl, setMiniEl] = useState<WebviewTag | null>(null)
+  // dom-ready 门：webview 的方法面（getURL/loadURL/canGoBack…）在 guest 挂载、
+  // dom-ready 触发之前一律抛错（Electron WebViewElement 硬约束；jsdom 桩测不出,
+  // 真机挂载当拍调 getURL 会直接炸）—— 所有元素方法调用都门在它后面
+  const [miniReady, setMiniReady] = useState(false)
+  // 挂载 src 冻结值：webview 一旦挂载 src 恒不变（React 只在值变时才动 DOM 属性，
+  // 后续导航全走 loadURL —— 同完整页签「src 永不变」纪律），首航地址在此定格；
+  // 挂载即带 src 也绕开「无 src 的 webview 是否触发 dom-ready」的不确定面
+  const [miniSrc, setMiniSrc] = useState<string | null>(miniUrl)
+  // 最近一次主框架导航落点（WebTabOverlay 的 lastUrlRef 同款）：初始化为挂载目标，
+  // onNav 每次覆写 —— did-finish-load 记历史吃它而非 getURL()，事件回调一律
+  // 不碰方法面，也不赌 did-finish-load 与 dom-ready 的时序（ref 无闭包陈旧问题）
+  const miniLastUrlRef = useRef<string>(miniUrl ?? '')
+  const miniInputRef = useRef<HTMLInputElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
 
   // 浏览器 chrome 模式判定:活动 pane 的活动覆盖层是网页页签时,本面板从
   // 「开新页签的启动器」切换为「该页签的地址栏 + 导航按钮」(判定收敛在
@@ -236,6 +345,146 @@ const WebPanel: React.FC = () => {
     setWebTabNav(activeWebTabId, { canGoBack: el.canGoBack(), canGoForward: el.canGoForward() })
   }, [activeWebTabId, setWebTabNav])
 
+  // 小窗高度:config 异步对账 + 500ms 防抖双写(fileManagerHeight 同款栏底语法)。
+  // 恢复值走与拖动同一把 clampMiniHeight:Number.isFinite 拦 NaN/Infinity,typeof
+  // 拦字符串数字,夹取拦过小/离谱过大 —— 恢复时面板多半尚未布局,量不到
+  // rect.height,「当前布局上限」由渲染期 maxHeight(见 JSX)承担
+  useEffect(() => {
+    window.electronAPI?.getConfig(MINI_HEIGHT_KEY).then((v: unknown) => {
+      if (typeof v === 'number' && Number.isFinite(v) && v > 0) setMiniHeight(clampMiniHeight(v))
+    }).catch(() => { /* config 不可达回落默认 */ })
+  }, [])
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      // setConfig 走 IPC 返回 Promise：失败不上未处理拒绝，但留 warn 痕迹与
+      // settleWebview 同口径 —— 高度已在内存态，下次拖动变更会再试
+      window.electronAPI?.setConfig(MINI_HEIGHT_KEY, miniHeight).catch(
+        err => console.warn('[WebPanel] webMiniHeight config write failed:', err)
+      )
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [miniHeight])
+
+  // 小窗上次地址存档:miniUrl 每变即写(did-navigate 回写后的落点,非输入原值)
+  useEffect(() => {
+    if (miniUrl === null) return
+    try { localStorage.setItem(MINI_URL_STORAGE_KEY, miniUrl) } catch { /* quota */ }
+  }, [miniUrl])
+
+  // 小窗导航:miniUrl 是「应显示的地址」,元素 getURL() 是「实际所在地址」,不等才
+  // loadURL —— 幂等设计:did-navigate 把落点回写进 miniUrl 后两者相等自然停手
+  // (redirect 落点同步亦然),Enter / localStorage 恢复 / Ctrl+点击历史行共用同一入口。
+  // 门在 miniReady:getURL/loadURL 在 dom-ready 前调用会抛错(见 state 注释);
+  // loadURL 返回 Promise,经 settleWebview 吞掉常态拒绝
+  // 挂失败不重试:effect 只随 miniUrl 变化重跑,失败的地址停在原地等用户改址
+  useEffect(() => {
+    const el = miniEl
+    if (miniUrl === null || !el || !miniReady || !el.loadURL) return
+    if (el.getURL() !== miniUrl) settleWebview(() => el.loadURL(miniUrl))
+  }, [miniUrl, miniEl, miniReady])
+
+  // 工具条地址跟随落点:输入未持焦点才回写(编辑中不冲掉打到一半的地址 ——
+  // focus 即编辑态的简化守卫,小窗无跨页签切换的复杂度,不需要主地址栏的 ref 机制)
+  useEffect(() => {
+    const el = miniInputRef.current
+    if (el && document.activeElement === el) return
+    setMiniInput(miniUrl ?? '')
+  }, [miniUrl])
+
+  // 小窗 webview 事件:与 WebTabOverlay 同一套口径(Electron 28 参数挂事件自身
+  // 属性的双读、ERR_ABORTED(-3) 常态噪音过滤、子框架失败不铺浮层)。落点入册
+  // 共享「最近访问」—— 小窗预览也是真实访问,store 去重封顶。canGoBack 是同步
+  // IPC,但小窗事件只在自身面板可见时才会来(无后台页签),直接读无冻结顾虑
+  useEffect(() => {
+    if (!miniEl) return
+    // 新元素一律先判未就绪:未来若有「关小窗」重挂路径,防上一元素的陈旧 true
+    setMiniReady(false)
+    const onDomReady = (): void => setMiniReady(true)
+    const onNav = (e: Event): void => {
+      const evt = e as CustomEvent<unknown> & { url?: string; isMainFrame?: boolean; detail?: { url?: string; isMainFrame?: boolean } }
+      const url = evt.url ?? evt.detail?.url
+      const isMainFrame = evt.isMainFrame ?? evt.detail?.isMainFrame
+      if (isMainFrame === false || !url) return
+      miniLastUrlRef.current = url
+      setMiniUrl(url)
+      setMiniNav({ canGoBack: miniEl.canGoBack(), canGoForward: miniEl.canGoForward() })
+    }
+    const onStartLoading = (): void => { setMiniLoading(true); setMiniFailed(null) }
+    const onStopLoading = (): void => setMiniLoading(false)
+    const onFail = (e: Event): void => {
+      const evt = e as CustomEvent<unknown> & { errorCode?: number; errorDescription?: string; isMainFrame?: boolean }
+      if (evt.isMainFrame === false) return
+      if (evt.errorCode === -3) return
+      setMiniFailed(evt.errorDescription || (evt.errorCode !== undefined ? `ERR_${evt.errorCode}` : 'ERROR'))
+    }
+    // 记历史吃 miniLastUrlRef（导航落点，初始化即挂载目标）而非 getURL()：
+    // 事件回调不碰方法面，did-finish-load 理论晚于 dom-ready 但不赌时序
+    const onLoadFinish = (): void => recordWebTabVisit(miniLastUrlRef.current)
+    miniEl.addEventListener('dom-ready', onDomReady)
+    miniEl.addEventListener('did-navigate', onNav)
+    miniEl.addEventListener('did-navigate-in-page', onNav)
+    miniEl.addEventListener('did-start-loading', onStartLoading)
+    miniEl.addEventListener('did-stop-loading', onStopLoading)
+    miniEl.addEventListener('did-fail-load', onFail)
+    miniEl.addEventListener('did-finish-load', onLoadFinish)
+    return () => {
+      miniEl.removeEventListener('dom-ready', onDomReady)
+      miniEl.removeEventListener('did-navigate', onNav)
+      miniEl.removeEventListener('did-navigate-in-page', onNav)
+      miniEl.removeEventListener('did-start-loading', onStartLoading)
+      miniEl.removeEventListener('did-stop-loading', onStopLoading)
+      miniEl.removeEventListener('did-fail-load', onFail)
+      miniEl.removeEventListener('did-finish-load', onLoadFinish)
+    }
+  }, [miniEl, recordWebTabVisit])
+
+  // 小窗导航统一入口:同址重进 = 刷新(omnibox 惯例,dom-ready 后才有方法面);
+  // 否则落 miniUrl 交给导航 effect 起航,首航同时冻结挂载 src。非法地址走面板
+  // 公共 notice 通道(与主地址栏同一条错误路径)。reload 的 Promise 拒绝经
+  // settleWebview 收口(工具条按钮同)
+  const loadMini = (raw: string): boolean => {
+    const norm = normalizeWebBarUrl(raw)
+    if (!norm) {
+      setNotice(t('webBar.invalid'))
+      return false
+    }
+    const el = miniEl
+    if (el && miniReady && el.getURL() === norm) {
+      settleWebview(() => el.reload())
+      return true
+    }
+    if (miniSrc === null) setMiniSrc(norm)
+    setMiniUrl(norm)
+    return true
+  }
+  const handleMiniEnter = (): void => {
+    setNotice(null)
+    const raw = (miniInputRef.current?.value ?? '').trim()
+    if (!raw) return
+    loadMini(raw)
+  }
+  // 升格:以小窗当前页开完整网页页签(小窗保留原页,两条浏览线互不打断)
+  const handleMiniPromote = (): void => {
+    if (miniUrl !== null) openWebTab(miniUrl)
+  }
+
+  // 小窗拖高:pointer 捕获而非文件管理器的 document mousemove —— 小窗本体是
+  // webview,指针一进页面范围 mousemove 就被 guest 吞掉(同跨域 iframe),捕获后
+  // pointermove 恒回流本元素(同 MainWindow 侧栏调宽条的经验)
+  const onMiniDividerPointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
+    e.currentTarget.setPointerCapture(e.pointerId)
+    setMiniResizing(true)
+  }
+  const onMiniDividerPointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
+    if (!miniResizing) return
+    const rect = rootRef.current?.getBoundingClientRect()
+    if (!rect) return
+    // 与 config 恢复共用 clampMiniHeight(同一夹取逻辑);rect 未布局/极矮时
+    // max < MIN,MIN 兜底 —— 只夹小不夹死
+    setMiniHeight(clampMiniHeight(rect.bottom - e.clientY, rect.height - MINI_RESERVE_HEIGHT))
+  }
+  const endMiniResize = (): void => setMiniResizing(false)
+
   // 输入完整 URL(无 scheme 自动补 https://)→ 浏览器模式就地导航,启动器模式
   // 以终端页签形式打开在活动分屏。非法输入走 notice 提示(对齐其他面板的错误
   // 路径)。rawArg 供 Enter 的延迟路径传入 datalist 提交后的 DOM 值
@@ -262,6 +511,7 @@ const WebPanel: React.FC = () => {
 
   return (
     <div
+      ref={rootRef}
       className="w-full h-full flex flex-col bg-[var(--bg-base)]"
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
@@ -347,8 +597,9 @@ const WebPanel: React.FC = () => {
         <div aria-hidden className="h-px bg-[var(--rule-soft)]" />
       </div>
 
-      {/* 内容笼:p-3 + space-y-2(与 PluginPanel 同构);顶部 pt-1.5 贴分割线起排 */}
-      <div className="flex-1 min-h-0 flex flex-col px-3 pt-1.5 pb-3 space-y-2">
+      {/* 内容笼:p-3 + space-y-2(与 PluginPanel 同构);顶部 pt-1.5 贴分割线起排,
+          底部 pb-1.5 贴小窗拖高条(栏底语法:历史卡与拖高条之间只留 6px 空气) */}
+      <div className="flex-1 min-h-0 flex flex-col px-3 pt-1.5 pb-1.5 space-y-2">
 
         {notice && <div className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] break-all">{notice}</div>}
 
@@ -380,7 +631,12 @@ const WebPanel: React.FC = () => {
               >
                 <RecentFavicon url={url} favicon={webTabFavicons[url]} />
                 <button
-                  onClick={() => openWebTab(url)}
+                  onClick={(e) => {
+                    // Ctrl/Cmd+点击 = 小窗预览(应用内 Ctrl+点击是备选动作的通用
+                    // 语法,同终端 Ctrl+点击 URL 开页签);普通点击仍开完整页签
+                    if (e.ctrlKey || e.metaKey) loadMini(url)
+                    else openWebTab(url)
+                  }}
                   title={url}
                   className="flex-1 min-w-0 text-left text-xs [font-family:inherit] truncate text-[var(--text-rack)] hover:text-[var(--amber)] cursor-pointer transition-colors"
                 >
@@ -397,6 +653,109 @@ const WebPanel: React.FC = () => {
             ))}
           </div>
         )}
+      </div>
+
+      {/* ===== 写轮眼小窗拖高条 —— 会话面板文件管理器同款栏底语法:4px 满幅、
+          hover 通电 amber、中央 30×2 暗色把手、上缘 4px 加宽命中热区 ===== */}
+      <div
+        className="h-[4px] bg-[var(--rule)] cursor-row-resize hover:bg-[var(--amber)] transition-colors flex items-center justify-center flex-shrink-0 select-none relative"
+        onPointerDown={onMiniDividerPointerDown}
+        onPointerMove={onMiniDividerPointerMove}
+        onPointerUp={endMiniResize}
+        onPointerCancel={endMiniResize}
+        onLostPointerCapture={endMiniResize}
+      >
+        <div aria-hidden className="absolute top-[-4px] left-0 right-0 h-[4px] cursor-row-resize" />
+        <div aria-hidden className="w-[30px] h-[2px] bg-[var(--text-rack-dim)] rounded" />
+      </div>
+
+      {/* ===== 写轮眼小窗本体:高度持久化的迷你浏览器 ===== */}
+      <div
+        className="flex-shrink-0 overflow-hidden"
+        style={{
+          height: `${miniHeight}px`,
+          // 渲染期钳(拖动/恢复夹取之外的第二道防线):存档值超当前面板或窗口
+          // 临时缩小时视觉收敛,保底上方 160px;存档值不被临时小屏毁掉,窗口
+          // 回弹即恢复原高 —— 恢复时面板多半未布局,rect 量不到,上限靠这里
+          maxHeight: `calc(100% - ${MINI_RESERVE_HEIGHT}px)`
+        }}
+      >
+        <div className="flex flex-col h-full">
+          {/* 迷你工具条:勾玉开眼指示 + 后退/前进/刷新停止 + 小窗地址(datalist
+              复用主地址栏的全量历史)+ 升格。tooltip 不写快捷键提示 —— 小窗不挂
+              before-input-event 转发(路由错位问题,见 main/index.ts),写了就是假话 */}
+          <div className="flex items-center gap-[3px] px-2 h-[26px] flex-shrink-0 bg-[var(--bg-rack)] border-b border-[var(--rule)]">
+            <MiniEyeGlyph lit={miniUrl !== null} label={t('webBar.mini')} />
+            <NavButton title={t('webBar.miniBack')} disabled={!miniNav.canGoBack} onClick={() => settleWebview(() => miniEl?.goBack())}>
+              <ChevronLeftIcon />
+            </NavButton>
+            <NavButton title={t('webBar.miniForward')} disabled={!miniNav.canGoForward} onClick={() => settleWebview(() => miniEl?.goForward())}>
+              <ChevronRightIcon />
+            </NavButton>
+            <NavButton
+              title={miniLoading ? t('webBar.miniStop') : t('webBar.miniReload')}
+              disabled={miniUrl === null || !miniReady}
+              onClick={() => settleWebview(() => (miniLoading ? miniEl?.stop() : miniEl?.reload()))}
+            >
+              {miniLoading ? <StopIcon /> : <RotateCwIcon />}
+            </NavButton>
+            <input
+              ref={miniInputRef}
+              type="text"
+              list="lyshell-webbar-history"
+              value={miniInput}
+              onChange={(e) => setMiniInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  // IME 组合中的 Enter 是候选确认,不导航(同主地址栏)
+                  if (e.nativeEvent.isComposing) return
+                  // datalist 高亮项的提交晚于 keydown(同主地址栏竞态),延后一拍读 DOM
+                  setTimeout(handleMiniEnter, 0)
+                } else if (e.key === 'Escape' && miniUrl !== null) {
+                  // Esc 放弃编辑,复位为当前页地址(同主地址栏语法)
+                  setMiniInput(miniUrl)
+                  miniInputRef.current?.blur()
+                }
+              }}
+              onFocus={(e) => e.target.select()}
+              placeholder={t('webBar.miniPlaceholder')}
+              spellCheck={false}
+              className="flex-1 min-w-0 px-1.5 h-[20px] text-[11px] [font-family:inherit] rounded-[2px] bg-[var(--bg-elev)] border border-[var(--rule)] text-[var(--text-rack)] placeholder:text-[var(--text-rack-mute)] focus:outline-none focus:border-[var(--amber)]"
+            />
+            <NavButton title={t('webBar.miniOpenTab')} disabled={miniUrl === null} onClick={handleMiniPromote}>
+              <PromoteIcon />
+            </NavButton>
+          </div>
+          {/* 浏览面:未开眼 = 空态指引(空屏是行动邀请);开眼 = webview + 加载/
+              失败浮层(WebTabOverlay 同款,webview 无内建 UI) */}
+          <div className="flex-1 min-h-0 relative bg-[var(--terminal-bg)]">
+            {miniUrl === null ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 select-none px-3 text-center">
+                <MiniEyeGlyph lit={false} label={t('webBar.miniHintTitle')} size={20} />
+                <span className="text-[11.5px] text-[var(--text-rack-mute)]">{t('webBar.miniHintTitle')}</span>
+                <span className="text-[10.5px] text-[var(--text-rack-faint)]">{t('webBar.miniHint')}</span>
+              </div>
+            ) : (
+              <>
+                {/* src = 冻结的首航地址(挂载后恒不变,后续导航走 loadURL,见 miniSrc 注释) */}
+                <webview ref={setMiniEl} partition="persist:webbar-mini" src={miniSrc ?? undefined} className="w-full h-full" />
+                {miniLoading && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--terminal-bg)] text-sm text-gray-400 pointer-events-none">
+                    {t('webBar.loading')}
+                  </div>
+                )}
+                {miniFailed && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[var(--terminal-bg)]">
+                    <p className="text-sm text-gray-300">{t('webBar.loadFailed')}</p>
+                    <p className="max-w-[80%] truncate font-mono text-xs text-gray-500">
+                      {t('webBar.loadFailedHint', { error: miniFailed, url: miniUrl })}
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )
