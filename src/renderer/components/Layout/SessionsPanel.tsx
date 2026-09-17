@@ -206,6 +206,9 @@ const IconStar = ({ filled }: { filled?: boolean }) => (
 const IconX = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 2l7 7M9 2l-7 7"/></svg>
 )
+const IconChevronUp = () => (
+  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 7l3.5-3.5L9 7"/></svg>
+)
 const IconRack = () => (
   <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x=".5" y=".5" width="9" height="9"/><path d="M0 3.5h10M0 6.5h10M3.5 0v10M6.5 0v10"/></svg>
 )
@@ -553,6 +556,9 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
   // 菜单重锚 effect 的 deps 引用它,deps 数组渲染期求值,声明在后会踩 TDZ
   const [fileManagerHeight, setFileManagerHeight] = useState(200)
   const [isResizingHeight, setIsResizingHeight] = useState(false)
+  const [fileManagerClosed, setFileManagerClosed] = useState(false)
+  // config 对账是否落定(落定前不挂 FileManager,见 loadUIConfig 注释)
+  const [fmConfigLoaded, setFmConfigLoaded] = useState(false)
   const sidebarRef = useRef<HTMLDivElement>(null)
   // 编码选择菜单 —— 状态栏在窗口底部,菜单从编码按钮向上弹(portal 挂 body,竖排三项,
   // 当前项 amber 点亮)。选档即运行时切换:解码流/写编码立即换,只改运行时会话不写回
@@ -711,13 +717,30 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
   }, [refreshSavedSessions])
 
   // 加载保存的 UI 配置
+  // fmConfigReadRef = 写门(读档成功才置 true):存档 closed=true 时 state 初值是
+  // 默认 false,未读档就写的话防抖 500ms / 卸载补写都会把 false 落盘冲掉存档;
+  // config 读取失败时门保持关 —— 回落默认渲染但不写,存档留给下次可读时用
+  const fmConfigReadRef = useRef(false)
   useEffect(() => {
     const loadUIConfig = async () => {
       try {
         const savedHeight = await window.electronAPI?.getConfig('fileManagerHeight')
-        if (savedHeight && savedHeight > 0) setFileManagerHeight(savedHeight)
+        if (typeof savedHeight === 'number' && Number.isFinite(savedHeight) && savedHeight > 0) {
+          // 上限与小窗同一把绝对钳(4000):恢复时面板多半尚未布局,rect 量不到
+          // 「当前布局上限」,离谱存档值(手改 config)先收敛,渲染期 maxHeight 再钳
+          setFileManagerHeight(Math.round(Math.min(4000, Math.max(100, savedHeight))))
+        }
+        const savedClosed = await window.electronAPI?.getConfig('fileManagerClosed')
+        if (typeof savedClosed === 'boolean') setFileManagerClosed(savedClosed)
+        // 开在 setFileManagerClosed 同一微任务内:随后重跑的写 effect(见下)立即看到门已开
+        fmConfigReadRef.current = true
       } catch (e) {
         console.warn('Failed to load UI config:', e)
+      } finally {
+        // 对账落定前不挂 FileManager(见渲染处门):本面板随页签条件挂载,存档
+        // closed=true 时若先按默认 false 渲染,每次进页签都会挂 FM 发一轮
+        // pwd/SFTP 远程调用再拆掉 —— 闪现 + 白费远程请求
+        setFmConfigLoaded(true)
       }
     }
     loadUIConfig()
@@ -727,9 +750,36 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
   useEffect(() => {
     const timer = setTimeout(() => {
       window.electronAPI?.setConfig('fileManagerHeight', fileManagerHeight)
+        .catch(err => console.warn('Failed to save file manager height:', err))
     }, 500)
     return () => clearTimeout(timer)
   }, [fileManagerHeight])
+
+  // 保存文件管理器关闭状态：与高度独立存档。关闭 = 摘树,不保 FileManager
+  // 内部状态 —— 重挂后本地状态重建(目录缓存清空、pwd/SFTP 重发),与页签
+  // 切换重挂同口径;恢复入口仍在原分割线,不引入第二条栏底通道。
+  // 500ms 防抖 + 卸载补写：面板随页签切换即卸载，关闭后 500ms 内切走页签时
+  // 防抖 timer 被 cleanup 掐掉且没有后续触发（高度丢了下次拖动还能自愈，关闭
+  // 决策不补写就永久丢失）—— 卸载时值未落盘就立即写。写门见 loadUIConfig
+  // 注释:读档未成功不写,默认 false 不冲存档
+  const fmClosedRef = useRef(fileManagerClosed)
+  const fmClosedSavedRef = useRef<boolean | null>(null)
+  useEffect(() => {
+    fmClosedRef.current = fileManagerClosed
+    if (!fmConfigReadRef.current) return
+    const timer = setTimeout(() => {
+      fmClosedSavedRef.current = fileManagerClosed
+      window.electronAPI?.setConfig('fileManagerClosed', fileManagerClosed)
+        .catch(err => console.warn('Failed to save file manager state:', err))
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [fileManagerClosed])
+  useEffect(() => () => {
+    if (fmConfigReadRef.current && fmClosedSavedRef.current !== fmClosedRef.current) {
+      window.electronAPI?.setConfig('fileManagerClosed', fmClosedRef.current)
+        .catch(err => console.warn('Failed to save file manager state:', err))
+    }
+  }, [])
 
   // 高度拖动
   useEffect(() => {
@@ -1398,22 +1448,70 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
           )}
         </div>
 
-        {/* ===== 文件管理器分割线 ===== */}
+        {/* ===== 文件管理器分割线：关闭后仍保留为恢复轨 —— 与小窗同一条「关闭不消失」语法
+            （关闭态行高 24px、不带拖拽光标，同小窗恢复轨） ===== */}
         <div
-          className="h-[4px] bg-[var(--rule)] cursor-row-resize hover:bg-[var(--amber)] transition-colors flex items-center justify-center relative"
-          onMouseDown={() => setIsResizingHeight(true)}
+          className={cn(
+            'bg-[var(--rule)] transition-colors flex items-center justify-center relative',
+            fileManagerClosed ? 'h-[24px]' : 'h-[4px] cursor-row-resize hover:bg-[var(--amber)]'
+          )}
+          onMouseDown={() => {
+            if (!fileManagerClosed) setIsResizingHeight(true)
+          }}
         >
-          <div
-            className="absolute -top-[4px] left-0 right-0 h-[4px] cursor-row-resize"
-            onMouseDown={() => setIsResizingHeight(true)}
-          />
-          <div className="w-[30px] h-[2px] bg-[var(--text-rack-dim)] rounded" />
+          {!fileManagerClosed && (
+            <div
+              className="absolute -top-[4px] left-0 right-0 h-[4px] cursor-row-resize"
+              onMouseDown={() => setIsResizingHeight(true)}
+            />
+          )}
+          <div className="flex-1 flex items-center justify-center min-w-0">
+            {fileManagerClosed && (
+              <button
+                type="button"
+                onClick={() => setFileManagerClosed(false)}
+                title={t('sidebar.fileManagerOpen')}
+                className="inline-flex items-center gap-1 px-1.5 h-[22px] rounded-[2px] text-[10.5px] text-[var(--text-rack-mute)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] cursor-pointer transition-colors"
+              >
+                <IconChevronUp />
+                <span className="truncate">{t('fileManager.floatTitle')}</span>
+              </button>
+            )}
+            {!fileManagerClosed && <div className="w-[30px] h-[2px] bg-[var(--text-rack-dim)] rounded" />}
+          </div>
+          {/* 关闭按钮：按下掐断冒泡（冒泡到分割线会启动拖高手势，抖动既改写存档
+              高度又把按钮从指针下拽走、click 落空 —— 真机 probe 实证）；
+              z-10 压过后序 positioned 的 FM 根节点，22px 全高可命中 */}
+          {!fileManagerClosed && (
+            <button
+              type="button"
+              onClick={() => setFileManagerClosed(true)}
+              onMouseDown={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              title={t('sidebar.fileManagerClose')}
+              className="w-[22px] h-[22px] flex-shrink-0 z-10 flex items-center justify-center text-[var(--text-rack-mute)] hover:text-[var(--error-rack)] hover:bg-[var(--bg-slot)] rounded-[2px] cursor-pointer transition-colors"
+            >
+              <IconX />
+            </button>
+          )}
         </div>
 
-        {/* ===== FileManager ===== */}
-        <div style={{ height: `${fileManagerHeight}px` }} className="flex-shrink-0 overflow-hidden">
-          <FileManagerPanel />
-        </div>
+        {/* ===== FileManager（fmConfigLoaded 门：存档关闭态落定前不挂，防闪挂/白费远程调用）===== */}
+        {!fileManagerClosed && fmConfigLoaded && (
+          <div
+            style={{
+              height: `${fileManagerHeight}px`,
+              // 渲染期钳(恢复侧绝对钳之外的防线,同小窗写轮眼):存档值超当前
+              // 面板/窗口临时缩小时视觉收敛,保底上方 200px(与拖动 clamp 同一
+              // 预留:搜索+快捷命令+列表最小高+状态栏);存档值不被临时小屏
+              // 毁掉,窗口回弹即恢复原高 —— 状态栏不被顶出屏外
+              maxHeight: 'calc(100% - 200px)'
+            }}
+            className="flex-shrink-0 overflow-hidden"
+          >
+            <FileManagerPanel />
+          </div>
+        )}
 
         {/* ===== 底部 status ===== */}
         <div

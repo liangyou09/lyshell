@@ -127,6 +127,8 @@
     "miniReload": "Reload",
     "miniStop": "Stop loading",
     "miniOpenTab": "Promote to web tab",
+    "miniClose": "Close mini browser",
+    "miniOpen": "Restore mini browser",
     "miniHintTitle": "Mini browser",
     "miniHint": "Type an address, or Ctrl+click a history row to preview here"
   },
@@ -588,6 +590,8 @@
     "quickCmdAddNew": "＋ New",
     "quickCmdDisabled": "dsh web is taking over this pane — quick commands unavailable",
     "quickCmdSwitchGroup": "Switch to \"{{name}}\" · {{n}} cmds",
+    "fileManagerClose": "Close file manager",
+    "fileManagerOpen": "Restore file manager",
     "statusConnected": "Connected",
     "statusConnecting": "Connecting",
     "statusConnectionFailed": "Connection failed",
