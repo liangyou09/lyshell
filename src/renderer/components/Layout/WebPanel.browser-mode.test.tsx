@@ -12,7 +12,9 @@
  * 5) 写轮眼小窗（栏底迷你浏览器）：合法地址开眼挂载/非法走 notice/did-navigate
  *    落点回写/Esc 复位/升格开完整页签/Ctrl+点击历史行预览/dom-ready 门（webview
  *    方法面在 guest 挂载前调用会抛错 —— 真机曾炸于此，门开前不得调 loadURL/getURL）/
- *    存档与高度防毒（畸形存档落空态、离谱高度夹到绝对上限）。
+ *    dom-ready 后把 webContentsId 登记给主进程（小窗与完整页签共用 webbar
+ *    partition 共享登录态，主进程快捷键转发凭登记排除小窗）/存档与高度防毒
+ *    （畸形存档落空态、离谱高度夹到绝对上限）。
  * 6) 小窗关闭/恢复：关闭后 webview 摘树、恢复轨出现；恢复后原页状态保留、
  *    关闭态经 config 存档；存档关闭态起渲染即关（写门：读档未成功不写，
  *    默认 false 不冲掉存档的 true —— 防抖/卸载补写两条路都拦）；小窗关闭时
@@ -102,6 +104,9 @@ if (!webviewProto['loadURL']) {
   webviewProto['getURL'] = vi.fn(() => '')
   webviewProto['canGoBack'] = vi.fn(() => false)
   webviewProto['canGoForward'] = vi.fn(() => false)
+  // 小窗 dom-ready 后报给主进程的 webContentsId（真机取自 guest,桩给固定值,
+  // 与 registerWebbarMini 桩断言配对 —— 快捷键转发排除判据的契约测试）
+  webviewProto['getWebContentsId'] = vi.fn(() => 4242)
 }
 type MiniWebviewStub = HTMLUnknownElement & {
   loadURL: ReturnType<typeof vi.fn>
@@ -112,6 +117,7 @@ type MiniWebviewStub = HTMLUnknownElement & {
   getURL: () => string
   canGoBack: () => boolean
   canGoForward: () => boolean
+  getWebContentsId: () => number
 }
 const wvOf = (): MiniWebviewStub => document.querySelector('webview') as unknown as MiniWebviewStub
 
@@ -128,15 +134,17 @@ beforeEach(() => {
   localStorage.removeItem('lyshell.webbarMini.url.v1')
   // 原型桩是全文件共享的 mock，逐例清计数（方法面全量清，防前例调用计数
   // 污染后续断言 —— getURL/canGoBack/canGoForward 同样是断言对象）
-  for (const k of ['loadURL', 'reload', 'goBack', 'goForward', 'stop', 'getURL', 'canGoBack', 'canGoForward'] as const) {
+  for (const k of ['loadURL', 'reload', 'goBack', 'goForward', 'stop', 'getURL', 'canGoBack', 'canGoForward', 'getWebContentsId'] as const) {
     (webviewProto[k] as ReturnType<typeof vi.fn>).mockClear()
   }
   // electronAPI 桩：带历史的用例会打 favicon 猜测（缺省会变未处理拒绝）；
-  // 小窗高度对账/防抖打 getConfig/setConfig（部分桩缺方法会让调用落地报错）
+  // 小窗高度对账/防抖打 getConfig/setConfig；dom-ready 后打 registerWebbarMini
+  // （部分桩缺方法会让调用落地报错）
   window.electronAPI = {
     fetchFavicon: vi.fn(async () => ({ success: false })),
     getConfig: vi.fn(async () => undefined),
-    setConfig: vi.fn(async () => true)
+    setConfig: vi.fn(async () => true),
+    registerWebbarMini: vi.fn(async () => ({ success: true }))
   } as unknown as typeof window.electronAPI
 })
 
@@ -292,19 +300,33 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     expect((screen.getByTitle('Promote to web tab') as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('小窗输入合法地址 → 开眼挂 webview（独立 partition，首航冻结为 src）', async () => {
+  it('小窗输入合法地址 → 开眼挂 webview（与完整页签共用 webbar partition 共享登录态，首航冻结为 src）', async () => {
     setupBrowserMode()
     render(<WebPanel />)
     fireEvent.change(miniInputOf(), { target: { value: 'https://example.com/' } })
     fireEvent.keyDown(miniInputOf(), { key: 'Enter' })
     await waitFor(() => expect(document.querySelector('webview')).toBeTruthy())
     const wv = wvOf()
-    expect(wv.getAttribute('partition')).toBe('persist:webbar-mini')
+    expect(wv.getAttribute('partition')).toBe('persist:webbar')
     // 首航地址定格为挂载 src（后续导航才走 loadURL）
     expect(wv.getAttribute('src')).toBe('https://example.com/')
     // dom-ready 前不碰方法面；唤起后导航 effect 落地（桩 getURL 恒空串 → 触发 loadURL）
     fireDomReady()
     await waitFor(() => expect(wv.loadURL).toHaveBeenCalledWith('https://example.com/'))
+  })
+
+  it('dom-ready 后把小窗 webContentsId 登记给主进程（快捷键转发的排除判据，门开前不登记）', async () => {
+    setupBrowserMode()
+    render(<WebPanel />)
+    fireEvent.change(miniInputOf(), { target: { value: 'https://example.com/' } })
+    fireEvent.keyDown(miniInputOf(), { key: 'Enter' })
+    await waitFor(() => expect(document.querySelector('webview')).toBeTruthy())
+    // 门的关键断言：dom-ready 前不碰方法面（getWebContentsId 同属方法面，真机
+    // 上这一拍调用就是 Uncaught Error）
+    expect((window.electronAPI.registerWebbarMini as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
+    fireDomReady()
+    await waitFor(() =>
+      expect((window.electronAPI.registerWebbarMini as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(4242))
   })
 
   it('非法地址 → 面板公共 notice 通道，不开眼', async () => {

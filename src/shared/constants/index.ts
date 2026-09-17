@@ -46,6 +46,11 @@ export const IPC_CHANNELS = {
   // keydown，由主进程 before-input-event 拦截后经此通道转发渲染层路由）
   WEB_TAB_SHORTCUT: 'web-tab:shortcut',
 
+  // 写轮眼小窗登记（renderer → main：小窗 dom-ready 后自报 webContentsId。小窗与
+  // 完整页签共用 webbar partition 共享登录态后，主进程快捷键转发无法凭 session
+  // 区分两者，凭这份登记把小窗排除，按键原样进页面）
+  WEBBAR_REGISTER_MINI: 'webbar:register-mini',
+
   // 窗口
   WINDOW_GET_BOUNDS: 'window:get-bounds'
 }

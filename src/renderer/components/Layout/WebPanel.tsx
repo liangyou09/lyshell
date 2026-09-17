@@ -241,8 +241,10 @@ const RecentFavicon: React.FC<{ url: string; favicon?: string }> = ({ url, favic
  *
  * 栏底是「写轮眼小窗」—— 模拟会话面板文件管理器的栏底语法(4px 拖高条 + config
  * 持久化高度)的迷你浏览器:不动用终端分屏的快速查阅面,Ctrl+点击历史行在此预览,
- * ↗ 升格为完整网页页签;webview 走独立 partition persist:webbar-mini(不挂快捷键
- * 转发,避免路由到活动页签的错位,见 main/index.ts),上次地址 localStorage 恢复。
+ * ↗ 升格为完整网页页签;webview 与完整网页页签共用 partition persist:webbar
+ * (cookie/localStorage 同仓,登录态互通 —— 页签里登过小窗即登录态),快捷键转发
+ * 不挂(经 dom-ready 登记 webContentsId 排除,避免路由到活动页签的错位,见
+ * main/index.ts),上次地址 localStorage 恢复。
  *
  * 样式沿用面板令牌(--bg-elev/--bg-slot/--rule/--amber/--text-rack*)与
  * [font-family:inherit] 12px 基线,头条与 SessionsPanel/PluginPanel 同构。
@@ -468,7 +470,16 @@ const WebPanel: React.FC = () => {
     }
     // 新元素一律先判未就绪:未来若有「关小窗」重挂路径,防上一元素的陈旧 true
     setMiniReady(false)
-    const onDomReady = (): void => setMiniReady(true)
+    const onDomReady = (): void => {
+      setMiniReady(true)
+      // 小窗与完整页签共用 webbar partition(登录态互通):主进程的快捷键转发凭
+      // webContentsId 登记区分两者,这里把小窗报上去 —— 之后小窗内的按键不再被
+      // 拦截转发到「活动完整页签」,reload/后退由 guest 原生处理。登记晚于
+      // did-attach(getWebContentsId 在 dom-ready 前调用会抛错,只能在这拍报)。
+      // 重挂(关再开/切回 Web 页签)产生新 id、新元素 dom-ready 重报覆盖
+      window.electronAPI?.registerWebbarMini(miniEl.getWebContentsId())
+        .catch(err => console.warn('[WebPanel] webbar-mini register failed:', err))
+    }
     const onNav = (e: Event): void => {
       const evt = e as CustomEvent<unknown> & { url?: string; isMainFrame?: boolean; detail?: { url?: string; isMainFrame?: boolean } }
       const url = evt.url ?? evt.detail?.url
@@ -851,8 +862,9 @@ const WebPanel: React.FC = () => {
               </div>
             ) : miniConfigLoaded ? (
               <>
-                {/* src = 冻结的首航地址(挂载后恒不变,后续导航走 loadURL,见 miniSrc 注释) */}
-                <webview ref={setMiniEl} partition="persist:webbar-mini" src={miniSrc ?? undefined} className="w-full h-full" />
+                {/* src = 冻结的首航地址(挂载后恒不变,后续导航走 loadURL,见 miniSrc 注释);
+                    partition 与完整网页页签同仓(登录态互通),快捷键转发的排除见 onDomReady 登记 */}
+                <webview ref={setMiniEl} partition="persist:webbar" src={miniSrc ?? undefined} className="w-full h-full" />
                 {miniLoading && (
                   <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--terminal-bg)] text-sm text-gray-400 pointer-events-none">
                     {t('webBar.loading')}

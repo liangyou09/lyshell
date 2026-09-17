@@ -13,7 +13,8 @@
  *   焦点在别的分屏终端时 activePaneId 跟着那 pane 走 → 路由层 no-op，终端原生
  *   行为不被劫持。
  * - 主进程 before-input-event：焦点在 webview 内，键盘全被 guest 吃掉，宿主
- *   keydown 收不到 —— 在 guest 事件分发前拦截（仅 webbar partition，dsh 锁定不挂）。
+ *   keydown 收不到 —— 在 guest 事件分发前拦截（仅 webbar partition 的完整页签；
+ *   同 partition 的写轮眼小窗经 webContentsId 登记排除，dsh 锁定不挂）。
  */
 
 export type WebTabShortcutAction =

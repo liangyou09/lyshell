@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, screen, session } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, screen, session, webContents } from 'electron'
 import { join, resolve } from 'path'
 import log from 'electron-log'
 import * as fs from 'fs'
@@ -53,16 +53,25 @@ process.on('unhandledRejection', (reason) => {
 let mainWindow: BrowserWindow | null = null
 let stopMcpHttpServerImpl: (() => Promise<void>) | undefined
 
-// 网页访问栏 webview 的会话 partition（插件面板 URL 栏打开的通用网页）。
-// 与 dsh web（persist:dshweb）隔离：通用浏览可保留自己的 cookie/登录态，互不污染。
+// 网页访问栏 webview 的会话 partition（插件面板 URL 栏打开的通用网页，完整页签
+// 与写轮眼小窗共用）。与 dsh web（persist:dshweb）隔离：通用浏览可保留自己的
+// cookie/登录态，互不污染。小窗与完整页签同 partition —— cookie/localStorage
+// 同仓，登录态互通（页签里登过小窗即登录态，反之亦然；旧 persist:webbar-mini
+// 仓里已登录的站点带不过来，需重登一次）。
 const WEBBAR_PARTITION = 'persist:webbar'
 
-// 写轮眼小窗（左列 Web 面板栏底迷你浏览器）的 partition —— 按上方「新入口另开
-// 独立 partition」的告示独立成仓：一来与完整页签互不串扰 cookie/登录态，二来
-// webbar partition 挂的快捷键转发一律指向「活动完整页签」，小窗若复用会出现
-// 「焦点在小窗内按 Ctrl+R 却刷新了别的页签」的错位。小窗不挂 before-input-event
-// 转发（刷新/地址聚焦走工具条按钮），页面级按键原样进页面。
-const WEBBAR_MINI_PARTITION = 'persist:webbar-mini'
+// 写轮眼小窗（左列 Web 面板栏底迷你浏览器）的 webContentsId —— 小窗并入 webbar
+// partition 后 session 身份不再能区分小窗与完整页签，而 webbar 挂的快捷键转发
+// 一律指向「活动完整页签」，小窗若同样被转发会出现「焦点在小窗内按 Ctrl+R 却
+// 刷新了别的页签」的错位。渲染层在小窗 dom-ready 后经 WEBBAR_REGISTER_MINI 把
+// webContentsId 报上来（getWebContentsId 等 webview 方法面 dom-ready 前一律抛错，
+// 登记只能在那时），before-input-event 转发在事件拍核对这份登记、跳过小窗 ——
+// 页面级按键原样进页面，reload/后退由 guest 原生处理（工具条按钮仍可用）。
+// 登记前的小窗按键会按完整页签路由：竞态窗极小（小窗需先被点击聚焦，点击必然
+// 晚于 dom-ready）；小窗重挂（关再开/切回 Web 面板）产生新 id、dom-ready 重报，
+// 槽位后者覆盖前者；登记 handler 里挂 destroyed 自清，小窗销毁即清空槽位
+// （id 单调不复用，残留死 id 本无功能影响，自清免掉长期运行的陈旧状态）。
+let webbarMiniWebContentsId: number | null = null
 
 // dsh web 导航白名单：取当前实例规范化 URL 的 origin（127.0.0.1:实际端口）。无实例时返回 null。
 function getDshWebAllowedOrigin(): string | null {
@@ -193,28 +202,20 @@ function createMainWindow(): void {
   // 锁定 <webview> 客体，按 partition 分流：
   //   - dsh web 面板（默认）：初始 src 与后续导航都只放行 dshWebManager 当前实例的
   //     origin（127.0.0.1:实际端口），弹窗一律 deny —— 杜绝 webview 逃逸到外站或本机其它服务。
-  //   - 网页访问栏（persist:webbar）：src 仅要求 http/https（用户在插件面板输入任意网址），
-  //     后续导航同策略；弹窗仍 deny。
-  //   - 写轮眼小窗（persist:webbar-mini）：src 允许为空（渲染层挂载后经 loadURL 起航），
-  //     有 src 则与访问栏同校验；后续导航同策略，弹窗 deny。
-  //   注意：persist:webbar 专属网页访问栏，后续若新增外部网页拖拽/插件注入等入口，
+  //   - 网页访问栏（persist:webbar，完整页签与写轮眼小窗共用）：src 要求 http/https
+  //     （用户在插件面板输入任意网址）；空 src 放行 —— 小窗首航经渲染层 loadURL 起航
+  //     （无 src 挂载不产生导航，起航时走 will-navigate 同口径校验），后续导航同策略，
+  //     弹窗仍 deny。
+  //   注意：persist:webbar 专属通用浏览，后续若新增外部网页拖拽/插件注入等入口，
   //   请另开独立 partition（如 persist:pluginweb），不要复用本通道 —— 该 partition 的
   //   导航策略是「放行任意 http/https」，复用等于把放宽后的策略扩散到所有新入口。
   mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
     const src = params?.src || ''
     if (params?.partition === WEBBAR_PARTITION) {
-      // 网页访问栏：只校验协议（渲染层 normalizeWebBarUrl 已做同样归一化，这里是服务端兜底）
-      if (!isHttpUrl(src)) {
+      // 网页访问栏（完整页签 + 小窗）：只校验协议（渲染层 normalizeWebBarUrl 已做
+      // 同样归一化，这里是服务端兜底）；空 src 例外放行（小窗 loadURL 起航路径）
+      if (src !== '' && !isHttpUrl(src)) {
         log.warn('Blocked webbar webview attach with non-http(s) src:', src)
-        event.preventDefault()
-        return
-      }
-    } else if (params?.partition === WEBBAR_MINI_PARTITION) {
-      // 写轮眼小窗：挂载可以无 src（导航走渲染层 loadURL，起航前不触发本校验）；
-      // 一旦给 src 则同访问栏口径 —— 仅放行 http/https
-      const miniSrc = params?.src
-      if (miniSrc !== undefined && miniSrc !== '' && !isHttpUrl(miniSrc)) {
-        log.warn('Blocked webbar-mini webview attach with non-http(s) src:', miniSrc)
         event.preventDefault()
         return
       }
@@ -242,14 +243,11 @@ function createMainWindow(): void {
   })
 
   mainWindow.webContents.on('did-attach-webview', (_event, webContents) => {
-    // 按 session partition 分流：网页访问栏 webview 放行任意 http/https 导航（自由浏览），
-    // 其余（dsh web）维持 origin 锁定。fromPartition 返回同 partition 的 session 单例，
-    // webview 挂载的 session 与之身份相等即网页访问栏。
+    // 按 session partition 分流：网页访问栏（完整页签与写轮眼小窗共用）放行任意
+    // http/https 导航（自由浏览），其余（dsh web）维持 origin 锁定。fromPartition
+    // 返回同 partition 的 session 单例，webview 挂载的 session 与之身份相等即
+    // 网页访问栏。
     const isWebbar = webContents.session === session.fromPartition(WEBBAR_PARTITION)
-    // 写轮眼小窗：导航策略与访问栏同款（http/https），但不挂下面的快捷键转发 ——
-    // 转发一律路由到「活动完整页签」，小窗持有焦点时按 Ctrl+R 会刷错页签（见
-    // WEBBAR_MINI_PARTITION 注释）；小窗的刷新/后退走工具条按钮
-    const isWebbarMini = webContents.session === session.fromPartition(WEBBAR_MINI_PARTITION)
     webContents.setWindowOpenHandler(({ url }) => {
       // webview 不允许开新窗口/弹窗，直接 deny（dsh UI 不需要 popup，也不交系统浏览器避免泄 URL）
       log.warn('Blocked webview window.open:', url)
@@ -258,10 +256,12 @@ function createMainWindow(): void {
     // 网页页签快捷键：焦点进 webview 后键盘全被 guest 吃掉，宿主 keydown 收不到。
     // 在 guest 事件分发前拦截浏览器手势（Ctrl+R/Alt+←→/Ctrl+L 等），掐掉
     // guest 的默认动作后转发渲染层路由到「活动网页页签」—— 与宿主侧快捷键
-    // 走同一控制层。仅网页访问栏挂（dsh web 保持锁定，无浏览语义；写轮眼小窗
-    // 也不挂 —— 路由错位问题见 isWebbarMini 注释）。
+    // 走同一控制层。仅网页访问栏挂（dsh web 保持锁定，无浏览语义）；写轮眼小窗
+    // 与完整页签同 session，凭 webbarMiniWebContentsId 在事件拍排除（登记细节
+    // 见其注释）—— 小窗内的按键原样进页面。
     if (isWebbar) {
       webContents.on('before-input-event', (event, input) => {
+        if (webContents.id === webbarMiniWebContentsId) return
         const action = matchWebTabShortcut(input)
         if (!action) return
         event.preventDefault()
@@ -271,11 +271,11 @@ function createMainWindow(): void {
     webContents.on('will-navigate', (event, url) => {
       try {
         const target = new URL(url)
-        if (isWebbar || isWebbarMini) {
-          // 网页访问栏与写轮眼小窗：仅拦非 http/https（file://、chrome:// 等）
+        if (isWebbar) {
+          // 网页访问栏（完整页签 + 写轮眼小窗）：仅拦非 http/https（file://、chrome:// 等）
           if (target.protocol === 'http:' || target.protocol === 'https:') return
           event.preventDefault()
-          log.warn('Blocked webbar/webbar-mini webview navigation:', url)
+          log.warn('Blocked webbar webview navigation:', url)
           return
         }
         const origin = getDshWebAllowedOrigin()
@@ -351,6 +351,26 @@ app.whenReady().then(async () => {
   // 注册窗口相关 IPC 处理器
   ipcMain.handle('window:get-bounds', async () => {
     return mainWindow?.getBounds() || null
+  })
+
+  // 写轮眼小窗登记（渲染层 dom-ready 后自报 webContentsId）：小窗与完整页签共用
+  // webbar partition 后 session 身份不再可判，did-attach-webview 的快捷键转发凭这份
+  // 登记把小窗排除在外（见 webbarMiniWebContentsId 注释）。id 是渲染层自报的不可信
+  // 输入，整数校验收窄
+  ipcMain.handle(IPC_CHANNELS.WEBBAR_REGISTER_MINI, (_event, webContentsId: unknown) => {
+    if (typeof webContentsId !== 'number' || !Number.isInteger(webContentsId) || webContentsId < 0) {
+      log.warn('Rejected invalid webbar-mini webContentsId registration:', webContentsId)
+      return { success: false }
+    }
+    webbarMiniWebContentsId = webContentsId
+    // 陈旧登记自清：小窗关闭/摘树销毁 webContents 时清空槽位。守卫比对防误清 ——
+    // 重挂竞态下旧 id 的 destroyed 可能晚于新登记到达（once 监听器存活的只是旧
+    // webContents）。fromId 查无此 id（极端竞态：登记到达前小窗就关了）则不挂，
+    // 槽位留给下次登记覆盖，无害
+    webContents.fromId(webContentsId)?.once('destroyed', () => {
+      if (webbarMiniWebContentsId === webContentsId) webbarMiniWebContentsId = null
+    })
+    return { success: true }
   })
 
   // 设定主窗口尺寸(像素) -- 先退出最大化,按窗口所在显示器的工作区 clamp 尺寸 + 夹紧位置,最后持久化

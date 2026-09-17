@@ -125,6 +125,7 @@ const IPC_CHANNELS = {
 
   // 网页访问栏（通用网页页签）
   WEBBAR_FETCH_FAVICON: 'webbar:fetch-favicon',
+  WEBBAR_REGISTER_MINI: 'webbar:register-mini',  // renderer→main：写轮眼小窗 dom-ready 后自报 webContentsId
   WEB_TAB_SHORTCUT: 'web-tab:shortcut',  // main→renderer：webview 焦点内的浏览器快捷键转发
 
   // Harness worktree 检测（kind 无关：列出仓库已有 worktree 共享名，编辑对话框下拉用）
@@ -264,6 +265,12 @@ const electronAPI = {
     ipcRenderer.on(IPC_CHANNELS.WEB_TAB_SHORTCUT, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.WEB_TAB_SHORTCUT, listener)
   },
+
+  // 写轮眼小窗登记（renderer→main）：小窗与完整页签共用 webbar partition（共享
+  // 登录态）后，主进程快捷键转发无法凭 session 区分两者 —— 小窗 dom-ready 后把
+  // 自身 webContentsId 报上来，主进程据此把小窗排除在转发之外（按键原样进页面）
+  registerWebbarMini: (webContentsId: number) =>
+    ipcRenderer.invoke(IPC_CHANNELS.WEBBAR_REGISTER_MINI, webContentsId),
 
   // 快速命令
   getQuickCommands: () => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_LIST),
