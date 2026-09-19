@@ -10,6 +10,7 @@ import SessionDialog from '../SessionDialog/SessionDialog'
 import ExportImportDialog from '../ExportImportDialog/ExportImportDialog'
 import FileManagerPanel from '../FileManager/FileManagerPanel'
 import QuickCommandsPanel from '../QuickCommands/QuickCommandsPanel'
+import ScrollFold, { ScrollTie } from './ScrollFold'
 import TerminalSize, { BarRule } from './TerminalSize'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { IconBtn, IconPlus } from './IconBtn'
@@ -66,44 +67,6 @@ const PROTO_LABEL: Record<ProtoKind, string> = {
 }
 // 会话行内的协议标签文字色 —— 全饱和,跟左侧色条配合,文字本身也读得出"这是什么协议"
 const PROTO_TEXT_CLS: Record<ProtoKind, string> = {
-  ssh:    'text-[var(--proto-ssh)]',
-  telnet: 'text-[var(--proto-tel)]',
-  serial: 'text-[var(--proto-ser)]',
-  local:  'text-[var(--proto-loc)]',
-}
-// 筛选 chip = LED 通道条。状态 100% 由 LED 承载,文字恒定不随状态变色——
-// 这样"选中亮 / 未选中暗"的振荡止于 LED,标签与计数在两态下同等可读。
-// 注意:Tailwind 对 var(--x)/N 斜杠透明度静默不生成,故全部改用 color-mix 任意值整包写法。
-// 选中:无 flood(透明底) + 满色 border-2(协议色)——用 border 而非 ring,与未选中同位置同占位,尺寸一致
-const PROTO_ACTIVE_CLS: Record<ProtoKind, string> = {
-  ssh:    'bg-transparent border-[color-mix(in_srgb,var(--proto-ssh)_100%,transparent)]',
-  telnet: 'bg-transparent border-[color-mix(in_srgb,var(--proto-tel)_100%,transparent)]',
-  serial: 'bg-transparent border-[color-mix(in_srgb,var(--proto-ser)_100%,transparent)]',
-  local:  'bg-transparent border-[color-mix(in_srgb,var(--proto-loc)_100%,transparent)]',
-}
-// 未选中:透明底 + 协议色边框(32%)——和选中同不填充,纯靠边框深浅区分;hover 边框提到 50%
-const PROTO_IDLE_CLS: Record<ProtoKind, string> = {
-  ssh:    'bg-transparent border-[color-mix(in_srgb,var(--proto-ssh)_32%,transparent)] hover:border-[color-mix(in_srgb,var(--proto-ssh)_50%,transparent)]',
-  telnet: 'bg-transparent border-[color-mix(in_srgb,var(--proto-tel)_32%,transparent)] hover:border-[color-mix(in_srgb,var(--proto-tel)_50%,transparent)]',
-  serial: 'bg-transparent border-[color-mix(in_srgb,var(--proto-ser)_32%,transparent)] hover:border-[color-mix(in_srgb,var(--proto-ser)_50%,transparent)]',
-  local:  'bg-transparent border-[color-mix(in_srgb,var(--proto-loc)_32%,transparent)] hover:border-[color-mix(in_srgb,var(--proto-loc)_50%,transparent)]',
-}
-// LED 点亮态:满色 + 静态光晕(color-mix 取 50% 协议色;无脉冲——LIVE 段才呼吸)
-const PROTO_LED_LIT_CLS: Record<ProtoKind, string> = {
-  ssh:    'bg-[var(--proto-ssh)] shadow-[0_0_6px_color-mix(in_srgb,var(--proto-ssh)_50%,transparent)]',
-  telnet: 'bg-[var(--proto-tel)] shadow-[0_0_6px_color-mix(in_srgb,var(--proto-tel)_50%,transparent)]',
-  serial: 'bg-[var(--proto-ser)] shadow-[0_0_6px_color-mix(in_srgb,var(--proto-ser)_50%,transparent)]',
-  local:  'bg-[var(--proto-loc)] shadow-[0_0_6px_color-mix(in_srgb,var(--proto-loc)_50%,transparent)]',
-}
-// LED 待机态:协议色 35%,暗但可见——未选中不再是"关掉",而是"待机"
-const PROTO_LED_DIM_CLS: Record<ProtoKind, string> = {
-  ssh:    'bg-[color-mix(in_srgb,var(--proto-ssh)_35%,transparent)]',
-  telnet: 'bg-[color-mix(in_srgb,var(--proto-tel)_35%,transparent)]',
-  serial: 'bg-[color-mix(in_srgb,var(--proto-ser)_35%,transparent)]',
-  local:  'bg-[color-mix(in_srgb,var(--proto-loc)_35%,transparent)]',
-}
-// 选中态文字色:协议色满色——选中后铭牌+读数也"点亮"
-const PROTO_TEXT_LIT_CLS: Record<ProtoKind, string> = {
   ssh:    'text-[var(--proto-ssh)]',
   telnet: 'text-[var(--proto-tel)]',
   serial: 'text-[var(--proto-ser)]',
@@ -209,15 +172,6 @@ const IconX = () => (
 const IconChevronUp = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 7l3.5-3.5L9 7"/></svg>
 )
-const IconRack = () => (
-  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x=".5" y=".5" width="9" height="9"/><path d="M0 3.5h10M0 6.5h10M3.5 0v10M6.5 0v10"/></svg>
-)
-const IconCaret = () => (
-  <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><path d="M2 1l4 3-4 3z"/></svg>
-)
-const IconLive = () => (
-  <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><circle cx="5" cy="5" r="2.5"/></svg>
-)
 const IconPower = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
     <path d="M5.5 1.5v3.5"/>
@@ -229,109 +183,129 @@ const IconPower = () => (
 // 内联子组件
 // ─────────────────────────────────────────────────────────────────────────────
 
-const StripRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
-  <div className="grid grid-cols-[52px_1fr] items-center gap-2 px-3 py-1.5 bg-[var(--bg-strip)] border-b border-[var(--rule-soft)]">
-    {/* 区段标签与头条铭牌同字体(设备徽章的「厂牌丝印」sans),不再是等宽栈 */}
-    <span
-      className="font-bold text-[12px] text-[var(--text-rack)]"
-      style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
-    >
-      {label}
-    </span>
-    <div className="flex items-center gap-1 min-w-0 overflow-x-auto scrollbar-hide">
-      {children}
-    </div>
-  </div>
-)
-
-const ShellPill: React.FC<{
-  shell: 'cmd' | 'ps' | 'ps7' | 'ps+'
-  glyph: string
-  onClick: () => void
-  children: React.ReactNode
-}> = ({ shell, glyph, onClick, children }) => {
-  const borderHover = {
-    cmd: 'hover:border-[var(--text-rack-dim)]',
-    ps:  'hover:border-[var(--proto-ssh)]',
-    ps7: 'hover:border-[var(--proto-loc)]',
-    'ps+': 'hover:border-[var(--error-rack)]'
-  }[shell]
-  const glyphColor = {
-    cmd: 'text-[var(--text-rack-data)]',
-    ps:  'text-[var(--proto-ssh)]',
-    ps7: 'text-[var(--proto-loc)]',
-    'ps+': 'text-[var(--error-rack)]'
-  }[shell]
-  return (
-    <button
-      onClick={onClick}
-      title={shell}
-      className={cn(
-        'inline-flex items-center gap-[5px] flex-shrink-0 px-2.5 py-[4px] rounded-[3px] cursor-pointer whitespace-nowrap',
-        'text-[13px] font-medium text-[var(--text-rack)] bg-transparent border border-[var(--rule)]',
-        'hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)] transition-colors',
-        borderHover
-      )}
-    >
-      <span className={cn('[font-family:inherit] text-[12.5px] w-[12px] inline-flex justify-center', glyphColor)}>{glyph}</span>
-      <span>{children}</span>
-    </button>
-  )
-}
+// 一键拉起的本地 shell 小画轴(LAUNCH strip,与协议筛选 chips 同款同大小)
+// —— 轴头+绳取身份色:
+// cmd 中性 / ps 蓝(proto-ssh,Windows PowerShell)/ ps7 紫(proto-loc,
+// PowerShell 7)/ ps+(gsudo 提权)红(error-rack,管理员的危险红);
+// 键面是短铭(cmd/ps/ps7/ps+),title 给完整 shell 名
+const QUICK_SHELLS: {
+  key: string
+  label: string
+  shell: string
+  startup?: string[]
+  cls: string
+  title: string
+}[] = [
+  { key: 'cmd', label: 'cmd', shell: '',         cls: 'text-[var(--text-rack-data)]', title: 'CMD' },
+  { key: 'ps',  label: 'ps',  shell: 'powershell', cls: 'text-[var(--proto-ssh)]',    title: 'PowerShell' },
+  { key: 'ps7', label: 'ps7', shell: 'pwsh',     cls: 'text-[var(--proto-loc)]',    title: 'PowerShell 7' },
+  { key: 'ps+', label: 'ps+', shell: 'powershell', startup: ['gsudo'], cls: 'text-[var(--error-rack)]', title: 'PowerShell (Admin)' },
+]
 
 const GroupHeader: React.FC<{
-  icon: React.ReactNode
   label: string
   count: number
-  amber?: boolean
-  tone?: 'amber' | 'live' | 'reach'
-  monoLabel?: boolean
+  /** 段身份色:live=绿 / pin=置顶金 / serial=串口橙 / local=本地紫 / subnet=网段粉 /
+      reach=可达;undefined = 中性兜底(现行调用方都带 tone,卷轴身份全归一) */
+  tone?: 'amber' | 'pin' | 'live' | 'reach' | 'serial' | 'local' | 'subnet'
   /** 可折叠时传入；undefined 表示不可折叠 */
   collapsed?: boolean
   onToggle?: () => void
   /** 右侧可选 action 按钮(LIVE 段的 close-all 用) */
   action?: React.ReactNode
-}> = ({ icon, label, count, amber, tone, monoLabel, collapsed, onToggle, action }) => {
+}> = ({ label, count, tone, collapsed, onToggle, action }) => {
   const collapsible = typeof collapsed === 'boolean' && !!onToggle
-  const effectiveTone = tone ?? (amber ? 'amber' : undefined)
-  const iconColorClass =
-    effectiveTone === 'amber' ? 'text-[var(--amber)]' :
-    effectiveTone === 'live'  ? 'text-[var(--live)]' :
-    effectiveTone === 'reach' ? 'text-[var(--reachable)]' :
-    'text-[var(--text-rack-dim)]'
+  // tone → 语义 token(色值经 style 注入,轴头专用一份;题名已改金墨);serial/local
+  // 复用行级 --proto-* 协议色(组内同质,轴头与行同身份),subnet 是段级组
+  // 语义(网段/主机名分组的远程会话),独立粉 token
+  const toneVar =
+    tone === 'pin'    ? 'var(--pin)'       :
+    tone === 'amber'  ? 'var(--amber)'     :
+    tone === 'live'   ? 'var(--live)'      :
+    tone === 'reach'  ? 'var(--reachable)' :
+    tone === 'serial' ? 'var(--proto-ser)' :
+    tone === 'local'  ? 'var(--proto-loc)' :
+    tone === 'subnet' ? 'var(--subnet)'    : undefined
   return (
     <div
       onClick={collapsible ? onToggle : undefined}
+      role={collapsible ? 'button' : undefined}
+      tabIndex={collapsible ? 0 : undefined}
+      aria-expanded={collapsible ? !collapsed : undefined}
+      onKeyDown={collapsible ? (e: React.KeyboardEvent) => {
+        // 键盘开合:折叠内容被 ScrollFold inert 挡在 Tab 序外,键盘用户只能
+        // 从这里展开。target 不在自己身上不接 —— 行内 action(如 LIVE 段的
+        // close-all)聚焦时按 Enter,keydown 冒泡上来不能误触整行折叠
+        if (e.target !== e.currentTarget) return
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle?.() }
+      } : undefined}
       className={cn(
-        'flex items-center gap-2.5 px-3 py-1.5 text-[10px] text-[var(--text-rack-mute)]',
-        // 与 row 同 bg,通过 typography + flex-1 hairline 当分隔符,不再当 rail
-        'bg-[var(--bg-rack)] border-b border-[var(--rule-soft)]',
-        collapsible && 'cursor-pointer hover:bg-[var(--bg-slot)]'
+        'relative flex items-center gap-2.5 pl-3 pr-[20px] text-[10px] text-[var(--text-rack-mute)]',
+        // 行内垫:可折叠(有辊)时对称垫 —— 辊在栏内垂直居中,内容线与辊同
+        // 心、贴印在辊上(非对称垫会把内容压离辊心,甚至跨出辊面);不可折叠
+        // 无辊,常规对称垫。右垫加厚到 20px:右轴头占行缘内 6-12px,内容
+        // 右缘(计数/action)与其隔 8px 空气 —— 数字不贴着轴头
+        collapsible ? 'py-[5px]' : 'py-2',
+        // 折叠栏 = 卷轴的辊位(scroll-head):栏本体无底色(透明,露出
+        // bg-base 框体)—— 裱首不铺绫底,辊与题签直接立在框体上,悬停也
+        // 不铺底(指针 + 绳的提亮是全部反馈);辊体(rod-caps)在栏内垂直
+        // 居中(悬浮机件,上下留气)—— 栏底缘正是裱首/画心的接缝(= 纸幅
+        // 顶缘),辊悬在缝上方把两者拴成一件;轴杆随辊居中不动(辊径 20px
+        // 开合不变粗细),收起(rolled)时纸裹轴卷成同径满卷(轴藏卷内,只
+        // 露两端轴头),展开后纸垂落、回归光辊;行落在辊下的纸幅上
+        // (paper-sheet,辊下垂落的纸,与卷纸带同宽同边)—— 纸与辊直接立
+        // 在框体上,不靠栏底分层;typography + flex-1 hairline 仍是栏内分隔。
+        // 可折叠时这道缝由辊与纸跨缝相接自己拴成,不画 border-b(硬线会把
+        // 辊与纸切成两物);不可折叠的栏没有辊,border-b 回落为普通分组线
+        'scroll-head',
+        !collapsible && 'border-b border-[var(--rule-soft)]',
+        // group 供系绳(ScrollTie)悬停提亮 —— 栏不铺 hover 底色(矩形连
+        // hover 也不出现),指针 + 绳的提亮就是全部悬停反馈
+        collapsible && 'group cursor-pointer',
+        collapsible && collapsed && 'rolled'
       )}
     >
+      {/* 卷轴辊 —— 栏内垂直居中的辊本体(形与圆柱读形在 globals.css 的
+          .rod-caps):悬浮机件上下留气,辊径恒 20px 开合不变粗细 —— 展开
+          时轴体机件色隔着小缝望着纸幅顶缘,收起时纸裹轴成同径满卷(轴藏
+          卷内,只露两端轴头);轴头恒跟辊同径、随辊居中不动,色跟段身份
+          (pin 金/live 绿/serial 橙/local 紫/subnet 粉,无 tone 回落中性
+          dim)—— 探出纸幅两端(纸带与纸幅同宽),收起时读作纸卷两端的
+          轴头端盖 */}
+      {collapsible && (
+        <span aria-hidden className="rod-caps" style={toneVar ? { color: toneVar } : undefined} />
+      )}
       {collapsible && (
         <span
-          className={cn(
-            'inline-flex transition-transform text-[var(--text-rack-dim)]',
-            !collapsed && 'rotate-90'
-          )}
+          // 蝴蝶结记号(ScrollTie):收起(rolled)时绳在满卷上系成蝴蝶结
+          // (纸自下方卷回,绳随纸自下方荡上绑紧 + 自由端各拍微摆),展开后
+          // 纸向下垂落、结解开、绳跟着纸向下飘落淡出 —— 槽位恒占防行首跳动,
+          // 节拍在 globals.css 的 .scroll-tie。
+          // 绳色随轴头(toneVar inline 注入 —— 拴卷的绳与卷两端的轴头同
+          // 色,同一件物的两处署名),无 tone 回落中性 mute;行悬停提亮走
+          // opacity 一档(inline color 压过 class,hover 变色类只在无 tone
+          // 时生效)—— 去 hover 底色后,绳的提亮就是指针外唯一的悬停反馈
+          className={cn('inline-flex transition text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)] opacity-80 group-hover:opacity-100')}
+          style={toneVar ? { color: toneVar } : undefined}
         >
-          <IconCaret />
+          <ScrollTie />
         </span>
       )}
-      <span className={cn('inline-flex', iconColorClass)}>{icon}</span>
+      {/* 题签(scroll-slip)—— 折叠栏题名:书体(Cambria 铭刻衬线 / 隶书)
+          与金墨都在 globals.css;题名全栏一只金(置顶金同源;亮色主题反
+          转银枪,暗金亮银)—— 段身份仍读轴头,题名只读一墨;COM/local
+          组键走手书大写(scroll-slip-hand);收起时这行字落在纸卷面上,
+          就是卷上题签 */}
       <span
         className={cn(
-          'flex-shrink-0',
-          monoLabel
-            ? '[font-family:inherit] normal-case tracking-[.04em] text-[var(--text-rack)] font-normal text-[10.5px]'
-            : '[font-family:inherit] font-bold text-[11px] text-[var(--text-rack)]'
+          'flex-shrink-0 scroll-slip text-[13px]',
+          (tone === 'serial' || tone === 'local') && 'scroll-slip-hand'
         )}
       >
         {label}
       </span>
       <span className="flex-1 h-px bg-[var(--rule)]" />
-      <span className="[font-family:inherit] text-[10px] text-[var(--text-rack-data)] tracking-[.04em] normal-case">{count}</span>
+      <span className="[font-family:inherit] text-[11px] text-[var(--text-rack-data)] tracking-[.04em] normal-case">{count}</span>
       {action}
     </div>
   )
@@ -388,9 +362,10 @@ const SessionSlot: React.FC<{
       className={cn(
         'group relative grid items-center gap-2.5 pr-3 min-h-[34px] py-1.5 cursor-pointer transition-colors',
         'grid-cols-[4px_auto_minmax(0,auto)_minmax(0,1fr)]',
-        // slot 面板基底 + 1U 之间的 hairline + 底沿凹陷阴影(slot 嵌入 rack 框架感)
-        'bg-[var(--bg-rack)] border-b border-[var(--rule-soft)]',
-        'shadow-[inset_0_-1px_0_var(--bg-base)]',
+        // 行落在纸幅上(.paper-sheet):静息透明露出纸底,行自身不带底色 —— 纸是
+        // 外层纸幅的材质;行间 rule-soft hairline 读作纸的折线。hover/active 仍
+        // 走 slot 抬升(纸上的行被拿起)
+        'border-b border-[var(--rule-soft)]',
         'hover:bg-[var(--bg-slot)]',
         dimmed && 'opacity-45 hover:opacity-100',
         active && [
@@ -445,8 +420,9 @@ const SessionSlot: React.FC<{
           'opacity-0 pointer-events-none transition-opacity',
           'group-hover:opacity-100 group-hover:pointer-events-auto',
           'pl-8',
-          active ? 'bg-gradient-to-l from-[var(--bg-slot)] from-[24%] to-transparent'
-                 : 'bg-gradient-to-l from-[var(--bg-rack)] from-[24%] to-transparent'
+          // 渐隐底恒为 slot:overlay 只在 group-hover 出现,此刻行底(无论 active
+          // 与否)都已是 slot,两态同色,渐变不再分叉
+          'bg-gradient-to-l from-[var(--bg-slot)] from-[24%] to-transparent'
         )}
       >
         {!compactActions && <ActBtn onClick={onEdit} title={t('sidebar.editSession')}><IconEdit /></ActBtn>}
@@ -667,6 +643,8 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
   const [expandedIPs, setExpandedIPs] = useState<Record<string, boolean>>({})
   const [pinnedCollapsed, setPinnedCollapsed] = useState<boolean>(false)
   const [liveCollapsed, setLiveCollapsed] = useState<boolean>(false)
+  // LAUNCH 小画轴点下后的解绳一拍(键 key,700ms 回拴)—— 见 launchShell
+  const [launchFlash, setLaunchFlash] = useState<string | null>(null)
 
   // close-all 二次确认 —— 第一次点击进入 armed 态,2.5s 内再点才真执行
   const [closeAllArmed, setCloseAllArmed] = useState(false)
@@ -1167,6 +1145,14 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
     }
     onConnect?.('', config)
   }
+  // LAUNCH 小画轴:点下解绳一拍 —— 绳解开飘走、轴头点亮(launchFlash 挂
+  // .on),700ms 后回拴(settle 回摆);拉绳起卷,卷(终端)在别处展开。
+  // 连点另一卷时两拍各自走完(旧 timeout 见 prev 已换键,不误清新拍)
+  const launchShell = (s: typeof QUICK_SHELLS[number]) => {
+    handleQuickLocal(s.shell, s.startup)
+    setLaunchFlash(s.key)
+    window.setTimeout(() => setLaunchFlash(prev => prev === s.key ? null : prev), 700)
+  }
 
   const handleEditSession = (config: SessionConfig, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -1227,13 +1213,37 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
           </div>
         </div>
 
-        {/* ===== LAUNCH STRIP ===== */}
-        <StripRow label={t('sidebar.stripLaunch')}>
-          <ShellPill shell="cmd" glyph="▮" onClick={() => handleQuickLocal('')}>cmd</ShellPill>
-          <ShellPill shell="ps"  glyph="◆" onClick={() => handleQuickLocal('powershell')}>ps</ShellPill>
-          <ShellPill shell="ps7" glyph="◇" onClick={() => handleQuickLocal('pwsh')}>ps7</ShellPill>
-          <ShellPill shell="ps+" glyph="⛨" onClick={() => handleQuickLocal('powershell', ['gsudo'])}>ps+</ShellPill>
-        </StripRow>
+        {/* ===== LAUNCH ===== 一键拉起本地终端 —— 与 SSH 协议筛选 chips 同款
+             同大小的小画轴 strip(bg-strip 底 + 下缘 rule,行高同 32px;上缘
+             不画线 —— 紧贴头条的 border-b,画了会叠双线),不再有框、不再要
+             「LAUNCH」字样。色彩只随画轴:轴头与绳取各 shell 身份色(cmd 中
+             性/ps 蓝/ps7 紫/ps+ 红),按下解绳一拍 —— 拉绳起卷,终端在别处
+             垂落 */}
+        <div className="flex-shrink-0 flex items-stretch gap-[4px] px-2 py-[5px] bg-[var(--bg-strip)] border-b border-[var(--rule)]">
+          {QUICK_SHELLS.map(s => (
+            <button
+              key={s.key}
+              onClick={() => launchShell(s)}
+              title={s.title}
+              className={cn(
+                // 小画轴(scroll-chip),与协议筛选 chips 同款同大小:轴体/
+                // 轴头/绳与明暗的机械全在 globals.css,这里只挂身份色与解绳拍
+                'scroll-chip relative flex-1 min-w-0 flex items-center gap-[3px] pl-[6px] pr-[4px] cursor-pointer select-none',
+                s.cls,
+                launchFlash === s.key && 'on'
+              )}
+            >
+              {/* 轴体 —— 卷起的纸筒,垫在绳/题签后(题签读作贴印在卷面上) */}
+              <span aria-hidden className="scroll-chip-band" />
+              {/* 蝴蝶结 —— 拴着的卷;点下解开飘走一拍再回拴(机械同筛选 chips) */}
+              <span className="inline-flex flex-shrink-0">
+                <ScrollTie />
+              </span>
+              {/* 题签 —— 卷面金墨(scroll-slip 同款) */}
+              <span className="flex-shrink-0 scroll-slip text-[11px] whitespace-nowrap">{s.label}</span>
+            </button>
+          ))}
+        </div>
 
         {/* ===== 过滤区 ===== */}
         <div className="px-3 py-2 border-b border-[var(--rule)] flex items-center gap-1.5">
@@ -1268,9 +1278,6 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
           </button>
         </div>
 
-        {/* ===== 快捷命令（原底部状态栏迁入，搜索框下方） ===== */}
-        <QuickCommandsPanel onExecuteCommand={onExecuteCommand} disabled={quickCommandsDisabled} />
-
         {/* ===== 列表 ===== */}
         <div className="flex-1 overflow-y-auto min-h-[100px] rack-scroll">
           {/* LIVE — 当下已连接 */}
@@ -1278,7 +1285,6 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
             <>
               <GroupHeader
                 tone="live"
-                icon={<IconLive />}
                 label={t('sidebar.groupLive')}
                 count={liveSessions.length}
                 collapsed={liveCollapsed}
@@ -1301,27 +1307,32 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
                   </button>
                 }
               />
-              {!liveCollapsed && liveSessions.map(config => (
-                <SessionSlot
-                  key={`live-${config.id}`}
-                  config={config}
-                  status={statusFor(config)}
-                  reachable={reachabilityFor(config)}
-                  active={false}
-                  isPinned={!!config.tags?.includes('pinned')}
-                  compactActions
-                  dimmed={isLiveHidden(config)}
-                  hiddenCount={liveHiddenCount(config)}
-                  onClick={() => handleLiveSessionToggleTabs(config)}
-                  onEdit={(e) => handleEditSession(config, e)}
-                  onCopy={(e) => handleCopySession(config, e)}
-                  onTogglePin={(e) => handleTogglePin(config, e)}
-                  /* LIVE 行的 X 改成关闭终端,不动 saved config */
-                  onDelete={(e) => handleCloseLive(config, e)}
-                  dangerIcon={<IconPower />}
-                  dangerTitle="Close terminal"
-                />
-              ))}
+              <ScrollFold open={!liveCollapsed}>
+                {/* 纸幅:辊下垂落的纸(与辊上卷纸带同宽同边 mx-3,辊探出一对轴头),行透明落在纸上 */}
+                <div className="paper-sheet mx-3">
+                  {liveSessions.map(config => (
+                    <SessionSlot
+                      key={`live-${config.id}`}
+                      config={config}
+                      status={statusFor(config)}
+                      reachable={reachabilityFor(config)}
+                      active={false}
+                      isPinned={!!config.tags?.includes('pinned')}
+                      compactActions
+                      dimmed={isLiveHidden(config)}
+                      hiddenCount={liveHiddenCount(config)}
+                      onClick={() => handleLiveSessionToggleTabs(config)}
+                      onEdit={(e) => handleEditSession(config, e)}
+                      onCopy={(e) => handleCopySession(config, e)}
+                      onTogglePin={(e) => handleTogglePin(config, e)}
+                      /* LIVE 行的 X 改成关闭终端,不动 saved config */
+                      onDelete={(e) => handleCloseLive(config, e)}
+                      dangerIcon={<IconPower />}
+                      dangerTitle="Close terminal"
+                    />
+                  ))}
+                </div>
+              </ScrollFold>
             </>
           )}
 
@@ -1329,40 +1340,49 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
           {pinnedSessions.length > 0 && (
             <>
               <GroupHeader
-                amber
-                icon={<IconStar filled />}
+                tone="pin"
                 label={t('sidebar.groupPinned')}
                 count={pinnedSessions.length}
                 collapsed={pinnedCollapsed}
                 onToggle={() => setPinnedCollapsed(c => !c)}
               />
-              {!pinnedCollapsed && pinnedSessions.map((config, index) => (
-                <SessionSlot
-                  key={config.id}
-                  config={config}
-                  status={statusFor(config)}
-                  reachable={reachabilityFor(config)}
-                  active={false}
-                  isPinned
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, index)}
-                  onDragEnter={(e) => handleDragEnter(e, index)}
-                  onDrop={(e) => handleDrop(e, index)}
-                  onDragEnd={handleDragEnd}
-                  isDragging={draggedIndex === index}
-                  isDragOver={dragOverIndex === index && draggedIndex !== index}
-                  onClick={() => handleSessionClick(config)}
-                  onEdit={(e) => handleEditSession(config, e)}
-                  onCopy={(e) => handleCopySession(config, e)}
-                  onTogglePin={(e) => handleTogglePin(config, e)}
-                  onDelete={(e) => handleDeleteSession(config.id, e)}
-                />
-              ))}
+              <ScrollFold open={!pinnedCollapsed}>
+                {/* 纸幅:辊下垂落的纸(与辊上卷纸带同宽同边 mx-3,辊探出一对轴头),行透明落在纸上 */}
+                <div className="paper-sheet mx-3">
+                  {pinnedSessions.map((config, index) => (
+                    <SessionSlot
+                      key={config.id}
+                      config={config}
+                      status={statusFor(config)}
+                      reachable={reachabilityFor(config)}
+                      active={false}
+                      isPinned
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, index)}
+                      onDragEnter={(e) => handleDragEnter(e, index)}
+                      onDrop={(e) => handleDrop(e, index)}
+                      onDragEnd={handleDragEnd}
+                      isDragging={draggedIndex === index}
+                      isDragOver={dragOverIndex === index && draggedIndex !== index}
+                      onClick={() => handleSessionClick(config)}
+                      onEdit={(e) => handleEditSession(config, e)}
+                      onCopy={(e) => handleCopySession(config, e)}
+                      onTogglePin={(e) => handleTogglePin(config, e)}
+                      onDelete={(e) => handleDeleteSession(config.id, e)}
+                    />
+                  ))}
+                </div>
+              </ScrollFold>
             </>
           )}
 
-          {/* 协议筛选 chips —— LED 通道条:每颗 = 一盏协议状态灯 + 铭牌 + 读数;多选 toggle,全空 = 显示全部 */}
-          <div className="flex items-stretch gap-[4px] px-2 py-2 bg-[var(--bg-strip)] border-y border-[var(--rule)]">
+          {/* 协议筛选 chips —— 小画轴:每颗筛选键是一卷收起的小横轴(轴体=卷起
+              的纸筒,题签落在卷面),轴头即协议身份色,题签金墨。状态不走展开,
+              卷恒收着:选中=解绳点亮(绳飘走、轴头透辉光),未选=拴绳(蝴蝶
+              结);亮度常亮,明暗只在轴头。多选 toggle,全空 = 显示全部。计
+              数不上面(窄栏里绳+
+              题签已满),并入 title 提示(形与绳的机械在 globals.css) */}
+          <div className="flex items-stretch gap-[4px] px-2 py-[5px] bg-[var(--bg-strip)] border-y border-[var(--rule)]">
             {PROTO_KINDS.map(p => {
               const active = protoFilter.has(p)
               const count = protoCounts[p]
@@ -1374,29 +1394,28 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
                   key={p}
                   onClick={() => !disabled && toggleProtoFilter(p)}
                   disabled={disabled}
-                  title={disabled ? t('sidebar.noProtoSessions', { proto: PROTO_LABEL[p] }) : (active ? t('sidebar.clearProtoFilter', { proto: PROTO_LABEL[p] }) : t('sidebar.showOnlyProto', { proto: PROTO_LABEL[p] }))}
+                  aria-pressed={active}
+                  title={`${disabled ? t('sidebar.noProtoSessions', { proto: PROTO_LABEL[p] }) : active ? t('sidebar.clearProtoFilter', { proto: PROTO_LABEL[p] }) : t('sidebar.showOnlyProto', { proto: PROTO_LABEL[p] })} · ${count}`}
                   className={cn(
-                    // 单行:LED · 铭牌 · 读数。带 border——按钮物体边界;
-                    // 未选中=透明底 + 协议色淡 border-2;选中=透明底 + 协议色满色 border-2(亮框框住)。两态都不填充,纯靠边框深浅区分
-                    'group relative flex-1 h-[28px] flex items-center gap-[6px] px-[8px] rounded-[2px] border-2 transition-colors',
-                    disabled && 'opacity-25 cursor-not-allowed border-[var(--rule-soft)]',
-                    !disabled && (active
-                      ? PROTO_ACTIVE_CLS[p]
-                      : PROTO_IDLE_CLS[p])
+                    // 小画轴(scroll-chip):轴体/轴头/明暗/辉光与绳的显隐机械全在
+                    // globals.css;这里只挂身份色(PROTO_TEXT_CLS 设 color —— 轴头
+                    // currentColor 取它)与解绳态;恒不铺底不描边,物件本体就是卷
+                    'scroll-chip relative flex-1 min-w-0 flex items-center gap-[3px] pl-[6px] pr-[4px] cursor-pointer select-none',
+                    PROTO_TEXT_CLS[p],
+                    active && 'on',
+                    disabled && 'opacity-30 cursor-not-allowed'
                   )}
                 >
-                  {/* LED —— 协议状态灯。off=/30 待机(仍可见),on=满色+光晕。状态信号全在这里 */}
-                  <span
-                    aria-hidden
-                    className={cn(
-                      'w-[6px] h-[6px] rounded-full flex-shrink-0 transition-all',
-                      active ? PROTO_LED_LIT_CLS[p] : PROTO_LED_DIM_CLS[p]
-                    )}
-                  />
-                  {/* 铭牌:未选中 text-rack 近白,选中点亮成协议色 */}
-                  <span className={cn('[font-family:inherit] text-[12px] font-semibold tracking-[.12em]', active ? PROTO_TEXT_LIT_CLS[p] : 'text-[var(--text-rack)]')}>{PROTO_LABEL[p]}</span>
-                  {/* 读数:未选中中性数据色,选中点亮成协议色,右贴边 */}
-                  <span className={cn('ml-auto [font-family:inherit] text-[13px] font-semibold tabular-nums', active ? PROTO_TEXT_LIT_CLS[p] : 'text-[var(--text-rack-data)]')}>{count}</span>
+                  {/* 轴体 —— 卷起的纸筒,垫在绳/题签后(题签读作贴印在卷面上) */}
+                  <span aria-hidden className="scroll-chip-band" />
+                  {/* 蝴蝶结 —— 未选(卷收着)时绳拴住卷,选中解开飘走
+                      (ScrollTie 与分组折叠栏共用,机械在 globals.css);绳色
+                      随轴头 —— 继承键的协议色,拴卷的绳与卷两端的轴头同色 */}
+                  <span className="inline-flex flex-shrink-0">
+                    <ScrollTie />
+                  </span>
+                  {/* 题签 —— 卷面金墨(scroll-slip 同款恒金) */}
+                  <span className="flex-shrink-0 scroll-slip text-[11px] whitespace-nowrap">{PROTO_LABEL[p]}</span>
                 </button>
               )
             })}
@@ -1406,31 +1425,42 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
           {sortedSubnetGroups.map(([groupKey, group]) => {
             const sorted = group.length === 1 ? group : [...group].sort(sortByPinOrder)
             const expanded = expandedIPs[groupKey] !== false  // 默认展开
+            // 段身份按组内协议:串口(COM)橙 / 本地紫 / 其余(网段与主机名
+            // 分组的远程会话)粉 —— 组键由 host/path/cwd 派生,组内同质
+            const tone = group.some(s => s.type === 'serial')
+              ? 'serial'
+              : group.some(s => s.type === 'local')
+                ? 'local'
+                : 'subnet'
             return (
               <React.Fragment key={groupKey}>
                 <GroupHeader
-                  icon={<IconRack />}
                   label={groupKey}
                   count={group.length}
-                  monoLabel
+                  tone={tone}
                   collapsed={!expanded}
                   onToggle={() => toggleIPGroup(groupKey)}
                 />
-                {expanded && sorted.map(config => (
-                  <SessionSlot
-                    key={config.id}
-                    config={config}
-                    status={statusFor(config)}
-                    reachable={reachabilityFor(config)}
-                    active={false}
-                    isPinned={false}
-                    onClick={() => handleSessionClick(config)}
-                    onEdit={(e) => handleEditSession(config, e)}
-                    onCopy={(e) => handleCopySession(config, e)}
-                    onTogglePin={(e) => handleTogglePin(config, e)}
-                    onDelete={(e) => handleDeleteSession(config.id, e)}
-                  />
-                ))}
+                <ScrollFold open={expanded}>
+                  {/* 纸幅:辊下垂落的纸(与辊上卷纸带同宽同边 mx-3,辊探出一对轴头),行透明落在纸上 */}
+                  <div className="paper-sheet mx-3">
+                    {sorted.map(config => (
+                      <SessionSlot
+                        key={config.id}
+                        config={config}
+                        status={statusFor(config)}
+                        reachable={reachabilityFor(config)}
+                        active={false}
+                        isPinned={false}
+                        onClick={() => handleSessionClick(config)}
+                        onEdit={(e) => handleEditSession(config, e)}
+                        onCopy={(e) => handleCopySession(config, e)}
+                        onTogglePin={(e) => handleTogglePin(config, e)}
+                        onDelete={(e) => handleDeleteSession(config.id, e)}
+                      />
+                    ))}
+                  </div>
+                </ScrollFold>
               </React.Fragment>
             )
           })}
@@ -1512,6 +1542,12 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
             <FileManagerPanel />
           </div>
         )}
+
+        {/* ===== 快捷命令 ===== 状态栏正上方、文件管理器之下 —— 常驻动作位回迁栏底
+             （与状态栏同处视线末段），文件管理器整体上移让位；Ctrl+F1-F12 直发
+             不受位置影响（监听在 MainWindow 常驻，与面板共用同一 store）。
+             底部 hairline 交给状态栏的 border-t，本模块不再自带 border-b */}
+        <QuickCommandsPanel onExecuteCommand={onExecuteCommand} disabled={quickCommandsDisabled} />
 
         {/* ===== 底部 status ===== */}
         <div

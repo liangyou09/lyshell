@@ -582,7 +582,9 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
           点铭牌直接开 Web，落在 deepseek-harness 自己的默认工作区（$DSH_HOME/web），与 TUI 工作区解耦。
           不加边框与状态字，仅靠悬停变琥珀提示可按；启动中同样标黄（琥珀=此刻与 Web 有关）。
           codex/claude 无 Web UI，铭牌不可按 —— 有能力的地方才有控件。
-          通电 LED 是铭牌的琥珀锚点（不表示 Web 状态），对应 LYSHELL·RACK 头行的琥珀「·」。 */}
+          通电 LED 是铭牌的琥珀锚点（不表示 Web 状态），对应 LYSHELL·RACK 头行的琥珀「·」。
+          计数是铭牌的「型号后缀」（同 AgentsPanel）：listReady 时显示工作区数，
+          读作 Claude 3 一个词（区段带已撤 —— 整面只有一列工作区，标签与铭牌重复）。 */}
       <div
         className="flex items-center justify-between gap-1 px-3 border-b border-[var(--rule)] flex-shrink-0"
         style={{ height: TOPBAR_HEIGHT }}
@@ -604,6 +606,14 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
           >
             <span aria-hidden className="w-[6px] h-[6px] rounded-full bg-[var(--amber)] shadow-[0_0_5px_var(--amber-glow)] flex-shrink-0" />
             <span className="min-w-0 truncate">{t(`${prefix}.title`)}</span>
+            {listReady && (
+              <span
+                className="flex-shrink-0 font-semibold text-[12px] text-[var(--text-rack-mute)] tabular-nums"
+                style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
+              >
+                {workspaces.length}
+              </span>
+            )}
           </button>
         ) : (
           <span
@@ -612,6 +622,14 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
           >
             <span aria-hidden className="w-[6px] h-[6px] rounded-full bg-[var(--amber)] shadow-[0_0_5px_var(--amber-glow)] flex-shrink-0" />
             <span className="truncate">{t(`${prefix}.title`)}</span>
+            {listReady && (
+              <span
+                className="flex-shrink-0 font-semibold text-[12px] text-[var(--text-rack-mute)] tabular-nums"
+                style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
+              >
+                {workspaces.length}
+              </span>
+            )}
           </span>
         )}
         <div className="flex items-center gap-1 flex-shrink-0">
@@ -633,13 +651,11 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
         </div>
       </div>
 
-      {/* 内容笼：p-3 + space-y-2 自根容器下移到这层，头条得以满幅贴顶（与 SessionsPanel/PluginPanel 同构）。
-          新增动作已上收头条右上角 chip，头顶不再有新增条分割线，恢复整段 p-3 顶距 */}
-      <div className="flex-1 min-h-0 flex flex-col px-3 pt-3 pb-3 space-y-2">
-
-      {/* 未就绪：首个依赖缺失 → 依赖状态行 + 提示卡（无首个依赖则列表/启动均不可用） */}
+      {/* 未就绪内容笼：依赖状态行 + 安装提示卡 —— p-3 内缩留白，头条满幅贴顶
+          （与 PluginPanel 同构）。新增动作已上收头条右上角 chip，头顶不再有
+          新增条分割线，恢复整段 p-3 顶距。就绪态不走这层（见下方卡片区域） */}
       {!listReady && (
-        <>
+        <div className="flex-1 min-h-0 flex flex-col px-3 pt-3 pb-3 space-y-2">
           <div className="space-y-1">
             {deps.map((dep) => {
               const installed = status ? Boolean(status[dep]) : null
@@ -740,27 +756,33 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
               </div>
             </div>
           )}
-        </>
+        </div>
       )}
 
-      {/* 工作区列表（环境变量的管理/启用入口已收编到左侧「环境变量」面板） */}
+      {/* 工作区卡片区域（环境变量的管理/启用入口已收编到左侧「环境变量」面板）——
+          bg-rack 满幅背板把列表区从 base 框体里隆起成「卡片区域」：框体沉底（面板根
+          bg-base，与激活轨融合窗同一面材质）、背板立前一档、卡面（bg-slot）再立一档，
+          三段明度阶拉开框/区/卡。不设区段带：Sessions 的 GroupHeader 服务于多分组
+          导航（LIVE/自定义组/收藏），本面板整面只有工作区一列，计数已在铭牌上，
+          区段标签与铭牌重复 */}
       {listReady && (
-        <>
-          {/* 其余依赖未装：启动禁用（dsh 仅装了 dsh 缺 dsh-tui 时出现） */}
+        <div className="flex-1 min-h-0 flex flex-col bg-[var(--bg-rack)]">
+          {/* 横幅位（仅异常时占行，随卡片区域走）：其余依赖未装时启动禁用
+              （dsh 仅装了 dsh 缺 dsh-tui 时出现） */}
           {!launchReady && (
-            <div className="flex items-start gap-2 rounded-[2px] border border-[color-mix(in_srgb,var(--amber)_28%,var(--rule))] bg-[color-mix(in_srgb,var(--amber)_7%,var(--bg-slot))] px-2 py-1.5">
+            <div className="flex items-start gap-2 rounded-[2px] border border-[color-mix(in_srgb,var(--amber)_28%,var(--rule))] bg-[color-mix(in_srgb,var(--amber)_7%,var(--bg-slot))] px-2 py-1.5 mx-3 mt-3">
               <span className="w-[6px] h-[6px] rounded-full bg-[var(--amber)] shadow-[0_0_5px_var(--amber-glow)] mt-[3px] shrink-0" />
               <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] break-words">{t(`${prefix}.tuiMissingHint`)}</span>
             </div>
           )}
 
           {actionError && (
-            <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words">{actionError}</div>
+            <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words px-3 pt-3">{actionError}</div>
           )}
 
-          {/* 工作区卡片列表 —— 6px 暗沟：卡与卡的界限靠「背板沟(bg-base)→ rule
+          {/* 卡列表 —— 6px 沟露出背板色：卡与卡的界限靠「背板沟(bg-rack)→ rule
               机加工边 → 槽位面(bg-slot)」三段明度阶读出来，沟窄了整列会糊成一片 */}
-          <div className="flex-1 overflow-y-auto min-h-0 space-y-1.5 rack-scroll">
+          <div className="flex-1 overflow-y-auto min-h-0 px-3 pt-2.5 pb-3 space-y-1.5 rack-scroll">
             {workspaces.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-2 px-4 text-center">
                 <span className="font-mono text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
@@ -918,7 +940,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
               })
             )}
           </div>
-        </>
+        </div>
       )}
 
       {/* 工作区新增/编辑对话框 —— 机柜"插槽规格表"同壳（参照 Agent 对话框） */}
@@ -1232,8 +1254,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
           </div>
         </div>
       )}
-
-      </div>
     </div>
   )
 }

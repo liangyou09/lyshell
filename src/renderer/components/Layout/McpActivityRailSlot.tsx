@@ -28,8 +28,9 @@ const IconMcpActivity: React.FC = () => (
  * 轨底 MCP 活动工具槽 -- 原右上控制簇状态片(McpActivityChip)的轨上版,置于设置槽上方。
  * 脉冲图标 + 最近活动 LED(amber 常亮 = 5 分钟内有审计记录);
  * 审计计数收进 title 提示(轨上不叠计数读数,保持克制)。点击在当前活跃分屏打开/关闭
- * MCP 活动页签(整面覆盖该 pane)。active 态 = MCP 页签正打开在某个 pane,
- * 读作"通电的工具卡"(镜像设置槽激活语言)。
+ * MCP 活动页签(整面覆盖该 pane)。active 态 = MCP 页签正打开在某个 pane:图标亮
+ * amber + 呼吸辉光,不画 bg-base 融合窗 -- 窗口是"与左列面板框体连片"的专属语法
+ * (见 ActivityRail),本槽开关的是 pane 覆盖层,没有可连片的框体,点亮图标即开关态。
  *
  * 非页签:切换的是 pane 覆盖层而非导航,与轨顶收起控位同类,用 aria-pressed 表达开关态。
  */
@@ -100,25 +101,19 @@ export function McpActivityRailSlot(): JSX.Element {
       aria-label={t('settings.mcpActivityHint', { count })}
       className={cn(
         // 轨底工具槽(组内上位):mt-auto 把 MCP + 设置整组推到轨底;
-        // border-t 与内容页签分笼,border-b 与下方设置槽做卡笼 hairline 分隔
-        'relative h-[44px] flex items-center justify-center transition-colors group mt-auto',
+        // border-t 与内容页签分笼,border-b 与下方设置槽做卡笼 hairline 分隔。
+        // 激活不画融合窗(pane 覆盖层开关,无框体可连片,见 docstring),点亮图标即态;
+        // 非激活透明坐在 bg-slot 条带上,悬停抬一档到 elev
+        'relative h-[40px] flex items-center justify-center transition-colors group mt-auto',
         'border-t border-b border-[var(--rule-soft)]',
-        active
-          ? 'bg-[var(--bg-slot)] shadow-[inset_0_1px_0_var(--amber-soft),inset_0_-1px_0_var(--amber-soft)]'
-          : 'hover:bg-[var(--bg-rack)]',
+        !active && 'hover:bg-[var(--bg-elev)]',
         'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--amber)]'
       )}
     >
-      {/* amber 左边条 -- 通电信号,镜像 active SessionSlot 的 before: 条 */}
-      {active && (
-        <span
-          aria-hidden
-          className="absolute left-0 top-0 bottom-0 w-[2px] bg-[var(--amber)] shadow-[0_0_4px_var(--amber-glow)]"
-        />
-      )}
       <span
         className={cn(
-          'transition-[color,transform] duration-200 ease-out group-hover:scale-110',
+          // relative:垫高层序,防后渲染的绝对定位 LED 盖住图标
+          'relative transition-[color,transform] duration-200 ease-out group-hover:scale-110',
           active
             ? 'text-[var(--amber)] animate-rail-icon-glow'
             : 'text-[var(--text-rack-dim)] group-hover:text-[var(--text-rack-mute)]'

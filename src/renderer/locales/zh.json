@@ -556,7 +556,6 @@
   "sidebar": {
     "newSession": "新建会话",
     "exportImport": "导出 / 导入",
-    "stripLaunch": "启动",
     "addAgent": "添加 Agent",
     "filterPlaceholder": "筛选主机 · 标签 · 用户",
     "expandAllGroups": "展开全部分组",

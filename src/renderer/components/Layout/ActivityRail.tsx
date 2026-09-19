@@ -8,9 +8,15 @@ import { TOPBAR_HEIGHT } from './topbar-metrics'
 /**
  * 左侧机柜竖版页签轨 -- 把"会话 / Agent / 插件"三权并立成等高的机柜卡槽。
  *
- * 视觉语言沿用 active SessionSlot:激活槽用 amber 左边条 + bg-slot 填充 + amber 图标,
- * 像"通电的 1U 卡片";槽间用 rule-soft hairline + inset 凹陷阴影做卡笼分隔。
- * 这是本组件的 signature -- 导航本身读作机柜插卡,而非通用图标条。
+ * 视觉语言:浏览器式页签条 -- 页签笼整体染 bg-slot 成"条带"(chrome 材质,与
+ * bg-base 面板底拉开一步;暗主题条带亮于页面、亮主题条带灰于页面,同浏览器
+ * chrome/页面的材质分工),激活槽是条带上挖出的"窗口":bg-base 与面板同一面
+ * 材质,右缘直角越过 border-r 竖线把它整个盖掉,窗口与面板之间无墙、同色
+ * 无缝,读作浏览器激活页签与页面连成一片。窗口材质 = 面板"卡片区域外"的框体
+ * 底:激活槽读作管理框本体的一部分,与面板里的卡片(bg-rack 底 + 文字行)是
+ * 两个物种。选中显著性 = 条带/窗口对比 + amber 左边条 + amber 图标;槽间用
+ * inset 凹陷阴影做卡笼分隔。
+ * 这是本组件的 signature -- 导航读作机柜页签条,而非通用图标条。
  *
  * 轨顶第一槽是左列收起控位(非页签):与收起态终端列左上的展开 pill 构成同一开关的
  * 两个形态 -- 开关永远停在窗口左上角,展开时是本槽,收起时是 pill,150ms 交叉淡变。
@@ -93,7 +99,7 @@ const IconClaude: React.FC = () => <BrandMaskIcon src={claudeIcon} />
  *  方框 25.7x21.7 外缘 0.3..27.7 / 0.3..23.7(视觉 27.4x23.4 横牌),字标 9.4 居中,
  *  左右墨迹缝各 ~4.4,上下留白读作印章版心的空气。字标 x/y 按栅格化墨迹实测
  *  居中(em 盒量不到字齿;ppem 取整随字号漂移,改字号必重标定)。
- *  (前几版弃:无框 ENV 在 44px 槽里轮廓发虚;花括号 { ENV } 欠直白。)
+ *  (前几版弃:无框 ENV 在轨槽里轮廓发虚;花括号 { ENV } 欠直白。)
  *  mono 栈呼应 shell 语汇;框用 square cap 直线族语言,静息时框先于字读出。 */
 const IconEnv: React.FC = () => (
   <svg width="28" height="24" viewBox="0 0 28 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="square" strokeLinejoin="miter">
@@ -213,7 +219,8 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
           非页签:无 role=tab/激活态。槽高对齐终端第一行(TOPBAR_HEIGHT),底部 rule 线与
           面板头条的 border-b 同色同 y -- 它是横贯窗口的"第一行底线"(收起槽 → 面板头条 →
           页签条连成一条),不是收起槽与内容页签的槽位分隔;第一行内部(右侧)不画竖线,
-          整行读作无分割的一条横带,下方内容页签保持 44 高不变。
+          整行读作无分割的一条横带;下方内容页签取 40 行高 -- 第一行 36 是跨窗
+          对齐的 chrome 行高,内容槽给 24px 图标留呼吸(44 过疏 / 36 过挤的折中)。
           ghost 语言与收起态 pill 同源:静息线走 mute(与面板头条文字同档,
           第一行的读数亮度),悬停 bg-rack 托起(轨槽的一步抬升,对应 pill 的
           bg-elev)+ chevron 提亮到 data */}
@@ -237,9 +244,11 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
 
       {/* 页签笼 -- 机柜轨与面板的竖分隔线(border-r)画在这里而不是轨容器上:
           收起槽所在的窗口第一行不画竖线,收起槽 + 面板头条读作一条连续横带,
-          竖线从第一行以下才开始。tablist 也落在这层:笼里全是真页签,收起控件不混入 */}
+          竖线从第一行以下才开始。笼底整体染 bg-slot 成页签"条带"(chrome 材质,
+          浏览器 chrome/页面的分工),激活槽的 bg-base 窗口在条带上挖出、与面板
+          同面无缝(见各槽位 span)。tablist 也落在这层:笼里全是真页签,收起控件不混入 */}
       <div
-        className="flex flex-col flex-1 border-r border-[var(--rule)]"
+        className="flex flex-col flex-1 border-r border-[var(--rule)] bg-[var(--bg-slot)]"
         role="tablist"
         aria-orientation="vertical"
       >
@@ -258,20 +267,33 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
             title={label}
             onClick={() => onChange(tab)}
             className={cn(
-              // 卡笼 1U 槽位:hairline 分隔 + inset 凹陷(槽嵌入框架感),与 SessionSlot 同语言。
+              // 卡笼槽位:hairline 分隔 + inset 凹陷(槽嵌入框架感),与 SessionSlot 同语言。
+              // 行高 40:44 图标间隔过疏、36 呼吸不足的折中;槽间区分交给分隔线,
+              // 不靠留空(线条清晰即可)。
               // 所有槽位(含末位 web)一律带底部分隔线:页签笼以闭合的横线收底,
               // 与轨底工具槽组(MCP/设置)之间的空档不读作"缺线"
-              'relative h-[44px] flex items-center justify-center transition-colors group',
+              'relative h-[40px] flex items-center justify-center transition-colors group',
               'shadow-[inset_0_-1px_0_var(--bg-base)]',
               'border-b border-[var(--rule-soft)]',
-              isActive
-                // 激活:通电槽 -- bg-slot 填充 + 上下 amber-soft inset(被"拉出"的通电感),镜像 SessionSlot active
-                ? 'bg-[var(--bg-slot)] shadow-[inset_0_1px_0_var(--amber-soft),inset_0_-1px_0_var(--amber-soft)]'
-                : 'hover:bg-[var(--bg-rack)]',
+              // 激活窗口画在下方独立 span 上(bg-base,需越过 border-r 1px 盖墙,
+              // 按钮本体背景到不了那里);非激活槽透明坐在条带上,悬停抬一档到 elev
+              !isActive && 'hover:bg-[var(--bg-elev)]',
               'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--amber)]'
             )}
           >
-            {/* amber 左边条 -- 通电信号,镜像 active SessionSlot 的 before: 条 */}
+            {/* 激活窗口 -- bg-base 与面板同一面材质,右缘直角越过页签笼 border-r
+                竖线 1px 把它整个盖掉:窗口与面板之间无墙、同色无缝,读作浏览器
+                激活页签与页面连成一片;墙沿槽上下沿整齐断开,断口是干净的竖直缝。
+                (圆肩版弃:6px 弧在两角露出条带色月牙 + 墙线残段,再撞上相邻槽的
+                分隔线,6×6px 里三线相碰读作毛刺;直角无此问题。) */}
+            {isActive && (
+              <span
+                aria-hidden
+                className="absolute left-0 top-0 bottom-0 right-[-1px] bg-[var(--bg-base)]"
+              />
+            )}
+            {/* amber 左边条 -- 通电信号,镜像 active SessionSlot 的 before: 条
+                (排在窗口 span 之后,压在填充上方) */}
             {isActive && (
               <span
                 aria-hidden
@@ -280,7 +302,9 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
             )}
             <span
               className={cn(
-                'transition-[color,transform] duration-200 ease-out group-hover:scale-110',
+                // relative:窗口 span 在绝对定位层,画在普通流内容之上;图标不定位
+                // 会被窗口填充盖住(上一版"图标消失"的根因)
+                'relative transition-[color,transform] duration-200 ease-out group-hover:scale-110',
                 isActive
                   // 品牌位 + 写轮眼 web 激活变白(开眼),不亮 amber、不挂辉光
                   ? (tab === 'dsh' || tab === 'codex' || tab === 'claude' || tab === 'web')
@@ -310,7 +334,7 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
       <McpActivityRailSlot />
 
       {/* settings 工具槽 -- 轨底最末位;无 LED。
-          active 语言与内容槽一致:amber 左条 + bg-slot 填充,读作"通电的工具卡"。 */}
+          active 语言与内容槽一致:bg-base 窗口 + amber 左条,读作"打开中的工具页签"。 */}
       <button
         type="button"
         role="tab"
@@ -319,13 +343,18 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
         title={labelFor('settings')}
         onClick={() => onChange('settings')}
         className={cn(
-          'relative h-[44px] flex items-center justify-center transition-colors group',
-          active === 'settings'
-            ? 'bg-[var(--bg-slot)] shadow-[inset_0_1px_0_var(--amber-soft),inset_0_-1px_0_var(--amber-soft)]'
-            : 'hover:bg-[var(--bg-rack)]',
+          'relative h-[40px] flex items-center justify-center transition-colors group',
+          // 激活窗口画在下方独立 span 上(bg-base,越 border-r 1px 盖墙);非激活透明坐条带,悬停抬一档
+          active !== 'settings' && 'hover:bg-[var(--bg-elev)]',
           'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--amber)]'
         )}
       >
+        {active === 'settings' && (
+          <span
+            aria-hidden
+            className="absolute left-0 top-0 bottom-0 right-[-1px] bg-[var(--bg-base)]"
+          />
+        )}
         {active === 'settings' && (
           <span
             aria-hidden
@@ -334,7 +363,8 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
         )}
         <span
           className={cn(
-            'transition-[color,transform] duration-200 ease-out group-hover:scale-110',
+            // relative:同内容槽 -- 不定位会被窗口 span(绝对定位层)盖住
+            'relative transition-[color,transform] duration-200 ease-out group-hover:scale-110',
             active === 'settings'
               ? 'text-[var(--amber)] animate-rail-icon-glow'
               : 'text-[var(--text-rack-dim)] group-hover:text-[var(--text-rack-mute)]'

@@ -33,17 +33,25 @@
    semantic 颜色（live / reachable / error / 协议色 / 文件类型色）
    跨主题保持一致——它们承载语义，不该被"心情"改变。
    每个主题完整定义所有 token，便于一眼审计。
+
+   背景阶梯 base < strip < rack < slot < elev：深色主题 base/strip 压低一档，
+   框体（面板底 + 激活轨窗口同一材质）沉底、卡片（bg-rack）立前——框/卡
+   层次靠明暗阶差，不靠描边阴影；卡片面的 inset 沟槽与 rule 线随 base
+   加深自动变清晰，轨条带/窗口对比（选中显著性）同步增强。浅色主题
+   chrome 有品牌锚（Edge #F3F3F3 / 飞书 #F5F6F7）不动，层次由卡面与
+   框的既有 Δ8 承担（浅底上的感知强于近黑底）。
    ───────────────────────────────────────────────────────────── */
 
 /* 默认 = Rack Graphite */
 :root,
 [data-theme="rack-graphite"] {
   --terminal-bg:    #0C0C0C;  /* 终端画布底色 -- 深色主题统一近黑(经 :root 继承);rack-paper 覆盖为浅纸 */
-  --bg-base:        #11151A;
+  --bg-base:        #0D1116;
   --bg-rack:        #161B20;
   --bg-slot:        #1C2228;
   --bg-elev:        #1F262D;
-  --bg-strip:       #14181D;
+  --bg-strip:       #101419;
+  --paper:          #181712;  /* 展卷纸面 -- 会话行纸幅的暖调羊皮纸;阶梯 strip < paper < slot(hover 抬升仍可辨) */
   --rule:           #232A31;
   --rule-soft:      #1B2127;
   --text-rack:      #E4E7EA;
@@ -68,6 +76,8 @@
   --live:           #3DDC97;  /* 偏青绿,与 --proto-tel(#7CC576 草绿) 拉开 —— LIVE 段呼吸点不再被 TEL 协议色淹没 */
   --reachable:      #6CD4FF;
   --reachable-glow: #6CD4FF33;  /* reachable 的落区/悬停伴生透明层(同 amber/amber-glow 配对模式) */
+  --pin:            #F5C842;  /* 置顶段语义金 —— 恒金跨主题:置顶是语义不是焦点,不随 --amber 走(rack-lark 焦点变蓝后置顶仍金);提亮提黄,与 serial 的 --proto-ser(#E8A33D 橙)拉开 —— 置顶金、串口橙,同为暖色不同物 */
+  --subnet:         #F472B6;  /* 网段段身份粉 —— 子网/主机名分组(远程会话组)的轴头色;段级组语义,与行级 --proto-* 协议色平行,不随主题走 */
   --warn-rack:      #E8A33D;
   --error-rack:     #FF6B6B;
   --error-rack-glow:#FF6B6B3D;  /* error 的 LED 辉光伴生层(同 amber/amber-glow 配对模式,危险态指示灯用) */
@@ -75,11 +85,12 @@
 
 /* Rack Slate — 偏蓝石板，amber 焦点不变 */
 [data-theme="rack-slate"] {
-  --bg-base:        #0E141B;
+  --bg-base:        #0A0F15;
   --bg-rack:        #131A23;
   --bg-slot:        #18212C;
   --bg-elev:        #1C2632;
-  --bg-strip:       #11181F;
+  --bg-strip:       #0D131A;
+  --paper:          #161712;  /* 暖调纸面,继承 :root 注释 */
   --rule:           #232E39;
   --rule-soft:      #1B232D;
   --text-rack:      #E2E6EC;
@@ -92,11 +103,12 @@
 
 /* Rack Carbon — 中性炭灰，弱蓝，更冷峻 */
 [data-theme="rack-carbon"] {
-  --bg-base:        #131313;
+  --bg-base:        #0F0F0F;
   --bg-rack:        #181818;
   --bg-slot:        #1E1E1E;
   --bg-elev:        #232323;
-  --bg-strip:       #161616;
+  --bg-strip:       #121212;
+  --paper:          #171613;  /* 暖调纸面,继承 :root 注释 */
   --rule:           #2A2A2A;
   --rule-soft:      #1F1F1F;
   --text-rack:      #E6E6E6;
@@ -116,6 +128,7 @@
   --bg-slot:        #E2E2E2;
   --bg-elev:        #D9D9D9;
   --bg-strip:       #EFEFEF;
+  --paper:          #F1ECDF;  /* 浅主题纸面 = 真羊皮纸的奶油色;亮于 slot 方向反转,靠暖色相与框底分层 */
   --rule:           #C7C7C7;
   --rule-soft:      #DBDBDB;
   --text-rack:      #202020;
@@ -139,6 +152,7 @@
   --bg-slot:        #E5E6EB;  /* 飞书经典分隔/hover 灰 */
   --bg-elev:        #DDE0E4;
   --bg-strip:       #F2F3F5;
+  --paper:          #F4F0E4;  /* 浅主题纸面 = 奶油色羊皮纸,同 rack-paper 的方向反转 */
   --rule:           #D5D7DB;
   --rule-soft:      #E5E6EB;
   --text-rack:      #1F2329;
@@ -154,11 +168,12 @@
 
 /* Rack Ember — 暖色暗主题,胡桃木褐底,amber 更艳 */
 [data-theme="rack-ember"] {
-  --bg-base:        #1A140E;
+  --bg-base:        #150F0A;
   --bg-rack:        #221A12;
   --bg-slot:        #2A2018;
   --bg-elev:        #34281E;
-  --bg-strip:       #1D1610;
+  --bg-strip:       #191310;
+  --paper:          #281E12;  /* 暖主题里 rack 本身已是暖褐,纸面再抬一档拉开 */
   --rule:           #3B2D20;
   --rule-soft:      #2E2218;
   --text-rack:      #EFE7DA;
@@ -174,11 +189,12 @@
 /* Rack Custom — RGB 自定义,真值由 theme-store 通过 inline style 注入到 :root,
    这里只保留一个 fallback(等同 graphite),防止用户清空 localStorage 后裸渲染 */
 [data-theme="rack-custom"] {
-  --bg-base:        #11151A;
+  --bg-base:        #0D1116;
   --bg-rack:        #161B20;
   --bg-slot:        #1C2228;
   --bg-elev:        #1F262D;
-  --bg-strip:       #14181D;
+  --bg-strip:       #101419;
+  --paper:          #181712;
   --rule:           #232A31;
   --rule-soft:      #1B2127;
   --text-rack:      #E4E7EA;
@@ -259,6 +275,410 @@
 @media (prefers-reduced-motion: reduce) {
   .cs-blink { animation: none; }
   .cs-fade-in { animation: none; }
+}
+
+/* ─── ScrollFold:垂卷 —— 组内容开合的卷轴动画(挂轴意象) ───
+   折叠栏(scroll-head)= 卷轴的裱首+辊+题签:辊(rod-caps)在栏内垂直居中(悬
+   浮机件,上下留气);栏底缘正是「裱首/画心」的接缝(= 纸幅顶缘),辊
+   悬在缝上方一小步、恒不动(开合不变粗细),收起时纸向辊上裹成同径满
+   卷(轴藏卷内,只露两端轴头),展开后纸垂落、回归光辊;
+   行=纸(paper-sheet,辊下垂落的羊皮纸),顶缘带触辊阴影、底缘
+   是自由边。开=纸自辊下垂落铺开,合=自底向上卷回辊上。机械:外层 grid 行轨
+   0fr↔1fr 让高度真实参与布局(下方组被真实推下,不是伪裁剪);纸面
+   (overflow:hidden 子层)恒定高、被行轨裁出开合窗 —— 窗口下沿即纸的自由边。
+   ::after 是随自由边走的卷曲:贴边的纸最暗(纸记忆的卷,曲率最大)向上渐平,
+   是盖在纸上的投影;开卷时卷径收细(纸垂定拉平),收卷时反向长粗(纸卷回
+   辊上)。方向不对称:铺纸慢而坠、收卷快而加速。折叠稳态由 ScrollFold 组件
+   注入 inert,裁掉的行不进 Tab 序。 */
+
+.scroll-fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  overflow: hidden;          /* 裁住 ::after,收卷完成后不外溢 */
+  position: relative;
+  /* 收卷(1fr→0fr):加速收 —— 纸卷回辊上越卷越顺 */
+  transition: grid-template-rows 320ms cubic-bezier(.55, .05, .7, .4);
+}
+.scroll-fold.open {
+  grid-template-rows: 1fr;
+  /* 铺纸(0fr→1fr):快起慢坠 —— 纸带着重量自辊下垂落 */
+  transition: grid-template-rows 440ms cubic-bezier(.2, .7, .2, 1);
+}
+.scroll-fold > .scroll-fold-paper {
+  overflow: hidden;          /* 0fr 行轨可收拢的前提(grid item 自动最小尺寸归零) */
+  min-height: 0;
+}
+.scroll-fold::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 16px;              /* 满卷卷径(收卷向终点 / 开卷起点)—— 较
+                                20px 满卷收细 4px 的贴边卷曲(承旧 22/26
+                                同差的收细关系) */
+  /* 卷曲:自由边的纸最暗(纸记忆的卷,曲率最大)向上渐平,是盖在纸上的投影。
+     辊线与轴头都在折叠栏(scroll-head 的 rod-caps)上,这里只有纸自己的边 */
+  background: linear-gradient(to top, rgba(0, 0, 0, .45), rgba(0, 0, 0, 0)) left bottom / 100% 100% no-repeat;
+  opacity: 1;
+  pointer-events: none;
+  /* 收卷向:卷径长粗与行轨同拍;卷一形成立现(合的过程看得见) */
+  transition: height 320ms cubic-bezier(.55, .05, .7, .4), opacity 150ms ease;
+}
+.scroll-fold.open::after {
+  height: 10px;              /* 近拉平的残余卷径 */
+  opacity: 0;
+  /* 开卷向:卷径收细与铺纸同拍;淡出压到落定之后 —— 整段铺纸期间卷曲都跟着
+     自由边走完全程,纸垂定了卷才散 */
+  transition: height 440ms cubic-bezier(.2, .7, .2, 1), opacity 180ms ease 320ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-fold,
+  .scroll-fold::after {
+    transition: none;
+  }
+}
+
+/* ─── 纸幅(辊下垂落的纸)─── 会话行落的纸面:承色承纹理,由 SessionsPanel 的
+   三个分组区包在 ScrollFold 里(mx-3 = 12px 内缩,与辊上卷纸带严格同宽同
+   边 —— 卷起的纸幅与垂落的纸幅是同一张纸,宽不换、边不跳;辊体 rod-caps
+   内缩 6px、两端轴头 6px,辊比纸长出一对轴头,「辊比纸长」的立轴读形)。
+   行自身透明,纸色全由本类提供;顶缘一层触辊阴影(纸自辊下引出,贴辊处
+   压暗,纸有从辊后拉出来的纵深 —— 辊底黑端与纸顶暗渐变跨过辊下小缝相接,
+   读作纸压轴的暗缝,不是两物之间的边界线),底缘由最后一行的 rule-soft
+   折线收口。极淡的正交纤维纹理给纸的齿感(两层 repeating 渐变各 <2.5%
+   透明度,不与行内容争读性;浅色主题上白线近乎不可见,黑线成为主纹理)。 */
+.paper-sheet {
+  /* 纸色与纹理必须 background-color / background-image 分写:background
+     简写会把先声明的 background-color 整体重置成 transparent,纸面没了
+     (纸幅曾长期透明落在框体上,只剩纹理层) */
+  background-color: var(--paper);
+  background-image:
+    /* 触辊阴影:贴辊处压暗(最上层) */
+    linear-gradient(to bottom, rgba(0, 0, 0, .2), rgba(0, 0, 0, 0)),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .02) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, .025) 0 1px, transparent 1px 4px);
+  /* 触辊阴影只贴顶 10px;两枚正交纤维纹理铺满整面 */
+  background-size: 100% 10px, 100% 100%, 100% 100%;
+  background-repeat: no-repeat;
+}
+
+/* ─── 卷轴辊(折叠栏上的辊本体)─── rod-caps 渲染的卷物件:栏内垂直居中 ——
+   悬浮机件,上下留气;栏底缘 = 纸幅顶缘,正是「裱首/画心」的接缝(栏=
+   裱首题签区、本体透明无底,纸幅=画心),辊悬在缝上方一小步:
+   辊径恒 20px、开合不变粗细(辊是机件,粗细恒定,动的只有纸),展开态
+   轴体(机件色 slot)与纸幅顶缘隔一道小缝 —— 轴底黑端 + 落影 + 纸顶触
+   辊暗渐变跨缝相接,焊成「纸自轴后引出」,辊与纸不读作两物;收起态纸
+   把轴整个裹进卷里(band 满高 20px、与轴同径,两端只露跟辊同径的轴头
+   —— 满卷读作「一卷纸」,不是灰杆上叠一条纸带)。开合:band 锚辊底向
+   上长/收回 0↔20 —— 纸向辊上裹拢、自辊下垂落;元素高与轴头恒 20px 不
+   参与动画,粗细自始至终不变,变的只有面(光辊↔纸裹)。与栏两侧留
+   6px 距离(不顶到缘,是搁上去的物件),两端 6px 宽轴头(currentColor
+   身份色,高恒 = 元素满高 20px)恰好探出纸幅两端 —— 纸带宽 = 纸幅宽:
+   带在杆内再让 6px(12→W-12,与 paper-sheet 的 mx-3 同边),「辊比纸长」
+   的立轴读形。立体圆柱用「底色 + 垂直受光渐变」塑体积:横置圆柱顶曲面
+   含光、底曲面背光,光照 = 叠在底色上的半透明黑白渐变(不是纹理贴图),
+   两层 background 各自定位 —— 纸带锚底(裹轴的卷面:展开 0px 不可见、
+   收起满高,background-size 插值出「纸裹轴/沉落」动画,height 不参与),
+   轴体光照层恒 20px 满高(纸走后露出的光辊,辊上永远有光)。卷面
+   圆柱读形:顶一道受光亮弧(卷面反光,纸卷身份的主线索)+ 长段平纸 +
+   缝侧轻收暗。不叠 inset 缘线:半黑实色硬边在深底上读作渐暗,在浅色
+   rack 上读作突兀黑线(亮色主题踩过的坑),删掉后体积与收底全由渐变承
+   担 —— 渐变的黑端深底读作背光加深、浅底读作灰阴影;浅色主题整套再收
+   浅一档(data-theme-mode 覆盖,见下):半透明黑的感知强度跟底色明度
+   走,深底 .5 读作柔和渐暗,浅底同值就是重影。轴头同款垂直受光渐变叠
+   currentColor —— 与轴体同一套光照,端头也立体。尺寸动画只动
+   background-size(纸带),与 .scroll-fold 开合同拍同曲线(开 440ms
+   纸垂落 / 合 320ms 纸卷回)。
+   z-index:-1 垫在栏内文字后(.scroll-head 建 z-index:0 栈式上下文收
+   纳):标签读作贴印在辊/卷上(收起态文字落在纸卷面上,读作卷上题
+   签);渐变画在轴头(子元素)之下 —— 在轴头处断开,读作从轴头后穿过。
+   轴头即身份:pin 金 / live 绿 / 分组色(serial 橙 / local 紫 / subnet 粉),
+   使用处 inline color 覆盖,中性由本类给 text-rack-dim;收起时读作纸卷
+   两端的轴头端盖 */
+
+.scroll-head { z-index: 0; }  /* 栈式上下文:辊(-1)垫在栏内文字后(栏无底
+                                色,静息/hover 皆透明) */
+
+/* 键盘焦点:可折叠栏挂 role="button" + tabIndex(Enter/Space 开合,折叠
+   内容被 ScrollFold inert 挡在 Tab 序外,键盘全靠这一处),描边语言与
+   .scroll-chip:focus-visible / .doc-rail-resizer 同款 —— amber 2px 内描 */
+.scroll-head:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: -1px;
+}
+
+/* 题签(scroll-slip)—— 折叠栏题名的笔墨书:裱首上那条写画名的纸签。
+   书体分工:拉丁走 Cambria(端正衬线,数字齐线不跳 —— IP/COM 组键读
+   作铭刻),中文走隶书(汉碑的书体:笔墨出身而结体平正 —— 蚕头雁尾是
+   笔意,横平竖直是骨,有笔墨而不歪;本机无隶书时回落宋体);字重 400,
+   粗体读作标语;字距 .08em —— 签上的字是一格一格落上去的。题签墨是金
+   --pin(与置顶金同源)—— 题名全栏一只金,不跟段身份走:段身份读轴头
+   (pin 金/live 绿/分组色),题名只读金;亮底反转成银枪(暗金亮银,一物
+   两墨 —— 亮纸底上金发白读不出,银枪的冷钢在奶油纸上立得住);墨晕
+   (text-shadow 2px,随 currentColor)—— 墨落在纸上洇开的一圈,字是写
+   上去的不是印上去的,浅主题收淡一档(浅底上同值读作重影)。收起态
+   文字落在纸卷
+   面上,读作卷上题签。 */
+.scroll-slip {
+  font-family: Cambria, 'Times New Roman', 'LiSu', '隶书', 'SimSun', '宋体', 'Songti SC', serif;
+  color: var(--pin);
+  font-weight: 400;
+  letter-spacing: .08em;
+  text-shadow: 0 0 2px color-mix(in srgb, currentColor 32%, transparent);
+}
+[data-theme-mode="light"] .scroll-slip {
+  /* 银枪 —— 亮底反转(暗金亮银,一物两墨):#7E8892 在奶油纸上约 3:1
+     读不清,收深到 #5F6B76(约 4.6:1)字才立得住 —— 银枪读作钢,不是雾 */
+  color: #5F6B76;
+  text-shadow: 0 0 1px color-mix(in srgb, currentColor 22%, transparent);
+}
+
+/* 手书大写(scroll-slip-hand)—— COM/local 组键的题签:手写的字牌,与
+   IP/远程组的机印铭牌(Cambria)拉开 —— 卷上既有印的题名也有手写的键。
+   断笔手写大写(Ink Free)13px 小字立得住,连笔手书(Segoe Script)小
+   字号发糊,只作回落;键名一律大写(手书字牌只有大写形)。金墨/墨晕
+   随 .scroll-slip,这里只换书体 */
+.scroll-slip-hand {
+  font-family: 'Ink Free', 'Segoe Script', cursive;
+  text-transform: uppercase;
+}
+
+/* ─── 小画轴(scroll-chip)── 协议筛选键的挂轴化 ───
+   筛选 chips 从「LED 通道条」改为小画轴:每颗键一卷收起的小横轴,与会
+   话分组折叠栏(垂卷 scroll-head)的收起态同款读形 —— 轴体(band,卷起
+   的纸筒:顶一道受光亮弧 + 长段平纸 + 缝侧收暗,高 16px 贴 SSH 题签
+   的字高 —— 卷不比字高)+ 两端 4px 轴头(协议色,轴头即身份)+ 题签(slip,
+   卷面金墨,scroll-slip 同款)+ 系绳(ScrollTie 共用:卷收着就拴绳,绳
+   色随轴头 —— 拴卷的绳与卷两端的轴头同色,经使用处 color 继承)。
+   状态不走展开/收起,卷恒收着,状态=绳与轴头:选中 = 解绳 —— 绳解开
+   飘走、轴头点亮、整卷透协议色辉光;未选 = 拴绳(蝴蝶结拴住卷,自由端
+   微摆),轴头待机半亮,悬停轴头提亮一档。亮度常亮:卷体/纸/题签恒全
+   亮不随状态压暗(整卷 dim 连字一起暗,破「文字两态同读」)—— 明暗振
+   荡止于轴头,承 LED 通道条「状态由灯承」的旧约,换灯为绳与轴头。计
+   数不上面(240px 侧栏里绳+题签已满),入 title 提示。
+   绳的显隐与摆动挂 :is(.scroll-head.rolled, .scroll-chip:not(.on)) 共用
+   下方 scroll-tie 的全套机械(绑上回摆/解开飘走/自由端微摆)。 */
+.scroll-chip {
+  height: 22px;             /* 高度贴题签字高(11px 字 + 16px 卷 + 上下各 3px 气),不需要更高 */
+  z-index: 0;               /* 栈式上下文:轴体(-1)垫在绳/题签后,题签读作贴印在卷面上 */
+}
+
+.scroll-chip-band {
+  position: absolute;
+  left: 3px; right: 3px;    /* 卷与键缘留一点距离 —— 搁在键上的物件 */
+  top: calc(50% - 8px);     /* 键内垂直居中:上下留气(高恒 16px,50%-8px 即正中) */
+  height: 16px;             /* 轴体:卷起的纸筒(收起态折叠栏的同款卷面,高贴题签字高) */
+  z-index: -1;
+  background-color: var(--paper);
+  background-image: linear-gradient(to bottom,
+    rgba(255, 255, 255, .2),
+    var(--paper) 14%,
+    var(--paper) 72%,
+    color-mix(in srgb, var(--paper) 84%, #000));
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .25));   /* 卷的落影:纸筒立在 strip 上 */
+  transition: filter 200ms ease;
+}
+.scroll-chip-band::before,
+.scroll-chip-band::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 4px;
+  height: 100%;             /* 轴头恒跟卷同径(=轴体满高):纸筒的端盖 */
+  background-color: currentColor;   /* 轴头即身份:协议色经使用处 color 注入 */
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, .3), rgba(255, 255, 255, .04) 42%, rgba(0, 0, 0, .45));
+  opacity: .55;             /* 拴绳待机:轴头暗一档 */
+  transition: opacity 150ms ease;
+}
+.scroll-chip-band::before { left: 0; }
+.scroll-chip-band::after { right: 0; }
+.scroll-chip:not(:disabled):not(.on):hover .scroll-chip-band::before,
+.scroll-chip:not(:disabled):not(.on):hover .scroll-chip-band::after { opacity: .8; }
+.scroll-chip.on .scroll-chip-band::before,
+.scroll-chip.on .scroll-chip-band::after { opacity: 1; }
+/* 解绳点亮:整卷透协议色辉光(LED 点亮的辉光语言;落影换成光,卷被拿起) */
+.scroll-chip.on .scroll-chip-band {
+  filter: drop-shadow(0 0 4px color-mix(in srgb, currentColor 50%, transparent));
+}
+
+/* 键盘焦点:amber 外框(对齐 doc-rail-item 的焦点语言) */
+.scroll-chip:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: -1px;
+}
+
+/* 浅色 rack:半黑渐变整套收浅一档(深底读作渐暗,浅底同值读作重影) */
+[data-theme-mode="light"] .scroll-chip-band {
+  background-image: linear-gradient(to bottom,
+    rgba(255, 255, 255, .16),
+    var(--paper) 14%,
+    var(--paper) 72%,
+    color-mix(in srgb, var(--paper) 86%, #000));
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .14));
+}
+
+.rod-caps {
+  position: absolute;
+  left: 6px; right: 6px;      /* 卷杆与两侧留一点距离 —— 搁在栏上的物件 */
+  top: calc(50% - 10px);      /* 栏内垂直居中:辊悬在栏盒子中心、上下留气
+                                  (高恒 20px,50%-10px 即正中);纸幅顶缘
+                                  在栏底缘,与辊底隔一道小缝 —— 轴底黑端+
+                                  落影+纸顶暗渐变跨缝相接,辊与纸仍读作
+                                  一物(缝是空气,不是切口) */
+  height: 20px;               /* 辊径恒定 —— 开合不变粗细:展开=光辊,收起=
+                                  纸裹轴的同径满卷;粗细不变,变的只有面 */
+  z-index: -1;                /* 垫在栏内文字后(见上) */
+  color: var(--text-rack-dim);
+  background-color: var(--bg-slot);  /* 轴体底色:机件色,slot 抬一档立物件 */
+  /* 立体圆柱:两层 background(列表前者画在上),光照叠在底色上;
+     定位分工 —— 纸带锚底(自辊底向上生长),轴体光照恒 20px 满高 */
+  background-image:
+    /* 纸卷带:裹轴的纸卷面 —— 满卷时把轴整个裹住(轴藏卷内,只露两端
+       轴头),读作一卷纸。圆柱读形:顶一道受光亮弧(卷面反光,纸卷身份
+       的主线索)、长段平纸、缝侧轻收暗(84% 纸 + 16% 黑 —— 深底纸本就
+       近黑,收重了读作画上去的一道黑横线);宽=纸幅宽(杆内让 6px,两
+       端轴头探出纸外),卷起与垂落是同一张纸 */
+    linear-gradient(to bottom, rgba(255, 255, 255, .2), var(--paper) 14%, var(--paper) 72%, color-mix(in srgb, var(--paper) 84%, #000)),
+    /* 轴体:横置圆柱受光 —— 顶面含光带,往下背光收深;黑端稍加强,
+       没有缘线后由它收底,也是缝上「纸自轴后引出」的暗缝 */
+    linear-gradient(to bottom, rgba(255, 255, 255, .16), rgba(255, 255, 255, .02) 46%, rgba(0, 0, 0, .5));
+  background-repeat: no-repeat;
+  /* 纸带锚底(左让 6px,自辊底向上裹轴)/ 轴体光照满高:展开态纸带高 0(不可见) */
+  background-position: 6px 100%, 0 100%;
+  background-size: calc(100% - 12px) 0px, 100% 20px;
+  /* 不画 inset 缘线(浅色主题黑线的成因):半黑硬边在浅 rack 上读作脏线,
+     体积与收底全由渐变承担,深浅主题同一套渐变都成立 */
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .3));  /* 卷的落影:跨过辊下小
+                                                         缝投到纸幅顶上,辊与纸
+                                                         焊成一物的深度线索(浅
+                                                         色 rack 上 .4 偏重,收一档) */
+  pointer-events: none;
+  /* 开向:纸垂落 440ms,纸卷收拢回轴、回归光辊 —— height 恒 20px 不动
+     (粗细不变),动的只有纸带 background-size */
+  transition: background-size 440ms cubic-bezier(.2, .7, .2, 1);
+}
+.scroll-head.rolled .rod-caps {
+  /* 满卷(收起):纸带满高裹轴 —— band 20px 与辊同径,元素高不变
+     (粗细恒定),轴藏卷内、只露两端跟辊同径的轴头 */
+  background-size: calc(100% - 12px) 20px, 100% 20px;  /* 纸带满高裹轴 */
+  /* 合向:纸卷回 320ms,纸带自辊底向上裹轴长满 */
+  transition: background-size 320ms cubic-bezier(.55, .05, .7, .4);
+}
+.rod-caps::before,
+.rod-caps::after {
+  content: '';
+  position: absolute;
+  bottom: 0;                  /* 锚辊底(跟辊走),高跟元素走 */
+  width: 6px;
+  height: 100%;               /* 轴头恒跟辊同径(=元素满高 20px,开合不变
+                                  粗细):展开=杆的两端,收起=满卷的端盖
+                                  —— 画卷轴头的读形;探出纸幅两端(纸侧让 6px) */
+  background-color: currentColor;
+  /* 轴头同款垂直受光渐变(叠身份色):与轴体同一套光照,端头也立体 */
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, .3), rgba(255, 255, 255, .04) 42%, rgba(0, 0, 0, .45));
+}
+.rod-caps::before { left: 0; }
+.rod-caps::after { right: 0; }
+
+/* 亮色主题(rack-paper / rack-lark,浅底 rack-custom 同样命中):阴影整套
+   收浅一档 —— 只重设光照参数,尺寸/动画仍走上面的通用规则(本规则特异性
+   低于 .rolled 的卷面规则,不同属性互不覆盖)。轴头渐变同步收浅,亮底上
+   重黑读作脏色块 */
+[data-theme-mode="light"] .rod-caps {
+  background-image:
+    linear-gradient(to bottom, rgba(255, 255, 255, .16), var(--paper) 14%, var(--paper) 72%, color-mix(in srgb, var(--paper) 86%, #000)),
+    linear-gradient(to bottom, rgba(255, 255, 255, .12), rgba(255, 255, 255, .02) 46%, rgba(0, 0, 0, .32));
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .14));
+}
+[data-theme-mode="light"] .rod-caps::before,
+[data-theme-mode="light"] .rod-caps::after {
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, .28), rgba(255, 255, 255, .06) 42%, rgba(0, 0, 0, .32));
+}
+
+/* 蝴蝶结(scroll-tie)—— 折叠栏上的系绳记号(ScrollFold 的 ScrollTie 渲染):
+   满卷(rolled)时绳在卷上系成蝴蝶结;展开后纸向下垂落、结解开、绳跟着
+   纸向下飘落(绳拴的是纸,纸往下绳也往下,方向与纸同行)。
+   灵动模型「拴紧处不动,自由端才活」:绕卷的竖绳与结心绷紧静止(拴紧就是
+   紧的,动的是松脱的那截),两环两尾是自由端 —— 每段各自绕接结端微摆,
+   周期互质(3.4/3.9/4.4/4.1s)、相位错开、幅度分级(尾大环小),永不整拍
+   同步:读作风里的绸带,不读作钟摆。摆动用每段自己的 transform(transform-box
+   取自身 bbox、origin 落在接结端),与整体 settle 的 rotate/translate 分属性
+   互不冲突。绑上回摆落定 480ms 一次(纸自下方卷回,绳随纸自下方荡上);
+   解开飘走 translate/rotate 向下飘落 + 淡出 440ms 与铺纸同拍。淡入 320ms
+   与辊胀粗同拍;槽位恒占、行首不跳 */
+.scroll-tie {
+  margin-left: 5px;           /* 绳位:自行缘往右让一点 —— 系点离左轴头稍远,
+                                  读作拴在卷面上而不是拴在轴头上;恒定槽位,
+                                  开合两态同占,行首不跳 */
+  opacity: 0;
+  pointer-events: none;
+  translate: 0 5px;           /* 解开后的余势:跟着纸向下飘落的落点 */
+  rotate: -5deg;
+  transform-origin: 50% 48%;  /* 摆轴:结心(绳中段打结处) */
+  filter: drop-shadow(0 1.5px 2px rgba(0, 0, 0, .35));  /* 绳立在卷面上的落影 */
+  transition: opacity 440ms cubic-bezier(.2, .7, .2, 1),
+    translate 440ms cubic-bezier(.2, .7, .2, 1),
+    rotate 440ms cubic-bezier(.2, .7, .2, 1);
+}
+:is(.scroll-head.rolled, .scroll-chip:not(.on)) .scroll-tie {
+  opacity: 1;
+  translate: 0 0;
+  rotate: 0deg;
+  transition: opacity 320ms cubic-bezier(.55, .05, .7, .4),
+    translate 320ms cubic-bezier(.55, .05, .7, .4),
+    rotate 320ms cubic-bezier(.55, .05, .7, .4);
+  animation: scroll-tie-settle 480ms cubic-bezier(.3, .8, .3, 1) both;
+}
+/* 绑上落定:纸自下方卷回,绳随纸自下方荡上,绕结心回摆一次归正(不振荡);
+   落定后自由端次第活过来 */
+@keyframes scroll-tie-settle {
+  0%   { rotate: 11deg; translate: 0 6px; }
+  60%  { rotate: -3deg; }
+  100% { rotate: 0deg; translate: 0 0; }
+}
+/* 自由端微摆 —— 只在绳可见时跑(分组 rolled / 小画轴未选);delay 自 settle
+   结束起,各段再错开半拍进场(结一系好,自由端次第活过来)。origin 用
+   fill-box 相对每段自身 bbox 取在接结那一端 */
+:is(.scroll-head.rolled, .scroll-chip:not(.on)) .scroll-tie-tail-l {
+  transform-box: fill-box;
+  transform-origin: 55% 8%;
+  animation: scroll-tie-flutter 3.4s ease-in-out 480ms infinite;
+}
+:is(.scroll-head.rolled, .scroll-chip:not(.on)) .scroll-tie-tail-r {
+  transform-box: fill-box;
+  transform-origin: 45% 8%;
+  animation: scroll-tie-flutter 3.9s ease-in-out 700ms infinite;
+}
+:is(.scroll-head.rolled, .scroll-chip:not(.on)) .scroll-tie-loop-l {
+  transform-box: fill-box;
+  transform-origin: 88% 40%;
+  animation: scroll-tie-loop 4.4s ease-in-out 560ms infinite;
+}
+:is(.scroll-head.rolled, .scroll-chip:not(.on)) .scroll-tie-loop-r {
+  transform-box: fill-box;
+  transform-origin: 12% 40%;
+  animation: scroll-tie-loop 4.1s ease-in-out 950ms infinite;
+}
+/* 尾的摆:绕接结端荡,幅度大于环 —— 越自由越活(尾是波) */
+@keyframes scroll-tie-flutter {
+  0%, 100% { transform: rotate(0deg); }
+  38%      { transform: rotate(8deg); }
+  74%      { transform: rotate(-5.5deg); }
+}
+/* 环的呼吸:绕结端轻颤,幅度收小(环是颤不是波) */
+@keyframes scroll-tie-loop {
+  0%, 100% { transform: rotate(0deg); }
+  42%      { transform: rotate(5deg); }
+  76%      { transform: rotate(-3.5deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rod-caps { transition: none; }
+  .scroll-tie,
+  .scroll-tie-tail-l, .scroll-tie-tail-r,
+  .scroll-tie-loop-l, .scroll-tie-loop-r { transition: none; animation: none; }
 }
 
 /* 基础样式 */

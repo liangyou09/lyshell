@@ -10,7 +10,8 @@ import { TOPBAR_HEIGHT } from './topbar-metrics'
  * 设置面板(机柜左列 Settings 页签内容)。
  *
  * 从 MainWindow 的悬浮覆盖面板迁入左列:去掉拖拽/关闭/位置记忆等「被召唤覆盖物」逻辑,
- * 按机柜面板令牌(--bg-rack/--bg-strip/--amber/--text-rack*)组织成整列面板。
+ * 按机柜面板令牌组织成整列面板:根 = bg-base 框体(与其他面板同面材质,选中设置时
+ * 激活轨融合窗与面板连片无缝),设置卡(SettingCard)= bg-rack 立在框上。
  * 设置值沿用 localStorage + IPC 持久化,与迁移前一致。
  *
  * 主题/语言两段的 store initFromStorage 仍在 MainWindow 启动时执行(全局副作用),这里只读
@@ -33,9 +34,9 @@ const WINDOW_PRESETS: ReadonlyArray<{ width: number; height: number }> = [
 ]
 
 /**
- * 设置卡片 —— 每条设置一个独立槽位:外框 + 浅底 + 顶部 caption,让相邻设置之间有明确层次。
- * caption(弱化)与控件(亮)拉开层级;flush=true 时 body 无内边距,给主题/语言这类满幅列表用,
- * 避免卡片内再套一层边框。
+ * 设置卡片 —— 每条设置一个独立槽位:外框 + rack 卡面立在 base 框体上(框沉底/卡立前
+ * 的层次,控件面 bg-slot 再高一档),顶部 caption(弱化)与控件(亮)拉开层级;
+ * flush=true 时 body 无内边距,给主题/语言这类满幅列表用,避免卡片内再套一层边框。
  */
 const SettingCard: React.FC<{
   title: React.ReactNode
@@ -43,7 +44,7 @@ const SettingCard: React.FC<{
   flush?: boolean
   children: React.ReactNode
 }> = ({ title, right, flush, children }) => (
-  <div className="border border-[var(--rule)] rounded-[3px] bg-[var(--bg-slot)]/45 overflow-hidden">
+  <div className="border border-[var(--rule)] rounded-[3px] bg-[var(--bg-rack)] overflow-hidden">
     <div className="flex items-center justify-between gap-2 px-2.5 pt-2 pb-1.5">
       <span className="font-mono tracking-[.06em] text-[11px] text-[var(--text-rack-mute)]">{title}</span>
       {right}
@@ -134,7 +135,7 @@ const SettingsPanel: React.FC = () => {
   const activeWindowPreset = WINDOW_PRESETS.find(p => windowSize.width === p.width && windowSize.height === p.height)
 
   return (
-    <div className="settings-panel h-full flex flex-col bg-[var(--bg-rack)]">
+    <div className="settings-panel h-full flex flex-col bg-[var(--bg-base)]">
       {/* 头条:SETTINGS -- 行高对齐终端第一行(TOPBAR_HEIGHT),与 Sessions/Agents 等面板头行同高。
           铭牌走设备徽章字体(同族面板共用)。
           原右端的 terminal/mcp 页签条已随 MCP 页签移入手册而移除(单栏无页签) */}

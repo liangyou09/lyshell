@@ -11,7 +11,7 @@ import { isLightColor } from '@shared/color-utils'
  *
  * Custom 主题特殊：CSS 中只有 fallback，真值由本 store 的 applyCustomColors() 通过
  * documentElement.style.setProperty() 注入 inline，从 base + accent 两个用户值
- * 按 HSL lightness 阶梯派生 5 阶 chrome + 5 阶文字 + amber 三态。
+ * 按 HSL lightness 阶梯派生 5 阶 chrome + 暖调纸面(--paper) + 5 阶文字 + amber 三态。
  *
  * 添加新预设主题：
  *   1. globals.css 里加 [data-theme="rack-xxx"] 块
@@ -46,7 +46,7 @@ export interface CustomThemeColors {
 }
 
 export const DEFAULT_CUSTOM_COLORS: CustomThemeColors = {
-  base: '#11151A',
+  base: '#0D1116',
   accent: '#E8A33D'
 }
 
@@ -55,19 +55,19 @@ export const AVAILABLE_THEMES: ThemeMeta[] = [
     id: 'rack-graphite',
     name: 'Graphite',
     description: '深石墨 + 钨丝琥珀（默认）',
-    preview: { bgBase: '#11151A', bgRack: '#161B20', bgSlot: '#1C2228', text: '#E4E7EA' }
+    preview: { bgBase: '#0D1116', bgRack: '#161B20', bgSlot: '#1C2228', text: '#E4E7EA' }
   },
   {
     id: 'rack-slate',
     name: 'Slate',
     description: '偏蓝石板，焦点同琥珀',
-    preview: { bgBase: '#0E141B', bgRack: '#131A23', bgSlot: '#18212C', text: '#E2E6EC' }
+    preview: { bgBase: '#0A0F15', bgRack: '#131A23', bgSlot: '#18212C', text: '#E2E6EC' }
   },
   {
     id: 'rack-carbon',
     name: 'Carbon',
     description: '中性炭灰，无蓝调',
-    preview: { bgBase: '#131313', bgRack: '#181818', bgSlot: '#1E1E1E', text: '#E6E6E6' }
+    preview: { bgBase: '#0F0F0F', bgRack: '#181818', bgSlot: '#1E1E1E', text: '#E6E6E6' }
   },
   {
     id: 'rack-paper',
@@ -87,13 +87,13 @@ export const AVAILABLE_THEMES: ThemeMeta[] = [
     id: 'rack-ember',
     name: 'Ember',
     description: '暖色暗主题，胡桃木褐 + 暖琥珀',
-    preview: { bgBase: '#1A140E', bgRack: '#221A12', bgSlot: '#2A2018', text: '#EFE7DA' }
+    preview: { bgBase: '#150F0A', bgRack: '#221A12', bgSlot: '#2A2018', text: '#EFE7DA' }
   },
   {
     id: 'rack-custom',
     name: 'Custom',
     description: 'RGB 自定义底色与焦点色',
-    preview: { bgBase: '#11151A', bgRack: '#161B20', bgSlot: '#1C2228', text: '#E4E7EA' }
+    preview: { bgBase: '#0D1116', bgRack: '#161B20', bgSlot: '#1C2228', text: '#E4E7EA' }
   }
 ]
 
@@ -174,10 +174,15 @@ function shiftLightness(hex: string, deltaL: number): string {
 }
 
 /**
- * 从 base + accent 派生完整 13 阶 CSS 变量字典。
+ * 从 base + accent 派生完整 CSS 变量字典。
  * - 亮底（luminance > .55）：chrome 阶向暗推（负 delta），文字阶向亮推
  * - 暗底：反之
+ * - 纸面（--paper）恒拨到暖皮色相：暗底抬 3 档成暖褐纸，亮底压 5 档成奶油纸
+ *   （预设主题的纸面就是这个读法；不派生则 rack-custom 的深色 fallback 纸
+ *   会漏进浅色 Custom，纸幅/卷面黑成一块）
  * - amber-soft / glow 用 8-bit alpha 后缀
+ * 新增键必须同步 clearCustomColors 的清理清单——漏一个会跨主题残留 inline
+ * 真值（--paper 就是这么漏的）。
  */
 function deriveCustomVars(base: string, accent: string): Record<string, string> {
   const isLight = isLightColor(base)
@@ -194,6 +199,16 @@ function deriveCustomVars(base: string, accent: string): Record<string, string> 
   const rule     = shiftLightness(base, dir * 12)
   const ruleSoft = shiftLightness(base, dir * 6)
 
+  // 纸面（--paper）—— 垂卷挂轴的羊皮纸（纸幅/小画轴卷面底色）：色相恒拨到
+  // 暖皮（纸是材料，不跟 base 的色相走），亮度从 base 微调——暗底抬 3 档成
+  // 暖褐纸、亮底压 5 档成奶油纸；饱和度收一档（base 饱和再高，纸也只是材
+  // 料不是颜料）
+  const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
+  const [, baseS, baseL] = rgbToHsl(...hexToRgb(base))
+  const paper = isLight
+    ? rgbToHex(...hslToRgb(44, 42, clamp(baseL - 5, 78, 94)))
+    : rgbToHex(...hslToRgb(42, clamp(baseS * 0.75, 8, 35), clamp(baseL + 3, 6, 18)))
+
   // 文字 5 阶 —— rack(最亮/最暗) → faint(最贴近底)
   const textRack      = isLight ? '#1A1F24' : '#E4E7EA'
   const textRackData  = isLight ? '#2D353D' : '#9AA3AB'
@@ -207,6 +222,7 @@ function deriveCustomVars(base: string, accent: string): Record<string, string> 
     '--bg-slot':         bgSlot,
     '--bg-elev':         bgElev,
     '--bg-strip':        bgStrip,
+    '--paper':           paper,
     '--terminal-bg':     isLight ? base : '#0C0C0C',  // 终端画布:亮底对齐 base,暗底近黑(与预设主题约定一致)
     '--rule':            rule,
     '--rule-soft':       ruleSoft,
@@ -259,6 +275,7 @@ function clearCustomColors(): void {
   const root = document.documentElement
   const keys = [
     '--bg-base', '--bg-rack', '--bg-slot', '--bg-elev', '--bg-strip',
+    '--paper',
     '--terminal-bg',
     '--rule', '--rule-soft',
     '--text-rack', '--text-rack-mute', '--text-rack-data', '--text-rack-dim', '--text-rack-faint',

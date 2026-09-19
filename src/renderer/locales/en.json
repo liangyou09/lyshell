@@ -556,7 +556,6 @@
   "sidebar": {
     "newSession": "New session",
     "exportImport": "Export / Import",
-    "stripLaunch": "Launch",
     "addAgent": "Add agent",
     "filterPlaceholder": "filter hosts · tags · users",
     "expandAllGroups": "Expand all groups",

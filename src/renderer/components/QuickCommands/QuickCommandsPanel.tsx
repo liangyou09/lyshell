@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import type { QuickCommand, QuickCommandGroup } from '@shared/types'
 import { useQuickCommandsStore } from '../../stores/quick-commands-store'
 import { useEscDismiss } from '../../hooks'
+import ScrollFold, { ScrollTie } from '../Layout/ScrollFold'
 
 interface QuickCommandsPanelProps {
   /** 快捷命令派发（由 MainWindow 提供,拆行/转义规则统一在 dispatchCommand；可选以容错无宿主场景） */
@@ -19,9 +20,12 @@ const COLLAPSED_KEY = 'lyshell.quickCmdCollapsed.v1'
 const PREDEFINED_COLORS = ['#0078D4', '#E81123', '#107C10', '#FFB900', '#FF69B4']
 
 /**
- * 快捷命令侧栏模块 —— 从 StatusBar.tsx 迁入会话栏（搜索框下方）。
+ * 快捷命令侧栏模块 —— 栏底常驻动作位（文件管理器之下、状态栏之上；更早驻留
+ * 过 StatusBar.tsx 底部状态栏，后迁入会话栏搜索框下方，现回迁栏底）。
  *
- * 结构：标题行（折叠 chevron + 分组 LED 色点 + ＋）+ 键帽 wrap 区。
+ * 结构：标题行（折叠 caret + 分组 LED 色点 + ＋）+ 键帽 wrap 区。可折叠（点标题行
+ * 切换，localStorage 持久化；键盘 Enter/Space 同效）：折叠只剩标题行；展开态高度
+ * 随键帽自然换行增减,但封顶 5 行、超出内滚 —— 不再把上方会话列表挤干。
  * 数据来自 quick-commands-store（Ctrl+F1-F12 直发监听在 MainWindow 常驻，
  * 依赖同一 store，侧栏收起/切页签时快捷键不受影响）。
  */
@@ -35,7 +39,9 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
   const setSelectedGroupId = useQuickCommandsStore(s => s.setSelectedGroupId)
   const { t } = useTranslation()
 
+  // 折叠态：点标题行切换（toggleCollapsed 负责写 localStorage）
   const [collapsed, setCollapsed] = useState(false)
+
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [showBatchGroupDialog, setShowBatchGroupDialog] = useState(false)  // 批量编辑分组对话框
   const [batchGroups, setBatchGroups] = useState<{id: string, name: string, color: string}[]>([])  // 批量编辑的分组数据
@@ -51,7 +57,7 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
 
-  // 恢复折叠态
+  // 恢复折叠态（挂载时读 localStorage;对齐 protoFilter 的持久化做法）
   useEffect(() => {
     try {
       if (localStorage.getItem(COLLAPSED_KEY) === '1') setCollapsed(true)
@@ -358,6 +364,16 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
       {/* ===== 标题行 —— 对齐 SessionsPanel GroupHeader 视觉语言 ===== */}
       <div
         onClick={toggleCollapsed}
+        role="button"
+        tabIndex={0}
+        aria-expanded={!collapsed}
+        onKeyDown={(e) => {
+          // 键盘开合:键帽区被 ScrollFold inert 挡在 Tab 序外,键盘用户只能
+          // 从这里展开。target 不在自己身上不接 —— 行内 LED 分组点/＋ 聚焦
+          // 时按 Enter,keydown 冒泡上来不能误触折叠
+          if (e.target !== e.currentTarget) return
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCollapsed() }
+        }}
         onContextMenu={(e) => {
           e.preventDefault()
           e.stopPropagation()
@@ -365,36 +381,56 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
           handleOpenGroupDialog()
         }}
         title={t('statusbar.groupSwitchHint')}
-        className="flex items-center gap-2.5 px-3 py-1.5 text-[10px] text-[var(--text-rack-mute)] bg-[var(--bg-rack)] border-b border-[var(--rule-soft)] cursor-pointer hover:bg-[var(--bg-slot)] select-none"
+        // 点击折叠/展开键帽区（行内 LED 色点/＋都 stopPropagation,不会误触）。
+        // 不画 border-b:行底缘就是标题行↔键帽区的缝(辊 rod-caps 悬在行内
+        // 居中、隔着小缝望纸),硬线会把辊与下方内容切成两物;折叠时下方紧邻
+        // 状态栏的 border-t,自带底线也会叠成双线
+        className={cn(
+          // scroll-head:标题行即卷轴的裱首+辊(与会话分组折叠栏同款),collapsed
+          // 时纸裹轴卷成同径满卷(轴藏卷内,只露两端轴头),展开后回归光辊;
+          // rod-caps 端头色跟当前分组色。栏本体无底色(透明,露出 bg-base 框
+          // 体),hover 也不铺底 —— 与会话分组折叠栏同款,指针 + 绳的提亮是
+          // 全部悬停反馈。
+          // 行内垫同 GroupHeader:对称垫,内容线与居中的辊同心;右垫同款
+          // 加厚(20px)—— 右轴头占行缘 6-12px,计数/LED/＋与其隔 8px 空气
+          'relative scroll-head group flex items-center gap-2.5 pl-3 pr-[20px] py-[5px] text-[10px] text-[var(--text-rack-mute)] cursor-pointer select-none',
+          collapsed && 'rolled'
+        )}
       >
-        {/* 折叠 caret —— 与 GroupHeader 同款三角,展开时 rotate-90 */}
+        {/* 卷轴辊 —— 与 GroupHeader 同款:行内垂直居中(悬浮机件上下留
+            气),辊径恒 20px 开合不变粗细 —— 展开时轴体隔着小缝望着键帽区
+            顶缘,折叠时纸裹轴成同径满卷(轴藏卷内;圆柱读形在 globals.css
+            的 .rod-caps);两端轴头恒跟辊同径、随辊居中不动,色跟当前分组
+            LED(未设分组色回落中性 dim) */}
+        <span aria-hidden className="rod-caps" style={{ color: currentGroupColor || undefined }} />
+        {/* 蝴蝶结记号(ScrollTie)—— 与 GroupHeader 同款:collapsed 时绳在
+            满卷上系成蝴蝶结(绳随纸自下方荡上绑紧 + 自由端各拍微摆),展开后
+            结解开、绳跟着纸向下飘落淡出(槽位恒占防行首跳动;节拍在
+            globals.css 的 .scroll-tie) */}
         <span
           className={cn(
-            'inline-flex transition-transform text-[var(--text-rack-dim)]',
-            !collapsed && 'rotate-90'
+            // 绳色随轴头(currentGroupColor inline 注入,与 rod-caps 同源 ——
+            // 拴卷的绳与卷两端的轴头同色),未设分组色回落中性 mute;行悬停
+            // 提亮走 opacity 一档(inline color 压过 class,hover 变色类只在
+            // 无分组色时生效)
+            'inline-flex transition text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)] opacity-80 group-hover:opacity-100'
           )}
+          style={{ color: currentGroupColor || undefined }}
         >
-          <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><path d="M2 1l4 3-4 3z"/></svg>
+          <ScrollTie />
         </span>
-        {/* 段落图标 —— 命令行 >_ 提示符,amber 调(PINNED 段同用 amber 系) */}
-        <span className="inline-flex text-[var(--amber)]">
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M1 2l3 3-3 3" />
-            <path d="M5.5 8H9" />
-          </svg>
-        </span>
-        <span className="flex-shrink-0 [font-family:inherit] font-bold text-[11px] text-[var(--text-rack)]">
+        {/* 题签(scroll-slip)—— 与 GroupHeader 同款(书体/金墨在 globals.css),
+            题名全栏一只金;折叠时这行字落在纸卷上,读作卷上题签 */}
+        <span className="flex-shrink-0 scroll-slip text-[13px]">
           {t('sidebar.quickCmdSection')}
         </span>
-        {/* 当前分组名 —— 颜色跟随分组 LED,一眼对上当前在哪组;字号与段标签同级 */}
-        <span
-          className="flex-shrink-0 text-[11px] font-semibold tracking-[.04em]"
-          style={{ color: currentGroupColor || 'var(--text-rack-dim)' }}
-        >
+        {/* 当前分组名 —— 题签上的小字注记:与题名同金,收小收淡
+            (opacity 75 = 金的淡一档);当前在哪组由 LED 单选点 + 轴头色认 */}
+        <span className="flex-shrink-0 scroll-slip text-[10.5px] opacity-75">
           · {currentGroup.name}
         </span>
         <span className="flex-1 h-px bg-[var(--rule)]" />
-        <span className="[font-family:inherit] text-[10px] text-[var(--text-rack-data)] tracking-[.04em] normal-case tabular-nums">
+        <span className="[font-family:inherit] text-[11px] text-[var(--text-rack-data)] tracking-[.04em] normal-case tabular-nums">
           {displayCommands.length}
         </span>
         {/* action 簇: LED 分组色点 + ＋ —— 同 LIVE 段 close-all 的按钮语言 */}
@@ -453,9 +489,16 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
         </button>
       </div>
 
-      {/* ===== 键帽区 —— 基底对齐协议筛选 chips strip（bg-strip + rule 边），最多 12 条约 4 行 ===== */}
-      {!collapsed && (
-        <div className="flex flex-wrap gap-[4px] px-2 py-2 bg-[var(--bg-strip)] border-b border-[var(--rule)] max-h-[120px] overflow-y-auto content-start">
+      {/* ===== 键帽区 —— 基底对齐协议筛选 chips strip（bg-strip）。折叠时垂卷收起
+            （ScrollFold 垂卷动画,与会话分组同款:标题行=辊,键帽区自辊垂落/
+            卷回,窗口下沿是自由边,不画横杆 —— 与状态栏 border-t 不叠线）。
+            展开态高度随键帽自然换行增减,但封顶 5 行（max-h 152px = 5 行键帽
+            24px + 4 行行距 4px + 上下垫 16px）,超出走 rack-scroll 内滚 ——
+            每组上限 12 条,窄栏全堆下时不再把上方的会话列表/文件管理器挤干;
+            本模块坐栏底（状态栏正上方）,底部 hairline 由状态栏 border-t 提供,
+            不再自带 border-b ===== */}
+      <ScrollFold open={!collapsed}>
+        <div className="flex flex-wrap gap-[4px] px-2 py-2 max-h-[152px] overflow-y-auto rack-scroll bg-[var(--bg-strip)] content-start">
           {displayCommands.length === 0 ? (
             <span className="text-[11px] text-[var(--text-rack-dim)] tracking-[.04em] py-[3px] px-1">
               {t('sidebar.quickCmdEmpty')}
@@ -476,7 +519,7 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
                 onClick={() => handleExecute(cmd)}
                 onContextMenu={(e) => handleCommandContextMenu(cmd, e)}
                 className={cn(
-                  // 按钮语言对齐 ShellPill/协议 chips:透明底 + rule 边框,hover 才点亮;
+                  // 按钮语言对齐协议 chips:透明底 + rule 边框,hover 才点亮;
                   // 分组色走边框信号(--kc-accent 由 style 注入,hover 边框亮成分组色)
                   'group/key relative flex-shrink-0 h-[24px] rounded-[3px]',
                   'pl-[16px] pr-[8px] flex items-center',
@@ -514,7 +557,7 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
             ))
           )}
         </div>
-      )}
+      </ScrollFold>
 
       {/* Quick-command editor */}
       {showAddDialog && (
