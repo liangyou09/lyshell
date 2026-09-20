@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
 /**
- * SessionsPanel 栏底文件管理器关闭/恢复回归：关闭后 FileManager 摘树但
- * 分割线保留为恢复轨；关闭态持久化，恢复后回到原位置。
+ * SessionsPanel 栏底文件管理器关闭/恢复回归：栏底面板已是双开画轴
+ * (.scroll-dual)，点任一辊行即开/合(双向 toggle，开合钮=辊行本体，✕ 已
+ * 摘)，关闭后纸裹回双辊成上下双卷、题签(纯名牌)居中浮在双卷之间的合
+ * 缝上(不带方向符号)，FileManager
+ * 延迟 360ms 随纸卷完摘树；关闭态持久化，恢复后回到原位置。
  * 写门回归：读档未落定(慢/失败)时防抖与卸载补写都不得把默认 false 落盘 ——
  * 否则存档的 true 被冲掉且无从恢复（真机上 = 每次快速切页签都丢关闭存档）。
  * 高度存档防毒：离谱超上限值收敛到绝对上限（4000，同小窗写轮眼口径）。
- * 另有拖拽抢跑回归：点关闭按钮的 mousedown 不得冒泡到分割线启动拖高
- * （真机上抖动会把按钮从指针下拽走并改写存档高度 —— pointerdown 冒泡
- * 在 WebPanel 还会 setPointerCapture 偷走 click，jsdom 只能测鼠标冒泡这条）。
+ * 拖高与点合分流：上辊行同时是拖高手势位与开合热区 —— mousemove 位移
+ * 越过 3px 阈值记真拖动，拖完浏览器补发的 click 必须被吞掉(零位移 click
+ * 才合卷)，否则拖个高度顺手把面板卷走了。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, cleanup, screen, fireEvent, waitFor } from '@testing-library/react'
@@ -59,7 +62,7 @@ describe('文件管理器栏底窗口', () => {
     await waitFor(() => expect(window.electronAPI.setConfig).toHaveBeenCalledWith('fileManagerClosed', true))
   })
 
-  it('默认打开；点关闭按钮摘树并持久化关闭态', async () => {
+  it('默认打开；点辊行合卷并持久化关闭态', async () => {
     render(<SessionsPanel />)
     await waitFor(() => expect(screen.getByTestId('file-manager-panel')).toBeTruthy())
     fireEvent.click(screen.getByTitle('Close file manager'))
@@ -81,18 +84,25 @@ describe('文件管理器栏底窗口', () => {
     await waitFor(() => expect(window.electronAPI.setConfig).toHaveBeenCalledWith('fileManagerClosed', false))
   })
 
-  it('点关闭按钮不触发拖高：mousedown 不冒泡到分割线，mousemove 不改写高度', async () => {
+  it('拖高与点合分流：位移越过阈值是拖动（不改关闭态），零位移 click 才合卷', async () => {
     render(<SessionsPanel />)
     const panel = await waitFor(() => screen.getByTestId('file-manager-panel'))
-    const wrapper = panel.parentElement as HTMLElement
-    expect(wrapper.style.height).toBe('200px')
-    // 按下即带抖动：mousedown 落在按钮上，随后 document mousemove ——
-    // 若冒泡启动了拖高，jsdom 零尺寸 rect 会把高度夹到 100px
-    fireEvent.mouseDown(screen.getByTitle('Close file manager'))
+    // 持久化高度挂在 .scroll-dual 装配上(双辊 20 + 裱边 16 + 画心),body 只锚合缝
+    const wrapper = panel.closest('.scroll-dual') as HTMLElement
+    const rod = wrapper.querySelector('.scroll-dual-rod') as HTMLElement
+    // 真拖动:按下-移动-抬起,浏览器拖完会补发 click —— 位移阈值须把它吞掉,
+    // 面板保持展开(jsdom 零尺寸 rect 会把高度夹到下限 136,属拖动本分)
+    fireEvent.mouseDown(rod)
     fireEvent.mouseMove(document, { clientY: 300 })
     fireEvent.mouseUp(document)
-    expect(wrapper.style.height).toBe('200px')
-    await waitFor(() => expect(window.electronAPI.setConfig).not.toHaveBeenCalledWith('fileManagerHeight', 100))
+    fireEvent.click(rod)
+    await waitFor(() => expect(screen.getByTestId('file-manager-panel')).toBeTruthy())
+    // 零位移 click:直接合卷(开合入口 = 辊行本体)
+    fireEvent.click(rod)
+    await waitFor(() => {
+      expect(screen.queryByTestId('file-manager-panel')).toBeNull()
+      expect(screen.getByTitle('Restore file manager')).toBeTruthy()
+    })
   })
 
   it('关闭后 500ms 内切走页签（卸载）也补写关闭态', async () => {
@@ -129,7 +139,8 @@ describe('文件管理器栏底窗口', () => {
     )
     render(<SessionsPanel />)
     const panel = await waitFor(() => screen.getByTestId('file-manager-panel'))
-    const wrapper = panel.parentElement as HTMLElement
+    // 持久化高度挂在 .scroll-dual 装配上(双辊 20 + 裱边 16 + 画心),body 只锚合缝
+    const wrapper = panel.closest('.scroll-dual') as HTMLElement
     expect(wrapper.style.height).toBe('4000px')
   })
 })

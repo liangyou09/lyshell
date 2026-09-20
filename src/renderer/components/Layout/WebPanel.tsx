@@ -10,6 +10,7 @@ import {
   selectActiveWebTabId, navigateActiveWebTab, reloadActiveWebTab, stopActiveWebTab,
   activeWebTabGoBack, activeWebTabGoForward, getWebview
 } from './web-tab-controls'
+import { ScrollTie } from './ScrollFold'
 
 /** datalist 选项 label 用:取 hostname,取不到回落原样字符串(与页签 title 初始值同源);
     历史行本身直接显示完整 URL,不再缩略为 hostname */
@@ -110,10 +111,19 @@ const NavButton: React.FC<{
 const MINI_HEIGHT_KEY = 'webMiniHeight'
 const MINI_CLOSED_KEY = 'webMiniClosed'
 const MINI_URL_STORAGE_KEY = 'lyshell.webbarMini.url.v1'
-const MINI_DEFAULT_HEIGHT = 200
-const MINI_MIN_HEIGHT = 110      // 工具条 26px + 网页可视 ~80px 的下限
-const MINI_RESERVE_HEIGHT = 160  // 面板高减去它 = 小窗高度上限（铭牌/地址栏/历史留座）
+// 高度语义 = 双开画轴装配总高(上下双辊 20 + 裱边 16 + 画心):旧存档值(纯纸
+// 幅语义)经 clampMiniHeight 下限自愈上抬;默认 236 与 146 的画心(200/110)恰
+// 是旧默认/旧下限 —— 浏览面尺寸对旧档零感知(细棍化收 12,画心不动)
+const MINI_DEFAULT_HEIGHT = 236  // 双辊 20 + 裱边 16 + 工具条 32 + 浏览面 168(旧默认的浏览面)
+const MINI_MIN_HEIGHT = 146      // 双辊 20 + 裱边 16 + 工具条 32 + 网页可视 ~78px 的下限(旧下限 110 的同等内容)
+// 面板高减去它 = 小窗装配高度上限(拖动 clamp 与 CSS maxHeight 同一把钳)。
+// 上方恒占 = 铭牌 TOPBAR_HEIGHT + 地址栏 44 + 历史留座 120(卡头+两行余量)
+// —— 历史座是设计裁量非布局硬限(卡内自滚,还能更矮),整把故为粗钳:拖动
+// 上限已精确锚装配底缘(rootRef 底缘,见 onMiniDividerPointerMove),要再
+// 精确须逐帧量上方实高,粗防线保底即可
+const MINI_RESERVE_HEIGHT = TOPBAR_HEIGHT + 44 + 120
 const MINI_ABS_MAX_HEIGHT = 4000 // 存档值绝对上限（防手改 config 的离谱值；运行期布局上限另由渲染期 maxHeight 钳）
+const MINI_ROLLED_H = 20         // 收起叠高:上下双卷 10×2(与 SessionsPanel 的 DUAL_ROLLED_H 同族几何)
 
 /** 小窗高度统一夹取（config 恢复与拖动共用同一逻辑）：整数像素，免半像素渲染。
  *  max 小于 MIN（面板未布局/极矮）时 MIN 兜底 —— 恢复值只可能被夹小不会被夹死 */
@@ -165,21 +175,6 @@ const PromoteIcon: React.FC = () => (
     <path d="M13 4h7v7" />
     <path d="M20 4 9 15" />
     <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
-  </svg>
-)
-
-/** 关闭图标（lucide x 线稿风格）—— 栏底小窗统一关闭动作 */
-const CloseIcon: React.FC = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    <path d="M18 6 6 18" />
-    <path d="m6 6 12 12" />
-  </svg>
-)
-
-/** 向上展开图标（lucide chevron-up 线稿风格）—— 关闭后的恢复轨 */
-const ChevronUpIcon: React.FC = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    <path d="m18 15-6-6-6 6" />
   </svg>
 )
 
@@ -281,6 +276,10 @@ const WebPanel: React.FC = () => {
     } catch { return null }
   })
   const [miniInput, setMiniInput] = useState(miniUrl ?? '')
+  // 小窗地址栏聚焦态 —— 双开画轴的开合裁决之一:开 = 聚焦或有址(有址即开眼,
+  // 未编辑时 miniInput 恒同步当前页地址);收 = 失焦且未开眼 —— 与勾玉指示同一
+  // 状态语言(闭眼 = 双卷拴绳,开眼 = 纸展墨落)
+  const [miniInputFocused, setMiniInputFocused] = useState(false)
   const [miniLoading, setMiniLoading] = useState(false)
   const [miniFailed, setMiniFailed] = useState<string | null>(null)
   const [miniNav, setMiniNav] = useState({ canGoBack: false, canGoForward: false })
@@ -372,6 +371,10 @@ const WebPanel: React.FC = () => {
   // 存档 closed=true 时若先按默认 false 渲染,每次进页签都会挂 webview 拉起
   // guest 进程抓一次页面再拆 —— 闪现 + 白费一次真实导航
   const [miniConfigLoaded, setMiniConfigLoaded] = useState(false)
+  // 双开画轴内容挂载裁决:开 = 立即挂(工具条/浏览面随纸展开);合 = 延迟
+  // 360ms 卸载(合向 320ms 纸卷完再收内容)—— 纸裹着内容卷回。与 FM 不同,
+  // 本体(工具条/空态)不受 config 门控(面板挂载即同步可交互,行为对齐旧
+  // 代码);冷启动 closed 存档的闪挂防线只压在 webview 自己的门上(见 JSX)
   // 写门(读档成功才置 true):存档 closed=true 时 state 初值是默认 false,若允许
   // 未读档就写,防抖 500ms 会把 false 落盘、读档未落定即卸载时补写也会把 false
   // 落盘 —— 两条路都会冲掉存档的 true。config 读取失败时门保持关:回落默认
@@ -387,6 +390,19 @@ const WebPanel: React.FC = () => {
       })
     }).catch(() => { /* config 不可达回落默认 */ }).finally(() => setMiniConfigLoaded(true))
   }, [])
+
+  // 双开画轴内容挂载裁决(状态声明处注释):开 = 立即挂;合 = 延迟 360ms 卸载,
+  // 合向动画期间重开则 cleanup 掐掉定时器、内容原样还在(webview 免重挂,
+  // src 冻结纪律不受扰动)
+  const [miniContentMounted, setMiniContentMounted] = useState(false)
+  useEffect(() => {
+    if (!miniClosed) {
+      setMiniContentMounted(true)
+      return undefined
+    }
+    const timer = setTimeout(() => setMiniContentMounted(false), 360)
+    return () => clearTimeout(timer)
+  }, [miniClosed])
   useEffect(() => {
     const timer = setTimeout(() => {
       // setConfig 走 IPC 返回 Promise：失败不上未处理拒绝，但留 warn 痕迹与
@@ -425,10 +441,13 @@ const WebPanel: React.FC = () => {
   // 关闭期间冻结 src 跟随 miniUrl：恢复重挂以「关闭时的页面」首航，而不是停在
   // 首航定格的旧地址（否则 src 首航触发 did-navigate 回写旧落点，既冲掉真实
   // miniUrl 又把旧地址写进 localStorage 存档）。src 恒不变纪律只约束同一元素
-  // 的生命周期 —— 关闭时无元素，更新冻结值不触发任何重载
+  // 的生命周期 —— 合卷改走延迟卸载后，关闭后的 360ms 里元素还活着，此刻改
+  // 冻结值会原地改写活 webview 的 src（真机上 = 卷纸期间整页白拉重载一次）。
+  // 门在 miniEl === null：卷上的元素真卸了（回调 ref 落 null 重跑本 effect）
+  // 才跟随，无元素时更新冻结值不触发任何重载
   useEffect(() => {
-    if (miniClosed && miniSrc !== miniUrl) setMiniSrc(miniUrl)
-  }, [miniClosed, miniSrc, miniUrl])
+    if (miniClosed && miniEl === null && miniSrc !== miniUrl) setMiniSrc(miniUrl)
+  }, [miniClosed, miniEl, miniSrc, miniUrl])
 
   // 小窗上次地址存档:miniUrl 每变即写(did-navigate 回写后的落点,非输入原值)
   useEffect(() => {
@@ -555,18 +574,36 @@ const WebPanel: React.FC = () => {
   // 小窗拖高:pointer 捕获而非文件管理器的 document mousemove —— 小窗本体是
   // webview,指针一进页面范围 mousemove 就被 guest 吞掉(同跨域 iframe),捕获后
   // pointermove 恒回流本元素(同 MainWindow 侧栏调宽条的经验)
+  // 拖高与点合分流:按下记起点,捕获期 pointermove 位移越过 3px 记真拖动 ——
+  // 拖完浏览器补发的 click 被重定目标到本行(pointer capture 的固有行为,恰好
+  // 落在开合热区上),靠它识别并吞掉
+  const miniDragStartYRef = useRef(0)
+  const miniDragMovedRef = useRef(false)
+  // 抓握补偿:高度公式「锚底缘 - 指针」把指针位置当作装配顶缘,而抓点落在
+  // 辊行命中区内(辊心在顶缘下 5px)—— 记下抓点相对上辊行顶的偏移、拖动
+  // 全程加回,辊才真正贴指针 1:1(不补的话起步高度先跳一截,辊脱离指针)
+  const miniGrabOffsetRef = useRef(0)
   const onMiniDividerPointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
+    // 起点恒记(收起态也记):onClick 的位移复量要拿它对拍;只在开态记的话,
+    // 收起态的 click 拿旧拖动的起点量 —— 收起行位置早错开,开合点击被误吞
+    miniDragStartYRef.current = e.clientY
     if (miniClosed) return
+    miniDragMovedRef.current = false
+    // 抓握补偿:抓点相对上辊行顶(=装配顶缘)的偏移,move 里加回
+    miniGrabOffsetRef.current = e.clientY - e.currentTarget.getBoundingClientRect().top
     e.currentTarget.setPointerCapture(e.pointerId)
     setMiniResizing(true)
   }
   const onMiniDividerPointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
     if (!miniResizing) return
+    if (Math.abs(e.clientY - miniDragStartYRef.current) > 3) miniDragMovedRef.current = true
     const rect = rootRef.current?.getBoundingClientRect()
     if (!rect) return
+    // 锚底缘 = WebPanel 根底缘(小窗装配是根的最后一个子节点,两者底缘重合;
+    // 根高不随小窗高度动,拖动全程恒定),加抓握补偿后辊贴指针真 1:1。
     // 与 config 恢复共用 clampMiniHeight(同一夹取逻辑);rect 未布局/极矮时
     // max < MIN,MIN 兜底 —— 只夹小不夹死
-    setMiniHeight(clampMiniHeight(rect.bottom - e.clientY, rect.height - MINI_RESERVE_HEIGHT))
+    setMiniHeight(clampMiniHeight(rect.bottom - e.clientY + miniGrabOffsetRef.current, rect.height - MINI_RESERVE_HEIGHT))
   }
   const endMiniResize = (): void => setMiniResizing(false)
 
@@ -740,150 +777,217 @@ const WebPanel: React.FC = () => {
         )}
       </div>
 
-      {/* ===== 写轮眼小窗拖高条/恢复轨 —— 会话面板文件管理器同款栏底语法；
-          关闭后变薄轨显示恢复入口，不再参与拖拽 ===== */}
+      {/* ===== 写轮眼小窗双开画轴 —— 栏底面板的展开/收起挂轴化 =====
+          点任一辊行即开/合(双向 toggle,上辊行带 role=button 承接键盘;
+          收起 = 纸裹回双辊成上下双卷、各拴一只蝴蝶结,题签居中浮在双卷
+          之间的合缝上作纯名牌,不再设 ✕、也不带方向符号)。开态上辊整行
+          兼拖高手势位(10px 命中区,双开轴细棍化):pointer capture 机械原样(小窗本体
+          是 webview,指针一进页面 mousemove 就被 guest 吞,捕获后
+          pointermove 恒回流本元素 —— 捕获还会把拖完补发的 click 重定目
+          标到本行,拖动/点按靠位移阈值分流:位移超 3px 记真拖动,补发的
+          click 被吞掉);拖示线 = 行顶缘的 1px 发丝线、整幅贯通,悬停/聚焦
+          才显(读作「最上面的线」亮起,不与辊混读)。开合机械全在
+          globals.css 的 .scroll-dual 系列(辊/绳/纸复用 rod-caps 与
+          scroll-tie 家族):开 = 纸自两辊相向铺开、内容锚定合缝自中部
+          显影(440ms 纸坠),合 = 窗口向正中收拢、纸裹着内容卷回双辊拴
+          绳(320ms 加速收,内容延迟 360ms 卸载)。画心立在纸面中央
+          (body 裱边四周各 8px)。装配总高(= 双辊 20 + 裱边 16 + 画心)
+          沿用 miniHeight 存档语义,拖动映射 1:1 不变 */}
       <div
         className={cn(
-          'bg-[var(--rule)] transition-colors flex items-center justify-center flex-shrink-0 select-none relative',
-          miniClosed ? 'h-[24px]' : 'h-[4px] cursor-row-resize hover:bg-[var(--amber)]'
+          'scroll-dual flex-shrink-0 select-none',
+          miniClosed ? 'rolled' : 'open',
+          miniResizing && 'resizing'
         )}
-        onPointerDown={onMiniDividerPointerDown}
-        onPointerMove={onMiniDividerPointerMove}
-        onPointerUp={endMiniResize}
-        onPointerCancel={endMiniResize}
-        onLostPointerCapture={endMiniResize}
-      >
-        {!miniClosed && <div aria-hidden className="absolute top-[-4px] left-0 right-0 h-[4px] cursor-row-resize" />}
-        {miniClosed ? (
-          <button
-            type="button"
-            onClick={() => setMiniClosed(false)}
-            title={t('webBar.miniOpen')}
-            className="inline-flex items-center gap-1 px-1.5 h-[22px] rounded-[2px] text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] cursor-pointer transition-colors"
-          >
-            <ChevronUpIcon />
-            <span className="truncate">{t('webBar.mini')}</span>
-          </button>
-        ) : (
-          <>
-            {/* 拖把居中 + 关闭按钮右贴边 —— 布局对齐会话面板文件管理器分割线
-                (同一条栏底语法,关闭按钮恒在轨右端可预期命中,不随内容居中漂移) */}
-            <div className="flex-1 flex items-center justify-center min-w-0">
-              <div aria-hidden className="w-[30px] h-[2px] bg-[var(--text-rack-dim)] rounded" />
-            </div>
-            {/* 关闭按钮按下必须掐断冒泡：pointerdown 冒泡到本线会 setPointerCapture，
-                捕获期间 pointerup/click 被重定目标到分割线 —— 按钮 onClick 永不触发
-                （真机 probe 实证；jsdom fireEvent.click 绕过指针管线测不出）；
-                z-10 压过上缘 4px 命中热区条（positioned，否则盖住按钮顶带），
-                22px 全高可命中（同 SessionsPanel 关闭按钮） */}
-            <button
-              type="button"
-              onClick={() => setMiniClosed(true)}
-              onPointerDown={(e) => e.stopPropagation()}
-              title={t('webBar.miniClose')}
-              className="w-[22px] h-[22px] flex-shrink-0 z-10 flex items-center justify-center text-[var(--text-rack-mute)] hover:text-[var(--error-rack)] hover:bg-[var(--bg-slot)] rounded-[2px] cursor-pointer transition-colors"
-            >
-              <CloseIcon />
-            </button>
-          </>
-        )}
-      </div>
-
-      {/* ===== 写轮眼小窗本体:高度持久化的迷你浏览器；关闭时摘 UI 不清状态 ===== */}
-      {!miniClosed && (
-      <div
-        className="flex-shrink-0 overflow-hidden"
         style={{
-          height: `${miniHeight}px`,
+          height: miniClosed ? MINI_ROLLED_H : `${miniHeight}px`,
           // 渲染期钳(拖动/恢复夹取之外的第二道防线):存档值超当前面板或窗口
-          // 临时缩小时视觉收敛,保底上方 160px;存档值不被临时小屏毁掉,窗口
-          // 回弹即恢复原高 —— 恢复时面板多半未布局,rect 量不到,上限靠这里
-          maxHeight: `calc(100% - ${MINI_RESERVE_HEIGHT}px)`
-        }}
+          // 临时缩小时视觉收敛,保底铭牌/地址栏/历史留座的粗钳;存档值
+          // 不被临时小屏毁掉,窗口回弹即恢复原高 —— 恢复时面板多半未布局,
+          // rect 量不到,上限靠这里
+          maxHeight: `calc(100% - ${MINI_RESERVE_HEIGHT}px)`,
+          '--dual-h': `${miniHeight}px`
+        } as React.CSSProperties}
       >
-        <div className="flex flex-col h-full">
-          {/* 迷你工具条:勾玉开眼指示 + 后退/前进/刷新停止 + 小窗地址(datalist
-              复用主地址栏的全量历史)+ 升格。tooltip 不写快捷键提示 —— 小窗不挂
-              before-input-event 转发(路由错位问题,见 main/index.ts),写了就是假话 */}
-          <div className="flex items-center gap-[3px] px-2 h-[26px] flex-shrink-0 bg-[var(--bg-rack)] border-b border-[var(--rule)]">
-            <MiniEyeGlyph lit={miniUrl !== null} label={t('webBar.mini')} />
-            <NavButton title={t('webBar.miniBack')} disabled={!miniNav.canGoBack} onClick={() => settleWebview(() => miniEl?.goBack())}>
-              <ChevronLeftIcon />
-            </NavButton>
-            <NavButton title={t('webBar.miniForward')} disabled={!miniNav.canGoForward} onClick={() => settleWebview(() => miniEl?.goForward())}>
-              <ChevronRightIcon />
-            </NavButton>
-            <NavButton
-              title={miniLoading ? t('webBar.miniStop') : t('webBar.miniReload')}
-              disabled={miniUrl === null || !miniReady}
-              onClick={() => settleWebview(() => (miniLoading ? miniEl?.stop() : miniEl?.reload()))}
-            >
-              {miniLoading ? <StopIcon /> : <RotateCwIcon />}
-            </NavButton>
-            <input
-              ref={miniInputRef}
-              type="text"
-              list="lyshell-webbar-history"
-              value={miniInput}
-              onChange={(e) => setMiniInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  // IME 组合中的 Enter 是候选确认,不导航(同主地址栏)
-                  if (e.nativeEvent.isComposing) return
-                  // datalist 高亮项的提交晚于 keydown(同主地址栏竞态),延后一拍读 DOM
-                  setTimeout(handleMiniEnter, 0)
-                } else if (e.key === 'Escape' && miniUrl !== null) {
-                  // Esc 放弃编辑,复位为当前页地址(同主地址栏语法)
-                  setMiniInput(miniUrl)
-                  miniInputRef.current?.blur()
-                }
-              }}
-              onFocus={(e) => e.target.select()}
-              placeholder={t('webBar.miniPlaceholder')}
-              spellCheck={false}
-              className="flex-1 min-w-0 px-1.5 h-[20px] text-[11px] [font-family:inherit] rounded-[2px] bg-[var(--bg-elev)] border border-[var(--rule)] text-[var(--text-rack)] placeholder:text-[var(--text-rack-mute)] focus:outline-none focus:border-[var(--amber)]"
+        {/* 上辊行 —— 开合钮 + 开态拖高手势位:点行开/合(双向),拖高靠位移
+            阈值分流(pointer 捕获期 move 超 3px 记真拖动,松手补发的 click
+            被重定目标到本行后吞掉);题签已升到装配层居中(行自身即按钮) */}
+        <div
+          className={cn('scroll-dual-rod group', miniClosed ? 'cursor-pointer' : 'cursor-row-resize')}
+          role="button"
+          tabIndex={0}
+          aria-expanded={!miniClosed}
+          aria-label={t('webBar.mini')}
+          title={miniClosed ? t('webBar.miniOpen') : t('webBar.miniClose')}
+          onPointerDown={onMiniDividerPointerDown}
+          onPointerMove={onMiniDividerPointerMove}
+          onPointerUp={endMiniResize}
+          onPointerCancel={endMiniResize}
+          onLostPointerCapture={endMiniResize}
+          onClick={(e) => {
+            // 拖高结束浏览器会补发 click(pointer capture 会把 click 重定目标到本行):
+            // 位移越过阈值 = 真拖动,吞掉这一拍。判据双保险:move 越 3px 记真
+            // 拖动之外,click 自带松手坐标再对按下起点量一遍 —— move 一帧没到
+            // (webview 客页截走指针等)也能判出真拖动,不会误当点合把小窗卷起
+            if (miniDragMovedRef.current || Math.abs(e.clientY - miniDragStartYRef.current) > 3) {
+              miniDragMovedRef.current = false
+              return
+            }
+            setMiniClosed(v => !v)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setMiniClosed(v => !v) }
+          }}
+        >
+          {/* 辊本体(rod-caps)—— 行内垂直居中的横置圆柱,垫在题签/按钮后
+              (z-index -1);纸带锚底:纸自辊底缘引出/裹回,满卷即上卷 */}
+          <span aria-hidden className="rod-caps" />
+          <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
+          {/* 开态拖示线 —— 上辊行顶缘(装配最上面的线)的 1px 发丝线、整
+              幅贯通,悬停/聚焦才显:读作边界线亮起、不与辊混读(旧 30×2
+              短杠贴辊顶,悬停时读作辊长粗变形);常亮线会被读作 border,
+              手势位本身已是整行 */}
+          {!miniClosed && (
+            <div
+              aria-hidden
+              className="absolute top-0 left-0 right-0 h-px bg-[var(--text-rack-dim)] opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity"
             />
-            <NavButton title={t('webBar.miniOpenTab')} disabled={miniUrl === null} onClick={handleMiniPromote}>
-              <PromoteIcon />
-            </NavButton>
-          </div>
-          {/* 浏览面:未开眼 = 空态指引(空屏是行动邀请);开眼 = webview + 加载/
-              失败浮层(WebTabOverlay 同款,webview 无内建 UI)。
-              webview 额外门在 miniConfigLoaded(见 config 对账 effect 注释):
-              存档关闭态落定前不挂 guest —— 本面板随 Web 页签条件挂载,存档
-              closed=true 时先按默认渲染会每次进页签闪挂 + 白拉一次页面。
-              工具条/空态不受门控,挂载即同步可交互 */}
-          <div className="flex-1 min-h-0 relative bg-[var(--terminal-bg)]">
-            {miniUrl === null ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 select-none px-3 text-center">
-                <MiniEyeGlyph lit={false} label={t('webBar.miniHintTitle')} size={20} />
-                <span className="text-[11.5px] text-[var(--text-rack-mute)]">{t('webBar.miniHintTitle')}</span>
-                <span className="text-[10.5px] text-[var(--text-rack-faint)]">{t('webBar.miniHint')}</span>
+          )}
+        </div>
+        {/* 纸窗(开合窗)—— 内容锚合缝:开 = 自中部相向显影,合 = 向正中收拢
+            随纸卷回;收起稳态 inert(卷起的纸不进 Tab 序,同 ScrollFold) */}
+        <div className="scroll-dual-paper" {...(miniClosed ? { inert: '' } : {})}>
+          <div className="scroll-dual-body">
+            {miniContentMounted && (
+              <div className="flex flex-col h-full">
+                {/* 迷你工具条:勾玉开眼指示 + 后退/前进/刷新停止 + 小窗地址(datalist
+                    复用主地址栏的全量历史)+ 升格。tooltip 不写快捷键提示 —— 小窗不挂
+                    before-input-event 转发(路由错位问题,见 main/index.ts),写了就是假话。
+                    条高 32px = 双开画轴地址栏的满高(辊 24px 上下各留 4px 气) */}
+                <div className="flex items-center gap-[3px] px-2 h-[32px] flex-shrink-0 bg-[var(--bg-rack)] border-b border-[var(--rule)]">
+                  <MiniEyeGlyph lit={miniUrl !== null} label={t('webBar.mini')} />
+                  <NavButton title={t('webBar.miniBack')} disabled={!miniNav.canGoBack} onClick={() => settleWebview(() => miniEl?.goBack())}>
+                    <ChevronLeftIcon />
+                  </NavButton>
+                  <NavButton title={t('webBar.miniForward')} disabled={!miniNav.canGoForward} onClick={() => settleWebview(() => miniEl?.goForward())}>
+                    <ChevronRightIcon />
+                  </NavButton>
+                  <NavButton
+                    title={miniLoading ? t('webBar.miniStop') : t('webBar.miniReload')}
+                    disabled={miniUrl === null || !miniReady}
+                    onClick={() => settleWebview(() => (miniLoading ? miniEl?.stop() : miniEl?.reload()))}
+                  >
+                    {miniLoading ? <StopIcon /> : <RotateCwIcon />}
+                  </NavButton>
+                  {/* 小窗地址 —— 双开画轴(与会话搜索框同款挂轴化,机械全在 globals.css 的
+                      .scroll-search 系列,此处只挂态):两端各一竖辊,开 = 聚焦或有址 ——
+                      有址即开眼(未编辑时 miniInput 恒同步当前页地址,URL 作墨 mono 居中
+                      落于纸面、横跨正中合缝);收 = 失焦且未开眼 —— 双卷拴绳、题签金墨的
+                      占位浮在两卷之间,与勾玉「闭眼」同一状态语言。label 承接点击(点纸即
+                      落墨,点辊也聚焦);IME/datalist/Esc 的键盘机械原样 */}
+                  <label
+                    className={cn(
+                      'scroll-search flex-1 min-w-0 h-[32px] relative flex items-center cursor-text',
+                      miniInputFocused || miniInput !== '' ? 'open' : 'rolled'
+                    )}
+                  >
+                    <span aria-hidden className="scroll-search-paper scroll-search-paper-l" />
+                    <span aria-hidden className="scroll-search-paper scroll-search-paper-r" />
+                    <span aria-hidden className="scroll-search-rod scroll-search-rod-l" />
+                    <span aria-hidden className="scroll-search-rod scroll-search-rod-r" />
+                    <span aria-hidden className="scroll-search-tie scroll-search-tie-l"><ScrollTie /></span>
+                    <span aria-hidden className="scroll-search-tie scroll-search-tie-r"><ScrollTie /></span>
+                    <input
+                      ref={miniInputRef}
+                      type="text"
+                      list="lyshell-webbar-history"
+                      value={miniInput}
+                      onChange={(e) => setMiniInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          // IME 组合中的 Enter 是候选确认,不导航(同主地址栏)
+                          if (e.nativeEvent.isComposing) return
+                          // datalist 高亮项的提交晚于 keydown(同主地址栏竞态),延后一拍读 DOM
+                          setTimeout(handleMiniEnter, 0)
+                        } else if (e.key === 'Escape' && miniUrl !== null) {
+                          // Esc 放弃编辑,复位为当前页地址(同主地址栏语法)
+                          setMiniInput(miniUrl)
+                          miniInputRef.current?.blur()
+                        }
+                      }}
+                      onFocus={(e) => { setMiniInputFocused(true); e.target.select() }}
+                      onBlur={() => setMiniInputFocused(false)}
+                      placeholder={t('webBar.miniPlaceholder')}
+                      spellCheck={false}
+                      className="scroll-search-input relative z-[2] flex-1 min-w-0 mx-[18px] bg-transparent border-none outline-none font-mono text-[11px] text-center text-[var(--text-rack)] caret-[var(--amber)]"
+                    />
+                  </label>
+                  <NavButton title={t('webBar.miniOpenTab')} disabled={miniUrl === null} onClick={handleMiniPromote}>
+                    <PromoteIcon />
+                  </NavButton>
+                </div>
+                {/* 浏览面:未开眼 = 空态指引(空屏是行动邀请);开眼 = webview + 加载/
+                    失败浮层(WebTabOverlay 同款,webview 无内建 UI)。
+                    webview 额外双门(见 config 对账 effect 注释 + 合卷机械):
+                    miniConfigLoaded —— 存档关闭态落定前不挂 guest,本面板随
+                    Web 页签条件挂载,closed=true 与 loaded=true 同批落定时卷
+                    从未挂起,零闪挂/零白拉;「!miniClosed || miniEl 非空」——
+                    关着的卷不新挂 guest,合卷动画期间已挂的卷随纸同卷(360ms
+                    延迟卸载随父层走,miniEl 非空即「卷上还有页面」的自证)。
+                    工具条/空态不受门控,挂载即同步可交互 */}
+                <div className="flex-1 min-h-0 relative bg-[var(--terminal-bg)]">
+                  {miniUrl === null ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 select-none px-3 text-center">
+                      <MiniEyeGlyph lit={false} label={t('webBar.miniHintTitle')} size={20} />
+                      <span className="text-[11.5px] text-[var(--text-rack-mute)]">{t('webBar.miniHintTitle')}</span>
+                      <span className="text-[10.5px] text-[var(--text-rack-faint)]">{t('webBar.miniHint')}</span>
+                    </div>
+                  ) : miniConfigLoaded && (!miniClosed || miniEl !== null) ? (
+                    <>
+                      {/* src = 冻结的首航地址(挂载后恒不变,后续导航走 loadURL,见 miniSrc 注释);
+                          partition 与完整网页页签同仓(登录态互通),快捷键转发的排除见 onDomReady 登记 */}
+                      <webview ref={setMiniEl} partition="persist:webbar" src={miniSrc ?? undefined} className="w-full h-full" />
+                      {miniLoading && (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--terminal-bg)] text-sm text-gray-400 pointer-events-none">
+                          {t('webBar.loading')}
+                        </div>
+                      )}
+                      {miniFailed && (
+                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[var(--terminal-bg)]">
+                          <p className="text-sm text-gray-300">{t('webBar.loadFailed')}</p>
+                          <p className="max-w-[80%] truncate font-mono text-xs text-gray-500">
+                            {t('webBar.loadFailedHint', { error: miniFailed, url: miniUrl })}
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  ) : null}
+                </div>
               </div>
-            ) : miniConfigLoaded ? (
-              <>
-                {/* src = 冻结的首航地址(挂载后恒不变,后续导航走 loadURL,见 miniSrc 注释);
-                    partition 与完整网页页签同仓(登录态互通),快捷键转发的排除见 onDomReady 登记 */}
-                <webview ref={setMiniEl} partition="persist:webbar" src={miniSrc ?? undefined} className="w-full h-full" />
-                {miniLoading && (
-                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--terminal-bg)] text-sm text-gray-400 pointer-events-none">
-                    {t('webBar.loading')}
-                  </div>
-                )}
-                {miniFailed && (
-                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[var(--terminal-bg)]">
-                    <p className="text-sm text-gray-300">{t('webBar.loadFailed')}</p>
-                    <p className="max-w-[80%] truncate font-mono text-xs text-gray-500">
-                      {t('webBar.loadFailedHint', { error: miniFailed, url: miniUrl })}
-                    </p>
-                  </div>
-                )}
-              </>
-            ) : null}
+            )}
           </div>
         </div>
+        {/* 下辊行 —— 纸尾辊:开态随纸幅走在底缘(纸自其上缘引出),不参与拖拽;
+            收起与上辊叠成下卷;点行同样开/合(双向 toggle,鼠标入口 —— 键盘
+            由上辊行独占,不给 title 免得与上辊重复) */}
+        <div
+          className="scroll-dual-rod scroll-dual-rod-b cursor-pointer"
+          onClick={() => setMiniClosed(v => !v)}
+        >
+          {/* 辊本体 —— 下辊镜像(纸带锚顶、落影投上,机械在 .scroll-dual-rod-b) */}
+          <span aria-hidden className="rod-caps" />
+          <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
+        </div>
+        {/* 题签 —— 收起态的卷面名牌:居中浮在上下双卷之间的合缝上(与搜索框
+            占位同一位置 —— 双卷之间正是双开画轴的门面),纯展示非交互件
+            (pointer-events 穿透,点击落在下方辊行上);开态不渲染,让位给
+            画心 */}
+        {miniClosed && (
+          <span className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center">
+            <span className="scroll-slip text-[11.5px] truncate max-w-full px-3">{t('webBar.mini')}</span>
+          </span>
+        )}
       </div>
-      )}
     </div>
   )
 }

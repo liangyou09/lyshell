@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { categorizeFile, formatSize, formatMtime, pathSegments, type FileCategory } from './fileType'
+import { ScrollTie } from '../Layout/ScrollFold'
 
 interface FileInfo {
   name: string
@@ -259,17 +260,31 @@ const FileBrowser: React.FC<FileBrowserProps> = ({
         </div>
       </div>
 
-      {/* ===== 筛选输入 ===== */}
+      {/* ===== 筛选输入 ===== 双开画轴 —— 与会话搜索框同款挂轴化(纸幅/辊面/系绳
+           的机械全在 globals.css 的 .scroll-search 系列,此处只挂态):两端各一
+           竖辊(细棍 5 径),常开 —— 两半纸相向铺开、正中合缝,筛式(glob)
+           mono 墨居中落于纸面、插入符 amber 立于合缝(搜索/筛选是常在的
+           动作位,不随聚焦收放,与会话搜索框同步撤掉「失焦且空即收」的双
+           卷态)。条带恒 32px 让辊保住上下 4px 气;label 承接点击(点纸即
+           落墨,点辊也聚焦);✕ 与计数仍挂在轴外右端 */}
       {showFilter && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[var(--bg-rack)] border-b border-[var(--rule-soft)]">
-          <input
-            type="text"
-            value={filterPattern}
-            onChange={(e) => onFilterChange(e.target.value)}
-            placeholder={t('fileManager.filterPlaceholder')}
-            autoFocus
-            className="flex-1 bg-[var(--bg-base)] border border-[var(--rule)] rounded-[2px] px-2 py-[3px] font-mono text-[12.5px] text-[var(--text-rack)] placeholder:text-[var(--text-rack-faint)] focus:outline-none focus:border-[var(--amber)]"
-          />
+        <div className="flex items-center gap-1.5 px-2.5 h-[32px] bg-[var(--bg-rack)] border-b border-[var(--rule-soft)]">
+          <label className="scroll-search open flex-1 min-w-0 h-[32px] relative flex items-center cursor-text">
+            <span aria-hidden className="scroll-search-paper scroll-search-paper-l" />
+            <span aria-hidden className="scroll-search-paper scroll-search-paper-r" />
+            <span aria-hidden className="scroll-search-rod scroll-search-rod-l" />
+            <span aria-hidden className="scroll-search-rod scroll-search-rod-r" />
+            <span aria-hidden className="scroll-search-tie scroll-search-tie-l"><ScrollTie /></span>
+            <span aria-hidden className="scroll-search-tie scroll-search-tie-r"><ScrollTie /></span>
+            <input
+              type="text"
+              value={filterPattern}
+              onChange={(e) => onFilterChange(e.target.value)}
+              placeholder={t('fileManager.filterPlaceholder')}
+              autoFocus
+              className="scroll-search-input relative z-[2] flex-1 min-w-0 mx-[18px] bg-transparent border-none outline-none font-mono text-[12px] text-center text-[var(--text-rack)] caret-[var(--amber)]"
+            />
+          </label>
           {filterPattern && (
             <button
               onClick={() => onFilterChange('')}

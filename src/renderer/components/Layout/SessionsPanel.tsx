@@ -169,9 +169,6 @@ const IconStar = ({ filled }: { filled?: boolean }) => (
 const IconX = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 2l7 7M9 2l-7 7"/></svg>
 )
-const IconChevronUp = () => (
-  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 7l3.5-3.5L9 7"/></svg>
-)
 const IconPower = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
     <path d="M5.5 1.5v3.5"/>
@@ -183,11 +180,11 @@ const IconPower = () => (
 // 内联子组件
 // ─────────────────────────────────────────────────────────────────────────────
 
-// 一键拉起的本地 shell 小画轴(LAUNCH strip,与协议筛选 chips 同款同大小)
-// —— 轴头+绳取身份色:
+// 一键拉起的本地 shell 笔山卧毫(LAUNCH strip,笔山连脊上一排)
+// —— 漆杆+名签取身份色:
 // cmd 中性 / ps 蓝(proto-ssh,Windows PowerShell)/ ps7 紫(proto-loc,
 // PowerShell 7)/ ps+(gsudo 提权)红(error-rack,管理员的危险红);
-// 键面是短铭(cmd/ps/ps7/ps+),title 给完整 shell 名
+// 名签是短铭(cmd/ps/ps7/ps+),title 给完整 shell 名
 const QUICK_SHELLS: {
   key: string
   label: string
@@ -467,8 +464,18 @@ const ActBtn: React.FC<{
 
 /**
  * 会话面板(机柜左列 Sessions 页签内容)- 会话机架 + 底部嵌入文件管理器。
- * 列宽度由 MainWindow 列容器统一管(三栏共享);本组件只持文件管理器高度(分割线拖动)。
+ * 列宽度由 MainWindow 列容器统一管(三栏共享,调宽走侧栏右缘的调宽条);
+ * 本组件只持文件管理器高度(上辊行拖动,顶缘只上辊一根杆 —— 与写轮眼
+ * 小窗同构)。
  */
+// 文件管理器双开画轴的几何:收起叠高 20(上下双卷 10×2 —— 双开轴细棍化,
+// 辊 5 径上下各 2.5px 气),开态画心 = 装配总高 - 36(双辊 20 + 裱边 16
+// —— 画心四周各缩 8px 见纸,内容立在画布中央);最小装配高 136 = 双辊 20
+// + 裱边 16 + 画心下限 100(标题条 30 + 列表 + 进度条 24 —— 画心下限
+// 不变,细棍化只收回辊行的 12)
+const DUAL_ROLLED_H = 20
+const FILE_MANAGER_MIN_HEIGHT = 136
+
 const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteCommand, quickCommandsDisabled }) => {
   const [showDialog, setShowDialog] = useState(false)
   const [editConfig, setEditConfig] = useState<SessionConfig | undefined>(undefined)
@@ -530,11 +537,34 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
   }, [sessions, activeTerminalSessionId, activeTerminalProto])
   // 文件管理器高度(列宽度由 MainWindow 列容器统一管) —— 声明在编码菜单块之前:
   // 菜单重锚 effect 的 deps 引用它,deps 数组渲染期求值,声明在后会踩 TDZ
-  const [fileManagerHeight, setFileManagerHeight] = useState(200)
+  // 默认 204 = 双辊 20 + 裱边 16 + 画心 168(画心尺寸零感知 —— 裱边挂上
+  // 抬高 16、细棍化收回 12,两次都保画心 168 不动)
+  const [fileManagerHeight, setFileManagerHeight] = useState(204)
   const [isResizingHeight, setIsResizingHeight] = useState(false)
+  // 拖高与点合分流:按下记起点,document mousemove 里位移越过阈值记真拖动
+  // —— 拖完浏览器补发的 click 不当点合,click 里另拿松手坐标对起点复量一遍
+  // 兜底 move 丢帧(上辊行同时是拖高手势位与开合热区)
+  const fmDragStartYRef = useRef(0)
+  const fmDragMovedRef = useRef(false)
+  // 抓握补偿:高度公式「锚底缘 - 指针」把指针位置当作装配顶缘,而抓点落在
+  // 辊行命中区内(辊心在顶缘下 5px)—— 记下抓点相对上辊行顶的偏移、拖动
+  // 全程加回,辊才真正贴指针 1:1(不补的话起步高度先跳一截,辊脱离指针;
+  // 抓在辊行任意高度都成立,不限辊心)
+  const fmGrabOffsetRef = useRef(0)
+  // FM 装配(双开画轴)本体 —— 拖高的高度锚点:装配底缘(下方还有快捷命令
+  // +状态栏,拿侧栏底缘当锚点会把这两段垫进高度,拖动起步面板凭空跳高一截,
+  // 真机 probe 实证过 ~119px 的跳变;装配底缘在拖动全程恒定 —— 下方两段
+  // flex-shrink-0 不随 FM 高度动,锚它拖动全程才有稳定参照)
+  const fmAssemblyRef = useRef<HTMLDivElement>(null)
   const [fileManagerClosed, setFileManagerClosed] = useState(false)
   // config 对账是否落定(落定前不挂 FileManager,见 loadUIConfig 注释)
   const [fmConfigLoaded, setFmConfigLoaded] = useState(false)
+  // 双开画轴内容挂载裁决:开 = 立即挂(内容随纸展开);合 = 延迟 360ms 卸载
+  // (合向 320ms 纸卷完再收内容)—— 纸裹着内容卷回,而不是内容先消失、空纸
+  // 卷回。冷启动(closed 存档)不闪挂:对账落定(fmConfigLoaded)前不挂内容,
+  // closed=true 与 loaded=true 同批落定时内容从未挂上(旧代码的瞬时挂卸在
+  // 这里会变成「展开一拍又卷回」的假动作,而远程调用照发)
+  const [fmContentMounted, setFmContentMounted] = useState(false)
   const sidebarRef = useRef<HTMLDivElement>(null)
   // 编码选择菜单 —— 状态栏在窗口底部,菜单从编码按钮向上弹(portal 挂 body,竖排三项,
   // 当前项 amber 点亮)。选档即运行时切换:解码流/写编码立即换,只改运行时会话不写回
@@ -643,7 +673,8 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
   const [expandedIPs, setExpandedIPs] = useState<Record<string, boolean>>({})
   const [pinnedCollapsed, setPinnedCollapsed] = useState<boolean>(false)
   const [liveCollapsed, setLiveCollapsed] = useState<boolean>(false)
-  // LAUNCH 小画轴点下后的解绳一拍(键 key,700ms 回拴)—— 见 launchShell
+
+  // LAUNCH 卧毫点下后的执笔一拍(键 key,700ms 搁回)—— 见 launchShell
   const [launchFlash, setLaunchFlash] = useState<string | null>(null)
 
   // close-all 二次确认 —— 第一次点击进入 armed 态,2.5s 内再点才真执行
@@ -705,8 +736,10 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
         const savedHeight = await window.electronAPI?.getConfig('fileManagerHeight')
         if (typeof savedHeight === 'number' && Number.isFinite(savedHeight) && savedHeight > 0) {
           // 上限与小窗同一把绝对钳(4000):恢复时面板多半尚未布局,rect 量不到
-          // 「当前布局上限」,离谱存档值(手改 config)先收敛,渲染期 maxHeight 再钳
-          setFileManagerHeight(Math.round(Math.min(4000, Math.max(100, savedHeight))))
+          // 「当前布局上限」,离谱存档值(手改 config)先收敛,渲染期 maxHeight 再钳。
+          // 下限 = 双开画轴最小装配高 136(双辊 20 + 裱边 16 + 画心下限
+          // 100),旧存档的矮值由钳自愈上抬
+          setFileManagerHeight(Math.round(Math.min(4000, Math.max(FILE_MANAGER_MIN_HEIGHT, savedHeight))))
         }
         const savedClosed = await window.electronAPI?.getConfig('fileManagerClosed')
         if (typeof savedClosed === 'boolean') setFileManagerClosed(savedClosed)
@@ -723,6 +756,18 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
     }
     loadUIConfig()
   }, [])
+
+  // 双开画轴内容挂载裁决(状态声明处注释):开 = 立即挂;合 = 延迟 360ms 卸载,
+  // 合向动画期间重开则 cleanup 掐掉定时器、内容原样还在(免重挂)
+  useEffect(() => {
+    if (!fmConfigLoaded) return undefined
+    if (!fileManagerClosed) {
+      setFmContentMounted(true)
+      return undefined
+    }
+    const timer = setTimeout(() => setFmContentMounted(false), 360)
+    return () => clearTimeout(timer)
+  }, [fileManagerClosed, fmConfigLoaded])
 
   // 保存文件管理器高度（带防抖）
   useEffect(() => {
@@ -763,9 +808,20 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
   useEffect(() => {
     if (!isResizingHeight) return
     const handleMouseMove = (e: MouseEvent) => {
+      // 拖高与点合分流:位移越过 3px 阈值才记真拖动(阈值内的抖动不算),
+      // 松手后浏览器补发的 click 靠它识别并吞掉 —— 见上辊行 onClick
+      if (Math.abs(e.clientY - fmDragStartYRef.current) > 3) fmDragMovedRef.current = true
       if (!sidebarRef.current) return
       const rect = sidebarRef.current.getBoundingClientRect()
-      const newHeight = Math.max(100, Math.min(rect.height - 200, rect.bottom - e.clientY))
+      // 高度 = 装配底缘 - 指针 + 抓握补偿(fmGrabOffsetRef,见声明注释):
+      // 底缘锚 FM 装配自身(下方还有快捷命令+状态栏,拿侧栏底缘会把这两段垫
+      // 进高度,起步凭空跳高 ~119px —— 真机 probe 实证),装配底缘拖动全程
+      // 恒定(下方两段 flex-shrink-0 不随 FM 高度动);补偿把抓点位置还给
+      // 辊行,辊贴指针真 1:1。上限仍拿侧栏高的粗钳(rect.height - 200,
+      // 搜索+快捷命令+列表最小高+状态栏的预留,CSS maxHeight 同款兜底)
+      const anchorBottom = fmAssemblyRef.current?.getBoundingClientRect().bottom ?? rect.bottom
+      // 下限 = 双开画轴最小装配高(拖动与 config 恢复同一把钳,旧存档矮值由此自愈)
+      const newHeight = Math.max(FILE_MANAGER_MIN_HEIGHT, Math.min(rect.height - 200, anchorBottom - e.clientY + fmGrabOffsetRef.current))
       setFileManagerHeight(newHeight)
     }
     const handleMouseUp = () => setIsResizingHeight(false)
@@ -892,12 +948,14 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
     [ip]: prev[ip] === false ? true : false
   }))
 
-  // 所有分组（含 PINNED + 全部子网）是否都已折叠
+  // 墙辊行的一键收/放(原「全体」总闸的语义随总闸迁到墙上):收 = 把纸里
+  // 展开着的垂卷们(置顶段 + 全部子网组)都卷起,放 = 全部展开 —— 墙恒
+  // 开,收起的是里面的会话画卷不是墙自身;LIVE 段不归它管(与旧总闸同口
+  // 径)。置顶段走 pinnedCollapsed 既有存档(防抖落盘);子网组态与单组
+  // 折叠同口径不存档 —— 这里直接改态即走既有管线
   const ipsCollapsed = sortedSubnetGroups.length > 0 && sortedSubnetGroups.every(([key]) => expandedIPs[key] === false)
   const pinnedCollapsedOrAbsent = pinnedSessions.length === 0 || pinnedCollapsed
   const allGroupsCollapsed = pinnedCollapsedOrAbsent && (sortedSubnetGroups.length === 0 || ipsCollapsed)
-
-  // 一键折叠 / 展开所有分组
   const toggleAllGroups = () => {
     if (allGroupsCollapsed) {
       // 全部展开
@@ -1145,9 +1203,9 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
     }
     onConnect?.('', config)
   }
-  // LAUNCH 小画轴:点下解绳一拍 —— 绳解开飘走、轴头点亮(launchFlash 挂
-  // .on),700ms 后回拴(settle 回摆);拉绳起卷,卷(终端)在别处展开。
-  // 连点另一卷时两拍各自走完(旧 timeout 见 prev 已换键,不误清新拍)
+  // LAUNCH 卧毫:点下执笔一拍 —— 整笔离架 2px、毫尖蘸墨(launchFlash 挂
+  // .on),700ms 后搁回;执笔起纸,纸(终端)在别处垂落。连点另一管笔
+  // 时两拍各自走完(旧 timeout 见 prev 已换键,不误清新拍)
   const launchShell = (s: typeof QUICK_SHELLS[number]) => {
     handleQuickLocal(s.shell, s.startup)
     setLaunchFlash(s.key)
@@ -1213,333 +1271,459 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
           </div>
         </div>
 
-        {/* ===== LAUNCH ===== 一键拉起本地终端 —— 与 SSH 协议筛选 chips 同款
-             同大小的小画轴 strip(bg-strip 底 + 下缘 rule,行高同 32px;上缘
-             不画线 —— 紧贴头条的 border-b,画了会叠双线),不再有框、不再要
-             「LAUNCH」字样。色彩只随画轴:轴头与绳取各 shell 身份色(cmd 中
-             性/ps 蓝/ps7 紫/ps+ 红),按下解绳一拍 —— 拉绳起卷,终端在别处
+        {/* ===== LAUNCH ===== 一键拉起本地终端 —— 笔山:每键一管卧毫(挂器
+             化,不再是卷 —— 卷是「纸的形态」,这排是拿起工具去写的「器」,
+             硬套卷轴,解绳一拍是绳解了卷不开)。行高同 32px = 上气 6+名签
+             10+气 1+笔形 8;上缘不画线 —— 紧贴头条的 border-b,画了会叠
+             双线;下缘 border 化作笔山连脊(.brush-rack::after 的 conic
+             连脊),笔卧山上。毫(拢毫笔头:锋尖+鼓肚+根收)朝左,漆杆
+             随身份色(cmd 素/ps 蓝/ps7 紫/ps+ 红),名签悬在笔上 —— 6px
+             细杆刻不下字,挂签贴笔(签挂器上);
+             点下执笔一拍 —— 整笔离架、毫尖蘸墨(金墨),终端(纸)在别处
              垂落 */}
-        <div className="flex-shrink-0 flex items-stretch gap-[4px] px-2 py-[5px] bg-[var(--bg-strip)] border-b border-[var(--rule)]">
+        <div className="brush-rack flex-shrink-0 flex items-stretch gap-[4px] px-2 pt-[2px] pb-[5px] bg-[var(--bg-strip)]">
           {QUICK_SHELLS.map(s => (
             <button
               key={s.key}
               onClick={() => launchShell(s)}
               title={s.title}
               className={cn(
-                // 小画轴(scroll-chip),与协议筛选 chips 同款同大小:轴体/
-                // 轴头/绳与明暗的机械全在 globals.css,这里只挂身份色与解绳拍
-                'scroll-chip relative flex-1 min-w-0 flex items-center gap-[3px] pl-[6px] pr-[4px] cursor-pointer select-none',
+                // 笔山卧毫(brush):毫/杆/名签/连脊的机械全在 globals.css 的
+                // .brush 系列,这里只挂身份色(漆)与执笔拍
+                'brush relative flex-1 min-w-0 cursor-pointer select-none',
                 s.cls,
                 launchFlash === s.key && 'on'
               )}
             >
-              {/* 轴体 —— 卷起的纸筒,垫在绳/题签后(题签读作贴印在卷面上) */}
-              <span aria-hidden className="scroll-chip-band" />
-              {/* 蝴蝶结 —— 拴着的卷;点下解开飘走一拍再回拴(机械同筛选 chips) */}
-              <span className="inline-flex flex-shrink-0">
-                <ScrollTie />
-              </span>
-              {/* 题签 —— 卷面金墨(scroll-slip 同款) */}
-              <span className="flex-shrink-0 scroll-slip text-[11px] whitespace-nowrap">{s.label}</span>
+              {/* 名签 —— 悬在笔上的短铭(title 给完整 shell 名);先于笔形
+                  出现在 DOM:读序上先见签后见器,焦点读名不读漆 */}
+              <span className="brush-label">{s.label}</span>
+              {/* 毫 —— 叶形锥毫蘸墨,锋尖朝左(起笔方向);执笔拍 amber
+                  金墨洪过毫尖 */}
+              <span aria-hidden className="brush-tip" />
+              {/* 漆杆 —— 圆杆受光棱 + 身份色淡染,杆尾圆头,卧在山上 */}
+              <span aria-hidden className="brush-shaft" />
             </button>
           ))}
         </div>
 
-        {/* ===== 过滤区 ===== */}
+        {/* ===== 过滤区 ===== 双开画轴 —— 搜索框的挂轴化(区别于垂卷的单辊
+             向下开纸、小画轴的恒收一卷):两端各一竖辊(细棍 5 径),双开。
+             常开:两半纸自两辊背后铺出、于正中接缝成整幅,绳解开飘走、轴头
+             点亮 amber 辉光 —— 搜索是常在的动作位,不随聚焦收放(旧「失焦
+             且空即收」的双卷态已撤,题签占位直接落在纸面上)。墨(输入)居
+             中落于纸面,插入符 amber 立于合缝 —— 「中间输入」。纸幅/辊面/
+             系绳的机械全在 globals.css 的 .scroll-search 系列;label 承接
+             点击(点纸即落墨,点辊也聚焦) */}
         <div className="px-3 py-2 border-b border-[var(--rule)] flex items-center gap-1.5">
-          <div className="flex-1 flex items-center gap-2 bg-[var(--bg-rack)] border border-[var(--rule)] rounded-[3px] px-2.5 py-1.5 focus-within:border-[var(--amber)] transition-colors">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[var(--text-rack-mute)] flex-shrink-0">
-              <circle cx="5" cy="5" r="3"/><path d="m11 11-3.5-3.5"/>
-            </svg>
+          <label className="scroll-search open flex-1 min-w-0 h-[32px] relative flex items-center cursor-text">
+            {/* 纸幅 —— 两半:左半自左辊后向右铺、右半自右辊后向左铺,合缝在
+                容器正中;垫在辊与墨之下(纸自辊后引出),自由端带残余卷曲 */}
+            <span aria-hidden className="scroll-search-paper scroll-search-paper-l" />
+            <span aria-hidden className="scroll-search-paper scroll-search-paper-r" />
+            {/* 双辊 —— 两端竖轴:辊体(光辊)+ 裹辊纸带(收=满卷,开=纸下
+                辊)+ 上下 amber 轴头;几何「辊比纸长」(轴头探出纸外) */}
+            <span aria-hidden className="scroll-search-rod scroll-search-rod-l" />
+            <span aria-hidden className="scroll-search-rod scroll-search-rod-r" />
+            {/* 蝴蝶结 —— 收卷时双卷各拴一只(绳色随轴头,机械共用
+                .scroll-tie 的 :is 列表);开卷解绳飘走 */}
+            <span aria-hidden className="scroll-search-tie scroll-search-tie-l"><ScrollTie /></span>
+            <span aria-hidden className="scroll-search-tie scroll-search-tie-r"><ScrollTie /></span>
+            {/* 墨 —— 纸面输入:文字居中落合缝,占位=题签金墨(样式在
+                ::placeholder);两侧让位避开双辊区 */}
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t('sidebar.filterPlaceholder')}
-              className="flex-1 bg-transparent border-none outline-none text-[12px] text-[var(--text-rack)] placeholder:text-[var(--text-rack-dim)]"
+              className="scroll-search-input relative z-[2] flex-1 min-w-0 mx-[18px] bg-transparent border-none outline-none text-[12px] text-center text-[var(--text-rack)] caret-[var(--amber)]"
             />
-          </div>
-          <button
-            onClick={toggleAllGroups}
-            title={allGroupsCollapsed ? t('sidebar.expandAllGroups') : t('sidebar.collapseAllGroups')}
-            className="w-[26px] h-[26px] flex-shrink-0 flex items-center justify-center bg-transparent border border-[var(--rule)] rounded-[3px] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:border-[var(--text-rack-mute)] cursor-pointer transition-colors"
-          >
-            {allGroupsCollapsed ? (
-              // 展开图标：两个 chevron 向外
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square">
-                <path d="M3 4l3-3 3 3M3 8l3 3 3-3"/>
-              </svg>
-            ) : (
-              // 折叠图标：两个 chevron 向内
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square">
-                <path d="M3 2l3 3 3-3M3 10l3-3 3 3"/>
-              </svg>
-            )}
-          </button>
+          </label>
         </div>
 
-        {/* ===== 列表 ===== */}
-        <div className="flex-1 overflow-y-auto min-h-[100px] rack-scroll">
-          {/* LIVE — 当下已连接 */}
-          {liveSessions.length > 0 && (
-            <>
-              <GroupHeader
-                tone="live"
-                label={t('sidebar.groupLive')}
-                count={liveSessions.length}
-                collapsed={liveCollapsed}
-                onToggle={() => setLiveCollapsed(c => !c)}
-                action={
-                  <button
-                    onClick={handleCloseAllClick}
-                    title={closeAllArmed
-                      ? t('sidebar.closeAllConfirm', { count: liveSessions.length })
-                      : t('sidebar.closeAllConnections', { count: liveSessions.length })}
-                    className={cn(
-                      'ml-1.5 h-[18px] inline-flex items-center justify-center gap-[3px] rounded-[2px] cursor-pointer text-[10px] [font-family:inherit] tracking-[.02em] transition-colors',
-                      closeAllArmed
-                        ? 'px-1.5 bg-[var(--error-rack)] text-[var(--bg-base)] font-semibold'
-                        : 'w-[18px] text-[var(--text-rack-mute)] hover:text-[var(--error-rack)] hover:bg-[var(--bg-elev)]'
-                    )}
-                  >
-                    {closeAllArmed && <span className="tabular-nums">{liveSessions.length}</span>}
-                    <IconPower />
-                  </button>
-                }
-              />
-              <ScrollFold open={!liveCollapsed}>
-                {/* 纸幅:辊下垂落的纸(与辊上卷纸带同宽同边 mx-3,辊探出一对轴头),行透明落在纸上 */}
-                <div className="paper-sheet mx-3">
-                  {liveSessions.map(config => (
-                    <SessionSlot
-                      key={`live-${config.id}`}
-                      config={config}
-                      status={statusFor(config)}
-                      reachable={reachabilityFor(config)}
-                      active={false}
-                      isPinned={!!config.tags?.includes('pinned')}
-                      compactActions
-                      dimmed={isLiveHidden(config)}
-                      hiddenCount={liveHiddenCount(config)}
-                      onClick={() => handleLiveSessionToggleTabs(config)}
-                      onEdit={(e) => handleEditSession(config, e)}
-                      onCopy={(e) => handleCopySession(config, e)}
-                      onTogglePin={(e) => handleTogglePin(config, e)}
-                      /* LIVE 行的 X 改成关闭终端,不动 saved config */
-                      onDelete={(e) => handleCloseLive(config, e)}
-                      dangerIcon={<IconPower />}
-                      dangerTitle="Close terminal"
-                    />
-                  ))}
-                </div>
-              </ScrollFold>
-            </>
-          )}
-
-          {/* PINNED */}
-          {pinnedSessions.length > 0 && (
-            <>
-              <GroupHeader
-                tone="pin"
-                label={t('sidebar.groupPinned')}
-                count={pinnedSessions.length}
-                collapsed={pinnedCollapsed}
-                onToggle={() => setPinnedCollapsed(c => !c)}
-              />
-              <ScrollFold open={!pinnedCollapsed}>
-                {/* 纸幅:辊下垂落的纸(与辊上卷纸带同宽同边 mx-3,辊探出一对轴头),行透明落在纸上 */}
-                <div className="paper-sheet mx-3">
-                  {pinnedSessions.map((config, index) => (
-                    <SessionSlot
-                      key={config.id}
-                      config={config}
-                      status={statusFor(config)}
-                      reachable={reachabilityFor(config)}
-                      active={false}
-                      isPinned
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, index)}
-                      onDragEnter={(e) => handleDragEnter(e, index)}
-                      onDrop={(e) => handleDrop(e, index)}
-                      onDragEnd={handleDragEnd}
-                      isDragging={draggedIndex === index}
-                      isDragOver={dragOverIndex === index && draggedIndex !== index}
-                      onClick={() => handleSessionClick(config)}
-                      onEdit={(e) => handleEditSession(config, e)}
-                      onCopy={(e) => handleCopySession(config, e)}
-                      onTogglePin={(e) => handleTogglePin(config, e)}
-                      onDelete={(e) => handleDeleteSession(config.id, e)}
-                    />
-                  ))}
-                </div>
-              </ScrollFold>
-            </>
-          )}
-
-          {/* 协议筛选 chips —— 小画轴:每颗筛选键是一卷收起的小横轴(轴体=卷起
-              的纸筒,题签落在卷面),轴头即协议身份色,题签金墨。状态不走展开,
-              卷恒收着:选中=解绳点亮(绳飘走、轴头透辉光),未选=拴绳(蝴蝶
-              结);亮度常亮,明暗只在轴头。多选 toggle,全空 = 显示全部。计
-              数不上面(窄栏里绳+
-              题签已满),并入 title 提示(形与绳的机械在 globals.css) */}
-          <div className="flex items-stretch gap-[4px] px-2 py-[5px] bg-[var(--bg-strip)] border-y border-[var(--rule)]">
-            {PROTO_KINDS.map(p => {
-              const active = protoFilter.has(p)
-              const count = protoCounts[p]
-              // LOC 和 SER 是冷门协议,没会话时直接不渲染,避免占位干扰;SSH/TEL 始终保留(主流,占位有意义)
-              if ((p === 'local' || p === 'serial') && count === 0) return null
-              const disabled = count === 0
-              return (
-                <button
-                  key={p}
-                  onClick={() => !disabled && toggleProtoFilter(p)}
-                  disabled={disabled}
-                  aria-pressed={active}
-                  title={`${disabled ? t('sidebar.noProtoSessions', { proto: PROTO_LABEL[p] }) : active ? t('sidebar.clearProtoFilter', { proto: PROTO_LABEL[p] }) : t('sidebar.showOnlyProto', { proto: PROTO_LABEL[p] })} · ${count}`}
-                  className={cn(
-                    // 小画轴(scroll-chip):轴体/轴头/明暗/辉光与绳的显隐机械全在
-                    // globals.css;这里只挂身份色(PROTO_TEXT_CLS 设 color —— 轴头
-                    // currentColor 取它)与解绳态;恒不铺底不描边,物件本体就是卷
-                    'scroll-chip relative flex-1 min-w-0 flex items-center gap-[3px] pl-[6px] pr-[4px] cursor-pointer select-none',
-                    PROTO_TEXT_CLS[p],
-                    active && 'on',
-                    disabled && 'opacity-30 cursor-not-allowed'
-                  )}
-                >
-                  {/* 轴体 —— 卷起的纸筒,垫在绳/题签后(题签读作贴印在卷面上) */}
-                  <span aria-hidden className="scroll-chip-band" />
-                  {/* 蝴蝶结 —— 未选(卷收着)时绳拴住卷,选中解开飘走
-                      (ScrollTie 与分组折叠栏共用,机械在 globals.css);绳色
-                      随轴头 —— 继承键的协议色,拴卷的绳与卷两端的轴头同色 */}
-                  <span className="inline-flex flex-shrink-0">
-                    <ScrollTie />
-                  </span>
-                  {/* 题签 —— 卷面金墨(scroll-slip 同款恒金) */}
-                  <span className="flex-shrink-0 scroll-slip text-[11px] whitespace-nowrap">{PROTO_LABEL[p]}</span>
-                </button>
-              )
-            })}
-          </div>
-
-          {/* 子网分组 — 按 /24 折叠 IPv4,非 IP host(主机名 / 串口 / local)各自成组,均可折叠 */}
-          {sortedSubnetGroups.map(([groupKey, group]) => {
-            const sorted = group.length === 1 ? group : [...group].sort(sortByPinOrder)
-            const expanded = expandedIPs[groupKey] !== false  // 默认展开
-            // 段身份按组内协议:串口(COM)橙 / 本地紫 / 其余(网段与主机名
-            // 分组的远程会话)粉 —— 组键由 host/path/cwd 派生,组内同质
-            const tone = group.some(s => s.type === 'serial')
-              ? 'serial'
-              : group.some(s => s.type === 'local')
-                ? 'local'
-                : 'subnet'
-            return (
-              <React.Fragment key={groupKey}>
-                <GroupHeader
-                  label={groupKey}
-                  count={group.length}
-                  tone={tone}
-                  collapsed={!expanded}
-                  onToggle={() => toggleIPGroup(groupKey)}
-                />
-                <ScrollFold open={expanded}>
-                  {/* 纸幅:辊下垂落的纸(与辊上卷纸带同宽同边 mx-3,辊探出一对轴头),行透明落在纸上 */}
-                  <div className="paper-sheet mx-3">
-                    {sorted.map(config => (
-                      <SessionSlot
-                        key={config.id}
-                        config={config}
-                        status={statusFor(config)}
-                        reachable={reachabilityFor(config)}
-                        active={false}
-                        isPinned={false}
-                        onClick={() => handleSessionClick(config)}
-                        onEdit={(e) => handleEditSession(config, e)}
-                        onCopy={(e) => handleCopySession(config, e)}
-                        onTogglePin={(e) => handleTogglePin(config, e)}
-                        onDelete={(e) => handleDeleteSession(config.id, e)}
-                      />
-                    ))}
-                  </div>
-                </ScrollFold>
-              </React.Fragment>
-            )
-          })}
-
-          {filteredSessions.length === 0 && (
-            <div className="text-center py-8 px-4 text-[var(--text-rack-dim)] flex flex-col items-center gap-2">
-              <span className="[font-family:inherit] text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
-              <span className="text-[11.5px] text-[var(--text-rack-mute)]">
-                {searchQuery.trim() ? t('sidebar.noMatches') : t('sidebar.noSessionsYet')}
-              </span>
-              <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">
-                {searchQuery.trim() ? t('sidebar.tryDifferentKeyword') : t('sidebar.clickAboveToCreate')}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* ===== 文件管理器分割线：关闭后仍保留为恢复轨 —— 与小窗同一条「关闭不消失」语法
-            （关闭态行高 24px、不带拖拽光标，同小窗恢复轨） ===== */}
-        <div
-          className={cn(
-            'bg-[var(--rule)] transition-colors flex items-center justify-center relative',
-            fileManagerClosed ? 'h-[24px]' : 'h-[4px] cursor-row-resize hover:bg-[var(--amber)]'
-          )}
-          onMouseDown={() => {
-            if (!fileManagerClosed) setIsResizingHeight(true)
-          }}
-        >
-          {!fileManagerClosed && (
-            <div
-              className="absolute -top-[4px] left-0 right-0 h-[4px] cursor-row-resize"
-              onMouseDown={() => setIsResizingHeight(true)}
-            />
-          )}
-          <div className="flex-1 flex items-center justify-center min-w-0">
-            {fileManagerClosed && (
-              <button
-                type="button"
-                onClick={() => setFileManagerClosed(false)}
-                title={t('sidebar.fileManagerOpen')}
-                className="inline-flex items-center gap-1 px-1.5 h-[22px] rounded-[2px] text-[10.5px] text-[var(--text-rack-mute)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] cursor-pointer transition-colors"
-              >
-                <IconChevronUp />
-                <span className="truncate">{t('fileManager.floatTitle')}</span>
-              </button>
-            )}
-            {!fileManagerClosed && <div className="w-[30px] h-[2px] bg-[var(--text-rack-dim)] rounded" />}
-          </div>
-          {/* 关闭按钮：按下掐断冒泡（冒泡到分割线会启动拖高手势，抖动既改写存档
-              高度又把按钮从指针下拽走、click 落空 —— 真机 probe 实证）；
-              z-10 压过后序 positioned 的 FM 根节点，22px 全高可命中 */}
-          {!fileManagerClosed && (
-            <button
-              type="button"
-              onClick={() => setFileManagerClosed(true)}
-              onMouseDown={(e) => e.stopPropagation()}
-              onPointerDown={(e) => e.stopPropagation()}
-              title={t('sidebar.fileManagerClose')}
-              className="w-[22px] h-[22px] flex-shrink-0 z-10 flex items-center justify-center text-[var(--text-rack-mute)] hover:text-[var(--error-rack)] hover:bg-[var(--bg-slot)] rounded-[2px] cursor-pointer transition-colors"
-            >
-              <IconX />
-            </button>
-          )}
-        </div>
-
-        {/* ===== FileManager（fmConfigLoaded 门：存档关闭态落定前不挂，防闪挂/白费远程调用）===== */}
-        {!fileManagerClosed && fmConfigLoaded && (
+        {/* ===== 会话墙双开画轴 —— 天头总闸的挂轴化 ===== 整面会话墙(垂卷
+             分组们:LIVE/PINNED/协议筛选/子网组)住进一张竖置双开画轴的纸
+             里,替代原「全体」总闸。墙恒开:纸面永铺着,收起的是纸里的垂
+             卷分组们 —— 点任一辊行 = 一键收/放(toggleAllGroups 旧总闸语
+             义随总闸迁到墙上:置顶段+全部子网组,LIVE 不归它管);全体收
+             起时墙纸仍铺着,纸面上立着一排卷起的分组卷(「收起的时候也是
+             展开的状态」)。置顶段走 pinnedCollapsed 既有存档,子网组态与
+             单组折叠同口径不存档,墙自身无态可存档。墙是列里的 flex-1 占
+             位容器(下方 FM/快捷命令/状态栏恒钉底),但「纸包内容」:纸高
+             = 画心内容高,下辊行贴在纸尾、跟着最底下的分组卷走 —— 短内容
+             时下方留白露 bg-base,内容超出列剩余高时纸收缩到剩高、内心滚
+             (滚动容器是纸窗,见下);不可拖(上辊行只点按,无拖高手势位
+             与拖示线),恒挂 open(墙无开合动画,覆写在 globals 的
+             .scroll-dual-wall;ScrollFold 开合逐帧改内容高,下辊随折卷动
+             画跟手滑)。空墙也常挂(空态住纸里,纸尾跟着空态文案走) */}
+        <div className="scroll-dual scroll-dual-wall flex-1 min-h-0 open">
+          {/* 上辊行 —— 一键收/放钮(原「全体」总闸的语义随总闸迁到墙上):
+              点行把纸里展开着的垂卷们(置顶段+全部子网组)都卷起/全放,
+              键盘入口在此(下辊行纯鼠标);无拖高 —— 高随内容与列剩余高走,没
+              有「拖到某个高度」的语义;两态 title 即原总闸的展开/折叠提示 */}
           <div
-            style={{
-              height: `${fileManagerHeight}px`,
-              // 渲染期钳(恢复侧绝对钳之外的防线,同小窗写轮眼):存档值超当前
-              // 面板/窗口临时缩小时视觉收敛,保底上方 200px(与拖动 clamp 同一
-              // 预留:搜索+快捷命令+列表最小高+状态栏);存档值不被临时小屏
-              // 毁掉,窗口回弹即恢复原高 —— 状态栏不被顶出屏外
-              maxHeight: 'calc(100% - 200px)'
+            className="scroll-dual-rod cursor-pointer"
+            role="button"
+            tabIndex={0}
+            aria-expanded={!allGroupsCollapsed}
+            aria-label={t('sidebar.groupAll')}
+            title={allGroupsCollapsed ? t('sidebar.expandAllGroups') : t('sidebar.collapseAllGroups')}
+            onClick={toggleAllGroups}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleAllGroups() }
             }}
-            className="flex-shrink-0 overflow-hidden"
           >
-            <FileManagerPanel />
+            {/* 辊本体(rod-caps)—— 行内垂直居中的细棍,垫在题签后;墙恒
+                开,辊面恒是光辊(解绳态:轴头恒亮,同搜索框常开) */}
+            <span aria-hidden className="rod-caps" />
+            <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
+          </div>
+          {/* 纸窗(恒铺开,且包着内容走)—— 会话墙的纸:垂卷分组们立在纸
+              面上;全体收起时纸面上立着一排卷起的分组卷(墙自身不卷,「收
+              起的时候也是展开的状态」)。纸高 = 画心内容高:下辊贴纸尾、跟
+              着最底下的分组卷走,短内容时下方留白露 bg-base;内容超出列剩
+              余高时纸收缩到剩高、内心滚 —— 滚动容器是纸窗自身(rack-scroll
+              滚条;与 FM「body 绝对锚定恒高」就此分叉:墙的画心静态流式随
+              纸走,覆写在 globals 的 .scroll-dual-wall) */}
+          <div className="scroll-dual-paper rack-scroll">
+            <div className="scroll-dual-body">
+              {/* LIVE — 当下已连接 */}
+              {liveSessions.length > 0 && (
+                <>
+                  <GroupHeader
+                    tone="live"
+                    label={t('sidebar.groupLive')}
+                    count={liveSessions.length}
+                    collapsed={liveCollapsed}
+                    onToggle={() => setLiveCollapsed(c => !c)}
+                    action={
+                      <button
+                        onClick={handleCloseAllClick}
+                        title={closeAllArmed
+                          ? t('sidebar.closeAllConfirm', { count: liveSessions.length })
+                          : t('sidebar.closeAllConnections', { count: liveSessions.length })}
+                        className={cn(
+                          'ml-1.5 h-[18px] inline-flex items-center justify-center gap-[3px] rounded-[2px] cursor-pointer text-[10px] [font-family:inherit] tracking-[.02em] transition-colors',
+                          closeAllArmed
+                            ? 'px-1.5 bg-[var(--error-rack)] text-[var(--bg-base)] font-semibold'
+                            : 'w-[18px] text-[var(--text-rack-mute)] hover:text-[var(--error-rack)] hover:bg-[var(--bg-elev)]'
+                        )}
+                      >
+                        {closeAllArmed && <span className="tabular-nums">{liveSessions.length}</span>}
+                        <IconPower />
+                      </button>
+                    }
+                  />
+                  <ScrollFold open={!liveCollapsed}>
+                    {/* 纸幅:辊下垂落的纸(与辊上卷纸带同宽同边 mx-3,辊探出一对轴头),行透明落在纸上 */}
+                    <div className="paper-sheet mx-3">
+                      {liveSessions.map(config => (
+                        <SessionSlot
+                          key={`live-${config.id}`}
+                          config={config}
+                          status={statusFor(config)}
+                          reachable={reachabilityFor(config)}
+                          active={false}
+                          isPinned={!!config.tags?.includes('pinned')}
+                          compactActions
+                          dimmed={isLiveHidden(config)}
+                          hiddenCount={liveHiddenCount(config)}
+                          onClick={() => handleLiveSessionToggleTabs(config)}
+                          onEdit={(e) => handleEditSession(config, e)}
+                          onCopy={(e) => handleCopySession(config, e)}
+                          onTogglePin={(e) => handleTogglePin(config, e)}
+                          /* LIVE 行的 X 改成关闭终端,不动 saved config */
+                          onDelete={(e) => handleCloseLive(config, e)}
+                          dangerIcon={<IconPower />}
+                          dangerTitle="Close terminal"
+                        />
+                      ))}
+                    </div>
+                  </ScrollFold>
+                </>
+              )}
+
+              {/* PINNED */}
+              {pinnedSessions.length > 0 && (
+                <>
+                  <GroupHeader
+                    tone="pin"
+                    label={t('sidebar.groupPinned')}
+                    count={pinnedSessions.length}
+                    collapsed={pinnedCollapsed}
+                    onToggle={() => setPinnedCollapsed(c => !c)}
+                  />
+                  <ScrollFold open={!pinnedCollapsed}>
+                    {/* 纸幅:辊下垂落的纸(与辊上卷纸带同宽同边 mx-3,辊探出一对轴头),行透明落在纸上 */}
+                    <div className="paper-sheet mx-3">
+                      {pinnedSessions.map((config, index) => (
+                        <SessionSlot
+                          key={config.id}
+                          config={config}
+                          status={statusFor(config)}
+                          reachable={reachabilityFor(config)}
+                          active={false}
+                          isPinned
+                          draggable
+                          onDragStart={(e) => handleDragStart(e, index)}
+                          onDragEnter={(e) => handleDragEnter(e, index)}
+                          onDrop={(e) => handleDrop(e, index)}
+                          onDragEnd={handleDragEnd}
+                          isDragging={draggedIndex === index}
+                          isDragOver={dragOverIndex === index && draggedIndex !== index}
+                          onClick={() => handleSessionClick(config)}
+                          onEdit={(e) => handleEditSession(config, e)}
+                          onCopy={(e) => handleCopySession(config, e)}
+                          onTogglePin={(e) => handleTogglePin(config, e)}
+                          onDelete={(e) => handleDeleteSession(config.id, e)}
+                        />
+                      ))}
+                    </div>
+                  </ScrollFold>
+                </>
+              )}
+
+              {/* 协议筛选 chips —— 小画轴:每颗筛选键是一卷收起的小横轴(轴体=卷起
+                  的纸筒,题签落在卷面),轴头即协议身份色,题签金墨。状态不走展开,
+                  卷恒收着:选中=解绳点亮(绳飘走、轴头透辉光),未选=拴绳(蝴蝶
+                  结);亮度常亮,明暗只在轴头。多选 toggle,全空 = 显示全部。计
+                  数不上面(窄栏里绳+
+                  题签已满),并入 title 提示(形与绳的机械在 globals.css) */}
+              <div className="flex items-stretch gap-[4px] px-2 py-[5px] bg-[var(--bg-strip)] border-y border-[var(--rule)]">
+                {PROTO_KINDS.map(p => {
+                  const active = protoFilter.has(p)
+                  const count = protoCounts[p]
+                  // LOC 和 SER 是冷门协议,没会话时直接不渲染,避免占位干扰;SSH/TEL 始终保留(主流,占位有意义)
+                  if ((p === 'local' || p === 'serial') && count === 0) return null
+                  const disabled = count === 0
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => !disabled && toggleProtoFilter(p)}
+                      disabled={disabled}
+                      aria-pressed={active}
+                      title={`${disabled ? t('sidebar.noProtoSessions', { proto: PROTO_LABEL[p] }) : active ? t('sidebar.clearProtoFilter', { proto: PROTO_LABEL[p] }) : t('sidebar.showOnlyProto', { proto: PROTO_LABEL[p] })} · ${count}`}
+                      className={cn(
+                        // 小画轴(scroll-chip):轴体/轴头/明暗/辉光与绳的显隐机械全在
+                        // globals.css;这里只挂身份色(PROTO_TEXT_CLS 设 color —— 轴头
+                        // currentColor 取它)与解绳态;恒不铺底不描边,物件本体就是卷
+                        'scroll-chip relative flex-1 min-w-0 flex items-center gap-[3px] pl-[6px] pr-[4px] cursor-pointer select-none',
+                        PROTO_TEXT_CLS[p],
+                        active && 'on',
+                        disabled && 'opacity-30 cursor-not-allowed'
+                      )}
+                    >
+                      {/* 轴体 —— 卷起的纸筒,垫在绳/题签后(题签读作贴印在卷面上) */}
+                      <span aria-hidden className="scroll-chip-band" />
+                      {/* 蝴蝶结 —— 未选(卷收着)时绳拴住卷,选中解开飘走
+                          (ScrollTie 与分组折叠栏共用,机械在 globals.css);绳色
+                          随轴头 —— 继承键的协议色,拴卷的绳与卷两端的轴头同色 */}
+                      <span className="inline-flex flex-shrink-0">
+                        <ScrollTie />
+                      </span>
+                      {/* 题签 —— 卷面金墨(scroll-slip 同款恒金) */}
+                      <span className="flex-shrink-0 scroll-slip text-[11px] whitespace-nowrap">{PROTO_LABEL[p]}</span>
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* 子网分组 — 按 /24 折叠 IPv4,非 IP host(主机名 / 串口 / local)各自成组,均可折叠 */}
+              {sortedSubnetGroups.map(([groupKey, group]) => {
+                const sorted = group.length === 1 ? group : [...group].sort(sortByPinOrder)
+                const expanded = expandedIPs[groupKey] !== false  // 默认展开
+                // 段身份按组内协议:串口(COM)橙 / 本地紫 / 其余(网段与主机名
+                // 分组的远程会话)粉 —— 组键由 host/path/cwd 派生,组内同质
+                const tone = group.some(s => s.type === 'serial')
+                  ? 'serial'
+                  : group.some(s => s.type === 'local')
+                    ? 'local'
+                    : 'subnet'
+                return (
+                  <React.Fragment key={groupKey}>
+                    <GroupHeader
+                      label={groupKey}
+                      count={group.length}
+                      tone={tone}
+                      collapsed={!expanded}
+                      onToggle={() => toggleIPGroup(groupKey)}
+                    />
+                    <ScrollFold open={expanded}>
+                      {/* 纸幅:辊下垂落的纸(与辊上卷纸带同宽同边 mx-3,辊探出一对轴头),行透明落在纸上 */}
+                      <div className="paper-sheet mx-3">
+                        {sorted.map(config => (
+                          <SessionSlot
+                            key={config.id}
+                            config={config}
+                            status={statusFor(config)}
+                            reachable={reachabilityFor(config)}
+                            active={false}
+                            isPinned={false}
+                            onClick={() => handleSessionClick(config)}
+                            onEdit={(e) => handleEditSession(config, e)}
+                            onCopy={(e) => handleCopySession(config, e)}
+                            onTogglePin={(e) => handleTogglePin(config, e)}
+                            onDelete={(e) => handleDeleteSession(config.id, e)}
+                          />
+                        ))}
+                      </div>
+                    </ScrollFold>
+                  </React.Fragment>
+                )
+              })}
+
+              {/* 空态 —— 空墙也常挂:空态住纸里(与旧列表区恒在同口径),
+                  墙恒开,空态不随任何卷走 */}
+              {filteredSessions.length === 0 && (
+                <div className="text-center py-8 px-4 text-[var(--text-rack-dim)] flex flex-col items-center gap-2">
+                  <span className="[font-family:inherit] text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
+                  <span className="text-[11.5px] text-[var(--text-rack-mute)]">
+                    {searchQuery.trim() ? t('sidebar.noMatches') : t('sidebar.noSessionsYet')}
+                  </span>
+                  <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">
+                    {searchQuery.trim() ? t('sidebar.tryDifferentKeyword') : t('sidebar.clickAboveToCreate')}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+          {/* 下辊行 —— 纸尾辊:贴在纸尾、跟着最底下的分组卷走(纸包内容,
+              短内容随纸上浮,内容满列时贴底不动);点行同样一键收/放里面
+              的垂卷分组们(鼠标入口 —— 键盘由上辊行独占,不给 title 免得
+              与上辊重复) */}
+          <div
+            className="scroll-dual-rod scroll-dual-rod-b cursor-pointer"
+            onClick={toggleAllGroups}
+          >
+            {/* 辊本体 —— 下辊镜像(纸带锚顶、落影投上,机械在 .scroll-dual-rod-b) */}
+            <span aria-hidden className="rod-caps" />
+            <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
+          </div>
+        </div>
+
+        {/* 搁板(.shelf)—— 墙与 FM 之间的架:墙下辊与 FM 上辊同为 5 径细辊、
+            两行贴邻仅 ~5px,叠读作「又两根画轴」(天杆摘除的同一教训);隔开
+            它们的架与 LAUNCH 笔山同款(conic 三角连脊,同 tile 同材)—— 笔卧
+            山上、墙下辊横跨数峰读作搁在架上,架子一族两处同形。峰高 4、两辊
+            间距 2.5+4+2.5=9 隔而不远;两行点击目标(一键收放 vs 开合/拖高)
+            也由架分界。形在 globals.css 的 .shelf,随 FM 装配一起挂 */}
+        {fmConfigLoaded && <div aria-hidden className="shelf" />}
+
+        {/* ===== 文件管理器双开画轴 —— 栏底面板的展开/收起挂轴化 =====
+            点任一辊行即开/合(双向 toggle,上辊行带 role=button 承接键盘;
+            收起 = 纸裹回双辊成上下双卷、各拴一只蝴蝶结,题签居中浮在双卷
+            之间的合缝上作纯名牌 —— 辊行自身就是开合钮,不再设 ✕,也不带
+            方向符号)。开态上辊整行兼拖高手势位(10px 命中区,细棍行 ——
+            旧 4px 分割线的 2.5 倍):拖动与点按靠位移阈值分流(>3px 记真拖动,松手后补
+            发的 click 被吞掉);拖示线 = 行顶缘的 1px 发丝线、整幅贯通,悬
+            停/聚焦才显(读作上界线亮起;旧 30×2 短杠贴辊顶,悬停时读作辊
+            长粗变形;常亮线会被读作 border)。顶缘只上辊一根杆(管高 —— 与
+            写轮眼小窗同构;调宽走侧栏右缘的调宽条,不在此设杆)。开合
+            机械全在 globals.css 的 .scroll-dual 系列(辊/绳/纸复用 rod-caps
+            与 scroll-tie 家族):开 = 纸自两辊相向铺开、内容锚定合缝自中部
+            显影(440ms 纸坠),合 = 窗口向正中收拢、纸裹着内容卷回双辊拴
+            绳(320ms 加速收,内容延迟 360ms 卸载)。画心立在纸面中央
+            (body 裱边四周各 8px,见 globals.css)。装配总高(= 双辊 20 +
+            裱边 16 + 画心)沿用 fileManagerHeight 存档语义,拖动映射 1:1
+            不变。fmConfigLoaded 门:对账落定前连装配也不挂(旧代码只门内
+            容),存档关闭态冷启动零闪现 */}
+        {fmConfigLoaded && (
+          <div
+            ref={fmAssemblyRef}
+            className={cn(
+              'scroll-dual flex-shrink-0 select-none',
+              fileManagerClosed ? 'rolled' : 'open',
+              isResizingHeight && 'resizing'
+            )}
+            style={{
+              height: fileManagerClosed ? DUAL_ROLLED_H : `${fileManagerHeight}px`,
+              // 渲染期钳(恢复侧绝对钳之外的第二道防线,同小窗写轮眼同款挂法):
+              // 存档值超当前面板/窗口临时缩小时视觉收敛,保底上方 200px(与拖动
+              // clamp 同一预留:搜索+快捷命令+列表最小高+状态栏);存档值不被临时
+              // 小屏毁掉,窗口回弹即恢复原高 —— 状态栏不被顶出屏外
+              maxHeight: 'calc(100% - 200px)',
+              '--dual-h': `${fileManagerHeight}px`
+            } as React.CSSProperties}
+          >
+            {/* 上辊行 —— 开合钮 + 开态拖高手势位:点行开/合(双向),拖高靠
+                位移阈值分流(按下记起点,move 超 3px 记真拖动,松手补发的
+                click 靠 moved 标记 + 起点复量双保险吞掉);题签已升到装配层
+                居中(行自身即按钮,卷上题签不再单独可点) */}
+            <div
+              className={cn('scroll-dual-rod group', fileManagerClosed ? 'cursor-pointer' : 'cursor-row-resize')}
+              role="button"
+              tabIndex={0}
+              aria-expanded={!fileManagerClosed}
+              aria-label={t('fileManager.floatTitle')}
+              title={fileManagerClosed ? t('sidebar.fileManagerOpen') : t('sidebar.fileManagerClose')}
+              onMouseDown={(e) => {
+                // 起点恒记(收起态也记):onClick 的位移复量要拿它对拍;
+                // 只在开态记的话,收起态的 click 拿旧拖动的起点量 —— 收起行
+                // 的位置和开态辊行早错开了,开合点击会被误吞
+                fmDragStartYRef.current = e.clientY
+                if (fileManagerClosed) return
+                fmDragMovedRef.current = false
+                // 抓握补偿:抓点相对上辊行顶(=装配顶缘)的偏移,move 里加回
+                fmGrabOffsetRef.current = e.clientY - e.currentTarget.getBoundingClientRect().top
+                setIsResizingHeight(true)
+              }}
+              onClick={(e) => {
+                // 拖高结束浏览器会补发 click:位移越过阈值 = 真拖动,吞掉这一拍。
+                // 判据双保险:move 越 3px 记真拖动之外,click 自带松手坐标再对
+                // 按下起点量一遍 —— move 一帧都没到(指针被浮层截走/丢事件)
+                // 也能判出真拖动,不会误当点合把 FM 卷起
+                if (fmDragMovedRef.current || Math.abs(e.clientY - fmDragStartYRef.current) > 3) {
+                  fmDragMovedRef.current = false
+                  return
+                }
+                setFileManagerClosed(v => !v)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFileManagerClosed(v => !v) }
+              }}
+            >
+              {/* 辊本体(rod-caps)—— 行内垂直居中的横置圆柱,垫在题签/按钮后
+                  (z-index -1);纸带锚底:纸自辊底缘引出/裹回,满卷即上卷 */}
+              <span aria-hidden className="rod-caps" />
+              <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
+              {/* 开态拖示线 —— 上辊行顶缘(装配顶缘)的 1px 发丝线、整幅贯
+                  通,悬停/聚焦才显:读作边界线亮起、不与辊混读(旧 30×2 短
+                  杠贴辊顶,悬停时读作辊长粗变形;常亮线会被读作 border,
+                  手势位本身已是整行) */}
+              {!fileManagerClosed && (
+                <div
+                  aria-hidden
+                  className="absolute top-0 left-0 right-0 h-px bg-[var(--text-rack-dim)] opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity"
+                />
+              )}
+            </div>
+            {/* 纸窗(开合窗)—— 内容锚合缝:开 = 自中部相向显影,合 = 向正中收拢
+                随纸卷回;收起稳态 inert(卷起的纸不进 Tab 序,同 ScrollFold) */}
+            <div className="scroll-dual-paper" {...(fileManagerClosed ? { inert: '' } : {})}>
+              <div className="scroll-dual-body">
+                {fmContentMounted && <FileManagerPanel />}
+              </div>
+            </div>
+            {/* 下辊行 —— 纸尾辊:开态随纸幅走在底缘(纸自其上缘引出),收起与
+                上辊叠成下卷;点行同样开/合(双向 toggle,鼠标入口 —— 键盘
+                由上辊行独占,不给 title 免得与上辊重复) */}
+            <div
+              className="scroll-dual-rod scroll-dual-rod-b cursor-pointer"
+              onClick={() => setFileManagerClosed(v => !v)}
+            >
+              {/* 辊本体 —— 下辊镜像(纸带锚顶、落影投上,机械在 .scroll-dual-rod-b) */}
+              <span aria-hidden className="rod-caps" />
+              <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
+            </div>
+            {/* 题签 —— 收起态的卷面名牌:居中浮在上下双卷之间的合缝上(与搜索
+                框占位同一位置 —— 双卷之间正是双开画轴的门面),纯展示非交互件
+                (pointer-events 穿透,点击落在下方辊行上);开态不渲染,让位
+                给画心 */}
+            {fileManagerClosed && (
+              <span className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center">
+                <span className="scroll-slip text-[11.5px] truncate max-w-full px-3">{t('fileManager.floatTitle')}</span>
+              </span>
+            )}
           </div>
         )}
 

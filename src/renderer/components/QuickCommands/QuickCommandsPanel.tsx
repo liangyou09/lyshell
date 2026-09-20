@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import type { QuickCommand, QuickCommandGroup } from '@shared/types'
@@ -23,14 +23,15 @@ const PREDEFINED_COLORS = ['#0078D4', '#E81123', '#107C10', '#FFB900', '#FF69B4'
  * 快捷命令侧栏模块 —— 栏底常驻动作位（文件管理器之下、状态栏之上；更早驻留
  * 过 StatusBar.tsx 底部状态栏，后迁入会话栏搜索框下方，现回迁栏底）。
  *
- * 结构：标题行（折叠 caret + 分组 LED 色点 + ＋）+ 键帽 wrap 区。可折叠（点标题行
- * 切换，localStorage 持久化；键盘 Enter/Space 同效）：折叠只剩标题行；展开态高度
- * 随键帽自然换行增减,但封顶 5 行、超出内滚 —— 不再把上方会话列表挤干。
+ * 结构：标题行（折叠 caret + 分组 LED 色点 + ＋）+ 印匣 wrap 区（每键一方钤章
+ * .seal,器形机械在 globals.css）。可折叠（点标题行切换，localStorage 持久化；
+ * 键盘 Enter/Space 同效）：折叠只剩标题行；展开态高度随印章自然换行增减,
+ * 但封顶 5 行、超出内滚 —— 不再把上方会话列表挤干。
  * 数据来自 quick-commands-store（Ctrl+F1-F12 直发监听在 MainWindow 常驻，
  * 依赖同一 store，侧栏收起/切页签时快捷键不受影响）。
  */
 const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteCommand, disabled }) => {
-  // 细粒度选择器：键帽区 DOM 较多,避免无关字段变化(如别的分组被编辑)触发整面板重渲
+  // 细粒度选择器：印匣区 DOM 较多,避免无关字段变化(如别的分组被编辑)触发整面板重渲
   const commands = useQuickCommandsStore(s => s.commands)
   const groups = useQuickCommandsStore(s => s.groups)
   const defaultGroupColor = useQuickCommandsStore(s => s.defaultGroupColor)
@@ -41,6 +42,15 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
 
   // 折叠态：点标题行切换（toggleCollapsed 负责写 localStorage）
   const [collapsed, setCollapsed] = useState(false)
+
+  // 钤印一拍(按下键 700ms 整章下压敷印泥)—— 与 LAUNCH 执笔拍同构的
+  // 器物动作签名:笔起新纸上提,章落旧纸下压。timer 挂 ref 供连点重置与
+  // 卸载清理(面板随页签切换卸载,残拍不泄漏)
+  const [sealFlash, setSealFlash] = useState<string | null>(null)
+  const sealFlashTimerRef = useRef<number | null>(null)
+  useEffect(() => () => {
+    if (sealFlashTimerRef.current !== null) window.clearTimeout(sealFlashTimerRef.current)
+  }, [])
 
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [showBatchGroupDialog, setShowBatchGroupDialog] = useState(false)  // 批量编辑分组对话框
@@ -122,10 +132,14 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
     setShowAddDialog(true)
   }
 
-  // 单击执行命令 —— 整条交给宿主派发（dispatchCommand 统一拆行/转义/结尾符）
+  // 单击执行命令 —— 整条交给宿主派发（dispatchCommand 统一拆行/转义/结尾符），
+  // 随手钤印一拍：命令已落纸(写进活动终端)，章面敷泥是这场落笔的视觉签名
   const handleExecute = (cmd: QuickCommand) => {
     if (disabled || !onExecuteCommand) return
     onExecuteCommand(cmd)
+    setSealFlash(cmd.id)
+    if (sealFlashTimerRef.current !== null) window.clearTimeout(sealFlashTimerRef.current)
+    sealFlashTimerRef.current = window.setTimeout(() => setSealFlash(null), 700)
   }
 
   // 右键编辑命令
@@ -337,7 +351,7 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
       ? commands.filter(c => !c.groupId || c.groupId === '')
       : commands.filter(c => c.groupId === gid)
   }, [commands, selectedGroupId])
-  // 当前分组颜色（用于键帽底部 2px 色条）
+  // 当前分组颜色 —— 染整排钤章的印钮(inline color→currentColor,同轴头/漆杆机制)
   const currentGroupColor = currentGroup?.color || ''
 
   // 限制字符串的视觉宽度不超过最大值（中文字符算1，英文字符算0.5）
@@ -368,7 +382,7 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
         tabIndex={0}
         aria-expanded={!collapsed}
         onKeyDown={(e) => {
-          // 键盘开合:键帽区被 ScrollFold inert 挡在 Tab 序外,键盘用户只能
+          // 键盘开合:印匣区被 ScrollFold inert 挡在 Tab 序外,键盘用户只能
           // 从这里展开。target 不在自己身上不接 —— 行内 LED 分组点/＋ 聚焦
           // 时按 Enter,keydown 冒泡上来不能误触折叠
           if (e.target !== e.currentTarget) return
@@ -381,8 +395,8 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
           handleOpenGroupDialog()
         }}
         title={t('statusbar.groupSwitchHint')}
-        // 点击折叠/展开键帽区（行内 LED 色点/＋都 stopPropagation,不会误触）。
-        // 不画 border-b:行底缘就是标题行↔键帽区的缝(辊 rod-caps 悬在行内
+        // 点击折叠/展开印匣区（行内 LED 色点/＋都 stopPropagation,不会误触）。
+        // 不画 border-b:行底缘就是标题行↔印匣区的缝(辊 rod-caps 悬在行内
         // 居中、隔着小缝望纸),硬线会把辊与下方内容切成两物;折叠时下方紧邻
         // 状态栏的 border-t,自带底线也会叠成双线
         className={cn(
@@ -398,7 +412,7 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
         )}
       >
         {/* 卷轴辊 —— 与 GroupHeader 同款:行内垂直居中(悬浮机件上下留
-            气),辊径恒 20px 开合不变粗细 —— 展开时轴体隔着小缝望着键帽区
+            气),辊径恒 20px 开合不变粗细 —— 展开时轴体隔着小缝望着印匣区
             顶缘,折叠时纸裹轴成同径满卷(轴藏卷内;圆柱读形在 globals.css
             的 .rod-caps);两端轴头恒跟辊同径、随辊居中不动,色跟当前分组
             LED(未设分组色回落中性 dim) */}
@@ -489,10 +503,11 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
         </button>
       </div>
 
-      {/* ===== 键帽区 —— 基底对齐协议筛选 chips strip（bg-strip）。折叠时垂卷收起
-            （ScrollFold 垂卷动画,与会话分组同款:标题行=辊,键帽区自辊垂落/
-            卷回,窗口下沿是自由边,不画横杆 —— 与状态栏 border-t 不叠线）。
-            展开态高度随键帽自然换行增减,但封顶 5 行（max-h 152px = 5 行键帽
+      {/* ===== 印匣区（键的基底）—— 基底对齐协议筛选 chips strip（bg-strip）:
+            印章立的匣盘,群章共卧一匣。折叠时垂卷收起（ScrollFold 垂卷动画,
+            与会话分组同款:标题行=辊,印匣区自辊垂落/卷回,窗口下沿是自由边,
+            不画横杆 —— 与状态栏 border-t 不叠线）。
+            展开态高度随印章自然换行增减,但封顶 5 行（max-h 152px = 5 行印章
             24px + 4 行行距 4px + 上下垫 16px）,超出走 rack-scroll 内滚 ——
             每组上限 12 条,窄栏全堆下时不再把上方的会话列表/文件管理器挤干;
             本模块坐栏底（状态栏正上方）,底部 hairline 由状态栏 border-t 提供,
@@ -519,40 +534,29 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
                 onClick={() => handleExecute(cmd)}
                 onContextMenu={(e) => handleCommandContextMenu(cmd, e)}
                 className={cn(
-                  // 按钮语言对齐协议 chips:透明底 + rule 边框,hover 才点亮;
-                  // 分组色走边框信号(--kc-accent 由 style 注入,hover 边框亮成分组色)
-                  'group/key relative flex-shrink-0 h-[24px] rounded-[3px]',
-                  'pl-[16px] pr-[8px] flex items-center',
-                  'border transition-colors text-[var(--text-rack)]',
+                  // 钤章(seal):章体/印钮/印文/钤印拍的机械全在 globals.css
+                  // 的 .seal 系列,这里只挂身份色(inline color → 印钮
+                  // currentColor,分组色染钮,同轴头/漆杆机制)与拍态(.on);
+                  // 器无持久态 —— 分组选择归标题行 LED,这里不携带拴绳/解绳
+                  // 语义。F 键号不刻章面(印文独占),Ctrl+F 提示走 title 悬停
+                  'seal relative flex-shrink-0 h-[24px] pl-[12px] pr-[10px] flex items-center select-none',
                   disabled
-                    ? 'cursor-not-allowed opacity-40 border-[var(--rule-soft)]'
-                    : 'cursor-pointer border-[var(--rule)] hover:bg-[var(--bg-slot)] hover:border-[var(--kc-accent)] active:bg-[var(--bg-elev)]',
-                  editingCommandId === cmd.id && 'ring-1 ring-inset ring-[var(--amber)]'
+                    ? 'cursor-not-allowed opacity-40'
+                    : 'cursor-pointer',
+                  editingCommandId === cmd.id && 'ring-1 ring-inset ring-[var(--amber)]',
+                  sealFlash === cmd.id && 'on'
                 )}
-                style={{ '--kc-accent': currentGroupColor || 'var(--text-rack-dim)' } as React.CSSProperties}
+                style={{ color: currentGroupColor || 'var(--text-rack-dim)' }}
                 title={disabled
                   ? t('sidebar.quickCmdDisabled')
                   : `${index < 12 ? `Ctrl+F${index + 1} · ` : ''}${cmd.content}`}
               >
-                {/* F 键丝印 — 左上 8px tabular-nums（面板根已是 mono,继承即可） */}
-                {index < 12 && (
-                  <span
-                    className="absolute top-[2px] left-[4px] text-[8px] leading-none text-[var(--text-rack-dim)] pointer-events-none tabular-nums"
-                    style={{ letterSpacing: '0.02em' }}
-                  >
-                    F{index + 1}
-                  </span>
-                )}
-                {/* 命令名 — 主字，向下让出丝印位置 */}
-                <span className="text-[11px] font-medium leading-none mt-[3px]">{cmd.name}</span>
-
-                {/* 分组色底条 — 2px signature */}
-                {currentGroupColor && (
-                  <span
-                    className="absolute left-[2px] right-[2px] bottom-[1px] h-[2px] rounded-[1px] pointer-events-none"
-                    style={{ backgroundColor: currentGroupColor, opacity: 0.92 }}
-                  />
-                )}
+                {/* 章体 —— 一方温石,垫在印文后(z -1);钤印拍整面敷印泥朱 */}
+                <span aria-hidden className="seal-stone" />
+                {/* 印钮 —— 顶缘瓦钮(盖章的手按处),分组色染钮(currentColor) */}
+                <span aria-hidden className="seal-knob" />
+                {/* 印文 — 命令名刻进石面(书体/刻痕在 globals.css),钤印拍翻纸色(纸透上来) */}
+                <span className="seal-name">{cmd.name}</span>
               </button>
             ))
           )}

@@ -560,6 +560,7 @@
     "filterPlaceholder": "筛选主机 · 标签 · 用户",
     "expandAllGroups": "展开全部分组",
     "collapseAllGroups": "折叠全部分组",
+    "groupAll": "全体",
     "groupLive": "在线",
     "groupPinned": "置顶",
     "closeAllConnections": "关闭全部 {{count}} 个连接",

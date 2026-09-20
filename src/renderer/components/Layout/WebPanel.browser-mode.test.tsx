@@ -14,7 +14,9 @@
  *    方法面在 guest 挂载前调用会抛错 —— 真机曾炸于此，门开前不得调 loadURL/getURL）/
  *    dom-ready 后把 webContentsId 登记给主进程（小窗与完整页签共用 webbar
  *    partition 共享登录态，主进程快捷键转发凭登记排除小窗）/存档与高度防毒
- *    （畸形存档落空态、离谱高度夹到绝对上限）。
+ *    （畸形存档落空态、离谱高度夹到绝对上限）/地址栏挂双开画轴（.scroll-search
+ *    系列 CSS）：开合裁决 = 聚焦或有址 —— 闭眼空态收卷拴绳、有墨失焦仍展，
+ *    与勾玉「闭眼/开眼」同一状态语言。
  * 6) 小窗关闭/恢复：关闭后 webview 摘树、恢复轨出现；恢复后原页状态保留、
  *    关闭态经 config 存档；存档关闭态起渲染即关（写门：读档未成功不写，
  *    默认 false 不冲掉存档的 true —— 防抖/卸载补写两条路都拦）；小窗关闭时
@@ -298,6 +300,46 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     expect(screen.getByText('Mini browser')).toBeTruthy()
     expect(screen.getByText('Type an address, or Ctrl+click a history row to preview here')).toBeTruthy()
     expect((screen.getByTitle('Promote to web tab') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('小窗地址 = 双开画轴：闭眼空态收卷拴绳，聚焦即展、失焦且空即收（与勾玉同一状态语言）', () => {
+    setupBrowserMode()
+    render(<WebPanel />)
+    const label = miniInputOf().closest('label')
+    expect(label).toBeTruthy()
+    // 结构：纸幅×2 + 双辊×2 + 蝴蝶结×2（机械全在 .scroll-search 系列 CSS，组件只挂态）
+    expect(label?.className).toContain('scroll-search')
+    expect(label?.className).toContain('h-[32px]')
+    expect(label?.querySelectorAll('.scroll-search-paper')).toHaveLength(2)
+    expect(label?.querySelectorAll('.scroll-search-rod')).toHaveLength(2)
+    expect(label?.querySelectorAll('.scroll-search-tie')).toHaveLength(2)
+    // 闭眼空态：双卷各拴一只蝴蝶结
+    expect(label?.className).toContain('rolled')
+    // 聚焦即展开（label 承接点击落到 input，focus 态参与开合裁决）
+    fireEvent.focus(miniInputOf())
+    expect(label?.className).toContain('open')
+    // 失焦且未开眼：纸裹回双辊、重新拴绳
+    fireEvent.blur(miniInputOf())
+    expect(label?.className).toContain('rolled')
+  })
+
+  it('小窗地址 = 双开画轴：有址即开眼（有墨失焦仍展），Esc 复位后仍展', () => {
+    setupBrowserMode()
+    localStorage.setItem('lyshell.webbarMini.url.v1', 'https://restored.example.com/')
+    render(<WebPanel />)
+    const label = miniInputOf().closest('label')
+    // 存档恢复即开眼：miniInput 随当前页地址，纸上有墨 —— 挂载即展开
+    expect(miniInputOf().value).toBe('https://restored.example.com/')
+    expect(label?.className).toContain('open')
+    // 编辑中途失焦：纸上有字不收
+    fireEvent.focus(miniInputOf())
+    fireEvent.change(miniInputOf(), { target: { value: 'https://editing.example.com/' } })
+    fireEvent.blur(miniInputOf())
+    expect(label?.className).toContain('open')
+    // Esc 放弃编辑复位为当前页地址 —— 仍有址，仍展开
+    fireEvent.keyDown(miniInputOf(), { key: 'Escape' })
+    expect(miniInputOf().value).toBe('https://restored.example.com/')
+    expect(label?.className).toContain('open')
   })
 
   it('小窗输入合法地址 → 开眼挂 webview（与完整页签共用 webbar partition 共享登录态，首航冻结为 src）', async () => {
