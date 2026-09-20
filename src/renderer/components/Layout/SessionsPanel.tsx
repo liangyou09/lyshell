@@ -202,7 +202,7 @@ const QUICK_SHELLS: {
 const GroupHeader: React.FC<{
   label: string
   count: number
-  /** 段身份色:live=绿 / pin=置顶金 / serial=串口橙 / local=本地紫 / subnet=网段粉 /
+  /** 段身份色:live=绿 / pin=置顶金 / serial=串口橙 / local=本地紫 / subnet=网段胭脂 /
       reach=可达;undefined = 中性兜底(现行调用方都带 tone,卷轴身份全归一) */
   tone?: 'amber' | 'pin' | 'live' | 'reach' | 'serial' | 'local' | 'subnet'
   /** 可折叠时传入；undefined 表示不可折叠 */
@@ -214,7 +214,7 @@ const GroupHeader: React.FC<{
   const collapsible = typeof collapsed === 'boolean' && !!onToggle
   // tone → 语义 token(色值经 style 注入,轴头专用一份;题名已改金墨);serial/local
   // 复用行级 --proto-* 协议色(组内同质,轴头与行同身份),subnet 是段级组
-  // 语义(网段/主机名分组的远程会话),独立粉 token
+  // 语义(网段/主机名分组的远程会话),独立胭脂 token(与 error 粉红同屏拆值)
   const toneVar =
     tone === 'pin'    ? 'var(--pin)'       :
     tone === 'amber'  ? 'var(--amber)'     :
@@ -240,14 +240,18 @@ const GroupHeader: React.FC<{
         'relative flex items-center gap-2.5 pl-3 pr-[20px] text-[10px] text-[var(--text-rack-mute)]',
         // 行内垫:可折叠(有辊)时对称垫 —— 辊在栏内垂直居中,内容线与辊同
         // 心、贴印在辊上(非对称垫会把内容压离辊心,甚至跨出辊面);不可折叠
-        // 无辊,常规对称垫。右垫加厚到 20px:右轴头占行缘内 6-12px,内容
+        // 无辊,常规对称垫。垫随辊收细(2026/09/20 辊 20→16,py 5→3):行高
+        // = 内容行盒 + 2×py,不随辊径自动走 —— 只收辊不收垫,省下的辊径会
+        // 变成辊周多出的透明空气(栏本体无底,这圈空气就是画轴下方那块透
+        // 明长方形),整条栏读感不变细;py 跟辊同收,空气恒 ~3px、行矮 4px,
+        // 栏才真的细。右垫加厚到 20px:右轴头占行缘内 6-12px,内容
         // 右缘(计数/action)与其隔 8px 空气 —— 数字不贴着轴头
-        collapsible ? 'py-[5px]' : 'py-2',
+        collapsible ? 'py-[3px]' : 'py-2',
         // 折叠栏 = 卷轴的辊位(scroll-head):栏本体无底色(透明,露出
         // bg-base 框体)—— 裱首不铺绫底,辊与题签直接立在框体上,悬停也
         // 不铺底(指针 + 绳的提亮是全部反馈);辊体(rod-caps)在栏内垂直
         // 居中(悬浮机件,上下留气)—— 栏底缘正是裱首/画心的接缝(= 纸幅
-        // 顶缘),辊悬在缝上方把两者拴成一件;轴杆随辊居中不动(辊径 20px
+        // 顶缘),辊悬在缝上方把两者拴成一件;轴杆随辊居中不动(辊径 16px
         // 开合不变粗细),收起(rolled)时纸裹轴卷成同径满卷(轴藏卷内,只
         // 露两端轴头),展开后纸垂落、回归光辊;行落在辊下的纸幅上
         // (paper-sheet,辊下垂落的纸,与卷纸带同宽同边)—— 纸与辊直接立
@@ -263,10 +267,10 @@ const GroupHeader: React.FC<{
       )}
     >
       {/* 卷轴辊 —— 栏内垂直居中的辊本体(形与圆柱读形在 globals.css 的
-          .rod-caps):悬浮机件上下留气,辊径恒 20px 开合不变粗细 —— 展开
+          .rod-caps):悬浮机件上下留气,辊径恒 16px 开合不变粗细 —— 展开
           时轴体机件色隔着小缝望着纸幅顶缘,收起时纸裹轴成同径满卷(轴藏
           卷内,只露两端轴头);轴头恒跟辊同径、随辊居中不动,色跟段身份
-          (pin 金/live 绿/serial 橙/local 紫/subnet 粉,无 tone 回落中性
+          (pin 金/live 绿/serial 橙/local 紫/subnet 胭脂,无 tone 回落中性
           dim)—— 探出纸幅两端(纸带与纸幅同宽),收起时读作纸卷两端的
           轴头端盖 */}
       {collapsible && (

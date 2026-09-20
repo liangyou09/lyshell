@@ -405,14 +405,15 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
           // rod-caps 端头色跟当前分组色。栏本体无底色(透明,露出 bg-base 框
           // 体),hover 也不铺底 —— 与会话分组折叠栏同款,指针 + 绳的提亮是
           // 全部悬停反馈。
-          // 行内垫同 GroupHeader:对称垫,内容线与居中的辊同心;右垫同款
+          // 行内垫同 GroupHeader:对称垫,内容线与居中的辊同心;垫随辊收细
+          // (辊 20→16,py 5→3 —— 空气恒 ~3px,行高跟辊走);右垫同款
           // 加厚(20px)—— 右轴头占行缘 6-12px,计数/LED/＋与其隔 8px 空气
-          'relative scroll-head group flex items-center gap-2.5 pl-3 pr-[20px] py-[5px] text-[10px] text-[var(--text-rack-mute)] cursor-pointer select-none',
+          'relative scroll-head group flex items-center gap-2.5 pl-3 pr-[20px] py-[3px] text-[10px] text-[var(--text-rack-mute)] cursor-pointer select-none',
           collapsed && 'rolled'
         )}
       >
         {/* 卷轴辊 —— 与 GroupHeader 同款:行内垂直居中(悬浮机件上下留
-            气),辊径恒 20px 开合不变粗细 —— 展开时轴体隔着小缝望着印匣区
+            气),辊径恒 16px 开合不变粗细 —— 展开时轴体隔着小缝望着印匣区
             顶缘,折叠时纸裹轴成同径满卷(轴藏卷内;圆柱读形在 globals.css
             的 .rod-caps);两端轴头恒跟辊同径、随辊居中不动,色跟当前分组
             LED(未设分组色回落中性 dim) */}
