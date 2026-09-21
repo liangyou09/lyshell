@@ -127,6 +127,7 @@ const IPC_CHANNELS = {
   WEBBAR_FETCH_FAVICON: 'webbar:fetch-favicon',
   WEBBAR_REGISTER_MINI: 'webbar:register-mini',  // renderer→main：写轮眼小窗 dom-ready 后自报 webContentsId
   WEB_TAB_SHORTCUT: 'web-tab:shortcut',  // main→renderer：webview 焦点内的浏览器快捷键转发
+  WEB_TAB_POPUP: 'web-tab:popup',  // main→renderer：webview 弹窗跳转地址转发（deny + 转页签）
 
   // Harness worktree 检测（kind 无关：列出仓库已有 worktree 共享名，编辑对话框下拉用）
   HARNESS_WORKTREE_LIST: 'harness:worktree:list',
@@ -264,6 +265,14 @@ const electronAPI = {
     const listener = (_e: IpcRendererEvent, action: string): void => callback(action)
     ipcRenderer.on(IPC_CHANNELS.WEB_TAB_SHORTCUT, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.WEB_TAB_SHORTCUT, listener)
+  },
+
+  // 网页页签弹窗跳转（main→renderer）：webview 的开窗请求（target=_blank /
+  // window.open）在主进程一律 deny，http/https 地址经此转发，渲染层开完整网页页签
+  onWebTabPopup: (callback: (url: string) => void) => {
+    const listener = (_e: IpcRendererEvent, url: string): void => callback(url)
+    ipcRenderer.on(IPC_CHANNELS.WEB_TAB_POPUP, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.WEB_TAB_POPUP, listener)
   },
 
   // 写轮眼小窗登记（renderer→main）：小窗与完整页签共用 webbar partition（共享

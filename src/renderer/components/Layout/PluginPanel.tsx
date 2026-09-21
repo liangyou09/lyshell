@@ -192,9 +192,11 @@ const PluginPanel: React.FC = () => {
           与 SessionsPanel/AgentsPanel/HarnessPanel 头行同族(设备徽章系统):
           行高对齐终端第一行(TOPBAR_HEIGHT)、满幅 border-b 发丝线、
           铭牌走系统 UI 字体做「厂牌丝印」,hinting 完整任何字号都锐利。
-          铭牌可截断让位，安装入口 chips 固定不折行。 */}
+          铭牌可截断让位，安装入口 chips 固定不折行。
+          头行挂 win-drag 做窗口拖拽区(头行是第一行横带的左列段;IconBtn 与
+          两个文字 chips 显式 win-no-drag 保交互)。 */}
       <div
-        className="flex items-center justify-between gap-1 px-3 border-b border-[var(--rule)] flex-shrink-0"
+        className="win-drag flex items-center justify-between gap-1 px-3 border-b border-[var(--rule)] flex-shrink-0"
         style={{ height: TOPBAR_HEIGHT }}
       >
         <span
@@ -210,14 +212,14 @@ const PluginPanel: React.FC = () => {
           <button
             onClick={handlePickFile}
             disabled={busy}
-            className="px-2 py-0.5 text-[11px] [font-family:inherit] rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+            className="win-no-drag px-2 py-0.5 text-[11px] [font-family:inherit] rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
           >
             {t('plugin.addFile')}
           </button>
           <button
             onClick={() => setShowUrlInput((v) => !v)}
             disabled={busy}
-            className="px-2 py-0.5 text-[11px] [font-family:inherit] rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+            className="win-no-drag px-2 py-0.5 text-[11px] [font-family:inherit] rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
           >
             {t('plugin.installFromUrl')}
           </button>

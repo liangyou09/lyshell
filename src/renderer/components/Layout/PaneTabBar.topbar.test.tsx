@@ -16,7 +16,7 @@ import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import { ConnectionStatus } from '@shared/types'
 import type { OverlayPayload, OverlayRef, PaneLeaf, SessionConfig } from '@shared/types'
-import { TOPBAR_HEIGHT } from './topbar-metrics'
+import { TOPBAR_HEIGHT, TOPBAR_GRIP_WIDTH } from './topbar-metrics'
 import { PALETTE_EVENT } from '../../commands/palette'
 
 const DSH_REF = (slot: number | null, active = false): OverlayRef =>
@@ -80,6 +80,25 @@ describe('PaneTabBar 顶排页签条(渲染断言)', () => {
     useSessionStore.setState({ sessions: [makeSession('s1', 'alpha')] })
     const { container } = render(<PaneTabBar pane={makePane(['s1'])} />)
     expect((container.firstElementChild as HTMLElement).className).not.toContain('win-drag')
+  })
+
+  // 页签 flex-1 伸长会铺满整条(Edge 式只缩不滚),铺满后条内空白归零,左右留白又
+  // 分别被展开 pill / 右上控制簇盖住 → 第一行 drag 区归零,窗口拖不动(此为回归锁)
+  it('顶排页签条右端常驻保底拖拽抓手(滚动容器外),非顶排不放', () => {
+    useSessionStore.setState({ sessions: [makeSession('s1', 'alpha')] })
+    const { container } = render(<PaneTabBar pane={makePane(['s1'])} isTop />)
+    const bar = container.firstElementChild as HTMLElement
+    const grip = container.querySelector('.pane-tab-grip') as HTMLElement
+    expect(grip).toBeTruthy()
+    expect(grip.className).toContain('win-drag')
+    expect(grip.style.width).toBe(`${TOPBAR_GRIP_WIDTH}px`)
+    // 挂在条本体上、滚动容器之外(容器内会随页签滚动离场,保不住)
+    const scrollArea = bar.firstElementChild as HTMLElement
+    expect(grip.parentElement).toBe(bar)
+    expect(scrollArea.nextElementSibling).toBe(grip)
+    // 非顶排条是 pane 内部行不参与拖窗,不放(镜像「+」钮取舍)
+    const nonTop = render(<PaneTabBar pane={makePane(['s1'])} />)
+    expect(nonTop.container.querySelector('.pane-tab-grip')).toBeNull()
   })
 
   it('MCP 页签与 dsh web 页签同样脱离拖拽区', () => {
@@ -345,6 +364,9 @@ describe('topbar-metrics 单一真相源', () => {
     expect(METRICS).toContain('TOP_LEFT_RESERVE')
     expect(METRICS).toContain('SIDEBAR_DIVIDER_WIDTH')
     expect(METRICS).toContain('SIDEBAR_PILL_HEIGHT')
+    // 保底抓手宽也走单一真相源(页签铺满后第一行仍有 drag 区的回归锁)
+    expect(METRICS).toContain('TOPBAR_GRIP_WIDTH')
+    expect(TAB_BAR).toContain('TOPBAR_GRIP_WIDTH')
     expect(TAB_BAR).toContain("from './topbar-metrics'")
     expect(MAIN_WINDOW).toContain("from './topbar-metrics'")
     expect(TOP_RIGHT).toContain("from './topbar-metrics'")
@@ -353,20 +375,36 @@ describe('topbar-metrics 单一真相源', () => {
     expect(ACTIVITY_RAIL).toContain('style={{ height: TOPBAR_HEIGHT }}')
     // 收起槽画底线(与面板头条/页签条同色同 y)—— 第一行底线横贯整个窗口,整行读作一条横带
     expect(ACTIVITY_RAIL).toContain('border-b border-[var(--rule)]')
-    // 左列五个内容面板头条同族(SessionsPanel/AgentsPanel/HarnessPanel/PluginPanel/SettingsPanel):
+    // 左列内容面板头条同族(Sessions/Agents/Harness/Plugin/Env/Settings/Web 七面):
     // 都是 TOPBAR_HEIGHT 高 + border-b 发丝线的满幅头条,窗口第一行横带在哪个页签都连续
     const SESSIONS_PANEL = read('src/renderer/components/Layout/SessionsPanel.tsx')
     const AGENTS_PANEL = read('src/renderer/components/Layout/AgentsPanel.tsx')
     const HARNESS_PANEL = read('src/renderer/components/Layout/HarnessPanel.tsx')
     const PLUGIN_PANEL = read('src/renderer/components/Layout/PluginPanel.tsx')
+    const ENV_PANEL = read('src/renderer/components/Layout/EnvProfilePanel.tsx')
     const SETTINGS_PANEL = read('src/renderer/components/Layout/SettingsPanel.tsx')
-    for (const panel of [SESSIONS_PANEL, AGENTS_PANEL, HARNESS_PANEL, PLUGIN_PANEL, SETTINGS_PANEL]) {
+    const WEB_PANEL = read('src/renderer/components/Layout/WebPanel.tsx')
+    for (const panel of [SESSIONS_PANEL, AGENTS_PANEL, HARNESS_PANEL, PLUGIN_PANEL, ENV_PANEL, SETTINGS_PANEL, WEB_PANEL]) {
       expect(panel).toContain("from './topbar-metrics'")
       expect(panel).toContain('style={{ height: TOPBAR_HEIGHT }}')
       expect(panel).toContain('border-b border-[var(--rule)]')
+      // 头条挂 win-drag:左列展开时第一行横带的左列段也是窗口拖拽区
+      // (页签铺满/留白被浮层盖住时的保底;交互子元素经 IconBtn/显式 win-no-drag 让位)
+      expect(panel).toContain('win-drag')
       // 铭牌字体同源:设备徽章系统,厂牌走系统 UI 字体(与终端画布的等宽栈刻意拉开字面)
       expect(panel).toContain('Segoe UI Variable Display')
     }
+  })
+
+  it('头条图标钮统一脱离拖拽区(五处头条共用的 IconBtn 内建 win-no-drag)', () => {
+    const ICON_BTN = read('src/renderer/components/Layout/IconBtn.tsx')
+    expect(ICON_BTN).toContain('win-no-drag')
+    // Harness 铭牌按钮与重检钮、Plugin 两个文字 chips 各自显式让位(头行挂 win-drag 后仍可点)
+    const HARNESS_PANEL = read('src/renderer/components/Layout/HarnessPanel.tsx')
+    const PLUGIN_PANEL = read('src/renderer/components/Layout/PluginPanel.tsx')
+    expect(HARNESS_PANEL).toMatch(/'win-no-drag flex-1 min-w-0/)
+    expect(HARNESS_PANEL).toContain('win-no-drag px-2.5')
+    expect(PLUGIN_PANEL).toContain('win-no-drag px-2')
   })
 
   it('右留白走实测链路:CSS 变量兜底定义 + TopRightControls ResizeObserver 发布', () => {

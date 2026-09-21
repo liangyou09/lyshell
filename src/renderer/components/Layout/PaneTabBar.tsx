@@ -9,7 +9,7 @@ import { OVERLAY_DRAG_MARKER, parseOverlayDragMarker, resolveOverlayDragId } fro
 import { harnessKindFromTags, type HarnessAgentKind } from '@shared/harness'
 import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
 import type { PaneLeaf, OverlayKind, OverlayPayload, OverlayRef } from '@shared/types'
-import { TOPBAR_HEIGHT } from './topbar-metrics'
+import { TOPBAR_HEIGHT, TOPBAR_GRIP_WIDTH } from './topbar-metrics'
 
 // codex/claude 品牌标资产 —— 与 ActivityRail 左轨同源（assets/agent-icons/*.png），
 // mask 取资产 alpha 作剪影、bg-current 随页签文字色着色（空闲 dim / 激活亮）
@@ -1054,6 +1054,15 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
           </button>
         )}
       </div>
+
+      {/* 保底拖拽抓手(仅顶排) -- 页签 flex-1 伸长铺满整条后(Edge 式只缩不滚),条内
+          空白归零,而左右留白分别被展开 pill / 右上控制簇盖住(win-no-drag 浮层),
+          窗口第一行将无任何 drag 区,窗口拖不动。抓手挂在滚动容器外(容器内会随页签
+          滚动离场),页签再满也挤不掉;未满时与空白底连成一片,视觉无感。非顶排条
+          是 pane 内部行不参与拖窗,不放(镜像「+」钮的顶排专属取舍) */}
+      {isTop && (
+        <div aria-hidden className="pane-tab-grip win-drag flex-shrink-0" style={{ width: TOPBAR_GRIP_WIDTH }} />
+      )}
 
       {/* 会话页签悬停详情卡(fixed 挂 body,不占条内布局) */}
       {hoveredTab && hoveredSession && (

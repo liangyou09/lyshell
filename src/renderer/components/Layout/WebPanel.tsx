@@ -638,9 +638,10 @@ const WebPanel: React.FC = () => {
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
       {/* 头条:网页铭牌 —— 与 SessionsPanel/PluginPanel 头行同构(行高对齐终端第一行、
-          满幅 border-b 发丝线、铭牌走系统 UI 字体做「厂牌丝印」) */}
+          满幅 border-b 发丝线、铭牌走系统 UI 字体做「厂牌丝印」)。
+          挂 win-drag 做窗口拖拽区(头行是第一行横带的左列段,无交互子元素) */}
       <div
-        className="flex items-center justify-between gap-1 px-3 border-b border-[var(--rule)] flex-shrink-0"
+        className="win-drag flex items-center justify-between gap-1 px-3 border-b border-[var(--rule)] flex-shrink-0"
         style={{ height: TOPBAR_HEIGHT }}
       >
         <span

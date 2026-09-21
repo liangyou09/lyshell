@@ -29,5 +29,12 @@ export const SIDEBAR_PILL_HEIGHT = 36
  *  CSS 变量 --top-right-reserve(globals.css :root 有 130px 首帧兜底),
  *  PaneTabBar 读 var() 做右留白。 */
 
+/** 顶排页签条右端保底拖拽抓手宽 -- 页签 flex-1 伸长会铺满整条(Edge 式只缩不滚),
+ *  铺满后条内空白归零,而左右留白又分别被展开 pill / 右上控制簇盖住(win-no-drag
+ *  浮层),窗口第一行将无任何 drag 区,窗口拖不动。抓手挂在滚动容器外常驻占位:
+ *  页签再满也挤不掉;未满时与空白底连成一片,视觉无感。左列面板头条(见各
+ *  SessionsPanel 等头行的 win-drag)与本抓手共同保证第一行在任何布局下都可拖 */
+export const TOPBAR_GRIP_WIDTH = 40
+
 /** 侧栏调宽条宽(含命中热区) -- 左列总宽 = RAIL_WIDTH + sidebarWidth + 此值,调宽条本体同宽 */
 export const SIDEBAR_DIVIDER_WIDTH = 4

@@ -584,9 +584,11 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
           codex/claude 无 Web UI，铭牌不可按 —— 有能力的地方才有控件。
           通电 LED 是铭牌的琥珀锚点（不表示 Web 状态），对应 LYSHELL·RACK 头行的琥珀「·」。
           计数是铭牌的「型号后缀」（同 AgentsPanel）：listReady 时显示工作区数，
-          读作 Claude 3 一个词（区段带已撤 —— 整面只有一列工作区，标签与铭牌重复）。 */}
+          读作 Claude 3 一个词（区段带已撤 —— 整面只有一列工作区，标签与铭牌重复）。
+          头行挂 win-drag 做窗口拖拽区(头行是第一行横带的左列段):dsh 的铭牌本身是
+          按钮要保交互,显式 win-no-drag 让位;codex/claude 铭牌是纯文字,留在拖拽区内 */}
       <div
-        className="flex items-center justify-between gap-1 px-3 border-b border-[var(--rule)] flex-shrink-0"
+        className="win-drag flex items-center justify-between gap-1 px-3 border-b border-[var(--rule)] flex-shrink-0"
         style={{ height: TOPBAR_HEIGHT }}
       >
         {view.hasWeb ? (
@@ -596,7 +598,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
             title={t(`${prefix}.webDefault`)}
             style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
             className={cn(
-              'flex-1 min-w-0 flex items-center gap-2 p-0 bg-transparent border-none text-left',
+              'win-no-drag flex-1 min-w-0 flex items-center gap-2 p-0 bg-transparent border-none text-left',
               'text-[16px] font-bold tracking-[-0.01em] transition-colors',
               'focus:outline-none focus-visible:text-[var(--amber)] focus-visible:underline underline-offset-[3px]',
               webOpening && 'text-[var(--amber)] cursor-wait',
@@ -638,12 +640,12 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
           {listReady && (
             <IconBtn amber onClick={handleAdd} title={t(`${prefix}.wsAddTitle`)}><IconPlus /></IconBtn>
           )}
-          {/* 依赖齐全时无需重新检测（隐藏）；检测中/缺依赖时保留 */}
+          {/* 依赖齐全时无需重新检测（隐藏）；检测中/缺依赖时保留(win-no-drag 脱离头条拖拽区) */}
           {!launchReady && (
             <button
               onClick={() => void runDetect()}
               disabled={detecting}
-              className="px-2.5 py-1 text-[12.5px] [font-family:inherit] rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+              className="win-no-drag px-2.5 py-1 text-[12.5px] [font-family:inherit] rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
             >
               {detecting ? t(`${prefix}.detecting`) : t(`${prefix}.redetect`)}
             </button>

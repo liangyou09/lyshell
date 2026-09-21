@@ -46,6 +46,11 @@ export const IPC_CHANNELS = {
   // keydown，由主进程 before-input-event 拦截后经此通道转发渲染层路由）
   WEB_TAB_SHORTCUT: 'web-tab:shortcut',
 
+  // 网页页签弹窗跳转（main → renderer 单向推送：webview 内 target=_blank /
+  // window.open 的开窗请求在主进程一律 deny，http/https 地址经此通道转发渲染层
+  // 开完整网页页签 —— Chrome「在新标签页打开」同语义，弹窗按钮不再点了没反应）
+  WEB_TAB_POPUP: 'web-tab:popup',
+
   // 写轮眼小窗登记（renderer → main：小窗 dom-ready 后自报 webContentsId。小窗与
   // 完整页签共用 webbar partition 共享登录态后，主进程快捷键转发无法凭 session
   // 区分两者，凭这份登记把小窗排除，按键原样进页面）
@@ -54,6 +59,16 @@ export const IPC_CHANNELS = {
   // 窗口
   WINDOW_GET_BOUNDS: 'window:get-bounds'
 }
+
+/**
+ * webbar 会话内接管的深链 scheme 家族 —— 抖音网页端已知的 app 深链。
+ * 未注册 scheme 的开窗会直达 OS 协议处理器（弹「在 Microsoft Store 查找应用」
+ * 对话框）；经 protocol.handle 注册进 webbar 会话后回到可拦截的导航机械里
+ * （实测路径与兜底语义见 main/index.ts 的接管注释）。遇到新 scheme 弹系统
+ * 对话框时往这里加。主进程注册消费；抽到 shared 是为了测试可引
+ * （main/index.ts 是 app 入口，import 即引导启动，测试只能引纯常量模块）。
+ */
+export const WEBBAR_DEEPLINK_SCHEMES = ['bytedance', 'snssdk1128', 'aweme', 'iesdouyin', 'douyin'] as const
 
 /**
  * 默认终端主题 - 深色

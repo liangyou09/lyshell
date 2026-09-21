@@ -416,9 +416,10 @@ const EnvProfilePanel: React.FC = () => {
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
       {/* 头条：面板铭牌 + 计数 + 添加 —— 与 SessionsPanel/AgentsPanel 头行同族
-          （行高对齐终端第一行，铭牌走系统 UI 字体做「厂牌丝印」） */}
+          （行高对齐终端第一行，铭牌走系统 UI 字体做「厂牌丝印」）。
+          挂 win-drag 做窗口拖拽区(头行是第一行横带的左列段;IconBtn 统一 win-no-drag) */}
       <div
-        className="flex items-center justify-between px-3 border-b border-[var(--rule)] flex-shrink-0"
+        className="win-drag flex items-center justify-between px-3 border-b border-[var(--rule)] flex-shrink-0"
         style={{ height: TOPBAR_HEIGHT }}
       >
         <span className="flex items-baseline gap-1.5 select-none">

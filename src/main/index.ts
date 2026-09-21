@@ -15,7 +15,7 @@ import { pluginHostManager } from './plugin/host-mgr'
 import { cleanupDownloadsDir } from './plugin/install-zip'
 import { getPluginsDir } from './storage/plugin-repository'
 import { dshWebManager } from './dsh/web'
-import { IPC_CHANNELS } from '@shared/constants'
+import { IPC_CHANNELS, WEBBAR_DEEPLINK_SCHEMES } from '@shared/constants'
 import { matchWebTabShortcut } from '@shared/webtab-shortcut'
 
 // 日志配置
@@ -249,8 +249,17 @@ function createMainWindow(): void {
     // 网页访问栏。
     const isWebbar = webContents.session === session.fromPartition(WEBBAR_PARTITION)
     webContents.setWindowOpenHandler(({ url }) => {
-      // webview 不允许开新窗口/弹窗，直接 deny（dsh UI 不需要 popup，也不交系统浏览器避免泄 URL）
-      log.warn('Blocked webview window.open:', url)
+      // webview 一律不开新窗口/弹窗（deny，也不交系统浏览器避免泄 URL）。网页访问栏
+      // （完整页签 + 小窗）的 http/https 开窗请求转发渲染层开完整网页页签（Chrome
+      // 「在新标签页打开」同语义）—— target=_blank / window.open 是现代站点的主流
+      // 跳转形态，纯 deny 时这些按钮表现为点了没反应；dsh web 维持纯 deny（origin
+      // 锁定无浏览语义）。转发地址经渲染层 openWebTab 的 normalizeWebBarUrl 再校验
+      //（IPC 边界即不可信输入），非 http/https（about:blank 等）纯拦
+      if (isWebbar && isHttpUrl(url)) {
+        mainWindow?.webContents.send(IPC_CHANNELS.WEB_TAB_POPUP, url)
+      } else {
+        log.warn('Blocked webview window.open:', url)
+      }
       return { action: 'deny' }
     })
     // 网页页签快捷键：焦点进 webview 后键盘全被 guest 吃掉，宿主 keydown 收不到。
@@ -268,11 +277,19 @@ function createMainWindow(): void {
         mainWindow?.webContents.send(IPC_CHANNELS.WEB_TAB_SHORTCUT, action)
       })
     }
-    webContents.on('will-navigate', (event, url) => {
+    // 导航闸 —— will-navigate（锚点点击 / JS location 赋值）与 will-redirect（302/
+    // meta refresh 的服务端落点）两条事件共用同一策略：实证（Electron 28 探针）锚点与
+    // JS 路径只走 will-navigate、重定向落点只走 will-redirect，webRequest 网络层对外
+    // 部 scheme 全程不可见 —— 少挂任一条都会漏。will-redirect 原先未挂：外部协议深链
+    // （bytedance:// 等，抖音页反复重定向触发「打开APP」）经重定向直达 OS 协议处理
+    // 器，Windows 弹「在 Microsoft Store 查找应用」对话框且反复刷 —— preventDefault
+    // 掐的是整个导航，闸内拦下即免于触达系统
+    const onNavGate = (event: { preventDefault(): void }, url: string): void => {
       try {
         const target = new URL(url)
         if (isWebbar) {
-          // 网页访问栏（完整页签 + 写轮眼小窗）：仅拦非 http/https（file://、chrome:// 等）
+          // 网页访问栏（完整页签 + 写轮眼小窗）：仅拦非 http/https（file://、chrome://、
+          // 外部协议深链等 —— 未注册 scheme 触达 OS 即弹系统对话框）
           if (target.protocol === 'http:' || target.protocol === 'https:') return
           event.preventDefault()
           log.warn('Blocked webbar webview navigation:', url)
@@ -286,6 +303,19 @@ function createMainWindow(): void {
         event.preventDefault()
         log.warn('Blocked malformed webview navigation URL:', url)
       }
+    }
+    webContents.on('will-navigate', onNavGate)
+    webContents.on('will-redirect', onNavGate)
+    // 子框架闸（will-frame-navigate 先于 will-navigate 触发且覆盖子框架）：只掐外部
+    // 协议 —— http/https 子框架（广告 iframe 常态）照常放行；dsh 的 origin 锁维持
+    // 主框架语义不外溢到子框架。实证（探针）：子框架/按钮 onclick 的外部 scheme
+    // 导航只在此事件露头
+    webContents.on('will-frame-navigate', (e) => {
+      try {
+        if (new URL(e.url).protocol === 'http:' || new URL(e.url).protocol === 'https:') return
+      } catch { /* 畸形地址落到下面拦 */ }
+      e.preventDefault()
+      log.warn('Blocked webview frame navigation:', e.url)
     })
   })
 
@@ -341,6 +371,28 @@ app.whenReady().then(async () => {
 
   // 创建主窗口
   createMainWindow()
+
+  // 抖音系深链 scheme 的应用内接管 —— 系统弹「在 Microsoft Store 查找应用」对话框的
+  // 最后防线。下面的拦截链描述是本仓库 Electron 28（win32）的探针实测结论，不是
+  // Electron 的普适规范 —— 外部协议的拦截路径随版本与调用场景（手势/入口）变化，
+  // 升级 Electron 后应以同款探针复测再修订注释。实测路径上：带手势的 window.open
+  // 到未注册 scheme 不经 setWindowOpenHandler、不产生导航事件、不触发 webRequest
+  // —— 应用层无任何可拦点，直达 OS 协议处理器。把 scheme 经 protocol.handle 注册
+  // 进 webbar 会话后，它对应用不再是「外部协议」—— 各入口（window.open/锚点/子
+  // 框架/重定向）回到可拦截的导航与开窗机械里（did-attach-webview 各闸照常拦），
+  // 本 handler 只是兜底：真有漏网导航落进来时回 204 空响应而非触达系统。列表是
+  // 抖音网页端已知的深链家族（WEBBAR_DEEPLINK_SCHEMES，@shared/constants），
+  // 遇到新 scheme 弹对话框时往那里加。fromPartition 返回会话单例，与
+  // did-attach-webview 里的判定共享同一 session，挂载顺序无涉
+  const webbarSession = session.fromPartition(WEBBAR_PARTITION)
+  for (const scheme of WEBBAR_DEEPLINK_SCHEMES) {
+    try {
+      webbarSession.protocol.handle(scheme, () => new Response(null, { status: 204 }))
+      log.info(`Registered webbar deep-link scheme handler: ${scheme}://`)
+    } catch (err) {
+      log.warn(`Failed to register deep-link scheme handler (${scheme}):`, err)
+    }
+  }
 
   // 注册窗口级快捷键(必须在 createMainWindow 之后,因为依赖 mainWindow.webContents)
   registerWindowShortcuts()

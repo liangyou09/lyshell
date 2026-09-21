@@ -1251,9 +1251,12 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
       >
         {/* ===== 系统区 ===== 头行高对齐终端第一行(TOPBAR_HEIGHT):轨顶收起槽 / 本头行 /
              页签条在窗口顶部读作同一条横线。铭牌 = 产品名 + 编译期版本号
-             (__APP_VERSION__ 由 vite define 注入,升版不用手改这里) */}
+             (__APP_VERSION__ 由 vite define 注入,升版不用手改这里)。
+             头行挂 win-drag:左列展开时第一行横带的左列段也是窗口拖拽区
+             (页签铺满/被浮层盖住时的保底,见 topbar-metrics TOPBAR_GRIP_WIDTH 注;
+             交互子元素 IconBtn 已统一 win-no-drag) */}
         <div
-          className="flex items-center justify-between px-3 border-b border-[var(--rule)]"
+          className="win-drag flex items-center justify-between px-3 border-b border-[var(--rule)]"
           style={{ height: TOPBAR_HEIGHT }}
         >
           {/* 铭牌 = 设备徽章的语言:厂牌丝印 + 打字机固件号。品牌名走系统 UI 字体

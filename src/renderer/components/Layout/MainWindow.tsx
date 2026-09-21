@@ -32,6 +32,7 @@ import { matchWebTabShortcut, isWebTabShortcutAction, type WebTabShortcutAction 
 import {
   activeWebTabId, reloadActiveWebTab, activeWebTabGoBack, activeWebTabGoForward
 } from './web-tab-controls'
+import { gateWebTabPopup, recordWebTabPopup } from './web-tab-popup-gate'
 
 // 左列收起态/宽度的 localStorage 镜像 key -- 主进程 config 异步,首帧用它同步定态防闪
 // (activeNav 的 lyshell.navTab.v1 同款规避);懒读与双写共用常量,防两处字面量漂移
@@ -553,6 +554,21 @@ const MainWindow: React.FC = () => {
       routeWebTabAction(action)
     })
   }, [routeWebTabAction])
+
+  // webview 弹窗跳转:target=_blank / window.open 的开窗请求在主进程 deny 后经 IPC
+  // 转发到这里,过防刷闸后开完整网页页签(落点 = 活动 pane,URL 栏语义 —— 弹窗
+  // 请求不带 webview 身份,转发动作统一落活动 pane,与快捷键转发同一取舍)。
+  // 闸(gateWebTabPopup):转发请求没有手势信号可用(见闸内注释),抖音等站的无手势
+  // 刷屏弹窗靠同键去重 + 短窗频控压住。url 经 IPC 边界即不可信输入,openWebTab
+  // 内 normalizeWebBarUrl 校验通过才挂载,畸形地址静默丢弃;登记(recordWebTabPopup)
+  // 只在挂载成功后执行 —— 没开成的弹窗不占频控额度、不进键册
+  useEffect(() => {
+    if (!window.electronAPI?.onWebTabPopup) return
+    return window.electronAPI.onWebTabPopup(url => {
+      if (!gateWebTabPopup(url)) return
+      if (usePaneStore.getState().openWebTab(url).ok) recordWebTabPopup(url)
+    })
+  }, [])
 
   // Ctrl+Shift+P 切换全局命令面板（与空状态命令条共用命令集,见 command-registry）。
   // 同 Ctrl+Shift+O 用 capture：焦点在终端时 xterm 先于冒泡处理按键会吃掉 P；

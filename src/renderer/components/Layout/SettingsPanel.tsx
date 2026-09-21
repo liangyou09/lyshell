@@ -138,9 +138,10 @@ const SettingsPanel: React.FC = () => {
     <div className="settings-panel h-full flex flex-col bg-[var(--bg-base)]">
       {/* 头条:SETTINGS -- 行高对齐终端第一行(TOPBAR_HEIGHT),与 Sessions/Agents 等面板头行同高。
           铭牌走设备徽章字体(同族面板共用)。
-          原右端的 terminal/mcp 页签条已随 MCP 页签移入手册而移除(单栏无页签) */}
+          原右端的 terminal/mcp 页签条已随 MCP 页签移入手册而移除(单栏无页签)。
+          挂 win-drag 做窗口拖拽区(头行是第一行横带的左列段,无交互子元素) */}
       <div
-        className="flex items-center gap-1.5 px-3 border-b border-[var(--rule)] flex-shrink-0"
+        className="win-drag flex items-center gap-1.5 px-3 border-b border-[var(--rule)] flex-shrink-0"
         style={{ height: TOPBAR_HEIGHT }}
       >
         <span

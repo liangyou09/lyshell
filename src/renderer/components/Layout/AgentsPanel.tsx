@@ -376,9 +376,10 @@ const AgentsPanel: React.FC = () => {
       className="flex flex-col h-full bg-[var(--bg-base)] min-w-0"
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
-      {/* 头条:AGENTS · 计数 + 添加 -- 行高对齐终端第一行(TOPBAR_HEIGHT),与 SessionsPanel 头行同高 */}
+      {/* 头条:AGENTS · 计数 + 添加 -- 行高对齐终端第一行(TOPBAR_HEIGHT),与 SessionsPanel 头行同高。
+          挂 win-drag 做窗口拖拽区(头行是第一行横带的左列段;交互子元素 IconBtn 统一 win-no-drag) */}
       <div
-        className="flex items-center justify-between px-3 border-b border-[var(--rule)] flex-shrink-0"
+        className="win-drag flex items-center justify-between px-3 border-b border-[var(--rule)] flex-shrink-0"
         style={{ height: TOPBAR_HEIGHT }}
       >
         {/* 铭牌与 SessionsPanel 同系统(设备徽章):标签走系统 UI 字体做「厂牌丝印」。
