@@ -161,7 +161,7 @@ export class SSHConnector extends BaseConnector {
       host: this.config.host,
       port: this.config.port,
       username: this.config.username,
-      readyTimeout: this.config.readyTimeout || 10000,
+      readyTimeout: this.config.readyTimeout || 30000, // 同 upload/download worker 的默认值，慢握手服务器(如 UseDNS 超时)10 秒不够
       keepaliveInterval: this.config.keepaliveInterval || 10000, // 默认 10 秒心跳
       keepaliveCountMax: 3, // 3 次心跳失败后断开
     }

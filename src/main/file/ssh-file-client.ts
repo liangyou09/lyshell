@@ -112,7 +112,10 @@ export class SSHFileClient extends EventEmitter {
         host: this.sshConfig.host,
         port: this.sshConfig.port,
         username: this.sshConfig.username,
-        readyTimeout: this.sshConfig.readyTimeout || 15000,
+        // 与终端连接器/connectors/ssh.ts、upload/download worker 四路统一的握手默认值:
+        // 慢握手服务器(如 UseDNS 超时)15 秒不够 —— 终端连得上、文件面板连不上是错位行为。
+        // 显式 readyTimeout 配置仍优先
+        readyTimeout: this.sshConfig.readyTimeout || 30000,
         keepaliveInterval: this.sshConfig.keepaliveInterval || 10000,
         keepaliveCountMax: 3,
       }
