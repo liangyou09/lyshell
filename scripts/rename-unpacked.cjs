@@ -24,7 +24,20 @@ if (!fs.existsSync(src)) {
 }
 
 if (fs.existsSync(dst)) {
-  fs.rmSync(dst, { recursive: true, force: true })
+  try {
+    // maxRetries 兜 Windows 上的瞬时锁（杀软扫描句柄等）；运行中的 exe 锁不在此列
+    fs.rmSync(dst, { recursive: true, force: true, maxRetries: 3, retryDelay: 1000 })
+  } catch (e) {
+    // 旧 unpacked 目录被占用：最常见是旧版 LyShell 还在从该目录运行（Windows 锁着
+    // 运行中 exe 及其所在目录）。此时 electron-builder 产物已就绪，不必整链重新
+    // 打包——完全退出 LyShell 后单独重跑本脚本即可补完重命名
+    if (e.code === 'EPERM' || e.code === 'EBUSY' || e.code === 'ENOTEMPTY') {
+      console.error(`[rename-unpacked] 目标目录被占用，无法删除：${path.relative(root, dst)}`)
+      console.error('[rename-unpacked] 通常是旧版 LyShell 正从该目录运行——完全退出 LyShell 后重跑: node scripts/rename-unpacked.cjs')
+      process.exit(1)
+    }
+    throw e
+  }
 }
 fs.renameSync(src, dst)
 console.log(`[rename-unpacked] ${path.relative(root, src)} -> ${path.relative(root, dst)}`)

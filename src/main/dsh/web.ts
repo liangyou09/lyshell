@@ -1,5 +1,9 @@
 import { spawn, type ChildProcess } from 'child_process'
+import { session } from 'electron'
+import http from 'http'
+import https from 'https'
 import log from 'electron-log'
+import { DSH_WEB_PARTITION } from '@shared/constants'
 import { readSystemPath } from '../env/refresh'
 import { resolveDshHome } from './env'
 
@@ -53,6 +57,113 @@ export function validateLoopbackUrl(raw: string): string | null {
   return url.toString()
 }
 
+const COOKIE_EXCHANGE_TIMEOUT_MS = 5_000
+
+/** 一条 set-cookie 头的解析结果。纯数据，值都不脱/不编码，原样透传。 */
+export interface ParsedCookie {
+  name: string
+  value: string
+  path: string
+  httpOnly: boolean
+  sameSite: 'strict' | 'lax' | 'no_restriction'
+  maxAge?: number
+}
+
+/** ParsedCookie → Electron cookies.set() 入参的一对一映射结果。纯数据，不含电子层的引用。 */
+export interface CookieDetails {
+  url: string
+  name: string
+  value: string
+  path: string
+  secure: boolean
+  httpOnly: boolean
+  sameSite: 'strict' | 'lax' | 'no_restriction'
+  expirationDate?: number
+}
+
+/**
+ * 将 ParsedCookie 映射为 Electron session.cookies.set() 的入参。
+ * 纯函数，便于单测 —— origin 拼接、secure 透传、Max-Age → expirationDate 的算术都在此。
+ */
+export function toCookieDetails(
+  entry: ParsedCookie,
+  origin: string,
+  secure: boolean,
+  nowSec: number
+): CookieDetails {
+  const result: CookieDetails = {
+    url: origin + (entry.path.startsWith('/') ? entry.path : '/' + entry.path),
+    name: entry.name,
+    value: entry.value,
+    path: entry.path,
+    secure,
+    httpOnly: entry.httpOnly,
+    sameSite: entry.sameSite
+  }
+  if (entry.maxAge !== undefined) {
+    result.expirationDate = nowSec + entry.maxAge
+  }
+  return result
+}
+
+/**
+ * 解析单条 set-cookie 头字符串（如 `dsh-auth-xxx=v1.yyy; Max-Age=2592000; Path=/; HttpOnly; SameSite=Strict`）。
+ * 纯函数，便于单测；解析失败返回 null。
+ */
+export function parseSetCookieEntry(header: string): ParsedCookie | null {
+  const parts = header.split(';')
+  const first = parts[0]
+  if (!first) return null
+  const eqIdx = first.indexOf('=')
+  if (eqIdx <= 0) return null
+  const name = first.slice(0, eqIdx).trim()
+  const value = first.slice(eqIdx + 1).trim()
+  if (!name) return null
+
+  let path = '/'
+  let httpOnly = false
+  // 缺省 'strict' 是有意收窄:浏览器缺省 'lax'(Chrome 80+),但 dsh web 的 auth cookie
+  // 仅用于本地回环,不需要跨站导航携带,用 Strict 更安全。
+  let sameSite: ParsedCookie['sameSite'] = 'strict'
+  let maxAge: number | undefined
+  // 注:未解析 Expires 属性。当前 dsh 用 Max-Age,若未来出现只带 Expires 的 cookie,
+  // 缺失 maxAge 字段会使其退化成会话 cookie(关闭 webview 即失效)。如需支持,
+  // 可解析 Expires 并转为 expirationDate,但 parseSetCookieEntry 只返回 maxAge,
+  // 需在 toCookieDetails 里再转。
+
+  for (let i = 1; i < parts.length; i++) {
+    const attr = parts[i].trim()
+    const aeq = attr.indexOf('=')
+    const key = (aeq === -1 ? attr : attr.slice(0, aeq)).toLowerCase()
+    const val = aeq === -1 ? '' : attr.slice(aeq + 1).trim()
+
+    switch (key) {
+      case 'path':
+        if (val) path = val
+        break
+      case 'httponly':
+        httpOnly = true
+        break
+      case 'max-age':
+        if (val) {
+          const n = parseInt(val, 10)
+          if (!isNaN(n)) maxAge = n
+        }
+        break
+      case 'samesite':
+        if (val) {
+          const v = val.toLowerCase()
+          if (v === 'lax') sameSite = 'lax'
+          else if (v === 'none') sameSite = 'no_restriction'
+          // strict 为默认,其他值忽略
+        }
+        break
+    }
+  }
+
+  return { name, value, path, httpOnly, sameSite, ...(maxAge !== undefined ? { maxAge } : {}) }
+}
+
 class DshWebManager {
   private child: ChildProcess | null = null
   private url: string | null = null
@@ -76,6 +187,7 @@ class DshWebManager {
 
     return new Promise<DshWebLaunchResult>((resolve) => {
       let settled = false
+      let readyHandled = false  // 命中 ready 行即刻锁门，不等 exchange 结束才防重入
       let stdoutBuf = ''
       let stderrBuf = ''
 
@@ -113,6 +225,10 @@ class DshWebManager {
 
       child.stdout?.setEncoding('utf-8')
       child.stdout?.on('data', (chunk: string) => {
+        // readyHandled: 命中 ready 行立刻置位，锁住 exchange 期间的 5s 重入窗口。
+        // settled: 失败收尾路径（非法 URL close() 后 finish 已置位），缓冲里那条非法
+        //   匹配会一直留着，之后每个 stdout chunk 都重新命中——用 settled 兜底短路。
+        if (readyHandled || settled) return
         stdoutBuf = (stdoutBuf + chunk).slice(-READY_MAX_BUF)
         const raw = parseReadyUrl(stdoutBuf)
         if (!raw) return
@@ -124,8 +240,16 @@ class DshWebManager {
           finish({ ok: false, error: 'dsh web emitted an unexpected URL' })
           return
         }
+        readyHandled = true
         log.info(`dsh web ready: ${url}`)
-        finish({ ok: true, url })
+        // dsh web 的鉴权是 cookie 模型：GET /?token=… → 303 + Set-Cookie → GET /(带 cookie) → 200。
+        // validateLoopbackUrl 会剥掉 ?token=…，若直接交给 webview 加载就是永久 401。因此先由
+        // 主进程用 raw URL（含 token）发一次请求把 cookie 换进 persist:dshweb 这个 partition
+        // 的 cookie jar，再照旧把干净的 origin-only URL 交给渲染层。
+        // 注意：exchange 的 http 请求（≤5s）会推迟 ready IPC 的 resolve，但仍在 60s 总超时窗口内。
+        this.exchangeTokenForCookie(raw).finally(() => {
+          finish({ ok: true, url })
+        })
       })
       // stderr 仅用于失败诊断（保留尾部），不参与 ready 判定
       child.stderr?.setEncoding('utf-8')
@@ -148,6 +272,69 @@ class DshWebManager {
           finish({ ok: false, error: `dsh web exited before ready: ${detail}` })
         }
       })
+    })
+  }
+
+  /** 用 dsh web 的 ready URL（含 ?token=…）做一次 HTTP 请求，把 303 下发的会话 cookie
+   *  写进 persist:dshweb 的 partition cookie jar。这样 webview 加载干净 origin URL 时
+   *  浏览器自动带 cookie，鉴权通过。失败静默放行（打一条 warn）：最多回到 401 白页。 */
+  private exchangeTokenForCookie(rawUrl: string): Promise<void> {
+    let parsed: URL
+    try {
+      parsed = new URL(rawUrl)
+    } catch {
+      return Promise.resolve()
+    }
+    const mod = parsed.protocol === 'https:' ? https : http
+
+    return new Promise<void>((resolve) => {
+      // 传 URL 对象而非手动构造 options：
+      // Node 的 urlToHttpOptions 会剥离 IPv6 hostname 的方括号（如 [::1] → ::1），
+      // 并补上默认端口 —— 直接用 parsed.hostname 会带方括号，http.request 解不了。
+      const req = mod.request(
+        parsed,
+        {
+          method: 'GET',
+          timeout: COOKIE_EXCHANGE_TIMEOUT_MS
+        },
+        (res) => {
+          // 消费响应体避免 socket 泄漏（303 无 body，但 res 不消费则连接无法回池）
+          res.resume()
+          const rawCookies = res.headers['set-cookie']
+          if (!rawCookies || rawCookies.length === 0) {
+            resolve()
+            return
+          }
+          const entries = (Array.isArray(rawCookies) ? rawCookies : [rawCookies])
+            .map(h => parseSetCookieEntry(h))
+            .filter((e): e is ParsedCookie => e !== null)
+          if (entries.length === 0) {
+            resolve()
+            return
+          }
+          const dshSession = session.fromPartition(DSH_WEB_PARTITION)
+          const origin = parsed.origin
+          const secure = parsed.protocol === 'https:'
+          const nowSec = Math.floor(Date.now() / 1000)
+          Promise.all(entries.map(e =>
+            dshSession.cookies.set(toCookieDetails(e, origin, secure, nowSec))
+              .catch(() => { /* 单条写入失败不阻塞其余 */ })
+          )).then(
+            () => resolve(),
+            () => resolve()
+          )
+        }
+      )
+      req.on('error', (err) => {
+        log.warn('dsh web cookie exchange request failed:', err.message)
+        resolve()
+      })
+      req.on('timeout', () => {
+        req.destroy()
+        log.warn('dsh web cookie exchange timed out')
+        resolve()
+      })
+      req.end()
     })
   }
 

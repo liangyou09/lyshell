@@ -114,6 +114,7 @@
     "forward": "前进（Alt+→）",
     "reload": "刷新（Ctrl+R）",
     "stop": "停止加载",
+    "devtools": "检查网页（开发者工具）",
     "recent": "最近访问",
     "clear": "清空",
     "removeRecent": "从最近访问中删除",

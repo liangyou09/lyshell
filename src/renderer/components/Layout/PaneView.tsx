@@ -12,6 +12,7 @@ import SplitDivider from './SplitDivider'
 import { resolveOverlayDragId } from './overlay-drag'
 import { registerWebview, unregisterWebview, activeWebTabId } from './web-tab-controls'
 import type { PaneNode, SplitDirection, OverlayKind, OverlayPayload, OverlayRef, DocOverlayPayload } from '@shared/types'
+import { DSH_WEB_PARTITION, WEBBAR_PARTITION } from '@shared/constants'
 
 type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center' | null
 
@@ -228,7 +229,7 @@ const WebTabOverlay: React.FC<{ id: string; url: string }> = ({ id, url }) => {
     <div className="relative w-full h-full">
       <webview
         ref={ref}
-        partition="persist:webbar"
+        partition={WEBBAR_PARTITION}
         src={url}
         className="w-full h-full"
       />
@@ -276,7 +277,7 @@ McpAuditOverlay.displayName = 'McpAuditOverlay'
 // dsh Web UI：webview 单例。partition 与主进程 will-attach-webview 分流锁定耦合，勿改
 const DshWebOverlay = React.memo<OverlayContentProps>(({ payload }) => (
   payload.kind === 'dshWeb'
-    ? <webview partition="persist:dshweb" src={payload.url} className="w-full h-full" />
+    ? <webview partition={DSH_WEB_PARTITION} src={payload.url} className="w-full h-full" />
     : null
 ))
 DshWebOverlay.displayName = 'DshWebOverlay'

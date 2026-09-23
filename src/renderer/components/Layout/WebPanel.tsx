@@ -8,9 +8,10 @@ import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { WebTabFavicon } from './PaneTabBar'
 import {
   selectActiveWebTabId, navigateActiveWebTab, reloadActiveWebTab, stopActiveWebTab,
-  activeWebTabGoBack, activeWebTabGoForward, getWebview
+  activeWebTabGoBack, activeWebTabGoForward, getWebview, openActiveWebTabDevTools
 } from './web-tab-controls'
 import { ScrollTie } from './ScrollFold'
+import { WEBBAR_PARTITION } from '@shared/constants'
 
 /** datalist 选项 label 用:取 hostname,取不到回落原样字符串(与页签 title 初始值同源);
     历史行本身直接显示完整 URL,不再缩略为 hostname */
@@ -84,6 +85,13 @@ const RotateCwIcon: React.FC = () => (
 const StopIcon: React.FC = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
     <rect width="13" height="13" x="5.5" y="5.5" rx="1" />
+  </svg>
+)
+/** 检查网页(客体 DevTools)图标 —— 同组线稿风格,code 括号 */
+const CodeIcon: React.FC = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="m16 18 6-6-6-6" />
+    <path d="m8 6-6 6 6 6" />
   </svg>
 )
 
@@ -675,6 +683,11 @@ const WebPanel: React.FC = () => {
             >
               {activeNav?.loading ? <StopIcon /> : <RotateCwIcon />}
             </NavButton>
+            {/* 检查网页:打开活动网页页签客体的 DevTools —— 页面行为异常(按钮点不动、
+                疑似脚本报错)时的取证入口,报错只进客体 devtools 不开则完全不可见 */}
+            <NavButton title={t('webBar.devtools')} disabled={activeWebTabId === null} onClick={openActiveWebTabDevTools}>
+              <CodeIcon />
+            </NavButton>
             <input
               ref={inputRef}
               type="text"
@@ -947,7 +960,7 @@ const WebPanel: React.FC = () => {
                     <>
                       {/* src = 冻结的首航地址(挂载后恒不变,后续导航走 loadURL,见 miniSrc 注释);
                           partition 与完整网页页签同仓(登录态互通),快捷键转发的排除见 onDomReady 登记 */}
-                      <webview ref={setMiniEl} partition="persist:webbar" src={miniSrc ?? undefined} className="w-full h-full" />
+                      <webview ref={setMiniEl} partition={WEBBAR_PARTITION} src={miniSrc ?? undefined} className="w-full h-full" />
                       {miniLoading && (
                         <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--terminal-bg)] text-sm text-gray-400 pointer-events-none">
                           {t('webBar.loading')}

@@ -33,6 +33,7 @@ import { usePaneStore } from '../../stores/pane-store'
 import { useUiStore } from '../../stores/ui-store'
 import { registerWebview, unregisterWebview } from './web-tab-controls'
 import type { OverlayPayload, WebTabNav } from '@shared/types'
+import { WEBBAR_PARTITION } from '@shared/constants'
 import WebPanel from './WebPanel'
 import '../../i18n'
 
@@ -349,7 +350,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     fireEvent.keyDown(miniInputOf(), { key: 'Enter' })
     await waitFor(() => expect(document.querySelector('webview')).toBeTruthy())
     const wv = wvOf()
-    expect(wv.getAttribute('partition')).toBe('persist:webbar')
+    expect(wv.getAttribute('partition')).toBe(WEBBAR_PARTITION)
     // 首航地址定格为挂载 src（后续导航才走 loadURL）
     expect(wv.getAttribute('src')).toBe('https://example.com/')
     // dom-ready 前不碰方法面；唤起后导航 effect 落地（桩 getURL 恒空串 → 触发 loadURL）

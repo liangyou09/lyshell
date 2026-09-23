@@ -39,6 +39,9 @@ import { gateWebTabPopup, recordWebTabPopup } from './web-tab-popup-gate'
 const COLLAPSED_STORAGE_KEY = 'lyshell.sidebarCollapsed.v1'
 const WIDTH_STORAGE_KEY = 'lyshell.sidebarWidth.v1'
 
+/** 侧栏面板的最小可拖宽 -- 拖低于此值不再钉死宽度,而是直接收起左列(拖回此值以上又随指针展开) */
+const SIDEBAR_MIN_WIDTH = 180
+
 /**
  * 主窗口布局组件
  */
@@ -60,14 +63,22 @@ const MainWindow: React.FC = () => {
     return 'sessions'
   })
   // 左列宽度(三栏共享) -- localStorage 同步懒读定首帧(同 sidebarCollapsed),config 异步对账;
-  // ActivityRail 固定 RAIL_WIDTH 在其左,面板填剩余宽,拖动范围钳在 180-400
+  // ActivityRail 固定 RAIL_WIDTH 在其左,面板填剩余宽。这里存的是「偏好宽」:上限不在此
+  // 钳死,由下方 sidebarMax(主窗口宽的 1/2)在拖动与渲染两处钳制 -- 钳制不回写本值,
+  // 窗口临时缩小偏好不被侵蚀,窗口复原侧栏即回宽;此处只兜下限 180 与非数垃圾
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
       const w = Number(localStorage.getItem(WIDTH_STORAGE_KEY))
-      return Number.isFinite(w) && w > 0 ? Math.max(180, Math.min(400, w)) : 240
+      return Number.isFinite(w) && w > 0 ? Math.max(SIDEBAR_MIN_WIDTH, w) : 240
     } catch { return 240 }
   })
+  // 主窗口宽(无边框窗口即视口宽) -- 侧栏上限「窗口宽的 1/2」随 resize 重算;
+  // 下限兜底 180 防极小窗口时上限低于下限(minWidth 800 下 1/2=400 恒不触发,纯守卫)
+  const [windowWidth, setWindowWidth] = useState(() => window.innerWidth)
+  const sidebarMax = Math.max(SIDEBAR_MIN_WIDTH, Math.floor(windowWidth / 2))
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
+  // 拖宽起点处的偏好宽 -- 拖到收起的路径回滚到它(收起不该顺带销毁宽度偏好)
+  const sidebarDragStartWidth = useRef(0)
   const [floatVisible, setFloatVisible] = useState(false) // 浮窗默认隐藏
   // 全局命令面板开合落 ui-store(TerminalView 的自动聚焦守卫要跨组件读它,见
   // ui-store 注释);本组件只订阅渲染,写经 getState
@@ -332,11 +343,36 @@ const MainWindow: React.FC = () => {
     }, 500)
     return () => clearTimeout(t)
   }, [sidebarWidth])
-  // 侧栏调宽：pointer 捕获期间事件恒重定向到捕获元素并从它冒泡，move/up 监听直接挂在
-  // 分隔条/热区元素上即可覆盖拖拽全程（旧 document 级监听依赖隐式捕获语义，已收拢到元素上）
+  // 窗口宽跟踪 -- resize 时更新 sidebarMax 的分母。逐帧 setState 的重渲成本与拖宽
+  // (pointermove setState)同档,且窗口 resize 本身已触发整树 reflow,不构成额外热点
+  useEffect(() => {
+    const onResize = () => setWindowWidth(window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  // 侧栏调宽起手：记拖前偏好宽 + 开指针捕获。捕获让拖拽跟随与指针下元素解耦 --
+  // harness webview 激活时往右拖，指针一进 webview 范围 mousemove 就被 guest 吞掉
+  // (同跨域 iframe)，捕获后 pointermove 恒回流本元素
+  const startSidebarResize = (e: React.PointerEvent) => {
+    sidebarDragStartWidth.current = sidebarWidth
+    e.currentTarget.setPointerCapture(e.pointerId)
+    setIsResizingSidebar(true)
+  }
+  // 侧栏调宽：move/up 监听直接挂在分隔条/热区元素上即可覆盖拖拽全程（pointer 捕获期间
+  // 事件恒重定向到捕获元素并从它冒泡；旧 document 级监听依赖隐式捕获语义，已收拢到元素上）。
+  // 下限语义：拖到 SIDEBAR_MIN_WIDTH 以下不再是钉死的下限，而是直接收起左列；拖回
+  // 此值以上又随指针展开（所见即所得）。收起路径把宽度回滚到拖前偏好值 —— 收起不
+  // 销毁宽度偏好，再展开即回到收起前的宽度
   const handleSidebarResizeMove = (e: React.PointerEvent) => {
     if (!isResizingSidebar) return
-    setSidebarWidth(Math.max(180, Math.min(400, e.clientX - RAIL_WIDTH)))
+    const raw = e.clientX - RAIL_WIDTH
+    if (raw < SIDEBAR_MIN_WIDTH) {
+      setSidebarCollapsed(true)
+      setSidebarWidth(sidebarDragStartWidth.current)
+      return
+    }
+    setSidebarCollapsed(false)
+    setSidebarWidth(Math.min(sidebarMax, raw))
   }
   const endSidebarResize = () => setIsResizingSidebar(false)
 
@@ -701,8 +737,10 @@ const MainWindow: React.FC = () => {
   // 在线会话数 -- ActivityRail 的 sessions 槽位 LED 读数
   const liveCount = sessions.filter(s => s.status === 'connected').length
 
+  // 显示宽 = 偏好钳到当前上限(窗口缩小侧栏临时收窄,窗口复原即回宽,偏好值不动)
+  const effectiveSidebarWidth = Math.min(sidebarWidth, sidebarMax)
   // 左列展开时的总宽(rail + 面板 + 调宽条) -- 常挂载收起动画的 width 切换值
-  const leftColumnWidth = RAIL_WIDTH + sidebarWidth + SIDEBAR_DIVIDER_WIDTH
+  const leftColumnWidth = RAIL_WIDTH + effectiveSidebarWidth + SIDEBAR_DIVIDER_WIDTH
 
   return (
     /* 浏览器式单行布局:左列(机柜轨+面板,全高) + 终端列。终端页签条提顶 --
@@ -731,7 +769,7 @@ const MainWindow: React.FC = () => {
         {/* 内层固定宽:动画期间内容不被压缩(squish),只被左缘裁剪 */}
         <div className="flex h-full" style={{ width: leftColumnWidth }}>
           <ActivityRail active={activeNav} onChange={handleNavChange} liveCount={liveCount} onCollapse={() => setSidebarCollapsed(true)} />
-          <div style={{ width: `${sidebarWidth}px` }} className="flex-shrink-0 min-w-0 h-full">
+          <div style={{ width: `${effectiveSidebarWidth}px` }} className="flex-shrink-0 min-w-0 h-full">
             {activeNav === 'sessions' && (
               <SessionsPanel
                 onConnect={handleConnect}
@@ -752,12 +790,7 @@ const MainWindow: React.FC = () => {
           <div
             style={{ width: SIDEBAR_DIVIDER_WIDTH }}
             className="bg-[var(--rule)] cursor-col-resize hover:bg-[var(--amber)] transition-colors flex-shrink-0 relative"
-            onPointerDown={(e) => {
-              // 指针捕获:拖拽跟随与指针下元素解耦 -- harness webview 激活时往右拖,指针一进
-              // webview 范围 mousemove 就被 guest 吞掉(同跨域 iframe),捕获后 pointermove 恒回流本元素
-              e.currentTarget.setPointerCapture(e.pointerId)
-              setIsResizingSidebar(true)
-            }}
+            onPointerDown={startSidebarResize}
             onPointerMove={handleSidebarResizeMove}
             onPointerUp={endSidebarResize}
             onPointerCancel={endSidebarResize}
@@ -767,10 +800,7 @@ const MainWindow: React.FC = () => {
             <div
               style={{ left: -SIDEBAR_DIVIDER_WIDTH, width: SIDEBAR_DIVIDER_WIDTH }}
               className="absolute top-0 bottom-0 cursor-col-resize"
-              onPointerDown={(e) => {
-                e.currentTarget.setPointerCapture(e.pointerId)
-                setIsResizingSidebar(true)
-              }}
+              onPointerDown={startSidebarResize}
               onPointerMove={handleSidebarResizeMove}
               onPointerUp={endSidebarResize}
               onPointerCancel={endSidebarResize}

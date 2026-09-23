@@ -86,3 +86,9 @@ export function activeWebTabGoBack(): void {
 export function activeWebTabGoForward(): void {
   activeWebview()?.goForward()
 }
+
+/** 打开活动网页页签客体的 DevTools：页面行为异常（按钮点不动、脚本疑似报错）时
+ *  的取证入口 —— 客体 console 的报错只进 guest devtools，不开则完全不可见 */
+export function openActiveWebTabDevTools(): void {
+  activeWebview()?.openDevTools()
+}

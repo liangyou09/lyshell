@@ -3,6 +3,10 @@ import { join, resolve } from 'path'
 import log from 'electron-log'
 import * as fs from 'fs'
 
+// 必须是首个本地 import：dev userData 分离要在任何 getPath('userData') 之前生效，
+// 挪后静默失效。播种本身不在 import 期跑，见下方 seedDevConfigFromProd 调用点
+import { seedDevConfigFromProd } from './dev-user-data'
+
 // 导入模块
 import { registerIPCHandlers } from './ipc/handlers'
 import { downloadHistory } from './storage'
@@ -15,7 +19,7 @@ import { pluginHostManager } from './plugin/host-mgr'
 import { cleanupDownloadsDir } from './plugin/install-zip'
 import { getPluginsDir } from './storage/plugin-repository'
 import { dshWebManager } from './dsh/web'
-import { IPC_CHANNELS, WEBBAR_DEEPLINK_SCHEMES } from '@shared/constants'
+import { IPC_CHANNELS, WEBBAR_DEEPLINK_SCHEMES, WEBBAR_PARTITION } from '@shared/constants'
 import { matchWebTabShortcut } from '@shared/webtab-shortcut'
 
 // 日志配置
@@ -58,7 +62,6 @@ let stopMcpHttpServerImpl: (() => Promise<void>) | undefined
 // cookie/登录态，互不污染。小窗与完整页签同 partition —— cookie/localStorage
 // 同仓，登录态互通（页签里登过小窗即登录态，反之亦然；旧 persist:webbar-mini
 // 仓里已登录的站点带不过来，需重登一次）。
-const WEBBAR_PARTITION = 'persist:webbar'
 
 // 写轮眼小窗（左列 Web 面板栏底迷你浏览器）的 webContentsId —— 小窗并入 webbar
 // partition 后 session 身份不再能区分小窗与完整页签，而 webbar 挂的快捷键转发
@@ -92,6 +95,100 @@ function isHttpUrl(raw: string): boolean {
   } catch {
     return false
   }
+}
+
+// ── 网页访问栏外部协议的 Edge 式确认交付 ──
+// 导航闸把非 http/https 导航 preventDefault 拦下后（页面停在原地，绝不触达 OS），主框架
+// 的外部 scheme 再走三档（对齐 Edge/Chromium 的 external protocol 模型）：
+//   1. 敏感系统 scheme / 无注册 handler → 静默丢弃。无 handler 的 scheme 触达 OS 会弹
+//      Windows「在 Microsoft Store 查找应用」对话框，这正是当初一刀切全拦的原因；
+//   2. 有 handler → 确认框亮出完整 URL 与目标应用名 —— 知情同意后才 shell.openExternal
+//      交付（不经系统浏览器，URL 只到达用户点名的应用，与「不交系统浏览器避免泄 URL」
+//      同一解法）；
+//   3. 勾选「记住」→ 本会话内同发起页 origin+scheme 不再询问（记住允许直接交付，
+//      记住拒绝静默丢弃）。会话级缓存不持久化：重启重新询问，站点信任不跨会话累积。
+// 子框架的外部 scheme 派发（抖音心跳 iframe 的 bytedance://dispatch_message/ 等）维持
+// 静默拦截 —— Chromium 自己对子框架派发也是直接丢弃，不弹确认。
+// 发起页 origin 取 webview 当前已提交 URL（闸拦在导航提交前，正好是用户所在的页）
+const externalProtocolChoices = new Map<string, boolean>() // origin|scheme → 是否允许（会话内记住）
+const externalProtocolPending = new Set<string>() // 确认框进行中的键：连发派发（重定向链/连点）直接丢，不排队刷屏
+const externalProtocolLastOpened = new Map<string, number>() // 记住允许路径的秒级冷却时间戳：防恶意页循环派发刷起外部应用
+const externalProtocolLastAsked = new Map<string, number>() // 询问路径的秒级冷却：用户刚点掉确认框，不给同一来源立刻再弹
+// 永不交付的系统敏感 scheme：确认框会退化成「打开系统敏感面」的入口，
+// 与「网站想打开应用」的知情同意语义无关。
+const EXTERNAL_PROTOCOL_DENY_SCHEMES = new Set([
+  'file', 'smb', 'chrome', 'electron', 'javascript', 'data', 'about', 'blob',
+  // Windows：只拒绝已注册且通向系统敏感面的 scheme（!appName 分支已挡掉未注册 scheme 触达
+  // OS 弹 Store 对话框的路径），不做 ms-* 前缀全拒 —— ms-outlook / ms-teams / msteams /
+  // ms-photos 等是合法 App 深链，应走到确认框。
+  'ms-settings', 'ms-windows-store', 'ms-appinstaller', 'ms-msdt', 'ms-search', 'ms-appx', 'search-ms'
+])
+
+/** webbar 主框架外部 scheme 的确认交付。调用前提：该导航已在闸内被 preventDefault。 */
+function offerWebbarExternalProtocol(url: string, pageUrl: string): void {
+  let scheme: string
+  try {
+    scheme = new URL(url).protocol.replace(/:$/, '').toLowerCase()
+  } catch {
+    return // 畸形地址：导航已被闸拦下，无需交付
+  }
+  if (EXTERNAL_PROTOCOL_DENY_SCHEMES.has(scheme)) return
+  let appName = ''
+  try {
+    appName = app.getApplicationNameForProtocol(url)
+  } catch {
+    return // 查询 handler 失败（如平台不支持）按无 handler 处理：静默丢弃
+  }
+  if (!appName) {
+    log.info('Dropped external scheme without OS handler:', url)
+    return
+  }
+  let pageOrigin = ''
+  try { pageOrigin = new URL(pageUrl).origin } catch { /* about:blank 等无 origin 落空键 */ }
+  const key = `${pageOrigin}|${scheme}`
+  const remembered = externalProtocolChoices.get(key)
+  if (remembered !== undefined) {
+    if (remembered) {
+      // 秒级冷却：记住允许后恶意页仍可循环派发主框架深链，逐次 openExternal 会连环拉起
+      // 外部应用；正常用户 1 秒内重复点「打开APP」本就无意义（首开后焦点已去外部应用）
+      const last = externalProtocolLastOpened.get(key) ?? 0
+      if (Date.now() - last < 1000) return
+      externalProtocolLastOpened.set(key, Date.now())
+      shell.openExternal(url).catch(err => log.warn('Failed to open external protocol:', err))
+    }
+    return
+  }
+  if (externalProtocolPending.has(key)) return
+  // 询问路径的秒级冷却：用户刚点掉确认框（或点取消），不给同一来源立刻再弹。
+  // 与记住允许路径的冷却共用同一个 1s 阈值 —— 正常用户不会在 1s 内连点两个触发外部协议的操作。
+  const lastAsk = externalProtocolLastAsked.get(key) ?? 0
+  if (Date.now() - lastAsk < 1000) return
+  const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+  if (!win) return
+  externalProtocolPending.add(key)
+  dialog.showMessageBox(win, {
+    type: 'question',
+    title: '打开外部应用',
+    message: `此网站想打开 ${appName}`,
+    detail: url,
+    buttons: ['打开', '取消'],
+    // 默认「取消」：恶意页派发深链后，一次 Enter 不能直接放行 openExternal
+    defaultId: 1,
+    cancelId: 1,
+    checkboxLabel: '记住此网站的选择（本会话内不再询问）',
+    noLink: true
+  }).then(({ response, checkboxChecked }) => {
+    const allow = response === 0
+    if (checkboxChecked) externalProtocolChoices.set(key, allow)
+    if (allow) {
+      log.info(`External protocol handoff allowed (${appName}):`, url)
+      externalProtocolLastOpened.set(key, Date.now())
+      shell.openExternal(url).catch(err => log.warn('Failed to open external protocol:', err))
+    }
+  }).catch(() => { /* 对话框异常静默：导航已被闸拦下 */ }).finally(() => {
+    externalProtocolPending.delete(key)
+    externalProtocolLastAsked.set(key, Date.now())
+  })
 }
 
 // 创建主窗口
@@ -277,6 +374,15 @@ function createMainWindow(): void {
         mainWindow?.webContents.send(IPC_CHANNELS.WEB_TAB_SHORTCUT, action)
       })
     }
+    // guest 页面 console 转发（取证通道）：webview 客体里页面脚本的报错（Uncaught
+    // TypeError 等）默认只进不可见的 guest devtools，主进程日志毫无痕迹 —— 排查
+    // 「页面没冻结但按钮点不动」类问题（抖音保存登录信息弹窗的保存/取消按钮）时
+    // 无从下手。warn 及以上转发进主日志（info 级心跳噪音大不转），消息截长防单条刷屏
+    webContents.on('console-message', (_event, level, message, line, sourceId) => {
+      if (level < 2) return
+      const text = message.length > 500 ? `${message.slice(0, 500)}…` : message
+      log.warn(`[guest console] ${webContents.getURL()} (${sourceId}:${line}) ${text}`)
+    })
     // 导航闸 —— will-navigate（锚点点击 / JS location 赋值）与 will-redirect（302/
     // meta refresh 的服务端落点）两条事件共用同一策略：实证（Electron 28 探针）锚点与
     // JS 路径只走 will-navigate、重定向落点只走 will-redirect，webRequest 网络层对外
@@ -292,6 +398,10 @@ function createMainWindow(): void {
           // 外部协议深链等 —— 未注册 scheme 触达 OS 即弹系统对话框）
           if (target.protocol === 'http:' || target.protocol === 'https:') return
           event.preventDefault()
+          // 拦下后走 Edge 式确认交付：无 handler 静默、有 handler 确认后交付。直接导航
+          // （锚点/JS 赋值）经此闸；重定向落点只走 will-redirect 也进此闸 —— 两条路共用
+          // 同一缓存与在途防重入
+          offerWebbarExternalProtocol(url, webContents.getURL())
           log.warn('Blocked webbar webview navigation:', url)
           return
         }
@@ -309,12 +419,18 @@ function createMainWindow(): void {
     // 子框架闸（will-frame-navigate 先于 will-navigate 触发且覆盖子框架）：只掐外部
     // 协议 —— http/https 子框架（广告 iframe 常态）照常放行；dsh 的 origin 锁维持
     // 主框架语义不外溢到子框架。实证（探针）：子框架/按钮 onclick 的外部 scheme
-    // 导航只在此事件露头
+    // 导航只在此事件露头。webbar 的主框架外部 scheme 拦下后转确认交付闸（此处
+    // preventDefault 后 will-navigate 不再触发，不会双重处理；直接导航走本闸、
+    // 重定向落点走 onNavGate，两路共用同一缓存与在途防重入）；子框架派发维持
+    // 静默拦截（Chromium 对子框架外部协议派发本就直接丢弃）
     webContents.on('will-frame-navigate', (e) => {
       try {
         if (new URL(e.url).protocol === 'http:' || new URL(e.url).protocol === 'https:') return
       } catch { /* 畸形地址落到下面拦 */ }
       e.preventDefault()
+      if (isWebbar && e.isMainFrame) {
+        offerWebbarExternalProtocol(e.url, webContents.getURL())
+      }
       log.warn('Blocked webview frame navigation:', e.url)
     })
   })
@@ -343,8 +459,33 @@ function registerWindowShortcuts(): void {
   })
 }
 
+// 单实例锁 —— 同一 userData 同时跑两个实例会互抢 partition 的 LevelDB 存储：
+// 后到者打不开且重置失败（quota_database 报错），页面同步存储写入随之挂死
+// （抖音「保存登录信息」弹窗卡死即此症状，详见 dev-user-data.ts 注释）。二实例
+// 直接退出；已跑实例收到 second-instance 通知后还原/聚焦主窗口。锁按 userData
+// 目录隔离 —— dev 分离目录后 dev 与正式版各自持锁、可并存
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+} else {
+  // dev 档案播种等锁到手再跑：两个 dev 实例同时启动（清掉标记后的第一次）会并发
+  // seed，共用固定 .tmp 互相踩。锁按 userData 隔离，dev 自己也持锁 —— 只有持有方播。
+  // 位置须早于 whenReady 里任何仓储的首次读盘（它们延迟初始化，最早是
+  // downloadHistory.init()），否则那边先 load 到空档案。详见 dev-user-data.ts
+  seedDevConfigFromProd()
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+}
+
 // 应用启动
 app.whenReady().then(async () => {
+  // 单实例竞争失败方：quit 已排队，ready 在部分版本仍会触发，这里不再往下引导
+  // （锁的持有方才有资格创建窗口/起服务器）
+  if (!gotSingleInstanceLock) return
   // 设置应用ID
   app.setAppUserModelId('com.lyshell.app')
 

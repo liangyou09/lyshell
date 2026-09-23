@@ -61,6 +61,13 @@ export const IPC_CHANNELS = {
 }
 
 /**
+ * webview session partition 常量 —— 单一事实来源，两端（main + renderer）进口一致。
+ * 漂移会导致 cookie 写进没人读的分区（看不到鉴权效果）或主进程导航闸漏判。
+ */
+export const WEBBAR_PARTITION = 'persist:webbar'
+export const DSH_WEB_PARTITION = 'persist:dshweb'
+
+/**
  * webbar 会话内接管的深链 scheme 家族 —— 抖音网页端已知的 app 深链。
  * 未注册 scheme 的开窗会直达 OS 协议处理器（弹「在 Microsoft Store 查找应用」
  * 对话框）；经 protocol.handle 注册进 webbar 会话后回到可拦截的导航机械里
