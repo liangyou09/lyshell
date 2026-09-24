@@ -116,7 +116,8 @@ export function McpActivityRailSlot(): JSX.Element {
           'relative transition-[color,transform] duration-200 ease-out group-hover:scale-110',
           active
             ? 'text-[var(--amber)] animate-rail-icon-glow'
-            : 'text-[var(--text-rack-dim)] group-hover:text-[var(--text-rack-mute)]'
+            // 静息 mute / 悬停 data:与 ActivityRail 页签槽同读数亮度档(dim 仅 ~2:1,暗得糊进条带)
+            : 'text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack-data)]'
         )}
       >
         <IconMcpActivity />

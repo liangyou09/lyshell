@@ -12,7 +12,7 @@ import type { PaneLeaf, OverlayKind, OverlayPayload, OverlayRef } from '@shared/
 import { TOPBAR_HEIGHT, TOPBAR_GRIP_WIDTH } from './topbar-metrics'
 
 // codex/claude 品牌标资产 —— 与 ActivityRail 左轨同源（assets/agent-icons/*.png），
-// mask 取资产 alpha 作剪影、bg-current 随页签文字色着色（空闲 dim / 激活亮）
+// mask 取资产 alpha 作剪影、bg-current 随页签文字色着色（空闲静息档 / 激活亮）
 const codexMarkIcon = new URL('../../assets/agent-icons/codex.png', import.meta.url).href
 const claudeMarkIcon = new URL('../../assets/agent-icons/claude.png', import.meta.url).href
 
@@ -294,7 +294,9 @@ const OverlayTab: React.FC<{
         'win-no-drag pane-tab flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-1 min-w-0 max-w-[220px]',
         overlay.active
           ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
-          : 'bg-[var(--bg-rack)] text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)]',
+          // 静息字档 --text-tab-idle(明暗分叉复合档,见 globals.css):悬停提一档到 rack,
+          // 与激活字同亮 —— 窗口底(terminal-bg)与 amber 底线仍在区分激活
+          : 'bg-[var(--bg-rack)] text-[var(--text-tab-idle)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)]',
         // 排序落点指示 —— 与会话页签的 amber border-l 同语言（仅会话拖拽悬停时亮）
         dragOverOverlayId === overlay.id && draggingSessionId && 'border-l-2 border-l-[var(--amber)]'
       )}
@@ -931,7 +933,8 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
                   ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
                   : item.session.hasActivity
                     ? 'bg-[var(--reachable)]/25 text-[var(--text-rack)] hover:bg-[var(--reachable)]/35 shadow-[inset_2px_0_0_var(--reachable)]' // 有未读输出:reachable 青调底 + 左侧 stripe
-                    : 'bg-[var(--bg-rack)] text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)]',
+                    // 静息字档 --text-tab-idle(见 globals.css;同 OverlayTab 悬停语言)
+                    : 'bg-[var(--bg-rack)] text-[var(--text-tab-idle)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)]',
                 draggingSessionId === item.session.id && 'opacity-50',
                 // 拖拽位置指示器 —— amber border-l 与 activity 的 reachable inset stripe 共存,视觉上 amber 覆盖青色(border 渲染层 > inset shadow);
                 // 调整时不要改成 border-l-[var(--reachable)] 否则两态视觉无差。

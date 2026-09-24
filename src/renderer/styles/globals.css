@@ -207,6 +207,23 @@
   --text-rack-faint:#353C42;
 }
 
+/* 页签静息字档 -- 页签条 12px 小字读数(会话/覆盖层页签名)的静息色,明暗分叉的
+   复合档而非固定第五阶。暗主题:data 与 rack 对半混(≈#BFC5CA,bg-rack 上
+   ~9.3-10.1:1)-- 首版取纯 data(6.8:1,Chrome 暗色非活跃页签字级)用户校准
+   仍嫌暗,提到混档;仍比激活 rack(~14:1)低一整档,激活/静息差由亮度阶 +
+   amber 底线 + terminal-bg 窗口底共同承担;用混值而非硬编码色,自定义主题
+   (rack-custom)调字色时静息档随调随走。浅主题:mute 已 4.7-5.2:1 达标,而
+   浅主题提字色只会倒转"非活跃比激活浅"的浅色页签惯例 → 维持 mute。
+   rack-custom 配浅底同样被 data-theme-mode 标记分叉(theme-store 对每个主题
+   都打 light/dark,见 applyTheme)。var() 在 html 元素上解析,按当前主题取
+   对应档值,无须逐主题重申。 */
+:root {
+  --text-tab-idle: color-mix(in srgb, var(--text-rack-data) 50%, var(--text-rack));
+}
+[data-theme-mode="light"] {
+  --text-tab-idle: var(--text-rack-mute);
+}
+
 /* 暗色 favicon 适配:整体很暗的灰阶图标(如 GitHub 黑猫标)在深色页签上不可辨,
    由 JS 判定(见 PaneTabBar 的 isDarkGrayscaleIcon)挂 .webtab-favicon-dark 反转成亮色;
    浅色 chrome 不反转(黑标在浅底本来就清晰)。明暗由 theme-store 打的

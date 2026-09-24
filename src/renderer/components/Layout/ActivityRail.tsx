@@ -14,7 +14,9 @@ import { TOPBAR_HEIGHT } from './topbar-metrics'
  * 材质,右缘直角越过 border-r 竖线把它整个盖掉,窗口与面板之间无墙、同色
  * 无缝,读作浏览器激活页签与页面连成一片。窗口材质 = 面板"卡片区域外"的框体
  * 底:激活槽读作管理框本体的一部分,与面板里的卡片(bg-rack 底 + 文字行)是
- * 两个物种。选中显著性 = 条带/窗口对比 + amber 左边条 + amber 图标;槽间用
+ * 两个物种。选中显著性 = 条带/窗口对比 + amber 左边条 + amber 图标;未选中
+ * 图标静息 mute(第一行的读数亮度,与面板头条文字/轨顶收起控位同档,条带上
+ * ≥3:1;dim 仅 ~2:1,暗得糊进条带读作暗影)、悬停提亮一档到 data;槽间用
  * inset 凹陷阴影做卡笼分隔。
  * 这是本组件的 signature -- 导航读作机柜页签条,而非通用图标条。
  *
@@ -310,7 +312,10 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
                   ? (tab === 'dsh' || tab === 'codex' || tab === 'claude' || tab === 'web')
                     ? 'text-[var(--text-rack)]'
                     : 'text-[var(--amber)] animate-rail-icon-glow'
-                  : 'text-[var(--text-rack-dim)] group-hover:text-[var(--text-rack-mute)]'
+                  // 静息 mute(与面板头条文字同档、轨顶收起控位同读数亮度):dim 在
+                  // bg-slot 条带上仅 ~2:1,低亮度低饱和蓝灰糊进蓝黑条带,读作"暗影"
+                  // 而非图标;mute 恢复 ≥3:1 的 UI 图标下限。悬停提亮一档到 data
+                  : 'text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack-data)]'
               )}
             >
               <Icon />
@@ -367,7 +372,8 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
             'relative transition-[color,transform] duration-200 ease-out group-hover:scale-110',
             active === 'settings'
               ? 'text-[var(--amber)] animate-rail-icon-glow'
-              : 'text-[var(--text-rack-dim)] group-hover:text-[var(--text-rack-mute)]'
+              // 静息 mute / 悬停 data:同内容页签槽的读数亮度档(见上)
+              : 'text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack-data)]'
           )}
         >
           <IconSettings />

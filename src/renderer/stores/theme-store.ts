@@ -319,9 +319,9 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
   setCustomColors: (patch) => {
     const next = { ...get().customColors, ...patch }
     saveCustomColors(next)
-    // 如果当前正用 Custom 主题，立即重新注入
+    // 当前使用 Custom 主题时，同步刷新颜色变量和明暗标记
     if (get().themeId === CUSTOM_THEME_ID) {
-      applyCustomColors(next)
+      applyTheme(CUSTOM_THEME_ID, next)
     }
     set({ customColors: next })
   },
