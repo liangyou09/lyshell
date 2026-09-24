@@ -186,6 +186,14 @@ const PromoteIcon: React.FC = () => (
   </svg>
 )
 
+/** 关页图标（lucide x 线稿风格）——关闭小窗当前页,回到未开眼空态 */
+const XIcon: React.FC = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M18 6 6 18" />
+    <path d="m6 6 12 12" />
+  </svg>
+)
+
 /** 垃圾桶图标(lucide trash 线稿风格,stroke 随 currentColor)——「清空」按钮用 */
 const TrashIcon: React.FC = () => (
   <svg
@@ -244,15 +252,21 @@ const RecentFavicon: React.FC<{ url: string; favicon?: string }> = ({ url, favic
  *
  * 栏底是「写轮眼小窗」—— 模拟会话面板文件管理器的栏底语法(4px 拖高条 + config
  * 持久化高度)的迷你浏览器:不动用终端分屏的快速查阅面,Ctrl+点击历史行在此预览,
- * ↗ 升格为完整网页页签;webview 与完整网页页签共用 partition persist:webbar
+ * ↗ 升格为完整网页页签,✕ 关页回空态(guest 销毁、localStorage 存档清掉);
+ * webview 与完整网页页签共用 partition persist:webbar
  * (cookie/localStorage 同仓,登录态互通 —— 页签里登过小窗即登录态),快捷键转发
  * 不挂(经 dom-ready 登记 webContentsId 排除,避免路由到活动页签的错位,见
  * main/index.ts),上次地址 localStorage 恢复。
+ * webview 保活:本面板经 MainWindow 的 webPanelAlive 门首次激活后常挂载,此后
+ * 切机柜页签只 display:none 隐藏、合卷只由纸(overflow:hidden)裁掉画心 ——
+ * webview 元素不摘树 guest 即存活,页面状态(滚动/表单/SPA 内存态)跨开合与
+ * 切换保留,localStorage 仅作冷启动首航地址。visible=false 即隐藏态,组件本身
+ * 不卸载。
  *
  * 样式沿用面板令牌(--bg-elev/--bg-slot/--rule/--amber/--text-rack*)与
  * [font-family:inherit] 12px 基线,头条与 SessionsPanel/PluginPanel 同构。
  */
-const WebPanel: React.FC = () => {
+const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
   const { t } = useTranslation()
   const openWebTab = usePaneStore((s) => s.openWebTab)
   const webTabHistory = usePaneStore((s) => s.webTabHistory)
@@ -269,8 +283,9 @@ const WebPanel: React.FC = () => {
   const [miniResizing, setMiniResizing] = useState(false)
   const [miniClosed, setMiniClosed] = useState(false)
   // null = 未开眼（空态指引，不挂 webview）；有值 = 当前浏览地址（did-navigate 回写落点，
-  // redirect 后的真实地址而非输入原值）。挂载即从 localStorage 恢复上次页面 ——
-  // 切回 Web 页签小窗原页还在，像「常驻的地方」而不是每次重填的表单
+  // redirect 后的真实地址而非输入原值）。冷启动从 localStorage 恢复上次页面作首航 ——
+  // 保活下全 session 仅此一次真导航，切机柜页签/合卷/回切都零重载，像「常驻的地方」
+  // 而不是每次重填的表单
   const [miniUrl, setMiniUrl] = useState<string | null>(() => {
     try {
       const v = localStorage.getItem(MINI_URL_STORAGE_KEY)
@@ -299,7 +314,9 @@ const WebPanel: React.FC = () => {
   const [miniReady, setMiniReady] = useState(false)
   // 挂载 src 冻结值：webview 一旦挂载 src 恒不变（React 只在值变时才动 DOM 属性，
   // 后续导航全走 loadURL —— 同完整页签「src 永不变」纪律），首航地址在此定格；
-  // 挂载即带 src 也绕开「无 src 的 webview 是否触发 dom-ready」的不确定面
+  // 挂载即带 src 也绕开「无 src 的 webview 是否触发 dom-ready」的不确定面。
+  // 保活下元素不重挂，冻结值只在挂载前有意义 —— 未挂载期由 loadMini 同步跟随
+  // miniUrl（见 loadMini），保证首航即目标地址、不白拉一次旧存档页
   const [miniSrc, setMiniSrc] = useState<string | null>(miniUrl)
   // 最近一次主框架导航落点（WebTabOverlay 的 lastUrlRef 同款）：初始化为挂载目标，
   // onNav 每次覆写 —— did-finish-load 记历史吃它而非 getURL()，事件回调一律
@@ -375,12 +392,13 @@ const WebPanel: React.FC = () => {
   // 恢复值走与拖动同一把 clampMiniHeight:Number.isFinite 拦 NaN/Infinity,typeof
   // 拦字符串数字,夹取拦过小/离谱过大 —— 恢复时面板多半尚未布局,量不到
   // rect.height,「当前布局上限」由渲染期 maxHeight(见 JSX)承担。
-  // 对账落定前不挂小窗本体(miniConfigLoaded 门):本面板随 Web 页签条件挂载,
-  // 存档 closed=true 时若先按默认 false 渲染,每次进页签都会挂 webview 拉起
-  // guest 进程抓一次页面再拆 —— 闪现 + 白费一次真实导航
+  // 对账落定前不挂 webview(miniConfigLoaded 门):存档 closed=true 时若先按
+  // 默认 false 渲染,首帧即挂 webview 拉起 guest 进程抓一次页面再拆 ——
+  // 闪现 + 白费一次真实导航(面板常挂载后,本门与「未开卷不挂」的
+  // miniContentMounted 合流扛这道防线)
   const [miniConfigLoaded, setMiniConfigLoaded] = useState(false)
-  // 双开画轴内容挂载裁决:开 = 立即挂(工具条/浏览面随纸展开);合 = 延迟
-  // 360ms 卸载(合向 320ms 纸卷完再收内容)—— 纸裹着内容卷回。与 FM 不同,
+  // 双开画轴内容挂载裁决:首次开卷即挂(工具条/浏览面随纸展开),此后常驻不卸载
+  // (保活,机械见下方 effect 与组件 docstring)。与 FM 不同,
   // 本体(工具条/空态)不受 config 门控(面板挂载即同步可交互,行为对齐旧
   // 代码);冷启动 closed 存档的闪挂防线只压在 webview 自己的门上(见 JSX)
   // 写门(读档成功才置 true):存档 closed=true 时 state 初值是默认 false,若允许
@@ -399,17 +417,36 @@ const WebPanel: React.FC = () => {
     }).catch(() => { /* config 不可达回落默认 */ }).finally(() => setMiniConfigLoaded(true))
   }, [])
 
-  // 双开画轴内容挂载裁决(状态声明处注释):开 = 立即挂;合 = 延迟 360ms 卸载,
-  // 合向动画期间重开则 cleanup 掐掉定时器、内容原样还在(webview 免重挂,
-  // src 冻结纪律不受扰动)
+  // 根高观察(小窗装配的运行期布局钳输入):装配 maxHeight 只钳装配盒本身,
+  // 画心(--dual-h 派生)若仍按存档 miniHeight 恒高、居中锚定在纸上,钳制时
+  // 上下对称溢出纸外,overflow:hidden 的裁剪首先吃掉画心顶部的工具条 ——
+  // 小窗存档 953 / 面板高 800 时工具条整条不可见而 webview 中段照常显示
+  // (实机探测复现)。这里把拖动/恢复同款钳(根高 - MINI_RESERVE_HEIGHT)
+  // 提前算进 --dual-h 与内联高度:纸与画心同步收缩,工具条永在;存档值
+  // 不动,窗口回弹即恢复原高(与 maxHeight 粗钳注释同一取舍)
+  const [rootHeight, setRootHeight] = useState(0)
+  useEffect(() => {
+    const el = rootRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => {
+      setRootHeight(el.getBoundingClientRect().height)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  // 未布局(根高 0)回落存档值,视觉由 maxHeight 兜底;钳后仍过 clampMiniHeight:
+  // 极矮根高下 146 下限优先 —— 与拖动 clamp 同语义,矮到放不下是最小装配问题
+  const miniFitHeight =
+    rootHeight > 0 ? clampMiniHeight(miniHeight, rootHeight - MINI_RESERVE_HEIGHT) : miniHeight
+
+  // 双开画轴内容挂载裁决(保活):首次开卷挂载,此后不再卸载 —— 合卷的裁剪由纸
+  // 承担(.scroll-dual-paper overflow:hidden,纸高收到 0 整体裁掉画心),内容留树
+  // 即 webview guest 存活,重开卷/切机柜页签零重挂零重载;收起稳态纸上的 inert
+  // 把内容挡在 Tab 序外。未开卷不挂:冷启动存档 closed=true 不为卷着的纸拉
+  // guest(与 miniConfigLoaded 门合流,见其注释)
   const [miniContentMounted, setMiniContentMounted] = useState(false)
   useEffect(() => {
-    if (!miniClosed) {
-      setMiniContentMounted(true)
-      return undefined
-    }
-    const timer = setTimeout(() => setMiniContentMounted(false), 360)
-    return () => clearTimeout(timer)
+    if (!miniClosed) setMiniContentMounted(true)
   }, [miniClosed])
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -446,17 +483,6 @@ const WebPanel: React.FC = () => {
     }
   }, [])
 
-  // 关闭期间冻结 src 跟随 miniUrl：恢复重挂以「关闭时的页面」首航，而不是停在
-  // 首航定格的旧地址（否则 src 首航触发 did-navigate 回写旧落点，既冲掉真实
-  // miniUrl 又把旧地址写进 localStorage 存档）。src 恒不变纪律只约束同一元素
-  // 的生命周期 —— 合卷改走延迟卸载后，关闭后的 360ms 里元素还活着，此刻改
-  // 冻结值会原地改写活 webview 的 src（真机上 = 卷纸期间整页白拉重载一次）。
-  // 门在 miniEl === null：卷上的元素真卸了（回调 ref 落 null 重跑本 effect）
-  // 才跟随，无元素时更新冻结值不触发任何重载
-  useEffect(() => {
-    if (miniClosed && miniEl === null && miniSrc !== miniUrl) setMiniSrc(miniUrl)
-  }, [miniClosed, miniEl, miniSrc, miniUrl])
-
   // 小窗上次地址存档:miniUrl 每变即写(did-navigate 回写后的落点,非输入原值)
   useEffect(() => {
     if (miniUrl === null) return
@@ -489,13 +515,14 @@ const WebPanel: React.FC = () => {
   // IPC,但小窗事件只在自身面板可见时才会来(无后台页签),直接读无冻结顾虑
   useEffect(() => {
     if (!miniEl) {
-      // 摘树(关闭摘 UI)即复位就绪门：恢复重挂时本 effect 晚于导航 effect
-      // (声明序)跑，若 miniReady 留着上一元素的陈旧 true，导航 effect 会在
-      // dom-ready 门开前调 getURL() —— 真机直接炸（jsdom 桩测不出）
+      // 无元素(首挂前/面板级卸载)即复位就绪门 —— 保活下元素不摘树,此分支
+      // 只服务挂载前与未来可能的卸载路径：若 miniReady 留着上一元素的陈旧
+      // true，导航 effect 会在 dom-ready 门开前调 getURL() —— 真机直接炸
+      // （jsdom 桩测不出）
       setMiniReady(false)
       return
     }
-    // 新元素一律先判未就绪:未来若有「关小窗」重挂路径,防上一元素的陈旧 true
+    // 新元素一律先判未就绪(元素级重建仅存于极端路径),防上一元素的陈旧 true
     setMiniReady(false)
     const onDomReady = (): void => {
       setMiniReady(true)
@@ -503,7 +530,8 @@ const WebPanel: React.FC = () => {
       // webContentsId 登记区分两者,这里把小窗报上去 —— 之后小窗内的按键不再被
       // 拦截转发到「活动完整页签」,reload/后退由 guest 原生处理。登记晚于
       // did-attach(getWebContentsId 在 dom-ready 前调用会抛错,只能在这拍报)。
-      // 重挂(关再开/切回 Web 页签)产生新 id、新元素 dom-ready 重报覆盖
+      // 保活下元素不重挂,dom-ready 每元素生命周期一次;元素级重建(极端路径)
+      // 产生新 id、新元素 dom-ready 重报覆盖
       window.electronAPI?.registerWebbarMini(miniEl.getWebContentsId())
         .catch(err => console.warn('[WebPanel] webbar-mini register failed:', err))
     }
@@ -555,16 +583,17 @@ const WebPanel: React.FC = () => {
       setNotice(t('webBar.invalid'))
       return false
     }
-    // 小窗处于关闭态时的载入(Ctrl+点击历史行) = 预览意图,顺手重开:否则
-    // URL 只落 state 而 webview 摘着树,点击像静默无反馈,落点回写还会
-    // 冲掉 localStorage 存档的旧地址
+    // 小窗处于关闭态时的载入(Ctrl+点击历史行) = 预览意图,顺手重开:未挂载过时
+    // URL 只落 state 而画心还是空态,点击像静默无反馈;已挂载(保活)则只是重新展卷
     if (miniClosed) setMiniClosed(false)
     const el = miniEl
     if (el && miniReady && el.getURL() === norm) {
       settleWebview(() => el.reload())
       return true
     }
-    if (miniSrc === null) setMiniSrc(norm)
+    // 未挂载期冻结 src 跟随目标:挂载提交即首航地址,不先白拉一次旧存档页
+    // (已挂载则 src 冻结纪律生效,导航交给 loadURL effect)
+    if (el === null) setMiniSrc(norm)
     setMiniUrl(norm)
     return true
   }
@@ -577,6 +606,22 @@ const WebPanel: React.FC = () => {
   // 升格:以小窗当前页开完整网页页签(小窗保留原页,两条浏览线互不打断)
   const handleMiniPromote = (): void => {
     if (miniUrl !== null) openWebTab(miniUrl)
+  }
+
+  // 关闭页面:回到未开眼空态 —— webview 摘树销毁 guest,是保活(页面常驻)的
+  // 资源释放对面:不再需要页面状态时由用户显式放弃,内存即还。localStorage
+  // 存档一并清掉,冷启动不再恢复;导航/加载/失败态同步复位(元素卸载只触发
+  // miniReady 复位,loading/failed 是独立 state 得自己收)。按钮只在开卷可及
+  // (卷着时纸 inert 且裁掉工具条)
+  const handleMiniClosePage = (): void => {
+    setMiniUrl(null)
+    setMiniSrc(null)
+    setMiniInput('')
+    setMiniNav({ canGoBack: false, canGoForward: false })
+    setMiniLoading(false)
+    setMiniFailed(null)
+    miniLastUrlRef.current = ''
+    try { localStorage.removeItem(MINI_URL_STORAGE_KEY) } catch { /* quota */ }
   }
 
   // 小窗拖高:pointer 捕获而非文件管理器的 document mousemove —— 小窗本体是
@@ -642,7 +687,10 @@ const WebPanel: React.FC = () => {
   return (
     <div
       ref={rootRef}
-      className="w-full h-full flex flex-col bg-[var(--bg-base)]"
+      // visible=false = 保活隐藏态(MainWindow 常挂载,见组件 docstring):display:none
+      // 摘出布局但元素留树,webview guest 存活(Tailwind .hidden 在 display 组内后
+      // 于 .flex 生成,恒压过 flex)
+      className={cn('w-full h-full flex flex-col bg-[var(--bg-base)]', !visible && 'hidden')}
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
       {/* 头条:网页铭牌 —— 与 SessionsPanel/PluginPanel 头行同构(行高对齐终端第一行、
@@ -804,7 +852,8 @@ const WebPanel: React.FC = () => {
           globals.css 的 .scroll-dual 系列(辊/绳/纸复用 rod-caps 与
           scroll-tie 家族):开 = 纸自两辊相向铺开、内容锚定合缝自中部
           显影(440ms 纸坠),合 = 窗口向正中收拢、纸裹着内容卷回双辊拴
-          绳(320ms 加速收,内容延迟 360ms 卸载)。画心立在纸面中央
+          绳(320ms 加速收;内容常驻不卸载 —— 保活,纸 overflow:hidden
+          裁掉画心,guest 存活)。画心立在纸面中央
           (body 裱边四周各 8px)。装配总高(= 双辊 20 + 裱边 16 + 画心)
           沿用 miniHeight 存档语义,拖动映射 1:1 不变 */}
       <div
@@ -814,13 +863,14 @@ const WebPanel: React.FC = () => {
           miniResizing && 'resizing'
         )}
         style={{
-          height: miniClosed ? MINI_ROLLED_H : `${miniHeight}px`,
+          height: miniClosed ? MINI_ROLLED_H : `${miniFitHeight}px`,
           // 渲染期钳(拖动/恢复夹取之外的第二道防线):存档值超当前面板或窗口
           // 临时缩小时视觉收敛,保底铭牌/地址栏/历史留座的粗钳;存档值
           // 不被临时小屏毁掉,窗口回弹即恢复原高 —— 恢复时面板多半未布局,
-          // rect 量不到,上限靠这里
+          // rect 量不到,上限靠这里。贴合值(miniFitHeight)先行把同一把钳
+          // 算进 height/--dual-h,本条只在未布局首帧兜底(见其注释)
           maxHeight: `calc(100% - ${MINI_RESERVE_HEIGHT}px)`,
-          '--dual-h': `${miniHeight}px`
+          '--dual-h': `${miniFitHeight}px`
         } as React.CSSProperties}
       >
         {/* 上辊行 —— 开合钮 + 开态拖高手势位:点行开/合(双向),拖高靠位移
@@ -875,7 +925,7 @@ const WebPanel: React.FC = () => {
             {miniContentMounted && (
               <div className="flex flex-col h-full">
                 {/* 迷你工具条:勾玉开眼指示 + 后退/前进/刷新停止 + 小窗地址(datalist
-                    复用主地址栏的全量历史)+ 升格。tooltip 不写快捷键提示 —— 小窗不挂
+                    复用主地址栏的全量历史)+ 升格 + 关页。tooltip 不写快捷键提示 —— 小窗不挂
                     before-input-event 转发(路由错位问题,见 main/index.ts),写了就是假话。
                     条高 32px = 双开画轴地址栏的满高(辊 24px 上下各留 4px 气) */}
                 <div className="flex items-center gap-[3px] px-2 h-[32px] flex-shrink-0 bg-[var(--bg-rack)] border-b border-[var(--rule)]">
@@ -939,15 +989,17 @@ const WebPanel: React.FC = () => {
                   <NavButton title={t('webBar.miniOpenTab')} disabled={miniUrl === null} onClick={handleMiniPromote}>
                     <PromoteIcon />
                   </NavButton>
+                  {/* 关页:闭眼回到空态,guest 销毁(见 handleMiniClosePage 注释) */}
+                  <NavButton title={t('webBar.miniClosePage')} disabled={miniUrl === null} onClick={handleMiniClosePage}>
+                    <XIcon />
+                  </NavButton>
                 </div>
                 {/* 浏览面:未开眼 = 空态指引(空屏是行动邀请);开眼 = webview + 加载/
                     失败浮层(WebTabOverlay 同款,webview 无内建 UI)。
-                    webview 额外双门(见 config 对账 effect 注释 + 合卷机械):
-                    miniConfigLoaded —— 存档关闭态落定前不挂 guest,本面板随
-                    Web 页签条件挂载,closed=true 与 loaded=true 同批落定时卷
-                    从未挂起,零闪挂/零白拉;「!miniClosed || miniEl 非空」——
-                    关着的卷不新挂 guest,合卷动画期间已挂的卷随纸同卷(360ms
-                    延迟卸载随父层走,miniEl 非空即「卷上还有页面」的自证)。
+                    webview 额外双门(见 config 对账 effect 注释 + 内容挂载裁决):
+                    miniConfigLoaded —— 存档关闭态落定前不挂 guest,零闪挂/零白拉;
+                    「!miniClosed || miniEl 非空」—— 关着的卷不新挂 guest,已挂的
+                    卷合卷不卸载(保活:纸裁画心,guest 存活,miniEl 非空即自证)。
                     工具条/空态不受门控,挂载即同步可交互 */}
                 <div className="flex-1 min-h-0 relative bg-[var(--terminal-bg)]">
                   {miniUrl === null ? (

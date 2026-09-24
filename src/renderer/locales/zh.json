@@ -128,6 +128,7 @@
     "miniReload": "刷新",
     "miniStop": "停止加载",
     "miniOpenTab": "升格为网页页签",
+    "miniClosePage": "关闭页面（回到空态，释放小窗页面）",
     "miniClose": "关闭小窗浏览器",
     "miniOpen": "恢复小窗浏览器",
     "miniHintTitle": "小窗浏览器",

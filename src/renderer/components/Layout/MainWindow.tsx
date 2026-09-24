@@ -62,6 +62,14 @@ const MainWindow: React.FC = () => {
     } catch { /* localStorage 不可用,回退默认 */ }
     return 'sessions'
   })
+  // Web 面板保活门:首次激活后常挂载,切走仅 CSS 隐藏(display:none)—— 写轮眼
+  // 小窗的 webview guest 随元素摘树即销毁,常挂载让切机柜页签/收起左列都不再
+  // 重载小窗页面(本列收起「内容保持挂载」的同款取舍);未激活过不挂,不为从没
+  // 用过小窗的用户白拉 guest 进程
+  const [webPanelAlive, setWebPanelAlive] = useState(() => activeNav === 'web')
+  useEffect(() => {
+    if (activeNav === 'web') setWebPanelAlive(true)
+  }, [activeNav])
   // 左列宽度(三栏共享) -- localStorage 同步懒读定首帧(同 sidebarCollapsed),config 异步对账;
   // ActivityRail 固定 RAIL_WIDTH 在其左,面板填剩余宽。这里存的是「偏好宽」:上限不在此
   // 钳死,由下方 sidebarMax(主窗口宽的 1/2)在拖动与渲染两处钳制 -- 钳制不回写本值,
@@ -783,7 +791,8 @@ const MainWindow: React.FC = () => {
             {activeNav === 'claude' && <HarnessPanel agent="claude" />}
             {activeNav === 'env' && <EnvProfilePanel />}
             {activeNav === 'plugins' && <PluginPanel />}
-            {activeNav === 'web' && <WebPanel />}
+            {/* Web 面板保活常挂载(见 webPanelAlive 注释),切走时经 visible 隐藏 */}
+            {webPanelAlive && <WebPanel visible={activeNav === 'web'} />}
             {activeNav === 'settings' && <SettingsPanel />}
           </div>
           {/* 宽度调整条 */}

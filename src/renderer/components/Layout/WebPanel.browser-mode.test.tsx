@@ -10,17 +10,19 @@
  * 4) 重新激活页签时补读 canGoBack/canGoForward（onNav 只在活动态同步读
  *    IPC，后台停驻的导航靠这一步校正）；
  * 5) 写轮眼小窗（栏底迷你浏览器）：合法地址开眼挂载/非法走 notice/did-navigate
- *    落点回写/Esc 复位/升格开完整页签/Ctrl+点击历史行预览/dom-ready 门（webview
+ *    落点回写/Esc 复位/升格开完整页签/关页回空态（webview 摘树销毁 guest、
+ *    localStorage 存档清掉，再输入即全新首航）/Ctrl+点击历史行预览/dom-ready 门（webview
  *    方法面在 guest 挂载前调用会抛错 —— 真机曾炸于此，门开前不得调 loadURL/getURL）/
  *    dom-ready 后把 webContentsId 登记给主进程（小窗与完整页签共用 webbar
  *    partition 共享登录态，主进程快捷键转发凭登记排除小窗）/存档与高度防毒
  *    （畸形存档落空态、离谱高度夹到绝对上限）/地址栏挂双开画轴（.scroll-search
  *    系列 CSS）：开合裁决 = 聚焦或有址 —— 闭眼空态收卷拴绳、有墨失焦仍展，
  *    与勾玉「闭眼/开眼」同一状态语言。
- * 6) 小窗关闭/恢复：关闭后 webview 摘树、恢复轨出现；恢复后原页状态保留、
- *    关闭态经 config 存档；存档关闭态起渲染即关（写门：读档未成功不写，
- *    默认 false 不冲掉存档的 true —— 防抖/卸载补写两条路都拦）；小窗关闭时
- *    Ctrl+点击历史行 = 预览意图，顺手重开而非静默无反馈。
+ * 6) 小窗关闭/恢复（保活）：合卷不卸载 webview —— 同一元素留树（guest 存活）、
+ *    src 恒冻结、恢复零重挂零重载，恢复轨出现；关闭态经 config 存档；存档
+ *    关闭态起渲染即关（写门：读档未成功不写，默认 false 不冲掉存档的 true
+ *    —— 防抖/卸载补写两条路都拦）；小窗关闭时 Ctrl+点击历史行 = 预览意图，
+ *    顺手重开而非静默无反馈。
  *    jsdom 里 <webview> 是未知元素（名字无连字符，customElements 注册不了）——
  *    在其原型上补方法面（loadURL 等 mock），渲染后的元素即可被组件调用、被断言。
  * 完整页签的 webview 用注册表替身（jsdom 承载不了真实 guest），历史置空避开
@@ -423,22 +425,44 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     expect(webs.length).toBe(1)  // 没开新页签
   })
 
-  it('小窗关闭/恢复：webview 摘树但状态保留，关闭态持久化', async () => {
+  it('小窗关闭/恢复：webview 保活不摘树（同一元素），关闭态持久化', async () => {
     setupBrowserMode()
     localStorage.setItem('lyshell.webbarMini.url.v1', 'https://keep.example.com/')
     render(<WebPanel />)
     await waitFor(() => expect(document.querySelector('webview')).toBeTruthy())
+    const mounted = document.querySelector('webview')
     fireEvent.click(screen.getByTitle('Close mini browser'))
     await waitFor(() => {
-      expect(document.querySelector('webview')).toBeNull()
+      // 保活:合卷不卸载,同一 webview 元素留树(guest 存活),纸收拢 + 恢复轨出现
+      expect(document.querySelector('webview')).toBe(mounted)
       expect(screen.getByTitle('Restore mini browser')).toBeTruthy()
     })
     await waitFor(() => {
       expect(window.electronAPI.setConfig).toHaveBeenCalledWith('webMiniClosed', true)
     })
     fireEvent.click(screen.getByTitle('Restore mini browser'))
-    await waitFor(() => expect(document.querySelector('webview')).toBeTruthy())
+    // 恢复零重挂:还是同一元素,src 冻结纪律不变、首航地址原样
+    expect(document.querySelector('webview')).toBe(mounted)
     expect(document.querySelector('webview')?.getAttribute('src')).toBe('https://keep.example.com/')
+  })
+
+  it('关闭页面：回空态摘 webview、清存档，再输入即全新首航', async () => {
+    setupBrowserMode()
+    localStorage.setItem('lyshell.webbarMini.url.v1', 'https://closeme.example.com/')
+    render(<WebPanel />)
+    await waitFor(() => expect(document.querySelector('webview')).toBeTruthy())
+    fireEvent.click(screen.getByTitle('Close page (back to empty state, release mini page)'))
+    // 未开眼空态:webview 摘树(guest 销毁)、空态指引出现
+    await waitFor(() => expect(document.querySelector('webview')).toBeNull())
+    expect(screen.getByTitle('Mini browser')).toBeTruthy()
+    expect(miniInputOf().value).toBe('')
+    // localStorage 存档一并清掉:冷启动不再恢复旧页
+    expect(localStorage.getItem('lyshell.webbarMini.url.v1')).toBeNull()
+    // 再输入 = 全新首航:未挂载期 src 跟随目标(与旧存档无关)
+    fireEvent.change(miniInputOf(), { target: { value: 'https://fresh.example.com/' } })
+    fireEvent.keyDown(miniInputOf(), { key: 'Enter' })
+    await waitFor(() => expect(document.querySelector('webview')).toBeTruthy())
+    expect(document.querySelector('webview')?.getAttribute('src')).toBe('https://fresh.example.com/')
   })
 
   it('存档关闭态起渲染即关（恢复轨、无关闭按钮），卸载补写真值不写默认 false', async () => {
@@ -491,11 +515,12 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     expect(document.querySelector('webview')?.getAttribute('src')).toBe('https://preview.example.org/')
   })
 
-  it('关闭期间冻结 src 跟随落点：导航后再关闭，恢复以关闭时页面重挂', async () => {
+  it('导航落点入档、src 恒冻结：关闭/恢复零重挂（保活，guest 原页保留）', async () => {
     setupBrowserMode()
     localStorage.setItem('lyshell.webbarMini.url.v1', 'https://first.example.com/')
     render(<WebPanel />)
     await waitFor(() => expect(document.querySelector('webview')).toBeTruthy())
+    const mounted = document.querySelector('webview')
     // 真实导航：first → second（did-navigate 回写落点，同 redirect 后的真实地址）
     act(() => {
       wvOf().dispatchEvent(new CustomEvent('did-navigate', { detail: { url: 'https://second.example.com/', isMainFrame: true } }))
@@ -504,12 +529,13 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     expect(wvOf().getAttribute('src')).toBe('https://first.example.com/')
     await waitFor(() => expect(localStorage.getItem('lyshell.webbarMini.url.v1')).toBe('https://second.example.com/'))
     fireEvent.click(screen.getByTitle('Close mini browser'))
-    await waitFor(() => expect(document.querySelector('webview')).toBeNull())
+    // 合卷不卸载:元素与 src 原样留树(真机上 guest 页面状态由 guest 自己持有)
+    expect(document.querySelector('webview')).toBe(mounted)
+    expect(wvOf().getAttribute('src')).toBe('https://first.example.com/')
     fireEvent.click(screen.getByTitle('Restore mini browser'))
-    await waitFor(() => expect(document.querySelector('webview')).toBeTruthy())
-    // 重挂以「关闭时的页面」首航，而不是首航定格的 first —— 否则 src 首航
-    // 触发 did-navigate 回写旧落点，既冲掉真实 miniUrl 又把旧地址写进存档
-    expect(wvOf().getAttribute('src')).toBe('https://second.example.com/')
+    // 恢复零重挂零重载:同一元素,地址栏跟随最后落点 second
+    expect(document.querySelector('webview')).toBe(mounted)
+    expect(miniInputOf().value).toBe('https://second.example.com/')
     expect(localStorage.getItem('lyshell.webbarMini.url.v1')).toBe('https://second.example.com/')
   })
 })
