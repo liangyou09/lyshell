@@ -28,6 +28,7 @@ export default defineConfig({
           'electron',
           'electron-log',
           'node-pty',
+          'koffi',
           'serialport',
           'better-sqlite3',
           'ssh2'

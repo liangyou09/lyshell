@@ -24,6 +24,7 @@ Runtime dependencies (bundled into the application):
   i18next                      MIT     https://www.npmjs.com/package/i18next
   iconv-lite                   MIT     https://www.npmjs.com/package/iconv-lite
   js-yaml                      MIT     https://www.npmjs.com/package/js-yaml
+  koffi                        MIT     https://www.npmjs.com/package/koffi
   lodash-es                    MIT     https://www.npmjs.com/package/lodash-es
   node-pty                     MIT     https://www.npmjs.com/package/node-pty
   react                        MIT     https://www.npmjs.com/package/react

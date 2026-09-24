@@ -10,6 +10,10 @@ copyright: Copyright © 2026 liangyou (MIT License)
 # 如需在支持 node-pty 编译的 node(18/20 LTS)上恢复重编，可移除此项。
 npmRebuild: false
 
+# Koffi 的平台预编译 .node 在可选的 @koromix 包里；必须在 asar 外才能被 require 加载。
+asarUnpack:
+  - node_modules/@koromix/koffi-*/**/*
+
 directories:
   output: release/${version}
   buildResources: build

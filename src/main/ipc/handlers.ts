@@ -2566,8 +2566,9 @@ export function registerIPCHandlers(): void {
   })
 
   // 关闭 Web UI：回收子进程；渲染层 <webview> 由自身卸载随覆盖层销毁。
+  // 等树杀落定再回：渲染层拿这个时机更新页签状态，回早了用户切回来还撞着写锁。
   ipcMain.handle('dsh:web:close', async () => {
-    dshWebManager.close()
+    await dshWebManager.close()
     return { success: true }
   })
 

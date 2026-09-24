@@ -19,6 +19,7 @@ import { pluginHostManager } from './plugin/host-mgr'
 import { cleanupDownloadsDir } from './plugin/install-zip'
 import { getPluginsDir } from './storage/plugin-repository'
 import { dshWebManager } from './dsh/web'
+import { KILL_STEP_TIMEOUT_FLOOR_MS, sweepOrphanDshWeb } from './dsh/proc'
 import { IPC_CHANNELS, WEBBAR_DEEPLINK_SCHEMES, WEBBAR_PARTITION } from '@shared/constants'
 import { matchWebTabShortcut } from '@shared/webtab-shortcut'
 
@@ -270,7 +271,8 @@ function createMainWindow(): void {
     mainWindow = null
     // macOS 上关窗不退出应用：webview 已随窗口销毁，但 dsh web 子进程仍在，这里主动回收。
     // will-quit 里的 close() 是兜底；此处保证「关窗即停」（幂等，重复调用无害）。
-    dshWebManager.close()
+    // 窗口关闭不是 app 退出，不需要等树杀完成；失败仅告警。
+    dshWebManager.close().catch((err) => log.warn('dsh web close on window closed failed:', err))
   })
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
@@ -489,6 +491,14 @@ app.whenReady().then(async () => {
   // 设置应用ID
   app.setAppUserModelId('com.lyshell.app')
 
+  // 清扫上次崩溃/强杀遗留的孤儿 dsh web（会占着 DSH 会话写锁 → 「当前会话已被占用」）。
+  // 两条互补路径，覆盖面对齐 proc.ts 的三层防护：
+  //   - 签名清扫：要 WMI 枚举，抓「父进程链已断」的（含 root pid 已丢的）；
+  //   - record 恢复：用留档定位旧 pid，核对镜像名、命令行和父链；WMI 不可用时保留记录。
+  // 只杀「签名命中 + 孤儿」与「本 app spawn 过且仍在档」的；后台跑，不挡启动。
+  sweepOrphanDshWeb().catch((err) => log.warn('orphan dsh web sweep failed:', err))
+  dshWebManager.recoverFromRecord().catch((err) => log.warn('dsh web record recovery failed:', err))
+
   // 初始化下载历史存储
   await downloadHistory.init()
   log.info('Download history initialized')
@@ -643,10 +653,16 @@ app.whenReady().then(async () => {
 })
 
 // 应用退出前清理资源 —— 窗口级快捷键随 webContents 一起销毁,不用单独 unregister
-app.on('will-quit', () => {
+app.on('will-quit', (event) => {
+  // dsh web 子进程必须等树杀真正完成再退出。此前 dshWebManager.close() 里 fire-and-forget
+  // 的 spawn('taskkill') 会被 app 退出截断：实测只杀掉 shell 包裹层（cmd.exe）、漏掉真正的
+  // node 孙进程，孤儿占着 DSH 会话写锁（不过期），下次开 dsh 报「当前会话已被占用」。
+  // 故先拦住默认退出，同步清理照旧执行，最后等 close() 落定再 app.exit。
+  // app.exit() 不再触发 will-quit，无重入；重复 quit 会让同步清理跑第二遍，各调用均幂等。
+  event.preventDefault()
+
   cleanupAllWorkers()  // 清理所有下载 Worker
   cleanupAllUploadWorkers()  // 清理所有上传 Worker
-  dshWebManager.close()  // 关闭 dsh web 子进程（webview 随窗口一起销毁，这里只回收进程）
   if (stopMcpHttpServerImpl) {
     stopMcpHttpServerImpl()  // 停止 MCP HTTP 服务器
   }
@@ -660,6 +676,27 @@ app.on('will-quit', () => {
       session.connector.disconnect().catch(() => {})
     }
   }
+
+  // 关闭 dsh web 子进程（webview 随窗口一起销毁，这里只回收进程）—— 完成后才真正退出。
+  // 走 closeForQuit（抢跑、不排队）：关窗时可能已经起了一轮树杀（交互路径的预算是 15s，
+  // 仍远长于退出预算，且可能正卡在 8s 的进程表枚举里），排队等它落定等于没设 deadline；
+  // 抢跑的这一轮优先终止 Windows Job；若 Job 绑定失败，则在预算内核对身份后树杀。
+  // 身份无法确认时保留留档，由下次启动恢复，不能凭裸 PID 强杀。
+  // 等待余量必须**严格大于** proc.ts 的单步下限：killPidTree 最多比 deadline 多花一步
+  // （把已经发出的 taskkill 跑完），之后还要把未确认的 pid 写进留档 —— 余量不够，
+  // app.exit() 就会赶在「最后一步 + 写留档」之前触发，孤儿连兜底记录都没有。
+  // （closeForQuit 绝不 reject；.catch 只是保险丝。app.exit 不再触发 will-quit，无重入。）
+  const QUIT_DSH_CLOSE_BUDGET_MS = 2500
+  const QUIT_DSH_EXIT_GRACE_MS = KILL_STEP_TIMEOUT_FLOOR_MS + 500
+  const closeBudget = new Promise<void>((resolveBudget) => {
+    setTimeout(resolveBudget, QUIT_DSH_CLOSE_BUDGET_MS + QUIT_DSH_EXIT_GRACE_MS).unref?.()
+  })
+  Promise.race([
+    dshWebManager
+      .closeForQuit(Date.now() + QUIT_DSH_CLOSE_BUDGET_MS)
+      .catch((err) => log.warn('dsh web close on quit failed:', err)),
+    closeBudget
+  ]).then(() => app.exit(0))
 })
 
 // 所有窗口关闭时退出（Windows/Linux）
