@@ -465,6 +465,9 @@
   color: #5F6B76;
   text-shadow: 0 0 1px color-mix(in srgb, currentColor 22%, transparent);
 }
+/* 展开的分组题签落在 slot 轴身上，比纸面更灰；浅色主题收深一档，
+   rack-paper / rack-lark 的轴身上均超过 4.5:1。 */
+[data-theme-mode="light"] .scroll-head .scroll-slip { color: #56636F; }
 
 /* 手书大写(scroll-slip-hand)—— COM/local 组键的题签:手写的字牌,与
    IP/远程组的机印铭牌(Cambria)拉开 —— 卷上既有印的题名也有手写的键。
