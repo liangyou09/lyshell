@@ -412,6 +412,12 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
   // 状态语言(闭眼 = 双卷拴绳,开眼 = 纸展墨落)
   const [miniInputFocused, setMiniInputFocused] = useState(false)
   const [miniLoading, setMiniLoading] = useState(false)
+  // 加载遮罩与 miniLoading(工具条停止钮跟的完整加载周期)分离:遮罩 dom-ready
+  // 即收 —— did-stop-loading 要等全部子资源(广告/统计/慢图)落定,真实站点上
+  // 一个慢三方资源就把不透明遮罩压 10-30s+,而页面内容 commit 后几十毫秒已可
+  // 渐进上屏(实机探针:本地页 28ms 可画、遮罩整压 12s)。工具条停止钮仍跟
+  // miniLoading,慢资源期间仍可点停
+  const [miniCovering, setMiniCovering] = useState(false)
   const [miniFailed, setMiniFailed] = useState<string | null>(null)
   const [miniNav, setMiniNav] = useState({ canGoBack: false, canGoForward: false })
   // webview 元素经回调 ref 落 state：只有开眼后才挂载，事件/导航 effect 以它为 dep
@@ -634,6 +640,9 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
     setMiniReady(false)
     const onDomReady = (): void => {
       setMiniReady(true)
+      // 遮罩在这里收(主框架文档就绪、内容可画),不等 did-stop-loading(理由见
+      // miniCovering 注释);失败浮层是独立 state,did-fail-load 自行铺
+      setMiniCovering(false)
       // 小窗与完整页签共用 webbar partition(登录态互通):主进程的快捷键转发凭
       // webContentsId 登记区分两者,这里把小窗报上去 —— 之后小窗内的按键不再被
       // 拦截转发到「活动完整页签」,reload/后退由 guest 原生处理。登记晚于
@@ -652,8 +661,9 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
       setMiniUrl(url)
       setMiniNav({ canGoBack: miniEl.canGoBack(), canGoForward: miniEl.canGoForward() })
     }
-    const onStartLoading = (): void => { setMiniLoading(true); setMiniFailed(null) }
-    const onStopLoading = (): void => setMiniLoading(false)
+    const onStartLoading = (): void => { setMiniLoading(true); setMiniCovering(true); setMiniFailed(null) }
+    // stop-loading 收遮罩是 dom-ready 的兜底:异常路径(不触发 dom-ready 的失败)防遮罩滞留
+    const onStopLoading = (): void => { setMiniLoading(false); setMiniCovering(false) }
     const onFail = (e: Event): void => {
       const evt = e as CustomEvent<unknown> & { errorCode?: number; errorDescription?: string; isMainFrame?: boolean }
       if (evt.isMainFrame === false) return
@@ -727,6 +737,7 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
     setMiniInput('')
     setMiniNav({ canGoBack: false, canGoForward: false })
     setMiniLoading(false)
+    setMiniCovering(false)
     setMiniFailed(null)
     miniLastUrlRef.current = ''
     try { localStorage.removeItem(MINI_URL_STORAGE_KEY) } catch { /* quota */ }
@@ -1153,7 +1164,7 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
                       {/* src = 冻结的首航地址(挂载后恒不变,后续导航走 loadURL,见 miniSrc 注释);
                           partition 与完整网页页签同仓(登录态互通),快捷键转发的排除见 onDomReady 登记 */}
                       <webview ref={setMiniEl} partition={WEBBAR_PARTITION} src={miniSrc ?? undefined} className="w-full h-full" />
-                      {miniLoading && (
+                      {miniCovering && (
                         <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--terminal-bg)] text-sm text-gray-400 pointer-events-none">
                           {t('webBar.loading')}
                         </div>

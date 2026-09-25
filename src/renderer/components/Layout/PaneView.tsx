@@ -184,6 +184,14 @@ const WebTabOverlay: React.FC<{ id: string; url: string }> = ({ id, url }) => {
         setWebTabNav(id, { url })
       }
     }
+    // 加载遮罩 dom-ready 即收(主框架文档就绪、内容可渐进上屏),不等
+    // did-stop-loading —— 后者要等全部子资源落定,一个慢三方资源(广告/统计/
+    // 超时域)就能把不透明遮罩压 10-30s+,页面明明早已可交互却被盖死(实机
+    // 探针:本地页 28ms 可画、遮罩整压 12s)。工具条的停止/刷新(activeNav
+    // .loading)仍跟完整加载周期;failed 态不被冲掉(同 onStopLoading 的保序)
+    const onDomReady = (): void => {
+      setLoadState(prev => (prev === 'loading' ? 'done' : prev))
+    }
     const onStartLoading = (): void => {
       setLoadState('loading')
       setLoadError(null)
@@ -207,6 +215,7 @@ const WebTabOverlay: React.FC<{ id: string; url: string }> = ({ id, url }) => {
     }
     el.addEventListener('page-title-updated', onTitle)
     el.addEventListener('page-favicon-updated', onFavicon)
+    el.addEventListener('dom-ready', onDomReady)
     el.addEventListener('did-finish-load', onLoadFinish)
     el.addEventListener('did-navigate', onNav)
     el.addEventListener('did-navigate-in-page', onNav)
@@ -216,6 +225,7 @@ const WebTabOverlay: React.FC<{ id: string; url: string }> = ({ id, url }) => {
     return () => {
       el.removeEventListener('page-title-updated', onTitle)
       el.removeEventListener('page-favicon-updated', onFavicon)
+      el.removeEventListener('dom-ready', onDomReady)
       el.removeEventListener('did-finish-load', onLoadFinish)
       el.removeEventListener('did-navigate', onNav)
       el.removeEventListener('did-navigate-in-page', onNav)
