@@ -22,6 +22,7 @@ import { dshWebManager } from './dsh/web'
 import { KILL_STEP_TIMEOUT_FLOOR_MS, sweepOrphanDshWeb } from './dsh/proc'
 import { IPC_CHANNELS, WEBBAR_DEEPLINK_SCHEMES, WEBBAR_PARTITION } from '@shared/constants'
 import { matchWebTabShortcut } from '@shared/webtab-shortcut'
+import { decideWebviewFrameNavigation, gateWebviewSubframeNavigation } from './webview-frame-navigation'
 
 // 日志配置
 log.transports.file.level = 'info'
@@ -76,6 +77,9 @@ let stopMcpHttpServerImpl: (() => Promise<void>) | undefined
 // 槽位后者覆盖前者；登记 handler 里挂 destroyed 自清，小窗销毁即清空槽位
 // （id 单调不复用，残留死 id 本无功能影响，自清免掉长期运行的陈旧状态）。
 let webbarMiniWebContentsId: number | null = null
+// 仅记录确实注册成功的应用内协议；子框架导航一律取消，仅对已接管的
+// bytedance://dispatch_message/ 不重复记警告。注册失败时保留拦截日志。
+const webbarHandledDeepLinkSchemes = new Set<string>()
 
 // dsh web 导航白名单：取当前实例规范化 URL 的 origin（127.0.0.1:实际端口）。无实例时返回 null。
 function getDshWebAllowedOrigin(): string | null {
@@ -99,8 +103,8 @@ function isHttpUrl(raw: string): boolean {
 }
 
 // ── 网页访问栏外部协议的 Edge 式确认交付 ──
-// 导航闸把非 http/https 导航 preventDefault 拦下后（页面停在原地，绝不触达 OS），主框架
-// 的外部 scheme 再走三档（对齐 Edge/Chromium 的 external protocol 模型）：
+// 导航闸把非 http/https 导航 preventDefault 拦下后（页面停在原地，绝不触达 OS），
+// 主框架的外部 scheme 再走三档（对齐 Edge/Chromium 的 external protocol 模型）：
 //   1. 敏感系统 scheme / 无注册 handler → 静默丢弃。无 handler 的 scheme 触达 OS 会弹
 //      Windows「在 Microsoft Store 查找应用」对话框，这正是当初一刀切全拦的原因；
 //   2. 有 handler → 确认框亮出完整 URL 与目标应用名 —— 知情同意后才 shell.openExternal
@@ -108,8 +112,8 @@ function isHttpUrl(raw: string): boolean {
 //      同一解法）；
 //   3. 勾选「记住」→ 本会话内同发起页 origin+scheme 不再询问（记住允许直接交付，
 //      记住拒绝静默丢弃）。会话级缓存不持久化：重启重新询问，站点信任不跨会话累积。
-// 子框架的外部 scheme 派发（抖音心跳 iframe 的 bytedance://dispatch_message/ 等）维持
-// 静默拦截 —— Chromium 自己对子框架派发也是直接丢弃，不弹确认。
+// 子框架的外部 scheme 派发（抖音 iframe 的 bytedance://dispatch_message/ 等）
+// 仍取消导航；仅对已接管的 dispatch_message 请求不重复记警告，不弹确认或系统对话框。
 // 发起页 origin 取 webview 当前已提交 URL（闸拦在导航提交前，正好是用户所在的页）
 const externalProtocolChoices = new Map<string, boolean>() // origin|scheme → 是否允许（会话内记住）
 const externalProtocolPending = new Set<string>() // 确认框进行中的键：连发派发（重定向链/连点）直接丢，不排队刷屏
@@ -352,8 +356,9 @@ function createMainWindow(): void {
       // （完整页签 + 小窗）的 http/https 开窗请求转发渲染层开完整网页页签（Chrome
       // 「在新标签页打开」同语义）—— target=_blank / window.open 是现代站点的主流
       // 跳转形态，纯 deny 时这些按钮表现为点了没反应；dsh web 维持纯 deny（origin
-      // 锁定无浏览语义）。转发地址经渲染层 openWebTab 的 normalizeWebBarUrl 再校验
-      //（IPC 边界即不可信输入），非 http/https（about:blank 等）纯拦
+      // 锁定无浏览语义）。转发地址经渲染层 openWebTab 的 normalizeWebBarUrl 再校验。
+      // 非 http/https 开窗直接 deny：此事件没有可靠的用户手势和发起 iframe 信息，
+      // 不能按顶层页面 origin 复用外部协议的「记住允许」选择。
       if (isWebbar && isHttpUrl(url)) {
         mainWindow?.webContents.send(IPC_CHANNELS.WEB_TAB_POPUP, url)
       } else {
@@ -392,7 +397,11 @@ function createMainWindow(): void {
     // （bytedance:// 等，抖音页反复重定向触发「打开APP」）经重定向直达 OS 协议处理
     // 器，Windows 弹「在 Microsoft Store 查找应用」对话框且反复刷 —— preventDefault
     // 掐的是整个导航，闸内拦下即免于触达系统
-    const onNavGate = (event: { preventDefault(): void }, url: string): void => {
+    const onNavGate = (event: { url: string; isMainFrame: boolean; preventDefault(): void }, url: string): void => {
+      // will-redirect 也覆盖子框架：先走子框架闸，不能把 iframe 的外部协议
+      // 当主框架深链送进「打开外部应用」确认流程。
+      if (gateWebviewSubframeNavigation(event, isWebbar, webbarHandledDeepLinkSchemes,
+        blockedUrl => log.warn('Blocked webview frame navigation:', blockedUrl))) return
       try {
         const target = new URL(url)
         if (isWebbar) {
@@ -418,22 +427,23 @@ function createMainWindow(): void {
     }
     webContents.on('will-navigate', onNavGate)
     webContents.on('will-redirect', onNavGate)
-    // 子框架闸（will-frame-navigate 先于 will-navigate 触发且覆盖子框架）：只掐外部
-    // 协议 —— http/https 子框架（广告 iframe 常态）照常放行；dsh 的 origin 锁维持
+    // 子框架闸（will-frame-navigate 先于 will-navigate 触发且覆盖子框架）：
+    // http/https 子框架（广告 iframe 常态）照常放行；dsh 的 origin 锁维持
     // 主框架语义不外溢到子框架。实证（探针）：子框架/按钮 onclick 的外部 scheme
     // 导航只在此事件露头。webbar 的主框架外部 scheme 拦下后转确认交付闸（此处
     // preventDefault 后 will-navigate 不再触发，不会双重处理；直接导航走本闸、
-    // 重定向落点走 onNavGate，两路共用同一缓存与在途防重入）；子框架派发维持
-    // 静默拦截（Chromium 对子框架外部协议派发本就直接丢弃）
+    // 主框架重定向落点走 onNavGate，两路共用同一缓存与在途防重入）；子框架的
+    // 直航与重定向共用同一闸，外部协议均取消导航，仅静音已接管的抖音心跳深链。
     webContents.on('will-frame-navigate', (e) => {
-      try {
-        if (new URL(e.url).protocol === 'http:' || new URL(e.url).protocol === 'https:') return
-      } catch { /* 畸形地址落到下面拦 */ }
+      if (gateWebviewSubframeNavigation(e, isWebbar, webbarHandledDeepLinkSchemes,
+        blockedUrl => log.warn('Blocked webview frame navigation:', blockedUrl))) return
+      const decision = decideWebviewFrameNavigation(e.url, e.isMainFrame, isWebbar, webbarHandledDeepLinkSchemes)
+      if (decision === 'allow') return
       e.preventDefault()
       if (isWebbar && e.isMainFrame) {
         offerWebbarExternalProtocol(e.url, webContents.getURL())
       }
-      log.warn('Blocked webview frame navigation:', e.url)
+      if (decision === 'cancel') log.warn('Blocked webview frame navigation:', e.url)
     })
   })
 
@@ -539,6 +549,7 @@ app.whenReady().then(async () => {
   for (const scheme of WEBBAR_DEEPLINK_SCHEMES) {
     try {
       webbarSession.protocol.handle(scheme, () => new Response(null, { status: 204 }))
+      webbarHandledDeepLinkSchemes.add(scheme)
       log.info(`Registered webbar deep-link scheme handler: ${scheme}://`)
     } catch (err) {
       log.warn(`Failed to register deep-link scheme handler (${scheme}):`, err)
