@@ -118,6 +118,7 @@
     "recent": "最近访问",
     "clear": "清空",
     "removeRecent": "从最近访问中删除",
+    "openMini": "在小窗打开",
     "loading": "加载中…",
     "loadFailed": "页面加载失败",
     "loadFailedHint": "{{error}} · {{url}}",
@@ -132,7 +133,7 @@
     "miniClose": "关闭小窗浏览器",
     "miniOpen": "恢复小窗浏览器",
     "miniHintTitle": "小窗浏览器",
-    "miniHint": "输入地址浏览，或 Ctrl+点击历史行在此预览"
+    "miniHint": "输入地址浏览，或点击历史行的小窗按钮在此打开"
   },
   "agents": {
     "title": "Agent",

@@ -118,6 +118,7 @@
     "recent": "Recent",
     "clear": "Clear",
     "removeRecent": "Remove from recent",
+    "openMini": "Open in mini browser",
     "loading": "Loading…",
     "loadFailed": "Failed to load page",
     "loadFailedHint": "{{error}} · {{url}}",
@@ -132,7 +133,7 @@
     "miniClose": "Close mini browser",
     "miniOpen": "Restore mini browser",
     "miniHintTitle": "Mini browser",
-    "miniHint": "Type an address, or Ctrl+click a history row to preview here"
+    "miniHint": "Type an address, or click a history row's mini button to open it here"
   },
   "agents": {
     "title": "Agents",

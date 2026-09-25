@@ -11,13 +11,17 @@
  *    IPC，后台停驻的导航靠这一步校正）；
  * 5) 写轮眼小窗（栏底迷你浏览器）：合法地址开眼挂载/非法走 notice/did-navigate
  *    落点回写/Esc 复位/升格开完整页签/关页回空态（webview 摘树销毁 guest、
- *    localStorage 存档清掉，再输入即全新首航）/Ctrl+点击历史行预览/dom-ready 门（webview
+ *    localStorage 存档清掉，再输入即全新首航）/Ctrl+点击历史行预览与行上
+ *    「在小窗打开」按钮/dom-ready 门（webview
  *    方法面在 guest 挂载前调用会抛错 —— 真机曾炸于此，门开前不得调 loadURL/getURL）/
  *    dom-ready 后把 webContentsId 登记给主进程（小窗与完整页签共用 webbar
  *    partition 共享登录态，主进程快捷键转发凭登记排除小窗）/存档与高度防毒
  *    （畸形存档落空态、离谱高度夹到绝对上限）/地址栏挂双开画轴（.scroll-search
  *    系列 CSS）：开合裁决 = 聚焦或有址 —— 闭眼空态收卷拴绳、有墨失焦仍展，
  *    与勾玉「闭眼/开眼」同一状态语言。
+ * 7) 最近历史按域名分组立画轴：组头 scroll-head 卷轴（题签域名 + 计数）点击
+ *    开合（ScrollFold inert 挡 Tab 序）、组序/组内序吃历史最近优先序、非默认
+ *    端口独立成组（hostKey = hostname + port）。
  * 6) 小窗关闭/恢复（保活）：合卷不卸载 webview —— 同一元素留树（guest 存活）、
  *    src 恒冻结、恢复零重挂零重载，恢复轨出现；关闭态经 config 存档；存档
  *    关闭态起渲染即关（写门：读档未成功不写，默认 false 不冲掉存档的 true
@@ -301,7 +305,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     const { container } = render(<WebPanel />)
     expect(container.querySelector('webview')).toBeNull()
     expect(screen.getByText('Mini browser')).toBeTruthy()
-    expect(screen.getByText('Type an address, or Ctrl+click a history row to preview here')).toBeTruthy()
+    expect(screen.getByText("Type an address, or click a history row's mini button to open it here")).toBeTruthy()
     expect((screen.getByTitle('Promote to web tab') as HTMLButtonElement).disabled).toBe(true)
   })
 
@@ -423,6 +427,89 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     await waitFor(() => expect(wvOf().loadURL).toHaveBeenCalledWith('https://preview.example.org/'))
     const webs = Object.values(usePaneStore.getState().overlayPayloads).filter(p => p?.kind === 'web')
     expect(webs.length).toBe(1)  // 没开新页签
+  })
+
+  it('历史行「在小窗打开」按钮 → 小窗预览不开完整页签（显式按钮，与 Ctrl+点击同走 loadMini）', async () => {
+    setupBrowserMode()
+    usePaneStore.setState({ webTabHistory: ['https://button.example.org/'] })
+    render(<WebPanel />)
+    // 显式入口:点行上的小窗按钮(此前只有 Ctrl+点击隐藏手势)
+    fireEvent.click(screen.getByTitle('Open in mini browser'))
+    await waitFor(() => expect(document.querySelector('webview')).toBeTruthy())
+    fireDomReady()
+    await waitFor(() => expect(wvOf().loadURL).toHaveBeenCalledWith('https://button.example.org/'))
+    const webs = Object.values(usePaneStore.getState().overlayPayloads).filter(p => p?.kind === 'web')
+    expect(webs.length).toBe(1)  // 没开新页签
+  })
+
+  it('最近历史按域名分组：同域并组（组头 = 域名题签 + 计数），组序/组内序吃最近序，非默认端口独立成组', () => {
+    setupBrowserMode()
+    usePaneStore.setState({
+      webTabHistory: [
+        'https://a.example.com/two',       // a 组最近一条 = 全表最新 → a 组排最前
+        'https://b.example.org/only',
+        'https://a.example.com/one',
+        'https://a.example.com:8443/port'  // 非默认端口:独立组,不与 a 并
+      ]
+    })
+    const { container } = render(<WebPanel />)
+    const headOf = (prefix: string): HTMLElement =>
+      Array.from(container.querySelectorAll('div.scroll-head'))
+        .find(el => el.textContent?.startsWith(prefix)) as HTMLElement
+    const headA = headOf('a.example.com2')   // 题签 + 计数同落卷面(textContent 顺读)
+    const headB = headOf('b.example.org1')
+    const headPort = headOf('a.example.com:84431')
+    expect(headA).toBeTruthy()
+    expect(headB).toBeTruthy()
+    expect(headPort).toBeTruthy()
+    // 段身份青蓝:轴头 inline 注入 --web-group(锁色契约,防回落中性)
+    expect(headA.querySelector('.rod-caps')?.getAttribute('style')).toContain('--web-group')
+    // 长域名不挤走计数:题签可缩可截断(ellipsis),全名走 title
+    const slip = headA.querySelector('.scroll-slip') as HTMLElement
+    expect(slip.className).toContain('truncate')
+    expect(slip.className).not.toContain('flex-shrink-0')
+    expect(slip.getAttribute('title')).toBe('a.example.com')
+    // 组序 = 各组最近一条的落位:a(最新)→ b → a:8443
+    expect(headA.compareDocumentPosition(headB) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(headB.compareDocumentPosition(headPort) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // 组内最近序:…/two 在 …/one 之前
+    const text = document.body.textContent ?? ''
+    expect(text.indexOf('https://a.example.com/two')).toBeGreaterThan(-1)
+    expect(text.indexOf('https://a.example.com/two')).toBeLessThan(text.indexOf('https://a.example.com/one'))
+  })
+
+  it('组头 favicon 跟随组内最新一条：url 变化先清旧图，回落猜测失败不残留上一条的图标', async () => {
+    setupBrowserMode()
+    // A 条有持久化图标(页签打开时捕获),组头先落 A 的图
+    usePaneStore.setState({
+      webTabHistory: ['https://a.example.com/a', 'https://a.example.com/b'],
+      webTabFavicons: { 'https://a.example.com/a': 'data:image/png;base64,AA==' }
+    })
+    const { container } = render(<WebPanel />)
+    await waitFor(() => expect(container.querySelector('.scroll-head img')).toBeTruthy())
+    // 同域 B 条成为组内最新(无持久化图标,origin 猜测在桩下失败)→ 组头清图。
+    // 修复前:src 不随 url 重置,A 的图长期张冠李戴地挂在组头上
+    act(() => {
+      usePaneStore.setState({ webTabHistory: ['https://a.example.com/b', 'https://a.example.com/a'] })
+    })
+    await waitFor(() => expect(container.querySelector('.scroll-head img')).toBeNull())
+  })
+
+  it('组头点击开合（画轴）：收起后 aria-expanded 翻转、组内容卷进 ScrollFold（inert 挡 Tab 序），再点恢复', () => {
+    setupBrowserMode()
+    usePaneStore.setState({ webTabHistory: ['https://a.example.com/one', 'https://a.example.com/two'] })
+    const { container } = render(<WebPanel />)
+    const head = container.querySelector('div.scroll-head') as HTMLElement
+    expect(head.getAttribute('aria-expanded')).toBe('true')
+    expect(container.querySelector('.scroll-fold')?.className).toContain('open')
+    fireEvent.click(head)
+    expect(head.getAttribute('aria-expanded')).toBe('false')
+    const fold = container.querySelector('.scroll-fold')
+    expect(fold?.className).not.toContain('open')
+    expect(fold?.hasAttribute('inert')).toBe(true)
+    fireEvent.click(head)
+    expect(head.getAttribute('aria-expanded')).toBe('true')
+    expect(container.querySelector('.scroll-fold')?.className).toContain('open')
   })
 
   it('小窗关闭/恢复：webview 保活不摘树（同一元素），关闭态持久化', async () => {

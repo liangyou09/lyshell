@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import type { WebviewTag } from 'electron'
@@ -10,7 +10,7 @@ import {
   selectActiveWebTabId, navigateActiveWebTab, reloadActiveWebTab, stopActiveWebTab,
   activeWebTabGoBack, activeWebTabGoForward, getWebview, openActiveWebTabDevTools
 } from './web-tab-controls'
-import { ScrollTie } from './ScrollFold'
+import ScrollFold, { ScrollTie } from './ScrollFold'
 import { WEBBAR_PARTITION } from '@shared/constants'
 
 /** datalist 选项 label 用:取 hostname,取不到回落原样字符串(与页签 title 初始值同源);
@@ -21,6 +21,30 @@ function hostOf(url: string): string {
   } catch {
     return url
   }
+}
+
+/** 域名分组的组键:hostname + 非默认端口 —— localhost:3000 与 :8080 是两个
+    应用,不该并成一个组;裸端口默认值(80/443)不进键,常规站点组键即域名 */
+function hostKeyOf(url: string): string {
+  try {
+    const u = new URL(url)
+    return (u.hostname || url) + (u.port ? `:${u.port}` : '')
+  } catch {
+    return url
+  }
+}
+
+/** 最近历史按域名分组:Map 保序,组序 = 各组最近一条的落位(历史本身是
+    最近优先序,所以整墙「最近用过的域名在最上」),组内同吃最近序 */
+function groupHistoryByHost(history: string[]): Array<[string, string[]]> {
+  const groups = new Map<string, string[]>()
+  for (const url of history) {
+    const key = hostKeyOf(url)
+    const bucket = groups.get(key)
+    if (bucket) bucket.push(url)
+    else groups.set(key, [url])
+  }
+  return [...groups.entries()]
 }
 
 // 历史行 favicon 的回落猜测:多数站点在根路径放 /favicon.ico。按 origin 缓存 Promise
@@ -186,6 +210,15 @@ const PromoteIcon: React.FC = () => (
   </svg>
 )
 
+/** 小窗打开图标（lucide picture-in-picture 线稿风格）——历史行「在小窗打开」按钮:
+ *  外屏 + 右下小窗,读作「在下方小窗里打开」 */
+const MiniOpenIcon: React.FC = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M21 9V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4" />
+    <rect x="12" y="13" width="9" height="7" rx="1" />
+  </svg>
+)
+
 /** 关页图标（lucide x 线稿风格）——关闭小窗当前页,回到未开眼空态 */
 const XIcon: React.FC = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -218,6 +251,9 @@ const TrashIcon: React.FC = () => (
 /**
  * 历史行 favicon:优先取持久化映射(打开网页页签时捕获的官方 favicon),
  * 没有再回落猜 origin/favicon.ico。两者都没有则不占位,行内只显示 URL。
+ * url/favicon 变化先清旧 src:组件可被同位置复用(域名组头随组内最新一条
+ * 换 url),不清的话,上一条 URL 的图标会在新条没有持久化图标、且回落猜测
+ * 失败(按 origin 缓存 null)时长期残留 —— 展示成「张冠李戴」的旧图
  */
 const RecentFavicon: React.FC<{ url: string; favicon?: string }> = ({ url, favicon }) => {
   const [src, setSrc] = useState<string | null>(favicon ?? null)
@@ -226,6 +262,7 @@ const RecentFavicon: React.FC<{ url: string; favicon?: string }> = ({ url, favic
       setSrc(favicon)
       return
     }
+    setSrc(null)
     let alive = true
     void guessOriginFavicon(url).then(uri => {
       if (alive && uri) setSrc(uri)
@@ -239,20 +276,84 @@ const RecentFavicon: React.FC<{ url: string; favicon?: string }> = ({ url, favic
 }
 
 /**
+ * 域名分组画轴头 —— SessionsPanel 会话墙 GroupHeader 的 Web 版(同一套卷轴
+ * 语言,机械全在 globals.css:.scroll-head 栏 + .rod-caps 辊轴头 + ScrollTie
+ * 蝴蝶结 + .scroll-slip 题签 + flex-1 发丝线 + 右缘计数,纸幅走 ScrollFold
+ * 里的 .paper-sheet mx-2)。段身份走 --web-group 青蓝(段级组语义,轴头/系绳
+ * 同色 —— 同一件物的两处署名,inline 注入同会话墙 toneVar 的方式;题签仍
+ * 全栏一只金,不跟身份走)。题签前落组内最近一条的 favicon —— 14px 恒占座,
+ * 图标迟到/缺席都不推挤题签,各组题签起点对齐。开合态由父级存(collapsedHosts),
+ * 本组件只挂态。
+ */
+const WebGroupHeader: React.FC<{
+  label: string
+  count: number
+  /** 组内最近一条(最近序首位)—— favicon 持久化映射的取值键与回落猜测源 */
+  recentUrl: string
+  favicon?: string
+  collapsed: boolean
+  onToggle: () => void
+}> = ({ label, count, recentUrl, favicon, collapsed, onToggle }) => (
+  <div
+    onClick={onToggle}
+    role="button"
+    tabIndex={0}
+    aria-expanded={!collapsed}
+    onKeyDown={(e: React.KeyboardEvent) => {
+      // 键盘开合:target 不在自己身上不接(行内嵌套钮聚焦时 Enter 不误触折叠)
+      if (e.target !== e.currentTarget) return
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() }
+    }}
+    className={cn(
+      'relative flex items-center gap-2.5 pl-3 pr-[20px] py-[3px] text-[10px] text-[var(--text-rack-mute)]',
+      'scroll-head group cursor-pointer',
+      collapsed && 'rolled'
+    )}
+  >
+    {/* 卷轴辊 —— 轴头恒跟辊同径、随辊居中,段身份青蓝(--web-group) */}
+    <span aria-hidden className="rod-caps" style={{ color: 'var(--web-group)' }}>
+      <span className="scroll-rod-collar scroll-rod-collar-l" />
+      <span className="scroll-rod-collar scroll-rod-collar-r" />
+    </span>
+    {/* 蝴蝶结:收起系上、展开随纸飘落淡出(槽位恒占防行首跳动);绳色随轴头
+        (inline 注入压过 hover 变色类,提亮只走 opacity 一档 —— 会话墙同款) */}
+    <span
+      aria-hidden
+      className="inline-flex transition opacity-80 group-hover:opacity-100"
+      style={{ color: 'var(--web-group)' }}
+    >
+      <ScrollTie group />
+    </span>
+    {/* 组 favicon —— 恒占 14px 座,迟到的猜测结果不推挤题签 */}
+    <span aria-hidden className="w-[14px] h-[14px] flex-shrink-0 flex items-center justify-center">
+      <RecentFavicon url={recentUrl} favicon={favicon} />
+    </span>
+    {/* 题签 —— 组键(hostname[:port]),金墨书体同会话分组;长域名可缩可截断
+        (flex-shrink-0 会把右缘计数挤出栏外 —— 发丝线 flex-1 先缩到 0,题签
+        随后 ellipsis),全名走 title(tooltip 看全量,行内 URL 同一约定) */}
+    <span title={label} className="min-w-0 truncate scroll-slip text-[13px]">{label}</span>
+    <span className="flex-1 h-px bg-[var(--rule)]" />
+    <span className="[font-family:inherit] text-[11px] text-[var(--text-rack-data)] tracking-[.04em]">{count}</span>
+  </div>
+)
+
+/**
  * 网页访问面板(机柜左列 Web 页签)。
  * 双模式:活动分屏正显示网页页签时是「浏览器 chrome」—— 地址栏同步当前 URL
  * (payload.nav,did-navigate 回写)、Enter 就地导航、后退/前进/刷新/停止按钮
  * (指令经 web-tab-controls 落到活动页签);否则是「启动器」—— 顶部 URL 栏输入
  * 完整网址,以终端页签形式打开在活动分屏(多页签,类似 dsh Web 页签),打开的网页
  * 一律走终端页签栏切换/关闭,面板不再列清单。
- * 下方是「最近访问」历史(localStorage 持久化,pane-store webTabHistory):
- * 点击重开、✕ 删除单条、段头清空;输入框挂 datalist 原生补全。
+ * 下方是「最近访问」历史(localStorage 持久化,pane-store webTabHistory),
+ * 按域名分组立画轴(组头 = 会话墙 GroupHeader 同款卷轴,ScrollFold 纸幅,
+ * 组序/组内序吃历史最近优先序;组键 = hostname + 非默认端口):点击重开、
+ * 行上按钮在小窗打开、✕ 删除单条、段头清空;输入框挂 datalist 原生补全。
  * URL 归一化/校验在 pane-store 的 normalizeWebBarUrl;webview 的导航/弹窗由主进程
  * 按 persist:webbar partition 分流锁定(仅 http/https,见 main/index.ts)。
  *
  * 栏底是「写轮眼小窗」—— 模拟会话面板文件管理器的栏底语法(4px 拖高条 + config
- * 持久化高度)的迷你浏览器:不动用终端分屏的快速查阅面,Ctrl+点击历史行在此预览,
- * ↗ 升格为完整网页页签,✕ 关页回空态(guest 销毁、localStorage 存档清掉);
+ * 持久化高度)的迷你浏览器:不动用终端分屏的快速查阅面,历史行上的
+ * 「在小窗打开」按钮或 Ctrl+点击历史行在此预览,↗ 升格为完整网页页签,✕ 关页回空态(guest 销毁、localStorage 存档清掉);
  * webview 与完整网页页签共用 partition persist:webbar
  * (cookie/localStorage 同仓,登录态互通 —— 页签里登过小窗即登录态),快捷键转发
  * 不挂(经 dom-ready 登记 webContentsId 排除,避免路由到活动页签的错位,见
@@ -271,6 +372,13 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
   const openWebTab = usePaneStore((s) => s.openWebTab)
   const webTabHistory = usePaneStore((s) => s.webTabHistory)
   const webTabFavicons = usePaneStore((s) => s.webTabFavicons)
+  // 最近历史的域名分组视图(组序/组内序吃历史本身的最近优先序)与组开合态:
+  // host → 收起?。组件随机柜页签切换保活,开合态跨切页签留存;历史增删后
+  // 消失的组在表里留的陈旧键无害
+  const webGroups = useMemo(() => groupHistoryByHost(webTabHistory), [webTabHistory])
+  const [collapsedHosts, setCollapsedHosts] = useState<Record<string, boolean>>({})
+  const toggleHostCollapsed = (host: string): void =>
+    setCollapsedHosts(s => ({ ...s, [host]: !s[host] }))
   const removeWebTabHistory = usePaneStore((s) => s.removeWebTabHistory)
   const clearWebTabHistory = usePaneStore((s) => s.clearWebTabHistory)
   const setWebTabNav = usePaneStore((s) => s.setWebTabNav)
@@ -787,16 +895,21 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
 
         {notice && <div className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] break-all">{notice}</div>}
 
-        {/* 最近访问 —— localStorage 持久化历史:行样式对齐终端页签(favicon + 单行
-            truncate+tooltip 看全量、bg-rack 底、hover bg-slot、行高 32px);点击重开、
-            ✕ 删除单条、段头清空。常占剩余空间(打开的网页不再在此列出,切换/关闭走终端页签栏) */}
-        {webTabHistory.length > 0 && (
+        {/* 最近访问 —— localStorage 持久化历史,按域名分组立画轴:组头 = 会话墙
+            GroupHeader 同款卷轴(scroll-head 辊轴头 + 蝴蝶结 + 题签金墨 + 右缘
+            计数,点击/Enter 开合),内容落 ScrollFold 的 paper-sheet(与辊上卷
+            纸带同宽同边 mx-2);组序 = 各组最近一条的落位(历史最近优先序),
+            组内同吃最近序。行样式对齐终端页签(favicon + 单行 truncate+tooltip
+            看全量、hover bg-slot、行高 32px,行落在纸上不再自带 bg-rack 底):
+            点击重开、行上按钮在小窗打开、✕ 删除单条、段头清空。常占剩余空间
+            (打开的网页不再在此列出,切换/关闭走终端页签栏) */}
+        {webGroups.length > 0 && (
           <div
             className={cn(
               'border border-[var(--rule)] rounded-[2px] min-h-0 overflow-y-auto flex-1 flex-shrink-0'
             )}
           >
-            <div className="flex items-center justify-between gap-1 px-1.5 py-1 border-b border-[var(--rule)] sticky top-0 bg-[var(--bg-base)]">
+            <div className="flex items-center justify-between gap-1 px-1.5 py-1 border-b border-[var(--rule)] sticky top-0 z-[1] bg-[var(--bg-base)]">
               <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack)] select-none">
                 {t('webBar.recent')}
               </span>
@@ -808,31 +921,58 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
                 <TrashIcon />
               </button>
             </div>
-            {webTabHistory.map(url => (
-              <div
-                key={url}
-                className="flex items-center gap-1.5 px-2 h-[32px] border-b border-[var(--rule-soft)] last:border-b-0 bg-[var(--bg-rack)] hover:bg-[var(--bg-slot)] transition-colors"
-              >
-                <RecentFavicon url={url} favicon={webTabFavicons[url]} />
-                <button
-                  onClick={(e) => {
-                    // Ctrl/Cmd+点击 = 小窗预览(应用内 Ctrl+点击是备选动作的通用
-                    // 语法,同终端 Ctrl+点击 URL 开页签);普通点击仍开完整页签
-                    if (e.ctrlKey || e.metaKey) loadMini(url)
-                    else openWebTab(url)
-                  }}
-                  title={url}
-                  className="flex-1 min-w-0 text-left text-xs [font-family:inherit] truncate text-[var(--text-rack)] hover:text-[var(--amber)] cursor-pointer transition-colors"
-                >
-                  {url}
-                </button>
-                <button
-                  onClick={() => removeWebTabHistory(url)}
-                  title={t('webBar.removeRecent')}
-                  className="w-[14px] h-[14px] flex-shrink-0 flex items-center justify-center text-xs text-[var(--text-rack-mute)] hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors cursor-pointer"
-                >
-                  ✕
-                </button>
+            {webGroups.map(([host, urls]) => (
+              <div key={host}>
+                <WebGroupHeader
+                  label={host}
+                  count={urls.length}
+                  recentUrl={urls[0]}
+                  favicon={webTabFavicons[urls[0]]}
+                  collapsed={!!collapsedHosts[host]}
+                  onToggle={() => toggleHostCollapsed(host)}
+                />
+                <ScrollFold open={!collapsedHosts[host]}>
+                  {/* 纸幅:与辊上卷纸带同宽同边 mx-2,辊探出一对轴头(会话墙同款);
+                      行保留 rule-soft 底线 —— 最后一行的折线正是纸尾收口 */}
+                  <div className="paper-sheet mx-2">
+                    {urls.map(url => (
+                      <div
+                        key={url}
+                        className="flex items-center gap-1.5 px-2 h-[32px] border-b border-[var(--rule-soft)] hover:bg-[var(--bg-slot)] transition-colors"
+                      >
+                        <RecentFavicon url={url} favicon={webTabFavicons[url]} />
+                        <button
+                          onClick={(e) => {
+                            // Ctrl/Cmd+点击 = 小窗预览(应用内 Ctrl+点击是备选动作的通用
+                            // 语法,同终端 Ctrl+点击 URL 开页签);普通点击仍开完整页签
+                            if (e.ctrlKey || e.metaKey) loadMini(url)
+                            else openWebTab(url)
+                          }}
+                          title={url}
+                          className="flex-1 min-w-0 text-left text-xs [font-family:inherit] truncate text-[var(--text-rack)] hover:text-[var(--amber)] cursor-pointer transition-colors"
+                        >
+                          {url}
+                        </button>
+                        {/* 在小窗打开 —— 显式按钮(此前只有 Ctrl+点击隐藏手势):与 Ctrl+点击
+                            同走 loadMini 入口,小窗收着时顺手重开(见 loadMini),同址 = 刷新 */}
+                        <button
+                          onClick={() => loadMini(url)}
+                          title={t('webBar.openMini')}
+                          className="w-[14px] h-[14px] flex-shrink-0 flex items-center justify-center text-[var(--text-rack-mute)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] rounded-[2px] transition-colors cursor-pointer"
+                        >
+                          <MiniOpenIcon />
+                        </button>
+                        <button
+                          onClick={() => removeWebTabHistory(url)}
+                          title={t('webBar.removeRecent')}
+                          className="w-[14px] h-[14px] flex-shrink-0 flex items-center justify-center text-xs text-[var(--text-rack-mute)] hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollFold>
               </div>
             ))}
           </div>
