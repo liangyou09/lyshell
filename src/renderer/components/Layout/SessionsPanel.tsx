@@ -274,7 +274,10 @@ const GroupHeader: React.FC<{
           dim)—— 探出纸幅两端(纸带与纸幅同宽),收起时读作纸卷两端的
           轴头端盖 */}
       {collapsible && (
-        <span aria-hidden className="rod-caps" style={toneVar ? { color: toneVar } : undefined} />
+        <span aria-hidden className="rod-caps" style={toneVar ? { color: toneVar } : undefined}>
+          <span className="scroll-rod-collar scroll-rod-collar-l" />
+          <span className="scroll-rod-collar scroll-rod-collar-r" />
+        </span>
       )}
       {collapsible && (
         <span
@@ -289,7 +292,7 @@ const GroupHeader: React.FC<{
           className={cn('inline-flex transition text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)] opacity-80 group-hover:opacity-100')}
           style={toneVar ? { color: toneVar } : undefined}
         >
-          <ScrollTie />
+          <ScrollTie group />
         </span>
       )}
       {/* 题签(scroll-slip)—— 折叠栏题名:书体(Cambria 铭刻衬线 / 隶书)

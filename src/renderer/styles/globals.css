@@ -382,6 +382,13 @@
   /* 触辊阴影只贴顶 8px(随 16 辊径半幅收细);两枚正交纤维纹理铺满整面 */
   background-size: 100% 8px, 100% 100%, 100% 100%;
   background-repeat: no-repeat;
+  /* 卷轴下垂的画纸两侧露出窄裱边，纸尾轻轻收暗；会话行仍落在同一张纸上。 */
+  box-shadow:
+    inset 3px 0 0 color-mix(in srgb, var(--pin) 11%, var(--paper)),
+    inset -3px 0 0 color-mix(in srgb, var(--pin) 11%, var(--paper)),
+    inset 4px 0 0 color-mix(in srgb, var(--pin) 21%, transparent),
+    inset -4px 0 0 color-mix(in srgb, var(--pin) 21%, transparent),
+    inset 0 -5px 5px -5px rgba(0, 0, 0, .38);
 }
 
 /* ─── 卷轴辊(折叠栏上的辊本体)─── rod-caps 渲染的卷物件:栏内垂直居中 ——
@@ -875,6 +882,24 @@
 .rod-caps::before { left: 0; }
 .rod-caps::after { right: 0; }
 
+/* 分组卷专有的轴肩：夹在彩色轴头与纸幅之间，展开时露出轴的层次，
+   收起时压住卷纸两端。直系限定避免影响墙、搜索框和文件管理器的细辊。 */
+.scroll-head .rod-caps::before { border-radius: 3px 1px 1px 3px; }
+.scroll-head .rod-caps::after { border-radius: 1px 3px 3px 1px; }
+.scroll-rod-collar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(to right, rgba(0, 0, 0, .35), color-mix(in srgb, currentColor 52%, var(--bg-slot)), rgba(255, 255, 255, .12));
+  box-shadow: 1px 0 2px rgba(0, 0, 0, .3);
+}
+.scroll-rod-collar-l { left: 6px; }
+.scroll-rod-collar-r { right: 6px; transform: scaleX(-1); }
+.scroll-head:hover .rod-caps {
+  filter: drop-shadow(0 2px 5px color-mix(in srgb, currentColor 20%, transparent));
+}
+
 /* 亮色主题(rack-paper / rack-lark,浅底 rack-custom 同样命中):阴影整套
    收浅一档 —— 只重设光照参数,尺寸/动画仍走上面的通用规则(本规则特异性
    低于 .rolled 的卷面规则,不同属性互不覆盖)。轴头渐变同步收浅,亮底上
@@ -928,6 +953,14 @@
     translate 440ms cubic-bezier(.2, .7, .2, 1),
     rotate 440ms cubic-bezier(.2, .7, .2, 1);
 }
+/* 分组轴比筛选小轴宽，绳结多留一档面积，尾端刚好垂到轴下沿。 */
+.scroll-head .scroll-tie {
+  width: 14px;
+  height: 18px;
+  margin-left: 3px;
+  transform: translateX(6px);
+  overflow: visible;
+}
 :is(.scroll-head.rolled, .scroll-chip:not(.on), .scroll-search.rolled, .scroll-dual.rolled) .scroll-tie {
   opacity: 1;
   translate: 0 0;
@@ -978,6 +1011,21 @@
   0%, 100% { transform: rotate(0deg); }
   42%      { transform: rotate(5deg); }
   76%      { transform: rotate(-3.5deg); }
+}
+/* 分组卷的绳面积更大，摆幅收小，读作垂落的绳尾而非跳动的图标。 */
+.scroll-head.rolled .scroll-tie-tail-l,
+.scroll-head.rolled .scroll-tie-tail-r { animation-name: scroll-tie-flutter-soft; }
+.scroll-head.rolled .scroll-tie-loop-l,
+.scroll-head.rolled .scroll-tie-loop-r { animation-name: scroll-tie-loop-soft; }
+@keyframes scroll-tie-flutter-soft {
+  0%, 100% { transform: rotate(0deg); }
+  38% { transform: rotate(5deg); }
+  74% { transform: rotate(-3deg); }
+}
+@keyframes scroll-tie-loop-soft {
+  0%, 100% { transform: rotate(0deg); }
+  42% { transform: rotate(3deg); }
+  76% { transform: rotate(-2deg); }
 }
 
 /* ─── 双开画轴(scroll-search)── 会话搜索框的挂轴化 ───
