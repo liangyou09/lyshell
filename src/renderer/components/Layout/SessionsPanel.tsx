@@ -1283,11 +1283,11 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
 
         {/* ===== LAUNCH ===== 一键拉起本地终端 —— 笔山:每键一管卧毫(挂器
              化,不再是卷 —— 卷是「纸的形态」,这排是拿起工具去写的「器」,
-             硬套卷轴,解绳一拍是绳解了卷不开)。行高同 32px = 上气 6+名签
-             10+气 1+笔形 8;上缘不画线 —— 紧贴头条的 border-b,画了会叠
+             硬套卷轴,解绳一拍是绳解了卷不开)。行高 35px = 内高 28+上下垫 7;
+             上缘不画线 —— 紧贴头条的 border-b,画了会叠
              双线;下缘 border 化作笔山连脊(.brush-rack::after 的 conic
              连脊),笔卧山上。毫(拢毫笔头:锋尖+鼓肚+根收)朝左,漆杆
-             随身份色(cmd 素/ps 蓝/ps7 紫/ps+ 红),名签悬在笔上 —— 6px
+             随身份色(cmd 素/ps 蓝/ps7 紫/ps+ 红),名签悬在笔上 —— 7px
              细杆刻不下字,挂签贴笔(签挂器上);
              点下执笔一拍 —— 整笔离架、毫尖蘸墨(金墨),终端(纸)在别处
              垂落 */}
@@ -1425,8 +1425,8 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
                     }
                   />
                   <ScrollFold open={!liveCollapsed}>
-                    {/* 纸幅:辊下垂落的纸(与辊上卷纸带同宽同边 mx-3,辊探出一对轴头),行透明落在纸上 */}
-                    <div className="paper-sheet mx-3">
+                    {/* 纸幅:与辊上卷纸带同宽同边 mx-2，辊探出一对轴头。 */}
+                    <div className="paper-sheet mx-2">
                       {liveSessions.map(config => (
                         <SessionSlot
                           key={`live-${config.id}`}
@@ -1464,8 +1464,8 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
                     onToggle={() => setPinnedCollapsed(c => !c)}
                   />
                   <ScrollFold open={!pinnedCollapsed}>
-                    {/* 纸幅:辊下垂落的纸(与辊上卷纸带同宽同边 mx-3,辊探出一对轴头),行透明落在纸上 */}
-                    <div className="paper-sheet mx-3">
+                    {/* 纸幅:与辊上卷纸带同宽同边 mx-2，辊探出一对轴头。 */}
+                    <div className="paper-sheet mx-2">
                       {pinnedSessions.map((config, index) => (
                         <SessionSlot
                           key={config.id}
@@ -1559,8 +1559,8 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
                       onToggle={() => toggleIPGroup(groupKey)}
                     />
                     <ScrollFold open={expanded}>
-                      {/* 纸幅:辊下垂落的纸(与辊上卷纸带同宽同边 mx-3,辊探出一对轴头),行透明落在纸上 */}
-                      <div className="paper-sheet mx-3">
+                      {/* 纸幅:与辊上卷纸带同宽同边 mx-2，辊探出一对轴头。 */}
+                      <div className="paper-sheet mx-2">
                         {sorted.map(config => (
                           <SessionSlot
                             key={config.id}

@@ -361,9 +361,9 @@
 }
 
 /* ─── 纸幅(辊下垂落的纸)─── 会话行落的纸面:承色承纹理,由 SessionsPanel 的
-   三个分组区包在 ScrollFold 里(mx-3 = 12px 内缩,与辊上卷纸带严格同宽同
-   边 —— 卷起的纸幅与垂落的纸幅是同一张纸,宽不换、边不跳;辊体 rod-caps
-   内缩 6px、两端轴头 6px,辊比纸长出一对轴头,「辊比纸长」的立轴读形)。
+   三个分组区包在 ScrollFold 里(mx-2 = 8px 内缩,与辊上卷纸带严格同宽同
+   边 —— 卷起的纸幅与垂落的纸幅是同一张纸,宽不换、边不跳;分组辊体
+   内缩 2px、两端轴头 6px,辊比纸长出一对轴头,「辊比纸长」的立轴读形)。
    行自身透明,纸色全由本类提供;顶缘一层触辊阴影(纸自辊下引出,贴辊处
    压暗,纸有从辊后拉出来的纵深 —— 辊底黑端与纸顶暗渐变跨过辊下小缝相接,
    读作纸压轴的暗缝,不是两物之间的边界线),底缘由最后一行的 rule-soft
@@ -402,10 +402,10 @@
    把轴整个裹进卷里(band 满高 16px、与轴同径,两端只露跟辊同径的轴头
    —— 满卷读作「一卷纸」,不是灰杆上叠一条纸带)。开合:band 锚辊底向
    上长/收回 0↔16 —— 纸向辊上裹拢、自辊下垂落;元素高与轴头恒 16px 不
-   参与动画,粗细自始至终不变,变的只有面(光辊↔纸裹)。与栏两侧留
-   6px 距离(不顶到缘,是搁上去的物件),两端 6px 宽轴头(currentColor
+   参与动画,粗细自始至终不变,变的只有面(光辊↔纸裹)。分组辊与栏两侧留
+   2px 距离(不顶到缘,是搁上去的物件),两端 6px 宽轴头(currentColor
    身份色,高恒 = 元素满高 16px)恰好探出纸幅两端 —— 纸带宽 = 纸幅宽:
-   带在杆内再让 6px(12→W-12,与 paper-sheet 的 mx-3 同边),「辊比纸长」
+   带在杆内再让 6px(8→W-8,与 paper-sheet 的 mx-2 同边),「辊比纸长」
    的立轴读形。立体圆柱用「底色 + 垂直受光渐变」塑体积:横置圆柱顶曲面
    含光、底曲面背光,光照 = 叠在底色上的半透明黑白渐变(不是纹理贴图),
    两层 background 各自定位 —— 纸带锚底(裹轴的卷面:展开 0px 不可见、
@@ -429,6 +429,8 @@
 
 .scroll-head { z-index: 0; }  /* 栈式上下文:辊(-1)垫在栏内文字后(栏无底
                                 色,静息/hover 皆透明) */
+/* 分组画轴靠近栏两端：轴头 6px，纸从第 8px 开始，与 mx-2 的纸幅同边。 */
+.scroll-head .rod-caps { left: 2px; right: 2px; }
 
 /* 键盘焦点:可折叠栏挂 role="button" + tabIndex(Enter/Space 开合,折叠
    内容被 ScrollFold inert 挡在 Tab 序外,键盘全靠这一处),描边语言与
@@ -556,12 +558,12 @@
    两条:尖,锋颖一点立在杆轴线的延长线上;圆,拢毫拢出来的肚 —— 上
    缘自锋尖先缓后急地鼓,肚在最宽处(约 8 成),近根收束回杆口径(直
    边锥是记号笔,两折弧边才是毫)。尖处墨最饱、向笔根渐露毫色,顺毫
-   细丝给毛感;锋尖统一朝左(书写起笔的方向)。杆是细竹管:6px 圆径
-   —— 好看的毛笔杆是全器最细处,细过毫肚(8),卷轴里只有双开轴的
-   细棍(5)比它更细一档(器各有径,笔杆居细端);锋长 20 近肚径两倍半 —— 毛笔的比例(杆粗
+   细丝给毛感;锋尖统一朝左(书写起笔的方向)。杆是细竹管:7px 圆径
+   —— 好看的毛笔杆是全器最细处,细过毫肚(11),卷轴里只有双开轴的
+   细棍(5)比它更细一档(器各有径,笔杆居细端);锋长 24 约为肚径两倍 —— 毛笔的比例(杆粗
    过毫就是蜡笔);杆有漆色(身份色经使用处 color 注入,同 chips 轴头
    机制:cmd 素漆/ps 蓝漆/ps7 紫/ps+ 红漆);名签(short label)悬于
-   笔上 —— 字不刻在杆上(6px 小杆刻不下字),挂在器物上边读作挂签。整排底缘不画直线 border,化
+   笔上 —— 字不刻在杆上(7px 小杆刻不下字),挂在器物上边读作挂签。整排底缘不画直线 border,化
    作笔山连脊(conic 三角连脊)—— 分隔线变器物,笔就卧在山上。执笔
    之时纸在别处垂落,与「终端=纸」的既有叙事接上。
    状态:器无持久态(LAUNCH 是一次性动作;拴绳/解绳的持久选择语义归
@@ -584,9 +586,8 @@
 }
 
 .brush {
-  height: 25px;             /* 键高 = 上气 4 + 名签 12 + 气 1 + 笔形 8
-                              (pt 2+25+pb 5 =32,行高与小画轴时代同);笔形
-                              8 底缘对齐搁脊,名签贴笔悬(签挂器上,杆细
+  height: 28px;             /* 上气 4 + 名签 12 + 气 1 + 笔形 11；整排高 35px。
+                              笔形底缘对齐搁脊,名签贴笔悬(签挂器上,杆细
                               后签随器下移,键顶留气),随执笔拍一起离架 */
   z-index: 0;               /* 栈式上下文:毫/杆(-1)垫在名签后 */
   transition: transform 140ms ease;
@@ -596,21 +597,18 @@
 .brush-tip {
   position: absolute;
   left: 4px; bottom: 0;
-  width: 20px; height: 8px;  /* 毫全长 20、肚径 8、根径 6=杆径:锋长近
-                              肚径两倍半 —— 毛笔比例(毫占笔身约五分之
-                              二:像素尺上头要够长才见肚) */
+  width: 24px; height: 11px; /* 毫全长 24、肚径 11、根径 7=杆径 */
   z-index: -1;
-  /* 拢毫的笔头(横卧,锋尖朝左):锋颖一点(0,62%)落在杆轴延长线上;
-     上缘自锋尖先缓后急地鼓到 8 成处的肚(圆),近根收束回杆口径 ——
-     根 25%..100% 恰对 6px 杆、同底搁脊;直边锥是记号笔,两折弧边才
-     是拢出来的毫 */
-  clip-path: polygon(0 62%, 32% 44%, 68% 4%, 82% 0%, 100% 25%, 100% 100%, 76% 100%, 38% 80%);
+  /* 横卧的拢毫:锋尖朝左、笔肚在近根处鼓起，贝塞尔曲线避免直边箭头感。 */
+  clip-path: path('M 0 6.8 C 5 6.7 10 3.4 17 0.9 C 19.6 0 21.6 1.8 24 4 L 24 11 C 21 10.2 19.3 10.9 16.5 10 C 10 8.8 5 7.2 0 6.8 Z');
   /* 三层:顺毫细丝(毫横卧,毫丝即纵向密线)/ 上缘受光 / 蘸墨渐变
      (尖处墨最饱,向笔根渐亮露毫色) */
   background-image:
     repeating-linear-gradient(to bottom, rgba(255, 255, 255, .06) 0 1px, transparent 1px 2px),
     linear-gradient(to bottom, rgba(255, 255, 255, .16), rgba(255, 255, 255, 0) 35%, rgba(0, 0, 0, .28)),
-    linear-gradient(to right, var(--text-rack-dim), color-mix(in srgb, var(--text-rack-dim) 35%, var(--paper)));
+    linear-gradient(to right,
+      color-mix(in srgb, var(--text-rack-dim) 80%, var(--pin)),
+      color-mix(in srgb, var(--text-rack-data) 55%, var(--pin)));
   transition: filter 140ms ease;
 }
 /* 蘸墨:执笔一拍 amber 洪过毫尖(尖处最重、向笔根渐收)+ 辉光(轴头
@@ -626,8 +624,8 @@
 
 .brush-shaft {
   position: absolute;
-  left: 23px; right: 4px; bottom: 0;
-  height: 6px;              /* 杆径恒定 —— 细竹管圆径,全器最细处(好看
+  left: 27px; right: 4px; bottom: 0;
+  height: 7px;              /* 杆径恒定 —— 细竹管圆径,全器最细处(好看
                               的毛笔杆细过毫肚);与毫根满宽衔接(毫右缘
                               压笔根 1px 藏缝) */
   z-index: -1;
@@ -639,6 +637,7 @@
     color-mix(in srgb, currentColor 12%, transparent) 34%,
     color-mix(in srgb, currentColor 18%, transparent) 80%,
     color-mix(in srgb, currentColor 8%, transparent));
+  box-shadow: inset -3px 0 0 color-mix(in srgb, var(--pin) 38%, transparent);
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .3));   /* 卧在山上的落影 */
   transition: filter 140ms ease;
 }
@@ -652,19 +651,32 @@
   opacity: .45;
   transition: opacity 140ms ease;
 }
+.brush-shaft::after {       /* 束口箍住毫根，笔毫与漆杆在此接成一件器物 */
+  content: '';
+  position: absolute;
+  left: -2px;
+  top: 0;
+  width: 5px;
+  height: 7px;
+  border-radius: 1px;
+  background: linear-gradient(to right,
+    color-mix(in srgb, var(--pin) 42%, var(--bg-slot)),
+    color-mix(in srgb, var(--pin) 70%, var(--paper)) 45%,
+    color-mix(in srgb, var(--pin) 30%, var(--bg-slot)));
+  box-shadow: 1px 0 2px rgba(0, 0, 0, .25);
+}
 .brush:not(.on):hover .brush-shaft::before { opacity: .8; }   /* 悬停:漆面棱线提亮一档 */
 
 .brush-label {              /* 名签:悬在笔上的短铭(title 给完整 shell 名),
-                                字在器物上边 —— 6px 细杆刻不下字,挂签贴笔
+                                字在器物上边 —— 7px 细杆刻不下字,挂签贴笔
                                 (气 1),锚笔顶不锚键顶 —— 签挂在器上 */
   position: absolute;
   left: 0; right: 0;
-  bottom: 9px;              /* 笔形 8 + 气 1:签底离肚顶 1px */
+  bottom: 12px;             /* 笔形 11 + 气 1:签底离肚顶 1px */
   height: 12px;
   line-height: 12px;
   text-align: center;
-  font-size: 12px;          /* 2026/09/20 调大:10px 读不清;12px 与协议徽章同号
-                              —— 名签自签上抬头,上气 6→4(键高 25/行高 32 不动) */
+  font-size: 12px;          /* 与协议徽章同号，笔形加高后仍留 4px 上气 */
   letter-spacing: .03em;
   color: currentColor;
   white-space: nowrap;
@@ -682,7 +694,9 @@
   background-image:
     repeating-linear-gradient(to bottom, rgba(255, 255, 255, .04) 0 1px, transparent 1px 2px),
     linear-gradient(to bottom, rgba(255, 255, 255, .2), rgba(255, 255, 255, 0) 35%, rgba(0, 0, 0, .2)),
-    linear-gradient(to right, var(--text-rack-dim), color-mix(in srgb, var(--text-rack-dim) 40%, var(--paper)));
+    linear-gradient(to right,
+      color-mix(in srgb, var(--text-rack-dim) 80%, var(--pin)),
+      color-mix(in srgb, var(--text-rack-data) 55%, var(--pin)));
 }
 [data-theme-mode="light"] .brush-shaft {
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .16));
@@ -958,7 +972,7 @@
   width: 14px;
   height: 18px;
   margin-left: 3px;
-  transform: translateX(6px);
+  transform: translateX(1px);
   overflow: visible;
 }
 :is(.scroll-head.rolled, .scroll-chip:not(.on), .scroll-search.rolled, .scroll-dual.rolled) .scroll-tie {
