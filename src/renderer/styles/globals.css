@@ -1188,6 +1188,15 @@
   color: color-mix(in srgb, #5F6B76 75%, transparent);
 }
 
+/* 原生下拉三角上下居中 —— indicator 随基线落,三角下缘踏在基线上、
+   视觉浮在墨的上半;vertical-align 中线对齐 + flex 子项居中(编辑容器
+   是 flex 行,两条各覆盖一种布局)把它压回墨的光学正中。只摆位,色与形
+   维持原生 */
+.scroll-search-input::-webkit-calendar-picker-indicator {
+  vertical-align: middle;
+  align-self: center;
+}
+
 /* 展开(聚焦或有字)—— 双开:两半纸相向铺满合缝、纸下辊回归光辊、轴头
    点亮辉光(落影换成光,卷被拿起 —— 同小画轴的解绳点亮) */
 .scroll-search.open .scroll-search-paper-l,
@@ -1234,6 +1243,43 @@
 [data-theme-mode="light"] .scroll-search-rod::before,
 [data-theme-mode="light"] .scroll-search-rod::after {
   background-image: linear-gradient(to bottom, rgba(255, 255, 255, .28), rgba(255, 255, 255, .06) 42%, rgba(0, 0, 0, .32));
+}
+
+/* 青蓝变体(.scroll-search-web)── Web 栏地址栏挂 web 段身份:轴头/系绳
+   取 --web-group(与小窗/会话搜索框的 amber 轴分域),解绳辉光同度换青蓝
+   —— 与最近访问墙(.scroll-dual-web)的组头署名同一件物的三处一致;浅色
+   rack 轴头收暗一档(同 .scroll-dual-web 的提亮补偿) */
+.scroll-search.scroll-search-web .scroll-search-rod,
+.scroll-search.scroll-search-web .scroll-search-tie { color: var(--web-group); }
+.scroll-search.scroll-search-web.open .scroll-search-rod {
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--web-group) 45%, transparent));
+}
+[data-theme-mode="light"] .scroll-search-web .scroll-search-rod::before,
+[data-theme-mode="light"] .scroll-search-web .scroll-search-rod::after {
+  filter: brightness(.65);
+}
+/* 合缝去痕 —— 双开的正中接缝在会话搜索框是语义(「接缝即双开的合缝」),
+   地址栏不要中间那一笔:两半纸的 box-shadow 在合缝互投出一道竖痕,自由端
+   的残余卷曲又在每次铺纸时于正中闪一线 —— web 变体两样都去,铺开后读作
+   整幅无痕(特异性 (0,3,0) 压过基类与浅色主题的落影覆写) */
+.scroll-search.scroll-search-web .scroll-search-paper {
+  box-shadow: none;
+}
+.scroll-search.scroll-search-web .scroll-search-paper::after {
+  display: none;
+}
+/* 地址栏加高一档(.scroll-search-lg,只主地址栏挂:小窗地址栏同青蓝但
+   保持 16/24 原几何)—— 常开动作位承担的输入量比搜索框/小窗重,纸 16→20、
+   辊 24→28(轴头 4×2 恒定,「辊比纸长」几何不变:裹辊纸带 = 辊高-8 仍
+   与纸等高),点纸落墨的热区与可读行高同涨 */
+.scroll-search.scroll-search-lg .scroll-search-paper {
+  top: calc(50% - 10px);
+  height: 20px;
+}
+.scroll-search.scroll-search-lg .scroll-search-rod,
+.scroll-search.scroll-search-lg .scroll-search-tie {
+  top: calc(50% - 14px);
+  height: 28px;
 }
 
 /* ─── 双开画轴竖置(scroll-dual)── 栏底面板开合的挂轴化 ───
@@ -1476,6 +1522,34 @@
   filter: drop-shadow(0 -1px 2px rgba(0, 0, 0, .14));
 }
 
+/* ─── IconBtn 白面辉光(.icon-bright-glow)── Web 栏铭牌行按钮簇用 ───
+   白已顶满中性色阶(#FFF 上无更亮),「再亮」只能加光晕:整枚图标透
+   currentColor 辉光(与 scroll-chip.on 解绳点亮同语言),amber 悬停时晕
+   随字面同步变琥珀(drop-shadow 不写颜色即取 color)。45% 与辊头开态辉光
+   同度 —— 近黑 rack 底上读作「点亮」而非「发光体」 */
+.icon-bright-glow svg {
+  filter: drop-shadow(0 0 3px color-mix(in srgb, currentColor 45%, transparent));
+}
+/* 浅色主题:白面在浅底(rack-paper #F3F3F3 / rack-lark #F5F6F7)上对比崩坏
+   (<1.2:1,读不出),面回落文字色令牌 --text-rack(深墨,两浅主题各自定义);
+   辉光随 currentColor 收敛成细墨晕。hover 的 text-white / disabled:hover 一并
+   压回(属性+类+:hover 三档特异性稳赢同文件更早的 Tailwind hover 工具类),
+   悬停反馈只留 bg-slot 一档 —— 与 dark 的「白已顶满、只动底」同口径 */
+[data-theme-mode="light"] .icon-bright-glow {
+  color: var(--text-rack);
+}
+[data-theme-mode="light"] .icon-bright-glow:hover {
+  color: var(--text-rack);
+}
+
+/* ─── 活动轨 web 槽位激活(.rail-icon-web-active)── 写轮眼开眼色 ───
+   dark 取 --web-group 亮青(段身份,与 Web 栏轴头/地址栏署名同一件物);
+   token 本身不随主题走(见其 token 注),亮青压浅色激活底读不出,感知层乘
+   brightness(.6) 收深 —— 同 scroll-dual-web 浅色收暗口径,比轴头的 .65 再
+   深一档:线稿图标比实心轴头更吃对比 */
+.rail-icon-web-active { color: var(--web-group); }
+[data-theme-mode="light"] .rail-icon-web-active { filter: brightness(.6); }
+
 /* ─── 会话墙变体(.scroll-dual-wall)── 天头总闸挂轴化的几何覆写 ───
    墙恒开:收起的是纸里的垂卷分组们(辊行一键收/放),不是整墙卷回双辊 ——
    装配恒挂 open、无自身的开合动画(基类 height 过渡一并掐掉:墙高随内容
@@ -1502,6 +1576,27 @@
   transform: none;
   height: auto;
   margin: 8px;                /* 裱边随内容走(基类 left/right 8px 只在绝对定位生效) */
+}
+
+/* ─── 网页墙变体(.scroll-dual-web)── Web 栏最近访问的墙:段身份青蓝 ───
+   会话墙同款几何(scroll-dual-wall 一并挂),唯轴头与拴绳不取 amber 而取
+   --web-group —— 与纸里域名组头的轴头/系绳是同一件物的三处署名(组头在 JSX
+   里 inline 注入同一 token,墙在类规则里换色);解绳辉光跟着换青蓝(基类
+   .open 的辉光硬编码 amber,此处同特异性靠源序压过)。浅色主题下亮青压奶油
+   纸发飘,与分组轴头(scroll-head 的 tone 浅色收暗,见 rod-caps 节)同口径
+   乘 brightness(.65),只收感知层不动语义 token */
+.scroll-dual.scroll-dual-web > .scroll-dual-rod .rod-caps {
+  color: var(--web-group);
+}
+.scroll-dual.scroll-dual-web .scroll-dual-tie {
+  color: var(--web-group);
+}
+.scroll-dual.scroll-dual-web.open .scroll-dual-rod .rod-caps {
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--web-group) 45%, transparent));
+}
+[data-theme-mode="light"] .scroll-dual-web > .scroll-dual-rod .rod-caps::before,
+[data-theme-mode="light"] .scroll-dual-web > .scroll-dual-rod .rod-caps::after {
+  filter: brightness(.65);
 }
 
 /* ─── 搁板(.shelf)── 墙与 FM 之间的架(笔山连脊同款)───

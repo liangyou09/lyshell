@@ -11,6 +11,8 @@ import {
   activeWebTabGoBack, activeWebTabGoForward, getWebview, openActiveWebTabDevTools
 } from './web-tab-controls'
 import ScrollFold, { ScrollTie } from './ScrollFold'
+import { IconBtn } from './IconBtn'
+import { useDismiss } from '../../hooks'
 import { WEBBAR_PARTITION } from '@shared/constants'
 
 /** datalist 选项 label 用:取 hostname,取不到回落原样字符串(与页签 title 初始值同源);
@@ -89,34 +91,62 @@ function guessOriginFavicon(url: string): Promise<string | null> {
   return p
 }
 
-/** 导航图标组(lucide 线稿风格,stroke 随 currentColor,同 TrashIcon 12x12)——后退/前进/刷新/停止 */
-const ChevronLeftIcon: React.FC = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    <path d="m15 18-6-6 6-6" />
+/** 线稿图标底座 —— 本文件所有 lucide 风格图标的统一外壳:24 viewBox、stroke
+ *  随 currentColor、圆帽圆角,描边随渲染尺寸反比提粗(小尺寸细线发虚 ——
+ *  14px 档 2.5、感知 ~1.45px,12px 档 2、感知 1px 与旧值一致:提粗只落在
+ *  铭牌行的 lg 档,小窗工具条原样)。各图标只写路径,不再各自拼 svg 属性 */
+const Glyph: React.FC<{ size?: number; children: React.ReactNode }> = ({ size = 12, children }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={size >= 14 ? 2.5 : 2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    {children}
   </svg>
 )
-const ChevronRightIcon: React.FC = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    <path d="m9 18 6-6-6-6" />
-  </svg>
+
+/** 导航图标组(lucide 线稿风格)——后退/前进/刷新/停止。size 供铭牌行(IconBtn
+ *  lg 档)放大到 14,缺省 12 = 小窗工具条原尺 */
+/** 后退/前进 = 单笔角括号 —— 读形对齐左窗栏收起控位(ActivityRail
+ *  IconCollapseRail)的 chevron,大小也对齐它的物理份量:那颗在 24px 盒里
+ *  占 6×10.8(口高 45%),本行图标盒只有 14px,等比放大即 24vb 下 10×18
+ *  (口高 75%)—— 之前 7×12 渲染才 4×7px,比邻位的刷新/检查矮一头,读作
+ *  缩水;进深:口高仍是 5:9 同比例 */
+const ChevronLeftIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
+  <Glyph size={size}>
+    <path d="m17 3-10 9 10 9" />
+  </Glyph>
 )
-const RotateCwIcon: React.FC = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+const ChevronRightIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
+  <Glyph size={size}>
+    <path d="m7 3 10 9-10 9" />
+  </Glyph>
+)
+const RotateCwIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
+  <Glyph size={size}>
     <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
     <path d="M21 3v5h-5" />
-  </svg>
+  </Glyph>
 )
-const StopIcon: React.FC = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    <rect width="13" height="13" x="5.5" y="5.5" rx="1" />
-  </svg>
+const StopIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
+  <Glyph size={size}>
+    {/* 圆角提到 2(浏览器 stop 的读形):描边 2.5 下 rx1 已被吃成直角,
+        rx2 恰好保住一点软边 */}
+    <rect width="13" height="13" x="5.5" y="5.5" rx="2" />
+  </Glyph>
 )
 /** 检查网页(客体 DevTools)图标 —— 同组线稿风格,code 括号 */
-const CodeIcon: React.FC = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+const CodeIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
+  <Glyph size={size}>
     <path d="m16 18 6-6-6-6" />
     <path d="m8 6-6 6 6 6" />
-  </svg>
+  </Glyph>
 )
 
 /** 导航按钮 —— 18px 图标钮（对齐面板既有图标钮规格），disabled 走 40% 透明度 */
@@ -136,6 +166,14 @@ const NavButton: React.FC<{
     {children}
   </button>
 )
+
+// 铭牌行按钮簇收纳阈值:全簇预算 5×28(面) + 5×gap-1(题名与 5 钮间 5 缝)
+// + px-3×2 = 184px,加「Sharingan」全宽 ~72 + 呼吸 ≈ 264 —— 根宽低于它时
+// 收起副操作钮(检查/清空),保主导航三钮(3 钮预算 120)与完整题名:默认
+// 240 宽下题名得 120px,拖到下限 180 也有 60px(「写轮眼」48px 仍在,题名
+// 另有 min-w-[48px] 兜底);根宽回涨全簇归位。rootWidth 未量得(首帧/jsdom)
+// 不收,行为同旧
+const WEBBAR_NAMEPLATE_COMPACT_WIDTH = 264
 
 // ===== 写轮眼小窗（栏底迷你浏览器）的持久化与几何常量 =====
 // 高度走 config（键名/防抖/夹取对齐会话面板 fileManagerHeight 的栏底语法）；上次
@@ -201,51 +239,52 @@ const MiniEyeGlyph: React.FC<{ lit: boolean; label: string; size?: number }> = (
   </span>
 )
 
-/** 升格图标（lucide external-link 线稿风格）——把小窗当前页开成完整网页页签 */
-const PromoteIcon: React.FC = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+/** 升格图标(lucide external-link 线稿风格)——把小窗当前页开成完整网页页签 */
+const PromoteIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
+  <Glyph size={size}>
     <path d="M13 4h7v7" />
     <path d="M20 4 9 15" />
     <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
-  </svg>
+  </Glyph>
 )
 
-/** 小窗打开图标（lucide picture-in-picture 线稿风格）——历史行「在小窗打开」按钮:
+/** 小窗打开图标(lucide picture-in-picture 线稿风格)——历史行「在小窗打开」按钮:
  *  外屏 + 右下小窗,读作「在下方小窗里打开」 */
-const MiniOpenIcon: React.FC = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+const MiniOpenIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
+  <Glyph size={size}>
     <path d="M21 9V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4" />
     <rect x="12" y="13" width="9" height="7" rx="1" />
-  </svg>
+  </Glyph>
 )
 
-/** 关页图标（lucide x 线稿风格）——关闭小窗当前页,回到未开眼空态 */
-const XIcon: React.FC = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+/** 关页图标(lucide x 线稿风格)——关闭小窗当前页,回到未开眼空态 */
+const XIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
+  <Glyph size={size}>
     <path d="M18 6 6 18" />
     <path d="m6 6 12 12" />
-  </svg>
+  </Glyph>
 )
 
-/** 垃圾桶图标(lucide trash 线稿风格,stroke 随 currentColor)——「清空」按钮用 */
-const TrashIcon: React.FC = () => (
-  <svg
-    width="12"
-    height="12"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden
-  >
+/** 垃圾桶图标(lucide trash 线稿风格)——「清空」按钮用;size 同导航图标组
+ *  (铭牌行 14,缺省 12)。素桶:不画桶内两道竖线(那是 trash-2 的进阶细节,
+ *  14px 下两线只隔 ~2.3px,描边一提粗就糊成一团脏斑)—— 桶口横梁 + 桶身 +
+ *  提手三笔,小尺寸读形干净 */
+const TrashIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
+  <Glyph size={size}>
     <path d="M3 6h18" />
     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
     <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-    <line x1="10" y1="11" x2="10" y2="17" />
-    <line x1="14" y1="11" x2="14" y2="17" />
-  </svg>
+  </Glyph>
+)
+
+/** 溢出菜单钮(lucide more-horizontal 线稿风格)—— 窄栏收纳的检查/清空住这里;
+ *  三点走实心圆(1 半径描边在 14px 下只剩亚像素点,填色才读得出「省略号」) */
+const MoreIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <Glyph size={size}>
+    <circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
+    <circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none" />
+  </Glyph>
 )
 
 /**
@@ -340,14 +379,17 @@ const WebGroupHeader: React.FC<{
 /**
  * 网页访问面板(机柜左列 Web 页签)。
  * 双模式:活动分屏正显示网页页签时是「浏览器 chrome」—— 地址栏同步当前 URL
- * (payload.nav,did-navigate 回写)、Enter 就地导航、后退/前进/刷新/停止按钮
- * (指令经 web-tab-controls 落到活动页签);否则是「启动器」—— 顶部 URL 栏输入
- * 完整网址,以终端页签形式打开在活动分屏(多页签,类似 dsh Web 页签),打开的网页
- * 一律走终端页签栏切换/关闭,面板不再列清单。
+ * (payload.nav,did-navigate 回写)、Enter 就地导航、后退/前进/刷新/停止/检查
+ * 按钮住铭牌行(IconBtn,指令经 web-tab-controls 落到活动页签);否则是「启动器」
+ * —— 顶部 URL 栏输入完整网址,以终端页签形式打开在活动分屏(多页签,类似 dsh
+ * Web 页签),打开的网页一律走终端页签栏切换/关闭,面板不再列清单。
  * 下方是「最近访问」历史(localStorage 持久化,pane-store webTabHistory),
- * 按域名分组立画轴(组头 = 会话墙 GroupHeader 同款卷轴,ScrollFold 纸幅,
- * 组序/组内序吃历史最近优先序;组键 = hostname + 非默认端口):点击重开、
- * 行上按钮在小窗打开、✕ 删除单条、段头清空;输入框挂 datalist 原生补全。
+ * 立在会话墙同款的双开画轴墙上(scroll-dual-wall 几何 + scroll-dual-web 青蓝
+ * 段身份:上/下辊行一键收/放全体域名分组 —— 会话墙「全体」同语义,组态与
+ * 单组折叠同管线不存档;组头 = GroupHeader 同款卷轴,ScrollFold 纸幅,组序/
+ * 组内序吃历史最近优先序;组键 = hostname + 非默认端口):点击重开、行上
+ * 按钮在小窗打开、✕ 删除单条;清空整段历史的钮在铭牌行(IconBtn);输入框
+ * 挂 datalist 原生补全。
  * URL 归一化/校验在 pane-store 的 normalizeWebBarUrl;webview 的导航/弹窗由主进程
  * 按 persist:webbar partition 分流锁定(仅 http/https,见 main/index.ts)。
  *
@@ -379,6 +421,20 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
   const [collapsedHosts, setCollapsedHosts] = useState<Record<string, boolean>>({})
   const toggleHostCollapsed = (host: string): void =>
     setCollapsedHosts(s => ({ ...s, [host]: !s[host] }))
+  // 一键收/放(会话墙 toggleAllGroups 同语义):收 = 把最近访问里展开着的
+  // 域名卷全卷起,放 = 全部展开 —— 组态与单组折叠同管线(直接改
+  // collapsedHosts,不另存档,保活下跨机柜页签留存);判据只看现存各组,
+  // 历史增删留下的陈旧键不掺和
+  const allGroupsCollapsed =
+    webGroups.length > 0 && webGroups.every(([host]) => !!collapsedHosts[host])
+  const toggleAllGroups = (): void => {
+    const collapsed = !allGroupsCollapsed
+    setCollapsedHosts(prev => {
+      const next = { ...prev }
+      for (const [host] of webGroups) next[host] = collapsed
+      return next
+    })
+  }
   const removeWebTabHistory = usePaneStore((s) => s.removeWebTabHistory)
   const clearWebTabHistory = usePaneStore((s) => s.clearWebTabHistory)
   const setWebTabNav = usePaneStore((s) => s.setWebTabNav)
@@ -407,10 +463,6 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
     } catch { return null }
   })
   const [miniInput, setMiniInput] = useState(miniUrl ?? '')
-  // 小窗地址栏聚焦态 —— 双开画轴的开合裁决之一:开 = 聚焦或有址(有址即开眼,
-  // 未编辑时 miniInput 恒同步当前页地址);收 = 失焦且未开眼 —— 与勾玉指示同一
-  // 状态语言(闭眼 = 双卷拴绳,开眼 = 纸展墨落)
-  const [miniInputFocused, setMiniInputFocused] = useState(false)
   const [miniLoading, setMiniLoading] = useState(false)
   // 加载遮罩与 miniLoading(工具条停止钮跟的完整加载周期)分离:遮罩 dom-ready
   // 即收 —— did-stop-loading 要等全部子资源(广告/统计/慢图)落定,真实站点上
@@ -539,11 +591,15 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
   // 提前算进 --dual-h 与内联高度:纸与画心同步收缩,工具条永在;存档值
   // 不动,窗口回弹即恢复原高(与 maxHeight 粗钳注释同一取舍)
   const [rootHeight, setRootHeight] = useState(0)
+  // 根宽同源观察:铭牌行收纳(WEBBAR_NAMEPLATE_COMPACT_WIDTH)的输入
+  const [rootWidth, setRootWidth] = useState(0)
   useEffect(() => {
     const el = rootRef.current
     if (!el || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(() => {
-      setRootHeight(el.getBoundingClientRect().height)
+      const rect = el.getBoundingClientRect()
+      setRootHeight(rect.height)
+      setRootWidth(rect.width)
     })
     ro.observe(el)
     return () => ro.disconnect()
@@ -552,6 +608,21 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
   // 极矮根高下 146 下限优先 —— 与拖动 clamp 同语义,矮到放不下是最小装配问题
   const miniFitHeight =
     rootHeight > 0 ? clampMiniHeight(miniHeight, rootHeight - MINI_RESERVE_HEIGHT) : miniHeight
+
+  // 铭牌行收纳(阈值见常量注):根宽未量得(0)不收 —— RO 的初始通知在首次
+  // 绘制前落,按全簇渲染不产生闪变;jsdom 无 RO 恒全簇(测试桩依赖)
+  const navCompact = rootWidth > 0 && rootWidth < WEBBAR_NAMEPLATE_COMPACT_WIDTH
+  // 溢出菜单(navCompact 时检查/清空的落点,功能不随收纳消失):开合 state +
+  // 收层机械(useDismiss 外点/ESC,与状态栏编码菜单/图标选择器同一套)
+  const [navMoreOpen, setNavMoreOpen] = useState(false)
+  const navMoreRef = useRef<HTMLDivElement>(null)
+  useDismiss(navMoreOpen, () => setNavMoreOpen(false), [navMoreRef])
+  // 退出窄栏(拉宽回平铺簇)时随收菜单:浮层虽卸载,open=true 仍占 useDismiss
+  // 的 ESC 回退栈顶(再按 ESC 会被它消费截停,又不落在任何可见层上);不复位的
+  // 话再缩窄时菜单还自行重现。与收纳态同源驱动,不必等外点/ESC 收层
+  useEffect(() => {
+    if (!navCompact) setNavMoreOpen(false)
+  }, [navCompact])
 
   // 双开画轴内容挂载裁决(保活):首次开卷挂载,此后不再卸载 —— 合卷的裁剪由纸
   // 承担(.scroll-dual-paper overflow:hidden,纸高收到 0 整体裁掉画心),内容留树
@@ -812,49 +883,126 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
       className={cn('w-full h-full flex flex-col bg-[var(--bg-base)]', !visible && 'hidden')}
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
-      {/* 头条:网页铭牌 —— 与 SessionsPanel/PluginPanel 头行同构(行高对齐终端第一行、
-          满幅 border-b 发丝线、铭牌走系统 UI 字体做「厂牌丝印」)。
-          挂 win-drag 做窗口拖拽区(头行是第一行横带的左列段,无交互子元素) */}
+      {/* 头条:网页铭牌 —— 与 SessionsPanel/PluginPanel 头行同构(行高对齐终端
+          第一行、满幅 border-b 发丝线、铭牌走系统 UI 字体做「厂牌丝印」)。
+          挂 win-drag 做窗口拖拽区(头行是第一行横带的左列段);交互子元素
+          (导航簇/清空)统一 IconBtn(win-no-drag 内建让位,lg + bright 档:
+          按钮簇是这行的主体操作)—— 浏览器导航键与清空都住这行,44px 输入行
+          只留地址栏 */}
       <div
         className="win-drag flex items-center justify-between gap-1 px-3 border-b border-[var(--rule)] flex-shrink-0"
         style={{ height: TOPBAR_HEIGHT }}
       >
         <span
-          className="flex-1 min-w-0 truncate font-bold tracking-[-0.01em] text-[16px] text-[var(--text-rack)] select-none"
+          title={t('webBar.title')}
+          className="flex-1 min-w-[48px] truncate font-bold tracking-[-0.01em] text-[16px] text-[var(--text-rack)] select-none"
           style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
         >
           {t('webBar.title')}
         </span>
+        {/* 导航簇 —— 落点 = 活动网页页签(web-tab-controls 控制层);可用性随
+            活动页签:无页签全禁,前后随 nav 快照,刷新/停止随加载周期换图。
+            IconBtn lg + bright 档:按钮簇是这行的主体操作,面 28px、字面 rack
+            常亮(五处头条默认档不受影响),图标同提 14。窄栏收纳
+            (WEBBAR_NAMEPLATE_COMPACT_WIDTH):副操作检查/清空离场让位题名,
+            主导航三钮恒在 */}
+        <IconBtn title={t('webBar.back')} amber size="lg" bright disabled={!activeNav?.canGoBack} onClick={activeWebTabGoBack}>
+          <ChevronLeftIcon size={14} />
+        </IconBtn>
+        <IconBtn title={t('webBar.forward')} amber size="lg" bright disabled={!activeNav?.canGoForward} onClick={activeWebTabGoForward}>
+          <ChevronRightIcon size={14} />
+        </IconBtn>
+        <IconBtn
+          title={activeNav?.loading ? t('webBar.stop') : t('webBar.reload')}
+          amber
+          size="lg"
+          bright
+          disabled={activeWebTabId === null}
+          onClick={() => (activeNav?.loading ? stopActiveWebTab() : reloadActiveWebTab(false))}
+        >
+          {activeNav?.loading ? <StopIcon size={14} /> : <RotateCwIcon size={14} />}
+        </IconBtn>
+        {/* 检查网页:打开活动网页页签客体的 DevTools —— 页面行为异常(按钮点不动、
+            疑似脚本报错)时的取证入口,报错只进客体 devtools 不开则完全不可见 */}
+        {!navCompact && (
+          <IconBtn title={t('webBar.devtools')} amber size="lg" bright disabled={activeWebTabId === null} onClick={openActiveWebTabDevTools}>
+            <CodeIcon size={14} />
+          </IconBtn>
+        )}
+        {/* 清空最近访问 —— 历史空时禁用,无物可清 */}
+        {!navCompact && (
+          <IconBtn onClick={clearWebTabHistory} title={t('webBar.clear')} size="lg" bright disabled={webTabHistory.length === 0}>
+            <TrashIcon size={14} />
+          </IconBtn>
+        )}
+        {/* 溢出菜单 —— 窄栏收纳时检查/清空的落点(功能不随收纳消失):触发钮
+            「…」+ 下拉两项。收层走 useDismiss(外点/ESC,见 state 处注);浮层
+            挂 win-no-drag 脱离整行拖拽区,点击才落得进;项的禁用条件与平铺
+            钮完全一致,行为同源不分叉 */}
+        {navCompact && (
+          <div ref={navMoreRef} className="relative flex-shrink-0">
+            <IconBtn title={t('webBar.more')} amber size="lg" bright onClick={() => setNavMoreOpen(o => !o)}>
+              <MoreIcon />
+            </IconBtn>
+            {navMoreOpen && (
+              <div className="win-no-drag absolute top-full right-0 mt-1 z-50 w-[168px] bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm p-1 shadow-xl">
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={activeWebTabId === null}
+                  onClick={() => { setNavMoreOpen(false); openActiveWebTabDevTools() }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)] disabled:opacity-40 disabled:cursor-default transition-colors"
+                >
+                  <CodeIcon size={13} />
+                  <span className="truncate">{t('webBar.devtools')}</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={webTabHistory.length === 0}
+                  onClick={() => { setNavMoreOpen(false); clearWebTabHistory() }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)] disabled:opacity-40 disabled:cursor-default transition-colors"
+                >
+                  <TrashIcon size={13} />
+                  <span className="truncate">{t('webBar.clear')}</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* 输入动作位 —— 44px 输入行(32px 输入框居中悬浮,上下各 6px 呼吸),
+      {/* 输入动作位 —— 44px 输入行(36px 画轴居中悬浮,上下各 4px 呼吸),
           底部一条随卡片宽度的分割线(px-3 收进,不连接面板
-          左右边缘)把动作区与历史区分开 */}
+          左右边缘)把动作区与历史区分开;导航键已迁铭牌行,此行只留地址栏 */}
       <div className="flex-shrink-0 h-[44px] px-3 flex flex-col">
         <div className="flex-1 flex items-center">
-          {/* 网页访问栏 —— 浏览器模式(活动分屏正显示网页页签)时是地址栏:
-              同步当前 URL、Enter 就地导航;启动器模式输入完整 URL 回车即开新页签
-              (无 scheme 自动补 https://),datalist 挂最近历史做原生补全 */}
-          <div className="flex items-center gap-1 w-full">
-            {/* 导航按钮 —— 落点 = 活动网页页签(web-tab-controls 控制层) */}
-            <NavButton title={t('webBar.back')} disabled={!activeNav?.canGoBack} onClick={activeWebTabGoBack}>
-              <ChevronLeftIcon />
-            </NavButton>
-            <NavButton title={t('webBar.forward')} disabled={!activeNav?.canGoForward} onClick={activeWebTabGoForward}>
-              <ChevronRightIcon />
-            </NavButton>
-            <NavButton
-              title={activeNav?.loading ? t('webBar.stop') : t('webBar.reload')}
-              disabled={activeWebTabId === null}
-              onClick={() => (activeNav?.loading ? stopActiveWebTab() : reloadActiveWebTab(false))}
-            >
-              {activeNav?.loading ? <StopIcon /> : <RotateCwIcon />}
-            </NavButton>
-            {/* 检查网页:打开活动网页页签客体的 DevTools —— 页面行为异常(按钮点不动、
-                疑似脚本报错)时的取证入口,报错只进客体 devtools 不开则完全不可见 */}
-            <NavButton title={t('webBar.devtools')} disabled={activeWebTabId === null} onClick={openActiveWebTabDevTools}>
-              <CodeIcon />
-            </NavButton>
+          {/* 网页访问栏 —— 双开画轴(与小窗地址栏/会话搜索框同款挂轴化,机械全在
+              globals.css 的 .scroll-search 系列):两端各一竖辊,常开不随聚焦
+              收放(同会话搜索框「常在的动作位」语义)—— 地址作墨 mono 居中
+              落于纸面、横跨正中合缝。再挂 scroll-search-web 青蓝变体(轴头/
+              系绳/解绳辉光取 --web-group,与最近访问墙的组头署名同一件物),
+              合缝去痕读作整幅。启动器模式输入完整 URL 回车即开新页签(无
+              scheme 自动补 https://),datalist 挂最近历史做原生补全;label
+              承接点击(点纸即落墨,点辊也聚焦);IME/datalist/Esc 的键盘机械
+              原样 */}
+          <label className="scroll-search scroll-search-web scroll-search-lg open flex-1 min-w-0 h-[36px] relative flex items-center cursor-text">
+            {/* 纸幅 —— 两半:左半自左辊后向右铺、右半自右辊后向左铺,合缝在
+                容器正中;垫在辊与墨之下(纸自辊后引出),自由端带残余卷曲 */}
+            <span aria-hidden className="scroll-search-paper scroll-search-paper-l" />
+            <span aria-hidden className="scroll-search-paper scroll-search-paper-r" />
+            {/* 双辊 —— 两端竖轴:辊体(光辊)+ 裹辊纸带(收=满卷,开=纸下
+                辊)+ 上下青蓝轴头;几何「辊比纸长」(轴头探出纸外) */}
+            <span aria-hidden className="scroll-search-rod scroll-search-rod-l" />
+            <span aria-hidden className="scroll-search-rod scroll-search-rod-r" />
+            {/* 蝴蝶结 —— 收卷时双卷各拴一只(绳色随轴头,机械共用
+                .scroll-tie 的 :is 列表);开卷解绳飘走 */}
+            <span aria-hidden className="scroll-search-tie scroll-search-tie-l"><ScrollTie /></span>
+            <span aria-hidden className="scroll-search-tie scroll-search-tie-r"><ScrollTie /></span>
+            {/* 墨 —— 纸面输入:地址居中落合缝(mono 13 配 20px 纸幅),
+                占位=题签金墨(样式在 ::placeholder);左让位避开左辊区,
+                右让位收窄到 12 —— datalist 的原生下拉三角贴着纸右缘,
+                靠近右辊但留 5px 气不贴上 */}
             <input
               ref={inputRef}
               type="text"
@@ -887,7 +1035,7 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
               }}
               placeholder={t('webBar.placeholder')}
               spellCheck={false}
-              className="flex-1 min-w-0 px-2 h-[32px] text-xs [font-family:inherit] rounded-[2px] bg-[var(--bg-elev)] border border-[var(--rule)] text-[var(--text-rack)] placeholder:text-[var(--text-rack-mute)] focus:outline-none focus:border-[var(--amber)]"
+              className="scroll-search-input relative z-[2] flex-1 min-w-0 ml-[18px] mr-[12px] bg-transparent border-none outline-none font-mono text-[13px] text-center text-[var(--text-rack)] caret-[var(--amber)]"
             />
             {/* datalist 选项 = 全量历史(store 已封顶 30 条,无需再截) */}
             <datalist id="lyshell-webbar-history">
@@ -895,7 +1043,7 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
                 <option key={url} value={url}>{hostOf(url)}</option>
               ))}
             </datalist>
-          </div>
+          </label>
         </div>
         <div aria-hidden className="h-px bg-[var(--rule-soft)]" />
       </div>
@@ -906,86 +1054,112 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
 
         {notice && <div className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] break-all">{notice}</div>}
 
-        {/* 最近访问 —— localStorage 持久化历史,按域名分组立画轴:组头 = 会话墙
-            GroupHeader 同款卷轴(scroll-head 辊轴头 + 蝴蝶结 + 题签金墨 + 右缘
-            计数,点击/Enter 开合),内容落 ScrollFold 的 paper-sheet(与辊上卷
-            纸带同宽同边 mx-2);组序 = 各组最近一条的落位(历史最近优先序),
-            组内同吃最近序。行样式对齐终端页签(favicon + 单行 truncate+tooltip
-            看全量、hover bg-slot、行高 32px,行落在纸上不再自带 bg-rack 底):
-            点击重开、行上按钮在小窗打开、✕ 删除单条、段头清空。常占剩余空间
-            (打开的网页不再在此列出,切换/关闭走终端页签栏) */}
+        {/* 最近访问 —— localStorage 持久化历史,立在会话墙同款的双开画轴墙上
+            (scroll-dual-wall 变体:墙恒开,收起的是纸里的垂卷分组们;再挂
+            scroll-dual-web 青蓝段身份 —— 轴头/系绳/解绳辉光取 --web-group,
+            与纸里组头同一件物的三处署名,机械在 globals.css 的变体规则):
+            上/下辊行一键收/放全体分组(会话墙「全体」同语义,aria-expanded 与
+            键盘入口在上辊行,下辊纯鼠标);组头 = GroupHeader 同款卷轴
+            (scroll-head 辊轴头 + 蝴蝶结 + 题签金墨 + 右缘计数,点击/Enter
+            开合),内容落 ScrollFold 的 paper-sheet(与辊上卷纸带同宽同边
+            mx-2);组序 = 各组最近一条的落位(历史最近优先序),组内同吃最近序。
+            行样式对齐终端页签(favicon + 单行 truncate+tooltip 看全量、hover
+            bg-slot、行高 32px):点击重开、行上按钮在小窗打开、✕ 删除单条
+            (清空整段历史的钮在铭牌行)。常占剩余空间(打开的网页不再在此
+            列出,切换/关闭走终端页签栏) */}
         {webGroups.length > 0 && (
-          <div
-            className={cn(
-              'border border-[var(--rule)] rounded-[2px] min-h-0 overflow-y-auto flex-1 flex-shrink-0'
-            )}
-          >
-            <div className="flex items-center justify-between gap-1 px-1.5 py-1 border-b border-[var(--rule)] sticky top-0 z-[1] bg-[var(--bg-base)]">
-              <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack)] select-none">
-                {t('webBar.recent')}
-              </span>
-              <button
-                onClick={clearWebTabHistory}
-                title={t('webBar.clear')}
-                className="w-[18px] h-[18px] flex items-center justify-center text-[var(--text-rack)] hover:text-[var(--error-rack)] hover:bg-[var(--error-rack)]/10 rounded-[2px] cursor-pointer transition-colors"
-              >
-                <TrashIcon />
-              </button>
+          <div className="scroll-dual scroll-dual-wall scroll-dual-web flex-1 min-h-0 open">
+            {/* 上辊行 —— 一键收/放钮(会话墙「全体」同款):点行把纸里展开着的
+                域名卷全卷起/全放,键盘入口在此(下辊行纯鼠标);两态 title 即
+                展开/折叠全部分组,aria-label 记段名 */}
+            <div
+              className="scroll-dual-rod cursor-pointer"
+              role="button"
+              tabIndex={0}
+              aria-expanded={!allGroupsCollapsed}
+              aria-label={t('webBar.recent')}
+              title={allGroupsCollapsed ? t('webBar.expandAllGroups') : t('webBar.collapseAllGroups')}
+              onClick={toggleAllGroups}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleAllGroups() }
+              }}
+            >
+              {/* 辊本体(rod-caps)—— 行内垂直居中的细棍,垫在绳后;墙恒开,
+                  辊面恒是光辊(解绳态:轴头恒亮,青蓝身份见 scroll-dual-web) */}
+              <span aria-hidden className="rod-caps" />
+              <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
             </div>
-            {webGroups.map(([host, urls]) => (
-              <div key={host}>
-                <WebGroupHeader
-                  label={host}
-                  count={urls.length}
-                  recentUrl={urls[0]}
-                  favicon={webTabFavicons[urls[0]]}
-                  collapsed={!!collapsedHosts[host]}
-                  onToggle={() => toggleHostCollapsed(host)}
-                />
-                <ScrollFold open={!collapsedHosts[host]}>
-                  {/* 纸幅:与辊上卷纸带同宽同边 mx-2,辊探出一对轴头(会话墙同款);
-                      行保留 rule-soft 底线 —— 最后一行的折线正是纸尾收口 */}
-                  <div className="paper-sheet mx-2">
-                    {urls.map(url => (
-                      <div
-                        key={url}
-                        className="flex items-center gap-1.5 px-2 h-[32px] border-b border-[var(--rule-soft)] hover:bg-[var(--bg-slot)] transition-colors"
-                      >
-                        <RecentFavicon url={url} favicon={webTabFavicons[url]} />
-                        <button
-                          onClick={(e) => {
-                            // Ctrl/Cmd+点击 = 小窗预览(应用内 Ctrl+点击是备选动作的通用
-                            // 语法,同终端 Ctrl+点击 URL 开页签);普通点击仍开完整页签
-                            if (e.ctrlKey || e.metaKey) loadMini(url)
-                            else openWebTab(url)
-                          }}
-                          title={url}
-                          className="flex-1 min-w-0 text-left text-xs [font-family:inherit] truncate text-[var(--text-rack)] hover:text-[var(--amber)] cursor-pointer transition-colors"
-                        >
-                          {url}
-                        </button>
-                        {/* 在小窗打开 —— 显式按钮(此前只有 Ctrl+点击隐藏手势):与 Ctrl+点击
-                            同走 loadMini 入口,小窗收着时顺手重开(见 loadMini),同址 = 刷新 */}
-                        <button
-                          onClick={() => loadMini(url)}
-                          title={t('webBar.openMini')}
-                          className="w-[14px] h-[14px] flex-shrink-0 flex items-center justify-center text-[var(--text-rack-mute)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] rounded-[2px] transition-colors cursor-pointer"
-                        >
-                          <MiniOpenIcon />
-                        </button>
-                        <button
-                          onClick={() => removeWebTabHistory(url)}
-                          title={t('webBar.removeRecent')}
-                          className="w-[14px] h-[14px] flex-shrink-0 flex items-center justify-center text-xs text-[var(--text-rack-mute)] hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors cursor-pointer"
-                        >
-                          ✕
-                        </button>
+            {/* 纸窗(恒铺开,纸包内容)—— 域名分组垂卷立在纸面上;内容超出
+                剩余高时纸收缩到剩高、内心滚(滚动容器 = 纸窗,滚条 rack-scroll) */}
+            <div className="scroll-dual-paper rack-scroll">
+              <div className="scroll-dual-body">
+                {webGroups.map(([host, urls]) => (
+                  <div key={host}>
+                    <WebGroupHeader
+                      label={host}
+                      count={urls.length}
+                      recentUrl={urls[0]}
+                      favicon={webTabFavicons[urls[0]]}
+                      collapsed={!!collapsedHosts[host]}
+                      onToggle={() => toggleHostCollapsed(host)}
+                    />
+                    <ScrollFold open={!collapsedHosts[host]}>
+                      {/* 纸幅:与辊上卷纸带同宽同边 mx-2,辊探出一对轴头(会话墙同款);
+                          行保留 rule-soft 底线 —— 最后一行的折线正是纸尾收口 */}
+                      <div className="paper-sheet mx-2">
+                        {urls.map(url => (
+                          <div
+                            key={url}
+                            className="flex items-center gap-1.5 px-2 h-[32px] border-b border-[var(--rule-soft)] hover:bg-[var(--bg-slot)] transition-colors"
+                          >
+                            <RecentFavicon url={url} favicon={webTabFavicons[url]} />
+                            <button
+                              onClick={(e) => {
+                                // Ctrl/Cmd+点击 = 小窗预览(应用内 Ctrl+点击是备选动作的通用
+                                // 语法,同终端 Ctrl+点击 URL 开页签);普通点击仍开完整页签
+                                if (e.ctrlKey || e.metaKey) loadMini(url)
+                                else openWebTab(url)
+                              }}
+                              title={url}
+                              className="flex-1 min-w-0 text-left text-xs [font-family:inherit] truncate text-[var(--text-rack)] hover:text-[var(--amber)] cursor-pointer transition-colors"
+                            >
+                              {url}
+                            </button>
+                            {/* 在小窗打开 —— 显式按钮(此前只有 Ctrl+点击隐藏手势):与 Ctrl+点击
+                                同走 loadMini 入口,小窗收着时顺手重开(见 loadMini),同址 = 刷新 */}
+                            <button
+                              onClick={() => loadMini(url)}
+                              title={t('webBar.openMini')}
+                              className="w-[14px] h-[14px] flex-shrink-0 flex items-center justify-center text-[var(--text-rack-mute)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] rounded-[2px] transition-colors cursor-pointer"
+                            >
+                              <MiniOpenIcon />
+                            </button>
+                            <button
+                              onClick={() => removeWebTabHistory(url)}
+                              title={t('webBar.removeRecent')}
+                              className="w-[14px] h-[14px] flex-shrink-0 flex items-center justify-center text-xs text-[var(--text-rack-mute)] hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors cursor-pointer"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    </ScrollFold>
                   </div>
-                </ScrollFold>
+                ))}
               </div>
-            ))}
+            </div>
+            {/* 下辊行 —— 纸尾辊:贴在纸尾、跟着最底下的分组卷走(纸包内容,
+                短内容随纸上浮,内容满列时贴底不动);点行同样一键收/放(鼠标
+                入口 —— 键盘由上辊行独占,不给 title 免得与上辊重复) */}
+            <div
+              className="scroll-dual-rod scroll-dual-rod-b cursor-pointer"
+              onClick={toggleAllGroups}
+            >
+              {/* 辊本体 —— 下辊镜像(纸带锚顶、落影投上,机械在 .scroll-dual-rod-b) */}
+              <span aria-hidden className="rod-caps" />
+              <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
+            </div>
           </div>
         )}
       </div>
@@ -1006,10 +1180,12 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
           绳(320ms 加速收;内容常驻不卸载 —— 保活,纸 overflow:hidden
           裁掉画心,guest 存活)。画心立在纸面中央
           (body 裱边四周各 8px)。装配总高(= 双辊 20 + 裱边 16 + 画心)
-          沿用 miniHeight 存档语义,拖动映射 1:1 不变 */}
+          沿用 miniHeight 存档语义,拖动映射 1:1 不变。轴头/系绳/解绳辉光
+          挂 scroll-dual-web 青蓝段身份(与最近访问墙同一件物,取
+          --web-group,不取 amber) */}
       <div
         className={cn(
-          'scroll-dual flex-shrink-0 select-none',
+          'scroll-dual scroll-dual-web flex-shrink-0 select-none',
           miniClosed ? 'rolled' : 'open',
           miniResizing && 'resizing'
         )}
@@ -1095,17 +1271,14 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
                     {miniLoading ? <StopIcon /> : <RotateCwIcon />}
                   </NavButton>
                   {/* 小窗地址 —— 双开画轴(与会话搜索框同款挂轴化,机械全在 globals.css 的
-                      .scroll-search 系列,此处只挂态):两端各一竖辊,开 = 聚焦或有址 ——
-                      有址即开眼(未编辑时 miniInput 恒同步当前页地址,URL 作墨 mono 居中
-                      落于纸面、横跨正中合缝);收 = 失焦且未开眼 —— 双卷拴绳、题签金墨的
-                      占位浮在两卷之间,与勾玉「闭眼」同一状态语言。label 承接点击(点纸即
-                      落墨,点辊也聚焦);IME/datalist/Esc 的键盘机械原样 */}
-                  <label
-                    className={cn(
-                      'scroll-search flex-1 min-w-0 h-[32px] relative flex items-center cursor-text',
-                      miniInputFocused || miniInput !== '' ? 'open' : 'rolled'
-                    )}
-                  >
+                      .scroll-search 系列):两端各一竖辊,常开不随聚焦收放(同主地址栏/
+                      会话搜索框「常在动作位」语义)—— 地址作墨 mono 居中落于纸面、
+                      横跨正中合缝。再挂 scroll-search-web 青蓝变体(轴头/系绳/解绳辉光
+                      取 --web-group,与主地址栏/最近访问墙的组头署名同一件物;几何保持
+                      16/24 原档不加高,加高档 scroll-search-lg 只挂主地址栏)。
+                      label 承接点击(点纸即落墨,点辊也聚焦);IME/datalist/Esc 的键盘
+                      机械原样 */}
+                  <label className="scroll-search scroll-search-web open flex-1 min-w-0 h-[32px] relative flex items-center cursor-text">
                     <span aria-hidden className="scroll-search-paper scroll-search-paper-l" />
                     <span aria-hidden className="scroll-search-paper scroll-search-paper-r" />
                     <span aria-hidden className="scroll-search-rod scroll-search-rod-l" />
@@ -1130,8 +1303,7 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
                           miniInputRef.current?.blur()
                         }
                       }}
-                      onFocus={(e) => { setMiniInputFocused(true); e.target.select() }}
-                      onBlur={() => setMiniInputFocused(false)}
+                      onFocus={(e) => e.target.select()}
                       placeholder={t('webBar.miniPlaceholder')}
                       spellCheck={false}
                       className="scroll-search-input relative z-[2] flex-1 min-w-0 mx-[18px] bg-transparent border-none outline-none font-mono text-[11px] text-center text-[var(--text-rack)] caret-[var(--amber)]"

@@ -19,9 +19,12 @@
  *    （畸形存档落空态、离谱高度夹到绝对上限）/地址栏挂双开画轴（.scroll-search
  *    系列 CSS）：开合裁决 = 聚焦或有址 —— 闭眼空态收卷拴绳、有墨失焦仍展，
  *    与勾玉「闭眼/开眼」同一状态语言。
- * 7) 最近历史按域名分组立画轴：组头 scroll-head 卷轴（题签域名 + 计数）点击
+ * 7) 最近历史按域名分组立在会话墙同款的双开画轴墙上（scroll-dual-wall 几何 +
+ *    scroll-dual-web 青蓝段身份）：组头 scroll-head 卷轴（题签域名 + 计数）点击
  *    开合（ScrollFold inert 挡 Tab 序）、组序/组内序吃历史最近优先序、非默认
- *    端口独立成组（hostKey = hostname + port）。
+ *    端口独立成组（hostKey = hostname + port）、上下辊行一键收/放全体分组
+ *    （会话墙「全体」同语义：收 = 全卷起、放 = 全展开，与单组开合同管线 ——
+ *    单组收起后一键收齐剩余、单独展开一组即脱离全体收起态）。
  * 6) 小窗关闭/恢复（保活）：合卷不卸载 webview —— 同一元素留树（guest 存活）、
  *    src 恒冻结、恢复零重挂零重载，恢复轨出现；关闭态经 config 存档；存档
  *    关闭态起渲染即关（写门：读档未成功不写，默认 false 不冲掉存档的 true
@@ -196,6 +199,30 @@ describe('地址栏编辑守卫', () => {
   })
 })
 
+describe('主地址栏双开画轴（青蓝 web 段）', () => {
+  it('结构 = 纸幅×2/双辊×2/蝴蝶结×2（scroll-search-web 变体），常开不随聚焦收放', () => {
+    setupBrowserMode()
+    render(<WebPanel />)
+    const input = inputOf()
+    const label = input.closest('label')
+    // 机械全在 .scroll-search 系列 CSS;scroll-search-web = 青蓝
+    // 段身份(轴头/系绳/解绳辉光取 --web-group,与最近访问墙的组头同署名)
+    expect(label?.className).toContain('scroll-search')
+    expect(label?.className).toContain('scroll-search-web')
+    expect(label?.className).toContain('scroll-search-lg')    // 加高档:纸 20/辊 28
+    expect(label?.querySelectorAll('.scroll-search-paper')).toHaveLength(2)
+    expect(label?.querySelectorAll('.scroll-search-rod')).toHaveLength(2)
+    expect(label?.querySelectorAll('.scroll-search-tie')).toHaveLength(2)
+    // 常开(同会话搜索框:地址栏是常在的动作位,不随聚焦收放)
+    expect(label?.className).toContain('open')
+    // 清空 + 失焦仍是开卷:地址栏没有收卷态
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.blur(input)
+    expect(label?.className).toContain('open')
+    expect(label?.className).not.toContain('rolled')
+  })
+})
+
 describe('Ctrl+L 聚焦请求令牌（ui-store）', () => {
   it('请求先于挂载到达：挂载后消费，聚焦 + 全选 + 归零', () => {
     setupBrowserMode()
@@ -309,41 +336,37 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     expect((screen.getByTitle('Promote to web tab') as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('小窗地址 = 双开画轴：闭眼空态收卷拴绳，聚焦即展、失焦且空即收（与勾玉同一状态语言）', () => {
+  it('小窗地址 = 双开画轴（青蓝 web 段）：常开不随聚焦收放（同主地址栏/会话搜索框语义）', () => {
     setupBrowserMode()
     render(<WebPanel />)
     const label = miniInputOf().closest('label')
     expect(label).toBeTruthy()
-    // 结构：纸幅×2 + 双辊×2 + 蝴蝶结×2（机械全在 .scroll-search 系列 CSS，组件只挂态）
+    // 结构：纸幅×2 + 双辊×2 + 蝴蝶结×2（机械全在 .scroll-search 系列 CSS）
     expect(label?.className).toContain('scroll-search')
-    expect(label?.className).toContain('h-[32px]')
+    expect(label?.className).toContain('scroll-search-web')   // 青蓝段身份
+    expect(label?.className).toContain('h-[32px]')            // 几何保持原档(加高档只挂主地址栏)
     expect(label?.querySelectorAll('.scroll-search-paper')).toHaveLength(2)
     expect(label?.querySelectorAll('.scroll-search-rod')).toHaveLength(2)
     expect(label?.querySelectorAll('.scroll-search-tie')).toHaveLength(2)
-    // 闭眼空态：双卷各拴一只蝴蝶结
-    expect(label?.className).toContain('rolled')
-    // 聚焦即展开（label 承接点击落到 input，focus 态参与开合裁决）
+    // 常开:纸恒铺,聚焦/失焦不改开合
+    expect(label?.className).toContain('open')
     fireEvent.focus(miniInputOf())
     expect(label?.className).toContain('open')
-    // 失焦且未开眼：纸裹回双辊、重新拴绳
     fireEvent.blur(miniInputOf())
-    expect(label?.className).toContain('rolled')
+    expect(label?.className).toContain('open')
+    expect(label?.className).not.toContain('rolled')
   })
 
-  it('小窗地址 = 双开画轴：有址即开眼（有墨失焦仍展），Esc 复位后仍展', () => {
+  it('小窗地址：Esc 放弃编辑复位为当前页地址（画轴常开,与编辑态无关）', () => {
     setupBrowserMode()
     localStorage.setItem('lyshell.webbarMini.url.v1', 'https://restored.example.com/')
     render(<WebPanel />)
     const label = miniInputOf().closest('label')
-    // 存档恢复即开眼：miniInput 随当前页地址，纸上有墨 —— 挂载即展开
     expect(miniInputOf().value).toBe('https://restored.example.com/')
-    expect(label?.className).toContain('open')
-    // 编辑中途失焦：纸上有字不收
+    // 编辑中途失焦与 Esc 复位只动墨,画轴恒开
     fireEvent.focus(miniInputOf())
     fireEvent.change(miniInputOf(), { target: { value: 'https://editing.example.com/' } })
     fireEvent.blur(miniInputOf())
-    expect(label?.className).toContain('open')
-    // Esc 放弃编辑复位为当前页地址 —— 仍有址，仍展开
     fireEvent.keyDown(miniInputOf(), { key: 'Escape' })
     expect(miniInputOf().value).toBe('https://restored.example.com/')
     expect(label?.className).toContain('open')
@@ -510,6 +533,162 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     fireEvent.click(head)
     expect(head.getAttribute('aria-expanded')).toBe('true')
     expect(container.querySelector('.scroll-fold')?.className).toContain('open')
+  })
+
+  it('墙辊一键收/放（会话墙「全体」同款青蓝双开画轴）：收 = 全部组卷起，放 = 全部展开，辊态随全体开合翻转', () => {
+    setupBrowserMode()
+    usePaneStore.setState({
+      webTabHistory: [
+        'https://a.example.com/one',
+        'https://b.example.org/one',
+        'https://c.example.net/one'
+      ]
+    })
+    const { container } = render(<WebPanel />)
+    expect(container.querySelectorAll('.scroll-head')).toHaveLength(3)
+    // 墙 = 会话墙同款双开画轴:scroll-dual-wall 几何 + scroll-dual-web 青蓝段
+    // 身份(轴头/系绳/解绳辉光取 --web-group 的变体规则在 globals.css),上下
+    // 双辊行都是一键收/放入口(aria/键盘在上辊,下辊纯鼠标无 title)
+    const wall = container.querySelector('.scroll-dual.scroll-dual-web')
+    expect(wall).toBeTruthy()
+    expect(wall?.className).toContain('scroll-dual-wall')
+    expect(wall?.querySelectorAll('.scroll-dual-rod')).toHaveLength(2)
+    expect(screen.queryByTitle('Expand all groups')).toBeNull()
+    const rod = screen.getByTitle('Collapse all groups')
+    expect(rod.getAttribute('aria-expanded')).toBe('true')
+    expect(rod.getAttribute('aria-label')).toBe('Recent')
+    fireEvent.click(rod)
+    // 全部组卷起：ScrollFold 合卷 + inert，组头 aria-expanded 同步翻转
+    const folds = container.querySelectorAll('.scroll-fold')
+    expect(folds).toHaveLength(3)
+    folds.forEach(f => {
+      expect(f.className).not.toContain('open')
+      expect(f.hasAttribute('inert')).toBe(true)
+    })
+    container.querySelectorAll('div.scroll-head').forEach(h => {
+      expect(h.getAttribute('aria-expanded')).toBe('false')
+    })
+    // 辊题随全体开合态翻转
+    const expandRod = screen.getByTitle('Expand all groups')
+    expect(expandRod.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(expandRod)
+    container.querySelectorAll('.scroll-fold').forEach(f => {
+      expect(f.className).toContain('open')
+      expect(f.hasAttribute('inert')).toBe(false)
+    })
+    expect(screen.getByTitle('Collapse all groups')).toBeTruthy()
+  })
+
+  it('一键收放与单组开合同管线：单组收起后一键收齐剩余组；单独展开一组即脱离全体收起态', () => {
+    setupBrowserMode()
+    usePaneStore.setState({
+      webTabHistory: ['https://a.example.com/one', 'https://b.example.org/one']
+    })
+    const { container } = render(<WebPanel />)
+    const heads = Array.from(container.querySelectorAll('div.scroll-head'))
+    // 单独收起 a 组：b 仍开着，钮不进「全体展开」态
+    fireEvent.click(heads[0])
+    expect(screen.getByTitle('Collapse all groups')).toBeTruthy()
+    // 一键收齐剩余组（b）
+    fireEvent.click(screen.getByTitle('Collapse all groups'))
+    container.querySelectorAll('.scroll-fold').forEach(f => {
+      expect(f.className).not.toContain('open')
+    })
+    expect(screen.getByTitle('Expand all groups')).toBeTruthy()
+    // 单独展开 a 组：b 仍收着 —— 全体收起态被打破，钮回到「折叠全部分组」
+    fireEvent.click(heads[0])
+    const folds = container.querySelectorAll('.scroll-fold')
+    expect(folds[0].className).toContain('open')
+    expect(folds[1].className).not.toContain('open')
+    expect(screen.getByTitle('Collapse all groups')).toBeTruthy()
+  })
+
+  it('清空钮住铭牌行（IconBtn 内建 win-no-drag 脱离整行拖拽区），历史空时禁用', () => {
+    setupBrowserMode()
+    render(<WebPanel />)
+    const clear = screen.getByTitle('Clear') as HTMLButtonElement
+    expect(clear.className).toContain('win-no-drag')
+    // lg + bright 档:28px 面、白面 + currentColor 辉光(白顶满色阶后「亮」
+    // 走光晕,按钮簇是铭牌行的主体操作)
+    expect(clear.className).toContain('w-[28px]')
+    expect(clear.className).toContain('text-white')
+    expect(clear.className).toContain('icon-bright-glow')
+    expect(clear.disabled).toBe(true)   // 无历史无物可清
+    act(() => {
+      usePaneStore.setState({ webTabHistory: ['https://a.example.com/one'] })
+    })
+    expect((screen.getByTitle('Clear') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('导航簇（后退/前进/刷新/检查）住铭牌行（IconBtn lg/bright 档脱离拖拽区），可用性随活动页签与 nav 快照', () => {
+    setupBrowserMode()
+    render(<WebPanel />)
+    for (const title of ['Back (Alt+←)', 'Forward (Alt+→)', 'Reload (Ctrl+R)', 'Inspect page (DevTools)']) {
+      const btn = screen.getByTitle(title) as HTMLButtonElement
+      expect(btn.className).toContain('win-no-drag')
+      expect(btn.closest('.win-drag')).toBeTruthy()   // 所在行 = 铭牌拖拽区
+      // lg + bright 档(与清空钮同规:白面 + 辉光)
+      expect(btn.className).toContain('w-[28px]')
+      expect(btn.className).toContain('text-white')
+      expect(btn.className).toContain('icon-bright-glow')
+    }
+    // 桩 nav 快照 canGoBack/canGoForward = false → 前后禁用;有活动页签 →
+    // 刷新/检查可用(刷新与停止共用一钮,非 loading 态题「Reload (Ctrl+R)」)
+    expect((screen.getByTitle('Back (Alt+←)') as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByTitle('Forward (Alt+→)') as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByTitle('Reload (Ctrl+R)') as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByTitle('Inspect page (DevTools)') as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('窄栏收纳:根宽 < 264 时检查/清空离场让位题名,主导航三钮恒在;宽回来归位', () => {
+    // jsdom 无 ResizeObserver:桩一个捕获回调的类,手动喂根宽
+    let fire: ResizeObserverCallback = () => {}
+    class ROStub {
+      constructor(cb: ResizeObserverCallback) { fire = cb }
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    vi.stubGlobal('ResizeObserver', ROStub)
+    try {
+      const { container } = render(<WebPanel />)
+      const root = container.firstElementChild as HTMLElement
+      const rect = { width: 240, height: 800, top: 0, left: 0, bottom: 800, right: 240, x: 0, y: 0, toJSON: () => ({}) } as DOMRect
+      vi.spyOn(root, 'getBoundingClientRect').mockReturnValue(rect)
+      act(() => fire([], undefined as unknown as ResizeObserver))
+      // 240 默认宽:检查/清空收进溢出菜单(「…」)而非消失,题名得 120px 全宽;
+      // 主导航三钮在
+      expect(screen.queryByTitle('Inspect page (DevTools)')).toBeNull()
+      expect(screen.queryByTitle('Clear')).toBeNull()
+      expect(screen.getByTitle('More actions')).toBeTruthy()
+      expect(screen.getByTitle('Reload (Ctrl+R)')).toBeTruthy()
+      expect(screen.getByTitle('Back (Alt+←)')).toBeTruthy()
+      expect(screen.getByTitle('Forward (Alt+→)')).toBeTruthy()
+      // 开菜单:两项齐(文字直读,禁用条件与平铺钮同源);点清空真执行且菜单收起
+      act(() => { usePaneStore.setState({ webTabHistory: ['https://a.example.com/one'] }) })
+      fireEvent.click(screen.getByTitle('More actions'))
+      expect(screen.getByText('Inspect page (DevTools)')).toBeTruthy()
+      fireEvent.click(screen.getByText('Clear'))
+      expect(usePaneStore.getState().webTabHistory.length).toBe(0)
+      expect(screen.queryByText('Clear')).toBeNull()
+      // 开着菜单拉宽:浮层卸载之外 open 复位 —— 不再占 useDismiss 的 ESC 回退栈
+      fireEvent.click(screen.getByTitle('More actions'))
+      expect(screen.getByText('Inspect page (DevTools)')).toBeTruthy()
+      vi.mocked(root.getBoundingClientRect).mockReturnValue({ ...rect, width: 320, right: 320 } as DOMRect)
+      act(() => fire([], undefined as unknown as ResizeObserver))
+      // 全簇归位(平铺钮 title 直读),菜单开态一并收口(菜单项是文字,已不在)
+      expect(screen.getByTitle('Inspect page (DevTools)')).toBeTruthy()
+      expect(screen.getByTitle('Clear')).toBeTruthy()
+      expect(screen.queryByText('Inspect page (DevTools)')).toBeNull()
+      // 再缩窄:菜单不自行重现(状态已复位),点触发钮才开
+      vi.mocked(root.getBoundingClientRect).mockReturnValue(rect)
+      act(() => fire([], undefined as unknown as ResizeObserver))
+      expect(screen.queryByText('Clear')).toBeNull()
+      fireEvent.click(screen.getByTitle('More actions'))
+      expect(screen.getByText('Clear')).toBeTruthy()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('小窗关闭/恢复：webview 保活不摘树（同一元素），关闭态持久化', async () => {

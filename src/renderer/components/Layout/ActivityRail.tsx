@@ -308,10 +308,14 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
                 // 会被窗口填充盖住(上一版"图标消失"的根因)
                 'relative transition-[color,transform] duration-200 ease-out group-hover:scale-110',
                 isActive
-                  // 品牌位 + 写轮眼 web 激活变白(开眼),不亮 amber、不挂辉光
-                  ? (tab === 'dsh' || tab === 'codex' || tab === 'claude' || tab === 'web')
+                  // 品牌位激活变白(开眼),不亮 amber、不挂辉光;写轮眼 web 激活
+                  // 走 .rail-icon-web-active(dark 取 --web-group 青蓝段身份,
+                  // 浅色收深 —— 浅亮青压浅底读不出,见 globals.css 该节)
+                  ? (tab === 'dsh' || tab === 'codex' || tab === 'claude')
                     ? 'text-[var(--text-rack)]'
-                    : 'text-[var(--amber)] animate-rail-icon-glow'
+                    : tab === 'web'
+                      ? 'rail-icon-web-active'
+                      : 'text-[var(--amber)] animate-rail-icon-glow'
                   // 静息 mute(与面板头条文字同档、轨顶收起控位同读数亮度):dim 在
                   // bg-slot 条带上仅 ~2:1,低亮度低饱和蓝灰糊进蓝黑条带,读作"暗影"
                   // 而非图标;mute 恢复 ≥3:1 的 UI 图标下限。悬停提亮一档到 data
