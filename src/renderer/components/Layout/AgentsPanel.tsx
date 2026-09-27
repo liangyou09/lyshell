@@ -1,8 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { IconBtn, IconPlus } from './IconBtn'
+import { GroupHeader } from './SessionsPanel'
+import ScrollFold, { ScrollTie } from './ScrollFold'
+import { normDirKey, wsDirLabel } from './ws-dir'
 import { generateWorktreeStamp } from '@shared/worktree'
 import EnvRowsEditor from '../EnvRowsEditor'
 import { useUiStore } from '../../stores/ui-store'
@@ -16,6 +19,8 @@ const codexIcon = new URL('../../assets/agent-icons/codex.png', import.meta.url)
  *
  * 从原 Sidebar 的 AGENTS 横条升级为独立面板:每个 agent 一张机柜槽位卡,
  * 显示 名称 / 命令 / 工作目录,单击启动、右键编辑、hover 出编辑/删除。
+ * 卡列表按工作目录(cwd)分组立在会话墙同款的双开画轴墙上(段身份青紫,
+ * Claude/codex/dsh 的三色在 HarnessPanel) —— 分组模型与 Web 栏「最近访问墙」同构。
  * 状态、CRUD handler 与编辑对话框整体从 Sidebar 迁出,沿用 sidebar.agent* 文案键。
  *
  * 编辑对话框按"插槽规格表"组织:面板(图标+名称)/ 命令 / 工作目录 / 环境变量 / 实时预览,
@@ -93,6 +98,12 @@ function bundledIconFor(command: string): BundledIconEntry | null {
   const t = command.trim().split(/\s+/)[0]?.replace(/^["']|["']$/g, '').toLowerCase()
   return (t && BUNDLED_ICON_BY_COMMAND[t]) || null
 }
+
+// 目录组段身份 —— agent 卡按工作目录分组立在双开画轴墙上,Agents 页签整墙一色青紫
+// (claude 青橙 / codex 青白 / dsh 青花在 HarnessPanel 的 WS_TONE,四面互斥不同屏)。
+// tone 给纸里目录组头的轴头/系绳(GroupHeader),token 给墙辊/解绳辉光/题签墨
+// (inline --seg-tone 注入,机械在 globals.css 的 .scroll-dual-seg)
+const WS_TONE = { tone: 'seg-violet' as const, token: 'var(--seg-violet)' }
 
 /** 渲染内置品牌图标:mask 模式取资产 alpha 作剪影、按 --text-rack 着色(明暗自适应);
  *  img 模式直接显示原色品牌标。 */
@@ -192,6 +203,40 @@ const AgentsPanel: React.FC = () => {
       }
     }).catch((err) => console.error('Failed to load env profiles:', err))
   }, [])
+
+  // ── 目录分组视图(agent 卡按工作目录分组立在双开画轴墙上)──
+  // 稳定分组:有目录组吃仓库自有的 agent 顺序(首现序),未指定目录组排最后;
+  // 键归一化(normDirKey)剥尾
+  // 分隔符避免 D:\x 与 D:\x\ 裂成两组,根路径 / 保留原文(合法工作目录,不并进
+  // 「未指定目录」);cwd 可留空(留空用当前目录)—— 空目录的 agent 归进
+  // 「未指定目录」一组。组开合态与 Web 栏域名组同管线(组件内留存,不存档 ——
+  // 面板条件挂载,切机柜页签回来复位);增删留下的陈旧键无害
+  const agentGroups = useMemo(() => {
+    const map = new Map<string, AgentConfig[]>()
+    for (const agent of agents) {
+      const key = normDirKey(agent.cwd ?? '')
+      const list = map.get(key)
+      if (list) list.push(agent)
+      else map.set(key, [agent])
+    }
+    const groups = [...map.entries()]
+    const noDir = map.get('')
+    return noDir ? [...groups.filter(([dir]) => dir !== ''), ['', noDir] as [string, AgentConfig[]]] : groups
+  }, [agents])
+  const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => new Set())
+  const toggleDirCollapsed = (dir: string): void =>
+    setCollapsedDirs(prev => {
+      const next = new Set(prev)
+      if (next.has(dir)) next.delete(dir)
+      else next.add(dir)
+      return next
+    })
+  // 一键收/放(会话墙「全体」同语义):判据只看现存各组,陈旧键不掺和
+  const allDirsCollapsed =
+    agentGroups.length > 0 && agentGroups.every(([dir]) => collapsedDirs.has(dir))
+  const toggleAllDirs = (): void => {
+    setCollapsedDirs(allDirsCollapsed ? new Set() : new Set(agentGroups.map(([dir]) => dir)))
+  }
 
   // 图标选择器浮层:外部点击 / ESC 关闭 —— ESC 捕获截停(useDismiss),不穿透进
   // 下方层;浮层开着时对话框自己的 ESC 监听通常到不了,见下
@@ -371,6 +416,75 @@ const AgentsPanel: React.FC = () => {
   // 编辑中 command 对应的内置图标(emoji 为空时在选择器按钮上预览)
   const previewIcon = bundledIconFor(agentCommand)
 
+  // agent 卡 —— 槽位面卡原样（点击启动/右键编辑/悬停操作簇全不动），只是从连排
+  // 暗沟改成立在目录组卷的纸幅上（paper-sheet）；组内顺序照旧吃仓库自有顺序
+  const renderAgentCard = (agent: AgentConfig) => (
+    <div
+      key={agent.id}
+      onClick={() => handleLaunch(agent.id)}
+      onContextMenu={(e) => handleContextMenu(agent, e)}
+      onMouseLeave={() => { if (deleteConfirmId === agent.id) setDeleteConfirmId(null) }}
+      title={`${agent.name}: ${agent.command}`}
+      // 44px 独立卡 —— 四边 rule 框 + 2px 圆角,卡间 6px 暗沟由容器 space-y-1.5 出;
+      // 槽位阶梯与 Harness 工作区卡归一(slot 面 / 悬停 elev);纸幅 px-1.5 已收侧距,
+      // 行内 px-2 让图标落在 20px 左沿
+      className="group relative flex items-center gap-2.5 px-2 h-[44px] cursor-pointer transition-colors rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)] overflow-hidden"
+    >
+      {/* 图标槽:emoji > 内置品牌图标 > 默认机器人头 —— 20px 槽与工作区卡图标同列 */}
+      <span className="flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center text-[15px] leading-none text-[var(--text-rack-mute)] group-hover:text-[var(--amber)] transition-colors">
+        <AgentSlotIcon agent={agent} />
+      </span>
+      <span className="flex flex-col min-w-0 flex-1">
+        <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">{agent.name}</span>
+        <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">
+          {agent.command}{agent.cwd ? ` · ${agent.cwd}` : ''}
+        </span>
+      </span>
+      {/* 悬停操作簇遮罩颜色跟悬停面色(elev);focus-within 同步显形,键盘可达 */}
+      <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-elev)] from-[24%] to-transparent">
+        <button
+          onClick={(e) => handleContextMenu(agent, e)}
+          title={t('sidebar.agentEditTitle')}
+          className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
+        >
+          <IconEdit />
+        </button>
+        <button
+          onClick={async (e) => {
+            e.stopPropagation()
+            // 两步确认:首次点击切到确认态,再次点击才真正删除(与工作区/变量组卡一致)
+            if (deleteConfirmId !== agent.id) {
+              setDeleteConfirmId(agent.id)
+              return
+            }
+            setDeleteConfirmId(null)
+            // 失败(落盘失败/agent 已不存在)不静默:卡片在下方 loadAgents()
+            // 后"复活"前给出原因 —— 与拨分接开关/变量组卡片删除同族错误位
+            try {
+              const res = await window.electronAPI?.deleteAgent(agent.id)
+              if (res && res.success === false) {
+                setActionError(typeof res.error === 'string' ? res.error : t('agents.edit.deleteFailed'))
+              }
+            } catch (err) {
+              setActionError(err instanceof Error && err.message ? err.message : t('agents.edit.deleteFailed'))
+            } finally {
+              await loadAgents()
+            }
+          }}
+          title={deleteConfirmId === agent.id ? t('agents.edit.confirmDelete') : t('sidebar.agentDelete')}
+          className={cn(
+            'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
+            deleteConfirmId === agent.id
+              ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
+              : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]'
+          )}
+        >
+          <IconX />
+        </button>
+      </div>
+    </div>
+  )
+
   return (
     <div
       className="flex flex-col h-full bg-[var(--bg-base)] min-w-0"
@@ -408,85 +522,83 @@ const AgentsPanel: React.FC = () => {
         <div className="text-[10.5px] text-[var(--error-rack)] break-words px-3 pt-2">{actionError}</div>
       )}
 
-      {/* 列表 —— 内缩槽位:px-3 两侧收进;独立卡连排(与 Harness 工作区卡同构的
-          卡间 6px 暗沟),颜色阶梯不变 —— rack 面 / 悬停 slot */}
-      <div className="flex-1 overflow-y-auto min-h-0 px-3 pt-1.5 pb-3 space-y-1.5 rack-scroll">
-        {agents.length === 0 ? (
-          // 空状态 -- 沿用机柜 ─ · ─ 分隔 + 提示
-          <div className="flex flex-col items-center justify-center h-full gap-2 px-4 text-center">
-            <span className="font-mono text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
-            <span className="text-[11.5px] [font-family:inherit] text-[var(--text-rack-mute)]">{t('agents.empty')}</span>
-            <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">{t('agents.emptyHint')}</span>
+      {/* 列表 —— 按工作目录分组立在会话墙同款的双开画轴墙上（scroll-dual-wall
+          几何 + scroll-dual-seg 段身份）：每组一根垂卷 —— 组头 = SessionsPanel
+          GroupHeader 同款卷轴（辊轴头/蝴蝶结/题签/发丝线/右缘计数，点击或 Enter
+          开合；题签取目录 basename，全路径走 tooltip），卡落 ScrollFold 纸幅；
+          上/下辊行一键收/放全体目录组，键盘入口在上辊行。cwd 未填的 agent 归入
+          「未指定目录」组殿后。段身份 --seg-tone 取
+          青紫（claude 青橙 / codex 青白 / dsh 青花在 HarnessPanel）—— 轴头/系绳/
+          解绳辉光/题签墨整墙一色，机械在 globals.css 的变体规则 */}
+      {agentGroups.length > 0 ? (
+        <div
+          className="scroll-dual scroll-dual-wall scroll-dual-seg flex-1 min-h-0 open"
+          style={{ '--seg-tone': WS_TONE.token } as React.CSSProperties}
+        >
+          {/* 上辊行 —— 一键收/放钮（会话墙「全体」同款）：点行把纸里展开着的
+              目录卷全卷起/全放，键盘入口在此（下辊行纯鼠标） */}
+          <div
+            className="scroll-dual-rod cursor-pointer"
+            role="button"
+            tabIndex={0}
+            aria-expanded={!allDirsCollapsed}
+            aria-label={t('agents.title')}
+            title={allDirsCollapsed ? t('sidebar.expandAllGroups') : t('sidebar.collapseAllGroups')}
+            onClick={toggleAllDirs}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleAllDirs() }
+            }}
+          >
+            {/* 辊本体（rod-caps）—— 行内垂直居中的细棍；墙恒开，辊面恒是光辊
+                （解绳态：轴头恒亮，段身份见 scroll-dual-seg） */}
+            <span aria-hidden className="rod-caps" />
+            <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
           </div>
-        ) : (
-          agents.map(agent => (
-            <div
-              key={agent.id}
-              onClick={() => handleLaunch(agent.id)}
-              onContextMenu={(e) => handleContextMenu(agent, e)}
-              onMouseLeave={() => { if (deleteConfirmId === agent.id) setDeleteConfirmId(null) }}
-              title={`${agent.name}: ${agent.command}`}
-              // 44px 独立卡 —— 四边 rule 框 + 2px 圆角,卡间 6px 暗沟由容器
-              // space-y-1.5 出;槽位阶梯与 Harness 工作区卡归一(slot 面 / 悬停
-              // elev);容器 px-3 已收侧距,行内 px-2 让图标落在 20px 左沿
-              className="group relative flex items-center gap-2.5 px-2 h-[44px] cursor-pointer transition-colors rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)] overflow-hidden"
-            >
-              {/* 图标槽:emoji > 内置品牌图标 > 默认机器人头 —— 20px 槽与工作区卡图标同列 */}
-              <span className="flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center text-[15px] leading-none text-[var(--text-rack-mute)] group-hover:text-[var(--amber)] transition-colors">
-                <AgentSlotIcon agent={agent} />
-              </span>
-              <span className="flex flex-col min-w-0 flex-1">
-                <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">{agent.name}</span>
-                <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">
-                  {agent.command}{agent.cwd ? ` · ${agent.cwd}` : ''}
-                </span>
-              </span>
-              {/* 悬停操作簇遮罩颜色跟悬停面色(elev);focus-within 同步显形,键盘可达 */}
-              <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-elev)] from-[24%] to-transparent">
-                <button
-                  onClick={(e) => handleContextMenu(agent, e)}
-                  title={t('sidebar.agentEditTitle')}
-                  className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
-                >
-                  <IconEdit />
-                </button>
-                <button
-                  onClick={async (e) => {
-                    e.stopPropagation()
-                    // 两步确认:首次点击切到确认态,再次点击才真正删除(与工作区/变量组卡一致)
-                    if (deleteConfirmId !== agent.id) {
-                      setDeleteConfirmId(agent.id)
-                      return
-                    }
-                    setDeleteConfirmId(null)
-                    // 失败(落盘失败/agent 已不存在)不静默:卡片在下方 loadAgents()
-                    // 后"复活"前给出原因 —— 与拨分接开关/变量组卡片删除同族错误位
-                    try {
-                      const res = await window.electronAPI?.deleteAgent(agent.id)
-                      if (res && res.success === false) {
-                        setActionError(typeof res.error === 'string' ? res.error : t('agents.edit.deleteFailed'))
-                      }
-                    } catch (err) {
-                      setActionError(err instanceof Error && err.message ? err.message : t('agents.edit.deleteFailed'))
-                    } finally {
-                      await loadAgents()
-                    }
-                  }}
-                  title={deleteConfirmId === agent.id ? t('agents.edit.confirmDelete') : t('sidebar.agentDelete')}
-                  className={cn(
-                    'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
-                    deleteConfirmId === agent.id
-                      ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
-                      : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]'
-                  )}
-                >
-                  <IconX />
-                </button>
-              </div>
+          {/* 纸窗（恒铺开，纸包内容）—— 目录组垂卷立在纸面上；内容超出剩余高时
+              纸收缩到剩高、内心滚（滚动容器 = 纸窗，滚条 rack-scroll） */}
+          <div className="scroll-dual-paper rack-scroll">
+            <div className="scroll-dual-body">
+              {agentGroups.map(([dir, list]) => (
+                <div key={dir}>
+                  <GroupHeader
+                    tone={WS_TONE.tone}
+                    label={dir ? wsDirLabel(dir) : t('agents.groupNoDir')}
+                    labelTitle={dir || undefined}
+                    count={list.length}
+                    truncateLabel
+                    collapsed={collapsedDirs.has(dir)}
+                    onToggle={() => toggleDirCollapsed(dir)}
+                  />
+                  <ScrollFold open={!collapsedDirs.has(dir)}>
+                    {/* 纸幅：与辊上卷纸带同宽同边 mx-2 —— agent 卡原样立上纸面
+                        （槽位面卡/悬停操作簇不动），卡间 6px 沟落在纸上 */}
+                    <div className="paper-sheet mx-2 px-1.5 py-1.5 space-y-1.5">
+                      {list.map(renderAgentCard)}
+                    </div>
+                  </ScrollFold>
+                </div>
+              ))}
             </div>
-          ))
-        )}
-      </div>
+          </div>
+          {/* 下辊行 —— 纸尾辊：贴在纸尾、跟着最底下的分组卷走；点行同样一键
+              收/放（鼠标入口 —— 键盘由上辊行独占） */}
+          <div
+            className="scroll-dual-rod scroll-dual-rod-b cursor-pointer"
+            onClick={toggleAllDirs}
+          >
+            {/* 辊本体 —— 下辊镜像（纸带锚顶、落影投上，机械在 .scroll-dual-rod-b） */}
+            <span aria-hidden className="rod-caps" />
+            <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
+          </div>
+        </div>
+      ) : (
+        // 空状态 -- 沿用机柜 ─ · ─ 分隔 + 提示（历史空则不立墙，与 Web 栏同口径）
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 px-4 pb-6 text-center">
+          <span className="font-mono text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
+          <span className="text-[11.5px] [font-family:inherit] text-[var(--text-rack-mute)]">{t('agents.empty')}</span>
+          <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">{t('agents.emptyHint')}</span>
+        </div>
+      )}
 
       {/* Agent 编辑对话框 -- 机柜"插槽规格表":header + 面板(图标/名称) + 命令/工作目录/环境变量 + 实时预览 */}
       {showDialog && (

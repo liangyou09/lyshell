@@ -1,10 +1,13 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { DEFAULT_CLAUDE_PERMISSION_MODE, DEFAULT_CODEX_PERMISSION_PROFILE, HARNESS_AGENT_VIEWS, type ClaudePermissionMode, type CodexPermissionProfile, type EnvProfileLibraryResult, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
 import { BRANCH_PREFIX, generateWorktreeCode, generateWorktreeKey, generateWorktreeStamp, joinWorktreePath } from '@shared/worktree'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { IconBtn, IconPlus } from './IconBtn'
+import { GroupHeader, type GroupHeaderTone } from './SessionsPanel'
+import ScrollFold, { ScrollTie } from './ScrollFold'
+import { normDirKey, wsDirLabel } from './ws-dir'
 import { ensureDetected, getCachedDetect, redetectHarness } from './harness-detect'
 import { useUiStore } from '../../stores/ui-store'
 import { useEscDismiss } from '../../hooks'
@@ -18,6 +21,10 @@ import { useEscDismiss } from '../../hooks'
  *
  * 缺失依赖时只提示 + 给出安装命令与仓库链接（不自动安装）。就绪后管理多个「工作区」：
  * 每个工作区 = 名称 + 工作目录，单击在对应目录内启动对应 CLI（参照 Agent 面板交互）。
+ * 工作区列表按工作目录分组，立在会话墙同款的双开画轴墙上（ScrollFold 垂卷 + 上/下
+ * 辊行一键收放；题签取目录 basename，全路径走 tooltip；组色随 kind：claude 青橙 /
+ * codex 青白 / dsh 青花，agents 青紫在
+ * AgentsPanel —— WS_TONE 一表四处取值，机械在 globals.css 的 .scroll-dual-seg）。
  * 环境变量的增删改与启用切换都在左侧「环境变量」面板；这里仅为工作区对话框的绑定
  * 下拉与模型建议拉一份只读变量组列表 + 该 kind 的启用指针。
  * 样式沿用机柜令牌（--bg-base/--bg-slot/--rule/--amber/--text-rack*）与 12px 等宽基线。
@@ -51,6 +58,20 @@ const HARNESS_API = {
     launch: (id: string) => window.electronAPI.launchClaudeWorkspace(id)
   }
 } as const
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 目录组段身份 —— 工作区按工作目录分组立在双开画轴墙上,每 kind 一色:
+// claude 青橙 / codex 青白 / dsh 青花(agents 青紫在 AgentsPanel,四面互斥
+// 不同屏)。tone 给纸里目录组头的轴头/系绳(GroupHeader),token 给墙辊/
+// 解绳辉光/题签墨(inline --seg-tone 注入,机械在 globals.css 的 .scroll-dual-seg)
+// ─────────────────────────────────────────────────────────────────────────────
+// segCls:浅色主题单配档挂的墙修饰类(qingbai 六色最亮,通用 color-mix 压墨
+// 不够对比 —— 见 globals.css .scroll-dual-seg.tone-qingbai 的浅色规则)
+const WS_TONE: Record<HarnessAgentKind, { tone: GroupHeaderTone; token: string; segCls?: string }> = {
+  dsh:    { tone: 'seg-qinghua', token: 'var(--seg-qinghua)' },
+  codex:  { tone: 'seg-qingbai', token: 'var(--seg-qingbai)', segCls: 'tone-qingbai' },
+  claude: { tone: 'seg-orange',  token: 'var(--seg-orange)' }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 图标
@@ -216,6 +237,38 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
       console.error(`Failed to load ${agent} env profiles:`, err)
     }
   }, [agent])
+
+  // ── 目录分组视图(工作区按工作目录分组立在双开画轴墙上)──
+  // 稳定分组:组序吃仓库自有的工作区顺序(首现序,不重排 —— 排序语义照旧落在
+  // 组间与组内),键归一化(normDirKey)剥尾分隔符避免 D:\x 与 D:\x\ 裂成两组,
+  // 根路径 / 保留原文(合法工作目录,不能吞成空串);cwd 校验必填,键不可能是
+  // 空串。组开合态与 Web 栏域名组同管线(组件内留存,不存档 ——
+  // 面板条件挂载,切机柜页签回来复位);列表增删留下的陈旧键无害
+  const wsGroups = useMemo(() => {
+    const map = new Map<string, HarnessWorkspace[]>()
+    for (const ws of workspaces) {
+      const key = normDirKey(ws.cwd)
+      const list = map.get(key)
+      if (list) list.push(ws)
+      else map.set(key, [ws])
+    }
+    return [...map.entries()]
+  }, [workspaces])
+  const [collapsedDirs, setCollapsedDirs] = useState<Record<string, boolean>>({})
+  const toggleDirCollapsed = useCallback((dir: string) => {
+    setCollapsedDirs(s => ({ ...s, [dir]: !s[dir] }))
+  }, [])
+  // 一键收/放(会话墙「全体」同语义):收 = 把展开着的目录卷全卷起,放 = 全放
+  const allDirsCollapsed =
+    wsGroups.length > 0 && wsGroups.every(([dir]) => !!collapsedDirs[dir])
+  const toggleAllDirs = useCallback(() => {
+    const collapsed = !allDirsCollapsed
+    setCollapsedDirs(prev => {
+      const next = { ...prev }
+      for (const [dir] of wsGroups) next[dir] = collapsed
+      return next
+    })
+  }, [allDirsCollapsed, wsGroups])
 
   // 挂载:检测结果读应用级缓存(启动时已预热,切页签回来不再打检测 IPC;
   // 预热漏掉/失败时 ensureDetected 兜底发起一次)。工作区与变量组列表仍按需拉取
@@ -568,6 +621,157 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     })()
   }
 
+  // 工作区卡 —— 槽位面卡原样（点击启动/右键编辑/悬停操作簇/角标全不动），只是从
+  // 连排暗沟改成立在目录组卷的纸幅上（paper-sheet）；组内顺序照旧吃仓库自有顺序
+  const renderWorkspaceCard = (ws: HarnessWorkspace) => {
+    const launching = launchingId === ws.id
+    // 显式绑定的变量组（悬空绑定不显示 —— 主进程会回落已启用组，标出来反而误导）
+    const boundProfile = ws.envProfileId
+      ? envProfiles.find((p) => p.id === ws.envProfileId)
+      : undefined
+    // 危险态：codex 完全放开档 / claude bypassPermissions 档 —— 卡片整体换
+    // .danger-card（红染底 + 左沿条纹导轨，与表单同语），点之前就看得见
+    // 这是个绕过审批跑的工作区
+    const dangerPerm =
+      ws.codexPermissions === ':danger-full-access' || ws.claudePermissions === 'bypassPermissions'
+    return (
+      <div
+        key={ws.id}
+        onClick={() => void handleLaunch(ws)}
+        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); handleEdit(ws) }}
+        onMouseLeave={() => { if (deleteConfirmId === ws.id) setDeleteConfirmId(null) }}
+        title={t(`${prefix}.launch`)}
+        className={cn(
+          'group relative flex items-center gap-2.5 px-2 py-1.5 rounded-[2px] cursor-pointer border transition-colors overflow-hidden',
+          // 常规面 = 槽位色 bg-slot（比面板底高两档，与 bg-base 沟拉开卡界），
+          // 悬停 elev 再提一档；危险态染底配方见 .danger-card（同走 slot 基）
+          dangerPerm
+            ? 'danger-card'
+            : 'border-[var(--rule)] bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)]',
+          launching && 'opacity-60 cursor-wait'
+        )}
+      >
+        <span className={cn(
+          'flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center transition-colors',
+          dangerPerm ? 'text-[var(--error-rack)]' : 'text-[var(--text-rack-mute)] group-hover:text-[var(--amber)]'
+        )}>
+          <IconFolder />
+        </span>
+        <span className="flex flex-col min-w-0 flex-1">
+          <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">
+            {ws.name}
+            {launching && <span className="ml-1.5 text-[10.5px] [font-family:inherit] text-[var(--amber)]">{t(`${prefix}.launching`)}</span>}
+          </span>
+          <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">{ws.cwd}</span>
+          {/* 绑定了变量组时标出来 —— 点这行即刻启动，用哪份密钥必须点之前就看得见 */}
+          {boundProfile && (
+            <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0">
+              <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--amber)] flex-shrink-0" />
+              <span className="truncate">{boundProfile.name}</span>
+            </span>
+          )}
+          {/* worktree 隔离标出来（悬停见分支名；共享名随行显示）—— 在哪个树里跑是看得见的承诺 */}
+          {ws.isolation === 'worktree' && (
+            <span
+              className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0"
+              title={`lyshell/${ws.worktreeKey || `${agent}-${ws.id}`}`}
+            >
+              <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--text-rack-mute)] flex-shrink-0" />
+              <span className="truncate">
+                {ws.worktreeKey
+                  ? `${t(`${prefix}.wsIsolationBadge`)} · ${ws.worktreeKey}`
+                  : t(`${prefix}.wsIsolationBadge`)}
+              </span>
+            </span>
+          )}
+          {/* claude 权限模式标出来 —— 行文即启动实际追加的参数（红=带电警示，
+              危险态与卡片红染底同源；acceptEdits/plan 灰置，与 codex read-only
+              角标同族），点之前就看得见；default 即 CLI 默认形态，不标 */}
+          {ws.claudePermissions === 'bypassPermissions' && (
+            <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--error-rack)] leading-tight min-w-0">
+              <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--error-rack)] flex-shrink-0" />
+              <span className="truncate">--dangerously-skip-permissions</span>
+            </span>
+          )}
+          {(ws.claudePermissions === 'acceptEdits' || ws.claudePermissions === 'plan') && (
+            <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0">
+              <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--text-rack-mute)] flex-shrink-0" />
+              <span className="truncate">--permission-mode {ws.claudePermissions}</span>
+            </span>
+          )}
+          {/* 权限档位标出来 —— danger 红（错误令牌，与卡片危险态皮肤同源）；
+              read-only 灰置（worktree 角标同族：在哪个权限下跑是看得见的承诺）；
+              workspace/缺省即 Codex 默认形态，不标 */}
+          {ws.codexPermissions === ':danger-full-access' && (
+            <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--error-rack)] leading-tight min-w-0">
+              <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--error-rack)] flex-shrink-0" />
+              <span className="truncate">:danger-full-access</span>
+            </span>
+          )}
+          {ws.codexPermissions === ':read-only' && (
+            <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0">
+              <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--text-rack-mute)] flex-shrink-0" />
+              <span className="truncate">:read-only</span>
+            </span>
+          )}
+          {view.hasWorkspaceNote && ws.note && (
+            <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] truncate leading-tight">{ws.note}</span>
+          )}
+        </span>
+        {/* 悬停操作簇遮罩颜色跟悬停面色(elev)—— 用面色的不透明渐变盖住按钮底下的字；
+            focus-within 同步显形，键盘 Tab 聚到按钮时不必悬停也能操作 */}
+        <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-elev)] from-[24%] to-transparent">
+          <button
+            onClick={(e) => { e.stopPropagation(); handleDuplicateWorkspace(ws) }}
+            title={t(`${prefix}.copy`)}
+            className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
+          >
+            <IconCopy />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleEdit(ws) }}
+            title={t(`${prefix}.wsEditTitle`)}
+            className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
+          >
+            <IconEdit />
+          </button>
+          <button
+            onClick={async (e) => {
+              e.stopPropagation()
+              // 两步确认：首次点击切到确认态，再次点击才真正删除（与对话框一致）
+              if (deleteConfirmId !== ws.id) {
+                setDeleteConfirmId(ws.id)
+                return
+              }
+              setDeleteConfirmId(null)
+              // 失败(落盘失败/工作区已不存在)不静默:卡片在下方 loadWorkspaces()
+              // "复活"前给出原因 —— 与 Agent/变量组卡同一族错误位
+              try {
+                const res = await api.delete(ws.id)
+                if (res && res.success === false) {
+                  setActionError(typeof res.error === 'string' ? res.error : t(`${prefix}.wsDeleteFailed`))
+                }
+              } catch (err) {
+                setActionError(err instanceof Error ? err.message : t(`${prefix}.wsDeleteFailed`))
+              } finally {
+                await loadWorkspaces()
+              }
+            }}
+            title={deleteConfirmId === ws.id ? t(`${prefix}.wsConfirmDelete`) : t(`${prefix}.wsDelete`)}
+            className={cn(
+              'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
+              deleteConfirmId === ws.id
+                ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
+                : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]'
+            )}
+          >
+            <IconX />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
       className="w-full h-full flex flex-col bg-[var(--bg-base)]"
@@ -761,12 +965,14 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
         </div>
       )}
 
-      {/* 工作区卡片区域（环境变量的管理/启用入口已收编到左侧「环境变量」面板）——
-          bg-rack 满幅背板把列表区从 base 框体里隆起成「卡片区域」：框体沉底（面板根
-          bg-base，与激活轨融合窗同一面材质）、背板立前一档、卡面（bg-slot）再立一档，
-          三段明度阶拉开框/区/卡。不设区段带：Sessions 的 GroupHeader 服务于多分组
-          导航（LIVE/自定义组/收藏），本面板整面只有工作区一列，计数已在铭牌上，
-          区段标签与铭牌重复 */}
+      {/* 工作区卡区域（环境变量的管理/启用入口已收编到左侧「环境变量」面板）——
+          卡列表按工作目录分组，立在会话墙同款的双开画轴墙上（scroll-dual-wall 几何
+          + scroll-dual-seg 段身份）：每组一根垂卷 —— 组头 = SessionsPanel GroupHeader
+          同款卷轴（辊轴头/蝴蝶结/题签/发丝线/右缘计数，点击或 Enter 开合），卡落
+          ScrollFold 纸幅；上/下辊行一键收/放全体目录组（会话墙「全体」同语义，键盘
+          入口在上辊行）。段身份 --seg-tone 按 kind 取色：claude 青橙 / codex 青白 /
+          dsh 青花（agents 青紫在 AgentsPanel）—— 轴头/系绳/解绳辉光/题签墨整墙一色，
+          机械在 globals.css 的变体规则 */}
       {listReady && (
         <div className="flex-1 min-h-0 flex flex-col bg-[var(--bg-rack)]">
           {/* 横幅位（仅异常时占行，随卡片区域走）：其余依赖未装时启动禁用
@@ -782,166 +988,76 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
             <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words px-3 pt-3">{actionError}</div>
           )}
 
-          {/* 卡列表 —— 6px 沟露出背板色：卡与卡的界限靠「背板沟(bg-rack)→ rule
-              机加工边 → 槽位面(bg-slot)」三段明度阶读出来，沟窄了整列会糊成一片 */}
-          <div className="flex-1 overflow-y-auto min-h-0 px-3 pt-2.5 pb-3 space-y-1.5 rack-scroll">
-            {workspaces.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full gap-2 px-4 text-center">
-                <span className="font-mono text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
-                <span className="text-[11.5px] [font-family:inherit] text-[var(--text-rack-mute)]">{t(`${prefix}.wsEmpty`)}</span>
-                <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">{t(`${prefix}.wsEmptyHint`)}</span>
+          {/* 墙体/空态二选一：有工作区立墙（下辊贴纸尾随最底下的分组卷走），没有
+              时空态占整段（与 Web 栏「历史空则不立墙」同口径） */}
+          {wsGroups.length > 0 ? (
+            <div
+              className={cn('scroll-dual scroll-dual-wall scroll-dual-seg flex-1 min-h-0 open', WS_TONE[agent].segCls)}
+              style={{ '--seg-tone': WS_TONE[agent].token } as React.CSSProperties}
+            >
+              {/* 上辊行 —— 一键收/放钮（会话墙「全体」同款）：点行把纸里展开着的
+                  目录卷全卷起/全放，键盘入口在此（下辊行纯鼠标） */}
+              <div
+                className="scroll-dual-rod cursor-pointer"
+                role="button"
+                tabIndex={0}
+                aria-expanded={!allDirsCollapsed}
+                aria-label={t(`${prefix}.title`)}
+                title={allDirsCollapsed ? t('sidebar.expandAllGroups') : t('sidebar.collapseAllGroups')}
+                onClick={toggleAllDirs}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleAllDirs() }
+                }}
+              >
+                {/* 辊本体（rod-caps）—— 行内垂直居中的细棍；墙恒开，辊面恒是光辊
+                    （解绳态：轴头恒亮，段身份见 scroll-dual-seg） */}
+                <span aria-hidden className="rod-caps" />
+                <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
               </div>
-            ) : (
-              workspaces.map((ws) => {
-                const launching = launchingId === ws.id
-                // 显式绑定的变量组（悬空绑定不显示 —— 主进程会回落已启用组，标出来反而误导）
-                const boundProfile = ws.envProfileId
-                  ? envProfiles.find((p) => p.id === ws.envProfileId)
-                  : undefined
-                // 危险态：codex 完全放开档 / claude bypassPermissions 档 —— 卡片整体换
-                // .danger-card（红染底 + 左沿条纹导轨，与表单同语），点之前就看得见
-                // 这是个绕过审批跑的工作区
-                const dangerPerm =
-                  ws.codexPermissions === ':danger-full-access' || ws.claudePermissions === 'bypassPermissions'
-                return (
-                  <div
-                    key={ws.id}
-                    onClick={() => void handleLaunch(ws)}
-                    onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); handleEdit(ws) }}
-                    onMouseLeave={() => { if (deleteConfirmId === ws.id) setDeleteConfirmId(null) }}
-                    title={t(`${prefix}.launch`)}
-                    className={cn(
-                      'group relative flex items-center gap-2.5 px-2 py-1.5 rounded-[2px] cursor-pointer border transition-colors overflow-hidden',
-                      // 常规面 = 槽位色 bg-slot（比面板底高两档，与 bg-base 沟拉开卡界），
-                      // 悬停 elev 再提一档；危险态染底配方见 .danger-card（同走 slot 基）
-                      dangerPerm
-                        ? 'danger-card'
-                        : 'border-[var(--rule)] bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)]',
-                      launching && 'opacity-60 cursor-wait'
-                    )}
-                  >
-                    <span className={cn(
-                      'flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center transition-colors',
-                      dangerPerm ? 'text-[var(--error-rack)]' : 'text-[var(--text-rack-mute)] group-hover:text-[var(--amber)]'
-                    )}>
-                      <IconFolder />
-                    </span>
-                    <span className="flex flex-col min-w-0 flex-1">
-                      <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">
-                        {ws.name}
-                        {launching && <span className="ml-1.5 text-[10.5px] [font-family:inherit] text-[var(--amber)]">{t(`${prefix}.launching`)}</span>}
-                      </span>
-                      <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">{ws.cwd}</span>
-                      {/* 绑定了变量组时标出来 —— 点这行即刻启动，用哪份密钥必须点之前就看得见 */}
-                      {boundProfile && (
-                        <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0">
-                          <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--amber)] flex-shrink-0" />
-                          <span className="truncate">{boundProfile.name}</span>
-                        </span>
-                      )}
-                      {/* worktree 隔离标出来（悬停见分支名；共享名随行显示）—— 在哪个树里跑是看得见的承诺 */}
-                      {ws.isolation === 'worktree' && (
-                        <span
-                          className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0"
-                          title={`lyshell/${ws.worktreeKey || `${agent}-${ws.id}`}`}
-                        >
-                          <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--text-rack-mute)] flex-shrink-0" />
-                          <span className="truncate">
-                            {ws.worktreeKey
-                              ? `${t(`${prefix}.wsIsolationBadge`)} · ${ws.worktreeKey}`
-                              : t(`${prefix}.wsIsolationBadge`)}
-                          </span>
-                        </span>
-                      )}
-                      {/* claude 权限模式标出来 —— 行文即启动实际追加的参数（红=带电警示，
-                          危险态与卡片红染底同源；acceptEdits/plan 灰置，与 codex read-only
-                          角标同族），点之前就看得见；default 即 CLI 默认形态，不标 */}
-                      {ws.claudePermissions === 'bypassPermissions' && (
-                        <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--error-rack)] leading-tight min-w-0">
-                          <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--error-rack)] flex-shrink-0" />
-                          <span className="truncate">--dangerously-skip-permissions</span>
-                        </span>
-                      )}
-                      {(ws.claudePermissions === 'acceptEdits' || ws.claudePermissions === 'plan') && (
-                        <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0">
-                          <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--text-rack-mute)] flex-shrink-0" />
-                          <span className="truncate">--permission-mode {ws.claudePermissions}</span>
-                        </span>
-                      )}
-                      {/* 权限档位标出来 —— danger 红（错误令牌，与卡片危险态皮肤同源）；
-                          read-only 灰置（worktree 角标同族：在哪个权限下跑是看得见的承诺）；
-                          workspace/缺省即 Codex 默认形态，不标 */}
-                      {ws.codexPermissions === ':danger-full-access' && (
-                        <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--error-rack)] leading-tight min-w-0">
-                          <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--error-rack)] flex-shrink-0" />
-                          <span className="truncate">:danger-full-access</span>
-                        </span>
-                      )}
-                      {ws.codexPermissions === ':read-only' && (
-                        <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0">
-                          <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--text-rack-mute)] flex-shrink-0" />
-                          <span className="truncate">:read-only</span>
-                        </span>
-                      )}
-                      {view.hasWorkspaceNote && ws.note && (
-                        <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] truncate leading-tight">{ws.note}</span>
-                      )}
-                    </span>
-                    {/* 悬停操作簇遮罩颜色跟悬停面色(elev)—— 用面色的不透明渐变盖住按钮底下的字；
-                        focus-within 同步显形，键盘 Tab 聚到按钮时不必悬停也能操作 */}
-                    <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-elev)] from-[24%] to-transparent">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDuplicateWorkspace(ws) }}
-                        title={t(`${prefix}.copy`)}
-                        className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
-                      >
-                        <IconCopy />
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleEdit(ws) }}
-                        title={t(`${prefix}.wsEditTitle`)}
-                        className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
-                      >
-                        <IconEdit />
-                      </button>
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation()
-                          // 两步确认：首次点击切到确认态，再次点击才真正删除（与对话框一致）
-                          if (deleteConfirmId !== ws.id) {
-                            setDeleteConfirmId(ws.id)
-                            return
-                          }
-                          setDeleteConfirmId(null)
-                          // 失败(落盘失败/工作区已不存在)不静默:卡片在下方 loadWorkspaces()
-                          // "复活"前给出原因 —— 与 Agent/变量组卡同一族错误位
-                          try {
-                            const res = await api.delete(ws.id)
-                            if (res && res.success === false) {
-                              setActionError(typeof res.error === 'string' ? res.error : t(`${prefix}.wsDeleteFailed`))
-                            }
-                          } catch (err) {
-                            setActionError(err instanceof Error ? err.message : t(`${prefix}.wsDeleteFailed`))
-                          } finally {
-                            await loadWorkspaces()
-                          }
-                        }}
-                        title={deleteConfirmId === ws.id ? t(`${prefix}.wsConfirmDelete`) : t(`${prefix}.wsDelete`)}
-                        className={cn(
-                          'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
-                          deleteConfirmId === ws.id
-                            ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
-                            : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]'
-                        )}
-                      >
-                        <IconX />
-                      </button>
+              {/* 纸窗（恒铺开，纸包内容）—— 目录组垂卷立在纸面上；内容超出剩余高时
+                  纸收缩到剩高、内心滚（滚动容器 = 纸窗，滚条 rack-scroll） */}
+              <div className="scroll-dual-paper rack-scroll">
+                <div className="scroll-dual-body">
+                  {wsGroups.map(([dir, list]) => (
+                    <div key={dir}>
+                      <GroupHeader
+                        tone={WS_TONE[agent].tone}
+                        label={wsDirLabel(dir)}
+                        labelTitle={dir}
+                        count={list.length}
+                        truncateLabel
+                        collapsed={!!collapsedDirs[dir]}
+                        onToggle={() => toggleDirCollapsed(dir)}
+                      />
+                      <ScrollFold open={!collapsedDirs[dir]}>
+                        {/* 纸幅：与辊上卷纸带同宽同边 mx-2 —— 工作区卡原样立上纸面
+                            （槽位面卡/悬停操作簇不动），卡间 6px 沟落在纸上 */}
+                        <div className="paper-sheet mx-2 px-1.5 py-1.5 space-y-1.5">
+                          {list.map(renderWorkspaceCard)}
+                        </div>
+                      </ScrollFold>
                     </div>
-                  </div>
-                )
-              })
-            )}
-          </div>
+                  ))}
+                </div>
+              </div>
+              {/* 下辊行 —— 纸尾辊：贴在纸尾、跟着最底下的分组卷走；点行同样一键
+                  收/放（鼠标入口 —— 键盘由上辊行独占） */}
+              <div
+                className="scroll-dual-rod scroll-dual-rod-b cursor-pointer"
+                onClick={toggleAllDirs}
+              >
+                {/* 辊本体 —— 下辊镜像（纸带锚顶、落影投上，机械在 .scroll-dual-rod-b） */}
+                <span aria-hidden className="rod-caps" />
+                <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 px-4 pb-6 text-center">
+              <span className="font-mono text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
+              <span className="text-[11.5px] [font-family:inherit] text-[var(--text-rack-mute)]">{t(`${prefix}.wsEmpty`)}</span>
+              <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">{t(`${prefix}.wsEmptyHint`)}</span>
+            </div>
+          )}
         </div>
       )}
 

@@ -13,6 +13,7 @@ import {
 import EnvRowsEditor, { type EnvRow } from '../EnvRowsEditor'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { IconBtn, IconPlus } from './IconBtn'
+import { ScrollTie } from './ScrollFold'
 import { useUiStore } from '../../stores/ui-store'
 
 /**
@@ -112,6 +113,10 @@ const DEFAULTS_LOADERS: Record<HarnessAgentKind, () => Promise<HarnessEnvDefault
   codex: () => window.electronAPI?.getCodexEnvDefaults(),
   claude: () => window.electronAPI?.getClaudeEnvDefaults()
 }
+
+// 段身份 —— 变量组卡平铺立在双开画轴墙上,env 页签整墙一色青绿(六面板段身份
+// token 表在 globals.css;墙机械 .scroll-dual-seg)。卡片无分组可折,辊行纯装裱
+const WALL_TONE = 'var(--seg-green)'
 
 const EnvProfilePanel: React.FC = () => {
   const { t } = useTranslation()
@@ -410,6 +415,149 @@ const EnvProfilePanel: React.FC = () => {
   }
   const resetTriedSubmit = () => { if (triedSubmit) setTriedSubmit(false) }
 
+  // 变量组卡 —— 配电盘模块卡原样（整卡即开关/右键编辑/悬停操作簇全不动），只是从
+  // 连排暗沟改成立在画轴墙的纸幅上（paper-sheet），卡间 6px 暗沟落在纸上
+  const renderProfileCard = (p: HarnessEnvProfile) => {
+    const total = usageCount(p.id)
+    const on = activeProfileId === p.id
+    return (
+      <div
+        key={p.id}
+        role="switch"
+        aria-checked={on}
+        tabIndex={0}
+        onClick={() => void toggleActive(p.id)}
+        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); handleEdit(p) }}
+        onKeyDown={(e) => {
+          // 按键来自悬停操作按钮（⧉/✎/✕）时不归卡片管：冒泡上来的 Enter/Space
+          // 若在此 preventDefault 会顺带压制按钮自身的 click 合成，变成「拨开关」
+          if (e.target !== e.currentTarget) return
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void toggleActive(p.id) }
+        }}
+        onMouseLeave={() => { if (deleteConfirmId === p.id) setDeleteConfirmId(null) }}
+        aria-label={p.name}
+        title={on ? t('env.deactivateTitle') : t('env.activateTitle')}
+        className={cn(
+          // 独立卡语法（与 Harness 工作区卡归一）：四边 rule 框 + 2px 圆角 +
+          // 卡间 6px 暗沟（纸幅 space-y-1.5）—— 槽位阶梯与全线一致
+          // （slot 面 / 悬停 elev / 琥珀启用语义不动）；行距 py-1.5
+          // 与工作区/Agent 卡同一档（两行卡）；overflow-hidden 裁导轨圆角
+          'group relative flex flex-col gap-1 px-2 py-1.5 transition-colors rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)] focus:outline-none focus-visible:border-[var(--amber)] overflow-hidden',
+          switching ? 'cursor-wait' : 'cursor-pointer'
+        )}
+      >
+        {/* 通电模块标识：全局启用指针指向本卡时，左沿点亮 2px 琥珀母线导轨
+            （与 HarnessPanel 缺依赖提示卡同一套通电卡语言）—— 全库至多一张
+            卡通电，扫一眼面板就能看到哪组在供全应用取电 */}
+        {on && (
+          <span
+            aria-hidden
+            className="absolute left-0 top-0 bottom-0 w-[2px] bg-[var(--amber)] shadow-[0_0_6px_var(--amber-glow)]"
+          />
+        )}
+        {/* 行 1：通电 LED + 组名 + hover 操作（复制/编辑/删除）。
+            整卡即开关（单击切换启用）—— 状态读数瘦身为名称前的 20px 槽
+            6px LED（亮=琥珀辉光，暗=熄槽、悬停拨亮预览），与左沿母线
+            导轨同一套通电语言（BusLed 同款），不再单独占一整行断路器药丸 */}
+        <div className="flex items-center gap-2">
+          <span
+            aria-hidden
+            className={cn(
+              'flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center'
+            )}
+          >
+            <span
+              className={cn(
+                'w-[6px] h-[6px] rounded-full transition-colors',
+                on
+                  ? 'bg-[var(--amber)] shadow-[0_0_5px_var(--amber-glow)]'
+                  : 'bg-[var(--text-rack-faint)] group-hover:bg-[var(--amber)]'
+              )}
+            />
+          </span>
+          <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">
+            {p.name}
+          </span>
+          <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-elev)] from-[24%] to-transparent">
+            <button
+              onClick={(e) => { e.stopPropagation(); handleDuplicate(p) }}
+              title={t('env.copy')}
+              className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
+            >
+              <IconCopy />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); handleEdit(p) }}
+              title={t('env.editTitle')}
+              className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
+            >
+              <IconEdit />
+            </button>
+            <button
+              onClick={async (e) => {
+                e.stopPropagation()
+                // 两步确认：首次点击切到确认态，再次点击才真正删除（与工作区/变量组一致）
+                if (deleteConfirmId !== p.id) {
+                  setDeleteConfirmId(p.id)
+                  return
+                }
+                setDeleteConfirmId(null)
+                // 失败(落盘失败/组已不存在)不静默:卡片在下方 load() 后"复活"
+                // 前给出原因 —— 与拨分接开关共用面板级 actionError
+                try {
+                  const res = await window.electronAPI?.deleteEnvProfile(p.id)
+                  if (res && (res as { success?: boolean }).success === false) {
+                    setActionError(typeof (res as { error?: unknown }).error === 'string'
+                      ? (res as { error: string }).error
+                      : t('env.deleteFailed'))
+                  }
+                } catch (err) {
+                  setActionError(err instanceof Error && err.message ? err.message : t('env.deleteFailed'))
+                } finally {
+                  await load()
+                }
+              }}
+              title={deleteConfirmId === p.id
+                ? (total > 0 ? t('env.confirmDeleteRefs', { count: total }) : t('env.confirmDelete'))
+                : t('env.delete')}
+              className={cn(
+                'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
+                deleteConfirmId === p.id
+                  ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
+                  : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]'
+              )}
+            >
+              <IconX />
+            </button>
+          </div>
+        </div>
+
+        {/* 行 2：上游地址 host · 凭据指示 · 附加变量数 · 备注 + 引用回读 ——
+            结构化核心的读数面；引用数靠右收尾（悬停见引用方名单） */}
+        <div className="flex items-baseline gap-2 min-w-0">
+          <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">
+            {[
+              p.baseUrl ? baseUrlHost(p.baseUrl) : null,
+              p.apiKey ? t('env.keyPresent') : null,
+              Object.keys(p.env).length > 0 ? t('env.vars', { count: Object.keys(p.env).length }) : null,
+              p.note || null
+            ].filter(Boolean).join(' · ')}
+          </span>
+          <span className="flex-1" />
+          {total > 0 ? (
+            <span title={usageNames(p.id)} className="shrink-0 text-[10px] [font-family:inherit] text-[var(--text-rack-mute)] tabular-nums">
+              {t('env.refs', { count: total })}
+            </span>
+          ) : (
+            <span className="shrink-0 text-[10px] [font-family:inherit] text-[var(--text-rack-faint)]">
+              {t('env.unused')}
+            </span>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
       className="w-full h-full flex flex-col bg-[var(--bg-base)]"
@@ -445,159 +593,43 @@ const EnvProfilePanel: React.FC = () => {
         <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words px-3 pt-2">{actionError}</div>
       )}
 
-      {/* 卡片链 —— 与 AgentsPanel 同构的独立卡：框线挂在卡片自身，
-          卡间 6px 暗沟形成界限（与 Harness 工作区卡同构），颜色阶梯不变 */}
-      <div className="flex-1 overflow-y-auto min-h-0 px-3 pt-1.5 pb-3 space-y-1.5 rack-scroll">
-        {loaded && profiles.length === 0 ? (
-          // 空状态 —— 沿用机柜 ─ · ─ 分隔 + 提示
-          <div className="flex flex-col items-center justify-center h-full gap-2 px-4 text-center">
-            <span className="font-mono text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
-            <span className="text-[11.5px] [font-family:inherit] text-[var(--text-rack-mute)]">{t('env.empty')}</span>
-            <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">{t('env.emptyHint')}</span>
+      {/* 卡片链 —— 变量组平铺立在会话墙同款的双开画轴墙上（scroll-dual-wall 几何 +
+          scroll-dual-seg 段身份青绿）：面板卡片无分组可折，辊行纯装裱（不接开合），
+          墙纸「纸包内容」—— 短内容下辊贴纸尾，超出剩高纸收缩内心滚（滚动容器 =
+          纸窗，滚条 rack-scroll）。段身份 --seg-tone 取青绿，机械在 globals.css 的
+          变体规则 */}
+      {loaded && profiles.length > 0 ? (
+        <div
+          className="scroll-dual scroll-dual-wall scroll-dual-seg flex-1 min-h-0 open"
+          style={{ '--seg-tone': WALL_TONE } as React.CSSProperties}
+        >
+          {/* 上辊行 —— 纯装裱辊（无分组可折，不接开合/键盘） */}
+          <div className="scroll-dual-rod">
+            <span aria-hidden className="rod-caps" />
+            <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
           </div>
-        ) : (
-          profiles.map((p) => {
-            const total = usageCount(p.id)
-            const on = activeProfileId === p.id
-            return (
-              <div
-                key={p.id}
-                role="switch"
-                aria-checked={on}
-                tabIndex={0}
-                onClick={() => void toggleActive(p.id)}
-                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); handleEdit(p) }}
-                onKeyDown={(e) => {
-                  // 按键来自悬停操作按钮（⧉/✎/✕）时不归卡片管：冒泡上来的 Enter/Space
-                  // 若在此 preventDefault 会顺带压制按钮自身的 click 合成，变成「拨开关」
-                  if (e.target !== e.currentTarget) return
-                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void toggleActive(p.id) }
-                }}
-                onMouseLeave={() => { if (deleteConfirmId === p.id) setDeleteConfirmId(null) }}
-                aria-label={p.name}
-                title={on ? t('env.deactivateTitle') : t('env.activateTitle')}
-                className={cn(
-                  // 独立卡语法（与 Harness 工作区卡归一）：四边 rule 框 + 2px 圆角 +
-                  // 卡间 6px 暗沟（容器 space-y-1.5）—— 槽位阶梯与全线一致
-                  // （slot 面 / 悬停 elev / 琥珀启用语义不动）；行距 py-1.5
-                  // 与工作区/Agent 卡同一档（两行卡）；overflow-hidden 裁导轨圆角
-                  'group relative flex flex-col gap-1 px-2 py-1.5 transition-colors rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)] focus:outline-none focus-visible:border-[var(--amber)] overflow-hidden',
-                  switching ? 'cursor-wait' : 'cursor-pointer'
-                )}
-              >
-                {/* 通电模块标识：全局启用指针指向本卡时，左沿点亮 2px 琥珀母线导轨
-                    （与 HarnessPanel 缺依赖提示卡同一套通电卡语言）—— 全库至多一张
-                    卡通电，扫一眼面板就能看到哪组在供全应用取电 */}
-                {on && (
-                  <span
-                    aria-hidden
-                    className="absolute left-0 top-0 bottom-0 w-[2px] bg-[var(--amber)] shadow-[0_0_6px_var(--amber-glow)]"
-                  />
-                )}
-                {/* 行 1：通电 LED + 组名 + hover 操作（复制/编辑/删除）。
-                    整卡即开关（单击切换启用）—— 状态读数瘦身为名称前的 20px 槽
-                    6px LED（亮=琥珀辉光，暗=熄槽、悬停拨亮预览），与左沿母线
-                    导轨同一套通电语言（BusLed 同款），不再单独占一整行断路器药丸 */}
-                <div className="flex items-center gap-2">
-                  <span
-                    aria-hidden
-                    className={cn(
-                      'flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center'
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'w-[6px] h-[6px] rounded-full transition-colors',
-                        on
-                          ? 'bg-[var(--amber)] shadow-[0_0_5px_var(--amber-glow)]'
-                          : 'bg-[var(--text-rack-faint)] group-hover:bg-[var(--amber)]'
-                      )}
-                    />
-                  </span>
-                  <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">
-                    {p.name}
-                  </span>
-                  <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-elev)] from-[24%] to-transparent">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDuplicate(p) }}
-                      title={t('env.copy')}
-                      className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
-                    >
-                      <IconCopy />
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleEdit(p) }}
-                      title={t('env.editTitle')}
-                      className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
-                    >
-                      <IconEdit />
-                    </button>
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation()
-                        // 两步确认：首次点击切到确认态，再次点击才真正删除（与工作区/变量组一致）
-                        if (deleteConfirmId !== p.id) {
-                          setDeleteConfirmId(p.id)
-                          return
-                        }
-                        setDeleteConfirmId(null)
-                        // 失败(落盘失败/组已不存在)不静默:卡片在下方 load() 后"复活"
-                        // 前给出原因 —— 与拨分接开关共用面板级 actionError
-                        try {
-                          const res = await window.electronAPI?.deleteEnvProfile(p.id)
-                          if (res && (res as { success?: boolean }).success === false) {
-                            setActionError(typeof (res as { error?: unknown }).error === 'string'
-                              ? (res as { error: string }).error
-                              : t('env.deleteFailed'))
-                          }
-                        } catch (err) {
-                          setActionError(err instanceof Error && err.message ? err.message : t('env.deleteFailed'))
-                        } finally {
-                          await load()
-                        }
-                      }}
-                      title={deleteConfirmId === p.id
-                        ? (total > 0 ? t('env.confirmDeleteRefs', { count: total }) : t('env.confirmDelete'))
-                        : t('env.delete')}
-                      className={cn(
-                        'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
-                        deleteConfirmId === p.id
-                          ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
-                          : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]'
-                      )}
-                    >
-                      <IconX />
-                    </button>
-                  </div>
-                </div>
-
-                {/* 行 2：上游地址 host · 凭据指示 · 附加变量数 · 备注 + 引用回读 ——
-                    结构化核心的读数面；引用数靠右收尾（悬停见引用方名单） */}
-                <div className="flex items-baseline gap-2 min-w-0">
-                  <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">
-                    {[
-                      p.baseUrl ? baseUrlHost(p.baseUrl) : null,
-                      p.apiKey ? t('env.keyPresent') : null,
-                      Object.keys(p.env).length > 0 ? t('env.vars', { count: Object.keys(p.env).length }) : null,
-                      p.note || null
-                    ].filter(Boolean).join(' · ')}
-                  </span>
-                  <span className="flex-1" />
-                  {total > 0 ? (
-                    <span title={usageNames(p.id)} className="shrink-0 text-[10px] [font-family:inherit] text-[var(--text-rack-mute)] tabular-nums">
-                      {t('env.refs', { count: total })}
-                    </span>
-                  ) : (
-                    <span className="shrink-0 text-[10px] [font-family:inherit] text-[var(--text-rack-faint)]">
-                      {t('env.unused')}
-                    </span>
-                  )}
-                </div>
+          {/* 纸窗（纸包内容）—— 卡立纸面；内容超出剩余高时纸收缩到剩高、内心滚 */}
+          <div className="scroll-dual-paper rack-scroll">
+            <div className="scroll-dual-body">
+              <div className="paper-sheet mx-2 px-1.5 py-1.5 space-y-1.5">
+                {profiles.map(renderProfileCard)}
               </div>
-            )
-          })
-        )}
-      </div>
+            </div>
+          </div>
+          {/* 下辊行 —— 纸尾辊：贴在纸尾、跟着纸尾走（纯装裱） */}
+          <div className="scroll-dual-rod scroll-dual-rod-b">
+            <span aria-hidden className="rod-caps" />
+            <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
+          </div>
+        </div>
+      ) : loaded && profiles.length === 0 ? (
+        // 空状态 —— 沿用机柜 ─ · ─ 分隔 + 提示（列表空则不立墙，与 Web 栏同口径）
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 px-4 pb-6 text-center">
+          <span className="font-mono text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
+          <span className="text-[11.5px] [font-family:inherit] text-[var(--text-rack-mute)]">{t('env.empty')}</span>
+          <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">{t('env.emptyHint')}</span>
+        </div>
+      ) : null}
 
       {/* 新增/编辑对话框 —— 机柜「插槽规格表」同壳（与 HarnessPanel 变量组对话框同款） */}
       {showDialog && (

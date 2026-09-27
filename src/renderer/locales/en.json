@@ -142,6 +142,7 @@
     "title": "Agents",
     "empty": "No agents yet",
     "emptyHint": "Click + to add an agent",
+    "groupNoDir": "No workdir",
     "edit": {
       "namePh": "e.g. Claude Code · auto-named if empty",
       "defaultName": "Workspace",

@@ -142,6 +142,7 @@
     "title": "Agent",
     "empty": "暂无 Agent",
     "emptyHint": "点击 + 添加 Agent",
+    "groupNoDir": "未指定目录",
     "edit": {
       "namePh": "如 Claude Code · 留空自动命名",
       "defaultName": "工作区",

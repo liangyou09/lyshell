@@ -4,9 +4,10 @@ import { useTranslation } from 'react-i18next'
 import { usePluginStore } from '../../stores/plugin-store'
 import { useUiStore } from '../../stores/ui-store'
 import { normalizeLifecycle } from '@shared/plugin-types'
-import type { LyShellPluginManifest, PluginLifecycle } from '@shared/plugin-types'
+import type { LyShellPluginManifest, PluginLifecycle, PluginListItem } from '@shared/plugin-types'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { IconBtn, IconPlus } from './IconBtn'
+import { ScrollTie } from './ScrollFold'
 
 /** 卡片悬停操作簇的删除钮(与 Agent/工作区/变量组卡同一枚 11px 方角 X) */
 const IconX: React.FC = () => (
@@ -20,6 +21,10 @@ type PickedSource = 'dev' | 'file' | 'url'
 function manifestLifecycle(manifest: LyShellPluginManifest): PluginLifecycle {
   return normalizeLifecycle(manifest.runtime, manifest.lifecycle)
 }
+
+// 段身份 —— 插件卡平铺立在双开画轴墙上,Plugins 页签整墙一色青红(六面板段身份
+// token 表在 globals.css;墙机械 .scroll-dual-seg)。卡片无分组可折,辊行纯装裱
+const WALL_TONE = 'var(--seg-red)'
 
 /**
  * 插件管理面板(机柜左列 Plugins 页签,原 Settings "插件" 页签迁出)。
@@ -182,6 +187,103 @@ const PluginPanel: React.FC = () => {
   const sourceLabel = (s: PickedSource): string =>
     s === 'dev' ? 'dev' : s === 'file' ? t('plugin.sourceFile') : t('plugin.sourceUrl')
 
+  // 插件卡 —— 原样（启用开关/运行钮/悬停卸载全不动），只是从连排暗沟改立在
+  // 画轴墙的纸幅上（paper-sheet），卡间 6px 暗沟落在纸上
+  const renderPluginCard = (p: PluginListItem) => (
+    <div
+      key={p.id}
+      onMouseLeave={() => { if (confirmUninstall === p.id) setConfirmUninstall(null) }}
+      // 独立卡语法（与 Harness 工作区/Agent 卡归一）：四边 rule 框 + 2px 圆角 +
+      // 槽位阶梯（slot 面 / 悬停 elev）+ 卡间 6px 暗沟（纸幅 space-y-1.5）；
+      // 行距 py-1.5 与全线同档。卡无主点击动作（启用开关/运行是卡内常驻
+      // 控件），光标不抢
+      className="group relative rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)] transition-colors px-2 py-1.5 space-y-1 overflow-hidden"
+    >
+      {/* 行 1：启用开关占用 20px 首槽（与其余卡的图标槽同列，勾态即卡的面貌）+
+          名称 + 单次插件的运行钮 + 版本 —— 原底部整行开关收进首行，四行卡瘦身为三行 */}
+      <div className="flex items-center gap-2.5">
+        <label
+          title={p.enabled ? t('plugin.enabled') : t('plugin.disabled')}
+          className="flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center cursor-pointer"
+        >
+          <input
+            type="checkbox"
+            checked={p.enabled}
+            onChange={(e) => handleToggle(p.id, e.target.checked)}
+            className="w-3 h-3 accent-[var(--amber)]"
+          />
+        </label>
+        <span className="flex-1 min-w-0 text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate">{p.name}</span>
+        {p.lifecycle === 'oneshot' && (
+          <button
+            onClick={() => void handleRunOneshot(p.id)}
+            disabled={busy || !p.enabled}
+            className="shrink-0 px-1.5 py-0.5 text-[10px] [font-family:inherit] rounded-[2px] bg-[var(--amber)] text-[var(--bg-base)] hover:brightness-110 disabled:opacity-50 cursor-pointer"
+          >
+            {t('plugin.run')}
+          </button>
+        )}
+        <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] shrink-0">{p.version}</span>
+      </div>
+      <div className="flex items-center gap-1.5 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">
+        <span className="truncate">{p.id}</span>
+        <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{p.runtime}</span>
+        <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{t(`plugin.lifecycle${p.lifecycle === 'oneshot' ? 'Oneshot' : 'Persistent'}`)}</span>
+        {p.dev && (
+          <span className="px-1 py-px rounded-[2px] border border-[var(--amber)] text-[var(--amber)] shrink-0">dev</span>
+        )}
+      </div>
+      {p.capabilities.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {p.capabilities.map((c) => {
+            const granted = p.grantedCapabilities.includes(c)
+            return (
+              <span
+                key={c}
+                title={granted ? t('plugin.granted') : t('plugin.declared')}
+                className={cn(
+                  'px-1.5 py-px text-[10px] [font-family:inherit] rounded-[2px] border',
+                  granted
+                    ? 'border-[var(--amber)] text-[var(--amber)]'
+                    : 'border-[var(--rule)] text-[var(--text-rack-mute)] line-through'
+                )}
+              >
+                {c}
+              </span>
+            )
+          })}
+        </div>
+      )}
+      {/* 悬停操作簇（卸载两步确认）—— 与 Agent/工作区/变量组卡同一套删除仪式：
+          右缘垂直居中、遮罩跟 elev 悬停面、focus-within 键盘可达、离卡撤防 */}
+      <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-elev)] from-[24%] to-transparent">
+        <button
+          onClick={async (e) => {
+            e.stopPropagation()
+            // 两步确认：首次点击切到确认态，再次点击才真正卸载
+            if (confirmUninstall !== p.id) {
+              setConfirmUninstall(p.id)
+              return
+            }
+            setConfirmUninstall(null)
+            await handleUninstall(p.id)
+          }}
+          disabled={busy}
+          title={confirmUninstall === p.id ? t('plugin.confirmUninstall') : t('plugin.uninstall')}
+          className={cn(
+            'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
+            confirmUninstall === p.id
+              ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
+              : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]',
+            busy && 'disabled:opacity-50'
+          )}
+        >
+          <IconX />
+        </button>
+      </div>
+    </div>
+  )
+
   return (
     <div
       className="w-full h-full flex flex-col bg-[var(--bg-base)]"
@@ -226,12 +328,13 @@ const PluginPanel: React.FC = () => {
         </div>
       </div>
 
-      {/* 内容笼：p-3 + space-y-2 自根容器下移到这层，头条得以满幅贴顶（与 SessionsPanel 同构） */}
-      <div className="flex-1 min-h-0 flex flex-col p-3 space-y-2">
+      {/* 内容笼：pt-3 + space-y-2 自根容器下移到这层，头条得以满幅贴顶；侧距不设笼上 ——
+          URL 行/权限卡/提示行自带 px-3，列表墙要满幅通到面板两缘（与 Agents/Env 墙同构） */}
+      <div className="flex-1 min-h-0 flex flex-col pt-3 space-y-2">
 
       {/* URL 输入行 */}
       {showUrlInput && (
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 px-3">
           <input
             type="text"
             value={urlInput}
@@ -254,7 +357,7 @@ const PluginPanel: React.FC = () => {
 
       {/* 权限确认卡(选完文件夹/文件或 URL 下载完后展示 manifest,用户确认权限与是否即启用) */}
       {picked && (
-        <div className="border border-[var(--amber)] rounded-[2px] p-2 space-y-1.5 bg-[var(--bg-slot)]">
+        <div className="mx-3 border border-[var(--amber)] rounded-[2px] p-2 space-y-1.5 bg-[var(--bg-slot)]">
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-[12px] [font-family:inherit] font-semibold text-[var(--amber)] truncate">{picked.manifest.name}</span>
             <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] shrink-0">{picked.manifest.version}</span>
@@ -306,8 +409,8 @@ const PluginPanel: React.FC = () => {
         </div>
       )}
 
-      {notice && <div className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] break-all">{notice}</div>}
-      {error && <div className="text-[10.5px] [font-family:inherit] text-red-400 break-all">{error}</div>}
+      {notice && <div className="px-3 text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] break-all">{notice}</div>}
+      {error && <div className="px-3 text-[10.5px] [font-family:inherit] text-red-400 break-all">{error}</div>}
 
       {/* 列表 —— 加载/空态走机柜 ─ · ─ 分隔语法（与其余面板归一） */}
       {loading && items.length === 0 ? (
@@ -322,101 +425,33 @@ const PluginPanel: React.FC = () => {
           <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">{t('plugin.emptyHint')}</span>
         </div>
       ) : (
-        <div className="space-y-1.5 flex-1 min-h-0 overflow-y-auto rack-scroll">
-          {items.map((p) => (
-            <div
-              key={p.id}
-              onMouseLeave={() => { if (confirmUninstall === p.id) setConfirmUninstall(null) }}
-              // 独立卡语法（与 Harness 工作区/Agent 卡归一）：四边 rule 框 + 2px 圆角 +
-              // 槽位阶梯（slot 面 / 悬停 elev）+ 卡间 6px 暗沟（容器 space-y-1.5）；
-              // 行距 py-1.5 与全线同档。卡无主点击动作（启用开关/运行是卡内常驻
-              // 控件），光标不抢
-              className="group relative rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)] transition-colors px-2 py-1.5 space-y-1 overflow-hidden"
-            >
-              {/* 行 1：启用开关占用 20px 首槽（与其余卡的图标槽同列，勾态即卡的面貌）+
-                  名称 + 单次插件的运行钮 + 版本 —— 原底部整行开关收进首行，四行卡瘦身为三行 */}
-              <div className="flex items-center gap-2.5">
-                <label
-                  title={p.enabled ? t('plugin.enabled') : t('plugin.disabled')}
-                  className="flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    checked={p.enabled}
-                    onChange={(e) => handleToggle(p.id, e.target.checked)}
-                    className="w-3 h-3 accent-[var(--amber)]"
-                  />
-                </label>
-                <span className="flex-1 min-w-0 text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate">{p.name}</span>
-                {p.lifecycle === 'oneshot' && (
-                  <button
-                    onClick={() => void handleRunOneshot(p.id)}
-                    disabled={busy || !p.enabled}
-                    className="shrink-0 px-1.5 py-0.5 text-[10px] [font-family:inherit] rounded-[2px] bg-[var(--amber)] text-[var(--bg-base)] hover:brightness-110 disabled:opacity-50 cursor-pointer"
-                  >
-                    {t('plugin.run')}
-                  </button>
-                )}
-                <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] shrink-0">{p.version}</span>
-              </div>
-              <div className="flex items-center gap-1.5 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">
-                <span className="truncate">{p.id}</span>
-                <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{p.runtime}</span>
-                <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{t(`plugin.lifecycle${p.lifecycle === 'oneshot' ? 'Oneshot' : 'Persistent'}`)}</span>
-                {p.dev && (
-                  <span className="px-1 py-px rounded-[2px] border border-[var(--amber)] text-[var(--amber)] shrink-0">dev</span>
-                )}
-              </div>
-              {p.capabilities.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {p.capabilities.map((c) => {
-                    const granted = p.grantedCapabilities.includes(c)
-                    return (
-                      <span
-                        key={c}
-                        title={granted ? t('plugin.granted') : t('plugin.declared')}
-                        className={cn(
-                          'px-1.5 py-px text-[10px] [font-family:inherit] rounded-[2px] border',
-                          granted
-                            ? 'border-[var(--amber)] text-[var(--amber)]'
-                            : 'border-[var(--rule)] text-[var(--text-rack-mute)] line-through'
-                        )}
-                      >
-                        {c}
-                      </span>
-                    )
-                  })}
-                </div>
-              )}
-              {/* 悬停操作簇（卸载两步确认）—— 与 Agent/工作区/变量组卡同一套删除仪式：
-                  右缘垂直居中、遮罩跟 elev 悬停面、focus-within 键盘可达、离卡撤防 */}
-              <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-elev)] from-[24%] to-transparent">
-                <button
-                  onClick={async (e) => {
-                    e.stopPropagation()
-                    // 两步确认：首次点击切到确认态，再次点击才真正卸载
-                    if (confirmUninstall !== p.id) {
-                      setConfirmUninstall(p.id)
-                      return
-                    }
-                    setConfirmUninstall(null)
-                    await handleUninstall(p.id)
-                  }}
-                  disabled={busy}
-                  title={confirmUninstall === p.id ? t('plugin.confirmUninstall') : t('plugin.uninstall')}
-                  className={cn(
-                    'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
-                    confirmUninstall === p.id
-                      ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
-                      : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]',
-                    busy && 'disabled:opacity-50'
-                  )}
-                >
-                  <IconX />
-                </button>
+        /* 列表 —— 插件卡平铺立在会话墙同款的双开画轴墙上（scroll-dual-wall 几何 +
+            scroll-dual-seg 段身份青红）：面板卡片无分组可折，辊行纯装裱（不接开合），
+            墙纸「纸包内容」—— 短内容下辊贴纸尾，超出剩高纸收缩内心滚（滚动容器 =
+            纸窗，滚条 rack-scroll）。段身份 --seg-tone 取青红，机械在 globals.css 的
+            变体规则 */
+        <div
+          className="scroll-dual scroll-dual-wall scroll-dual-seg flex-1 min-h-0 open"
+          style={{ '--seg-tone': WALL_TONE } as React.CSSProperties}
+        >
+          {/* 上辊行 —— 纯装裱辊（无分组可折，不接开合/键盘） */}
+          <div className="scroll-dual-rod">
+            <span aria-hidden className="rod-caps" />
+            <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
+          </div>
+          {/* 纸窗（纸包内容）—— 卡立纸面；内容超出剩余高时纸收缩到剩高、内心滚 */}
+          <div className="scroll-dual-paper rack-scroll">
+            <div className="scroll-dual-body">
+              <div className="paper-sheet mx-2 px-1.5 py-1.5 space-y-1.5">
+                {items.map(renderPluginCard)}
               </div>
             </div>
-          ))}
+          </div>
+          {/* 下辊行 —— 纸尾辊：贴在纸尾、跟着纸尾走（纯装裱） */}
+          <div className="scroll-dual-rod scroll-dual-rod-b">
+            <span aria-hidden className="rod-caps" />
+            <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
+          </div>
         </div>
       )}
       </div>

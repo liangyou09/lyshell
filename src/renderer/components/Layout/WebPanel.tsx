@@ -319,8 +319,9 @@ const RecentFavicon: React.FC<{ url: string; favicon?: string }> = ({ url, favic
  * 语言,机械全在 globals.css:.scroll-head 栏 + .rod-caps 辊轴头 + ScrollTie
  * 蝴蝶结 + .scroll-slip 题签 + flex-1 发丝线 + 右缘计数,纸幅走 ScrollFold
  * 里的 .paper-sheet mx-2)。段身份走 --web-group 青蓝(段级组语义,轴头/系绳
- * 同色 —— 同一件物的两处署名,inline 注入同会话墙 toneVar 的方式;题签仍
- * 全栏一只金,不跟身份走)。题签前落组内最近一条的 favicon —— 14px 恒占座,
+ * 同色 —— 同一件物的两处署名,inline 注入同会话墙 toneVar 的方式;题签墨也
+ * 跟段身份换青蓝,机械在 globals.css .scroll-dual-web 的题签墨规则 —— web 段
+ * 整栏一色,墨随轴走;会话墙仍金墨不跟)。题签前落组内最近一条的 favicon —— 14px 恒占座,
  * 图标迟到/缺席都不推挤题签,各组题签起点对齐。开合态由父级存(collapsedHosts),
  * 本组件只挂态。
  */
@@ -1000,7 +1001,8 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
             <span aria-hidden className="scroll-search-tie scroll-search-tie-l"><ScrollTie /></span>
             <span aria-hidden className="scroll-search-tie scroll-search-tie-r"><ScrollTie /></span>
             {/* 墨 —— 纸面输入:地址居中落合缝(mono 13 配 20px 纸幅),
-                占位=题签金墨(样式在 ::placeholder);左让位避开左辊区,
+                占位=题签青蓝墨(web 段 .scroll-search-web 换墨,样式在
+                ::placeholder);左让位避开左辊区,
                 右让位收窄到 12 —— datalist 的原生下拉三角贴着纸右缘,
                 靠近右辊但留 5px 气不贴上 */}
             <input
@@ -1060,7 +1062,7 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
             与纸里组头同一件物的三处署名,机械在 globals.css 的变体规则):
             上/下辊行一键收/放全体分组(会话墙「全体」同语义,aria-expanded 与
             键盘入口在上辊行,下辊纯鼠标);组头 = GroupHeader 同款卷轴
-            (scroll-head 辊轴头 + 蝴蝶结 + 题签金墨 + 右缘计数,点击/Enter
+            (scroll-head 辊轴头 + 蝴蝶结 + 题签青蓝墨 + 右缘计数,点击/Enter
             开合),内容落 ScrollFold 的 paper-sheet(与辊上卷纸带同宽同边
             mx-2);组序 = 各组最近一条的落位(历史最近优先序),组内同吃最近序。
             行样式对齐终端页签(favicon + 单行 truncate+tooltip 看全量、hover

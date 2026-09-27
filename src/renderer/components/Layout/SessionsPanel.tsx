@@ -199,30 +199,50 @@ const QUICK_SHELLS: {
   { key: 'ps+', label: 'ps+', shell: 'powershell', startup: ['gsudo'], cls: 'text-[var(--error-rack)]', title: 'PowerShell (Admin)' },
 ]
 
-const GroupHeader: React.FC<{
+/** 段身份 tone 令牌 —— 会话墙的七色 + 工作区目录墙的四色(agents 青紫/claude 青橙/
+    codex 青白/dsh 青花,seg-* tokens;四面互斥不同屏,一墙一色。Env/Plugins 两面
+    平铺墙无组头,不走本联合 —— 它们只染墙,机械在 globals.css 的 .scroll-dual-seg)。
+    HarnessPanel/AgentsPanel 的目录组头跨面板复用本组件,故 tone 联合在此归一 */
+export type GroupHeaderTone =
+  | 'amber' | 'pin' | 'live' | 'reach' | 'serial' | 'local' | 'subnet'
+  | 'seg-violet' | 'seg-orange' | 'seg-qingbai' | 'seg-qinghua'
+
+export const GroupHeader: React.FC<{
   label: string
   count: number
   /** 段身份色:live=绿 / pin=置顶金 / serial=串口橙 / local=本地紫 / subnet=网段胭脂 /
-      reach=可达;undefined = 中性兜底(现行调用方都带 tone,卷轴身份全归一) */
-  tone?: 'amber' | 'pin' | 'live' | 'reach' | 'serial' | 'local' | 'subnet'
+      reach=可达;seg-* = 工作区目录组四面段身份(青紫/青橙/青白/青花);
+      undefined = 中性兜底(现行调用方都带 tone,卷轴身份全归一) */
+  tone?: GroupHeaderTone
+  /** 长键截断:题签可缩可截(min-w-0 truncate,全名走 title tooltip)—— 目录路径等
+      长组键用;默认 flex-shrink-0 不缩(短组键,IP/COM/协议名) */
+  truncateLabel?: boolean
+  /** 题签 tooltip 覆写:组键与展示名分离时给全名(目录组 basename 作题名、
+      全路径走 tooltip);缺省回落 truncateLabel 的「title=label」约定 */
+  labelTitle?: string
   /** 可折叠时传入；undefined 表示不可折叠 */
   collapsed?: boolean
   onToggle?: () => void
   /** 右侧可选 action 按钮(LIVE 段的 close-all 用) */
   action?: React.ReactNode
-}> = ({ label, count, tone, collapsed, onToggle, action }) => {
+}> = ({ label, count, tone, truncateLabel, collapsed, onToggle, action, labelTitle }) => {
   const collapsible = typeof collapsed === 'boolean' && !!onToggle
   // tone → 语义 token(色值经 style 注入,轴头专用一份;题名已改金墨);serial/local
   // 复用行级 --proto-* 协议色(组内同质,轴头与行同身份),subnet 是段级组
-  // 语义(网段/主机名分组的远程会话),独立胭脂 token(与 error 粉红同屏拆值)
+  // 语义(网段/主机名分组的远程会话),独立胭脂 token(与 error 粉红同屏拆值);
+  // seg-* 是工作区目录组段身份(Agents/Claude/Codex/Dsh 四面,--seg-* token)
   const toneVar =
-    tone === 'pin'    ? 'var(--pin)'       :
-    tone === 'amber'  ? 'var(--amber)'     :
-    tone === 'live'   ? 'var(--live)'      :
-    tone === 'reach'  ? 'var(--reachable)' :
-    tone === 'serial' ? 'var(--proto-ser)' :
-    tone === 'local'  ? 'var(--proto-loc)' :
-    tone === 'subnet' ? 'var(--subnet)'    : undefined
+    tone === 'pin'        ? 'var(--pin)'        :
+    tone === 'amber'      ? 'var(--amber)'      :
+    tone === 'live'       ? 'var(--live)'       :
+    tone === 'reach'      ? 'var(--reachable)'  :
+    tone === 'serial'     ? 'var(--proto-ser)'  :
+    tone === 'local'      ? 'var(--proto-loc)'  :
+    tone === 'subnet'     ? 'var(--subnet)'     :
+    tone === 'seg-violet'  ? 'var(--seg-violet)'  :
+    tone === 'seg-orange'  ? 'var(--seg-orange)'  :
+    tone === 'seg-qingbai' ? 'var(--seg-qingbai)' :
+    tone === 'seg-qinghua' ? 'var(--seg-qinghua)' : undefined
   return (
     <div
       onClick={collapsible ? onToggle : undefined}
@@ -299,10 +319,14 @@ const GroupHeader: React.FC<{
           与金墨都在 globals.css;题名全栏一只金(置顶金同源;亮色主题反
           转银枪,暗金亮银)—— 段身份仍读轴头,题名只读一墨;COM/local
           组键走手书大写(scroll-slip-hand);收起时这行字落在纸卷面上,
-          就是卷上题签 */}
+          就是卷上题签。长键(truncateLabel)可缩可截,全名走 title
+          (目录路径等 —— 行内 URL 同一约定;labelTitle 覆写 —— 目录组
+          basename 作题名、全路径进 tooltip) */}
       <span
+        title={labelTitle ?? (truncateLabel ? label : undefined)}
         className={cn(
-          'flex-shrink-0 scroll-slip text-[13px]',
+          'scroll-slip text-[13px]',
+          truncateLabel ? 'min-w-0 truncate' : 'flex-shrink-0',
           (tone === 'serial' || tone === 'local') && 'scroll-slip-hand'
         )}
       >
