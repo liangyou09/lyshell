@@ -7,7 +7,7 @@ import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { IconBtn, IconPlus } from './IconBtn'
 import { GroupHeader, type GroupHeaderTone } from './SessionsPanel'
 import ScrollFold, { ScrollTie } from './ScrollFold'
-import { normDirKey, wsDirLabel } from './ws-dir'
+import { normDirKey, wsDirDetail, wsDirLabel } from './ws-dir'
 import { ensureDetected, getCachedDetect, redetectHarness } from './harness-detect'
 import { useUiStore } from '../../stores/ui-store'
 import { useEscDismiss } from '../../hooks'
@@ -65,7 +65,7 @@ const HARNESS_API = {
 // 不同屏)。tone 给纸里目录组头的轴头/系绳(GroupHeader),token 给墙辊/
 // 解绳辉光/题签墨(inline --seg-tone 注入,机械在 globals.css 的 .scroll-dual-seg)
 // ─────────────────────────────────────────────────────────────────────────────
-// segCls:浅色主题单配档挂的墙修饰类(qingbai 六色最亮,通用 color-mix 压墨
+// segCls:浅色主题单配档挂的墙修饰类(qingbai 四色最亮,通用 color-mix 压墨
 // 不够对比 —— 见 globals.css .scroll-dual-seg.tone-qingbai 的浅色规则)
 const WS_TONE: Record<HarnessAgentKind, { tone: GroupHeaderTone; token: string; segCls?: string }> = {
   dsh:    { tone: 'seg-qinghua', token: 'var(--seg-qinghua)' },
@@ -662,7 +662,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
             {ws.name}
             {launching && <span className="ml-1.5 text-[10.5px] [font-family:inherit] text-[var(--amber)]">{t(`${prefix}.launching`)}</span>}
           </span>
-          <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">{ws.cwd}</span>
           {/* 绑定了变量组时标出来 —— 点这行即刻启动，用哪份密钥必须点之前就看得见 */}
           {boundProfile && (
             <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0">
@@ -1024,6 +1023,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                         tone={WS_TONE[agent].tone}
                         label={wsDirLabel(dir)}
                         labelTitle={dir}
+                        {...wsDirDetail(dir, wsGroups.map(([key]) => key))}
                         count={list.length}
                         truncateLabel
                         collapsed={!!collapsedDirs[dir]}

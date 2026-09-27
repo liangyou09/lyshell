@@ -5,7 +5,7 @@ import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { IconBtn, IconPlus } from './IconBtn'
 import { GroupHeader } from './SessionsPanel'
 import ScrollFold, { ScrollTie } from './ScrollFold'
-import { normDirKey, wsDirLabel } from './ws-dir'
+import { normDirKey, wsDirDetail, wsDirLabel } from './ws-dir'
 import { generateWorktreeStamp } from '@shared/worktree'
 import EnvRowsEditor from '../EnvRowsEditor'
 import { useUiStore } from '../../stores/ui-store'
@@ -437,7 +437,7 @@ const AgentsPanel: React.FC = () => {
       <span className="flex flex-col min-w-0 flex-1">
         <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">{agent.name}</span>
         <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">
-          {agent.command}{agent.cwd ? ` · ${agent.cwd}` : ''}
+          {agent.command}
         </span>
       </span>
       {/* 悬停操作簇遮罩颜色跟悬停面色(elev);focus-within 同步显形,键盘可达 */}
@@ -525,7 +525,7 @@ const AgentsPanel: React.FC = () => {
       {/* 列表 —— 按工作目录分组立在会话墙同款的双开画轴墙上（scroll-dual-wall
           几何 + scroll-dual-seg 段身份）：每组一根垂卷 —— 组头 = SessionsPanel
           GroupHeader 同款卷轴（辊轴头/蝴蝶结/题签/发丝线/右缘计数，点击或 Enter
-          开合；题签取目录 basename，全路径走 tooltip），卡落 ScrollFold 纸幅；
+          开合；题签取目录 basename，同名组显示父目录片段，全路径走 tooltip），卡落 ScrollFold 纸幅；
           上/下辊行一键收/放全体目录组，键盘入口在上辊行。cwd 未填的 agent 归入
           「未指定目录」组殿后。段身份 --seg-tone 取
           青紫（claude 青橙 / codex 青白 / dsh 青花在 HarnessPanel）—— 轴头/系绳/
@@ -564,6 +564,7 @@ const AgentsPanel: React.FC = () => {
                     tone={WS_TONE.tone}
                     label={dir ? wsDirLabel(dir) : t('agents.groupNoDir')}
                     labelTitle={dir || undefined}
+                    {...(dir ? wsDirDetail(dir, agentGroups.map(([key]) => key)) : {})}
                     count={list.length}
                     truncateLabel
                     collapsed={collapsedDirs.has(dir)}

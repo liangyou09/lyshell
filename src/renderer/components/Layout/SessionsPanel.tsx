@@ -200,9 +200,9 @@ const QUICK_SHELLS: {
 ]
 
 /** 段身份 tone 令牌 —— 会话墙的七色 + 工作区目录墙的四色(agents 青紫/claude 青橙/
-    codex 青白/dsh 青花,seg-* tokens;四面互斥不同屏,一墙一色。Env/Plugins 两面
-    平铺墙无组头,不走本联合 —— 它们只染墙,机械在 globals.css 的 .scroll-dual-seg)。
-    HarnessPanel/AgentsPanel 的目录组头跨面板复用本组件,故 tone 联合在此归一 */
+    codex 青白/dsh 青花,seg-* tokens;四面互斥不同屏,一墙一色)。Env/Plugins
+    是平铺纸面列表，没有可折叠组头。HarnessPanel/AgentsPanel 的目录组头跨面板
+    复用本组件,故 tone 联合在此归一 */
 export type GroupHeaderTone =
   | 'amber' | 'pin' | 'live' | 'reach' | 'serial' | 'local' | 'subnet'
   | 'seg-violet' | 'seg-orange' | 'seg-qingbai' | 'seg-qinghua'
@@ -218,14 +218,18 @@ export const GroupHeader: React.FC<{
       长组键用;默认 flex-shrink-0 不缩(短组键,IP/COM/协议名) */
   truncateLabel?: boolean
   /** 题签 tooltip 覆写:组键与展示名分离时给全名(目录组 basename 作题名、
-      全路径走 tooltip);缺省回落 truncateLabel 的「title=label」约定 */
+      路径片段在 detail、全路径在 tooltip);缺省回落 truncateLabel 的「title=label」约定 */
   labelTitle?: string
+  /** 目录组等可在题签后补一条较轻的上下文，避免每张卡重复显示相同路径 */
+  detail?: string
+  /** 同名目录的短序号，单独占位，避免路径截断时一起消失 */
+  detailMarker?: string
   /** 可折叠时传入；undefined 表示不可折叠 */
   collapsed?: boolean
   onToggle?: () => void
   /** 右侧可选 action 按钮(LIVE 段的 close-all 用) */
   action?: React.ReactNode
-}> = ({ label, count, tone, truncateLabel, collapsed, onToggle, action, labelTitle }) => {
+}> = ({ label, count, tone, truncateLabel, collapsed, onToggle, action, labelTitle, detail, detailMarker }) => {
   const collapsible = typeof collapsed === 'boolean' && !!onToggle
   // tone → 语义 token(色值经 style 注入,轴头专用一份;题名已改金墨);serial/local
   // 复用行级 --proto-* 协议色(组内同质,轴头与行同身份),subnet 是段级组
@@ -321,18 +325,29 @@ export const GroupHeader: React.FC<{
           组键走手书大写(scroll-slip-hand);收起时这行字落在纸卷面上,
           就是卷上题签。长键(truncateLabel)可缩可截,全名走 title
           (目录路径等 —— 行内 URL 同一约定;labelTitle 覆写 —— 目录组
-          basename 作题名、全路径进 tooltip) */}
+          basename 作题名、路径片段进 detail、全路径进 tooltip) */}
       <span
         title={labelTitle ?? (truncateLabel ? label : undefined)}
         className={cn(
           'scroll-slip text-[13px]',
-          truncateLabel ? 'min-w-0 truncate' : 'flex-shrink-0',
+          detail ? 'max-w-[45%] shrink-0 truncate' : truncateLabel ? 'min-w-0 truncate' : 'flex-shrink-0',
           (tone === 'serial' || tone === 'local') && 'scroll-slip-hand'
         )}
       >
         {label}
       </span>
-      <span className="flex-1 h-px bg-[var(--rule)]" />
+      {detailMarker && (
+        <span title={labelTitle ?? detail} className="shrink-0 [font-family:inherit] text-[10px] tabular-nums text-[var(--text-rack-mute)]">
+          {detailMarker}
+        </span>
+      )}
+      {detail ? (
+        <span title={labelTitle ?? detail} className="min-w-0 flex-1 truncate [font-family:inherit] text-[10px] text-[var(--text-rack-mute)]">
+          {detail}
+        </span>
+      ) : (
+        <span className="flex-1 h-px bg-[var(--rule)]" />
+      )}
       <span className="[font-family:inherit] text-[11px] text-[var(--text-rack-data)] tracking-[.04em] normal-case">{count}</span>
       {action}
     </div>

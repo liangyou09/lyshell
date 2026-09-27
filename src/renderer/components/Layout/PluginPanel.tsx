@@ -7,7 +7,6 @@ import { normalizeLifecycle } from '@shared/plugin-types'
 import type { LyShellPluginManifest, PluginLifecycle, PluginListItem } from '@shared/plugin-types'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { IconBtn, IconPlus } from './IconBtn'
-import { ScrollTie } from './ScrollFold'
 
 /** 卡片悬停操作簇的删除钮(与 Agent/工作区/变量组卡同一枚 11px 方角 X) */
 const IconX: React.FC = () => (
@@ -21,10 +20,6 @@ type PickedSource = 'dev' | 'file' | 'url'
 function manifestLifecycle(manifest: LyShellPluginManifest): PluginLifecycle {
   return normalizeLifecycle(manifest.runtime, manifest.lifecycle)
 }
-
-// 段身份 —— 插件卡平铺立在双开画轴墙上,Plugins 页签整墙一色青红(六面板段身份
-// token 表在 globals.css;墙机械 .scroll-dual-seg)。卡片无分组可折,辊行纯装裱
-const WALL_TONE = 'var(--seg-red)'
 
 /**
  * 插件管理面板(机柜左列 Plugins 页签,原 Settings "插件" 页签迁出)。
@@ -187,8 +182,7 @@ const PluginPanel: React.FC = () => {
   const sourceLabel = (s: PickedSource): string =>
     s === 'dev' ? 'dev' : s === 'file' ? t('plugin.sourceFile') : t('plugin.sourceUrl')
 
-  // 插件卡 —— 原样（启用开关/运行钮/悬停卸载全不动），只是从连排暗沟改立在
-  // 画轴墙的纸幅上（paper-sheet），卡间 6px 暗沟落在纸上
+  // 插件卡 —— 启用开关/运行钮/悬停卸载不变，平铺在纸面列表上。
   const renderPluginCard = (p: PluginListItem) => (
     <div
       key={p.id}
@@ -425,32 +419,10 @@ const PluginPanel: React.FC = () => {
           <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">{t('plugin.emptyHint')}</span>
         </div>
       ) : (
-        /* 列表 —— 插件卡平铺立在会话墙同款的双开画轴墙上（scroll-dual-wall 几何 +
-            scroll-dual-seg 段身份青红）：面板卡片无分组可折，辊行纯装裱（不接开合），
-            墙纸「纸包内容」—— 短内容下辊贴纸尾，超出剩高纸收缩内心滚（滚动容器 =
-            纸窗，滚条 rack-scroll）。段身份 --seg-tone 取青红，机械在 globals.css 的
-            变体规则 */
-        <div
-          className="scroll-dual scroll-dual-wall scroll-dual-seg flex-1 min-h-0 open"
-          style={{ '--seg-tone': WALL_TONE } as React.CSSProperties}
-        >
-          {/* 上辊行 —— 纯装裱辊（无分组可折，不接开合/键盘） */}
-          <div className="scroll-dual-rod">
-            <span aria-hidden className="rod-caps" />
-            <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
-          </div>
-          {/* 纸窗（纸包内容）—— 卡立纸面；内容超出剩余高时纸收缩到剩高、内心滚 */}
-          <div className="scroll-dual-paper rack-scroll">
-            <div className="scroll-dual-body">
-              <div className="paper-sheet mx-2 px-1.5 py-1.5 space-y-1.5">
-                {items.map(renderPluginCard)}
-              </div>
-            </div>
-          </div>
-          {/* 下辊行 —— 纸尾辊：贴在纸尾、跟着纸尾走（纯装裱） */}
-          <div className="scroll-dual-rod scroll-dual-rod-b">
-            <span aria-hidden className="rod-caps" />
-            <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
+        /* 插件卡没有可折叠分组，沿用纸面与卡片，不再绘制无操作的双辊。 */
+        <div className="flex-1 min-h-0 overflow-y-auto rack-scroll px-3 pb-3">
+          <div className="flat-paper-list px-2 py-2 space-y-1.5">
+            {items.map(renderPluginCard)}
           </div>
         </div>
       )}

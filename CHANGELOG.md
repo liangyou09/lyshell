@@ -14,6 +14,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，�
 
 - **dsh Web 默认工作区吃不到变量组凭据**：此前无绑定工作区的 dsh Web 启动分支只注入启用组的附加变量，结构化核心（`DEEPSEEK_BASE_URL` / `DEEPSEEK_API_KEY`）从未物化注入；现与 TUI 启动走同一份解析链。*The dsh Web default-workspace launch only injected the enabled set's extra vars and never materialized its structured credentials (`DEEPSEEK_BASE_URL` / `DEEPSEEK_API_KEY`); it now shares the same resolution chain as TUI launches.*
 
+## [1.0.9] - 2026-09-27
+
+### 新增 Features
+
+- **机柜目录分组**：Agents、Claude、Codex、dsh 工作区按工作目录分组，支持单组和整栏折叠；同名目录在组头显示可区分的父目录片段。*Agent and Harness workspaces are grouped by working directory, with per-group and all-group folding and distinguishable labels for same-named directories.*
+- **网页最近访问**：最近访问按域名分组，并增加从历史记录打开迷你浏览器的入口。*Recent web visits are grouped by domain, with an entry to open a visit in the mini browser.*
+
+### 变更 Changed
+
+- **画轴与列表**：会话、网页及工作区画轴统一布局，扩大可点击画轴热区；变量组与插件列表移除无操作的装饰辊，工作目录集中显示在分组标题。*Scroll layouts are aligned across panels, clickable rods have a larger hit area, decorative rods are removed from flat lists, and working directories appear once in group headers.*
+- **迷你浏览器**：切换机柜页签时保留页面状态，关闭页面时释放资源。*The mini browser preserves its page across rack tabs and releases resources when closed.*
+
+### 修复 Fixes
+
+- **网页与启动稳定性**：改进网页导航和加载状态处理，修复 dsh Web 进程重复启动及关闭后的回收问题。*Improved web navigation and loading states, and fixed duplicate dsh Web launches and process cleanup.*
+
 ## [1.0.4] - 2026-08-17
 
 ### 新增 Features
@@ -49,7 +65,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，�
 - 新增插件系统（Python / Node.js 两种运行时，支持开发目录 / ZIP / URL 安装）。*Plugin system with Python and Node.js runtimes, installable from a dev directory, ZIP, or URL.*
 - 提供 MCP HTTP API，供外部工具与 AI Agent 编排终端会话。*MCP HTTP API for external tools and AI agents to orchestrate terminal sessions.*
 
-[Unreleased]: https://github.com/liangyou09/lyshell_release/compare/v1.0.4...HEAD
+[Unreleased]: https://github.com/liangyou09/lyshell_release/compare/v1.0.9...HEAD
+
+[1.0.9]: https://github.com/liangyou09/lyshell_release/releases/tag/v1.0.9
 [1.0.4]: https://github.com/liangyou09/lyshell_release/releases/tag/v1.0.4
 [1.0.3]: https://github.com/liangyou09/lyshell_release/releases/tag/v1.0.3
 [1.0.2]: https://github.com/liangyou09/lyshell_release/releases/tag/v1.0.2

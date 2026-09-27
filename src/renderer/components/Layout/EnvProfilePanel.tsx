@@ -13,7 +13,6 @@ import {
 import EnvRowsEditor, { type EnvRow } from '../EnvRowsEditor'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { IconBtn, IconPlus } from './IconBtn'
-import { ScrollTie } from './ScrollFold'
 import { useUiStore } from '../../stores/ui-store'
 
 /**
@@ -113,10 +112,6 @@ const DEFAULTS_LOADERS: Record<HarnessAgentKind, () => Promise<HarnessEnvDefault
   codex: () => window.electronAPI?.getCodexEnvDefaults(),
   claude: () => window.electronAPI?.getClaudeEnvDefaults()
 }
-
-// 段身份 —— 变量组卡平铺立在双开画轴墙上,env 页签整墙一色青绿(六面板段身份
-// token 表在 globals.css;墙机械 .scroll-dual-seg)。卡片无分组可折,辊行纯装裱
-const WALL_TONE = 'var(--seg-green)'
 
 const EnvProfilePanel: React.FC = () => {
   const { t } = useTranslation()
@@ -415,8 +410,8 @@ const EnvProfilePanel: React.FC = () => {
   }
   const resetTriedSubmit = () => { if (triedSubmit) setTriedSubmit(false) }
 
-  // 变量组卡 —— 配电盘模块卡原样（整卡即开关/右键编辑/悬停操作簇全不动），只是从
-  // 连排暗沟改成立在画轴墙的纸幅上（paper-sheet），卡间 6px 暗沟落在纸上
+  // 变量组卡 —— 配电盘模块卡原样（整卡即开关/右键编辑/悬停操作簇全不动），
+  // 平铺在纸面列表上，卡间 6px 暗沟。
   const renderProfileCard = (p: HarnessEnvProfile) => {
     const total = usageCount(p.id)
     const on = activeProfileId === p.id
@@ -593,33 +588,11 @@ const EnvProfilePanel: React.FC = () => {
         <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words px-3 pt-2">{actionError}</div>
       )}
 
-      {/* 卡片链 —— 变量组平铺立在会话墙同款的双开画轴墙上（scroll-dual-wall 几何 +
-          scroll-dual-seg 段身份青绿）：面板卡片无分组可折，辊行纯装裱（不接开合），
-          墙纸「纸包内容」—— 短内容下辊贴纸尾，超出剩高纸收缩内心滚（滚动容器 =
-          纸窗，滚条 rack-scroll）。段身份 --seg-tone 取青绿，机械在 globals.css 的
-          变体规则 */}
+      {/* 变量组没有分组开合，保留纸面卡片列表；滚动留在列表自身。 */}
       {loaded && profiles.length > 0 ? (
-        <div
-          className="scroll-dual scroll-dual-wall scroll-dual-seg flex-1 min-h-0 open"
-          style={{ '--seg-tone': WALL_TONE } as React.CSSProperties}
-        >
-          {/* 上辊行 —— 纯装裱辊（无分组可折，不接开合/键盘） */}
-          <div className="scroll-dual-rod">
-            <span aria-hidden className="rod-caps" />
-            <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
-          </div>
-          {/* 纸窗（纸包内容）—— 卡立纸面；内容超出剩余高时纸收缩到剩高、内心滚 */}
-          <div className="scroll-dual-paper rack-scroll">
-            <div className="scroll-dual-body">
-              <div className="paper-sheet mx-2 px-1.5 py-1.5 space-y-1.5">
-                {profiles.map(renderProfileCard)}
-              </div>
-            </div>
-          </div>
-          {/* 下辊行 —— 纸尾辊：贴在纸尾、跟着纸尾走（纯装裱） */}
-          <div className="scroll-dual-rod scroll-dual-rod-b">
-            <span aria-hidden className="rod-caps" />
-            <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
+        <div className="flex-1 min-h-0 overflow-y-auto rack-scroll px-3 pt-1.5 pb-3">
+          <div className="flat-paper-list px-2 py-2 space-y-1.5">
+            {profiles.map(renderProfileCard)}
           </div>
         </div>
       ) : loaded && profiles.length === 0 ? (

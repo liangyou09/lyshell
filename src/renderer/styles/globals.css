@@ -79,17 +79,14 @@
   --pin:            #F5C842;  /* 置顶段语义金 —— 恒金跨主题:置顶是语义不是焦点,不随 --amber 走(rack-lark 焦点变蓝后置顶仍金);提亮提黄,与 serial 的 --proto-ser(#DB7A28 丹)拉开 —— 置顶金、串口丹,同为暖色不同物 */
   --subnet:         #D6557E;  /* 网段段身份胭脂 —— 子网/主机名分组(远程会话组)的轴头色;段级组语义,与行级 --proto-* 协议色平行,不随主题走。2026/09/20 自 #F472B6(Tailwind pink-400)收深:原值糖果电粉(整套首饰里唯一的塑料色),且与 error 粉红 #FF6B6B 同亮度同屏(网段组头下方不可达行的状态框就是它)—— 红邻域按既有拆法(亮度+色相同步,同朱/粉红)再拆一档:危险读亮粉、网段读暗胭脂;暖弧就此接续:金黄 45° > 金 38° > 丹 25° > 胭脂 341°,亮度同步走低 */
   --web-group:      #6CD4FF;  /* 网页域名组段身份青蓝 —— Web 栏最近访问按域名分组的轴头/系绳色;段级组语义,与行级 --proto-* 协议色平行,不随主题走(同 --subnet 先例)。值取 --reachable 同款青蓝:两物分处会话墙/Web 栏(机柜页签互斥,永不同屏),且青蓝自带的「可达/在线」读感正贴域名组的「点开即浏览」 */
-  /* 机柜面板段身份六色 —— Agents/Env/Claude/Codex/Dsh/Plugins 六面板画轴墙的轴头/系绳/
-     题签墨(工作区四面的纸里另有目录分组,组头轴头/系绳走 SessionsPanel GroupHeaderTone
-     的 seg-* 同名令牌;Env/Plugins 平铺无组头,只染墙)。段级组语义(同 --web-group 先例),
-     不随主题走。六面分处机柜页签互斥永不同屏,一墙一色;浅色主题的收暗走感知层
+  /* 工作区段身份四色 —— Agents/Claude/Codex/Dsh 四面画轴墙的轴头/系绳/题签墨;
+     纸里目录组头走 SessionsPanel GroupHeaderTone 的 seg-* 同名令牌。
+     段级组语义(同 --web-group 先例),不随主题走;浅色主题的收暗走感知层
      (.scroll-dual-seg 的 brightness/color-mix 补偿),token 恒定 */
-  --seg-violet:     #9D8DF5;  /* agents 青紫 —— 青底的紫(偏蓝一档),与 --proto-loc 的红紫(本地紫 #B07CFF)拆值;六色里唯一的长波色,压住 Agents 页签的整墙轴头 */
-  --seg-green:      #57AE9B;  /* env 青绿 —— 青底的绿(青瓷豆青),与 --live 的荧光薄荷(#3DDC97)拆饱和:live 亮而荧光、青绿哑而似釉 —— env 页签整墙轴头 */
+  --seg-violet:     #9D8DF5;  /* agents 青紫 —— 青底的紫(偏蓝一档),与 --proto-loc 的红紫(本地紫 #B07CFF)拆值;四色里唯一的长波色,压住 Agents 页签的整墙轴头 */
   --seg-orange:     #E68A54;  /* claude 青橙 —— 青底的橙(柿橙,杏橘色),与暖梯三物拆开:pin 金黄/amber 金都偏黄,serial 丹(#DB7A28)是沉一档的焦橙 —— 青橙亮一档、橘一档 —— 同屏家族不同物(分处页签,更是永不同屏) */
-  --seg-qingbai:    #D8E6EF;  /* codex 青白 —— 青白瓷的釉白泛青(冷白近白),轴头近白仍是青底;六色里最亮的一档,近白的轴头在 rack 底上读作「白瓷」 */
+  --seg-qingbai:    #D8E6EF;  /* codex 青白 —— 青白瓷的釉白泛青(冷白近白),轴头近白仍是青底;四色里最亮的一档,近白的轴头在 rack 底上读作「白瓷」 */
   --seg-qinghua:    #4E86C6;  /* dsh 青花 —— 青花瓷的钴蓝(釉下青),比 --proto-ssh 的钴蓝(#4FA8FF)沉一档 —— 同为蓝,钴亮、青花沉 */
-  --seg-red:        #C4584F;  /* plugins 青红 —— 青底的红(绛红,釉里红一档),与红邻域两物拆值:error 粉红(#FF6B6B)亮而粉、cinnabar 印泥朱(#E0483E)亮而橙,青红沉一档 —— 插件墙轴头与卡内卸载确认的粉红同屏不混 */
   --cinnabar:       #E0483E;  /* 印泥朱 —— 快捷命令钤章按下敷泥的瞬间墨(.seal.on);与 error 的粉红(#FF6B6B)分裂:危险读粉红、落款读朱,不同物;亮主题收深为朱磦(rack-paper/lark 覆写 #AC3A2B,奶油纸上纸色印文才读得出) */
   --warn-rack:      #E8A33D;
   --error-rack:     #FF6B6B;
@@ -401,6 +398,15 @@
     inset 4px 0 0 color-mix(in srgb, var(--pin) 21%, transparent),
     inset -4px 0 0 color-mix(in srgb, var(--pin) 21%, transparent),
     inset 0 -5px 5px -5px rgba(0, 0, 0, .38);
+}
+
+/* 平铺卡片共用纸面：保留纤维纹理，不画触辊阴影或卷轴边。 */
+.flat-paper-list {
+  background-color: var(--paper);
+  background-image:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .02) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, .025) 0 1px, transparent 1px 4px);
+  border-inline: 1px solid var(--rule-soft);
 }
 
 /* ─── 卷轴辊(折叠栏上的辊本体)─── rod-caps 渲染的卷物件:栏内垂直居中 ——
@@ -1594,6 +1600,11 @@
   height: auto;               /* 覆写基类收起 20:高交给 flex 布局 */
   transition: none;           /* 墙恒开无开合动画,高随内容/列剩余即时走 */
 }
+/* 墙的辊是「收放全部」按钮：热区加到 24px，5px 轴体仍在行内居中。
+   小窗与文件管理器的双开辊保留 10px 原几何和拖高行为。 */
+.scroll-dual.scroll-dual-wall > .scroll-dual-rod.cursor-pointer {
+  height: 24px;
+}
 .scroll-dual.scroll-dual-wall .scroll-dual-paper {
   flex: 0 1 auto;             /* 纸包内容:高 = 画心内容高,超列剩余高收缩内心滚 */
   overflow-y: auto;           /* 滚动职责在纸(墙变体:纸是内容高的滚动容器) */
@@ -1640,16 +1651,13 @@
   color: #36728C;
 }
 
-/* ─── 机柜面板画轴变体(.scroll-dual-seg)── Agents/Env/Claude/Codex/Dsh/Plugins
-   六面板的画轴墙:会话墙同款几何(scroll-dual-wall 一并挂),唯轴头/系绳/解绳
+/* ─── 工作区画轴变体(.scroll-dual-seg)── Agents/Claude/Codex/Dsh
+   四面板的画轴墙:会话墙同款几何(scroll-dual-wall 一并挂),唯轴头/系绳/解绳
    辉光/题签墨不取 amber/pin,取面板段身份 --seg-tone —— 墙元素 inline 注入
-   (agents 青紫 --seg-violet / env 青绿 --seg-green / claude 青橙 --seg-orange /
-   codex 青白 --seg-qingbai / dsh 青花 --seg-qinghua / plugins 青红 --seg-red,
-   一墙一色,同一根变量的六处取值;工作区四面的纸里目录组头轴头/系绳在 JSX 里走
-   GroupHeader 的 seg-* tone 令牌,Env/Plugins 平铺无组头,同 .scroll-dual-web
-   「组头在 JSX、墙在类规则」的分工)。浅色主题提亮补偿同 web 墙口径:轴头乘
-   brightness(.65) 只收感知层,题签墨 color-mix 向墨青压 56%(青紫/青绿/
-   青橙在两套浅色主题的纸面与槽位面均超过 4.5:1,色相各自保住);
+   (agents 青紫 / claude 青橙 / codex 青白 / dsh 青花,一墙一色);
+   纸里目录组头轴头/系绳在 JSX 里走 GroupHeader 的 seg-* tone 令牌。
+   浅色主题轴头乘 brightness(.65),题签墨 color-mix 向墨青压 56%
+   (青紫/青橙/青花在两套浅色主题的纸面与槽位面均超过 4.5:1);
    源序在题签节浅色覆写([data-theme-mode] .scroll-head
    .scroll-slip 等)之后,同特异性靠源序压过 */
 .scroll-dual.scroll-dual-seg > .scroll-dual-rod .rod-caps {
@@ -1672,11 +1680,11 @@
 [data-theme-mode="light"] .scroll-dual-seg .scroll-slip {
   color: color-mix(in srgb, var(--seg-tone, var(--pin)) 44%, #2A3540);
 }
-/* 青白浅色单配(.tone-qingbai,codex 墙挂)—— 通用 color-mix 对六色最亮一档
+/* 青白浅色单配(.tone-qingbai,codex 墙挂)—— 通用 color-mix 对四色最亮一档
    压不出对比:qingbai(#D8E6EF)即使拌 #2A3540 四成四仍不足 3:1,13px 题签读不出。
    青白单独给深青灰墨(釉下影,#46617A 对奶油纸 ~5.5:1;固定值写死在浅色规则里,
    同 web 墙浅色墨 #36728C 的口径,不占 token);轴头端面同病(亮白轴头乘 .65
-   仍 ~2.6:1,不到 UI 部件 3:1),同一修饰类里再压到 .5。其余五色共用混色规则 */
+   仍 ~2.6:1,不到 UI 部件 3:1),同一修饰类里再压到 .5。其余三色共用混色规则 */
 [data-theme-mode="light"] .scroll-dual-seg.tone-qingbai .scroll-slip {
   color: #46617A;
 }

@@ -23,7 +23,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, cleanup, screen, fireEvent, waitFor } from '@testing-library/react'
 import type { SessionConfig } from '@shared/types'
-import SessionsPanel from './SessionsPanel'
+import SessionsPanel, { GroupHeader } from './SessionsPanel'
 import '../../i18n'
 
 vi.mock('../FileManager/FileManagerPanel', () => ({
@@ -184,5 +184,15 @@ describe('会话墙双开画轴(墙恒开)', () => {
     expect(keys).not.toContain('wallRolled')
     const setKeys = (window.electronAPI.setConfig as ReturnType<typeof vi.fn>).mock.calls.map(c => c[0])
     expect(setKeys).not.toContain('wallRolled')
+  })
+
+  it('同名目录序号独立于可截断的路径片段', () => {
+    render(<GroupHeader label="project" labelTitle="/work/east/project" detail="east" detailMarker="#1" count={1} />)
+    const marker = screen.getByText('#1')
+    const path = screen.getByText('east')
+    expect(marker.classList.contains('shrink-0')).toBe(true)
+    expect(marker.classList.contains('truncate')).toBe(false)
+    expect(path.classList.contains('truncate')).toBe(true)
+    expect(marker.parentElement).toBe(path.parentElement)
   })
 })
