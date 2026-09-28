@@ -501,6 +501,13 @@ app.whenReady().then(async () => {
   // 设置应用ID
   app.setAppUserModelId('com.lyshell.app')
 
+  // 通用网页会话使用与内核版本一致的 Chrome UA。抖音实测会按 lyshell/Electron
+  // 标识切到另一套页面布局；仅去掉应用标识，不伪报更高的 Chromium 版本。
+  // 必须在首个 webbar webview 创建前设置，完整页签与写轮眼小窗共用此 session。
+  const webbarSession = session.fromPartition(WEBBAR_PARTITION)
+  const browserUserAgent = webbarSession.getUserAgent().replace(/\s+(?:lyshell|Electron)\/\S+/gi, '')
+  webbarSession.setUserAgent(browserUserAgent)
+
   // 清扫上次崩溃/强杀遗留的孤儿 dsh web（会占着 DSH 会话写锁 → 「当前会话已被占用」）。
   // 两条互补路径，覆盖面对齐 proc.ts 的三层防护：
   //   - 签名清扫：要 WMI 枚举，抓「父进程链已断」的（含 root pid 已丢的）；
@@ -545,7 +552,6 @@ app.whenReady().then(async () => {
   // 抖音网页端已知的深链家族（WEBBAR_DEEPLINK_SCHEMES，@shared/constants），
   // 遇到新 scheme 弹对话框时往那里加。fromPartition 返回会话单例，与
   // did-attach-webview 里的判定共享同一 session，挂载顺序无涉
-  const webbarSession = session.fromPartition(WEBBAR_PARTITION)
   for (const scheme of WEBBAR_DEEPLINK_SCHEMES) {
     try {
       webbarSession.protocol.handle(scheme, () => new Response(null, { status: 204 }))

@@ -43,6 +43,7 @@ win:
   sign: null
 
 nsis:
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
@@ -55,6 +56,9 @@ nsis:
     - en_US
   language: 2052
   license: resources/licenses/LyShell-LICENSE.txt
+
+portable:
+  artifactName: ${productName}-${version}-${arch}-portable.${ext}
 
 mac:
   target:
