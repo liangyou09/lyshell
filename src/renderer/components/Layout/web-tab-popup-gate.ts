@@ -61,10 +61,11 @@ function openWebTabKeys(): Set<string> {
  * 弹窗地址闸门（只裁决，不记账）：true = 放行开完整网页页签，false = 丢。
  * 裁决通过后调用方须在 openWebTab 挂载成功时 recordWebTabPopup 登记，否则
  * 频控与键册不记本次（见模块注释的分离语义）。
+ * isPost 跳过 URL 去重（正文不同的表单可提交到同一路径），仍计入短窗频控。
  * 只经 IPC 边界转发弹窗路径调用（url 已过主进程 isHttpUrl，这里不再复验 ——
  * openWebTab 的 normalizeWebBarUrl 是最终闸）。
  */
-export function gateWebTabPopup(url: string): boolean {
+export function gateWebTabPopup(url: string, isPost = false): boolean {
   const key = popupKeyOf(url)
   // 键册对账：弹窗开过的键里，页签已全关的出册（同址重弹允许再开一次）
   const open = openWebTabKeys()
@@ -72,7 +73,7 @@ export function gateWebTabPopup(url: string): boolean {
     if (!open.has(k)) popupOpenedKeys.delete(k)
   }
   // 同键去重：该键的页签还开着，弹窗不再开第二份
-  if (popupOpenedKeys.has(key)) {
+  if (!isPost && popupOpenedKeys.has(key)) {
     console.warn('[WebTabPopup] dropped: popup for already-open tab:', url)
     return false
   }
@@ -92,8 +93,10 @@ export function gateWebTabPopup(url: string): boolean {
  * 弹窗放行登记 —— 调用方在 openWebTab 挂载成功后调用（裁决与登记分离，
  * 见模块注释）：消耗一个短窗频控名额、键进册。
  */
-export function recordWebTabPopup(url: string): void {
+export function recordWebTabPopup(url: string, isPost = false): void {
   popupTimestamps.push(Date.now())
+  // POST 同路径可含不同表单字段；只计频控，不把 URL 作为重复请求凭据。
+  if (isPost) return
   popupOpenedKeys.set(popupKeyOf(url), true)
   if (popupOpenedKeys.size > POPUP_KEYS_MAX) {
     popupOpenedKeys.delete(popupOpenedKeys.keys().next().value as string)

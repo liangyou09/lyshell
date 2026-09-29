@@ -1337,7 +1337,10 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
                     <>
                       {/* src = 冻结的首航地址(挂载后恒不变,后续导航走 loadURL,见 miniSrc 注释);
                           partition 与完整网页页签同仓(登录态互通),快捷键转发的排除见 onDomReady 登记 */}
-                      <webview ref={setMiniEl} partition={WEBBAR_PARTITION} src={miniSrc ?? undefined} className="w-full h-full" />
+                      {/* Electron webview 专属属性，React 的通用 DOM 规则不认识。 */}
+                      {/* eslint-disable react/no-unknown-property */}
+                      <webview ref={setMiniEl} partition={WEBBAR_PARTITION} src={miniSrc ?? undefined} allowpopups="" className="w-full h-full" />
+                      {/* eslint-enable react/no-unknown-property */}
                       {miniCovering && (
                         <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--terminal-bg)] text-sm text-gray-400 pointer-events-none">
                           {t('webBar.loading')}

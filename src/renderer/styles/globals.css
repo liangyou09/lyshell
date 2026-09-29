@@ -225,7 +225,9 @@
    浅主题提字色只会倒转"非活跃比激活浅"的浅色页签惯例 → 维持 mute。
    rack-custom 配浅底同样被 data-theme-mode 标记分叉(theme-store 对每个主题
    都打 light/dark,见 applyTheme)。var() 在 html 元素上解析,按当前主题取
-   对应档值,无须逐主题重申。 */
+   对应档值,无须逐主题重申。
+   另供第一行右上窗口控制簇(TopRightControls 浮窗/缩小/放大/关闭)的字面
+   静息档 —— 同一横带的常驻 chrome,与页签静息字同亮,浅主题同样维持 mute。 */
 :root {
   --text-tab-idle: color-mix(in srgb, var(--text-rack-data) 50%, var(--text-rack));
 }

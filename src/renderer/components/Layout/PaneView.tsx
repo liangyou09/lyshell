@@ -1,6 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { WebviewTag } from 'electron'
 import { usePaneStore } from '../../stores/pane-store'
 import { OVERLAY_KINDS } from '../../stores'
 import TerminalView from '../Terminal/TerminalView'
@@ -10,9 +9,9 @@ import { McpAuditPanel } from './McpAuditPanel'
 import DocTabOverlay from '../DocPanel/DocTabOverlay'
 import SplitDivider from './SplitDivider'
 import { resolveOverlayDragId } from './overlay-drag'
-import { registerWebview, unregisterWebview, activeWebTabId } from './web-tab-controls'
+import { WEB_TAB_PLACEHOLDER_ATTR } from './WebTabLayer'
 import type { PaneNode, SplitDirection, OverlayKind, OverlayPayload, OverlayRef, DocOverlayPayload } from '@shared/types'
-import { DSH_WEB_PARTITION, WEBBAR_PARTITION } from '@shared/constants'
+import { DSH_WEB_PARTITION } from '@shared/constants'
 
 type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center' | null
 
@@ -23,242 +22,6 @@ type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center' | null
 const EDGE_NEAR_X = 0.3
 const EDGE_NEAR_Y = 0.25
 const EDGE_FAR = 0.7
-
-// favicon 代取缓存：成功（data URI）LRU 缓存；失败不缓存——下次 page-favicon-updated
-// （切回页签/页内刷新触发）自然重试，事件只在 favicon 列表变化时才发，天然限频。
-// 超限逐出最旧一条（Map 迭代序 = 插入序，首键即最旧）而非整表清空——高频页签组
-// 在容量边界反复进出时，整表清空会触发整轮重新代取，逐出只多取一条
-const FAVICON_CACHE_MAX = 200
-const faviconCache = new Map<string, Promise<string | null>>()
-function fetchFaviconDataUri(url: string): Promise<string | null> {
-  // 内联 data:image/* favicon 无需代取，直接透传
-  if (url.startsWith('data:image/')) return Promise.resolve(url)
-  const cached = faviconCache.get(url)
-  if (cached) {
-    // 命中刷新新鲜度：删掉重插挪到 Map 尾部
-    faviconCache.delete(url)
-    faviconCache.set(url, cached)
-    return cached
-  }
-  if (faviconCache.size >= FAVICON_CACHE_MAX) {
-    const oldest = faviconCache.keys().next().value
-    if (oldest !== undefined) faviconCache.delete(oldest)
-  }
-  const p: Promise<string | null> = window.electronAPI.fetchFavicon(url)
-    .then(r => {
-      if (r.success) return r.dataUri
-      faviconCache.delete(url)
-      return null
-    })
-    .catch(() => {
-      faviconCache.delete(url)
-      return null
-    })
-  faviconCache.set(url, p)
-  return p
-}
-
-// 从 page-favicon-updated 事件提取首个 favicon URL。Electron 28 实测（探针验证）：
-// 参数挂在事件自身属性上（e.favicons），detail 为 undefined；兼容 detail 形状只为稳妥。
-function faviconUrlFromEvent(e: Event): string | undefined {
-  const detail = (e as CustomEvent<unknown>).detail
-  const candidates: unknown[] = [
-    (e as { favicons?: unknown }).favicons,
-    (detail as { favicons?: unknown } | undefined)?.favicons,
-    Array.isArray(detail) ? detail : undefined
-  ]
-  for (const c of candidates) {
-    if (Array.isArray(c)) {
-      const first = c.find(u => typeof u === 'string' && u.length > 0)
-      if (first) return first
-    }
-  }
-  return undefined
-}
-
-/**
- * 网页页签的 webview 覆盖层（单页签实例，访问栏 URL 与终端 Ctrl+点击共用）。
- * partition 固定 persist:webbar（与 dsh web 隔离的浏览会话）；导航/弹窗由主进程
- * did-attach-webview 按 partition 分流锁定（仅 http/https）。标题经 page-title-updated
- * 回写 store，页签显示页面标题而非裸 hostname；favicon 经 page-favicon-updated 由
- * 主进程代取转 data URI 回写（渲染层 CSP 只放行 data: 图）。did-finish-load 时把
- * 最近一次主框架导航的落点 URL 记入「最近访问」历史（地址栏导航/redirect 后的
- * 最终地址同样入册；加载失败的 URL 不算访问过）。加载中/失败铺
- * 浮层提示（webview 无内建 UI，失败原先是纯白屏零反馈）。
- * 导航态（当前 URL / 前后可用 / 加载中）经 did-navigate 系事件回写 payload.nav，
- * WebPanel 地址栏与导航按钮消费；元素登记进 web-tab-controls 注册表，
- * 面板按钮与宿主/主进程快捷键经它对本页签下指令。
- */
-const WebTabOverlay: React.FC<{ id: string; url: string }> = ({ id, url }) => {
-  const setWebTabTitle = usePaneStore(s => s.setWebTabTitle)
-  const setWebTabFavicon = usePaneStore(s => s.setWebTabFavicon)
-  const setWebTabNav = usePaneStore(s => s.setWebTabNav)
-  const recordWebTabVisit = usePaneStore(s => s.recordWebTabVisit)
-  const { t } = useTranslation()
-  const ref = useRef<WebviewTag | null>(null)
-  // 最近一次主框架导航的落点 URL：历史记录与地址栏数据都吃它而非打开时的 url ——
-  // redirect 链的每一跳都会触发 did-navigate，落点才是用户真正到达的地址
-  const lastUrlRef = useRef('')
-  // 加载态：webview 无内建 UI，失败=纯白屏零反馈（外站不可达与「没打开」无法
-  // 区分）。loading 铺轻提示挡白闪，failed 铺错误浮层把 errno 直接亮出来
-  const [loadState, setLoadState] = useState<'loading' | 'done' | 'failed'>('loading')
-  const [loadError, setLoadError] = useState<string | null>(null)
-
-  // webview 注册表登记：面板按钮/快捷键经 web-tab-controls 对本页签下指令
-  // （元素随 JSX 位置稳定，src 恒为打开时 URL 不触发重挂）
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    registerWebview(id, el)
-    return () => unregisterWebview(id)
-  }, [id])
-
-  // 焦点激活所属 pane：点击网页不冒泡到宿主 DOM，activePaneId 不跟随 ——
-  // 多分屏时快捷键/面板会打错页签。接两个可见信号：focusin（webview 元素
-  // 获得焦点）与 window blur + activeElement（HtmlDoc 焦点陷阱同款反向利用）。
-  // Electron 28 实测（探针验证）：guest→guest 焦点转移（点另一个 pane 的网页）
-  // 既无 focusin 也无 window blur，只派发不冒泡的 focus —— 补 focus 监听兜住。
-  // 幂等：已是活动 pane 不再 set，避免无谓重渲染
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const activate = (): void => {
-      const st = usePaneStore.getState()
-      const paneId = st.getOverlayPaneId(id)
-      if (paneId && st.layout.activePaneId !== paneId) st.setActivePane(paneId)
-    }
-    const onWinBlur = (): void => {
-      if (document.activeElement === el) activate()
-    }
-    el.addEventListener('focusin', activate)
-    el.addEventListener('focus', activate)
-    window.addEventListener('blur', onWinBlur)
-    return () => {
-      el.removeEventListener('focusin', activate)
-      el.removeEventListener('focus', activate)
-      window.removeEventListener('blur', onWinBlur)
-    }
-  }, [id])
-
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const onTitle = (e: Event): void => {
-      // Electron 28 实测：webview 事件参数挂在事件自身属性上（e.title），detail 为
-      // undefined —— 原来只读 detail 的写法一直取不到，两者兼容
-      const evt = e as CustomEvent<{ title?: string }> & { title?: string }
-      const title = evt.title ?? evt.detail?.title
-      if (title) setWebTabTitle(id, title)
-    }
-    const onFavicon = (e: Event): void => {
-      // 取首个 favicon，代取失败静默回落纯文字页签（下次事件自动重试）
-      const src = faviconUrlFromEvent(e)
-      if (!src) return
-      void fetchFaviconDataUri(src).then(dataUri => {
-        // 异步回来时页签可能已关闭，setWebTabFavicon 对未知 id 是 no-op
-        if (dataUri) setWebTabFavicon(id, dataUri)
-      })
-    }
-    const onLoadFinish = (): void => {
-      // 落点 URL 记历史（含 redirect 后的最终地址；地址栏导航同样走这里）。
-      // 页内刷新/锚点跳转也会触发 did-finish-load，重复记录靠 store 去重
-      recordWebTabVisit(lastUrlRef.current || url)
-    }
-    // 导航态回写：地址栏显示与导航按钮可用性的数据源。did-navigate（顶层跳转）
-    // 与 did-navigate-in-page（SPA pushState / 锚点）都跟 —— 子框架的页内事件
-    // （isMainFrame=false）不跟。参数双读（事件自身属性 ?? detail，同 onTitle
-    // 的 Electron 28 实测经验）。canGoBack/Forward 是同步 IPC
-    // （guestViewInternal.invokeSync），主进程忙时可阻塞渲染层秒级 —— 只在本
-    // 页签正处于活动态（地址栏正在消费）时读；后台页签只回写 url，停驻期间
-    // 的前后可用性由 WebPanel 重新激活时补读
-    const onNav = (e: Event): void => {
-      const evt = e as CustomEvent<unknown> & { url?: string; isMainFrame?: boolean; detail?: { url?: string; isMainFrame?: boolean } }
-      const url = evt.url ?? evt.detail?.url
-      const isMainFrame = evt.isMainFrame ?? evt.detail?.isMainFrame
-      if (isMainFrame === false) return
-      if (!url) return
-      lastUrlRef.current = url
-      if (activeWebTabId() === id) {
-        setWebTabNav(id, { url, canGoBack: el.canGoBack(), canGoForward: el.canGoForward() })
-      } else {
-        setWebTabNav(id, { url })
-      }
-    }
-    // 加载遮罩 dom-ready 即收(主框架文档就绪、内容可渐进上屏),不等
-    // did-stop-loading —— 后者要等全部子资源落定,一个慢三方资源(广告/统计/
-    // 超时域)就能把不透明遮罩压 10-30s+,页面明明早已可交互却被盖死(实机
-    // 探针:本地页 28ms 可画、遮罩整压 12s)。工具条的停止/刷新(activeNav
-    // .loading)仍跟完整加载周期;failed 态不被冲掉(同 onStopLoading 的保序)
-    const onDomReady = (): void => {
-      setLoadState(prev => (prev === 'loading' ? 'done' : prev))
-    }
-    const onStartLoading = (): void => {
-      setLoadState('loading')
-      setLoadError(null)
-      setWebTabNav(id, { loading: true })
-    }
-    // did-stop-loading 在成功/失败后都会到；失败浮层由 did-fail-load 先铺，
-    // 这里收尾时保住 failed 不被冲掉
-    const onStopLoading = (): void => {
-      setLoadState(prev => (prev === 'failed' ? 'failed' : 'done'))
-      setWebTabNav(id, { loading: false })
-    }
-    const onLoadFail = (e: Event): void => {
-      const evt = e as CustomEvent<unknown> & {
-        errorCode?: number; errorDescription?: string; isMainFrame?: boolean
-      }
-      // 子框架资源失败不铺满屏浮层；ERR_ABORTED(-3) 是重定向/中途取消的常态噪音
-      if (evt.isMainFrame === false) return
-      if (evt.errorCode === -3) return
-      setLoadError(evt.errorDescription || (evt.errorCode !== undefined ? `ERR_${evt.errorCode}` : 'ERROR'))
-      setLoadState('failed')
-    }
-    el.addEventListener('page-title-updated', onTitle)
-    el.addEventListener('page-favicon-updated', onFavicon)
-    el.addEventListener('dom-ready', onDomReady)
-    el.addEventListener('did-finish-load', onLoadFinish)
-    el.addEventListener('did-navigate', onNav)
-    el.addEventListener('did-navigate-in-page', onNav)
-    el.addEventListener('did-start-loading', onStartLoading)
-    el.addEventListener('did-stop-loading', onStopLoading)
-    el.addEventListener('did-fail-load', onLoadFail)
-    return () => {
-      el.removeEventListener('page-title-updated', onTitle)
-      el.removeEventListener('page-favicon-updated', onFavicon)
-      el.removeEventListener('dom-ready', onDomReady)
-      el.removeEventListener('did-finish-load', onLoadFinish)
-      el.removeEventListener('did-navigate', onNav)
-      el.removeEventListener('did-navigate-in-page', onNav)
-      el.removeEventListener('did-start-loading', onStartLoading)
-      el.removeEventListener('did-stop-loading', onStopLoading)
-      el.removeEventListener('did-fail-load', onLoadFail)
-    }
-  }, [id, url, setWebTabTitle, setWebTabFavicon, setWebTabNav, recordWebTabVisit])
-
-  return (
-    <div className="relative w-full h-full">
-      <webview
-        ref={ref}
-        partition={WEBBAR_PARTITION}
-        src={url}
-        className="w-full h-full"
-      />
-      {loadState === 'loading' && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--terminal-bg)] text-sm text-gray-400 pointer-events-none">
-          {t('webBar.loading')}
-        </div>
-      )}
-      {loadState === 'failed' && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[var(--terminal-bg)]">
-          <p className="text-sm text-gray-300">{t('webBar.loadFailed')}</p>
-          <p className="max-w-[80%] truncate font-mono text-xs text-gray-500">
-            {t('webBar.loadFailedHint', { error: loadError ?? 'ERROR', url })}
-          </p>
-        </div>
-      )}
-    </div>
-  )
-}
 
 // 「去活即卸载」的种类行为规则已上移 OVERLAY_KINDS 注册表，此处直接查表；
 // webview/iframe 吞宿主拖拽事件的问题由渲染层的拖拽盾（见下方 JSX）统一兜住
@@ -292,10 +55,11 @@ const DshWebOverlay = React.memo<OverlayContentProps>(({ payload }) => (
 ))
 DshWebOverlay.displayName = 'DshWebOverlay'
 
-const WebOverlay = React.memo<OverlayContentProps>(({ overlay, payload }) => (
-  payload.kind === 'web'
-    ? <WebTabOverlay id={overlay.id} url={payload.url} />
-    : null
+// 网页页签在 pane 内只留占位测位：<webview> 实体挂 WebTabLayer 常驻层（拖动
+// 不销毁，见 WebTabLayer.tsx）。占位仅承担几何 —— 常驻层按它的矩形定位
+// webview（隐藏态也参与测位，visibility 不影响布局）。
+const WebOverlay = React.memo<OverlayContentProps>(({ overlay }) => (
+  <div {...{ [WEB_TAB_PLACEHOLDER_ATTR]: overlay.id }} className="w-full h-full" />
 ))
 WebOverlay.displayName = 'WebOverlay'
 
@@ -701,7 +465,8 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
         position: 'absolute',
         backgroundColor: color.bg,
         border: `2px dashed ${color.border}`,
-        zIndex: 10,
+        // 须盖过 WebTabLayer 常驻层（z-15）：拖动中指示器要浮在 webview 之上可见
+        zIndex: 30,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',

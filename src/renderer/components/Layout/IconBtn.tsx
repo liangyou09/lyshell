@@ -3,7 +3,9 @@ import cn from 'classnames'
 
 /**
  * 头条图标钮 —— 会话/Agent/变量组/Harness/插件五处头条共用的一枚：
- * 24px 无框、mute 面、悬停 slot 面；amber 档悬停琥珀字（各面板「新建 +」
+ * 24px 无框、tab-idle 面(页签静息字同款混档 -- 原走 mute,用户校准嫌暗,
+ * 与轨上未选中图标一起提到该档,见 ActivityRail docstring 的「未选中 chrome」
+ * 同亮说明)、悬停 slot 面;amber 档悬停琥珀字（各面板「新建 +」
  * 入口的标准形态）。原先是 SessionsPanel 的本地组件，五处统一后抽出防样式漂移。
  * 可选档（默认不传即五处头条的原形态）：size lg = 28px 面、bright = 白面
  * （比 --text-rack 再亮一档，#E4E7EA → #FFF）—— Web 栏铭牌行的导航/清空
@@ -33,7 +35,7 @@ export const IconBtn: React.FC<{
     className={cn(
       'win-no-drag flex items-center justify-center bg-transparent border-none rounded-[3px] cursor-pointer transition-colors disabled:opacity-50',
       size === 'lg' ? 'w-[28px] h-[28px]' : 'w-[24px] h-[24px]',
-      bright ? 'icon-bright-glow text-white' : 'text-[var(--text-rack-mute)]',
+      bright ? 'icon-bright-glow text-white' : 'text-[var(--text-tab-idle)]',
       'hover:bg-[var(--bg-slot)]',
       amber ? 'hover:text-[var(--amber)]' : bright ? 'hover:text-white' : 'hover:text-[var(--text-rack)]'
     )}

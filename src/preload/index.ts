@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type { WorktreeListResult } from '@shared/worktree'
-import type { TerminalEncoding } from '@shared/types'
+import type { TerminalEncoding, WebTabPopupRequest } from '@shared/types'
 
 // IPC 通道定义
 const IPC_CHANNELS = {
@@ -127,7 +127,8 @@ const IPC_CHANNELS = {
   WEBBAR_FETCH_FAVICON: 'webbar:fetch-favicon',
   WEBBAR_REGISTER_MINI: 'webbar:register-mini',  // renderer→main：写轮眼小窗 dom-ready 后自报 webContentsId
   WEB_TAB_SHORTCUT: 'web-tab:shortcut',  // main→renderer：webview 焦点内的浏览器快捷键转发
-  WEB_TAB_POPUP: 'web-tab:popup',  // main→renderer：webview 弹窗跳转地址转发（deny + 转页签）
+  WEB_TAB_POPUP: 'web-tab:popup',  // main→renderer：webview 弹窗跳转地址转发（deny + 转页签；小窗普通点击原地跳，不走此通道）
+  WEB_TAB_POST_LOAD: 'web-tab:post-load',  // renderer→main：POST 页签 dom-ready 后认领一次性正文
 
   // Harness worktree 检测（kind 无关：列出仓库已有 worktree 共享名，编辑对话框下拉用）
   HARNESS_WORKTREE_LIST: 'harness:worktree:list',
@@ -277,12 +278,16 @@ const electronAPI = {
   },
 
   // 网页页签弹窗跳转（main→renderer）：webview 的开窗请求（target=_blank /
-  // window.open）在主进程一律 deny，http/https 地址经此转发，渲染层开完整网页页签
-  onWebTabPopup: (callback: (url: string) => void) => {
-    const listener = (_e: IpcRendererEvent, url: string): void => callback(url)
+  // window.open）在主进程一律 deny，http/https 地址经此转发，渲染层开完整网页页签。
+  // background = 修饰键语义（中键/Ctrl+点击，disposition=background-tab）：
+  // 页签挂后台不激活，用户不被拽走
+  onWebTabPopup: (callback: (req: WebTabPopupRequest) => void) => {
+    const listener = (_e: IpcRendererEvent, req: WebTabPopupRequest): void => callback(req)
     ipcRenderer.on(IPC_CHANNELS.WEB_TAB_POPUP, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.WEB_TAB_POPUP, listener)
   },
+  loadWebTabPost: (token: string, webContentsId: number): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WEB_TAB_POST_LOAD, token, webContentsId),
 
   // 写轮眼小窗登记（renderer→main）：小窗与完整页签共用 webbar partition（共享
   // 登录态）后，主进程快捷键转发无法凭 session 区分两者 —— 小窗 dom-ready 后把

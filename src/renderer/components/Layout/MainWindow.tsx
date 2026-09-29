@@ -5,6 +5,7 @@ import SessionsPanel from './SessionsPanel'
 import ActivityRail, { type NavTab, RAIL_WIDTH, isFixedNavTab } from './ActivityRail'
 import AgentsPanel from './AgentsPanel'
 import SplitPaneContainer, { isTextEditingTarget } from './SplitPaneContainer'
+import WebTabLayer from './WebTabLayer'
 import FloatWindow from '../FloatWindow/FloatWindow'
 import CommandScreen from '../CommandScreen/CommandScreen'
 import TopRightControls from './TopRightControls'
@@ -738,15 +739,18 @@ const MainWindow: React.FC = () => {
   // webview 弹窗跳转:target=_blank / window.open 的开窗请求在主进程 deny 后经 IPC
   // 转发到这里,过防刷闸后开完整网页页签(落点 = 活动 pane,URL 栏语义 —— 弹窗
   // 请求不带 webview 身份,转发动作统一落活动 pane,与快捷键转发同一取舍)。
+  // background = 修饰键语义(中键/Ctrl+点击,主进程按 disposition=background-tab 标记):
+  // 后台页签 —— openWebTab 挂载不激活,用户不被拽走;前台弹窗照常激活落活动 pane。
   // 闸(gateWebTabPopup):转发请求没有手势信号可用(见闸内注释),抖音等站的无手势
   // 刷屏弹窗靠同键去重 + 短窗频控压住。url 经 IPC 边界即不可信输入,openWebTab
   // 内 normalizeWebBarUrl 校验通过才挂载,畸形地址静默丢弃;登记(recordWebTabPopup)
   // 只在挂载成功后执行 —— 没开成的弹窗不占频控额度、不进键册
   useEffect(() => {
     if (!window.electronAPI?.onWebTabPopup) return
-    return window.electronAPI.onWebTabPopup(url => {
-      if (!gateWebTabPopup(url)) return
-      if (usePaneStore.getState().openWebTab(url).ok) recordWebTabPopup(url)
+    return window.electronAPI.onWebTabPopup(({ url, background, postToken }) => {
+      const isPost = !!postToken
+      if (!gateWebTabPopup(url, isPost)) return
+      if (usePaneStore.getState().openWebTab(url, undefined, { background, postToken }).ok) recordWebTabPopup(url, isPost)
     })
   }, [])
 
@@ -992,6 +996,12 @@ const MainWindow: React.FC = () => {
             <SplitPaneContainer />
           </div>
 
+          {/* 网页页签常驻层：<webview> 实体不随 pane 拆分/拖动重挂（重挂即销毁 guest ——
+              POST 结果页丢失、页内导航回退到打开 URL），按 pane 内占位矩形在此统一测位。
+              z-15 低于 pane 内拖拽盾（z-20，拖动中拦回 webview 吞掉的事件）与落区指示器
+              （z-30），高于普通覆盖层；层级纪律见 WebTabLayer.tsx 头注。 */}
+          <WebTabLayer />
+
           {/* 左上侧栏展开控位(ghost,无按钮形) -- 仅收起态可见:静息 chevron 走
               mute(与轨顶收起槽同档),悬停整块托起(bg-elev)+ chevron 提亮到 data,点击展开;展开态的收起开关
               在机柜轨顶槽(ActivityRail onCollapse)。第一行其余区域是窗口拖拽区,
@@ -1023,11 +1033,12 @@ const MainWindow: React.FC = () => {
                 'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--amber)]'
               )}
             >
-              {/* 单层 » 余痕 -- Edge 收起侧栏后的展开惯例,指向左列滑入方向 */}
+              {/* 单层 » 余痕 -- Edge 收起侧栏后的展开惯例,指向左列滑入方向。
+                  chevron 静息 tab-idle 与轨上收起控位同源同档(用户校准从 mute 提亮) */}
               <svg
                 width="18" height="18" viewBox="0 0 16 16" fill="none"
                 stroke="currentColor" strokeWidth="1.6" strokeLinecap="square" strokeLinejoin="miter"
-                className="text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack-data)] group-focus-visible:text-[var(--text-rack-data)] transition-colors"
+                className="text-[var(--text-tab-idle)] group-hover:text-[var(--text-rack)] group-focus-visible:text-[var(--text-rack)] transition-colors"
               >
                 <path d="M6 4.5 L10.5 8 L6 11.5" />
               </svg>
