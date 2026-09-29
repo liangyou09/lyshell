@@ -117,4 +117,14 @@ describe('web-tab-popup-gate', () => {
     nowMs += 4_700
     expect(admit('https://f.example.com/6')).toBe(true)
   })
+
+  it('POST 同地址不同正文可重复提交，但仍受短窗频控', () => {
+    const url = 'https://example.com/submit'
+    setWebTab('wv-1', url)
+    for (let i = 0; i < 3; i++) {
+      expect(gateWebTabPopup(url, true)).toBe(true)
+      recordWebTabPopup(url, true)
+    }
+    expect(gateWebTabPopup(url, true)).toBe(false)
+  })
 })

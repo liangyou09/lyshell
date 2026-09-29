@@ -73,12 +73,24 @@ export interface WebTabNav {
   loading: boolean
 }
 
+/** 弹窗转页签：POST 正文留主进程，postToken 仅供新 webview 首航认领一次（取走
+ *  即毁 —— 重放已提交的请求有二次提交风险，付款/创建类动作会重复执行，已明确
+ *  否决）。令牌随 payload 持久在页签上（下方 web 联合成员的 postToken）—— 首航
+ *  落定（did-navigate）或认领被拒时 settleWebTabPost 把它从 payload 摘除，落点
+ *  已知时一并把 url 改写为落点（仅为异常重挂兜底，如开发期 StrictMode；常态下
+ *  页签挂 WebTabLayer 常驻层，拖分屏/拆分不销毁 webview，不存在重挂恢复问题）。 */
+export interface WebTabPopupRequest {
+  url: string
+  background?: boolean
+  postToken?: string
+}
+
 /**
  * 覆盖层 payload（判别联合）—— 内容数据，按 id 存于 pane-store 的 overlayPayloads 字典。
  * 瞬态：与挂载点一样不持久化，重启即回收。
  */
 export type OverlayPayload =
-  | { kind: 'web'; url: string; title: string; favicon?: string; nav?: WebTabNav }
+  | { kind: 'web'; url: string; title: string; favicon?: string; nav?: WebTabNav; postToken?: string }
   | { kind: 'doc' } & DocOverlayPayload
   | { kind: 'dshWeb'; url: string; name: string; cwd?: string }
   | { kind: 'mcpAudit' }

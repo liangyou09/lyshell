@@ -177,7 +177,7 @@ interface PaneStore {
   draggingSessionId: string | null
   setDraggingSession: (id: string | null) => void
   // 通用核心操作 —— 所有种类共用；种类差异全部由 overlay-kinds 注册表驱动
-  mountOverlay: (paneId: string | undefined, payload: OverlayPayload, opts?: { id?: string }) => string | null  // 挂载并激活，返回实例 id（无可用 pane 返回 null）
+  mountOverlay: (paneId: string | undefined, payload: OverlayPayload, opts?: { id?: string; background?: boolean }) => string | null  // 挂载并激活（background=true 只挂载不激活、不动 activePaneId），返回实例 id（无可用 pane 返回 null）
   activateOverlay: (id: string) => void       // 激活（叶子内跨种类 radio + activePaneId 切换）
   deactivateOverlay: (id: string) => void     // 仅隐藏（页签保留）
   closeOverlay: (id: string) => void          // 真正关闭（回落/副作用/纯覆盖层 pane 回并）
@@ -199,7 +199,15 @@ interface PaneStore {
   openMcpAuditInPane: (paneId: string) => void
   closeMcpAudit: () => void
   openDshWebInPane: (paneId: string, info: { url: string; name: string; cwd?: string }) => void
-  openWebTab: (rawUrl: string, paneId?: string) => { ok: true } | { ok: false; error: string }
+  // opts.background：弹窗修饰键转发（中键/Ctrl+点击）的后台页签语义 —— 挂载不激活，
+  // 不抢焦点；用户留在原 pane 原页签
+  openWebTab: (rawUrl: string, paneId?: string, opts?: { background?: boolean; postToken?: string }) => { ok: true } | { ok: false; error: string }
+  // POST 首航落定（WebTabOverlay 在 did-navigate / 认领失败时调）：主进程令牌
+  // take 即销毁，认领后必须从 payload 摘除 —— 否则重挂（拖分屏/拆分）拿死令牌
+  // 再认领必拒。落点已知时把 url 一并改写为落点：页签身份从「POST 目标」变成
+  // 「落点页」，重挂按落点 GET 恢复（与 GET 页签重挂回打开时 URL 同一退化档，
+  // 会话 cookie 在、登录态不丢），而不是对 POST 目标发一个注定失败的 GET
+  settleWebTabPost: (id: string, landedUrl?: string) => void
   setWebTabTitle: (id: string, title: string) => void
   setWebTabFavicon: (id: string, favicon: string) => void
   // 导航态回写（WebTabOverlay 的 did-navigate / did-navigate-in-page / loading 事件）：
@@ -741,13 +749,19 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     const id = opts?.id ?? existingSingleton ?? def.singletonId ?? `${def.idPrefix ?? `${payload.kind}-`}${generateId()}`
 
     const existing = findOverlayRef(st.layout.root, id)
+    // background（弹窗修饰键转发的后台页签语义）：payload 照常落（页签条要显示
+    // 标题），但树上只追加 active:false 的引用 —— 不 radio 掉同 pane 活动覆盖层、
+    // 不切 activePaneId，用户留在原地。未激活 webview 以 visibility:hidden 常驻
+    // （PaneView 渲染模型），后台页签挂载即开始加载，点开即所见
+    const background = !!opts?.background
     let root: PaneNode
     if (existing && existing.leaf.id === target) {
       // 同 pane 原位重开：保持页签序（remove+append 会把它顶到末尾），只做叶子内 radio 激活。
       // 插槽：单例（dshWeb）重开即复位钉尾（既有语义，契约测试锁定）；多开种类（doc/web）
       // 保留现值 —— 用户拖出来的位置不该被一次「重新打开同一文件/链接」无声抹掉。
       // 引用身份保持：active/slot 没变的 ref 原样返回（渲染层 React.memo 的跳过依据）
-      root = editLeaf(st.layout.root, target, leaf => ({
+      // background 时跳过激活改写（保持既有 active/slot 原样，仅刷新 payload）
+      root = background ? st.layout.root : editLeaf(st.layout.root, target, leaf => ({
         ...leaf,
         overlays: leaf.overlays.map(r => {
           if (r.id === id) {
@@ -765,13 +779,17 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
       root = removeRefFromTree(st.layout.root, id)
       root = editLeaf(root, target, leaf => ({
         ...leaf,
-        overlays: [...leaf.overlays.map(r => r.active ? { ...r, active: false } : r), { id, kind: payload.kind, active: true, slot: null }]
+        overlays: background
+          // 后台：纯追加，同伴激活态原样不动（radio 掉活动页签就是把焦点交出去）
+          ? [...leaf.overlays, { id, kind: payload.kind, active: false, slot: null }]
+          : [...leaf.overlays.map(r => r.active ? { ...r, active: false } : r), { id, kind: payload.kind, active: true, slot: null }]
       }))
       root = removeEmptyPanes(root)
     }
     set({
       overlayPayloads: { ...st.overlayPayloads, [id]: payload },
-      layout: { root, activePaneId: target }
+      // background 不动 activePaneId：分屏高亮环 / 状态栏判定都跟着它走
+      layout: { root, activePaneId: background ? st.layout.activePaneId : target }
     })
     return id
   },
@@ -1032,14 +1050,36 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
   },
 
   // ===== 网页页签（多开，插件面板 URL 栏 / 终端 Ctrl+点击 URL 入口） =====
-  openWebTab: (rawUrl, paneId) => {
+  openWebTab: (rawUrl, paneId, opts) => {
     const url = normalizeWebBarUrl(rawUrl)
     if (!url) return { ok: false, error: 'invalid URL' }
     // 历史不在这里记 —— 等 WebTabOverlay 的 did-finish-load 再记（recordWebTabVisit），
     // 打开但加载失败的 URL 不进「最近访问」。
-    // paneId：终端 Ctrl+点击的落点（点击终端所在 pane）；未指定回落活动 pane（URL 栏语义）
-    const id = get().mountOverlay(paneId, { kind: 'web', url, title: new URL(url).hostname })
+    // paneId：终端 Ctrl+点击的落点（点击终端所在 pane）；未指定回落活动 pane（URL 栏语义）。
+    // opts.background：弹窗修饰键转发 —— 后台页签，见 mountOverlay 的 background 注
+    const id = get().mountOverlay(paneId, {
+      kind: 'web', url, title: new URL(url).hostname,
+      ...(opts?.postToken ? { postToken: opts.postToken } : {})
+    }, opts?.background ? { background: true } : undefined)
     return id ? { ok: true } : { ok: false, error: 'no pane available' }
+  },
+  settleWebTabPost: (id, landedUrl) => {
+    set(st => {
+      const payload = st.overlayPayloads[id]
+      // 令牌不在即无事可做：重复 settle（did-navigate 与认领失败两条路都可能调）
+      // 自然 no-op，调用侧无需一次性标记；return st（原引用）让 zustand 跳过
+      // 整树复制与订阅者广播（setWebTabNav 注同款）
+      if (payload?.kind !== 'web' || !payload.postToken) return st
+      // 落点走 normalizeWebBarUrl 同口径校验：did-navigate 的 url 经主进程导航闸
+      // 已限 http/https，这里再挡一道畸形值 —— 非 http/https 落点只摘令牌不改 url
+      const landed = landedUrl ? normalizeWebBarUrl(landedUrl) : undefined
+      return {
+        overlayPayloads: {
+          ...st.overlayPayloads,
+          [id]: { ...payload, postToken: undefined, ...(landed ? { url: landed } : {}) }
+        }
+      }
+    })
   },
   setWebTabTitle: (id, title) => {
     if (!title) return

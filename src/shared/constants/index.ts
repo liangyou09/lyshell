@@ -48,8 +48,14 @@ export const IPC_CHANNELS = {
 
   // 网页页签弹窗跳转（main → renderer 单向推送：webview 内 target=_blank /
   // window.open 的开窗请求在主进程一律 deny，http/https 地址经此通道转发渲染层
-  // 开完整网页页签 —— Chrome「在新标签页打开」同语义，弹窗按钮不再点了没反应）
+  // 开完整网页页签，payload = { url, background, postToken? } —— background 为修饰键语义
+  // （中键/Ctrl+点击），页签挂后台不激活）。仅完整页签全部 + 小窗的 JS 弹窗与
+  // 未知来源（new-window/other）走此通道；小窗普通点击（foreground-tab/default）
+  // 由主进程原地跳转（loadURL 到小窗自己），不在此转发（见 main/index.ts
+  // setWindowOpenHandler）
   WEB_TAB_POPUP: 'web-tab:popup',
+  // POST 页签先挂 about:blank；dom-ready 后用 token + guest id 在主进程认领正文。
+  WEB_TAB_POST_LOAD: 'web-tab:post-load',
 
   // 写轮眼小窗登记（renderer → main：小窗 dom-ready 后自报 webContentsId。小窗与
   // 完整页签共用 webbar partition 共享登录态后，主进程快捷键转发无法凭 session

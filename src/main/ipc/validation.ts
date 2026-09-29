@@ -30,6 +30,14 @@ export class ValidationError extends Error {
   }
 }
 
+/** POST 页签认领只收主进程发放的 UUID token 和有效 guest id。 */
+export function validateWebTabPostLoadRequest(token: unknown, webContentsId: unknown):
+  { token: string; webContentsId: number } | null {
+  if (typeof token !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(token)) return null
+  if (typeof webContentsId !== 'number' || !Number.isSafeInteger(webContentsId) || webContentsId < 1) return null
+  return { token, webContentsId }
+}
+
 /**
  * sanitizeSessionEncoding 已上移 @shared/encoding —— 收口消费者是 repository
  * （load/saveSession），IPC 入口与它共用同一实现，此处不再自带真相源。

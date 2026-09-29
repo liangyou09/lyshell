@@ -102,10 +102,18 @@ export function McpActivityRailSlot(): JSX.Element {
       className={cn(
         // 轨底工具槽(组内上位):mt-auto 把 MCP + 设置整组推到轨底;
         // border-t 与内容页签分笼,border-b 与下方设置槽做卡笼 hairline 分隔。
+        // 单 hairline 在条带上读不出(rule-soft 与 bg-slot 几乎同亮度),上下再
+        // 各衬一道 inset bg-base 凹线成槽(ActivityRail 内容页签的槽底凹线同款,
+        // 见该文件 inset_0_-1px 注):上缘隔着空条带、下缘对着设置槽,补齐后
+        // MCP 槽的最上面与 MCP/设置之间各有一条上面图标之间的横条(用户校准)。
+        // 上缘凹线开口朝下读作本槽的笼顶缺口,与上组槽底凹线(开口朝上)互为镜像
+        // —— 同一物理:凹槽贴着自己所属卡格的内缘。悬停 bg-elev 抬升时凹线仍在,
+        // 槽读作抬出笼格;与 focus ring 的 box-shadow 由 Tailwind 变量链合成,不互斥。
         // 激活不画融合窗(pane 覆盖层开关,无框体可连片,见 docstring),点亮图标即态;
         // 非激活透明坐在 bg-slot 条带上,悬停抬一档到 elev
         'relative h-[40px] flex items-center justify-center transition-colors group mt-auto',
         'border-t border-b border-[var(--rule-soft)]',
+        'shadow-[inset_0_1px_0_var(--bg-base),inset_0_-1px_0_var(--bg-base)]',
         !active && 'hover:bg-[var(--bg-elev)]',
         'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--amber)]'
       )}
@@ -116,8 +124,9 @@ export function McpActivityRailSlot(): JSX.Element {
           'relative transition-[color,transform] duration-200 ease-out group-hover:scale-110',
           active
             ? 'text-[var(--amber)] animate-rail-icon-glow'
-            // 静息 mute / 悬停 data:与 ActivityRail 页签槽同读数亮度档(dim 仅 ~2:1,暗得糊进条带)
-            : 'text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack-data)]'
+            // 静息 tab-idle / 悬停 rack:与 ActivityRail 页签槽同读数亮度档
+            // (轨上未选中图标统一档,用户校准从 mute 提亮,见该文件 docstring)
+            : 'text-[var(--text-tab-idle)] group-hover:text-[var(--text-rack)]'
         )}
       >
         <IconMcpActivity />

@@ -15,8 +15,10 @@ import { TOPBAR_HEIGHT } from './topbar-metrics'
  * 无缝,读作浏览器激活页签与页面连成一片。窗口材质 = 面板"卡片区域外"的框体
  * 底:激活槽读作管理框本体的一部分,与面板里的卡片(bg-rack 底 + 文字行)是
  * 两个物种。选中显著性 = 条带/窗口对比 + amber 左边条 + amber 图标;未选中
- * 图标静息 mute(第一行的读数亮度,与面板头条文字/轨顶收起控位同档,条带上
- * ≥3:1;dim 仅 ~2:1,暗得糊进条带读作暗影)、悬停提亮一档到 data;槽间用
+ * 图标静息 --text-tab-idle(页签静息字同款混档:暗主题 ≈#BFC5CA,条带上
+ * ~9:1;首版走 mute(~3:1)用户校准嫌暗,全列未选中图标统一提到该档,
+ * 与页签静息字/右上控制簇同一「未选中 chrome」亮度;dim 仅 ~2:1,暗得糊进
+ * 条带读作暗影)、悬停提亮一档到 rack;槽间用
  * inset 凹陷阴影做卡笼分隔。
  * 这是本组件的 signature -- 导航读作机柜页签条,而非通用图标条。
  *
@@ -223,9 +225,9 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
           页签条连成一条),不是收起槽与内容页签的槽位分隔;第一行内部(右侧)不画竖线,
           整行读作无分割的一条横带;下方内容页签取 40 行高 -- 第一行 36 是跨窗
           对齐的 chrome 行高,内容槽给 24px 图标留呼吸(44 过疏 / 36 过挤的折中)。
-          ghost 语言与收起态 pill 同源:静息线走 mute(与面板头条文字同档,
-          第一行的读数亮度),悬停 bg-rack 托起(轨槽的一步抬升,对应 pill 的
-          bg-elev)+ chevron 提亮到 data */}
+          ghost 语言与收起态 pill 同源:静息线走 --text-tab-idle(轨上未选中
+          图标的统一档,见组件 docstring),悬停 bg-rack 托起(轨槽的一步抬升,
+          对应 pill 的 bg-elev)+ chevron 提亮到 rack */}
       <button
         type="button"
         onClick={onCollapse}
@@ -239,7 +241,7 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
           'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--amber)]'
         )}
       >
-        <span className="text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack-data)] group-focus-visible:text-[var(--text-rack-data)] transition-colors">
+        <span className="text-[var(--text-tab-idle)] group-hover:text-[var(--text-rack)] group-focus-visible:text-[var(--text-rack)] transition-colors">
           <IconCollapseRail />
         </span>
       </button>
@@ -316,10 +318,11 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
                     : tab === 'web'
                       ? 'rail-icon-web-active'
                       : 'text-[var(--amber)] animate-rail-icon-glow'
-                  // 静息 mute(与面板头条文字同档、轨顶收起控位同读数亮度):dim 在
-                  // bg-slot 条带上仅 ~2:1,低亮度低饱和蓝灰糊进蓝黑条带,读作"暗影"
-                  // 而非图标;mute 恢复 ≥3:1 的 UI 图标下限。悬停提亮一档到 data
-                  : 'text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack-data)]'
+                  // 静息 --text-tab-idle(页签静息字同款混档,轨上未选中图标统一:
+                  // 曾走 mute ~3:1,用户校准嫌暗提到该档 —— dim 在 bg-slot 条带
+                  // 上仅 ~2:1,低亮度低饱和蓝灰糊进蓝黑条带,读作"暗影"而非图标)。
+                  // 悬停再提一档到 rack:静息/悬停/激活(amber)三态各自拉开一档
+                  : 'text-[var(--text-tab-idle)] group-hover:text-[var(--text-rack)]'
               )}
             >
               <Icon />
@@ -339,7 +342,9 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
 
       {/* 轨底工具槽组 -- MCP 活动槽(McpActivityRailSlot 自带 mt-auto 整组推底) + 设置槽。
           MCP 槽非页签(切换 pane 覆盖层而非导航),置于设置槽上方;组内两槽间以
-          MCP 槽的 border-b 做 hairline 分隔(卡笼语言)。 */}
+          MCP 槽的 border-b + 槽内 inset bg-base 凹线做卡笼分隔,与上面内容页签的
+          槽间横条同读数(单 hairline 在条带上读不出,McpActivityRailSlot 处有注);
+          MCP 槽上缘同款凹槽把工具槽组与上方空条带分开(用户校准)。 */}
       <McpActivityRailSlot />
 
       {/* settings 工具槽 -- 轨底最末位;无 LED。
@@ -376,8 +381,8 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
             'relative transition-[color,transform] duration-200 ease-out group-hover:scale-110',
             active === 'settings'
               ? 'text-[var(--amber)] animate-rail-icon-glow'
-              // 静息 mute / 悬停 data:同内容页签槽的读数亮度档(见上)
-              : 'text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack-data)]'
+              // 静息 tab-idle / 悬停 rack:同内容页签槽的未选中读数亮度档(见上)
+              : 'text-[var(--text-tab-idle)] group-hover:text-[var(--text-rack)]'
           )}
         >
           <IconSettings />

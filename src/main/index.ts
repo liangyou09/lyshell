@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, shell, screen, session, webContent
 import { join, resolve } from 'path'
 import log from 'electron-log'
 import * as fs from 'fs'
+import { randomUUID } from 'crypto'
 
 // 必须是首个本地 import：dev userData 分离要在任何 getPath('userData') 之前生效，
 // 挪后静默失效。播种本身不在 import 期跑，见下方 seedDevConfigFromProd 调用点
@@ -9,6 +10,7 @@ import { seedDevConfigFromProd } from './dev-user-data'
 
 // 导入模块
 import { registerIPCHandlers } from './ipc/handlers'
+import { validateWebTabPostLoadRequest } from './ipc/validation'
 import { downloadHistory } from './storage'
 import { preferencesRepository } from './storage/repository'
 import { sessionManager } from './terminal/session-manager'
@@ -23,6 +25,7 @@ import { KILL_STEP_TIMEOUT_FLOOR_MS, sweepOrphanDshWeb } from './dsh/proc'
 import { IPC_CHANNELS, WEBBAR_DEEPLINK_SCHEMES, WEBBAR_PARTITION } from '@shared/constants'
 import { matchWebTabShortcut } from '@shared/webtab-shortcut'
 import { decideWebviewFrameNavigation, gateWebviewSubframeNavigation } from './webview-frame-navigation'
+import { PendingWebbarPostStore, webbarPostLoadOptions, webbarPostRawBytesWithinLimit } from './webbar-post'
 
 // 日志配置
 log.transports.file.level = 'info'
@@ -77,6 +80,11 @@ let stopMcpHttpServerImpl: (() => Promise<void>) | undefined
 // 槽位后者覆盖前者；登记 handler 里挂 destroyed 自清，小窗销毁即清空槽位
 // （id 单调不复用，残留死 id 本无功能影响，自清免掉长期运行的陈旧状态）。
 let webbarMiniWebContentsId: number | null = null
+// POST 表单正文只留主进程；渲染层仅持一次性 token，避免把文件路径/表单字段经 IPC 广播。
+const WEBBAR_POST_PENDING_MAX = 16
+const WEBBAR_POST_PENDING_TTL_MS = 30_000
+const WEBBAR_POST_RAW_MAX_BYTES = 8 * 1024 * 1024
+const pendingWebbarPosts = new PendingWebbarPostStore(WEBBAR_POST_PENDING_MAX, WEBBAR_POST_PENDING_TTL_MS)
 // 仅记录确实注册成功的应用内协议；子框架导航一律取消，仅对已接管的
 // bytedance://dispatch_message/ 不重复记警告。注册失败时保留拦截日志。
 const webbarHandledDeepLinkSchemes = new Set<string>()
@@ -306,7 +314,8 @@ function createMainWindow(): void {
   //   - dsh web 面板（默认）：初始 src 与后续导航都只放行 dshWebManager 当前实例的
   //     origin（127.0.0.1:实际端口），弹窗一律 deny —— 杜绝 webview 逃逸到外站或本机其它服务。
   //   - 网页访问栏（persist:webbar，完整页签与写轮眼小窗共用）：src 要求 http/https
-  //     （用户在插件面板输入任意网址）；空 src 放行 —— 小窗首航经渲染层 loadURL 起航
+  //     （用户在插件面板输入任意网址）；about:blank 仅作 POST 页签首航引导页，
+  //     空 src 放行 —— 小窗首航经渲染层 loadURL 起航
   //     （无 src 挂载不产生导航，起航时走 will-navigate 同口径校验），后续导航同策略，
   //     弹窗仍 deny。
   //   注意：persist:webbar 专属通用浏览，后续若新增外部网页拖拽/插件注入等入口，
@@ -317,7 +326,8 @@ function createMainWindow(): void {
     if (params?.partition === WEBBAR_PARTITION) {
       // 网页访问栏（完整页签 + 小窗）：只校验协议（渲染层 normalizeWebBarUrl 已做
       // 同样归一化，这里是服务端兜底）；空 src 例外放行（小窗 loadURL 起航路径）
-      if (src !== '' && !isHttpUrl(src)) {
+      // POST 页签先挂 about:blank，待 dom-ready 后凭一次性 token 在主进程发出原 POST。
+      if (src !== '' && src !== 'about:blank' && !isHttpUrl(src)) {
         log.warn('Blocked webbar webview attach with non-http(s) src:', src)
         event.preventDefault()
         return
@@ -351,16 +361,75 @@ function createMainWindow(): void {
     // 返回同 partition 的 session 单例，webview 挂载的 session 与之身份相等即
     // 网页访问栏。
     const isWebbar = webContents.session === session.fromPartition(WEBBAR_PARTITION)
-    webContents.setWindowOpenHandler(({ url }) => {
+    webContents.setWindowOpenHandler(({ url, disposition, postBody, referrer }) => {
       // webview 一律不开新窗口/弹窗（deny，也不交系统浏览器避免泄 URL）。网页访问栏
-      // （完整页签 + 小窗）的 http/https 开窗请求转发渲染层开完整网页页签（Chrome
-      // 「在新标签页打开」同语义）—— target=_blank / window.open 是现代站点的主流
-      // 跳转形态，纯 deny 时这些按钮表现为点了没反应；dsh web 维持纯 deny（origin
-      // 锁定无浏览语义）。转发地址经渲染层 openWebTab 的 normalizeWebBarUrl 再校验。
+      // （完整页签 + 小窗）的 http/https 开窗请求按 disposition 分流。先摆映射实证
+      // （Electron 28 源码 electron_api_web_contents.cc 的 Converter<WindowOpenDisposition>
+      // 特化，d.ts 联合类型与之对齐；'new-popup' 这个字符串 Electron 不产出 —— Chrome
+      // 日志层的同名值不是本 API 的取值）：
+      //   CURRENT_TAB → 'default'；NEW_FOREGROUND_TAB → 'foreground-tab'；
+      //   NEW_BACKGROUND_TAB → 'background-tab'；NEW_POPUP 与 NEW_WINDOW → 'new-window'；
+      //   UNKNOWN / OFF_THE_RECORD / IGNORE_ACTION 等 → 'other'（兜底）。
+      // 小窗三路：
+      //   - background-tab（中键/Ctrl+点击）：转发渲染层后台开完整页签（payload 带
+      //     background=true 挂载不激活），用户不被拽走；完整页签同请求同语义。
+      //   - foreground-tab 与 default 原地跳转（deny 真窗口后 loadURL 到小窗自己）：
+      //     foreground-tab 是普通点击 target=_blank 的取值；default = CURRENT_TAB，
+      //     Chromium 自己的「当前视图内打开」语义，原地跳即忠实执行。原地跳的后退/
+      //     前进/地址栏跟随/历史栈工具条全部现成，与升格钮（当前页开成完整页签）
+      //     互补。loadURL 是主进程发起的导航，不触发 will-navigate 闸，url 已过
+      //     isHttpUrl 同口径校验，跳转产生历史条目 goBack 可回。已知取舍：无 features
+      //     的 window.open（JS 起的新「标签页」）同样落 foreground-tab，handler details
+      //     没有手势标志分不开 —— 它也原地跳。可接受：跳转可见、goBack 可回，而 deny
+      //     之下它无论转发还是原地都拿不到 opener（见下），原地至少不打断浏览。
+      //   - new-window 与 other 转发渲染层前台开完整页签：new-window 覆盖 NEW_POPUP
+      //     （window.open 带 features 的 OAuth/分享弹窗）—— JS 弹窗期望全新上下文，
+      //     原地 loadURL 会顶掉小窗当前页、流程腰斩；other 是 UNKNOWN / OFF_THE_RECORD
+      //     / IGNORE_ACTION 的兜底，来源不可知，不当普通点击信任 —— 宁可开成可见
+      //     页签，也不无声替换小窗页面。
+      // 完整页签除 background-tab 外一律前台转发（照旧）。
+      // 已知边界 —— opener 链路不可保留：deny + 转发到另一 webContents 后，弹出页与
+      // 原页面既非父子窗口也无 window.opener，靠 window.open 返回值 / opener
+      // postMessage 通信的弹窗式流程（老式 OAuth 弹窗等）在完整页签与小窗里都完不成
+      // —— 这是「不开真弹窗」设计的固有代价（真弹窗方案已被明确否决），此类流程在
+      // 纯 deny 的旧版同样不通。现代 OAuth 走整页重定向（provider 302 回跳 callback），
+      // 经导航闸放行（webbar 只拦非 http/https，见 onNavGate 注），不依赖 opener，
+      // 小窗/页签里都可用。
+      // 转发地址经渲染层 openWebTab 的 normalizeWebBarUrl 再校验；转发闸（同键去重 +
+      // 短窗频控）防「无限开新页签」的资源型刷屏 —— 原地跳不需要闸：页面本就有权
+      // 导航自己（location.href），弹窗原地跳不比这更糟。小窗身份凭
+      // webbarMiniWebContentsId 登记（同快捷键转发的排除机制，见其注释）；登记未到
+      // （竞态窗）按完整页签转发，无害。dsh web 维持纯 deny（origin 锁定无浏览语义）。
       // 非 http/https 开窗直接 deny：此事件没有可靠的用户手势和发起 iframe 信息，
       // 不能按顶层页面 origin 复用外部协议的「记住允许」选择。
       if (isWebbar && isHttpUrl(url)) {
-        mainWindow?.webContents.send(IPC_CHANNELS.WEB_TAB_POPUP, url)
+        const miniInPlace = webContents.id === webbarMiniWebContentsId
+          && (disposition === 'foreground-tab' || disposition === 'default')
+        if (miniInPlace) {
+          const options = postBody ? webbarPostLoadOptions(postBody, referrer) : undefined
+          void webContents.loadURL(url, options).catch(err => {
+            log.warn('Webbar mini in-place navigate failed:', url, err)
+          })
+        } else {
+          const postToken = postBody ? randomUUID() : undefined
+          if (postToken && postBody) {
+            if (!webbarPostRawBytesWithinLimit(postBody, WEBBAR_POST_RAW_MAX_BYTES)) {
+              log.warn('Blocked webbar POST popup: raw body exceeds 8 MiB')
+              return { action: 'deny' }
+            }
+            // guest 可连续提交表单；渲染层弹窗闸尚未来得及裁决前先限制主进程保留量。
+            // 未认领令牌由 store 在 30 秒到期时主动释放，不依赖下一次弹窗。
+            if (!pendingWebbarPosts.enqueue(postToken, { url, body: postBody, referrer })) {
+              log.warn('Blocked webbar POST popup: pending request limit reached')
+              return { action: 'deny' }
+            }
+          }
+          mainWindow?.webContents.send(IPC_CHANNELS.WEB_TAB_POPUP, {
+            url,
+            background: disposition === 'background-tab',
+            postToken
+          })
+        }
       } else {
         log.warn('Blocked webview window.open:', url)
       }
@@ -407,7 +476,7 @@ function createMainWindow(): void {
         if (isWebbar) {
           // 网页访问栏（完整页签 + 写轮眼小窗）：仅拦非 http/https（file://、chrome://、
           // 外部协议深链等 —— 未注册 scheme 触达 OS 即弹系统对话框）
-          if (target.protocol === 'http:' || target.protocol === 'https:') return
+          if (target.protocol === 'http:' || target.protocol === 'https:' || url === 'about:blank') return
           event.preventDefault()
           // 拦下后走 Edge 式确认交付：无 handler 静默、有 handler 确认后交付。直接导航
           // （锚点/JS 赋值）经此闸；重定向落点只走 will-redirect 也进此闸 —— 两条路共用
@@ -435,6 +504,7 @@ function createMainWindow(): void {
     // 主框架重定向落点走 onNavGate，两路共用同一缓存与在途防重入）；子框架的
     // 直航与重定向共用同一闸，外部协议均取消导航，仅静音已接管的抖音心跳深链。
     webContents.on('will-frame-navigate', (e) => {
+      if (isWebbar && e.isMainFrame && e.url === 'about:blank') return
       if (gateWebviewSubframeNavigation(e, isWebbar, webbarHandledDeepLinkSchemes,
         blockedUrl => log.warn('Blocked webview frame navigation:', blockedUrl))) return
       const decision = decideWebviewFrameNavigation(e.url, e.isMainFrame, isWebbar, webbarHandledDeepLinkSchemes)
@@ -590,6 +660,24 @@ app.whenReady().then(async () => {
     webContents.fromId(webContentsId)?.once('destroyed', () => {
       if (webbarMiniWebContentsId === webContentsId) webbarMiniWebContentsId = null
     })
+    return { success: true }
+  })
+
+  // 新页签的 POST 首航：正文始终在主进程，仅接收宿主渲染层交回的一次性 token。
+  // webview 必须处于 about:blank 引导页且属于 webbar partition，避免重放或把表单
+  // 数据送到其它 guest。令牌取出即销毁，加载失败也不重试 POST —— 重放已提交的
+  // 请求有二次提交风险（付款/创建类动作重复执行），已明确否决；网页页签挂常驻层
+  // （WebTabLayer）不随拖动重挂，正常流程不存在需要重放的场景。
+  ipcMain.handle(IPC_CHANNELS.WEB_TAB_POST_LOAD, (event, token: unknown, webContentsId: unknown) => {
+    const request = validateWebTabPostLoadRequest(token, webContentsId)
+    if (event.sender !== mainWindow?.webContents || !request) return { success: false }
+    const target = webContents.fromId(request.webContentsId)
+    if (!target || target.session !== session.fromPartition(WEBBAR_PARTITION) ||
+        target.id === webbarMiniWebContentsId || target.getURL() !== 'about:blank') return { success: false }
+    const pending = pendingWebbarPosts.take(request.token)
+    if (!pending) return { success: false }
+    void target.loadURL(pending.url, webbarPostLoadOptions(pending.body, pending.referrer))
+      .catch(err => log.warn('Webbar POST tab navigation failed:', pending.url, err))
     return { success: true }
   })
 

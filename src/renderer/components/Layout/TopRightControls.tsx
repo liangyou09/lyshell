@@ -16,6 +16,8 @@ export interface TopRightControlsProps {
 /**
  * 窗口第一行右侧控制簇 -- 原自定义标题栏右侧按钮组的整块搬迁
  * (浮窗按钮 │ hairline │ ─ □ ✕),样式零改动。
+ * 字面静息档后从 mute 提到 --text-tab-idle(与同行的页签静息字同档):四键
+ * 是第一行常驻 chrome,mute 面读着发虚;悬停档不变(rack,关闭 white)。
  * (MCP 活动状态片曾在此,现移至左侧 ActivityRail 轨底设置槽上方 -- McpActivityRailSlot)
  *
  * 页签条提顶后本簇悬浮在第一行最右上 pane 的页签条上方(absolute,带 bg-rack 底色
@@ -71,9 +73,9 @@ const TopRightControls: React.FC<TopRightControlsProps> = ({
         >
           <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
             <rect x="1" y="2.5" width="9" height="7" stroke="currentColor" strokeWidth="1.3"
-              className={cn(floatVisible ? 'text-[var(--amber)]' : 'text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)]', 'transition-colors')} />
+              className={cn(floatVisible ? 'text-[var(--amber)]' : 'text-[var(--text-tab-idle)] group-hover:text-[var(--text-rack)]', 'transition-colors')} />
             <rect x="5.5" y="6" width="7.5" height="6" fill="currentColor"
-              className={cn(floatVisible ? 'text-[var(--amber)]' : 'text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)]', 'transition-colors')} />
+              className={cn(floatVisible ? 'text-[var(--amber)]' : 'text-[var(--text-tab-idle)] group-hover:text-[var(--text-rack)]', 'transition-colors')} />
           </svg>
         </div>
       </div>
@@ -89,7 +91,7 @@ const TopRightControls: React.FC<TopRightControlsProps> = ({
           className="w-[24px] h-[24px] bg-[var(--bg-slot)] flex items-center justify-center rounded-[2px] hover:bg-[var(--bg-elev)] transition-colors cursor-pointer group"
           title={t('settings.minimize')}
         >
-          <span className="text-[var(--text-rack-mute)] text-base leading-none group-hover:text-[var(--text-rack)] transition-colors">─</span>
+          <span className="text-[var(--text-tab-idle)] text-base leading-none group-hover:text-[var(--text-rack)] transition-colors">─</span>
         </div>
         {/* 放大 */}
         <div
@@ -99,13 +101,13 @@ const TopRightControls: React.FC<TopRightControlsProps> = ({
         >
           {isMaximized ? (
             <svg width="14" height="14" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="3" y="7" width="8" height="8" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)] transition-colors"/>
-              <path d="M7 3H15V11" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)] transition-colors"/>
-              <path d="M5 11V5H11" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)] transition-colors"/>
+              <rect x="3" y="7" width="8" height="8" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-[var(--text-tab-idle)] group-hover:text-[var(--text-rack)] transition-colors"/>
+              <path d="M7 3H15V11" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-[var(--text-tab-idle)] group-hover:text-[var(--text-rack)] transition-colors"/>
+              <path d="M5 11V5H11" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-[var(--text-tab-idle)] group-hover:text-[var(--text-rack)] transition-colors"/>
             </svg>
           ) : (
             <svg width="14" height="14" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="3" y="3" width="12" height="12" stroke="currentColor" strokeWidth="2" fill="none" className="text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)] transition-colors"/>
+              <rect x="3" y="3" width="12" height="12" stroke="currentColor" strokeWidth="2" fill="none" className="text-[var(--text-tab-idle)] group-hover:text-[var(--text-rack)] transition-colors"/>
             </svg>
           )}
         </div>
@@ -115,7 +117,7 @@ const TopRightControls: React.FC<TopRightControlsProps> = ({
           className="w-[24px] h-[24px] bg-[var(--bg-slot)] flex items-center justify-center rounded-[2px] hover:bg-[var(--error-rack)] transition-colors cursor-pointer group"
           title={t('settings.close')}
         >
-          <span className="text-[var(--text-rack-mute)] text-base leading-none group-hover:text-white transition-colors">✕</span>
+          <span className="text-[var(--text-tab-idle)] text-base leading-none group-hover:text-white transition-colors">✕</span>
         </div>
       </div>
     </div>
