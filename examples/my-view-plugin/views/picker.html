@@ -1,0 +1,25 @@
+<!doctype html>
+<!-- my-view-plugin / picker 视图：被 openDialog 挂为弹窗的视图（同插件）。
+     bootstrap().kind === 'dialog'，dialogId 用于关联 dialogResult/dialogCancelled 事件；
+     关闭自己用 closeDialog(result)，结果只回给发起弹窗的那个 guest。 -->
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Session Picker</title>
+  <style>
+    /* 主题适配：bootstrap().theme / themeChanged 事件驱动（JS 里给 <html> 打 data-theme） */
+    :root { color-scheme: dark; --pg-bg: #17171b; --pg-fg: #d9d9de; --pg-mute: #8a8a94; --pg-line: #34343c; --pg-btn: #232329; }
+    :root[data-theme="light"] { color-scheme: light; --pg-bg: #f6f5f2; --pg-fg: #24242a; --pg-mute: #6f6f78; --pg-line: #d8d6d0; --pg-btn: #ebebe7; }
+    body { font: 13px/1.6 system-ui, sans-serif; margin: 0; padding: 12px; background: var(--pg-bg); color: var(--pg-fg); }
+    button { display: block; width: 100%; margin: 0 0 6px; padding: 5px 10px; text-align: left; background: var(--pg-btn); color: var(--pg-fg); border: 1px solid var(--pg-line); border-radius: 2px; cursor: pointer; }
+    #cancel { width: auto; }
+    #info { opacity: .6; font-size: 12px; margin-bottom: 8px; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <div id="info">loading…</div>
+  <div id="list">–</div>
+  <button id="cancel" type="button">Cancel（closeDialog(null)）</button>
+  <script src="picker.js"></script>
+</body>
+</html>

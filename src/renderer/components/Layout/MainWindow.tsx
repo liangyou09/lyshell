@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import SessionsPanel from './SessionsPanel'
-import ActivityRail, { type NavTab, RAIL_WIDTH } from './ActivityRail'
+import ActivityRail, { type NavTab, RAIL_WIDTH, isFixedNavTab } from './ActivityRail'
 import AgentsPanel from './AgentsPanel'
 import SplitPaneContainer, { isTextEditingTarget } from './SplitPaneContainer'
 import FloatWindow from '../FloatWindow/FloatWindow'
@@ -12,6 +12,8 @@ import { TOPBAR_HEIGHT, TOP_LEFT_RESERVE, SIDEBAR_DIVIDER_WIDTH, SIDEBAR_PILL_HE
 import { startAllHarnessDetects } from './harness-detect'
 import PluginPanel from './PluginPanel'
 import WebPanel from './WebPanel'
+import PluginViewPanel from './PluginViewPanel'
+import PluginViewDialog, { type PluginViewDialogSpec } from './PluginViewDialog'
 import HarnessPanel from './HarnessPanel'
 import EnvProfilePanel from './EnvProfilePanel'
 import SettingsPanel from './SettingsPanel'
@@ -21,12 +23,14 @@ import { useThemeStore } from '../../stores/theme-store'
 import { useLocaleStore } from '../../stores/locale-store'
 import { useQuickCommandsStore } from '../../stores/quick-commands-store'
 import { useUiStore } from '../../stores/ui-store'
+import { usePluginStore } from '../../stores/plugin-store'
 import { NAV_EVENT } from '../../commands/command-registry'
 import { PALETTE_EVENT, dispatchPaletteClosed } from '../../commands/palette'
 import { connectSession } from '../../commands/launch'
 import { dispatchCommand } from '../../utils/dispatch-command'
 import { openLocalDoc } from '../DocPanel/readDoc'
 import { isDocPath } from '@shared/types'
+import { isPluginViewKey, parsePluginViewKey, makePluginViewKey } from '@shared/plugin-types'
 import type { SessionConfig, QuickCommand } from '@shared/types'
 import { matchWebTabShortcut, isWebTabShortcutAction, type WebTabShortcutAction } from '@shared/webtab-shortcut'
 import {
@@ -52,13 +56,13 @@ const MainWindow: React.FC = () => {
     try { return localStorage.getItem(COLLAPSED_STORAGE_KEY) === '1' } catch { return false }
   })
   const [collapsedLoaded, setCollapsedLoaded] = useState(false) // config 对账回来前禁用宽度动画(纠正路径不播 150ms 滑动)
-  // 左列机柜页签轨当前页签 -- 持久化到 localStorage
+  // 左列机柜页签轨当前页签 -- 持久化到 localStorage。固定页签走白名单;插件视图的
+  // 复合键(plugins:${pluginId}:${viewId})先照单恢复,对应视图已注销/禁用/卸载时
+  // 由下方插件列表装载 effect 回退 sessions 并修正本地存储
   const [activeNav, setActiveNav] = useState<NavTab>(() => {
     try {
       const saved = localStorage.getItem('lyshell.navTab.v1')
-      if (saved === 'sessions' || saved === 'agents' || saved === 'dsh' || saved === 'codex' || saved === 'claude' || saved === 'env' || saved === 'plugins' || saved === 'web' || saved === 'settings') {
-        return saved
-      }
+      if (saved && (isFixedNavTab(saved) || isPluginViewKey(saved))) return saved
     } catch { /* localStorage 不可用,回退默认 */ }
     return 'sessions'
   })
@@ -105,6 +109,133 @@ const MainWindow: React.FC = () => {
   const handleNavChange = useCallback((tab: NavTab) => {
     setActiveNav(tab)
     try { localStorage.setItem('lyshell.navTab.v1', tab) } catch { /* quota */ }
+  }, [])
+
+  // ====================== 插件界面视图（机柜轨贡献点，docs/plugin-ui-views-plan.md §五） ======================
+  // 列表在启动时由本组件拉取 —— 原先只有 PluginPanel 首次挂载才 load,轨道槽位不能
+  // 依赖用户先开过插件管理页。PLUGIN_VIEWS_CHANGED 负载为空,收到即重拉完整快照。
+  const pluginItems = usePluginStore((s) => s.items)
+  // 首次 load 完成前 items 只是「还没拿到快照」,不是「无视图」的证据:恢复校验/
+  // 保活摘除在 loaded 前不得判空,否则重启后保存的插件页签会在异步列表加载完成前
+  // 被改回 sessions(保活集同理被清)。失败也算已取(空快照 = 回退 sessions)。
+  const pluginViewsLoaded = usePluginStore((s) => s.loaded)
+  // 已启用插件才会带 views（禁用的 views 恒为空数组,plugin:list 同源保证）
+  const pluginViews = React.useMemo(() => pluginItems.flatMap((p) => p.views), [pluginItems])
+
+  // 保活集：首次激活过的复合键。切走仅 CSS 隐藏;注销/禁用/卸载的键由下方列表
+  // 同步 effect 摘除（面板卸载 → webview 销毁 → main 的 guest 清理链）
+  const [alivePluginViews, setAlivePluginViews] = useState<Set<string>>(() => new Set())
+  useEffect(() => {
+    if (isPluginViewKey(activeNav)) {
+      setAlivePluginViews((prev) => (prev.has(activeNav) ? prev : new Set(prev).add(activeNav)))
+    }
+  }, [activeNav])
+
+  // 恢复与摘除,都对着最新插件列表做:
+  //  - 保存的复合键对应视图不存在时回退 sessions(handleNavChange 顺带修正本地存储)
+  //  - 保活集中失效的键同步摘除,面板卸载,guest 销毁走 main 清理链
+  // 两者在 loaded 前都不判:启动期列表未到,空快照不能当「视图已注销」
+  useEffect(() => {
+    if (!pluginViewsLoaded) return
+    if (!isPluginViewKey(activeNav)) return
+    const parsed = parsePluginViewKey(activeNav)
+    if (parsed && pluginViews.some((v) => v.pluginId === parsed.pluginId && v.id === parsed.viewId)) return
+    handleNavChange('sessions')
+  }, [activeNav, pluginViews, pluginViewsLoaded, handleNavChange])
+  useEffect(() => {
+    if (!pluginViewsLoaded) return
+    setAlivePluginViews((prev) => {
+      let changed = false
+      const next = new Set(prev)
+      for (const key of prev) {
+        const parsed = parsePluginViewKey(key)
+        if (!parsed || !pluginViews.some((v) => v.pluginId === parsed.pluginId && v.id === parsed.viewId)) {
+          next.delete(key)
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [pluginViews, pluginViewsLoaded])
+
+  // openDialog 动作的挂起弹窗:main 授权 + 签发一次性 dialogId 后才到达这里,
+  // 挂载/卸载即弹窗生死(不保活);dialogId 是卸载键,同 id 请求幂等
+  const [pluginDialogs, setPluginDialogs] = useState<PluginViewDialogSpec[]>([])
+  const closePluginDialog = useCallback((dialogId: string) => {
+    setPluginDialogs((prev) => prev.filter((d) => d.dialogId !== dialogId))
+  }, [])
+
+  // 插件视图 UI 动作分发(单一订阅器,plan §五):guest 动作经 main 授权后转交本
+  // 窗口执行,按实际结果回执(requestId 对账,main 只接受目标窗口的首次回执)。
+  // 本组件是唯一落点,不存在多订阅器重复执行;params 已由 main 清洗,这里只按
+  // 动作落点取字段。卸载解除订阅。
+  useEffect(() => {
+    const api = window.electronAPI
+    if (!api?.onPluginViewActionRequest) return
+    return api.onPluginViewActionRequest((request) => {
+      // 回执失败静默:main 对过期/重复回执本就忽略,发送边界(窗口卸载)不值得告警
+      const reply = (ok: boolean, error?: string): void => {
+        try { api.sendPluginViewActionResult({ requestId: request.requestId, ok, error }) } catch { /* 忽略 */ }
+      }
+      void (async () => {
+        const params = request.params ?? {}
+        switch (request.action) {
+          case 'openWebTab': {
+            const r = usePaneStore.getState().openWebTab(typeof params.url === 'string' ? params.url : '')
+            reply(r.ok, r.ok ? undefined : r.error)
+            break
+          }
+          case 'openTerminal': {
+            // main 注入完整 saved config(含解密凭据,不回传 guest)
+            const config = params.config as SessionConfig | undefined
+            if (!config || typeof config !== 'object') {
+              reply(false, 'missing session config')
+              break
+            }
+            const r = await connectSession(config)
+            reply(r.ok, r.error)
+            break
+          }
+          case 'openDoc': {
+            const r = await openLocalDoc(typeof params.path === 'string' ? params.path : '')
+            reply(r.ok, r.error)
+            break
+          }
+          case 'openDialog': {
+            const dialogId = typeof params.dialogId === 'string' ? params.dialogId : ''
+            const entryUrl = typeof params.entryUrl === 'string' ? params.entryUrl : ''
+            if (!dialogId || !entryUrl) {
+              reply(false, 'missing dialog identity')
+              break
+            }
+            const spec: PluginViewDialogSpec = {
+              pluginId: request.pluginId,
+              viewId: typeof params.viewId === 'string' ? params.viewId : request.viewId,
+              title: typeof params.title === 'string' ? params.title : undefined,
+              width: typeof params.width === 'number' ? params.width : undefined,
+              height: typeof params.height === 'number' ? params.height : undefined,
+              dialogId,
+              entryUrl
+            }
+            setPluginDialogs((prev) => (prev.some((d) => d.dialogId === dialogId) ? prev : [...prev, spec]))
+            reply(true)
+            break
+          }
+          default:
+            reply(false, `unknown action: ${request.action}`)
+        }
+      })()
+    })
+  }, [])
+
+  // 视图列表变化推送（安装/启用/禁用/卸载/运行时注册/注销/宿主异常退出）—— 重拉
+  // 完整快照,并发响应由 plugin-store.load 的序号守卫收口;恢复/摘除 effect 对着
+  // 新列表自动回退与卸载失效面板
+  useEffect(() => {
+    if (!window.electronAPI?.onPluginViewsChanged) return
+    return window.electronAPI.onPluginViewsChanged(() => {
+      void usePluginStore.getState().load()
+    })
   }, [])
 
   // 关闭全局命令面板 —— 置 false 后延迟一拍派发关闭事件(见 palette.ts):
@@ -159,6 +290,11 @@ const MainWindow: React.FC = () => {
   useEffect(() => {
     loadSessions()
   }, [loadSessions])
+
+  // 插件列表启动加载(轨道槽位数据源;PluginPanel 只订阅同一 store,挂载时不重复拉)
+  useEffect(() => {
+    void usePluginStore.getState().load()
+  }, [])
 
   // 全局监听终端数据，设置活动状态（用于标签高亮提示）
   useEffect(() => {
@@ -776,8 +912,14 @@ const MainWindow: React.FC = () => {
       >
         {/* 内层固定宽:动画期间内容不被压缩(squish),只被左缘裁剪 */}
         <div className="flex h-full" style={{ width: leftColumnWidth }}>
-          <ActivityRail active={activeNav} onChange={handleNavChange} liveCount={liveCount} onCollapse={() => setSidebarCollapsed(true)} />
-          <div style={{ width: `${effectiveSidebarWidth}px` }} className="flex-shrink-0 min-w-0 h-full">
+          <ActivityRail
+            active={activeNav}
+            onChange={handleNavChange}
+            liveCount={liveCount}
+            onCollapse={() => setSidebarCollapsed(true)}
+            pluginViews={pluginViews}
+          />
+          <div style={{ width: `${effectiveSidebarWidth}px` }} className="relative flex-shrink-0 min-w-0 h-full">
             {activeNav === 'sessions' && (
               <SessionsPanel
                 onConnect={handleConnect}
@@ -793,6 +935,20 @@ const MainWindow: React.FC = () => {
             {activeNav === 'plugins' && <PluginPanel />}
             {/* Web 面板保活常挂载(见 webPanelAlive 注释),切走时经 visible 隐藏 */}
             {webPanelAlive && <WebPanel visible={activeNav === 'web'} />}
+            {/* 插件视图面板(保活):首次激活后常挂载,absolute 叠放互不挤占,同屏只
+                显示 activeNav 命中的那个;列表摘除时由上方 effect 卸载失效键 */}
+            {pluginViews.map((view) => {
+              const key = makePluginViewKey(view.pluginId, view.id)
+              if (!alivePluginViews.has(key)) return null
+              // 非激活视图连包裹层一起 hidden：绝对定位的透明空盒即便内容 display:none
+              // 也参与命中测试，会盖死整个左列（插件管理/会话等面板点击全被吞）。
+              // display:none 不销毁 DOM，保活语义与内层 visible 的处理一致。
+              return (
+                <div key={key} className={cn('absolute inset-0', activeNav !== key && 'hidden')}>
+                  <PluginViewPanel view={view} visible={activeNav === key} />
+                </div>
+              )
+            })}
             {activeNav === 'settings' && <SettingsPanel />}
           </div>
           {/* 宽度调整条 */}
@@ -941,6 +1097,12 @@ const MainWindow: React.FC = () => {
       </div>
 
       {/* MCP 活动面板以页签形式挂在各分屏 PaneView 内，由布局树里的 mcpAudit 覆盖层引用驱动 */}
+
+      {/* 插件视图弹窗（openDialog 动作落点）：模态覆盖全窗口,不保活,关闭即卸载;
+          onClose 走 main 的 dialogCancelled 链路通知发起 guest(见 PluginViewDialog) */}
+      {pluginDialogs.map((d) => (
+        <PluginViewDialog key={d.dialogId} spec={d} onClose={() => closePluginDialog(d.dialogId)} />
+      ))}
     </div>
   )
 }

@@ -1,0 +1,23 @@
+{
+  "id": "my-view-plugin",
+  "name": "My View Plugin (demo)",
+  "version": "0.1.0",
+  "engines": { "lyshell": "^1.0" },
+  "runtime": "node",
+  "capabilities": ["read", "uiControl"],
+  "contributes": {
+    "views": [
+      {
+        "id": "status",
+        "title": "My Status",
+        "icon": "icon.svg",
+        "entry": "views/status.html"
+      },
+      {
+        "id": "picker",
+        "title": "Session Picker",
+        "entry": "views/picker.html"
+      }
+    ]
+  }
+}

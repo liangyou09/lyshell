@@ -27,6 +27,12 @@ export type McpCapability =
   | 'fileWrite'
   | 'sessionControl'
   | 'sessionMetadataWrite'
+  /**
+   * 插件界面视图专用能力：控制视图/UI 动作（openTerminal/openWebTab/openDoc/openDialog 与
+   * 运行时视图注册）。不作为 MCP 工具暴露（无对应 API_ROUTES 条目），仅参与
+   * manifest capability 白名单校验与安装批准。
+   */
+  | 'uiControl'
 
 export type HttpMethod = 'GET' | 'POST'
 

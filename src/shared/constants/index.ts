@@ -57,7 +57,50 @@ export const IPC_CHANNELS = {
   WEBBAR_REGISTER_MINI: 'webbar:register-mini',
 
   // 窗口
-  WINDOW_GET_BOUNDS: 'window:get-bounds'
+  WINDOW_GET_BOUNDS: 'window:get-bounds',
+
+  // ====================== 插件界面视图（机柜轨贡献点，见 docs/plugin-ui-views-plan.md） ======================
+  // main → renderer 单向推送：视图列表变化（安装/启用/禁用/卸载/运行时注册/注销/
+  // 宿主异常退出）。负载只有"该重拉了"，renderer 收到后调 plugin:list 取完整快照，
+  // 不携带数据本体 —— 避免双份事实来源。
+  PLUGIN_VIEWS_CHANGED: 'plugin:views-changed',
+
+  // renderer → main：取视图图标（参数仅 pluginId/viewId，不允许传任意路径；main
+  // 在已注册定义中查出 icon 并净化后返回 data URL 供 ActivityRail maskImage 使用）。
+  PLUGIN_VIEW_ICON: 'plugin:view-icon',
+
+  // guest（插件视图页）→ main：引导握手。pluginId/viewId/kind 由 main 已登记的
+  // guest 身份派生（按 event.sender 核对），不接收页面自报身份。
+  PLUGIN_VIEW_BOOTSTRAP: 'plugin:view-bootstrap',
+
+  // guest → main：视图页面调用 API 工具（仅 API_ROUTES 中 http transport 的工具），
+  // main 携该插件 UI token 回环 HTTP，HTTP 端负责最终鉴权与审计。
+  PLUGIN_VIEW_CALL_API: 'plugin:view-call-api',
+
+  // guest → main：UI 动作（openTerminal/openWebTab/openDoc/openDialog/closeDialog）。
+  // main 校验 uiControl/sessionControl/read 等授权后转成对主 renderer 的动作请求。
+  PLUGIN_VIEW_ACTION_INVOKE: 'plugin:view-action-invoke',
+
+  // main → renderer（仅主窗口）：把已授权的 UI 动作转交 renderer 执行
+  // （connectSession / usePaneStore.openWebTab / openLocalDoc / 挂载弹窗）。
+  PLUGIN_VIEW_ACTION_REQUEST: 'plugin:view-action-request',
+
+  // renderer → main：动作回执（requestId + 实际成功/失败）。main 只接受目标窗口
+  // 对仍待处理 requestId 的首次回执。
+  PLUGIN_VIEW_ACTION_RESULT: 'plugin:view-action-result',
+
+  // guest（弹窗页）→ main：弹窗完成并带回结果（仅 dialog guest 可调；结果限制为
+  // 定长可序列化 JSON），main 转发给发起 guest 后销毁弹窗。
+  PLUGIN_VIEW_DIALOG_CLOSE: 'plugin:view-dialog-close',
+
+  // main → guest 单向推送：dialogResult / dialogCancelled / themeChanged 等视图事件
+  // （preload 的 onEvent 订阅）。
+  PLUGIN_VIEW_EVENT: 'plugin:view-event',
+
+  // renderer → main 单向通知：当前界面明暗模式（dark/light）。主题只存 renderer
+  // localStorage，main 不读 —— 插件视图页面的 bootstrap().theme 与 themeChanged
+  // 事件以 main 持有的这份快照为准（fire-and-forget，晚到的旧值由下一次覆盖）。
+  UI_THEME_MODE: 'ui:theme-mode'
 }
 
 /**

@@ -294,6 +294,13 @@ function applyTheme(id: string, customColors: CustomThemeColors) {
     ? isLightColor(customColors.base)
     : !!AVAILABLE_THEMES.find(t => t.id === valid)?.isLight
   document.documentElement.dataset.themeMode = isLight ? 'light' : 'dark'
+  // 推给 main 一份明暗快照：插件视图页面（sandbox guest）够不着主窗口 DOM，
+  // bootstrap().theme / themeChanged 事件以 main 持有的这份为准（fire-and-forget）
+  try {
+    window.electronAPI?.setThemeMode?.(isLight ? 'light' : 'dark')
+  } catch {
+    // preload 桥不可用（单测环境等）就算了
+  }
   if (valid === CUSTOM_THEME_ID) {
     applyCustomColors(customColors)
   } else {

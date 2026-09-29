@@ -53,7 +53,7 @@ const base: InventoryData = {
     id: 'demo', version: '1.0.0', path: 'demo', dev: true, enabled: true,
     grantedCapabilities: [], installedAt: '2026-01-01', source: 'dev',
     name: 'Demo Plugin', runtime: 'node', lifecycle: 'persistent', activationEvents: [],
-    capabilities: []
+    capabilities: [], views: []
   }],
   dshWorkspaces: [{ id: 'w1', name: 'lyshell', cwd: 'D:\\repo', order: 1, isolation: 'worktree' }],
   codexWorkspaces: [],
@@ -202,7 +202,7 @@ describe('buildInventoryMarkdown', () => {
         id: 'p2', version: '2.0.0', path: 'p2', dev: false, enabled: false,
         grantedCapabilities: [], installedAt: '2026-01-01', source: 'url',
         name: 'a|b\nc', runtime: 'python', lifecycle: 'oneshot', activationEvents: [],
-        capabilities: []
+        capabilities: [], views: []
       }]
     })
     expect(md).toContain('## Plugins · 2')

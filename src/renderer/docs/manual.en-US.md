@@ -219,6 +219,61 @@ LyShell.wait_for("prompt$")
 
 Scripts can read `LYSHELL_SESSION_ID`, `LYSHELL_SESSION_TYPE`, `LYSHELL_HOST`, `LYSHELL_PORT` from the environment. The interpreter is auto-detected from PATH and configurable in settings. For long-running or scheduled tasks, prefer Node.js plugins.
 
+### Plugin UI views (activity rail)
+
+Plugins can contribute custom views to the left activity rail: each view is a standalone HTML page rendered in a sandboxed webview, slotted after the fixed tabs (max 8 per plugin). Once opened a view stays mounted — switching panels only hides it; views are destroyed immediately when the plugin is disabled / uninstalled / unregistered, and dialogs are destroyed on close.
+
+**Two sources**
+
+| Source | Declared via | Lifetime |
+|--------|-------------|----------|
+| Declarative | `contributes.views` in the manifest | Exists while the plugin is enabled; gone on disable / uninstall |
+| Runtime | Node SDK `api.registerView()` or Python HTTP registration | Alive only while the plugin process runs; cleared on host exit (including abnormal exit) and re-registered by activate / the startup script after restart |
+
+**Manifest fields** (`contributes.views[]`; views with invalid fields or missing files are refused registration and shown as errors in the panel):
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| `id` | Yes | View identifier, unique per plugin (rail nav key `pluginId:viewId`) |
+| `title` | Yes | Slot hover tooltip and panel title |
+| `entry` | Yes | Entry HTML path, must live under the plugin's `views/` directory (e.g. `views/status.html`) |
+| `icon` | No | SVG icon in the plugin root; sanitized by main (scripts / external refs stripped) and inlined as a data URL |
+
+**Runtime registration**: requires a persistent-lifecycle plugin granted `uiControl`. Node persistent plugins call `await api.registerView({ id, title, entry })` inside `activate(api)` and `api.unregisterView(id)` to remove (duplicate IDs throw, never overwrite). Python persistent plugins use HTTP (env-injected `LYSHELL_MCP_PORT` / `LYSHELL_PLUGIN_ID` / `LYSHELL_PLUGIN_TOKEN`):
+
+```text
+POST   http://127.0.0.1:${LYSHELL_MCP_PORT}/api/plugins/${LYSHELL_PLUGIN_ID}/views            register
+DELETE http://127.0.0.1:${LYSHELL_MCP_PORT}/api/plugins/${LYSHELL_PLUGIN_ID}/views/{viewId}   unregister (idempotent)
+Header: x-lyshell-token: ${LYSHELL_PLUGIN_TOKEN} (host plugin token only)
+```
+
+Success returns `{success: true, data: {view}}`; failure returns `{success: false, error}` with common codes: 400 invalid fields or path escaping, 403 plugin not enabled / not persistent / not this plugin's token, 409 duplicate view ID or over the 8-view cap.
+
+**Permissions and page actions**: pages hold **no tokens** — every `window.lyshellView` call enters main and is executed under the registered guest identity, validated against the plugin's current grant on each call; unauthorized actions are rejected with `{ok: false, error}`:
+
+| Action | Capability required |
+|--------|--------------------|
+| Display, `bootstrap()`, `onEvent()` | none (pages still render without `uiControl`) |
+| `callApi(tool, args?)` | the existing MCP HTTP route gates (e.g. `lyshell_list_sessions` needs `read`) |
+| `openWebTab(url)` | `uiControl` (http / https only) |
+| `openDialog({viewId, title?, width?, height?})` | `uiControl` (target must be another view of the same plugin) |
+| `openTerminal(sessionId)` | `uiControl` + `sessionControl` |
+| `openDoc(path)` | `uiControl` + `read` |
+
+**Page API** (`window.lyshellView`; main serves the CSP, so JS must be an external file under `views/`, and page resources may only load from that plugin's `views/` directory):
+
+| API | Meaning |
+|-----|---------|
+| `bootstrap()` | Identity handshake, returns `{pluginId, viewId, kind: 'panel'\|'dialog', dialogId, title, entry, source: 'manifest'\|'runtime', capabilities, theme}`; `theme` is the app's current mode (`'dark' \| 'light'`) so pages can match the host look |
+| `callApi(tool, args?)` | Invoke an MCP HTTP route tool; rejects with the server error message |
+| `openTerminal / openWebTab / openDoc / openDialog` | UI actions returning `{ok, error?}`; a successful `openDialog` carries a one-time `dialogId` |
+| `closeDialog(result?)` | Valid only for a dialog guest; the result goes only to the invoker page |
+| `onEvent(fn)` | Subscribe to `{type: 'dialogResult', dialogId, result}` / `{type: 'dialogCancelled', dialogId, reason}` / `{type: 'themeChanged', theme}` events; returns an unsubscribe function |
+
+`ok:true` only means "request accepted / tab mounted" — it does not guarantee final SSH connectivity or that an external site loads. Dialog results are delivered by `dialogId` to the exact invoker page, so concurrent dialogs never cross-talk.
+
+Examples live in the repo: `examples/my-view-plugin/` (purely declarative) and `examples/my-view-runtime-plugin/` (runtime registration + all four actions + dialog results).
+
 ## Themes
 
 Instant switching, no restart.

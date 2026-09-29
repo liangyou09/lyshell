@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { connectSession } from './launch'
 import { useSessionStore } from '../stores/session-store'
-import { ConnectionType } from '@shared/types'
+import { ConnectionStatus, ConnectionType } from '@shared/types'
 import type { SessionConfig } from '@shared/types'
 
 const updateSession = vi.fn()
@@ -62,13 +62,23 @@ describe('connectSession:启动链路', () => {
     expect(runtime.ssh).toBe(savedSsh.ssh)  // 其余配置原样带过去
   })
 
-  it('连接失败不外抛(原 handleConnect 同款:静默 + 控制台留痕)', async () => {
+  it('连接失败不外抛(原 handleConnect 同款:静默 + 控制台留痕),回 ok:false 结果', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     connect.mockRejectedValue(new Error('boom'))
     try {
-      await expect(connectSession(savedSsh)).resolves.toBeUndefined()
+      await expect(connectSession(savedSsh)).resolves.toEqual({ ok: false, error: 'boom' })
     } finally {
       errSpy.mockRestore()
     }
+  })
+
+  it('connection:connect 同步落位 ERROR 状态如实回 ok:false(不无条件 ok)', async () => {
+    connect.mockResolvedValue({ id: 'temp-1', status: ConnectionStatus.ERROR, error: 'auth failed' })
+    await expect(connectSession(savedSsh)).resolves.toEqual({ ok: false, error: 'auth failed' })
+  })
+
+  it('落位成功回 ok:true + 会话 id（不保证最终连通）', async () => {
+    connect.mockResolvedValue({ id: 'session-x', status: ConnectionStatus.CONNECTING, config: savedSsh })
+    await expect(connectSession(savedSsh)).resolves.toEqual({ ok: true, sessionId: 'session-x' })
   })
 })

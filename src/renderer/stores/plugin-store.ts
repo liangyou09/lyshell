@@ -35,6 +35,8 @@ interface SimpleResult {
 interface PluginStore {
   items: PluginListItem[]
   loading: boolean
+  /** 首次 load 完成后为 true：启动期恢复校验等在此之前不得把空 items 当「无视图」 */
+  loaded: boolean
   /** 最近一次写操作错误(供 UI 临时提示) */
   error: string | null
   load: () => Promise<void>
@@ -50,18 +52,28 @@ interface PluginStore {
   uninstall: (id: string) => Promise<SimpleResult>
 }
 
+/** load 并发守卫的模块级序号（见 load 注释） */
+let loadSeq = 0
+
 export const usePluginStore = create<PluginStore>((set, get) => ({
   items: [],
   loading: false,
+  loaded: false,
   error: null,
 
+  // 并发响应仅采纳最新一次:PLUGIN_VIEWS_CHANGED 与写操作后的自动 load 可能交叠,
+  // 迟到的旧响应不得覆盖新快照(模块级序号守卫,load 是全局单例动作,序号不随实例)
   load: async () => {
+    const seq = ++loadSeq
     set({ loading: true, error: null })
     try {
       const items = ((await window.electronAPI?.listPlugins()) as PluginListItem[] | undefined) ?? []
-      set({ items, loading: false })
+      if (seq !== loadSeq) return // 已被更新的 load 取代:丢弃旧响应
+      set({ items, loading: false, loaded: true })
     } catch (e) {
-      set({ loading: false, error: (e as Error).message })
+      if (seq !== loadSeq) return
+      // 失败也算「快照已取」:列表状态已知(空),恢复校验据此回退,不再无限等待
+      set({ loading: false, loaded: true, error: (e as Error).message })
     }
   },
 

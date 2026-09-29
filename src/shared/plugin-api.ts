@@ -8,6 +8,7 @@
  * 放 @shared 供未来插件 SDK 复用类型（docs/plugin-system-design.md §5）。
  */
 import type { McpCapability } from './api-routes'
+import type { PluginViewDefinition } from './plugin-types'
 
 /**
  * 注入插件的受控 API。
@@ -47,6 +48,23 @@ export interface LyShellPluginApi {
    * @returns 受控子进程句柄（deactivate 时 kill；host 退出时也会兜底 kill）
    */
   spawnControlled(exe: string, args?: string[], opts?: PluginSpawnOptions): PluginChildProcess
+
+  /**
+   * 运行时注册一个机柜轨界面视图（声明式 contributes.views 的动态等价物）。
+   * 仅 Node persistent 插件可用；定义校验规则与 manifest 声明一致
+   * （validateViewDefinition：最多 8 项含声明式、禁重复 ID、entry 限 views/ 下 .html）。
+   * entry/icon 文件必须在插件目录内实际存在。重复 ID（含与声明式冲突）直接拒绝，不做覆盖。
+   * 运行时视图仅在本插件进程期间有效：宿主异常退出即清除，重启后需重新注册
+   * （建议 activationEvents: ['onStartup'] 保证启动即重注册）。
+   * @throws 校验失败/超上限/重复 ID/文件缺失时 reject
+   */
+  registerView(def: PluginViewDefinition): Promise<void>
+
+  /**
+   * 注销一个本插件运行时注册的视图（幂等：注销不存在的 ID 也成功）。
+   * 声明式视图不能经此注销；注销最后一个视图时其 UI 凭据随之撤销。
+   */
+  unregisterView(id: string): Promise<void>
 }
 
 /** spawnControlled 的子进程选项（child_process.spawn 的受控子集）。 */

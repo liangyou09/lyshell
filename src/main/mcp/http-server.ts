@@ -29,6 +29,12 @@ import * as mcpAuth from './auth'
 import type { TokenBinding, TokenKind } from './auth'
 import { scanDestructiveCommand } from './destructive-check'
 import { compileGlob, relPath } from './glob'
+import { getPluginViewRegistry, ViewRegistrationError } from '../plugin/view-registry'
+import { ensurePluginUiToken, maybeRevokePluginUiToken } from '../plugin/view-tokens'
+import { installPluginViewProtocolHandler } from '../plugin/view-protocol'
+import { teardownPluginViewGuests } from '../plugin/view-bridge'
+import { pluginRepository, getPluginsDir } from '../storage/plugin-repository'
+import { validateManifest, normalizeLifecycle } from '@shared/plugin-types'
 import { t } from '../i18n'
 import type {
   ApiResponse,
@@ -486,6 +492,15 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       }
     }
 
+    // 运行时视图注销：DELETE /api/plugins/{id}/views/{viewId}（host plugin token 专有）
+    {
+      const m = url.pathname.match(/^\/api\/plugins\/([^/]+)\/views\/([^/]+)$/)
+      if (req.method === 'DELETE' && m) {
+        handlePluginViewUnregister(m[1], m[2], res, ctxBinding)
+        return
+      }
+    }
+
     if (req.method === 'POST') {
       readBody(req).then(body => {
         let data: any
@@ -500,6 +515,13 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
           const m = url.pathname.match(/^\/api\/sessions\/([^/]+)\/notes$/)
           if (m) {
             return handleWriteSessionNotes({ ...data, sessionId: m[1] }, res, ctxBinding)
+          }
+        }
+        // 运行时视图注册：POST /api/plugins/{id}/views（host plugin token 专有）
+        {
+          const m = url.pathname.match(/^\/api\/plugins\/([^/]+)\/views$/)
+          if (m) {
+            return handlePluginViewRegister(m[1], data, res, ctxBinding)
           }
         }
 
@@ -555,6 +577,150 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   } catch (err: any) {
     log.error('[MCP] Request handler error:', err)
     sendJson(res, 500, { success: false, error: err.message || 'Internal server error' })
+  }
+}
+
+// ========== 插件运行时视图路由（docs/plugin-ui-views-plan.md §二「运行时注册」） ==========
+
+/** ViewRegistrationError → HTTP 状态（校验 400 / 冲突与容量 409 / 权限与状态 403） */
+function statusForViewRegistrationError(e: unknown): number {
+  if (!(e instanceof ViewRegistrationError)) return 500
+  const msg = e.message
+  if (msg.startsWith('invalid view definition')) return 400
+  if (msg.startsWith('view id already registered') || msg.startsWith('at most')) return 409
+  if (msg === 'plugin is not enabled') return 403
+  return 400
+}
+
+/**
+ * 运行时视图路由共用鉴权（注册/注销同规则）：
+ *   - 仅 host plugin token（UI token / session / global token 一律 403）
+ *   - token 归属必须与路径 pluginId 一致
+ *   - 插件当前启用，且 manifest lifecycle=persistent（oneshot 进程即生即灭，
+ *     运行时注册的视图会随进程立刻失效，没有意义）
+ *   - 必须已授予 uiControl（视图属于 UI 能力族）
+ */
+function authorizePluginViewRoute(
+  binding: TokenBinding,
+  pluginId: string
+): { ok: true } | { ok: false; status: number; error: string } {
+  if (binding.kind !== 'plugin' || binding.tokenSource !== 'host') {
+    return { ok: false, status: 403, error: 'runtime view routes require a host plugin token' }
+  }
+  if (binding.pluginId !== pluginId) {
+    return { ok: false, status: 403, error: 'token does not belong to this plugin' }
+  }
+  const entry = pluginRepository.get(pluginId)
+  if (!entry || !entry.enabled) {
+    return { ok: false, status: 403, error: 'plugin is not enabled' }
+  }
+  if (!binding.capabilities?.includes('uiControl')) {
+    return { ok: false, status: 403, error: 'plugin lacks the uiControl capability' }
+  }
+  const pluginDir = path.isAbsolute(entry.path) ? entry.path : path.join(getPluginsDir(), entry.path)
+  try {
+    const manifestPath = path.join(pluginDir, 'lyshell-plugin.json')
+    const result = validateManifest(JSON.parse(fs.readFileSync(manifestPath, 'utf-8')))
+    if (!result.ok || !result.manifest) {
+      return { ok: false, status: 403, error: 'plugin manifest is invalid' }
+    }
+    if (normalizeLifecycle(result.manifest.runtime, result.manifest.lifecycle) !== 'persistent') {
+      return { ok: false, status: 403, error: 'runtime views require a persistent-lifecycle plugin' }
+    }
+  } catch {
+    return { ok: false, status: 403, error: 'plugin manifest is unreadable' }
+  }
+  return { ok: true }
+}
+
+/** POST /api/plugins/{id}/views — 运行时注册一个视图（成功后补签 UI token） */
+function handlePluginViewRegister(
+  pluginId: string,
+  data: unknown,
+  res: http.ServerResponse,
+  binding: TokenBinding
+): void {
+  const audit = (allowed: boolean, reason?: string) =>
+    auditMcpOperation({
+      operation: 'http',
+      capability: 'uiControl',
+      allowed,
+      reason,
+      tokenSource: binding.kind
+    })
+  const auth = authorizePluginViewRoute(binding, pluginId)
+  if (!auth.ok) {
+    audit(false, auth.error)
+    sendJson(res, auth.status, { success: false, error: auth.error })
+    return
+  }
+  try {
+    // 校验经 registry 内的 validateViewDefinition（与 manifest 声明同一套规则），
+    // 失败抛 ViewRegistrationError，由 statusForViewRegistrationError 映射 4xx。
+    const registry = getPluginViewRegistry()
+    const view = registry.registerRuntimeView(pluginId, data)
+    ensurePluginUiToken(registry, pluginId)
+    // 运行时注册路径必须补装协议 handler：启动/安装同步路径只给「当时已有视图」的
+    // 插件装（listViews 为空即跳过），零声明视图插件的首个运行时视图出现时页面
+    // 资源尚不可达。幂等（已装返回 false）。
+    installPluginViewProtocolHandler(pluginId)
+    audit(true)
+    sendJson(res, 200, { success: true, data: { view } })
+  } catch (e) {
+    const msg = (e as Error).message
+    audit(false, msg)
+    sendJson(res, statusForViewRegistrationError(e), { success: false, error: msg })
+  }
+}
+
+/** DELETE /api/plugins/{id}/views/{viewId} — 注销运行时视图（幂等；最后一个视图撤销 UI token） */
+function handlePluginViewUnregister(
+  pluginId: string,
+  rawViewId: string,
+  res: http.ServerResponse,
+  binding: TokenBinding
+): void {
+  const audit = (allowed: boolean, reason?: string) =>
+    auditMcpOperation({
+      operation: 'http',
+      capability: 'uiControl',
+      allowed,
+      reason,
+      tokenSource: binding.kind
+    })
+  const auth = authorizePluginViewRoute(binding, pluginId)
+  if (!auth.ok) {
+    audit(false, auth.error)
+    sendJson(res, auth.status, { success: false, error: auth.error })
+    return
+  }
+  // viewId 段先解码（路径里是 encodeURIComponent 后的形态）
+  let viewId = rawViewId
+  try {
+    viewId = decodeURIComponent(rawViewId)
+  } catch {
+    audit(false, 'invalid viewId encoding')
+    sendJson(res, 400, { success: false, error: 'invalid viewId encoding' })
+    return
+  }
+  try {
+    const registry = getPluginViewRegistry()
+    const removed = registry.unregisterRuntimeView(pluginId, viewId)
+    if (removed) {
+      // 注销即摘 guest：面板/弹窗 webview 由 main 强制销毁（renderer 靠 destroyed
+      // 卸载），该视图弹窗取消并通知发起者 —— 只移除注册项的话，已打开的弹窗仍可
+      // 继续调用 UI 动作（verifyGuest 的在册检查是第二道闸）。
+      teardownPluginViewGuests(pluginId, viewId)
+    }
+    if (!registry.hasRuntimeViews(pluginId)) {
+      maybeRevokePluginUiToken(registry, pluginId)
+    }
+    audit(true)
+    sendJson(res, 200, { success: true, data: { removed } })
+  } catch (e) {
+    const msg = (e as Error).message
+    audit(false, msg)
+    sendJson(res, 500, { success: false, error: msg })
   }
 }
 
@@ -2228,6 +2394,24 @@ function quotePosixPath(filePath: string): string {
 }
 
 /**
+ * 会话允许/拒绝名单校验（HTTP server 与插件视图动作共用，docs/plugin-ui-views-plan.md §四）：
+ * 「MCP 总开关关闭 / 命中黑名单 / 白名单非空且未命中」任一即拒。同时检查原始 saved id
+ * 与解析后的 runtime id（用户配置黑白名单时可能使用保存项 ID）。
+ */
+export function isSessionAllowedForMcp(sessionId: string): boolean {
+  const settings = getMcpSecuritySettings()
+  if (!settings.enabled) return false
+  const resolvedSessionId = sessionId ? resolveRuntimeSessionId(sessionId) : undefined
+  const isDenied = (sid?: string) => sid !== undefined && settings.deniedSessionIds.includes(sid)
+  if (isDenied(sessionId) || isDenied(resolvedSessionId)) return false
+  if (settings.allowedSessionIds.length > 0) {
+    const isAllowed = (sid?: string) => sid !== undefined && settings.allowedSessionIds.includes(sid)
+    if (!isAllowed(sessionId) && !isAllowed(resolvedSessionId)) return false
+  }
+  return true
+}
+
+/**
  * 校验本地路径安全：禁止路径穿越（含 .. 分量）
  */
 async function authorizeMcpOperation(
@@ -2257,17 +2441,10 @@ async function authorizeMcpOperation(
     return { allowed: false, reason }
   }
 
-  // 全局开关 + sessionId 黑/白名单（两类 token 共同受约束）。
-  // 同时检查原始 id 与解析后的 runtime id：用户配置黑白名单时可能使用保存项 ID。
+  // 全局开关 + sessionId 黑/白名单（两类 token 共同受约束）。与插件视图动作
+  // （view-actions.ts）共用同一判定（isSessionAllowedForMcp），不另写名单逻辑。
   if (!settings.enabled) return deny('MCP access is disabled')
-  const isDenied = (sid?: string) => sid !== undefined && settings.deniedSessionIds.includes(sid)
-  if (isDenied(sessionId) || isDenied(resolvedSessionId)) return deny('Session is denied for MCP')
-  if (settings.allowedSessionIds.length > 0) {
-    const isAllowed = (sid?: string) => sid !== undefined && settings.allowedSessionIds.includes(sid)
-    if (!isAllowed(sessionId) && !isAllowed(resolvedSessionId)) {
-      return deny('Session is not allowed for MCP')
-    }
-  }
+  if (!isSessionAllowedForMcp(sessionId ?? '')) return deny(sessionId && settings.deniedSessionIds.includes(sessionId) ? 'Session is denied for MCP' : 'Session is not allowed for MCP')
 
   // session token 来自 LyShell 自身孵化的 PTY（经 LYSHELL_MCP_TOKEN env 注入），
   // 持有该 token 即等同于"由 LyShell 直接信任"。默认放开非删除类操作并跳过弹窗。

@@ -124,7 +124,9 @@ async function runHost(port: number, specs: PluginSpec[]): Promise<void> {
         child.on('close', () => spawnedChildren.delete(child))
       }
     })
-    if (shouldActivateOnStartup(p.manifest.activationEvents)) {
+    // activationEvents 可能缺省（纯声明式清单）——按空数组处理，不自动激活
+    const activationEvents = p.manifest.activationEvents ?? []
+    if (shouldActivateOnStartup(activationEvents)) {
       try {
         await p.module.activate(api)
         p.activated = true
@@ -135,8 +137,8 @@ async function runHost(port: number, specs: PluginSpec[]): Promise<void> {
       }
     } else {
       const waits =
-        p.manifest.activationEvents.length > 0
-          ? p.manifest.activationEvents.join(', ')
+        activationEvents.length > 0
+          ? activationEvents.join(', ')
           : 'none (declarative contributes only)'
       console.error(`[plugin-host] Pending ${p.spec.pluginId} (${p.spec.lifecycle}, waits for: ${waits})`)
     }

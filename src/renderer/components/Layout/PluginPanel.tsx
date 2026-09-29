@@ -63,6 +63,13 @@ const PluginPanel: React.FC = () => {
     void load()
   }, [load])
 
+  // 权限 chip 悬停提示：授予状态 + 一句话能力说明(未知能力只显示授予状态,不暴露 i18n 键名)
+  const capTitle = (c: string, granted: boolean): string => {
+    const state = granted ? t('plugin.granted') : t('plugin.declared')
+    const desc = t(`plugin.capDesc.${c}`, { defaultValue: '' })
+    return typeof desc === 'string' && desc ? `${state} · ${desc}` : state
+  }
+
   const handlePickDev = async (): Promise<void> => {
     setNotice(null)
     const res = await pickFolder()
@@ -234,7 +241,7 @@ const PluginPanel: React.FC = () => {
             return (
               <span
                 key={c}
-                title={granted ? t('plugin.granted') : t('plugin.declared')}
+                title={capTitle(c, granted)}
                 className={cn(
                   'px-1.5 py-px text-[10px] [font-family:inherit] rounded-[2px] border',
                   granted
@@ -366,6 +373,7 @@ const PluginPanel: React.FC = () => {
               {picked.manifest.capabilities.map((c) => (
                 <span
                   key={c}
+                  title={capTitle(c, false)}
                   className="px-1.5 py-px text-[10px] [font-family:inherit] rounded-[2px] bg-[var(--bg-elev)] border border-[var(--rule)] text-[var(--text-rack-data)]"
                 >
                   {c}

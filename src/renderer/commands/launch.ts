@@ -1,4 +1,5 @@
 import { useSessionStore } from '../stores/session-store'
+import { ConnectionStatus } from '@shared/types'
 import type { SessionConfig } from '@shared/types'
 
 /**
@@ -10,8 +11,20 @@ import type { SessionConfig } from '@shared/types'
  * 避免同一 saved id 只能对应一个终端页签;通过 originSavedSessionId 保留与原
  * 保存项的关联,供 MCP list_sessions 同步状态。连上后由 MainWindow 的
  * onConnectionStatus 自动挂到活动分屏(与 /local 命令同一条挂载路径)。
+ *
+ * 返回可判定结果:connection:connect 同步落位失败(校验/建会话失败,ERROR 状态)
+ * 如实回 ok:false;ok:true 表示会话已创建并开始异步连接,不保证 SSH 最终连通
+ * (最终连通由后续 connection:status 事件呈现)。插件视图 openTerminal 动作依赖
+ * 该结果回执,不能无条件 ok:true。
  */
-export async function connectSession(config: SessionConfig): Promise<void> {
+export interface ConnectSessionResult {
+  ok: boolean
+  /** 新建 runtime 会话的 id(后端同步返回;落位失败时缺省) */
+  sessionId?: string
+  error?: string
+}
+
+export async function connectSession(config: SessionConfig): Promise<ConnectSessionResult> {
   try {
     // 更新访问时间（仍用原 saved id）
     await window.electronAPI?.updateSession({
@@ -23,8 +36,18 @@ export async function connectSession(config: SessionConfig): Promise<void> {
     const runtimeConfig: SessionConfig = { ...config, id: '', originSavedSessionId: config.id }
 
     // 调用后端连接（后端会立即返回 sessionId，前端显示终端）
-    await window.electronAPI?.connect(runtimeConfig)
+    const res = await window.electronAPI?.connect(runtimeConfig)
+    if (res && typeof res === 'object' && 'status' in res) {
+      const status = (res as { status?: unknown }).status
+      if (status === ConnectionStatus.ERROR) {
+        const err = (res as { error?: unknown }).error
+        return { ok: false, error: typeof err === 'string' && err ? err : 'connect failed' }
+      }
+      return { ok: true, sessionId: (res as { id?: string }).id }
+    }
+    return { ok: true }
   } catch (error) {
     console.error('Connect failed:', error)
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 }

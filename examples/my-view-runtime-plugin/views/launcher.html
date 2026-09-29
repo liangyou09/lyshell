@@ -1,0 +1,35 @@
+<!doctype html>
+<!-- my-view-runtime-plugin / launcher 视图：运行时注册（main.js activate 里 api.registerView）。
+     进程存活期间有效；禁用/卸载/宿主退出即消失，重启后由 activate 重新注册。
+     演示 openWebTab + openDialog(picker) + 经 onEvent 接收弹窗结果/取消。 -->
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Launcher</title>
+  <style>
+    /* 主题适配：bootstrap().theme / themeChanged 事件驱动（JS 里给 <html> 打 data-theme） */
+    :root { color-scheme: dark; --pg-bg: #17171b; --pg-fg: #d9d9de; --pg-mute: #8a8a94; --pg-line: #34343c; --pg-btn: #232329; }
+    :root[data-theme="light"] { color-scheme: light; --pg-bg: #f6f5f2; --pg-fg: #24242a; --pg-mute: #6f6f78; --pg-line: #d8d6d0; --pg-btn: #ebebe7; }
+    body { font: 13px/1.6 system-ui, sans-serif; margin: 0; padding: 12px; background: var(--pg-bg); color: var(--pg-fg); }
+    h3 { margin: 0 0 8px; }
+    button { margin: 0 6px 6px 0; padding: 4px 10px; background: var(--pg-btn); color: var(--pg-fg); border: 1px solid var(--pg-line); border-radius: 2px; cursor: pointer; }
+    dl { margin: 8px 0; }
+    dt { font-weight: 600; }
+    dd { margin: 0 0 8px; opacity: .75; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <h3>Launcher（运行时注册视图）</h3>
+  <dl>
+    <dt>bootstrap</dt>
+    <dd id="boot">loading…</dd>
+    <dt>last action</dt>
+    <dd id="state">–</dd>
+    <dt>dialog result</dt>
+    <dd id="dialog-result">–</dd>
+  </dl>
+  <button id="open-web" type="button">openWebTab(example.com)</button>
+  <button id="open-dialog" type="button">openDialog(picker)</button>
+  <script src="launcher.js"></script>
+</body>
+</html>

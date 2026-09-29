@@ -32,7 +32,240 @@ export interface PluginContributes {
   connectionTypes?: Array<{ type: string; label: string }>
   /** 贡献的 MCP/HTTP 工具，激活后经 registry.register() 进路由表（见 §9/§10） */
   tools?: Array<{ name: string; description?: string }>
+  /**
+   * 贡献的左侧机柜栏界面视图（最多 8 个，每视图独占轨道槽位）。
+   * 声明式视图不要求 main 入口：entry 为插件 views/ 目录下的 .html，
+   * 页面引用的 CSS/JS/图片/字体也放在该目录；icon 可在插件根目录内。
+   */
+  views?: PluginViewDefinition[]
 }
+
+// ====================== 插件界面视图（机柜轨视图贡献点） ======================
+
+/** 视图 id 规则：小写字母开头，仅小写字母/数字/连字符（单插件内唯一） */
+export const PLUGIN_VIEW_ID_PATTERN = /^[a-z][a-z0-9-]*$/
+
+/** 单插件最多贡献的视图数（声明式 + 运行时合计） */
+export const PLUGIN_MAX_VIEWS = 8
+
+/** 视图标题 / 路径长度上限 */
+export const PLUGIN_VIEW_TITLE_MAX = 64
+export const PLUGIN_VIEW_PATH_MAX = 256
+
+/**
+ * 一个插件界面视图定义。manifest contributes.views 与运行时注册（registerView）
+ * 共用同一形状与校验规则（validateViewDefinition）。
+ */
+export interface PluginViewDefinition {
+  /** ^[a-z][a-z0-9-]*$，单插件内唯一 */
+  id: string
+  /** 非空，≤64 字符 */
+  title: string
+  /** 插件根目录内的 .svg 或 .png（相对路径，可选） */
+  icon?: string
+  /** 插件 views/ 目录内的 .html（相对插件根，必须以 views/ 开头） */
+  entry: string
+}
+
+/** 视图运行时元数据：plugin:list 返回的展开形态（禁用插件 views 为空数组） */
+export interface PluginViewMeta extends PluginViewDefinition {
+  pluginId: string
+  source: 'manifest' | 'runtime'
+}
+
+/**
+ * 机柜轨插件视图页签的复合键 —— 全链路（NavTab/保活 Map/localStorage）统一用它
+ * 标识视图，不能仅以 pluginId 作页签或保活键（同插件多视图会串槽）。
+ * 构造/解析只经这两个纯函数，禁止各组件自行拼接。
+ * pluginId（^[a-z0-9-]+$）与 viewId（^[a-z][a-z0-9-]*$）都不含 ':'，解析无歧义。
+ */
+export const PLUGIN_VIEW_KEY_PREFIX = 'plugin:'
+
+/** 插件视图页签的复合键形态（ActivityRail 的 NavTab 插件分支同款模板字面量类型） */
+export type PluginViewNavTab = `plugin:${string}:${string}`
+
+export function makePluginViewKey(pluginId: string, viewId: string): PluginViewNavTab {
+  return `${PLUGIN_VIEW_KEY_PREFIX}${pluginId}:${viewId}`
+}
+
+/** 复合键判定（类型谓词：调用点据此把保存的字符串收窄回 NavTab 插件分支） */
+export function isPluginViewKey(key: string): key is PluginViewNavTab {
+  return parsePluginViewKey(key) !== null
+}
+
+export function parsePluginViewKey(key: string): { pluginId: string; viewId: string } | null {
+  if (typeof key !== 'string' || !key.startsWith(PLUGIN_VIEW_KEY_PREFIX)) return null
+  const rest = key.slice(PLUGIN_VIEW_KEY_PREFIX.length)
+  const sep = rest.indexOf(':')
+  if (sep <= 0) return null
+  const pluginId = rest.slice(0, sep)
+  const viewId = rest.slice(sep + 1)
+  // pluginId 走插件 id 同款规则（kebab），viewId 走视图 id 规则
+  if (!/^[a-z0-9-]+$/.test(pluginId) || !PLUGIN_VIEW_ID_PATTERN.test(viewId)) return null
+  return { pluginId, viewId }
+}
+
+// ====================== 插件 guest 资源协议（main ↔ renderer 跨端契约） ======================
+
+/**
+ * lyshell-plugin:// 自定义协议名。main 在 app.ready 前注册 privileged scheme 并
+ * 在各插件 partition 上安装资源 handler；renderer 拼面板/弹窗 webview 的入口 src。
+ */
+export const PLUGIN_VIEW_SCHEME = 'lyshell-plugin'
+
+/**
+ * 插件 guest 专属 partition 前缀（每插件一个内存 partition）。main 的 webview
+ * attach 闸按它分流，renderer 的 <webview partition> 用同名拼法 —— 两端漂移会
+ * 导致 attach 闸认不出 guest。拼法只经 pluginViewPartitionName，禁止自行拼接。
+ */
+export const PLUGIN_VIEW_PARTITION_PREFIX = 'pluginviews:'
+
+export function pluginViewPartitionName(pluginId: string): string {
+  return `${PLUGIN_VIEW_PARTITION_PREFIX}${pluginId}`
+}
+
+/** 由视图定义 entry（views/xxx.html）构造 guest 入口 URL（renderer 挂载 webview 用） */
+export function makeViewEntryUrl(pluginId: string, entry: string): string {
+  const rel = entry.replace(/^views\//, '')
+  return `${PLUGIN_VIEW_SCHEME}://${pluginId}/${rel}`
+}
+
+/**
+ * 弹窗入口 URL：入口 + 单一一次性 dialogId 查询参数。attach 闸（main/index.ts）
+ * 与协议层（view-protocol-core checkUrlSearch）都按「仅一个 dialogId 参数」识别
+ * 弹窗 —— 不带查询串的入口一律按常驻面板挂载，closeDialog 会被拒。
+ */
+export function makeViewDialogEntryUrl(pluginId: string, entry: string, dialogId: string): string {
+  return `${makeViewEntryUrl(pluginId, entry)}?dialogId=${encodeURIComponent(dialogId)}`
+}
+
+// ====================== 插件弹窗尺寸（main 校验与 renderer 挂载同一钳制） ======================
+
+export const PLUGIN_DIALOG_MIN_SIZE = 200
+export const PLUGIN_DIALOG_MAX_SIZE = 1024
+
+/** 弹窗尺寸钳制（像素取整夹取；main 清洗与 renderer 挂载共用，防两端各说各话） */
+export function clampPluginDialogSize(size: number | undefined): number | undefined {
+  if (typeof size !== 'number' || !Number.isFinite(size)) return undefined
+  return Math.min(PLUGIN_DIALOG_MAX_SIZE, Math.max(PLUGIN_DIALOG_MIN_SIZE, Math.round(size)))
+}
+
+/**
+ * 校验单个视图定义（纯函数）。manifest 与运行时注册使用同一规则：
+ * 校验字段类型、长度、扩展名和相对路径；拒绝空路径、盘符、绝对路径、`..`、
+ * NUL、URL 查询串/fragment。entry 必须位于插件的 views/ 目录下。
+ * 文件实际存在性与真实路径包围（symlink/junction）不在此处 —— 属安装确认后
+ * 与运行时注册时的文件系统检查（见 main 侧调用方）。
+ */
+export function validateViewDefinition(raw: unknown): { ok: boolean; errors: string[]; view?: PluginViewDefinition } {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return { ok: false, errors: ['view definition must be an object'] }
+  }
+  const v = raw as Record<string, unknown>
+  const errors: string[] = []
+
+  if (typeof v.id !== 'string' || !PLUGIN_VIEW_ID_PATTERN.test(v.id) || v.id.length > 64) {
+    errors.push('view.id must match ^[a-z][a-z0-9-]*$ (max 64 chars)')
+  }
+  if (typeof v.title !== 'string' || v.title.trim().length === 0 || v.title.length > PLUGIN_VIEW_TITLE_MAX) {
+    errors.push(`view.title must be a non-empty string (max ${PLUGIN_VIEW_TITLE_MAX} chars)`)
+  }
+  // 路径字段通用拒绝项：查询串/fragment/NUL/不安全相对路径（含 ..、盘符、绝对路径、空）。
+  // 另显式拒绝反斜杠与 % ：协议 URL 路径只认 /，定义里不允许存编码或 Windows 分隔形态。
+  const rejectPath = (field: string, value: unknown): string | null => {
+    if (typeof value !== 'string') {
+      errors.push(`${field} must be a string if present`)
+      return null
+    }
+    if (value.length === 0 || value.length > PLUGIN_VIEW_PATH_MAX) {
+      errors.push(`${field} must be 1-${PLUGIN_VIEW_PATH_MAX} chars`)
+      return null
+    }
+    if (value.includes('\0') || value.includes('?') || value.includes('#')) {
+      errors.push(`${field} must not contain NUL, query string or fragment`)
+      return null
+    }
+    if (value.includes('\\') || value.includes('%')) {
+      errors.push(`${field} must use forward slashes only (no backslashes or percent-encoding)`)
+      return null
+    }
+    if (isUnsafeRelativePath(value)) {
+      errors.push(`${field} must be a relative path inside the plugin directory`)
+      return null
+    }
+    return value
+  }
+
+  let entry: string | undefined
+  if (typeof v.entry !== 'string') {
+    errors.push('view.entry must be a string')
+  } else {
+    entry = rejectPath('view.entry', v.entry) ?? undefined
+    if (entry !== undefined) {
+      const norm = entry.replace(/\\/g, '/')
+      // entry 必须位于 views/ 目录下（页面资源同目录，协议只服务该目录）
+      if (!norm.startsWith('views/') || norm.split('/').some((s) => s.length === 0)) {
+        errors.push('view.entry must be a .html file inside the plugin "views/" directory')
+        entry = undefined
+      } else if (!/\.html$/i.test(norm)) {
+        errors.push('view.entry must end with .html')
+        entry = undefined
+      }
+    }
+  }
+
+  let icon: string | undefined
+  if (v.icon !== undefined) {
+    icon = rejectPath('view.icon', v.icon) ?? undefined
+    if (icon !== undefined && !/\.(svg|png)$/i.test(icon.replace(/\\/g, '/'))) {
+      errors.push('view.icon must be a .svg or .png file')
+      icon = undefined
+    }
+  }
+
+  if (errors.length > 0 || entry === undefined) {
+    return { ok: false, errors: errors.length > 0 ? errors : ['view.entry must be a string'] }
+  }
+  const view: PluginViewDefinition = { id: v.id as string, title: v.title as string, entry }
+  if (icon !== undefined) view.icon = icon
+  return { ok: true, errors: [], view }
+}
+
+/**
+ * 校验视图定义数组（manifest contributes.views 与运行时注册共用）：
+ * 最多 8 项、禁止重复 ID、逐项过 validateViewDefinition。
+ */
+export function validateViewDefinitionList(
+  raw: unknown
+): { ok: boolean; errors: string[]; views: PluginViewDefinition[] } {
+  if (!Array.isArray(raw)) {
+    return { ok: false, errors: ['views must be an array if present'], views: [] }
+  }
+  if (raw.length > PLUGIN_MAX_VIEWS) {
+    return { ok: false, errors: [`at most ${PLUGIN_MAX_VIEWS} views per plugin`], views: [] }
+  }
+  const errors: string[] = []
+  const views: PluginViewDefinition[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    const r = validateViewDefinition(item)
+    if (!r.ok || !r.view) {
+      errors.push(...r.errors)
+      continue
+    }
+    if (seen.has(r.view.id)) {
+      errors.push(`duplicate view id: ${r.view.id}`)
+      continue
+    }
+    seen.add(r.view.id)
+    views.push(r.view)
+  }
+  return { ok: errors.length === 0, errors, views }
+}
+
+/** Plugin view key helpers are consumed by renderer rail & keep-alive maps (single source). */
+
+
 
 /**
  * lyshell-plugin.json 清单结构。对齐 docs/plugin-system-design.md §6。
@@ -58,8 +291,11 @@ export interface LyShellPluginManifest {
    * 超时到则子进程被杀，在途 HTTP 调用因 token 撤销而 401 退出。
    */
   pythonTimeoutMs?: number
-  /** 延迟激活事件。空数组 = 不自动激活（纯声明式贡献）。 */
-  activationEvents: ActivationEvent[]
+  /**
+   * 延迟激活事件。空数组/缺省 = 不自动激活（纯声明式贡献）。
+   * 缺省合法：零贡献、无 main 的纯声明式清单不必声明激活事件。
+   */
+  activationEvents?: ActivationEvent[]
   /** 声明需要的 capability；安装时由用户批准 -> grantedCapabilities。 */
   capabilities: McpCapability[]
   /** 声明式贡献（零激活即可出现在 UI）。 */
@@ -129,6 +365,11 @@ export interface PluginListItem extends PluginRegistryEntry {
   activationEvents: ActivationEvent[]
   /** manifest 声明的全部 capability(grantedCapabilities 是其经用户批准的子集) */
   capabilities: McpCapability[]
+  /**
+   * 贡献的界面视图（来自 view-registry，manifest + 运行时合并）。
+   * 禁用插件返回空数组，避免误入轨道；管理卡展示禁用前声明时另用展示字段。
+   */
+  views: PluginViewMeta[]
 }
 
 /**
@@ -212,7 +453,9 @@ const VALID_CAPABILITIES: ReadonlySet<string> = new Set<McpCapability>([
   'localExecute',
   'fileWrite',
   'sessionControl',
-  'sessionMetadataWrite'
+  'sessionMetadataWrite',
+  // 插件界面视图专用：控制视图/UI 动作（含运行时视图注册），不作为 MCP 工具暴露
+  'uiControl'
 ])
 
 const VALID_RUNTIMES: ReadonlySet<string> = new Set(['node', 'python'])
@@ -296,13 +539,16 @@ export function validateManifest(raw: unknown): ManifestValidation {
       errors.push('pythonTimeoutMs must be an integer between 1000 and 600000 (ms)')
     }
   }
-  if (!Array.isArray(m.activationEvents)) {
-    errors.push('activationEvents must be an array')
-  } else {
-    for (const e of m.activationEvents) {
-      if (!isValidActivationEvent(e)) {
-        errors.push(`invalid activationEvent: ${String(e)}`)
-        break
+  // activationEvents 缺省合法（纯声明式清单无需声明）；给了就必须是合法事件数组
+  if (m.activationEvents !== undefined) {
+    if (!Array.isArray(m.activationEvents)) {
+      errors.push('activationEvents must be an array')
+    } else {
+      for (const e of m.activationEvents) {
+        if (!isValidActivationEvent(e)) {
+          errors.push(`invalid activationEvent: ${String(e)}`)
+          break
+        }
       }
     }
   }
@@ -325,6 +571,15 @@ export function validateManifest(raw: unknown): ManifestValidation {
   }
   if (m.contributes !== undefined && (typeof m.contributes !== 'object' || m.contributes === null)) {
     errors.push('contributes must be an object if present')
+  } else if (m.contributes !== undefined) {
+    // contributes.views：声明式界面视图，走与运行时注册同一校验器（最多 8 项、
+    // 禁重复 ID、entry 限 views/ 下 .html）。文件存在性与真实路径包围在
+    // 安装确认/运行时注册时由 main 侧文件系统检查补齐。
+    const contributes = m.contributes as Record<string, unknown>
+    if (contributes.views !== undefined) {
+      const vr = validateViewDefinitionList(contributes.views)
+      if (!vr.ok) errors.push(...vr.errors)
+    }
   }
 
   if (errors.length > 0) return { ok: false, errors }

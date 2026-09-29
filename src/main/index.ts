@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, screen, session, webContents } from 'electron'
-import { join, resolve } from 'path'
+import { join, resolve, isAbsolute } from 'path'
 import log from 'electron-log'
 import * as fs from 'fs'
 
@@ -17,7 +17,19 @@ import { reachabilityProber } from './reachability/reachability-prober'
 import { mcpAuditRepository } from './storage/mcp-audit-repository'
 import { pluginHostManager } from './plugin/host-mgr'
 import { cleanupDownloadsDir } from './plugin/install-zip'
-import { getPluginsDir } from './storage/plugin-repository'
+import { pluginRepository, getPluginsDir } from './storage/plugin-repository'
+import {
+  registerPluginViewSchemePrivileged,
+  installProtocolHandlersForEnabledPlugins,
+  pluginViewPartition,
+  PLUGIN_VIEW_SCHEME
+} from './plugin/view-protocol'
+import { PLUGIN_VIEW_PARTITION_PREFIX } from './plugin/view-protocol-core'
+import { initPluginViewRegistry, getPluginViewRegistry } from './plugin/view-registry'
+import { refreshAllPluginUiTokens } from './plugin/view-tokens'
+import { handlePluginGuestDestroyed, handlePluginViewWindowClosed, pluginDialogManager } from './plugin/view-bridge'
+import { pluginGuestRegistry } from './plugin/view-guests'
+import { validateManifest } from '@shared/plugin-types'
 import { dshWebManager } from './dsh/web'
 import { KILL_STEP_TIMEOUT_FLOOR_MS, sweepOrphanDshWeb } from './dsh/proc'
 import { IPC_CHANNELS, WEBBAR_DEEPLINK_SCHEMES, WEBBAR_PARTITION } from '@shared/constants'
@@ -27,6 +39,10 @@ import { decideWebviewFrameNavigation, gateWebviewSubframeNavigation } from './w
 // 日志配置
 log.transports.file.level = 'info'
 log.transports.console.level = 'debug'
+
+// 插件视图 lyshell-plugin:// 的 privileged scheme 登记 —— 必须在 app ready 之前
+// （standard/secure/supportFetchAPI/stream 特权仅 ready 前注册生效）
+registerPluginViewSchemePrivileged()
 
 // 开发环境标志（app.isPackaged 在 app.ready 前即可同步读取，供早期错误处理使用）
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
@@ -196,6 +212,157 @@ function offerWebbarExternalProtocol(url: string, pageUrl: string): void {
   })
 }
 
+// ── 插件视图 guest 挂载闸（docs/plugin-ui-views-plan.md §三/§四）──
+// will-attach-webview 校验通过的 guest 记录排队，did-attach-webview 按 session
+// 身份对号入座（同窗口多个 webview 并发挂载按创建序完成，FIFO 消费）。身份
+// 信任锚是 main 侧状态（partition 前缀 + 注册表视图表 + 一次性 dialogId），
+// renderer 自报的属性一概不信。
+interface PendingPluginGuestAttach {
+  pluginId: string
+  viewId: string
+  kind: 'panel' | 'dialog'
+  dialogId?: string
+  entryPath: string
+  createdAt: number
+}
+const pendingPluginAttaches: PendingPluginGuestAttach[] = []
+const PENDING_ATTACH_TTL_MS = 30_000
+
+/**
+ * will-attach 校验：partition 归属、插件启用、src 是本插件已注册视图的入口 URL。
+ * panel：入口 URL 不带查询串；dialog：仅带一次性 dialogId 并当场消费（窗口/
+ * pluginId/viewId/入口逐项匹配，第二个 webview 复用同一 dialogId 一律拒绝）。
+ * 通过返回待登记记录；任何不符返回 null（调用方 preventDefault）。
+ */
+function validatePluginViewAttach(partition: string, src: string, ownerWindowId: number): PendingPluginGuestAttach | null {
+  const pluginId = partition.slice(PLUGIN_VIEW_PARTITION_PREFIX.length)
+  if (!pluginId || partition !== pluginViewPartition(pluginId)) return null
+  // 过期排队记录顺带清扫（attach 中断的残项不影响后续挂载）
+  const now = Date.now()
+  for (let i = pendingPluginAttaches.length - 1; i >= 0; i--) {
+    if (now - pendingPluginAttaches[i].createdAt > PENDING_ATTACH_TTL_MS) pendingPluginAttaches.splice(i, 1)
+  }
+  let viewRegistry
+  try {
+    viewRegistry = getPluginViewRegistry()
+  } catch {
+    return null
+  }
+  if (!viewRegistry.isPluginEnabled(pluginId)) {
+    log.warn('[plugin-view] Blocked webview attach: plugin not enabled:', pluginId)
+    return null
+  }
+  let url: URL
+  try {
+    url = new URL(src)
+  } catch {
+    log.warn('[plugin-view] Blocked webview attach: malformed src:', src)
+    return null
+  }
+  if (url.protocol !== `${PLUGIN_VIEW_SCHEME}:` || url.hostname !== pluginId) {
+    log.warn('[plugin-view] Blocked webview attach: src does not match plugin partition:', src)
+    return null
+  }
+  const views = viewRegistry.listViewsForPlugin(pluginId)
+  let target: { id: string; entry: string } | null = null
+  try {
+    const rel = decodeURIComponent(url.pathname)
+    const relPath = rel.startsWith('/') ? rel.slice(1) : rel
+    target = views.find((v) => v.entry.replace(/^views\//, '') === relPath) ?? null
+  } catch {
+    return null
+  }
+  if (!target) {
+    log.warn('[plugin-view] Blocked webview attach: src is not a registered view entry:', src)
+    return null
+  }
+  const entryPath = target.entry.replace(/^views\//, '')
+  if (url.search === '') {
+    // 常挂面板：无查询串
+    return { pluginId, viewId: target.id, kind: 'panel', entryPath, createdAt: now }
+  }
+  // 弹窗：仅允许单一 dialogId 参数，且必须匹配一张未过期的待挂载弹窗记录
+  const q = new URLSearchParams(url.search)
+  if (q.size !== 1 || !q.has('dialogId')) {
+    log.warn('[plugin-view] Blocked webview attach: unexpected query:', src)
+    return null
+  }
+  const dialogId = q.get('dialogId') ?? ''
+  const consumed = pluginDialogManager.consumeForAttach(dialogId, {
+    pluginId,
+    viewId: target.id,
+    entryPath,
+    ownerWindowId
+  })
+  if (!consumed) {
+    log.warn('[plugin-view] Blocked dialog attach: invalid or consumed dialogId')
+    return null
+  }
+  return { pluginId, viewId: target.id, kind: 'dialog', dialogId, entryPath, createdAt: now }
+}
+
+/** did-attach 后的 guest 装配：登记身份 + 弹窗补记 + 销毁清理 + 导航/开窗闸 */
+function setupPluginGuest(guestContents: Electron.WebContents, pending: PendingPluginGuestAttach): void {
+  const winId = mainWindow && !mainWindow.isDestroyed() ? mainWindow.id : 0
+  pluginGuestRegistry.attach({
+    webContentsId: guestContents.id,
+    pluginId: pending.pluginId,
+    viewId: pending.viewId,
+    kind: pending.kind,
+    ownerWindowId: winId,
+    dialogId: pending.dialogId
+  })
+  if (pending.kind === 'dialog' && pending.dialogId) {
+    pluginDialogManager.completeAttach(pending.dialogId, guestContents.id)
+  }
+  // 销毁清理：面板销毁联动其发起弹窗取消；弹窗销毁联动发起 guest 收到取消
+  guestContents.once('destroyed', () => {
+    handlePluginGuestDestroyed(guestContents.id)
+  })
+  // guest 一律不开新窗
+  guestContents.setWindowOpenHandler(({ url }) => {
+    log.warn('[plugin-view] Blocked guest window.open:', url)
+    return { action: 'deny' }
+  })
+  // 导航闸：主框架只允许本插件 lyshell-plugin:// 资源（插件页面内部跳转）；
+  // 子框架一律取消；外站/他插件/外部协议全部拦下
+  const isSamePluginUrl = (raw: string): boolean => {
+    try {
+      const u = new URL(raw)
+      return u.protocol === `${PLUGIN_VIEW_SCHEME}:` && u.hostname === pending.pluginId
+    } catch {
+      return false
+    }
+  }
+  const denyNav = (label: string, url: string): void => {
+    log.warn(`[plugin-view] Blocked guest ${label} (${pending.pluginId}/${pending.viewId}):`, url)
+  }
+  guestContents.on('will-navigate', (event, url) => {
+    if (!isSamePluginUrl(url)) {
+      event.preventDefault()
+      denyNav('navigation', url)
+    }
+  })
+  guestContents.on('will-redirect', (event, url) => {
+    if (!isSamePluginUrl(url)) {
+      event.preventDefault()
+      denyNav('redirect', url)
+    }
+  })
+  guestContents.on('will-frame-navigate', (e) => {
+    if (!e.isMainFrame || !isSamePluginUrl(e.url)) {
+      e.preventDefault()
+      denyNav('frame navigation', e.url)
+    }
+  })
+  // guest console 转发（取证通道，与 webbar 一致；warn 及以上）
+  guestContents.on('console-message', (_event, level, message, line, sourceId) => {
+    if (level < 2) return
+    const text = message.length > 500 ? `${message.slice(0, 500)}…` : message
+    log.warn(`[plugin-view console] ${pending.pluginId}/${pending.viewId} (${sourceId}:${line}) ${text}`)
+  })
+}
+
 // 创建主窗口
 function createMainWindow(): void {
   // 启动恢复:读取持久化的窗口尺寸,无则回退默认 1200×800;clamp 到当前屏幕工作区防换小屏超界
@@ -272,6 +439,11 @@ function createMainWindow(): void {
     clearTimeout(resizePersistTimer)
     setMainWindow(null)  // 清除窗口引用
     setMainWindowForUpload(null)
+    // 插件视图联动：该窗口的 guest 登记/在途动作/弹窗全部清理（面板 webview 已随窗口销毁）
+    if (mainWindow) {
+      handlePluginViewWindowClosed(mainWindow.id)
+    }
+    pendingPluginAttaches.length = 0
     mainWindow = null
     // macOS 上关窗不退出应用：webview 已随窗口销毁，但 dsh web 子进程仍在，这里主动回收。
     // will-quit 里的 close() 是兜底；此处保证「关窗即停」（幂等，重复调用无害）。
@@ -322,6 +494,20 @@ function createMainWindow(): void {
         event.preventDefault()
         return
       }
+    } else if (
+      typeof params?.partition === 'string' &&
+      params.partition.startsWith(PLUGIN_VIEW_PARTITION_PREFIX)
+    ) {
+      // 插件视图 guest（panel/dialog）：partition 前缀归属 + 插件启用 + src 必须是
+      // 本插件已注册视图的入口 URL（dialog 还须消费一张有效一次性 dialogId）。
+      // renderer 永远无权自带 preload —— 强制换成本仓库打包的 pluginView.js。
+      const ownerWindowId = mainWindow && !mainWindow.isDestroyed() ? mainWindow.id : 0
+      const pending = validatePluginViewAttach(params.partition, src, ownerWindowId)
+      if (!pending) {
+        event.preventDefault()
+        return
+      }
+      pendingPluginAttaches.push(pending)
     } else {
       const allowed = (() => {
         const origin = getDshWebAllowedOrigin()
@@ -338,7 +524,15 @@ function createMainWindow(): void {
         return
       }
     }
-    // 显式锁定 webview 的 webPreferences（防注入；主窗口已 sandbox/contextIsolation）
+    // 显式锁定 webview 的 webPreferences（防注入；主窗口已 sandbox/contextIsolation）。
+    // 插件 guest 的 preload 一律是打包内 pluginView.js（页面无法注入自己的 preload，
+    // 也无 Node 能力；bridge IPC 在 main 侧按登记身份核对）。
+    if (
+      typeof params?.partition === 'string' &&
+      params.partition.startsWith(PLUGIN_VIEW_PARTITION_PREFIX)
+    ) {
+      webPreferences.preload = join(__dirname, '../preload/pluginView.js')
+    }
     webPreferences.nodeIntegration = false
     webPreferences.contextIsolation = true
     webPreferences.sandbox = true
@@ -346,6 +540,17 @@ function createMainWindow(): void {
   })
 
   mainWindow.webContents.on('did-attach-webview', (_event, webContents) => {
+    // 插件视图 guest 优先：queue 首条记录的 partition session 与本 guest 一致即对号
+    // 入座（不匹配不动队列 —— dsh/webbar 的 attach 不产生排队记录）。
+    const pending = pendingPluginAttaches[0]
+    if (
+      pending &&
+      webContents.session === session.fromPartition(pluginViewPartition(pending.pluginId))
+    ) {
+      pendingPluginAttaches.shift()
+      setupPluginGuest(webContents, pending)
+      return
+    }
     // 按 session partition 分流：网页访问栏（完整页签与写轮眼小窗共用）放行任意
     // http/https 导航（自由浏览），其余（dsh web）维持 origin 锁定。fromPartition
     // 返回同 partition 的 session 单例，webview 挂载的 session 与之身份相等即
@@ -530,12 +735,49 @@ app.whenReady().then(async () => {
     log.error('Failed to start MCP HTTP server:', err)
   }
 
+  // 插件视图：装配注册表（真实 deps）→ 首扫 manifest → UI token 对账 → 协议
+  // handler 安装。须在窗口创建前完成，renderer 启动时的 plugin:list 才带得上视图。
+  try {
+    initPluginViewRegistry({
+      getEnabledEntries: () => pluginRepository.getEnabled(),
+      pluginDirOf: (entry) =>
+        isAbsolute(entry.path) ? entry.path : join(getPluginsDir(), entry.path),
+      readManifestViews: (entry) => {
+        try {
+          const dir = isAbsolute(entry.path) ? entry.path : join(getPluginsDir(), entry.path)
+          const manifestPath = join(dir, 'lyshell-plugin.json')
+          if (!fs.existsSync(manifestPath)) return []
+          const result = validateManifest(JSON.parse(fs.readFileSync(manifestPath, 'utf-8')))
+          if (!result.ok || !result.manifest) return []
+          return result.manifest.contributes?.views ?? []
+        } catch {
+          return []
+        }
+      },
+      broadcast: () => {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) win.webContents.send(IPC_CHANNELS.PLUGIN_VIEWS_CHANGED)
+        }
+      },
+      logWarn: (msg, ...rest) => log.warn(msg, ...rest)
+    })
+    getPluginViewRegistry().refreshAll()
+    refreshAllPluginUiTokens(getPluginViewRegistry())
+    installProtocolHandlersForEnabledPlugins()
+  } catch (err) {
+    log.error('Failed to init plugin view registry:', err)
+  }
+
   // 启动 plugin host（依赖 MCP HTTP server 已就绪；无 enabled 插件时为 no-op）
   try {
     pluginHostManager.start()
   } catch (err) {
     log.error('Failed to start plugin host:', err)
   }
+
+  // 注册 IPC 处理器 —— 必须先于 createMainWindow：renderer 启动即发起
+  // plugin:list 等 invoke，handler 未就绪时首批调用会被「No handler registered」拒绝
+  registerIPCHandlers()
 
   // 创建主窗口
   createMainWindow()
@@ -564,9 +806,6 @@ app.whenReady().then(async () => {
 
   // 注册窗口级快捷键(必须在 createMainWindow 之后,因为依赖 mainWindow.webContents)
   registerWindowShortcuts()
-
-  // 注册 IPC 处理器
-  registerIPCHandlers()
 
   // 注册窗口相关 IPC 处理器
   ipcMain.handle('window:get-bounds', async () => {
@@ -684,6 +923,8 @@ app.on('will-quit', (event) => {
     stopMcpHttpServerImpl()  // 停止 MCP HTTP 服务器
   }
   pluginHostManager.stop()  // 停止 plugin host 子进程 + 撤销 plugin token
+  // 弹窗全量清理（guest 随窗口销毁，这里只是把 pending/attached 表清空并给发起方补取消事件）
+  pluginDialogManager.clearAll()
   cleanupDownloadsDir(getPluginsDir())  // 清理 URL 安装临时下载(.downloads/),防累积
   mcpAuditRepository.flushSync()  // 同步落盘 MCP 审计日志，防丢最近事件
   reachabilityProber.stop()  // 停止可达性探测定时器

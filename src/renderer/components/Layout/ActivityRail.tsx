@@ -1,9 +1,11 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
 import { McpActivityRailSlot } from './McpActivityRailSlot'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
+import { makePluginViewKey, parsePluginViewKey } from '@shared/plugin-types'
+import type { PluginViewMeta } from '@shared/plugin-types'
 
 /**
  * 左侧机柜竖版页签轨 -- 把"会话 / Agent / 插件"三权并立成等高的机柜卡槽。
@@ -24,13 +26,26 @@ import { TOPBAR_HEIGHT } from './topbar-metrics'
  * 两个形态 -- 开关永远停在窗口左上角,展开时是本槽,收起时是 pill,150ms 交叉淡变。
  * 槽高读 TOPBAR_HEIGHT,与终端第一行页签条齐平。
  */
-export type NavTab = 'sessions' | 'agents' | 'dsh' | 'codex' | 'claude' | 'env' | 'plugins' | 'web' | 'settings'
+/** 固定页签白名单（内容页签 + 轨底设置槽）—— localStorage 恢复校验与类型收窄共用 */
+export const FIXED_NAV_TABS = ['sessions', 'agents', 'dsh', 'codex', 'claude', 'env', 'plugins', 'web', 'settings'] as const
+export type FixedNavTab = (typeof FIXED_NAV_TABS)[number]
+
+/** 插件视图页签：复合键 plugin:${pluginId}:${viewId}（@shared makePluginViewKey 构造、
+ *  parsePluginViewKey 解析，禁止各处自行拼接；模板字面量类型让固定页签仍保留字面量
+ *  自动补全，插件键经构造函数获得） */
+export type PluginViewNavTab = `plugin:${string}:${string}`
+
+export type NavTab = FixedNavTab | PluginViewNavTab
+
+export function isFixedNavTab(tab: string): tab is FixedNavTab {
+  return (FIXED_NAV_TABS as readonly string[]).includes(tab)
+}
 
 // 内容页签(上组):会话 / Agent / DeepSeek Harness / Codex / Claude / 变量组 / 插件 / 网页。
 // env 是三个 harness 与通用 Agent 共享的全局变量组库,排在启动面(sessions..claude)之后、
 // 资源组(plugins/web)之首。settings 是轨底独立工具槽,不在此列。
-const ALL_TABS: NavTab[] = ['sessions', 'agents', 'dsh', 'codex', 'claude', 'env', 'plugins', 'web']
-const TABS: NavTab[] = ALL_TABS
+const ALL_TABS: FixedNavTab[] = ['sessions', 'agents', 'dsh', 'codex', 'claude', 'env', 'plugins', 'web']
+const TABS: FixedNavTab[] = ALL_TABS
 
 /** 轨宽(px) -- 单一真相源:本组件容器宽与 MainWindow 宽度拖拽算式共用,防两处漂移 */
 export const RAIL_WIDTH = 44
@@ -163,7 +178,7 @@ const IconSettings: React.FC = () => (
   </svg>
 )
 
-const TAB_ICON: Record<NavTab, React.FC> = {
+const TAB_ICON: Record<FixedNavTab, React.FC> = {
   sessions: IconSessions,
   agents: IconAgents,
   dsh: DeepSeekWhaleIcon,
@@ -173,6 +188,27 @@ const TAB_ICON: Record<NavTab, React.FC> = {
   plugins: IconPlugins,
   web: IconWeb,
   settings: IconSettings,
+}
+
+/** 插件视图槽位图标：经受限 IPC 入口取 main 净化后的 data URL（主 renderer 默认
+ *  session 够不着插件专属 partition 上的资源协议，见 plan §三「图标入口」）；
+ *  失败或未声明 icon 回退内置 IconPlugins。 */
+const PluginRailIcon: React.FC<{ pluginId: string; viewId: string }> = ({ pluginId, viewId }) => {
+  const [icon, setIcon] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    setIcon(null)
+    window.electronAPI?.getPluginViewIcon(pluginId, viewId)
+      .then((r) => {
+        if (!cancelled && r?.success && r.data) setIcon(r.data)
+      })
+      .catch(() => { /* 取不到即用内置图标 */ })
+    return () => { cancelled = true }
+  }, [pluginId, viewId])
+  if (icon) {
+    return <img src={icon} alt="" draggable={false} className="w-[24px] h-[24px] object-contain" />
+  }
+  return <IconPlugins />
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -187,6 +223,8 @@ interface ActivityRailProps {
   onCollapse: () => void
   /** 在线会话数 -- sessions 槽位显示 live LED */
   liveCount?: number
+  /** 插件贡献的视图（plugin:list 快照，已启用插件才会带 views）——固定项之后稳定排序 */
+  pluginViews?: PluginViewMeta[]
 }
 
 const ActivityRail: React.FC<ActivityRailProps> = ({
@@ -194,11 +232,19 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
   onChange,
   onCollapse,
   liveCount = 0,
+  pluginViews = [],
 }) => {
   const { t } = useTranslation()
 
-  const labelFor = (tab: NavTab): string =>
-    tab === 'sessions' ? t('nav.sessions')
+  const labelFor = (tab: NavTab): string => {
+    if (!isFixedNavTab(tab)) {
+      // 插件视图槽位：title 用 manifest 值；键失效瞬间（列表已重拉但槽位还在树上）
+      // 回退复合键本身，不抛错
+      const parsed = parsePluginViewKey(tab)
+      const view = parsed ? pluginViews.find((v) => v.pluginId === parsed.pluginId && v.id === parsed.viewId) : undefined
+      return view?.title ?? tab
+    }
+    return tab === 'sessions' ? t('nav.sessions')
       : tab === 'agents' ? t('nav.agents')
         : tab === 'dsh' ? t('nav.dsh')
           : tab === 'codex' ? t('nav.codex')
@@ -207,6 +253,7 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
                 : tab === 'plugins' ? t('nav.plugins')
                   : tab === 'web' ? t('nav.web')
                     : t('nav.settings')
+  }
 
   /** sessions 槽位:有在线会话时亮 live LED;其余槽位无徽章 */
   const ledFor = (tab: NavTab): string | undefined =>
@@ -248,12 +295,16 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
           收起槽所在的窗口第一行不画竖线,收起槽 + 面板头条读作一条连续横带,
           竖线从第一行以下才开始。笼底整体染 bg-slot 成页签"条带"(chrome 材质,
           浏览器 chrome/页面的分工),激活槽的 bg-base 窗口在条带上挖出、与面板
-          同面无缝(见各槽位 span)。tablist 也落在这层:笼里全是真页签,收起控件不混入 */}
+          同面无缝(见各槽位 span)。tablist 也落在这层:笼里全是真页签,收起控件不混入。
+          插件视图槽位可能很多 —— 中段页签区可滚(min-h-0 + overflow-y-auto),
+          轨底工具槽组(MCP/设置)固定笼底,设置槽始终可见可达(plan §五) */}
       <div
-        className="flex flex-col flex-1 border-r border-[var(--rule)] bg-[var(--bg-slot)]"
+        className="flex flex-col flex-1 min-h-0 border-r border-[var(--rule)] bg-[var(--bg-slot)]"
         role="tablist"
         aria-orientation="vertical"
       >
+      {/* 可滚中段:固定内容页签 + 插件视图槽位 */}
+      <div className="flex flex-col flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
       {TABS.map((tab) => {
         const isActive = active === tab
         const Icon = TAB_ICON[tab]
@@ -336,6 +387,59 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
           </button>
         )
       })}
+
+      {/* 插件视图槽位 -- 每个 PluginViewMeta 一个槽,固定项之后稳定排序(注册表已按
+          安装序 → manifest 序 → 运行时注册序排好)。槽位 chrome 与固定页签同语言
+          (激活窗口 span + amber 左条 + mute/hover-data 图标),无 LED;图标经受限
+          IPC 取 main 净化后的 data URL,失败回退 IconPlugins。key 用复合键 --
+          注销/重注册按键卸载重挂,不串槽 */}
+      {pluginViews.map((view) => {
+        const tab = makePluginViewKey(view.pluginId, view.id)
+        const isActive = active === tab
+        const label = labelFor(tab)
+        return (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            aria-label={label}
+            title={label}
+            onClick={() => onChange(tab)}
+            className={cn(
+              'relative h-[40px] flex items-center justify-center transition-colors group',
+              'shadow-[inset_0_-1px_0_var(--bg-base)]',
+              'border-b border-[var(--rule-soft)]',
+              !isActive && 'hover:bg-[var(--bg-elev)]',
+              'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--amber)]'
+            )}
+          >
+            {isActive && (
+              <span
+                aria-hidden
+                className="absolute left-0 top-0 bottom-0 right-[-1px] bg-[var(--bg-base)]"
+              />
+            )}
+            {isActive && (
+              <span
+                aria-hidden
+                className="absolute left-0 top-0 bottom-0 w-[2px] bg-[var(--amber)] shadow-[0_0_4px_var(--amber-glow)]"
+              />
+            )}
+            <span
+              className={cn(
+                'relative transition-[color,transform] duration-200 ease-out group-hover:scale-110',
+                isActive
+                  ? 'text-[var(--amber)] animate-rail-icon-glow'
+                  : 'text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack-data)]'
+              )}
+            >
+              <PluginRailIcon pluginId={view.pluginId} viewId={view.id} />
+            </span>
+          </button>
+        )
+      })}
+      </div>
 
       {/* 轨底工具槽组 -- MCP 活动槽(McpActivityRailSlot 自带 mt-auto 整组推底) + 设置槽。
           MCP 槽非页签(切换 pane 覆盖层而非导航),置于设置槽上方;组内两槽间以

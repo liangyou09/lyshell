@@ -34,10 +34,19 @@ export interface TokenBinding {
   pluginId?: string
   /** 当 kind === 'plugin' 时，用户安装时批准的 capability 子集 */
   capabilities?: McpCapability[]
+  /**
+   * 当 kind === 'plugin' 时，token 来源：'host' = 插件宿主进程凭据（运行时视图注册
+   * 路由只接受它），'ui' = 界面视图页面凭据（callApi 回环用）。缺省视为 'host'
+   * （兼容既有调用方）。鉴权能力集两者同权，均按 pluginId 路由 grantedCapabilities。
+   */
+  tokenSource?: 'host' | 'ui'
 }
 
 const sessionTokens = new Map<string, string>()  // sessionId -> token
-const pluginTokens = new Map<string, { token: string; capabilities: McpCapability[] }>()  // pluginId -> { token, capabilities }
+const pluginTokens = new Map<string, { token: string; capabilities: McpCapability[] }>()  // pluginId -> { token, capabilities } —— 仅 host token
+// UI token（插件界面视图专用凭据，docs/plugin-ui-views-plan.md §二）：与 host token 分表，
+// 同一插件可同时持有两者，二次 bind 互不覆盖。token 只留在 main，不下发给 renderer/guest/插件宿主。
+const pluginUiTokens = new Map<string, { token: string; capabilities: McpCapability[] }>()  // pluginId -> { token, capabilities }
 let globalToken: string | null = null
 
 /**
@@ -95,6 +104,8 @@ export function bindPluginToken(pluginId: string, capabilities: McpCapability[])
 
 /**
  * 撤销指定插件的 token（插件禁用 / 卸载时调用，见 §8.4 三步撤销的第 2 步）。
+ * 仅撤 host token —— 不碰 UI token（host-mgr.stop()/restart() 逐插件撤 host token
+ * 时不得误撤仍启用插件的 UI token）。整插件撤销用 revokeAllPluginTokens。
  */
 export function revokePluginToken(pluginId: string): void {
   if (pluginTokens.delete(pluginId)) {
@@ -103,11 +114,50 @@ export function revokePluginToken(pluginId: string): void {
 }
 
 /**
+ * 为指定插件生成 UI token（界面视图专用凭据：每个已启用且有视图的插件一个，
+ * 含无 main 与 oneshot；动态注册首个视图时建立，注销最后一个视图时撤销）。
+ * 与 host token 分表并存，互不覆盖。重复绑定同一 pluginId 会先撤销旧 UI token。
+ */
+export function bindPluginUiToken(pluginId: string, capabilities: McpCapability[]): string {
+  revokePluginUiToken(pluginId)
+  const token = crypto.randomBytes(32).toString('hex')
+  pluginUiTokens.set(pluginId, { token, capabilities })
+  log.info(`[MCP][auth] bound plugin UI token for ${pluginId} (capabilities: ${capabilities.join(',')})`)
+  return token
+}
+
+/** 撤销指定插件的 UI token（注销最后一个视图 / 禁用 / 卸载 / 权限重签前调用）。 */
+export function revokePluginUiToken(pluginId: string): void {
+  if (pluginUiTokens.delete(pluginId)) {
+    log.info(`[MCP][auth] revoked plugin UI token for ${pluginId}`)
+  }
+}
+
+/** 插件当前是否持有 UI token（生命周期判定：有无视图凭据） */
+export function hasPluginUiToken(pluginId: string): boolean {
+  return pluginUiTokens.has(pluginId)
+}
+
+/** 取插件 UI token 明文（仅 main 进程内 callApi 回环调用使用，不下发任何进程） */
+export function getPluginUiToken(pluginId: string): string | null {
+  return pluginUiTokens.get(pluginId)?.token ?? null
+}
+
+/**
+ * 整插件撤销：host token + UI token 一起撤（禁用/卸载/权限变更重签前的三步撤销）。
+ */
+export function revokeAllPluginTokens(pluginId: string): void {
+  revokePluginToken(pluginId)
+  revokePluginUiToken(pluginId)
+}
+
+/**
  * 在 LyShell 退出时清空所有 token。
  */
 export function clearAllTokens(): void {
   sessionTokens.clear()
   pluginTokens.clear()
+  pluginUiTokens.clear()
   globalToken = null
 }
 
@@ -140,7 +190,14 @@ export function resolveToken(token: string | string[] | undefined): TokenBinding
   for (const [pluginId, { token: pluginToken, capabilities }] of pluginTokens) {
     const expected = Buffer.from(pluginToken, 'utf8')
     if (expected.length === candidate.length && crypto.timingSafeEqual(expected, candidate)) {
-      return { kind: 'plugin', pluginId, capabilities }
+      return { kind: 'plugin', pluginId, capabilities, tokenSource: 'host' }
+    }
+  }
+
+  for (const [pluginId, { token: uiToken, capabilities }] of pluginUiTokens) {
+    const expected = Buffer.from(uiToken, 'utf8')
+    if (expected.length === candidate.length && crypto.timingSafeEqual(expected, candidate)) {
+      return { kind: 'plugin', pluginId, capabilities, tokenSource: 'ui' }
     }
   }
 

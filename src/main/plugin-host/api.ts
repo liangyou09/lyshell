@@ -23,6 +23,22 @@ import type { PluginSpec } from '@shared/plugin-types'
 export interface PluginHttpClient {
   get(path: string): Promise<{ data: unknown }>
   post(path: string, body?: unknown): Promise<{ data: unknown }>
+  del?(path: string): Promise<{ data: unknown }>
+}
+
+/**
+ * 解析后的 API 调用（路由查找 + :id 替换 + GET query/POST body 规则）。
+ * 供 plugin host SDK 的 call() 与插件视图页面 callApi（view-bridge.ts）复用 ——
+ * 单一实现防两处规则漂移（docs/plugin-ui-views-plan.md §二「callApi 路由复用」）。
+ */
+export interface ResolvedApiCall {
+  route: (typeof API_ROUTES)[number]
+  /** :id 已替换的路径（无 query） */
+  path: string
+  /** GET query string（'' 表示无）；POST 恒为 '' */
+  query: string
+  /** POST body；GET 为 undefined */
+  body: unknown
 }
 
 /**
@@ -34,6 +50,45 @@ export interface PluginApiHooks {
   onSpawn?: (child: ChildProcess) => void
 }
 
+/**
+ * 工具名 → 可执行 HTTP 调用的纯解析。未知工具返回 null；:id 路由缺字符串
+ * sessionId 抛错（调用方转成具体错误消息）。
+ * @param requireHttpTransport 视图页面 callApi 只允许 http transport 工具（host SDK 不限）
+ */
+export function resolveApiRouteCall(
+  toolName: string,
+  args?: Record<string, unknown>,
+  opts?: { requireHttpTransport?: boolean; pluginId?: string }
+): ResolvedApiCall | null {
+  const route = API_ROUTES.find((r) => r.name === toolName)
+  if (!route) return null
+  if (opts?.requireHttpTransport && !route.transports.includes('http')) {
+    throw new Error(
+      `[${opts.pluginId ?? 'view'}] tool ${toolName} is not available over HTTP transport`
+    )
+  }
+  // :id 路径参数（如 /api/sessions/:id/notes）：把 sessionId 移入路径
+  let path = route.path
+  let body = args
+  if (path.includes(':id')) {
+    const sessionId = args?.sessionId
+    if (typeof sessionId !== 'string') {
+      throw new Error(`${toolName} requires string sessionId for :id path`)
+    }
+    path = path.replace(':id', encodeURIComponent(sessionId))
+    const rest: Record<string, unknown> = { ...(args ?? {}) }
+    delete rest.sessionId
+    body = rest
+  }
+  if (route.method === 'GET') {
+    // GET 不带 body:把剩余参数(:id 路由已剥离 sessionId)拼成 query string。
+    // 仅展平原始值(string/number/boolean),undefined/null 与对象/数组跳过(GET 不宜携复合结构)。
+    const query = buildQuery(body)
+    return { route, path, query, body: undefined }
+  }
+  return { route, path, query: '', body }
+}
+
 export function createPluginApi(
   spec: PluginSpec,
   client: PluginHttpClient,
@@ -43,11 +98,43 @@ export function createPluginApi(
   return {
     pluginId: spec.pluginId,
     grantedCapabilities: spec.grantedCapabilities,
+    /**
+     * 运行时视图注册/注销（Node 持久插件用；声明式 views 不许被运行时覆盖，
+     * 由 http-server 侧统一校验后落到 view-registry）。HTTP 路由:
+     *   POST   /api/plugins/:pluginId/views
+     *   DELETE /api/plugins/:pluginId/views/:viewId
+     * host token 专有（UI token 走不到这两条路由）。
+     */
+    async registerView(def) {
+      // 在途失败（host 被 kill / 插件被禁用）在 http-server 侧给出具体 4xx；
+      // 这里把网络层异常包一层上下文，避免插件看到裸 fetch 错误。
+      try {
+        await client.post(`/api/plugins/${encodeURIComponent(spec.pluginId)}/views`, def)
+      } catch (e) {
+        throw new Error(`[plugin ${spec.pluginId}] registerView failed: ${(e as Error).message}`)
+      }
+    },
+    async unregisterView(id) {
+      if (!client.del) {
+        throw new Error(`[plugin ${spec.pluginId}] unregisterView: http client does not support DELETE`)
+      }
+      try {
+        await client.del(`/api/plugins/${encodeURIComponent(spec.pluginId)}/views/${encodeURIComponent(id)}`)
+      } catch (e) {
+        throw new Error(`[plugin ${spec.pluginId}] unregisterView(${id}) failed: ${(e as Error).message}`)
+      }
+    },
     async call(toolName, args) {
-      const route = API_ROUTES.find((r) => r.name === toolName)
-      if (!route) {
+      let resolved: ResolvedApiCall | null
+      try {
+        resolved = resolveApiRouteCall(toolName, args, { pluginId: spec.pluginId })
+      } catch (e) {
+        throw new Error(`[plugin ${spec.pluginId}] ${(e as Error).message}`)
+      }
+      if (!resolved) {
         throw new Error(`[plugin ${spec.pluginId}] unknown tool: ${toolName}`)
       }
+      const { route, path, query, body } = resolved
       // 前置 capability gate（候选级宽松）：持候选集中任一即放行。
       // http-server 兜底严格鉴权（运行时按会话类型选实际 capability）。
       if (!route.capabilities.some((c) => granted.has(c))) {
@@ -56,24 +143,7 @@ export function createPluginApi(
             `(needs one of [${route.capabilities.join(', ')}], has [${spec.grantedCapabilities.join(', ')}])`
         )
       }
-      // :id 路径参数（如 /api/sessions/:id/notes）：把 sessionId 移入路径
-      let path = route.path
-      let body = args
-      if (path.includes(':id')) {
-        const sessionId = args?.sessionId
-        if (typeof sessionId !== 'string') {
-          throw new Error(`[plugin ${spec.pluginId}] ${toolName} requires string sessionId for :id path`)
-        }
-        path = path.replace(':id', encodeURIComponent(sessionId))
-        const rest: Record<string, unknown> = { ...(args ?? {}) }
-        delete rest.sessionId
-        body = rest
-      }
       if (route.method === 'GET') {
-        // GET 不带 body:把剩余参数(:id 路由已剥离 sessionId)拼成 query string。
-        // 当前唯一 GET 路由 read_session_notes 无额外参数 -> rest 空 -> 无 query;此分支为未来 GET 路由预留。
-        // 仅展平原始值(string/number/boolean),undefined/null 与对象/数组跳过(GET 不宜携复合结构)。
-        const query = buildQuery(body)
         const getResult = await client.get(query ? `${path}?${query}` : path)
         return getResult.data
       }

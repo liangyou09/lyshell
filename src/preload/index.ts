@@ -161,7 +161,16 @@ const IPC_CHANNELS = {
   PLUGIN_ENABLE: 'plugin:enable',
   PLUGIN_DISABLE: 'plugin:disable',
   PLUGIN_RUN_ONESHOT: 'plugin:run-oneshot',
-  PLUGIN_UNINSTALL: 'plugin:uninstall'
+  PLUGIN_UNINSTALL: 'plugin:uninstall',
+
+  // 插件界面视图（机柜轨贡献点；通道语义见 @shared/constants IPC_CHANNELS 同名注释）
+  PLUGIN_VIEWS_CHANGED: 'plugin:views-changed',
+  PLUGIN_VIEW_ICON: 'plugin:view-icon',
+  PLUGIN_VIEW_ACTION_REQUEST: 'plugin:view-action-request',
+  PLUGIN_VIEW_ACTION_RESULT: 'plugin:view-action-result',
+
+  // 界面明暗模式推送（renderer→main fire-and-forget；插件视图页主题感知用）
+  UI_THEME_MODE: 'ui:theme-mode'
 }
 
 // 暴露给渲染进程的 API
@@ -367,6 +376,33 @@ const electronAPI = {
   disablePlugin: (pluginId: string) => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_DISABLE, pluginId),
   runOneshotPlugin: (pluginId: string) => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_RUN_ONESHOT, pluginId),
   uninstallPlugin: (pluginId: string) => ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_UNINSTALL, pluginId),
+
+  // 插件视图页面主题感知：把界面明暗模式推给 main（fire-and-forget；插件 guest
+  // 页的 bootstrap().theme / themeChanged 事件以 main 持有的快照为准）
+  setThemeMode: (mode: 'dark' | 'light') => ipcRenderer.send(IPC_CHANNELS.UI_THEME_MODE, mode),
+
+  // ====================== 插件界面视图（机柜轨贡献点） ======================
+  // 视图列表变化推送（负载为空，收到后调 listPlugins 重拉完整快照）
+  onPluginViewsChanged: (callback: () => void) => {
+    const listener = () => callback()
+    ipcRenderer.on(IPC_CHANNELS.PLUGIN_VIEWS_CHANGED, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.PLUGIN_VIEWS_CHANGED, listener)
+  },
+  // 视图图标：只传 pluginId/viewId，main 在已注册定义中查 icon 并净化后回 data URL
+  // （失败 data:null，消费端回退内置图标）。返回信封 { success, data, error? }。
+  getPluginViewIcon: (pluginId: string, viewId: string): Promise<{ success: boolean; data: string | null; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_VIEW_ICON, { pluginId, viewId }),
+  // UI 动作请求（main → renderer 单向推送）：guest 动作经 main 授权后转交本窗口执行
+  onPluginViewActionRequest: (
+    callback: (request: { requestId: string; action: string; pluginId: string; viewId: string; params: Record<string, unknown> }) => void
+  ) => {
+    const listener = (_event: IpcRendererEvent, request: { requestId: string; action: string; pluginId: string; viewId: string; params: Record<string, unknown> }) => callback(request)
+    ipcRenderer.on(IPC_CHANNELS.PLUGIN_VIEW_ACTION_REQUEST, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.PLUGIN_VIEW_ACTION_REQUEST, listener)
+  },
+  // 动作回执（renderer → main）：requestId 对账，main 只接受目标窗口的首次回执
+  sendPluginViewActionResult: (receipt: { requestId: string; ok: boolean; error?: string }) =>
+    ipcRenderer.send(IPC_CHANNELS.PLUGIN_VIEW_ACTION_RESULT, receipt),
 
   // 窗口
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),

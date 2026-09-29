@@ -52,6 +52,12 @@ import { mcpAuditRepository } from '../storage/mcp-audit-repository'
 import type { McpAuditQuery } from '../storage/mcp-audit-repository'
 import { pluginRepository, getPluginsDir } from '../storage/plugin-repository'
 import { pluginHostManager } from '../plugin/host-mgr'
+import { getPluginViewRegistry } from '../plugin/view-registry'
+import { readPluginViewIconDataUrl } from '../plugin/view-icons'
+import { refreshAllPluginUiTokens } from '../plugin/view-tokens'
+import { registerPluginViewIpc, teardownPluginViews } from '../plugin/view-bridge'
+import { installProtocolHandlersForEnabledPlugins } from '../plugin/view-protocol'
+import { revokeAllPluginTokens } from '../mcp/auth'
 import { validateManifest, checkEngines, normalizeLifecycle } from '@shared/plugin-types'
 import {
   readManifestFromZip,
@@ -75,6 +81,7 @@ import type {
   PluginRegistryEntry,
   PluginRuntime,
   PluginLifecycle,
+  PluginViewMeta,
   ActivationEvent
 } from '@shared/plugin-types'
 import type { McpCapability } from '@shared/api-routes'
@@ -609,6 +616,9 @@ export function registerIPCHandlers(): void {
   reachabilityProber.stop()
   syncReachabilityTargets()
   reachabilityProber.start()
+
+  // 插件视图 guest 桥（bootstrap/callApi/动作/弹窗关闭 + 回执；内部幂等）
+  registerPluginViewIpc()
 
   ipcMain.handle(IPC_CHANNELS.REACHABILITY_PROBE_NOW, async () => {
     syncReachabilityTargets()
@@ -2680,6 +2690,24 @@ export function registerIPCHandlers(): void {
   // 顺序:先改 registry(remove/setEnabled/upsert)再 restart -- start() 重读 getEnabled 才能反映变更。
   // 审计复用 mcpAuditRepository.append(operation='plugin:*')。
 
+  /**
+   * 视图生命周期联动（docs/plugin-ui-views-plan.md §二）：安装/启用/禁用/卸载后调用。
+   * 顺序 = 先变更（注册表 refreshAll 内部丢弃禁用插件的视图）→ 撤权（调用方先行）
+   * → 再通知（refreshAll 变化时广播 PLUGIN_VIEWS_CHANGED，renderer 重拉 plugin:list）。
+   * refreshAllPluginUiTokens 随后对账 UI token（禁用/卸载撤销，启用补签）。
+   */
+  const syncPluginViews = (): void => {
+    try {
+      const viewRegistry = getPluginViewRegistry()
+      viewRegistry.refreshAll()
+      refreshAllPluginUiTokens(viewRegistry)
+      // 新启用插件的 partition 协议 handler（幂等；禁用插件的 handler 拒服双保险）
+      installProtocolHandlersForEnabledPlugins()
+    } catch (e) {
+      log.warn('[plugin] view registry not initialized; skip view sync:', e)
+    }
+  }
+
   /** 读单条 entry 的 manifest 展示字段;manifest 读失败时降级(name=id、runtime='node')。 */
   const enrichEntry = (entry: PluginRegistryEntry): PluginListItem => {
     let name = entry.id
@@ -2698,14 +2726,22 @@ export function registerIPCHandlers(): void {
           runtime = result.manifest.runtime
           lifecycle = normalizeLifecycle(runtime, result.manifest.lifecycle)
           main = result.manifest.main
-          activationEvents = result.manifest.activationEvents
+          activationEvents = result.manifest.activationEvents ?? []
           capabilities = result.manifest.capabilities
         }
       }
     } catch (e) {
       log.warn(`[plugin] Failed to enrich entry ${entry.id}:`, e)
     }
-    return { ...entry, name, runtime, lifecycle, main, activationEvents, capabilities }
+    // 视图从 view-registry 填充（manifest + 运行时合并，plugin:list 与通知重拉同源）。
+    // 禁用插件返回空数组，避免误入轨道；管理卡展示禁用前声明时另用展示字段。
+    let views: PluginViewMeta[] = []
+    try {
+      if (entry.enabled) views = getPluginViewRegistry().listViewsForPlugin(entry.id)
+    } catch (e) {
+      log.warn(`[plugin] view registry unavailable for ${entry.id}:`, e)
+    }
+    return { ...entry, name, runtime, lifecycle, main, activationEvents, capabilities, views }
   }
 
   ipcMain.handle('plugin:list', async () => {
@@ -2782,6 +2818,7 @@ export function registerIPCHandlers(): void {
       }
       pluginRepository.upsert(entry)
       pluginHostManager.restart()
+      syncPluginViews()
       mcpAuditRepository.append({
         operation: 'plugin:install',
         capability: granted.join(','),
@@ -2971,6 +3008,7 @@ export function registerIPCHandlers(): void {
       }
       pluginRepository.upsert(entry)
       pluginHostManager.restart()
+      syncPluginViews()
       mcpAuditRepository.append({
         operation: 'plugin:install',
         capability: granted.join(','),
@@ -3012,6 +3050,7 @@ export function registerIPCHandlers(): void {
       const ok = pluginRepository.setEnabled(id, true)
       if (ok) {
         pluginHostManager.restart()
+        syncPluginViews()
         mcpAuditRepository.append({
           operation: 'plugin:enable',
           capability: '',
@@ -3031,7 +3070,12 @@ export function registerIPCHandlers(): void {
       const id = assertString(pluginId, 'pluginId', { maxLength: 128 })
       const ok = pluginRepository.setEnabled(id, false)
       if (ok) {
+        // 先变更/撤权（整插件撤销：host + UI token 一起失效，旧页面动作即刻 401），
+        // 再 restart + 视图联动通知 renderer 重拉。guest 面板/弹窗 main 侧强制关闭。
+        revokeAllPluginTokens(id)
+        teardownPluginViews(id)
         pluginHostManager.restart()
+        syncPluginViews()
         mcpAuditRepository.append({
           operation: 'plugin:disable',
           capability: '',
@@ -3072,7 +3116,12 @@ export function registerIPCHandlers(): void {
       const entry = pluginRepository.get(id)
       if (!entry) return { success: false, error: '插件不存在' }
       pluginRepository.remove(id)
+      // 三步撤销第 2 步扩展：host + UI token 一起撤（视图凭据不得比注册表活得久）。
+      // guest 面板/弹窗 main 侧强制关闭（与 disable 同语义）。
+      revokeAllPluginTokens(id)
+      teardownPluginViews(id)
       pluginHostManager.restart()
+      syncPluginViews()
       // dev 插件 path 指向开发者源码树,卸载只删记录,绝不删源文件夹;仅 !dev(zip 安装)才删。
       // 删前 assertUnderBase 兜底:pluginDir 必须严格在 pluginsDir 下,防 path 越界误删(zip-slip 纵深防御)。
       if (!entry.dev) {
@@ -3096,6 +3145,23 @@ export function registerIPCHandlers(): void {
       return { success: true }
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  // 视图图标（plugin:view-icon）：只接收 pluginId/viewId，main 在已注册视图定义中
+  // 查出 icon 相对路径并经 realpath 包围 + SVG 净化后以 data URL 返回（view-icons.ts）。
+  // 不接收 renderer 传来的任意文件路径；任何失败降级 data:null，轨道回退 IconPlugins。
+  ipcMain.handle('plugin:view-icon', (_event, raw: unknown): { success: boolean; data: string | null; error?: string } => {
+    try {
+      const params = assertObject(raw, 'params') as { pluginId?: unknown; viewId?: unknown }
+      const pluginId = assertString(params.pluginId, 'pluginId', { maxLength: 64 })
+      const viewId = assertString(params.viewId, 'viewId', { maxLength: 64 })
+      if (!/^[a-z0-9-]+$/.test(pluginId) || !/^[a-z][a-z0-9-]*$/.test(viewId)) {
+        return { success: false, data: null, error: 'invalid pluginId/viewId' }
+      }
+      return { success: true, data: readPluginViewIconDataUrl(pluginId, viewId) }
+    } catch (error) {
+      return { success: false, data: null, error: (error as Error).message }
     }
   })
 

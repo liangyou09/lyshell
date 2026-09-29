@@ -83,6 +83,16 @@
     "emptyHint": "Use the + above to install from a dev folder, local zip, or URL",
     "granted": "Granted",
     "declared": "Declared (not granted)",
+    "capDesc": {
+      "read": "Read: list sessions, read terminal output, files and session notes",
+      "interactiveWrite": "Interactive write: send input to terminals",
+      "execute": "Execute: run commands inside SSH sessions",
+      "localExecute": "Local execute: run commands on this machine",
+      "fileWrite": "File write: upload / download files",
+      "sessionControl": "Session control: create, reconnect, close sessions (also needed for view openTerminal)",
+      "sessionMetadataWrite": "Notes write: write session summary, usage notes and tags",
+      "uiControl": "UI control: view actions like opening tabs / dialogs and runtime view registration"
+    },
     "lifecycleOneshot": "oneshot",
     "lifecyclePersistent": "persistent",
     "enabled": "Enabled",
@@ -94,6 +104,11 @@
     "uninstall": "Uninstall",
     "uninstallFail": "Uninstall failed",
     "toggleFail": "Operation failed"
+  },
+  "pluginView": {
+    "loadFailed": "View failed to load",
+    "crashed": "View process crashed",
+    "retry": "Retry"
   },
   "nav": {
     "sessions": "Sessions",

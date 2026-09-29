@@ -1,0 +1,35 @@
+<!doctype html>
+<!-- my-view-plugin / status 视图：纯声明式（manifest contributes.views），无 main 入口。
+     页面没有任何 token，全部能力经 window.lyshellView（main 侧按插件授权逐次校验）。
+     CSP 由 main 下发（script-src 'self'）：JS 必须是 views/ 下的外部文件，不能内联。 -->
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>My Status</title>
+  <style>
+    /* 主题适配：bootstrap().theme / themeChanged 事件驱动（JS 里给 <html> 打 data-theme） */
+    :root { color-scheme: dark; --pg-bg: #17171b; --pg-fg: #d9d9de; --pg-mute: #8a8a94; --pg-line: #34343c; --pg-btn: #232329; }
+    :root[data-theme="light"] { color-scheme: light; --pg-bg: #f6f5f2; --pg-fg: #24242a; --pg-mute: #6f6f78; --pg-line: #d8d6d0; --pg-btn: #ebebe7; }
+    body { font: 13px/1.6 system-ui, sans-serif; margin: 0; padding: 12px; background: var(--pg-bg); color: var(--pg-fg); }
+    h3 { margin: 0 0 8px; }
+    dl { margin: 8px 0; }
+    dt { font-weight: 600; }
+    dd { margin: 0 0 8px; opacity: .75; word-break: break-all; }
+    button { margin: 0 6px 6px 0; padding: 4px 10px; background: var(--pg-btn); color: var(--pg-fg); border: 1px solid var(--pg-line); border-radius: 2px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h3>Declarative view demo（无 main / 无插件进程）</h3>
+  <dl>
+    <dt>bootstrap</dt>
+    <dd id="boot">loading…</dd>
+    <dt>callApi / actions</dt>
+    <dd id="state">–</dd>
+    <dt>dialog result</dt>
+    <dd id="dialog-result">–</dd>
+  </dl>
+  <button id="open-web" type="button">openWebTab(example.com)</button>
+  <button id="open-dialog" type="button">openDialog(picker)</button>
+  <script src="status.js"></script>
+</body>
+</html>

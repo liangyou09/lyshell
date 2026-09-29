@@ -1,5 +1,18 @@
 import { describe, it, expect } from 'vitest'
-import { validateManifest, checkEngines, getDefaultLifecycle, normalizeLifecycle, isLegacyPythonStartup, shouldActivateOnStartup } from './plugin-types'
+import {
+  validateManifest,
+  checkEngines,
+  getDefaultLifecycle,
+  normalizeLifecycle,
+  isLegacyPythonStartup,
+  shouldActivateOnStartup,
+  validateViewDefinition,
+  validateViewDefinitionList,
+  makePluginViewKey,
+  parsePluginViewKey,
+  isPluginViewKey,
+  PLUGIN_MAX_VIEWS
+} from './plugin-types'
 
 /** 一份合法的清单基线，各用例在此基础上破坏单个字段 */
 const validManifest: Record<string, unknown> = {
@@ -112,6 +125,20 @@ describe('validateManifest', () => {
     expect(r.errors.some((e) => e.startsWith('invalid activationEvent'))).toBe(true)
   })
 
+  it('activationEvents 缺省合法（纯声明式清单不声明激活事件）', () => {
+    const withoutEvents = { ...validManifest } as Record<string, unknown>
+    delete withoutEvents.activationEvents
+    const r = validateManifest(withoutEvents)
+    expect(r.ok).toBe(true)
+    expect(r.manifest?.activationEvents).toBeUndefined()
+  })
+
+  it('activationEvents 非数组仍拒绝', () => {
+    const r = validateManifest({ ...validManifest, activationEvents: 'onStartup' as unknown as never })
+    expect(r.ok).toBe(false)
+    expect(r.errors).toContain('activationEvents must be an array')
+  })
+
   it('接受所有合法 activationEvent 形态', () => {
     const r = validateManifest({
       ...validManifest,
@@ -120,7 +147,7 @@ describe('validateManifest', () => {
     expect(r.ok).toBe(true)
   })
 
-  it('接受全部 7 种合法 capability', () => {
+  it('接受全部 8 种合法 capability（含 uiControl）', () => {
     const r = validateManifest({
       ...validManifest,
       capabilities: [
@@ -130,9 +157,15 @@ describe('validateManifest', () => {
         'localExecute',
         'fileWrite',
         'sessionControl',
-        'sessionMetadataWrite'
+        'sessionMetadataWrite',
+        'uiControl'
       ]
     })
+    expect(r.ok).toBe(true)
+  })
+
+  it('接受 uiControl capability（视图/UI 动作专用）', () => {
+    const r = validateManifest({ ...validManifest, capabilities: ['uiControl'] })
     expect(r.ok).toBe(true)
   })
 
@@ -276,5 +309,167 @@ describe('checkEngines', () => {
     const r = checkEngines('^1.0', 'not-a-version')
     expect(r.ok).toBe(false)
     expect(r.warning).toBeTruthy()
+  })
+})
+
+// ====================== 界面视图（contributes.views / 运行时注册） ======================
+
+const validView: Record<string, unknown> = {
+  id: 'status-panel',
+  title: 'Status Panel',
+  entry: 'views/panel.html'
+}
+
+describe('validateViewDefinition', () => {
+  it('接受合法定义（含 icon）', () => {
+    const r = validateViewDefinition({ ...validView, icon: 'assets/icon.svg' })
+    expect(r.ok).toBe(true)
+    expect(r.view?.entry).toBe('views/panel.html')
+    expect(r.view?.icon).toBe('assets/icon.svg')
+  })
+
+  it('接受子目录 views 下的 entry', () => {
+    expect(validateViewDefinition({ ...validView, entry: 'views/sub/page.html' }).ok).toBe(true)
+  })
+
+  it('拒绝非对象 / 缺字段 / 空字段', () => {
+    for (const raw of [null, 'x', 42, [], {}, { id: 'a', entry: 'views/a.html' }, { title: 't', entry: 'views/a.html' }, { id: 'a', title: 't' }]) {
+      expect(validateViewDefinition(raw).ok).toBe(false)
+    }
+  })
+
+  it('拒绝非法 id（大写开头 / 下划线 / 空格 / 过长）', () => {
+    for (const id of ['Bad', '1abc', 'has_underscore', 'has space', '', 'a'.repeat(65)]) {
+      const r = validateViewDefinition({ ...validView, id })
+      expect(r.ok).toBe(false)
+      expect(r.errors.some((e) => e.startsWith('view.id'))).toBe(true)
+    }
+  })
+
+  it('接受 64 字符以内 id，拒绝超长', () => {
+    expect(validateViewDefinition({ ...validView, id: 'a'.repeat(64) }).ok).toBe(true)
+    expect(validateViewDefinition({ ...validView, id: 'a'.repeat(65) }).ok).toBe(false)
+  })
+
+  it('拒绝空标题 / 超长标题', () => {
+    expect(validateViewDefinition({ ...validView, title: '' }).ok).toBe(false)
+    expect(validateViewDefinition({ ...validView, title: '   ' }).ok).toBe(false)
+    expect(validateViewDefinition({ ...validView, title: 'x'.repeat(65) }).ok).toBe(false)
+  })
+
+  it('entry 必须位于 views/ 目录下且为 .html', () => {
+    for (const entry of ['panel.html', 'src/panel.html', 'views/panel.js', 'views/panel.htm', 'views/', 'views//a.html', 'viewsx/a.html', 'VIEWS/a.html']) {
+      const r = validateViewDefinition({ ...validView, entry })
+      expect(r.ok).toBe(false)
+      expect(r.errors.some((e) => e.startsWith('view.entry'))).toBe(true)
+    }
+  })
+
+  it('拒绝编码遍历 / .. 段 / 反斜杠', () => {
+    for (const entry of ['views/../secret.txt', 'views/%2e%2e/secret.txt', 'views/a/../../evil.html', 'views\\panel.html', 'views/..\\evil.html']) {
+      const r = validateViewDefinition({ ...validView, entry })
+      expect(r.ok).toBe(false)
+    }
+  })
+
+  it('拒绝盘符 / 绝对路径 / NUL / 查询串 / fragment / 空路径', () => {
+    for (const entry of ['C:\\evil.html', 'C:/evil.html', '/etc/evil.html', 'views/a.html\0', 'views/a.html?x=1', 'views/a.html#frag', '']) {
+      const r = validateViewDefinition({ ...validView, entry })
+      expect(r.ok).toBe(false)
+      expect(r.errors.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('icon 仅接受 .svg/.png 且受同样路径规则约束', () => {
+    expect(validateViewDefinition({ ...validView, icon: 'icon.svg' }).ok).toBe(true)
+    expect(validateViewDefinition({ ...validView, icon: 'icon.png' }).ok).toBe(true)
+    expect(validateViewDefinition({ ...validView, icon: 'icon.exe' }).ok).toBe(false)
+    expect(validateViewDefinition({ ...validView, icon: '../icon.svg' }).ok).toBe(false)
+    expect(validateViewDefinition({ ...validView, icon: '/abs/icon.svg' }).ok).toBe(false)
+    expect(validateViewDefinition({ ...validView, icon: '' }).ok).toBe(false)
+  })
+
+  it('icon 为 undefined 时可选省略', () => {
+    const r = validateViewDefinition(validView)
+    expect(r.ok).toBe(true)
+    expect(r.view?.icon).toBeUndefined()
+  })
+})
+
+describe('validateViewDefinitionList', () => {
+  const view = (id: string) => ({ id, title: `V ${id}`, entry: `views/${id}.html` })
+
+  it('接受最多 8 个视图', () => {
+    const views = Array.from({ length: PLUGIN_MAX_VIEWS }, (_, i) => view(`v${i}`))
+    const r = validateViewDefinitionList(views)
+    expect(r.ok).toBe(true)
+    expect(r.views).toHaveLength(PLUGIN_MAX_VIEWS)
+  })
+
+  it('拒绝超过 8 个视图', () => {
+    const views = Array.from({ length: PLUGIN_MAX_VIEWS + 1 }, (_, i) => view(`v${i}`))
+    const r = validateViewDefinitionList(views)
+    expect(r.ok).toBe(false)
+    expect(r.errors.some((e) => e.includes('at most 8'))).toBe(true)
+  })
+
+  it('拒绝重复 ID', () => {
+    const r = validateViewDefinitionList([view('dup'), view('dup')])
+    expect(r.ok).toBe(false)
+    expect(r.errors.some((e) => e.includes('duplicate view id'))).toBe(true)
+  })
+
+  it('拒绝非数组', () => {
+    expect(validateViewDefinitionList('x').ok).toBe(false)
+    expect(validateViewDefinitionList({}).ok).toBe(false)
+  })
+
+  it('逐项校验并汇总错误', () => {
+    const r = validateViewDefinitionList([view('ok1'), { ...view('bad'), entry: '../evil.html' }])
+    expect(r.ok).toBe(false)
+    expect(r.views).toHaveLength(1)
+    expect(r.errors.length).toBeGreaterThan(0)
+  })
+})
+
+describe('插件视图复合键（plugin:{pluginId}:{viewId}）', () => {
+  it('构造 + 解析往返', () => {
+    const key = makePluginViewKey('my-view-plugin', 'status-panel')
+    expect(key).toBe('plugin:my-view-plugin:status-panel')
+    expect(isPluginViewKey(key)).toBe(true)
+    expect(parsePluginViewKey(key)).toEqual({ pluginId: 'my-view-plugin', viewId: 'status-panel' })
+  })
+
+  it('viewId 含连字符与数字', () => {
+    const key = makePluginViewKey('plugin-1', 'view-2x')
+    expect(parsePluginViewKey(key)).toEqual({ pluginId: 'plugin-1', viewId: 'view-2x' })
+  })
+
+  it('拒绝非插件键 / 空段 / 非法 id', () => {
+    for (const key of [
+      'sessions',
+      'web:1',
+      'plugin:',
+      'plugin:abc',
+      'plugin::view',
+      'plugin:abc:',
+      'plugin:abc:View',
+      'plugin:abc:view_id',
+      'plugin:Abc:view',
+      '',
+      'pluginx:abc:view'
+    ]) {
+      expect(isPluginViewKey(key)).toBe(false)
+      expect(parsePluginViewKey(key)).toBeNull()
+    }
+  })
+
+  it('pluginId 允许数字开头（插件 id 规则），viewId 不允许', () => {
+    expect(parsePluginViewKey(makePluginViewKey('1plugin', 'view'))).toEqual({ pluginId: '1plugin', viewId: 'view' })
+    expect(isPluginViewKey('plugin:1p:1view')).toBe(false)
+  })
+
+  it('只取第一个冒号分段，后续冒号落入 viewId 并被 id 规则拒绝', () => {
+    expect(isPluginViewKey('plugin:abc:view:extra')).toBe(false)
   })
 })

@@ -49,7 +49,10 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          index: resolve(__dirname, 'src/preload/index.ts')
+          index: resolve(__dirname, 'src/preload/index.ts'),
+          // 插件视图 guest 页面专用 preload（pluginView.js）：guest sandboxed preload，
+          // 只经 contextBridge 暴露 window.lyshellView（bootstrap/callApi/动作/弹窗）
+          pluginView: resolve(__dirname, 'src/preload/plugin-view.ts')
         },
         output: {
           format: 'cjs',

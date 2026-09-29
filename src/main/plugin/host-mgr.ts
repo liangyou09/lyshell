@@ -31,6 +31,7 @@ import { pluginRepository, getPluginsDir } from '@main/storage/plugin-repository
 import { bindPluginToken, revokePluginToken } from '@main/mcp/auth'
 import { getMcpHttpPort } from '@main/mcp/http-server'
 import { pythonEngine } from '@main/python/engine'
+import { getPluginViewRegistry } from '@main/plugin/view-registry'
 import {
   validateManifest,
   isUnsafeRelativePath,
@@ -68,6 +69,10 @@ function getOneshotHostScriptPath(): string {
 class PluginHostManager {
   private child: ChildProcess | null = null
   private activePluginIds: string[] = []
+  /** 当前共享 node host 承载的插件 id（异常退出/stop 时清运行时视图用；start() 重置） */
+  private nodeHostPluginIds: string[] = []
+  /** stop()/restart() 主动停机标志：exit 回调据此区分「主动停机」与「宿主异常退出」 */
+  private stopping = false
   /** python 子进程的取消控制器(per pluginId)--oneshot execute 与 persistent 启动阶段共用,stop()/restart() 时 abort 主动 SIGTERM。 */
   private pythonControllers = new Map<string, AbortController>()
   /** node oneshot 子进程句柄(per pluginId)--stop()/restart() 时主动 kill,防孤儿。 */
@@ -93,6 +98,8 @@ class PluginHostManager {
       log.warn('[plugin-host] Already started')
       return
     }
+    this.stopping = false
+    this.nodeHostPluginIds = []
 
     const port = getMcpHttpPort()
     if (!port) {
@@ -266,6 +273,13 @@ class PluginHostManager {
     // 必须判 `this.child === child` 才置 null,否则会误 null 掉已重新 spawn 的新 child
     // (restart = stop+start,start 会立即把 this.child 指向新进程)。
     const child = this.child
+    // 闭包捕获本 host 进程承载的插件集合:restart() = stop+start,start 同步把
+    // this.nodeHostPluginIds 换成新数组,而旧 host 的 SIGTERM exit 异步迟到 —— 那时
+    // stopping 已被新 start() 复位为 false,若 exit 回调读 this.nodeHostPluginIds
+    // 清理,撤的就是新 host 的 token/运行时视图。故判「仍是当前集合」(引用相等,
+    // 每次 spawn 都是新数组)才允许异常退出清理。
+    const ownedIds = specs.map((s) => s.pluginId)
+    this.nodeHostPluginIds = ownedIds
     // 转发子进程 stderr 到主日志（host 用 console.error 输出进度）。
     child.stderr?.on('data', (chunk: Buffer) => {
       const text = chunk.toString().trimEnd()
@@ -274,11 +288,33 @@ class PluginHostManager {
     child.on('exit', (code, signal) => {
       log.info(`[plugin-host] Host process exited (code=${code}, signal=${signal})`)
       if (this.child === child) this.child = null
+      if (!this.stopping && this.nodeHostPluginIds === ownedIds) {
+        // 异常退出（崩溃/被杀，非 stop()/restart() 路径）：撤其中插件的 host token、
+        // 清运行时视图并广播。声明式视图与 UI token 保持可用（凭据独立于宿主进程）。
+        this.handleHostPluginsDied(ownedIds)
+        this.nodeHostPluginIds = []
+      }
     })
     child.on('error', (err) => {
       log.error('[plugin-host] Host process error:', err)
       if (this.child === child) this.child = null
     })
+  }
+
+  /**
+   * 宿主进程异常退出（共享 node host 崩溃 / 单个 python persistent 进程崩溃）的清理：
+   * 撤这些插件的 host token（宿主已死，凭据即焚），清除其运行时视图并广播
+   * （renderer 据此卸载对应 guest）。UI token 与声明式视图不动 —— 仍启用插件的
+   * 声明式视图继续可用（docs/plugin-ui-views-plan.md §二）。
+   */
+  private handleHostPluginsDied(pluginIds: string[]): void {
+    if (pluginIds.length === 0) return
+    for (const id of pluginIds) revokePluginToken(id)
+    try {
+      getPluginViewRegistry().clearRuntimeForPlugins(pluginIds)
+    } catch (e) {
+      log.warn('[plugin-host] view registry unavailable while clearing runtime views:', e)
+    }
   }
 
   /**
@@ -385,6 +421,11 @@ class PluginHostManager {
         log.info(`[plugin-host] python persistent plugin ${p.id} exited (code=${code}, signal=${signal})`)
         if (this.pythonPersistentProcesses.get(p.id) === proc) {
           this.pythonPersistentProcesses.delete(p.id)
+          if (!this.stopping) {
+            // 异常退出（崩溃，非 stop()/restart() 路径）：只清该插件的运行时视图 +
+            // 撤其 host token；其他插件不受影响（单插件单进程隔离）。
+            this.handleHostPluginsDied([p.id])
+          }
         }
       })
       proc.on('error', (err) => {
@@ -521,6 +562,10 @@ class PluginHostManager {
    * §8.4 三步撤销的第 1（停进程）/第 2（撤 token）步；第 3 步（删文件夹）属卸载流程，不在此。
    */
   stop(): void {
+    this.stopping = true
+    // 收集宿主进程承载的插件 id（清运行时视图用；须在 kill 循环把句柄从 map 删除前取）。
+    // start() 会重置 nodeHostPluginIds，这里只读。
+    const hostOwnedIds = new Set<string>([...this.nodeHostPluginIds, ...this.pythonPersistentProcesses.keys()])
     if (this.child && !this.child.killed) {
       log.info('[plugin-host] Stopping host process (SIGTERM)')
       this.child.kill('SIGTERM')
@@ -566,6 +611,16 @@ class PluginHostManager {
       }
       this.activeOneshotTokens.clear()
       this.oneshotRuns.clear()
+    }
+    // 宿主重启/退出：清除受宿主进程影响的插件的运行时视图（声明式保持可用），
+    // 广播一次。restart() 随后 start() 允许新 activate 重新注册
+    // （docs/plugin-ui-views-plan.md §二「宿主重启时清除旧运行时项」）。
+    if (hostOwnedIds.size > 0) {
+      try {
+        getPluginViewRegistry().clearRuntimeForPlugins([...hostOwnedIds])
+      } catch {
+        /* 注册表未初始化（app 退出早期等）——忽略 */
+      }
     }
     this.revokeActiveTokens()
   }

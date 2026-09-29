@@ -217,6 +217,13 @@ export class LyShellHttpClient {
   }
 
   /**
+   * DELETE 请求（运行时视图注销等少量路由使用）
+   */
+  async del(apiPath: string): Promise<any> {
+    return this.request('DELETE', apiPath)
+  }
+
+  /**
    * GET 请求
    */
   async get(apiPath: string): Promise<any> {

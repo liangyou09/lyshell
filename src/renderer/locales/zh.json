@@ -83,6 +83,16 @@
     "emptyHint": "右上角 + 从开发文件夹、本地 zip 或 URL 安装",
     "granted": "已授予",
     "declared": "已声明(未授予)",
+    "capDesc": {
+      "read": "读取：列出会话、读终端输出、读文件与会话备注",
+      "interactiveWrite": "交互写入：向终端发送输入",
+      "execute": "执行：在 SSH 会话内执行命令",
+      "localExecute": "本地执行：在本机运行命令",
+      "fileWrite": "文件写入：上传 / 下载文件",
+      "sessionControl": "会话控制：创建、重连、关闭会话（视图 openTerminal 也需要）",
+      "sessionMetadataWrite": "备注写入：写会话摘要、使用说明与标签",
+      "uiControl": "界面控制：打开页签 / 弹窗等视图动作与运行时视图注册"
+    },
     "lifecycleOneshot": "单次",
     "lifecyclePersistent": "常驻",
     "enabled": "已启用",
@@ -94,6 +104,11 @@
     "uninstall": "卸载",
     "uninstallFail": "卸载失败",
     "toggleFail": "操作失败"
+  },
+  "pluginView": {
+    "loadFailed": "视图加载失败",
+    "crashed": "视图进程已崩溃",
+    "retry": "重试"
   },
   "nav": {
     "sessions": "会话",

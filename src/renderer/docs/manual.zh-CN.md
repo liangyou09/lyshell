@@ -219,6 +219,61 @@ LyShell.wait_for("prompt$")
 
 脚本运行时可读 `LYSHELL_SESSION_ID`、`LYSHELL_SESSION_TYPE`、`LYSHELL_HOST`、`LYSHELL_PORT` 环境变量。Python 解释器自动检测系统 PATH，可在设置中配置。长驻或定时任务建议改用 Node.js 插件。
 
+### 插件界面视图（机柜轨）
+
+插件可以向左侧机柜轨贡献自定义视图：每个视图是一个独立 HTML 页面，渲染在沙箱 webview 里，以槽位形式排在固定页签之后（单插件最多 8 个）。页面打开后保持挂载，切换面板仅隐藏不重载；视图随插件禁用 / 卸载 / 注销立即销毁，弹窗关闭即销毁。
+
+**两种来源**
+
+| 来源 | 声明方式 | 生命周期 |
+|------|---------|---------|
+| 声明式 | manifest 的 `contributes.views` | 插件启用即出现，禁用 / 卸载即消失 |
+| 运行时 | Node SDK `api.registerView()` 或 Python HTTP 注册 | 仅插件进程存活期间有效，宿主退出（含异常退出）即清除，重启后由 activate / 启动脚本重新注册 |
+
+**manifest 字段**（`contributes.views[]`，字段非法 / 文件缺失的视图会被拒绝注册并在面板报错）：
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `id` | 是 | 视图标识，同插件唯一（轨道导航键 `插件id:视图id`） |
+| `title` | 是 | 槽位悬停提示与面板标题 |
+| `entry` | 是 | 入口 HTML 路径，必须位于插件 `views/` 目录下（如 `views/status.html`） |
+| `icon` | 否 | SVG 图标，位于插件根目录；经 main 净化（剥脚本 / 外链）后以 data URL 内联展示 |
+
+**运行时注册**：需插件为 persistent 生命周期且获批 `uiControl`。Node 常驻插件在 `activate(api)` 里 `await api.registerView({ id, title, entry })`，注销用 `api.unregisterView(id)`（重复 ID 抛错，不覆盖）。Python 常驻插件走 HTTP（env 注入 `LYSHELL_MCP_PORT` / `LYSHELL_PLUGIN_ID` / `LYSHELL_PLUGIN_TOKEN`）：
+
+```text
+POST   http://127.0.0.1:${LYSHELL_MCP_PORT}/api/plugins/${LYSHELL_PLUGIN_ID}/views            注册
+DELETE http://127.0.0.1:${LYSHELL_MCP_PORT}/api/plugins/${LYSHELL_PLUGIN_ID}/views/{viewId}   注销（幂等）
+头：x-lyshell-token: ${LYSHELL_PLUGIN_TOKEN}（host 插件 token 专有）
+```
+
+成功回 `{success: true, data: {view}}`；失败回 `{success: false, error}`，常见错误码：400 字段非法或路径越界、403 插件未启用 / 非常驻 / 非本插件 token、409 视图 ID 重复或超出 8 个上限。
+
+**权限与页面动作**：页面**不持有任何 token** —— 每个 `window.lyshellView` 调用进入 main 后以登记的 guest 身份、按插件当前授权逐次校验，未授权的动作被拒绝并回 `{ok: false, error}`：
+
+| 动作 | 所需能力 |
+|------|---------|
+| 展示、`bootstrap()`、`onEvent()` | 无（未授权 `uiControl` 时页面仍可显示） |
+| `callApi(tool, args?)` | 走 MCP HTTP 路由既有能力闸（如 `lyshell_list_sessions` 需 `read`） |
+| `openWebTab(url)` | `uiControl`（仅 http / https） |
+| `openDialog({viewId, title?, width?, height?})` | `uiControl`（目标限本插件另一视图） |
+| `openTerminal(sessionId)` | `uiControl` + `sessionControl` |
+| `openDoc(path)` | `uiControl` + `read` |
+
+**页面 API**（`window.lyshellView`；CSP 由 main 下发，JS 必须是 `views/` 下的外部文件，页面资源只能从本插件 `views/` 目录加载）：
+
+| API | 说明 |
+|-----|------|
+| `bootstrap()` | 身份握手，返回 `{pluginId, viewId, kind: 'panel'\|'dialog', dialogId, title, entry, source: 'manifest'\|'runtime', capabilities, theme}`；`theme` 为界面明暗模式（`'dark' \| 'light'`），页面据此自选配色 |
+| `callApi(tool, args?)` | 调 MCP HTTP 路由工具，失败 reject（消息为服务端 error） |
+| `openTerminal / openWebTab / openDoc / openDialog` | UI 动作，返回 `{ok, error?}`；`openDialog` 成功附一次性 `dialogId` |
+| `closeDialog(result?)` | 仅弹窗 guest 有效；结果只回给发起弹窗的页面 |
+| `onEvent(fn)` | 订阅 `{type: 'dialogResult', dialogId, result}` / `{type: 'dialogCancelled', dialogId, reason}` / `{type: 'themeChanged', theme}` 事件，返回退订函数 |
+
+`ok:true` 只表示「请求被接受 / 页签已挂载」，不保证 SSH 最终连通或外站加载成功。弹窗结果按 `dialogId` 精准送达发起页面，并发弹窗互不串扰。
+
+示例见仓库 `examples/my-view-plugin/`（纯声明式）与 `examples/my-view-runtime-plugin/`（运行时注册 + 四种动作 + 弹窗结果全覆盖）。
+
 ## 主题
 
 即时切换，无需重启。
