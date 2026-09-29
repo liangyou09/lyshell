@@ -358,11 +358,21 @@ describe('validateViewDefinition', () => {
   })
 
   it('entry 必须位于 views/ 目录下且为 .html', () => {
-    for (const entry of ['panel.html', 'src/panel.html', 'views/panel.js', 'views/panel.htm', 'views/', 'views//a.html', 'viewsx/a.html', 'VIEWS/a.html']) {
+    for (const entry of ['panel.html', 'src/panel.html', 'views/panel.js', 'views/panel.htm', 'views/', 'views//a.html', 'viewsx/a.html', 'VIEWS/a.html', 'views/./panel.html', 'views/./sub/panel.html', 'views/sub/./panel.html']) {
       const r = validateViewDefinition({ ...validView, entry })
       expect(r.ok).toBe(false)
       expect(r.errors.some((e) => e.startsWith('view.entry'))).toBe(true)
     }
+  })
+
+  it('拒绝 ./ 段：URL 会规范化掉它，入口身份匹配与重复 entry 校验都按原始字符串比对', () => {
+    // 绕过路径：views/./panel.html 与 views/panel.html 是同一 URL 身份，
+    // 不拒绝则 connectOrigins 反查落空 + 重复 entry 去重被绕过（P2 评审）
+    const r = validateViewDefinitionList([
+      { id: 'a', title: 'A', entry: 'views/panel.html' },
+      { id: 'b', title: 'B', entry: 'views/./panel.html' }
+    ])
+    expect(r.ok).toBe(false)
   })
 
   it('拒绝编码遍历 / .. 段 / 反斜杠', () => {
@@ -394,6 +404,64 @@ describe('validateViewDefinition', () => {
     expect(r.ok).toBe(true)
     expect(r.view?.icon).toBeUndefined()
   })
+
+  it('connectOrigins 接受 localhost 来源并原样写回', () => {
+    const r = validateViewDefinition({
+      ...validView,
+      connectOrigins: ['http://127.0.0.1:31517', 'ws://localhost:5173', 'wss://[::1]:9000', 'https://localhost']
+    })
+    expect(r.ok).toBe(true)
+    expect(r.view?.connectOrigins).toEqual([
+      'http://127.0.0.1:31517',
+      'ws://localhost:5173',
+      'wss://[::1]:9000',
+      'https://localhost'
+    ])
+  })
+
+  it('connectOrigins 未声明时省略', () => {
+    expect(validateViewDefinition(validView).view?.connectOrigins).toBeUndefined()
+  })
+
+  it('connectOrigins 拒绝远程主机 / 带路径 / 带查询 / 用户信息', () => {
+    for (const origin of [
+      'http://192.168.1.1:31517',
+      'http://evil.com',
+      'https://localhost.evil.com',
+      'http://127.0.0.1:31517/ui/chat/',
+      'ws://127.0.0.1:31517/?x=1',
+      'http://user@127.0.0.1:31517',
+      'ftp://127.0.0.1:31517',
+      'http://localhost:70000',
+      'file:///etc/passwd',
+      '127.0.0.1:31517',
+      ''
+    ]) {
+      const r = validateViewDefinition({ ...validView, connectOrigins: [origin] })
+      expect(r.ok).toBe(false)
+      expect(r.errors.some((e) => e.startsWith('view.connectOrigins'))).toBe(true)
+    }
+  })
+
+  it('connectOrigins 拒绝非数组 / 非字符串项', () => {
+    expect(validateViewDefinition({ ...validView, connectOrigins: 'http://127.0.0.1:1' }).ok).toBe(false)
+    expect(validateViewDefinition({ ...validView, connectOrigins: [42] }).ok).toBe(false)
+  })
+
+  it('connectOrigins 最多 8 项且拒绝重复', () => {
+    const eight = Array.from({ length: 8 }, (_, i) => `http://127.0.0.1:${30000 + i}`)
+    expect(validateViewDefinition({ ...validView, connectOrigins: eight }).ok).toBe(true)
+    const nine = [...eight, 'http://localhost:1']
+    expect(
+      validateViewDefinition({ ...validView, connectOrigins: nine }).errors.some((e) => e.includes('at most 8'))
+    ).toBe(true)
+    const dup = validateViewDefinition({
+      ...validView,
+      connectOrigins: ['http://127.0.0.1:31517', 'http://127.0.0.1:31517']
+    })
+    expect(dup.ok).toBe(false)
+    expect(dup.errors.some((e) => e.includes('duplicate'))).toBe(true)
+  })
 })
 
 describe('validateViewDefinitionList', () => {
@@ -417,6 +485,23 @@ describe('validateViewDefinitionList', () => {
     const r = validateViewDefinitionList([view('dup'), view('dup')])
     expect(r.ok).toBe(false)
     expect(r.errors.some((e) => e.includes('duplicate view id'))).toBe(true)
+  })
+
+  it('拒绝重复 entry：entry 是请求期视图身份，共用入口会让后者继承前者的 connectOrigins CSP', () => {
+    const shared = { id: 'a', title: 'A', entry: 'views/same.html' }
+    const r = validateViewDefinitionList([shared, { ...shared, id: 'b', title: 'B' }])
+    expect(r.ok).toBe(false)
+    expect(r.errors.some((e) => e.includes('duplicate view entry'))).toBe(true)
+    expect(r.views).toHaveLength(1)
+  })
+
+  it('拒绝大小写不同的重复 entry（Windows 文件系统不区分大小写）', () => {
+    const r = validateViewDefinitionList([
+      { id: 'a', title: 'A', entry: 'views/panel.html' },
+      { id: 'b', title: 'B', entry: 'views/Panel.html' }
+    ])
+    expect(r.ok).toBe(false)
+    expect(r.errors.some((e) => e.includes('duplicate view entry'))).toBe(true)
   })
 
   it('拒绝非数组', () => {

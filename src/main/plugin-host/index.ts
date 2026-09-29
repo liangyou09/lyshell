@@ -113,6 +113,11 @@ async function runHost(port: number, specs: PluginSpec[]): Promise<void> {
   // 子进程 'close' 时移出集合(含坏 exe 的报错子进程);shutdown 只杀仍存活的。
   const spawnedChildren = new Set<ChildProcess>()
 
+  // activate() 限时:防止某个插件的 activate() 返回永不 resolve 的 promise 把
+  // 激活循环卡死,导致其后所有 node 插件永远激活不了(与 oneshot runner 的 30s
+  // 超时同思路;shared host 取更短的 15s,激活慢的插件不应拖累别的插件)。
+  const ACTIVATE_TIMEOUT_MS = 15_000
+
   let activatedCount = 0
   for (const p of loaded) {
     // 每插件独立 client（token 不同），api 内部按 pluginId 路由 + capability gate
@@ -128,11 +133,24 @@ async function runHost(port: number, specs: PluginSpec[]): Promise<void> {
     const activationEvents = p.manifest.activationEvents ?? []
     if (shouldActivateOnStartup(activationEvents)) {
       try {
-        await p.module.activate(api)
+        await Promise.race([
+          Promise.resolve(p.module.activate(api)),
+          new Promise<never>((_, reject) => {
+            const timer = setTimeout(
+              () => reject(new Error(`activate() timed out after ${ACTIVATE_TIMEOUT_MS}ms`)),
+              ACTIVATE_TIMEOUT_MS
+            )
+            timer.unref?.()
+          })
+        ])
         p.activated = true
         activatedCount++
         console.error(`[plugin-host] Activated ${p.spec.pluginId} (${p.spec.lifecycle})`)
       } catch (e) {
+        // 抛错/超时都只影响本插件。超时分支 activate 可能仍在后台执行,照样标记
+        // activated —— shutdown 时 best-effort deactivate 是它唯一的清理机会;
+        // deactivate 自身有 try/catch + 限时,插件没写好也不会拖垮退出。
+        p.activated = true
         console.error(`[plugin-host] Failed to activate ${p.spec.pluginId}:`, e)
       }
     } else {
@@ -185,6 +203,17 @@ async function runHost(port: number, specs: PluginSpec[]): Promise<void> {
 }
 
 // ====================== 入口 ======================
+// 插件容器进程免疫声明:本进程唯一职责是承载插件代码。插件在定时器回调 /
+// EventEmitter / 裸 promise 里抛出的异步异常,Node 默认语义会杀死整个 host ——
+// 那会同时带走所有 node 插件。这里捕获后仅记录、进程继续:host 自身致命错误
+// (端口缺失 / 回连失败)仍走下方显式 process.exit 路径。
+process.on('uncaughtException', (err) => {
+  console.error('[plugin-host] Uncaught exception (host kept alive):', err)
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('[plugin-host] Unhandled rejection (host kept alive):', reason)
+})
+
 // 端口经 env（非敏感）；PluginSpec（含 token）经 IPC 下发（token 不落 env，防插件窃取）。
 const portRaw = process.env.LYSHELL_MCP_PORT
 if (!portRaw) {

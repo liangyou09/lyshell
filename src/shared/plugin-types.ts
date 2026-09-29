@@ -52,6 +52,16 @@ export const PLUGIN_MAX_VIEWS = 8
 export const PLUGIN_VIEW_TITLE_MAX = 64
 export const PLUGIN_VIEW_PATH_MAX = 256
 
+/** 单视图 connectOrigins 上限（合并 CSP 用；连本机伴生服务足够） */
+export const PLUGIN_VIEW_MAX_CONNECT_ORIGINS = 8
+
+/**
+ * connectOrigins 单项形态：仅 http/https/ws/wss + 127.0.0.1/localhost/[::1]，
+ * 端口可选，锚定结尾 —— 天然拒绝远程主机、路径、查询串与用户信息。
+ */
+export const PLUGIN_VIEW_CONNECT_ORIGIN_PATTERN =
+  /^(wss?|https?):\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?$/
+
 /**
  * 一个插件界面视图定义。manifest contributes.views 与运行时注册（registerView）
  * 共用同一形状与校验规则（validateViewDefinition）。
@@ -65,6 +75,13 @@ export interface PluginViewDefinition {
   icon?: string
   /** 插件 views/ 目录内的 .html（相对插件根，必须以 views/ 开头） */
   entry: string
+  /**
+   * 允许页面连接的本机服务来源（合并进页面 CSP 的 connect-src 与 img-src）。
+   * 仅接受 localhost/127.0.0.1/[::1] 的 http/https/ws/wss 来源，无路径/查询串
+   * （用于连接本机伴生进程的本地 API，如桌面宠物聊天页）。
+   * WebSocket 需显式声明 ws://（或 wss://）：CSP3 无 http→ws 方向，http:// 不覆盖 ws://。
+   */
+  connectOrigins?: string[]
 }
 
 /** 视图运行时元数据：plugin:list 返回的展开形态（禁用插件 views 为空数组） */
@@ -203,8 +220,12 @@ export function validateViewDefinition(raw: unknown): { ok: boolean; errors: str
     entry = rejectPath('view.entry', v.entry) ?? undefined
     if (entry !== undefined) {
       const norm = entry.replace(/\\/g, '/')
-      // entry 必须位于 views/ 目录下（页面资源同目录，协议只服务该目录）
-      if (!norm.startsWith('views/') || norm.split('/').some((s) => s.length === 0)) {
+      // entry 必须位于 views/ 目录下（页面资源同目录，协议只服务该目录）。
+      // 拒绝空段与 '.' 段：WHATWG URL 会把 /views/./x.html 规范化成 /views/x.html，
+      // 而入口身份匹配（协议层 getViewByEntry、重复 entry 去重）用原始字符串 ——
+      // 放进 './' 会让声明的 connectOrigins 静默失效，也能绕过重复 entry 校验
+      // （'..' 段已由上方 isUnsafeRelativePath 拒绝）。
+      if (!norm.startsWith('views/') || norm.split('/').some((s) => s.length === 0 || s === '.')) {
         errors.push('view.entry must be a .html file inside the plugin "views/" directory')
         entry = undefined
       } else if (!/\.html$/i.test(norm)) {
@@ -223,17 +244,51 @@ export function validateViewDefinition(raw: unknown): { ok: boolean; errors: str
     }
   }
 
+  // connectOrigins：可选数组，逐项仅限 localhost 来源（正则锚定，天然拒绝
+  // 远程主机/路径/查询串），上限 8 项、去重；全部合法才写回视图定义。
+  let connectOrigins: string[] | undefined
+  if (v.connectOrigins !== undefined) {
+    if (!Array.isArray(v.connectOrigins)) {
+      errors.push('view.connectOrigins must be an array if present')
+    } else {
+      if (v.connectOrigins.length > PLUGIN_VIEW_MAX_CONNECT_ORIGINS) {
+        errors.push(`at most ${PLUGIN_VIEW_MAX_CONNECT_ORIGINS} connectOrigins per view`)
+      }
+      const seen = new Set<string>()
+      const valid: string[] = []
+      for (const o of v.connectOrigins) {
+        const m = typeof o === 'string' ? PLUGIN_VIEW_CONNECT_ORIGIN_PATTERN.exec(o) : null
+        // \d{1,5} 放行了 65536+ 的数字端口，这里按数值补一道上限
+        const port = m?.[3]?.slice(1)
+        if (!m || (port !== undefined && Number.parseInt(port, 10) > 65535)) {
+          errors.push(
+            `view.connectOrigins entries must be localhost-only origins without path/query (e.g. "http://127.0.0.1:31517"), got: ${String(o)}`
+          )
+          continue
+        }
+        if (seen.has(o)) {
+          errors.push(`duplicate view.connectOrigins entry: ${o}`)
+          continue
+        }
+        seen.add(o)
+        valid.push(o)
+      }
+      if (valid.length > 0) connectOrigins = valid
+    }
+  }
+
   if (errors.length > 0 || entry === undefined) {
     return { ok: false, errors: errors.length > 0 ? errors : ['view.entry must be a string'] }
   }
   const view: PluginViewDefinition = { id: v.id as string, title: v.title as string, entry }
   if (icon !== undefined) view.icon = icon
+  if (connectOrigins !== undefined) view.connectOrigins = connectOrigins
   return { ok: true, errors: [], view }
 }
 
 /**
  * 校验视图定义数组（manifest contributes.views 与运行时注册共用）：
- * 最多 8 项、禁止重复 ID、逐项过 validateViewDefinition。
+ * 最多 8 项、禁止重复 ID、禁止重复 entry、逐项过 validateViewDefinition。
  */
 export function validateViewDefinitionList(
   raw: unknown
@@ -246,18 +301,30 @@ export function validateViewDefinitionList(
   }
   const errors: string[] = []
   const views: PluginViewDefinition[] = []
-  const seen = new Set<string>()
+  const seenIds = new Set<string>()
+  const seenEntries = new Set<string>()
   for (const item of raw) {
     const r = validateViewDefinition(item)
     if (!r.ok || !r.view) {
       errors.push(...r.errors)
       continue
     }
-    if (seen.has(r.view.id)) {
+    if (seenIds.has(r.view.id)) {
       errors.push(`duplicate view id: ${r.view.id}`)
       continue
     }
-    seen.add(r.view.id)
+    seenIds.add(r.view.id)
+    // entry 即请求期视图身份（视图 URL 就是 lyshell-plugin://<id>/<entry>）：多个视图
+    // 共用一个 entry 时，协议层按 entry 反查 connectOrigins 只能取到第一个，后者会
+    // 继承前者的 CSP（可能意外获得本机服务访问权限，也可能连不上自己声明的服务）。
+    // 请求 URL 无法区分同 entry 的视图，直接禁止（P2 评审）。小写比对：Windows
+    // 文件系统不区分大小写，Panel.html 与 panel.html 是同一个文件。
+    const entryKey = r.view.entry.toLowerCase()
+    if (seenEntries.has(entryKey)) {
+      errors.push(`duplicate view entry: ${r.view.entry} (view URL identity is the entry path; each view must use its own HTML entry)`)
+      continue
+    }
+    seenEntries.add(entryKey)
     views.push(r.view)
   }
   return { ok: errors.length === 0, errors, views }
@@ -573,8 +640,8 @@ export function validateManifest(raw: unknown): ManifestValidation {
     errors.push('contributes must be an object if present')
   } else if (m.contributes !== undefined) {
     // contributes.views：声明式界面视图，走与运行时注册同一校验器（最多 8 项、
-    // 禁重复 ID、entry 限 views/ 下 .html）。文件存在性与真实路径包围在
-    // 安装确认/运行时注册时由 main 侧文件系统检查补齐。
+    // 禁重复 ID、禁重复 entry —— entry 是请求期视图身份、限 views/ 下 .html）。
+    // 文件存在性与真实路径包围在安装确认/运行时注册时由 main 侧文件系统检查补齐。
     const contributes = m.contributes as Record<string, unknown>
     if (contributes.views !== undefined) {
       const vr = validateViewDefinitionList(contributes.views)

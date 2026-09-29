@@ -65,12 +65,12 @@ const HARNESS_API = {
 // 不同屏)。tone 给纸里目录组头的轴头/系绳(GroupHeader),token 给墙辊/
 // 解绳辉光/题签墨(inline --seg-tone 注入,机械在 globals.css 的 .scroll-dual-seg)
 // ─────────────────────────────────────────────────────────────────────────────
-// segCls:浅色主题单配档挂的墙修饰类(qingbai 四色最亮,通用 color-mix 压墨
-// 不够对比 —— 见 globals.css .scroll-dual-seg.tone-qingbai 的浅色规则)
-const WS_TONE: Record<HarnessAgentKind, { tone: GroupHeaderTone; token: string; segCls?: string }> = {
-  dsh:    { tone: 'seg-qinghua', token: 'var(--seg-qinghua)' },
+// segCls:浅色主题的墙轴头漆色；qingbai 另有题签墨覆写
+// (见 globals.css .scroll-dual-seg.tone-qingbai)
+const WS_TONE: Record<HarnessAgentKind, { tone: GroupHeaderTone; token: string; segCls: string }> = {
+  dsh:    { tone: 'seg-qinghua', token: 'var(--seg-qinghua)', segCls: 'tone-qinghua' },
   codex:  { tone: 'seg-qingbai', token: 'var(--seg-qingbai)', segCls: 'tone-qingbai' },
-  claude: { tone: 'seg-orange',  token: 'var(--seg-orange)' }
+  claude: { tone: 'seg-orange',  token: 'var(--seg-orange)', segCls: 'tone-orange' }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -856,11 +856,17 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
         </div>
       </div>
 
-      {/* 未就绪内容笼：依赖状态行 + 安装提示卡 —— p-3 内缩留白，头条满幅贴顶
+      {/* ===== 内容壳 ===== 头行以下整列离缘 6(mx-1.5) —— 与会话栏器物两端同线
+          (栏内器物一律离缘,墙纸不再通铺到面板两缘);段内既有垫距保留;壳不
+          定位,fixed 弹窗与绝对定位浮层不受影响 */}
+      <div className="mx-1.5 flex-1 min-h-0 flex flex-col min-w-0">
+
+      {/* 未就绪内容笼：依赖状态行 + 安装提示卡 —— 纵向垫距保留（pt/pb-3），
+          侧距归内容壳（旧 px-3 已撤，不叠两层），头条满幅贴顶
           （与 PluginPanel 同构）。新增动作已上收头条右上角 chip，头顶不再有
-          新增条分割线，恢复整段 p-3 顶距。就绪态不走这层（见下方卡片区域） */}
+          新增条分割线，恢复整段顶距。就绪态不走这层（见下方卡片区域） */}
       {!listReady && (
-        <div className="flex-1 min-h-0 flex flex-col px-3 pt-3 pb-3 space-y-2">
+        <div className="flex-1 min-h-0 flex flex-col pt-3 pb-3 space-y-2">
           <div className="space-y-1">
             {deps.map((dep) => {
               const installed = status ? Boolean(status[dep]) : null
@@ -984,7 +990,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
           )}
 
           {actionError && (
-            <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words px-3 pt-3">{actionError}</div>
+            <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words pt-3">{actionError}</div>
           )}
 
           {/* 墙体/空态二选一：有工作区立墙（下辊贴纸尾随最底下的分组卷走），没有
@@ -1372,6 +1378,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
           </div>
         </div>
       )}
+      </div>{/* ===== /内容壳 ===== */}
     </div>
   )
 }

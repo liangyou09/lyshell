@@ -24,10 +24,23 @@ export {
 /** 单文件大小上限（视图页面资源不应巨大；超限拒服，防内存滥用） */
 export const MAX_RESOURCE_BYTES = 20 * 1024 * 1024
 
-/** HTML 响应默认 CSP：禁远程/内联脚本（style 内联允许，插件 JS 必须放 views/ 下的外部文件） */
-export const PLUGIN_VIEW_CSP =
-  "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
-  "font-src 'self' data:; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+/**
+ * 视图页 CSP 基线（零 connectOrigins 的结果）：禁远程/内联脚本（style 内联允许，
+ * 插件 JS 必须放 views/ 下的外部文件）。
+ * 经 buildViewCsp 组装 —— 声明了 connectOrigins 的视图按需放宽 connect-src/img-src。
+ * 页面要连 WebSocket 必须显式声明 ws://（或 wss://）来源：CSP3 的 scheme 匹配没有
+ * http→ws/wss 方向（只有 http→https、ws→wss 的安全升级），http:// 来源不覆盖 ws://。
+ */
+export function buildViewCsp(connectOrigins?: readonly string[]): string {
+  const extra = connectOrigins && connectOrigins.length > 0 ? ` ${connectOrigins.join(' ')}` : ''
+  return (
+    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+    `img-src 'self' data:${extra}; font-src 'self' data:; connect-src 'self'${extra}; ` +
+    "frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+  )
+}
+
+export const PLUGIN_VIEW_CSP = buildViewCsp()
 
 export const MIME_BY_EXT: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -113,8 +126,12 @@ export function checkUrlSearch(search: string): boolean {
  * 解析请求 URL 到磁盘绝对路径（不含读取）。所有拒绝在此抛 ViewProtocolError。
  * 包围链：真实插件根 → 真实 views/（须在根内）→ 目标真实路径（须严格在 views/ 内、
  * 是文件、非隐藏）。realpath 全程解析 symlink/junction，越界即拒。
+ * 同时返回清洗后的相对路径（rel，供 HTML 响应按 entry 匹配视图定义取 connectOrigins）。
  */
-export function resolveViewFileUrl(pluginId: string, rawUrl: string): { absPath: string; mime: string } {
+export function resolveViewFileUrl(
+  pluginId: string,
+  rawUrl: string
+): { absPath: string; mime: string; rel: string } {
   let url: URL
   try {
     url = new URL(rawUrl)
@@ -179,5 +196,5 @@ export function resolveViewFileUrl(pluginId: string, rawUrl: string): { absPath:
     throw new ViewProtocolError(403, 'hidden files are not served')
   }
   const ext = base.slice(base.lastIndexOf('.')).toLowerCase()
-  return { absPath: realTarget, mime: MIME_BY_EXT[ext] ?? 'application/octet-stream' }
+  return { absPath: realTarget, mime: MIME_BY_EXT[ext] ?? 'application/octet-stream', rel }
 }

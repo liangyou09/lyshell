@@ -3066,8 +3066,17 @@ function readBody(req: http.IncomingMessage, maxSize: number = 10 * 1024 * 1024)
 
 /**
  * 发送 JSON 响应
+ *
+ * 防御:双重响应(headersSent)或写入已断开/销毁的 socket(客户端中途 abort 是常态,
+ * readBody 的 reject 会让外层 .catch 走到这里)都会抛异常 —— 抛在 .catch 回调里就是
+ * 主进程的 unhandledRejection(dev 下 process.exit 退出整个应用)。这里一律静默降级。
  */
 function sendJson(res: http.ServerResponse, statusCode: number, data: ApiResponse): void {
-  res.writeHead(statusCode, { 'Content-Type': 'application/json' })
-  res.end(JSON.stringify(data))
+  if (res.headersSent || res.destroyed) return
+  try {
+    res.writeHead(statusCode, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(data))
+  } catch {
+    /* socket 已失效,无需回包 */
+  }
 }

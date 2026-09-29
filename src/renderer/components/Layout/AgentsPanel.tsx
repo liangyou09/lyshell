@@ -517,9 +517,14 @@ const AgentsPanel: React.FC = () => {
         <IconBtn amber onClick={handleAdd} title={t('sidebar.addAgent')}><IconPlus /></IconBtn>
       </div>
 
+      {/* ===== 内容壳 ===== 头行以下整列离缘 6(mx-1.5) —— 与会话栏器物两端同线
+          (栏内器物一律离缘,墙纸不再通铺到面板两缘);段内既有垫距保留;壳不
+          定位,fixed 弹窗与绝对定位浮层不受影响 */}
+      <div className="mx-1.5 flex-1 min-h-0 flex flex-col min-w-0">
+
       {/* 列表级操作错误(卡片删除落盘失败等)—— 对齐 EnvProfilePanel 的 actionError 位 */}
       {actionError && (
-        <div className="text-[10.5px] text-[var(--error-rack)] break-words px-3 pt-2">{actionError}</div>
+        <div className="text-[10.5px] text-[var(--error-rack)] break-words pt-2">{actionError}</div>
       )}
 
       {/* 列表 —— 按工作目录分组立在会话墙同款的双开画轴墙上（scroll-dual-wall
@@ -532,7 +537,7 @@ const AgentsPanel: React.FC = () => {
           解绳辉光/题签墨整墙一色，机械在 globals.css 的变体规则 */}
       {agentGroups.length > 0 ? (
         <div
-          className="scroll-dual scroll-dual-wall scroll-dual-seg flex-1 min-h-0 open"
+          className="scroll-dual scroll-dual-wall scroll-dual-seg tone-violet flex-1 min-h-0 open"
           style={{ '--seg-tone': WS_TONE.token } as React.CSSProperties}
         >
           {/* 上辊行 —— 一键收/放钮（会话墙「全体」同款）：点行把纸里展开着的
@@ -848,6 +853,7 @@ const AgentsPanel: React.FC = () => {
           </div>
         </div>
       )}
+      </div>{/* ===== /内容壳 ===== */}
     </div>
   )
 }

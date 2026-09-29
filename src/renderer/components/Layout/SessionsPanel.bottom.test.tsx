@@ -87,11 +87,11 @@ describe('文件管理器栏底窗口', () => {
   it('拖高与点合分流：位移越过阈值是拖动（不改关闭态），零位移 click 才合卷', async () => {
     render(<SessionsPanel />)
     const panel = await waitFor(() => screen.getByTestId('file-manager-panel'))
-    // 持久化高度挂在 .scroll-dual 装配上(双辊 20 + 裱边 16 + 画心),body 只锚合缝
+    // 持久化高度挂在 .scroll-dual 装配上(双辊 20 + 裱边 8 + 画心),body 只锚合缝
     const wrapper = panel.closest('.scroll-dual') as HTMLElement
     const rod = wrapper.querySelector('.scroll-dual-rod') as HTMLElement
     // 真拖动:按下-移动-抬起,浏览器拖完会补发 click —— 位移阈值须把它吞掉,
-    // 面板保持展开(jsdom 零尺寸 rect 会把高度夹到下限 136,属拖动本分)
+    // 面板保持展开(jsdom 零尺寸 rect 会把高度夹到下限 128,属拖动本分)
     fireEvent.mouseDown(rod)
     fireEvent.mouseMove(document, { clientY: 300 })
     fireEvent.mouseUp(document)
@@ -139,7 +139,7 @@ describe('文件管理器栏底窗口', () => {
     )
     render(<SessionsPanel />)
     const panel = await waitFor(() => screen.getByTestId('file-manager-panel'))
-    // 持久化高度挂在 .scroll-dual 装配上(双辊 20 + 裱边 16 + 画心),body 只锚合缝
+    // 持久化高度挂在 .scroll-dual 装配上(双辊 20 + 裱边 8 + 画心),body 只锚合缝
     const wrapper = panel.closest('.scroll-dual') as HTMLElement
     expect(wrapper.style.height).toBe('4000px')
   })

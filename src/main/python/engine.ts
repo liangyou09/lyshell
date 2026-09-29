@@ -5,6 +5,8 @@ import { existsSync } from 'fs'
 import log from 'electron-log'
 import { EventEmitter } from 'events'
 import { randomUUID } from 'crypto'
+import { createLogTap } from '@shared/log-throttle'
+import { createOutputCapture } from '@shared/output-capture'
 
 /**
  * 执行上下文
@@ -296,17 +298,22 @@ export class PythonEngine extends EventEmitter {
         else signal.addEventListener('abort', onAbort, { once: true })
       }
 
-      let stdout = ''
-      let stderr = ''
+      // 结果累积走带上限的捕获器:截断标记在发生截断的当次数据块追加 —— 不能等
+      // 下一次 data 事件再补(最后一个数据块恰好跨过上限时不会再有后续事件)。
+      // emit(终端实时输出)照常转发,仅不再累积进最终结果。
+      const stdoutCap = createOutputCapture()
+      const stderrCap = createOutputCapture()
 
       proc.stdout?.on('data', (data) => {
-        stdout += data.toString()
-        this.emit('output', { executionId, type: 'stdout', data: data.toString() })
+        const s = data.toString()
+        stdoutCap.push(s)
+        this.emit('output', { executionId, type: 'stdout', data: s })
       })
 
       proc.stderr?.on('data', (data) => {
-        stderr += data.toString()
-        this.emit('output', { executionId, type: 'stderr', data: data.toString() })
+        const s = data.toString()
+        stderrCap.push(s)
+        this.emit('output', { executionId, type: 'stderr', data: s })
       })
 
       proc.on('close', (code, closeSignal) => {
@@ -318,8 +325,8 @@ export class PythonEngine extends EventEmitter {
         log.info(`Python execution completed (${executionId}): exit=${exitCode}, signal=${closeSignal || 'none'}, duration=${duration}ms`)
 
         resolve({
-          stdout,
-          stderr,
+          stdout: stdoutCap.text(),
+          stderr: stderrCap.text(),
           exitCode,
           duration,
           signal: closeSignal || undefined
@@ -379,25 +386,30 @@ export class PythonEngine extends EventEmitter {
         else signal.addEventListener('abort', onAbort, { once: true })
       }
 
-      let stdout = ''
-      let stderr = ''
+      // 结果累积走带上限的捕获器:截断标记在发生截断的当次数据块追加 —— 不能等
+      // 下一次 data 事件再补(最后一个数据块恰好跨过上限时不会再有后续事件)。
+      // emit(终端实时输出)照常转发,仅不再累积进最终结果。
+      const stdoutCap = createOutputCapture()
+      const stderrCap = createOutputCapture()
 
       proc.stdout?.on('data', (data) => {
-        stdout += data.toString()
-        this.emit('output', { executionId, type: 'stdout', data: data.toString() })
+        const s = data.toString()
+        stdoutCap.push(s)
+        this.emit('output', { executionId, type: 'stdout', data: s })
       })
 
       proc.stderr?.on('data', (data) => {
-        stderr += data.toString()
-        this.emit('output', { executionId, type: 'stderr', data: data.toString() })
+        const s = data.toString()
+        stderrCap.push(s)
+        this.emit('output', { executionId, type: 'stderr', data: s })
       })
 
       proc.on('close', (code, closeSignal) => {
         this.executions.delete(executionId)
         if (signal) signal.removeEventListener('abort', onAbort)
         resolve({
-          stdout,
-          stderr,
+          stdout: stdoutCap.text(),
+          stderr: stderrCap.text(),
           exitCode: code ?? (closeSignal ? 1 : 0),
           duration: Date.now() - startTime,
           signal: closeSignal || undefined
@@ -456,10 +468,15 @@ export class PythonEngine extends EventEmitter {
       else signal.addEventListener('abort', onAbort, { once: true })
     }
 
+    // persistent 长驻进程的 stdout/stderr 转发经限速 tap:插件 print 循环可按管线
+    // 速度刷 main.log。emit(实时 output 事件)是功能数据通道,保持不限速。
+    const tapOut = createLogTap((line) => log.info(line))
+    const tapErr = createLogTap((line) => log.error(line))
+
     proc.stdout?.on('data', (data) => {
       const text = data.toString().trimEnd()
       if (text) {
-        log.info(`[python:${executionId}] ${text}`)
+        tapOut(`[python:${executionId}] ${text}`)
         this.emit('output', { executionId, type: 'stdout', data: data.toString() })
       }
     })
@@ -467,7 +484,7 @@ export class PythonEngine extends EventEmitter {
     proc.stderr?.on('data', (data) => {
       const text = data.toString().trimEnd()
       if (text) {
-        log.error(`[python:${executionId}] ${text}`)
+        tapErr(`[python:${executionId}] ${text}`)
         this.emit('output', { executionId, type: 'stderr', data: data.toString() })
       }
     })

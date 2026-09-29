@@ -236,8 +236,9 @@ Plugins can contribute custom views to the left activity rail: each view is a st
 |-------|----------|---------|
 | `id` | Yes | View identifier, unique per plugin (rail nav key `pluginId:viewId`) |
 | `title` | Yes | Slot hover tooltip and panel title |
-| `entry` | Yes | Entry HTML path, must live under the plugin's `views/` directory (e.g. `views/status.html`) |
+| `entry` | Yes | Entry HTML path, must live under the plugin's `views/` directory (e.g. `views/status.html`); unique per plugin — a view's URL identity is its entry path, duplicate entries would inherit the first view's `connectOrigins` CSP |
 | `icon` | No | SVG icon in the plugin root; sanitized by main (scripts / external refs stripped) and inlined as a data URL |
+| `connectOrigins` | No | Local services the page may connect to (max 8): only `http(s)://` or `ws(s)://` + `127.0.0.1` / `localhost` / `[::1]`, no path / query string. Declared origins are merged into that entry page's CSP `connect-src` and `img-src`, letting the page reach a local companion process's API (other views stay blocked by `connect-src 'self'`). WebSockets require an explicit `ws://` (or `wss://`) entry — CSP3 has no http→ws direction, so an `http://` origin does not cover `ws://` |
 
 **Runtime registration**: requires a persistent-lifecycle plugin granted `uiControl`. Node persistent plugins call `await api.registerView({ id, title, entry })` inside `activate(api)` and `api.unregisterView(id)` to remove (duplicate IDs throw, never overwrite). Python persistent plugins use HTTP (env-injected `LYSHELL_MCP_PORT` / `LYSHELL_PLUGIN_ID` / `LYSHELL_PLUGIN_TOKEN`):
 

@@ -150,6 +150,15 @@ async function runOnce(port: number, spec: PluginSpec): Promise<number> {
 }
 
 // ====================== 入口 ======================
+// 与共享 plugin-host 相同的免疫声明:oneshot 从 activate() 到 exit 之间插件代码
+// 仍在本事件循环里跑,异步异常不应跳过 finally 的 cleanup(撤 token / 杀孙进程)。
+process.on('uncaughtException', (err) => {
+  console.error('[plugin-host:oneshot] Uncaught exception (kept alive):', err)
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('[plugin-host:oneshot] Unhandled rejection (kept alive):', reason)
+})
+
 const portRaw = process.env.LYSHELL_MCP_PORT
 if (!portRaw) {
   console.error('[plugin-host:oneshot] Missing LYSHELL_MCP_PORT env; cannot start.')

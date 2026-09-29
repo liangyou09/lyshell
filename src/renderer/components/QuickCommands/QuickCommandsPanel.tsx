@@ -29,6 +29,8 @@ const PREDEFINED_COLORS = ['#0078D4', '#E81123', '#107C10', '#FFB900', '#FF69B4'
  * 但封顶 5 行、超出内滚 —— 不再把上方会话列表挤干。
  * 数据来自 quick-commands-store（Ctrl+F1-F12 直发监听在 MainWindow 常驻，
  * 依赖同一 store，侧栏收起/切页签时快捷键不受影响）。
+ * 整模块左右缘 6（mx-1.5）离缘 —— 与栏内其他画轴（墙/FM/笔架）两端同线，
+ * 印匣 bg-strip 不再通铺到面板两缘；fixed 弹窗不受外边距影响。
  */
 const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteCommand, disabled }) => {
   // 细粒度选择器：印匣区 DOM 较多,避免无关字段变化(如别的分组被编辑)触发整面板重渲
@@ -374,7 +376,7 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
   const ledSlots = [...allGroups, ...Array.from({ length: Math.max(0, 5 - allGroups.length) }, () => null)]
 
   return (
-    <div className="flex-shrink-0">
+    <div className="flex-shrink-0 mx-1.5">
       {/* ===== 标题行 —— 对齐 SessionsPanel GroupHeader 视觉语言 ===== */}
       <div
         onClick={toggleCollapsed}

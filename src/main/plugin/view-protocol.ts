@@ -21,9 +21,9 @@
 import { app, protocol, session } from 'electron'
 import log from 'electron-log'
 import {
-  PLUGIN_VIEW_CSP,
   MAX_RESOURCE_BYTES,
   PLUGIN_VIEW_SCHEME,
+  buildViewCsp,
   pluginViewPartition,
   resolveViewFileUrl,
   ViewProtocolError
@@ -82,10 +82,12 @@ export function uninstallPluginViewProtocolHandler(pluginId: string): void {
 async function handlePluginViewRequest(pluginId: string, rawUrl: string): Promise<Response> {
   let absPath: string
   let mime: string
+  let rel: string
   try {
     const resolved = resolveViewFileUrl(pluginId, rawUrl)
     absPath = resolved.absPath
     mime = resolved.mime
+    rel = resolved.rel
   } catch (e) {
     const status = e instanceof ViewProtocolError ? e.status : 403
     log.warn(`[plugin-view] denied ${pluginId} ${rawUrl}: ${(e as Error).message}`)
@@ -106,7 +108,10 @@ async function handlePluginViewRequest(pluginId: string, rawUrl: string): Promis
       'Cache-Control': 'no-store'
     }
     if (mime.startsWith('text/html')) {
-      headers['Content-Security-Policy'] = PLUGIN_VIEW_CSP
+      // 入口 HTML 按视图声明的 connectOrigins 放宽 CSP（connect-src/img-src 合并；
+      // 声明值仅限 localhost，校验在 @shared/plugin-types validateViewDefinition）
+      const view = getPluginViewRegistry().getViewByEntry(pluginId, rel)
+      headers['Content-Security-Policy'] = buildViewCsp(view?.connectOrigins)
     }
     return new Response(buf, { status: 200, headers })
   } catch {

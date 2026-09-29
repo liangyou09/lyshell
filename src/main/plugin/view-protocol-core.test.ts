@@ -16,6 +16,8 @@ import {
   makeViewEntryUrl,
   makeViewDialogEntryUrl,
   pluginViewPartition,
+  buildViewCsp,
+  PLUGIN_VIEW_CSP,
   ViewProtocolError,
   MIME_BY_EXT
 } from './view-protocol-core'
@@ -31,6 +33,39 @@ const throwStatus = (fn: () => unknown): number => {
   }
   throw new Error('expected ViewProtocolError')
 }
+
+describe('buildViewCsp', () => {
+  it('零来源时与默认 PLUGIN_VIEW_CSP 完全一致（现网基线不漂移）', () => {
+    expect(buildViewCsp()).toBe(PLUGIN_VIEW_CSP)
+    expect(buildViewCsp([])).toBe(PLUGIN_VIEW_CSP)
+    // 基线仍锁死脚本/框架/表单方向
+    expect(PLUGIN_VIEW_CSP).toContain("script-src 'self'")
+    expect(PLUGIN_VIEW_CSP).toContain('default-src \'none\'')
+    expect(PLUGIN_VIEW_CSP).toContain("connect-src 'self'")
+  })
+
+  it('把来源合并进 connect-src 与 img-src，其余指令不变', () => {
+    const csp = buildViewCsp(['http://127.0.0.1:31517', 'ws://localhost:5173'])
+    expect(csp).toContain("connect-src 'self' http://127.0.0.1:31517 ws://localhost:5173")
+    expect(csp).toContain("img-src 'self' data: http://127.0.0.1:31517 ws://localhost:5173")
+    expect(csp).toContain("script-src 'self'")
+    expect(csp).toContain('default-src \'none\'')
+    // 不重复出现在无关指令里
+    expect(csp).not.toMatch(/font-src[^;]*127\.0\.0\.1/)
+  })
+
+  it('WebSocket 必须显式声明 ws:// 来源：http:// 不覆盖 ws://（CSP3 无 http→ws/wss 方向）', () => {
+    // 只声明 http:// 时 CSP 里没有任何 ws 来源，页面发起的 WebSocket 会被 connect-src
+    // 拦截（CSP3 的 scheme 匹配只有 http→https、ws→wss 的安全升级，没有 http→ws/wss 方向）。
+    // 字符串级测试无法验证引擎语义，这里断言的是我们依赖的事实：没显式声明就没有 ws 来源。
+    const httpOnly = buildViewCsp(['http://127.0.0.1:31517'])
+    expect(httpOnly).not.toMatch(/connect-src[^;]*\bws:/)
+    // 要连 WebSocket 的视图必须把 ws://（或 wss://）列进 connectOrigins
+    const withWs = buildViewCsp(['http://127.0.0.1:31517', 'ws://127.0.0.1:31517'])
+    expect(withWs).toContain("connect-src 'self' http://127.0.0.1:31517 ws://127.0.0.1:31517")
+    expect(withWs.match(/127\.0\.0\.1:31517/g)).toHaveLength(4) // connect-src/img-src 各两次（http + ws）
+  })
+})
 
 describe('cleanViewUrlPath', () => {
   it('接受普通/嵌套/编码路径并解码', () => {
@@ -119,7 +154,8 @@ describe('resolveViewFileUrl（临时目录 + 注入注册表）', () => {
 
   it('正常 HTML/CSS/JS/图片解析 + MIME 正确', () => {
     expect(resolveViewFileUrl('p1', pluginUrl('p1', '/panel.html'))).toMatchObject({
-      mime: MIME_BY_EXT['.html']
+      mime: MIME_BY_EXT['.html'],
+      rel: 'panel.html'
     })
     expect(resolveViewFileUrl('p1', pluginUrl('p1', '/assets/app.css')).mime).toBe('text/css; charset=utf-8')
     expect(resolveViewFileUrl('p1', pluginUrl('p1', '/assets/app.js')).mime).toBe('text/javascript; charset=utf-8')

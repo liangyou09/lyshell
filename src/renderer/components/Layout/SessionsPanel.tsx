@@ -283,6 +283,7 @@ export const GroupHeader: React.FC<{
         // 可折叠时这道缝由辊与纸跨缝相接自己拴成,不画 border-b(硬线会把
         // 辊与纸切成两物);不可折叠的栏没有辊,border-b 回落为普通分组线
         'scroll-head',
+        tone && `tone-${tone}`,
         !collapsible && 'border-b border-[var(--rule-soft)]',
         // group 供系绳(ScrollTie)悬停提亮 —— 栏不铺 hover 底色(矩形连
         // hover 也不出现),指针 + 绳的提亮就是全部悬停反馈
@@ -515,12 +516,12 @@ const ActBtn: React.FC<{
  * 小窗同构)。
  */
 // 文件管理器双开画轴的几何:收起叠高 20(上下双卷 10×2 —— 双开轴细棍化,
-// 辊 5 径上下各 2.5px 气),开态画心 = 装配总高 - 36(双辊 20 + 裱边 16
-// —— 画心四周各缩 8px 见纸,内容立在画布中央);最小装配高 136 = 双辊 20
-// + 裱边 16 + 画心下限 100(标题条 30 + 列表 + 进度条 24 —— 画心下限
-// 不变,细棍化只收回辊行的 12)
+// 辊 5 径上下各 2.5px 气),开态画心 = 装配总高 - 28(双辊 20 + 裱边 8
+// —— 画心四周各缩 4px 见纸,内容立在画布中央);最小装配高 128 = 双辊 20
+// + 裱边 8 + 画心下限 100(标题条 30 + 列表 + 进度条 24 —— 画心下限
+// 不变,细棍化收回辊行的 12、裱边减半再收回 8)
 const DUAL_ROLLED_H = 20
-const FILE_MANAGER_MIN_HEIGHT = 136
+const FILE_MANAGER_MIN_HEIGHT = 128
 
 const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteCommand, quickCommandsDisabled }) => {
   const [showDialog, setShowDialog] = useState(false)
@@ -583,9 +584,9 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
   }, [sessions, activeTerminalSessionId, activeTerminalProto])
   // 文件管理器高度(列宽度由 MainWindow 列容器统一管) —— 声明在编码菜单块之前:
   // 菜单重锚 effect 的 deps 引用它,deps 数组渲染期求值,声明在后会踩 TDZ
-  // 默认 204 = 双辊 20 + 裱边 16 + 画心 168(画心尺寸零感知 —— 裱边挂上
-  // 抬高 16、细棍化收回 12,两次都保画心 168 不动)
-  const [fileManagerHeight, setFileManagerHeight] = useState(204)
+  // 默认 196 = 双辊 20 + 裱边 8 + 画心 168(画心尺寸零感知 —— 裱边挂上
+  // 抬高 16、细棍化收回 12、裱边减半再收回 8,三次都保画心 168 不动)
+  const [fileManagerHeight, setFileManagerHeight] = useState(196)
   const [isResizingHeight, setIsResizingHeight] = useState(false)
   // 拖高与点合分流:按下记起点,document mousemove 里位移越过阈值记真拖动
   // —— 拖完浏览器补发的 click 不当点合,click 里另拿松手坐标对起点复量一遍
@@ -783,7 +784,7 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
         if (typeof savedHeight === 'number' && Number.isFinite(savedHeight) && savedHeight > 0) {
           // 上限与小窗同一把绝对钳(4000):恢复时面板多半尚未布局,rect 量不到
           // 「当前布局上限」,离谱存档值(手改 config)先收敛,渲染期 maxHeight 再钳。
-          // 下限 = 双开画轴最小装配高 136(双辊 20 + 裱边 16 + 画心下限
+          // 下限 = 双开画轴最小装配高 128(双辊 20 + 裱边 8 + 画心下限
           // 100),旧存档的矮值由钳自愈上抬
           setFileManagerHeight(Math.round(Math.min(4000, Math.max(FILE_MANAGER_MIN_HEIGHT, savedHeight))))
         }
@@ -1320,17 +1321,63 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
           </div>
         </div>
 
+        {/* ===== 过滤区 ===== 双开画轴 —— 会话搜索框的挂轴化(区别于垂卷的
+             单辊向下开纸、小画轴的恒收一卷):两端各一竖辊(细棍 5 径),双开。
+             常开:两半纸自两辊背后铺出、于正中接缝成整幅,绳解开飘走、轴头
+             点亮 amber 辉光 —— 搜索是常在的动作位,不随聚焦收放(旧「失焦
+             且空即收」的双卷态已撤,题签占位直接落在纸面上);位次提到面板
+             最前(铭牌行下第一动作位,笔山之前 —— 找会话先于开新会话)。
+             体量与输入字面对齐 Web 主地址栏:挂 scroll-search-lg 加高档
+             (纸 20/辊 28,同 36px 高)与 mono 13 墨,amber 本段身份不换青蓝;
+             行距同拍 —— 行高 44 = 36 画轴 + 上下各 4 呼吸(py-1,对齐
+             WebPanel 输入行的「居中悬浮」节奏,不再是旧 32 框配的 py-2)。
+             底线随缘:hairline 用 absolute 画(left/right 1.5 同缘内收,
+             与 FM 拖示线同一手法),不再 border-b 通铺到面板两缘。
+             墨(输入)居中落于纸面,插入符 amber 立于合缝 —— 「中间输入」。
+             纸幅/辊面/系绳的机械全在 globals.css 的 .scroll-search 系列;
+             label 承接点击(点纸即落墨,点辊也聚焦) */}
+        <div className="relative px-1.5 py-1 flex items-center gap-1.5">
+          <label className="scroll-search scroll-search-lg open flex-1 min-w-0 h-[36px] relative flex items-center cursor-text">
+            {/* 纸幅 —— 两半:左半自左辊后向右铺、右半自右辊后向左铺,合缝在
+                容器正中;垫在辊与墨之下(纸自辊后引出),自由端带残余卷曲 */}
+            <span aria-hidden className="scroll-search-paper scroll-search-paper-l" />
+            <span aria-hidden className="scroll-search-paper scroll-search-paper-r" />
+            {/* 双辊 —— 两端竖轴:辊体(光辊)+ 裹辊纸带(收=满卷,开=纸下
+                辊)+ 上下 amber 轴头;几何「辊比纸长」(轴头探出纸外) */}
+            <span aria-hidden className="scroll-search-rod scroll-search-rod-l" />
+            <span aria-hidden className="scroll-search-rod scroll-search-rod-r" />
+            {/* 蝴蝶结 —— 收卷时双卷各拴一只(绳色随轴头,机械共用
+                .scroll-tie 的 :is 列表);开卷解绳飘走 */}
+            <span aria-hidden className="scroll-search-tie scroll-search-tie-l"><ScrollTie /></span>
+            <span aria-hidden className="scroll-search-tie scroll-search-tie-r"><ScrollTie /></span>
+            {/* 墨 —— 纸面输入:文字居中落合缝,占位=题签金墨(样式在
+                ::placeholder);两侧让位避开双辊区(mono 13 对齐主地址栏) */}
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={t('sidebar.filterPlaceholder')}
+              className="scroll-search-input relative z-[2] flex-1 min-w-0 mx-[18px] bg-transparent border-none outline-none font-mono text-[13px] text-center text-[var(--text-rack)] caret-[var(--amber)]"
+            />
+          </label>
+          {/* 底线 —— 随缘内收的 hairline:跨幅与画轴同(6px 离缘),不贴面板两缘 */}
+          <span aria-hidden className="absolute bottom-0 left-1.5 right-1.5 h-px bg-[var(--rule)]" />
+        </div>
+
         {/* ===== LAUNCH ===== 一键拉起本地终端 —— 笔山:每键一管卧毫(挂器
              化,不再是卷 —— 卷是「纸的形态」,这排是拿起工具去写的「器」,
              硬套卷轴,解绳一拍是绳解了卷不开)。行高 35px = 内高 28+上下垫 7;
-             上缘不画线 —— 紧贴头条的 border-b,画了会叠
+             左右缘 6(mx-1.5)整架内收 —— 架条不再通铺到面板两缘,与过滤区
+             画轴两端同一线(此前 px 只内收了笔,架底仍贴边);架内不再加
+             横垫,毫尖几何自带 4px 气;
+             上缘不画线 —— 紧贴上邻过滤区的 border-b,画了会叠
              双线;下缘 border 化作笔山连脊(.brush-rack::after 的 conic
              连脊),笔卧山上。毫(拢毫笔头:锋尖+鼓肚+根收)朝左,漆杆
              随身份色(cmd 素/ps 蓝/ps7 紫/ps+ 红),名签悬在笔上 —— 7px
              细杆刻不下字,挂签贴笔(签挂器上);
              点下执笔一拍 —— 整笔离架、毫尖蘸墨(金墨),终端(纸)在别处
              垂落 */}
-        <div className="brush-rack flex-shrink-0 flex items-stretch gap-[4px] px-2 pt-[2px] pb-[5px] bg-[var(--bg-strip)]">
+        <div className="brush-rack flex-shrink-0 flex items-stretch gap-[4px] mx-1.5 pt-[2px] pb-[5px] bg-[var(--bg-strip)]">
           {QUICK_SHELLS.map(s => (
             <button
               key={s.key}
@@ -1356,40 +1403,6 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
           ))}
         </div>
 
-        {/* ===== 过滤区 ===== 双开画轴 —— 搜索框的挂轴化(区别于垂卷的单辊
-             向下开纸、小画轴的恒收一卷):两端各一竖辊(细棍 5 径),双开。
-             常开:两半纸自两辊背后铺出、于正中接缝成整幅,绳解开飘走、轴头
-             点亮 amber 辉光 —— 搜索是常在的动作位,不随聚焦收放(旧「失焦
-             且空即收」的双卷态已撤,题签占位直接落在纸面上)。墨(输入)居
-             中落于纸面,插入符 amber 立于合缝 —— 「中间输入」。纸幅/辊面/
-             系绳的机械全在 globals.css 的 .scroll-search 系列;label 承接
-             点击(点纸即落墨,点辊也聚焦) */}
-        <div className="px-3 py-2 border-b border-[var(--rule)] flex items-center gap-1.5">
-          <label className="scroll-search open flex-1 min-w-0 h-[32px] relative flex items-center cursor-text">
-            {/* 纸幅 —— 两半:左半自左辊后向右铺、右半自右辊后向左铺,合缝在
-                容器正中;垫在辊与墨之下(纸自辊后引出),自由端带残余卷曲 */}
-            <span aria-hidden className="scroll-search-paper scroll-search-paper-l" />
-            <span aria-hidden className="scroll-search-paper scroll-search-paper-r" />
-            {/* 双辊 —— 两端竖轴:辊体(光辊)+ 裹辊纸带(收=满卷,开=纸下
-                辊)+ 上下 amber 轴头;几何「辊比纸长」(轴头探出纸外) */}
-            <span aria-hidden className="scroll-search-rod scroll-search-rod-l" />
-            <span aria-hidden className="scroll-search-rod scroll-search-rod-r" />
-            {/* 蝴蝶结 —— 收卷时双卷各拴一只(绳色随轴头,机械共用
-                .scroll-tie 的 :is 列表);开卷解绳飘走 */}
-            <span aria-hidden className="scroll-search-tie scroll-search-tie-l"><ScrollTie /></span>
-            <span aria-hidden className="scroll-search-tie scroll-search-tie-r"><ScrollTie /></span>
-            {/* 墨 —— 纸面输入:文字居中落合缝,占位=题签金墨(样式在
-                ::placeholder);两侧让位避开双辊区 */}
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t('sidebar.filterPlaceholder')}
-              className="scroll-search-input relative z-[2] flex-1 min-w-0 mx-[18px] bg-transparent border-none outline-none text-[12px] text-center text-[var(--text-rack)] caret-[var(--amber)]"
-            />
-          </label>
-        </div>
-
         {/* ===== 会话墙双开画轴 —— 天头总闸的挂轴化 ===== 整面会话墙(垂卷
              分组们:LIVE/PINNED/协议筛选/子网组)住进一张竖置双开画轴的纸
              里,替代原「全体」总闸。墙恒开:纸面永铺着,收起的是纸里的垂
@@ -1404,8 +1417,9 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
              (滚动容器是纸窗,见下);不可拖(上辊行只点按,无拖高手势位
              与拖示线),恒挂 open(墙无开合动画,覆写在 globals 的
              .scroll-dual-wall;ScrollFold 开合逐帧改内容高,下辊随折卷动
-             画跟手滑)。空墙也常挂(空态住纸里,纸尾跟着空态文案走) */}
-        <div className="scroll-dual scroll-dual-wall flex-1 min-h-0 open">
+             画跟手滑)。空墙也常挂(空态住纸里,纸尾跟着空态文案走);左右缘
+             6(mx-1.5)整墙内收,与过滤区/笔架两端同线 —— 栏内器物一律离缘 */}
+        <div className="scroll-dual scroll-dual-wall mx-1.5 flex-1 min-h-0 open">
           {/* 上辊行 —— 一键收/放钮(原「全体」总闸的语义随总闸迁到墙上):
               点行把纸里展开着的垂卷们(置顶段+全部子网组)都卷起/全放,
               键盘入口在此(下辊行纯鼠标);无拖高 —— 高随内容与列剩余高走,没
@@ -1548,6 +1562,7 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
                   return (
                     <button
                       key={p}
+                      data-proto={p}
                       onClick={() => !disabled && toggleProtoFilter(p)}
                       disabled={disabled}
                       aria-pressed={active}
@@ -1655,8 +1670,9 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
             它们的架与 LAUNCH 笔山同款(conic 三角连脊,同 tile 同材)—— 笔卧
             山上、墙下辊横跨数峰读作搁在架上,架子一族两处同形。峰高 4、两辊
             间距 2.5+4+2.5=9 隔而不远;两行点击目标(一键收放 vs 开合/拖高)
-            也由架分界。形在 globals.css 的 .shelf,随 FM 装配一起挂 */}
-        {fmConfigLoaded && <div aria-hidden className="shelf" />}
+            也由架分界。形在 globals.css 的 .shelf,随 FM 装配一起挂(同笔山
+            离缘 mx-1.5 —— 架子一族两处,内收后仍同线) */}
+        {fmConfigLoaded && <div aria-hidden className="shelf mx-1.5" />}
 
         {/* ===== 文件管理器双开画轴 —— 栏底面板的展开/收起挂轴化 =====
             点任一辊行即开/合(双向 toggle,上辊行带 role=button 承接键盘;
@@ -1672,15 +1688,15 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
             与 scroll-tie 家族):开 = 纸自两辊相向铺开、内容锚定合缝自中部
             显影(440ms 纸坠),合 = 窗口向正中收拢、纸裹着内容卷回双辊拴
             绳(320ms 加速收,内容延迟 360ms 卸载)。画心立在纸面中央
-            (body 裱边四周各 8px,见 globals.css)。装配总高(= 双辊 20 +
-            裱边 16 + 画心)沿用 fileManagerHeight 存档语义,拖动映射 1:1
+            (body 裱边四周各 4px,见 globals.css)。装配总高(= 双辊 20 +
+            裱边 8 + 画心)沿用 fileManagerHeight 存档语义,拖动映射 1:1
             不变。fmConfigLoaded 门:对账落定前连装配也不挂(旧代码只门内
-            容),存档关闭态冷启动零闪现 */}
+            容),存档关闭态冷启动零闪现;装配左右缘 6(mx-1.5)与墙/笔架同线 */}
         {fmConfigLoaded && (
           <div
             ref={fmAssemblyRef}
             className={cn(
-              'scroll-dual flex-shrink-0 select-none',
+              'scroll-dual mx-1.5 flex-shrink-0 select-none',
               fileManagerClosed ? 'rolled' : 'open',
               isResizingHeight && 'resizing'
             )}

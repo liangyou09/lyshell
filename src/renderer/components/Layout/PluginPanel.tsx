@@ -329,13 +329,15 @@ const PluginPanel: React.FC = () => {
         </div>
       </div>
 
-      {/* 内容笼：pt-3 + space-y-2 自根容器下移到这层，头条得以满幅贴顶；侧距不设笼上 ——
-          URL 行/权限卡/提示行自带 px-3，列表墙要满幅通到面板两缘（与 Agents/Env 墙同构） */}
-      <div className="flex-1 min-h-0 flex flex-col pt-3 space-y-2">
+      {/* 内容笼：pt-3 + space-y-2 自根容器下移到这层，头条得以满幅贴顶；
+          整笼离缘 6（mx-1.5）—— 与会话栏器物两端同线，栏内器物一律离缘，
+          列表纸不再通铺到面板两缘；URL 行/提示行的旧 px-3 已撤（侧距统一
+          归笼，不叠两层），居中空态的 px-4 守边保留 */}
+      <div className="mx-1.5 flex-1 min-h-0 flex flex-col pt-3 space-y-2">
 
       {/* URL 输入行 */}
       {showUrlInput && (
-        <div className="flex items-center gap-1 px-3">
+        <div className="flex items-center gap-1">
           <input
             type="text"
             value={urlInput}
@@ -411,8 +413,8 @@ const PluginPanel: React.FC = () => {
         </div>
       )}
 
-      {notice && <div className="px-3 text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] break-all">{notice}</div>}
-      {error && <div className="px-3 text-[10.5px] [font-family:inherit] text-red-400 break-all">{error}</div>}
+      {notice && <div className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] break-all">{notice}</div>}
+      {error && <div className="text-[10.5px] [font-family:inherit] text-red-400 break-all">{error}</div>}
 
       {/* 列表 —— 加载/空态走机柜 ─ · ─ 分隔语法（与其余面板归一） */}
       {loading && items.length === 0 ? (
@@ -428,7 +430,7 @@ const PluginPanel: React.FC = () => {
         </div>
       ) : (
         /* 插件卡没有可折叠分组，沿用纸面与卡片，不再绘制无操作的双辊。 */
-        <div className="flex-1 min-h-0 overflow-y-auto rack-scroll px-3 pb-3">
+        <div className="flex-1 min-h-0 overflow-y-auto rack-scroll pb-3">
           <div className="flat-paper-list px-2 py-2 space-y-1.5">
             {items.map(renderPluginCard)}
           </div>

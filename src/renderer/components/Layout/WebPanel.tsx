@@ -181,17 +181,25 @@ const WEBBAR_NAMEPLATE_COMPACT_WIDTH = 264
 const MINI_HEIGHT_KEY = 'webMiniHeight'
 const MINI_CLOSED_KEY = 'webMiniClosed'
 const MINI_URL_STORAGE_KEY = 'lyshell.webbarMini.url.v1'
-// 高度语义 = 双开画轴装配总高(上下双辊 20 + 裱边 16 + 画心):旧存档值(纯纸
-// 幅语义)经 clampMiniHeight 下限自愈上抬;默认 236 与 146 的画心(200/110)恰
-// 是旧默认/旧下限 —— 浏览面尺寸对旧档零感知(细棍化收 12,画心不动)
-const MINI_DEFAULT_HEIGHT = 236  // 双辊 20 + 裱边 16 + 工具条 32 + 浏览面 168(旧默认的浏览面)
-const MINI_MIN_HEIGHT = 146      // 双辊 20 + 裱边 16 + 工具条 32 + 网页可视 ~78px 的下限(旧下限 110 的同等内容)
-// 面板高减去它 = 小窗装配高度上限(拖动 clamp 与 CSS maxHeight 同一把钳)。
-// 上方恒占 = 铭牌 TOPBAR_HEIGHT + 地址栏 44 + 历史留座 120(卡头+两行余量)
-// —— 历史座是设计裁量非布局硬限(卡内自滚,还能更矮),整把故为粗钳:拖动
+// 高度语义 = 双开画轴装配总高(上下双辊 20 + 裱边 8 + 画心):旧存档值(纯纸
+// 幅语义)经 clampMiniHeight 下限自愈上抬;默认 228 与 138 保画心(200/110)
+// 与旧默认/旧下限同尺寸 —— 细棍化收 12 画心不动,裱边减半再收 8(旧档画心
+// 随之各得 8px)
+const MINI_DEFAULT_HEIGHT = 228  // 双辊 20 + 裱边 8 + 工具条 32 + 浏览面 168(旧默认的浏览面)
+const MINI_MIN_HEIGHT = 138      // 双辊 20 + 裱边 8 + 工具条 32 + 网页可视 ~78px 的下限(旧下限 110 的同等内容)
+// 小窗装配高度上限的两个口径,同一目标:装配顶缘离根顶恒占 = 铭牌
+// TOPBAR_HEIGHT + 地址栏 44 + 历史留座 120(卡头+两行余量)。
+// 根高口径(MINI_RESERVE_HEIGHT):拖动 clamp(onMiniDividerPointerMove 的
+// rootRef rect)与根高观察钳量的是根元素 —— rect 含头行,减全量;
+// 壳内口径(MINI_SHELL_RESERVE_HEIGHT):装配的 CSS maxHeight 以内容壳为
+// 含块(壳从头行之下起排,100% 不含 TOPBAR_HEIGHT),只减 44+120 ——
+// 2026/09/29 修正:装配随内容壳入栏后 CSS 仍减全量,顶栏被扣两次,
+// 矮窗口/拖到上限时装配比计算值矮一档顶栏、画心被裁。
+// 历史座是设计裁量非布局硬限(卡内自滚,还能更矮),整把故为粗钳:拖动
 // 上限已精确锚装配底缘(rootRef 底缘,见 onMiniDividerPointerMove),要再
 // 精确须逐帧量上方实高,粗防线保底即可
-const MINI_RESERVE_HEIGHT = TOPBAR_HEIGHT + 44 + 120
+const MINI_SHELL_RESERVE_HEIGHT = 44 + 120
+const MINI_RESERVE_HEIGHT = TOPBAR_HEIGHT + MINI_SHELL_RESERVE_HEIGHT
 const MINI_ABS_MAX_HEIGHT = 4000 // 存档值绝对上限（防手改 config 的离谱值；运行期布局上限另由渲染期 maxHeight 钳）
 const MINI_ROLLED_H = 20         // 收起叠高:上下双卷 10×2(与 SessionsPanel 的 DUAL_ROLLED_H 同族几何)
 
@@ -346,7 +354,7 @@ const WebGroupHeader: React.FC<{
     }}
     className={cn(
       'relative flex items-center gap-2.5 pl-3 pr-[20px] py-[3px] text-[10px] text-[var(--text-rack-mute)]',
-      'scroll-head group cursor-pointer',
+      'scroll-head tone-web group cursor-pointer',
       collapsed && 'rolled'
     )}
   >
@@ -973,10 +981,16 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
         )}
       </div>
 
+      {/* ===== 内容壳 ===== 头行以下整列离缘 6(mx-1.5) —— 与会话栏器物两端同线
+          (栏内器物一律离缘,不再通铺到面板两缘);段内既有垫距保留;壳不定位,
+          fixed 弹窗/浮层与绝对定位的小窗不受影响 */}
+      <div className="mx-1.5 flex-1 min-h-0 flex flex-col min-w-0">
+
       {/* 输入动作位 —— 44px 输入行(36px 画轴居中悬浮,上下各 4px 呼吸),
-          底部一条随卡片宽度的分割线(px-3 收进,不连接面板
-          左右边缘)把动作区与历史区分开;导航键已迁铭牌行,此行只留地址栏 */}
-      <div className="flex-shrink-0 h-[44px] px-3 flex flex-col">
+          底部一条随壳宽的分割线(侧距归内容壳,离缘 6 不连接面板左右边缘,
+          与会话栏过滤区底线同法)把动作区与历史区分开;导航键已迁铭牌行,
+          此行只留地址栏(旧行上 px-3 已撤 —— 侧距统一由内容壳出,不再叠两层) */}
+      <div className="flex-shrink-0 h-[44px] flex flex-col">
         <div className="flex-1 flex items-center">
           {/* 网页访问栏 —— 双开画轴(与小窗地址栏/会话搜索框同款挂轴化,机械全在
               globals.css 的 .scroll-search 系列):两端各一竖辊,常开不随聚焦
@@ -1050,9 +1064,10 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
         <div aria-hidden className="h-px bg-[var(--rule-soft)]" />
       </div>
 
-      {/* 内容笼:p-3 + space-y-2(与 PluginPanel 同构);顶部 pt-1.5 贴分割线起排,
-          底部 pb-1.5 贴小窗拖高条(栏底语法:历史卡与拖高条之间只留 6px 空气) */}
-      <div className="flex-1 min-h-0 flex flex-col px-3 pt-1.5 pb-1.5 space-y-2">
+      {/* 内容笼:space-y-2(与 PluginPanel 同构);侧距归内容壳(6),上下垫
+          保留 —— 顶部 pt-1.5 贴分割线起排,底部 pb-1.5 贴小窗拖高条(栏底
+          语法:历史卡与拖高条之间只留 6px 空气);旧 px-3 已撤不叠两层 */}
+      <div className="flex-1 min-h-0 flex flex-col pt-1.5 pb-1.5 space-y-2">
 
         {notice && <div className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] break-all">{notice}</div>}
 
@@ -1181,7 +1196,7 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
           显影(440ms 纸坠),合 = 窗口向正中收拢、纸裹着内容卷回双辊拴
           绳(320ms 加速收;内容常驻不卸载 —— 保活,纸 overflow:hidden
           裁掉画心,guest 存活)。画心立在纸面中央
-          (body 裱边四周各 8px)。装配总高(= 双辊 20 + 裱边 16 + 画心)
+          (body 裱边四周各 4px)。装配总高(= 双辊 20 + 裱边 8 + 画心)
           沿用 miniHeight 存档语义,拖动映射 1:1 不变。轴头/系绳/解绳辉光
           挂 scroll-dual-web 青蓝段身份(与最近访问墙同一件物,取
           --web-group,不取 amber) */}
@@ -1194,11 +1209,12 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
         style={{
           height: miniClosed ? MINI_ROLLED_H : `${miniFitHeight}px`,
           // 渲染期钳(拖动/恢复夹取之外的第二道防线):存档值超当前面板或窗口
-          // 临时缩小时视觉收敛,保底铭牌/地址栏/历史留座的粗钳;存档值
-          // 不被临时小屏毁掉,窗口回弹即恢复原高 —— 恢复时面板多半未布局,
+          // 临时缩小时视觉收敛,保底地址栏/历史留座的粗钳(壳内口径:
+          // 100% 的含块是内容壳,不含头行 —— 见 MINI_SHELL_RESERVE_HEIGHT 注);
+          // 存档值不被临时小屏毁掉,窗口回弹即恢复原高 —— 恢复时面板多半未布局,
           // rect 量不到,上限靠这里。贴合值(miniFitHeight)先行把同一把钳
           // 算进 height/--dual-h,本条只在未布局首帧兜底(见其注释)
-          maxHeight: `calc(100% - ${MINI_RESERVE_HEIGHT}px)`,
+          maxHeight: `calc(100% - ${MINI_SHELL_RESERVE_HEIGHT}px)`,
           '--dual-h': `${miniFitHeight}px`
         } as React.CSSProperties}
       >
@@ -1382,6 +1398,7 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
           </span>
         )}
       </div>
+      </div>{/* ===== /内容壳 ===== */}
     </div>
   )
 }

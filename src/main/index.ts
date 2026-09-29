@@ -36,6 +36,7 @@ import { dshWebManager } from './dsh/web'
 import { KILL_STEP_TIMEOUT_FLOOR_MS, sweepOrphanDshWeb } from './dsh/proc'
 import { IPC_CHANNELS, WEBBAR_DEEPLINK_SCHEMES, WEBBAR_PARTITION } from '@shared/constants'
 import { matchWebTabShortcut } from '@shared/webtab-shortcut'
+import { createLogTap } from '@shared/log-throttle'
 import { decideWebviewFrameNavigation, gateWebviewSubframeNavigation } from './webview-frame-navigation'
 import { PendingWebbarPostStore, webbarPostLoadOptions, webbarPostRawBytesWithinLimit } from './webbar-post'
 
@@ -363,11 +364,13 @@ function setupPluginGuest(guestContents: Electron.WebContents, pending: PendingP
       denyNav('frame navigation', e.url)
     }
   })
-  // guest console 转发（取证通道，与 webbar 一致；warn 及以上）
+  // guest console 转发（取证通道，与 webbar 一致；warn 及以上）。经限速 tap:
+  // 插件页可以按管线速度 console.error,不设闸会冲掉 main.log 里有用内容。
+  const consoleTap = createLogTap((line) => log.warn(line), { maxLines: 20 })
   guestContents.on('console-message', (_event, level, message, line, sourceId) => {
     if (level < 2) return
     const text = message.length > 500 ? `${message.slice(0, 500)}…` : message
-    log.warn(`[plugin-view console] ${pending.pluginId}/${pending.viewId} (${sourceId}:${line}) ${text}`)
+    consoleTap(`[plugin-view console] ${pending.pluginId}/${pending.viewId} (${sourceId}:${line}) ${text}`)
   })
 }
 
@@ -658,11 +661,13 @@ function createMainWindow(): void {
     // guest 页面 console 转发（取证通道）：webview 客体里页面脚本的报错（Uncaught
     // TypeError 等）默认只进不可见的 guest devtools，主进程日志毫无痕迹 —— 排查
     // 「页面没冻结但按钮点不动」类问题（抖音保存登录信息弹窗的保存/取消按钮）时
-    // 无从下手。warn 及以上转发进主日志（info 级心跳噪音大不转），消息截长防单条刷屏
+    // 无从下手。warn 及以上转发进主日志（info 级心跳噪音大不转），消息截长防单条
+    // 刷屏 + 限速 tap 防速率刷屏
+    const consoleTap = createLogTap((line) => log.warn(line), { maxLines: 20 })
     webContents.on('console-message', (_event, level, message, line, sourceId) => {
       if (level < 2) return
       const text = message.length > 500 ? `${message.slice(0, 500)}…` : message
-      log.warn(`[guest console] ${webContents.getURL()} (${sourceId}:${line}) ${text}`)
+      consoleTap(`[guest console] ${webContents.getURL()} (${sourceId}:${line}) ${text}`)
     })
     // 导航闸 —— will-navigate（锚点点击 / JS location 赋值）与 will-redirect（302/
     // meta refresh 的服务端落点）两条事件共用同一策略：实证（Electron 28 探针）锚点与

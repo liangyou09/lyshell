@@ -225,7 +225,11 @@ const MainWindow: React.FC = () => {
           default:
             reply(false, `unknown action: ${request.action}`)
         }
-      })()
+      })().catch((e: unknown) => {
+        // 动作执行器兜底:connectSession/openLocalDoc 等 reject 若不接住就是主窗口
+        // 的 unhandled rejection;回执失败让 guest 侧立即收到错误而非干等 10s 超时。
+        reply(false, e instanceof Error ? e.message : String(e))
+      })
     })
   }, [])
 

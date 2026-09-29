@@ -41,6 +41,7 @@ import {
   type PluginSpec,
   type LyShellPluginManifest
 } from '@shared/plugin-types'
+import { createLogTap } from '@shared/log-throttle'
 
 /**
  * pluginHost.js 脚本路径。与 getMcpServerScriptPath(http-server.ts)同构。
@@ -66,6 +67,11 @@ function getOneshotHostScriptPath(): string {
   return join(__dirname, 'pluginHostOneshot.js')
 }
 
+/** 宿主异常退出自动重启:延迟、风暴判定窗口与最大连续次数(maybeAutoRestartNodeHost)。 */
+const AUTO_RESTART_DELAY_MS = 3_000
+const AUTO_RESTART_STORM_WINDOW_MS = 60_000
+const AUTO_RESTART_MAX_CONSECUTIVE = 3
+
 class PluginHostManager {
   private child: ChildProcess | null = null
   private activePluginIds: string[] = []
@@ -83,6 +89,16 @@ class PluginHostManager {
   private oneshotRuns = new Set<string>()
   /** oneshot 本次运行颁发的 token(per pluginId)--用于运行结束时安全撤销,避免被后一次运行的 .finally 误杀。 */
   private activeOneshotTokens = new Map<string, string>()
+  /** 宿主代次:start()/stop() 每次自增。旧宿主的异步 exit 与自动重启定时器据此识别
+   * 自己已过期 —— restart() = stop()+start() 会把 stopping 复位回 false,且停用最后
+   * 一个 node 插件的 restart 不会创建新宿主,只看 stopping/this.child 会用残留 specs
+   * 复活已停用插件(P1 评审)。 */
+  private hostGeneration = 0
+  /** 挂起的自动重启定时器句柄:stop() 主动停机时显式取消。 */
+  private autoRestartTimer: NodeJS.Timeout | null = null
+  /** 上次自动重启时刻 + 连续快速死亡计数(自动重启风暴保险,见 exit 回调)。 */
+  private lastHostAutoRestartAt = 0
+  private hostAutoRestartStreak = 0
 
   /** host 子进程是否存活（killed 仅表示已发信号，用 exitCode/signalCode 判进程是否已退出） */
   isRunning(): boolean {
@@ -100,6 +116,9 @@ class PluginHostManager {
     }
     this.stopping = false
     this.nodeHostPluginIds = []
+    // 本次 start() 使此前所有宿主的 exit/定时器过期(即便下面 no-op 返回:停用最后
+    // 一个 node 插件的 restart() 就是一次无新宿主的 start(),旧 exit 不得自动重启)。
+    this.hostGeneration++
 
     const port = getMcpHttpPort()
     if (!port) {
@@ -280,25 +299,119 @@ class PluginHostManager {
     // 每次 spawn 都是新数组)才允许异常退出清理。
     const ownedIds = specs.map((s) => s.pluginId)
     this.nodeHostPluginIds = ownedIds
-    // 转发子进程 stderr 到主日志（host 用 console.error 输出进度）。
+    // 本次 spawn 时的代次:exit 回调与自动重启定时器据此识别自己是否已被
+    // 后续 start()/stop() 取代(定时器自发 spawn 不换代次,重启链得以延续)。
+    const gen = this.hostGeneration
+    // 转发子进程 stderr 到主日志（host 用 console.error 输出进度）。限速转发:
+    // 插件可按管线速度刷 console.error,不设闸会冲掉 main.log 里的有用内容。
+    const tapStderr = createLogTap((line) => log.info(line))
     child.stderr?.on('data', (chunk: Buffer) => {
       const text = chunk.toString().trimEnd()
-      if (text) log.info(text)
+      if (text) tapStderr(text)
+    })
+    // stdout 只是为了排空管道:host 里插件 console.log 若无人消费,管道缓冲写满后
+    // 会阻塞插件进程的所有 console 输出(进而可能拖住插件代码)。经限速 tap 落日志,
+    // 既排空又防刷屏(正常情况下 host 自身不用 stdout,量应为零)。
+    const tapStdout = createLogTap((line) => log.info(line), { maxLines: 20 })
+    child.stdout?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString().trimEnd()
+      if (text) tapStdout(text)
     })
     child.on('exit', (code, signal) => {
       log.info(`[plugin-host] Host process exited (code=${code}, signal=${signal})`)
       if (this.child === child) this.child = null
-      if (!this.stopping && this.nodeHostPluginIds === ownedIds) {
-        // 异常退出（崩溃/被杀，非 stop()/restart() 路径）：撤其中插件的 host token、
-        // 清运行时视图并广播。声明式视图与 UI token 保持可用（凭据独立于宿主进程）。
-        this.handleHostPluginsDied(ownedIds)
-        this.nodeHostPluginIds = []
-      }
+      this.cleanupOwnedPluginsIfDied(ownedIds)
+      this.maybeAutoRestartNodeHost(code, signal, specs, gen)
     })
     child.on('error', (err) => {
       log.error('[plugin-host] Host process error:', err)
       if (this.child === child) this.child = null
+      // 不在此处撤 token/清视图:'error' 也可能是 kill 已退出进程等句柄事件,
+      // 此时 host 可能仍活着,撤 token 会让运行中的插件 API 全挂。进程真正死亡的
+      // 所有路径都会触发 exit(spawn 成功)或 close(spawn 失败 ENOENT 只发
+      // error+close 不发 exit),由那两处幂等清理。
     })
+    child.on('close', () => {
+      // 'close' 是进程消亡的权威信号(覆盖 exit 漏掉的 spawn 失败路径),与 exit
+      // 双路调用,靠 cleanupOwnedPluginsIfDied 的归属判断幂等去重。
+      this.cleanupOwnedPluginsIfDied(ownedIds)
+    })
+  }
+
+  /**
+   * 共享 node host 异常退出时,清理其承载插件的 token 与运行时视图。
+   * 仅当「非主动停机且该 ownedIds 仍是当前集合」(restart 后旧 child 的 exit 异步
+   * 迟到时不得误清新集合)才执行;exit/close 双路触发靠归属判断幂等。
+   */
+  private cleanupOwnedPluginsIfDied(ownedIds: string[]): void {
+    if (this.stopping || this.nodeHostPluginIds !== ownedIds) return
+    // 异常退出（崩溃/被杀，非 stop()/restart() 路径）：撤其中插件的 host token、
+    // 清运行时视图并广播。声明式视图与 UI token 保持可用（凭据独立于宿主进程）。
+    this.handleHostPluginsDied(ownedIds)
+    this.nodeHostPluginIds = []
+  }
+
+  /**
+   * 宿主异常退出后自动重启（拉起仍启用的 node 插件恢复可用）。
+   * host 子进程现已对插件错误免疫（plugin-host/index.ts 入口捕获），异常退出只剩
+   * 外部 kill / OOM 等环境因素。风暴保险：AUTO_RESTART_STORM_WINDOW_MS 内再次
+   * 异常退出计入连击，连续 AUTO_RESTART_MAX_CONSECUTIVE 次后放弃并提示手动操作，
+   * 防 kill 循环空转。
+   *
+   * 代次防复活（P1 评审）：exit 异步迟到的窗口里可能已发生 restart()/stop() ——
+   * stop+start 会把 stopping 复位回 false，停用最后一个 node 插件的 restart 甚至
+   * 不会创建新宿主。只看 stopping/this.child 会拿残留 specs 复活已停用插件，因此
+   * 调度与定时器触发两端都校验宿主代次 + 当前启用集合，specs 经闭包传递不落残留字段。
+   */
+  private maybeAutoRestartNodeHost(
+    code: number | null,
+    signal: NodeJS.Signals | null,
+    specs: PluginSpec[],
+    gen: number
+  ): void {
+    const abnormal = signal !== null || code !== 0
+    if (!abnormal || this.stopping || this.hostGeneration !== gen) return
+    // 已无启用的 node 插件（如刚被 restart() 全部停用）则不调度
+    const enabledIds = new Set(pluginRepository.getEnabled().map((e) => e.id))
+    if (!specs.some((s) => enabledIds.has(s.pluginId))) return
+    if (this.nodeHostPluginIds.length > 0) return
+    const now = Date.now()
+    this.hostAutoRestartStreak =
+      now - this.lastHostAutoRestartAt < AUTO_RESTART_STORM_WINDOW_MS ? this.hostAutoRestartStreak + 1 : 1
+    this.lastHostAutoRestartAt = now
+    if (this.hostAutoRestartStreak > AUTO_RESTART_MAX_CONSECUTIVE) {
+      log.error(
+        `[plugin-host] Host died abnormally ${this.hostAutoRestartStreak} times in a row; giving up auto-restart (手动启用/禁用任一插件可重启宿主)`
+      )
+      return
+    }
+    log.warn(
+      `[plugin-host] Auto-restarting node host in ${AUTO_RESTART_DELAY_MS / 1000}s for ${specs.length} plugin(s) (attempt ${this.hostAutoRestartStreak})`
+    )
+    if (this.autoRestartTimer) clearTimeout(this.autoRestartTimer)
+    this.autoRestartTimer = setTimeout(() => {
+      this.autoRestartTimer = null
+      // 触发时复验代次:调度到触发的 3s 里发生过的任何 start()/stop() 都使本次过期
+      if (this.stopping || this.child || this.hostGeneration !== gen) return
+      const port = getMcpHttpPort()
+      if (!port) return
+      // 再验启用集合,只拉起仍启用的插件(兜住任何绕过 restart() 的停用路径;
+      // 正常 disable 走 restart() 已被上面的代次校验拦下)
+      const enabledNow = new Set(pluginRepository.getEnabled().map((e) => e.id))
+      const live = specs.filter((s) => enabledNow.has(s.pluginId))
+      if (live.length === 0) {
+        log.info('[plugin-host] Auto-restart skipped: no enabled node plugins remain')
+        return
+      }
+      if (live.length < specs.length) {
+        log.info(`[plugin-host] Auto-restart drops ${specs.length - live.length} since-disabled plugin(s)`)
+      }
+      // 重新绑定 token:异常退出路径已把旧 token 撤销;bindPluginToken 自带
+      // revoke+颁发新值,须回写 spec.token(host 侧按 spec 内的 token 调 API)。
+      for (const s of live) s.token = bindPluginToken(s.pluginId, s.grantedCapabilities)
+      this.spawnNodeHost(live, port)
+    }, AUTO_RESTART_DELAY_MS)
+    this.autoRestartTimer.unref?.()
   }
 
   /**
@@ -361,9 +474,10 @@ class PluginHostManager {
       return false
     }
 
+    const tapOneshotStderr = createLogTap((line) => log.info(line))
     child.stderr?.on('data', (chunk: Buffer) => {
       const text = chunk.toString().trimEnd()
-      if (text) log.info(text)
+      if (text) tapOneshotStderr(text)
     })
     // 闭包捕获 child：stop() kill 旧 child 后异步 exit，若用户已重跑 set 新 child，
     // 仅当 map 仍是本 child 才删除并回调，避免误清新 run 的句柄 + finishRun 撤错 token。
@@ -563,6 +677,13 @@ class PluginHostManager {
    */
   stop(): void {
     this.stopping = true
+    this.hostGeneration++
+    // 取消挂起的自动重启:主动停机/重启后旧宿主的异常退出不应再被自动拉起
+    // (restart() = stop()+start(),start 会把 stopping 复位,仅靠 stopping 拦不住)。
+    if (this.autoRestartTimer) {
+      clearTimeout(this.autoRestartTimer)
+      this.autoRestartTimer = null
+    }
     // 收集宿主进程承载的插件 id（清运行时视图用；须在 kill 循环把句柄从 map 删除前取）。
     // start() 会重置 nodeHostPluginIds，这里只读。
     const hostOwnedIds = new Set<string>([...this.nodeHostPluginIds, ...this.pythonPersistentProcesses.keys()])

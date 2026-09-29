@@ -236,8 +236,9 @@ LyShell.wait_for("prompt$")
 |------|------|------|
 | `id` | 是 | 视图标识，同插件唯一（轨道导航键 `插件id:视图id`） |
 | `title` | 是 | 槽位悬停提示与面板标题 |
-| `entry` | 是 | 入口 HTML 路径，必须位于插件 `views/` 目录下（如 `views/status.html`） |
+| `entry` | 是 | 入口 HTML 路径，必须位于插件 `views/` 目录下（如 `views/status.html`）；同插件内不得重复 —— 视图 URL 以 entry 为身份，重复入口会让后一个视图继承前一个的 `connectOrigins` CSP |
 | `icon` | 否 | SVG 图标，位于插件根目录；经 main 净化（剥脚本 / 外链）后以 data URL 内联展示 |
+| `connectOrigins` | 否 | 允许页面连接的本机服务来源（最多 8 个），仅限 `http(s)://` 或 `ws(s)://` + `127.0.0.1` / `localhost` / `[::1]`，不带路径 / 查询串。声明的来源会合并进该入口页 CSP 的 `connect-src` 与 `img-src`，供页面连接本机伴生进程的本地 API（其余视图仍被 `connect-src 'self'` 拦截）。页面要连 WebSocket 必须显式声明 `ws://`（或 `wss://`）来源 —— CSP3 的 scheme 匹配没有 http→ws 方向，`http://` 来源不覆盖 `ws://` |
 
 **运行时注册**：需插件为 persistent 生命周期且获批 `uiControl`。Node 常驻插件在 `activate(api)` 里 `await api.registerView({ id, title, entry })`，注销用 `api.unregisterView(id)`（重复 ID 抛错，不覆盖）。Python 常驻插件走 HTTP（env 注入 `LYSHELL_MCP_PORT` / `LYSHELL_PLUGIN_ID` / `LYSHELL_PLUGIN_TOKEN`）：
 

@@ -152,9 +152,13 @@ const SettingsPanel: React.FC = () => {
         </span>
       </div>
 
+      {/* ===== 内容壳 ===== 头行以下整列离缘 6(mx-1.5) —— 与会话栏器物两端同线;
+          p-3 等段内既有垫距保留;壳不定位,无 fixed 子件 */}
+      <div className="mx-1.5 flex-1 min-h-0 flex flex-col min-w-0">
+
       {/* 内容区 —— 滚动适配 180–400px 可调栏宽 */}
       <div className="flex-1 overflow-y-auto">
-        <div className="p-3">
+        <div className="py-3">
           <div className="space-y-2">
             {/* 窗口大小 —— 预设下拉 + 自定义宽高,持久化到 preferences,启动恢复 */}
             <SettingCard
@@ -471,6 +475,7 @@ const SettingsPanel: React.FC = () => {
           </div>
         </div>
       </div>
+      </div>{/* ===== /内容壳 ===== */}
     </div>
   )
 }

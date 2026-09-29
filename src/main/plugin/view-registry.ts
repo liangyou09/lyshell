@@ -214,6 +214,17 @@ export class PluginViewRegistry {
     return null
   }
 
+  /**
+   * 按入口相对路径查找视图（协议 CSP 组装用）：URL 路径已剥 views/ 前缀，
+   * 与 entry 去 views/ 前缀后精确比对（协议只给入口 HTML 附加 connectOrigins CSP）。
+   */
+  getViewByEntry(pluginId: string, entryRelPath: string): PluginViewMeta | null {
+    for (const v of this.listViewsForPlugin(pluginId)) {
+      if (v.entry.replace(/^views\//, '') === entryRelPath) return v
+    }
+    return null
+  }
+
   /** 插件当前是否 enabled（registerView / 协议 / 动作的前置核对） */
   isPluginEnabled(pluginId: string): boolean {
     return this.deps.getEnabledEntries().some((e) => e.id === pluginId)
@@ -229,7 +240,8 @@ export class PluginViewRegistry {
 
   /**
    * 运行时注册（Node SDK registerView / Python HTTP POST）。与声明式共用同一校验器；
-   * 运行时 + 声明式合计 ≤ 8；与声明式/既有运行时 ID 冲突直接拒绝，不做覆盖；
+   * 运行时 + 声明式合计 ≤ 8；与声明式/既有运行时的 ID 或 entry 冲突直接拒绝，不做覆盖
+   * （entry 是请求期视图身份：共用入口会让协议层按 entry 反查 CSP 时取错 connectOrigins）；
    * entry/icon 必须实际存在且通过真实路径包围。
    */
   registerRuntimeView(pluginId: string, raw: unknown): PluginViewMeta {
@@ -244,6 +256,13 @@ export class PluginViewRegistry {
     const existing = this.listViewsForPlugin(pluginId)
     if (existing.some((v) => v.id === def.id)) {
       throw new ViewRegistrationError(`view id already registered: ${def.id}`)
+    }
+    // 入口冲突同样拒绝（含与声明式视图冲突；小写比对对齐 Windows 文件系统）。
+    // 校验器只保证单个定义合法，跨定义的 entry 唯一性只能在注册时对现有视图核对。
+    if (existing.some((v) => v.entry.toLowerCase() === def.entry.toLowerCase())) {
+      throw new ViewRegistrationError(
+        `view entry already registered: ${def.entry} (view URL identity is the entry path; each view must use its own HTML entry)`
+      )
     }
     if (existing.length + 1 > PLUGIN_MAX_VIEWS) {
       throw new ViewRegistrationError(`at most ${PLUGIN_MAX_VIEWS} views per plugin`)

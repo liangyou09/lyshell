@@ -583,14 +583,19 @@ const EnvProfilePanel: React.FC = () => {
         <IconBtn amber onClick={handleAdd} title={t('env.addTitle')}><IconPlus /></IconBtn>
       </div>
 
+      {/* ===== 内容壳 ===== 头行以下整列离缘 6(mx-1.5) —— 与会话栏器物两端同线
+          (栏内器物一律离缘,纸面不再通铺到面板两缘);段内既有垫距保留;壳不
+          定位,fixed 弹窗与绝对定位浮层不受影响 */}
+      <div className="mx-1.5 flex-1 min-h-0 flex flex-col min-w-0">
+
       {/* 列表级错误横幅 */}
       {actionError && (
-        <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words px-3 pt-2">{actionError}</div>
+        <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words pt-2">{actionError}</div>
       )}
 
       {/* 变量组没有分组开合，保留纸面卡片列表；滚动留在列表自身。 */}
       {loaded && profiles.length > 0 ? (
-        <div className="flex-1 min-h-0 overflow-y-auto rack-scroll px-3 pt-1.5 pb-3">
+        <div className="flex-1 min-h-0 overflow-y-auto rack-scroll pt-1.5 pb-3">
           <div className="flat-paper-list px-2 py-2 space-y-1.5">
             {profiles.map(renderProfileCard)}
           </div>
@@ -827,6 +832,7 @@ const EnvProfilePanel: React.FC = () => {
           </div>
         </div>
       )}
+      </div>{/* ===== /内容壳 ===== */}
     </div>
   )
 }

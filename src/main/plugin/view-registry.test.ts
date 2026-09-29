@@ -145,6 +145,21 @@ describe('PluginViewRegistry 合并与排序', () => {
     expect(reg.getView('p1', 'nope')).toBeNull()
     expect(reg.getView('other', 'm1')).toBeNull()
   })
+
+  it('getViewByEntry 按 URL 相对路径（已剥 views/ 前缀）命中并携带 connectOrigins', () => {
+    const manifestViews = new Map([
+      ['p1', [viewDef('m1', { connectOrigins: ['http://127.0.0.1:31517'] }), viewDef('sub', { entry: 'views/sub/page.html' })]]
+    ])
+    const reg = new PluginViewRegistry(makeDeps([entry('p1', 'p1')], manifestViews))
+    // 子目录 entry 需手动铺设（layOutView 只铺 views/{id}.html）
+    mkdirSync(join(tmp, 'p1', 'views', 'sub'), { recursive: true })
+    writeFileSync(join(tmp, 'p1', 'views', 'sub', 'page.html'), '<html>sub</html>', 'utf-8')
+    reg.refreshAll()
+    expect(reg.getViewByEntry('p1', 'm1.html')?.connectOrigins).toEqual(['http://127.0.0.1:31517'])
+    expect(reg.getViewByEntry('p1', 'sub/page.html')?.id).toBe('sub')
+    expect(reg.getViewByEntry('p1', 'nope.html')).toBeNull()
+    expect(reg.getViewByEntry('other', 'm1.html')).toBeNull()
+  })
 })
 
 describe('registerRuntimeView', () => {
@@ -179,6 +194,28 @@ describe('registerRuntimeView', () => {
     expect(() => reg.registerRuntimeView('p1', viewDef('r1'))).toThrow(/already registered/)
     // 冲突后原定义未被覆盖
     expect(reg.getView('p1', 'r1')?.title).toBe('V r1')
+  })
+
+  it('拒绝与声明式/运行时重复 entry：entry 是请求期视图身份，共用入口会拿错 connectOrigins CSP', () => {
+    const { reg } = makeReg(new Map([['p1', [viewDef('m1')]]]))
+    layOutView(join(tmp, 'p1'), 'm1')
+    // 与声明式视图同 entry、不同 id
+    expect(() => reg.registerRuntimeView('p1', viewDef('x1', { entry: 'views/m1.html' }))).toThrow(
+      /entry already registered/
+    )
+    layOutView(join(tmp, 'p1'), 'r1')
+    reg.registerRuntimeView('p1', viewDef('r1'))
+    // 与既有运行时视图同 entry
+    expect(() => reg.registerRuntimeView('p1', viewDef('x2', { entry: 'views/r1.html' }))).toThrow(
+      /entry already registered/
+    )
+    // 大小写变体同拒（Windows 文件系统不区分大小写）
+    expect(() => reg.registerRuntimeView('p1', viewDef('x3', { entry: 'views/R1.html' }))).toThrow(
+      /entry already registered/
+    )
+    // 冲突后既有定义未被覆盖
+    expect(reg.getView('p1', 'r1')?.title).toBe('V r1')
+    expect(reg.getView('p1', 'x1')).toBeNull()
   })
 
   it('声明式 + 运行时合计超过 8 拒绝', () => {
