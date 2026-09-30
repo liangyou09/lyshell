@@ -2,6 +2,7 @@ import ReactDOM from 'react-dom/client'
 import { TERMINAL_WEBFONT_FAMILY } from '@shared/constants'
 import './i18n'  // 副作用初始化 i18next（用 saved locale），必须在 App render 前
 import App from './App'
+import ErrorBoundary from './components/ErrorBoundary'
 import './styles/globals.css'
 
 // 预加载终端等宽字体（Maple Mono NF CN，已随 app 打包）。
@@ -27,7 +28,9 @@ async function bootstrap() {
     }
   })
   ReactDOM.createRoot(document.getElementById('root')!).render(
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   )
 }
 

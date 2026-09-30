@@ -165,7 +165,15 @@ export function createPluginApi(
 
       // 子进程 env：继承 host env + 插件自定义，然后 host 注入连接包。
       // token 最后注入 -> 覆盖插件 opts.env 里的同名字段，插件无法篡改/伪造 token。
-      const env: Record<string, string | undefined> = { ...process.env, ...(opts.env ?? {}) }
+      // ELECTRON_RENDERER_URL 必须在合并 opts.env 之前从继承值里清掉（而不是
+      // 合并后 delete）：dev 期它指向 LyShell 自己的 renderer dev server，对被
+      // spawn 的外部程序毫无意义却会被照单全收 —— 实际案例：AIPet 的集成服务
+      // 器按该变量把非 API GET 反代到"自己的 dev server"，把 LyShell 整个
+      // renderer 页面喂进了桌宠聊天页签。清理只针对继承值；插件经 opts.env
+      // 显式传入的同名配置不受影响。
+      const inherited: Record<string, string | undefined> = { ...process.env }
+      delete inherited.ELECTRON_RENDERER_URL
+      const env: Record<string, string | undefined> = { ...inherited, ...(opts.env ?? {}) }
       if (opts.gui !== false) {
         // 默认让 Electron 子进程有 GUI：清掉 host 继承的 ELECTRON_RUN_AS_NODE。
         delete env.ELECTRON_RUN_AS_NODE

@@ -70,8 +70,12 @@ const DownloadProgressBar: React.FC = () => {
   }
 
   useEffect(() => {
+    // electronAPI 用 ?. 与全库一致：本组件可能被挂进无 preload 的宿主
+    // （如 webview guest 被误喂了本页面），此处曾是全库唯一裸访问，
+    // preload 缺失时在此抛错 → 错误边界兜成整页异常卡。缺失时退化为
+    // 不订阅传输进度即可，不该掀树。
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const cleanup = window.electronAPI.onFileProgress((data: any) => {
+    const cleanup = window.electronAPI?.onFileProgress((data: any) => {
       if (data.md5Update) return
       if (data.cancelled) {
         removeDownload(data.taskId)

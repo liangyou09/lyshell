@@ -76,6 +76,20 @@ process.on('unhandledRejection', (reason) => {
   }
 })
 
+// 渲染器/子进程死亡观测 —— 渲染进程与 GPU 进程死亡不进 Windows 事件日志，
+// crashReporter 未启用也没有 dump，下面两行日志是唯一留痕点。
+// "整窗变黑但进程存活"类问题（合成器内容丢失 / GPU 进程死亡 / 渲染器 OOM）
+// 全靠这里定性；clean-exit 是窗口/页签正常销毁，不算异常，跳过防噪音。
+app.on('render-process-gone', (_event, wc, details) => {
+  if (details.reason === 'clean-exit') return
+  log.error(`[render-gone] type=${wc.getType()} url=${wc.getURL()} reason=${details.reason} exitCode=${details.exitCode}`)
+})
+app.on('child-process-gone', (_event, details) => {
+  if (details.reason === 'clean-exit') return
+  const name = 'name' in details && details.name ? ` name=${details.name}` : ''
+  log.error(`[child-gone] type=${details.type}${name} reason=${details.reason} exitCode=${details.exitCode}`)
+})
+
 let mainWindow: BrowserWindow | null = null
 let stopMcpHttpServerImpl: (() => Promise<void>) | undefined
 
@@ -398,6 +412,9 @@ function createMainWindow(): void {
       : join(process.resourcesPath, 'icons', 'icon.png'),
     autoHideMenuBar: true,
     frame: false, // 无边框窗口，自定义标题栏
+    // 与 renderer body 同色：首帧前 / 渲染器死亡 / 合成器丢内容时窗口呈应用深色，
+    // 而不是无定义的纯黑或白闪 —— 至少能分辨"窗口还活着"。
+    backgroundColor: '#0D1116',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       nodeIntegration: false,

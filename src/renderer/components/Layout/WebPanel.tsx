@@ -556,11 +556,19 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
   // canGoBack/canGoForward(同步 IPC,后台页签的高频导航不该冻结渲染层),
   // 停驻期间导航留下的旧值在此刻校正;页签刚开、元素尚未注册(挂载竞态)
   // 时跳过 —— 首次 did-navigate 会带全量 nav
+  // 注册发生在 WebTabOverlay 的 useLayoutEffect(提交期),远早于 guest 的
+  // dom-ready;而 canGoBack/Forward 在 dom-ready 前调用会抛(小窗的 miniReady
+  // 门与 registerWebbarMini 注释同一规则)。冷启动恢复布局 / 页签重挂后本
+  // effect 拿到的是「已注册未就绪」元素 —— try/catch 跳过,nav 同样留给首次
+  // did-navigate 补全。此处曾是全局黑屏元凶:effect 内同步抛 → 无边界时
+  // 整棵 React 树卸载,只剩深色 body(进程存活、日志干净)。
   useEffect(() => {
     if (activeWebTabId === null) return
     const el = getWebview(activeWebTabId)
     if (!el) return
-    setWebTabNav(activeWebTabId, { canGoBack: el.canGoBack(), canGoForward: el.canGoForward() })
+    try {
+      setWebTabNav(activeWebTabId, { canGoBack: el.canGoBack(), canGoForward: el.canGoForward() })
+    } catch { /* dom-ready 未到,guest 方法面未就绪 */ }
   }, [activeWebTabId, setWebTabNav])
 
   // 小窗高度/关闭态:config 异步对账 + 500ms 防抖双写(fileManagerHeight 同款栏底语法)。
