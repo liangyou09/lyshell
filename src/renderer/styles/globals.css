@@ -1838,10 +1838,10 @@
 /* 包着垂卷的外层纸只作衬底：收去宽绫条纹与彩边，让单画轴成为主体。
    直接限定外层纸窗，内部题名纸与 paper-sheet 保留各自的纸色和裱边。 */
 .scroll-dual.scroll-dual-wall > .scroll-dual-paper {
-  /* 承托固定在滚动区之外，长列表也不会盖住上下留纸。 */
+  /* 上下留纸统一为 6px，让双轴贴近内部卷轴；承托固定在滚动区之外。 */
   display: flex;
   flex-direction: column;
-  padding-block: 18px;
+  padding-block: 6px;
   overflow: hidden;
   background-color: color-mix(in srgb, var(--paper) 40%, var(--bg-base));
   background-image:
