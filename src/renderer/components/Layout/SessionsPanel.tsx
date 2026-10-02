@@ -271,15 +271,11 @@ export const GroupHeader: React.FC<{
         // 栏才真的细。右垫加厚到 20px:右轴头占行缘内 6-12px,内容
         // 右缘(计数/action)与其隔 8px 空气 —— 数字不贴着轴头
         collapsible ? 'py-[3px]' : 'py-2',
-        // 折叠栏 = 卷轴的辊位(scroll-head):栏本体无底色(透明,露出
-        // bg-base 框体)—— 裱首不铺绫底,辊与题签直接立在框体上,悬停也
-        // 不铺底(指针 + 绳的提亮是全部反馈);辊体(rod-caps)在栏内垂直
-        // 居中(悬浮机件,上下留气)—— 栏底缘正是裱首/画心的接缝(= 纸幅
-        // 顶缘),辊悬在缝上方把两者拴成一件;轴杆随辊居中不动(辊径 16px
-        // 开合不变粗细),收起(rolled)时纸裹轴卷成同径满卷(轴藏卷内,只
-        // 露两端轴头),展开后纸垂落、回归光辊;行落在辊下的纸幅上
-        // (paper-sheet,辊下垂落的纸,与卷纸带同宽同边)—— 纸与辊直接立
-        // 在框体上,不靠栏底分层;typography + flex-1 hairline 仍是栏内分隔。
+        // 折叠栏 = 卷轴的辊位(scroll-head):装配盒恒高 16px，轴头居中。
+        // 收起(rolled)时纸裹轴成 16px 满卷，题名贴在卷面上；展开后露出
+        // 8px 木杆，题名落在杆下的纸面上。CSS 的 ::before 与下方
+        // paper-sheet 同宽同材质，连成一张纸，题名和画心不会分离。
+        // typography + flex-1 hairline 仍是栏内分隔。
         // 可折叠时这道缝由辊与纸跨缝相接自己拴成,不画 border-b(硬线会把
         // 辊与纸切成两物);不可折叠的栏没有辊,border-b 回落为普通分组线
         'scroll-head',
@@ -291,13 +287,8 @@ export const GroupHeader: React.FC<{
         collapsible && collapsed && 'rolled'
       )}
     >
-      {/* 卷轴辊 —— 栏内垂直居中的辊本体(形与圆柱读形在 globals.css 的
-          .rod-caps):悬浮机件上下留气,辊径恒 16px 开合不变粗细 —— 展开
-          时轴体机件色隔着小缝望着纸幅顶缘,收起时纸裹轴成同径满卷(轴藏
-          卷内,只露两端轴头);轴头恒跟辊同径、随辊居中不动,色跟段身份
-          (pin 金/live 绿/serial 橙/local 紫/subnet 胭脂,无 tone 回落中性
-          dim)—— 探出纸幅两端(纸带与纸幅同宽),收起时读作纸卷两端的
-          轴头端盖 */}
+      {/* 卷轴辊 —— .rod-caps 的装配盒恒高 16px，展开露出细木杆，收起纸裹轴。
+          两端 12px 木轴头居中，身份色仅落在窄轴肩与系绳；具体形制由 CSS 绘制。 */}
       {collapsible && (
         <span aria-hidden className="rod-caps" style={toneVar ? { color: toneVar } : undefined}>
           <span className="scroll-rod-collar scroll-rod-collar-l" />
@@ -328,7 +319,7 @@ export const GroupHeader: React.FC<{
           (目录路径等 —— 行内 URL 同一约定;labelTitle 覆写 —— 目录组
           basename 作题名、路径片段进 detail、全路径进 tooltip) */}
       <span
-        title={labelTitle ?? (truncateLabel ? label : undefined)}
+        title={labelTitle ?? label}
         className={cn(
           'scroll-slip text-[13px]',
           detail ? 'max-w-[45%] shrink-0 truncate' : truncateLabel ? 'min-w-0 truncate' : 'flex-shrink-0',
@@ -347,9 +338,9 @@ export const GroupHeader: React.FC<{
           {detail}
         </span>
       ) : (
-        <span className="flex-1 h-px bg-[var(--rule)]" />
+        <span aria-hidden className="flex-1 h-px bg-[var(--rule)]" />
       )}
-      <span className="[font-family:inherit] text-[11px] text-[var(--text-rack-data)] tracking-[.04em] normal-case">{count}</span>
+      <span className="scroll-count [font-family:inherit] text-[11px] text-[var(--text-rack-data)] tracking-[.04em] normal-case">{count}</span>
       {action}
     </div>
   )
@@ -1445,7 +1436,7 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
               面上;全体收起时纸面上立着一排卷起的分组卷(墙自身不卷,「收
               起的时候也是展开的状态」)。纸高 = 画心内容高:下辊贴纸尾、跟
               着最底下的分组卷走,短内容时下方留白露 bg-base;内容超出列剩
-              余高时纸收缩到剩高、内心滚 —— 滚动容器是纸窗自身(rack-scroll
+              余高时纸收缩到剩高、内心滚 —— 滚动容器是内部 body(rack-scroll
               滚条;与 FM「body 绝对锚定恒高」就此分叉:墙的画心静态流式随
               纸走,覆写在 globals 的 .scroll-dual-wall) */}
           <div className="scroll-dual-paper rack-scroll">
@@ -1552,7 +1543,7 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
                   结);亮度常亮,明暗只在轴头。多选 toggle,全空 = 显示全部。计
                   数不上面(窄栏里绳+
                   题签已满),并入 title 提示(形与绳的机械在 globals.css) */}
-              <div className="flex items-stretch gap-[4px] px-2 py-[5px] bg-[var(--bg-strip)] border-y border-[var(--rule)]">
+              <div className="scroll-protocols flex items-stretch gap-[4px] px-2 py-[5px] bg-[var(--bg-strip)] border-y border-[var(--rule)]">
                 {PROTO_KINDS.map(p => {
                   const active = protoFilter.has(p)
                   const count = protoCounts[p]

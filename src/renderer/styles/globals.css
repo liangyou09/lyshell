@@ -108,7 +108,7 @@
   --text-rack-data: #98A2AE;
   --text-rack-dim:  #48515C;
   --text-rack-faint:#333C46;
-  /* amber / semantic / proto / ft 全部继承默认 */
+  /* amber 由下方共用规则显式定义，semantic / proto / ft 继承默认 */
 }
 
 /* Rack Carbon — 中性炭灰，弱蓝，更冷峻 */
@@ -126,6 +126,14 @@
   --text-rack-data: #A0A0A0;
   --text-rack-dim:  #4E4E4E;
   --text-rack-faint:#383838;
+}
+
+/* 预览选项嵌在其他主题内时也保留自身焦点色，不继承外层的蓝/铜/自定义色。 */
+[data-theme="rack-slate"],
+[data-theme="rack-carbon"] {
+  --amber:          #E8A33D;
+  --amber-soft:     #E8A33D22;
+  --amber-glow:     #E8A33D33;
 }
 
 /* Rack Paper - Edge 风亮色:冷中性灰白镶边 + 纯白画布 + 石墨墨字 + 铜调红铅笔焦点,
@@ -322,6 +330,88 @@
    辊上)。方向不对称:铺纸慢而坠、收卷快而加速。折叠稳态由 ScrollFold 组件
    注入 inert,裁掉的行不进 Tab 序。 */
 
+/* 画轴专用纸色：暗底添一层暖笺，浅底保留原纸色。只派生材质，不改主题
+   真值；自定义主题同样跟随 --paper，卷面与展纸始终是一张纸。 */
+:root {
+  --scroll-paper: color-mix(in srgb, var(--paper) 88%, #BAA580);
+  --scroll-silk: color-mix(in srgb, var(--paper) 78%, #8B795D);
+  --scroll-shadow: rgba(0, 0, 0, .3);
+  --scroll-roll-paper: color-mix(in srgb, var(--scroll-paper) 82%, #B7A382);
+  --scroll-roll-surface: linear-gradient(to bottom,
+    color-mix(in srgb, var(--scroll-roll-paper) 86%, #EBDCC3),
+    var(--scroll-roll-paper) 26%, var(--scroll-roll-paper) 70%,
+    color-mix(in srgb, var(--scroll-roll-paper) 88%, #000) 94%,
+    color-mix(in srgb, var(--scroll-roll-paper) 72%, #000));
+  --axis-rod-wood: #76523B;
+}
+:root,
+[data-scroll-material="walnut"] {
+  --axis-wood: #76523B;
+  --axis-wood-face: #4C3427;
+  --axis-knob-rim: rgba(255, 231, 195, .16);
+  --axis-knob-surface:
+    radial-gradient(ellipse at 60% 36%, color-mix(in srgb, var(--axis-wood) 86%, #D8B98B) 10%, var(--axis-wood-face) 74%, #2F211B 100%),
+    repeating-linear-gradient(0deg, rgba(30, 17, 9, .14) 0 1px, transparent 1px 4px),
+    linear-gradient(to bottom, #AF8B63, var(--axis-wood) 24%, #64442F 65%, #35271F);
+}
+[data-theme-mode="dark"],
+[data-theme-mode="dark"] [data-scroll-material="walnut"] {
+  /* 端面比柱面沉一档，外缘收暗；顶面柔光让小轴头保留木质体积。 */
+  --axis-wood: #916544;
+  --axis-wood-face: #604431;
+  --axis-rod-wood: #916544;
+  --axis-knob-rim: rgba(255, 231, 195, .16);
+  --axis-knob-surface:
+    radial-gradient(ellipse at 50% 46%, #89684D 0 24%, #684B36 36% 44%, #806044 54% 64%, var(--axis-wood-face) 78%, #402D23 100%),
+    repeating-linear-gradient(0deg, transparent 0 2px, rgba(52, 29, 16, .2) 2px 3px, transparent 3px 5px),
+    linear-gradient(to bottom, #AF8B66, var(--axis-wood) 28%, #795338 68%, #463022);
+}
+/* 四套材质共用实体轮廓，只换端面与柱面；细轴杆仍保留木色。 */
+[data-scroll-material="jade"] {
+  --axis-wood: #789D8B;
+  --axis-wood-face: #3F6B5B;
+  --axis-knob-rim: rgba(232, 247, 232, .25);
+  --axis-knob-surface:
+    radial-gradient(ellipse at 55% 42%, #B7C9BB 12%, #658F7A 66%, var(--axis-wood-face) 100%),
+    radial-gradient(ellipse at 65% 38%, rgba(231, 246, 227, .28), transparent 65%),
+    linear-gradient(to bottom, #AFC4AE, var(--axis-wood) 28%, #5F8873 70%, #36584B);
+}
+[data-scroll-material="lacquer"] {
+  --axis-wood: #272B2B;
+  --axis-wood-face: #151819;
+  --axis-knob-rim: rgba(204, 222, 224, .35);
+  --axis-knob-surface:
+    radial-gradient(ellipse at 55% 38%, #546264 15%, #1D282B 66%, var(--axis-wood-face) 100%),
+    linear-gradient(90deg, transparent 75%, rgba(205, 219, 216, .18) 79% 83%, transparent 87%),
+    linear-gradient(to bottom, #69777A, #2C3335 20%, var(--axis-wood) 62%, #111516);
+}
+[data-scroll-material="porcelain"] {
+  --axis-wood: #C5D7CF;
+  --axis-wood-face: #7FAAA4;
+  --axis-knob-rim: rgba(249, 252, 239, .5);
+  --axis-knob-surface:
+    radial-gradient(ellipse at 55% 40%, #E4EBDF 18%, #ADCEC4 67%, var(--axis-wood-face) 100%),
+    linear-gradient(90deg, transparent 55%, rgba(55, 89, 109, .5) 56% 61%, transparent 62% 79%, rgba(55, 89, 109, .3) 80% 84%, transparent 85%),
+    linear-gradient(to bottom, #E9EFE2, var(--axis-wood) 30%, #A6C6BE 70%, #85AAA4);
+}
+.scroll-material-sample {
+  position: relative;
+  z-index: 0;
+  display: block;
+  width: 52px;
+  height: 22px;
+}
+[data-theme="rack-ember"] {
+  /* 胡桃木主题的纸本来已暖而亮，不再抬纸色，保住细字对比。 */
+  --scroll-paper: var(--paper);
+}
+[data-theme-mode="light"] {
+  --scroll-paper: var(--paper);
+  --scroll-silk: color-mix(in srgb, var(--paper) 82%, #8B795D);
+  --scroll-shadow: rgba(0, 0, 0, .14);
+  --scroll-roll-paper: var(--scroll-paper);
+}
+
 .scroll-fold {
   display: grid;
   grid-template-rows: 0fr;
@@ -380,26 +470,33 @@
    读作纸压轴的暗缝,不是两物之间的边界线),底缘由最后一行的 rule-soft
    折线收口。极淡的正交纤维纹理给纸的齿感(两层 repeating 渐变各 <2.5%
    透明度,不与行内容争读性;浅色主题上白线近乎不可见,黑线成为主纹理)。 */
-.paper-sheet {
+.paper-sheet,
+.scroll-head:not(.rolled):has(> .rod-caps)::before {
   /* 纸色与纹理必须 background-color / background-image 分写:background
      简写会把先声明的 background-color 整体重置成 transparent,纸面没了
      (纸幅曾长期透明落在框体上,只剩纹理层) */
-  background-color: var(--paper);
+  background-color: var(--scroll-paper);
   background-image:
     /* 触辊阴影:贴辊处压暗(最上层) */
     linear-gradient(to bottom, rgba(0, 0, 0, .2), rgba(0, 0, 0, 0)),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, .02) 0 1px, transparent 1px 3px),
-    repeating-linear-gradient(90deg, rgba(0, 0, 0, .025) 0 1px, transparent 1px 4px);
+    repeating-linear-gradient(7deg, rgba(255, 255, 255, .012) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(97deg, rgba(0, 0, 0, .018) 0 1px, transparent 1px 11px);
   /* 触辊阴影只贴顶 8px(随 16 辊径半幅收细);两枚正交纤维纹理铺满整面 */
   background-size: 100% 8px, 100% 100%, 100% 100%;
   background-repeat: no-repeat;
   /* 卷轴下垂的画纸两侧露出窄裱边，纸尾轻轻收暗；会话行仍落在同一张纸上。 */
   box-shadow:
-    inset 3px 0 0 color-mix(in srgb, var(--pin) 11%, var(--paper)),
-    inset -3px 0 0 color-mix(in srgb, var(--pin) 11%, var(--paper)),
+    inset 3px 0 0 var(--scroll-silk),
+    inset -3px 0 0 var(--scroll-silk),
     inset 4px 0 0 color-mix(in srgb, var(--pin) 21%, transparent),
     inset -4px 0 0 color-mix(in srgb, var(--pin) 21%, transparent),
-    inset 0 -5px 5px -5px rgba(0, 0, 0, .38);
+    inset 0 -5px 5px -5px rgba(0, 0, 0, .38),
+    0 2px 5px -2px var(--scroll-shadow);
+}
+/* 题名与下方画心连成一张纸，触辊阴影只留在题名纸的顶缘。 */
+.scroll-head:not(.rolled):has(> .rod-caps) + .scroll-fold .paper-sheet {
+  background-size: 100% 0px, 100% 100%, 100% 100%;
+  padding-top: 5px;
 }
 
 /* 平铺卡片共用纸面：保留纤维纹理，不画触辊阴影或卷轴边。 */
@@ -411,45 +508,58 @@
   border-inline: 1px solid var(--rule-soft);
 }
 
-/* ─── 卷轴辊(折叠栏上的辊本体)─── rod-caps 渲染的卷物件:栏内垂直居中 ——
-   悬浮机件,上下留气;栏底缘 = 纸幅顶缘,正是「裱首/画心」的接缝(栏=
-   裱首题签区、本体透明无底,纸幅=画心),辊悬在缝上方一小步:
-   辊径恒 16px、开合不变粗细(辊是机件,粗细恒定,动的只有纸;2026/09/20
-   垂卷收细一档 20→16,与小画轴同径 —— 小画轴本就自称「折叠栏的同款卷面」,
-   双开轴细棍化的同日续笔),展开态
-   轴体(机件色 slot)与纸幅顶缘隔一道小缝 —— 轴底黑端 + 落影 + 纸顶触
-   辊暗渐变跨缝相接,焊成「纸自轴后引出」,辊与纸不读作两物;收起态纸
-   把轴整个裹进卷里(band 满高 16px、与轴同径,两端只露跟辊同径的轴头
-   —— 满卷读作「一卷纸」,不是灰杆上叠一条纸带)。开合:band 锚辊底向
-   上长/收回 0↔16 —— 纸向辊上裹拢、自辊下垂落;元素高与轴头恒 16px 不
-   参与动画,粗细自始至终不变,变的只有面(光辊↔纸裹)。分组辊与栏两侧留
-   2px 距离(不顶到缘,是搁上去的物件),两端 6px 宽轴头(currentColor
-   身份色,高恒 = 元素满高 16px)恰好探出纸幅两端 —— 纸带宽 = 纸幅宽:
-   带在杆内再让 6px(8→W-8,与 paper-sheet 的 mx-2 同边),「辊比纸长」
-   的立轴读形。立体圆柱用「底色 + 垂直受光渐变」塑体积:横置圆柱顶曲面
-   含光、底曲面背光,光照 = 叠在底色上的半透明黑白渐变(不是纹理贴图),
-   两层 background 各自定位 —— 纸带锚底(裹轴的卷面:展开 0px 不可见、
-   收起满高,background-size 插值出「纸裹轴/沉落」动画,height 不参与),
-   轴体光照层恒 16px 满高(纸走后露出的光辊,辊上永远有光)。卷面
-   圆柱读形:顶一道受光亮弧(卷面反光,纸卷身份的主线索)+ 长段平纸 +
-   缝侧轻收暗。不叠 inset 缘线:半黑实色硬边在深底上读作渐暗,在浅色
-   rack 上读作突兀黑线(亮色主题踩过的坑),删掉后体积与收底全由渐变承
-   担 —— 渐变的黑端深底读作背光加深、浅底读作灰阴影;浅色主题整套再收
-   浅一档(data-theme-mode 覆盖,见下):半透明黑的感知强度跟底色明度
-   走,深底 .5 读作柔和渐暗,浅底同值就是重影。轴头同款垂直受光渐变叠
-   currentColor —— 与轴体同一套光照,端头也立体。尺寸动画只动
-   background-size(纸带),与 .scroll-fold 开合同拍同曲线(开 440ms
-   纸垂落 / 合 320ms 纸卷回)。
-   z-index:-1 垫在栏内文字后(.scroll-head 建 z-index:0 栈式上下文收
-   纳):标签读作贴印在辊/卷上(收起态文字落在纸卷面上,读作卷上题
-   签);渐变画在轴头(子元素)之下 —— 在轴头处断开,读作从轴头后穿过。
-   轴头即身份:pin 金 / live 绿 / 分组色(serial 橙 / local 紫 / subnet 胭脂),
-   使用处 inline color 覆盖,中性由本类给 text-rack-dim;收起时读作纸卷
-   两端的轴头端盖 */
+/* ─── 卷轴辊(折叠栏上的辊本体)───
+   装配盒恒高 16px，展开时只露出居中的 8px 木杆，收起时纸带裹成 16px 纸卷。
+   12px 木轴头随装配盒定位，杆身与纸带在收颈内侧截止，端头周围保持透明。
+   分组装配盒距栏缘 2px，卷面再内缩 6px，与 paper-sheet 的 mx-2 同边。
+   background-size 驱动纸带收放，与 ScrollFold 的开 440ms / 合 320ms 同拍；
+   z-index:-1 把材质置于题签后，身份色只留在窄轴肩和系绳上。 */
 
-.scroll-head { z-index: 0; }  /* 栈式上下文:辊(-1)垫在栏内文字后(栏无底
-                                色,静息/hover 皆透明) */
-/* 分组画轴靠近栏两端：轴头 6px，纸从第 8px 开始，与 mx-2 的纸幅同边。 */
+.scroll-head { z-index: 0; }  /* 栈式上下文:辊与题名纸(-1)垫在栏内文字后 */
+/* 展开后木杆独占上沿，题签在杆下方；收起时题签仍落在纸卷面上。 */
+.scroll-head:not(.rolled):has(> .rod-caps) {
+  padding-top: 15px;
+  padding-bottom: 8px;
+}
+.scroll-head:not(.rolled):has(> .rod-caps)::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: 8px;
+  right: 8px;
+  top: 10px;
+  bottom: 0;
+  pointer-events: none;
+  /* 与下方 mx-2 的纸幅同宽，题名下方不另画纸尾和落影。 */
+  box-shadow:
+    inset 3px 0 0 var(--scroll-silk),
+    inset -3px 0 0 var(--scroll-silk),
+    inset 4px 0 0 color-mix(in srgb, var(--pin) 21%, transparent),
+    inset -4px 0 0 color-mix(in srgb, var(--pin) 21%, transparent);
+}
+/* 题名留出呼吸，再以淡墨线与画心分层；仍沿用同一纸色和裱边。 */
+.scroll-head:not(.rolled):has(> .rod-caps)::after {
+  content: '';
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(to right,
+    transparent,
+    color-mix(in srgb, var(--text-rack) 18%, transparent) 12%,
+    color-mix(in srgb, var(--text-rack) 18%, transparent) 88%,
+    transparent);
+  pointer-events: none;
+}
+.scroll-head:not(.rolled):has(> .rod-caps) .scroll-slip {
+  font-size: 15px;
+  letter-spacing: .12em;
+}
+.scroll-head:not(.rolled) > .rod-caps {
+  top: -2px;
+}
+/* 分组画轴靠近栏两端：卷面从第 8px 开始，与 mx-2 的纸幅同边。 */
 .scroll-head .rod-caps { left: 2px; right: 2px; }
 
 /* 键盘焦点:可折叠栏挂 role="button" + tabIndex(Enter/Space 开合,折叠
@@ -477,7 +587,34 @@
   color: var(--pin);
   font-weight: 400;
   letter-spacing: .08em;
-  text-shadow: 0 0 2px color-mix(in srgb, currentColor 32%, transparent);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, .18);
+}
+/* 题签与组内数据分开：略松的笔墨字距，计数仍是清晰等宽小字。
+   仅置顶计数落朱印，避免满墙印章抢过画心。 */
+.scroll-head .scroll-slip {
+  /* 拉丁保留清晰衬线，中文优先楷书，起笔与收锋比宋体更像手写题字。 */
+  font-family: Cambria, 'KaiTi', '楷体', 'STKaiti', 'Kaiti SC', 'SimSun', serif;
+  font-size: 14px;
+  line-height: 20px;
+  color: color-mix(in srgb, var(--text-rack) 72%, var(--pin));
+  text-shadow: 0 0 .35px color-mix(in srgb, currentColor 30%, transparent);
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: .1em;
+}
+.scroll-head.tone-pin .scroll-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding-inline: 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--cinnabar) 10%, var(--scroll-paper));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cinnabar) 65%, transparent);
 }
 [data-theme-mode="light"] .scroll-slip {
   /* 银枪 —— 亮底反转(暗金亮银,一物两墨):#7E8892 在奶油纸上约 3:1
@@ -485,9 +622,8 @@
   color: #5F6B76;
   text-shadow: 0 0 1px color-mix(in srgb, currentColor 22%, transparent);
 }
-/* 展开的分组题签落在 slot 轴身上，比纸面更灰；浅色主题收深一档，
-   rack-paper / rack-lark 的轴身上均超过 4.5:1。 */
-[data-theme-mode="light"] .scroll-head .scroll-slip { color: #56636F; }
+/* 浅色分组题签收深一档，细木杆背后的纸签保持清晰墨色。 */
+[data-theme-mode="light"] .scroll-head .scroll-slip { color: #493D31; }
 
 /* 浅色画轴专用漆色：用明快的朱、金、翠、青、紫给端盖上色，避免暗主题
    语义色在奶油纸上发白。轴头与系绳读同一变量；自定义分组色走回退混色。 */
@@ -525,6 +661,9 @@
   font-family: 'Ink Free', 'Segoe Script', cursive;
   text-transform: uppercase;
 }
+.scroll-head .scroll-slip-hand {
+  font-family: 'Ink Free', 'KaiTi', '楷体', 'STKaiti', cursive;
+}
 
 /* ─── 小画轴(scroll-chip)── 协议筛选键的挂轴化 ───
    筛选 chips 从「LED 通道条」改为小画轴:每颗键一卷收起的小横轴,与会
@@ -552,12 +691,16 @@
   top: calc(50% - 8px);     /* 键内垂直居中:上下留气(高恒 16px,50%-8px 即正中) */
   height: 16px;             /* 轴体:卷起的纸筒(收起态折叠栏的同款卷面,高贴题签字高) */
   z-index: -1;
-  background-color: var(--paper);
+  background-color: transparent;
   background-image: linear-gradient(to bottom,
     rgba(255, 255, 255, .2),
-    var(--paper) 14%,
-    var(--paper) 72%,
-    color-mix(in srgb, var(--paper) 84%, #000));
+    var(--scroll-paper) 14%,
+    var(--scroll-paper) 72%,
+    color-mix(in srgb, var(--scroll-paper) 84%, #000));
+  /* 卷面止于木轴头的收颈，不在两端轮廓后面垫一块矩形纸色。 */
+  background-position: center;
+  background-size: calc(100% - 10px) 100%;
+  background-repeat: no-repeat;
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .25));   /* 卷的落影:纸筒立在 strip 上 */
   transition: filter 200ms ease;
 }
@@ -565,23 +708,29 @@
 .scroll-chip-band::after {
   content: '';
   position: absolute;
-  top: 0;
-  width: 4px;
-  height: 100%;             /* 轴头恒跟卷同径(=轴体满高):纸筒的端盖 */
-  background-color: currentColor;   /* 轴头即身份:协议色经使用处 color 注入 */
-  background-image: linear-gradient(to bottom, rgba(255, 255, 255, .3), rgba(255, 255, 255, .04) 42%, rgba(0, 0, 0, .45));
+  top: 50%;
+  width: 6px;
+  height: 14px;             /* 轴头略细于 16px 纸筒，体积来自两端伸出与轴肩 */
+  background-color: var(--axis-wood);
+  background-image: var(--axis-knob-surface);
+  background-size: 2px 100%, 100% 100%, 100% 100%;
+  background-position: left center;
+  background-repeat: no-repeat;
+  border-radius: 42% 18% 18% 42% / 16%;
+  clip-path: polygon(0 14%, 17% 0, 66% 0, 81% 16%, 81% 29%, 100% 29%, 100% 71%, 81% 71%, 81% 84%, 66% 100%, 17% 100%, 0 86%);
+  box-shadow: inset -1px 0 0 color-mix(in srgb, currentColor 60%, var(--axis-wood));
   opacity: .55;             /* 拴绳待机:轴头暗一档 */
   transition: opacity 150ms ease;
 }
-.scroll-chip-band::before { left: 0; }
-.scroll-chip-band::after { right: 0; }
+.scroll-chip-band::before { left: -1px; transform: translateY(-50%); }
+.scroll-chip-band::after { right: -1px; transform: translateY(-50%) scaleX(-1); }
 .scroll-chip:not(:disabled):not(.on):hover .scroll-chip-band::before,
 .scroll-chip:not(:disabled):not(.on):hover .scroll-chip-band::after { opacity: .8; }
 .scroll-chip.on .scroll-chip-band::before,
 .scroll-chip.on .scroll-chip-band::after { opacity: 1; }
-/* 解绳点亮:整卷透协议色辉光(LED 点亮的辉光语言;落影换成光,卷被拿起) */
+/* 解绳选中：端盖全亮，卷体保留落影，不再整卷发光。 */
 .scroll-chip.on .scroll-chip-band {
-  filter: drop-shadow(0 0 4px color-mix(in srgb, currentColor 50%, transparent));
+  filter: drop-shadow(0 2px 3px var(--scroll-shadow));
 }
 
 /* 键盘焦点:amber 外框(对齐 doc-rail-item 的焦点语言) */
@@ -594,15 +743,15 @@
 [data-theme-mode="light"] .scroll-chip-band {
   background-image: linear-gradient(to bottom,
     rgba(255, 255, 255, .16),
-    var(--paper) 14%,
-    var(--paper) 72%,
-    color-mix(in srgb, var(--paper) 86%, #000));
+    var(--scroll-paper) 14%,
+    var(--scroll-paper) 72%,
+    color-mix(in srgb, var(--scroll-paper) 86%, #000));
   filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .14));
 }
 /* 小画轴读取浅色专用协议漆色；自定义颜色回退到较深的原色混合。 */
 [data-theme-mode="light"] .scroll-chip-band::before,
 [data-theme-mode="light"] .scroll-chip-band::after {
-  background-color: var(--axis-cap-color, color-mix(in srgb, currentColor 65%, #15283A));
+  box-shadow: inset -1px 0 0 var(--axis-cap-color, currentColor);
 }
 [data-theme-mode="light"] .scroll-chip .scroll-tie {
   color: var(--axis-cap-color, color-mix(in srgb, currentColor 65%, #15283A));
@@ -893,6 +1042,14 @@
 }
 
 .rod-caps {
+  --axis-knob-length: 10px;
+  --axis-knob-diameter: 12px; /* 收卷后纸筒 16px，轴头收细，突出卷面厚度 */
+  --axis-knob-outset: -4px;
+  --axis-body-inset: 6px;     /* 轴身只画在两端收颈之间，轴头周围透出背景 */
+  --axis-body-width: calc(100% - 2 * var(--axis-body-inset));
+  --axis-open-diameter: 8px;  /* 展开露出细木杆，收起的纸卷仍为 16px */
+  --axis-rod-color: color-mix(in srgb, var(--axis-rod-wood) 75%, var(--bg-slot));
+  --axis-rod-surface: linear-gradient(to bottom, color-mix(in srgb, var(--axis-rod-color) 78%, #C6A883), var(--axis-rod-color) 45%, color-mix(in srgb, var(--axis-rod-color) 72%, #34251D));
   position: absolute;
   left: 6px; right: 6px;      /* 卷杆与两侧留一点距离 —— 搁在栏上的物件 */
   top: calc(50% - 8px);       /* 栏内垂直居中:辊悬在栏盒子中心、上下留气
@@ -900,27 +1057,24 @@
                                   在栏底缘,与辊底隔一道小缝 —— 轴底黑端+
                                   落影+纸顶暗渐变跨缝相接,辊与纸仍读作
                                   一物(缝是空气,不是切口) */
-  height: 16px;               /* 辊径恒定 —— 开合不变粗细:展开=光辊,收起=
-                                  纸裹轴的同径满卷;粗细不变,变的只有面 */
+  height: 16px;               /* 装配盒恒高；展开细木杆居中，收起纸卷占满盒高 */
   z-index: -1;                /* 垫在栏内文字后(见上) */
   color: var(--text-rack-dim);
-  background-color: var(--bg-slot);  /* 轴体底色:机件色,slot 抬一档立物件 */
-  /* 立体圆柱:两层 background(列表前者画在上),光照叠在底色上;
-     定位分工 —— 纸带锚底(自辊底向上生长),轴体光照恒 16px 满高 */
+  background-color: transparent;
+  /* 两层材质：纸带锚底裹回，细木杆居中，轴头保持原位置。 */
   background-image:
     /* 纸卷带:裹轴的纸卷面 —— 满卷时把轴整个裹住(轴藏卷内,只露两端
        轴头),读作一卷纸。圆柱读形:顶一道受光亮弧(卷面反光,纸卷身份
        的主线索)、长段平纸、缝侧轻收暗(84% 纸 + 16% 黑 —— 深底纸本就
        近黑,收重了读作画上去的一道黑横线);宽=纸幅宽(杆内让 6px,两
        端轴头探出纸外),卷起与垂落是同一张纸 */
-    linear-gradient(to bottom, rgba(255, 255, 255, .2), var(--paper) 14%, var(--paper) 72%, color-mix(in srgb, var(--paper) 84%, #000)),
-    /* 轴体:横置圆柱受光 —— 顶面含光带,往下背光收深;黑端稍加强,
-       没有缘线后由它收底,也是缝上「纸自轴后引出」的暗缝 */
-    linear-gradient(to bottom, rgba(255, 255, 255, .16), rgba(255, 255, 255, .02) 46%, rgba(0, 0, 0, .5));
+    var(--scroll-roll-surface),
+    /* 木杆用柔和暖光，避免宽灰条的金属感。 */
+    var(--axis-rod-surface);
   background-repeat: no-repeat;
-  /* 纸带锚底(左让 6px,自辊底向上裹轴)/ 轴体光照满高:展开态纸带高 0(不可见) */
-  background-position: 6px 100%, 0 100%;
-  background-size: calc(100% - 12px) 0px, 100% 16px;
+  /* 纸带与轴身同宽，均在收颈内侧截止；轴头的位置与外轮廓独立保留。 */
+  background-position: var(--axis-body-inset) 100%, var(--axis-body-inset) 50%;
+  background-size: var(--axis-body-width) 0px, var(--axis-body-width) var(--axis-open-diameter);
   /* 不画 inset 缘线(浅色主题黑线的成因):半黑硬边在浅 rack 上读作脏线,
      体积与收底全由渐变承担,深浅主题同一套渐变都成立 */
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .3));  /* 卷的落影:跨过辊下小
@@ -928,49 +1082,64 @@
                                                          焊成一物的深度线索(浅
                                                          色 rack 上 .4 偏重,收一档) */
   pointer-events: none;
-  /* 开向:纸垂落 440ms,纸卷收拢回轴、回归光辊 —— height 恒 16px 不动
-     (粗细不变),动的只有纸带 background-size */
+  /* 开向：纸带褪去露出细木杆；轴头相对装配盒的位置固定。 */
   transition: background-size 440ms cubic-bezier(.2, .7, .2, 1);
 }
 .scroll-head.rolled .rod-caps {
   /* 满卷(收起):纸带满高裹轴 —— band 16px 与辊同径,元素高不变
-     (粗细恒定),轴藏卷内、只露两端跟辊同径的轴头 */
-  background-size: calc(100% - 12px) 16px, 100% 16px;  /* 纸带满高裹轴 */
+     (粗细恒定),轴藏卷内、只露两端略细于纸筒的轴头 */
+  background-size: var(--axis-body-width) 16px, var(--axis-body-width) var(--axis-open-diameter);
+  filter: drop-shadow(0 1px 1px var(--scroll-shadow));
   /* 合向:纸卷回 320ms,纸带自辊底向上裹轴长满 */
   transition: background-size 320ms cubic-bezier(.55, .05, .7, .4);
+}
+.scroll-head.rolled .scroll-rod-collar {
+  /* 纸卷包住轴肩，避免卷面上叠出另一层木片。 */
+  opacity: 0;
+}
+.scroll-head.rolled > .h-px {
+  /* 题签分隔线只留在展开态，收卷时保留完整纸筒的弧面。 */
+  opacity: 0;
 }
 .rod-caps::before,
 .rod-caps::after {
   content: '';
   position: absolute;
-  bottom: 0;                  /* 锚辊底(跟辊走),高跟元素走 */
-  width: 6px;
-  height: 100%;               /* 轴头恒跟辊同径(=元素满高 16px,开合不变
-                                  粗细):展开=杆的两端,收起=满卷的端盖
-                                  —— 画卷轴头的读形;探出纸幅两端(纸侧让 6px) */
-  background-color: currentColor;
-  /* 轴头同款垂直受光渐变(叠身份色):与轴体同一套光照,端头也立体 */
-  background-image: linear-gradient(to bottom, rgba(255, 255, 255, .3), rgba(255, 255, 255, .04) 42%, rgba(0, 0, 0, .45));
+  top: 50%;
+  width: var(--axis-knob-length);
+  height: var(--axis-knob-diameter);
+  background-color: var(--axis-wood);
+  /* 左轴头的外端面、木纹与柱面分层；右轴头镜像同一实体。
+     轮廓由圆腹接收颈，末端面为窄椭圆，不把彩色薄片当轴头。 */
+  background-image: var(--axis-knob-surface);
+  background-size: 4px 100%, 100% 100%, 100% 100%;
+  background-position: left center;
+  background-repeat: no-repeat;
+  border-radius: 42% 18% 18% 42% / 16% 16% 16% 16%;
+  clip-path: polygon(0 14%, 17% 0, 66% 0, 81% 16%, 81% 29%, 100% 29%, 100% 71%, 81% 71%, 81% 84%, 66% 100%, 17% 100%, 0 86%);
+  box-shadow: inset 0 1px 0 var(--axis-knob-rim);
 }
-.rod-caps::before { left: 0; }
-.rod-caps::after { right: 0; }
+.rod-caps::before { left: var(--axis-knob-outset); transform: translateY(-50%); }
+.rod-caps::after { right: var(--axis-knob-outset); transform: translateY(-50%) scaleX(-1); }
 
-/* 分组卷专有的轴肩：夹在彩色轴头与纸幅之间，展开时露出轴的层次，
-   收起时压住卷纸两端。直系限定避免影响墙、搜索框和文件管理器的细辊。 */
-.scroll-head .rod-caps::before { border-radius: 3px 1px 1px 3px; }
-.scroll-head .rod-caps::after { border-radius: 1px 3px 3px 1px; }
+/* 轴肩在木轴头的收颈内侧露出一道窄环；段身份色只留在环与系绳上。 */
 .scroll-rod-collar {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: 50%;
+  height: var(--axis-open-diameter);
+  transform: translateY(-50%);
   width: 3px;
-  background: linear-gradient(to right, rgba(0, 0, 0, .35), color-mix(in srgb, currentColor 52%, var(--bg-slot)), rgba(255, 255, 255, .12));
+  border-radius: 1px;
+  background: linear-gradient(to right, rgba(0, 0, 0, .4), color-mix(in srgb, currentColor 32%, var(--axis-wood)) 45%, rgba(255, 230, 190, .2));
   box-shadow: 1px 0 2px rgba(0, 0, 0, .3);
 }
 .scroll-rod-collar-l { left: 6px; }
-.scroll-rod-collar-r { right: 6px; transform: scaleX(-1); }
+.scroll-rod-collar-r { right: 6px; transform: translateY(-50%) scaleX(-1); }
 .scroll-head:hover .rod-caps {
-  filter: drop-shadow(0 2px 5px color-mix(in srgb, currentColor 20%, transparent));
+  filter: drop-shadow(0 2px 4px var(--scroll-shadow));
+}
+.scroll-head:not(.rolled) .rod-caps {
+  filter: drop-shadow(0 1px 2px var(--scroll-shadow));
 }
 
 /* 亮色主题(rack-paper / rack-lark,浅底 rack-custom 同样命中):阴影整套
@@ -979,19 +1148,11 @@
    重黑读作脏色块 */
 [data-theme-mode="light"] .rod-caps {
   background-image:
-    linear-gradient(to bottom, rgba(255, 255, 255, .16), var(--paper) 14%, var(--paper) 72%, color-mix(in srgb, var(--paper) 86%, #000)),
-    linear-gradient(to bottom, rgba(255, 255, 255, .12), rgba(255, 255, 255, .02) 46%, rgba(0, 0, 0, .32));
+    var(--scroll-roll-surface),
+    var(--axis-rod-surface);
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .14));
 }
-[data-theme-mode="light"] .rod-caps::before,
-[data-theme-mode="light"] .rod-caps::after {
-  background-image: linear-gradient(to bottom, rgba(255, 255, 255, .28), rgba(255, 255, 255, .06) 42%, rgba(0, 0, 0, .32));
-}
-/* 分组轴头取浅色专用漆色，系绳与端盖保持同色。 */
-[data-theme-mode="light"] .scroll-head .rod-caps::before,
-[data-theme-mode="light"] .scroll-head .rod-caps::after {
-  background-color: var(--axis-cap-color, color-mix(in srgb, currentColor 65%, #15283A));
-}
+/* 浅色纸同样用木轴头，协议色由系绳和轴肩承载。 */
 [data-theme-mode="light"] .scroll-head .scroll-tie {
   color: var(--axis-cap-color, color-mix(in srgb, currentColor 65%, #15283A));
   filter: drop-shadow(0 1.5px 2px rgba(0, 0, 0, .18));
@@ -1127,11 +1288,11 @@
   width: 0;                   /* 收起:纸全裹上辊(合侧宽 0) */
   z-index: -1;                /* 垫在辊与墨之下:纸自辊后引出 */
   overflow: hidden;           /* 裁住自由端卷曲,收拢后不外溢 */
-  background-color: var(--paper);
+  background-color: var(--scroll-paper);
   /* 纤维纹理:同 .paper-sheet 的两层正交细线(纸的齿感) */
   background-image:
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, .02) 0 1px, transparent 1px 3px),
-    repeating-linear-gradient(90deg, rgba(0, 0, 0, .025) 0 1px, transparent 1px 4px);
+    repeating-linear-gradient(7deg, rgba(255, 255, 255, .012) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(97deg, rgba(0, 0, 0, .018) 0 1px, transparent 1px 11px);
   box-shadow: 0 1px 2px rgba(0, 0, 0, .2);   /* 纸的微浮:rack 上的一张纸 */
   transition: width 320ms cubic-bezier(.55, .05, .7, .4);
 }
@@ -1178,30 +1339,36 @@
 .scroll-search-rod-l {        /* 左辊:外缘(左)含光、内缘(合缝侧)背光 */
   left: 2px;
   background-image:
-    linear-gradient(to right, rgba(255, 255, 255, .2), var(--paper) 14%, var(--paper) 72%, color-mix(in srgb, var(--paper) 84%, #000)),
+    linear-gradient(to right, rgba(255, 255, 255, .14), var(--scroll-paper) 18%, var(--scroll-paper) 68%, color-mix(in srgb, var(--scroll-paper) 80%, #000)),
     linear-gradient(to right, rgba(255, 255, 255, .16), rgba(255, 255, 255, .02) 46%, rgba(0, 0, 0, .5));
 }
 .scroll-search-rod-r {        /* 右辊:镜像,外缘(右)含光 */
   right: 2px;
   background-image:
-    linear-gradient(to left, rgba(255, 255, 255, .2), var(--paper) 14%, var(--paper) 72%, color-mix(in srgb, var(--paper) 84%, #000)),
+    linear-gradient(to left, rgba(255, 255, 255, .14), var(--scroll-paper) 18%, var(--scroll-paper) 68%, color-mix(in srgb, var(--scroll-paper) 80%, #000)),
     linear-gradient(to left, rgba(255, 255, 255, .16), rgba(255, 255, 255, .02) 46%, rgba(0, 0, 0, .5));
 }
-/* 轴头 —— 上下端盖(恒跟辊同径):拴绳待机半亮、hover 提亮、解绳点亮 */
+/* 轴头 —— 上下端头略细于纸筒:拴绳待机半亮、hover 提亮、解绳点亮 */
 .scroll-search-rod::before,
 .scroll-search-rod::after {
   content: '';
   position: absolute;
-  left: 0;
-  right: 0;
+  left: 50%;
+  width: 6px;
   height: 4px;
-  background-color: currentColor;
-  background-image: linear-gradient(to bottom, rgba(255, 255, 255, .3), rgba(255, 255, 255, .04) 42%, rgba(0, 0, 0, .45));
+  background-color: var(--axis-wood);
+  /* 共享材质与横轴轮廓，旋转后端面朝外，避免竖轴残留旧木色。 */
+  background-image: var(--axis-knob-surface);
+  background-size: 2px 100%, 100% 100%, 100% 100%;
+  background-position: left center;
+  background-repeat: no-repeat;
+  border-radius: 42% 18% 18% 42% / 16%;
+  clip-path: polygon(0 14%, 17% 0, 66% 0, 81% 16%, 81% 29%, 100% 29%, 100% 71%, 81% 71%, 81% 84%, 66% 100%, 17% 100%, 0 86%);
   opacity: .55;
   transition: opacity 150ms ease;
 }
-.scroll-search-rod::before { top: 0; }
-.scroll-search-rod::after { bottom: 0; }
+.scroll-search-rod::before { top: 1px; transform: translate(-50%, -50%) rotate(90deg); }
+.scroll-search-rod::after { bottom: 1px; transform: translate(-50%, 50%) rotate(-90deg); }
 .scroll-search:not(.open):hover .scroll-search-rod::before,
 .scroll-search:not(.open):hover .scroll-search-rod::after { opacity: .8; }
 
@@ -1261,11 +1428,19 @@
 }
 .scroll-search.open .scroll-search-rod {
   background-size: 100% 0px, 100% 100%;   /* 纸全下了辊:回归光辊 */
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--amber) 45%, transparent));
+  filter: drop-shadow(0 1px 2px var(--scroll-shadow));
   transition: background-size 440ms cubic-bezier(.2, .7, .2, 1), filter 200ms ease;
 }
 .scroll-search.open .scroll-search-rod::before,
 .scroll-search.open .scroll-search-rod::after { opacity: 1; }
+
+/* 深底待机时保留木色，解绳/选中再提到全亮，避免木轴头隐进背景。 */
+[data-theme-mode="dark"] .scroll-chip:not(.on) .scroll-chip-band::before,
+[data-theme-mode="dark"] .scroll-chip:not(.on) .scroll-chip-band::after,
+[data-theme-mode="dark"] .scroll-search:not(.open) .scroll-search-rod::before,
+[data-theme-mode="dark"] .scroll-search:not(.open) .scroll-search-rod::after {
+  opacity: .85;
+}
 
 /* 浅色 rack:阴影与半黑渐变整套收浅一档(深底读作渐暗,浅底同值读作重
    影;open 的辉光规则特异性更高,展开态不受影响) */
@@ -1283,18 +1458,13 @@
 }
 [data-theme-mode="light"] .scroll-search-rod-l {
   background-image:
-    linear-gradient(to right, rgba(255, 255, 255, .16), var(--paper) 14%, var(--paper) 72%, color-mix(in srgb, var(--paper) 86%, #000)),
+    linear-gradient(to right, rgba(255, 255, 255, .16), var(--scroll-paper) 14%, var(--scroll-paper) 72%, color-mix(in srgb, var(--scroll-paper) 86%, #000)),
     linear-gradient(to right, #AEB9BE, #83949D 55%, #5F727E);   /* 冷灰金属杆:同浅色双开轴 */
 }
 [data-theme-mode="light"] .scroll-search-rod-r {
   background-image:
-    linear-gradient(to left, rgba(255, 255, 255, .16), var(--paper) 14%, var(--paper) 72%, color-mix(in srgb, var(--paper) 86%, #000)),
+    linear-gradient(to left, rgba(255, 255, 255, .16), var(--scroll-paper) 14%, var(--scroll-paper) 72%, color-mix(in srgb, var(--scroll-paper) 86%, #000)),
     linear-gradient(to left, #AEB9BE, #83949D 55%, #5F727E);
-}
-[data-theme-mode="light"] .scroll-search-rod::before,
-[data-theme-mode="light"] .scroll-search-rod::after {
-  background-image: linear-gradient(to bottom, rgba(255, 255, 255, .28), rgba(255, 255, 255, .06) 42%, rgba(0, 0, 0, .32));
-  background-color: var(--axis-cap-color);
 }
 [data-theme-mode="light"] .scroll-search .scroll-tie {
   color: var(--axis-cap-color);
@@ -1308,11 +1478,7 @@
 .scroll-search.scroll-search-web .scroll-search-rod,
 .scroll-search.scroll-search-web .scroll-search-tie { color: var(--web-group); }
 .scroll-search.scroll-search-web.open .scroll-search-rod {
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--web-group) 45%, transparent));
-}
-[data-theme-mode="light"] .scroll-search-web .scroll-search-rod::before,
-[data-theme-mode="light"] .scroll-search-web .scroll-search-rod::after {
-  background-color: var(--axis-cap-color);
+  filter: drop-shadow(0 1px 2px var(--scroll-shadow));
 }
 [data-theme-mode="light"] .scroll-search-web .scroll-tie {
   color: var(--axis-cap-color);
@@ -1364,8 +1530,8 @@
    窗正中接缝成整幅(双开的合缝),收起时纸裹回双辊成上下双卷、各拴一只
    蝴蝶结,题签落在卷面(名牌非按钮)。点任一辊行即开/合(双向 toggle,
    上辊行同时是拖高手势位:拖动与点按靠 JSX 侧位移阈值分流)。
-   机械与家族共用:辊 = rod-caps(竖置细棍 5 径 —— 2026/09/20 双开轴统一
-   细棍化,与 .scroll-search 同径同族;开合不变粗细,裹辊纸带 background-size
+   机械与家族共用:辊 = rod-caps(双开轴 8 径，搜索小轴保留 5 径;
+   开合不变粗细,裹辊纸带 background-size
    插值出裹/卸;上辊纸带锚底、下辊锚顶 —— 纸各自从贴纸侧引出/裹回),
    绳 = scroll-tie(显隐与摆动挂 :is 列表里的 .scroll-dual.rolled,等比
    半幅缩到 6×8 贴细棍径),纸 = paper-sheet 同源的纤维纹理 + 上下双触辊暗缝。
@@ -1380,13 +1546,14 @@
    50%∓8,收卷立现、铺纸随缝走完、落定才淡出(同 .scroll-fold 的卷曲
    机械;缝恒在窗正中,开合全程卷曲自动跟缝)。轴头 = amber(栏底面板的
    恒定身份,不随会话/分组走):拴绳待机半亮、行 hover 提亮、解绳(展开)
-   点亮辉光换落影 —— 与小画轴/搜索框同一套解绳语言。开 440ms 纸坠/合
+   端盖点亮、轴体保留落影 —— 与小画轴/搜索框同一套解绳语言。开 440ms 纸坠/合
    320ms 加速收;拖动中 .resizing 掣过渡跟手(pointer 逐帧改高)。拖高
    手势位 = 上辊行整行(16px 命中区,旧 4px 分割线的 4 倍);拖示线 =
    上辊行顶缘的 1px 发丝线、整幅贯通(JSX 挂,悬停才显 —— 读作「最上
    面的线」亮起;旧 30×2 短杠贴辊顶,悬停时读作辊长粗变形)。静息态不
    显,免被读作 border。 */
 .scroll-dual {
+  --dual-rod-diameter: 8px;   /* 大画幅轴径：行高仍为 10，收卷/拖高沿用原几何 */
   position: relative;
   display: flex;
   flex-direction: column;
@@ -1406,7 +1573,7 @@
 .scroll-dual.resizing,
 .scroll-dual.open.resizing { transition: none; }
 
-/* 辊行 —— 上下辊的搁架:10px 恒定行高(辊 5 上下各 2.5px 气),不参与开合
+/* 辊行 —— 上下辊的搁架:10px 恒定行高(辊 8 上下各 1px 气),不参与开合
    (开合只动中间纸窗);行即热区:点辊行即开/合(双向 toggle,JSX 里上辊
    行带 role=button 承接键盘),开态上辊整行兼拖高手势位(拖动/点按靠
    JSX 位移阈值分流;拖示线挂行顶缘)。flex 排题签,辊(-1)垫其后 */
@@ -1425,37 +1592,40 @@
   outline-offset: -2px;
 }
 /* 下辊 —— 纸自其上缘引出:纸带锚顶(上辊锚底的镜像)、落影投上纸幅 */
-.scroll-dual-rod-b .rod-caps {
-  background-position: 4px 0, 0 0;
+.scroll-dual > .scroll-dual-rod.scroll-dual-rod-b .rod-caps {
+  background-position: var(--axis-body-inset) 0, var(--axis-body-inset) 50%;
   filter: drop-shadow(0 -1px 2px rgba(0, 0, 0, .3));
 }
 
 /* 轴头身份:amber 端盖(栏底面板的恒定身份,不随会话/分组走);拴绳待机
    半亮、行 hover 提亮、解绳(展开)点亮 —— 同搜索框/小画轴的一套。
-   竖置细棍:5 径覆写基类 16 径几何(2026/09/20 双开轴统一细棍化;基类当
-   日自 20 收细到 16 —— 覆写关系不变,压的数字变了),裹辊纸
-   带与轴体光照两层都按 5 收;杆体满行宽、轴头 4 宽藏两端,纸带两端各让
-   4 给轴头、卷宽即贴纸幅。
+   双开轴用 --dual-rod-diameter 覆写基类 16 径几何，裹辊纸
+   带与轴体光照两层都跟随轴径；轴身和纸带在收颈内侧截止，端头外围透底。
    选择器一律 > .scroll-dual-rod 直系限定:会话墙(.scroll-dual-wall)的纸
    里住着垂卷分组(.scroll-head 同用 rod-caps/scroll-tie),裸后代选择器会
    把纸里的 16 径分组辊一并压成 5 径细棍、绳缩半幅(墙挂上时实证过的漏染) */
 .scroll-dual > .scroll-dual-rod .rod-caps {
+  --axis-open-diameter: 5px;
+  --axis-knob-length: 6px;
+  --axis-knob-diameter: 7px;  /* 上下纸筒均为 8px，端头收窄，保留伸出的收颈 */
+  --axis-knob-outset: 0px;     /* 端头完整落在 10px 辊行内，收卷时不被装配裁掉 */
   color: var(--amber);
-  left: 0;                    /* 杆体满行宽:轴头端面落行两端 */
+  left: 0;                    /* 装配盒满行宽，轴头落两端，杆身由背景内缩 */
   right: 0;
-  height: 5px;
-  top: calc(50% - 2.5px);
-  background-position: 4px 100%, 0 100%;
-  background-size: calc(100% - 8px) 0px, 100% 5px;
+  height: var(--dual-rod-diameter);
+  top: calc(50% - var(--dual-rod-diameter) / 2);
+  background-position: var(--axis-body-inset) 100%, var(--axis-body-inset) 50%;
+  background-size: var(--axis-body-width) 0px, var(--axis-body-width) var(--axis-open-diameter);
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .3));
   transition: background-size 440ms cubic-bezier(.2, .7, .2, 1), filter 200ms ease;
 }
 .scroll-dual > .scroll-dual-rod .rod-caps::before,
 .scroll-dual > .scroll-dual-rod .rod-caps::after {
-  width: 4px;                 /* 轴头宽 4(端面盖) */
-  opacity: .55;
+  opacity: .78;
   transition: opacity 150ms ease;
 }
+/* 双开轴上下共用尺寸：展开杆身 5px、轴头 7px，收起纸筒 8px。
+   10×2 的行高和画心预算保持原口径，仅纸带方向与落影上下镜像。 */
 .scroll-dual .scroll-dual-rod:hover .rod-caps::before,
 .scroll-dual .scroll-dual-rod:hover .rod-caps::after { opacity: .8; }
 .scroll-dual.open > .scroll-dual-rod .rod-caps::before,
@@ -1463,44 +1633,50 @@
 /* 满卷(收起):纸带满高裹轴 —— 上下双卷,轴藏卷内只露轴头;合向 320ms
    与装配高同拍 */
 .scroll-dual.rolled > .scroll-dual-rod .rod-caps {
-  background-size: calc(100% - 8px) 5px, 100% 5px;
+  background-size: var(--axis-body-width) var(--dual-rod-diameter), var(--axis-body-width) var(--axis-open-diameter);
   transition: background-size 320ms cubic-bezier(.55, .05, .7, .4), filter 200ms ease;
 }
-/* 解绳点亮:展开态辉光换落影(纸已下了辊,辊被拿起 —— 同小画轴) */
+/* 解绳展开：端盖点亮，上下轴的落影向纸内投，撑住整幅画。 */
 .scroll-dual.open .scroll-dual-rod .rod-caps {
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--amber) 45%, transparent));
+  filter: drop-shadow(0 1px 2px var(--scroll-shadow));
+}
+.scroll-dual.open > .scroll-dual-rod-b .rod-caps {
+  filter: drop-shadow(0 -1px 2px var(--scroll-shadow));
 }
 
 /* 纸窗 —— 上下辊之间的开合窗(flex-1,开合只动这里):纸面同 paper-sheet
    的纤维纹理,上下双触辊暗缝(纸自两辊后引出的纵深,与辊的黑端跨缝相接
-   焊成一物)+ 四缘 8px 绫边(装裱环,画心与纸的分界,层注释详);裁剪由
+   焊成一物)+ 绫边(固定高面板 4px，流式墙 6px);裁剪由
    此层承担,body 恒定高不重排 */
 .scroll-dual-paper {
+  --scroll-mount: 4px;       /* 固定高面板保留画心预算；流式墙单独加宽裱边 */
   position: relative;
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
-  background-color: var(--paper);
+  background-color: var(--scroll-paper);
   background-image:
     /* 触辊暗缝:上缘贴上辊、下缘贴下辊(纸从两辊后引出,贴辊处压暗) */
     linear-gradient(to bottom, rgba(0, 0, 0, .2), rgba(0, 0, 0, 0)),
     linear-gradient(to top, rgba(0, 0, 0, .2), rgba(0, 0, 0, 0)),
-    /* 绫边:四缘各 4px 的装裱环 —— 画心的 4px 裱边(基座 body left/right 4 +
-       居中余量、墙 body margin 4)恰与纸缘重合,两变体同一几何,环即裱边。
-       纸压暗一档织细纹(绫):1px 暗线每 3px,上/下裱纵纹、左/右裱横纹(织向
+    /* 绫边:装裱环宽跟随 --scroll-mount，与 body 的内缩同步。
+       暖灰绢底织细纹(绫):1px 暗线每 4px,上/下裱纵纹、左/右裱横纹(织向
        随裱走);内缘硬止 = 画心与装裱的分界线。上/下裱与触辊暗缝同域相叠(轴
        影与绫边同为缘部压暗,一族)。墙纸自滚时背景钉在纸缘(attachment 默认
        scroll):画心在裱边下滑、装裱不跟滚 —— 挂轴该有的物理 */
-    repeating-linear-gradient(90deg, rgba(0, 0, 0, .22) 0 1px, rgba(0, 0, 0, .13) 1px 3px),
-    repeating-linear-gradient(90deg, rgba(0, 0, 0, .22) 0 1px, rgba(0, 0, 0, .13) 1px 3px),
-    repeating-linear-gradient(0deg, rgba(0, 0, 0, .22) 0 1px, rgba(0, 0, 0, .13) 1px 3px),
-    repeating-linear-gradient(0deg, rgba(0, 0, 0, .22) 0 1px, rgba(0, 0, 0, .13) 1px 3px),
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, .09) 0 1px, var(--scroll-silk) 1px 4px),
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, .09) 0 1px, var(--scroll-silk) 1px 4px),
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, .09) 0 1px, var(--scroll-silk) 1px 4px),
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, .09) 0 1px, var(--scroll-silk) 1px 4px),
     /* 正交纤维纹理(纸的齿感,同 .paper-sheet) */
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, .02) 0 1px, transparent 1px 3px),
-    repeating-linear-gradient(90deg, rgba(0, 0, 0, .025) 0 1px, transparent 1px 4px);
-  background-position: 0 0, 0 100%, 0 0, 0 100%, 0 0, 100% 0, 0 0, 0 0;   /* 暗缝贴上/下缘,绫边四缘各 4px,纤维铺满 */
-  background-size: 100% 8px, 100% 8px, 100% 4px, 100% 4px, 4px 100%, 4px 100%, 100% 100%, 100% 100%;
+    repeating-linear-gradient(7deg, rgba(255, 255, 255, .012) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(97deg, rgba(0, 0, 0, .018) 0 1px, transparent 1px 11px);
+  background-position: 0 0, 0 100%, 0 0, 0 100%, 0 0, 100% 0, 0 0, 0 0;   /* 暗缝贴上/下缘，绫边围画心，纤维铺满 */
+  background-size: 100% 8px, 100% 8px, 100% var(--scroll-mount), 100% var(--scroll-mount), var(--scroll-mount) 100%, var(--scroll-mount) 100%, 100% 100%, 100% 100%;
   background-repeat: no-repeat;
+  box-shadow:
+    inset 1px 0 0 color-mix(in srgb, var(--pin) 20%, transparent),
+    inset -1px 0 0 color-mix(in srgb, var(--pin) 20%, transparent);
 }
 
 /* 合缝卷曲 —— 两半纸的自由端在窗正中相接,各带残余卷曲:贴缝最暗向缘
@@ -1575,18 +1751,10 @@
 /* 浅色 rack:阴影与半黑渐变整套收浅一档(同族;open 的辉光规则特异性更
    高,展开态不受影响) */
 [data-theme-mode="light"] .scroll-dual-paper {
-  background-image:
-    linear-gradient(to bottom, rgba(0, 0, 0, .12), rgba(0, 0, 0, 0)),
-    linear-gradient(to top, rgba(0, 0, 0, .12), rgba(0, 0, 0, 0)),
-    /* 绫边上色(2026/09/29):浅色装裱的艳在绫不在纸 —— 黑灰影线换成
-       花青绫绢(#38678A),同 1px 织纹骨架只换线色,奶油纸四缘读作彩色
-       织锦裱边;暗缝照旧(触辊影与绫不相干) */
-    repeating-linear-gradient(90deg, rgba(56, 103, 138, .55) 0 1px, rgba(56, 103, 138, .3) 1px 3px),
-    repeating-linear-gradient(90deg, rgba(56, 103, 138, .55) 0 1px, rgba(56, 103, 138, .3) 1px 3px),
-    repeating-linear-gradient(0deg, rgba(56, 103, 138, .55) 0 1px, rgba(56, 103, 138, .3) 1px 3px),
-    repeating-linear-gradient(0deg, rgba(56, 103, 138, .55) 0 1px, rgba(56, 103, 138, .3) 1px 3px),
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, .02) 0 1px, transparent 1px 3px),
-    repeating-linear-gradient(90deg, rgba(0, 0, 0, .025) 0 1px, transparent 1px 4px);
+  /* 亮纸的绫边压成暖灰绢，不再用高对比的蓝色条纹围住画心。 */
+  box-shadow:
+    inset 1px 0 0 color-mix(in srgb, var(--pin) 22%, transparent),
+    inset -1px 0 0 color-mix(in srgb, var(--pin) 22%, transparent);
 }
 [data-theme-mode="light"] .scroll-dual-paper::before {
   background: linear-gradient(to top, rgba(0, 0, 0, .3), rgba(0, 0, 0, 0));
@@ -1596,20 +1764,16 @@
 }
 [data-theme-mode="light"] .scroll-dual > .scroll-dual-rod .rod-caps {
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .16));   /* 细棍浅影 */
-  /* 浅色双开辊用低饱和冷灰金属杆：长横线退到纸和端盖之后，彩色轴头
-     更清楚。收卷态的纸带仍覆盖杆身；垂卷轴身不受这条规则影响。 */
+  /* 浅色双开辊用低饱和暖木色，收卷态纸带覆盖杆身；端头外围保持透明。
+     垂卷轴身不受这条规则影响。 */
   background-image:
-    linear-gradient(to bottom, rgba(255, 255, 255, .16), var(--paper) 14%, var(--paper) 72%, color-mix(in srgb, var(--paper) 86%, #000)),
-    linear-gradient(to bottom, #AEB9BE, #83949D 55%, #5F727E);
+    var(--scroll-roll-surface),
+    var(--axis-rod-surface);
 }
 [data-theme-mode="light"] .scroll-dual-rod-b .rod-caps {
   filter: drop-shadow(0 -1px 2px rgba(0, 0, 0, .14));
 }
 /* 双开轴默认取浅色主题的焦点漆色；web/工作区轴由变体覆写。 */
-[data-theme-mode="light"] .scroll-dual > .scroll-dual-rod .rod-caps::before,
-[data-theme-mode="light"] .scroll-dual > .scroll-dual-rod .rod-caps::after {
-  background-color: var(--axis-cap-color);
-}
 [data-theme-mode="light"] .scroll-dual .scroll-dual-tie .scroll-tie {
   color: var(--axis-cap-color);
   filter: drop-shadow(0 1.5px 2px rgba(0, 0, 0, .18));
@@ -1650,7 +1814,7 @@
    「纸包内容」—— 装配仍是列里的 flex-1 占位(下方 FM/快捷/状态栏恒钉
    底),但纸窗不撑满装配、高 = 画心内容高(flex 0 1 auto),下辊行贴在
    纸尾、跟着最底下的分组卷走(短内容下方留白露 bg-base;内容超出列剩
-   余高时纸收缩到剩高、内心滚,滚动容器 = 纸窗,滚条 rack-scroll)。
+   余高时纸收缩到剩高、内心滚，滚动容器是 body，上下承托纸保持固定)。
    画心因此不再绝对锚纸心、高不恒定:body 静态流式随纸走(裱边改 margin
    —— 基类的 left/right 8px 只在绝对定位生效),ScrollFold 开合逐帧改
    内容高,下辊随折卷动画跟手滑。双选择器提特异性压过 .scroll-dual.open
@@ -1659,21 +1823,59 @@
   height: auto;               /* 覆写基类收起 20:高交给 flex 布局 */
   transition: none;           /* 墙恒开无开合动画,高随内容/列剩余即时走 */
 }
-/* 墙的辊是「收放全部」按钮：热区加到 24px，5px 轴体仍在行内居中。
+/* 墙的辊是「收放全部」按钮：热区加到 24px，8px 轴体仍在行内居中。
    小窗与文件管理器的双开辊保留 10px 原几何和拖高行为。 */
 .scroll-dual.scroll-dual-wall > .scroll-dual-rod.cursor-pointer {
   height: 24px;
 }
 .scroll-dual.scroll-dual-wall .scroll-dual-paper {
+  --scroll-mount: 6px;
+  container: scroll-wall / inline-size;
   flex: 0 1 auto;             /* 纸包内容:高 = 画心内容高,超列剩余高收缩内心滚 */
-  overflow-y: auto;           /* 滚动职责在纸(墙变体:纸是内容高的滚动容器) */
+  overflow-y: auto;           /* 直系纸窗由后续规则限制裁剪，内部 body 承担滚动 */
   overflow-x: hidden;
 }
-.scroll-dual.scroll-dual-wall .scroll-dual-body {
+/* 包着垂卷的外层纸只作衬底：收去宽绫条纹与彩边，让单画轴成为主体。
+   直接限定外层纸窗，内部题名纸与 paper-sheet 保留各自的纸色和裱边。 */
+.scroll-dual.scroll-dual-wall > .scroll-dual-paper {
+  /* 承托固定在滚动区之外，长列表也不会盖住上下留纸。 */
+  display: flex;
+  flex-direction: column;
+  padding-block: 18px;
+  overflow: hidden;
+  background-color: color-mix(in srgb, var(--paper) 40%, var(--bg-base));
+  background-image:
+    linear-gradient(to bottom, rgba(0, 0, 0, .08), transparent),
+    linear-gradient(to top, rgba(0, 0, 0, .08), transparent),
+    repeating-linear-gradient(97deg, rgba(0, 0, 0, .008) 0 1px, transparent 1px 13px);
+  background-position: 0 0, 0 100%, 0 0;
+  background-size: 100% 5px, 100% 5px, 100% 100%;
+  box-shadow: none;
+}
+/* 深色衬纸介于框底与内卷纸面之间，留出承托但不抢过内部画轴。 */
+[data-theme-mode="dark"] .scroll-dual.scroll-dual-wall > .scroll-dual-paper {
+  background-color: color-mix(in srgb, var(--scroll-paper) 75%, var(--bg-base));
+  background-image:
+    linear-gradient(to bottom, rgba(0, 0, 0, .08), transparent),
+    linear-gradient(to top, rgba(0, 0, 0, .08), transparent),
+    repeating-linear-gradient(97deg, rgba(255, 255, 255, .008) 0 1px, transparent 1px 13px);
+}
+.scroll-dual.scroll-dual-wall > .scroll-dual-paper > .scroll-dual-body {
   position: static;           /* 画心不再绝对锚纸心:随纸走,高不恒定 */
   transform: none;
   height: auto;
-  margin: 4px;                /* 裱边随内容走(基类 left/right 4px 只在绝对定位生效) */
+  min-height: 0;
+  flex: 0 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* 分组轴头向栏外伸出 2px，留在滚动裁剪区内；内容仍距纸缘 6px。 */
+  padding-inline: 2px;
+  margin: 0 4px;              /* 外距 4px + 内距 2px，上下由外层纸的 padding 承托 */
+}
+/* 裱边加宽后的窄栏给协议小卷分两行，题签与系绳仍有完整落位。 */
+@container scroll-wall (max-width: 260px) {
+  .scroll-protocols { flex-wrap: wrap; }
+  .scroll-protocols .scroll-chip { flex-basis: calc(50% - 2px); }
 }
 
 /* ─── 网页墙变体(.scroll-dual-web)── Web 栏最近访问的墙:段身份青蓝 ───
@@ -1689,11 +1891,7 @@
   color: var(--web-group);
 }
 .scroll-dual.scroll-dual-web.open .scroll-dual-rod .rod-caps {
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--web-group) 45%, transparent));
-}
-[data-theme-mode="light"] .scroll-dual-web > .scroll-dual-rod .rod-caps::before,
-[data-theme-mode="light"] .scroll-dual-web > .scroll-dual-rod .rod-caps::after {
-  background-color: var(--axis-cap-color);
+  filter: drop-shadow(0 1px 2px var(--scroll-shadow));
 }
 [data-theme-mode="light"] .scroll-dual-web .scroll-dual-tie .scroll-tie {
   color: var(--axis-cap-color);
@@ -1728,11 +1926,7 @@
   color: var(--seg-tone, var(--amber));
 }
 .scroll-dual.scroll-dual-seg.open .scroll-dual-rod .rod-caps {
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--seg-tone, var(--amber)) 45%, transparent));
-}
-[data-theme-mode="light"] .scroll-dual-seg > .scroll-dual-rod .rod-caps::before,
-[data-theme-mode="light"] .scroll-dual-seg > .scroll-dual-rod .rod-caps::after {
-  background-color: var(--axis-cap-color);
+  filter: drop-shadow(0 1px 2px var(--scroll-shadow));
 }
 [data-theme-mode="light"] .scroll-dual-seg .scroll-dual-tie .scroll-tie {
   color: var(--axis-cap-color);
@@ -1750,17 +1944,7 @@
   color: #46617A;
 }
 
-/* 所有画轴共用一档哑光端盖与轻落影：小卷、垂卷、竖向搜索轴、双开轴。
-   展开/选中仍靠端盖 opacity 区分，浅色纸面上不再叠高饱和辉光。 */
-[data-theme-mode="light"] .scroll-chip-band::before,
-[data-theme-mode="light"] .scroll-chip-band::after,
-[data-theme-mode="light"] .rod-caps::before,
-[data-theme-mode="light"] .rod-caps::after,
-[data-theme-mode="light"] .scroll-search-rod::before,
-[data-theme-mode="light"] .scroll-search-rod::after {
-  background-image: linear-gradient(to bottom, rgba(255, 255, 255, .16), transparent 42%, rgba(0, 0, 0, .2));
-}
-/* 收卷态也留下足够的彩色漆面；展开/选中仍保持全亮。 */
+/* 木轴头在浅底收卷时也保留材质；展开/选中仍靠亮度与解绳区分。 */
 [data-theme-mode="light"] .scroll-chip:not(.on) .scroll-chip-band::before,
 [data-theme-mode="light"] .scroll-chip:not(.on) .scroll-chip-band::after,
 [data-theme-mode="light"] .scroll-search:not(.open) .scroll-search-rod::before,
@@ -1775,14 +1959,20 @@
 [data-theme-mode="light"] .scroll-dual.open > .scroll-dual-rod .rod-caps {
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .16));
 }
+/* 下轴的阴影向纸内投，与上轴镜像；各段墙保持同一束光。 */
+.scroll-dual.scroll-dual-web.open > .scroll-dual-rod-b .rod-caps,
+.scroll-dual.scroll-dual-seg.open > .scroll-dual-rod-b .rod-caps,
+[data-theme-mode="light"] .scroll-dual.open > .scroll-dual-rod-b .rod-caps {
+  filter: drop-shadow(0 -1px 2px var(--scroll-shadow));
+}
 
 /* ─── 搁板(.shelf)── 墙与 FM 之间的架(笔山连脊同款)───
-   会话墙的下辊与 FM 的上辊同为 5 径细辊、两行贴邻(辊间距仅 ~5px),叠读作
+   会话墙的下辊与 FM 的上辊同为 8 径画轴，两行贴邻容易叠读作
    「又两根画轴」(天杆摘除的同一教训);隔开它们的架与 LAUNCH 笔山同一座 ——
    conic 三角连脊(同 tile 8×4、同材 rule;.brush-rack::after 一份、此处第二
    份,架子在栏里两处署名同一形):笔卧山上,墙下辊横跨数峰读作搁在架上(峰
    谷相位不与辊对齐,同笔山的「搁不是嵌」)。峰高 4 同笔山,两辊间距
-   2.5+4+2.5=9 —— 隔而不远;两行点击目标(墙的一键收放 vs FM 的开合/拖高)
+   1+4+1=6 —— 隔而不远;两行点击目标(墙的一键收放 vs FM 的开合/拖高)
    也由架分界。浅色主题免覆写:rule 阶梯在浅底上同读作架线(笔山同款未经覆
    写) */
 .shelf {
@@ -1819,14 +2009,6 @@ body {
   color: var(--color-text-primary);
   overflow: hidden;
   user-select: none;
-}
-
-/* 设置面板整体走等宽 —— 与状态栏右侧连接状态簇一致(设备铭牌审美)。
-   字体栈已在 tailwind.config.js 的 fontFamily.mono 统一,这里只需管面板整体,
-   不再需要 .font-mono 二次覆盖(那会让设置页签与其他面板页签字体分叉)。
-   未包裹在 @layer 内,故优先于 Tailwind utilities 层的字体设置,无需 !important。 */
-.settings-panel {
-  font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace;
 }
 
 /* 危险态皮肤 —— 「条纹导轨 + 红染底」(danger-red-prototype.html 用户选定的 B+C 组合)。
@@ -2103,25 +2285,30 @@ body {
 }
 
 /* === Rack 滚动条 — 侧栏 / 文件管理器共享 === */
-.rack-scroll::-webkit-scrollbar {
+.rack-scroll::-webkit-scrollbar,
+.rack-scroll > .scroll-dual-body::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
-.rack-scroll::-webkit-scrollbar-track {
+.rack-scroll::-webkit-scrollbar-track,
+.rack-scroll > .scroll-dual-body::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.rack-scroll::-webkit-scrollbar-thumb {
+.rack-scroll::-webkit-scrollbar-thumb,
+.rack-scroll > .scroll-dual-body::-webkit-scrollbar-thumb {
   background: var(--rule);
   border-radius: 0;
 }
 
-.rack-scroll::-webkit-scrollbar-thumb:hover {
+.rack-scroll::-webkit-scrollbar-thumb:hover,
+.rack-scroll > .scroll-dual-body::-webkit-scrollbar-thumb:hover {
   background: var(--text-rack-dim);
 }
 
-.rack-scroll::-webkit-scrollbar-corner {
+.rack-scroll::-webkit-scrollbar-corner,
+.rack-scroll > .scroll-dual-body::-webkit-scrollbar-corner {
   background: transparent;
 }
 

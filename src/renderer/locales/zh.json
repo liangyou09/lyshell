@@ -27,6 +27,17 @@
     "close": "关闭"
   },
   "settings": {
+    "categories": "设置分类",
+    "sections": {
+      "appearance": "外观",
+      "terminal": "终端",
+      "general": "通用"
+    },
+    "sectionHints": {
+      "appearance": "选择喜欢的配色与材质。",
+      "terminal": "调整终端的显示与交互。",
+      "general": "管理语言、窗口与下载目录。"
+    },
     "expandSidebar": "展开侧边栏",
     "collapseSidebar": "收起侧边栏",
     "dragToMove": "拖拽移动 · 双击复位",
@@ -44,6 +55,14 @@
     "blinkOn": "闪烁开",
     "blinkOff": "闪烁关",
     "theme": "主题",
+    "scrollMaterial": "轴头材质",
+    "scrollMaterialHint": "立即生效并记住选择，可与任意主题搭配。",
+    "scrollMaterials": {
+      "walnut": "胡桃木",
+      "jade": "青玉",
+      "lacquer": "黑漆",
+      "porcelain": "青白瓷"
+    },
     "language": "语言",
     "pickBaseColor": "选择底色",
     "pickAccentColor": "选择焦点色",

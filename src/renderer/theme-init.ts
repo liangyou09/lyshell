@@ -1,3 +1,5 @@
+import { SCROLL_MATERIAL_STORAGE_KEY, normalizeScrollMaterial } from './styles/scroll-materials'
+
 /**
  * 早期主题预设 — 在 React 挂载前同步还原用户上次选中的主题
  * 必须放在外部脚本：renderer 的 CSP `script-src 'self'` 会拦截 inline <script>
@@ -9,6 +11,13 @@
  *   2. 这里的 VALID_THEMES
  */
 const VALID_THEMES = ['rack-graphite', 'rack-slate', 'rack-carbon', 'rack-paper', 'rack-lark', 'rack-ember', 'rack-custom']
+
+// 材质在 React 挂载前同步恢复，避免首帧先露出默认木轴头。
+try {
+  document.documentElement.dataset.scrollMaterial = normalizeScrollMaterial(localStorage.getItem(SCROLL_MATERIAL_STORAGE_KEY))
+} catch {
+  document.documentElement.dataset.scrollMaterial = normalizeScrollMaterial(null)
+}
 
 try {
   const saved = localStorage.getItem('lyshell.theme')

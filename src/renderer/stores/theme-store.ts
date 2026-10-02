@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { isLightColor } from '@shared/color-utils'
+import { DEFAULT_SCROLL_MATERIAL, SCROLL_MATERIAL_STORAGE_KEY, normalizeScrollMaterial, type ScrollMaterialId } from '../styles/scroll-materials'
 
 /**
  * 主题系统
@@ -104,8 +105,10 @@ const CUSTOM_STORAGE_KEY = 'lyshell.theme.custom'
 
 interface ThemeStore {
   themeId: string
+  scrollMaterial: ScrollMaterialId
   customColors: CustomThemeColors
   setTheme: (id: string) => void
+  setScrollMaterial: (id: ScrollMaterialId) => void
   setCustomColors: (colors: Partial<CustomThemeColors>) => void
   initFromStorage: () => void
 }
@@ -184,7 +187,7 @@ function shiftLightness(hex: string, deltaL: number): string {
  * 新增键必须同步 clearCustomColors 的清理清单——漏一个会跨主题残留 inline
  * 真值（--paper 就是这么漏的）。
  */
-function deriveCustomVars(base: string, accent: string): Record<string, string> {
+export function deriveCustomVars(base: string, accent: string): Record<string, string> {
   const isLight = isLightColor(base)
   const dir = isLight ? -1 : 1  // chrome 移动方向
 
@@ -310,6 +313,7 @@ function applyTheme(id: string, customColors: CustomThemeColors) {
 
 export const useThemeStore = create<ThemeStore>((set, get) => ({
   themeId: DEFAULT_THEME_ID,
+  scrollMaterial: DEFAULT_SCROLL_MATERIAL,
   customColors: DEFAULT_CUSTOM_COLORS,
 
   setTheme: (id) => {
@@ -333,6 +337,17 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     set({ customColors: next })
   },
 
+  setScrollMaterial: (id) => {
+    const scrollMaterial = normalizeScrollMaterial(id)
+    if (typeof document !== 'undefined') document.documentElement.dataset.scrollMaterial = scrollMaterial
+    try {
+      localStorage.setItem(SCROLL_MATERIAL_STORAGE_KEY, scrollMaterial)
+    } catch {
+      // 存储不可用时仍保留本次选择。
+    }
+    set({ scrollMaterial })
+  },
+
   initFromStorage: () => {
     let saved: string | null = null
     try {
@@ -343,6 +358,13 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     const valid = saved && AVAILABLE_THEMES.some(t => t.id === saved) ? saved : DEFAULT_THEME_ID
     const customColors = loadCustomColors()
     applyTheme(valid, customColors)
-    set({ themeId: valid, customColors })
+    let scrollMaterial = DEFAULT_SCROLL_MATERIAL
+    try {
+      scrollMaterial = normalizeScrollMaterial(localStorage.getItem(SCROLL_MATERIAL_STORAGE_KEY))
+    } catch {
+      // 存储不可用时使用默认木轴头。
+    }
+    if (typeof document !== 'undefined') document.documentElement.dataset.scrollMaterial = scrollMaterial
+    set({ themeId: valid, customColors, scrollMaterial })
   }
 }))

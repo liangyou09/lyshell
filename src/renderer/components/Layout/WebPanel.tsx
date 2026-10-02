@@ -358,7 +358,7 @@ const WebGroupHeader: React.FC<{
       collapsed && 'rolled'
     )}
   >
-    {/* 卷轴辊 —— 轴头恒跟辊同径、随辊居中,段身份青蓝(--web-group) */}
+    {/* 木轴与会话墙共用材质和开合形态；青蓝身份仅落在窄轴肩与系绳上。 */}
     <span aria-hidden className="rod-caps" style={{ color: 'var(--web-group)' }}>
       <span className="scroll-rod-collar scroll-rod-collar-l" />
       <span className="scroll-rod-collar scroll-rod-collar-r" />
@@ -379,9 +379,11 @@ const WebGroupHeader: React.FC<{
     {/* 题签 —— 组键(hostname[:port]),金墨书体同会话分组;长域名可缩可截断
         (flex-shrink-0 会把右缘计数挤出栏外 —— 发丝线 flex-1 先缩到 0,题签
         随后 ellipsis),全名走 title(tooltip 看全量,行内 URL 同一约定) */}
-    <span title={label} className="min-w-0 truncate scroll-slip text-[13px]">{label}</span>
+    <span title={label} className="min-w-0 truncate scroll-slip text-[13px]">
+      {label}
+    </span>
     <span className="flex-1 h-px bg-[var(--rule)]" />
-    <span className="[font-family:inherit] text-[11px] text-[var(--text-rack-data)] tracking-[.04em]">{count}</span>
+    <span className="scroll-count [font-family:inherit] text-[11px] text-[var(--text-rack-data)] tracking-[.04em]">{count}</span>
   </div>
 )
 
@@ -1115,7 +1117,7 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
               <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
             </div>
             {/* 纸窗(恒铺开,纸包内容)—— 域名分组垂卷立在纸面上;内容超出
-                剩余高时纸收缩到剩高、内心滚(滚动容器 = 纸窗,滚条 rack-scroll) */}
+                剩余高时纸收缩到剩高、内心滚(滚动容器 = body,滚条 rack-scroll) */}
             <div className="scroll-dual-paper rack-scroll">
               <div className="scroll-dual-body">
                 {webGroups.map(([host, urls]) => (

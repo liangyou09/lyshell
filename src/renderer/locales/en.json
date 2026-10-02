@@ -27,6 +27,17 @@
     "close": "Close"
   },
   "settings": {
+    "categories": "Settings categories",
+    "sections": {
+      "appearance": "Appearance",
+      "terminal": "Terminal",
+      "general": "General"
+    },
+    "sectionHints": {
+      "appearance": "Choose your colors and materials.",
+      "terminal": "Adjust terminal display and interaction.",
+      "general": "Manage language, window and downloads."
+    },
     "expandSidebar": "Expand sidebar",
     "collapseSidebar": "Collapse sidebar",
     "dragToMove": "Drag to move · Double-click to reset",
@@ -44,6 +55,14 @@
     "blinkOn": "Blink On",
     "blinkOff": "Blink Off",
     "theme": "Theme",
+    "scrollMaterial": "Scroll knobs",
+    "scrollMaterialHint": "Applies immediately and remembers your choice. Pairs with any theme.",
+    "scrollMaterials": {
+      "walnut": "Walnut",
+      "jade": "Jade",
+      "lacquer": "Lacquer",
+      "porcelain": "Porcelain"
+    },
     "language": "Language",
     "pickBaseColor": "Pick base color",
     "pickAccentColor": "Pick accent color",
