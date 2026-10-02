@@ -801,6 +801,7 @@
       "allTabsNoCount": "Per-tab count hidden when searching all tabs",
       "matchesOverLimit": "1k+ matches",
       "noMatches": "no matches",
+      "invalidRegex": "Invalid regular expression",
       "scopeLabel": "scope:",
       "scopeCurrent": "Tab",
       "scopeAll": "All",

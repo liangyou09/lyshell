@@ -798,6 +798,7 @@
       "allTabsNoCount": "跨标签搜索时不显示单标签计数",
       "matchesOverLimit": "1k+ 个匹配",
       "noMatches": "无匹配",
+      "invalidRegex": "正则表达式无效",
       "scopeLabel": "范围:",
       "scopeCurrent": "本标签",
       "scopeAll": "全部",

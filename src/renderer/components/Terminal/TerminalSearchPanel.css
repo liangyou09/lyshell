@@ -1,0 +1,190 @@
+/* 查找小窗：上下木轴压住整幅暖笺，选项用书体与墨勾落在纸上。 */
+.terminal-search-scroll {
+  --terminal-search-rule: color-mix(in srgb, var(--text-rack) 28%, transparent);
+  position: absolute;
+  z-index: 50;
+  width: 500px;
+  max-width: calc(100% - 24px);
+  color: var(--text-rack);
+  isolation: isolate;
+  font-family: 'KaiTi', '楷体', 'STKaiti', '华文楷体', 'Kaiti SC', Cambria, serif;
+  filter: drop-shadow(0 8px 12px var(--scroll-shadow));
+  animation: terminal-search-unroll 280ms cubic-bezier(.2, .7, .2, 1) both;
+}
+
+.terminal-search-handle,
+.terminal-search-foot {
+  position: relative;
+  height: 18px;
+  z-index: 1;
+}
+.terminal-search-handle { cursor: grab; }
+.terminal-search-handle.is-dragging { cursor: grabbing; }
+.terminal-search-scroll .terminal-search-axis {
+  z-index: 0;
+  color: var(--amber);
+}
+.terminal-search-sheet {
+  position: relative;
+  margin: -9px 12px;
+  padding: 16px 10px 12px;
+  background-color: var(--scroll-paper);
+  background-image:
+    linear-gradient(to right, var(--scroll-silk), transparent 12px, transparent calc(100% - 12px), var(--scroll-silk)),
+    linear-gradient(to bottom, rgba(0, 0, 0, .18), transparent 18px, transparent calc(100% - 14px), rgba(0, 0, 0, .12)),
+    repeating-linear-gradient(7deg, rgba(255, 255, 255, .025) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(97deg, rgba(0, 0, 0, .025) 0 1px, transparent 1px 11px);
+  box-shadow: inset 1px 0 color-mix(in srgb, var(--axis-wood) 25%, transparent), inset -1px 0 color-mix(in srgb, var(--axis-wood) 25%, transparent);
+}
+/* 纸上保留完整窗框，各行窗格用同一档墨线分隔。 */
+.terminal-search-frame {
+  border: 1px solid var(--terminal-search-rule);
+  background: color-mix(in srgb, var(--scroll-paper) 94%, var(--text-rack));
+}
+.terminal-search-query {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--terminal-search-rule);
+}
+.terminal-search-symbol { font-size: 24px; margin-right: 4px; color: var(--text-rack-data); }
+.terminal-search-query textarea {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--terminal-search-rule);
+  border-radius: 2px;
+  background: transparent;
+  color: inherit;
+  caret-color: var(--amber);
+  font-family: inherit;
+  font-size: 17px;
+  line-height: 1.4;
+  resize: none;
+  outline: none;
+}
+.terminal-search-query textarea::placeholder { color: var(--text-rack-data); letter-spacing: .08em; }
+.terminal-search-query textarea:focus { border-color: var(--amber); }
+.terminal-search-query textarea[aria-invalid="true"] { border-color: var(--cinnabar); }
+.terminal-search-query button {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--terminal-search-rule);
+  border-radius: 2px;
+  font-size: 18px;
+  color: var(--text-rack-data);
+}
+.terminal-search-query button:hover { color: var(--text-rack); background: color-mix(in srgb, var(--text-rack) 8%, transparent); }
+.terminal-search-query .terminal-search-close:hover { color: var(--cinnabar); }
+.terminal-search-query button:focus-visible,
+.terminal-search-option:has(input:focus-visible) {
+  outline: 1px solid var(--amber);
+  outline-offset: 3px;
+}
+.terminal-search-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--terminal-search-rule);
+}
+.terminal-search-options .terminal-search-option {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.terminal-search-option {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 15px;
+  line-height: 24px;
+  color: var(--text-rack-data);
+  cursor: pointer;
+  user-select: none;
+}
+/* 原生控件保留在 Tab 顺序里，由整行 label 提供点击范围。 */
+.terminal-search-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  clip-path: inset(50%);
+}
+.terminal-search-mark {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: 1px solid var(--text-rack-data);
+  border-radius: 1px;
+  background: var(--scroll-paper);
+}
+.terminal-search-mark svg {
+  position: absolute;
+  inset: -4px;
+  width: calc(100% + 8px);
+  height: calc(100% + 8px);
+  fill: currentColor;
+  opacity: 0;
+  transform: rotate(-5deg) scale(.8);
+}
+.terminal-search-option input:checked + .terminal-search-mark svg {
+  opacity: 1;
+  transform: none;
+  animation: terminal-search-ink 180ms ease-out;
+}
+.terminal-search-dry-ink { fill: var(--scroll-paper); opacity: .65; }
+.terminal-search-option:has(input:checked),
+.terminal-search-option:hover { color: var(--text-rack); }
+.terminal-search-option:has(input:checked) .terminal-search-mark { border-color: var(--text-rack); }
+.terminal-search-option:hover .terminal-search-mark { border-color: var(--amber); }
+.terminal-search-results {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+.terminal-search-count {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 0 90px;
+  min-height: 38px;
+  padding: 6px 10px;
+  border-right: 1px solid var(--terminal-search-rule);
+  color: var(--text-rack-data);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
+}
+.terminal-search-count strong { color: var(--text-rack); font-weight: 600; }
+.terminal-search-count.terminal-search-error { color: var(--cinnabar); white-space: normal; }
+.terminal-search-scope { display: flex; flex: 1 0 auto; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; padding: 6px 10px; color: var(--text-rack-data); font-size: 14px; }
+.terminal-search-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 14px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--terminal-search-rule);
+  color: var(--text-rack-data);
+  font-size: 12px;
+}
+.terminal-search-hints kbd { margin-right: 5px; font-family: inherit; font-size: 12px; }
+@keyframes terminal-search-unroll {
+  from { clip-path: inset(0 0 calc(100% - 18px)); }
+  to { clip-path: inset(-20px); }
+}
+@keyframes terminal-search-ink {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .terminal-search-scroll,
+  .terminal-search-option input:checked + .terminal-search-mark svg { animation: none; }
+}

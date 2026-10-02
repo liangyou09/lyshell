@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
@@ -11,12 +11,12 @@ import { usePaneStore, findPane } from '../../stores/pane-store'
 import { useUiStore } from '../../stores/ui-store'
 import { useThemeStore } from '../../stores/theme-store'
 import { useEscDismiss } from '../../hooks'
-import { useTranslation } from 'react-i18next'
 import i18n from '../../i18n'
 import { ConnectionStatus, type SessionConfig } from '@shared/types'
 import { Unicode15Provider } from './unicode15-provider'
 import { registerDocLinkProvider } from '../DocPanel/registerDocLinkProvider'
 import { PALETTE_CLOSED_EVENT } from '../../commands/palette'
+import TerminalSearchPanel from './TerminalSearchPanel'
 
 // 注意：本组件依赖 xterm.js 内部私有 API，无稳定性承诺，xterm 任何版本更新都可能改名或移除。
 //   - IME 定位与搜狗 Shift 上屏：_core、_compositionHelper、_textarea、updateCompositionElements、
@@ -143,7 +143,16 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   const [useRegex, setUseRegex] = useState(false)
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [wholeWord, setWholeWord] = useState(false)
-  const { t } = useTranslation()
+  // addon 会直接编译正则；输入尚未完成时先拦下 SyntaxError，保留编辑界面。
+  const isSearchRegexValid = useMemo(() => {
+    if (!useRegex || !searchText) return true
+    try {
+      new RegExp(searchText, caseSensitive ? 'g' : 'gi')
+      return true
+    } catch {
+      return false
+    }
+  }, [searchText, useRegex, caseSensitive])
   // 匹配计数:SearchAddon.onDidChangeResults 推送,resultIndex 从 0 开始;total = -1 表示超过 highlightLimit
   const [matchInfo, setMatchInfo] = useState<{ idx: number; total: number }>({ idx: -1, total: 0 })
   // 搜索面板位置 (相对容器右上角的偏移,负数表示更靠左/上)。null 表示用默认贴右上。
@@ -1084,7 +1093,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
 
   // 执行搜索
   const doSearch = (direction: 'next' | 'prev') => {
-    if (!searchText) return
+    if (!searchText || !isSearchRegexValid) return
 
     const searchOptions = {
       caseSensitive,
@@ -1113,23 +1122,9 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
     searchAddonRef.current?.clearDecorations()
   }
 
-  // 输入变化时自动搜索(永远开启 — 这是搜索框该有的行为)
+  // 输入与选项统一交给下方 effect 搜索，避免一次输入重复跳到下一条匹配。
   const handleSearchChange = (text: string) => {
     setSearchText(text)
-    if (!text) {
-      // 清空时立即清掉高亮,匹配计数也归零
-      searchAddonRef.current?.clearDecorations()
-      setMatchInfo({ idx: -1, total: 0 })
-      return
-    }
-    if (searchScope === 'current' && searchAddonRef.current) {
-      searchAddonRef.current.findNext(text, {
-        caseSensitive,
-        regex: useRegex,
-        wholeWord,
-        decorations: SEARCH_DECORATIONS
-      })
-    }
   }
 
   // 输入框键盘:Enter=next, Shift+Enter=prev, Alt+A=切换 scope
@@ -1144,22 +1139,24 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
     }
   }
 
-  // 切换搜索范围时同步当前标签的搜索状态:
-  // 切到 all —— 清掉 current 留下的高亮与计数,避免显示过时的单标签结果;
-  // 切回 current —— 若已有搜索词,重新 findNext 恢复高亮与计数。
+  // 搜索词、选项和范围变化时同步高亮与计数；隐藏面板不重新落墨。
+  // 先失效装饰缓存，确保同词切选项也重算全部匹配；实时搜索用 incremental。
   useEffect(() => {
-    if (searchScope === 'all') {
+    if (!showSearch || !isTabActive) return
+    if (searchScope === 'all' || !searchText || !isSearchRegexValid) {
       searchAddonRef.current?.clearDecorations()
       setMatchInfo({ idx: -1, total: 0 })
-    } else if (searchText && searchAddonRef.current) {
+    } else if (searchAddonRef.current) {
+      searchAddonRef.current.clearDecorations()
       searchAddonRef.current.findNext(searchText, {
         caseSensitive,
         regex: useRegex,
         wholeWord,
+        incremental: true,
         decorations: SEARCH_DECORATIONS
       })
     }
-  }, [searchScope])
+  }, [showSearch, isTabActive, searchScope, searchText, caseSensitive, useRegex, wholeWord, isSearchRegexValid])
 
   // 拖动开始:按下顶栏时记录指针在面板内的偏移
   const startDrag = (e: React.MouseEvent) => {
@@ -1179,8 +1176,6 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   // 拖动中:把指针位置换算成容器坐标系,并夹在容器范围内
   useEffect(() => {
     if (!isDragging) return
-    const SEARCH_W = 420
-
     const handleMove = (e: MouseEvent) => {
       const container = containerRef.current
       if (!container) return
@@ -1188,7 +1183,8 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       let x = e.clientX - cRect.left - dragOffsetRef.current.x
       let y = e.clientY - cRect.top - dragOffsetRef.current.y
       // 夹边:保证至少有顶栏可见可拖回来
-      x = Math.max(0, Math.min(x, cRect.width - SEARCH_W))
+      const panelWidth = container.parentElement?.querySelector('[data-search-panel]')?.getBoundingClientRect().width ?? 500
+      x = Math.max(0, Math.min(x, cRect.width - panelWidth))
       y = Math.max(0, Math.min(y, cRect.height - 32))
       setSearchPos({ x, y })
     }
@@ -1210,131 +1206,29 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         className="w-full h-full overflow-hidden"
       />
 
-      {/* 查找面板 - 默认贴右上,可拖动 */}
+      {/* 查找画卷 - 默认贴右上,可拖动 */}
       {showSearch && (
-        <div
-          data-search-panel
-          className="absolute z-50 w-[420px] bg-[#2D2D30] border border-[#555] shadow-2xl"
-          style={
-            searchPos
-              ? { left: searchPos.x, top: searchPos.y }
-              : { right: 12, top: 8 }
-          }
-        >
-          {/* 拖动条:窄,左侧 ⌕ 图标兼做"拖把手"暗示 */}
-          <div
-            onMouseDown={startDrag}
-            className={`flex items-center gap-2 px-3 h-[10px] border-b border-[#555] bg-[#3C3C3C] ${isDragging ? 'cursor-grabbing' : 'cursor-grab'} select-none`}
-            title={t('terminal.search.dragToMove')}
-          >
-            <div className="flex gap-[3px]">
-              <span className="w-[3px] h-[3px] bg-[#9CA3AF] rounded-full" />
-              <span className="w-[3px] h-[3px] bg-[#9CA3AF] rounded-full" />
-              <span className="w-[3px] h-[3px] bg-[#9CA3AF] rounded-full" />
-            </div>
-          </div>
-
-          {/* 第一行:输入 + 上一个/下一个 + 关闭 (计数挪到第二行) */}
-          <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[#555]">
-            <span className="text-[#D1D5DB] text-center text-[16px] select-none">⌕</span>
-            <textarea
-              ref={searchInputRef}
-              value={searchText}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              onKeyDown={handleSearchKeyDown}
-              placeholder={t('terminal.search.placeholder')}
-              autoFocus
-              rows={1}
-              className="flex-1 bg-transparent border-none text-white text-[15px] outline-none resize-none py-0.5 placeholder-[#9CA3AF] leading-[1.4]"
-              style={{ fontFamily: 'inherit' }}
-            />
-            <button
-              onClick={() => doSearch('prev')}
-              className="w-[28px] h-[28px] grid place-items-center text-[#D1D5DB] hover:text-white hover:bg-[#555] rounded text-[15px] font-light"
-              title={t('terminal.search.previous')}
-            >↑</button>
-            <button
-              onClick={() => doSearch('next')}
-              className="w-[28px] h-[28px] grid place-items-center text-[#D1D5DB] hover:text-white hover:bg-[#555] rounded text-[15px] font-light"
-              title={t('terminal.search.next')}
-            >↓</button>
-            <button
-              onClick={closeSearch}
-              className="w-[28px] h-[28px] grid place-items-center text-[#9CA3AF] hover:text-[#FF6A3D] hover:bg-[#555] rounded text-[15px]"
-              title={t('terminal.search.close')}
-            >✕</button>
-          </div>
-
-          {/* 第二行:开关 | 匹配计数 | 范围 (三段式,中间填充) */}
-          <div className="grid items-center border-b border-[#555]" style={{ gridTemplateColumns: '1fr auto 1fr' }}>
-            {/* 左:开关 */}
-            <div className="flex items-center pl-2">
-              <button
-                onClick={() => setCaseSensitive(!caseSensitive)}
-                className={`px-3 py-2 text-[14px] ${
-                  caseSensitive ? 'text-[#5AA8FF]' : 'text-[#D1D5DB] hover:text-white'
-                }`}
-                title={t('terminal.search.matchCase')}
-              >Aa</button>
-              <button
-                onClick={() => setUseRegex(!useRegex)}
-                className={`px-3 py-2 text-[14px] ${
-                  useRegex ? 'text-[#5AA8FF]' : 'text-[#D1D5DB] hover:text-white'
-                }`}
-                title={t('terminal.search.regex')}
-              >.*</button>
-              <button
-                onClick={() => setWholeWord(!wholeWord)}
-                className={`px-3 py-2 text-[14px] ${
-                  wholeWord ? 'text-[#5AA8FF]' : 'text-[#D1D5DB] hover:text-white'
-                }`}
-                title={t('terminal.search.wholeWord')}
-              >word</button>
-            </div>
-
-            {/* 中:匹配计数 (两侧分隔线,无内容时只显示横线占位) */}
-            <div className="flex items-center h-full border-x border-[#555]">
-              <span className="px-4 text-[14px] tabular-nums whitespace-nowrap min-w-[100px] text-center">
-                {searchScope === 'all'
-                  ? <span className="text-[#6B7280]" title={t('terminal.search.allTabsNoCount')}>—</span>
-                  : searchText
-                    ? matchInfo.total === -1
-                      ? <span className="text-[#E0A458] font-medium">{t('terminal.search.matchesOverLimit')}</span>
-                      : matchInfo.total === 0
-                        ? <span className="text-[#9CA3AF]">{t('terminal.search.noMatches')}</span>
-                        : <><span className="text-white font-medium">{matchInfo.idx + 1}</span><span className="text-[#9CA3AF]"> / {matchInfo.total}</span></>
-                    : <span className="text-[#6B7280]">—</span>}
-              </span>
-            </div>
-
-            {/* 右:范围切换 - 同左侧一致的 underline 开关 */}
-            <div className="flex items-center justify-end pr-2">
-              <span className="text-[14px] text-[#9CA3AF] mr-1">{t('terminal.search.scopeLabel')}</span>
-              <button
-                onClick={() => setSearchScope('current')}
-                className={`px-2.5 py-2 text-[14px] ${
-                  searchScope === 'current' ? 'text-[#5AA8FF]' : 'text-[#D1D5DB] hover:text-white'
-                }`}
-                title={t('terminal.search.searchThisTab')}
-              >{t('terminal.search.scopeCurrent')}</button>
-              <button
-                onClick={() => setSearchScope('all')}
-                className={`px-2.5 py-2 text-[14px] ${
-                  searchScope === 'all' ? 'text-[#5AA8FF]' : 'text-[#D1D5DB] hover:text-white'
-                }`}
-                title={t('terminal.search.searchAllTabs')}
-              >{t('terminal.search.scopeAll')}</button>
-            </div>
-          </div>
-
-          {/* 第三行:快捷键提示 */}
-          <div className="flex gap-4 px-3 py-2 text-[12px] text-[#9CA3AF]">
-            <span><kbd className="border border-[#6B7280] text-[#D1D5DB] px-1.5 rounded text-[11px] mr-1">↵</kbd>{t('terminal.search.hintNext')}</span>
-            <span><kbd className="border border-[#6B7280] text-[#D1D5DB] px-1.5 rounded text-[11px] mr-1">⇧↵</kbd>{t('terminal.search.hintPrev')}</span>
-            <span><kbd className="border border-[#6B7280] text-[#D1D5DB] px-1.5 rounded text-[11px] mr-1">⌥A</kbd>{t('terminal.search.hintScope')}</span>
-            <span><kbd className="border border-[#6B7280] text-[#D1D5DB] px-1.5 rounded text-[11px] mr-1">esc</kbd>{t('terminal.search.hintClose')}</span>
-          </div>
-        </div>
+        <TerminalSearchPanel
+          inputRef={searchInputRef}
+          position={searchPos}
+          isDragging={isDragging}
+          searchText={searchText}
+          searchScope={searchScope}
+          caseSensitive={caseSensitive}
+          useRegex={useRegex}
+          wholeWord={wholeWord}
+          invalidRegex={!isSearchRegexValid}
+          matchInfo={matchInfo}
+          onDragStart={startDrag}
+          onSearchChange={handleSearchChange}
+          onKeyDown={handleSearchKeyDown}
+          onSearch={doSearch}
+          onClose={closeSearch}
+          onCaseSensitiveChange={() => setCaseSensitive(value => !value)}
+          onRegexChange={() => setUseRegex(value => !value)}
+          onWholeWordChange={() => setWholeWord(value => !value)}
+          onScopeChange={setSearchScope}
+        />
       )}
     </div>
   )
