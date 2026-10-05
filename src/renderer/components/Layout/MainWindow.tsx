@@ -19,6 +19,7 @@ import HarnessPanel from './HarnessPanel'
 import EnvProfilePanel from './EnvProfilePanel'
 import SettingsPanel from './SettingsPanel'
 import { useSessionStore } from '../../stores/session-store'
+import { useTerminalStore } from '../../stores/terminal-store'
 import { usePaneStore, findPane } from '../../stores/pane-store'
 import { useThemeStore } from '../../stores/theme-store'
 import { useLocaleStore } from '../../stores/locale-store'
@@ -32,12 +33,13 @@ import { dispatchCommand } from '../../utils/dispatch-command'
 import { openLocalDoc } from '../DocPanel/readDoc'
 import { isDocPath } from '@shared/types'
 import { isPluginViewKey, parsePluginViewKey, makePluginViewKey } from '@shared/plugin-types'
+import { uniquePluginWebOrigins } from '@shared/plugin-web-resources'
 import type { SessionConfig, QuickCommand } from '@shared/types'
 import { matchWebTabShortcut, isWebTabShortcutAction, type WebTabShortcutAction } from '@shared/webtab-shortcut'
 import {
   activeWebTabId, reloadActiveWebTab, activeWebTabGoBack, activeWebTabGoForward
 } from './web-tab-controls'
-import { gateWebTabPopup, recordWebTabPopup } from './web-tab-popup-gate'
+import { openWebTabPopup } from './web-tab-popup'
 
 // 左列收起态/宽度的 localStorage 镜像 key -- 主进程 config 异步,首帧用它同步定态防闪
 // (activeNav 的 lyshell.navTab.v1 同款规避);懒读与双写共用常量,防两处字面量漂移
@@ -162,8 +164,36 @@ const MainWindow: React.FC = () => {
   // openDialog 动作的挂起弹窗:main 授权 + 签发一次性 dialogId 后才到达这里,
   // 挂载/卸载即弹窗生死(不保活);dialogId 是卸载键,同 id 请求幂等
   const [pluginDialogs, setPluginDialogs] = useState<PluginViewDialogSpec[]>([])
+  const pluginResourceGenerations = useRef(new Map<string, number>())
+  const pendingSessionFetches = useRef(new Map<string, symbol>())
   const closePluginDialog = useCallback((dialogId: string) => {
     setPluginDialogs((prev) => prev.filter((d) => d.dialogId !== dialogId))
+  }, [])
+
+  useEffect(() => {
+    const api = window.electronAPI
+    if (!api) return
+    const offResources = api.onPluginResourcesReleased((pluginId, webOrigins) => {
+      const generations = pluginResourceGenerations.current
+      generations.set(pluginId, (generations.get(pluginId) ?? 0) + 1)
+      const origins = webOrigins ?? uniquePluginWebOrigins(usePluginStore.getState().items.flatMap(p => p.views), pluginId)
+      usePluginStore.getState().markResourcesReleased(pluginId)
+      usePaneStore.getState().closePluginOverlays(pluginId, origins)
+      setPluginDialogs(prev => prev.filter(dialog => dialog.pluginId !== pluginId))
+      setAlivePluginViews(prev => new Set([...prev].filter(key => parsePluginViewKey(key)?.pluginId !== pluginId)))
+      setActiveNav(prev => {
+        if (parsePluginViewKey(prev)?.pluginId !== pluginId) return prev
+        try { localStorage.setItem('lyshell.navTab.v1', 'sessions') } catch { /* quota */ }
+        return 'sessions'
+      })
+    })
+    const offDeleted = api.onSessionDeleted((sessionId) => {
+      pendingSessionFetches.current.delete(sessionId)
+      usePaneStore.getState().removeSessionFromAllPanes(sessionId)
+      useTerminalStore.getState().unregisterTerminal(sessionId)
+      useSessionStore.getState().removeLiveSession(sessionId)
+    })
+    return () => { offResources(); offDeleted() }
   }, [])
 
   // 插件视图 UI 动作分发(单一订阅器,plan §五):guest 动作经 main 授权后转交本
@@ -174,6 +204,12 @@ const MainWindow: React.FC = () => {
     const api = window.electronAPI
     if (!api?.onPluginViewActionRequest) return
     return api.onPluginViewActionRequest((request) => {
+      const generation = pluginResourceGenerations.current.get(request.pluginId) ?? 0
+      const isActive = (): boolean => (pluginResourceGenerations.current.get(request.pluginId) ?? 0) === generation
+      const ownOverlay = (id: string, created = true): void => {
+        if (!created) return
+        usePaneStore.getState().setOverlayOwner(id, request.pluginId)
+      }
       // 回执失败静默:main 对过期/重复回执本就忽略,发送边界(窗口卸载)不值得告警
       const reply = (ok: boolean, error?: string): void => {
         try { api.sendPluginViewActionResult({ requestId: request.requestId, ok, error }) } catch { /* 忽略 */ }
@@ -182,7 +218,7 @@ const MainWindow: React.FC = () => {
         const params = request.params ?? {}
         switch (request.action) {
           case 'openWebTab': {
-            const r = usePaneStore.getState().openWebTab(typeof params.url === 'string' ? params.url : '')
+            const r = usePaneStore.getState().openWebTab(typeof params.url === 'string' ? params.url : '', undefined, { ownerPluginId: request.pluginId })
             reply(r.ok, r.ok ? undefined : r.error)
             break
           }
@@ -193,12 +229,14 @@ const MainWindow: React.FC = () => {
               reply(false, 'missing session config')
               break
             }
-            const r = await connectSession(config)
+            const r = await connectSession(config, request.requestId)
             reply(r.ok, r.error)
             break
           }
           case 'openDoc': {
-            const r = await openLocalDoc(typeof params.path === 'string' ? params.path : '')
+            const r = await openLocalDoc(typeof params.path === 'string' ? params.path : '', undefined, {
+              isActive, onMount: ownOverlay
+            })
             reply(r.ok, r.error)
             break
           }
@@ -342,7 +380,11 @@ const MainWindow: React.FC = () => {
         }
 
         // 从后端获取会话配置并添加（仅对于 connecting/connected 状态）
+        const fetchId = Symbol(data.id)
+        pendingSessionFetches.current.set(data.id, fetchId)
         window.electronAPI?.getSession(data.id).then(config => {
+          if (pendingSessionFetches.current.get(data.id) !== fetchId) return
+          pendingSessionFetches.current.delete(data.id)
           if (config) {
             store.addTemporarySession({
               id: data.id,
@@ -751,11 +793,7 @@ const MainWindow: React.FC = () => {
   // 只在挂载成功后执行 —— 没开成的弹窗不占频控额度、不进键册
   useEffect(() => {
     if (!window.electronAPI?.onWebTabPopup) return
-    return window.electronAPI.onWebTabPopup(({ url, background, postToken }) => {
-      const isPost = !!postToken
-      if (!gateWebTabPopup(url, isPost)) return
-      if (usePaneStore.getState().openWebTab(url, undefined, { background, postToken }).ok) recordWebTabPopup(url, isPost)
-    })
+    return window.electronAPI.onWebTabPopup(openWebTabPopup)
   }, [])
 
   // Ctrl+Shift+P 切换全局命令面板（与空状态命令条共用命令集,见 command-registry）。

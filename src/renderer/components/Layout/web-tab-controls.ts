@@ -7,8 +7,8 @@
  * 主进程转发（before-input-event → IPC）三方共用同一组操作，落点恒为
  * 「活动 pane 的活动网页页签」。
  *
- * 已知取舍：主进程转发不带 webview 身份（guest webContents ↔ overlay id 无映射
- * 通道），动作统一路由到活动页签 —— WebTabOverlay 的焦点激活（focus / focusin /
+ * 已知取舍：主进程快捷键转发不带 webview 身份，动作统一路由到活动页签。
+ * 弹出页签则通过 guest 身份反查来源，以继承插件资源归属。WebTabOverlay 的焦点激活（focus / focusin /
  * window blur 三保险）保证「用户正交互的 webview = 活动 pane 的活动页签」，常态自洽。
  */
 import type { WebviewTag } from 'electron'
@@ -17,6 +17,10 @@ import { usePaneStore, normalizeWebBarUrl, findPane } from '../../stores/pane-st
 
 /** overlay id → webview 元素（WebTabOverlay 挂载期登记，卸载即注销） */
 const webviews = new Map<string, WebviewTag>()
+const miniWebviews = new Set<WebviewTag>()
+
+export function registerMiniWebview(el: WebviewTag): void { miniWebviews.add(el) }
+export function unregisterMiniWebview(el: WebviewTag): void { miniWebviews.delete(el) }
 
 export function registerWebview(id: string, el: WebviewTag): void {
   webviews.set(id, el)
@@ -28,6 +32,24 @@ export function unregisterWebview(id: string): void {
 
 export function getWebview(id: string): WebviewTag | null {
   return webviews.get(id) ?? null
+}
+
+export function webTabIdForContentsId(webContentsId: number): string | undefined {
+  for (const [id, webview] of webviews) {
+    try { if (webview.getWebContentsId() === webContentsId) return id } catch { /* guest 尚未就绪或已销毁 */ }
+  }
+  return undefined
+}
+
+/** 弹窗只接受仍挂载的完整页签或小窗，未知/已销毁 guest 不得重建页签。 */
+export function webTabPopupSource(webContentsId: number | undefined): { kind: 'tab'; id: string } | { kind: 'mini' } | undefined {
+  if (webContentsId === undefined) return undefined
+  const id = webTabIdForContentsId(webContentsId)
+  if (id !== undefined) return { kind: 'tab', id }
+  for (const el of miniWebviews) {
+    try { if (el.getWebContentsId() === webContentsId) return { kind: 'mini' } } catch { /* 未就绪或已销毁 */ }
+  }
+  return undefined
 }
 
 /**

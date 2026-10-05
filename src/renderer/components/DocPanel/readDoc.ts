@@ -80,7 +80,10 @@ export async function openRemoteDoc(sessionId: string, remotePath: string, paneI
  * 返回可判定结果：文档类型不支持或读取失败回 ok:false（读取失败仍挂错误页签，
  * 占位反馈不变，但动作回执要如实反映失败）；不把文档内容返回给调用方。
  */
-export async function openLocalDoc(localPath: string, paneId?: string): Promise<{ ok: boolean; error?: string }> {
+export async function openLocalDoc(localPath: string, paneId?: string, lifecycle?: {
+  isActive(): boolean
+  onMount(id: string, created: boolean): void
+}): Promise<{ ok: boolean; error?: string }> {
   const docKind: DocKind | null = docKindFromPath(localPath)
   if (!docKind) return { ok: false, error: 'unsupported document type' }
   const base = {
@@ -91,13 +94,24 @@ export async function openLocalDoc(localPath: string, paneId?: string): Promise<
     title: docTitleFromPath(localPath),
     readVersion: nextReadVersion('local', localPath)
   }
+  const mount = (payload: DocOverlayPayload): boolean => {
+    if (lifecycle && !lifecycle.isActive()) return false
+    const store = usePaneStore.getState()
+    const existing = new Set(Object.keys(store.overlayPayloads))
+    const id = store.openDocTab(paneId, payload)
+    bumpReadVersion(id)
+    if (id) lifecycle?.onMount(id, !existing.has(id))
+    return !!id
+  }
   try {
     const data = unwrapDoc(await window.electronAPI.fileReadLocalDoc(localPath), 'read failed')
     // loadError 显式置 undefined：同上，复用旧页签时抹掉旧错误态
-    bumpReadVersion(usePaneStore.getState().openDocTab(paneId, { ...base, size: data.size, mtime: data.mtime, content: data.content, loadError: undefined }))
+    if (!mount({ ...base, size: data.size, mtime: data.mtime, content: data.content, loadError: undefined })) {
+      return { ok: false, error: 'document action is no longer active' }
+    }
     return { ok: true }
   } catch (err) {
-    bumpReadVersion(usePaneStore.getState().openDocTab(paneId, { ...base, size: 0, mtime: 0, content: '', loadError: extractErr(err) }))
+    mount({ ...base, size: 0, mtime: 0, content: '', loadError: extractErr(err) })
     return { ok: false, error: extractErr(err) }
   }
 }

@@ -4,6 +4,8 @@ import type {
   OverlayKind, OverlayRef, OverlayPayload, DocOverlayPayload, WebTabNav
 } from '@shared/types'
 import { OVERLAY_KINDS, MCP_AUDIT_OVERLAY_ID } from './overlay-kinds'
+import { pluginOverlayIds, pluginWebOwner } from '@shared/plugin-web-resources'
+import { usePluginStore } from './plugin-store'
 
 /**
  * 分屏状态管理 —— 归一化覆盖层模型
@@ -167,6 +169,8 @@ interface PaneStore {
   // id → payload 字典。瞬态：不随布局持久化；引用（OverlayRef）挂在树叶子上的才是挂载点，
   // 树操作丢掉引用后由 pruneOverlayPayloads 按孤儿回收（含关闭副作用）。
   overlayPayloads: Record<string, OverlayPayload>
+  setOverlayOwner: (id: string, pluginId: string) => void
+  closePluginOverlays: (pluginId: string, webOrigins?: readonly string[]) => void
   // 拖拽中的覆盖层实例 id（null=无）。拖拽期间 PaneView 挂拖拽盾盖住会吞拖拽事件的
   // webview/iframe 系覆盖层，使 drop 落区暴露。瞬态。
   draggingOverlayId: string | null
@@ -201,7 +205,7 @@ interface PaneStore {
   openDshWebInPane: (paneId: string, info: { url: string; name: string; cwd?: string }) => void
   // opts.background：弹窗修饰键转发（中键/Ctrl+点击）的后台页签语义 —— 挂载不激活，
   // 不抢焦点；用户留在原 pane 原页签
-  openWebTab: (rawUrl: string, paneId?: string, opts?: { background?: boolean; postToken?: string }) => { ok: true } | { ok: false; error: string }
+  openWebTab: (rawUrl: string, paneId?: string, opts?: { background?: boolean; postToken?: string; ownerPluginId?: string }) => { ok: true } | { ok: false; error: string }
   // POST 首航落定（WebTabOverlay 在 did-navigate / 认领失败时调）：主进程令牌
   // take 即销毁，认领后必须从 payload 摘除 —— 否则重挂（拖分屏/拆分）拿死令牌
   // 再认领必拒。落点已知时把 url 一并改写为落点：页签身份从「POST 目标」变成
@@ -716,6 +720,17 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
   })(),
 
   overlayPayloads: {},
+  setOverlayOwner: (id, pluginId) => {
+    set(st => {
+      const payload = st.overlayPayloads[id]
+      if (!payload || payload.ownerPluginId) return st
+      return { overlayPayloads: { ...st.overlayPayloads, [id]: { ...payload, ownerPluginId: pluginId } } }
+    })
+  },
+  closePluginOverlays: (pluginId, origins) => {
+    const ids = pluginOverlayIds(get().overlayPayloads, pluginId, origins)
+    ids.forEach(id => get().closeOverlay(id))
+  },
   draggingOverlayId: null,
   draggingSessionId: null,
 
@@ -747,6 +762,8 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     // > 单例哨兵（已关闭后重开，保住 data-tab-id/DOM 锚点身份）> 新生成（多开种类）
     const existingSingleton = def.singleton ? findOverlayByKind(st.layout.root, payload.kind)?.ref.id : undefined
     const id = opts?.id ?? existingSingleton ?? def.singletonId ?? `${def.idPrefix ?? `${payload.kind}-`}${generateId()}`
+    const ownerPluginId = st.overlayPayloads[id]?.ownerPluginId ?? payload.ownerPluginId
+    if (ownerPluginId) payload = { ...payload, ownerPluginId }
 
     const existing = findOverlayRef(st.layout.root, id)
     // background（弹窗修饰键转发的后台页签语义）：payload 照常落（页签条要显示
@@ -1053,13 +1070,20 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
   openWebTab: (rawUrl, paneId, opts) => {
     const url = normalizeWebBarUrl(rawUrl)
     if (!url) return { ok: false, error: 'invalid URL' }
+    const plugins = usePluginStore.getState()
+    const ownerPluginId = opts?.ownerPluginId ?? pluginWebOwner(url, plugins.items.filter(p => p.enabled).flatMap(p => p.views))
+    if (ownerPluginId && (plugins.items.some(p => p.id === ownerPluginId && !p.enabled)
+      || (plugins.loaded && !plugins.items.some(p => p.id === ownerPluginId)))) {
+      return { ok: false, error: 'plugin is disabled' }
+    }
     // 历史不在这里记 —— 等 WebTabOverlay 的 did-finish-load 再记（recordWebTabVisit），
     // 打开但加载失败的 URL 不进「最近访问」。
     // paneId：终端 Ctrl+点击的落点（点击终端所在 pane）；未指定回落活动 pane（URL 栏语义）。
     // opts.background：弹窗修饰键转发 —— 后台页签，见 mountOverlay 的 background 注
     const id = get().mountOverlay(paneId, {
       kind: 'web', url, title: new URL(url).hostname,
-      ...(opts?.postToken ? { postToken: opts.postToken } : {})
+      ...(opts?.postToken ? { postToken: opts.postToken } : {}),
+      ...(ownerPluginId ? { ownerPluginId } : {})
     }, opts?.background ? { background: true } : undefined)
     return id ? { ok: true } : { ok: false, error: 'no pane available' }
   },

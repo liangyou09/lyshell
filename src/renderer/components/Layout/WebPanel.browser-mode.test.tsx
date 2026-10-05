@@ -165,6 +165,28 @@ afterEach(() => {
   unregisterWebview('web-1')
 })
 
+describe('插件聊天小窗回收', () => {
+  it.each([
+    ['http://127.0.0.1:31517/ui/chat/', true],
+    ['https://example.com/', false]
+  ] as const)('禁用时只销毁对应插件服务的小窗：%s', async (url, removed) => {
+    setupBrowserMode()
+    localStorage.setItem('lyshell.webbarMini.url.v1', url)
+    const listeners = new Set<(id: string, origins?: string[]) => void>()
+    window.electronAPI.onPluginResourcesReleased = listener => {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    }
+    render(<WebPanel />)
+    await waitFor(() => expect(document.querySelector('webview')).not.toBeNull())
+    fireEvent.click(screen.getByTitle('Close mini browser'))
+    expect(document.querySelector('webview')).not.toBeNull() // 合卷仍保活，禁用必须真正销毁。
+    act(() => { for (const listener of listeners) listener('aipet', ['http://127.0.0.1:31517']) })
+    expect(document.querySelector('webview') === null).toBe(removed)
+    expect(localStorage.getItem('lyshell.webbarMini.url.v1')).toBe(removed ? null : url)
+  })
+})
+
 describe('地址栏编辑守卫', () => {
   it('编辑中的导航回写不覆盖输入（redirect/SPA 跳转不打断打到一半的地址）', () => {
     setupBrowserMode()

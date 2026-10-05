@@ -42,6 +42,22 @@ afterEach(() => {
 })
 
 describe('connectSession:启动链路', () => {
+  it('插件动作直接交给 main 授权，拒绝后不留下任何保存副作用', async () => {
+    connect.mockResolvedValue({ status: ConnectionStatus.ERROR, error: 'Plugin terminal action is no longer active' })
+    const result = await connectSession(savedSsh, 'plugin-request')
+    expect(result.ok).toBe(false)
+    expect(updateSession).not.toHaveBeenCalled()
+    expect(listSessions).not.toHaveBeenCalled()
+    expect(connect).toHaveBeenCalledWith(expect.objectContaining({ id: '', originSavedSessionId: savedSsh.id }), 'plugin-request')
+  })
+
+  it('普通启动遇到已删除配置时停止，不创建新的运行时连接', async () => {
+    updateSession.mockResolvedValue({ success: false, error: 'Session no longer exists' })
+    await expect(connectSession(savedSsh)).resolves.toEqual({ ok: false, error: 'Session no longer exists' })
+    expect(connect).not.toHaveBeenCalled()
+    expect(listSessions).not.toHaveBeenCalled()
+  })
+
   it('touch 访问时间(仍用原 saved id)→ 刷新 saved 列表 → 以 runtime 克隆连接', async () => {
     await connectSession(savedSsh)
 

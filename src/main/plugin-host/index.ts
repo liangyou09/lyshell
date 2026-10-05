@@ -180,7 +180,7 @@ async function runHost(port: number, specs: PluginSpec[]): Promise<void> {
           console.error(`[plugin-host] deactivate timeout for ${p.spec.pluginId} (${DEACTIVATE_GRACE_MS}ms)`)
           resolve()
         }, DEACTIVATE_GRACE_MS)
-        Promise.resolve(deactivate()).then(
+        Promise.resolve().then(() => deactivate()).then(
           () => { clearTimeout(timer); resolve() },
           (e) => { clearTimeout(timer); console.error(`[plugin-host] deactivate error for ${p.spec.pluginId}:`, e); resolve() }
         )

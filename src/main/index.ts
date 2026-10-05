@@ -18,6 +18,7 @@ import { setMainWindow, setMainWindowForUpload, cleanupAllWorkers, cleanupAllUpl
 import { reachabilityProber } from './reachability/reachability-prober'
 import { mcpAuditRepository } from './storage/mcp-audit-repository'
 import { pluginHostManager } from './plugin/host-mgr'
+import { waitForQuitCleanup } from './quit-cleanup'
 import { cleanupDownloadsDir } from './plugin/install-zip'
 import { pluginRepository, getPluginsDir } from './storage/plugin-repository'
 import {
@@ -651,6 +652,8 @@ function createMainWindow(): void {
           }
           mainWindow?.webContents.send(IPC_CHANNELS.WEB_TAB_POPUP, {
             url,
+            sourceWebContentsId: webContents.id,
+            sourceUrl: webContents.getURL(),
             background: disposition === 'background-tab',
             postToken
           })
@@ -1023,7 +1026,7 @@ app.on('will-quit', (event) => {
   // dsh web 子进程必须等树杀真正完成再退出。此前 dshWebManager.close() 里 fire-and-forget
   // 的 spawn('taskkill') 会被 app 退出截断：实测只杀掉 shell 包裹层（cmd.exe）、漏掉真正的
   // node 孙进程，孤儿占着 DSH 会话写锁（不过期），下次开 dsh 报「当前会话已被占用」。
-  // 故先拦住默认退出，同步清理照旧执行，最后等 close() 落定再 app.exit。
+  // 故先拦住默认退出，同步清理照旧执行，最后等 DSH 与插件进程清理落定再 app.exit。
   // app.exit() 不再触发 will-quit，无重入；重复 quit 会让同步清理跑第二遍，各调用均幂等。
   event.preventDefault()
 
@@ -1053,18 +1056,16 @@ app.on('will-quit', (event) => {
   // 等待余量必须**严格大于** proc.ts 的单步下限：killPidTree 最多比 deadline 多花一步
   // （把已经发出的 taskkill 跑完），之后还要把未确认的 pid 写进留档 —— 余量不够，
   // app.exit() 就会赶在「最后一步 + 写留档」之前触发，孤儿连兜底记录都没有。
-  // （closeForQuit 绝不 reject；.catch 只是保险丝。app.exit 不再触发 will-quit，无重入。）
+  // （等待器也接住清理异常；app.exit 不再触发 will-quit，无重入。）
   const QUIT_DSH_CLOSE_BUDGET_MS = 2500
   const QUIT_DSH_EXIT_GRACE_MS = KILL_STEP_TIMEOUT_FLOOR_MS + 500
-  const closeBudget = new Promise<void>((resolveBudget) => {
-    setTimeout(resolveBudget, QUIT_DSH_CLOSE_BUDGET_MS + QUIT_DSH_EXIT_GRACE_MS).unref?.()
-  })
-  Promise.race([
-    dshWebManager
-      .closeForQuit(Date.now() + QUIT_DSH_CLOSE_BUDGET_MS)
-      .catch((err) => log.warn('dsh web close on quit failed:', err)),
-    closeBudget
-  ]).then(() => app.exit(0))
+  // 插件 Windows taskkill 有 5s 预算，POSIX 整组强杀有 2.5s grace；均需等待完成。
+  waitForQuitCleanup([
+    dshWebManager.closeForQuit(Date.now() + QUIT_DSH_CLOSE_BUDGET_MS),
+    pluginHostManager.waitForProcessCleanup()
+  ], Math.max(6000, QUIT_DSH_CLOSE_BUDGET_MS + QUIT_DSH_EXIT_GRACE_MS),
+    err => log.warn('Application cleanup on quit failed:', err)
+  ).then(() => app.exit(0))
 })
 
 // 所有窗口关闭时退出（Windows/Linux）

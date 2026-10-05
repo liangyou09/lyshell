@@ -12,6 +12,7 @@ export const IPC_CHANNELS = {
   SESSION_CREATE: 'session:create',
   SESSION_UPDATE: 'session:update',
   SESSION_DELETE: 'session:delete',
+  SESSION_DELETED: 'session:deleted',
   SESSION_LIST: 'session:list',
   SESSION_GET: 'session:get',
 
@@ -70,6 +71,7 @@ export const IPC_CHANNELS = {
   // 宿主异常退出）。负载只有"该重拉了"，renderer 收到后调 plugin:list 取完整快照，
   // 不携带数据本体 —— 避免双份事实来源。
   PLUGIN_VIEWS_CHANGED: 'plugin:views-changed',
+  PLUGIN_RESOURCES_RELEASED: 'plugin:resources-released',
 
   // renderer → main：取视图图标（参数仅 pluginId/viewId，不允许传任意路径；main
   // 在已注册定义中查出 icon 并净化后返回 data URL 供 ActivityRail maskImage 使用）。

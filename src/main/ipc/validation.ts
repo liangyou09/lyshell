@@ -6,6 +6,16 @@ interface StringOptions {
   allowEmpty?: boolean
 }
 
+/** 插件连接只传动作请求 ID，不接受 renderer 自报 pluginId。 */
+export function assertPluginActionRequestId(value: unknown): string | undefined {
+  return value === undefined ? undefined : assertString(value, 'pluginActionRequestId', { maxLength: 128 })
+}
+
+/** 普通克隆仅传源运行时 ID，归属由 main 从该会话推导。 */
+export function assertConnectionCloneSourceId(value: unknown): string | undefined {
+  return value === undefined ? undefined : assertString(value, 'sourceSessionId', { maxLength: 128 })
+}
+
 interface NumberOptions {
   min?: number
   max?: number

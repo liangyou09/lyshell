@@ -4,6 +4,8 @@ import { TERMINAL_ENCODINGS } from '../constants'
  * 会话配置
  */
 export interface SessionConfig {
+  /** 插件创建资源的持久归属；禁用/卸载时回收，复用用户配置不写入。 */
+  ownerPluginId?: string
   id: string
   name: string
   group?: string

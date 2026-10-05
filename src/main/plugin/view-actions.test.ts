@@ -81,6 +81,31 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+describe('插件终端资源身份', () => {
+  it('只认可所属窗口的在途 openTerminal 请求，禁用或收尾后立即失效', async () => {
+    const { dispatcher, hooks } = readyDispatcher(makeHooks(), ['uiControl', 'sessionControl'])
+    mocks.sessionGet.mockReturnValue({ id: 'saved' })
+    mocks.sessionAllowed.mockReturnValue(true)
+    const result = dispatcher.handleInvoke(guest(), 'openTerminal', { sessionId: 'saved' })
+    const requestId = hooks.requests[0].requestId
+    expect(dispatcher.terminalRequestPlugin(requestId, 7)).toBe('p1')
+    expect(dispatcher.terminalRequestPlugin(requestId, 8)).toBeUndefined()
+    mocks.pluginGet.mockReturnValue(pluginEntry(['uiControl', 'sessionControl'], false))
+    expect(dispatcher.terminalRequestPlugin(requestId, 7)).toBeUndefined()
+    dispatcher.failPendingForPlugin('p1', 'disabled')
+    expect(dispatcher.terminalRequestPlugin(requestId, 7)).toBeUndefined()
+    expect(await result).toEqual({ ok: false, error: 'disabled' })
+  })
+
+  it('网页动作不能冒充终端连接请求', async () => {
+    const { dispatcher, hooks } = readyDispatcher()
+    const result = dispatcher.handleInvoke(guest(), 'openWebTab', { url: 'https://example.com' })
+    expect(dispatcher.terminalRequestPlugin(hooks.requests[0].requestId, 7)).toBeUndefined()
+    dispatcher.failPendingForPlugin('p1', 'disabled')
+    await result
+  })
+})
+
 describe('checkActionPermission（纯函数）', () => {
   it('无 uiControl 一律拒绝（含未授权 undefined）', () => {
     expect(checkActionPermission([], 'openWebTab').ok).toBe(false)

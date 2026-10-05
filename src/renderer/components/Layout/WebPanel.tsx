@@ -1,14 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import type { WebviewTag } from 'electron'
 import { usePaneStore, normalizeWebBarUrl } from '../../stores/pane-store'
 import { useUiStore } from '../../stores/ui-store'
+import { usePluginStore } from '../../stores/plugin-store'
+import { matchesPluginWebOrigin, uniquePluginWebOrigins } from '@shared/plugin-web-resources'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { WebTabFavicon } from './PaneTabBar'
 import {
   selectActiveWebTabId, navigateActiveWebTab, reloadActiveWebTab, stopActiveWebTab,
-  activeWebTabGoBack, activeWebTabGoForward, getWebview, openActiveWebTabDevTools
+  activeWebTabGoBack, activeWebTabGoForward, getWebview, openActiveWebTabDevTools,
+  registerMiniWebview, unregisterMiniWebview
 } from './web-tab-controls'
 import ScrollFold, { ScrollTie } from './ScrollFold'
 import { IconBtn } from './IconBtn'
@@ -726,6 +729,7 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
       setMiniReady(false)
       return
     }
+    registerMiniWebview(miniEl)
     // 新元素一律先判未就绪(元素级重建仅存于极端路径),防上一元素的陈旧 true
     setMiniReady(false)
     const onDomReady = (): void => {
@@ -771,6 +775,7 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
     miniEl.addEventListener('did-fail-load', onFail)
     miniEl.addEventListener('did-finish-load', onLoadFinish)
     return () => {
+      unregisterMiniWebview(miniEl)
       miniEl.removeEventListener('dom-ready', onDomReady)
       miniEl.removeEventListener('did-navigate', onNav)
       miniEl.removeEventListener('did-navigate-in-page', onNav)
@@ -821,7 +826,9 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
   // 存档一并清掉,冷启动不再恢复;导航/加载/失败态同步复位(元素卸载只触发
   // miniReady 复位,loading/failed 是独立 state 得自己收)。按钮只在开卷可及
   // (卷着时纸 inert 且裁掉工具条)
-  const handleMiniClosePage = (): void => {
+  const handleMiniClosePage = useCallback((): void => {
+    // 同步撤掉弹窗来源，不能等 React 卸载 effect 才阻止排队中的 IPC。
+    if (miniEl) unregisterMiniWebview(miniEl)
     setMiniUrl(null)
     setMiniSrc(null)
     setMiniInput('')
@@ -831,7 +838,18 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
     setMiniFailed(null)
     miniLastUrlRef.current = ''
     try { localStorage.removeItem(MINI_URL_STORAGE_KEY) } catch { /* quota */ }
-  }
+  }, [miniEl])
+
+  // 本机聊天页也可能处于左列保活小窗，禁用时要真正摘树并清掉恢复地址。
+  useEffect(() => {
+    if (!window.electronAPI?.onPluginResourcesReleased) return
+    return window.electronAPI.onPluginResourcesReleased((pluginId, webOrigins) => {
+      const origins = webOrigins ?? uniquePluginWebOrigins(usePluginStore.getState().items.flatMap(p => p.views), pluginId)
+      if ([miniUrl, miniSrc, miniLastUrlRef.current].some(url => url && matchesPluginWebOrigin(url, origins))) {
+        handleMiniClosePage()
+      }
+    })
+  }, [miniUrl, miniSrc, handleMiniClosePage])
 
   // 小窗拖高:pointer 捕获而非文件管理器的 document mousemove —— 小窗本体是
   // webview,指针一进页面范围 mousemove 就被 guest 吞掉(同跨域 iframe),捕获后

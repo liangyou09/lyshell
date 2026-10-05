@@ -34,6 +34,8 @@ import { ensurePluginUiToken, maybeRevokePluginUiToken } from '../plugin/view-to
 import { installPluginViewProtocolHandler } from '../plugin/view-protocol'
 import { teardownPluginViewGuests } from '../plugin/view-bridge'
 import { pluginRepository, getPluginsDir } from '../storage/plugin-repository'
+import { pluginResources } from '../plugin/resource-registry'
+import { createTrackedSession, resolveSessionResourceOwner, trackSessionConnectionResource, trackSessionResource } from './session-resources'
 import { validateManifest, normalizeLifecycle } from '@shared/plugin-types'
 import { t } from '../i18n'
 import type {
@@ -503,6 +505,11 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
 
     if (req.method === 'POST') {
       readBody(req).then(body => {
+        // 读请求体期间插件可能已禁用或宿主已重启，旧凭据不能继续分配资源。
+        if (!mcpAuth.resolveToken(req.headers['x-lyshell-token'])) {
+          sendJson(res, 401, { success: false, error: 'Unauthorized' })
+          return
+        }
         let data: any
         try {
           data = body ? JSON.parse(body) : {}
@@ -1336,9 +1343,27 @@ async function handleReconnectSession(
       return
     }
 
+    // 授权等待前固定请求代次；重连会创建新连接，不能沿用活动连接的“仅复用”豁免。
+    const requestingPluginId = binding.kind === 'plugin' ? binding.pluginId
+      : binding.originSessionId ? pluginResources.owner(binding.originSessionId) : undefined
+    const requestGeneration = requestingPluginId ? pluginResources.generation(requestingPluginId) : 0
+    const resourceOwner = {
+      ...resolveSessionResourceOwner(pluginResources, session.config, requestingPluginId),
+      // runtime 克隆的 ownerPluginId 只表示终端归属，不能据此认领保存项。
+      saved: !!sessionRepository.get(resolvedSessionId)?.ownerPluginId
+    }
+
     const auth = await authorizeMcpOperation('reconnect_session', 'sessionControl', resolvedSessionId, undefined, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
+      return
+    }
+
+    if (sessionManager.getSession(resolvedSessionId) !== session || sessionManager.isSessionDeleting(resolvedSessionId)
+      || (requestingPluginId && (!pluginRepository.get(requestingPluginId)?.enabled
+        || !pluginResources.isCurrent(requestingPluginId, requestGeneration)))
+      || !trackSessionResource(pluginResources, resolvedSessionId, resourceOwner, id => !!pluginRepository.get(id)?.enabled)) {
+      sendJson(res, 403, { success: false, error: 'Plugin was disabled or session ownership changed while reconnecting the terminal' })
       return
     }
 
@@ -1723,6 +1748,10 @@ async function handleCreateSession(
   binding: TokenBinding
 ): Promise<void> {
   try {
+    // session token 孵化出的后续会话沿用插件归属，防子 PTY 成为脱离插件的资源。
+    const owner = binding.kind === 'plugin' ? binding.pluginId
+      : binding.originSessionId ? pluginResources.owner(binding.originSessionId) : undefined
+    const generation = owner ? pluginResources.generation(owner) : 0
     // 强校验：确保 LLM 已在调用前询问用户
     if (data.userConfirmed !== true) {
       sendJson(res, 400, {
@@ -1889,6 +1918,10 @@ async function handleCreateSession(
     // 复用时使用已有会话自身的配置（含其已存凭据/备注），调用方传入的 notes/username 等被忽略；
     // 若需更新备注请另调 write_session_notes。
     const existing = sessionRepository.findByTarget(config)
+    if (owner && (!pluginRepository.get(owner)?.enabled || !pluginResources.isCurrent(owner, generation))) {
+      sendJson(res, 403, { success: false, error: 'Plugin is no longer active' })
+      return
+    }
     let saved: SessionConfig
     let created: boolean
     if (existing) {
@@ -1898,9 +1931,23 @@ async function handleCreateSession(
       // 内存 map 恒为合法值，此处无需再兜
       log.info(`[MCP] create_session reused existing ${saved.id} (${saved.name}) for same target`)
     } else {
+      // 插件已按目标确认是新建，不能让同配置去重夺取用户已有本地会话。
+      if (owner) {
+        config.id = uuidv4()
+        config.ownerPluginId = owner
+      }
       saved = sessionRepository.saveSession(config)
       created = true
       log.info(`[MCP] Created session ${saved.id} (${saved.name}, ${saved.type})`)
+    }
+
+    // 保存项与运行时共用 ID，必须沿用持久化归属；重启后不能被请求方抢先登记。
+    const resourceOwner = resolveSessionResourceOwner(pluginResources, saved, owner)
+    const isPluginEnabled = (pluginId: string): boolean => !!pluginRepository.get(pluginId)?.enabled
+    if (saved.ownerPluginId && !trackSessionResource(pluginResources, saved.id, resourceOwner, isPluginEnabled)) {
+      if (created) sessionRepository.delete(saved.id)
+      sendJson(res, 403, { success: false, error: 'Session resource owner is no longer active or conflicts with an existing owner' })
+      return
     }
 
     // 新建/复用都可能影响 sidebar 列表 —— 通知渲染层增量同步
@@ -1923,9 +1970,30 @@ async function handleCreateSession(
         // 已有 live 且已连上——直接复用，不重连
         status = 'connected'
       } else {
-        // 没有 live 就注册一个（用 saved 配置，含已存凭据），再连接
+        const isRequestActive = (): boolean => !owner
+          || (!!pluginRepository.get(owner)?.enabled && pluginResources.isCurrent(owner, generation))
+        let ready: boolean
+        // 新建在首次 await 前登记，其他并发请求只能沿用既有归属。
         if (!live) {
-          await sessionManager.createSession(saved)
+          const session = await createTrackedSession(pluginResources, saved, resourceOwner, {
+            isRequestActive, isPluginEnabled,
+            isSessionDeleting: id => sessionManager.isSessionDeleting(id),
+            getSession: id => sessionManager.getSession(id),
+            createSession: config => sessionManager.createSession(config),
+            deleteSession: id => sessionManager.deleteSession(id)
+          })
+          // helper 返回也有一次微任务切换，连接前再次确认本次对象与双方代次。
+          ready = !!session && sessionManager.getSession(saved.id) === session && isRequestActive()
+            && !sessionManager.isSessionDeleting(saved.id)
+            && trackSessionResource(pluginResources, saved.id, resourceOwner, isPluginEnabled)
+        } else {
+          // 已有 disconnected/error 对象也会启动新连接，不能因 Map 中仍有条目漏登记。
+          ready = isRequestActive() && !sessionManager.isSessionDeleting(saved.id)
+            && trackSessionConnectionResource(pluginResources, saved.id, resourceOwner, live.status, isPluginEnabled)
+        }
+        if (!ready) {
+          sendJson(res, 403, { success: false, error: 'Plugin was disabled or session ownership changed while creating the terminal' })
+          return
         }
         // 连接前落位请求的编码（复用未连上的会话）：连接器构造（withRuntimeEncoding 从
         // config 派生编码）前 config 就带上请求值 —— waitForReady 的握手输出（banner/

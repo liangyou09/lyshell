@@ -42,6 +42,7 @@ import {
   type LyShellPluginManifest
 } from '@shared/plugin-types'
 import { createLogTap } from '@shared/log-throttle'
+import { terminatePluginProcess } from './process-cleanup'
 
 /**
  * pluginHost.js 脚本路径。与 getMcpServerScriptPath(http-server.ts)同构。
@@ -72,8 +73,41 @@ const AUTO_RESTART_DELAY_MS = 3_000
 const AUTO_RESTART_STORM_WINDOW_MS = 60_000
 const AUTO_RESTART_MAX_CONSECUTIVE = 3
 
-class PluginHostManager {
+export class PluginHostManager {
   private child: ChildProcess | null = null
+  private processCleanups = new Set<Promise<void>>()
+  private processCleanupByChild = new WeakMap<ChildProcess, Promise<void>>()
+  private failedProcessCleanups = new Set<ChildProcess>()
+
+  private terminateProcess(child: ChildProcess): Promise<void> {
+    const pending = this.processCleanupByChild.get(child)
+    if (pending) return pending
+    const cleanup = terminatePluginProcess(child, { processGroup: process.platform !== 'win32' })
+    this.processCleanupByChild.set(child, cleanup)
+    this.processCleanups.add(cleanup)
+    void cleanup.then(() => {
+      this.processCleanups.delete(cleanup)
+      this.failedProcessCleanups.delete(child)
+    }, error => {
+      // 保留失败项供等待方感知，不能把清理失败当作成功启动下一代。
+      log.error('[plugin-host] Process tree cleanup failed:', error)
+      this.failedProcessCleanups.add(child)
+    })
+    return cleanup
+  }
+
+  /** 禁用/卸载回执前等待已启动的进程树回收。 */
+  async waitForProcessCleanup(): Promise<void> {
+    while (this.processCleanups.size > 0) {
+      const pending = [...this.processCleanups]
+      const results = await Promise.allSettled(pending)
+      pending.forEach(p => this.processCleanups.delete(p))
+      const failure = results.find(result => result.status === 'rejected')
+      if (failure?.status === 'rejected') throw failure.reason
+    }
+    // 其他并发等待者可能已消费失败 Promise；失败句柄仍阻止启动下一代。
+    if (this.failedProcessCleanups.size > 0) throw new Error('Plugin process tree cleanup failed')
+  }
   private activePluginIds: string[] = []
   /** 当前共享 node host 承载的插件 id（异常退出/stop 时清运行时视图用；start() 重置） */
   private nodeHostPluginIds: string[] = []
@@ -255,6 +289,7 @@ class PluginHostManager {
       //   下发给 host,spawnControlled 读此 env 而非 __dirname 重算 -- 防 api.ts 被多 entry
       //   引用变 chunk 后 __dirname 漂到 chunks/ 路径错、静默退化(评审 robustness)。
       this.child = spawn(process.execPath, [hostPath], {
+        detached: process.platform !== 'win32',
         env: {
           ...process.env,
           ELECTRON_RUN_AS_NODE: '1',
@@ -319,6 +354,7 @@ class PluginHostManager {
     })
     child.on('exit', (code, signal) => {
       log.info(`[plugin-host] Host process exited (code=${code}, signal=${signal})`)
+      if (process.platform !== 'win32') this.terminateProcess(child)
       if (this.child === child) this.child = null
       this.cleanupOwnedPluginsIfDied(ownedIds)
       this.maybeAutoRestartNodeHost(code, signal, specs, gen)
@@ -391,27 +427,36 @@ class PluginHostManager {
     if (this.autoRestartTimer) clearTimeout(this.autoRestartTimer)
     this.autoRestartTimer = setTimeout(() => {
       this.autoRestartTimer = null
-      // 触发时复验代次:调度到触发的 3s 里发生过的任何 start()/stop() 都使本次过期
-      if (this.stopping || this.child || this.hostGeneration !== gen) return
-      const port = getMcpHttpPort()
-      if (!port) return
-      // 再验启用集合,只拉起仍启用的插件(兜住任何绕过 restart() 的停用路径;
-      // 正常 disable 走 restart() 已被上面的代次校验拦下)
-      const enabledNow = new Set(pluginRepository.getEnabled().map((e) => e.id))
-      const live = specs.filter((s) => enabledNow.has(s.pluginId))
-      if (live.length === 0) {
-        log.info('[plugin-host] Auto-restart skipped: no enabled node plugins remain')
-        return
-      }
-      if (live.length < specs.length) {
-        log.info(`[plugin-host] Auto-restart drops ${specs.length - live.length} since-disabled plugin(s)`)
-      }
-      // 重新绑定 token:异常退出路径已把旧 token 撤销;bindPluginToken 自带
-      // revoke+颁发新值,须回写 spec.token(host 侧按 spec 内的 token 调 API)。
-      for (const s of live) s.token = bindPluginToken(s.pluginId, s.grantedCapabilities)
-      this.spawnNodeHost(live, port)
+      void this.autoRestartNodeHostAfterCleanup(specs, gen).catch(error => {
+        log.error('[plugin-host] Auto-restart cancelled: process tree cleanup failed:', error)
+      })
     }, AUTO_RESTART_DELAY_MS)
     this.autoRestartTimer.unref?.()
+  }
+
+  private async autoRestartNodeHostAfterCleanup(specs: PluginSpec[], gen: number): Promise<void> {
+    // 触发时复验代次:调度到触发的 3s 里发生过的任何 start()/stop() 都使本次过期
+    if (this.stopping || this.child || this.hostGeneration !== gen) return
+    await this.waitForProcessCleanup()
+    // await 期间也可能停机/启禁插件，等待完成后重新验证归属代次。
+    if (this.stopping || this.child || this.hostGeneration !== gen) return
+    const port = getMcpHttpPort()
+    if (!port) return
+    // 再验启用集合,只拉起仍启用的插件(兜住任何绕过 restart() 的停用路径;
+    // 正常 disable 走 restart() 已被上面的代次校验拦下)
+    const enabledNow = new Set(pluginRepository.getEnabled().map((e) => e.id))
+    const live = specs.filter((s) => enabledNow.has(s.pluginId))
+    if (live.length === 0) {
+      log.info('[plugin-host] Auto-restart skipped: no enabled node plugins remain')
+      return
+    }
+    if (live.length < specs.length) {
+      log.info(`[plugin-host] Auto-restart drops ${specs.length - live.length} since-disabled plugin(s)`)
+    }
+    // 重新绑定 token:异常退出路径已把旧 token 撤销;bindPluginToken 自带
+    // revoke+颁发新值,须回写 spec.token(host 侧按 spec 内的 token 调 API)。
+    for (const s of live) s.token = bindPluginToken(s.pluginId, s.grantedCapabilities)
+    this.spawnNodeHost(live, port)
   }
 
   /**
@@ -446,6 +491,7 @@ class PluginHostManager {
     let child: ChildProcess
     try {
       child = spawn(process.execPath, [hostPath], {
+        detached: process.platform !== 'win32',
         env: {
           ...process.env,
           ELECTRON_RUN_AS_NODE: '1',
@@ -483,6 +529,7 @@ class PluginHostManager {
     // 仅当 map 仍是本 child 才删除并回调，避免误清新 run 的句柄 + finishRun 撤错 token。
     child.on('exit', (code, signal) => {
       log.info(`[plugin-host] Oneshot host for ${spec.pluginId} exited (code=${code}, signal=${signal})`)
+      if (process.platform !== 'win32') this.terminateProcess(child)
       if (this.nodeOneshotChildren.get(spec.pluginId) === child) {
         this.nodeOneshotChildren.delete(spec.pluginId)
         onExit?.()
@@ -520,6 +567,7 @@ class PluginHostManager {
     log.info(`[plugin-host] Activating python persistent plugin ${p.id} (cwd=${p.pluginDir})`)
     try {
       const { proc } = pythonEngine.spawnScript(mainPath, {
+        detached: process.platform !== 'win32',
         cwd: p.pluginDir,
         env: {
           LYSHELL_MCP_PORT: String(port),
@@ -533,6 +581,7 @@ class PluginHostManager {
       // 仅当 map 仍是本 proc 才删除，否则误删新 proc 句柄导致后续 stop()/禁用无法 kill。
       proc.on('exit', (code, signal) => {
         log.info(`[plugin-host] python persistent plugin ${p.id} exited (code=${code}, signal=${signal})`)
+        if (process.platform !== 'win32') this.terminateProcess(proc)
         if (this.pythonPersistentProcesses.get(p.id) === proc) {
           this.pythonPersistentProcesses.delete(p.id)
           if (!this.stopping) {
@@ -635,9 +684,14 @@ class PluginHostManager {
     try {
       pythonEngine
         .runScript(mainPath, undefined, {
+          detached: process.platform !== 'win32',
           cwd: pluginDir,
           timeout: manifest.pythonTimeoutMs ?? 120000,
           signal: controller.signal,
+          onCancel: (proc) => this.terminateProcess(proc),
+          onSpawn: (proc) => {
+            if (process.platform !== 'win32') proc.once('exit', () => this.terminateProcess(proc))
+          },
           env: {
             LYSHELL_MCP_PORT: String(port),
             LYSHELL_PLUGIN_TOKEN: token,
@@ -678,6 +732,14 @@ class PluginHostManager {
   stop(): void {
     this.stopping = true
     this.hostGeneration++
+    // 上次失败的根句柄保留到下一次停机重试，不能丢掉仍存活的进程。
+    for (const child of this.failedProcessCleanups) {
+      // 本次重试取代旧失败 Promise，等待者只判断当前清理结果。
+      const previousCleanup = this.processCleanupByChild.get(child)
+      if (previousCleanup) this.processCleanups.delete(previousCleanup)
+      this.processCleanupByChild.delete(child)
+      this.terminateProcess(child)
+    }
     // 取消挂起的自动重启:主动停机/重启后旧宿主的异常退出不应再被自动拉起
     // (restart() = stop()+start(),start 会把 stopping 复位,仅靠 stopping 拦不住)。
     if (this.autoRestartTimer) {
@@ -689,7 +751,7 @@ class PluginHostManager {
     const hostOwnedIds = new Set<string>([...this.nodeHostPluginIds, ...this.pythonPersistentProcesses.keys()])
     if (this.child && !this.child.killed) {
       log.info('[plugin-host] Stopping host process (SIGTERM)')
-      this.child.kill('SIGTERM')
+      this.terminateProcess(this.child)
       this.child = null
     }
     // node oneshot 进程：主动 SIGTERM kill，防 deactivate 漏杀 / Windows 不级联 -> 孤儿。
@@ -697,7 +759,7 @@ class PluginHostManager {
       log.info(`[plugin-host] Stopping ${this.nodeOneshotChildren.size} oneshot node plugin process(es)`)
       for (const [id, child] of this.nodeOneshotChildren) {
         try {
-          child.kill('SIGTERM')
+          this.terminateProcess(child)
         } catch {
           /* 进程可能已退出 */
         }
@@ -718,7 +780,7 @@ class PluginHostManager {
       log.info(`[plugin-host] Stopping ${this.pythonPersistentProcesses.size} python persistent plugin process(es)`)
       for (const [id, proc] of this.pythonPersistentProcesses) {
         try {
-          proc.kill('SIGTERM')
+          this.terminateProcess(proc)
         } catch {
           /* 进程可能已退出 */
         }
@@ -759,9 +821,12 @@ class PluginHostManager {
    * exit handler 闭包捕获 child 引用(见 spawnNodeHost),故 restart 间旧 host 异步退出不会误清新 host。
    * HTTP 未就绪时 start() 短路(getMcpHttpPort=null),restart 仍安全 -- registry 已更新,下次真启动加载。
    */
-  restart(): void {
+  async restart(): Promise<void> {
     this.stop()
-    this.start()
+    const generation = this.hostGeneration
+    await this.waitForProcessCleanup()
+    // 等待期间的新 restart/stop 已取代本次操作，不得复活旧宿主。
+    if (this.hostGeneration === generation && this.stopping) this.start()
   }
 
   private revokeActiveTokens(): void {

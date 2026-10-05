@@ -18,6 +18,7 @@ const IPC_CHANNELS = {
   SESSION_CREATE: 'session:create',
   SESSION_UPDATE: 'session:update',
   SESSION_DELETE: 'session:delete',
+  SESSION_DELETED: 'session:deleted',
   SESSION_LIST: 'session:list',
   SESSION_GET: 'session:get',
   SESSION_SET_ENCODING: 'session:set-encoding',  // 状态栏点击运行时切换编码
@@ -166,6 +167,7 @@ const IPC_CHANNELS = {
 
   // 插件界面视图（机柜轨贡献点；通道语义见 @shared/constants IPC_CHANNELS 同名注释）
   PLUGIN_VIEWS_CHANGED: 'plugin:views-changed',
+  PLUGIN_RESOURCES_RELEASED: 'plugin:resources-released',
   PLUGIN_VIEW_ICON: 'plugin:view-icon',
   PLUGIN_VIEW_ACTION_REQUEST: 'plugin:view-action-request',
   PLUGIN_VIEW_ACTION_RESULT: 'plugin:view-action-result',
@@ -177,7 +179,8 @@ const IPC_CHANNELS = {
 // 暴露给渲染进程的 API
 const electronAPI = {
   // 连接管理
-  connect: (config: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION_CONNECT, config),
+  connect: (config: unknown, pluginActionRequestId?: string, sourceSessionId?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.CONNECTION_CONNECT, config, pluginActionRequestId, sourceSessionId),
   disconnect: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION_DISCONNECT, sessionId),
   reconnect: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION_RECONNECT, sessionId),
   cloneChannel: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.CONNECTION_CLONE_CHANNEL, sessionId),
@@ -202,6 +205,16 @@ const electronAPI = {
   createSession: (session: unknown) => ipcRenderer.invoke(IPC_CHANNELS.SESSION_CREATE, session),
   updateSession: (session: unknown) => ipcRenderer.invoke(IPC_CHANNELS.SESSION_UPDATE, session),
   deleteSession: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.SESSION_DELETE, sessionId),
+  onSessionDeleted: (callback: (sessionId: string) => void) => {
+    const listener = (_event: IpcRendererEvent, sessionId: string) => callback(sessionId)
+    ipcRenderer.on(IPC_CHANNELS.SESSION_DELETED, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.SESSION_DELETED, listener)
+  },
+  onPluginResourcesReleased: (callback: (pluginId: string, webOrigins?: string[]) => void) => {
+    const listener = (_event: IpcRendererEvent, pluginId: string, webOrigins?: string[]) => callback(pluginId, webOrigins)
+    ipcRenderer.on(IPC_CHANNELS.PLUGIN_RESOURCES_RELEASED, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.PLUGIN_RESOURCES_RELEASED, listener)
+  },
   listSessions: () => ipcRenderer.invoke(IPC_CHANNELS.SESSION_LIST),
   getSession: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.SESSION_GET, sessionId),
   // 状态栏点击运行时切换会话编码（只改运行时会话，不写回保存的配置）

@@ -7,6 +7,8 @@
 1. 一个插件最多贡献 8 个视图，**每个视图独占轨道槽位**。全链路统一用 `{pluginId, viewId}` 标识视图，不能仅以 pluginId 作页签或保活键。
 2. 声明式视图不要求 `main` 入口或插件宿主进程。**Node persistent** 插件可在 `activate(api)` 动态注册/注销；Python persistent 没有 `LyShellPluginApi`，如需动态视图须使用同一 HTTP 注册路由和自身 host token。运行时视图仅在当前插件进程期间有效；重启后由 Node `activate` 或 Python 启动脚本重新注册。
 3. 面板首次打开后常挂载，切走只隐藏；注销视图、禁用或卸载插件时销毁 guest。弹窗关闭即销毁。
+   禁用/卸载还回收插件创建的终端、网页与文档页签、连接和受控子进程。MCP 新建保存项带 `SessionConfig.ownerPluginId`，应用重启后仍能追溯并回收；复用用户已有配置只回收插件新建的运行时连接，不删除用户配置。网页/文档归属写入 `OverlayPayload.ownerPluginId`，弹出网页继承来源页签归属，隐藏、分屏移动及组件重挂载不会丢失。主进程发送 `plugin:resources-released` 使在途 UI 动作失效，并携带禁用前独占的本机服务来源，兼容回收尚无归属的旧聊天页签及左侧保活小窗；共用来源不自动认领。通过 `session:deleted` 摘除所有窗口的终端页签和终端实例。`connection:connect` 的可选动作请求 ID 由 main 核对窗口、在途 openTerminal 动作与启用状态，不接受 renderer 自报插件身份。文档读取完成时再次检查动作代次，禁止禁用后迟到响应重新挂载页签。Windows 插件进程通过隐藏的 `taskkill /T /F` 回收子进程树。
+   保存项编辑/去重保留 main 确定的原归属；更新已删除的保存项会失败。插件终端动作先在 main 授权，再更新保存项访问时间，renderer 不预先写回。宿主重启等待旧进程树清理完成，等待期间的较新 restart/stop 会使旧操作失效。Linux/macOS 的 Node/Python 插件根进程使用独立进程组，整组接收终止信号；根提前退出时仍清理后代，超时整组强杀。清理失败会阻止重启并保留句柄供后续停机重试。
 4. 页面没有 token。所有页面调用以 guest 身份进入 main，由 main 执行权限校验。纯展示视图不需要 `uiControl`；UI 动作需要 `uiControl`，其中打开终端另需 `sessionControl`，打开文档另需 `read`。API 工具调用仍按原 HTTP 路由 capability 鉴权。
 5. `openDialog` 只能打开本插件已注册的视图；结果只回到发起弹窗的那个 guest，多个同插件视图或并发弹窗互不串扰。
 

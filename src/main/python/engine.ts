@@ -23,6 +23,12 @@ export interface ExecutionContext {
   timeout?: number
   /** 取消信号:abort 时主动 SIGTERM 子进程(供 plugin host 在 stop() 时 kill python oneshot,见 host-mgr)。 */
   signal?: AbortSignal
+  /** 插件宿主提供进程树回收器；主动取消/超时都调用它，并等待回执。 */
+  onCancel?: (process: ChildProcess) => void | Promise<void>
+  /** 插件进程在 POSIX 下独立进程组，取消时连同后代一起回收。 */
+  detached?: boolean
+  /** 宿主登记根进程退出，回收 POSIX 下可能仍存活的组内后代。 */
+  onSpawn?: (process: ChildProcess) => void
 }
 
 /**
@@ -183,9 +189,57 @@ runpy.run_path(_script_path, run_name='__main__', init_globals={
 })
 `
 
-/**
- * Python 执行引擎
- */
+/** 自定义回收器接管超时，避免 spawn 的原生 timeout 先杀根进程而丢失后代。 */
+function setupExecutionCancellation(proc: ChildProcess, context?: ExecutionContext, timeout?: number): {
+  start(): void
+  finish(): Promise<void>
+} {
+  const signal = context?.signal
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let cancellation: Promise<void> | undefined
+  let disposed = false
+  const cancel = (): void => {
+    if (cancellation) return
+    // 同步回收器可能触发 close，先登记回执，关闭回调也必须等待同一任务。
+    let resolve!: () => void
+    let reject!: (error: unknown) => void
+    cancellation = new Promise<void>((onResolve, onReject) => { resolve = onResolve; reject = onReject })
+    void cancellation.catch(error => log.warn('Python process cleanup failed:', error))
+    try {
+      if (context?.onCancel) Promise.resolve(context.onCancel(proc)).then(resolve, reject)
+      else {
+        try { proc.kill('SIGTERM') } catch { /* 进程可能已退出 */ }
+        resolve()
+      }
+    } catch (error) {
+      reject(error)
+    }
+  }
+  const dispose = (): void => {
+    disposed = true
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', cancel)
+    proc.removeListener('exit', dispose)
+    proc.removeListener('error', dispose)
+  }
+  proc.once('exit', dispose)
+  proc.once('error', dispose)
+  return {
+    // 先注册结果监听器，再处理已取消的信号；同步 close 也不能丢失。
+    start() {
+      if (disposed) return
+      if (context?.onCancel && timeout !== undefined && timeout > 0) timer = setTimeout(cancel, timeout)
+      if (signal?.aborted) cancel()
+      else signal?.addEventListener('abort', cancel, { once: true })
+    },
+    finish() {
+      dispose()
+      return cancellation ?? Promise.resolve()
+    }
+  }
+}
+
+/** Python 执行引擎 */
 export class PythonEngine extends EventEmitter {
   private pythonPath: string | null = null
   private executions: Map<string, ChildProcess> = new Map()
@@ -281,22 +335,16 @@ export class PythonEngine extends EventEmitter {
 
     return new Promise((resolve, reject) => {
       const proc = spawn(this.pythonPath!, ['-c', fullCode], {
+        detached: context?.detached,
         cwd,
         env,
-        timeout
+        timeout: context?.onCancel ? undefined : timeout
       })
 
       this.executions.set(executionId, proc)
+      context?.onSpawn?.(proc)
 
-      // 外部取消信号(plugin host stop()):abort 时主动 SIGTERM,免 python oneshot 滞留至 timeout。
-      const signal = context?.signal
-      const onAbort = (): void => {
-        try { proc.kill('SIGTERM') } catch { /* 进程可能已退出 */ }
-      }
-      if (signal) {
-        if (signal.aborted) onAbort()
-        else signal.addEventListener('abort', onAbort, { once: true })
-      }
+      const cancellation = setupExecutionCancellation(proc, context, timeout)
 
       // 结果累积走带上限的捕获器:截断标记在发生截断的当次数据块追加 —— 不能等
       // 下一次 data 事件再补(最后一个数据块恰好跨过上限时不会再有后续事件)。
@@ -318,27 +366,26 @@ export class PythonEngine extends EventEmitter {
 
       proc.on('close', (code, closeSignal) => {
         this.executions.delete(executionId)
-        if (signal) signal.removeEventListener('abort', onAbort)
         const duration = Date.now() - startTime
         const exitCode = code ?? (closeSignal ? 1 : 0)
 
         log.info(`Python execution completed (${executionId}): exit=${exitCode}, signal=${closeSignal || 'none'}, duration=${duration}ms`)
 
-        resolve({
+        void cancellation.finish().then(() => resolve({
           stdout: stdoutCap.text(),
           stderr: stderrCap.text(),
           exitCode,
           duration,
           signal: closeSignal || undefined
-        })
+        }), reject)
       })
 
       proc.on('error', (error) => {
         this.executions.delete(executionId)
-        if (signal) signal.removeEventListener('abort', onAbort)
         log.error(`Python execution error (${executionId}):`, error)
-        reject(error)
+        void cancellation.finish().then(() => reject(error), reject)
       })
+      cancellation.start()
     })
   }
 
@@ -363,8 +410,9 @@ export class PythonEngine extends EventEmitter {
 
     return new Promise((resolve, reject) => {
       const proc = spawn(this.pythonPath!, ['-c', SCRIPT_BOOTSTRAP, scriptPath, ...(args || [])], {
+        detached: context?.detached,
         cwd,
-        timeout,
+        timeout: context?.onCancel ? undefined : timeout,
         env: {
           ...process.env,
           ...context?.env,
@@ -376,15 +424,9 @@ export class PythonEngine extends EventEmitter {
       })
 
       this.executions.set(executionId, proc)
+      context?.onSpawn?.(proc)
 
-      const signal = context?.signal
-      const onAbort = (): void => {
-        try { proc.kill('SIGTERM') } catch { /* 进程可能已退出 */ }
-      }
-      if (signal) {
-        if (signal.aborted) onAbort()
-        else signal.addEventListener('abort', onAbort, { once: true })
-      }
+      const cancellation = setupExecutionCancellation(proc, context, timeout)
 
       // 结果累积走带上限的捕获器:截断标记在发生截断的当次数据块追加 —— 不能等
       // 下一次 data 事件再补(最后一个数据块恰好跨过上限时不会再有后续事件)。
@@ -406,21 +448,20 @@ export class PythonEngine extends EventEmitter {
 
       proc.on('close', (code, closeSignal) => {
         this.executions.delete(executionId)
-        if (signal) signal.removeEventListener('abort', onAbort)
-        resolve({
+        void cancellation.finish().then(() => resolve({
           stdout: stdoutCap.text(),
           stderr: stderrCap.text(),
           exitCode: code ?? (closeSignal ? 1 : 0),
           duration: Date.now() - startTime,
           signal: closeSignal || undefined
-        })
+        }), reject)
       })
 
       proc.on('error', (error) => {
         this.executions.delete(executionId)
-        if (signal) signal.removeEventListener('abort', onAbort)
-        reject(error)
+        void cancellation.finish().then(() => reject(error), reject)
       })
+      cancellation.start()
     })
   }
 
@@ -444,6 +485,7 @@ export class PythonEngine extends EventEmitter {
     log.info(`Spawning Python script: ${scriptPath}`)
 
     const proc = spawn(this.pythonPath!, ['-c', SCRIPT_BOOTSTRAP, scriptPath], {
+      detached: context?.detached,
       cwd,
       env: {
         ...process.env,
@@ -457,10 +499,12 @@ export class PythonEngine extends EventEmitter {
     })
 
     this.executions.set(executionId, proc)
+    context?.onSpawn?.(proc)
 
     // 外部取消信号(plugin host stop()):abort 时主动 SIGTERM。
     const signal = context?.signal
     const onAbort = (): void => {
+      if (context?.onCancel) { context.onCancel(proc); return }
       try { proc.kill('SIGTERM') } catch { /* 进程可能已退出 */ }
     }
     if (signal) {

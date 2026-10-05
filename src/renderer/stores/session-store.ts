@@ -439,7 +439,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
     // 普通克隆：创建新连接
     try {
-      const result = await window.electronAPI?.connect(newConfig)
+      const result = await window.electronAPI?.connect(newConfig, undefined, sourceSessionId)
+      if (result?.status === ConnectionStatus.ERROR) throw new Error(result.error || i18n.t('error.session.createCloneFailed'))
       if (result && result.id) {
         return result.id
       }

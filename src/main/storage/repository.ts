@@ -239,7 +239,7 @@ export class SessionRepository {
    */
   private isSameConfig(a: SessionConfig, b: SessionConfig): boolean {
     // 比较基本信息
-    if (a.name !== b.name || a.type !== b.type) return false
+    if (a.name !== b.name || a.type !== b.type || a.ownerPluginId !== b.ownerPluginId) return false
 
     // 比较 SSH 配置
     if (a.ssh && b.ssh) {
@@ -323,6 +323,10 @@ export class SessionRepository {
     // —— New session / Copy 到同一台机器不需要再手动补一次。
     // 已存在的会话（更新场景）不触发继承，避免把旧记录覆盖回来。
     const isBrandNew = !this.sessions.has(session.id)
+    if (!isBrandNew) {
+      // 归属是 main 写入的资源元数据，编辑/去重不能清掉，也不能转移给别的插件。
+      session.ownerPluginId = this.sessions.get(session.id)?.ownerPluginId
+    }
     if (isBrandNew) {
       this.inheritNotesFromSameHost(session)
     }
@@ -335,6 +339,13 @@ export class SessionRepository {
 
     log.info(`Session saved: ${session.id} (${session.name})`)
     return session
+  }
+
+  /** 更新必须命中现存保存项，防迟到写入重建已回收资源。 */
+  updateSession(session: SessionConfig): SessionConfig {
+    this.ensureInitialized()
+    if (!this.sessions.has(session.id)) throw new Error(`Session not found: ${session.id}`)
+    return this.saveSession(session)
   }
 
   /**
@@ -400,8 +411,16 @@ export class SessionRepository {
     this.ensureInitialized()
     if (!this.sessions.has(id)) return false
 
+    // 落盘失败时恢复完整内存快照（含顺序），下一次回收必须重新尝试删除和写盘。
+    const previousSessions = this.sessions
+    this.sessions = new Map(previousSessions)
     this.sessions.delete(id)
-    this.save()
+    try {
+      this.save()
+    } catch (error) {
+      this.sessions = previousSessions
+      throw error
+    }
 
     log.info(`Session deleted: ${id}`)
     return true
@@ -533,7 +552,8 @@ export class SessionRepository {
       parts.push(session.local.shell || 'default', session.local.cwd || 'default', JSON.stringify(session.local.shellArgs ?? []))
     }
 
-    return parts.join('|')
+    // 用户配置和不同插件配置分别去重，不能因目标相同而丢掉原归属的保存项。
+    return JSON.stringify([session.ownerPluginId ?? null, ...parts])
   }
 }
 

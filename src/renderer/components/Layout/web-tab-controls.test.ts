@@ -13,7 +13,7 @@ import type { WebviewTag } from 'electron'
 import type { OverlayPayload, OverlayRef, PaneLayout } from '@shared/types'
 import { usePaneStore } from '../../stores/pane-store'
 import {
-  registerWebview, unregisterWebview,
+  registerWebview, unregisterWebview, webTabIdForContentsId,
   activeWebTabId, navigateActiveWebTab, reloadActiveWebTab, stopActiveWebTab,
   activeWebTabGoBack, activeWebTabGoForward
 } from './web-tab-controls'
@@ -46,6 +46,26 @@ const makeWebview = (): { loadURL: ReturnType<typeof vi.fn>; goBack: ReturnType<
   reload: vi.fn(),
   reloadIgnoringCache: vi.fn(),
   stop: vi.fn()
+})
+
+describe('弹出页签来源解析', () => {
+  it('通过 guest 身份找到后台来源页签，卸载后不能再匹配', () => {
+    registerWebview('popup-source', { getWebContentsId: () => 17 } as WebviewTag)
+    try {
+      expect(webTabIdForContentsId(17)).toBe('popup-source')
+      expect(webTabIdForContentsId(18)).toBeUndefined()
+    } finally { unregisterWebview('popup-source') }
+    expect(webTabIdForContentsId(17)).toBeUndefined()
+  })
+
+  it('跳过尚未就绪或已销毁的 guest', () => {
+    registerWebview('destroyed', { getWebContentsId: () => { throw new Error('destroyed') } } as unknown as WebviewTag)
+    registerWebview('ready', { getWebContentsId: () => 23 } as WebviewTag)
+    try { expect(webTabIdForContentsId(23)).toBe('ready') } finally {
+      unregisterWebview('destroyed')
+      unregisterWebview('ready')
+    }
+  })
 })
 
 describe('activeWebTabId：活动网页页签解析', () => {

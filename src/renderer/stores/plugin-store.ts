@@ -48,6 +48,8 @@ interface PluginStore {
   cancelDownload: (path: string) => Promise<SimpleResult>
   enable: (id: string) => Promise<boolean>
   disable: (id: string) => Promise<boolean>
+  /** main 已撤资源，立即更新本地状态并丢弃撤销前的列表响应。 */
+  markResourcesReleased: (id: string) => void
   runOneshot: (id: string) => Promise<SimpleResult>
   uninstall: (id: string) => Promise<SimpleResult>
 }
@@ -60,6 +62,10 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
   loading: false,
   loaded: false,
   error: null,
+  markResourcesReleased: (id) => {
+    ++loadSeq
+    set(state => ({ items: state.items.map(item => item.id === id ? { ...item, enabled: false, views: [] } : item), loading: false }))
+  },
 
   // 并发响应仅采纳最新一次:PLUGIN_VIEWS_CHANGED 与写操作后的自动 load 可能交叠,
   // 迟到的旧响应不得覆盖新快照(模块级序号守卫,load 是全局单例动作,序号不随实例)
@@ -148,9 +154,11 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
   },
 
   disable: async (id) => {
+    set({ error: null })
     try {
       const res = (await window.electronAPI?.disablePlugin(id)) as SimpleResult | undefined
       if (res?.success) await get().load()
+      else set({ error: res?.error ?? null })
       return !!res?.success
     } catch (e) {
       set({ error: (e as Error).message })

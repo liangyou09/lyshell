@@ -37,6 +37,8 @@ import { fileManager, startDownloadWorker, registerTaskMeta, startUploadWorker, 
 import type { SessionConfig, TerminalEncoding } from '@shared/types'
 import {
   assertEnum,
+  assertConnectionCloneSourceId,
+  assertPluginActionRequestId,
   assertNumber,
   assertObject,
   assertString,
@@ -46,6 +48,7 @@ import {
   validationFailure,
   ValidationError
 } from './validation'
+import { resolveConnectionSource } from './connection-source'
 import { sanitizeSessionEncoding } from '@shared/encoding'
 import { getMcpAddCommandForIpc } from '../mcp/http-server'
 import { mcpAuditRepository } from '../storage/mcp-audit-repository'
@@ -55,9 +58,11 @@ import { pluginHostManager } from '../plugin/host-mgr'
 import { getPluginViewRegistry } from '../plugin/view-registry'
 import { readPluginViewIconDataUrl } from '../plugin/view-icons'
 import { refreshAllPluginUiTokens } from '../plugin/view-tokens'
-import { registerPluginViewIpc, teardownPluginViews } from '../plugin/view-bridge'
+import { registerPluginViewIpc, teardownPluginViews, pluginActionDispatcher } from '../plugin/view-bridge'
+import { pluginResources, releasePluginSessions } from '../plugin/resource-registry'
+import { uniquePluginWebOrigins } from '@shared/plugin-web-resources'
 import { installProtocolHandlersForEnabledPlugins } from '../plugin/view-protocol'
-import { revokeAllPluginTokens } from '../mcp/auth'
+import { revokeAllPluginTokens, revokeSessionToken } from '../mcp/auth'
 import { validateManifest, checkEngines, normalizeLifecycle } from '@shared/plugin-types'
 import {
   readManifestFromZip,
@@ -123,6 +128,7 @@ export const IPC_CHANNELS = {
   SESSION_CREATE: 'session:create',
   SESSION_UPDATE: 'session:update',
   SESSION_DELETE: 'session:delete',
+  SESSION_DELETED: 'session:deleted',
   SESSION_LIST: 'session:list',
   SESSION_GET: 'session:get',
   SESSION_FAVORITES: 'session:favorites',
@@ -267,6 +273,28 @@ export function broadcastSessionsChanged(): void {
   sendToAllWindows(IPC_CHANNELS.SESSIONS_CHANGED)
 }
 
+/** 禁用/卸载共用：先失效在途动作，再完整断开资源，最后刷新保存项。 */
+async function releasePluginResources(pluginId: string, webOrigins: string[]): Promise<void> {
+  // 应用重启后仍可回收插件创建的保存项与其运行时克隆。
+  for (const saved of sessionRepository.getAll()) {
+    if (saved.ownerPluginId === pluginId) pluginResources.track(pluginId, saved.id, pluginResources.generation(pluginId), true)
+  }
+  await releasePluginSessions(pluginResources, pluginId, {
+    notifyReleased: () => sendToAllWindows('plugin:resources-released', pluginId, webOrigins),
+    listSessions: () => sessionManager.getAllSessions().map(s => ({
+      id: s.id, originSavedSessionId: s.config.originSavedSessionId, ownerPluginId: s.config.ownerPluginId
+    })),
+    deleteSaved: id => { sessionRepository.delete(id) },
+    notifySessionDeleted: id => {
+      // 文件连接清理可能等待 IO，先撤 PTY token，防子进程趁断开窗口继续创建资源。
+      revokeSessionToken(id)
+      sendToAllWindows(IPC_CHANNELS.SESSION_DELETED, id)
+    },
+    notifyChanged: broadcastSessionsChanged,
+    deleteLive: id => sessionManager.deleteSession(id)
+  })
+}
+
 /**
  * MCP open_connection_dialog 工具（C4）调用：通知渲染层打开"新建连接"对话框。
  * agent 把凭据填写交还给用户（MCP 通道不接受凭据）。无 payload——只触发打开动作。
@@ -380,7 +408,7 @@ export function registerIPCHandlers(): void {
 
   // ========== 连接管理 ==========
 
-  ipcMain.handle(IPC_CHANNELS.CONNECTION_CONNECT, async (_event, config: SessionConfig) => {
+  ipcMain.handle(IPC_CHANNELS.CONNECTION_CONNECT, async (_event, config: SessionConfig, rawPluginActionRequestId?: unknown, rawSourceSessionId?: unknown) => {
     log.debug('Connection request:', config.id, 'name:', config.name)
 
     try {
@@ -388,7 +416,31 @@ export function registerIPCHandlers(): void {
       if (config.id !== undefined) assertString(config.id, 'config.id', { maxLength: 128, allowEmpty: true })
       assertString(config.name, 'config.name', { maxLength: 200 })
       assertString(config.type, 'config.type', { maxLength: 32 })
+      if (config.originSavedSessionId !== undefined) assertString(config.originSavedSessionId, 'config.originSavedSessionId', { maxLength: 128 })
       sanitizeSessionEncoding(config)
+      const requestId = assertPluginActionRequestId(rawPluginActionRequestId)
+      const sourceSessionId = assertConnectionCloneSourceId(rawSourceSessionId)
+      const pluginId = requestId === undefined ? undefined : pluginActionDispatcher.terminalRequestPlugin(
+        requestId, BrowserWindow.fromWebContents(_event.sender)?.id ?? null
+      )
+      if (requestId !== undefined && !pluginId) throw new ValidationError('Plugin terminal action is no longer active')
+      if (pluginId && config.id) throw new ValidationError('Plugin terminal action requires a new runtime session')
+      const source = resolveConnectionSource(config, { sourceSessionId, pluginId }, {
+        getSaved: id => sessionRepository.get(id),
+        getLive: id => sessionManager.isSessionDeleting(id) ? undefined : sessionManager.getSession(id),
+        owner: id => pluginResources.owner(id),
+        isPluginEnabled: id => !!pluginRepository.get(id)?.enabled
+      })
+      if (pluginId) {
+        const saved = source.saved!
+        sessionRepository.updateSession({ ...saved, updatedAt: new Date() })
+        broadcastSessionsChanged()
+      }
+      const owner = source.ownerPluginId
+      const generation = owner ? pluginResources.generation(owner) : 0
+      // 不采信 renderer 自报的资源归属。
+      config.ownerPluginId = owner
+      config.originSavedSessionId = source.originSavedSessionId
 
       // 空 id 表示临时会话，直接创建新连接
       if (!config.id || config.id.trim() === '') {
@@ -396,6 +448,10 @@ export function registerIPCHandlers(): void {
         config.createdAt = new Date()
         config.updatedAt = new Date()
         const session = await sessionManager.createSession(config)
+        if (owner && (!pluginRepository.get(owner)?.enabled || !pluginResources.track(owner, session.id, generation))) {
+          await sessionManager.deleteSession(session.id)
+          throw new ValidationError('Plugin was disabled while creating the terminal')
+        }
 
         // 立即返回会话ID，让前端先显示终端
         // 然后异步执行连接
@@ -456,6 +512,10 @@ export function registerIPCHandlers(): void {
 
       const session = existingSession || await sessionManager.createSession(savedConfig)
       const sessionId = session.id
+      if (owner && (!pluginRepository.get(owner)?.enabled || !pluginResources.trackSavedConnection(owner, savedConfig, generation))) {
+        await sessionManager.deleteSession(sessionId)
+        throw new ValidationError('Plugin was disabled while connecting the terminal')
+      }
 
       // 注意：CONNECTING 状态由 connectSession 内部通过 session:status 事件发送
       // 避免重复发送导致前端竞态条件
@@ -551,6 +611,11 @@ export function registerIPCHandlers(): void {
   })
 
   // 监听会话状态变化，发送到所有窗口
+  sessionManager.on('session:deleted', (sessionId: string) => {
+    pluginResources.forgetLiveSession(sessionId)
+    sendToAllWindows(IPC_CHANNELS.SESSION_DELETED, sessionId)
+  })
+
   sessionManager.on('session:status', (data) => {
     sendToAllWindows(IPC_CHANNELS.CONNECTION_STATUS, data)
 
@@ -558,6 +623,7 @@ export function registerIPCHandlers(): void {
     // 尽早开始，让下载时连接已准备好
     if (data.status === 'connected') {
       setTimeout(() => {
+        if (sessionManager.getSession(data.id)?.status !== ConnectionStatus.CONNECTED) return
         fileManager.getConnector(data.id).then(() => {
           log.info(`File connector pre-initialized for session: ${data.id}`)
         }).catch(err => {
@@ -654,6 +720,7 @@ export function registerIPCHandlers(): void {
       assertString(config.type, 'config.type', { maxLength: 32 })
       sanitizeSessionEncoding(config)
       log.debug('Create session:', config.name)
+      delete config.ownerPluginId // 普通 renderer 新建项不能声明插件归属。
       const saved = sessionRepository.saveSession(config)
       syncReachabilityTargets()
       return saved
@@ -674,10 +741,11 @@ export function registerIPCHandlers(): void {
       // (write_session_notes)后镜像刷新落地前存在窄窗口(如编辑对话框开着时收到),
       // 整包保存会把旧值盖回去。写前钳到与仓库现值的较大者,只增不减
       const existing = sessionRepository.get(config.id)
+      if (!existing) throw new ValidationError('Session no longer exists')
       if (existing && typeof existing.connectCount === 'number') {
         config.connectCount = Math.max(config.connectCount ?? 0, existing.connectCount)
       }
-      const saved = sessionRepository.saveSession(config)
+      const saved = sessionRepository.updateSession(config)
       syncReachabilityTargets()
       return saved
     } catch (error) {
@@ -2817,7 +2885,7 @@ export function registerIPCHandlers(): void {
         source: 'dev'
       }
       pluginRepository.upsert(entry)
-      pluginHostManager.restart()
+      await pluginHostManager.restart()
       syncPluginViews()
       mcpAuditRepository.append({
         operation: 'plugin:install',
@@ -3007,7 +3075,7 @@ export function registerIPCHandlers(): void {
         source
       }
       pluginRepository.upsert(entry)
-      pluginHostManager.restart()
+      await pluginHostManager.restart()
       syncPluginViews()
       mcpAuditRepository.append({
         operation: 'plugin:install',
@@ -3049,7 +3117,7 @@ export function registerIPCHandlers(): void {
       const id = assertString(pluginId, 'pluginId', { maxLength: 128 })
       const ok = pluginRepository.setEnabled(id, true)
       if (ok) {
-        pluginHostManager.restart()
+        await pluginHostManager.restart()
         syncPluginViews()
         mcpAuditRepository.append({
           operation: 'plugin:enable',
@@ -3068,13 +3136,15 @@ export function registerIPCHandlers(): void {
   ipcMain.handle('plugin:disable', async (_event, pluginId: string) => {
     try {
       const id = assertString(pluginId, 'pluginId', { maxLength: 128 })
+      const webOrigins = uniquePluginWebOrigins(getPluginViewRegistry().listViews(), id)
       const ok = pluginRepository.setEnabled(id, false)
       if (ok) {
         // 先变更/撤权（整插件撤销：host + UI token 一起失效，旧页面动作即刻 401），
         // 再 restart + 视图联动通知 renderer 重拉。guest 面板/弹窗 main 侧强制关闭。
         revokeAllPluginTokens(id)
         teardownPluginViews(id)
-        pluginHostManager.restart()
+        const cleanup = releasePluginResources(id, webOrigins)
+        await Promise.all([cleanup, pluginHostManager.restart()])
         syncPluginViews()
         mcpAuditRepository.append({
           operation: 'plugin:disable',
@@ -3090,7 +3160,6 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  // 卸载:§8.4 三步撤销。先 remove(让 start 重读 getEnabled 不再激活本插件) -> restart(停进程+撤 token) -> 非dev删文件夹。
   ipcMain.handle('plugin:run-oneshot', async (_event, pluginId: string) => {
     try {
       const id = assertString(pluginId, 'pluginId', { maxLength: 128 })
@@ -3110,17 +3179,25 @@ export function registerIPCHandlers(): void {
     }
   })
 
+  // 卸载先禁用并回收资源；只有清理成功才删记录，失败时保留禁用项供再次卸载。
   ipcMain.handle('plugin:uninstall', async (_event, pluginId: string) => {
     try {
       const id = assertString(pluginId, 'pluginId', { maxLength: 128 })
       const entry = pluginRepository.get(id)
       if (!entry) return { success: false, error: '插件不存在' }
-      pluginRepository.remove(id)
+      const webOrigins = uniquePluginWebOrigins(getPluginViewRegistry().listViews(), id)
+      pluginRepository.setEnabled(id, false)
       // 三步撤销第 2 步扩展：host + UI token 一起撤（视图凭据不得比注册表活得久）。
       // guest 面板/弹窗 main 侧强制关闭（与 disable 同语义）。
       revokeAllPluginTokens(id)
       teardownPluginViews(id)
-      pluginHostManager.restart()
+      const cleanup = releasePluginResources(id, webOrigins)
+      const resourceGeneration = pluginResources.generation(id)
+      await Promise.all([cleanup, pluginHostManager.restart()])
+      if (pluginRepository.get(id) !== entry || entry.enabled || !pluginResources.isCurrent(id, resourceGeneration)) {
+        return { success: false, error: '插件在卸载期间已变更，请重试' }
+      }
+      pluginRepository.remove(id)
       syncPluginViews()
       // dev 插件 path 指向开发者源码树,卸载只删记录,绝不删源文件夹;仅 !dev(zip 安装)才删。
       // 删前 assertUnderBase 兜底:pluginDir 必须严格在 pluginsDir 下,防 path 越界误删(zip-slip 纵深防御)。

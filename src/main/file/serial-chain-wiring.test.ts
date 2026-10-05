@@ -36,8 +36,8 @@ describe('worker manager 串行队列取消配线', () => {
 
   it('删除会话复用完整断开清理后移除运行时 Map、输出缓冲并发送事件', () => {
     const deleteBody = SESSION_MANAGER.slice(
-      SESSION_MANAGER.indexOf('async deleteSession('),
-      SESSION_MANAGER.indexOf('/**\n   * 连接会话')
+      SESSION_MANAGER.indexOf('deleteSession(id: string)'),
+      SESSION_MANAGER.indexOf('async connectSession(')
     )
     expect(deleteBody).toContain('await this.disconnectSession(id)')
     expect(deleteBody).toContain('outputBuffer?.clear()')
@@ -85,7 +85,8 @@ describe('worker manager 串行队列取消配线', () => {
     )
     expect(closeHandler).toContain('if (!isCurrentAttempt()) return')
     expect(closeHandler).toContain('this.cleanupDisconnectedSession(id, generation, connector)')
-    expect(SESSION_MANAGER).toContain('if (session.disconnectCleanup) await session.disconnectCleanup')
+    expect(SESSION_MANAGER).toContain('this.disconnectingSessions.get(session) ?? session.disconnectCleanup')
+    expect(SESSION_MANAGER).toContain('if (disconnect) await disconnect')
     expect(cleanupBody).toContain('if (session.disconnectCleanup) return session.disconnectCleanup')
     const cancelDownloadAt = cleanupBody.indexOf('cancelDownloadsBySession(id)')
     const cancelUploadAt = cleanupBody.indexOf('cancelUploadsBySession(id)')

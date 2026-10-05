@@ -83,14 +83,18 @@ export interface WebTabPopupRequest {
   url: string
   background?: boolean
   postToken?: string
+  /** main 提供发起 webContents 身份，后代页签继承插件归属。 */
+  sourceWebContentsId?: number
+  /** 小窗与旧页签没有归属字段时，按 main 提供的来源地址识别本机服务。 */
+  sourceUrl?: string
 }
 
 /**
  * 覆盖层 payload（判别联合）—— 内容数据，按 id 存于 pane-store 的 overlayPayloads 字典。
  * 瞬态：与挂载点一样不持久化，重启即回收。
  */
-export type OverlayPayload =
+export type OverlayPayload = { ownerPluginId?: string } & (
   | { kind: 'web'; url: string; title: string; favicon?: string; nav?: WebTabNav; postToken?: string }
   | { kind: 'doc' } & DocOverlayPayload
   | { kind: 'dshWeb'; url: string; name: string; cwd?: string }
-  | { kind: 'mcpAudit' }
+  | { kind: 'mcpAudit' })

@@ -6,7 +6,7 @@
  * 注入覆写 + 失败把错误写进页签 + 重开版本守卫（manualMcp 注入 mock 为可控 promise）。
  */
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
-import { refreshDocTab, openRemoteDoc, openBuiltinHelpDoc, BUILTIN_HELP_PATH } from './readDoc'
+import { refreshDocTab, openRemoteDoc, openLocalDoc, openBuiltinHelpDoc, BUILTIN_HELP_PATH } from './readDoc'
 import { usePaneStore } from '../../stores/pane-store'
 import type { DocOverlayPayload, OverlayPayload, OverlayRef, PaneLeaf } from '@shared/types'
 
@@ -80,6 +80,38 @@ const docPayload = (): (OverlayPayload & DocOverlayPayload) | undefined => {
 
 const docOverlayCount = (): number =>
   usePaneStore.getState().getAllLeafPanes().reduce((n, p) => n + p.overlays.filter(r => r.kind === 'doc').length, 0)
+
+describe('插件文档资源清理', () => {
+  beforeEach(() => {
+    deferred.length = 0
+    window.electronAPI = { fileReadLocalDoc: () => new Promise(resolve => deferred.push(resolve)) } as unknown as typeof window.electronAPI
+    usePaneStore.setState({ layout: { root: leaf([]), activePaneId: 'pane-1' }, overlayPayloads: {} })
+  })
+
+  it.each([ok('# late'), { success: false, error: 'read failed' }])('禁用后迟到的读取不挂成功或错误页签', async response => {
+    let active = true
+    const onMount = vi.fn()
+    const result = openLocalDoc('C:/plugin/doc.md', undefined, { isActive: () => active, onMount })
+    active = false
+    deferred[0](response)
+    expect((await result).ok).toBe(false)
+    expect(docOverlayCount()).toBe(0)
+    expect(onMount).not.toHaveBeenCalled()
+  })
+
+  it('仅新增页签归插件所有，复用用户文档时不夺取归属', async () => {
+    const onMount = vi.fn()
+    const lifecycle = { isActive: () => true, onMount }
+    const first = openLocalDoc('C:/plugin/doc.md', undefined, lifecycle)
+    deferred[0](ok('# first'))
+    await first
+    const second = openLocalDoc('C:/plugin/doc.md', undefined, lifecycle)
+    deferred[1](ok('# refreshed'))
+    await second
+    expect(onMount.mock.calls.map(call => call[1])).toEqual([true, false])
+    expect(docOverlayCount()).toBe(1)
+  })
+})
 
 beforeEach(() => {
   deferred.length = 0

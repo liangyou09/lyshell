@@ -179,6 +179,7 @@ export class PluginActionDispatcher {
     string,
     {
       pluginId: string
+      action: PluginUiAction
       ownerWindowId: number
       timer: ReturnType<typeof setTimeout>
       resolve: (result: ActionResult) => void
@@ -290,6 +291,7 @@ export class PluginActionDispatcher {
       }, ACTION_RESULT_TIMEOUT_MS)
       this.pending.set(requestId, {
         pluginId: guest.pluginId,
+        action,
         ownerWindowId: guest.ownerWindowId,
         timer,
         resolve
@@ -354,6 +356,14 @@ export class PluginActionDispatcher {
 
   pendingCount(): number {
     return this.pending.size
+  }
+
+  /** 连接 IPC 只接受本窗口仍在途的 openTerminal 请求，归属由 main 推导。 */
+  terminalRequestPlugin(requestId: string, ownerWindowId: number | null): string | undefined {
+    const pending = this.pending.get(requestId)
+    if (!pending || pending.ownerWindowId !== ownerWindowId || pending.action !== 'openTerminal') return undefined
+    const plugin = pluginRepository.get(pending.pluginId)
+    return plugin?.enabled ? plugin.id : undefined
   }
 }
 

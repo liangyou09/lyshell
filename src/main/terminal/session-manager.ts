@@ -8,6 +8,24 @@ import { processInputEscapeSequences, appendAutoNewline } from '@shared/escape-s
 import { OutputBuffer } from './output-buffer'
 import { OscCwdTracker } from './osc-cwd-tracker'
 import { fileManager, cancelDownloadsBySession, cancelUploadsBySession } from '@main/file'
+import { pluginResources } from '@main/plugin/resource-registry'
+
+const SHELL_OPEN_CLEANUP_TIMEOUT_MS = 5000
+
+/** 创建失败也要继续关闭；等待超时则保留资源，不能误报已经关闭。 */
+async function waitForShellOpeningForCleanup(opening: Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      opening.catch(() => {}),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('SSH shell cleanup timed out while waiting for shell creation')), SHELL_OPEN_CLEANUP_TIMEOUT_MS)
+      })
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 /** read_output 读取选项 */
 export interface ReadOutputOptions {
@@ -115,6 +133,11 @@ export interface Session {
  */
 export class SessionManager extends EventEmitter {
   private sessions: Map<string, Session> = new Map()
+  private deletingSessions = new WeakMap<Session, Promise<boolean>>()
+  private pendingSessionDeletions = new WeakSet<Session>()
+  private failedDisconnects = new WeakSet<Session>()
+  private disconnectingSessions = new WeakMap<Session, Promise<void>>()
+  private pendingShellOpenings = new WeakMap<Session, Promise<void>>()
   private activeSessionId: string | null = null
 
   // 各渲染窗口中当前在终端页签/分屏里打开的会话集合（key = WebContents.id）
@@ -152,6 +175,12 @@ export class SessionManager extends EventEmitter {
    */
   getSession(id: string): Session | undefined {
     return this.sessions.get(id)
+  }
+
+  /** 删除在异步断开前即失效，普通克隆不能再从残留 Map 项认领来源。 */
+  isSessionDeleting(id: string): boolean {
+    const session = this.sessions.get(id)
+    return !!session && this.pendingSessionDeletions.has(session)
   }
 
   /**
@@ -292,25 +321,46 @@ export class SessionManager extends EventEmitter {
   /**
    * 删除运行时会话。先复用完整断开流程取消传输、清理连接器并撤销 token，再立即清除缓冲与 Map。
    */
-  async deleteSession(id: string): Promise<boolean> {
+  deleteSession(id: string): Promise<boolean> {
     const session = this.sessions.get(id)
-    if (!session) return false
+    if (!session) return Promise.resolve(false)
+    const pending = this.deletingSessions.get(session)
+    if (pending) return pending
+
+    // 先登记共享 Promise，再开始断开；同步事件中的重入删除也复用本次清理。
+    let resolve!: (deleted: boolean) => void
+    let reject!: (error: unknown) => void
+    const deletion = new Promise<boolean>((onResolve, onReject) => { resolve = onResolve; reject = onReject })
+    this.pendingSessionDeletions.add(session)
+    this.deletingSessions.set(session, deletion)
+    void this.deleteSessionObject(id, session).then(resolve, reject)
+    return deletion
+  }
+
+  private async deleteSessionObject(id: string, session: Session): Promise<boolean> {
     const outputBuffer = session.outputBuffer
 
     try {
       await this.disconnectSession(id)
-    } catch (err) {
-      log.warn(`Session cleanup on delete failed for ${id}:`, err)
-    } finally {
       outputBuffer?.clear()
       session.outputBuffer = undefined
-      this.sessions.delete(id)
-      if (this.activeSessionId === id) this.activeSessionId = null
-      for (const ids of this.terminalOpenSessions.values()) ids.delete(id)
-      log.info(`Session deleted: ${id}`)
-      this.emit('session:deleted', id)
+      // 只移除本次清理的对象，旧删除不能按 ID 误删替代会话或发送其删除事件。
+      if (this.sessions.get(id) === session) {
+        this.sessions.delete(id)
+        if (this.activeSessionId === id) this.activeSessionId = null
+        for (const ids of this.terminalOpenSessions.values()) ids.delete(id)
+        log.info(`Session deleted: ${id}`)
+        this.emit('session:deleted', id)
+      }
+      this.pendingSessionDeletions.delete(session)
+      return true
+    } catch (err) {
+      // 清理失败保留对象和删除意图；再次 delete 可重试，连接/克隆不能复活残留资源。
+      log.warn(`Session cleanup on delete failed for ${id}:`, err)
+      throw err
+    } finally {
+      this.deletingSessions.delete(session)
     }
-    return true
   }
 
   /**
@@ -319,6 +369,8 @@ export class SessionManager extends EventEmitter {
   async connectSession(id: string): Promise<Session> {
     const session = this.sessions.get(id)
     if (!session) throw new Error(`Session not found: ${id}`)
+    if (this.isSessionDeleting(id)) throw new Error(`Session is being deleted: ${id}`)
+    if (this.failedDisconnects.has(session)) throw new Error(`Previous disconnect failed: ${id}`)
     if (session.connectPromise) {
       if (!session.disconnectCleanup) return session.connectPromise
       try { await session.connectPromise } catch { /* 旧 attempt 被断开/替代 */ }
@@ -336,8 +388,12 @@ export class SessionManager extends EventEmitter {
   }
 
   private async connectSessionAttempt(id: string, session: Session): Promise<Session> {
-    if (session.disconnectCleanup) await session.disconnectCleanup
+    const disconnect = this.disconnectingSessions.get(session) ?? session.disconnectCleanup
+    if (disconnect) await disconnect
     if (this.sessions.get(id) !== session) throw new Error(`Session replaced: ${id}`)
+    // 等待断开清理期间可能开始删除，不能为即将移除的对象创建新连接器。
+    if (this.isSessionDeleting(id)) throw new Error(`Session is being deleted: ${id}`)
+    if (this.failedDisconnects.has(session)) throw new Error(`Previous disconnect failed: ${id}`)
 
     session.disconnectCleanup = undefined
     const generation = (session.connectorGeneration ?? 0) + 1
@@ -346,6 +402,7 @@ export class SessionManager extends EventEmitter {
     let connector: Session['connector']
     const isCurrentAttempt = (): boolean =>
       this.sessions.get(id) === session &&
+      !this.isSessionDeleting(id) &&
       session.disconnectCleanup === undefined &&
       session.connectorGeneration === generation &&
       (connector === undefined || session.connector === connector)
@@ -554,29 +611,59 @@ export class SessionManager extends EventEmitter {
   /**
    * 断开会话
    */
-  async disconnectSession(id: string): Promise<void> {
+  disconnectSession(id: string): Promise<void> {
     const session = this.sessions.get(id)
-    if (!session) throw new Error(`Session not found: ${id}`)
+    if (!session) return Promise.reject(new Error(`Session not found: ${id}`))
+    const pending = this.disconnectingSessions.get(session)
+    if (pending) return pending
 
+    // 同步事件重入也共享完整关闭流程，连接必须等原生关闭与文件清理全部结束。
+    let resolve!: () => void
+    let reject!: (error: unknown) => void
+    const disconnect = new Promise<void>((onResolve, onReject) => { resolve = onResolve; reject = onReject })
+    this.disconnectingSessions.set(session, disconnect)
+    void this.disconnectSessionObject(id, session).then(resolve, reject)
+    return disconnect
+  }
+
+  private async disconnectSessionObject(id: string, session: Session): Promise<void> {
     // 首个 await 前同步开始清理，阻止清理期间启动新的文件任务。
     const connector = session.connector
     const generation = session.connectorGeneration
-    const cleanup = this.cleanupDisconnectedSession(id, generation, connector)
-    if (connector) {
+    try {
+      const cleanup = this.cleanupDisconnectedSession(id, generation, connector)
       try {
-        await connector.disconnect()
-      } catch (err) {
-        log.warn(`Connector disconnect failed for ${id}:`, err)
+        // 克隆的 shell 回调可能迟到；创建落定前不能确认 connector 已完整关闭。
+        const opening = this.pendingShellOpenings.get(session)
+        if (opening) {
+          await waitForShellOpeningForCleanup(opening)
+        }
+        if (connector) await connector.disconnect()
+      } finally {
+        // 即使原生关闭失败也完成文件任务取消与撤权，但不得吞掉关闭错误。
+        await cleanup
       }
+      this.failedDisconnects.delete(session)
+    } catch (err) {
+      this.failedDisconnects.add(session)
+      log.warn(`Connector disconnect failed for ${id}:`, err)
+      throw err
+    } finally {
+      this.disconnectingSessions.delete(session)
     }
-    await cleanup
   }
 
   /**
    * 重连会话
    */
   async reconnectSession(id: string): Promise<Session> {
+    const session = this.sessions.get(id)
+    if (!session) throw new Error(`Session not found: ${id}`)
+    if (this.isSessionDeleting(id)) throw new Error(`Session is being deleted: ${id}`)
     await this.disconnectSession(id)
+    // 断开等待后复核身份，不能重连同 ID 的替代对象或删除中的旧会话。
+    if (this.sessions.get(id) !== session) throw new Error(`Session replaced: ${id}`)
+    if (this.isSessionDeleting(id)) throw new Error(`Session is being deleted: ${id}`)
     return await this.connectSession(id)
   }
 
@@ -657,6 +744,9 @@ export class SessionManager extends EventEmitter {
       return null
     }
 
+    const owner = pluginResources.owner(sourceSessionId) ?? sourceSession.config.ownerPluginId
+    const resourceGeneration = owner ? pluginResources.generation(owner) : 0
+
     // 创建新会话 ID
     const newId = uuidv4()
 
@@ -666,6 +756,7 @@ export class SessionManager extends EventEmitter {
     // 创建新会话配置
     const newConfig: SessionConfig = {
       ...sourceSession.config,
+      ownerPluginId: owner,
       id: newId,
       name: newName,
       createdAt: new Date(),
@@ -701,9 +792,33 @@ export class SessionManager extends EventEmitter {
 
     newSession.connector = newConnector
 
+    // 首个 await 前登记，禁用可连同正在开启的 shell channel 一并回收。
+    if (owner && !pluginResources.track(owner, newId, resourceGeneration)) {
+      await this.deleteSession(newId)
+      return null
+    }
+
+    // 先登记原始创建任务，删除等待它而不是等待 cloneChannel（后者也会加入删除）。
+    // 必须在调用连接器前落位，覆盖同步事件重入删除。
+    let resolveOpening!: () => void
+    let rejectOpening!: (error: unknown) => void
+    const opening = new Promise<void>((resolve, reject) => { resolveOpening = resolve; rejectOpening = reject })
+    this.pendingShellOpenings.set(newSession, opening)
+
     // 启动 shell
     try {
-      await newConnector.startShellOnly()
+      try {
+        newConnector.startShellOnly().then(resolveOpening, rejectOpening)
+      } catch (error) {
+        rejectOpening(error)
+      }
+      await opening
+
+      if (this.sessions.get(newId) !== newSession || this.sessions.get(sourceSessionId) !== sourceSession
+        || sourceSession.status !== ConnectionStatus.CONNECTED || newSession.disconnectCleanup
+        || (owner && !pluginResources.isCurrent(owner, resourceGeneration))) {
+        throw new Error('Cloned channel was cancelled while opening')
+      }
 
       // 创建输出缓冲区
       newSession.outputBuffer = new OutputBuffer()
@@ -740,8 +855,12 @@ export class SessionManager extends EventEmitter {
 
     } catch (error) {
       log.error(`Failed to start shell for cloned channel: ${error}`)
-      this.sessions.delete(newId)
+      // 共享删除回执；关闭失败保留运行时与归属，不能吞错后丢掉重试入口。
+      await this.deleteSession(newId)
+      pluginResources.forgetLiveSession(newId)
       return null
+    } finally {
+      this.pendingShellOpenings.delete(newSession)
     }
   }
 
