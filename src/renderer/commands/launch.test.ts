@@ -58,6 +58,24 @@ describe('connectSession:启动链路', () => {
     expect(listSessions).not.toHaveBeenCalled()
   })
 
+  it.each(['', '   '])('临时本地会话(id=%j)跳过保存更新，直接启动终端', async (id) => {
+    updateSession.mockResolvedValue({ success: false, error: 'config.id is required' })
+    connect.mockResolvedValue({ id: 'local-1', status: ConnectionStatus.CONNECTING })
+    const config: SessionConfig = { ...savedSsh, id, type: ConnectionType.LOCAL, local: { shell: 'powershell' } }
+
+    await expect(connectSession(config)).resolves.toEqual({ ok: true, sessionId: 'local-1' })
+    expect(updateSession).not.toHaveBeenCalled()
+    expect(listSessions).not.toHaveBeenCalled()
+    expect(connect).toHaveBeenCalledWith({ ...config, id: '', originSavedSessionId: undefined }, undefined)
+  })
+
+  it('已保存会话更新失败时返回错误，不继续创建连接', async () => {
+    updateSession.mockResolvedValue({ success: false, error: 'session update failed' })
+    await expect(connectSession(savedSsh)).resolves.toEqual({ ok: false, error: 'session update failed' })
+    expect(listSessions).not.toHaveBeenCalled()
+    expect(connect).not.toHaveBeenCalled()
+  })
+
   it('touch 访问时间(仍用原 saved id)→ 刷新 saved 列表 → 以 runtime 克隆连接', async () => {
     await connectSession(savedSsh)
 

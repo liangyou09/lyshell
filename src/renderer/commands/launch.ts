@@ -26,17 +26,23 @@ export interface ConnectSessionResult {
 
 export async function connectSession(config: SessionConfig, pluginActionRequestId?: string): Promise<ConnectSessionResult> {
   try {
-    // 更新访问时间（仍用原 saved id）
+    // 临时会话没有 saved id，直接连接；更新接口只接受已保存会话。
     // 插件动作的 touch 由 main 在授权后执行，撤销后不能先写回再拒绝连接。
-    if (!pluginActionRequestId) {
-      const touched = await window.electronAPI?.updateSession({ ...config, updatedAt: new Date() })
-      if (touched && typeof touched === 'object' && 'success' in touched && touched.success === false) {
-        return { ok: false, error: 'error' in touched && typeof touched.error === 'string' ? touched.error : 'session update failed' }
+    if (!pluginActionRequestId && config.id.trim()) {
+      const updated = await window.electronAPI?.updateSession({
+        ...config,
+        updatedAt: new Date()
+      })
+      if (updated && typeof updated === 'object' && 'success' in updated && updated.success === false) {
+        return {
+          ok: false,
+          error: 'error' in updated && typeof updated.error === 'string' ? updated.error : 'session update failed'
+        }
       }
       await useSessionStore.getState().refreshSavedSessions()
     }
 
-    const runtimeConfig: SessionConfig = { ...config, id: '', originSavedSessionId: config.id }
+    const runtimeConfig: SessionConfig = { ...config, id: '', originSavedSessionId: config.id.trim() ? config.id : undefined }
 
     // 调用后端连接（后端会立即返回 sessionId，前端显示终端）
     const res = await window.electronAPI?.connect(runtimeConfig, pluginActionRequestId)

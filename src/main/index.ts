@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto'
 // 必须是首个本地 import：dev userData 分离要在任何 getPath('userData') 之前生效，
 // 挪后静默失效。播种本身不在 import 期跑，见下方 seedDevConfigFromProd 调用点
 import { seedDevConfigFromProd } from './dev-user-data'
+import { startDemoStage } from './demo-stage'
 
 // 导入模块
 import { registerIPCHandlers } from './ipc/handlers'
@@ -453,9 +454,11 @@ function createMainWindow(): void {
   })
 
   // 记住手动拖拽/边框缩放后的窗口尺寸(debounce 500ms;最大化期间不记,避免记成最大化尺寸;只记尺寸不记位置)
+  // 演示会强制切换录制尺寸，不覆盖正常启动时使用的窗口偏好。
+  const persistWindowSize = !process.argv.includes('--demo-stage')
   let resizePersistTimer: NodeJS.Timeout | undefined
   mainWindow.on('resize', () => {
-    if (!mainWindow || mainWindow.isMaximized()) return
+    if (!persistWindowSize || !mainWindow || mainWindow.isMaximized()) return
     clearTimeout(resizePersistTimer)
     resizePersistTimer = setTimeout(() => {
       if (!mainWindow || mainWindow.isMaximized()) return
@@ -746,6 +749,9 @@ function createMainWindow(): void {
       if (decision === 'cancel') log.warn('Blocked webview frame navigation:', e.url)
     })
   })
+
+  // 每次建窗都初始化演示服务，覆盖 macOS 关窗后的 activate 重建路径。
+  startDemoStage(mainWindow)
 
   if (isDev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
