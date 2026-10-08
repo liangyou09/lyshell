@@ -15,3 +15,8 @@ indent_size = 2
 [*.py]
 indent_style = space
 indent_size = 4
+
+# NSIS 通过 BOM 识别协议文件的 Unicode 编码。
+[resources/licenses/LyShell-LICENSE.txt]
+charset = utf-8-bom
+end_of_line = crlf

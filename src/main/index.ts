@@ -8,6 +8,8 @@ import { randomUUID } from 'crypto'
 // 挪后静默失效。播种本身不在 import 期跑，见下方 seedDevConfigFromProd 调用点
 import { seedDevConfigFromProd } from './dev-user-data'
 import { startDemoStage } from './demo-stage'
+import { explorerLaunchQueue, parseExplorerDirectory, validateExplorerDirectory } from './explorer-launch'
+import { readActiveExplorerDirectory } from './explorer-directory'
 
 // 导入模块
 import { registerIPCHandlers } from './ipc/handlers'
@@ -429,6 +431,7 @@ function createMainWindow(): void {
   })
 
   // 设置主窗口引用给 Worker 管理器
+  explorerLaunchQueue.consumerId = mainWindow.webContents.id
   setMainWindow(mainWindow)
   setMainWindowForUpload(mainWindow)
 
@@ -468,6 +471,7 @@ function createMainWindow(): void {
   })
 
   mainWindow.on('closed', () => {
+    explorerLaunchQueue.consumerId = null
     clearTimeout(resizePersistTimer)
     setMainWindow(null)  // 清除窗口引用
     setMainWindowForUpload(null)
@@ -782,7 +786,14 @@ function registerWindowShortcuts(): void {
 // （抖音「保存登录信息」弹窗卡死即此症状，详见 dev-user-data.ts 注释）。二实例
 // 直接退出；已跑实例收到 second-instance 通知后还原/聚焦主窗口。锁按 userData
 // 目录隔离 —— dev 分离目录后 dev 与正式版各自持锁、可并存
-const gotSingleInstanceLock = app.requestSingleInstanceLock()
+const startupArgs = process.argv.slice(app.isPackaged ? 1 : 2)
+const startupDirectory = process.platform === 'win32'
+  ? validateExplorerDirectory(parseExplorerDirectory(
+    startupArgs, process.cwd(), app.isPackaged,
+    app.isPackaged && startupArgs.length === 0 ? readActiveExplorerDirectory() : null
+  ))
+  : null
+const gotSingleInstanceLock = app.requestSingleInstanceLock({ explorerDirectory: startupDirectory })
 if (!gotSingleInstanceLock) {
   app.quit()
 } else {
@@ -791,9 +802,23 @@ if (!gotSingleInstanceLock) {
   // 位置须早于 whenReady 里任何仓储的首次读盘（它们延迟初始化，最早是
   // downloadHistory.init()），否则那边先 load 到空档案。详见 dev-user-data.ts
   seedDevConfigFromProd()
-  app.on('second-instance', () => {
+  if (startupDirectory) explorerLaunchQueue.enqueue(startupDirectory)
+  app.on('second-instance', (_event, argv, workingDirectory, additionalData) => {
+    if (process.platform === 'win32') {
+      // 传原实例解析后的 cwd，避免 Chromium 调整二实例 argv 后丢掉无参数启动语义。
+      const directory = validateExplorerDirectory(
+        additionalData && typeof additionalData === 'object' && 'explorerDirectory' in additionalData
+          ? additionalData.explorerDirectory
+          : parseExplorerDirectory(argv.slice(app.isPackaged ? 1 : 2), workingDirectory, app.isPackaged)
+      )
+      if (directory) {
+        explorerLaunchQueue.enqueue(directory)
+        mainWindow?.webContents.send(IPC_CHANNELS.EXPLORER_LAUNCH_PENDING)
+      }
+    }
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
       mainWindow.focus()
     }
   })

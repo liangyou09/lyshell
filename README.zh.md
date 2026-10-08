@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/LyShell-v1.0.9-0078D4?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/LyShell-v2.0.0-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
@@ -11,6 +11,8 @@
 > 🔌 **你的终端，也是 AI 的终端。** LyShell 是一款内置 MCP 服务端的 Windows 终端 — 让 Claude Code 等 AI 客户端直接操控你的 SSH / Telnet / 串口 / 本地 PTY 会话。还集成了 `Ctrl+Shift+P` 全屏命令面板、AI Harness 工作区（TUI + 内嵌 Web UI，支持 git worktree 隔离）、文档页签、通用网页页签、AI Agent 启动栏、插件系统和 Python 脚本引擎。
 
 **简体中文** | [English](README.md)
+
+[v2.0.0 中英文发行说明 / Release Notes](RELEASE_NOTES_v2.0.0.md)
 
 [✨ 核心亮点](#-核心亮点) · [⌨️ 命令面板与文档页签](#-命令面板与文档页签) · [🐋 DeepSeek Harness](#-deepseek-harness) · [🌐 网页页签](#-网页页签) · [🔗 MCP 集成](#-mcp-集成) · [🤖 AI Agent](#-ai-agent) · [🧩 插件与脚本](#-插件系统--python-脚本) · [🚀 快速上手](#-快速上手) · [❓ 常见问题](#-常见问题)
 
@@ -36,13 +38,26 @@
 
 ## 📥 安装
 
-从 [Releases](https://github.com/liangyou09/lyshell_release/releases) 下载最新版本 — **免安装**，下载即用。
+从 [Releases](https://github.com/liangyou09/lyshell_release/releases) 下载安装版或便携版；便携版免安装，下载即用。
 
 | 平台 | 格式 | 架构 | 系统要求 |
 |------|------|------|----------|
-| 🪟 Windows | 便携版 (.exe) | x64 | Windows 10 / 11，64 位 |
+| 🪟 Windows | 安装版 (`-setup.exe`) | x64 | Windows 10 / 11，64 位 |
+| 🪟 Windows | 便携版 (`-portable.exe`) | x64 | Windows 10 / 11，64 位 |
 
 > 🚧 目前**仅提供 Windows 版本**，macOS / Linux 暂未发布。
+
+### 从资源管理器打开终端
+
+安装版会注册以下入口（更新后需运行新的 `-setup.exe`）：
+
+- 右键文件夹、驱动器或文件夹空白处，选择 **使用 LyShell 打开**。Windows 11 可在“显示更多选项”中找到。
+- 在资源管理器地址栏输入 `lyshell` 并回车，在当前目录打开终端。
+- 也可指定目录：`lyshell --open-directory "D:\项目目录"`。
+
+终端优先使用 PowerShell 7（`pwsh.exe`），未安装时使用 Windows PowerShell。已有窗口时新增临时终端页签；目录不会保存为连接配置。终端使用 `-NoProfile`，保证启动目录不被 PowerShell profile 改写。地址栏无参数启动会读取前台资源管理器的活动页签目录；其它无参数启动使用进程启动工作目录。
+
+便携版不注册右键菜单或地址栏名称；可通过完整可执行文件路径加 `--open-directory` 启动。卸载安装版时自动移除对应入口。
 
 ---
 

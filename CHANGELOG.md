@@ -6,13 +6,38 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，�
 
 ## [Unreleased]
 
+## [2.0.0] - 待发布 / Pending release
+
+GitHub Release 文案 / Release copy: [中英文发行说明 / Chinese & English](RELEASE_NOTES_v2.0.0.md)
+
+### 新增 Features
+
+- **插件界面与弹窗**：新增声明式及运行时 HTML 视图、机柜槽位、页面动作、弹窗结果与主题事件，并提供示例。*Added declarative and runtime HTML views, activity rail slots, page actions, dialog results, theme events, and examples.*
+- **画轴材质**：新增胡桃木、玉石、漆器、瓷器选择，独立于主题保存。*Added walnut, jade, lacquer, and porcelain scroll materials, saved independently of the theme.*
+- **自动演示**：通过 `--demo-stage` 显式开启固定演示场景。*Added fixed demo scenes, explicitly enabled with `--demo-stage`.*
+
 ### 变更 Changed
+
+- **安装目录**：选择安装位置后自动追加 `LyShell` 子目录，已以同名目录结尾时不重复追加，判断不区分大小写；网络共享根目录始终追加子目录。*The installer adds a `LyShell` subfolder unless the selected folder already ends in `LyShell`, compared without case sensitivity. Network share roots always get a subfolder.*
+
+- **网页页签与弹窗**：切换页签及分屏移动时保留页面状态，完善新窗口、目标页签及 POST 弹出处理。*Web tabs retain page state across tab switches and split-pane moves, with improved new-window, target-tab, and POST popup handling.*
+- **设置与终端查找**：统一画卷样式、收紧面板间距，改进查找选项、非法正则提示与匹配状态。*Unified scroll styling, tightened panel spacing, and improved search options, invalid-regex feedback, and match status.*
+- **Windows 产物命名**：安装版以 `-setup.exe` 结尾，便携版以 `-portable.exe` 结尾。*Windows installers now end in `-setup.exe` and portable builds in `-portable.exe`.*
 
 - **变量组启用改为全局单选**：环境变量组的启用从 dsh / codex / claude 三根独立指针收敛为全应用同一时刻至多一组通电（dsh / codex / claude 与 dsh Web 共用同一根；点亮新组即熄灭旧组，再点一次回落系统环境变量）。升级时按 dsh → codex → claude 顺序保留首个既有指针。*Env profile activation is now a single global switch instead of three per-kind pointers — dsh / codex / claude and the dsh Web UI all follow the same one (lighting a new set dims the old; clicking the lit one again falls back to system env). On upgrade the first existing pointer (dsh → codex → claude order) is kept.*
 
 ### 修复 Fixes
 
+- **安装协议显示**：修复 Windows 安装向导中许可证的中文乱码。*Fixed garbled Chinese license text in the Windows installer.*
+
+- **资源清理**：完善插件禁用、卸载、异常退出及应用退出时的连接、页签、视图、弹窗与受控子进程清理，修复异步回收与重启竞态。*Improved cleanup of connections, tabs, views, dialogs, and controlled subprocesses on plugin disable, uninstall, crashes, and app shutdown, including asynchronous cleanup and restart races.*
+- **渲染与启动**：增加渲染异常兜底、隔离插件开发环境，修复临时会话启动与抖音网页布局。*Added a renderer error fallback, isolated plugin development environments, and fixed transient session launches and Douyin page layout.*
+
 - **dsh Web 默认工作区吃不到变量组凭据**：此前无绑定工作区的 dsh Web 启动分支只注入启用组的附加变量，结构化核心（`DEEPSEEK_BASE_URL` / `DEEPSEEK_API_KEY`）从未物化注入；现与 TUI 启动走同一份解析链。*The dsh Web default-workspace launch only injected the enabled set's extra vars and never materialized its structured credentials (`DEEPSEEK_BASE_URL` / `DEEPSEEK_API_KEY`); it now shares the same resolution chain as TUI launches.*
+
+### 插件兼容 Plugin compatibility
+
+- 主版本号升为 2；仅声明 `engines.lyshell: "^1.0"` 的插件会显示兼容警告，但不会因此阻止安装。*The major version is now 2; plugins declaring only `engines.lyshell: "^1.0"` show a compatibility warning, which does not block installation.*
 
 ## [1.0.9] - 2026-09-27
 
@@ -65,8 +90,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，�
 - 新增插件系统（Python / Node.js 两种运行时，支持开发目录 / ZIP / URL 安装）。*Plugin system with Python and Node.js runtimes, installable from a dev directory, ZIP, or URL.*
 - 提供 MCP HTTP API，供外部工具与 AI Agent 编排终端会话。*MCP HTTP API for external tools and AI agents to orchestrate terminal sessions.*
 
-[Unreleased]: https://github.com/liangyou09/lyshell_release/compare/v1.0.9...HEAD
+[Unreleased]: https://github.com/liangyou09/lyshell_release/compare/v2.0.0...HEAD
 
+[2.0.0]: https://github.com/liangyou09/lyshell_release/releases/tag/v2.0.0
 [1.0.9]: https://github.com/liangyou09/lyshell_release/releases/tag/v1.0.9
 [1.0.4]: https://github.com/liangyou09/lyshell_release/releases/tag/v1.0.4
 [1.0.3]: https://github.com/liangyou09/lyshell_release/releases/tag/v1.0.3

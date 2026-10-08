@@ -331,7 +331,24 @@ const MainWindow: React.FC = () => {
 
   // 加载会话列表
   useEffect(() => {
-    loadSessions()
+    let disposed = false
+    // 先订阅，再加载保存项，最后认领：避免冷启动漏通知/临时会话被 loadSessions 覆盖。
+    const ready = loadSessions()
+    let launches = Promise.resolve()
+    const drain = () => {
+      launches = launches.then(async () => {
+        await ready
+        if (disposed) return
+        const configs = await window.electronAPI.takeExplorerLaunches()
+        for (const config of configs) {
+          const result = await connectSession(config)
+          if (!result.ok) console.error('Explorer terminal launch failed:', result.error)
+        }
+      }).catch(error => console.error('Explorer terminal launch failed:', error))
+    }
+    const off = window.electronAPI?.onExplorerLaunchPending(drain)
+    drain()
+    return () => { disposed = true; off?.() }
   }, [loadSessions])
 
   // 插件列表启动加载(轨道槽位数据源;PluginPanel 只订阅同一 store,挂载时不重复拉)

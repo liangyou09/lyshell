@@ -27,16 +27,18 @@ import { CLAUDE_PERMISSION_MODES, CODEX_PERMISSION_PROFILES, isValidHttpBaseUrl,
 import type { WorktreeListResult } from '@shared/worktree'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { ConnectionStatus } from '../connectors'
-import { findPwshPath } from '../connectors/local'
+import { findPwshPath, findExplorerShell } from '../connectors/local'
+import { explorerLaunchQueue, validateExplorerDirectory } from '../explorer-launch'
 import { reachabilityProber, type ReachabilityTarget } from '../reachability/reachability-prober'
 import { ConnectionType, isDocPath, DOC_MAX_REMOTE_BYTES, DOC_MAX_LOCAL_BYTES } from '@shared/types'
-import { TERMINAL_ENCODINGS } from '@shared/constants'
+import { TERMINAL_ENCODINGS, DEFAULT_THEME_DARK } from '@shared/constants'
 import type { DocReadResult } from '@shared/types'
 import * as iconv from 'iconv-lite'
 import { fileManager, startDownloadWorker, registerTaskMeta, startUploadWorker, cancelDownload, cancelUpload, assertSafeLocalPath } from '../file'
 import type { SessionConfig, TerminalEncoding } from '@shared/types'
 import {
   assertEnum,
+  assertExplorerLaunchConsumer,
   assertConnectionCloneSourceId,
   assertPluginActionRequestId,
   assertNumber,
@@ -141,6 +143,8 @@ export const IPC_CHANNELS = {
   SESSION_CWD_CHANGED: 'session:cwd-changed',
   // 会话列表被外部路径（MCP 写入/创建）改动后，向所有窗口推送一次，触发渲染层增量同步
   SESSIONS_CHANGED: 'sessions:changed',
+  EXPLORER_LAUNCH_PENDING: 'explorer:launch-pending',
+  EXPLORER_LAUNCH_TAKE: 'explorer:launch-take',
 
   // 串口
   SERIAL_LIST_PORTS: 'serial:list-ports',
@@ -407,6 +411,28 @@ export function registerIPCHandlers(): void {
   }
 
   // ========== 连接管理 ==========
+
+  ipcMain.handle(IPC_CHANNELS.EXPLORER_LAUNCH_TAKE, event => {
+    assertExplorerLaunchConsumer(event.sender.id, explorerLaunchQueue.consumerId)
+    const directories = explorerLaunchQueue.takeAll()
+      .map(validateExplorerDirectory).filter((directory): directory is string => directory !== null)
+    if (!directories.length) return []
+    const shell = findExplorerShell(readSystemPath() ?? undefined)
+    return directories.map((cwd): SessionConfig => ({
+      id: '',
+      name: path.basename(cwd) || cwd,
+      type: ConnectionType.LOCAL,
+      // 不读 profile，避免其中的 Set-Location 覆盖资源管理器传入的目录。
+      local: { cwd, shell, shellArgs: ['-NoLogo', '-NoProfile'] },
+      tags: [],
+      terminal: {
+        fontSize: 14, fontFamily: 'Consolas, Monaco, monospace', theme: DEFAULT_THEME_DARK,
+        cursorStyle: 'block', cursorBlink: true, scrollback: 10000, encoding: 'utf-8'
+      },
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }))
+  })
 
   ipcMain.handle(IPC_CHANNELS.CONNECTION_CONNECT, async (_event, config: SessionConfig, rawPluginActionRequestId?: unknown, rawSourceSessionId?: unknown) => {
     log.debug('Connection request:', config.id, 'name:', config.name)

@@ -6,6 +6,11 @@ interface StringOptions {
   allowEmpty?: boolean
 }
 
+/** 只有主窗口 renderer 可认领资源管理器启动请求，webview/浮窗不能消费队列。 */
+export function assertExplorerLaunchConsumer(senderId: number, consumerId: number | null): void {
+  if (senderId !== consumerId) throw new ValidationError('Explorer launch requires the main window')
+}
+
 /** 插件连接只传动作请求 ID，不接受 renderer 自报 pluginId。 */
 export function assertPluginActionRequestId(value: unknown): string | undefined {
   return value === undefined ? undefined : assertString(value, 'pluginActionRequestId', { maxLength: 128 })

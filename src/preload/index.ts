@@ -1,10 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type { WorktreeListResult } from '@shared/worktree'
-import type { TerminalEncoding, WebTabPopupRequest } from '@shared/types'
+import type { SessionConfig, TerminalEncoding, WebTabPopupRequest } from '@shared/types'
 
 // IPC 通道定义
 const IPC_CHANNELS = {
+  EXPLORER_LAUNCH_PENDING: 'explorer:launch-pending',
+  EXPLORER_LAUNCH_TAKE: 'explorer:launch-take',
   // 连接管理
   CONNECTION_CONNECT: 'connection:connect',
   CONNECTION_DISCONNECT: 'connection:disconnect',
@@ -178,6 +180,12 @@ const IPC_CHANNELS = {
 
 // 暴露给渲染进程的 API
 const electronAPI = {
+  takeExplorerLaunches: (): Promise<SessionConfig[]> => ipcRenderer.invoke(IPC_CHANNELS.EXPLORER_LAUNCH_TAKE),
+  onExplorerLaunchPending: (callback: () => void) => {
+    const listener = () => callback()
+    ipcRenderer.on(IPC_CHANNELS.EXPLORER_LAUNCH_PENDING, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.EXPLORER_LAUNCH_PENDING, listener)
+  },
   // 连接管理
   connect: (config: unknown, pluginActionRequestId?: string, sourceSessionId?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.CONNECTION_CONNECT, config, pluginActionRequestId, sourceSessionId),

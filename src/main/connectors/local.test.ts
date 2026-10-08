@@ -18,7 +18,7 @@ vi.mock('electron-log', () => ({
   default: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
 }))
 
-import { findPwshPath, LocalConnector } from './local'
+import { findPwshPath, findExplorerShell, LocalConnector } from './local'
 
 /** spawn 桩的返回值:connect 只挂监听/置位,有这几个方法就够 */
 const fakePty = () =>
@@ -89,6 +89,24 @@ describe('findPwshPath (win32 分支)', () => {
 describe('findPwshPath (POSIX 分支)', () => {
   it.skipIf(process.platform === 'win32')('非 Windows 恒为 null（保持 $SHELL 现状）', () => {
     expect(findPwshPath('/usr/local/bin:/usr/bin')).toBeNull()
+  })
+})
+
+describe('findExplorerShell', () => {
+  it.skipIf(process.platform !== 'win32')('优先 PATH 上的 PowerShell 7', () => {
+    writeFileSync(join(emptyRoot, 'pwsh.exe'), '')
+    expect(findExplorerShell(emptyRoot)).toBe(join(emptyRoot, 'pwsh.exe'))
+  })
+
+  it.skipIf(process.platform !== 'win32')('没有 PowerShell 7 时使用 Windows PowerShell，遵循 SystemRoot', () => {
+    const originalRoot = process.env.SystemRoot
+    try {
+      process.env.SystemRoot = 'D:\\Windows'
+      expect(findExplorerShell(emptyRoot)).toBe('D:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
+    } finally {
+      if (originalRoot === undefined) delete process.env.SystemRoot
+      else process.env.SystemRoot = originalRoot
+    }
   })
 })
 

@@ -40,6 +40,14 @@ export function findPwshPath(path: string = process.env.PATH || ''): string | nu
   return null
 }
 
+/** 资源管理器启动的交互终端：优先 PowerShell 7，未安装回落 Windows PowerShell。 */
+export function findExplorerShell(path: string = process.env.PATH || ''): string {
+  return findPwshPath(path) ?? join(
+    process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows',
+    'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'
+  )
+}
+
 /**
  * 本地终端连接器
  * 使用 node-pty 启动本地 shell 进程

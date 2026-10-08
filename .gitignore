@@ -145,6 +145,7 @@ electron.vite.config.*.mjs
 
 # electron-builder 输出（与 dist/ 平级的发布产物）
 release*
+!RELEASE_NOTES_v2.0.0.md
 
 # Claude Code 工作目录（per-用户/会话状态，不应入库）
 .claude/

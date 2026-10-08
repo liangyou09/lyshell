@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/LyShell-v1.0.9-0078D4?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/LyShell-v2.0.0-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
@@ -11,6 +11,8 @@
 > 🔌 **Your terminal, now AI's terminal too.** LyShell is a Windows terminal with a built-in MCP server — letting Claude Code and other AI clients drive your SSH / Telnet / serial / local PTY sessions directly. Plus a `Ctrl+Shift+P` command palette, AI Harness workspaces with git-worktree isolation (TUI + embedded Web UI), document tabs, in-app web tabs, AI Agent launcher, plugin system, and Python scripting.
 
 **English** | [简体中文](README.zh.md)
+
+[v2.0.0 Release Notes / 中英文发行说明](RELEASE_NOTES_v2.0.0.md)
 
 [✨ Highlights](#-highlights) · [⌨️ Command Palette](#-command-palette--document-tabs) · [🐋 DeepSeek Harness](#-deepseek-harness) · [🌐 Web Tabs](#-web-tabs) · [🔗 MCP](#-mcp-integration) · [🤖 AI Agents](#-ai-agents) · [🧩 Plugins](#-plugin-system--python-scripting) · [🚀 Quick Start](#-quick-start) · [❓ FAQ](#-faq)
 
@@ -36,13 +38,26 @@
 
 ## 📥 Install
 
-Download the latest portable build from [Releases](https://github.com/liangyou09/lyshell_release/releases) — **no installation needed**, just download and run.
+Download the installer or portable build from [Releases](https://github.com/liangyou09/lyshell_release/releases). The portable build runs without installation.
 
 | Platform | Format | Architecture | Requirements |
 |----------|--------|--------------|--------------|
-| 🪟 Windows | Portable (.exe) | x64 | Windows 10 / 11, 64-bit |
+| 🪟 Windows | Installer (`-setup.exe`) | x64 | Windows 10 / 11, 64-bit |
+| 🪟 Windows | Portable (`-portable.exe`) | x64 | Windows 10 / 11, 64-bit |
 
 > 🚧 Currently **Windows only** — macOS and Linux builds are not yet available.
+
+### Open a terminal from File Explorer
+
+Run the updated `-setup.exe` to register these entry points:
+
+- Right-click a folder, drive, or folder background and choose **Open in LyShell** (under **Show more options** on Windows 11).
+- Type `lyshell` in File Explorer's address bar to open a terminal in the current folder.
+- To specify a folder, use `lyshell --open-directory "D:\My Project"`.
+
+These terminals prefer PowerShell 7 (`pwsh.exe`) and fall back to Windows PowerShell. An existing LyShell window receives a new temporary terminal tab. PowerShell starts with `-NoProfile` to preserve the requested directory. Address-bar launches read the foreground Explorer window's active tab; other launches without arguments use the process startup working directory.
+
+Portable builds do not register Explorer entries; launch the executable by its full path with `--open-directory`. Uninstalling removes the installed entries.
 
 ---
 

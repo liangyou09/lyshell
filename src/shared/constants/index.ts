@@ -2,6 +2,9 @@
  * IPC 通道常量
  */
 export const IPC_CHANNELS = {
+  // 资源管理器启动请求：通知 + 主窗口就绪后的认领。
+  EXPLORER_LAUNCH_PENDING: 'explorer:launch-pending',
+  EXPLORER_LAUNCH_TAKE: 'explorer:launch-take',
   // 连接管理
   CONNECTION_CONNECT: 'connection:connect',
   CONNECTION_DISCONNECT: 'connection:disconnect',
