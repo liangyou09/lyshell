@@ -161,7 +161,8 @@ export const DEFAULT_THEME_DARK = {
 }
 
 /**
- * 默认终端主题 - 浅色
+ * 默认终端主题 - 浅色。ANSI 普通色和亮色都使用深色墨水，保持色相区分，
+ * 避免沿用暗底调色板时亮黄、亮青、白字在白色画布上消失。
  */
 export const DEFAULT_THEME_LIGHT = {
   foreground: '#333333',
@@ -170,22 +171,23 @@ export const DEFAULT_THEME_LIGHT = {
   cursorAccent: '#FFFFFF',
   selectionBackground: '#ADD6FF',
   selectionInactiveBackground: '#C9DDF2',
+  selectionForeground: '#333333',
   black: '#333333',
-  red: '#C50F1F',
-  green: '#13A10E',
-  yellow: '#C19C00',
-  blue: '#0037DA',
-  magenta: '#881798',
-  cyan: '#3A96DD',
-  white: '#CCCCCC',
-  brightBlack: '#767676',
-  brightRed: '#E74856',
-  brightGreen: '#16C60C',
-  brightYellow: '#F9F1A5',
-  brightBlue: '#3B78FF',
-  brightMagenta: '#B4009E',
-  brightCyan: '#61D6D6',
-  brightWhite: '#F2F2F2'
+  red: '#B91C1C',
+  green: '#166534',
+  yellow: '#854D0E',
+  blue: '#1D4ED8',
+  magenta: '#86198F',
+  cyan: '#0E6477',
+  white: '#4B5563',
+  brightBlack: '#626262',
+  brightRed: '#C62828',
+  brightGreen: '#267326',
+  brightYellow: '#946100',
+  brightBlue: '#245AC7',
+  brightMagenta: '#A0219D',
+  brightCyan: '#087682',
+  brightWhite: '#24292F'
 }
 
 /**
