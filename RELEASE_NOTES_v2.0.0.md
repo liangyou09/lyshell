@@ -40,6 +40,10 @@ LyShell 2.0.0 introduces extensible plugin interfaces, a more complete embedded 
 
   **Terminal search**: A draggable scroll-style search panel with improved case-sensitive, regex, whole-word, and search-scope controls, invalid-regex feedback, and clearer match status.
 
+- **浅色终端可读性**：为浅色主题调整 ANSI 配色，加深容易看不清的亮黄、亮青及白色文字，并保留多色区分。增加低对比度彩色文字补偿，改善程序输出的 256 色和真彩色文字及选中文字的可读性；自定义底色变化时，终端配色与对比度设置同步生效。
+
+  **Light-theme terminal readability**: Adjusted the ANSI palette to make bright yellow, cyan, and white text clearer on light backgrounds while preserving color distinctions. Added contrast compensation for low-contrast 256-color and true-color output, improved selected-text readability, and synchronized terminal colors and contrast settings when the custom background changes.
+
 ## 🐛 稳定性修复 / Stability Fixes
 
 - **安装协议显示**：修复 Windows 安装向导中中英文许可证的中文乱码。

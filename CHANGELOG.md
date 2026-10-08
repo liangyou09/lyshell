@@ -28,6 +28,8 @@ GitHub Release 文案 / Release copy: [中英文发行说明 / Chinese & English
 
 ### 修复 Fixes
 
+- **浅色终端可读性**：调整浅色主题的 ANSI 配色，改善亮黄、亮青及白色文字在浅底上的可读性，保留多色区分；增加低对比度彩色文字补偿与选中文字配色，并在自定义底色变化时同步更新终端。*Adjusted the light-theme ANSI palette for clearer yellow, cyan, and white text while preserving color distinctions; added contrast compensation for low-contrast colored text, explicit selection text colors, and live terminal updates when the custom background changes.*
+
 - **安装协议显示**：修复 Windows 安装向导中许可证的中文乱码。*Fixed garbled Chinese license text in the Windows installer.*
 
 - **资源清理**：完善插件禁用、卸载、异常退出及应用退出时的连接、页签、视图、弹窗与受控子进程清理，修复异步回收与重启竞态。*Improved cleanup of connections, tabs, views, dialogs, and controlled subprocesses on plugin disable, uninstall, crashes, and app shutdown, including asynchronous cleanup and restart races.*
