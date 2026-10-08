@@ -12,7 +12,7 @@
 
 **English** | [简体中文](README.zh.md)
 
-[v2.0.0 Release Notes / 中英文发行说明](RELEASE_NOTES_v2.0.0.md)
+[v2.0.0 Changelog / 中英文更新日志](CHANGELOG.md)
 
 [✨ Highlights](#-highlights) · [⌨️ Command Palette](#-command-palette--document-tabs) · [🐋 DeepSeek Harness](#-deepseek-harness) · [🌐 Web Tabs](#-web-tabs) · [🔗 MCP](#-mcp-integration) · [🤖 AI Agents](#-ai-agents) · [🧩 Plugins](#-plugin-system--python-scripting) · [🚀 Quick Start](#-quick-start) · [❓ FAQ](#-faq)
 

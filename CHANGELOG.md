@@ -8,8 +8,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，�
 
 ## [2.0.0] - 待发布 / Pending release
 
-GitHub Release 文案 / Release copy: [中英文发行说明 / Chinese & English](RELEASE_NOTES_v2.0.0.md)
-
 ### 新增 Features
 
 - **插件界面与弹窗**：新增声明式及运行时 HTML 视图、机柜槽位、页面动作、弹窗结果与主题事件，并提供示例。*Added declarative and runtime HTML views, activity rail slots, page actions, dialog results, theme events, and examples.*

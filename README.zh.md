@@ -12,7 +12,7 @@
 
 **简体中文** | [English](README.md)
 
-[v2.0.0 中英文发行说明 / Release Notes](RELEASE_NOTES_v2.0.0.md)
+[v2.0.0 中英文更新日志 / Changelog](CHANGELOG.md)
 
 [✨ 核心亮点](#-核心亮点) · [⌨️ 命令面板与文档页签](#-命令面板与文档页签) · [🐋 DeepSeek Harness](#-deepseek-harness) · [🌐 网页页签](#-网页页签) · [🔗 MCP 集成](#-mcp-集成) · [🤖 AI Agent](#-ai-agent) · [🧩 插件与脚本](#-插件系统--python-脚本) · [🚀 快速上手](#-快速上手) · [❓ 常见问题](#-常见问题)
 
