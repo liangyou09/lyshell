@@ -6,18 +6,19 @@ import { PALETTE_CLOSED_EVENT } from '../../commands/palette'
 import DocTabOverlay from '../DocPanel/DocTabOverlay'
 import type { DocOverlayPayload } from '@shared/types'
 import { useEscDismiss } from '../../hooks'
+import CommandWelcome from './CommandWelcome'
 
 /**
  * 全屏 TUI 命令界面 —— 空状态(嵌入 pane)与全局面板(Ctrl+Shift+P)共用。
  *
- * 琥珀磷光屏方向:整屏只有一种等宽字体、amber 一个焦点色,内容左对齐成一条
- * max-w-3xl 列(终端从左上角开始,居中是网页习惯)。四段:输出滚动区(命令回显,
- * 像 shell;空态零内容)/ 候选列表(输入非空才出现 —— 空输入是纯待命态,无补全
+ * 命令内容保留等宽字体和琥珀候选高亮；嵌入待命画布使用水墨题签与墨色输入线。
+ * 嵌入模式的输入、候选和输出共用居中内容列。四段:输出滚动区(命令回显,
+ * 像 shell;嵌入空态首次待命展示水墨远景，输入或有输出后让位)/ 候选列表(输入非空才出现 —— 空输入是纯待命态,无补全
  * 无提示,↑↓ 翻命令历史;选中行 amber 反色,Tab 补全选中项;带参命令进入参数
  * 区后切换为参数目录 —— 参数区刚开(按了空格)时 ↑↓ 翻这条命令的参数历史)/ prompt(空
- * 输入时是 1.06s BIOS 闪率的块状光标 + 跟在其后的一行 ghost 提示:help、/?、/
- * 三个入口展开完整命令目录,输入即让位 —— 待命屏上唯一一行提示)/ 反色状态栏。
- * 整屏覆一层极淡 CRT 扫描线(.cs-scanlines,globals.css),是"管子材质"而非装饰。
+ * 输入时是细光标和 ghost 提示；嵌入只提示 /，全局面板提示 help、/?、/；
+ * 三个入口均展开完整命令目录，输入即让位)/ 快捷键提示栏(嵌入待命时隐藏)。
+ * 全局面板保留 CRT 扫描线，嵌入画布保持干净以适配明暗主题。
  *
  * 两种形态的差异收敛在 mode:
  * - embedded:铺满空 pane,Esc 清空输入;被活面板
@@ -190,6 +191,7 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
   // 保留 —— 召回的参数即过滤词,参数目录就是对召回值的预览
   const browsingLines = historyBrowse !== null && historyBrowse.scope === ''
   const listVisible = !browsingLines && value.trim() !== ''
+  const quietFooter = mode === 'embedded' && !listVisible && !inlineDoc && history.length === 0
 
   // 聚焦:overlay 挂载即聚焦;embedded 等所属 pane 激活(启动时 activePaneId
   // 晚于挂载落定,依赖 paneActive 翻转重触发追平)。embedded 被覆盖层(文档
@@ -418,19 +420,30 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
     <div
       onMouseDown={handleRootMouseDown}
       onClick={handleRootClick}
-      className={`relative w-full h-full flex flex-col bg-[var(--terminal-bg)] font-mono ${mode === 'overlay' ? 'cs-fade-in' : ''}`}
+      data-mode={mode}
+      className={`command-screen relative w-full h-full flex flex-col bg-[var(--terminal-bg)] font-mono ${mode === 'overlay' ? 'cs-fade-in' : ''}`}
     >
       {/* 输出区。空态跑出文档页签(/ls、/help)时,激活的文档内联在此 —— 完整的
           DocTabOverlay(absolute inset-0 填满下方 relative 容器):md 在上、本组件
           的候选列表/prompt/状态栏在其下,键盘始终在命令屏;命令回显让位(文档即
-          本次输出)。其余时刻是回显滚动区(命令 echo;空态零内容 —— 待命屏上
-          不出现任何未经请求的信息) */}
+          本次输出)。首次嵌入待命展示欢迎插画，其余时刻是回显滚动区。 */}
       {inlineDoc ? (
         <div className="flex-1 min-h-0 relative">
           <DocTabOverlay id={inlineDoc.id} paneId={inlineDoc.paneId} payload={inlineDoc.payload} />
         </div>
+      ) : mode === 'embedded' && history.length === 0 && value.trim() === '' && !composing ? (
+        <div className="flex-1 min-h-0">
+          <CommandWelcome onCommand={name => {
+            const entry = findExact(name)
+            if (entry) {
+              // 键盘/辅助技术激活没有 mousedown；先把焦点交回输入，再执行可能打开对话框的命令。
+              inputRef.current?.focus()
+              execute(entry)
+            }
+          }} />
+        </div>
       ) : (
-        <div ref={outputRef} className="flex-1 min-h-0 overflow-y-auto px-8">
+        <div ref={outputRef} className="command-screen-output flex-1 min-h-0 overflow-y-auto px-8">
           <div className="max-w-3xl w-full">
             {history.map((h, i) => (
               <div key={i} className="mb-3">
@@ -453,7 +466,7 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
           父层 auto 高度会让百分比解析失效,钳制从未生效,矮屏里尾部命令
           直接被裁掉且无滚动 */}
       {listVisible && (
-        <div className="shrink min-h-0 overflow-y-auto px-8 pb-2">
+        <div className="command-screen-candidates shrink min-h-0 overflow-y-auto px-8 pb-2">
           <div ref={listRef} className="max-w-3xl w-full">
             {argCatalog ? (
               argCatalog.candidates.length > 0 ? (
@@ -494,12 +507,11 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
         </div>
       )}
 
-      {/* prompt 输入行 —— 空输入时块状光标在文本原点待命(1.06s BIOS 闪率,见
-          globals.css),光标后跟一行 ghost 提示(help、/?、/ 展开完整命令目录) */}
-      <div className="shrink-0 px-8 py-3 border-t border-[var(--rule)]">
-        <div className="max-w-3xl w-full flex items-center gap-2">
-          <span className="text-[var(--amber)] text-sm font-bold select-none">❯</span>
-          <div className="flex-1 min-w-0 relative">
+      {/* prompt 输入行 —— 细光标与模式对应的简短提示，开始输入即让位。 */}
+      <div className="command-screen-input-area">
+        <div className="command-screen-prompt">
+          <span className="command-screen-prefix" aria-hidden="true">❯</span>
+          <div className="command-screen-input-wrap">
             <input
               ref={inputRef}
               type="text"
@@ -511,30 +523,37 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
               spellCheck={false}
               autoComplete="off"
               aria-label={t('commandBar.placeholder')}
-              className={`flex-1 min-w-0 bg-transparent outline-none border-none text-sm text-[var(--text-rack)] ${
+              className={`command-screen-input ${
                 showBlockCursor ? 'caret-transparent' : 'caret-[var(--amber)]'
               }`}
             />
             {showBlockCursor && (
               <>
-                <span aria-hidden className="cs-blink pointer-events-none absolute left-0 top-1/2 -translate-y-1/2 w-2 h-[19px] bg-[var(--amber)]" />
-                {/* 待命 ghost 提示:跟在块状光标后的一行暗色建议(fish 式),点名
-                    help、/?、/ 三个入口都能展开完整命令目录;输入即让位 */}
-                <span aria-hidden className="pointer-events-none absolute left-2 right-0 top-1/2 -translate-y-1/2 truncate text-sm text-[var(--text-rack-dim)] select-none">
-                  {t('commandBar.idleHint')}
+                <span aria-hidden className="cs-blink command-screen-cursor" />
+                {/* 嵌入提示只保留 /；全局面板仍介绍 help、/?、/ 三个入口。 */}
+                <span aria-hidden className="command-screen-input-hint">
+                  {t(mode === 'embedded' ? 'commandBar.canvasHint' : 'commandBar.idleHint')}
                 </span>
               </>
             )}
           </div>
+          <kbd aria-hidden="true" className="command-screen-enter">Enter ↵</kbd>
         </div>
       </div>
 
-      {/* 状态栏:反色条,左快捷键右计数(tmux 式收尾);tabular-nums 防计数跳动推挤。
+      {/* 状态栏:与画布融合的快捷键底栏;tabular-nums 防计数跳动推挤。
           计数与候选列表同门 —— 空输入待命态不出现(无提示),输入后亮出 */}
-      <div className="shrink-0 h-7 flex items-center justify-between px-4 text-[11px] select-none bg-[var(--text-rack)] text-[var(--terminal-bg)]">
-        <span>
-          {mode === 'overlay' ? t('commandBar.statusOverlay') : t('commandBar.statusEmbedded')}
-        </span>
+      <div className="command-screen-footer" data-quiet={quietFooter} aria-hidden={quietFooter}>
+        <div className="command-screen-shortcuts">
+          {([
+            ['↑↓', 'select'], ['Tab', 'complete'], ['Enter', 'run'],
+            ['Esc', mode === 'overlay' ? 'close' : 'clear']
+          ] as const).map(([key, action]) => (
+            <span key={key} className="command-screen-shortcut">
+              <kbd>{key}</kbd><span>{t(`commandBar.keys.${action}`)}</span>
+            </span>
+          ))}
+        </div>
         {listVisible && (
           <span className="tabular-nums">
             {argCatalog
@@ -544,8 +563,8 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
         )}
       </div>
 
-      {/* CRT 扫描线 —— 整屏材质层,盖住全部内容含状态栏,不参与交互与屏读 */}
-      <div aria-hidden className="absolute inset-0 pointer-events-none cs-scanlines" />
+      {/* CRT 扫描线只用于全局命令面板，不覆盖欢迎插画与浅色画布。 */}
+      {mode === 'overlay' && <div aria-hidden className="absolute inset-0 pointer-events-none cs-scanlines" />}
     </div>
   )
 }

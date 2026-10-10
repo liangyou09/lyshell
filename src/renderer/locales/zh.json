@@ -520,8 +520,16 @@
     "setGroupColor": "设置分组颜色 {{color}}"
   },
   "commandBar": {
+    "keys": { "select": "选择", "complete": "补全", "run": "执行", "clear": "清空", "close": "关闭" },
+    "welcome": {
+      "title": "连接，从这里开始",
+      "local": "本地终端",
+      "new": "新建连接",
+      "help": "使用手册"
+    },
     "placeholder": "输入命令…(如 /help)",
     "idleHint": "输入 help、/? 或 / 展示所有命令",
+    "canvasHint": "输入 / 查看命令",
     "unknownCommand": "未知命令 /{{cmd}} — 输入 /help 查看全部",
     "helpUnknownLang": "未知语言:{{lang}} — 可用:chinese / english",
     "lsUnknownSection": "未知对象:{{section}} — 可用:sessions / agents / env / dsh / codex / claude / plugins / all",

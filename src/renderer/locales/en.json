@@ -520,8 +520,16 @@
     "setGroupColor": "Set group color {{color}}"
   },
   "commandBar": {
+    "keys": { "select": "select", "complete": "complete", "run": "run", "clear": "clear", "close": "close" },
+    "welcome": {
+      "title": "Your connection starts here",
+      "local": "Local terminal",
+      "new": "New connection",
+      "help": "User guide"
+    },
     "placeholder": "Type a command… (e.g. /help)",
     "idleHint": "Type help, /? or / to list all commands",
+    "canvasHint": "Type / to explore commands",
     "unknownCommand": "Unknown command /{{cmd}} — type /help to list all",
     "helpUnknownLang": "Unknown language: {{lang}} — available: chinese / english",
     "lsUnknownSection": "Unknown section: {{section}} — available: sessions / agents / env / dsh / codex / claude / plugins / all",

@@ -1,0 +1,153 @@
+/* 水墨远景与题签共享墨色；画面保持透明留白，交互元素不覆盖画心。 */
+.command-welcome {
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  align-items: safe center;
+  justify-content: safe center;
+  padding: 28px 20px;
+  text-align: center;
+  font-family: Georgia, 'KaiTi', 'STKaiti', 'FangSong', serif;
+}
+.command-welcome-landscape {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: url('../../assets/welcome/ink-landscape-horse-long-v13.png') center bottom / min(100%, 900px) auto no-repeat;
+  /* 深色底保留原画的墨色，以淡雾托出马身；反色会倒置笔触和肌理。 */
+  filter: grayscale(1);
+  opacity: .62;
+  pointer-events: none;
+}
+:is([data-theme-mode="light"], [data-theme="rack-paper"], [data-theme="rack-lark"]) .command-welcome-landscape {
+  filter: grayscale(1);
+  opacity: .3;
+}
+.command-welcome-inscription { position: relative; margin-bottom: 14%; }
+.command-welcome h1 { margin: 0; color: var(--text-rack-data); font: 300 26px/1.5 Georgia, serif; letter-spacing: .16em; }
+.command-welcome-inscription > p { margin: 12px 0 0; color: var(--text-rack-mute); font-size: 13px; line-height: 1.8; letter-spacing: .12em; }
+.command-welcome-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 22px; }
+.command-welcome-action {
+  position: relative;
+  min-height: 36px;
+  padding: 6px 13px;
+  border: 0;
+  background: transparent;
+  color: var(--text-rack-data);
+  font: inherit;
+  font-size: 14px;
+  letter-spacing: .08em;
+  transition: color 160ms;
+}
+/* 淡墨短线作为题签的落笔；保持足够的按钮热区，悬停时线条加深。 */
+.command-welcome-action::after {
+  content: '';
+  position: absolute;
+  bottom: 1px;
+  left: 16px;
+  right: 16px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, currentColor 22% 78%, transparent);
+  opacity: .25;
+  transition: opacity 160ms;
+}
+.command-welcome-action:hover { color: var(--text-rack); }
+.command-welcome-action:hover::after { opacity: .7; }
+.command-welcome-action:focus-visible { outline: 1px solid var(--text-rack-data); outline-offset: 3px; border-radius: 2px; }
+
+/* 命令画布：输入是一条题跋式细线，命令文字保留等宽字体方便读写。 */
+.command-screen { container-type: inline-size; }
+/* 暗底上的辅助文字独立提亮，沿用当前主题的灰度层次。 */
+[data-theme-mode="dark"] .command-screen[data-mode="embedded"] {
+  --text-rack-mute: color-mix(in srgb, var(--text-rack-data) 80%, var(--text-rack) 20%);
+}
+.command-screen-input-area { flex-shrink: 0; padding: 12px 24px 0; }
+.command-screen-prompt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 9px 4px;
+  border-bottom: 1px solid var(--rule);
+  transition: border-color 160ms;
+}
+.command-screen-prompt:focus-within { border-bottom-color: var(--text-rack-mute); }
+.command-screen[data-mode="embedded"] .command-screen-prompt { max-width: 720px; margin-inline: auto; }
+.command-screen[data-mode="embedded"] :is(.command-screen-output, .command-screen-candidates) > div { max-width: 720px; margin-inline: auto; }
+.command-screen-prefix { color: var(--text-rack-data); font-size: 12px; user-select: none; }
+.command-screen-input-wrap { flex: 1; min-width: 0; position: relative; }
+.command-screen-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-rack);
+  font: inherit;
+  font-size: 13px;
+  line-height: 24px;
+  caret-color: var(--text-rack-data);
+}
+.command-screen-input.caret-transparent { caret-color: transparent; }
+.command-screen-cursor {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 15px;
+  background: var(--text-rack-data);
+  pointer-events: none;
+}
+.command-screen-input-wrap:not(:focus-within) .command-screen-cursor { opacity: 0; animation: none; }
+.command-screen-input-hint {
+  position: absolute;
+  left: 7px;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-rack-mute);
+  font: 13px/1.8 Georgia, 'KaiTi', 'STKaiti', 'FangSong', serif;
+  letter-spacing: .04em;
+  pointer-events: none;
+  user-select: none;
+}
+.command-screen-enter { color: var(--text-rack-mute); font: inherit; font-size: 10px; line-height: 1.5; user-select: none; white-space: nowrap; }
+.command-screen-footer {
+  flex-shrink: 0;
+  min-height: 34px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 16px;
+  padding: 8px 24px 10px;
+  color: var(--text-rack-mute);
+  font-size: 10px;
+  user-select: none;
+}
+.command-screen[data-mode="embedded"] .command-screen-footer { width: min(100%, 768px); margin-inline: auto; }
+/* 待命时只留下输入提示，开始操作后再展示完整快捷键，避免抢占画面。 */
+.command-screen-footer[data-quiet="true"] { visibility: hidden; pointer-events: none; }
+.command-screen-shortcuts { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.command-screen-shortcut { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.command-screen-shortcut kbd { color: var(--text-rack-data); font: inherit; line-height: 15px; }
+@container (max-width: 340px) {
+  .command-welcome-actions { gap: 6px; }
+  .command-welcome-action { padding-inline: 10px; }
+  .command-screen-input-area { padding-inline: 16px; }
+  .command-screen-footer { padding-inline: 16px; }
+  .command-screen-enter { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .command-welcome-action, .command-welcome-action::after, .command-screen-prompt { transition: none; }
+}

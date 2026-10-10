@@ -420,16 +420,16 @@ describe('CommandScreen:空输入待命(只有输入命令才开始补全和提�
     expect(screen.getByText(/commands/)).toBeTruthy()
   })
 
-  it('待命 ghost 提示:空输入时点名 help、/?、/ 三个入口;三者都展开完整目录,输入即让位', () => {
+  it('嵌入待命提示只保留 / 入口;help、/?、/ 三者都展开完整目录,输入即让位', () => {
     render(<CommandScreen mode="embedded" paneActive />)
-    // 待命:块状光标后跟一行暗色 ghost,承诺三个入口;候选行仍不出现
-    expect(screen.getByText('Type help, /? or / to list all commands')).toBeTruthy()
-    expect(screen.queryByText('/help')).toBeNull()
+    // 待命:细光标后只提示 / 入口;候选行仍不出现
+    expect(screen.getByText('Type / to explore commands')).toBeTruthy()
+    expect(screen.queryByText('/help', { selector: 'span' })).toBeNull()
 
     const input = screen.getByRole('textbox') as HTMLInputElement
     // help(传统别名,Windows CMD 语义):完整目录(不止 help 前缀的 1 条),ghost 让位
     type('help')
-    expect(screen.queryByText('Type help, /? or / to list all commands')).toBeNull()
+    expect(screen.queryByText('Type / to explore commands')).toBeNull()
     expect(screen.getByText('/settings')).toBeTruthy()
     expect(screen.getByText(/commands/)).toBeTruthy()
 
@@ -455,13 +455,47 @@ describe('CommandScreen:空输入待命(只有输入命令才开始补全和提�
     expect(Object.keys(usePaneStore.getState().overlayPayloads)).toHaveLength(0)
   })
 
-  it('空态屏面干净:无铭牌、无 POST 自检 —— 待命屏上除 ghost 提示外没有任何未经请求的信息', () => {
+  it('空 pane 展示欢迎插画与快捷入口，开始输入后让位，清空后恢复', () => {
     render(<CommandScreen mode="embedded" paneActive />)
-    expect(screen.queryByText('LYSHELL')).toBeNull()
-    expect(screen.queryByText(/POST|自检|self-test/)).toBeNull()
-    // 屏上仅剩 prompt(聚焦)+ ghost 提示与状态栏
+    expect(screen.getByRole('heading', { name: 'LyShell' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Local terminal' })).toBeTruthy()
     expect(document.activeElement).toBe(screen.getByRole('textbox'))
-    expect(screen.getByText(/↑↓/)).toBeTruthy()
+    const input = type('/')
+    expect(screen.queryByRole('heading')).toBeNull()
+    keyDown(input, 'Escape')
+    expect(screen.getByRole('heading')).toBeTruthy()
+    type('/?')
+    keyDown(input, 'Enter')
+    // 有输出后即使输入已清空也不再展示插画，避免遮住命令结果。
+    expect(screen.queryByRole('heading')).toBeNull()
+    expect(screen.getByText('LyShell · 14 Commands')).toBeTruthy()
+  })
+
+  it('欢迎快捷入口沿用命令执行，点击后保持 prompt 焦点', () => {
+    render(<CommandScreen mode="embedded" paneActive />)
+    const button = screen.getByRole('button', { name: 'New connection' })
+    expect(mouseDown(button).defaultPrevented).toBe(true)
+    fireEvent.click(button)
+    expect(screen.getByText(/Opening.*connection/)).toBeTruthy()
+    expect(document.activeElement).toBe(screen.getByRole('textbox'))
+    expect(screen.queryByRole('heading')).toBeNull()
+  })
+
+  it('全局命令面板保持纯命令界面', () => {
+    render(<CommandScreen mode="overlay" />)
+    expect(screen.queryByRole('heading')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Local terminal' })).toBeNull()
+  })
+
+  it('欢迎按钮无鼠标激活后仍把焦点交回 prompt', () => {
+    render(<CommandScreen mode="embedded" paneActive />)
+    const button = screen.getByRole('button', { name: 'New connection' })
+    button.focus()
+    expect(document.activeElement).toBe(button)
+    // 辅助技术/键盘产生 click，不会先触发根节点的 mousedown 聚焦。
+    fireEvent.click(button)
+    expect(screen.getByText(/Opening.*connection/)).toBeTruthy()
+    expect(document.activeElement).toBe(screen.getByRole('textbox'))
   })
 })
 
