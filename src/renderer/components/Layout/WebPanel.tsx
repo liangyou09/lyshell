@@ -1235,7 +1235,7 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
           miniResizing && 'resizing'
         )}
         style={{
-          height: miniClosed ? MINI_ROLLED_H : `${miniFitHeight}px`,
+          height: miniClosed ? `var(--scroll-dual-rolled-height, ${MINI_ROLLED_H}px)` : `${miniFitHeight}px`,
           // 渲染期钳(拖动/恢复夹取之外的第二道防线):存档值超当前面板或窗口
           // 临时缩小时视觉收敛,保底地址栏/历史留座的粗钳(壳内口径:
           // 100% 的含块是内容壳,不含头行 —— 见 MINI_SHELL_RESERVE_HEIGHT 注);

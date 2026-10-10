@@ -108,7 +108,6 @@ interface ThemeStore {
   scrollMaterial: ScrollMaterialId
   customColors: CustomThemeColors
   setTheme: (id: string) => void
-  setScrollMaterial: (id: ScrollMaterialId) => void
   setCustomColors: (colors: Partial<CustomThemeColors>) => void
   initFromStorage: () => void
 }
@@ -337,17 +336,6 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     set({ customColors: next })
   },
 
-  setScrollMaterial: (id) => {
-    const scrollMaterial = normalizeScrollMaterial(id)
-    if (typeof document !== 'undefined') document.documentElement.dataset.scrollMaterial = scrollMaterial
-    try {
-      localStorage.setItem(SCROLL_MATERIAL_STORAGE_KEY, scrollMaterial)
-    } catch {
-      // 存储不可用时仍保留本次选择。
-    }
-    set({ scrollMaterial })
-  },
-
   initFromStorage: () => {
     let saved: string | null = null
     try {
@@ -360,9 +348,11 @@ export const useThemeStore = create<ThemeStore>((set, get) => ({
     applyTheme(valid, customColors)
     let scrollMaterial = DEFAULT_SCROLL_MATERIAL
     try {
-      scrollMaterial = normalizeScrollMaterial(localStorage.getItem(SCROLL_MATERIAL_STORAGE_KEY))
+      const savedMaterial = localStorage.getItem(SCROLL_MATERIAL_STORAGE_KEY)
+      scrollMaterial = normalizeScrollMaterial(savedMaterial)
+      if (savedMaterial !== scrollMaterial) localStorage.setItem(SCROLL_MATERIAL_STORAGE_KEY, scrollMaterial)
     } catch {
-      // 存储不可用时使用默认木轴头。
+      // 存储不可用时仍使用唯一的玉雕画轴。
     }
     if (typeof document !== 'undefined') document.documentElement.dataset.scrollMaterial = scrollMaterial
     set({ themeId: valid, customColors, scrollMaterial })

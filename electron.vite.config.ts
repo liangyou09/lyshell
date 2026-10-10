@@ -96,7 +96,8 @@ export default defineConfig({
       emptyOutDir: true,
       rollupOptions: {
         input: {
-          index: resolve(__dirname, 'src/renderer/index.html')
+          index: resolve(__dirname, 'src/renderer/index.html'),
+          scrollArtPreview: resolve(__dirname, 'src/renderer/scroll-art-preview.html')
         },
         output: {
           format: 'esm',

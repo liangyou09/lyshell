@@ -11,6 +11,7 @@ import ExportImportDialog from '../ExportImportDialog/ExportImportDialog'
 import FileManagerPanel from '../FileManager/FileManagerPanel'
 import QuickCommandsPanel from '../QuickCommands/QuickCommandsPanel'
 import ScrollFold, { ScrollTie } from './ScrollFold'
+import { BrushArtwork } from './BrushArtwork'
 import TerminalSize, { BarRule } from './TerminalSize'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { IconBtn, IconPlus } from './IconBtn'
@@ -1363,10 +1364,9 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
              横垫,毫尖几何自带 4px 气;
              上缘不画线 —— 紧贴上邻过滤区的 border-b,画了会叠
              双线;下缘 border 化作笔山连脊(.brush-rack::after 的 conic
-             连脊),笔卧山上。毫(拢毫笔头:锋尖+鼓肚+根收)朝左,漆杆
-             随身份色(cmd 素/ps 蓝/ps7 紫/ps+ 红),名签悬在笔上 —— 7px
-             细杆刻不下字,挂签贴笔(签挂器上);
-             点下执笔一拍 —— 整笔离架、毫尖蘸墨(金墨),终端(纸)在别处
+             连脊),笔卧山上。美术笔毫朝左，木杆接玉环金箍；名签保留
+             Shell 身份色(cmd 素/ps 蓝/ps7 紫/ps+ 红)，悬在笔上。
+             点下执笔一拍 —— 整笔离架并提亮，终端(纸)在别处
              垂落 */}
         <div className="brush-rack flex-shrink-0 flex items-stretch gap-[4px] mx-1.5 pt-[2px] pb-[5px] bg-[var(--bg-strip)]">
           {QUICK_SHELLS.map(s => (
@@ -1375,8 +1375,8 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
               onClick={() => launchShell(s)}
               title={s.title}
               className={cn(
-                // 笔山卧毫(brush):毫/杆/名签/连脊的机械全在 globals.css 的
-                // .brush 系列,这里只挂身份色(漆)与执笔拍
+                // 笔山与名签沿用 globals.css，美术笔的装配在 scroll-artwork.css；
+                // 这里只挂名签身份色与执笔拍。
                 'brush relative flex-1 min-w-0 cursor-pointer select-none',
                 s.cls,
                 launchFlash === s.key && 'on'
@@ -1385,11 +1385,8 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
               {/* 名签 —— 悬在笔上的短铭(title 给完整 shell 名);先于笔形
                   出现在 DOM:读序上先见签后见器,焦点读名不读漆 */}
               <span className="brush-label">{s.label}</span>
-              {/* 毫 —— 叶形锥毫蘸墨,锋尖朝左(起笔方向);执笔拍 amber
-                  金墨洪过毫尖 */}
-              <span aria-hidden className="brush-tip" />
-              {/* 漆杆 —— 圆杆受光棱 + 身份色淡染,杆尾圆头,卧在山上 */}
-              <span aria-hidden className="brush-shaft" />
+              {/* 美术笔毫与玉尾保留比例，中段笔杆随启动按钮宽度伸缩。 */}
+              <BrushArtwork />
             </button>
           ))}
         </div>
@@ -1692,7 +1689,7 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
               isResizingHeight && 'resizing'
             )}
             style={{
-              height: fileManagerClosed ? DUAL_ROLLED_H : `${fileManagerHeight}px`,
+              height: fileManagerClosed ? `var(--scroll-dual-rolled-height, ${DUAL_ROLLED_H}px)` : `${fileManagerHeight}px`,
               // 渲染期钳(恢复侧绝对钳之外的第二道防线,同小窗写轮眼同款挂法):
               // 存档值超当前面板/窗口临时缩小时视觉收敛,保底上方 200px(与拖动
               // clamp 同一预留:搜索+快捷命令+列表最小高+状态栏);存档值不被临时

@@ -7,12 +7,12 @@ import { Client } from 'ssh2'
 import * as fs from 'fs'
 import * as path from 'path'
 import { sftpMkdirP } from './sftp-mkdir'
+import { connectTransferSSH } from './ssh-transfer-connection'
 import { randomBytes } from 'crypto'
 import { redactSecrets } from './redact'
 
 // 类型定义
 type SSHClientChannel = any
-type SSHConnectConfig = any
 
 // Worker 接收的任务数据
 interface UploadTaskData {
@@ -97,35 +97,20 @@ async function executeUpload(task: UploadTaskData) {
     throw new Error('Local file not found')
   }
 
-  // 建立 SSH 连接
-  const client = new Client()
+  // 建立 SSH 连接：仅连接阶段允许重试；连接成功后才开始写远端文件。
+  sendMessage({ type: 'progress', taskId, sessionId, progress: 0, transferredSize: 0, fileSize, speed: 0 })
+  let client: Client
+  try {
+    client = await connectTransferSSH(sshConfig, log)
+  } catch (error) {
+    const errMsg = (error as Error).message
+    log('error', `SSH connection error: ${errMsg}`)
+    sendMessage({ type: 'error', taskId, sessionId, error: errMsg })
+    throw error
+  }
 
   return new Promise<void>((resolve, reject) => {
-    let startTime = Date.now()
-
-    // 连接配置
-    const connectionConfig: SSHConnectConfig = {
-      host: sshConfig.host,
-      port: sshConfig.port,
-      username: sshConfig.username,
-      readyTimeout: sshConfig.readyTimeout || 30000,
-      keepaliveInterval: sshConfig.keepaliveInterval || 10000,
-      keepaliveCountMax: 3,
-    }
-
-    log('info', `Connecting to ${sshConfig.host}:${sshConfig.port} as ${sshConfig.username}`)
-
-    // 认证方式
-    if (sshConfig.password) {
-      connectionConfig.password = sshConfig.password
-      log('info', 'Using password authentication')
-    } else if (sshConfig.privateKey) {
-      connectionConfig.privateKey = sshConfig.privateKey
-      if (sshConfig.passphrase) {
-        connectionConfig.passphrase = sshConfig.passphrase
-      }
-      log('info', 'Using privateKey authentication')
-    }
+    const startTime = Date.now()
 
     // 连接错误
     client.on('error', (err) => {
@@ -135,20 +120,12 @@ async function executeUpload(task: UploadTaskData) {
       reject(err)
     })
 
-    // 连接就绪
-    client.on('ready', () => {
-      log('info', `SSH connection ready`)
-      startTime = Date.now()
-
-      if (method === 'sftp') {
-        uploadViaSFTP(client, task, startTime, resolve, reject)
-      } else {
-        uploadViaExecPython(client, task, startTime, resolve, reject)
-      }
-    })
-
-    // 开始连接
-    client.connect(connectionConfig)
+    log('info', 'SSH connection ready')
+    if (method === 'sftp') {
+      uploadViaSFTP(client, task, startTime, resolve, reject)
+    } else {
+      uploadViaExecPython(client, task, startTime, resolve, reject)
+    }
   })
 }
 

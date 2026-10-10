@@ -1,0 +1,211 @@
+/* AIPet 原始透明图集：仅在渲染时取帧，不裁改或重采样源文件。
+   border-image 的上下切片选帧，左右 185px 保留雕刻轴头与轴肩。 */
+:root,
+[data-theme-mode="light"] {
+  --scroll-art-filter: drop-shadow(0 1px 2px #49332630);
+  --scroll-art-paper-color: #f7f0e2;
+  --scroll-art-ink: #493d31;
+  --scroll-art-silk: #c7b995;
+  --scroll-art-rule: #af997355;
+  --scroll-art-fiber: #927d5703;
+  --scroll-art-paper-image: url('../assets/scroll/paper-light.svg');
+  --scroll-art-texture-image: url('../assets/scroll/xuan-paper-light-v1.png');
+  --scroll-art-texture-wash: color-mix(in srgb, var(--scroll-art-paper-color) 38%, transparent);
+  --scroll-art-input-wash: color-mix(in srgb, var(--scroll-art-paper-color) 15%, transparent);
+}
+[data-theme-mode="dark"] {
+  --scroll-art-filter: brightness(.58) saturate(.7) sepia(.12) drop-shadow(0 1px 2px #0008);
+  --scroll-art-paper-color: #302e29;
+  --scroll-art-ink: #eee3cb;
+  --scroll-art-silk: #615a48;
+  --scroll-art-rule: #b9a47d55;
+  --scroll-art-fiber: #d0b78b03;
+  --scroll-art-paper-image: url('../assets/scroll/paper-dark.svg');
+  --scroll-art-texture-image: url('../assets/scroll/xuan-paper-dark-v1.png');
+  --scroll-art-texture-wash: color-mix(in srgb, var(--scroll-art-paper-color) 65%, transparent);
+  --scroll-art-input-wash: color-mix(in srgb, var(--scroll-art-paper-color) 35%, transparent);
+}
+[data-scroll-material="jade"] {
+  --scroll-paper: var(--scroll-art-paper-color);
+  --scroll-silk: var(--scroll-art-silk);
+  --scroll-dual-rolled-height: 30px;
+}
+.scroll-art-roller,
+[data-scroll-material="jade"] .rod-caps {
+  --scroll-art-height: 16px;
+  --scroll-art-end: calc(var(--scroll-art-height) * 185 / 164);
+  box-sizing: border-box;
+  height: var(--scroll-art-height);
+  border-style: solid;
+  border-width: 0 var(--scroll-art-end);
+  border-image-source: url('../assets/scroll/scroll-rollers-jade-v1.png');
+  border-image-slice: 350 185 740 185 fill;
+  border-image-width: 0 var(--scroll-art-end);
+  border-image-repeat: stretch;
+  background: none !important;
+  filter: var(--scroll-art-filter) !important;
+}
+.scroll-art-roller { display: block; width: 100%; pointer-events: none; }
+.scroll-art-roller.is-rolled,
+[data-scroll-material="jade"] .scroll-head.rolled > .rod-caps,
+[data-scroll-material="jade"] .scroll-dual.rolled > .scroll-dual-rod > .rod-caps {
+  border-image-slice: 735 185 349 185 fill;
+}
+[data-scroll-material="jade"] .rod-caps::before,
+[data-scroll-material="jade"] .rod-caps::after,
+[data-scroll-material="jade"] .rod-caps > .scroll-rod-collar { display: none; }
+[data-scroll-material="jade"] .scroll-dual > .scroll-dual-rod > .rod-caps {
+  --scroll-art-height: 18px;
+  height: var(--scroll-art-height);
+  top: 1px;
+}
+[data-scroll-material="jade"] .scroll-dual > .scroll-dual-rod { height: 20px; }
+/* 纸面严格止于轴肩内侧；外层双轴与内层垂卷各自按轴径计算。 */
+[data-scroll-material="jade"] .scroll-dual > .scroll-dual-paper {
+  margin-inline: calc(18px * 185 / 164);
+  margin-block: -6px;
+}
+/* 辊加粗后画心预算同步扣除双辊与裱边；常开墙仍由内容决定高度。 */
+[data-scroll-material="jade"] .scroll-dual:not(.scroll-dual-wall) > .scroll-dual-paper > .scroll-dual-body {
+  height: calc(var(--dual-h, 44px) - 36px);
+}
+/* 常开画轴墙保留 24px 热区，嵌套分组仍保持原单轴尺寸。 */
+[data-scroll-material="jade"] .scroll-dual-wall > .scroll-dual-rod > .rod-caps {
+  top: 3px;
+}
+[data-scroll-material="jade"] .scroll-dual-wall > .scroll-dual-paper {
+  margin-block: -8px;
+}
+[data-scroll-material="jade"] .scroll-head:not(.rolled):has(> .rod-caps)::before {
+  left: 21px; right: 21px;
+}
+[data-scroll-material="jade"] .scroll-head + .scroll-fold .paper-sheet {
+  margin-inline: 21px;
+}
+/* 收卷单独用更纤细的 12px 装配，展开仍保留 18px 的轴体。 */
+[data-scroll-material="jade"] .scroll-dual.rolled > .scroll-dual-rod {
+  height: 14px;
+}
+[data-scroll-material="jade"] .scroll-dual.rolled > .scroll-dual-rod > .rod-caps {
+  --scroll-art-height: 12px;
+}
+[data-scroll-material="jade"] .scroll-dual.rolled > .scroll-dual-paper { margin-block: 0; }
+[data-scroll-material="jade"] .scroll-dual.rolled::before {
+  content: '';
+  position: absolute;
+  inset: 8px calc(18px * 185 / 164);
+  background: var(--scroll-art-paper-color);
+  border-inline: 1px solid var(--scroll-art-rule);
+  z-index: -1;
+  pointer-events: none;
+}
+.scroll-art-paper,
+[data-scroll-material="jade"] .paper-sheet,
+[data-scroll-material="jade"] .scroll-head:not(.rolled):has(> .rod-caps)::before,
+[data-scroll-material="jade"] .scroll-dual > .scroll-dual-paper {
+  background-color: var(--scroll-art-paper-color);
+  background-image:
+    linear-gradient(var(--scroll-art-texture-wash), var(--scroll-art-texture-wash)),
+    var(--scroll-art-texture-image);
+  background-size: 100% 100%, 360px 360px;
+  background-repeat: no-repeat, repeat;
+  background-position: 0 0;
+  color: var(--scroll-art-ink);
+  box-shadow: inset 3px 0 var(--scroll-art-silk), inset -3px 0 var(--scroll-art-silk),
+    inset 4px 0 var(--scroll-art-rule), inset -4px 0 var(--scroll-art-rule);
+}
+.scroll-art-paper { padding: 16px 20px; }
+.scroll-art-single > .scroll-head { width: 100%; height: 22px; padding: 0; position: relative; background: transparent; border: 0; cursor: pointer; }
+.scroll-art-single > .scroll-head:not(.rolled):has(> .rod-caps)::before,
+.scroll-art-single > .scroll-head::after { display: none; }
+.scroll-art-single .scroll-art-paper { margin-inline: 21px; }
+.scroll-art-single .scroll-fold { margin-top: -9px; }
+.scroll-art-single .rod-caps { top: 3px; }
+.scroll-head:has(> .rod-caps) > .scroll-count { margin-right: 12px; }
+.scroll-art-single .scroll-count { position: absolute; right: 20px; top: 3px; font-size: 11px; line-height: 16px; color: var(--scroll-art-ink); }
+/* 查找小窗的纸也必须止于玉轴肩，仍保留原有拖动热区。 */
+[data-scroll-material="jade"] .terminal-search-sheet { margin-inline: 25px; }
+/* 输入框改为整张宣纸：铺满原有输入热区，去除两端轴体与中央接缝。 */
+[data-scroll-material="jade"] .scroll-search {
+  background-color: var(--scroll-art-paper-color);
+  background-image:
+    linear-gradient(var(--scroll-art-input-wash), var(--scroll-art-input-wash)),
+    var(--scroll-art-texture-image);
+  background-size: 100% 100%, 480px 480px;
+  background-repeat: no-repeat, repeat;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px var(--scroll-art-rule), 0 1px 2px #49332618;
+}
+[data-scroll-material="jade"] .scroll-search > :is(.scroll-search-paper, .scroll-search-rod, .scroll-search-tie) { display: none; }
+/* 两端窄玉色压边与金箍：给宣纸一个立体收口，画心保持宽铺。 */
+[data-scroll-material="jade"] .scroll-search::before,
+[data-scroll-material="jade"] .scroll-search::after {
+  content: '';
+  position: absolute;
+  top: 3px; bottom: 3px;
+  width: 5px;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: 3px;
+  background-image:
+    linear-gradient(to bottom, transparent 3px, #c1a368 3px, #ebd9a8 4px, #947446 5px, transparent 6px, transparent calc(100% - 6px), #c1a368 calc(100% - 6px), #ebd9a8 calc(100% - 5px), #947446 calc(100% - 4px), transparent calc(100% - 3px)),
+    linear-gradient(to right, #597364, #acbeb0 25%, #e0e8d9 45%, #93aa98 72%, #526b5c);
+  box-shadow: inset 0 1px 1px #fff6, 1px 0 3px #49332635;
+}
+[data-scroll-material="jade"] .scroll-search::before { left: 1px; }
+[data-scroll-material="jade"] .scroll-search::after { right: 1px; transform: scaleX(-1); }
+[data-theme-mode="dark"] .scroll-search::before,
+[data-theme-mode="dark"] .scroll-search::after { filter: brightness(.82) saturate(.8); }
+[data-scroll-material="jade"] .scroll-search:focus-within { box-shadow: inset 0 0 0 1px var(--amber), 0 1px 2px #49332618; }
+[data-scroll-material="jade"] .scroll-search .scroll-search-input { color: var(--scroll-art-ink); margin-inline: 12px; }
+[data-scroll-material="jade"] .scroll-search .scroll-search-input::placeholder { color: color-mix(in srgb, var(--scroll-art-ink) 70%, var(--scroll-art-paper-color)); }
+/* 纯宣纸不带轴体或裱边，可单独用于空白画心与纸质输入区。 */
+.scroll-art-xuan {
+  padding: 16px 20px;
+  color: var(--scroll-art-ink);
+  background-color: var(--scroll-art-paper-color);
+  background-image: linear-gradient(var(--scroll-art-texture-wash), var(--scroll-art-texture-wash)), var(--scroll-art-texture-image);
+  background-size: 100% 100%, 360px 360px;
+  background-repeat: no-repeat, repeat;
+}
+/* ImageGen 透明丝绳：玉石大画轴使用美术图，小于 8px 的筛选轴保留线绘。 */
+.scroll-tie-art { display: none; }
+[data-scroll-material="jade"] :is(.scroll-head, .scroll-dual) .scroll-tie > :not(.scroll-tie-art) { display: none; }
+[data-scroll-material="jade"] :is(.scroll-head, .scroll-dual) .scroll-tie-art { display: block; }
+[data-scroll-material="jade"] .scroll-head .scroll-tie { width: 20px; height: 24px; transform: translateX(7px); }
+[data-scroll-material="jade"] .scroll-dual > .scroll-dual-rod > .scroll-dual-tie {
+  width: 18px;
+  height: 20px;
+  margin-left: 30px;
+}
+[data-scroll-material="jade"] .scroll-dual-tie .scroll-tie { width: 18px; height: 20px; }
+.scroll-art-single-tie { position: absolute; top: -3px; left: 30px; pointer-events: none; }
+[data-theme-mode="dark"] [data-scroll-material="jade"] .scroll-tie-art,
+[data-theme-mode="dark"][data-scroll-material="jade"] .scroll-tie-art { filter: brightness(.88) saturate(.85); }
+
+/* 文房毛笔：两端图像不拉长，只伸缩中段木杆；悬停/执笔沿用原按钮动作。 */
+.brush-art {
+  --brush-art-height: 12px;
+  display: flex;
+  width: 100%;
+  height: var(--brush-art-height);
+  pointer-events: none;
+  filter: drop-shadow(0 1px 1px #49332640);
+}
+.brush-art > svg { display: block; height: 100%; overflow: hidden; }
+.brush-art-tip { width: calc(var(--brush-art-height) * 824 / 280); flex-shrink: 0; }
+.brush-art-cap { width: calc(var(--brush-art-height) * 273 / 280); flex-shrink: 0; }
+.brush-art-shaft { flex: 1; min-width: 0; }
+.brush:has(> .brush-art) { container-type: inline-size; }
+.brush > .brush-art {
+  --brush-art-height: clamp(7px, 18cqw, 12px);
+  position: absolute;
+  left: 4px; right: 4px; bottom: -1px;
+  width: calc(100% - 8px);
+  z-index: -1;
+  transition: filter 140ms ease;
+}
+.brush:hover > .brush-art { filter: brightness(1.08) drop-shadow(0 1px 2px #49332650); }
+.brush.on > .brush-art { filter: brightness(1.12) drop-shadow(0 0 2px var(--amber)); }
+[data-theme-mode="dark"] .brush-art { filter: brightness(1.15) drop-shadow(0 1px 1px #0008); }
+@media (prefers-reduced-motion: reduce) { .brush > .brush-art { transition: none; } }

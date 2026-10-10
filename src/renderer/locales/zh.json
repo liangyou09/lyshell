@@ -55,14 +55,6 @@
     "blinkOn": "闪烁开",
     "blinkOff": "闪烁关",
     "theme": "主题",
-    "scrollMaterial": "轴头材质",
-    "scrollMaterialHint": "立即生效并记住选择，可与任意主题搭配。",
-    "scrollMaterials": {
-      "walnut": "胡桃木",
-      "jade": "青玉",
-      "lacquer": "黑漆",
-      "porcelain": "青白瓷"
-    },
     "language": "语言",
     "pickBaseColor": "选择底色",
     "pickAccentColor": "选择焦点色",

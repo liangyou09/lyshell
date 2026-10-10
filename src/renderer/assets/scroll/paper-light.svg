@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" preserveAspectRatio="none">
+  <defs>
+    <filter id="fiber"><feTurbulence type="fractalNoise" baseFrequency=".7 .08" numOctaves="3" seed="8" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter>
+    <pattern id="silk" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M0 0h8M0 4h8M0 0v8M4 0v8" stroke="#927d57" stroke-opacity=".09" stroke-width=".5"/></pattern>
+  </defs>
+  <path fill="#f7f0e2" d="M0 0h512v512H0z"/>
+  <path filter="url(#fiber)" opacity=".045" d="M0 0h512v512H0z"/>
+  <path fill="#c7b995" d="M0 0h8v512H0zM504 0h8v512h-8z"/>
+  <path fill="url(#silk)" d="M0 0h8v512H0zM504 0h8v512h-8z"/>
+  <path d="M9 0v512M503 0v512" stroke="#af9973" stroke-opacity=".4"/>
+</svg>

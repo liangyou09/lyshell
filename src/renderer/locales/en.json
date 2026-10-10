@@ -55,14 +55,6 @@
     "blinkOn": "Blink On",
     "blinkOff": "Blink Off",
     "theme": "Theme",
-    "scrollMaterial": "Scroll knobs",
-    "scrollMaterialHint": "Applies immediately and remembers your choice. Pairs with any theme.",
-    "scrollMaterials": {
-      "walnut": "Walnut",
-      "jade": "Jade",
-      "lacquer": "Lacquer",
-      "porcelain": "Porcelain"
-    },
     "language": "Language",
     "pickBaseColor": "Pick base color",
     "pickAccentColor": "Pick accent color",

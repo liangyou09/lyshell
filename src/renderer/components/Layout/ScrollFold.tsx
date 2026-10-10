@@ -1,5 +1,6 @@
 import React from 'react'
 import cn from 'classnames'
+const silkTie = new URL('../../assets/scroll/scroll-tie-silk-gold-v1.png', import.meta.url).href
 
 /**
  * 垂卷 —— 组内容开合的卷轴容器(折叠栏=卷轴的辊,行=纸:开=纸自辊下垂落,
@@ -32,6 +33,7 @@ const ScrollFold: React.FC<{
  */
 export const ScrollTie: React.FC<{ group?: boolean }> = ({ group = false }) => (
   <svg className="scroll-tie" width="12" height="16" viewBox="0 0 12 16" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <image className="scroll-tie-art" href={silkTie} width="12" height="16" preserveAspectRatio="xMidYMid meet" />
     {group ? <>
     {/* 绕轴的一圈绳:暗边压进卷面，亮脊提起绳的圆度。 */}
     <path d="M6 0.5C7.2 2.2 4.8 4.6 6 7.1C7 9.2 5.1 12.3 6.1 15.5" stroke="rgba(0,0,0,.28)" strokeWidth="2.7" />

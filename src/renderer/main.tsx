@@ -4,6 +4,7 @@ import './i18n'  // 副作用初始化 i18next（用 saved locale），必须在
 import App from './App'
 import ErrorBoundary from './components/ErrorBoundary'
 import './styles/globals.css'
+import './styles/scroll-artwork.css'
 
 // 预加载终端等宽字体（Maple Mono NF CN，已随 app 打包）。
 // 必须等字体就绪后再挂载 React：xterm 在 terminal.open() 时测量字符宽度，

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { useThemeStore, AVAILABLE_THEMES, CUSTOM_THEME_ID, deriveCustomVars, useLocaleStore, AVAILABLE_LOCALES } from '@/stores'
-import { SCROLL_MATERIAL_IDS } from '@/styles/scroll-materials'
 import { isCursorBlinkEnabled, DEFAULT_TERMINAL_FONT_SIZE, TERMINAL_FONT_SIZE_MIN, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_STEP, snapTerminalFontSize } from '@shared/constants'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import './SettingsPanel.css'
@@ -60,7 +59,7 @@ const SettingsPanel: React.FC = () => {
   const [downloadDir, setDownloadDir] = useState('')
   // 主窗口尺寸(像素) -- 持久化到 preferences,启动恢复;输入框双向绑定,点应用/预设时调 IPC
   const [windowSize, setWindowSize] = useState<{ width: number; height: number }>({ width: 1200, height: 800 })
-  const { themeId, setTheme, customColors, setCustomColors, scrollMaterial, setScrollMaterial } = useThemeStore()
+  const { themeId, setTheme, customColors, setCustomColors } = useThemeStore()
   const { localeId, setLocale } = useLocaleStore()
   const { t } = useTranslation()
 
@@ -270,27 +269,6 @@ const SettingsPanel: React.FC = () => {
               ))}
             </div>
           )}
-        </SettingCard>
-
-        <SettingCard title={t('settings.scrollMaterial')}>
-          {/* 材质预览沿用实际轴头 CSS，与主题选择独立。 */}
-          <div role="group" aria-label={t('settings.scrollMaterial')} className="settings-material-grid">
-            {SCROLL_MATERIAL_IDS.map(id => (
-              <button
-                key={id}
-                type="button"
-                aria-pressed={scrollMaterial === id}
-                onClick={() => setScrollMaterial(id)}
-                className={cn('settings-material', scrollMaterial === id && 'is-active')}
-              >
-                <span aria-hidden="true" data-scroll-material={id} className="scroll-material-sample">
-                  <span className="rod-caps" />
-                </span>
-                <span>{t(`settings.scrollMaterials.${id}`)}</span>
-              </button>
-            ))}
-          </div>
-          <p className="settings-hint">{t('settings.scrollMaterialHint')}</p>
         </SettingCard>
 
         <SettingCard title={t('settings.language')}>

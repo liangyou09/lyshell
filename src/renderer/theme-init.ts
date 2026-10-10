@@ -12,7 +12,7 @@ import { SCROLL_MATERIAL_STORAGE_KEY, normalizeScrollMaterial } from './styles/s
  */
 const VALID_THEMES = ['rack-graphite', 'rack-slate', 'rack-carbon', 'rack-paper', 'rack-lark', 'rack-ember', 'rack-custom']
 
-// 材质在 React 挂载前同步恢复，避免首帧先露出默认木轴头。
+// React 挂载前统一迁移到玉雕画轴，避免首帧闪现旧材质。
 try {
   document.documentElement.dataset.scrollMaterial = normalizeScrollMaterial(localStorage.getItem(SCROLL_MATERIAL_STORAGE_KEY))
 } catch {

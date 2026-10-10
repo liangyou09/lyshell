@@ -344,29 +344,8 @@
     color-mix(in srgb, var(--scroll-roll-paper) 72%, #000));
   --axis-rod-wood: #76523B;
 }
+/* 唯一玉雕材质；小型筛选轴继续使用同色的代码原生轮廓。 */
 :root,
-[data-scroll-material="walnut"] {
-  --axis-wood: #76523B;
-  --axis-wood-face: #4C3427;
-  --axis-knob-rim: rgba(255, 231, 195, .16);
-  --axis-knob-surface:
-    radial-gradient(ellipse at 60% 36%, color-mix(in srgb, var(--axis-wood) 86%, #D8B98B) 10%, var(--axis-wood-face) 74%, #2F211B 100%),
-    repeating-linear-gradient(0deg, rgba(30, 17, 9, .14) 0 1px, transparent 1px 4px),
-    linear-gradient(to bottom, #AF8B63, var(--axis-wood) 24%, #64442F 65%, #35271F);
-}
-[data-theme-mode="dark"],
-[data-theme-mode="dark"] [data-scroll-material="walnut"] {
-  /* 端面比柱面沉一档，外缘收暗；顶面柔光让小轴头保留木质体积。 */
-  --axis-wood: #916544;
-  --axis-wood-face: #604431;
-  --axis-rod-wood: #916544;
-  --axis-knob-rim: rgba(255, 231, 195, .16);
-  --axis-knob-surface:
-    radial-gradient(ellipse at 50% 46%, #89684D 0 24%, #684B36 36% 44%, #806044 54% 64%, var(--axis-wood-face) 78%, #402D23 100%),
-    repeating-linear-gradient(0deg, transparent 0 2px, rgba(52, 29, 16, .2) 2px 3px, transparent 3px 5px),
-    linear-gradient(to bottom, #AF8B66, var(--axis-wood) 28%, #795338 68%, #463022);
-}
-/* 四套材质共用实体轮廓，只换端面与柱面；细轴杆仍保留木色。 */
 [data-scroll-material="jade"] {
   --axis-wood: #789D8B;
   --axis-wood-face: #3F6B5B;
@@ -375,31 +354,6 @@
     radial-gradient(ellipse at 55% 42%, #B7C9BB 12%, #658F7A 66%, var(--axis-wood-face) 100%),
     radial-gradient(ellipse at 65% 38%, rgba(231, 246, 227, .28), transparent 65%),
     linear-gradient(to bottom, #AFC4AE, var(--axis-wood) 28%, #5F8873 70%, #36584B);
-}
-[data-scroll-material="lacquer"] {
-  --axis-wood: #272B2B;
-  --axis-wood-face: #151819;
-  --axis-knob-rim: rgba(204, 222, 224, .35);
-  --axis-knob-surface:
-    radial-gradient(ellipse at 55% 38%, #546264 15%, #1D282B 66%, var(--axis-wood-face) 100%),
-    linear-gradient(90deg, transparent 75%, rgba(205, 219, 216, .18) 79% 83%, transparent 87%),
-    linear-gradient(to bottom, #69777A, #2C3335 20%, var(--axis-wood) 62%, #111516);
-}
-[data-scroll-material="porcelain"] {
-  --axis-wood: #C5D7CF;
-  --axis-wood-face: #7FAAA4;
-  --axis-knob-rim: rgba(249, 252, 239, .5);
-  --axis-knob-surface:
-    radial-gradient(ellipse at 55% 40%, #E4EBDF 18%, #ADCEC4 67%, var(--axis-wood-face) 100%),
-    linear-gradient(90deg, transparent 55%, rgba(55, 89, 109, .5) 56% 61%, transparent 62% 79%, rgba(55, 89, 109, .3) 80% 84%, transparent 85%),
-    linear-gradient(to bottom, #E9EFE2, var(--axis-wood) 30%, #A6C6BE 70%, #85AAA4);
-}
-.scroll-material-sample {
-  position: relative;
-  z-index: 0;
-  display: block;
-  width: 52px;
-  height: 22px;
 }
 [data-theme="rack-ember"] {
   /* 胡桃木主题的纸本来已暖而亮，不再抬纸色，保住细字对比。 */

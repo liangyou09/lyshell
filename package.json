@@ -17,6 +17,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "preview:scroll": "vite preview --outDir dist/renderer --host 127.0.0.1 --port 4174 --strictPort",
     "start": "electron .",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
     "rebuild": "electron-builder install-app-deps",
