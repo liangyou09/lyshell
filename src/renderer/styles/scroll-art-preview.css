@@ -6,6 +6,7 @@
 .art-theme { padding: 28px; background: var(--bg-base); color: var(--text-rack); border-radius: 8px; }
 .art-theme h2 { font-size: 18px; margin-bottom: 10px; }
 .art-theme > p { font-size: 11px; opacity: .7; }
+.art-theme .quick-commands { max-width: 320px; }
 .art-theme h3 { font-size: 12px; margin: 28px 0 12px; font-weight: 400; opacity: .8; }
 .art-dual button.scroll-dual-rod { border: 0; padding: 0; background: transparent; cursor: pointer; width: 100%; }
 .art-compose { padding: 16px 18px; height: 100%; }

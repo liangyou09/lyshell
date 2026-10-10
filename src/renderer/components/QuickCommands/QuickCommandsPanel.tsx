@@ -2,9 +2,11 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import type { QuickCommand, QuickCommandGroup } from '@shared/types'
-import { useQuickCommandsStore } from '../../stores/quick-commands-store'
+import { useQuickCommandsStore } from '@/stores'
 import { useEscDismiss } from '../../hooks'
-import ScrollFold, { ScrollTie } from '../Layout/ScrollFold'
+import { SealBoxLidArtwork } from './SealBoxLidArtwork'
+import { CommandSealArtwork } from './CommandSealArtwork'
+import './QuickCommandsPanel.css'
 
 interface QuickCommandsPanelProps {
   /** 快捷命令派发（由 MainWindow 提供,拆行/转义规则统一在 dispatchCommand；可选以容错无宿主场景） */
@@ -376,15 +378,15 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
   const ledSlots = [...allGroups, ...Array.from({ length: Math.max(0, 5 - allGroups.length) }, () => null)]
 
   return (
-    <div className="flex-shrink-0 mx-1.5">
-      {/* ===== 标题行 —— 对齐 SessionsPanel GroupHeader 视觉语言 ===== */}
+    <div className="quick-commands flex-shrink-0 mx-1.5">
+      {/* ===== 印匣盖：美术木纹与圆角，题名与操作落在盖面 ===== */}
       <div
         onClick={toggleCollapsed}
         role="button"
         tabIndex={0}
         aria-expanded={!collapsed}
         onKeyDown={(e) => {
-          // 键盘开合:印匣区被 ScrollFold inert 挡在 Tab 序外,键盘用户只能
+          // 键盘开合：收起的印匣区由 inert 隔离，键盘用户只能
           // 从这里展开。target 不在自己身上不接 —— 行内 LED 分组点/＋ 聚焦
           // 时按 Enter,keydown 冒泡上来不能误触折叠
           if (e.target !== e.currentTarget) return
@@ -397,61 +399,23 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
           handleOpenGroupDialog()
         }}
         title={t('statusbar.groupSwitchHint')}
-        // 点击折叠/展开印匣区（行内 LED 色点/＋都 stopPropagation,不会误触）。
-        // 不画 border-b:行底缘就是标题行↔印匣区的缝(辊 rod-caps 悬在行内
-        // 居中、隔着小缝望纸),硬线会把辊与下方内容切成两物;折叠时下方紧邻
-        // 状态栏的 border-t,自带底线也会叠成双线
-        className={cn(
-          // scroll-head:标题行即卷轴的裱首+辊(与会话分组折叠栏同款),collapsed
-          // 时纸裹轴卷成同径满卷(轴藏卷内,只露两端轴头),展开后回归光辊;
-          // rod-caps 端头色跟当前分组色。栏本体无底色(透明,露出 bg-base 框
-          // 体),hover 也不铺底 —— 与会话分组折叠栏同款,指针 + 绳的提亮是
-          // 全部悬停反馈。
-          // 行内垫同 GroupHeader:对称垫,内容线与居中的辊同心;垫随辊收细
-          // (辊 20→16,py 5→3 —— 空气恒 ~3px,行高跟辊走);右垫同款
-          // 加厚(20px)—— 右轴头占行缘 6-12px,计数/LED/＋与其隔 8px 空气
-          'relative scroll-head group flex items-center gap-2.5 pl-3 pr-[20px] py-[3px] text-[10px] text-[var(--text-rack-mute)] cursor-pointer select-none',
-          collapsed && 'rolled'
-        )}
+        className="seal-box-lid relative flex items-center gap-1.5 text-[10px] cursor-pointer select-none"
       >
-        {/* 卷轴辊 —— 与 GroupHeader 同款:行内垂直居中(悬浮机件上下留
-            气),辊径恒 16px 开合不变粗细 —— 展开时轴体隔着小缝望着印匣区
-            顶缘,折叠时纸裹轴成同径满卷(轴藏卷内;圆柱读形在 globals.css
-            的 .rod-caps);两端轴头恒跟辊同径、随辊居中不动,色跟当前分组
-            LED(未设分组色回落中性 dim) */}
-        <span aria-hidden className="rod-caps" style={{ color: currentGroupColor || undefined }} />
-        {/* 蝴蝶结记号(ScrollTie)—— 与 GroupHeader 同款:collapsed 时绳在
-            满卷上系成蝴蝶结(绳随纸自下方荡上绑紧 + 自由端各拍微摆),展开后
-            结解开、绳跟着纸向下飘落淡出(槽位恒占防行首跳动;节拍在
-            globals.css 的 .scroll-tie) */}
-        <span
-          className={cn(
-            // 绳色随轴头(currentGroupColor inline 注入,与 rod-caps 同源 ——
-            // 拴卷的绳与卷两端的轴头同色),未设分组色回落中性 mute;行悬停
-            // 提亮走 opacity 一档(inline color 压过 class,hover 变色类只在
-            // 无分组色时生效)
-            'inline-flex transition text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack)] opacity-80 group-hover:opacity-100'
-          )}
-          style={{ color: currentGroupColor || undefined }}
-        >
-          <ScrollTie />
-        </span>
-        {/* 题签(scroll-slip)—— 与 GroupHeader 同款(书体/金墨在 globals.css),
-            题名全栏一只金;折叠时这行字落在纸卷上,读作卷上题签 */}
-        <span className="flex-shrink-0 scroll-slip text-[13px]">
+        <SealBoxLidArtwork />
+        <svg aria-hidden="true" className={cn('seal-box-caret', !collapsed && 'open')} width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="m4 2 4 4-4 4" /></svg>
+        <span className="seal-box-title flex-shrink-0">
           {t('sidebar.quickCmdSection')}
         </span>
-        {/* 当前分组名 —— 题签上的小字注记:与题名同金,收小收淡
-            (opacity 75 = 金的淡一档);当前在哪组由 LED 单选点 + 轴头色认 */}
-        <span className="flex-shrink-0 scroll-slip text-[10.5px] opacity-75">
+        {/* 当前分组名收小收淡，当前分组由 LED 单选点标识。 */}
+        <span className="seal-box-group min-w-0 truncate text-[10.5px] opacity-75">
           · {currentGroup.name}
         </span>
-        <span className="flex-1 h-px bg-[var(--rule)]" />
-        <span className="[font-family:inherit] text-[11px] text-[var(--text-rack-data)] tracking-[.04em] normal-case tabular-nums">
+        <span className="seal-box-spacer flex-1 min-w-0" />
+        <span className="seal-box-count text-[11px] tracking-[.04em] normal-case tabular-nums">
           {displayCommands.length}
         </span>
         {/* action 簇: LED 分组色点 + ＋ —— 同 LIVE 段 close-all 的按钮语言 */}
-        <span className="flex items-center gap-[5px] ml-1.5">
+        <span className="seal-box-groups flex items-center gap-[5px] ml-1 shrink-0">
           {ledSlots.map((g, i) =>
             g ? (
               <button
@@ -500,23 +464,16 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
             handleAddNew()
           }}
           title={t('statusbar.clickToAddHint')}
-          className="ml-1 h-[20px] w-[20px] inline-flex items-center justify-center rounded-[3px] cursor-pointer text-[14px] leading-none text-[var(--text-rack-mute)] hover:text-[var(--amber)] hover:bg-[var(--bg-elev)] transition-colors"
+          className="seal-box-add ml-1 h-[20px] w-[20px] shrink-0 inline-flex items-center justify-center rounded-[3px] cursor-pointer text-[14px] leading-none text-[var(--text-rack-mute)] hover:text-[var(--amber)] hover:bg-[var(--bg-elev)] transition-colors"
         >
           ＋
         </button>
       </div>
 
-      {/* ===== 印匣区（键的基底）—— 基底对齐协议筛选 chips strip（bg-strip）:
-            印章立的匣盘,群章共卧一匣。折叠时垂卷收起（ScrollFold 垂卷动画,
-            与会话分组同款:标题行=辊,印匣区自辊垂落/卷回,窗口下沿是自由边,
-            不画横杆 —— 与状态栏 border-t 不叠线）。
-            展开态高度随印章自然换行增减,但封顶 5 行（max-h 152px = 5 行印章
-            24px + 4 行行距 4px + 上下垫 16px）,超出走 rack-scroll 内滚 ——
-            每组上限 12 条,窄栏全堆下时不再把上方的会话列表/文件管理器挤干;
-            本模块坐栏底（状态栏正上方）,底部 hairline 由状态栏 border-t 提供,
-            不再自带 border-b ===== */}
-      <ScrollFold open={!collapsed}>
-        <div className="flex flex-wrap gap-[4px] px-2 py-2 max-h-[152px] overflow-y-auto rack-scroll bg-[var(--bg-strip)] content-start">
+      {/* 匣盘短开合：真实参与布局，收起内容不进入键盘焦点序。 */}
+      <div className={cn('seal-box-fold', !collapsed && 'open')} {...(collapsed ? { inert: '' } : {})}>
+        <div className="seal-box-body">
+        <div className="quick-command-tray flex flex-wrap gap-[5px] px-2 py-2 max-h-[152px] overflow-y-auto rack-scroll content-start">
           {displayCommands.length === 0 ? (
             <span className="text-[11px] text-[var(--text-rack-dim)] tracking-[.04em] py-[3px] px-1">
               {t('sidebar.quickCmdEmpty')}
@@ -537,9 +494,7 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
                 onClick={() => handleExecute(cmd)}
                 onContextMenu={(e) => handleCommandContextMenu(cmd, e)}
                 className={cn(
-                  // 钤章(seal):章体/印钮/印文/钤印拍的机械全在 globals.css
-                  // 的 .seal 系列,这里只挂身份色(inline color → 印钮
-                  // currentColor,分组色染钮,同轴头/漆杆机制)与拍态(.on);
+                  // 平整青玉签来自美术图，执行时保留钤印下压与朱色反馈。
                   // 器无持久态 —— 分组选择归标题行 LED,这里不携带拴绳/解绳
                   // 语义。F 键号不刻章面(印文独占),Ctrl+F 提示走 title 悬停
                   'seal relative flex-shrink-0 h-[24px] pl-[12px] pr-[10px] flex items-center select-none',
@@ -554,17 +509,15 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
                   ? t('sidebar.quickCmdDisabled')
                   : `${index < 12 ? `Ctrl+F${index + 1} · ` : ''}${cmd.content}`}
               >
-                {/* 章体 —— 一方温石,垫在印文后(z -1);钤印拍整面敷印泥朱 */}
-                <span aria-hidden className="seal-stone" />
-                {/* 印钮 —— 顶缘瓦钮(盖章的手按处),分组色染钮(currentColor) */}
-                <span aria-hidden className="seal-knob" />
+                <CommandSealArtwork />
                 {/* 印文 — 命令名刻进石面(书体/刻痕在 globals.css),钤印拍翻纸色(纸透上来) */}
                 <span className="seal-name">{cmd.name}</span>
               </button>
             ))
           )}
         </div>
-      </ScrollFold>
+        </div>
+      </div>
 
       {/* Quick-command editor */}
       {showAddDialog && (

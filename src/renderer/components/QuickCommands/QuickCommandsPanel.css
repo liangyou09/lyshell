@@ -1,0 +1,116 @@
+/* 木匣盖美术只伸缩中段，两端圆角保持轮廓。 */
+.quick-commands { container: quick-commands / inline-size; min-width: 0; }
+.seal-box-lid {
+  isolation: isolate;
+  min-height: 32px;
+  padding: 4px 17px;
+  color: #394039;
+}
+.seal-box-lid-art {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  z-index: -1;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 1px #0004);
+  transition: filter 140ms ease;
+}
+.seal-box-lid-art svg { display: block; height: 100%; overflow: hidden; }
+.seal-box-lid-end { width: 18px; flex-shrink: 0; }
+.seal-box-lid-middle { flex: 1; min-width: 0; }
+.seal-box-lid:hover .seal-box-lid-art { filter: brightness(1.07) drop-shadow(0 1px 2px #0004); }
+.seal-box-title { font-family: inherit; font-size: 12px; font-weight: 500; letter-spacing: .04em; }
+.seal-box-group { font-family: Cambria, 'KaiTi', '楷体', 'SimSun', serif; }
+.seal-box-count { color: inherit; }
+.seal-box-caret { flex-shrink: 0; transition: transform 180ms ease; }
+.seal-box-caret.open { transform: rotate(90deg); }
+.seal-box-lid:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; border-radius: 4px; }
+.seal-box-lid > button { color: inherit; }
+.seal-box-groups > button { box-shadow: 0 0 0 1px #45494055; }
+/* 窄侧栏将分组色点放到第二行，保留开合、计数和新增按钮的完整热区。 */
+@container quick-commands (max-width: 260px) {
+  .quick-commands .seal-box-lid { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto 20px; padding-inline: 10px; gap: 4px 6px; }
+  .seal-box-caret { grid-column: 1; grid-row: 1; }
+  .seal-box-title { grid-column: 2; grid-row: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .seal-box-group { grid-column: 2; grid-row: 2; }
+  .seal-box-spacer { display: none; }
+  .seal-box-count { grid-column: 3; grid-row: 1; }
+  .quick-commands .seal-box-groups { grid-column: 3 / 5; grid-row: 2; margin-left: 0; flex-wrap: wrap; justify-content: flex-end; }
+  .quick-commands .seal-box-add { grid-column: 4; grid-row: 1; margin-left: 0; }
+}
+/* 深色木盖收成烟灰色，与侧栏同层级，白玉签保留亮点。 */
+[data-theme-mode="dark"] .seal-box-lid { color: var(--text-rack); }
+[data-theme-mode="dark"] .seal-box-lid-art { filter: brightness(.28) saturate(.12) drop-shadow(0 1px 1px #0008); }
+[data-theme-mode="dark"] .seal-box-lid:hover .seal-box-lid-art { filter: brightness(.34) saturate(.12) drop-shadow(0 1px 2px #0008); }
+.seal-box-fold { display: grid; grid-template-rows: 0fr; overflow: hidden; transition: grid-template-rows 180ms ease; }
+.seal-box-fold.open { grid-template-rows: 1fr; }
+.seal-box-body { min-height: 0; overflow: hidden; }
+/* 玉章卧在淡绢匣中，窄木边收住匣盘。 */
+.quick-commands .quick-command-tray {
+  margin: 0 6px 3px;
+  row-gap: 5px;
+  padding-top: 8px;
+  background-color: var(--scroll-art-paper-color);
+  background-image:
+    linear-gradient(var(--scroll-art-texture-wash), var(--scroll-art-texture-wash)),
+    var(--scroll-art-texture-image);
+  background-size: 100% 100%, 360px 360px;
+  border: 1px solid color-mix(in srgb, var(--scroll-art-silk) 70%, #626761);
+  border-top: 0;
+  border-radius: 0 0 3px 3px;
+  box-shadow: inset 0 3px 5px -3px #0005, inset 3px 0 var(--scroll-art-silk), inset -3px 0 var(--scroll-art-silk);
+}
+/* 暗底衬绢只留细纹，匣边跟随面板底色，收掉暖褐色宽边。 */
+[data-theme-mode="dark"] .quick-commands .quick-command-tray {
+  --seal-box-dark-base: color-mix(in srgb, var(--bg-base) 88%, #64717c);
+  background-color: var(--seal-box-dark-base);
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--seal-box-dark-base) 88%, transparent), color-mix(in srgb, var(--seal-box-dark-base) 88%, transparent)),
+    var(--scroll-art-texture-image);
+  border-color: color-mix(in srgb, var(--bg-base) 70%, var(--text-rack-mute));
+  box-shadow: inset 0 3px 5px -3px #0008, inset 2px 0 var(--bg-base), inset -2px 0 var(--bg-base);
+}
+/* 美术玉章：圆角两端不拉伸，文字仍作为真实标签叠在章面。 */
+.quick-commands .seal {
+  min-width: 88px;
+  max-width: 100%;
+  height: 26px;
+  padding-inline: 14px;
+  justify-content: center;
+}
+.command-seal-art {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  z-index: -1;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 1px #0004);
+  transition: filter 140ms ease;
+}
+.command-seal-art svg { display: block; height: 100%; overflow: hidden; }
+.command-seal-image-dark { display: none; }
+[data-theme-mode="dark"] .command-seal-image-light { display: none; }
+[data-theme-mode="dark"] .command-seal-image-dark { display: block; }
+.command-seal-end { width: 8px; flex-shrink: 0; }
+.command-seal-middle { flex: 1; min-width: 0; }
+.quick-commands .seal:not(.on):hover .command-seal-art { filter: brightness(1.08) drop-shadow(0 1px 2px #0004); }
+/* 深色主题使用独立灰玉美术，浅墨题名与烟灰匣盘同一明暗层级。 */
+[data-theme-mode="dark"] .command-seal-art { filter: brightness(.82) saturate(.7) drop-shadow(0 1px 1px #0008); }
+[data-theme-mode="dark"] .quick-commands .seal:not(.on):hover .command-seal-art { filter: brightness(.9) saturate(.7) drop-shadow(0 1px 2px #0008); }
+[data-theme-mode="dark"] .quick-commands .seal-name { color: #edece7; text-shadow: 0 1px 1px #0004; }
+.quick-commands .seal.on .command-seal-art { filter: sepia(1) saturate(4) hue-rotate(315deg) brightness(.65) drop-shadow(0 1px 2px #0004); }
+.quick-commands .seal-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #493d31;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  text-shadow: 0 1px 0 #ffffff10;
+  letter-spacing: .02em;
+}
+.quick-commands .seal.on .seal-name { color: #fff3df; text-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .seal-box-fold, .seal-box-caret, .seal-box-lid-art, .command-seal-art { transition: none; }
+}

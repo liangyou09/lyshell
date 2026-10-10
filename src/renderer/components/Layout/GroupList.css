@@ -1,4 +1,18 @@
-.group-list { display: flex; flex-direction: column; overflow: hidden; }
+/* 单轴背后保留一张淡绢衬板，收齐后仍有完整的陈列面。 */
+.group-list {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 3px;
+  background-color: color-mix(in srgb, var(--scroll-silk) 16%, var(--bg-base));
+  background-image:
+    linear-gradient(to bottom, color-mix(in srgb, var(--scroll-silk) 12%, transparent), transparent 100px),
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--text-rack) 2%, transparent) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--text-rack) 2%, transparent) 0 1px, transparent 1px 5px);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--scroll-silk) 35%, transparent),
+    inset 0 2px 8px -5px var(--scroll-shadow);
+}
 .group-list-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 .group-list-actions button { display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 25px; height: 25px; padding: 0 5px; border: 1px solid var(--rule); border-radius: 5px; background: var(--bg-slot); font-size: 11px; font-weight: 600; color: var(--text-rack-mute); white-space: nowrap; cursor: pointer; }
 .group-list-actions button span { display: none; }
@@ -9,5 +23,7 @@
   .group-list-actions button span { display: inline; }
 }
 .group-list-viewport { min-height: 0; overflow-y: auto; overflow-x: hidden; }
-.group-list-body { padding: 0 2px 4px; }
+.group-list-body { padding: 8px 4px 10px; }
+/* 收卷之间露出窄绢缝，展开的纸面仍直接接住自己的轴。 */
+.group-list-body .scroll-head.rolled { margin-block: 3px; }
 .group-list :is(button, [role="button"]):focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }

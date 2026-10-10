@@ -14,6 +14,7 @@ import FileManagerPanel from '../FileManager/FileManagerPanel'
 import QuickCommandsPanel from '../QuickCommands/QuickCommandsPanel'
 import ScrollFold, { ScrollTie } from './ScrollFold'
 import { BrushArtwork } from './BrushArtwork'
+import './ProtocolSeal.css'
 import TerminalSize, { BarRule } from './TerminalSize'
 import { IconBtn } from './IconBtn'
 import { evaluateStatusbarCompact, type StatusbarCompactState } from './statusbar-compact'
@@ -1464,13 +1465,8 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
                 </>
               )}
 
-              {/* 协议筛选 chips —— 小画轴:每颗筛选键是一卷收起的小横轴(轴体=卷起
-                  的纸筒,题签落在卷面),轴头即协议身份色,题签金墨。状态不走展开,
-                  卷恒收着:选中=解绳点亮(绳飘走、轴头透辉光),未选=拴绳(蝴蝶
-                  结);亮度常亮,明暗只在轴头。多选 toggle,全空 = 显示全部。计
-                  数不上面(窄栏里绳+
-                  题签已满),并入 title 提示(形与绳的机械在 globals.css) */}
-              <div className="scroll-protocols flex items-stretch gap-[4px] px-2 py-[5px] bg-[var(--bg-strip)] border-y border-[var(--rule)]">
+              {/* 协议印签：选中显印泥与内框，多选 toggle，全空显示全部；计数入提示。 */}
+              <div className="protocol-seals">
                 {PROTO_KINDS.map(p => {
                   const active = protoFilter.has(p)
                   const count = protoCounts[p]
@@ -1485,26 +1481,9 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
                       disabled={disabled}
                       aria-pressed={active}
                       title={`${disabled ? t('sidebar.noProtoSessions', { proto: PROTO_LABEL[p] }) : active ? t('sidebar.clearProtoFilter', { proto: PROTO_LABEL[p] }) : t('sidebar.showOnlyProto', { proto: PROTO_LABEL[p] })} · ${count}`}
-                      className={cn(
-                        // 小画轴(scroll-chip):轴体/轴头/明暗/辉光与绳的显隐机械全在
-                        // globals.css;这里只挂身份色(PROTO_TEXT_CLS 设 color —— 轴头
-                        // currentColor 取它)与解绳态;恒不铺底不描边,物件本体就是卷
-                        'scroll-chip relative flex-1 min-w-0 flex items-center gap-[3px] pl-[6px] pr-[4px] cursor-pointer select-none',
-                        PROTO_TEXT_CLS[p],
-                        active && 'on',
-                        disabled && 'opacity-30 cursor-not-allowed'
-                      )}
+                      className="protocol-seal"
                     >
-                      {/* 轴体 —— 卷起的纸筒,垫在绳/题签后(题签读作贴印在卷面上) */}
-                      <span aria-hidden className="scroll-chip-band" />
-                      {/* 蝴蝶结 —— 未选(卷收着)时绳拴住卷,选中解开飘走
-                          (ScrollTie 与分组折叠栏共用,机械在 globals.css);绳色
-                          随轴头 —— 继承键的协议色,拴卷的绳与卷两端的轴头同色 */}
-                      <span className="inline-flex flex-shrink-0">
-                        <ScrollTie />
-                      </span>
-                      {/* 题签 —— 卷面金墨(scroll-slip 同款恒金) */}
-                      <span className="flex-shrink-0 scroll-slip text-[11px] whitespace-nowrap">{PROTO_LABEL[p]}</span>
+                      {PROTO_LABEL[p]}
                     </button>
                   )
                 })}

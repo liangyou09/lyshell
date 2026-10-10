@@ -3,9 +3,22 @@ import { createRoot } from 'react-dom/client'
 import { ScrollPaper, ScrollRoller, SingleScroll, XuanPaper } from './components/Layout/ScrollArtwork'
 import { ScrollTie } from './components/Layout/ScrollFold'
 import { BrushArtwork } from './components/Layout/BrushArtwork'
+import QuickCommandsPanel from './components/QuickCommands/QuickCommandsPanel'
+import { useQuickCommandsStore } from '@/stores'
+import './i18n'
 import './styles/globals.css'
 import './styles/scroll-artwork.css'
 import './styles/scroll-art-preview.css'
+
+// 独立预览只填充内存示例，命令不向终端派发。
+useQuickCommandsStore.setState({
+  commands: [
+    { id: 'preview-ls', name: '查看目录', content: 'ls' },
+    { id: 'preview-status', name: '连接状态', content: 'who' },
+    { id: 'preview-clear', name: '清屏', content: 'clear' }
+  ],
+  groups: [], defaultGroupColor: '#658f7a', selectedGroupId: 'default'
+})
 
 function ThemePreview({ dark }: { dark: boolean }): React.ReactElement {
   const [singleOpen, setSingleOpen] = useState(true)
@@ -16,6 +29,8 @@ function ThemePreview({ dark }: { dark: boolean }): React.ReactElement {
     <section className="art-theme" data-theme={dark ? 'rack-graphite' : 'rack-paper'} data-theme-mode={dark ? 'dark' : 'light'} data-scroll-material="jade">
       <h2>{dark ? '深色 · 墨绢与青玉' : '浅色 · 宣纸与白玉'}</h2>
       <p>轴头与轴肩保持比例，纸面止于轴肩内侧。</p>
+      <h3>快捷命令 · 木匣盖与玉章匣盘</h3>
+      <QuickCommandsPanel />
       <h3>宣纸输入框 · 会话搜索 / 地址筛选</h3>
       <div className="art-search-samples">
         {[true, false].map(large => (

@@ -173,6 +173,8 @@
 [data-scroll-material="jade"] :is(.scroll-head, .scroll-dual) .scroll-tie > :not(.scroll-tie-art) { display: none; }
 [data-scroll-material="jade"] :is(.scroll-head, .scroll-dual) .scroll-tie-art { display: block; }
 [data-scroll-material="jade"] .scroll-head .scroll-tie { width: 20px; height: 24px; transform: translateX(7px); }
+/* 解绳后的槽位与题名行高一致，避免隐藏的绳结撑高展开标题。 */
+[data-scroll-material="jade"] .scroll-head:not(.rolled) .scroll-tie { height: 20px; }
 [data-scroll-material="jade"] .scroll-dual > .scroll-dual-rod > .scroll-dual-tie {
   width: 18px;
   height: 20px;

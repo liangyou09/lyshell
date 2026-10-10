@@ -472,8 +472,8 @@
 .scroll-head { z-index: 0; }  /* 栈式上下文:辊与题名纸(-1)垫在栏内文字后 */
 /* 展开后木杆独占上沿，题签在杆下方；收起时题签仍落在纸卷面上。 */
 .scroll-head:not(.rolled):has(> .rod-caps) {
-  padding-top: 15px;
-  padding-bottom: 8px;
+  padding-top: 12px;
+  padding-bottom: 3px;
 }
 .scroll-head:not(.rolled):has(> .rod-caps)::before {
   content: '';

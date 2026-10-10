@@ -1,0 +1,63 @@
+/* 协议印签：玉色边沿托住小印面，选中时留下对应协议色的印泥。 */
+.protocol-seals {
+  display: flex;
+  gap: 5px;
+  padding: 7px 8px;
+  border-block: 1px solid var(--rule-soft);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--scroll-silk) 12%, transparent), transparent);
+}
+.protocol-seal {
+  --seal-tone: var(--proto-ssh);
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, var(--scroll-silk) 75%, var(--scroll-art-ink));
+  border-radius: 4px 3px 5px 3px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--scroll-art-paper-color) 90%, #a6bdad), var(--scroll-art-paper-color));
+  box-shadow: inset 0 1px 0 #ffffff25, 0 1px 2px var(--scroll-shadow);
+  color: var(--scroll-art-ink);
+  font-family: Cambria, 'Times New Roman', serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  cursor: pointer;
+  user-select: none;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+.protocol-seal[data-proto="telnet"] { --seal-tone: var(--proto-tel); }
+.protocol-seal[data-proto="serial"] { --seal-tone: var(--proto-ser); }
+.protocol-seal[data-proto="local"] { --seal-tone: var(--proto-loc); }
+/* 双层印框在小尺寸下仍清楚，细小断口保留手刻印章的读形。 */
+.protocol-seal::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border: 1px solid color-mix(in srgb, var(--seal-tone) 35%, transparent);
+  border-radius: 1px 2px 1px 2px;
+  pointer-events: none;
+}
+.protocol-seal::after {
+  content: '';
+  position: absolute;
+  right: 7px;
+  top: 3px;
+  width: 3px;
+  height: 1px;
+  background: var(--scroll-art-paper-color);
+  pointer-events: none;
+}
+.protocol-seal:not(:disabled):hover {
+  color: var(--seal-tone);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--seal-tone) 35%, transparent), 0 1px 2px var(--scroll-shadow);
+}
+.protocol-seal[aria-pressed="true"] {
+  color: var(--seal-tone);
+  background: color-mix(in srgb, var(--seal-tone) 16%, var(--scroll-art-paper-color));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--seal-tone) 60%, transparent), 0 1px 2px var(--scroll-shadow);
+}
+.protocol-seal[aria-pressed="true"]::before { border-color: var(--seal-tone); }
+.protocol-seal:disabled { opacity: .35; cursor: not-allowed; box-shadow: none; }
+.protocol-seal:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .protocol-seal { transition: none; } }
