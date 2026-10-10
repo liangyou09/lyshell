@@ -6,6 +6,7 @@ import { parentPort, workerData } from 'worker_threads'
 import { Client } from 'ssh2'
 import * as fs from 'fs'
 import * as path from 'path'
+import { sftpMkdirP } from './sftp-mkdir'
 import { randomBytes } from 'crypto'
 import { redactSecrets } from './redact'
 
@@ -81,29 +82,6 @@ function sendMessage(msg: WorkerMessage) {
 // 日志函数（经 redactSecrets 闸口脱敏，确保一次性握手 token 不落盘）
 function log(level: 'info' | 'warn' | 'error', message: string) {
   sendMessage({ type: 'log', level, message: redactSecrets(message) })
-}
-
-// 递归创建远程目录（mkdir -p 等价），与 sftp.ts 的 sftpMkdirP 行为一致。
-// worker 不引入 SFTPWrapper 类型，按 any 处理（与 SSHClientChannel 同策略）。
-async function sftpMkdirP(sftp: any, remoteDir: string): Promise<void> {
-  const norm = remoteDir.replace(/\/+/g, '/').replace(/\/$/, '')
-  if (!norm || norm === '/' || norm === '.') return
-  const parts = norm.split('/').filter(Boolean)
-  let cur = norm.startsWith('/') ? '' : '.'
-  for (const part of parts) {
-    cur = cur === '' ? `/${part}` : cur === '.' ? part : `${cur}/${part}`
-    await new Promise<void>((resolve, reject) => {
-      sftp.mkdir(cur, (err: any) => {
-        if (!err) return resolve()
-        const code = err?.code
-        if (code !== 4 && !/exist|failure/i.test(err?.message || '')) return reject(err)
-        sftp.stat(cur, (statErr: any, attrs: any) => {
-          if (!statErr && attrs?.isDirectory()) return resolve()
-          reject(err)
-        })
-      })
-    })
-  }
 }
 
 // 执行上传

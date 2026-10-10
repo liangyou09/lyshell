@@ -21,7 +21,6 @@
 import { app, protocol, session } from 'electron'
 import log from 'electron-log'
 import {
-  MAX_RESOURCE_BYTES,
   PLUGIN_VIEW_SCHEME,
   buildViewCsp,
   pluginViewPartition,
@@ -29,6 +28,7 @@ import {
   ViewProtocolError
 } from './view-protocol-core'
 import { getPluginViewRegistry } from './view-registry'
+import { readPluginViewResource } from './view-resource'
 
 export {
   PLUGIN_VIEW_CSP,
@@ -96,12 +96,8 @@ async function handlePluginViewRequest(pluginId: string, rawUrl: string): Promis
       headers: { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' }
     })
   }
-  const { readFile } = await import('fs/promises')
   try {
-    const buf = await readFile(absPath)
-    if (buf.length > MAX_RESOURCE_BYTES) {
-      return new Response('resource too large', { status: 404 })
-    }
+    const buf = await readPluginViewResource(absPath)
     const headers: Record<string, string> = {
       'Content-Type': mime,
       'X-Content-Type-Options': 'nosniff',
@@ -114,8 +110,8 @@ async function handlePluginViewRequest(pluginId: string, rawUrl: string): Promis
       headers['Content-Security-Policy'] = buildViewCsp(view?.connectOrigins)
     }
     return new Response(buf, { status: 200, headers })
-  } catch {
-    return new Response('resource not found', {
+  } catch (e) {
+    return new Response(e instanceof ViewProtocolError ? e.message : 'resource not found', {
       status: 404,
       headers: { 'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff' }
     })

@@ -1170,8 +1170,8 @@ const MainWindow: React.FC = () => {
 
       {/* 插件视图弹窗（openDialog 动作落点）：模态覆盖全窗口,不保活,关闭即卸载;
           onClose 走 main 的 dialogCancelled 链路通知发起 guest(见 PluginViewDialog) */}
-      {pluginDialogs.map((d) => (
-        <PluginViewDialog key={d.dialogId} spec={d} onClose={() => closePluginDialog(d.dialogId)} />
+      {pluginDialogs.map((d, index) => (
+        <PluginViewDialog key={d.dialogId} spec={d} isTopmost={index === pluginDialogs.length - 1} onClose={() => closePluginDialog(d.dialogId)} />
       ))}
     </div>
   )

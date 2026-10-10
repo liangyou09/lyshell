@@ -14,6 +14,7 @@
 import React, { useEffect, useMemo, useRef } from 'react'
 import type { WebviewTag } from 'electron'
 import { clampPluginDialogSize, pluginViewPartitionName } from '@shared/plugin-types'
+import { useEscDismiss } from '@/hooks/useDismiss'
 
 /** MainWindow 收到的 openDialog 请求里 renderer 挂弹窗所需字段（params 由 main 清洗注入） */
 export interface PluginViewDialogSpec {
@@ -28,7 +29,7 @@ export interface PluginViewDialogSpec {
   entryUrl: string
 }
 
-const PluginViewDialog: React.FC<{ spec: PluginViewDialogSpec; onClose: () => void }> = ({ spec, onClose }) => {
+const PluginViewDialog: React.FC<{ spec: PluginViewDialogSpec; isTopmost: boolean; onClose: () => void }> = ({ spec, isTopmost, onClose }) => {
   const webviewRef = useRef<WebviewTag | null>(null)
 
   // guest 被 main 关闭（closeDialog 完成 / 插件禁用清理链）→ destroyed → 收尾卸载。
@@ -43,15 +44,10 @@ const PluginViewDialog: React.FC<{ spec: PluginViewDialogSpec; onClose: () => vo
     }
   }, [onClose])
 
-  // Esc 关闭：弹窗是模态覆盖层，键盘逃生门与可视关闭钮同语义（最终都走 main 的
-  // dialogCancelled 链路通知发起 guest）
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // 焦点在宿主时的 Esc 关闭；焦点进入 webview 后由 main 的 before-input-event
+  // 取消对应弹窗。两条路都走 dialogCancelled 链路通知发起 guest。
+  // 加入统一回退栈，避免底层搜索条/菜单先消费 Esc，也保留 IME 候选取消语义。
+  useEscDismiss(isTopmost, onClose)
 
   const width = useMemo(() => clampPluginDialogSize(spec.width) ?? 520, [spec.width])
   const height = useMemo(() => clampPluginDialogSize(spec.height) ?? 400, [spec.height])

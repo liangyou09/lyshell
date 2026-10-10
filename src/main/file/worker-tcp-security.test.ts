@@ -176,11 +176,11 @@ describe('exec/Python-TCP 传输安全不变量', () => {
     expect(UL).toContain('raise TimeoutError("upload connection deadline exceeded")')
   })
 
-  it('SFTP mkdir 模糊 failure 仅在 stat 确认目录后忽略', () => {
+  // 目录检查的运行时回归覆盖在 sftp-mkdir.test.ts，这里只确认两个上传入口共用实现。
+  it('SFTP 上传入口共用目录检查，避免 worker 与 connector 行为不一致', () => {
     for (const src of [SFTP, UL]) {
-      expect(src).toContain('sftp.stat(cur,')
-      expect(src).toContain('attrs?.isDirectory()')
-      expect(src).toContain('reject(err)')
+      expect(src).toContain("import { sftpMkdirP } from './sftp-mkdir'")
+      expect(src).toContain('await sftpMkdirP(sftp, path.posix.dirname(remotePath))')
     }
   })
 

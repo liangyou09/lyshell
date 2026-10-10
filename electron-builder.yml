@@ -39,7 +39,7 @@ win:
       arch:
         - x64
   artifactName: ${productName}-${version}-${arch}.${ext}
-  icon: resources/icons/icon.ico
+  icon: resources/icons/icon-windows.ico
   sign: null
 
 nsis:

@@ -34,6 +34,7 @@ import { PLUGIN_VIEW_PARTITION_PREFIX } from './plugin/view-protocol-core'
 import { initPluginViewRegistry, getPluginViewRegistry } from './plugin/view-registry'
 import { refreshAllPluginUiTokens } from './plugin/view-tokens'
 import { handlePluginGuestDestroyed, handlePluginViewWindowClosed, pluginDialogManager } from './plugin/view-bridge'
+import { setupPluginDialogInput } from './plugin/view-dialog-input'
 import { pluginGuestRegistry } from './plugin/view-guests'
 import { validateManifest } from '@shared/plugin-types'
 import { dshWebManager } from './dsh/web'
@@ -341,6 +342,7 @@ function setupPluginGuest(guestContents: Electron.WebContents, pending: PendingP
   })
   if (pending.kind === 'dialog' && pending.dialogId) {
     pluginDialogManager.completeAttach(pending.dialogId, guestContents.id)
+    setupPluginDialogInput(guestContents, pluginDialogManager)
   }
   // 销毁清理：面板销毁联动其发起弹窗取消；弹窗销毁联动发起 guest 收到取消
   guestContents.once('destroyed', () => {
@@ -403,6 +405,8 @@ function createMainWindow(): void {
   const initHeight = saved && typeof saved.height === 'number'
     ? Math.max(600, Math.min(saved.height, workArea.height))
     : 800
+  // Windows 使用与安装包一致的多尺寸 ICO，减少透明留白并适配任务栏 DPI。
+  const iconFileName = process.platform === 'win32' ? 'icon-windows.ico' : 'icon.png'
 
   mainWindow = new BrowserWindow({
     width: initWidth,
@@ -412,8 +416,8 @@ function createMainWindow(): void {
     show: false,
     title: 'LyShell',
     icon: isDev
-      ? join(__dirname, '../../resources/icons/icon.png')
-      : join(process.resourcesPath, 'icons', 'icon.png'),
+      ? join(__dirname, '../../resources/icons', iconFileName)
+      : join(process.resourcesPath, 'icons', iconFileName),
     autoHideMenuBar: true,
     frame: false, // 无边框窗口，自定义标题栏
     // 与 renderer body 同色：首帧前 / 渲染器死亡 / 合成器丢内容时窗口呈应用深色，
