@@ -385,36 +385,29 @@ describe('topbar-metrics 单一真相源', () => {
     const SETTINGS_PANEL = read('src/renderer/components/Layout/SettingsPanel.tsx')
     const WEB_PANEL = read('src/renderer/components/Layout/WebPanel.tsx')
     for (const panel of [SESSIONS_PANEL, AGENTS_PANEL, HARNESS_PANEL, PLUGIN_PANEL, ENV_PANEL, SETTINGS_PANEL, WEB_PANEL]) {
-      expect(panel).toContain("from './topbar-metrics'")
-      expect(panel).toContain('style={{ height: TOPBAR_HEIGHT }}')
-      // 头条挂 win-drag:左列展开时第一行横带的左列段也是窗口拖拽区
-      // (页签铺满/留白被浮层盖住时的保底;交互子元素经 IconBtn/显式 win-no-drag 让位)
-      expect(panel).toContain('win-drag')
+      expect(panel).toContain("from './PanelHeader'")
+      expect(panel).toContain('<PanelHeader')
     }
-    for (const panel of [SESSIONS_PANEL, AGENTS_PANEL, HARNESS_PANEL, PLUGIN_PANEL, ENV_PANEL, WEB_PANEL]) {
-      expect(panel).toContain('border-b border-[var(--rule)]')
-      // 铭牌字体同源:设备徽章系统,厂牌走系统 UI 字体(与终端画布的等宽栈刻意拉开字面)
-      expect(panel).toContain('Segoe UI Variable Display')
-    }
-    // 设置面板的边框与系统 UI 字体已迁入样式表，验证样式绑定及对应规则。
-    const SETTINGS_CSS = read('src/renderer/components/Layout/SettingsPanel.css')
+    const HEADER = read('src/renderer/components/Layout/PanelHeader.tsx')
+    const HEADER_CSS = read('src/renderer/components/Layout/PanelHeader.css')
+    expect(HEADER).toContain("from './topbar-metrics'")
+    expect(HEADER).toContain('style={{ height: TOPBAR_HEIGHT }}')
+    expect(HEADER).toContain('panel-header win-drag')
+    expect(HEADER_CSS).toMatch(/border-bottom:\s*1px solid var\(--rule\)/)
+    expect(HEADER_CSS).toContain('Segoe UI Variable Display')
     expect(SETTINGS_PANEL).toContain("import './SettingsPanel.css'")
-    expect(SETTINGS_PANEL).toContain('className="settings-header win-drag"')
-    const settingsHeaderRule = SETTINGS_CSS.match(/\.settings-header\s*\{([^}]*)\}/)?.[1]
-    const settingsPanelRule = SETTINGS_CSS.match(/\.settings-panel\s*\{([^}]*)\}/)?.[1]
-    expect(settingsHeaderRule).toMatch(/border-bottom:\s*1px solid var\(--rule\)/)
-    expect(settingsPanelRule).toMatch(/font-family:\s*'Segoe UI',\s*system-ui/)
   })
 
   it('头条图标钮统一脱离拖拽区(五处头条共用的 IconBtn 内建 win-no-drag)', () => {
     const ICON_BTN = read('src/renderer/components/Layout/IconBtn.tsx')
     expect(ICON_BTN).toContain('win-no-drag')
-    // Harness 铭牌按钮与重检钮、Plugin 两个文字 chips 各自显式让位(头行挂 win-drag 后仍可点)
+    // Harness 铭牌与重检按钮、Plugin 安装菜单仍可操作，交互区域脱离拖拽区。
     const HARNESS_PANEL = read('src/renderer/components/Layout/HarnessPanel.tsx')
     const PLUGIN_PANEL = read('src/renderer/components/Layout/PluginPanel.tsx')
-    expect(HARNESS_PANEL).toMatch(/'win-no-drag flex-1 min-w-0/)
+    expect(HARNESS_PANEL).toContain('onTitleClick={view.hasWeb ? handleNameplate : undefined}')
+    expect(read('src/renderer/components/Layout/PanelHeader.tsx')).toContain('panel-header-title-button win-no-drag')
     expect(HARNESS_PANEL).toContain('win-no-drag px-2.5')
-    expect(PLUGIN_PANEL).toContain('win-no-drag px-2')
+    expect(PLUGIN_PANEL).toContain('<PanelHeaderMenu')
   })
 
   it('右留白走实测链路:CSS 变量兜底定义 + TopRightControls ResizeObserver 发布', () => {

@@ -1,12 +1,12 @@
+import ScrollFold from './ScrollFold'
+import { GroupListActions } from './GroupList'
+import { PanelHeader, PanelHeaderAction } from './PanelHeader'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { DEFAULT_CLAUDE_PERMISSION_MODE, DEFAULT_CODEX_PERMISSION_PROFILE, HARNESS_AGENT_VIEWS, type ClaudePermissionMode, type CodexPermissionProfile, type EnvProfileLibraryResult, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
 import { BRANCH_PREFIX, generateWorktreeCode, generateWorktreeKey, generateWorktreeStamp, joinWorktreePath } from '@shared/worktree'
-import { TOPBAR_HEIGHT } from './topbar-metrics'
-import { IconBtn, IconPlus } from './IconBtn'
 import { GroupHeader, type GroupHeaderTone } from './SessionsPanel'
-import ScrollFold, { ScrollTie } from './ScrollFold'
 import { normDirKey, wsDirDetail, wsDirLabel } from './ws-dir'
 import { ensureDetected, getCachedDetect, redetectHarness } from './harness-detect'
 import { useUiStore } from '../../stores/ui-store'
@@ -261,14 +261,14 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   // 一键收/放(会话墙「全体」同语义):收 = 把展开着的目录卷全卷起,放 = 全放
   const allDirsCollapsed =
     wsGroups.length > 0 && wsGroups.every(([dir]) => !!collapsedDirs[dir])
-  const toggleAllDirs = useCallback(() => {
-    const collapsed = !allDirsCollapsed
+  const allDirsExpanded = wsGroups.every(([dir]) => !collapsedDirs[dir])
+  const setAllDirsCollapsed = useCallback((collapsed: boolean) => {
     setCollapsedDirs(prev => {
       const next = { ...prev }
       for (const [dir] of wsGroups) next[dir] = collapsed
       return next
     })
-  }, [allDirsCollapsed, wsGroups])
+  }, [wsGroups])
 
   // 挂载:检测结果读应用级缓存(启动时已预热,切页签回来不再打检测 IPC;
   // 预热漏掉/失败时 ensureDetected 兜底发起一次)。工作区与变量组列表仍按需拉取
@@ -776,85 +776,29 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
       className="w-full h-full flex flex-col bg-[var(--bg-base)]"
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
-      {/* 头条：面板铭牌 + 新增工作区/重新检测 —— 与 SessionsPanel(LyShell 徽牌)/AgentsPanel/PluginPanel 头行同族：
-          行高对齐终端第一行(TOPBAR_HEIGHT)、满幅 border-b 发丝线、
-          铭牌走系统 UI 字体(设备徽章的「厂牌丝印」,Segoe UI Variable Display,
-          hinting 完整任何字号都锐利),LED 是琥珀锚点。
-          hasWeb 的 kind（目前只有 dsh）铭牌本身就是 Web UI 入口：它是面板里最稳的一块 ——
-          不随页签、不随数据增减改位置，故入口挂这儿比挂一个会来会去的图标按钮更可达。
-          点铭牌直接开 Web，落在 deepseek-harness 自己的默认工作区（$DSH_HOME/web），与 TUI 工作区解耦。
-          不加边框与状态字，仅靠悬停变琥珀提示可按；启动中同样标黄（琥珀=此刻与 Web 有关）。
-          codex/claude 无 Web UI，铭牌不可按 —— 有能力的地方才有控件。
-          通电 LED 是铭牌的琥珀锚点（不表示 Web 状态），对应 LYSHELL·RACK 头行的琥珀「·」。
-          计数是铭牌的「型号后缀」（同 AgentsPanel）：listReady 时显示工作区数，
-          读作 Claude 3 一个词（区段带已撤 —— 整面只有一列工作区，标签与铭牌重复）。
-          头行挂 win-drag 做窗口拖拽区(头行是第一行横带的左列段):dsh 的铭牌本身是
-          按钮要保交互,显式 win-no-drag 让位;codex/claude 铭牌是纯文字,留在拖拽区内 */}
-      <div
-        className="win-drag flex items-center justify-between gap-1 px-3 border-b border-[var(--rule)] flex-shrink-0"
-        style={{ height: TOPBAR_HEIGHT }}
-      >
-        {view.hasWeb ? (
-          <button
-            onClick={handleNameplate}
-            disabled={!titleEnabled}
-            title={t(`${prefix}.webDefault`)}
-            style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
-            className={cn(
-              'win-no-drag flex-1 min-w-0 flex items-center gap-2 p-0 bg-transparent border-none text-left',
-              'text-[16px] font-bold tracking-[-0.01em] transition-colors',
-              'focus:outline-none focus-visible:text-[var(--amber)] focus-visible:underline underline-offset-[3px]',
-              webOpening && 'text-[var(--amber)] cursor-wait',
-              !webOpening && titleEnabled && 'text-[var(--text-rack)] cursor-pointer hover:text-[var(--amber)]',
-              !webOpening && !titleEnabled && 'text-[var(--text-rack)] cursor-default'
-            )}
-          >
-            <span aria-hidden className="w-[6px] h-[6px] rounded-full bg-[var(--amber)] shadow-[0_0_5px_var(--amber-glow)] flex-shrink-0" />
-            <span className="min-w-0 truncate">{t(`${prefix}.title`)}</span>
-            {listReady && (
-              <span
-                className="flex-shrink-0 font-semibold text-[12px] text-[var(--text-rack-mute)] tabular-nums"
-                style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
-              >
-                {workspaces.length}
-              </span>
-            )}
-          </button>
-        ) : (
-          <span
-            className="flex-1 min-w-0 flex items-center gap-2 text-[16px] font-bold tracking-[-0.01em] text-[var(--text-rack)] select-none"
-            style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
-          >
-            <span aria-hidden className="w-[6px] h-[6px] rounded-full bg-[var(--amber)] shadow-[0_0_5px_var(--amber-glow)] flex-shrink-0" />
-            <span className="truncate">{t(`${prefix}.title`)}</span>
-            {listReady && (
-              <span
-                className="flex-shrink-0 font-semibold text-[12px] text-[var(--text-rack-mute)] tabular-nums"
-                style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
-              >
-                {workspaces.length}
-              </span>
-            )}
-          </span>
-        )}
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {/* 新增工作区 —— 与会话/Agent/变量组/插件头条同款琥珀「+」图标钮（悬停 tooltip
-              即对话框标题）；依赖就绪（列表可用）才出现，缺依赖时此面板只谈安装不谈工作区 */}
-          {listReady && (
-            <IconBtn amber onClick={handleAdd} title={t(`${prefix}.wsAddTitle`)}><IconPlus /></IconBtn>
-          )}
-          {/* 依赖齐全时无需重新检测（隐藏）；检测中/缺依赖时保留(win-no-drag 脱离头条拖拽区) */}
+      {/* DeepSeek 铭牌继续打开默认 Web UI；列表就绪后才提供新建工作区。 */}
+      <PanelHeader
+        title={t(`${prefix}.title`)}
+        count={listReady ? workspaces.length : undefined}
+        countHint={t('panelHeader.workspaces')}
+        onTitleClick={view.hasWeb ? handleNameplate : undefined}
+        titleHint={view.hasWeb ? t(`${prefix}.webDefault`) : undefined}
+        titleDisabled={!titleEnabled}
+        actions={<>
+          {listReady && wsGroups.length > 0 && <GroupListActions allCollapsed={allDirsCollapsed} allExpanded={allDirsExpanded} onChange={setAllDirsCollapsed} />}
+          {listReady && <PanelHeaderAction label={t('panelHeader.create')} title={t(`${prefix}.wsAddTitle`)} onClick={handleAdd} />}
           {!launchReady && (
             <button
+              type="button"
               onClick={() => void runDetect()}
               disabled={detecting}
-              className="win-no-drag px-2.5 py-1 text-[12.5px] [font-family:inherit] rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+              className="win-no-drag px-2.5 py-1 text-[12.5px] rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
             >
               {detecting ? t(`${prefix}.detecting`) : t(`${prefix}.redetect`)}
             </button>
           )}
-        </div>
-      </div>
+        </>}
+      />
 
       {/* ===== 内容壳 ===== 头行以下整列离缘 6(mx-1.5) —— 与会话栏器物两端同线
           (栏内器物一律离缘,墙纸不再通铺到面板两缘);段内既有垫距保留;壳不
@@ -970,14 +914,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
         </div>
       )}
 
-      {/* 工作区卡区域（环境变量的管理/启用入口已收编到左侧「环境变量」面板）——
-          卡列表按工作目录分组，立在会话墙同款的双开画轴墙上（scroll-dual-wall 几何
-          + scroll-dual-seg 段身份）：每组一根垂卷 —— 组头 = SessionsPanel GroupHeader
-          同款卷轴（辊轴头/蝴蝶结/题签/发丝线/右缘计数，点击或 Enter 开合），卡落
-          ScrollFold 纸幅；上/下辊行一键收/放全体目录组（会话墙「全体」同语义，键盘
-          入口在上辊行）。段身份 --seg-tone 按 kind 取色：claude 青橙 / codex 青白 /
-          dsh 青花（agents 青紫在 AgentsPanel）—— 轴头/系绳/解绳辉光/题签墨整墙一色，
-          机械在 globals.css 的变体规则 */}
+      {/* 工作区按目录分组，标题行控制单组开合，顶部按钮批量操作。 */}
       {listReady && (
         <div className="flex-1 min-h-0 flex flex-col bg-[var(--bg-rack)]">
           {/* 横幅位（仅异常时占行，随卡片区域走）：其余依赖未装时启动禁用
@@ -997,32 +934,11 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
               时空态占整段（与 Web 栏「历史空则不立墙」同口径） */}
           {wsGroups.length > 0 ? (
             <div
-              className={cn('scroll-dual scroll-dual-wall scroll-dual-seg flex-1 min-h-0 open', WS_TONE[agent].segCls)}
+              className={cn('group-list scroll-dual-seg flex-1 min-h-0', WS_TONE[agent].segCls)}
               style={{ '--seg-tone': WS_TONE[agent].token } as React.CSSProperties}
             >
-              {/* 上辊行 —— 一键收/放钮（会话墙「全体」同款）：点行把纸里展开着的
-                  目录卷全卷起/全放，键盘入口在此（下辊行纯鼠标） */}
-              <div
-                className="scroll-dual-rod cursor-pointer"
-                role="button"
-                tabIndex={0}
-                aria-expanded={!allDirsCollapsed}
-                aria-label={t(`${prefix}.title`)}
-                title={allDirsCollapsed ? t('sidebar.expandAllGroups') : t('sidebar.collapseAllGroups')}
-                onClick={toggleAllDirs}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleAllDirs() }
-                }}
-              >
-                {/* 辊本体（rod-caps）—— 行内垂直居中的细棍；墙恒开，辊面恒是光辊
-                    （解绳态：轴头恒亮，段身份见 scroll-dual-seg） */}
-                <span aria-hidden className="rod-caps" />
-                <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
-              </div>
-              {/* 纸窗（恒铺开，纸包内容）—— 目录组垂卷立在纸面上；内容超出剩余高时
-                  纸收缩到剩高、内心滚（滚动容器 = 纸窗，滚条 rack-scroll） */}
-              <div className="scroll-dual-paper rack-scroll">
-                <div className="scroll-dual-body">
+              <div className="group-list-viewport rack-scroll">
+                <div className="group-list-body">
                   {wsGroups.map(([dir, list]) => (
                     <div key={dir}>
                       <GroupHeader
@@ -1036,8 +952,6 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                         onToggle={() => toggleDirCollapsed(dir)}
                       />
                       <ScrollFold open={!collapsedDirs[dir]}>
-                        {/* 纸幅：与辊上卷纸带同宽同边 mx-2 —— 工作区卡原样立上纸面
-                            （槽位面卡/悬停操作簇不动），卡间 6px 沟落在纸上 */}
                         <div className="paper-sheet mx-2 px-1.5 py-1.5 space-y-1.5">
                           {list.map(renderWorkspaceCard)}
                         </div>
@@ -1046,16 +960,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                   ))}
                 </div>
               </div>
-              {/* 下辊行 —— 纸尾辊：贴在纸尾、跟着最底下的分组卷走；点行同样一键
-                  收/放（鼠标入口 —— 键盘由上辊行独占） */}
-              <div
-                className="scroll-dual-rod scroll-dual-rod-b cursor-pointer"
-                onClick={toggleAllDirs}
-              >
-                {/* 辊本体 —— 下辊镜像（纸带锚顶、落影投上，机械在 .scroll-dual-rod-b） */}
-                <span aria-hidden className="rod-caps" />
-                <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
-              </div>
+
             </div>
           ) : (
             <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 px-4 pb-6 text-center">

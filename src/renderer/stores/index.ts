@@ -1,5 +1,6 @@
 export { useSessionStore } from './session-store'
 export { useTerminalStore } from './terminal-store'
+export { usePaneStore } from './pane-store'
 export { useFileStore } from './file-store'
 export { useTransferStore } from './transfer-store'
 export { useThemeStore, AVAILABLE_THEMES, DEFAULT_THEME_ID, CUSTOM_THEME_ID, deriveCustomVars } from './theme-store'

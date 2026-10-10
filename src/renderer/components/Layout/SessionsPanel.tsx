@@ -1,3 +1,5 @@
+import { GroupListActions } from './GroupList'
+import { PanelHeader, PanelHeaderAction } from './PanelHeader'
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import cn from 'classnames'
@@ -13,8 +15,7 @@ import QuickCommandsPanel from '../QuickCommands/QuickCommandsPanel'
 import ScrollFold, { ScrollTie } from './ScrollFold'
 import { BrushArtwork } from './BrushArtwork'
 import TerminalSize, { BarRule } from './TerminalSize'
-import { TOPBAR_HEIGHT } from './topbar-metrics'
-import { IconBtn, IconPlus } from './IconBtn'
+import { IconBtn } from './IconBtn'
 import { evaluateStatusbarCompact, type StatusbarCompactState } from './statusbar-compact'
 import { useQuickCommandsStore } from '../../stores/quick-commands-store'
 import { useUiStore } from '../../stores/ui-store'
@@ -987,33 +988,7 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
     [ip]: prev[ip] === false ? true : false
   }))
 
-  // 墙辊行的一键收/放(原「全体」总闸的语义随总闸迁到墙上):收 = 把纸里
-  // 展开着的垂卷们(置顶段 + 全部子网组)都卷起,放 = 全部展开 —— 墙恒
-  // 开,收起的是里面的会话画卷不是墙自身;LIVE 段不归它管(与旧总闸同口
-  // 径)。置顶段走 pinnedCollapsed 既有存档(防抖落盘);子网组态与单组
-  // 折叠同口径不存档 —— 这里直接改态即走既有管线
-  const ipsCollapsed = sortedSubnetGroups.length > 0 && sortedSubnetGroups.every(([key]) => expandedIPs[key] === false)
-  const pinnedCollapsedOrAbsent = pinnedSessions.length === 0 || pinnedCollapsed
-  const allGroupsCollapsed = pinnedCollapsedOrAbsent && (sortedSubnetGroups.length === 0 || ipsCollapsed)
-  const toggleAllGroups = () => {
-    if (allGroupsCollapsed) {
-      // 全部展开
-      setPinnedCollapsed(false)
-      setExpandedIPs(prev => {
-        const next = { ...prev }
-        for (const [key] of sortedSubnetGroups) next[key] = true
-        return next
-      })
-    } else {
-      // 全部折叠
-      if (pinnedSessions.length > 0) setPinnedCollapsed(true)
-      setExpandedIPs(prev => {
-        const next = { ...prev }
-        for (const [key] of sortedSubnetGroups) next[key] = false
-        return next
-      })
-    }
-  }
+
 
   // saved → live 会话匹配 — 后端给每次 connect 分配新 uuid，所以不能按 id 找。
   // 用 (name + 协议 + host) 作为身份标识，与 saved 行做关联。
@@ -1122,6 +1097,23 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
       return !!live && sessionIdsInPanes.has(live.id)
     })
     .sort(sortByUpdateTime)
+
+  // 批量动作包含所有可折叠分组，沿用各组已有状态与持久化管线。
+  const allGroupsCollapsed = (liveSessions.length === 0 || liveCollapsed) &&
+    (pinnedSessions.length === 0 || pinnedCollapsed) &&
+    sortedSubnetGroups.every(([key]) => expandedIPs[key] === false)
+  const allGroupsExpanded = (liveSessions.length === 0 || !liveCollapsed) &&
+    (pinnedSessions.length === 0 || !pinnedCollapsed) &&
+    sortedSubnetGroups.every(([key]) => expandedIPs[key] !== false)
+  const setAllGroupsCollapsed = (collapsed: boolean): void => {
+    if (liveSessions.length > 0) setLiveCollapsed(collapsed)
+    if (pinnedSessions.length > 0) setPinnedCollapsed(collapsed)
+    setExpandedIPs(prev => {
+      const next = { ...prev }
+      for (const [key] of sortedSubnetGroups) next[key] = !collapsed
+      return next
+    })
+  }
 
   const handleTogglePin = async (config: SessionConfig, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -1284,34 +1276,17 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
         className="bg-[var(--bg-base)] flex flex-col h-full sidebar-container"
         style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
       >
-        {/* ===== 系统区 ===== 头行高对齐终端第一行(TOPBAR_HEIGHT):轨顶收起槽 / 本头行 /
-             页签条在窗口顶部读作同一条横线。铭牌 = 产品名 + 编译期版本号
-             (__APP_VERSION__ 由 vite define 注入,升版不用手改这里)。
-             头行挂 win-drag:左列展开时第一行横带的左列段也是窗口拖拽区
-             (页签铺满/被浮层盖住时的保底,见 topbar-metrics TOPBAR_GRIP_WIDTH 注;
-             交互子元素 IconBtn 已统一 win-no-drag) */}
-        <div
-          className="win-drag flex items-center justify-between px-3 border-b border-[var(--rule)]"
-          style={{ height: TOPBAR_HEIGHT }}
-        >
-          {/* 铭牌 = 设备徽章的语言:厂牌丝印 + 打字机固件号。品牌名走系统 UI 字体
-              (Segoe UI Variable Display,Win11 自带、hinting 完整,任何字号都锐利不发虚),
-              微收的 tracking 是 logotype 的紧凑感;版本号留在面板等宽栈里做「读数」--
-              两种字面的并置就是机柜徽章的辨识度,等宽粗体做铭牌反而像玩具打字机 */}
-          <span className="flex items-baseline gap-2 select-none">
-            <span
-              className="font-bold tracking-[-0.01em] text-[16px] text-[var(--text-rack)]"
-              style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
-            >
-              LyShell
-            </span>
-            <span className="text-[12px] text-[var(--text-rack-mute)] tabular-nums">v{__APP_VERSION__}</span>
-          </span>
-          <div className="flex gap-0.5">
-            <IconBtn amber onClick={handleNewSession} title={t('sidebar.newSession')}><IconPlus /></IconBtn>
+        {/* 统一首行：保存会话数量与新建入口，导入导出保留为次操作。 */}
+        <PanelHeader
+          title={t('nav.sessions')}
+          count={savedSessions.length}
+          countHint={t('panelHeader.savedSessions')}
+          actions={<>
+          <GroupListActions allCollapsed={allGroupsCollapsed} allExpanded={allGroupsExpanded} onChange={setAllGroupsCollapsed} />
+            <PanelHeaderAction label={t('panelHeader.create')} title={t('sidebar.newSession')} onClick={handleNewSession} />
             <IconBtn onClick={handleOpenExportImport} title={t('sidebar.exportImport')}><IconDownload /></IconBtn>
-          </div>
-        </div>
+          </>}
+        />
 
         {/* ===== 过滤区 ===== 双开画轴 —— 会话搜索框的挂轴化(区别于垂卷的
              单辊向下开纸、小画轴的恒收一卷):两端各一竖辊(细棍 5 径),双开。
@@ -1391,53 +1366,10 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
           ))}
         </div>
 
-        {/* ===== 会话墙双开画轴 —— 天头总闸的挂轴化 ===== 整面会话墙(垂卷
-             分组们:LIVE/PINNED/协议筛选/子网组)住进一张竖置双开画轴的纸
-             里,替代原「全体」总闸。墙恒开:纸面永铺着,收起的是纸里的垂
-             卷分组们 —— 点任一辊行 = 一键收/放(toggleAllGroups 旧总闸语
-             义随总闸迁到墙上:置顶段+全部子网组,LIVE 不归它管);全体收
-             起时墙纸仍铺着,纸面上立着一排卷起的分组卷(「收起的时候也是
-             展开的状态」)。置顶段走 pinnedCollapsed 既有存档,子网组态与
-             单组折叠同口径不存档,墙自身无态可存档。墙是列里的 flex-1 占
-             位容器(下方 FM/快捷命令/状态栏恒钉底),但「纸包内容」:纸高
-             = 画心内容高,下辊行贴在纸尾、跟着最底下的分组卷走 —— 短内容
-             时下方留白露 bg-base,内容超出列剩余高时纸收缩到剩高、内心滚
-             (滚动容器是纸窗,见下);不可拖(上辊行只点按,无拖高手势位
-             与拖示线),恒挂 open(墙无开合动画,覆写在 globals 的
-             .scroll-dual-wall;ScrollFold 开合逐帧改内容高,下辊随折卷动
-             画跟手滑)。空墙也常挂(空态住纸里,纸尾跟着空态文案走);左右缘
-             6(mx-1.5)整墙内收,与过滤区/笔架两端同线 —— 栏内器物一律离缘 */}
-        <div className="scroll-dual scroll-dual-wall mx-1.5 flex-1 min-h-0 open">
-          {/* 上辊行 —— 一键收/放钮(原「全体」总闸的语义随总闸迁到墙上):
-              点行把纸里展开着的垂卷们(置顶段+全部子网组)都卷起/全放,
-              键盘入口在此(下辊行纯鼠标);无拖高 —— 高随内容与列剩余高走,没
-              有「拖到某个高度」的语义;两态 title 即原总闸的展开/折叠提示 */}
-          <div
-            className="scroll-dual-rod cursor-pointer"
-            role="button"
-            tabIndex={0}
-            aria-expanded={!allGroupsCollapsed}
-            aria-label={t('sidebar.groupAll')}
-            title={allGroupsCollapsed ? t('sidebar.expandAllGroups') : t('sidebar.collapseAllGroups')}
-            onClick={toggleAllGroups}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleAllGroups() }
-            }}
-          >
-            {/* 辊本体(rod-caps)—— 行内垂直居中的细棍,垫在题签后;墙恒
-                开,辊面恒是光辊(解绳态:轴头恒亮,同搜索框常开) */}
-            <span aria-hidden className="rod-caps" />
-            <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
-          </div>
-          {/* 纸窗(恒铺开,且包着内容走)—— 会话墙的纸:垂卷分组们立在纸
-              面上;全体收起时纸面上立着一排卷起的分组卷(墙自身不卷,「收
-              起的时候也是展开的状态」)。纸高 = 画心内容高:下辊贴纸尾、跟
-              着最底下的分组卷走,短内容时下方留白露 bg-base;内容超出列剩
-              余高时纸收缩到剩高、内心滚 —— 滚动容器是内部 body(rack-scroll
-              滚条;与 FM「body 绝对锚定恒高」就此分叉:墙的画心静态流式随
-              纸走,覆写在 globals 的 .scroll-dual-wall) */}
-          <div className="scroll-dual-paper rack-scroll">
-            <div className="scroll-dual-body">
+        {/* 分组列表：单画轴独立开合，顶部按钮批量展开或收起。 */}
+        <div className="group-list mx-1.5 flex-1 min-h-0">
+          <div className="group-list-viewport rack-scroll">
+            <div className="group-list-body">
               {/* LIVE — 当下已连接 */}
               {liveSessions.length > 0 && (
                 <>
@@ -1466,7 +1398,6 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
                     }
                   />
                   <ScrollFold open={!liveCollapsed}>
-                    {/* 纸幅:与辊上卷纸带同宽同边 mx-2，辊探出一对轴头。 */}
                     <div className="paper-sheet mx-2">
                       {liveSessions.map(config => (
                         <SessionSlot
@@ -1505,7 +1436,6 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
                     onToggle={() => setPinnedCollapsed(c => !c)}
                   />
                   <ScrollFold open={!pinnedCollapsed}>
-                    {/* 纸幅:与辊上卷纸带同宽同边 mx-2，辊探出一对轴头。 */}
                     <div className="paper-sheet mx-2">
                       {pinnedSessions.map((config, index) => (
                         <SessionSlot
@@ -1601,7 +1531,6 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
                       onToggle={() => toggleIPGroup(groupKey)}
                     />
                     <ScrollFold open={expanded}>
-                      {/* 纸幅:与辊上卷纸带同宽同边 mx-2，辊探出一对轴头。 */}
                       <div className="paper-sheet mx-2">
                         {sorted.map(config => (
                           <SessionSlot
@@ -1639,18 +1568,7 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
               )}
             </div>
           </div>
-          {/* 下辊行 —— 纸尾辊:贴在纸尾、跟着最底下的分组卷走(纸包内容,
-              短内容随纸上浮,内容满列时贴底不动);点行同样一键收/放里面
-              的垂卷分组们(鼠标入口 —— 键盘由上辊行独占,不给 title 免得
-              与上辊重复) */}
-          <div
-            className="scroll-dual-rod scroll-dual-rod-b cursor-pointer"
-            onClick={toggleAllGroups}
-          >
-            {/* 辊本体 —— 下辊镜像(纸带锚顶、落影投上,机械在 .scroll-dual-rod-b) */}
-            <span aria-hidden className="rod-caps" />
-            <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
-          </div>
+
         </div>
 
         {/* 搁板(.shelf)—— 墙与 FM 之间的架:墙下辊与 FM 上辊同为 5 径细辊、

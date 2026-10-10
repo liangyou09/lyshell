@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import './ActivityRail.css'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
@@ -7,34 +8,12 @@ import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { makePluginViewKey, parsePluginViewKey } from '@shared/plugin-types'
 import type { PluginViewMeta } from '@shared/plugin-types'
 
-/**
- * 左侧机柜竖版页签轨 -- 把"会话 / Agent / 插件"三权并立成等高的机柜卡槽。
- *
- * 视觉语言:浏览器式页签条 -- 页签笼整体染 bg-slot 成"条带"(chrome 材质,与
- * bg-base 面板底拉开一步;暗主题条带亮于页面、亮主题条带灰于页面,同浏览器
- * chrome/页面的材质分工),激活槽是条带上挖出的"窗口":bg-base 与面板同一面
- * 材质,右缘直角越过 border-r 竖线把它整个盖掉,窗口与面板之间无墙、同色
- * 无缝,读作浏览器激活页签与页面连成一片。窗口材质 = 面板"卡片区域外"的框体
- * 底:激活槽读作管理框本体的一部分,与面板里的卡片(bg-rack 底 + 文字行)是
- * 两个物种。选中显著性 = 条带/窗口对比 + amber 左边条 + amber 图标;未选中
- * 图标静息 --text-tab-idle(页签静息字同款混档:暗主题 ≈#BFC5CA,条带上
- * ~9:1;首版走 mute(~3:1)用户校准嫌暗,全列未选中图标统一提到该档,
- * 与页签静息字/右上控制簇同一「未选中 chrome」亮度;dim 仅 ~2:1,暗得糊进
- * 条带读作暗影)、悬停提亮一档到 rack;槽间用
- * inset 凹陷阴影做卡笼分隔。
- * 这是本组件的 signature -- 导航读作机柜页签条,而非通用图标条。
- *
- * 轨顶第一槽是左列收起控位(非页签):与收起态终端列左上的展开 pill 构成同一开关的
- * 两个形态 -- 开关永远停在窗口左上角,展开时是本槽,收起时是 pill,150ms 交叉淡变。
- * 槽高读 TOPBAR_HEIGHT,与终端第一行页签条齐平。
- */
+/** 左侧机柜导航：保留分槽与连片选中态，图标采用统一光学尺寸和轻量托座。 */
 /** 固定页签白名单（内容页签 + 轨底设置槽）—— localStorage 恢复校验与类型收窄共用 */
 export const FIXED_NAV_TABS = ['sessions', 'agents', 'dsh', 'codex', 'claude', 'env', 'plugins', 'web', 'settings'] as const
 export type FixedNavTab = (typeof FIXED_NAV_TABS)[number]
 
-/** 插件视图页签：复合键 plugin:${pluginId}:${viewId}（@shared makePluginViewKey 构造、
- *  parsePluginViewKey 解析，禁止各处自行拼接；模板字面量类型让固定页签仍保留字面量
- *  自动补全，插件键经构造函数获得） */
+/** 插件视图复合键由 @shared 的 makePluginViewKey 构造、parsePluginViewKey 解析。 */
 export type PluginViewNavTab = `plugin:${string}:${string}`
 
 export type NavTab = FixedNavTab | PluginViewNavTab
@@ -53,36 +32,29 @@ const TABS: FixedNavTab[] = ALL_TABS
 export const RAIL_WIDTH = 44
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 图标 -- 24px 渲染,线宽三档:20-box sw1.4(放大 1.2x,有效 ~1.68)为轨上基准;
-// agents 短划单独 1.6(有效 ~1.92),24-box/28-box 款(env/web/设置)sw1.7 对齐有效线宽。
-// cap:直线族 square,有机形态(写轮眼/齿轮)round —— 明细见各图标注释
+// 图标：22px 光学尺寸、圆角端点；品牌轮廓与 ENV 横牌按视觉重量单独校准。
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** 会话 = 叠屏(后屏错位叠放,前屏两行内容)。
- *  「多开」语义直给:错位读出层次,前屏两行读作活跃会话;
- *  square cap 同轨上直线图标语言(前版机柜塔只有「机柜」没有「管理」,已换)。 */
+/** 会话 = 叠屏与终端提示符；后屏收淡，前屏突出可操作的终端。 */
 const IconSessions: React.FC = () => (
-  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" strokeLinejoin="miter">
-    <rect x="4" y="3.5" width="10" height="8" />
-    <rect x="6" y="8.5" width="10" height="8" />
-    <path d="M9 12.2h4" />
-    <path d="M9 14.6h4" />
+  <svg aria-hidden width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M7 6V4.5A1.5 1.5 0 0 1 8.5 3h11A1.5 1.5 0 0 1 21 4.5v9a1.5 1.5 0 0 1-1.5 1.5H18" opacity=".55" />
+    <rect x="3" y="8" width="14" height="13" rx="2" />
+    <path d="m6.5 12 2.5 2.5-2.5 2.5M11.5 17H14" />
   </svg>
 )
 
-/** Agent = HUD 括号核(四角括号锁定 + 中心实心菱形核,「瞄准中的智能体」)。
- *  科技/HUD 语汇,「锁定中的焦点」读作 Agent 在场;square cap 同轨上直线图标语言。
- *  strokeWidth 1.6 略重于轨上 1.4 基准(有效 ~1.92):括号是短划,需要一档
- *  份量才在 24px 下读出 HUD 描边的存在感。 */
+/** Agent = 四角定位框与星形内核，短线和主图形保持同一描边重量。 */
 const IconAgents: React.FC = () => (
-  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="square" strokeLinejoin="miter">
-    <path d="M3.5 6.8 V3.5 h3.3 M13.2 3.5 h3.3 v3.3 M16.5 13.2 v3.3 h-3.3 M6.8 16.5 H3.5 v-3.3" />
-    <path d="M10 6.8 L12.4 10 L10 13.2 L7.6 10 Z" fill="currentColor" stroke="none" />
+  <svg aria-hidden width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 8V4a1 1 0 0 1 1-1h4M16 3h4a1 1 0 0 1 1 1v4M21 16v4a1 1 0 0 1-1 1h-4M8 21H4a1 1 0 0 1-1-1v-4" opacity=".65" />
+    <path d="m12 6 1.8 4.2L18 12l-4.2 1.8L12 18l-1.8-4.2L6 12l4.2-1.8Z" />
+    <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
   </svg>
 )
 
 /** codex/claude = 官方内置品牌标(assets/agent-icons/*.png),mask 取资产 alpha 作实心剪影、随主题着色。
- *  Filled 剪影与线描图标(会话/机器人头/拼图/齿轮)不同语言,故走 bg-current + mask;
+ *  Filled 剪影保留品牌轮廓，走 bg-current + mask;
  *  激活色与 dsh 鲸鱼一致为 --text-rack(白/黑),不亮 amber。 */
 const codexIcon = new URL('../../assets/agent-icons/codex.png', import.meta.url).href
 const claudeIcon = new URL('../../assets/agent-icons/claude.png', import.meta.url).href
@@ -91,7 +63,7 @@ const claudeIcon = new URL('../../assets/agent-icons/claude.png', import.meta.ur
 const BrandMaskIcon: React.FC<{ src: string }> = ({ src }) => (
   <span
     aria-hidden
-    className="block w-[24px] h-[24px] bg-current"
+    className="block w-[22px] h-[22px] bg-current"
     style={{
       maskImage: `url(${src})`,
       WebkitMaskImage: `url(${src})`,
@@ -111,70 +83,51 @@ const IconCodex: React.FC = () => <BrandMaskIcon src={codexIcon} />
 /** claude = Anthropic 太阳花(官方内置品牌标,mask 取 alpha 剪影、随主题着色) */
 const IconClaude: React.FC = () => <BrandMaskIcon src={claudeIcon} />
 
-/** 变量组 = ENV 印章 —— 横幅满框,字标居中,读作机柜资产的钢印/模板标牌。
- *  28×24 横幅画布(strokeWidth 1.7 同 24-box 有效线宽惯例):字标天生横长,
- *  24 方画布里可读字号的墨迹缝顶死 ~2.7(字一收就回嫌小的档),拉开字与框的
- *  空气只能给字标配横长版式 —— 轨上唯一非方图标是刻意的(字标 ≠ 图形)。
- *  方框 25.7x21.7 外缘 0.3..27.7 / 0.3..23.7(视觉 27.4x23.4 横牌),字标 9.4 居中,
- *  左右墨迹缝各 ~4.4,上下留白读作印章版心的空气。字标 x/y 按栅格化墨迹实测
- *  居中(em 盒量不到字齿;ppem 取整随字号漂移,改字号必重标定)。
- *  (前几版弃:无框 ENV 在轨槽里轮廓发虚;花括号 { ENV } 欠直白。)
- *  mono 栈呼应 shell 语汇;框用 square cap 直线族语言,静息时框先于字读出。 */
+/** 变量组 = ENV 横牌；圆角外框和加重顶边呼应机柜上的铭牌。 */
 const IconEnv: React.FC = () => (
-  <svg width="28" height="24" viewBox="0 0 28 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="square" strokeLinejoin="miter">
-    <rect x="1.15" y="1.15" width="25.7" height="21.7" />
+  <svg aria-hidden width="26" height="22" viewBox="0 0 28 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="1.15" y="1.15" width="25.7" height="21.7" rx="3" />
+    <path d="M6 1.15h16" strokeWidth="2.4" />
     <text x="14" y="11.8" textAnchor="middle" dominantBaseline="central" fill="currentColor" stroke="none" fontSize="9.4" fontWeight="700" letterSpacing="0.15" fontFamily='ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace'>ENV</text>
   </svg>
 )
 
-/** 插件 = 方块阵(三方块 + 第 4 块旋转 45°「转体入位」)。
- *  几何冷静,「入位」那一下读作安装;square cap 同轨上直线图标语言。 */
+/** 插件 = 三枚固定模块与一枚轻微转动的模块，表达安装入位。 */
 const IconPlugins: React.FC = () => (
-  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" strokeLinejoin="miter">
-    <rect x="3" y="3" width="6.4" height="6.4" />
-    <rect x="10.6" y="3" width="6.4" height="6.4" />
-    <rect x="3" y="10.6" width="6.4" height="6.4" />
-    <rect x="10.9" y="10.9" width="5.8" height="5.8" transform="rotate(45 13.8 13.8)" />
+  <svg aria-hidden width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="7" height="7" rx="1.3" />
+    <rect x="3" y="14" width="7" height="7" rx="1.3" />
+    <rect x="14" y="14" width="7" height="7" rx="1.3" />
+    <rect x="14.3" y="3.3" width="6.4" height="6.4" rx="1.3" transform="rotate(15 17.5 6.5)" fill="currentColor" fillOpacity=".12" />
   </svg>
 )
 
-/** 网页 = 写轮眼·实心勾玉(眼 = 浏览/观看,Web 面板就是内嵌浏览器)。
- *  24×24 viewBox 满框(同设置齿轮的 24-box 惯例,strokeWidth 1.7 对齐有效线宽):
- *  眼眶 r11 外缘 11.85,视觉直径 ~23.7px,是 24px 元素内的极限;
- *  瞳孔 + 三枚实心蝌蚪勾玉(120° 旋转对称,头部起宽、沿轨道收尖、向瞳孔内钩)。 */
+/** 写轮眼小尺寸稿：空心虹膜、小瞳孔、三枚独立勾玉，24px 下保留清楚的负空间。 */
 const IconWeb: React.FC = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="11" />
-    <circle cx="12" cy="12" r="2.68" fill="currentColor" stroke="none" />
-    <g>
-      <circle cx="12" cy="5.17" r="2.27" fill="currentColor" stroke="none" />
-      <path d="M10.13 3.86 Q7.67 5.14 6.89 9.07 Q9.51 8.88 10.85 7.15 Z" fill="currentColor" stroke="none" />
-    </g>
-    <g transform="rotate(120 12 12)">
-      <circle cx="12" cy="5.17" r="2.27" fill="currentColor" stroke="none" />
-      <path d="M10.13 3.86 Q7.67 5.14 6.89 9.07 Q9.51 8.88 10.85 7.15 Z" fill="currentColor" stroke="none" />
-    </g>
-    <g transform="rotate(240 12 12)">
-      <circle cx="12" cy="5.17" r="2.27" fill="currentColor" stroke="none" />
-      <path d="M10.13 3.86 Q7.67 5.14 6.89 9.07 Q9.51 8.88 10.85 7.15 Z" fill="currentColor" stroke="none" />
-    </g>
+  <svg aria-hidden width="24" height="24" viewBox="0 0 24 24" fill="none">
+    <circle cx="12" cy="12" r="10.25" stroke="currentColor" strokeWidth="1.7" />
+    <circle cx="12" cy="12" r="1.65" fill="currentColor" />
+    {[0, 120, 240].map((angle) => (
+      <path
+        key={angle}
+        transform={`rotate(${angle} 12 12)`}
+        d="M12 4.7C10.95 4.7 10.1 5.5 10.1 6.55C10.1 7.6 10.95 8.45 12 8.45C13.55 8.45 14.65 7.05 14.65 5.45C14.65 4.6 14.05 3.85 13.2 3.6C13.6 4.15 13.55 4.6 13.05 5.1C12.75 4.85 12.4 4.7 12 4.7Z"
+        fill="currentColor"
+      />
+    ))}
   </svg>
 )
 
-/** 收起控位 = 双层 « 指向左列滑出方向(与收起态 pill 的单层 » 成对:« 收 / » 展)。
- *  双层的份量对齐相邻的机架/机器人头/齿轮图标;square cap 同轨上直线图标语言。 */
+/** 收起控位 = 双层左箭头；尺寸略小，让导航图标保持主次。 */
 const IconCollapseRail: React.FC = () => (
-  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" strokeLinejoin="miter">
-    <path d="M10.5 5.5 L5.5 10 L10.5 14.5" />
-    <path d="M15.5 5.5 L10.5 10 L15.5 14.5" />
+  <svg aria-hidden width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m11 6-6 6 6 6m7-12-6 6 6 6" />
   </svg>
 )
 
-/** 设置 = 齿轮(工具位,轨底独立槽)。
- *  齿轮是曲线形态,round cap/join 更自然,故不随其余直线图标用 square;
- *  24 viewBox 缩小到 20 渲染,strokeWidth 取 1.7 使有效线宽对齐其余图标的 1.4。 */
+/** 设置 = 圆角齿轮；画布留出边缘余量，避免齿尖贴近托座。 */
 const IconSettings: React.FC = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+  <svg aria-hidden width="22" height="22" viewBox="-1 -1 26 26" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="12" cy="12" r="3" />
     <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
   </svg>
@@ -208,7 +161,7 @@ const PluginRailIcon: React.FC<{ pluginId: string; viewId: string }> = ({ plugin
     return () => { cancelled = true }
   }, [pluginId, viewId])
   if (icon) {
-    return <img src={icon} alt="" draggable={false} className="w-[24px] h-[24px] object-contain" />
+    return <img src={icon} alt="" draggable={false} className="w-[22px] h-[22px] object-contain" />
   }
   return <IconPlugins />
 }
@@ -263,7 +216,7 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
 
   return (
     <div
-      className="flex flex-col items-stretch h-full flex-shrink-0 bg-[var(--bg-base)] select-none"
+      className="activity-rail flex flex-col items-stretch h-full flex-shrink-0 bg-[var(--bg-base)] select-none"
       style={{ width: RAIL_WIDTH }}
     >
       {/* 轨顶收起控位 -- 左列展开时的收起开关(收起态由终端列左上 ghost 控位接棒,见 MainWindow)。
@@ -271,7 +224,7 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
           面板头条的 border-b 同色同 y -- 它是横贯窗口的"第一行底线"(收起槽 → 面板头条 →
           页签条连成一条),不是收起槽与内容页签的槽位分隔;第一行内部(右侧)不画竖线,
           整行读作无分割的一条横带;下方内容页签取 40 行高 -- 第一行 36 是跨窗
-          对齐的 chrome 行高,内容槽给 24px 图标留呼吸(44 过疏 / 36 过挤的折中)。
+          对齐的 chrome 行高,内容槽给图标托座留呼吸(44 过疏 / 36 过挤的折中)。
           ghost 语言与收起态 pill 同源:静息线走 --text-tab-idle(轨上未选中
           图标的统一档,见组件 docstring),悬停 bg-rack 托起(轨槽的一步抬升,
           对应 pill 的 bg-elev)+ chevron 提亮到 rack */}
@@ -288,7 +241,7 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
           'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--amber)]'
         )}
       >
-        <span className="text-[var(--text-tab-idle)] group-hover:text-[var(--text-rack)] group-focus-visible:text-[var(--text-rack)] transition-colors">
+        <span className="activity-rail-icon text-[var(--text-tab-idle)] group-hover:text-[var(--text-rack)] group-focus-visible:text-[var(--text-rack)] transition-colors">
           <IconCollapseRail />
         </span>
       </button>
@@ -359,16 +312,15 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
               className={cn(
                 // relative:窗口 span 在绝对定位层,画在普通流内容之上;图标不定位
                 // 会被窗口填充盖住(上一版"图标消失"的根因)
-                'relative transition-[color,transform] duration-200 ease-out group-hover:scale-110',
+                'activity-rail-icon relative',
                 isActive
                   // 品牌位激活变白(开眼),不亮 amber、不挂辉光;写轮眼 web 激活
-                  // 走 .rail-icon-web-active(dark 取 --web-group 青蓝段身份,
-                  // 浅色收深 —— 浅亮青压浅底读不出,见 globals.css 该节)
+                  // 走红色描边与托座，小尺寸稿以负空间区分勾玉和瞳孔
                   ? (tab === 'dsh' || tab === 'codex' || tab === 'claude')
                     ? 'text-[var(--text-rack)]'
                     : tab === 'web'
-                      ? 'rail-icon-web-active'
-                      : 'text-[var(--amber)] animate-rail-icon-glow'
+                      ? 'rail-icon-sharingan-active'
+                      : 'text-[var(--amber)]'
                   // 静息 --text-tab-idle(页签静息字同款混档,轨上未选中图标统一:
                   // 曾走 mute ~3:1,用户校准嫌暗提到该档 —— dim 在 bg-slot 条带
                   // 上仅 ~2:1,低亮度低饱和蓝灰糊进蓝黑条带,读作"暗影"而非图标)。
@@ -431,9 +383,9 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
             )}
             <span
               className={cn(
-                'relative transition-[color,transform] duration-200 ease-out group-hover:scale-110',
+                'activity-rail-icon relative',
                 isActive
-                  ? 'text-[var(--amber)] animate-rail-icon-glow'
+                  ? 'text-[var(--amber)]'
                   : 'text-[var(--text-rack-mute)] group-hover:text-[var(--text-rack-data)]'
               )}
             >
@@ -482,9 +434,9 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
         <span
           className={cn(
             // relative:同内容槽 -- 不定位会被窗口 span(绝对定位层)盖住
-            'relative transition-[color,transform] duration-200 ease-out group-hover:scale-110',
+            'activity-rail-icon relative',
             active === 'settings'
-              ? 'text-[var(--amber)] animate-rail-icon-glow'
+              ? 'text-[var(--amber)]'
               // 静息 tab-idle / 悬停 rack:同内容页签槽的未选中读数亮度档(见上)
               : 'text-[var(--text-tab-idle)] group-hover:text-[var(--text-rack)]'
           )}

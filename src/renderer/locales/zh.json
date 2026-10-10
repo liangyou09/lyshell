@@ -1,4 +1,5 @@
 {
+  "groupList": { "expandAll": "全部展开", "collapseAll": "全部收起" },
   "common": {
     "status": {
       "connected": "OK",
@@ -26,7 +27,18 @@
     "openFolder": "打开文件夹",
     "close": "关闭"
   },
+  "panelHeader": {
+    "moreInstallOptions": "其他安装方式",
+    "create": "新建",
+    "add": "添加",
+    "savedSessions": "已保存的会话",
+    "workspaces": "工作区",
+    "recentVisits": "最近访问"
+  },
   "settings": {
+    "releaseNotes": "更新说明",
+    "viewReleaseNotes": "查看更新说明",
+    "versionReleaseNotes": "版本 {{version}}，查看更新说明",
     "categories": "设置分类",
     "sections": {
       "appearance": "外观",

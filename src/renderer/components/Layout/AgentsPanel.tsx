@@ -1,10 +1,10 @@
+import ScrollFold from './ScrollFold'
+import { GroupListActions } from './GroupList'
+import { PanelHeader, PanelHeaderAction } from './PanelHeader'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
-import { TOPBAR_HEIGHT } from './topbar-metrics'
-import { IconBtn, IconPlus } from './IconBtn'
 import { GroupHeader } from './SessionsPanel'
-import ScrollFold, { ScrollTie } from './ScrollFold'
 import { normDirKey, wsDirDetail, wsDirLabel } from './ws-dir'
 import { generateWorktreeStamp } from '@shared/worktree'
 import EnvRowsEditor from '../EnvRowsEditor'
@@ -234,8 +234,9 @@ const AgentsPanel: React.FC = () => {
   // 一键收/放(会话墙「全体」同语义):判据只看现存各组,陈旧键不掺和
   const allDirsCollapsed =
     agentGroups.length > 0 && agentGroups.every(([dir]) => collapsedDirs.has(dir))
-  const toggleAllDirs = (): void => {
-    setCollapsedDirs(allDirsCollapsed ? new Set() : new Set(agentGroups.map(([dir]) => dir)))
+  const allDirsExpanded = agentGroups.every(([dir]) => !collapsedDirs.has(dir))
+  const setAllDirsCollapsed = (collapsed: boolean): void => {
+    setCollapsedDirs(collapsed ? new Set(agentGroups.map(([dir]) => dir)) : new Set())
   }
 
   // 图标选择器浮层:外部点击 / ESC 关闭 —— ESC 捕获截停(useDismiss),不穿透进
@@ -490,32 +491,14 @@ const AgentsPanel: React.FC = () => {
       className="flex flex-col h-full bg-[var(--bg-base)] min-w-0"
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
-      {/* 头条:AGENTS · 计数 + 添加 -- 行高对齐终端第一行(TOPBAR_HEIGHT),与 SessionsPanel 头行同高。
-          挂 win-drag 做窗口拖拽区(头行是第一行横带的左列段;交互子元素 IconBtn 统一 win-no-drag) */}
-      <div
-        className="win-drag flex items-center justify-between px-3 border-b border-[var(--rule)] flex-shrink-0"
-        style={{ height: TOPBAR_HEIGHT }}
-      >
-        {/* 铭牌与 SessionsPanel 同系统(设备徽章):标签走系统 UI 字体做「厂牌丝印」。
-            计数是徽章的「型号后缀」(如 IBM x3650 M4)——同字体、小一档字号(12/16)、
-            降一档字重 + mute,读作 Agent 3 一个词 */}
-        <span className="flex items-baseline gap-1.5 select-none">
-          <span
-            className="font-bold tracking-[-0.01em] text-[16px] text-[var(--text-rack)]"
-            style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
-          >
-            {t('agents.title')}
-          </span>
-          <span
-            className="font-semibold text-[12px] text-[var(--text-rack-mute)] tabular-nums"
-            style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
-          >
-            {agents.length}
-          </span>
-        </span>
-        {/* 新增 Agent —— 与会话/变量组/Harness/插件头条同款琥珀「+」图标钮（悬停 tooltip 即对话框标题） */}
-        <IconBtn amber onClick={handleAdd} title={t('sidebar.addAgent')}><IconPlus /></IconBtn>
-      </div>
+      <PanelHeader
+        title={t('agents.title')}
+        count={agents.length}
+        actions={<>
+          {agentGroups.length > 0 && <GroupListActions allCollapsed={allDirsCollapsed} allExpanded={allDirsExpanded} onChange={setAllDirsCollapsed} />}
+          <PanelHeaderAction label={t('panelHeader.add')} title={t('sidebar.addAgent')} onClick={handleAdd} />
+        </>}
+      />
 
       {/* ===== 内容壳 ===== 头行以下整列离缘 6(mx-1.5) —— 与会话栏器物两端同线
           (栏内器物一律离缘,墙纸不再通铺到面板两缘);段内既有垫距保留;壳不
@@ -527,42 +510,14 @@ const AgentsPanel: React.FC = () => {
         <div className="text-[10.5px] text-[var(--error-rack)] break-words pt-2">{actionError}</div>
       )}
 
-      {/* 列表 —— 按工作目录分组立在会话墙同款的双开画轴墙上（scroll-dual-wall
-          几何 + scroll-dual-seg 段身份）：每组一根垂卷 —— 组头 = SessionsPanel
-          GroupHeader 同款卷轴（辊轴头/蝴蝶结/题签/发丝线/右缘计数，点击或 Enter
-          开合；题签取目录 basename，同名组显示父目录片段，全路径走 tooltip），卡落 ScrollFold 纸幅；
-          上/下辊行一键收/放全体目录组，键盘入口在上辊行。cwd 未填的 agent 归入
-          「未指定目录」组殿后。段身份 --seg-tone 取
-          青紫（claude 青橙 / codex 青白 / dsh 青花在 HarnessPanel）—— 轴头/系绳/
-          解绳辉光/题签墨整墙一色，机械在 globals.css 的变体规则 */}
+      {/* 分组列表：单画轴独立开合，顶部按钮批量展开或收起。 */}
       {agentGroups.length > 0 ? (
         <div
-          className="scroll-dual scroll-dual-wall scroll-dual-seg tone-violet flex-1 min-h-0 open"
+          className="group-list scroll-dual-seg tone-violet flex-1 min-h-0"
           style={{ '--seg-tone': WS_TONE.token } as React.CSSProperties}
         >
-          {/* 上辊行 —— 一键收/放钮（会话墙「全体」同款）：点行把纸里展开着的
-              目录卷全卷起/全放，键盘入口在此（下辊行纯鼠标） */}
-          <div
-            className="scroll-dual-rod cursor-pointer"
-            role="button"
-            tabIndex={0}
-            aria-expanded={!allDirsCollapsed}
-            aria-label={t('agents.title')}
-            title={allDirsCollapsed ? t('sidebar.expandAllGroups') : t('sidebar.collapseAllGroups')}
-            onClick={toggleAllDirs}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleAllDirs() }
-            }}
-          >
-            {/* 辊本体（rod-caps）—— 行内垂直居中的细棍；墙恒开，辊面恒是光辊
-                （解绳态：轴头恒亮，段身份见 scroll-dual-seg） */}
-            <span aria-hidden className="rod-caps" />
-            <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
-          </div>
-          {/* 纸窗（恒铺开，纸包内容）—— 目录组垂卷立在纸面上；内容超出剩余高时
-              纸收缩到剩高、内心滚（滚动容器 = 纸窗，滚条 rack-scroll） */}
-          <div className="scroll-dual-paper rack-scroll">
-            <div className="scroll-dual-body">
+          <div className="group-list-viewport rack-scroll">
+            <div className="group-list-body">
               {agentGroups.map(([dir, list]) => (
                 <div key={dir}>
                   <GroupHeader
@@ -576,8 +531,6 @@ const AgentsPanel: React.FC = () => {
                     onToggle={() => toggleDirCollapsed(dir)}
                   />
                   <ScrollFold open={!collapsedDirs.has(dir)}>
-                    {/* 纸幅：与辊上卷纸带同宽同边 mx-2 —— agent 卡原样立上纸面
-                        （槽位面卡/悬停操作簇不动），卡间 6px 沟落在纸上 */}
                     <div className="paper-sheet mx-2 px-1.5 py-1.5 space-y-1.5">
                       {list.map(renderAgentCard)}
                     </div>
@@ -586,16 +539,7 @@ const AgentsPanel: React.FC = () => {
               ))}
             </div>
           </div>
-          {/* 下辊行 —— 纸尾辊：贴在纸尾、跟着最底下的分组卷走；点行同样一键
-              收/放（鼠标入口 —— 键盘由上辊行独占） */}
-          <div
-            className="scroll-dual-rod scroll-dual-rod-b cursor-pointer"
-            onClick={toggleAllDirs}
-          >
-            {/* 辊本体 —— 下辊镜像（纸带锚顶、落影投上，机械在 .scroll-dual-rod-b） */}
-            <span aria-hidden className="rod-caps" />
-            <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
-          </div>
+
         </div>
       ) : (
         // 空状态 -- 沿用机柜 ─ · ─ 分隔 + 提示（历史空则不立墙，与 Web 栏同口径）

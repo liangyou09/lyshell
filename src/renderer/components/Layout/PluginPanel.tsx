@@ -1,3 +1,4 @@
+import { PanelHeader, PanelHeaderAction, PanelHeaderMenu } from './PanelHeader'
 import React, { useEffect, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
@@ -5,8 +6,6 @@ import { usePluginStore } from '../../stores/plugin-store'
 import { useUiStore } from '../../stores/ui-store'
 import { normalizeLifecycle } from '@shared/plugin-types'
 import type { LyShellPluginManifest, PluginLifecycle, PluginListItem } from '@shared/plugin-types'
-import { TOPBAR_HEIGHT } from './topbar-metrics'
-import { IconBtn, IconPlus } from './IconBtn'
 
 /** 卡片悬停操作簇的删除钮(与 Agent/工作区/变量组卡同一枚 11px 方角 X) */
 const IconX: React.FC = () => (
@@ -290,44 +289,17 @@ const PluginPanel: React.FC = () => {
       className="w-full h-full flex flex-col bg-[var(--bg-base)]"
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
-      {/* 头条：插件铭牌 + 安装入口(琥珀「+」图标钮 = dev 文件夹主入口,与会话/Agent/
-          变量组/Harness 头条同一枚;本地 zip / URL 两个文字 chips 是次级来源) ——
-          与 SessionsPanel/AgentsPanel/HarnessPanel 头行同族(设备徽章系统):
-          行高对齐终端第一行(TOPBAR_HEIGHT)、满幅 border-b 发丝线、
-          铭牌走系统 UI 字体做「厂牌丝印」,hinting 完整任何字号都锐利。
-          铭牌可截断让位，安装入口 chips 固定不折行。
-          头行挂 win-drag 做窗口拖拽区(头行是第一行横带的左列段;IconBtn 与
-          两个文字 chips 显式 win-no-drag 保交互)。 */}
-      <div
-        className="win-drag flex items-center justify-between gap-1 px-3 border-b border-[var(--rule)] flex-shrink-0"
-        style={{ height: TOPBAR_HEIGHT }}
-      >
-        <span
-          className="flex-1 min-w-0 truncate font-bold tracking-[-0.01em] text-[16px] text-[var(--text-rack)] select-none"
-          style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
-        >
-          {t('plugin.title')}
-        </span>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {/* 安装主入口(dev 文件夹)—— 与会话/Agent/变量组/Harness 头条同款琥珀「+」
-              图标钮(悬停 tooltip 即动作名);本地文件/URL 两个文字 chips 是次级来源 */}
-          <IconBtn amber disabled={busy} onClick={handlePickDev} title={t('plugin.addDev')}><IconPlus /></IconBtn>
-          <button
-            onClick={handlePickFile}
-            disabled={busy}
-            className="win-no-drag px-2 py-0.5 text-[11px] [font-family:inherit] rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
-          >
-            {t('plugin.addFile')}
-          </button>
-          <button
-            onClick={() => setShowUrlInput((v) => !v)}
-            disabled={busy}
-            className="win-no-drag px-2 py-0.5 text-[11px] [font-family:inherit] rounded-[2px] border border-[var(--rule)] text-[var(--text-rack)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] hover:text-[var(--amber)] disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
-          >
-            {t('plugin.installFromUrl')}
-          </button>
-        </div>
-      </div>
+      <PanelHeader
+        title={t('plugin.title')}
+        count={items.length}
+        actions={<>
+          <PanelHeaderAction label={t('panelHeader.add')} disabled={busy} onClick={handlePickDev} title={t('plugin.addDev')} />
+          <PanelHeaderMenu title={t('panelHeader.moreInstallOptions')} items={[
+            { label: t('plugin.addFile'), onClick: handlePickFile, disabled: busy },
+            { label: t('plugin.installFromUrl'), onClick: () => setShowUrlInput(v => !v), disabled: busy }
+          ]} />
+        </>}
+      />
 
       {/* 内容笼：pt-3 + space-y-2 自根容器下移到这层，头条得以满幅贴顶；
           整笼离缘 6（mx-1.5）—— 与会话栏器物两端同线，栏内器物一律离缘，

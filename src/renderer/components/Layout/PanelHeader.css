@@ -1,0 +1,178 @@
+.panel-header {
+  container: panel-header / inline-size;
+  /* 容器查询在 Electron 中形成层叠上下文，整行须高于后续卡片，菜单才能越过首行。 */
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--rule);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--text-rack) 2%, var(--bg-base)), var(--bg-base));
+  font-family: 'Segoe UI Variable Display', 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+.panel-header-nameplate {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+}
+
+.panel-header-title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  color: var(--text-rack);
+}
+
+.panel-header-brand {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  padding: 1px;
+  border-radius: 5px;
+  object-fit: contain;
+}
+
+.panel-header-title-button {
+  padding: 0;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.panel-header-title-button:hover:not(:disabled) {
+  color: var(--amber);
+}
+
+.panel-header-title-button:disabled {
+  cursor: default;
+}
+
+.panel-header-count {
+  flex-shrink: 0;
+  min-width: 21px;
+  padding: 1px 5px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 5px;
+  background: var(--bg-slot);
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-rack-mute);
+}
+
+.panel-header-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-rack-mute);
+}
+
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.panel-header-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 25px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--amber) 23%, var(--rule));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--amber) 7%, var(--bg-base));
+  color: var(--amber);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.panel-header-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--amber) 14%, var(--bg-base));
+  border-color: color-mix(in srgb, var(--amber) 50%, var(--rule));
+}
+
+.panel-header-primary:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.panel-header-primary:focus-visible,
+.panel-header-title-button:focus-visible,
+.panel-header-menu-trigger:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.panel-header-menu { position: relative; }
+.panel-header-menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 25px;
+  border-radius: 5px;
+  color: var(--text-tab-idle);
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.panel-header-menu-trigger:hover { background: var(--bg-slot); }
+.panel-header-menu-items {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  z-index: 50;
+  min-width: 130px;
+  padding: 4px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--bg-rack);
+  box-shadow: 0 5px 15px #0003;
+}
+.panel-header-menu-items button {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 3px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--text-rack);
+  cursor: pointer;
+}
+.panel-header-menu-items button:hover:not(:disabled) { background: var(--bg-slot); }
+.panel-header-menu-items button:disabled { opacity: .45; cursor: default; }
+
+@container panel-header (max-width: 240px) {
+  .panel-header-brand { display: none; }
+  .panel-header-action-label { display: none; }
+}
+
+@container panel-header (max-width: 200px) {
+  .panel-header-count { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-header-primary { transition: none; }
+}

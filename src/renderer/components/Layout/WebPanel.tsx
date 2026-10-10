@@ -1,3 +1,5 @@
+import { GroupListActions } from './GroupList'
+import { PanelHeader } from './PanelHeader'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
@@ -170,13 +172,9 @@ const NavButton: React.FC<{
   </button>
 )
 
-// 铭牌行按钮簇收纳阈值:全簇预算 5×28(面) + 5×gap-1(题名与 5 钮间 5 缝)
-// + px-3×2 = 184px,加「Sharingan」全宽 ~72 + 呼吸 ≈ 264 —— 根宽低于它时
-// 收起副操作钮(检查/清空),保主导航三钮(3 钮预算 120)与完整题名:默认
-// 240 宽下题名得 120px,拖到下限 180 也有 60px(「写轮眼」48px 仍在,题名
-// 另有 min-w-[48px] 兜底);根宽回涨全簇归位。rootWidth 未量得(首帧/jsdom)
-// 不收,行为同旧
-const WEBBAR_NAMEPLATE_COMPACT_WIDTH = 264
+// 统一首行新增品牌、计数和分组按钮后，需要为全簇重新预留宽度。
+// 窄栏保留三枚导航钮，分组开合与检查/清空一起收进更多菜单。
+const WEBBAR_NAMEPLATE_COMPACT_WIDTH = 340
 
 // ===== 写轮眼小窗（栏底迷你浏览器）的持久化与几何常量 =====
 // 高度走 config（键名/防抖/夹取对齐会话面板 fileManagerHeight 的栏底语法）；上次
@@ -325,17 +323,6 @@ const RecentFavicon: React.FC<{ url: string; favicon?: string }> = ({ url, favic
   return <WebTabFavicon src={src} />
 }
 
-/**
- * 域名分组画轴头 —— SessionsPanel 会话墙 GroupHeader 的 Web 版(同一套卷轴
- * 语言,机械全在 globals.css:.scroll-head 栏 + .rod-caps 辊轴头 + ScrollTie
- * 蝴蝶结 + .scroll-slip 题签 + flex-1 发丝线 + 右缘计数,纸幅走 ScrollFold
- * 里的 .paper-sheet mx-2)。段身份走 --web-group 青蓝(段级组语义,轴头/系绳
- * 同色 —— 同一件物的两处署名,inline 注入同会话墙 toneVar 的方式;题签墨也
- * 跟段身份换青蓝,机械在 globals.css .scroll-dual-web 的题签墨规则 —— web 段
- * 整栏一色,墨随轴走;会话墙仍金墨不跟)。题签前落组内最近一条的 favicon —— 14px 恒占座,
- * 图标迟到/缺席都不推挤题签,各组题签起点对齐。开合态由父级存(collapsedHosts),
- * 本组件只挂态。
- */
 const WebGroupHeader: React.FC<{
   label: string
   count: number
@@ -441,8 +428,8 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
   // 历史增删留下的陈旧键不掺和
   const allGroupsCollapsed =
     webGroups.length > 0 && webGroups.every(([host]) => !!collapsedHosts[host])
-  const toggleAllGroups = (): void => {
-    const collapsed = !allGroupsCollapsed
+  const allGroupsExpanded = webGroups.every(([host]) => !collapsedHosts[host])
+  const setAllGroupsCollapsed = (collapsed: boolean): void => {
     setCollapsedHosts(prev => {
       const next = { ...prev }
       for (const [host] of webGroups) next[host] = collapsed
@@ -920,23 +907,12 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
       className={cn('w-full h-full flex flex-col bg-[var(--bg-base)]', !visible && 'hidden')}
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
-      {/* 头条:网页铭牌 —— 与 SessionsPanel/PluginPanel 头行同构(行高对齐终端
-          第一行、满幅 border-b 发丝线、铭牌走系统 UI 字体做「厂牌丝印」)。
-          挂 win-drag 做窗口拖拽区(头行是第一行横带的左列段);交互子元素
-          (导航簇/清空)统一 IconBtn(win-no-drag 内建让位,lg + bright 档:
-          按钮簇是这行的主体操作)—— 浏览器导航键与清空都住这行,44px 输入行
-          只留地址栏 */}
-      <div
-        className="win-drag flex items-center justify-between gap-1 px-3 border-b border-[var(--rule)] flex-shrink-0"
-        style={{ height: TOPBAR_HEIGHT }}
-      >
-        <span
-          title={t('webBar.title')}
-          className="flex-1 min-w-[48px] truncate font-bold tracking-[-0.01em] text-[16px] text-[var(--text-rack)] select-none"
-          style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
-        >
-          {t('webBar.title')}
-        </span>
+      <PanelHeader
+        title={t('webBar.title')}
+        count={navCompact ? undefined : webTabHistory.length}
+        countHint={t('panelHeader.recentVisits')}
+        actions={<>
+          {!navCompact && webGroups.length > 0 && <GroupListActions allCollapsed={allGroupsCollapsed} allExpanded={allGroupsExpanded} onChange={setAllGroupsCollapsed} />}
         {/* 导航簇 —— 落点 = 活动网页页签(web-tab-controls 控制层);可用性随
             活动页签:无页签全禁,前后随 nav 快照,刷新/停止随加载周期换图。
             IconBtn lg + bright 档:按钮簇是这行的主体操作,面 28px、字面 rack
@@ -983,6 +959,16 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
             </IconBtn>
             {navMoreOpen && (
               <div className="win-no-drag absolute top-full right-0 mt-1 z-50 w-[168px] bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm p-1 shadow-xl">
+                {webGroups.length > 0 && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => { setNavMoreOpen(false); setAllGroupsCollapsed(!allGroupsCollapsed) }}
+                    className="w-full px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)]"
+                  >
+                    {t(allGroupsCollapsed ? 'groupList.expandAll' : 'groupList.collapseAll')}
+                  </button>
+                )}
                 <button
                   type="button"
                   role="menuitem"
@@ -1007,7 +993,8 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
             )}
           </div>
         )}
-      </div>
+        </>}
+      />
 
       {/* ===== 内容壳 ===== 头行以下整列离缘 6(mx-1.5) —— 与会话栏器物两端同线
           (栏内器物一律离缘,不再通铺到面板两缘);段内既有垫距保留;壳不定位,
@@ -1099,45 +1086,11 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
 
         {notice && <div className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] break-all">{notice}</div>}
 
-        {/* 最近访问 —— localStorage 持久化历史,立在会话墙同款的双开画轴墙上
-            (scroll-dual-wall 变体:墙恒开,收起的是纸里的垂卷分组们;再挂
-            scroll-dual-web 青蓝段身份 —— 轴头/系绳/解绳辉光取 --web-group,
-            与纸里组头同一件物的三处署名,机械在 globals.css 的变体规则):
-            上/下辊行一键收/放全体分组(会话墙「全体」同语义,aria-expanded 与
-            键盘入口在上辊行,下辊纯鼠标);组头 = GroupHeader 同款卷轴
-            (scroll-head 辊轴头 + 蝴蝶结 + 题签青蓝墨 + 右缘计数,点击/Enter
-            开合),内容落 ScrollFold 的 paper-sheet(与辊上卷纸带同宽同边
-            mx-2);组序 = 各组最近一条的落位(历史最近优先序),组内同吃最近序。
-            行样式对齐终端页签(favicon + 单行 truncate+tooltip 看全量、hover
-            bg-slot、行高 32px):点击重开、行上按钮在小窗打开、✕ 删除单条
-            (清空整段历史的钮在铭牌行)。常占剩余空间(打开的网页不再在此
-            列出,切换/关闭走终端页签栏) */}
+        {/* 分组列表：单画轴独立开合，顶部按钮批量展开或收起。 */}
         {webGroups.length > 0 && (
-          <div className="scroll-dual scroll-dual-wall scroll-dual-web flex-1 min-h-0 open">
-            {/* 上辊行 —— 一键收/放钮(会话墙「全体」同款):点行把纸里展开着的
-                域名卷全卷起/全放,键盘入口在此(下辊行纯鼠标);两态 title 即
-                展开/折叠全部分组,aria-label 记段名 */}
-            <div
-              className="scroll-dual-rod cursor-pointer"
-              role="button"
-              tabIndex={0}
-              aria-expanded={!allGroupsCollapsed}
-              aria-label={t('webBar.recent')}
-              title={allGroupsCollapsed ? t('webBar.expandAllGroups') : t('webBar.collapseAllGroups')}
-              onClick={toggleAllGroups}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleAllGroups() }
-              }}
-            >
-              {/* 辊本体(rod-caps)—— 行内垂直居中的细棍,垫在绳后;墙恒开,
-                  辊面恒是光辊(解绳态:轴头恒亮,青蓝身份见 scroll-dual-web) */}
-              <span aria-hidden className="rod-caps" />
-              <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
-            </div>
-            {/* 纸窗(恒铺开,纸包内容)—— 域名分组垂卷立在纸面上;内容超出
-                剩余高时纸收缩到剩高、内心滚(滚动容器 = body,滚条 rack-scroll) */}
-            <div className="scroll-dual-paper rack-scroll">
-              <div className="scroll-dual-body">
+          <div className="group-list scroll-dual-web flex-1 min-h-0">
+            <div className="group-list-viewport rack-scroll">
+              <div className="group-list-body">
                 {webGroups.map(([host, urls]) => (
                   <div key={host}>
                     <WebGroupHeader
@@ -1149,8 +1102,6 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
                       onToggle={() => toggleHostCollapsed(host)}
                     />
                     <ScrollFold open={!collapsedHosts[host]}>
-                      {/* 纸幅:与辊上卷纸带同宽同边 mx-2,辊探出一对轴头(会话墙同款);
-                          行保留 rule-soft 底线 —— 最后一行的折线正是纸尾收口 */}
                       <div className="paper-sheet mx-2">
                         {urls.map(url => (
                           <div
@@ -1194,17 +1145,7 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
                 ))}
               </div>
             </div>
-            {/* 下辊行 —— 纸尾辊:贴在纸尾、跟着最底下的分组卷走(纸包内容,
-                短内容随纸上浮,内容满列时贴底不动);点行同样一键收/放(鼠标
-                入口 —— 键盘由上辊行独占,不给 title 免得与上辊重复) */}
-            <div
-              className="scroll-dual-rod scroll-dual-rod-b cursor-pointer"
-              onClick={toggleAllGroups}
-            >
-              {/* 辊本体 —— 下辊镜像(纸带锚顶、落影投上,机械在 .scroll-dual-rod-b) */}
-              <span aria-hidden className="rod-caps" />
-              <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
-            </div>
+
           </div>
         )}
       </div>

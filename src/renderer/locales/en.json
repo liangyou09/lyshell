@@ -1,4 +1,5 @@
 {
+  "groupList": { "expandAll": "Expand all", "collapseAll": "Collapse all" },
   "common": {
     "status": {
       "connected": "OK",
@@ -26,7 +27,18 @@
     "openFolder": "Open Folder",
     "close": "Close"
   },
+  "panelHeader": {
+    "moreInstallOptions": "More installation options",
+    "create": "New",
+    "add": "Add",
+    "savedSessions": "Saved sessions",
+    "workspaces": "Workspaces",
+    "recentVisits": "Recent visits"
+  },
   "settings": {
+    "releaseNotes": "Release notes",
+    "viewReleaseNotes": "View release notes",
+    "versionReleaseNotes": "Version {{version}}, view release notes",
     "categories": "Settings categories",
     "sections": {
       "appearance": "Appearance",

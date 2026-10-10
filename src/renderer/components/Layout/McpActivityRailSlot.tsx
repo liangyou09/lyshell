@@ -17,10 +17,10 @@ interface McpAuditSummary {
   total: number
 }
 
-/** MCP 活动 = 脉冲折线(ECG 语言,通用"活动"记号;square cap 同轨上直线图标语言) */
+/** MCP 活动 = 脉冲折线，圆角端点与导航图标对齐。 */
 const IconMcpActivity: React.FC = () => (
-  <svg width="24" height="24" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" strokeLinejoin="miter">
-    <path d="M2 10 h3.2 l2.2 -5.5 3.2 11 2.2 -5.5 H18" />
+  <svg aria-hidden width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 12h4l2.5-7 5 14 2.5-7h4" />
   </svg>
 )
 
@@ -29,7 +29,7 @@ const IconMcpActivity: React.FC = () => (
  * 脉冲图标 + 最近活动 LED(amber 常亮 = 5 分钟内有审计记录);
  * 审计计数收进 title 提示(轨上不叠计数读数,保持克制)。点击在当前活跃分屏打开/关闭
  * MCP 活动页签(整面覆盖该 pane)。active 态 = MCP 页签正打开在某个 pane:图标亮
- * amber + 呼吸辉光,不画 bg-base 融合窗 -- 窗口是"与左列面板框体连片"的专属语法
+ * amber + 静态托座,不画 bg-base 融合窗 -- 窗口是"与左列面板框体连片"的专属语法
  * (见 ActivityRail),本槽开关的是 pane 覆盖层,没有可连片的框体,点亮图标即开关态。
  *
  * 非页签:切换的是 pane 覆盖层而非导航,与轨顶收起控位同类,用 aria-pressed 表达开关态。
@@ -121,9 +121,9 @@ export function McpActivityRailSlot(): JSX.Element {
       <span
         className={cn(
           // relative:垫高层序,防后渲染的绝对定位 LED 盖住图标
-          'relative transition-[color,transform] duration-200 ease-out group-hover:scale-110',
+          'activity-rail-icon relative',
           active
-            ? 'text-[var(--amber)] animate-rail-icon-glow'
+            ? 'text-[var(--amber)]'
             // 静息 tab-idle / 悬停 rack:与 ActivityRail 页签槽同读数亮度档
             // (轨上未选中图标统一档,用户校准从 mute 提亮,见该文件 docstring)
             : 'text-[var(--text-tab-idle)] group-hover:text-[var(--text-rack)]'

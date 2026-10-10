@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
-import { useThemeStore, AVAILABLE_THEMES, CUSTOM_THEME_ID, deriveCustomVars, useLocaleStore, AVAILABLE_LOCALES } from '@/stores'
+import { useThemeStore, AVAILABLE_THEMES, CUSTOM_THEME_ID, deriveCustomVars, useLocaleStore, AVAILABLE_LOCALES, usePaneStore } from '@/stores'
 import { isCursorBlinkEnabled, DEFAULT_TERMINAL_FONT_SIZE, TERMINAL_FONT_SIZE_MIN, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_STEP, snapTerminalFontSize } from '@shared/constants'
-import { TOPBAR_HEIGHT } from './topbar-metrics'
+import { PanelHeader } from './PanelHeader'
+import releaseNotes from '../../../../CHANGELOG.md?raw'
 import './SettingsPanel.css'
 
 /**
@@ -128,12 +129,26 @@ const SettingsPanel: React.FC = () => {
   const activeWindowPreset = WINDOW_PRESETS.find(p => windowSize.width === p.width && windowSize.height === p.height)
   const customThemeVars = deriveCustomVars(customColors.base, customColors.accent)
 
+  // 内置更新记录随应用打包，复用文档页签，无需网络或新增 IPC。
+  const openReleaseNotes = () => {
+    usePaneStore.getState().openDocTab(undefined, {
+      source: 'builtin',
+      docKind: 'markdown',
+      path: 'lyshell://changelog.md',
+      title: t('settings.releaseNotes'),
+      content: releaseNotes,
+      size: new TextEncoder().encode(releaseNotes).byteLength,
+      mtime: 0
+    })
+  }
+
   return (
     <div className="settings-panel">
       {/* 头行与终端页签对齐，保留窗口拖拽区。 */}
-      <div className="settings-header win-drag" style={{ height: TOPBAR_HEIGHT }}>
-        <span>{t('settings.title')}</span>
-      </div>
+      <PanelHeader
+        title={t('settings.title')}
+        actions={<button type="button" className="settings-version win-no-drag" title={t('settings.viewReleaseNotes')} aria-label={t('settings.versionReleaseNotes', { version: __APP_VERSION__ })} onClick={openReleaseNotes}>v{__APP_VERSION__}</button>}
+      />
 
       <div className="settings-content">
         <SettingCard title={t('settings.sections.terminal')}>

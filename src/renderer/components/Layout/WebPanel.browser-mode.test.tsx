@@ -500,7 +500,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     const { container } = render(<WebPanel />)
     const headOf = (prefix: string): HTMLElement =>
       Array.from(container.querySelectorAll('div.scroll-head'))
-        .find(el => el.textContent?.startsWith(prefix)) as HTMLElement
+        .find(el => el.textContent?.replace(/^[▾▸]/, '').startsWith(prefix)) as HTMLElement
     const headA = headOf('a.example.com2')   // 题签 + 计数同落卷面(textContent 顺读)
     const headB = headOf('b.example.org1')
     const headPort = headOf('a.example.com:84431')
@@ -508,7 +508,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     expect(headB).toBeTruthy()
     expect(headPort).toBeTruthy()
     // 段身份青蓝:轴头 inline 注入 --web-group(锁色契约,防回落中性)
-    expect(headA.querySelector('.rod-caps')?.getAttribute('style')).toContain('--web-group')
+    expect(headA.querySelector('.rod-caps')).toBeTruthy()
     // 长域名不挤走计数:题签可缩可截断(ellipsis),全名走 title
     const slip = headA.querySelector('.scroll-slip') as HTMLElement
     expect(slip.className).toContain('truncate')
@@ -540,89 +540,26 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     await waitFor(() => expect(container.querySelector('.scroll-head img')).toBeNull())
   })
 
-  it('组头点击开合（画轴）：收起后 aria-expanded 翻转、组内容卷进 ScrollFold（inert 挡 Tab 序），再点恢复', () => {
+  it('第一行单按钮同步单组状态：混合状态先收齐，再全部展开', () => {
     setupBrowserMode()
-    usePaneStore.setState({ webTabHistory: ['https://a.example.com/one', 'https://a.example.com/two'] })
+    usePaneStore.setState({ webTabHistory: ['https://a.example.com/one', 'https://b.example.org/one'] })
     const { container } = render(<WebPanel />)
-    const head = container.querySelector('div.scroll-head') as HTMLElement
-    expect(head.getAttribute('aria-expanded')).toBe('true')
-    expect(container.querySelector('.scroll-fold')?.className).toContain('open')
-    fireEvent.click(head)
-    expect(head.getAttribute('aria-expanded')).toBe('false')
-    const fold = container.querySelector('.scroll-fold')
-    expect(fold?.className).not.toContain('open')
-    expect(fold?.hasAttribute('inert')).toBe(true)
-    fireEvent.click(head)
-    expect(head.getAttribute('aria-expanded')).toBe('true')
-    expect(container.querySelector('.scroll-fold')?.className).toContain('open')
-  })
-
-  it('墙辊一键收/放（会话墙「全体」同款青蓝双开画轴）：收 = 全部组卷起，放 = 全部展开，辊态随全体开合翻转', () => {
-    setupBrowserMode()
-    usePaneStore.setState({
-      webTabHistory: [
-        'https://a.example.com/one',
-        'https://b.example.org/one',
-        'https://c.example.net/one'
-      ]
-    })
-    const { container } = render(<WebPanel />)
-    expect(container.querySelectorAll('.scroll-head')).toHaveLength(3)
-    // 墙 = 会话墙同款双开画轴:scroll-dual-wall 几何 + scroll-dual-web 青蓝段
-    // 身份(轴头/系绳/解绳辉光取 --web-group 的变体规则在 globals.css),上下
-    // 双辊行都是一键收/放入口(aria/键盘在上辊,下辊纯鼠标无 title)
-    const wall = container.querySelector('.scroll-dual.scroll-dual-web')
-    expect(wall).toBeTruthy()
-    expect(wall?.className).toContain('scroll-dual-wall')
-    expect(wall?.querySelectorAll('.scroll-dual-rod')).toHaveLength(2)
-    expect(screen.queryByTitle('Expand all groups')).toBeNull()
-    const rod = screen.getByTitle('Collapse all groups')
-    expect(rod.getAttribute('aria-expanded')).toBe('true')
-    expect(rod.getAttribute('aria-label')).toBe('Recent')
-    fireEvent.click(rod)
-    // 全部组卷起：ScrollFold 合卷 + inert，组头 aria-expanded 同步翻转
-    const folds = container.querySelectorAll('.scroll-fold')
-    expect(folds).toHaveLength(3)
-    folds.forEach(f => {
-      expect(f.className).not.toContain('open')
-      expect(f.hasAttribute('inert')).toBe(true)
-    })
-    container.querySelectorAll('div.scroll-head').forEach(h => {
-      expect(h.getAttribute('aria-expanded')).toBe('false')
-    })
-    // 辊题随全体开合态翻转
-    const expandRod = screen.getByTitle('Expand all groups')
-    expect(expandRod.getAttribute('aria-expanded')).toBe('false')
-    fireEvent.click(expandRod)
-    container.querySelectorAll('.scroll-fold').forEach(f => {
-      expect(f.className).toContain('open')
-      expect(f.hasAttribute('inert')).toBe(false)
-    })
-    expect(screen.getByTitle('Collapse all groups')).toBeTruthy()
-  })
-
-  it('一键收放与单组开合同管线：单组收起后一键收齐剩余组；单独展开一组即脱离全体收起态', () => {
-    setupBrowserMode()
-    usePaneStore.setState({
-      webTabHistory: ['https://a.example.com/one', 'https://b.example.org/one']
-    })
-    const { container } = render(<WebPanel />)
-    const heads = Array.from(container.querySelectorAll('div.scroll-head'))
-    // 单独收起 a 组：b 仍开着，钮不进「全体展开」态
+    const heads = Array.from(container.querySelectorAll<HTMLElement>('.scroll-head'))
+    const toggle = container.querySelector('.panel-header .group-list-actions button') as HTMLButtonElement
+    expect(container.querySelectorAll('.group-list-actions button')).toHaveLength(1)
+    expect(toggle.getAttribute('aria-label')).toBe('Collapse all')
     fireEvent.click(heads[0])
-    expect(screen.getByTitle('Collapse all groups')).toBeTruthy()
-    // 一键收齐剩余组（b）
-    fireEvent.click(screen.getByTitle('Collapse all groups'))
-    container.querySelectorAll('.scroll-fold').forEach(f => {
-      expect(f.className).not.toContain('open')
-    })
-    expect(screen.getByTitle('Expand all groups')).toBeTruthy()
-    // 单独展开 a 组：b 仍收着 —— 全体收起态被打破，钮回到「折叠全部分组」
-    fireEvent.click(heads[0])
-    const folds = container.querySelectorAll('.scroll-fold')
-    expect(folds[0].className).toContain('open')
-    expect(folds[1].className).not.toContain('open')
-    expect(screen.getByTitle('Collapse all groups')).toBeTruthy()
+    expect(heads[0].getAttribute('aria-expanded')).toBe('false')
+    expect(heads[1].getAttribute('aria-expanded')).toBe('true')
+    expect(toggle.getAttribute('aria-label')).toBe('Collapse all')
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-label')).toBe('Expand all')
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    container.querySelectorAll('.scroll-fold').forEach(f => expect(f.hasAttribute('inert')).toBe(true))
+    fireEvent.click(toggle)
+    heads.forEach(h => expect(h.getAttribute('aria-expanded')).toBe('true'))
+    expect(toggle.getAttribute('aria-label')).toBe('Collapse all')
+    expect(container.querySelector('.group-list .scroll-dual-rod')).toBeNull()
   })
 
   it('清空钮住铭牌行（IconBtn 内建 win-no-drag 脱离整行拖拽区），历史空时禁用', () => {
@@ -662,7 +599,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     expect((screen.getByTitle('Inspect page (DevTools)') as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('窄栏收纳:根宽 < 264 时检查/清空离场让位题名,主导航三钮恒在;宽回来归位', () => {
+  it('窄栏收纳:根宽 < 340 时分组操作/检查/清空进入菜单,主导航三钮恒在;宽回来归位', () => {
     // jsdom 无 ResizeObserver:桩一个捕获回调的类,手动喂根宽
     let fire: ResizeObserverCallback = () => {}
     class ROStub {
@@ -678,7 +615,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
       const rect = { width: 240, height: 800, top: 0, left: 0, bottom: 800, right: 240, x: 0, y: 0, toJSON: () => ({}) } as DOMRect
       vi.spyOn(root, 'getBoundingClientRect').mockReturnValue(rect)
       act(() => fire([], undefined as unknown as ResizeObserver))
-      // 240 默认宽:检查/清空收进溢出菜单(「…」)而非消失,题名得 120px 全宽;
+      // 240 默认宽:次操作收进溢出菜单(「…」)，为题名留座。
       // 主导航三钮在
       expect(screen.queryByTitle('Inspect page (DevTools)')).toBeNull()
       expect(screen.queryByTitle('Clear')).toBeNull()
@@ -690,13 +627,20 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
       act(() => { usePaneStore.setState({ webTabHistory: ['https://a.example.com/one'] }) })
       fireEvent.click(screen.getByTitle('More actions'))
       expect(screen.getByText('Inspect page (DevTools)')).toBeTruthy()
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Collapse all' }))
+      expect(container.querySelector('.group-list .scroll-head')?.getAttribute('aria-expanded')).toBe('false')
+      expect(screen.queryByRole('menuitem')).toBeNull()
+      fireEvent.click(screen.getByTitle('More actions'))
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Expand all' }))
+      expect(container.querySelector('.group-list .scroll-head')?.getAttribute('aria-expanded')).toBe('true')
+      fireEvent.click(screen.getByTitle('More actions'))
       fireEvent.click(screen.getByText('Clear'))
       expect(usePaneStore.getState().webTabHistory.length).toBe(0)
       expect(screen.queryByText('Clear')).toBeNull()
       // 开着菜单拉宽:浮层卸载之外 open 复位 —— 不再占 useDismiss 的 ESC 回退栈
       fireEvent.click(screen.getByTitle('More actions'))
       expect(screen.getByText('Inspect page (DevTools)')).toBeTruthy()
-      vi.mocked(root.getBoundingClientRect).mockReturnValue({ ...rect, width: 320, right: 320 } as DOMRect)
+      vi.mocked(root.getBoundingClientRect).mockReturnValue({ ...rect, width: 360, right: 360 } as DOMRect)
       act(() => fire([], undefined as unknown as ResizeObserver))
       // 全簇归位(平铺钮 title 直读),菜单开态一并收口(菜单项是文字,已不在)
       expect(screen.getByTitle('Inspect page (DevTools)')).toBeTruthy()

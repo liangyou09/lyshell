@@ -1,3 +1,4 @@
+import { PanelHeader, PanelHeaderAction } from './PanelHeader'
 import React, { useState, useEffect, useCallback } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
@@ -11,8 +12,6 @@ import {
   type HarnessEnvProfile
 } from '@shared/harness'
 import EnvRowsEditor, { type EnvRow } from '../EnvRowsEditor'
-import { TOPBAR_HEIGHT } from './topbar-metrics'
-import { IconBtn, IconPlus } from './IconBtn'
 import { useUiStore } from '../../stores/ui-store'
 
 /**
@@ -558,30 +557,11 @@ const EnvProfilePanel: React.FC = () => {
       className="w-full h-full flex flex-col bg-[var(--bg-base)]"
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
-      {/* 头条：面板铭牌 + 计数 + 添加 —— 与 SessionsPanel/AgentsPanel 头行同族
-          （行高对齐终端第一行，铭牌走系统 UI 字体做「厂牌丝印」）。
-          挂 win-drag 做窗口拖拽区(头行是第一行横带的左列段;IconBtn 统一 win-no-drag) */}
-      <div
-        className="win-drag flex items-center justify-between px-3 border-b border-[var(--rule)] flex-shrink-0"
-        style={{ height: TOPBAR_HEIGHT }}
-      >
-        <span className="flex items-baseline gap-1.5 select-none">
-          <span
-            className="font-bold tracking-[-0.01em] text-[16px] text-[var(--text-rack)]"
-            style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
-          >
-            {t('env.title')}
-          </span>
-          <span
-            className="font-semibold text-[12px] text-[var(--text-rack-mute)] tabular-nums"
-            style={{ fontFamily: '"Segoe UI Variable Display", "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' }}
-          >
-            {profiles.length}
-          </span>
-        </span>
-        {/* 新增变量组 —— 与会话/Agent/Harness/插件头条同款琥珀「+」图标钮（悬停 tooltip 即对话框标题） */}
-        <IconBtn amber onClick={handleAdd} title={t('env.addTitle')}><IconPlus /></IconBtn>
-      </div>
+      <PanelHeader
+        title={t('env.title')}
+        count={profiles.length}
+        actions={<PanelHeaderAction label={t('panelHeader.create')} title={t('env.addTitle')} onClick={handleAdd} />}
+      />
 
       {/* ===== 内容壳 ===== 头行以下整列离缘 6(mx-1.5) —— 与会话栏器物两端同线
           (栏内器物一律离缘,纸面不再通铺到面板两缘);段内既有垫距保留;壳不
