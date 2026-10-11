@@ -31,7 +31,8 @@ export function isPrintableTrailingChar(charCode: number): boolean {
 }
 
 /**
- * autoNewline：当 enabled 且文本非空、末尾为普通可见字符时，自动补一个 \n。
+ * autoNewline：当 enabled 且文本非空、末尾为普通可见字符时，自动补 Enter。
+ * 默认 LF；Windows 本地 PTY 调用方传 CR，避免只回显命令却不提交。
  *
  * 避免调用方忘记加换行导致命令只回显不执行；末尾已是 \n/\r 或控制序列
  * （Ctrl+C=\x03、Ctrl+Z=\x1a、Tab=\t、ESC=\x1b 等 C0 控制字符 / DEL）时不补。
@@ -39,8 +40,8 @@ export function isPrintableTrailingChar(charCode: number): boolean {
  * 注：是否启用由调用方决定--MCP 边界层默认 true（opt-in 关闭），核心层默认
  * false（opt-in 开启），故本函数只负责"启用 + 非空后的末字符判定"这一纯逻辑。
  */
-export function appendAutoNewline(text: string, enabled: boolean): string {
+export function appendAutoNewline(text: string, enabled: boolean, enter: '\n' | '\r' = '\n'): string {
   if (!enabled || text.length === 0) return text
   const lastChar = text.charCodeAt(text.length - 1)
-  return isPrintableTrailingChar(lastChar) ? text + '\n' : text
+  return isPrintableTrailingChar(lastChar) ? text + enter : text
 }

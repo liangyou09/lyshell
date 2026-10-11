@@ -252,6 +252,13 @@ async function main(): Promise<void> {
       }
 
       const result = await httpClient.post(apiPath, args || {})
+      if (name === 'lyshell_terminal_screenshot') {
+        const image = result.data as { data: string; mimeType: string; width: number; height: number; sessionId: string; capturedAt: string }
+        return { structuredContent: image, content: [
+          { type: 'image' as const, data: image.data, mimeType: image.mimeType },
+          { type: 'text' as const, text: JSON.stringify({ sessionId: image.sessionId, width: image.width, height: image.height, capturedAt: image.capturedAt }) }
+        ] }
+      }
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }],
         structuredContent: result.data

@@ -24,7 +24,9 @@ import { mcpAuditRepository } from '../storage/mcp-audit-repository'
 import { ConnectionType, ConnectionStatus, SessionConfig } from '@shared/types'
 import type { FileInfo } from '@shared/types'
 import { DEFAULT_THEME_DARK, TERMINAL_ENCODINGS } from '@shared/constants'
-import { type McpCapability } from '@shared/api-routes'
+import { API_ROUTES, type McpCapability } from '@shared/api-routes'
+import { captureTerminalScreenshot } from './terminal-screenshot'
+import { streamTerminal, closeTerminalStreams } from './terminal-stream'
 import * as mcpAuth from './auth'
 import type { TokenBinding, TokenKind } from './auth'
 import { scanDestructiveCommand } from './destructive-check'
@@ -190,6 +192,7 @@ export async function startMcpHttpServer(): Promise<void> {
  * 停止 MCP HTTP 服务端
  */
 export async function stopMcpHttpServer(): Promise<void> {
+  closeTerminalStreams()
   // 先做同步清理（端口文件 + token），确保即使调用方不 await（如 will-quit 同步钩子），
   // 这些关键清理也在挂起前完成——避免残留 mcp-server.json 误导下次启动、或泄漏 token。
   const portFilePath = getPortFilePath()
@@ -457,9 +460,21 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     if (req.method === 'GET' && url.pathname === '/api/health') {
       return sendJson(res, 200, { success: true, data: { status: 'ok' } })
     }
+    if (req.method === 'GET' && url.pathname === '/api/tools') {
+      const settings = getMcpSecuritySettings()
+      if (!settings.enabled || (binding?.kind === 'global' && !settings.allowExternalMcpClients)) {
+        return sendJson(res, 403, { success: false, error: 'External API access is disabled' })
+      }
+      return sendJson(res, 200, { success: true, data: API_ROUTES.filter(route => route.transports.includes('http')) })
+    }
 
     // 非 health 端点必有 binding（鉴权已通过）
     const ctxBinding = binding!
+    const events = url.pathname.match(/^\/api\/sessions\/([^/]+)\/events$/)
+    if (req.method === 'GET' && events) {
+      void handleTerminalEvents(decodeURIComponent(events[1]), req, res, ctxBinding)
+      return
+    }
 
     if (req.method === 'GET' && url.pathname === '/api/sessions') {
       const includeAll = url.searchParams.get('includeAll') === 'true'
@@ -545,6 +560,8 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
             return handleSendInput(data, res, ctxBinding)
           case '/api/read-output':
             return handleReadOutput(data, res, ctxBinding)
+          case '/api/terminal-screenshot':
+            return handleTerminalScreenshot(data, res, ctxBinding, req.headers['x-lyshell-token'])
           case '/api/send-and-wait':
             return handleSendAndWait(data, res, ctxBinding)
           case '/api/sessions/reconnect':
@@ -1186,7 +1203,8 @@ async function handleSendInput(data: SendInputRequest, res: http.ServerResponse,
     // 解析转义字符（\n -> 换行, \r -> 回车, \x03 -> Ctrl+C 等），并按 autoNewline 决定是否补末尾换行：
     // 末尾是普通可见字符时自动补一个 \n，避免命令只回显不执行；末尾已是 \n/\r 或控制序列时不补。
     // MCP 边界层默认 true（data.autoNewline !== false）。
-    const processedText = appendAutoNewline(processInputEscapeSequences(text), data.autoNewline !== false)
+    const enter = process.platform === 'win32' && session.config.type === ConnectionType.LOCAL ? '\r' : '\n'
+    const processedText = appendAutoNewline(processInputEscapeSequences(text), data.autoNewline !== false, enter)
 
     // 临时锁定 PTY，避免用户输入与 MCP 输入冲突
     sessionManager.lockSessionForMcp(resolvedSessionId)
@@ -1204,8 +1222,50 @@ async function handleSendInput(data: SendInputRequest, res: http.ServerResponse,
 }
 
 /**
- * POST /api/read-output — 读取交互式终端的最近输出
+ * POST /api/terminal-screenshot — 截取明确指定的可见终端
  */
+async function handleTerminalScreenshot(data: unknown, res: http.ServerResponse, binding: TokenBinding, token: string | string[] | undefined): Promise<void> {
+  const sessionId = data && typeof data === 'object' ? (data as { sessionId?: unknown }).sessionId : undefined
+  if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 128) {
+    return sendJson(res, 400, { success: false, error: 'sessionId must be a non-empty string (max 128 characters)' })
+  }
+  const runtimeId = resolveRuntimeSessionId(sessionId)
+  if (!sessionManager.getSession(runtimeId)) return sendJson(res, 404, { success: false, error: 'Session not found' })
+  const auth = await authorizeMcpOperation('terminal_screenshot', 'read', runtimeId, undefined, binding)
+  if (!auth.allowed) return sendJson(res, 403, { success: false, error: auth.reason })
+  try {
+    const image = await captureTerminalScreenshot(runtimeId)
+    // 截图等待期间可能已撤权，图片不能在撤权后返回。
+    const active = mcpAuth.resolveToken(token)
+    if (!active) return sendJson(res, 401, { success: false, error: 'Access revoked during capture' })
+    const current = await authorizeMcpOperation('terminal_screenshot', 'read', runtimeId, undefined, active)
+    if (!current.allowed) return sendJson(res, 403, { success: false, error: current.reason })
+    sendJson(res, 200, { success: true, data: { sessionId: runtimeId, capturedAt: new Date().toISOString(), ...image } })
+  } catch (error) {
+    sendJson(res, 409, { success: false, error: error instanceof Error ? error.message : 'Terminal capture failed' })
+  }
+}
+
+async function handleTerminalEvents(sessionId: string, req: http.IncomingMessage, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
+  try {
+    if (!sessionId || sessionId.length > 128) return sendJson(res, 400, { success: false, error: 'Invalid sessionId' })
+    const runtimeId = resolveRuntimeSessionId(sessionId)
+    if (!sessionManager.getSession(runtimeId)) return sendJson(res, 404, { success: false, error: 'Session not found' })
+    const auth = await authorizeMcpOperation('terminal_events', 'read', runtimeId, undefined, binding)
+    if (!auth.allowed) return sendJson(res, 403, { success: false, error: auth.reason })
+    streamTerminal(sessionManager, runtimeId, res, () => {
+      const active = mcpAuth.resolveToken(req.headers['x-lyshell-token'])
+      const settings = getMcpSecuritySettings()
+      const session = sessionManager.getSession(runtimeId)
+      return !!active && !!session && settings.enabled && isSessionAllowedForMcp(runtimeId) &&
+        !(active.kind === 'session' && session.config.type === ConnectionType.LOCAL && runtimeId !== active.originSessionId) &&
+        (active.kind === 'plugin' ? active.capabilities?.includes('read') === true : active.kind === 'global'
+          ? settings.allowExternalMcpClients === true && settings.allowRead === true : true)
+    })
+  } catch (error) { sendJson(res, 500, { success: false, error: error instanceof Error ? error.message : 'Terminal subscription failed' }) }
+}
+
+/** POST /api/read-output — 读取交互式终端的最近输出 */
 async function handleReadOutput(data: ReadOutputRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
     const { sessionId } = data

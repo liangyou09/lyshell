@@ -609,7 +609,7 @@ export const API_ROUTES: ApiRouteMeta[] = [
       'Send text input directly to an interactive terminal session, as if the user typed it. ' +
       'Works with ALL session types (SSH, Telnet, Serial, Local). ' +
       'Use this to interact with interactive CLI programs like codex, vim, htop, gdb, etc. ' +
-      'By default (autoNewline=true) a trailing \\n is appended automatically when the text ends in a normal character, so you do NOT need to add \\n yourself for a plain command - set autoNewline=false to disable (e.g. when sending raw control sequences, or interactive single-key input like vim i/q or htop menu keys, where the default would wrongly append a newline to a single keypress). ' +
+      'By default (autoNewline=true) Enter is appended automatically (CR for Windows local terminals, LF elsewhere) when the text ends in a normal character. Plain commands need no explicit newline. Set autoNewline=false for raw control sequences or interactive single-key input. ' +
       'Supports escape sequences: \\n for Enter, \\r for carriage return, \\x03 for Ctrl+C, \\x1a for Ctrl+Z, \\t for Tab. ' +
       'For non-interactive commands where you need the output, use send_and_wait instead. ' +
       'The user\'s terminal will be temporarily locked while the input is sent, to prevent human and MCP input from conflicting.',
@@ -623,7 +623,7 @@ export const API_ROUTES: ApiRouteMeta[] = [
         },
         autoNewline: {
           type: 'boolean',
-          description: 'When true (default), append a trailing \\n if the text ends in a normal character, so the command is submitted automatically. Set false for raw control sequences, or for interactive single-key input (e.g. vim i/q, htop menu keys) where a single keypress must not be followed by a newline.'
+          description: 'When true (default), append Enter after a normal character (CR for Windows local terminals, LF elsewhere). Set false for raw control sequences or interactive single-key input.'
         }
       },
       required: ['sessionId', 'text'] as string[]
@@ -701,6 +701,24 @@ export const API_ROUTES: ApiRouteMeta[] = [
     }
   },
   {
+    name: 'lyshell_terminal_screenshot',
+    path: '/api/terminal-screenshot',
+    method: 'POST',
+    capabilities: ['read'],
+    transports: BOTH,
+    title: '获取终端真实截图',
+    description: 'Capture only the visible terminal viewport for an explicit sessionId as a PNG image. ' +
+      'Useful for TUI layouts, colors and visual state that text output cannot represent. ' +
+      'The target terminal must be visible in the LyShell main window and unobscured; this never switches tabs or captures the whole desktop. ' +
+      'Use lyshell_read_output for scrollback text.',
+    inputSchema: { type: 'object', properties: { sessionId: sessionIdField }, required: ['sessionId'], additionalProperties: false },
+    outputSchema: { type: 'object', properties: {
+      sessionId: { type: 'string' }, capturedAt: { type: 'string' }, data: { type: 'string' },
+      mimeType: { type: 'string', const: 'image/png' }, width: { type: 'number' }, height: { type: 'number' }
+    }, required: ['sessionId', 'capturedAt', 'data', 'mimeType', 'width', 'height'] },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  },
+  {
     name: 'lyshell_read_output',
     path: '/api/read-output',
     method: 'POST',
@@ -757,7 +775,7 @@ export const API_ROUTES: ApiRouteMeta[] = [
       'Send input to an interactive terminal and wait for the response, returning the captured output. ' +
       'Works with ALL session types (SSH, Local, Telnet, Serial). ' +
       'Supports escape sequences: \\n for Enter, \\r for carriage return, \\x03 for Ctrl+C, \\x1a for Ctrl+Z, \\t for Tab. ' +
-      'By default (autoNewline=true) a trailing \\n is appended automatically when the text ends in a normal character, so you do NOT need to add \\n yourself for a plain command - set autoNewline=false to disable (e.g. when sending raw control sequences, or interactive single-key input like vim i/q or htop menu keys, where the default would wrongly append a newline to a single keypress). ' +
+      'By default (autoNewline=true) Enter is appended automatically (CR for Windows local terminals, LF elsewhere) when the text ends in a normal character. Plain commands need no explicit newline. Set autoNewline=false for raw control sequences or interactive single-key input. ' +
       'Returns the terminal output produced after the input was sent, with ANSI codes stripped. ' +
       'The `output` field includes the echoed input (terminals echo what you type); prefer the `cleanOutput` field which has the echoed command lines stripped from the front. ' +
       'The tool waits until output settles (no new data for idleMs) or until a timeout. ' +
@@ -797,7 +815,7 @@ export const API_ROUTES: ApiRouteMeta[] = [
         },
         autoNewline: {
           type: 'boolean',
-          description: 'When true (default), append a trailing \\n if the text ends in a normal character, so the command is submitted automatically. Set false for raw control sequences, or for interactive single-key input (e.g. vim i/q, htop menu keys) where a single keypress must not be followed by a newline.'
+          description: 'When true (default), append Enter after a normal character (CR for Windows local terminals, LF elsewhere). Set false for raw control sequences or interactive single-key input.'
         },
         captureExitCode: {
           type: 'boolean',

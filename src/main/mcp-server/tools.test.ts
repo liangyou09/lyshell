@@ -97,7 +97,7 @@ describe('api-routes 迁移契约(tools.ts -> API_ROUTES 投影)', () => {
     }
   })
 
-  it('19 个已知 lyshell_ 工具名全部存在(防迁移中工具被静默删除)', () => {
+  it('已知 lyshell_ 工具名全部存在(防迁移中工具被静默删除)', () => {
     const expected = [
       'lyshell_list_sessions', 'lyshell_reconnect_session', 'lyshell_close_session',
       'lyshell_open_connection_dialog', 'lyshell_read_session_notes', 'lyshell_write_session_notes',
@@ -105,7 +105,7 @@ describe('api-routes 迁移契约(tools.ts -> API_ROUTES 投影)', () => {
       'lyshell_read_output', 'lyshell_send_and_wait', 'lyshell_list_files',
       'lyshell_read_file', 'lyshell_download_file', 'lyshell_upload_file',
       'lyshell_stat_file', 'lyshell_wait_for_prompt', 'lyshell_run_on_sessions',
-      'lyshell_tail_until'
+      'lyshell_tail_until', 'lyshell_terminal_screenshot'
     ]
     const names = new Set(API_ROUTES.map((r) => r.name))
     for (const n of expected) expect(names.has(n)).toBe(true)

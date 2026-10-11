@@ -1212,6 +1212,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       {/* 终端容器 */}
       <div
         ref={containerRef}
+        data-terminal-session-id={sessionId}
         className="w-full h-full overflow-hidden"
       />
 

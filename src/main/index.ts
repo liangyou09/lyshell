@@ -8,6 +8,7 @@ import { randomUUID } from 'crypto'
 // 挪后静默失效。播种本身不在 import 期跑，见下方 seedDevConfigFromProd 调用点
 import { seedDevConfigFromProd } from './dev-user-data'
 import { startDemoStage } from './demo-stage'
+import { setTerminalCaptureWindow } from './mcp/terminal-screenshot'
 import { explorerLaunchQueue, parseExplorerDirectory, validateExplorerDirectory } from './explorer-launch'
 import { readActiveExplorerDirectory } from './explorer-directory'
 
@@ -459,6 +460,7 @@ function createMainWindow(): void {
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
   })
+  setTerminalCaptureWindow(mainWindow)
 
   // 记住手动拖拽/边框缩放后的窗口尺寸(debounce 500ms;最大化期间不记,避免记成最大化尺寸;只记尺寸不记位置)
   // 演示会强制切换录制尺寸，不覆盖正常启动时使用的窗口偏好。
@@ -475,6 +477,7 @@ function createMainWindow(): void {
   })
 
   mainWindow.on('closed', () => {
+    setTerminalCaptureWindow(null)
     explorerLaunchQueue.consumerId = null
     clearTimeout(resizePersistTimer)
     setMainWindow(null)  // 清除窗口引用

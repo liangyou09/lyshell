@@ -66,6 +66,12 @@ describe('isPrintableTrailingChar', () => {
 })
 
 describe('appendAutoNewline', () => {
+  it('Windows local PTY can append CR as Enter without changing explicit control input', () => {
+    expect(appendAutoNewline('echo PET_OK', true, '\r')).toBe('echo PET_OK\r')
+    expect(appendAutoNewline('echo PET_OK', false, '\r')).toBe('echo PET_OK')
+    expect(appendAutoNewline('echo PET_OK\n', true, '\r')).toBe('echo PET_OK\n')
+    expect(appendAutoNewline('\x03', true, '\r')).toBe('\x03')
+  })
   it('appends \\n when enabled and text ends in a printable char', () => {
     expect(appendAutoNewline('ls -la', true)).toBe('ls -la\n')
     expect(appendAutoNewline('vim', true)).toBe('vim\n')

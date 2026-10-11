@@ -925,7 +925,8 @@ export class SessionManager extends EventEmitter {
     // MCP 边界层统一默认 true：handleSendInput 在 http-server 内直接调 appendAutoNewline，
     // handleSendAndWait 经此核心函数（data.autoNewline !== false opt-in），使外部 MCP 调用方免于手写 \n。
     // 新增非 MCP 调用方需自行决定是否传 autoNewline:true。
-    processedText = appendAutoNewline(processedText, options.autoNewline === true)
+    const enter = process.platform === 'win32' && session.config.type === ConnectionType.LOCAL ? '\r' : '\n'
+    processedText = appendAutoNewline(processedText, options.autoNewline === true, enter)
 
     // captureExitCode：追加 POSIX 退出码探针（best-effort，纯 ASCII 标记 survives ANSI 清洗）
     let capturingExit = false
