@@ -1,6 +1,33 @@
 # 空终端水墨美术
 
-当前轻微拉长躯干版本的编辑提示词（内置 ImageGen，以 v12 为编辑目标，以 v9 为透明背景参考）：
+当前 v15 前腿与回眸修整版本的编辑提示词（内置 ImageGen，以 v14 为编辑目标）：
+
+> Use case: precise-object-edit.
+> Asset type: transparent Chinese xieyi ink landscape for LyShell homepage.
+> Input image: Image 1 is the EDIT TARGET, accepted v14 horse landscape.
+> Primary request: A SMALL LOCAL correction of ONLY the TWO FORELEGS and a subtle refinement of the backward gaze. The horse must keep running AWAY FROM THE VIEWER INTO THE DISTANT VALLEY, seen from rear three-quarter perspective, hindquarters nearer the viewer, shoulders farther away. Do not convert it to a side-on horse running horizontally to screen right.
+> Forelegs: Keep both forelegs as a pair in their current region UNDER THE CHEST, directed into scene depth. Smooth the abrupt angular kink and chunky dark joint on the foreleg appearing at image-left under the chest. Draw continuous connected tapered ink strokes from shoulder through forearm, a gently flexed carpal joint, slender cannon and a small hoof. Both forelegs keep similar moderate bends and motion, with only a tiny perspective offset in hoof height; distinguish the nearer leg with slightly stronger ink and the farther one with lighter ink and slight foreshortening. Hooves point away into the valley, not toward the viewer. No sideways right-reaching limbs, no huge stride change. Maintain credible equine joints, precisely two forelegs, no hanging disconnected segments.
+> Gaze: Turn only the face a few degrees more back toward the viewer over the near shoulder, so the near dark eye clearly looks OUT OF THE PAINTING at us. A quiet alert backward glance during forward movement. Preserve the face identity, proportions, relaxed expression, neck length and natural neck curve; no frontal portrait, stiff twisted neck or exaggerated rotation. Body still faces away.
+> Invariants: Preserve elongated torso, strong haunches, BOTH hindlegs extended backward together, their refined small hooves, existing body orientation, horse scale and location, mane, tail, broad simplified torso ink washes and airborne motion. Preserve all mountains, right pine, lake, shoreline, mist and ink splashes and huge upper negative space. Original 1536x1024 canvas. Changes are confined to forelegs and tiny face/gaze adjustment.
+> Transparency: Genuine RGBA alpha, empty upper sky and four corners fully transparent; preserve soft translucent mist fades. No black/gray matte, white paper rectangle or painted checkerboard.
+> Avoid: horizontal side-view gallop, rightward extended forelegs, running toward viewer, rearing upright, extra limbs, duplicate hooves, rider, tack, extra animals, text, seals, color, watermark, UI, borders, photorealistic muscle detail.
+
+v15 局部修顺前腿关节与笔触连接，略微错开远侧小蹄，并轻微加强朝观者回眸的面部朝向。保留朝山谷深处奔去的背侧视角，前腿仍位于胸口下方，双后腿成对向后伸；不改为向画面右侧横跑。保留原尺寸与真实透明背景，v14 继续保留。
+
+v14 收蹄与墨块简化版本的编辑提示词（内置 ImageGen，以 v13 为编辑目标）：
+
+> Use case: precise-object-edit.
+> Asset type: transparent ink painting background for the LyShell empty terminal homepage.
+> Input image: Image 1 is the EDIT TARGET, the accepted v13 horse landscape.
+> Primary request: Make a restrained local refinement ONLY to both hind hooves and the interior brushwork of the horse's torso. Reduce the two conspicuous oval hind hoof soles by approximately 25 percent, remove the pale outlined shoe-sole markings, and render each as a small confident tapered ink dab naturally connected to its existing lower leg. Preserve BOTH hind legs extended backward together, their exact joint bends, directions, length, and root positions. Do not stagger the hindlegs or tuck either one.
+> Simplify small fragmented muscle shading and mottled texture inside the ribcage, flank, and haunch into a few connected broad expressive ink washes and deliberate unpainted gaps, retaining the existing volume and powerful elongated body silhouette. This is a subtle xieyi refinement, not a new horse or a new pose.
+> Invariants: Keep the natural backward glance, eye, face, ears, head and neck silhouette EXACTLY; keep the long torso proportions, the paired forelegs and their bends, airborne leaping pose, rear three-quarter perspective, gallop away into the valley, horse size and position, mane and tail EXACTLY. Keep all distant mountains, right-side pine, lake, shoreline, mist and ink splashes unchanged. Original 1536x1024 canvas and composition, with the large upper negative space unchanged.
+> Transparency: Preserve genuine alpha transparency. Empty upper sky and all outer corners must be alpha zero. Preserve soft translucent painted mist transitions. No opaque or semitransparent black/gray matte, no white paper rectangle, no painted checkerboard.
+> Avoid: changes to landscape, realistic muscle detail, extra limbs, duplicate hooves, distorted joints, new objects, rider, tack, writing, seals, borders, UI, color, watermark.
+
+v14 保留回眸、长躯干、成对前腿与双后腿向后伸的姿态，收小后蹄并简化躯干内部碎细节。原尺寸 1536×1024、RGBA 透明通道和四角透明均已检查；历史素材继续保留。
+
+v13 轻微拉长躯干版本的编辑提示词（内置 ImageGen，以 v12 为编辑目标，以 v9 为透明背景参考）：
 
 > Use case: precise-object-edit. Image 1 is the current horse landscape EDIT TARGET. Image 2 is a REFERENCE for the correct transparent background treatment. User asks ONLY to lengthen the horse's torso A LITTLE BIT. Increase just the ribcage/back/waist distance between shoulders and haunches by approximately 6-8 percent, a subtle proportional refinement, not a stretched whole image. Keep the head, neck and shoulder near their existing position; move rump and attached hindlegs/tail a tiny amount backward to accommodate the slightly longer trunk. Preserve the EXACT current paired hindleg pose, both extended backward together, and paired foreleg pose with similar bends; no one-extended-one-tucked reinterpretation, no leg changes except tiny root position shift. Keep body thickness, head scale, gentle backward glance, direction away into the distant valley, xieyi ink brushwork, mane and tail style, energetic stride, original 1536x1024 canvas and surrounding mountains/pine/lake/mist composition unchanged. ALSO REPAIR ALPHA TRANSPARENCY: Image 1 accidentally contains a semitransparent black/gray MATTE in the otherwise empty sky and outer corners. Remove that unintended matte completely, using Image 2's genuine alpha treatment as the reference. The entire empty upper sky and all four outer corners must be truly transparent pixels (alpha zero), not black, gray, white or checkerboard paint. Only retain actual ink horse, landscape strokes and soft mist fades on transparent background. No opaque paper rectangle, no solid backdrop. No new objects, anatomy exaggeration, rider, saddle, writing, seal, UI, frame, logo, color, watermark or photographic detail.
 
@@ -36,7 +63,7 @@ v7 疾驰候选的编辑提示词（内置 ImageGen，以 `ink-landscape-v1.png`
 
 > Use case: precise-object-edit. Edit target: the attached existing transparent Chinese ink wash landscape artwork used in a terminal app. Add exactly ONE magnificent spirited horse (骏马) painted in traditional Chinese expressive ink brush style into the landscape, on the open misty foreground shoreline near the lower center, slightly left of center to balance the existing pine at right. The horse is naturally integrated in the painting, not a sticker: energetic side profile galloping toward the right, elegant powerful neck and body, flowing mane and tail, anatomically correct four legs with distinct graceful strokes. Make the horse about 22 percent of canvas width and 18 percent of canvas height, around x=48 percent and y=76 percent, visibly stronger charcoal strokes than the soft distant mountains but still a restrained refined ink wash painting. Blend the hooves into a few diluted shore brushstrokes, no dust cloud. Preserve the existing mountains, pine tree, mist, lake, wide composition, original 1536x1024 canvas, and large empty transparent upper area. Preserve genuine transparency and softly fading alpha at all edges, no opaque paper or white rectangle. No saddle, rider, extra animals, writing, Chinese characters, calligraphy, seals, UI elements, frames, signatures, watermarks, color, cartoon, vector outline or photorealistic horse. Keep unchanged everything except the added horse and minimal shoreline strokes needed to integrate it.
 
-`ink-landscape-horse-long-v13.png` 为当前空终端背景。在 v12 成对前腿版本上按用户要求轻微拉长躯干，保留后腿一起向后伸和前腿成对运动的轮廓，并修复生成图空白处的黑灰底色，使其恢复真实透明。使用内置 ImageGen 编辑。v9、v10、v11、v12 及其他历史候选保留在本目录。素材用于首次待命的空 pane，输入命令、显示输出或内联文档时让位。入口由 React 渲染。浅色使用低浓度灰墨，深色保留原画墨色与淡雾，均通过 CSS 灰度处理并降低浓度。
+`ink-landscape-horse-depth-v15.png` 为当前空终端背景。在 v14 收蹄与墨块简化版本上局部修顺前腿、轻微加强回眸，保留朝山谷深处跑的背侧视角、长躯干与成对后腿姿态。使用内置 ImageGen 编辑。v14、v13 及其他历史候选保留在本目录。素材用于首次待命的空 pane，输入命令、显示输出或内联文档时让位。入口由 React 渲染。浅色使用低浓度灰墨，深色保留原画墨色与淡雾，均通过 CSS 灰度处理并降低浓度。
 
 生成提示词：
 

@@ -17,7 +17,7 @@
   position: absolute;
   z-index: -1;
   inset: 0;
-  background: url('../../assets/welcome/ink-landscape-horse-long-v13.png') center bottom / min(100%, 900px) auto no-repeat;
+  background: url('../../assets/welcome/ink-landscape-horse-depth-v15.png') center bottom / min(100%, 900px) auto no-repeat;
   /* 深色底保留原画的墨色，以淡雾托出马身；反色会倒置笔触和肌理。 */
   filter: grayscale(1);
   opacity: .62;
