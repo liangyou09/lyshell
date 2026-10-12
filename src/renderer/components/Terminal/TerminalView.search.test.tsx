@@ -17,6 +17,7 @@ vi.mock('../DocPanel/registerDocLinkProvider', () => ({ registerDocLinkProvider:
 const findNext = vi.fn<[term: string, options?: ISearchOptions], boolean>()
 const findPrevious = vi.fn(() => true)
 const clearDecorations = vi.fn()
+const getSelection = vi.fn(() => '')
 let onResults: ((results: ISearchResultChangeEvent) => void) | undefined
 let savedFonts: PropertyDescriptor | undefined
 
@@ -39,9 +40,13 @@ beforeEach(async () => {
     onResults?.({ resultIndex: 0, resultCount: options?.caseSensitive || options?.regex || options?.wholeWord ? 1 : 3 })
     return true
   })
+  const element = document.createElement('div')
+  const terminalScreen = document.createElement('div')
+  terminalScreen.className = 'xterm-screen'
+  element.appendChild(terminalScreen)
   useTerminalStore.getState().registerTerminal(
     'search-test',
-    { options: {}, cols: 80, rows: 24 } as unknown as Terminal,
+    { options: {}, cols: 80, rows: 24, getSelection, element, modes: { mouseTrackingMode: 'none' } } as unknown as Terminal,
     { fit: vi.fn() } as unknown as FitAddon,
     {
       findNext,
@@ -73,6 +78,25 @@ function openSearch(): HTMLTextAreaElement {
 }
 
 describe('TerminalView 实时搜索', () => {
+  it('搜索框打开时鼠标划选仍复制，搜索导航不覆盖剪贴板', async () => {
+    const writeText = vi.fn(() => Promise.resolve())
+    vi.stubGlobal('navigator', { platform: 'Win32', clipboard: { writeText } })
+    const input = openSearch()
+    fireEvent.change(input, { target: { value: 'shell' } })
+    const container = document.querySelector('[data-terminal-session-id="search-test"]')!
+    fireEvent.mouseDown(container.querySelector('.xterm-screen')!, { button: 0 })
+    getSelection.mockReturnValue('selected terminal text')
+    fireEvent.mouseUp(document, { button: 0 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(writeText).toHaveBeenCalledTimes(1)
+    expect(writeText).toHaveBeenCalledWith('selected terminal text')
+
+    getSelection.mockReturnValue('shell')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(writeText).toHaveBeenCalledTimes(1)
+  })
+
   it.each([
     ['Match case', 'caseSensitive'],
     ['Regular expression', 'regex'],

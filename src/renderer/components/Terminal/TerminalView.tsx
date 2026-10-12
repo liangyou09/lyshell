@@ -17,6 +17,7 @@ import { Unicode15Provider } from './unicode15-provider'
 import { registerDocLinkProvider } from '../DocPanel/registerDocLinkProvider'
 import { PALETTE_CLOSED_EVENT } from '../../commands/palette'
 import TerminalSearchPanel from './TerminalSearchPanel'
+import { bindSelectionCopy } from './selection-copy'
 
 // 注意：本组件依赖 xterm.js 内部私有 API，无稳定性承诺，xterm 任何版本更新都可能改名或移除。
 //   - IME 定位与搜狗 Shift 上屏：_core、_compositionHelper、_textarea、updateCompositionElements、
@@ -518,18 +519,10 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         if (blockInputRef.current) return
         window.electronAPI?.terminalWrite(sessionId, data)
       })
-
-      // 选中后自动复制到剪贴板
-      terminal.onSelectionChange(() => {
-        const selection = terminal.getSelection()
-        if (selection) {
-          // writeText 同样可能因 document 未聚焦被拒,吞掉避免未处理 rejection
-          navigator.clipboard.writeText(selection).catch(err => {
-            console.warn('[TerminalView] clipboard writeText failed:', err)
-          })
-        }
-      })
     }
+
+    // 新建和复用终端都绑定，组件卸载时解绑，避免重复复制。
+    const disposeSelectionCopy = bindSelectionCopy(terminal, containerRef.current)
 
     // 文档链接 provider：输出行内 .md/.html/.txt 路径 Ctrl+点击开文档页签。
     // 创建/复用两分支统一挂（幂等）：terminal-store 跨组件重挂载保留实例，
@@ -878,6 +871,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       // 解绑搜索匹配计数订阅;否则切换 tab 时旧组件的回调还活在 SearchAddon 上,
       // 并且会触发已卸载组件的 setState 警告。
       resultsDisposable?.dispose()
+      disposeSelectionCopy()
       searchAddonRef.current = null
       // 恢复 IME 猴补丁并清理引用
       imePatchRef.current?.restore()
