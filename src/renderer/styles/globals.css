@@ -2147,8 +2147,8 @@ body {
 
 /* 通用滚动条样式 - 对话框 / 未挂 .rack-scroll 的兜底 */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -2241,8 +2241,8 @@ body {
 /* === Rack 滚动条 — 侧栏 / 文件管理器共享 === */
 .rack-scroll::-webkit-scrollbar,
 .rack-scroll > .scroll-dual-body::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 
 .rack-scroll::-webkit-scrollbar-track,

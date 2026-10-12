@@ -1,13 +1,17 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ScrollPaper, ScrollRoller, SingleScroll, XuanPaper } from './components/Layout/ScrollArtwork'
 import { ScrollTie } from './components/Layout/ScrollFold'
 import { BrushArtwork } from './components/Layout/BrushArtwork'
 import QuickCommandsPanel from './components/QuickCommands/QuickCommandsPanel'
+import TerminalSearchPanel from './components/Terminal/TerminalSearchPanel'
+import SessionDialog from './components/SessionDialog/SessionDialog'
+import ExportImportDialog from './components/ExportImportDialog/ExportImportDialog'
 import { useQuickCommandsStore } from '@/stores'
 import './i18n'
 import './styles/globals.css'
 import './styles/scroll-artwork.css'
+import './styles/dialog-artwork.css'
 import './styles/scroll-art-preview.css'
 
 // 独立预览只填充内存示例，命令不向终端派发。
@@ -20,15 +24,60 @@ useQuickCommandsStore.setState({
   groups: [], defaultGroupColor: '#658f7a', selectedGroupId: 'default'
 })
 
+// 直接装配真实查找组件；终端文本与计数仅为视觉示例，不发起终端会话。
+function TerminalSearchPreview(): React.ReactElement {
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const [text, setText] = useState('server')
+  const [scope, setScope] = useState<'current' | 'all'>('current')
+  const [matchCase, setMatchCase] = useState(false)
+  const [regex, setRegex] = useState(false)
+  const [wholeWord, setWholeWord] = useState(false)
+  const [index, setIndex] = useState(0)
+  const [open, setOpen] = useState(true)
+  let invalidRegex = false
+  if (regex) {
+    try { new RegExp(text) } catch { invalidRegex = true }
+  }
+  const navigate = (direction: 'next' | 'prev'): void => setIndex(value => (value + (direction === 'next' ? 1 : 2)) % 3)
+  return <div className="art-terminal-stage">
+    <pre aria-hidden="true">{'$ ssh server\nConnected to development server\nserver: ready\n$ '}</pre>
+    {open ? <TerminalSearchPanel
+      inputRef={inputRef} position={null} isDragging={false}
+      searchText={text} searchScope={scope} caseSensitive={matchCase}
+      useRegex={regex} wholeWord={wholeWord} invalidRegex={invalidRegex}
+      matchInfo={{ idx: index, total: text ? 3 : 0 }}
+      onDragStart={() => {}} onSearchChange={setText} onSearch={navigate}
+      onClose={() => setOpen(false)} onCaseSensitiveChange={() => setMatchCase(!matchCase)}
+      onRegexChange={() => setRegex(!regex)} onWholeWordChange={() => setWholeWord(!wholeWord)}
+      onScopeChange={setScope} onKeyDown={event => {
+        if (event.key === 'Escape') setOpen(false)
+        if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+          event.preventDefault()
+          navigate(event.shiftKey ? 'prev' : 'next')
+        }
+      }}
+    /> : <button type="button" className="art-terminal-reopen" onClick={() => setOpen(true)}>打开终端搜索</button>}
+  </div>
+}
+
 function ThemePreview({ dark }: { dark: boolean }): React.ReactElement {
   const [singleOpen, setSingleOpen] = useState(true)
   const [dualOpen, setDualOpen] = useState(true)
   const [sent, setSent] = useState(false)
   const [brushSelected, setBrushSelected] = useState('cmd')
+  const [dialog, setDialog] = useState<'session' | 'export' | null>(null)
   return (
     <section className="art-theme" data-theme={dark ? 'rack-graphite' : 'rack-paper'} data-theme-mode={dark ? 'dark' : 'light'} data-scroll-material="jade">
       <h2>{dark ? '深色 · 墨绢与青玉' : '浅色 · 宣纸与白玉'}</h2>
       <p>轴头与轴肩保持比例，纸面止于轴肩内侧。</p>
+      <div className="art-dialog-actions">
+        <button type="button" onClick={() => setDialog('session')}>预览新建会话</button>
+        <button type="button" onClick={() => setDialog('export')}>预览导入导出</button>
+      </div>
+      <SessionDialog open={dialog === 'session'} onClose={() => setDialog(null)} onSubmit={() => { setDialog(null); return null }} />
+      <ExportImportDialog open={dialog === 'export'} onClose={() => setDialog(null)} sessions={[]} quickCommands={useQuickCommandsStore.getState().commands} onImportComplete={() => setDialog(null)} />
+      <h3>终端查找 · 真实组件 / 示例结果</h3>
+      <TerminalSearchPreview />
       <h3>快捷命令 · 木匣盖与玉章匣盘</h3>
       <QuickCommandsPanel />
       <h3>宣纸输入框 · 会话搜索 / 地址筛选</h3>

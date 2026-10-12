@@ -10,6 +10,7 @@ import FloatWindow from '../FloatWindow/FloatWindow'
 import CommandScreen from '../CommandScreen/CommandScreen'
 import TopRightControls from './TopRightControls'
 import { TOPBAR_HEIGHT, TOP_LEFT_RESERVE, SIDEBAR_DIVIDER_WIDTH, SIDEBAR_PILL_HEIGHT } from './topbar-metrics'
+import './SidebarResizeHandle.css'
 import { startAllHarnessDetects } from './harness-detect'
 import PluginPanel from './PluginPanel'
 import WebPanel from './WebPanel'
@@ -1017,13 +1018,14 @@ const MainWindow: React.FC = () => {
           {/* 宽度调整条 */}
           <div
             style={{ width: SIDEBAR_DIVIDER_WIDTH }}
-            className="bg-[var(--rule)] cursor-col-resize hover:bg-[var(--amber)] transition-colors flex-shrink-0 relative"
+            className={cn('sidebar-resize-handle win-no-drag', isResizingSidebar && 'is-resizing')}
             onPointerDown={startSidebarResize}
             onPointerMove={handleSidebarResizeMove}
             onPointerUp={endSidebarResize}
             onPointerCancel={endSidebarResize}
             onLostPointerCapture={endSidebarResize}
           >
+            <span className="sidebar-resize-grip" aria-hidden />
             {/* 左侧 4px 命中热区(面板边缘最右 4px 可见条 + 面板内容最后 4px),扩命中不扩可见宽 */}
             <div
               style={{ left: -SIDEBAR_DIVIDER_WIDTH, width: SIDEBAR_DIVIDER_WIDTH }}

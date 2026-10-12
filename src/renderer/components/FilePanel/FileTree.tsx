@@ -1,3 +1,4 @@
+import DialogClose from '@/components/Layout/DialogClose'
 import React, { useEffect, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
@@ -321,26 +322,27 @@ const FileTree: React.FC<FileTreeProps> = ({
       {/* MD5 对话框 */}
       {md5Dialog && (
         <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          className="ly-dialog-backdrop fixed inset-0 bg-black/50 flex items-center justify-center z-50"
           onClick={() => setMd5Dialog(null)}
         >
           <div
-            className="bg-[#252526] border border-[#3C3C3C] rounded-lg p-4 min-w-[300px]"
+            className="ly-dialog-surface bg-[var(--dialog-paper)] border border-[var(--dialog-rule)] rounded-lg p-4 min-w-[300px]"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="text-sm text-gray-200 mb-2">
+            <DialogClose onClose={() => setMd5Dialog(null)} />
+            <div className="text-sm text-[var(--dialog-ink)] mb-2">
               {md5Dialog.file.name}
             </div>
             {md5Dialog.loading ? (
-              <div className="text-sm text-gray-400">{t('file.md5Calculating')}</div>
+              <div className="text-sm text-[var(--dialog-muted)]">{t('file.md5Calculating')}</div>
             ) : (
-              <div className="text-xs text-green-400 break-all select-all">
+              <div className="text-xs text-[var(--dialog-success)] break-all select-all">
                 {t('file.md5Label', { value: md5Dialog.md5 })}
               </div>
             )}
             <button
               onClick={() => setMd5Dialog(null)}
-              className="mt-3 text-xs text-gray-400 hover:text-white"
+              className="mt-3 text-xs text-[var(--dialog-muted)] hover:text-[var(--dialog-ink)]"
             >
               {t('file.md5DialogClose')}
             </button>

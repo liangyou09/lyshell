@@ -220,10 +220,9 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
       style={{ width: RAIL_WIDTH }}
     >
       {/* 轨顶收起控位 -- 左列展开时的收起开关(收起态由终端列左上 ghost 控位接棒,见 MainWindow)。
-          非页签:无 role=tab/激活态。槽高对齐终端第一行(TOPBAR_HEIGHT),底部 rule 线与
-          面板头条的 border-b 同色同 y -- 它是横贯窗口的"第一行底线"(收起槽 → 面板头条 →
-          页签条连成一条),不是收起槽与内容页签的槽位分隔;第一行内部(右侧)不画竖线,
-          整行读作无分割的一条横带;下方内容页签取 40 行高 -- 第一行 36 是跨窗
+          非页签:无 role=tab/激活态。槽高对齐终端第一行(TOPBAR_HEIGHT)，背景与
+          面板头条、页签条同为 rack，不画底线，用色阶区分下方内容。
+          下方内容页签取 40 行高 -- 第一行 36 是跨窗
           对齐的 chrome 行高,内容槽给图标托座留呼吸(44 过疏 / 36 过挤的折中)。
           ghost 语言与收起态 pill 同源:静息线走 --text-tab-idle(轨上未选中
           图标的统一档,见组件 docstring),悬停 bg-rack 托起(轨槽的一步抬升,
@@ -236,8 +235,7 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
         style={{ height: TOPBAR_HEIGHT }}
         className={cn(
           'relative flex items-center justify-center transition-colors group',
-          'border-b border-[var(--rule)]',
-          'hover:bg-[var(--bg-rack)]',
+          'bg-[var(--bg-rack)] hover:bg-[var(--bg-slot)]',
           'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--amber)]'
         )}
       >

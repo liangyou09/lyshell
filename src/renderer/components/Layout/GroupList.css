@@ -13,14 +13,30 @@
     inset 0 0 0 1px color-mix(in srgb, var(--scroll-silk) 35%, transparent),
     inset 0 2px 8px -5px var(--scroll-shadow);
 }
-.group-list-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
-.group-list-actions button { display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 25px; height: 25px; padding: 0 5px; border: 1px solid var(--rule); border-radius: 5px; background: var(--bg-slot); font-size: 11px; font-weight: 600; color: var(--text-rack-mute); white-space: nowrap; cursor: pointer; }
+/* 批量开合使用轻量工具按钮，宽窄面板保持同一尺寸。 */
+.group-list-actions { display: flex; align-items: center; flex-shrink: 0; }
+.group-list-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-tab-idle);
+  cursor: pointer;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+.group-list-actions button svg { flex-shrink: 0; }
 .group-list-actions button span { display: none; }
-.group-list-actions button:hover:not(:disabled) { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 50%, var(--rule)); background: color-mix(in srgb, var(--amber) 7%, var(--bg-slot)); }
+.group-list-actions button:hover:not(:disabled) { color: var(--amber); background: var(--bg-slot); }
+.group-list-actions button:active:not(:disabled) { background: color-mix(in srgb, var(--amber) 12%, var(--bg-slot)); }
 .group-list-actions button:disabled { opacity: .4; cursor: default; }
-.group-list-actions button:focus-visible { outline: 1px solid var(--amber); outline-offset: 2px; }
-@container panel-header (min-width: 420px) {
-  .group-list-actions button span { display: inline; }
+.group-list-actions button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .group-list-actions button { transition: none; }
 }
 .group-list-viewport { min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .group-list-body { padding: 8px 4px 10px; }

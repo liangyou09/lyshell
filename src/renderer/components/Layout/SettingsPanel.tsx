@@ -147,7 +147,7 @@ const SettingsPanel: React.FC = () => {
       {/* 头行与终端页签对齐，保留窗口拖拽区。 */}
       <PanelHeader
         title={t('settings.title')}
-        actions={<button type="button" className="settings-version win-no-drag" title={t('settings.viewReleaseNotes')} aria-label={t('settings.versionReleaseNotes', { version: __APP_VERSION__ })} onClick={openReleaseNotes}>v{__APP_VERSION__}</button>}
+        titleAccessory={<button type="button" className="settings-version win-no-drag" title={t('settings.viewReleaseNotes')} aria-label={t('settings.versionReleaseNotes', { version: __APP_VERSION__ })} onClick={openReleaseNotes}>v{__APP_VERSION__}</button>}
       />
 
       <div className="settings-content">

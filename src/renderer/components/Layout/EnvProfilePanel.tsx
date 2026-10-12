@@ -1,3 +1,4 @@
+import DialogClose from '@/components/Layout/DialogClose'
 import { PanelHeader, PanelHeaderAction } from './PanelHeader'
 import React, { useState, useEffect, useCallback } from 'react'
 import cn from 'classnames'
@@ -13,6 +14,7 @@ import {
 } from '@shared/harness'
 import EnvRowsEditor, { type EnvRow } from '../EnvRowsEditor'
 import { useUiStore } from '../../stores/ui-store'
+import { useEscDismiss } from '../../hooks'
 
 /**
  * 环境变量面板 —— 全局变量组库的独占入口（左侧轨 env 页签）。
@@ -146,6 +148,15 @@ const EnvProfilePanel: React.FC = () => {
   const [triedSubmit, setTriedSubmit] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+
+  // 与 Agent/工作区弹窗共用 Esc 回退栈：先退删除确认，再关弹窗；IME 候选期不关闭。
+  useEscDismiss(showDialog, () => {
+    if (confirmDelete) {
+      setConfirmDelete(false)
+      return
+    }
+    setShowDialog(false)
+  })
 
   const load = useCallback(async () => {
     try {
@@ -591,8 +602,9 @@ const EnvProfilePanel: React.FC = () => {
 
       {/* 新增/编辑对话框 —— 机柜「插槽规格表」同壳（与 HarnessPanel 变量组对话框同款） */}
       {showDialog && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm w-[448px] max-h-[88vh] overflow-y-auto rack-scroll shadow-xl">
+        <div className="ly-dialog-backdrop fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div role="dialog" aria-modal="true" aria-label={editProfile ? t('env.editTitle') : t('env.addTitle')} className="ly-dialog-surface bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm w-[448px] max-h-[88vh] overflow-y-auto rack-scroll shadow-xl">
+            <DialogClose onClose={() => setShowDialog(false)} />
             <div className="flex items-center h-10 px-4 border-b border-[var(--rule)] gap-2.5">
               <span
                 className="inline-block w-2 h-2 rounded-full flex-shrink-0"

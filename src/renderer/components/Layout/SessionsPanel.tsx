@@ -1597,8 +1597,8 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
           >
             {/* 上辊行 —— 开合钮 + 开态拖高手势位:点行开/合(双向),拖高靠
                 位移阈值分流(按下记起点,move 超 3px 记真拖动,松手补发的
-                click 靠 moved 标记 + 起点复量双保险吞掉);题签已升到装配层
-                居中(行自身即按钮,卷上题签不再单独可点) */}
+                click 靠 moved 标记 + 起点复量双保险吞掉);面板名称由悬停提示
+                与 aria-label 提供,轴上不叠加题签 */}
             <div
               className={cn('scroll-dual-rod group', fileManagerClosed ? 'cursor-pointer' : 'cursor-row-resize')}
               role="button"
@@ -1665,15 +1665,6 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
               <span aria-hidden className="rod-caps" />
               <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
             </div>
-            {/* 题签 —— 收起态的卷面名牌:居中浮在上下双卷之间的合缝上(与搜索
-                框占位同一位置 —— 双卷之间正是双开画轴的门面),纯展示非交互件
-                (pointer-events 穿透,点击落在下方辊行上);开态不渲染,让位
-                给画心 */}
-            {fileManagerClosed && (
-              <span className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center">
-                <span className="scroll-slip text-[11.5px] truncate max-w-full px-3">{t('fileManager.floatTitle')}</span>
-              </span>
-            )}
           </div>
         )}
 

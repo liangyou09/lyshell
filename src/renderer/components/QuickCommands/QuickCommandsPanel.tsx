@@ -521,8 +521,8 @@ const QuickCommandsPanel: React.FC<QuickCommandsPanelProps> = ({ onExecuteComman
 
       {/* Quick-command editor */}
       {showAddDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-[var(--bg-rack)] border border-[var(--rule)] rounded-[4px] shadow-2xl w-[400px] overflow-hidden">
+        <div className="ly-dialog-backdrop fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="ly-dialog-surface bg-[var(--bg-rack)] border border-[var(--rule)] rounded-[4px] shadow-2xl w-[400px] overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 bg-[var(--bg-slot)] border-b border-[var(--rule)]">
               <div className="flex items-center gap-2">
                 <span

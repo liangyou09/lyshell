@@ -1,3 +1,4 @@
+import DialogClose from '@/components/Layout/DialogClose'
 import ScrollFold from './ScrollFold'
 import { GroupListActions } from './GroupList'
 import { PanelHeader, PanelHeaderAction } from './PanelHeader'
@@ -503,7 +504,7 @@ const AgentsPanel: React.FC = () => {
       {/* ===== 内容壳 ===== 头行以下整列离缘 6(mx-1.5) —— 与会话栏器物两端同线
           (栏内器物一律离缘,墙纸不再通铺到面板两缘);段内既有垫距保留;壳不
           定位,fixed 弹窗与绝对定位浮层不受影响 */}
-      <div className="mx-1.5 flex-1 min-h-0 flex flex-col min-w-0">
+      <div className="mx-1.5 pt-2 flex-1 min-h-0 flex flex-col min-w-0">
 
       {/* 列表级操作错误(卡片删除落盘失败等)—— 对齐 EnvProfilePanel 的 actionError 位 */}
       {actionError && (
@@ -552,8 +553,9 @@ const AgentsPanel: React.FC = () => {
 
       {/* Agent 编辑对话框 -- 机柜"插槽规格表":header + 面板(图标/名称) + 命令/工作目录/环境变量 + 实时预览 */}
       {showDialog && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm w-[448px] max-h-[88vh] overflow-y-auto rack-scroll shadow-xl">
+        <div className="ly-dialog-backdrop fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="ly-dialog-surface bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm w-[448px] max-h-[88vh] overflow-y-auto rack-scroll shadow-xl">
+            <DialogClose onClose={() => setShowDialog(false)} />
             {/* header:电源 LED + 标题 + 类型牌 */}
             <div className="flex items-center h-10 px-4 border-b border-[var(--rule)] gap-2.5">
               <span

@@ -753,14 +753,14 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+      className="ly-dialog-backdrop fixed inset-0 bg-black/60 flex items-center justify-center z-50"
       onMouseDown={e => { if (e.target === e.currentTarget) handleCancel() }}
     >
       <div
-        className="bg-[var(--bg-rack)] border border-[var(--rule)] w-[448px] overflow-hidden lyshell-session-dialog"
-        style={{
-          boxShadow: '0 0 0 1px rgba(0,0,0,.3), 0 24px 60px -12px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.02)'
-        }}
+        className="ly-dialog-surface bg-[var(--bg-rack)] border border-[var(--rule)] w-[448px] overflow-hidden lyshell-session-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={channelLabel}
       >
         {/* placeholder + selection 强制亮度（dialog 作用域，不污染全局） */}
         <style>{`
@@ -803,14 +803,13 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
         `}</style>
         {/* TITLE STRIP */}
         <div
-          className="flex items-center h-10 px-3 pl-4 border-b border-[var(--rule)] text-[13px] text-[var(--text-rack-data)] gap-3"
+          className="ly-dialog-header flex items-center h-10 px-3 pl-4 border-b border-[var(--rule)] text-[13px] text-[var(--text-rack-data)] gap-3"
           style={{
-            background: 'linear-gradient(180deg, var(--rule-soft) 0%, var(--bg-slot) 100%)',
-            fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
+            fontFamily: 'KaiTi, STKaiti, "楷体", Cambria, serif'
           }}
         >
           <span className="text-[var(--text-rack)] font-medium flex-shrink-0 flex items-center">
-            <span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: accent, boxShadow: `0 0 5px ${accent}` }} />
+            <span className="inline-block w-2 h-2 rounded-sm mr-2" style={{ background: accent }} />
             {channelLabel}
           </span>
           <span className="text-[var(--text-rack-faint)] flex-shrink-0">·</span>
@@ -846,23 +845,13 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                     key={p}
                     type="button"
                     onClick={() => setType(p)}
-                    className="h-10 rounded-sm flex items-center justify-center gap-2 cursor-pointer relative font-mono transition-transform"
-                    style={{
-                      background: isOn ? 'var(--bg-slot)' : 'var(--rule)',
-                      borderTop: `1px solid ${isOn ? 'var(--rule)' : 'var(--rule)'}`,
-                      borderRight: '1px solid var(--rule)',
-                      borderBottom: '1px solid var(--rule)',
-                      borderLeft: '1px solid var(--rule)',
-                      boxShadow: isOn
-                        ? 'inset 0 1px 6px rgba(0,0,0,.6)'
-                        : '0 2px 0 #0B0B0D, inset 0 1px 0 rgba(255,255,255,.04)',
-                      transform: isOn ? 'translateY(1px)' : 'none'
-                    }}
+                    className="ly-dialog-choice h-10 rounded-sm flex items-center justify-center gap-2 cursor-pointer relative font-mono transition-colors"
+                    aria-pressed={isOn}
                   >
                     {isOn && (
                       <span
                         className="absolute left-2 right-2 -top-px h-0.5"
-                        style={{ background: PROTO_ACCENT[p], boxShadow: `0 0 8px ${PROTO_ACCENT[p]}` }}
+                        style={{ background: PROTO_ACCENT[p] }}
                       />
                     )}
                     <span
@@ -982,7 +971,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                   value={sshUser}
                   onChange={e => setSshUser(e.target.value)}
                   placeholder={t('session.userPlaceholder')}
-                  className="flex-1 bg-transparent border-b text-[14px] text-[var(--text-rack)] focus:outline-none focus:text-white font-mono pb-1.5"
+                  className="flex-1 bg-transparent border-b text-[14px] text-[var(--text-rack)] focus:outline-none font-mono pb-1.5"
                   style={{
                     borderBottomColor: sshUser ? accent : 'var(--rule)',
                     caretColor: accent,
@@ -999,7 +988,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                   value={sshPassword}
                   onChange={e => setSshPassword(e.target.value)}
                   placeholder={t('session.authPasswordPlaceholder')}
-                  className="flex-1 bg-transparent border-b text-[14px] text-[var(--text-rack)] focus:outline-none focus:text-white font-mono pb-1.5"
+                  className="flex-1 bg-transparent border-b text-[14px] text-[var(--text-rack)] focus:outline-none font-mono pb-1.5"
                   style={{
                     borderBottomColor: sshPassword ? accent : 'var(--rule)',
                     caretColor: accent,

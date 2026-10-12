@@ -8,6 +8,11 @@
 .art-theme > p { font-size: 11px; opacity: .7; }
 .art-theme .quick-commands { max-width: 320px; }
 .art-theme h3 { font-size: 12px; margin: 28px 0 12px; font-weight: 400; opacity: .8; }
+.art-terminal-stage { position: relative; min-height: 260px; background: #16191b; overflow: hidden; }
+.art-terminal-stage pre { margin: 0; padding: 18px; color: #b5c9ba; font: 12px/1.8 Consolas, monospace; }
+.art-terminal-reopen { position: absolute; top: 16px; right: 16px; padding: 6px 10px; background: var(--scroll-art-paper-color); color: var(--scroll-art-ink); cursor: pointer; }
+.art-dialog-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.art-dialog-actions button { padding: 6px 12px; color: var(--scroll-art-ink); background: var(--scroll-art-paper-color); border: 1px solid var(--scroll-art-rule); border-radius: 2px; cursor: pointer; }
 .art-dual button.scroll-dual-rod { border: 0; padding: 0; background: transparent; cursor: pointer; width: 100%; }
 .art-compose { padding: 16px 18px; height: 100%; }
 .art-compose form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -33,4 +38,4 @@
 .art-search.scroll-search-lg { height: 36px; }
 .art-search input { position: relative; z-index: 2; width: calc(100% - 24px); min-width: 0; margin-inline: 12px; text-align: center; background: transparent; border: 0; outline: 0; font-size: 13px; }
 .art-xuan-sample { min-height: 108px; }
-@media (max-width: 760px) { .art-comparison { grid-template-columns: 1fr; } .art-gallery { padding: 16px; } }
+@media (max-width: 760px) { .art-comparison { grid-template-columns: 1fr; } .art-gallery { padding: 16px; } .art-terminal-stage { min-height: 300px; } }

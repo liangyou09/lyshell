@@ -373,10 +373,10 @@ describe('topbar-metrics 单一真相源', () => {
     // 轨顶收起槽与终端第一行齐平 -- ActivityRail 也读 TOPBAR_HEIGHT
     expect(ACTIVITY_RAIL).toContain("from './topbar-metrics'")
     expect(ACTIVITY_RAIL).toContain('style={{ height: TOPBAR_HEIGHT }}')
-    // 收起槽画底线(与面板头条/页签条同色同 y)—— 第一行底线横贯整个窗口,整行读作一条横带
-    expect(ACTIVITY_RAIL).toContain('border-b border-[var(--rule)]')
+    // 第一行以 rack 背景区分内容，不再画横贯窗口的底线。
+    expect(ACTIVITY_RAIL).not.toContain('border-b border-[var(--rule)]')
     // 左列内容面板头条同族(Sessions/Agents/Harness/Plugin/Env/Settings/Web 七面):
-    // 都是 TOPBAR_HEIGHT 高 + border-b 发丝线的满幅头条,窗口第一行横带在哪个页签都连续
+    // 都是 TOPBAR_HEIGHT 高的满幅头条，窗口第一行横带在哪个页签都连续。
     const SESSIONS_PANEL = read('src/renderer/components/Layout/SessionsPanel.tsx')
     const AGENTS_PANEL = read('src/renderer/components/Layout/AgentsPanel.tsx')
     const HARNESS_PANEL = read('src/renderer/components/Layout/HarnessPanel.tsx')
@@ -393,7 +393,8 @@ describe('topbar-metrics 单一真相源', () => {
     expect(HEADER).toContain("from './topbar-metrics'")
     expect(HEADER).toContain('style={{ height: TOPBAR_HEIGHT }}')
     expect(HEADER).toContain('panel-header win-drag')
-    expect(HEADER_CSS).toMatch(/border-bottom:\s*1px solid var\(--rule\)/)
+    expect(HEADER_CSS).not.toMatch(/border-bottom:\s*1px solid var\(--rule\)/)
+    expect(HEADER_CSS).toContain('background: var(--bg-rack)')
     expect(HEADER_CSS).toContain('Segoe UI Variable Display')
     expect(SETTINGS_PANEL).toContain("import './SettingsPanel.css'")
   })

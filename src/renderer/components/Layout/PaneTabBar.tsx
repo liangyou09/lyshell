@@ -822,7 +822,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
     if (!isTop) return null
     return (
       <div
-        className="win-drag select-none bg-[var(--bg-rack)] border-b border-[var(--rule)] transition-[padding-left] duration-150 ease-out"
+        className="win-drag select-none bg-[var(--bg-rack)] transition-[padding-left] duration-150 ease-out"
         style={{
           height: TOPBAR_HEIGHT,
           paddingLeft: isTopLeft ? 'var(--top-left-reserve)' : undefined,
@@ -887,7 +887,8 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
   return (
     <div
       className={cn(
-        'flex items-center bg-[var(--bg-rack)] border-b border-[var(--rule)]',
+        'flex items-center bg-[var(--bg-rack)]',
+        !isTop && 'border-b border-[var(--rule)]',
         // 左留白随侧栏收起态切换(0↔32px),与左列宽度滑动同为 150ms ease-out --
         // 收起/展开时页签与滑动中的左列边缘同步让位,不跳变
         'transition-[padding-left] duration-150 ease-out',
@@ -901,7 +902,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
         paddingRight: isTop && isTopRight ? 'var(--top-right-reserve)' : undefined
       }}
     >
-      {/* 标签容器 */}
+      {/* 标签容器；左侧边界由全高调宽线统一绘制，避免上下错位。 */}
       <div
         ref={scrollRef}
         onDragOver={(e) => {

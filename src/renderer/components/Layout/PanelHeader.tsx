@@ -9,6 +9,7 @@ const lyShellIcon = new URL('../../../../resources/icons/icon-windows.png', impo
 
 interface PanelHeaderProps {
   title: string
+  titleAccessory?: React.ReactNode
   count?: number
   countHint?: string
   detail?: string
@@ -20,7 +21,7 @@ interface PanelHeaderProps {
 
 /** 统一面板首行：名称、数量读数与主操作；空白处仍可拖动窗口。 */
 export const PanelHeader: React.FC<PanelHeaderProps> = ({
-  title, count, countHint, detail, actions, onTitleClick, titleHint, titleDisabled
+  title, titleAccessory, count, countHint, detail, actions, onTitleClick, titleHint, titleDisabled
 }) => (
   <header className="panel-header win-drag" style={{ height: TOPBAR_HEIGHT }}>
     <div className="panel-header-nameplate">
@@ -36,6 +37,7 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
           {title}
         </button>
       ) : <h2 className="panel-header-title" title={title}>{title}</h2>}
+      {titleAccessory}
       {count !== undefined && <span className="panel-header-count" title={countHint} aria-label={countHint ? `${countHint}: ${count}` : undefined}>{count}</span>}
     </div>
     {detail && <span className="panel-header-detail" title={detail}>{detail}</span>}

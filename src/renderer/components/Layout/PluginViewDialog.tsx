@@ -54,9 +54,9 @@ const PluginViewDialog: React.FC<{ spec: PluginViewDialogSpec; isTopmost: boolea
   const partition = useMemo(() => pluginViewPartitionName(spec.pluginId), [spec.pluginId])
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div className="ly-dialog-backdrop fixed inset-0 z-[90] flex items-center justify-center bg-black/50" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div
-        className="flex flex-col rounded-md border border-[var(--border-base)] bg-[var(--bg-base)] shadow-2xl overflow-hidden"
+        className="ly-dialog-surface flex flex-col rounded-md border border-[var(--border-base)] bg-[var(--bg-base)] shadow-2xl overflow-hidden"
         style={{ width, height }}
       >
         <div className="flex items-center justify-between px-3 h-9 shrink-0 border-b border-[var(--border-base)] bg-[var(--bg-slot)]">

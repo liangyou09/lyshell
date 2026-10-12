@@ -1,13 +1,17 @@
-/* 查找小窗：上下木轴压住整幅暖笺，选项用书体与墨勾落在纸上。 */
+/* 终端查找小卷：玉轴压住宣纸，正文用清晰墨色，细裱绢收住两侧。 */
 .terminal-search-scroll {
-  --terminal-search-rule: color-mix(in srgb, var(--text-rack) 28%, transparent);
+  --terminal-search-ink: var(--scroll-art-ink, var(--text-rack));
+  --terminal-search-paper: var(--scroll-art-paper-color, var(--scroll-paper));
+  --terminal-search-muted: color-mix(in srgb, var(--terminal-search-ink) 78%, var(--terminal-search-paper));
+  --terminal-search-rule: color-mix(in srgb, var(--terminal-search-ink) 18%, transparent);
+  --terminal-search-accent: var(--axis-wood);
   position: absolute;
   z-index: 50;
   width: 500px;
   max-width: calc(100% - 24px);
-  color: var(--text-rack);
+  color: var(--terminal-search-ink);
   isolation: isolate;
-  font-family: 'KaiTi', '楷体', 'STKaiti', '华文楷体', 'Kaiti SC', Cambria, serif;
+  font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
   filter: drop-shadow(0 8px 12px var(--scroll-shadow));
   animation: terminal-search-unroll 280ms cubic-bezier(.2, .7, .2, 1) both;
 }
@@ -27,62 +31,68 @@
 .terminal-search-sheet {
   position: relative;
   margin: -9px 12px;
-  padding: 16px 10px 12px;
-  background-color: var(--scroll-paper);
+  padding: 18px 14px 14px;
+  background-color: var(--terminal-search-paper);
   background-image:
-    linear-gradient(to right, var(--scroll-silk), transparent 12px, transparent calc(100% - 12px), var(--scroll-silk)),
-    linear-gradient(to bottom, rgba(0, 0, 0, .18), transparent 18px, transparent calc(100% - 14px), rgba(0, 0, 0, .12)),
-    repeating-linear-gradient(7deg, rgba(255, 255, 255, .025) 0 1px, transparent 1px 7px),
-    repeating-linear-gradient(97deg, rgba(0, 0, 0, .025) 0 1px, transparent 1px 11px);
-  box-shadow: inset 1px 0 color-mix(in srgb, var(--axis-wood) 25%, transparent), inset -1px 0 color-mix(in srgb, var(--axis-wood) 25%, transparent);
+    linear-gradient(var(--scroll-art-texture-wash), var(--scroll-art-texture-wash)),
+    var(--scroll-art-texture-image);
+  background-size: 100% 100%, 360px 360px;
+  background-repeat: no-repeat, repeat;
+  box-shadow: inset 3px 0 var(--scroll-art-silk), inset -3px 0 var(--scroll-art-silk),
+    inset 4px 0 var(--scroll-art-rule), inset -4px 0 var(--scroll-art-rule);
 }
-/* 纸上保留完整窗框，各行窗格用同一档墨线分隔。 */
+/* 画心用淡纸层托住文字，避免纹理干扰阅读；各区只留必要分隔。 */
 .terminal-search-frame {
-  border: 1px solid var(--terminal-search-rule);
-  background: color-mix(in srgb, var(--scroll-paper) 94%, var(--text-rack));
+  background: color-mix(in srgb, var(--terminal-search-paper) 72%, transparent);
 }
 .terminal-search-query {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 8px 10px;
+  gap: 3px;
+  padding: 0 0 10px;
   border-bottom: 1px solid var(--terminal-search-rule);
 }
-.terminal-search-symbol { font-size: 24px; margin-right: 4px; color: var(--text-rack-data); }
+.terminal-search-symbol { width: 18px; flex-shrink: 0; margin-right: 3px; color: var(--terminal-search-muted); }
+.terminal-search-symbol svg,
+.terminal-search-query button svg { display: block; width: 18px; height: 18px; }
 .terminal-search-query textarea {
   flex: 1;
   min-width: 0;
-  padding: 3px 6px;
+  padding: 6px 8px;
   border: 1px solid var(--terminal-search-rule);
-  border-radius: 2px;
-  background: transparent;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--terminal-search-paper) 90%, transparent);
   color: inherit;
-  caret-color: var(--amber);
-  font-family: inherit;
-  font-size: 17px;
+  caret-color: var(--terminal-search-ink);
+  font-family: var(--font-mono, 'Cascadia Code', Consolas, monospace);
+  font-size: 14px;
   line-height: 1.4;
   resize: none;
   outline: none;
 }
-.terminal-search-query textarea::placeholder { color: var(--text-rack-data); letter-spacing: .08em; }
-.terminal-search-query textarea:focus { border-color: var(--amber); }
+.terminal-search-query textarea::placeholder { color: var(--terminal-search-muted); font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; }
+.terminal-search-query textarea:focus { border-color: var(--terminal-search-accent); outline: 1px solid var(--terminal-search-accent); outline-offset: 1px; }
+.terminal-search-query textarea::selection { background: color-mix(in srgb, var(--terminal-search-accent) 28%, var(--terminal-search-paper)); color: var(--terminal-search-ink); }
 .terminal-search-query textarea[aria-invalid="true"] { border-color: var(--cinnabar); }
+.terminal-search-query textarea[aria-invalid="true"]:focus { outline-color: var(--cinnabar); }
 .terminal-search-query button {
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--terminal-search-rule);
-  border-radius: 2px;
-  font-size: 18px;
-  color: var(--text-rack-data);
+  width: 30px;
+  height: 32px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--terminal-search-muted);
 }
-.terminal-search-query button:hover { color: var(--text-rack); background: color-mix(in srgb, var(--text-rack) 8%, transparent); }
+.terminal-search-query button:hover { color: var(--terminal-search-ink); background: color-mix(in srgb, var(--terminal-search-ink) 9%, transparent); }
+.terminal-search-query button:active { background: color-mix(in srgb, var(--terminal-search-ink) 15%, transparent); }
 .terminal-search-query .terminal-search-close:hover { color: var(--cinnabar); }
 .terminal-search-query button:focus-visible,
 .terminal-search-option:has(input:focus-visible) {
-  outline: 1px solid var(--amber);
+  outline: 1px solid var(--terminal-search-accent);
   outline-offset: 3px;
 }
 .terminal-search-options {
@@ -90,8 +100,8 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 6px 12px;
-  padding: 9px 10px;
+  gap: 6px 10px;
+  padding: 9px 0;
   border-bottom: 1px solid var(--terminal-search-rule);
 }
 .terminal-search-options .terminal-search-option {
@@ -102,10 +112,10 @@
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 15px;
+  gap: 6px;
+  font-size: 12px;
   line-height: 24px;
-  color: var(--text-rack-data);
+  color: var(--terminal-search-muted);
   cursor: pointer;
   user-select: none;
 }
@@ -119,13 +129,14 @@
 }
 .terminal-search-mark {
   position: relative;
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
-  border: 1px solid var(--text-rack-data);
+  border: 1px solid var(--terminal-search-muted);
   border-radius: 1px;
-  background: var(--scroll-paper);
+  background: var(--terminal-search-paper);
 }
+.terminal-search-option input[type="radio"] + .terminal-search-mark { border-radius: 50%; }
 .terminal-search-mark svg {
   position: absolute;
   inset: -4px;
@@ -140,11 +151,11 @@
   transform: none;
   animation: terminal-search-ink 180ms ease-out;
 }
-.terminal-search-dry-ink { fill: var(--scroll-paper); opacity: .65; }
+.terminal-search-dry-ink { fill: var(--terminal-search-paper); opacity: .65; }
 .terminal-search-option:has(input:checked),
-.terminal-search-option:hover { color: var(--text-rack); }
-.terminal-search-option:has(input:checked) .terminal-search-mark { border-color: var(--text-rack); }
-.terminal-search-option:hover .terminal-search-mark { border-color: var(--amber); }
+.terminal-search-option:hover { color: var(--terminal-search-ink); }
+.terminal-search-option:has(input:checked) .terminal-search-mark { border-color: var(--terminal-search-ink); }
+.terminal-search-option:hover .terminal-search-mark { border-color: var(--terminal-search-accent); }
 .terminal-search-results {
   display: flex;
   flex-wrap: wrap;
@@ -153,29 +164,28 @@
 .terminal-search-count {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   flex: 1 0 90px;
   min-height: 38px;
-  padding: 6px 10px;
-  border-right: 1px solid var(--terminal-search-rule);
-  color: var(--text-rack-data);
-  font-size: 14px;
+  padding: 6px 8px 6px 0;
+  color: var(--terminal-search-muted);
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   white-space: pre;
 }
-.terminal-search-count strong { color: var(--text-rack); font-weight: 600; }
+.terminal-search-count strong { color: var(--terminal-search-ink); font-weight: 600; }
 .terminal-search-count.terminal-search-error { color: var(--cinnabar); white-space: normal; }
-.terminal-search-scope { display: flex; flex: 1 0 auto; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; padding: 6px 10px; color: var(--text-rack-data); font-size: 14px; }
+.terminal-search-scope { display: flex; flex: 1 1 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; padding: 6px 0; color: var(--terminal-search-muted); font-size: 12px; }
 .terminal-search-hints {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px 14px;
-  padding: 8px 10px;
+  gap: 5px 12px;
+  padding: 8px 0 0;
   border-top: 1px solid var(--terminal-search-rule);
-  color: var(--text-rack-data);
-  font-size: 12px;
+  color: var(--terminal-search-muted);
+  font-size: 11px;
 }
-.terminal-search-hints kbd { margin-right: 5px; font-family: inherit; font-size: 12px; }
+.terminal-search-hints kbd { margin-right: 4px; padding: 1px 3px; background: color-mix(in srgb, var(--terminal-search-ink) 7%, transparent); border-radius: 2px; font-family: inherit; font-size: 10px; }
 @keyframes terminal-search-unroll {
   from { clip-path: inset(0 0 calc(100% - 18px)); }
   to { clip-path: inset(-20px); }

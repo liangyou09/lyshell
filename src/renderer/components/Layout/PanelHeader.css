@@ -9,8 +9,7 @@
   flex-shrink: 0;
   min-width: 0;
   padding: 0 12px;
-  border-bottom: 1px solid var(--rule);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--text-rack) 2%, var(--bg-base)), var(--bg-base));
+  background: var(--bg-rack);
   font-family: 'Segoe UI Variable Display', 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 

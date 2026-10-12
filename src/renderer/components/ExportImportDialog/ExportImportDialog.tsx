@@ -306,37 +306,40 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-[#2D2D30] rounded-lg shadow-xl w-[500px] max-h-[80vh] overflow-hidden">
+    <div className="ly-dialog-backdrop fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div role="dialog" aria-modal="true" aria-label={t('export.title')} className="ly-dialog-surface bg-[var(--dialog-paper)] rounded-lg shadow-xl w-[500px] max-h-[80vh] overflow-hidden">
         {/* 标题 */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#3C3C3C]">
-          <span className="text-white font-medium">{t('export.title')}</span>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--dialog-rule)]">
+          <span className="text-[var(--dialog-ink)] font-medium">{t('export.title')}</span>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white"
+            aria-label={t('export.close')}
+            className="text-[var(--dialog-muted)] hover:text-[var(--dialog-ink)]"
           >
             ✕
           </button>
         </div>
 
         {/* 模式切换 */}
-        <div className="flex px-4 py-2 gap-2 border-b border-[#3C3C3C]">
+        <div className="flex px-4 py-2 gap-2 border-b border-[var(--dialog-rule)]">
           <button
             onClick={() => handleModeChange('export')}
+            aria-pressed={mode === 'export'}
             className={`px-4 py-1.5 rounded text-sm ${
               mode === 'export'
-                ? 'bg-[#0078D4] text-white'
-                : 'bg-[#3C3C3C] text-gray-300 hover:bg-[#555]'
+                ? 'bg-[var(--dialog-jade)] text-white'
+                : 'bg-[var(--dialog-field)] text-[var(--dialog-ink)] hover:bg-[var(--dialog-selected)]'
             }`}
           >
             {t('export.tabExport')}
           </button>
           <button
             onClick={() => handleModeChange('import')}
+            aria-pressed={mode === 'import'}
             className={`px-4 py-1.5 rounded text-sm ${
               mode === 'import'
-                ? 'bg-[#0078D4] text-white'
-                : 'bg-[#3C3C3C] text-gray-300 hover:bg-[#555]'
+                ? 'bg-[var(--dialog-jade)] text-white'
+                : 'bg-[var(--dialog-field)] text-[var(--dialog-ink)] hover:bg-[var(--dialog-selected)]'
             }`}
           >
             {t('export.tabImport')}
@@ -349,7 +352,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
             <>
               {/* 加密密码 */}
               <div className="mb-4">
-                <label className="block text-sm text-gray-300 mb-1">
+                <label className="block text-sm text-[var(--dialog-ink)] mb-1">
                   {t('export.encryptPasswordLabel')}
                 </label>
                 <input
@@ -357,26 +360,26 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
                   value={encryptPassword}
                   onChange={(e) => setEncryptPassword(e.target.value)}
                   placeholder={t('export.encryptPasswordPlaceholder')}
-                  className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4]"
+                  className="w-full px-3 py-1.5 bg-[var(--dialog-field)] border border-[var(--dialog-rule)] rounded text-sm text-[var(--dialog-ink)] placeholder-[var(--dialog-muted)] focus:outline-none focus:border-[var(--dialog-link)]"
                 />
                 {encryptPassword && (
-                  <p className="text-xs text-green-400 mt-1">{t('export.encryptHint')}</p>
+                  <p className="text-xs text-[var(--dialog-success)] mt-1">{t('export.encryptHint')}</p>
                 )}
               </div>
 
               {/* 会话列表 */}
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-sm text-gray-300">{t('export.sessionsLabel', { count: sessions.length })}</span>
+                  <span className="text-sm text-[var(--dialog-ink)]">{t('export.sessionsLabel', { count: sessions.length })}</span>
                   <button
                     onClick={toggleAllSessions}
-                    className="text-xs text-[#0078D4] hover:text-[#0098FF]"
+                    className="text-xs text-[var(--dialog-link)] hover:text-[var(--dialog-ink)]"
                   >
                     {selectedSessions.size === sessions.length ? t('export.deselectAll') : t('export.selectAll')}
                   </button>
                 </div>
                 {sessions.length === 0 ? (
-                  <div className="text-xs text-gray-500 py-2">{t('export.noSessions')}</div>
+                  <div className="text-xs text-[var(--dialog-muted)] py-2">{t('export.noSessions')}</div>
                 ) : (
                   <div className="space-y-1">
                     {sessions.map(session => (
@@ -385,8 +388,8 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
                         onClick={() => toggleSession(session.id)}
                         className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
                           selectedSessions.has(session.id)
-                            ? 'bg-[#0078D4]/20 border border-[#0078D4]'
-                            : 'bg-[#3C3C3C] hover:bg-[#555]'
+                            ? 'bg-[var(--dialog-selected)] border border-[var(--dialog-link)]'
+                            : 'bg-[var(--dialog-field)] hover:bg-[var(--dialog-selected)]'
                         }`}
                       >
                         <input
@@ -395,8 +398,8 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
                           onChange={() => toggleSession(session.id)}
                           className="w-4 h-4"
                         />
-                        <span className="text-sm text-gray-200 flex-1 truncate">{session.name}</span>
-                        <span className="text-xs text-gray-400">{getHostIP(session)}</span>
+                        <span className="text-sm text-[var(--dialog-ink)] flex-1 truncate">{session.name}</span>
+                        <span className="text-xs text-[var(--dialog-muted)]">{getHostIP(session)}</span>
                       </div>
                     ))}
                   </div>
@@ -406,16 +409,16 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
               {/* 快速命令列表 */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-sm text-gray-300">{t('export.commandsLabel', { count: quickCommands.length })}</span>
+                  <span className="text-sm text-[var(--dialog-ink)]">{t('export.commandsLabel', { count: quickCommands.length })}</span>
                   <button
                     onClick={toggleAllCommands}
-                    className="text-xs text-[#0078D4] hover:text-[#0098FF]"
+                    className="text-xs text-[var(--dialog-link)] hover:text-[var(--dialog-ink)]"
                   >
                     {selectedCommands.size === quickCommands.length ? t('export.deselectAll') : t('export.selectAll')}
                   </button>
                 </div>
                 {quickCommands.length === 0 ? (
-                  <div className="text-xs text-gray-500 py-2">{t('export.noCommands')}</div>
+                  <div className="text-xs text-[var(--dialog-muted)] py-2">{t('export.noCommands')}</div>
                 ) : (
                   <div className="space-y-1">
                     {quickCommands.map(cmd => (
@@ -424,8 +427,8 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
                         onClick={() => toggleCommand(cmd.id)}
                         className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
                           selectedCommands.has(cmd.id)
-                            ? 'bg-[#0078D4]/20 border border-[#0078D4]'
-                            : 'bg-[#3C3C3C] hover:bg-[#555]'
+                            ? 'bg-[var(--dialog-selected)] border border-[var(--dialog-link)]'
+                            : 'bg-[var(--dialog-field)] hover:bg-[var(--dialog-selected)]'
                         }`}
                       >
                         <input
@@ -434,7 +437,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
                           onChange={() => toggleCommand(cmd.id)}
                           className="w-4 h-4"
                         />
-                        <span className="text-sm text-gray-200 flex-1 truncate">{cmd.name}</span>
+                        <span className="text-sm text-[var(--dialog-ink)] flex-1 truncate">{cmd.name}</span>
                       </div>
                     ))}
                   </div>
@@ -447,26 +450,26 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
               <button
                 onClick={handleSelectImportFile}
                 disabled={loading}
-                className="w-full px-3 py-2 bg-[#3C3C3C] text-gray-200 rounded hover:bg-[#555] transition-colors mb-4 text-sm"
+                className="w-full px-3 py-2 bg-[var(--dialog-field)] text-[var(--dialog-ink)] rounded hover:bg-[var(--dialog-selected)] transition-colors mb-4 text-sm"
               >
                 {loading ? t('export.loading') : t('export.selectImportFile')}
               </button>
 
               {/* 需要解密密码 */}
               {needPassword && (
-                <div className="mb-4 p-3 bg-[#1E1E1E] rounded border border-[#555]">
-                  <p className="text-sm text-yellow-400 mb-2">{t('export.fileEncryptedPrompt')}</p>
+                <div className="mb-4 p-3 bg-[var(--dialog-field)] rounded border border-[var(--dialog-rule)]">
+                  <p className="text-sm text-[var(--dialog-warning)] mb-2">{t('export.fileEncryptedPrompt')}</p>
                   <input
                     type="password"
                     value={decryptPassword}
                     onChange={(e) => setDecryptPassword(e.target.value)}
                     placeholder={t('export.enterDecryptPassword')}
-                    className="w-full px-3 py-1.5 bg-[#3C3C3C] border border-[#555] rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#0078D4] mb-2"
+                    className="w-full px-3 py-1.5 bg-[var(--dialog-field)] border border-[var(--dialog-rule)] rounded text-sm text-[var(--dialog-ink)] placeholder-[var(--dialog-muted)] focus:outline-none focus:border-[var(--dialog-link)] mb-2"
                   />
                   <button
                     onClick={handleDecrypt}
                     disabled={loading || !decryptPassword}
-                    className="w-full px-3 py-1.5 bg-[#0078D4] text-white rounded text-sm hover:bg-[#006CBD] transition-colors disabled:opacity-50"
+                    className="w-full px-3 py-1.5 bg-[var(--dialog-jade)] text-white rounded text-sm hover:bg-[var(--dialog-jade-hover)] transition-colors disabled:opacity-50"
                   >
                     {loading ? t('export.decrypting') : t('export.decrypt')}
                   </button>
@@ -479,10 +482,10 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
                   {/* 导入会话列表 */}
                   <div className="mb-4">
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm text-gray-300">{t('export.sessionsLabel', { count: importSessions.length })}</span>
+                      <span className="text-sm text-[var(--dialog-ink)]">{t('export.sessionsLabel', { count: importSessions.length })}</span>
                       <button
                         onClick={toggleAllImportSessions}
-                        className="text-xs text-[#0078D4] hover:text-[#0098FF]"
+                        className="text-xs text-[var(--dialog-link)] hover:text-[var(--dialog-ink)]"
                       >
                         {importSessionSelect.size === importSessions.length ? t('export.deselectAll') : t('export.selectAll')}
                       </button>
@@ -494,8 +497,8 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
                           onClick={() => toggleImportSession(session.id)}
                           className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
                             importSessionSelect.has(session.id)
-                              ? 'bg-[#0078D4]/20 border border-[#0078D4]'
-                              : 'bg-[#3C3C3C] hover:bg-[#555]'
+                              ? 'bg-[var(--dialog-selected)] border border-[var(--dialog-link)]'
+                              : 'bg-[var(--dialog-field)] hover:bg-[var(--dialog-selected)]'
                           }`}
                         >
                           <input
@@ -504,8 +507,8 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
                             onChange={() => toggleImportSession(session.id)}
                             className="w-4 h-4"
                           />
-                          <span className="text-sm text-gray-200 flex-1 truncate">{session.name}</span>
-                          <span className="text-xs text-gray-400">{getHostIP(session)}</span>
+                          <span className="text-sm text-[var(--dialog-ink)] flex-1 truncate">{session.name}</span>
+                          <span className="text-xs text-[var(--dialog-muted)]">{getHostIP(session)}</span>
                         </div>
                       ))}
                     </div>
@@ -514,10 +517,10 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
                   {/* 导入快速命令列表 */}
                   <div>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm text-gray-300">{t('export.commandsLabel', { count: importCommands.length })}</span>
+                      <span className="text-sm text-[var(--dialog-ink)]">{t('export.commandsLabel', { count: importCommands.length })}</span>
                       <button
                         onClick={toggleAllImportCommands}
-                        className="text-xs text-[#0078D4] hover:text-[#0098FF]"
+                        className="text-xs text-[var(--dialog-link)] hover:text-[var(--dialog-ink)]"
                       >
                         {importCommandSelect.size === importCommands.length ? t('export.deselectAll') : t('export.selectAll')}
                       </button>
@@ -529,8 +532,8 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
                           onClick={() => toggleImportCommand(cmd.id)}
                           className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
                             importCommandSelect.has(cmd.id)
-                              ? 'bg-[#0078D4]/20 border border-[#0078D4]'
-                              : 'bg-[#3C3C3C] hover:bg-[#555]'
+                              ? 'bg-[var(--dialog-selected)] border border-[var(--dialog-link)]'
+                              : 'bg-[var(--dialog-field)] hover:bg-[var(--dialog-selected)]'
                           }`}
                         >
                           <input
@@ -539,7 +542,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
                             onChange={() => toggleImportCommand(cmd.id)}
                             className="w-4 h-4"
                           />
-                          <span className="text-sm text-gray-200 flex-1 truncate">{cmd.name}</span>
+                          <span className="text-sm text-[var(--dialog-ink)] flex-1 truncate">{cmd.name}</span>
                         </div>
                       ))}
                     </div>
@@ -549,7 +552,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
 
               {/* 未加载文件提示 */}
               {!needPassword && importSessions.length === 0 && importCommands.length === 0 && (
-                <div className="text-center text-gray-500 text-sm py-8">
+                <div className="text-center text-[var(--dialog-muted)] text-sm py-8">
                   {t('export.importFilePrompt')}
                 </div>
               )}
@@ -560,18 +563,18 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
         {/* 消息提示 */}
         {message && (
           <div className={`px-4 py-2 text-sm ${
-            message.type === 'success' ? 'text-green-400' :
-            message.type === 'warning' ? 'text-yellow-400' : 'text-red-400'
+            message.type === 'success' ? 'text-[var(--dialog-success)]' :
+            message.type === 'warning' ? 'text-[var(--dialog-warning)]' : 'text-[var(--dialog-error)]'
           }`}>
             {message.text}
           </div>
         )}
 
         {/* 操作按钮 */}
-        <div className="flex justify-end gap-2 px-4 py-3 border-t border-[#3C3C3C]">
+        <div className="flex justify-end gap-2 px-4 py-3 border-t border-[var(--dialog-rule)]">
           <button
             onClick={onClose}
-            className="px-4 py-1.5 text-sm text-gray-400 hover:text-white transition-colors"
+            className="px-4 py-1.5 text-sm text-[var(--dialog-muted)] hover:text-[var(--dialog-ink)] transition-colors"
           >
             {t('export.close')}
           </button>
@@ -579,7 +582,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
             <button
               onClick={handleExport}
               disabled={loading}
-              className="px-4 py-1.5 text-sm bg-[#0078D4] text-white rounded hover:bg-[#006CBD] transition-colors disabled:opacity-50"
+              className="px-4 py-1.5 text-sm bg-[var(--dialog-jade)] text-white rounded hover:bg-[var(--dialog-jade-hover)] transition-colors disabled:opacity-50"
             >
               {loading ? t('export.exporting') : t('export.export')}
             </button>
@@ -587,7 +590,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
             <button
               onClick={handleImport}
               disabled={loading || needPassword || (importSessionSelect.size === 0 && importCommandSelect.size === 0)}
-              className="px-4 py-1.5 text-sm bg-[#0078D4] text-white rounded hover:bg-[#006CBD] transition-colors disabled:opacity-50"
+              className="px-4 py-1.5 text-sm bg-[var(--dialog-jade)] text-white rounded hover:bg-[var(--dialog-jade-hover)] transition-colors disabled:opacity-50"
             >
               {loading ? t('export.importing') : t('export.import')}
             </button>

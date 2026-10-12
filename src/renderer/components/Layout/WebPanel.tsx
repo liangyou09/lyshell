@@ -1189,7 +1189,8 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
       >
         {/* 上辊行 —— 开合钮 + 开态拖高手势位:点行开/合(双向),拖高靠位移
             阈值分流(pointer 捕获期 move 超 3px 记真拖动,松手补发的 click
-            被重定目标到本行后吞掉);题签已升到装配层居中(行自身即按钮) */}
+            被重定目标到本行后吞掉);面板名称由悬停提示与 aria-label 提供,
+            轴上不叠加题签 */}
         <div
           className={cn('scroll-dual-rod group', miniClosed ? 'cursor-pointer' : 'cursor-row-resize')}
           role="button"
@@ -1357,15 +1358,6 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
           <span aria-hidden className="rod-caps" />
           <span aria-hidden className="scroll-dual-tie"><ScrollTie /></span>
         </div>
-        {/* 题签 —— 收起态的卷面名牌:居中浮在上下双卷之间的合缝上(与搜索框
-            占位同一位置 —— 双卷之间正是双开画轴的门面),纯展示非交互件
-            (pointer-events 穿透,点击落在下方辊行上);开态不渲染,让位给
-            画心 */}
-        {miniClosed && (
-          <span className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center">
-            <span className="scroll-slip text-[11.5px] truncate max-w-full px-3">{t('webBar.mini')}</span>
-          </span>
-        )}
       </div>
       </div>{/* ===== /内容壳 ===== */}
     </div>

@@ -2,6 +2,14 @@ import React, { useId } from 'react'
 import { useTranslation } from 'react-i18next'
 import './TerminalSearchPanel.css'
 
+// 统一线宽的查找/导航图标，避免字符图标随字体改变形状与基线。
+const SearchIcon: React.FC<{ kind: 'search' | 'prev' | 'next' | 'close' }> = ({ kind }) => (
+  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+    {kind === 'search' ? <><circle cx="8.5" cy="8.5" r="5.5" /><path d="m13 13 4 4" /></>
+      : <path d={kind === 'prev' ? 'm5 12 5-5 5 5' : kind === 'next' ? 'm5 8 5 5 5-5' : 'm5 5 10 10 M15 5 5 15'} />}
+  </svg>
+)
+
 interface SearchOptionProps {
   checked: boolean
   label: string
@@ -66,7 +74,7 @@ const TerminalSearchPanel: React.FC<TerminalSearchPanelProps> = (props) => {
       aria-label={t('terminal.search.placeholder')}
       style={props.position ? { left: props.position.x, top: props.position.y } : { right: 12, top: 8 }}
     >
-      {/* 上轴兼作拖动把手，下轴压住纸尾；木材跟随全局画轴材质。 */}
+      {/* 上轴兼作拖动把手，下轴压住纸尾；材质跟随全局画轴。 */}
       <div
         className={`terminal-search-handle ${props.isDragging ? 'is-dragging' : ''}`}
         onMouseDown={props.onDragStart}
@@ -80,7 +88,7 @@ const TerminalSearchPanel: React.FC<TerminalSearchPanelProps> = (props) => {
       <div className="terminal-search-sheet">
         <div className="terminal-search-frame">
           <div className="terminal-search-query">
-            <span className="terminal-search-symbol" aria-hidden="true">⌕</span>
+            <span className="terminal-search-symbol"><SearchIcon kind="search" /></span>
             <textarea
               ref={props.inputRef}
               value={searchText}
@@ -93,9 +101,9 @@ const TerminalSearchPanel: React.FC<TerminalSearchPanelProps> = (props) => {
               autoFocus
               rows={1}
             />
-            <button type="button" onClick={() => props.onSearch('prev')} title={t('terminal.search.previous')} aria-label={t('terminal.search.previous')}>↑</button>
-            <button type="button" onClick={() => props.onSearch('next')} title={t('terminal.search.next')} aria-label={t('terminal.search.next')}>↓</button>
-            <button type="button" className="terminal-search-close" onClick={props.onClose} title={t('terminal.search.close')} aria-label={t('terminal.search.close')}>✕</button>
+            <button type="button" onClick={() => props.onSearch('prev')} title={t('terminal.search.previous')} aria-label={t('terminal.search.previous')}><SearchIcon kind="prev" /></button>
+            <button type="button" onClick={() => props.onSearch('next')} title={t('terminal.search.next')} aria-label={t('terminal.search.next')}><SearchIcon kind="next" /></button>
+            <button type="button" className="terminal-search-close" onClick={props.onClose} title={t('terminal.search.close')} aria-label={t('terminal.search.close')}><SearchIcon kind="close" /></button>
           </div>
 
           <div className="terminal-search-options">

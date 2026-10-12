@@ -1,3 +1,4 @@
+import DialogClose from '@/components/Layout/DialogClose'
 import ScrollFold from './ScrollFold'
 import { GroupListActions } from './GroupList'
 import { PanelHeader, PanelHeaderAction } from './PanelHeader'
@@ -803,14 +804,14 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
       {/* ===== 内容壳 ===== 头行以下整列离缘 6(mx-1.5) —— 与会话栏器物两端同线
           (栏内器物一律离缘,墙纸不再通铺到面板两缘);段内既有垫距保留;壳不
           定位,fixed 弹窗与绝对定位浮层不受影响 */}
-      <div className="mx-1.5 flex-1 min-h-0 flex flex-col min-w-0">
+      <div className="mx-1.5 pt-2 flex-1 min-h-0 flex flex-col min-w-0">
 
-      {/* 未就绪内容笼：依赖状态行 + 安装提示卡 —— 纵向垫距保留（pt/pb-3），
+      {/* 未就绪内容笼：依赖状态行 + 安装提示卡 —— 顶距统一由内容壳提供，
           侧距归内容壳（旧 px-3 已撤，不叠两层），头条满幅贴顶
           （与 PluginPanel 同构）。新增动作已上收头条右上角 chip，头顶不再有
           新增条分割线，恢复整段顶距。就绪态不走这层（见下方卡片区域） */}
       {!listReady && (
-        <div className="flex-1 min-h-0 flex flex-col pt-3 pb-3 space-y-2">
+        <div className="flex-1 min-h-0 flex flex-col pb-3 space-y-2">
           <div className="space-y-1">
             {deps.map((dep) => {
               const installed = status ? Boolean(status[dep]) : null
@@ -974,8 +975,9 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
 
       {/* 工作区新增/编辑对话框 —— 机柜"插槽规格表"同壳（参照 Agent 对话框） */}
       {showDialog && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm w-[448px] max-h-[88vh] overflow-y-auto rack-scroll shadow-xl">
+        <div className="ly-dialog-backdrop fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="ly-dialog-surface bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm w-[448px] max-h-[88vh] overflow-y-auto rack-scroll shadow-xl">
+            <DialogClose onClose={() => setShowDialog(false)} />
             <div className="flex items-center h-10 px-4 border-b border-[var(--rule)] gap-2.5">
               <span
                 className="inline-block w-2 h-2 rounded-full flex-shrink-0"

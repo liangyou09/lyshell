@@ -1,0 +1,142 @@
+/* 册页式弹窗：素净画心、边缘淡纸纹、细裱边与书体标题。 */
+.ly-dialog-backdrop {
+  z-index: 80;
+  padding: 24px;
+  background: #101815a8;
+}
+.ly-dialog-backdrop:has(webview) { z-index: 90; }
+.ly-dialog-surface {
+  --dialog-paper: var(--scroll-art-paper-color);
+  --dialog-ink: var(--scroll-art-ink);
+  --dialog-muted: color-mix(in srgb, var(--dialog-ink) 76%, var(--dialog-paper));
+  --dialog-rule: color-mix(in srgb, var(--dialog-ink) 22%, var(--dialog-paper));
+  --dialog-field: color-mix(in srgb, var(--dialog-paper) 98%, var(--dialog-ink));
+  --dialog-selected: color-mix(in srgb, #658f7a 18%, var(--dialog-paper));
+  --dialog-jade: #3f6b55;
+  --dialog-jade-hover: #315642;
+  --dialog-link: #37624d;
+  --dialog-error: #a33229;
+  --dialog-warning: #795522;
+  --dialog-success: #37624d;
+  --bg-rack: var(--dialog-paper);
+  --bg-base: var(--dialog-field);
+  --bg-slot: var(--dialog-field);
+  --bg-strip: var(--dialog-field);
+  --rule: var(--dialog-rule);
+  --rule-soft: color-mix(in srgb, var(--dialog-ink) 12%, var(--dialog-paper));
+  --border-base: var(--dialog-rule);
+  --text-base: var(--dialog-ink);
+  --text-dim: var(--dialog-muted);
+  --text-rack: var(--dialog-ink);
+  --text-rack-data: var(--dialog-muted);
+  --text-rack-mute: var(--dialog-muted);
+  --text-rack-dim: var(--dialog-muted);
+  --text-rack-faint: var(--dialog-muted);
+  --amber: var(--dialog-link);
+  --error-rack: var(--dialog-error);
+  --cinnabar: var(--dialog-error);
+  --live: var(--dialog-success);
+  --proto-ssh: var(--dialog-link);
+  --proto-tel: var(--dialog-warning);
+  --proto-ser: var(--dialog-error);
+  --proto-loc: var(--dialog-success);
+  position: relative;
+  isolation: isolate;
+  max-width: 100%;
+  min-width: 0;
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  border: 1px solid var(--scroll-art-silk);
+  border-radius: 2px;
+  padding: 8px;
+  color: var(--dialog-ink);
+  background: var(--dialog-paper);
+  box-shadow: 0 18px 48px #0005, inset 0 0 0 4px color-mix(in srgb, var(--scroll-art-silk) 18%, var(--dialog-paper));
+  scrollbar-color: var(--dialog-muted) var(--dialog-paper);
+  font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+}
+.ly-dialog-surface.p-4 { padding: 20px 24px; }
+[data-theme-mode="dark"] .ly-dialog-surface {
+  --dialog-link: #b1d0ba;
+  --dialog-error: #f1a29a;
+  --dialog-warning: #e1c28c;
+  --dialog-success: #b1d0ba;
+  --dialog-jade: #3f6b55;
+}
+.ly-dialog-surface::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  opacity: .22;
+  background-image: var(--scroll-art-texture-image);
+  background-size: 360px 360px;
+  /* 纹理只露在边缘，表单中心保留素纸；两层蒙版合出四周纸边。 */
+  mask-image: linear-gradient(to right, #000, transparent 28px, transparent calc(100% - 28px), #000),
+    linear-gradient(to bottom, #000, transparent 28px, transparent calc(100% - 28px), #000);
+}
+.ly-dialog-surface::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: color-mix(in srgb, var(--scroll-art-silk) 65%, transparent);
+  pointer-events: none;
+}
+.ly-dialog-close {
+  position: absolute;
+  top: 14px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--dialog-muted);
+  cursor: pointer;
+  z-index: 2;
+}
+.ly-dialog-close:hover { color: var(--dialog-ink); background: var(--dialog-selected); }
+.ly-dialog-surface:has(> .ly-dialog-close) > div:first-of-type { padding-right: 44px; }
+.ly-dialog-surface > div:first-of-type {
+  font-family: 'KaiTi', 'STKaiti', '楷体', Cambria, serif;
+  color: var(--dialog-ink);
+}
+.ly-dialog-surface > div:first-of-type > span:first-child { font-size: 17px; }
+.ly-dialog-surface > div:first-of-type:not(.text-sm) { min-height: 48px; }
+.ly-dialog-surface :is(input, textarea, select) {
+  min-width: 0;
+  accent-color: var(--dialog-jade);
+  caret-color: var(--dialog-ink);
+  color-scheme: light;
+}
+[data-theme-mode="dark"] .ly-dialog-surface :is(input, textarea, select) { color-scheme: dark; }
+.ly-dialog-surface :is(input, textarea)::placeholder { color: var(--dialog-muted); opacity: 1; }
+.ly-dialog-surface :is(button, input, textarea, select):focus-visible {
+  outline: 2px solid var(--dialog-link);
+  outline-offset: 2px;
+}
+.ly-dialog-surface :is(input, textarea)[aria-invalid="true"] { outline-color: var(--dialog-error); }
+.ly-dialog-surface button:disabled { cursor: not-allowed; }
+.ly-dialog-surface ::selection { color: var(--dialog-ink); background: var(--dialog-selected); }
+.ly-dialog-surface .lyshell-session-label { filter: none; }
+.ly-dialog-surface .ly-dialog-header { background: color-mix(in srgb, var(--dialog-paper) 65%, transparent); }
+.ly-dialog-surface .ly-dialog-choice {
+  background: var(--dialog-field);
+  border: 1px solid var(--dialog-rule);
+  box-shadow: none;
+}
+.ly-dialog-surface .ly-dialog-choice[aria-pressed="true"] {
+  background: var(--dialog-selected);
+  border-color: var(--dialog-link);
+}
+.ly-dialog-surface .ly-dialog-choice:hover { border-color: var(--dialog-link); }
+@media (max-width: 520px) {
+  .ly-dialog-backdrop { padding: 12px; }
+  .ly-dialog-surface { max-height: calc(100dvh - 24px); }
+}

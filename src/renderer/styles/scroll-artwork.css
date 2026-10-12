@@ -125,40 +125,79 @@
 .scroll-art-single .scroll-count { position: absolute; right: 20px; top: 3px; font-size: 11px; line-height: 16px; color: var(--scroll-art-ink); }
 /* 查找小窗的纸也必须止于玉轴肩，仍保留原有拖动热区。 */
 [data-scroll-material="jade"] .terminal-search-sheet { margin-inline: 25px; }
-/* 输入框改为整张宣纸：铺满原有输入热区，去除两端轴体与中央接缝。 */
+/* 搜索画心：整幅宣纸与细裱绢，输入热区不变，中央不留接缝。 */
 [data-scroll-material="jade"] .scroll-search {
+  --search-axis-length: 30px;
+  --search-axis-diameter: 6px;
+  --search-accent: var(--axis-wood);
   background-color: var(--scroll-art-paper-color);
   background-image:
-    linear-gradient(var(--scroll-art-input-wash), var(--scroll-art-input-wash)),
+    linear-gradient(var(--scroll-art-texture-wash), var(--scroll-art-texture-wash)),
     var(--scroll-art-texture-image);
   background-size: 100% 100%, 480px 480px;
   background-repeat: no-repeat, repeat;
-  border-radius: 2px;
-  box-shadow: inset 0 0 0 1px var(--scroll-art-rule), 0 1px 2px #49332618;
+  border-radius: 1px;
+  box-shadow: inset 0 2px var(--scroll-art-silk), inset 0 -2px var(--scroll-art-silk),
+    0 2px 3px #49332620;
+  transition: box-shadow 180ms ease;
+}
+[data-scroll-material="jade"] .scroll-search.scroll-search-lg {
+  --search-axis-length: 34px;
+  --search-axis-diameter: 7px;
+}
+[data-scroll-material="jade"] .scroll-search.scroll-search-web {
+  --search-accent: var(--web-group);
 }
 [data-scroll-material="jade"] .scroll-search > :is(.scroll-search-paper, .scroll-search-rod, .scroll-search-tie) { display: none; }
-/* 两端窄玉色压边与金箍：给宣纸一个立体收口，画心保持宽铺。 */
+/* 复用真实玉雕图集：横轴旋转为竖轴，只拉伸轴身，雕刻轴头保持比例。 */
 [data-scroll-material="jade"] .scroll-search::before,
 [data-scroll-material="jade"] .scroll-search::after {
   content: '';
   position: absolute;
-  top: 3px; bottom: 3px;
-  width: 5px;
+  top: 50%;
+  width: var(--search-axis-length);
+  height: var(--search-axis-diameter);
+  box-sizing: border-box;
   z-index: 1;
   pointer-events: none;
-  border-radius: 3px;
-  background-image:
-    linear-gradient(to bottom, transparent 3px, #c1a368 3px, #ebd9a8 4px, #947446 5px, transparent 6px, transparent calc(100% - 6px), #c1a368 calc(100% - 6px), #ebd9a8 calc(100% - 5px), #947446 calc(100% - 4px), transparent calc(100% - 3px)),
-    linear-gradient(to right, #597364, #acbeb0 25%, #e0e8d9 45%, #93aa98 72%, #526b5c);
-  box-shadow: inset 0 1px 1px #fff6, 1px 0 3px #49332635;
+  border-style: solid;
+  border-width: 0 calc(var(--search-axis-diameter) * 185 / 164);
+  border-image-source: url('../assets/scroll/scroll-rollers-jade-v1.png');
+  border-image-slice: 350 185 740 185 fill;
+  border-image-width: 0 calc(var(--search-axis-diameter) * 185 / 164);
+  border-image-repeat: stretch;
+  filter: drop-shadow(1px 0 1px #49332640);
 }
-[data-scroll-material="jade"] .scroll-search::before { left: 1px; }
-[data-scroll-material="jade"] .scroll-search::after { right: 1px; transform: scaleX(-1); }
+[data-scroll-material="jade"] .scroll-search::before { left: 4px; transform: translate(-50%, -50%) rotate(90deg); }
+[data-scroll-material="jade"] .scroll-search::after { right: 4px; transform: translate(50%, -50%) rotate(90deg); }
 [data-theme-mode="dark"] .scroll-search::before,
-[data-theme-mode="dark"] .scroll-search::after { filter: brightness(.82) saturate(.8); }
-[data-scroll-material="jade"] .scroll-search:focus-within { box-shadow: inset 0 0 0 1px var(--amber), 0 1px 2px #49332618; }
-[data-scroll-material="jade"] .scroll-search .scroll-search-input { color: var(--scroll-art-ink); margin-inline: 12px; }
-[data-scroll-material="jade"] .scroll-search .scroll-search-input::placeholder { color: color-mix(in srgb, var(--scroll-art-ink) 70%, var(--scroll-art-paper-color)); }
+[data-theme-mode="dark"] .scroll-search::after { filter: brightness(.8) saturate(.7) drop-shadow(1px 0 1px #0008); }
+[data-scroll-material="jade"] .scroll-search:hover {
+  box-shadow: inset 0 2px color-mix(in srgb, var(--search-accent) 30%, var(--scroll-art-silk)),
+    inset 0 -2px color-mix(in srgb, var(--search-accent) 30%, var(--scroll-art-silk)), 0 2px 3px #49332620;
+}
+[data-scroll-material="jade"] .scroll-search:focus-within {
+  outline: 1px solid var(--search-accent);
+  outline-offset: 2px;
+  box-shadow: inset 0 2px var(--scroll-art-silk), inset 0 -2px var(--scroll-art-silk), 0 2px 3px #49332620;
+}
+[data-scroll-material="jade"] .scroll-search .scroll-search-input {
+  color: var(--scroll-art-ink);
+  margin-inline: 16px;
+  line-height: 22px;
+  caret-color: var(--scroll-art-ink);
+}
+[data-scroll-material="jade"] .scroll-search .scroll-search-input::placeholder {
+  color: color-mix(in srgb, var(--scroll-art-ink) 82%, var(--scroll-art-paper-color));
+  letter-spacing: .04em;
+}
+[data-scroll-material="jade"] .scroll-search .scroll-search-input::selection {
+  color: var(--scroll-art-ink);
+  background: color-mix(in srgb, var(--search-accent) 28%, var(--scroll-art-paper-color));
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-scroll-material="jade"] .scroll-search { transition: none; }
+}
 /* 纯宣纸不带轴体或裱边，可单独用于空白画心与纸质输入区。 */
 .scroll-art-xuan {
   padding: 16px 20px;

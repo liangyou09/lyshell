@@ -1,3 +1,4 @@
+import DialogClose from '@/components/Layout/DialogClose'
 import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import FileTree from './FileTree'
@@ -283,28 +284,29 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
 
       {/* 新建目录对话框 */}
       {mkdirDialogOpen && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/50 z-50">
-          <div className="bg-[#252526] border border-[#3C3C3C] rounded shadow-lg p-4 w-[300px]">
-            <div className="text-sm text-gray-200 mb-3">{t('file.newDirDialogTitle')}</div>
-            <div className="text-xs text-gray-400 mb-2">{mkdirParentPath}</div>
+        <div className="ly-dialog-backdrop fixed inset-0 flex items-center justify-center bg-black/50 z-50">
+          <div className="ly-dialog-surface bg-[var(--dialog-paper)] border border-[var(--dialog-rule)] rounded shadow-lg p-4 w-[300px]">
+            <DialogClose onClose={() => setMkdirDialogOpen(false)} />
+            <div className="text-sm text-[var(--dialog-ink)] mb-3">{t('file.newDirDialogTitle')}</div>
+            <div className="text-xs text-[var(--dialog-muted)] mb-2">{mkdirParentPath}</div>
             <input
               type="text"
               value={newDirName}
               onChange={(e) => setNewDirName(e.target.value)}
               placeholder={t('file.dirNamePlaceholder')}
-              className="w-full bg-[#1E1E1E] border border-[#3C3C3C] rounded px-2 py-1 text-sm text-gray-200 outline-none focus:border-[#0078D4]"
+              className="w-full bg-[var(--dialog-field)] border border-[var(--dialog-rule)] rounded px-2 py-1 text-sm text-[var(--dialog-ink)] outline-none focus:border-[var(--dialog-link)]"
               autoFocus
             />
             <div className="flex justify-end gap-2 mt-3">
               <button
                 onClick={() => setMkdirDialogOpen(false)}
-                className="px-3 py-1 text-sm text-gray-400 hover:text-white transition-colors"
+                className="px-3 py-1 text-sm text-[var(--dialog-muted)] hover:text-[var(--dialog-ink)] transition-colors"
               >
                 {t('file.cancelButton')}
               </button>
               <button
                 onClick={executeMkdir}
-                className="px-3 py-1 text-sm text-white bg-[#0078D4] rounded hover:bg-[#0066B4] transition-colors"
+                className="px-3 py-1 text-sm text-white bg-[var(--dialog-jade)] rounded hover:bg-[var(--dialog-jade-hover)] transition-colors"
               >
                 {t('file.createButton')}
               </button>
@@ -315,9 +317,10 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
 
       {/* 重命名对话框 */}
       {renameDialogOpen && renameFile && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/50 z-50">
-          <div className="bg-[#252526] border border-[#3C3C3C] rounded shadow-lg p-4 w-[300px]">
-            <div className="text-sm text-gray-200 mb-3">
+        <div className="ly-dialog-backdrop fixed inset-0 flex items-center justify-center bg-black/50 z-50">
+          <div className="ly-dialog-surface bg-[var(--dialog-paper)] border border-[var(--dialog-rule)] rounded shadow-lg p-4 w-[300px]">
+            <DialogClose onClose={() => setRenameDialogOpen(false)} />
+            <div className="text-sm text-[var(--dialog-ink)] mb-3">
               {t('file.renameDialogTitle', { type: renameFile.isDir ? t('file.typeDir') : t('file.typeFile') })}
             </div>
             <input
@@ -325,19 +328,19 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
               value={newFileName}
               onChange={(e) => setNewFileName(e.target.value)}
               placeholder={t('file.newNamePlaceholder')}
-              className="w-full bg-[#1E1E1E] border border-[#3C3C3C] rounded px-2 py-1 text-sm text-gray-200 outline-none focus:border-[#0078D4]"
+              className="w-full bg-[var(--dialog-field)] border border-[var(--dialog-rule)] rounded px-2 py-1 text-sm text-[var(--dialog-ink)] outline-none focus:border-[var(--dialog-link)]"
               autoFocus
             />
             <div className="flex justify-end gap-2 mt-3">
               <button
                 onClick={() => setRenameDialogOpen(false)}
-                className="px-3 py-1 text-sm text-gray-400 hover:text-white transition-colors"
+                className="px-3 py-1 text-sm text-[var(--dialog-muted)] hover:text-[var(--dialog-ink)] transition-colors"
               >
                 {t('file.cancelButton')}
               </button>
               <button
                 onClick={executeRename}
-                className="px-3 py-1 text-sm text-white bg-[#0078D4] rounded hover:bg-[#0066B4] transition-colors"
+                className="px-3 py-1 text-sm text-white bg-[var(--dialog-jade)] rounded hover:bg-[var(--dialog-jade-hover)] transition-colors"
               >
                 {t('file.okButton')}
               </button>
