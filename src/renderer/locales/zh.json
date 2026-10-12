@@ -789,7 +789,7 @@
     "unfold": "展开子标题"
   },
   "terminal": {
-    "banner": "LyShell v1.0.6",
+    "banner": "LyShell v{{version}}",
     "buildLabel": "Build: {{date}}",
     "startingLocal": "正在启动本地终端...",
     "connecting": "正在连接 {{host}}:{{port}}...",

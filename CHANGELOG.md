@@ -9,6 +9,82 @@ Published release notes are archived in full in their original language. Click a
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-10-12
+
+LyShell 2.0.1 完善画卷式终端与侧栏体验，新增终端截图和输出事件流，修复搜索覆盖剪贴板、SFTP 上传及版本信息显示问题。以下内容汇总自 2.0.0 以来的更新。
+
+LyShell 2.0.1 refines the scroll-style terminal and sidebar experience, adds terminal screenshots and output event streams, and fixes clipboard, SFTP upload and version-display issues. This release brings together the changes since 2.0.0.
+
+### ✨ 新增 / New Features
+
+- **终端截图**：新增 MCP 工具 `lyshell_terminal_screenshot`，让 AI 客户端查看终端的真实 PNG 画面，适合识别 TUI 布局与颜色。目标终端需在主窗口中可见且无遮挡；工具不会切换页签或截取整个桌面。
+
+  **Terminal screenshots**: The new `lyshell_terminal_screenshot` MCP tool returns a real PNG of the terminal viewport, helping AI clients inspect TUI layouts and colors. The terminal must be visible and unobscured in the main window; the tool does not switch tabs or capture the desktop.
+
+- **终端输出事件流**：新增 HTTP 工具目录与按会话订阅的 SSE 事件流，提供初始输出快照、后续输出、连接状态和心跳。截图与事件流遵循现有读取权限和会话授权，撤销授权后停止交付内容。
+
+  **Terminal output streams**: Added an HTTP tool catalog and per-session SSE subscriptions with an initial output snapshot, subsequent output, connection status and heartbeats. Screenshots and streams follow existing read permissions and session authorization, and stop delivering content when access is revoked.
+
+- **内置更新记录**：点击设置面板的版本号，在文档页签中查看随应用打包的更新记录，无需联网。
+
+  **Built-in release history**: Click the version in settings to open the bundled changelog in a document tab, without an internet connection.
+
+### 🎨 界面与交互 / Interface and Interaction
+
+- **水墨欢迎页**：空终端新增水墨山水与奔马画面，提供本地终端、新建连接和使用手册入口，并改进快捷入口焦点与窄窗口布局。
+
+  **Ink landscape welcome screen**: Empty terminals now show an ink landscape and running horse, with shortcuts to a local terminal, a new connection and the user guide. Shortcut focus and narrow-window layouts have also been improved.
+
+- **画轴与册页**：完善玉雕画轴、宣纸纹理和终端查找样式，更新连接及导入导出弹窗的册页布局，适配明暗主题。
+
+  **Scrolls and book-style dialogs**: Refined jade scroll artwork, paper textures and terminal search styling, and updated connection and import/export dialogs with book-style layouts for light and dark themes.
+
+- **侧栏与快捷命令**：统一侧栏标题及分组操作，更新连接协议印签和快捷命令玉匣，修复窄侧栏操作溢出，并优化窗口控制按钮的交互反馈。
+
+  **Sidebar and quick commands**: Standardized panel headers and group actions, refreshed protocol seals and the quick-command box, fixed action overflow in narrow sidebars, and improved window-control feedback.
+
+- **Windows 图标**：优化应用图标在 Windows 中的显示。
+
+  **Windows icon**: Improved the application icon for Windows.
+
+### 🐛 修复 / Fixes
+
+- **查找与剪贴板**：终端查找生成的选区不再覆盖剪贴板；保留鼠标划选自动复制，并完善拖出终端后松手及鼠标捕获模式下的选择处理。
+
+  **Search and clipboard**: Search-generated selections no longer overwrite the clipboard. Mouse selection still copies automatically, with improved handling when releasing the mouse outside the terminal and selecting in mouse-tracking mode.
+
+- **SFTP 上传**：创建远端目录时先检查已有目录，修复 Windows SFTP 路径等场景下误报权限错误的问题。上传连接遇到暂时性连接或握手故障时最多重试一次，认证错误不会重试。
+
+  **SFTP uploads**: Check for existing remote directories before creating them, fixing false permission errors in cases such as Windows SFTP paths. Upload connections retry once after transient connection or handshake failures; authentication failures are not retried.
+
+- **插件弹窗与资源**：修复焦点位于插件页面时 Esc 无法正常关闭弹窗的问题，并限制插件页面资源读取，避免过大文件导致无界内存分配。
+
+  **Plugin dialogs and resources**: Fixed Escape handling when a plugin page has focus, and bounded plugin resource reads to avoid unbounded memory allocation for oversized files.
+
+- **Windows 本地终端输入**：自动提交普通命令时使用适合 Windows 本地 PTY 的回车，显式控制序列及关闭自动换行的输入保持原样。
+
+  **Windows local terminal input**: Automatically submitted ordinary commands now use a carriage return for Windows local PTYs. Explicit control sequences and input with automatic newlines disabled remain unchanged.
+
+- **版本与构建日期**：修复欢迎语一直显示 `v1.0.6` 的问题。版本自动跟随应用版本，Build 日期固定为构建日期；本次构建显示 `LyShell v2.0.1 Build: 2026-10-12 by Liangyou`。
+
+  **Version and build date**: Fixed the welcome banner being stuck at `v1.0.6`. The version now follows the application version and the Build date is fixed at build time. This build displays `LyShell v2.0.1 Build: 2026-10-12 by Liangyou`.
+
+### 📖 文档 / Documentation
+
+- 更新中英文 README 和当前界面截图，补充插件视图、画卷式查找、统一环境变量及 MCP 截图能力说明；修正配置路径、启动权限与公开仓库链接，并移除过时配图。
+
+  Updated both READMEs and interface screenshots, documented plugin views, scroll-style search, shared environment groups and MCP screenshots, corrected configuration paths, launch permissions and public repository links, and removed obsolete images.
+
+### 📦 Windows 下载 / Windows Downloads
+
+- `LyShell-2.0.1-x64-setup.exe`：Windows x64 安装版，支持 Windows 10 / 11，可选择安装目录并创建快捷方式。
+
+  `LyShell-2.0.1-x64-setup.exe`: Windows x64 installer for Windows 10 / 11, with a selectable installation directory and shortcuts.
+
+- `LyShell-2.0.1-x64-portable.exe`：Windows x64 便携版，支持 Windows 10 / 11，免安装运行。
+
+  `LyShell-2.0.1-x64-portable.exe`: Windows x64 portable executable for Windows 10 / 11; runs without installation.
+
 ## [2.0.0] - 2026-10-08
 
 LyShell 2.0.0 带来可扩展的插件界面、更完整的内嵌网页体验，以及统一的画卷式设置与终端查找界面。本次更新整理了 1.0.9 之后的主要改进，并加强插件、连接和子进程的资源回收。
@@ -418,7 +494,8 @@ A full plugin host with per-plugin capability gates, token-based auth, and local
 - 新增插件系统（Python / Node.js 两种运行时，支持开发目录 / ZIP / URL 安装）。*Plugin system with Python and Node.js runtimes, installable from a dev directory, ZIP, or URL.*
 - 提供 MCP HTTP API，供外部工具与 AI Agent 编排终端会话。*MCP HTTP API for external tools and AI agents to orchestrate terminal sessions.*
 
-[Unreleased]: https://github.com/liangyou09/lyshell/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/liangyou09/lyshell/compare/v2.0.1...HEAD
+[2.0.1]: https://github.com/liangyou09/lyshell/releases/tag/v2.0.1
 [2.0.0]: https://github.com/liangyou09/lyshell/releases/tag/v2.0.0
 [1.0.9]: https://github.com/liangyou09/lyshell/releases/tag/1.0.9
 [1.0.8]: https://github.com/liangyou09/lyshell/releases/tag/1.0.8

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/LyShell-v2.0.0-0078D4?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/LyShell-v2.0.1-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
@@ -12,7 +12,7 @@
 
 **简体中文** | [English](README.md)
 
-[v2.0.0 中英文更新日志 / Changelog](CHANGELOG.md)
+[v2.0.1 中英文更新日志 / Changelog](CHANGELOG.md)
 
 **2.0 新增与改进**：插件视图与交互弹窗、网页页签切换及移动分屏时保留页面状态、画卷式设置与终端查找界面，以及四种画轴材质。
 

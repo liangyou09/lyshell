@@ -792,7 +792,7 @@
     "unfold": "Expand subheadings"
   },
   "terminal": {
-    "banner": "LyShell v1.0.6",
+    "banner": "LyShell v{{version}}",
     "buildLabel": "Build: {{date}}",
     "startingLocal": "Starting local terminal...",
     "connecting": "Connecting to {{host}}:{{port}}...",

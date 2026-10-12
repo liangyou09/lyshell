@@ -176,3 +176,6 @@ fonts-src/
 
 # Temporary scratch files
 tmp/
+
+# 本地 Agent 配置与技能（不随源码提交）
+/.agents/

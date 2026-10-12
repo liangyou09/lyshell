@@ -78,7 +78,8 @@ export default defineConfig({
     // 编译期注入版本号 —— 只带一个字符串常量进 bundle,
     // 避免 import package.json 把全部依赖/scripts 打进渲染产物
     define: {
-      __APP_VERSION__: JSON.stringify(pkg.version)
+      __APP_VERSION__: JSON.stringify(pkg.version),
+      __BUILD_DATE__: JSON.stringify(new Date().toISOString().slice(0, 10))
     },
     plugins: [react()],
     resolve: {

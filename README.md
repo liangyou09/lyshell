@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/LyShell-v2.0.0-0078D4?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/LyShell-v2.0.1-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
@@ -12,7 +12,7 @@
 
 **English** | [简体中文](README.zh.md)
 
-[v2.0.0 Changelog / 中英文更新日志](CHANGELOG.md)
+[v2.0.1 Changelog / 中英文更新日志](CHANGELOG.md)
 
 **New in 2.0:** plugin views and interactive dialogs, persistent web tabs across tab switches and split-pane moves, scroll-style settings and terminal search, and four scroll materials.
 
