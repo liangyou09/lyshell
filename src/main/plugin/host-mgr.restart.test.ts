@@ -3,12 +3,12 @@ import type { ChildProcess } from 'child_process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PluginSpec } from '@shared/plugin-types'
 
-const mocks = vi.hoisted(() => ({ terminate: vi.fn(), bindToken: vi.fn(), port: null as number | null, enabled: ['plugin'] }))
+const mocks = vi.hoisted(() => ({ terminate: vi.fn(), bindToken: vi.fn(), revokeToken: vi.fn(), port: null as number | null, enabled: ['plugin'] }))
 vi.mock('./process-cleanup', () => ({ terminatePluginProcess: mocks.terminate }))
 vi.mock('electron', () => ({ app: {} }))
 vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 vi.mock('@main/storage/plugin-repository', () => ({ pluginRepository: { getEnabled: () => mocks.enabled.map(id => ({ id })) }, getPluginsDir: vi.fn() }))
-vi.mock('@main/mcp/auth', () => ({ revokePluginToken: vi.fn(), bindPluginToken: mocks.bindToken }))
+vi.mock('@main/mcp/auth', () => ({ revokePluginToken: mocks.revokeToken, bindPluginToken: mocks.bindToken }))
 vi.mock('@main/mcp/http-server', () => ({ getMcpHttpPort: () => mocks.port }))
 vi.mock('@main/python/engine', () => ({ pythonEngine: {} }))
 vi.mock('@main/plugin/view-registry', () => ({ getPluginViewRegistry: () => ({ clearRuntimeForPlugins: vi.fn() }) }))
@@ -24,10 +24,54 @@ function pendingCleanup() {
   return { manager, start, finish }
 }
 
-beforeEach(() => { mocks.port = null; mocks.enabled = ['plugin']; mocks.bindToken.mockReset() })
+beforeEach(() => { mocks.port = null; mocks.enabled = ['plugin']; mocks.bindToken.mockReset(); mocks.revokeToken.mockReset() })
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); mocks.terminate.mockReset() })
 
 describe('插件宿主重启顺序', () => {
+  const gracefulFixture = () => {
+    vi.useFakeTimers()
+    const { manager, start, finish } = pendingCleanup()
+    const internal = manager as unknown as { child: ChildProcess; nodeHostPluginIds: string[]; activePluginIds: string[] }
+    Object.assign(internal.child, { connected: true, send: vi.fn() })
+    internal.nodeHostPluginIds = ['aipet']
+    internal.activePluginIds = ['aipet']
+    return { manager, start, finish, child: internal.child }
+  }
+  it('先等待 async deactivate，6.5s 内不撤凭据/不树杀，真实回执后才继续重启', async () => {
+    const { manager, finish, child } = gracefulFixture()
+    const restart = manager.restart()
+    const message = vi.mocked(child.send).mock.calls[0][0] as { requestId: string }
+    child.emit('message', { type: 'deactivated', requestId: 'wrong' })
+    await vi.advanceTimersByTimeAsync(6500)
+    expect(mocks.revokeToken).not.toHaveBeenCalled()
+    expect(mocks.terminate).not.toHaveBeenCalled()
+    child.emit('message', { type: 'deactivated', requestId: message.requestId })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mocks.terminate).toHaveBeenCalledOnce()
+    expect(mocks.revokeToken).toHaveBeenCalledWith('aipet')
+    finish()
+    await restart
+  })
+  it('7.5s 无回执则有界回收，退出等待不挂死', async () => {
+    const { manager, finish } = gracefulFixture()
+    const restart = manager.restart()
+    await vi.advanceTimersByTimeAsync(7499)
+    expect(mocks.terminate).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(mocks.terminate).toHaveBeenCalledOnce()
+    finish()
+    await restart
+  })
+  it('优雅停机时新 stop 使旧 restart 失效，不能复活宿主', async () => {
+    const { manager, start, finish, child } = gracefulFixture()
+    const restart = manager.restart()
+    const message = vi.mocked(child.send).mock.calls[0][0] as { requestId: string }
+    manager.stop()
+    child.emit('message', { type: 'deactivated', requestId: message.requestId })
+    finish()
+    await restart
+    expect(start).not.toHaveBeenCalled()
+  })
   it('取消回调返回共享树清理任务，执行方与宿主都等待实际完成', async () => {
     const { manager, finish } = pendingCleanup()
     const internal = manager as unknown as { child: ChildProcess; terminateProcess(child: ChildProcess): Promise<void> }

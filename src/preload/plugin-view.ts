@@ -125,4 +125,4 @@ const api = {
 
 export type LyshellViewApi = typeof api
 
-contextBridge.exposeInMainWorld('lyshellView', api)
+if (process.isMainFrame) contextBridge.exposeInMainWorld('lyshellView', api)

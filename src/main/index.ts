@@ -34,10 +34,11 @@ import {
 import { PLUGIN_VIEW_PARTITION_PREFIX } from './plugin/view-protocol-core'
 import { initPluginViewRegistry, getPluginViewRegistry } from './plugin/view-registry'
 import { refreshAllPluginUiTokens } from './plugin/view-tokens'
-import { handlePluginGuestDestroyed, handlePluginViewWindowClosed, pluginDialogManager } from './plugin/view-bridge'
+import { handlePluginGuestDestroyed, handlePluginViewWindowClosed, pluginDialogManager, pluginActionDispatcher } from './plugin/view-bridge'
+import { setPluginHostUiOpener } from './plugin/host-ui'
 import { setupPluginDialogInput } from './plugin/view-dialog-input'
 import { pluginGuestRegistry } from './plugin/view-guests'
-import { validateManifest } from '@shared/plugin-types'
+import { validateManifest, manifestPluginViews, isPluginFrameNavigationAllowed } from '@shared/plugin-types'
 import { dshWebManager } from './dsh/web'
 import { KILL_STEP_TIMEOUT_FLOOR_MS, sweepOrphanDshWeb } from './dsh/proc'
 import { IPC_CHANNELS, WEBBAR_DEEPLINK_SCHEMES, WEBBAR_PARTITION } from '@shared/constants'
@@ -355,7 +356,7 @@ function setupPluginGuest(guestContents: Electron.WebContents, pending: PendingP
     return { action: 'deny' }
   })
   // 导航闸：主框架只允许本插件 lyshell-plugin:// 资源（插件页面内部跳转）；
-  // 子框架一律取消；外站/他插件/外部协议全部拦下
+  // 子框架仅允许该视图声明的 loopback frameOrigins；外站/他插件/外部协议拦下。
   const isSamePluginUrl = (raw: string): boolean => {
     try {
       const u = new URL(raw)
@@ -373,14 +374,16 @@ function setupPluginGuest(guestContents: Electron.WebContents, pending: PendingP
       denyNav('navigation', url)
     }
   })
-  guestContents.on('will-redirect', (event, url) => {
-    if (!isSamePluginUrl(url)) {
+  const isAllowedFrameUrl = (url: string): boolean => isPluginFrameNavigationAllowed(url,
+    getPluginViewRegistry().getView(pending.pluginId, pending.viewId)?.frameOrigins)
+  guestContents.on('will-redirect', (event, url, _isInPlace, isMainFrame) => {
+    if (isMainFrame ? !isSamePluginUrl(url) : !isAllowedFrameUrl(url)) {
       event.preventDefault()
       denyNav('redirect', url)
     }
   })
   guestContents.on('will-frame-navigate', (e) => {
-    if (!e.isMainFrame || !isSamePluginUrl(e.url)) {
+    if (e.isMainFrame ? !isSamePluginUrl(e.url) : !isAllowedFrameUrl(e.url)) {
       e.preventDefault()
       denyNav('frame navigation', e.url)
     }
@@ -439,6 +442,14 @@ function createMainWindow(): void {
   explorerLaunchQueue.consumerId = mainWindow.webContents.id
   setMainWindow(mainWindow)
   setMainWindowForUpload(mainWindow)
+  setPluginHostUiOpener(async (request, viewId) => {
+    const win = mainWindow
+    if (!win || win.isDestroyed()) return { ok: false, error: 'main window is unavailable' }
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+    return pluginActionDispatcher.openHostUi(win.id, request.pluginId, viewId, request.target)
+  })
 
   // 页面缩放钉死 100%:Chromium 默认 Ctrl+滚轮/Ctrl+加减 会缩放页面且按 origin 持久化,
   // 渲染层已有 window capture 兜底(见 MainWindow),这里双保险 ——
@@ -491,7 +502,10 @@ function createMainWindow(): void {
     // macOS 上关窗不退出应用：webview 已随窗口销毁，但 dsh web 子进程仍在，这里主动回收。
     // will-quit 里的 close() 是兜底；此处保证「关窗即停」（幂等，重复调用无害）。
     // 窗口关闭不是 app 退出，不需要等树杀完成；失败仅告警。
-    dshWebManager.close().catch((err) => log.warn('dsh web close on window closed failed:', err))
+    // Windows/Linux 随后 will-quit 会先等待插件 release，再关闭共享后台。
+    if (process.platform === 'darwin') {
+      dshWebManager.close().catch((err) => log.warn('dsh web close on window closed failed:', err))
+    }
   })
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
@@ -579,6 +593,7 @@ function createMainWindow(): void {
       webPreferences.preload = join(__dirname, '../preload/pluginView.js')
     }
     webPreferences.nodeIntegration = false
+    webPreferences.nodeIntegrationInSubFrames = false
     webPreferences.contextIsolation = true
     webPreferences.sandbox = true
     webPreferences.webSecurity = true
@@ -885,7 +900,7 @@ app.whenReady().then(async () => {
           if (!fs.existsSync(manifestPath)) return []
           const result = validateManifest(JSON.parse(fs.readFileSync(manifestPath, 'utf-8')))
           if (!result.ok || !result.manifest) return []
-          return result.manifest.contributes?.views ?? []
+          return manifestPluginViews(result.manifest)
         } catch {
           return []
         }
@@ -1063,50 +1078,56 @@ app.whenReady().then(async () => {
 })
 
 // 应用退出前清理资源 —— 窗口级快捷键随 webContents 一起销毁,不用单独 unregister
+let quitting = false
 app.on('will-quit', (event) => {
   // dsh web 子进程必须等树杀真正完成再退出。此前 dshWebManager.close() 里 fire-and-forget
   // 的 spawn('taskkill') 会被 app 退出截断：实测只杀掉 shell 包裹层（cmd.exe）、漏掉真正的
   // node 孙进程，孤儿占着 DSH 会话写锁（不过期），下次开 dsh 报「当前会话已被占用」。
   // 故先拦住默认退出，同步清理照旧执行，最后等 DSH 与插件进程清理落定再 app.exit。
-  // app.exit() 不再触发 will-quit，无重入；重复 quit 会让同步清理跑第二遍，各调用均幂等。
+  // app.exit() 不再触发 will-quit；quitting 守卫防重复 quit 并发执行清理。
   event.preventDefault()
+  if (quitting) return
+  quitting = true
+  // PetLink 的 async deactivate 需要仍有效的 host token 与 HTTP/共享后台释放任务。
+  void pluginHostManager.prepareShutdown().catch(error => log.warn('Plugin graceful shutdown failed:', error)).then(() => {
 
-  cleanupAllWorkers()  // 清理所有下载 Worker
-  cleanupAllUploadWorkers()  // 清理所有上传 Worker
-  if (stopMcpHttpServerImpl) {
-    stopMcpHttpServerImpl()  // 停止 MCP HTTP 服务器
-  }
-  pluginHostManager.stop()  // 停止 plugin host 子进程 + 撤销 plugin token
-  // 弹窗全量清理（guest 随窗口销毁，这里只是把 pending/attached 表清空并给发起方补取消事件）
-  pluginDialogManager.clearAll()
-  cleanupDownloadsDir(getPluginsDir())  // 清理 URL 安装临时下载(.downloads/),防累积
-  mcpAuditRepository.flushSync()  // 同步落盘 MCP 审计日志，防丢最近事件
-  reachabilityProber.stop()  // 停止可达性探测定时器
-  // 断开所有本地终端 PTY 进程
-  for (const session of sessionManager.getAllSessions()) {
-    if (session.connector && session.status === 'connected') {
-      session.connector.disconnect().catch(() => {})
+    cleanupAllWorkers()  // 清理所有下载 Worker
+    cleanupAllUploadWorkers()  // 清理所有上传 Worker
+    if (stopMcpHttpServerImpl) {
+      stopMcpHttpServerImpl()  // 停止 MCP HTTP 服务器
     }
-  }
+    pluginHostManager.stop()  // 停止 plugin host 子进程 + 撤销 plugin token
+    // 弹窗全量清理（guest 随窗口销毁，这里只是把 pending/attached 表清空并给发起方补取消事件）
+    pluginDialogManager.clearAll()
+    cleanupDownloadsDir(getPluginsDir())  // 清理 URL 安装临时下载(.downloads/),防累积
+    mcpAuditRepository.flushSync()  // 同步落盘 MCP 审计日志，防丢最近事件
+    reachabilityProber.stop()  // 停止可达性探测定时器
+    // 断开所有本地终端 PTY 进程
+    for (const session of sessionManager.getAllSessions()) {
+      if (session.connector && session.status === 'connected') {
+        session.connector.disconnect().catch(() => {})
+      }
+    }
 
-  // 关闭 dsh web 子进程（webview 随窗口一起销毁，这里只回收进程）—— 完成后才真正退出。
-  // 走 closeForQuit（抢跑、不排队）：关窗时可能已经起了一轮树杀（交互路径的预算是 15s，
-  // 仍远长于退出预算，且可能正卡在 8s 的进程表枚举里），排队等它落定等于没设 deadline；
-  // 抢跑的这一轮优先终止 Windows Job；若 Job 绑定失败，则在预算内核对身份后树杀。
-  // 身份无法确认时保留留档，由下次启动恢复，不能凭裸 PID 强杀。
-  // 等待余量必须**严格大于** proc.ts 的单步下限：killPidTree 最多比 deadline 多花一步
-  // （把已经发出的 taskkill 跑完），之后还要把未确认的 pid 写进留档 —— 余量不够，
-  // app.exit() 就会赶在「最后一步 + 写留档」之前触发，孤儿连兜底记录都没有。
-  // （等待器也接住清理异常；app.exit 不再触发 will-quit，无重入。）
-  const QUIT_DSH_CLOSE_BUDGET_MS = 2500
-  const QUIT_DSH_EXIT_GRACE_MS = KILL_STEP_TIMEOUT_FLOOR_MS + 500
-  // 插件 Windows taskkill 有 5s 预算，POSIX 整组强杀有 2.5s grace；均需等待完成。
-  waitForQuitCleanup([
-    dshWebManager.closeForQuit(Date.now() + QUIT_DSH_CLOSE_BUDGET_MS),
-    pluginHostManager.waitForProcessCleanup()
-  ], Math.max(6000, QUIT_DSH_CLOSE_BUDGET_MS + QUIT_DSH_EXIT_GRACE_MS),
-    err => log.warn('Application cleanup on quit failed:', err)
-  ).then(() => app.exit(0))
+    // 关闭 dsh web 子进程（webview 随窗口一起销毁，这里只回收进程）—— 完成后才真正退出。
+    // 走 closeForQuit（抢跑、不排队）：关窗时可能已经起了一轮树杀（交互路径的预算是 15s，
+    // 仍远长于退出预算，且可能正卡在 8s 的进程表枚举里），排队等它落定等于没设 deadline；
+    // 抢跑的这一轮优先终止 Windows Job；若 Job 绑定失败，则在预算内核对身份后树杀。
+    // 身份无法确认时保留留档，由下次启动恢复，不能凭裸 PID 强杀。
+    // 等待余量必须**严格大于** proc.ts 的单步下限：killPidTree 最多比 deadline 多花一步
+    // （把已经发出的 taskkill 跑完），之后还要把未确认的 pid 写进留档 —— 余量不够，
+    // app.exit() 就会赶在「最后一步 + 写留档」之前触发，孤儿连兜底记录都没有。
+    // （等待器也接住清理异常；app.exit 不再触发 will-quit，无重入。）
+    const QUIT_DSH_CLOSE_BUDGET_MS = 2500
+    const QUIT_DSH_EXIT_GRACE_MS = KILL_STEP_TIMEOUT_FLOOR_MS + 500
+    // 插件 Windows taskkill 有 5s 预算，POSIX 整组强杀有 2.5s grace；均需等待完成。
+    waitForQuitCleanup([
+      dshWebManager.closeForQuit(Date.now() + QUIT_DSH_CLOSE_BUDGET_MS),
+      pluginHostManager.waitForProcessCleanup()
+    ], Math.max(6000, QUIT_DSH_CLOSE_BUDGET_MS + QUIT_DSH_EXIT_GRACE_MS),
+      err => log.warn('Application cleanup on quit failed:', err)
+    ).then(() => app.exit(0))
+  })
 })
 
 // 所有窗口关闭时退出（Windows/Linux）

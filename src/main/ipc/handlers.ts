@@ -2905,7 +2905,7 @@ export function registerIPCHandlers(): void {
     } catch (e) {
       log.warn(`[plugin] Failed to enrich entry ${entry.id}:`, e)
     }
-    // 视图从 view-registry 填充（manifest + 运行时合并，plugin:list 与通知重拉同源）。
+    // 视图从 view-registry 填充（manifest 普通/设置视图 + 运行时合并，plugin:list 与通知重拉同源）。
     // 禁用插件返回空数组，避免误入轨道；管理卡展示禁用前声明时另用展示字段。
     let views: PluginViewMeta[] = []
     try {
@@ -3240,6 +3240,10 @@ export function registerIPCHandlers(): void {
   ipcMain.handle('plugin:disable', async (_event, pluginId: string) => {
     try {
       const id = assertString(pluginId, 'pluginId', { maxLength: 128 })
+      const entry = pluginRepository.get(id)
+      if (!entry) return { success: false, error: '插件不存在' }
+      await pluginHostManager.deactivatePlugin(id)
+      if (pluginRepository.get(id) !== entry) return { success: false, error: '插件在停机期间已变更，请重试' }
       const webOrigins = uniquePluginWebOrigins(getPluginViewRegistry().listViews(), id)
       const ok = pluginRepository.setEnabled(id, false)
       if (ok) {
@@ -3289,6 +3293,8 @@ export function registerIPCHandlers(): void {
       const id = assertString(pluginId, 'pluginId', { maxLength: 128 })
       const entry = pluginRepository.get(id)
       if (!entry) return { success: false, error: '插件不存在' }
+      await pluginHostManager.deactivatePlugin(id)
+      if (pluginRepository.get(id) !== entry) return { success: false, error: '插件在停机期间已变更，请重试' }
       const webOrigins = uniquePluginWebOrigins(getPluginViewRegistry().listViews(), id)
       pluginRepository.setEnabled(id, false)
       // 三步撤销第 2 步扩展：host + UI token 一起撤（视图凭据不得比注册表活得久）。

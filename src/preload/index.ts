@@ -444,7 +444,7 @@ const electronAPI = {
   // （失败 data:null，消费端回退内置图标）。返回信封 { success, data, error? }。
   getPluginViewIcon: (pluginId: string, viewId: string): Promise<{ success: boolean; data: string | null; error?: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.PLUGIN_VIEW_ICON, { pluginId, viewId }),
-  // UI 动作请求（main → renderer 单向推送）：guest 动作经 main 授权后转交本窗口执行
+  // UI 动作请求（main → renderer）：guest 动作及已鉴权 host 的 openHostUi 共用回执链。
   onPluginViewActionRequest: (
     callback: (request: { requestId: string; action: string; pluginId: string; viewId: string; params: Record<string, unknown> }) => void
   ) => {

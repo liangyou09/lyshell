@@ -35,6 +35,14 @@ const throwStatus = (fn: () => unknown): number => {
 }
 
 describe('buildViewCsp', () => {
+  it('iframe 来源独立声明，仅放宽 frame-src，默认禁止', () => {
+    expect(buildViewCsp(['http://127.0.0.1:31517'])).toContain("frame-src 'none'")
+    const csp = buildViewCsp(undefined, ['http://127.0.0.1:31517'])
+    expect(csp).toContain('frame-src http://127.0.0.1:31517;')
+    expect(csp).toContain("connect-src 'self';")
+    expect(csp).toContain("script-src 'self';")
+    expect(csp).toContain("object-src 'none';")
+  })
   it('零来源时与默认 PLUGIN_VIEW_CSP 完全一致（现网基线不漂移）', () => {
     expect(buildViewCsp()).toBe(PLUGIN_VIEW_CSP)
     expect(buildViewCsp([])).toBe(PLUGIN_VIEW_CSP)

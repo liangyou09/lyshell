@@ -38,6 +38,8 @@ export interface PluginContributes {
    * 页面引用的 CSS/JS/图片/字体也放在该目录；icon 可在插件根目录内。
    */
   views?: PluginViewDefinition[]
+  /** 嵌入宿主设置的本地安全视图，与 views 共用 ID、入口与容量限制。 */
+  settings?: PluginViewDefinition[]
 }
 
 // ====================== 插件界面视图（机柜轨视图贡献点） ======================
@@ -82,12 +84,23 @@ export interface PluginViewDefinition {
    * WebSocket 需显式声明 ws://（或 wss://）：CSP3 无 http→ws 方向，http:// 不覆盖 ws://。
    */
   connectOrigins?: string[]
+  /** 允许嵌入的本机 HTTP(S) 页面来源；默认禁止 iframe，不赋予子 frame 插件桥。 */
+  frameOrigins?: string[]
 }
 
 /** 视图运行时元数据：plugin:list 返回的展开形态（禁用插件 views 为空数组） */
 export interface PluginViewMeta extends PluginViewDefinition {
   pluginId: string
   source: 'manifest' | 'runtime'
+  surface?: 'settings'
+}
+
+/** 注册表统一读取两类贡献，设置页仍走原有资源/身份安全闸。 */
+export function manifestPluginViews(manifest: LyShellPluginManifest): Array<PluginViewDefinition & { surface?: 'settings' }> {
+  return [
+    ...(manifest.contributes?.views ?? []),
+    ...(manifest.contributes?.settings ?? []).map(view => ({ ...view, surface: 'settings' as const }))
+  ]
 }
 
 /**
@@ -283,7 +296,33 @@ export function validateViewDefinition(raw: unknown): { ok: boolean; errors: str
   const view: PluginViewDefinition = { id: v.id as string, title: v.title as string, entry }
   if (icon !== undefined) view.icon = icon
   if (connectOrigins !== undefined) view.connectOrigins = connectOrigins
+  if (v.frameOrigins !== undefined) {
+    if (!Array.isArray(v.frameOrigins) || v.frameOrigins.length > PLUGIN_VIEW_MAX_CONNECT_ORIGINS) {
+      return { ok: false, errors: ['view.frameOrigins must be an array of at most 8 loopback HTTP(S) origins'] }
+    }
+    const seen = new Set<string>()
+    for (const origin of v.frameOrigins) {
+      if (typeof origin !== 'string' || !isPluginFrameOrigin(origin) || seen.has(origin)) {
+        return { ok: false, errors: ['view.frameOrigins must contain unique loopback HTTP(S) origins without path/query'] }
+      }
+      seen.add(origin)
+    }
+    view.frameOrigins = [...seen]
+  }
   return { ok: true, errors: [], view }
+}
+
+export function isPluginFrameOrigin(origin: string): boolean {
+  if (!/^https?:\/\//.test(origin) || !PLUGIN_VIEW_CONNECT_ORIGIN_PATTERN.test(origin)) return false
+  try { return new URL(origin).origin === origin } catch { return false }
+}
+
+/** 子 frame 和重定向使用同一来源闸，动态注销后不再放行。 */
+export function isPluginFrameNavigationAllowed(rawUrl: string, origins?: readonly string[]): boolean {
+  try {
+    const url = new URL(rawUrl)
+    return !url.username && !url.password && isPluginFrameOrigin(url.origin) && (origins?.includes(url.origin) ?? false)
+  } catch { return false }
 }
 
 /**
@@ -646,6 +685,14 @@ export function validateManifest(raw: unknown): ManifestValidation {
     if (contributes.views !== undefined) {
       const vr = validateViewDefinitionList(contributes.views)
       if (!vr.ok) errors.push(...vr.errors)
+    }
+    if (contributes.settings !== undefined) {
+      const sr = validateViewDefinitionList(contributes.settings)
+      if (!sr.ok) errors.push(...sr.errors.map(error => `settings: ${error}`))
+      if (sr.ok && (contributes.views === undefined || Array.isArray(contributes.views))) {
+        const combined = validateViewDefinitionList([...(contributes.views as unknown[] ?? []), ...sr.views])
+        if (!combined.ok) errors.push(...combined.errors)
+      }
     }
   }
 

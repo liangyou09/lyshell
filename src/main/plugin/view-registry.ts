@@ -39,7 +39,7 @@ export interface ViewRegistryDeps {
   /** 插件根目录（dev 绝对路径 / {pluginsDir}/{id}） */
   pluginDirOf(entry: PluginRegistryEntry): string
   /** 读单条 entry 的 manifest contributes.views（读失败/校验失败降级 []，wiring 层实现） */
-  readManifestViews(entry: PluginRegistryEntry): PluginViewDefinition[]
+  readManifestViews(entry: PluginRegistryEntry): Array<PluginViewDefinition & { surface?: 'settings' }>
   /** 广播 PLUGIN_VIEWS_CHANGED 给所有窗口（负载为空，renderer 收到后重拉 plugin:list） */
   broadcast(): void
   /** 声明式视图被 FS 闸拒绝时的告警出口（可缺省；index.ts 接 log.warn） */
@@ -131,7 +131,7 @@ export function verifyViewFiles(pluginRoot: string, def: PluginViewDefinition): 
 
 export class PluginViewRegistry {
   /** 声明式缓存：pluginId -> manifest 顺序的视图定义（显式刷新点更新） */
-  private declarative = new Map<string, PluginViewDefinition[]>()
+  private declarative = new Map<string, Array<PluginViewDefinition & { surface?: 'settings' }>>()
   /** 运行时：pluginId -> (viewId -> 定义，Map 迭代序即注册序) */
   private runtime = new Map<string, Map<string, PluginViewDefinition>>()
 
@@ -151,10 +151,10 @@ export class PluginViewRegistry {
     const enabled = this.deps.getEnabledEntries()
     const enabledIds = new Set(enabled.map((e) => e.id))
     let changed = false
-    const next = new Map<string, PluginViewDefinition[]>()
+    const next = new Map<string, Array<PluginViewDefinition & { surface?: 'settings' }>>()
     for (const entry of enabled) {
       const dir = this.deps.pluginDirOf(entry)
-      const valid: PluginViewDefinition[] = []
+      const valid: Array<PluginViewDefinition & { surface?: 'settings' }> = []
       for (const v of this.deps.readManifestViews(entry)) {
         const err = verifyViewFiles(dir, v)
         if (err) {

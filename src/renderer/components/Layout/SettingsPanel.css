@@ -19,6 +19,17 @@
   scrollbar-gutter: stable;
 }
 
+.settings-section-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.settings-section-picker select { flex: 1; min-width: 0; }
+.settings-plugin-content { flex: 1; min-height: 0; overflow: hidden; }
+
 .settings-version {
   display: inline-flex;
   align-items: center;

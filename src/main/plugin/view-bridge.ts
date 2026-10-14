@@ -25,7 +25,8 @@ import { IPC_CHANNELS } from '@shared/constants'
 import { getPluginViewRegistry } from './view-registry'
 import { pluginGuestRegistry, type PluginGuestRecord } from './view-guests'
 import { PluginDialogManager } from './view-dialogs'
-import { PluginActionDispatcher, type PluginActionRequest, type PluginActionResultReceipt } from './view-actions'
+import { PluginActionDispatcher, type PluginActionRequest } from './view-actions'
+import { validatePluginActionReceipt } from '../ipc/validation'
 import { makeViewDialogEntryUrl, PLUGIN_VIEW_SCHEME } from './view-protocol-core'
 import { getRendererThemeMode, setRendererThemeMode, setUiThemeModeListener } from '../ui-theme'
 import { resolveApiRouteCall } from '../plugin-host/api'
@@ -300,14 +301,14 @@ export function registerPluginViewIpc(): void {
   })
 
   // 主窗口 renderer 的动作回执（guest 冒充无效：sender 必须是窗口主 frame 而非 guest）
-  ipcMain.on(IPC_CHANNELS.PLUGIN_VIEW_ACTION_RESULT, (event, receipt: PluginActionResultReceipt | undefined) => {
+  ipcMain.on(IPC_CHANNELS.PLUGIN_VIEW_ACTION_RESULT, (event, receipt: unknown) => {
     if (pluginGuestRegistry.get(event.sender.id)) {
       log.warn('[plugin-view] action result from guest webContents rejected')
       return
     }
     const win = BrowserWindow.fromWebContents(event.sender)
     const senderWindowId = win && !win.isDestroyed() ? win.id : null
-    pluginActionDispatcher.handleResult(receipt, senderWindowId)
+    pluginActionDispatcher.handleResult(validatePluginActionReceipt(receipt), senderWindowId)
   })
 
   // renderer 的明暗模式推送（fire-and-forget）：更新 main 快照并广播 themeChanged

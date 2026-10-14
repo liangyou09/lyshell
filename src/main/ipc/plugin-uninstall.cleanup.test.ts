@@ -8,38 +8,52 @@ import { PluginResourceRegistry, releasePluginSessions } from '../plugin/resourc
 // 执行实际注册的 IPC 回调，仅注入 IO 依赖，避免加载 Electron 与原生模块。
 const source = ts.createSourceFile('handlers.ts', readFileSync(join(process.cwd(), 'src/main/ipc/handlers.ts'), 'utf8'),
   ts.ScriptTarget.Latest, true)
-let callback: ts.Expression | undefined
+const callbacks = new Map<string, ts.Expression>()
 function findCallback(node: ts.Node): void {
   if (ts.isCallExpression(node) && node.expression.getText(source) === 'ipcMain.handle'
-    && ts.isStringLiteral(node.arguments[0]) && node.arguments[0].text === 'plugin:uninstall') {
-    callback = node.arguments[1]
+    && ts.isStringLiteral(node.arguments[0]) && ['plugin:uninstall', 'plugin:disable'].includes(node.arguments[0].text)) {
+    callbacks.set(node.arguments[0].text, node.arguments[1])
   }
   ts.forEachChild(node, findCallback)
 }
 findCallback(source)
-if (!callback) throw new Error('plugin:uninstall handler not found')
-const script = ts.transpileModule(`(${callback.getText(source)})`, {
-  compilerOptions: { target: ts.ScriptTarget.ES2022 }
-}).outputText
-
-function fixture() {
+function fixture(channel = 'plugin:uninstall') {
+  const callback = callbacks.get(channel)
+  if (!callback) throw new Error(`${channel} handler not found`)
+  const script = ts.transpileModule(`(${callback.getText(source)})`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 }
+  }).outputText
   let entry: { id: string; enabled: boolean; dev: boolean } | undefined = { id: 'plugin', enabled: true, dev: true }
   const registry = new PluginResourceRegistry()
   const remove = vi.fn(() => { entry = undefined })
   const cleanup = vi.fn(async () => { registry.release('plugin') })
   const restart = vi.fn(async () => {})
+  const deactivate = vi.fn(async () => {})
   const syncPluginViews = vi.fn()
   const handler = runInNewContext(script, {
     assertString: (value: string) => value,
-    pluginRepository: { get: () => entry, setEnabled: (_id: string, enabled: boolean) => { entry!.enabled = enabled }, remove },
+    pluginRepository: { get: () => entry, setEnabled: (_id: string, enabled: boolean) => { entry!.enabled = enabled; return true }, remove },
     uniquePluginWebOrigins: () => [], getPluginViewRegistry: () => ({ listViews: () => [] }),
     revokeAllPluginTokens: vi.fn(), teardownPluginViews: vi.fn(),
-    releasePluginResources: cleanup, pluginResources: registry, pluginHostManager: { restart }, syncPluginViews,
+    releasePluginResources: cleanup, pluginResources: registry, pluginHostManager: { restart, deactivatePlugin: deactivate }, syncPluginViews,
     mcpAuditRepository: { append: vi.fn() }, log: { info: vi.fn() }, validationFailure: () => null
   }) as (_event: unknown, id: string) => Promise<{ success: boolean; error?: string }>
-  return { getEntry: () => entry, replaceEntry: () => { entry = { id: 'plugin', enabled: false, dev: true } },
-    enable: () => { entry!.enabled = true }, registry, remove, cleanup, restart, syncPluginViews, handler }
+  return { getEntry: () => entry, replaceEntry: (enabled = false) => { entry = { id: 'plugin', enabled, dev: true } },
+    enable: () => { entry!.enabled = true }, registry, remove, cleanup, restart, deactivate, syncPluginViews, handler }
 }
+
+it.each(['plugin:disable', 'plugin:uninstall'])('停机等待期间替换安装记录，旧 %s 不得撤销新插件', async channel => {
+  const { handler, deactivate, replaceEntry, getEntry, cleanup, restart } = fixture(channel)
+  let finish!: () => void
+  deactivate.mockReturnValue(new Promise<void>(resolve => { finish = resolve }))
+  const result = handler(undefined, 'plugin')
+  replaceEntry(true)
+  finish()
+  expect(await result).toMatchObject({ success: false, error: expect.stringContaining('停机期间已变更') })
+  expect(getEntry()?.enabled).toBe(true)
+  expect(cleanup).not.toHaveBeenCalled()
+  expect(restart).not.toHaveBeenCalled()
+})
 
 describe('插件卸载失败保留重试入口', () => {
   it.each([false, true])('宿主重启先失败后重试卸载，借用终端关闭失败=%s，不能跳过仍在途的关闭', async failClose => {
@@ -68,7 +82,7 @@ describe('插件卸载失败保留重试入口', () => {
       expect(getEntry()).toMatchObject({ enabled: false })
       expect(registry.owner('borrowed')).toBe('plugin')
       const third = handler(undefined, 'plugin')
-      expect(deleteLive).toHaveBeenCalledTimes(2)
+      await vi.waitFor(() => expect(deleteLive).toHaveBeenCalledTimes(2))
       finish()
       expect(await third).toEqual({ success: true })
     } else {
@@ -102,6 +116,7 @@ describe('插件卸载失败保留重试入口', () => {
     let finish!: () => void
     cleanup.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
     const result = handler(undefined, 'plugin')
+    await vi.waitFor(() => expect(cleanup).toHaveBeenCalledOnce())
     if (change === 'replaced') replaceEntry()
     else if (change === 'enabled') enable()
     else registry.release('plugin')

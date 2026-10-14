@@ -109,6 +109,7 @@ export class PluginHostManager {
     if (this.failedProcessCleanups.size > 0) throw new Error('Plugin process tree cleanup failed')
   }
   private activePluginIds: string[] = []
+  private deactivationRequests = new Map<string, Promise<void>>()
   /** 当前共享 node host 承载的插件 id（异常退出/stop 时清运行时视图用；start() 重置） */
   private nodeHostPluginIds: string[] = []
   /** stop()/restart() 主动停机标志：exit 回调据此区分「主动停机」与「宿主异常退出」 */
@@ -137,6 +138,47 @@ export class PluginHostManager {
   /** host 子进程是否存活（killed 仅表示已发信号，用 exitCode/signalCode 判进程是否已退出） */
   isRunning(): boolean {
     return this.child !== null && this.child.exitCode === null && this.child.signalCode === null
+  }
+
+  /** 正常停机先保留 token/HTTP，给 async deactivate 完成释放的机会；崩溃仍立即撤权。 */
+  deactivatePlugin(pluginId: string): Promise<void> {
+    const child = this.child
+    if (!child?.connected || !this.nodeHostPluginIds.includes(pluginId)) return Promise.resolve()
+    const previous = this.deactivationRequests.get(pluginId)
+    if (previous) return previous
+    const requestId = `deactivate-${this.hostGeneration}-${pluginId}-${Date.now()}`
+    const promise = new Promise<void>(resolve => {
+      const finish = (): void => {
+        clearTimeout(timer)
+        child.removeListener('message', onMessage)
+        child.removeListener('exit', finish)
+        child.removeListener('disconnect', finish)
+        resolve()
+      }
+      const onMessage = (raw: unknown): void => {
+        if (raw && typeof raw === 'object' && (raw as { type?: string }).type === 'deactivated'
+          && (raw as { requestId?: string }).requestId === requestId) finish()
+      }
+      const timer = setTimeout(() => {
+        log.warn(`[plugin-host] graceful deactivation deadline reached: ${pluginId}`)
+        finish()
+      }, 7500)
+      child.on('message', onMessage)
+      child.once('exit', finish)
+      child.once('disconnect', finish)
+      try {
+        child.send({ type: 'deactivate', pluginId, requestId }, error => { if (error) finish() })
+      } catch { finish() }
+    })
+    this.deactivationRequests.set(pluginId, promise)
+    void promise.then(() => {
+      if (this.deactivationRequests.get(pluginId) === promise) this.deactivationRequests.delete(pluginId)
+    })
+    return promise
+  }
+
+  prepareShutdown(): Promise<void> {
+    return Promise.all(this.nodeHostPluginIds.map(id => this.deactivatePlugin(id))).then(() => {})
   }
 
   /**
@@ -822,6 +864,11 @@ export class PluginHostManager {
    * HTTP 未就绪时 start() 短路(getMcpHttpPort=null),restart 仍安全 -- registry 已更新,下次真启动加载。
    */
   async restart(): Promise<void> {
+    if (this.child?.connected && this.nodeHostPluginIds.length > 0) {
+      const requestedGeneration = ++this.hostGeneration
+      await this.prepareShutdown()
+      if (this.hostGeneration !== requestedGeneration) return
+    }
     this.stop()
     const generation = this.hostGeneration
     await this.waitForProcessCleanup()

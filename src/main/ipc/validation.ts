@@ -6,6 +6,15 @@ interface StringOptions {
   allowEmpty?: boolean
 }
 
+/** 插件动作回执只接收有界请求标识、布尔结果及可选错误，身份另由 sender 核对。 */
+export function validatePluginActionReceipt(raw: unknown): { requestId: string; ok: boolean; error?: string } | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const data = raw as Record<string, unknown>
+  if (typeof data.requestId !== 'string' || !/^act-[a-z0-9-]{1,100}$/.test(data.requestId) || typeof data.ok !== 'boolean') return undefined
+  if (data.error !== undefined && (typeof data.error !== 'string' || data.error.length > 4096)) return undefined
+  return { requestId: data.requestId, ok: data.ok, ...(typeof data.error === 'string' ? { error: data.error } : {}) }
+}
+
 /** 只有主窗口 renderer 可认领资源管理器启动请求，webview/浮窗不能消费队列。 */
 export function assertExplorerLaunchConsumer(senderId: number, consumerId: number | null): void {
   if (senderId !== consumerId) throw new ValidationError('Explorer launch requires the main window')

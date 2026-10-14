@@ -107,7 +107,7 @@ async function handlePluginViewRequest(pluginId: string, rawUrl: string): Promis
       // 入口 HTML 按视图声明的 connectOrigins 放宽 CSP（connect-src/img-src 合并；
       // 声明值仅限 localhost，校验在 @shared/plugin-types validateViewDefinition）
       const view = getPluginViewRegistry().getViewByEntry(pluginId, rel)
-      headers['Content-Security-Policy'] = buildViewCsp(view?.connectOrigins)
+      headers['Content-Security-Policy'] = buildViewCsp(view?.connectOrigins, view?.frameOrigins)
     }
     return new Response(buf, { status: 200, headers })
   } catch (e) {

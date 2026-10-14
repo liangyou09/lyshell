@@ -6,6 +6,9 @@ import { isCursorBlinkEnabled, DEFAULT_TERMINAL_FONT_SIZE, TERMINAL_FONT_SIZE_MI
 import { PanelHeader } from './PanelHeader'
 import releaseNotes from '../../../../CHANGELOG.md?raw'
 import './SettingsPanel.css'
+import { usePluginStore } from '@/stores/plugin-store'
+import { makePluginViewKey } from '@shared/plugin-types'
+import PluginViewPanel from './PluginViewPanel'
 
 /**
  * 设置面板集中展示常用设置，以紧凑分区适配可调宽的左侧栏。
@@ -47,7 +50,15 @@ const CheckMark: React.FC = () => (
   </svg>
 )
 
-const SettingsPanel: React.FC = () => {
+const SettingsPanel: React.FC<{ requestedView?: { key: string; nonce: number } | null }> = ({ requestedView }) => {
+  const pluginItems = usePluginStore(state => state.items)
+  const settingsViews = React.useMemo(() => pluginItems.flatMap(item => item.views).filter(view => view.surface === 'settings'), [pluginItems])
+  const [selectedView, setSelectedView] = useState(requestedView?.key ?? '')
+  const activeSettingsView = settingsViews.find(view => makePluginViewKey(view.pluginId, view.id) === selectedView)
+  useEffect(() => { setSelectedView(requestedView?.key ?? '') }, [requestedView])
+  useEffect(() => {
+    if (selectedView && !activeSettingsView) setSelectedView('')
+  }, [selectedView, activeSettingsView])
   const [scrollbackLines, setScrollbackLines] = useState(() => {
     const saved = localStorage.getItem('terminalScrollback')
     return saved ? parseInt(saved) : 10000
@@ -150,7 +161,22 @@ const SettingsPanel: React.FC = () => {
         titleAccessory={<button type="button" className="settings-version win-no-drag" title={t('settings.viewReleaseNotes')} aria-label={t('settings.versionReleaseNotes', { version: __APP_VERSION__ })} onClick={openReleaseNotes}>v{__APP_VERSION__}</button>}
       />
 
-      <div className="settings-content">
+      {settingsViews.length > 0 && (
+        <label className="settings-section-picker">
+          <span>{t('settings.section')}</span>
+          <select className="settings-input" value={activeSettingsView ? selectedView : ''} onChange={event => setSelectedView(event.target.value)}>
+            <option value="">{t('settings.general')}</option>
+            {settingsViews.map(view => (
+              <option key={makePluginViewKey(view.pluginId, view.id)} value={makePluginViewKey(view.pluginId, view.id)}>{view.title}</option>
+            ))}
+          </select>
+        </label>
+      )}
+      {activeSettingsView ? (
+        <div className="settings-plugin-content">
+          <PluginViewPanel key={selectedView} view={activeSettingsView} visible />
+        </div>
+      ) : <div className="settings-content">
         <SettingCard title={t('settings.sections.terminal')}>
           <label className="settings-field-row">
             <span>{t('settings.font')}</span>
@@ -376,7 +402,7 @@ const SettingsPanel: React.FC = () => {
             <span aria-hidden="true">↗</span>
           </button>
         </SettingCard>
-      </div>
+      </div>}
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import cn from 'classnames'
+import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import SessionsPanel from './SessionsPanel'
 import ActivityRail, { type NavTab, RAIL_WIDTH, isFixedNavTab } from './ActivityRail'
@@ -127,6 +128,8 @@ const MainWindow: React.FC = () => {
   const pluginViewsLoaded = usePluginStore((s) => s.loaded)
   // 已启用插件才会带 views（禁用的 views 恒为空数组,plugin:list 同源保证）
   const pluginViews = React.useMemo(() => pluginItems.flatMap((p) => p.views), [pluginItems])
+  const railPluginViews = React.useMemo(() => pluginViews.filter(v => v.surface !== 'settings'), [pluginViews])
+  const [requestedSettingsView, setRequestedSettingsView] = useState<{ key: string; nonce: number } | null>(null)
 
   // 保活集：首次激活过的复合键。切走仅 CSS 隐藏;注销/禁用/卸载的键由下方列表
   // 同步 effect 摘除（面板卸载 → webview 销毁 → main 的 guest 清理链）
@@ -145,9 +148,9 @@ const MainWindow: React.FC = () => {
     if (!pluginViewsLoaded) return
     if (!isPluginViewKey(activeNav)) return
     const parsed = parsePluginViewKey(activeNav)
-    if (parsed && pluginViews.some((v) => v.pluginId === parsed.pluginId && v.id === parsed.viewId)) return
+    if (parsed && railPluginViews.some((v) => v.pluginId === parsed.pluginId && v.id === parsed.viewId)) return
     handleNavChange('sessions')
-  }, [activeNav, pluginViews, pluginViewsLoaded, handleNavChange])
+  }, [activeNav, railPluginViews, pluginViewsLoaded, handleNavChange])
   useEffect(() => {
     if (!pluginViewsLoaded) return
     setAlivePluginViews((prev) => {
@@ -220,6 +223,30 @@ const MainWindow: React.FC = () => {
       void (async () => {
         const params = request.params ?? {}
         switch (request.action) {
+          case 'openHostUi': {
+            await usePluginStore.getState().load()
+            if (!isActive()) { reply(false, 'plugin resources were released'); break }
+            const view = usePluginStore.getState().items.flatMap(item => item.views)
+              .find(view => view.pluginId === request.pluginId && view.id === request.viewId)
+            if (!view || (params.target === 'settings' ? view.surface !== 'settings' : view.surface === 'settings' || view.id !== 'chat2')) {
+              reply(false, 'host UI target is not registered')
+              break
+            }
+            const key = makePluginViewKey(view.pluginId, view.id)
+            // 回执发生在 React 已提交目标面板之后，重复点击复用既有 Chat2 guest。
+            flushSync(() => {
+              setSidebarCollapsed(false)
+              if (params.target === 'settings') {
+                setRequestedSettingsView(prev => ({ key, nonce: (prev?.nonce ?? 0) + 1 }))
+                handleNavChange('settings')
+              } else {
+                setAlivePluginViews(prev => new Set(prev).add(key))
+                handleNavChange(key)
+              }
+            })
+            reply(true)
+            break
+          }
           case 'openWebTab': {
             const r = usePaneStore.getState().openWebTab(typeof params.url === 'string' ? params.url : '', undefined, { ownerPluginId: request.pluginId })
             reply(r.ok, r.ok ? undefined : r.error)
@@ -272,7 +299,7 @@ const MainWindow: React.FC = () => {
         reply(false, e instanceof Error ? e.message : String(e))
       })
     })
-  }, [])
+  }, [handleNavChange])
 
   // 视图列表变化推送（安装/启用/禁用/卸载/运行时注册/注销/宿主异常退出）—— 重拉
   // 完整快照,并发响应由 plugin-store.load 的序号守卫收口;恢复/摘除 effect 对着
@@ -1057,7 +1084,7 @@ const MainWindow: React.FC = () => {
             onChange={handleNavChange}
             liveCount={liveCount}
             onCollapse={() => setSidebarCollapsed(true)}
-            pluginViews={pluginViews}
+            pluginViews={railPluginViews}
           />
           <div style={{ width: `${effectiveSidebarWidth}px` }} className="relative flex-shrink-0 min-w-0 h-full">
             {activeNav === 'sessions' && (
@@ -1077,7 +1104,7 @@ const MainWindow: React.FC = () => {
             {webPanelAlive && <WebPanel visible={activeNav === 'web'} />}
             {/* 插件视图面板(保活):首次激活后常挂载,absolute 叠放互不挤占,同屏只
                 显示 activeNav 命中的那个;列表摘除时由上方 effect 卸载失效键 */}
-            {pluginViews.map((view) => {
+            {railPluginViews.map((view) => {
               const key = makePluginViewKey(view.pluginId, view.id)
               if (!alivePluginViews.has(key)) return null
               // 非激活视图连包裹层一起 hidden：绝对定位的透明空盒即便内容 display:none
@@ -1089,7 +1116,7 @@ const MainWindow: React.FC = () => {
                 </div>
               )
             })}
-            {activeNav === 'settings' && <SettingsPanel />}
+            {activeNav === 'settings' && <SettingsPanel requestedView={requestedSettingsView} />}
           </div>
           {/* 宽度调整条 */}
           <div

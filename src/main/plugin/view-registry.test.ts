@@ -72,6 +72,17 @@ const viewDef = (id: string, extra: Partial<PluginViewDefinition> = {}): PluginV
   ...extra
 })
 
+it('设置元数据经过真实文件闸保留，禁用后目标立即不可用', () => {
+  const settings = { ...viewDef('settings'), surface: 'settings' as const, frameOrigins: ['http://127.0.0.1:31517'] }
+  const deps = makeDeps([entry('p1', 'p1')], new Map([['p1', [settings]]]))
+  const registry = new PluginViewRegistry(deps)
+  registry.refreshAll()
+  expect(registry.getView('p1', 'settings')).toMatchObject(settings)
+  deps.entries[0].enabled = false
+  registry.refreshAll()
+  expect(registry.getView('p1', 'settings')).toBeNull()
+})
+
 /** 在插件目录里铺一个最小可用视图：views/{id}.html（可选 icon） */
 function layOutView(pluginDir: string, id: string, opts: { icon?: string } = {}): void {
   const views = join(pluginDir, 'views')

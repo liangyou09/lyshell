@@ -36,6 +36,8 @@
     "recentVisits": "最近访问"
   },
   "settings": {
+    "section": "设置分类",
+    "general": "通用设置",
     "releaseNotes": "更新说明",
     "viewReleaseNotes": "查看更新说明",
     "versionReleaseNotes": "版本 {{version}}，查看更新说明",

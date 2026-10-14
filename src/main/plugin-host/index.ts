@@ -35,7 +35,14 @@ interface LoadedPlugin {
   manifest: LyShellPluginManifest
   module: PluginModule
   activated: boolean
+  activation?: Promise<void>
+  stopping?: boolean
 }
+
+interface DeactivationRequest { pluginId: string; requestId: string }
+// 回连 health/加载清单期间也接单；就绪前收到的停机不能被入口的 started 守卫丢弃。
+const pendingDeactivations: DeactivationRequest[] = []
+let handleDeactivation: ((request: DeactivationRequest) => void) | undefined
 
 /**
  * 读 manifest + require(main)。失败返回 null 并打印原因（不影响其他插件）。
@@ -109,9 +116,52 @@ async function runHost(port: number, specs: PluginSpec[]): Promise<void> {
   }
 
   // 插件经 api.spawnControlled 拉起的孙进程登记表(跨插件共享):退出时兜底 kill,
-  // 防插件 deactivate 漏杀 / 超过 2s grace / Windows 不级联孙进程 -> 孤儿。
+  // 防插件 deactivate 漏杀 / 超过 grace / Windows 不级联孙进程 -> 孤儿。
   // 子进程 'close' 时移出集合(含坏 exe 的报错子进程);shutdown 只杀仍存活的。
   const spawnedChildren = new Set<ChildProcess>()
+
+  // 先注册停机再启动插件：正在激活的插件等 activate 落定后清理；未启动的直接跳过。
+  const DEACTIVATE_GRACE_MS = 7000
+  const deactivating = new Map<string, Promise<void>>()
+  const deactivatePlugin = (p: LoadedPlugin): Promise<void> => {
+    const previous = deactivating.get(p.spec.pluginId)
+    if (previous) return previous
+    p.stopping = true
+    const promise = new Promise<void>(resolve => {
+      const timer = setTimeout(() => {
+        console.error(`[plugin-host] deactivate timeout for ${p.spec.pluginId} (${DEACTIVATE_GRACE_MS}ms)`)
+        resolve()
+      }, DEACTIVATE_GRACE_MS)
+      void Promise.resolve().then(async () => {
+        await p.activation
+        if (p.activated && typeof p.module.deactivate === 'function') await p.module.deactivate()
+        p.activated = false
+      }).then(
+        () => { clearTimeout(timer); resolve() },
+        error => { clearTimeout(timer); console.error(`[plugin-host] deactivate error for ${p.spec.pluginId}:`, error); resolve() }
+      )
+    })
+    deactivating.set(p.spec.pluginId, promise)
+    return promise
+  }
+  handleDeactivation = message => {
+    const plugin = loaded.find(p => p.spec.pluginId === message.pluginId)
+    void (plugin ? deactivatePlugin(plugin) : Promise.resolve()).then(() => {
+      if (process.connected) process.send?.({ type: 'deactivated', requestId: message.requestId })
+    })
+  }
+  for (const message of pendingDeactivations.splice(0)) handleDeactivation(message)
+  const shutdown = async (sig: string): Promise<void> => {
+    console.error(`[plugin-host] Received ${sig}, deactivating...`)
+    await Promise.all(loaded.map(deactivatePlugin))
+    for (const child of spawnedChildren) {
+      try { child.kill('SIGTERM') } catch { /* 进程可能已退出 */ }
+    }
+    spawnedChildren.clear()
+    process.exit(0)
+  }
+  process.on('SIGTERM', () => void shutdown('SIGTERM'))
+  process.on('SIGINT', () => void shutdown('SIGINT'))
 
   // activate() 限时:防止某个插件的 activate() 返回永不 resolve 的 promise 把
   // 激活循环卡死,导致其后所有 node 插件永远激活不了(与 oneshot runner 的 30s
@@ -120,6 +170,7 @@ async function runHost(port: number, specs: PluginSpec[]): Promise<void> {
 
   let activatedCount = 0
   for (const p of loaded) {
+    if (p.stopping) continue
     // 每插件独立 client（token 不同），api 内部按 pluginId 路由 + capability gate
     const api = createPluginApi(p.spec, new LyShellHttpClient(port, p.spec.token), {
       onSpawn: (child) => {
@@ -132,27 +183,31 @@ async function runHost(port: number, specs: PluginSpec[]): Promise<void> {
     // activationEvents 可能缺省（纯声明式清单）——按空数组处理，不自动激活
     const activationEvents = p.manifest.activationEvents ?? []
     if (shouldActivateOnStartup(activationEvents)) {
-      try {
-        await Promise.race([
-          Promise.resolve(p.module.activate(api)),
-          new Promise<never>((_, reject) => {
-            const timer = setTimeout(
-              () => reject(new Error(`activate() timed out after ${ACTIVATE_TIMEOUT_MS}ms`)),
-              ACTIVATE_TIMEOUT_MS
-            )
-            timer.unref?.()
-          })
-        ])
-        p.activated = true
-        activatedCount++
-        console.error(`[plugin-host] Activated ${p.spec.pluginId} (${p.spec.lifecycle})`)
-      } catch (e) {
-        // 抛错/超时都只影响本插件。超时分支 activate 可能仍在后台执行,照样标记
-        // activated —— shutdown 时 best-effort deactivate 是它唯一的清理机会;
-        // deactivate 自身有 try/catch + 限时,插件没写好也不会拖垮退出。
-        p.activated = true
-        console.error(`[plugin-host] Failed to activate ${p.spec.pluginId}:`, e)
-      }
+      p.activation = (async () => {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          await Promise.race([
+            Promise.resolve().then(() => p.module.activate(api)),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () => reject(new Error(`activate() timed out after ${ACTIVATE_TIMEOUT_MS}ms`)),
+                ACTIVATE_TIMEOUT_MS
+              )
+              timer.unref?.()
+            })
+          ])
+          p.activated = true
+          activatedCount++
+          console.error(`[plugin-host] Activated ${p.spec.pluginId} (${p.spec.lifecycle})`)
+        } catch (e) {
+          // 抛错/超时都只影响本插件。仍标记 activated，让 best-effort deactivate 有清理机会。
+          p.activated = true
+          console.error(`[plugin-host] Failed to activate ${p.spec.pluginId}:`, e)
+        } finally {
+          if (timer) clearTimeout(timer)
+        }
+      })()
+      await p.activation
     } else {
       const waits =
         activationEvents.length > 0
@@ -165,41 +220,6 @@ async function runHost(port: number, specs: PluginSpec[]): Promise<void> {
   console.error(
     `[plugin-host] Ready: ${loaded.length} loaded, ${activatedCount} activated, ${loaded.length - activatedCount} pending`
   )
-
-  // 优雅退出：best-effort await 各插件 deactivate(每插件限时,超时强退,避免截断 async 清理)。
-  const DEACTIVATE_GRACE_MS = 2000
-  const shutdown = async (sig: string): Promise<void> => {
-    console.error(`[plugin-host] Received ${sig}, deactivating...`)
-    for (const p of loaded) {
-      if (!p.activated) continue
-      const deactivate = p.module.deactivate
-      if (typeof deactivate !== 'function') continue
-      // 限时等待 deactivate 完成:超时或异常都 resolve 继续,不阻塞退出
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(() => {
-          console.error(`[plugin-host] deactivate timeout for ${p.spec.pluginId} (${DEACTIVATE_GRACE_MS}ms)`)
-          resolve()
-        }, DEACTIVATE_GRACE_MS)
-        Promise.resolve().then(() => deactivate()).then(
-          () => { clearTimeout(timer); resolve() },
-          (e) => { clearTimeout(timer); console.error(`[plugin-host] deactivate error for ${p.spec.pluginId}:`, e); resolve() }
-        )
-      })
-    }
-    // 兜底:杀插件 spawn 的孙进程。已退出的经 'close' 监听移出集合;
-    // 仍存活的(deactivate 漏杀 / 超时 / Windows 不级联)在此 SIGTERM,防孤儿。
-    for (const child of spawnedChildren) {
-      try {
-        child.kill('SIGTERM')
-      } catch {
-        /* 进程可能已退出 */
-      }
-    }
-    spawnedChildren.clear()
-    process.exit(0)
-  }
-  process.on('SIGTERM', () => void shutdown('SIGTERM'))
-  process.on('SIGINT', () => void shutdown('SIGINT'))
 }
 
 // ====================== 入口 ======================
@@ -235,6 +255,15 @@ const startupTimeout = setTimeout(() => {
 }, 5000)
 
 process.on('message', (msg: unknown) => {
+  if (msg && typeof msg === 'object') {
+    const message = msg as { type?: string; pluginId?: string; requestId?: string }
+    if (message.type === 'deactivate' && typeof message.pluginId === 'string' && typeof message.requestId === 'string') {
+      const request = { pluginId: message.pluginId, requestId: message.requestId }
+      if (handleDeactivation) handleDeactivation(request)
+      else pendingDeactivations.push(request)
+      return
+    }
+  }
   if (started) return
   if (msg && typeof msg === 'object' && (msg as { type?: string }).type === 'specs') {
     started = true

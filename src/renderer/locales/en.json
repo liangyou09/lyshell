@@ -36,6 +36,8 @@
     "recentVisits": "Recent visits"
   },
   "settings": {
+    "section": "Section",
+    "general": "General",
     "releaseNotes": "Release notes",
     "viewReleaseNotes": "View release notes",
     "versionReleaseNotes": "Version {{version}}, view release notes",

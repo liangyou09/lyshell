@@ -13,6 +13,7 @@ import {
   isPluginViewKey,
   PLUGIN_MAX_VIEWS
 } from './plugin-types'
+import { manifestPluginViews, isPluginFrameNavigationAllowed } from './plugin-types'
 
 /** 一份合法的清单基线，各用例在此基础上破坏单个字段 */
 const validManifest: Record<string, unknown> = {
@@ -31,6 +32,35 @@ const validManifest: Record<string, unknown> = {
 }
 
 describe('validateManifest', () => {
+  it('设置贡献与普通视图共用身份、入口和容量安全闸', () => {
+    const chat = { id: 'chat2', title: '聊天2', entry: 'views/chat2.html' }
+    const settings = { id: 'settings', title: 'PetLink', entry: 'views/settings.html', frameOrigins: ['http://127.0.0.1:31517'] }
+    const result = validateManifest({ ...validManifest, contributes: { views: [chat], settings: [settings] } })
+    expect(result.ok).toBe(true)
+    expect(manifestPluginViews(result.manifest!)).toEqual([chat, { ...settings, surface: 'settings' }])
+    for (const invalid of [
+      { views: [chat], settings: [{ ...settings, id: 'chat2' }] },
+      { views: [chat], settings: [{ ...settings, entry: 'views/chat2.html' }] },
+      { settings: [{ ...settings, entry: '../settings.html' }] },
+      { settings: [{ ...settings, entry: 'https://example.com/settings.html' }] },
+      { views: [chat], settings: Array.from({ length: 8 }, (_, i) => ({ ...settings, id: `setting-${i}`, entry: `views/setting-${i}.html` })) }
+    ]) expect(validateManifest({ ...validManifest, contributes: invalid }).ok).toBe(false)
+  })
+  it('iframe 来源默认禁止，声明只能为 loopback HTTP(S) origin', () => {
+    const view = { id: 'settings', title: 'PetLink', entry: 'views/settings.html' }
+    for (const frameOrigins of [
+      ['https://example.com'], ['http://127.0.0.1:31517/path'], ['http://127.0.0.1:31517?token=secret'],
+      ['ws://127.0.0.1:31517'], ['http://127.0.0.1:65536'], ['http://user@localhost:31517'],
+      ['http://localhost:31517', 'http://localhost:31517'], 'http://localhost:31517'
+    ]) expect(validateViewDefinition({ ...view, frameOrigins }).ok).toBe(false)
+    const origins = ['http://127.0.0.1:31517', 'https://[::1]:31517']
+    expect(validateViewDefinition({ ...view, frameOrigins: origins }).view?.frameOrigins).toEqual(origins)
+    expect(isPluginFrameNavigationAllowed('http://127.0.0.1:31517/ui/settings/')).toBe(false)
+    expect(isPluginFrameNavigationAllowed('http://127.0.0.1:31517/ui/settings/', origins)).toBe(true)
+    for (const url of ['https://example.com', 'http://127.0.0.1:31518', 'http://user:pass@127.0.0.1:31517', 'lyshell-plugin://aipet/chat2.html']) {
+      expect(isPluginFrameNavigationAllowed(url, origins)).toBe(false)
+    }
+  })
   it('接受合法清单', () => {
     const r = validateManifest(validManifest)
     expect(r.ok).toBe(true)

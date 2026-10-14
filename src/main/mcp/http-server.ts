@@ -37,6 +37,7 @@ import { getPluginViewRegistry, ViewRegistrationError } from '../plugin/view-reg
 import { ensurePluginUiToken, maybeRevokePluginUiToken } from '../plugin/view-tokens'
 import { installPluginViewProtocolHandler } from '../plugin/view-protocol'
 import { teardownPluginViewGuests } from '../plugin/view-bridge'
+import { openPluginHostUi, dispatchPluginHostUi } from '../plugin/host-ui'
 import { pluginRepository, getPluginsDir } from '../storage/plugin-repository'
 import { pluginResources } from '../plugin/resource-registry'
 import { createTrackedSession, resolveSessionResourceOwner, trackSessionConnectionResource, trackSessionResource } from './session-resources'
@@ -574,6 +575,18 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         }
 
         switch (url.pathname) {
+          case '/api/plugins/ui/open':
+            return openPluginHostUi(data, ctxBinding, {
+              plugin: id => pluginRepository.get(id),
+              views: id => getPluginViewRegistry().listViewsForPlugin(id),
+              open: dispatchPluginHostUi
+            }).then(result => {
+              if (!mcpAuth.resolveToken(req.headers['x-lyshell-token'])) {
+                return sendJson(res, 401, { success: false, error: 'Unauthorized' })
+              }
+              auditMcpOperation({ operation: 'plugin_host_ui', capability: 'uiControl', allowed: result.status === 200, reason: result.body.error, tokenSource: ctxBinding.kind })
+              sendJson(res, result.status, result.body)
+            })
           case '/api/sessions':
             return handleListSessionsFiltered(data, res, ctxBinding)
           case '/api/sessions/create':

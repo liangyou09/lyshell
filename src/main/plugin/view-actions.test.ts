@@ -77,6 +77,19 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
+it('host UI 共用同窗口回执链，拒绝 guest 调用与无窗口回执', async () => {
+  const { dispatcher, hooks } = readyDispatcher()
+  await expect(dispatcher.handleInvoke(guest(), 'openHostUi', { target: 'chat2' })).resolves.toMatchObject({ ok: false })
+  const result = dispatcher.openHostUi(7, 'p1', 'chat2', 'chat2')
+  expect(hooks.requests[0]).toMatchObject({ action: 'openHostUi', pluginId: 'p1', viewId: 'chat2', params: { target: 'chat2' } })
+  const receipt = { requestId: hooks.requests[0].requestId, ok: true }
+  expect(dispatcher.handleResult(receipt, null)).toBe(false)
+  expect(dispatcher.handleResult(receipt, 8)).toBe(false)
+  expect(dispatcher.handleResult(receipt, 7)).toBe(true)
+  expect(dispatcher.handleResult(receipt, 7)).toBe(false)
+  await expect(result).resolves.toEqual({ ok: true })
+})
+
 afterEach(() => {
   vi.useRealTimers()
 })

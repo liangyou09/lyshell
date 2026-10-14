@@ -31,12 +31,12 @@ export const MAX_RESOURCE_BYTES = 20 * 1024 * 1024
  * 页面要连 WebSocket 必须显式声明 ws://（或 wss://）来源：CSP3 的 scheme 匹配没有
  * http→ws/wss 方向（只有 http→https、ws→wss 的安全升级），http:// 来源不覆盖 ws://。
  */
-export function buildViewCsp(connectOrigins?: readonly string[]): string {
+export function buildViewCsp(connectOrigins?: readonly string[], frameOrigins?: readonly string[]): string {
   const extra = connectOrigins && connectOrigins.length > 0 ? ` ${connectOrigins.join(' ')}` : ''
   return (
     "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
     `img-src 'self' data:${extra}; font-src 'self' data:; connect-src 'self'${extra}; ` +
-    "frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    `frame-src ${frameOrigins?.length ? frameOrigins.join(' ') : "'none'"}; object-src 'none'; base-uri 'none'; form-action 'none'`
   )
 }
 

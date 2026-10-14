@@ -33,7 +33,7 @@ export type ActionResult = { ok: true; dialogId?: string } | { ok: false; error:
 /** 发给 renderer 的动作请求（main → owner 窗口） */
 export interface PluginActionRequest {
   requestId: string
-  action: PluginUiAction
+  action: PluginUiAction | 'openHostUi'
   pluginId: string
   viewId: string
   params: Record<string, unknown>
@@ -179,7 +179,7 @@ export class PluginActionDispatcher {
     string,
     {
       pluginId: string
-      action: PluginUiAction
+      action: PluginUiAction | 'openHostUi'
       ownerWindowId: number
       timer: ReturnType<typeof setTimeout>
       resolve: (result: ActionResult) => void
@@ -277,7 +277,7 @@ export class PluginActionDispatcher {
   }
 
   /** 分发 + 等待回执（openDialog 的 dialogId 由 bridge 在调用本方法前注入 params） */
-  private dispatch(guest: PluginGuestRecord, action: PluginUiAction, params: Record<string, unknown>): Promise<ActionResult> {
+  private dispatch(guest: Pick<PluginGuestRecord, 'ownerWindowId' | 'pluginId' | 'viewId'>, action: PluginActionRequest['action'], params: Record<string, unknown>): Promise<ActionResult> {
     const win = BrowserWindow.fromId(guest.ownerWindowId)
     if (!win || win.isDestroyed()) {
       return Promise.resolve({ ok: false, error: 'owner window is gone' })
@@ -321,7 +321,7 @@ export class PluginActionDispatcher {
     if (!receipt || typeof receipt.requestId !== 'string') return false
     const entry = this.pending.get(receipt.requestId)
     if (!entry) return false
-    if (senderWindowId !== null && senderWindowId !== entry.ownerWindowId) {
+    if (senderWindowId !== entry.ownerWindowId) {
       this.hooks.logWarn(`[plugin-view] action result from wrong window (request ${receipt.requestId})`)
       return false
     }
@@ -356,6 +356,14 @@ export class PluginActionDispatcher {
 
   pendingCount(): number {
     return this.pending.size
+  }
+
+  /** 仅供已完成 host-token 鉴权的 HTTP 路由使用，不进入 guest 可调用动作表。 */
+  openHostUi(ownerWindowId: number, pluginId: string, viewId: string, target: 'chat2' | 'settings'): Promise<ActionResult> {
+    if ([...this.pending.values()].filter(p => p.pluginId === pluginId).length >= MAX_PENDING_PER_PLUGIN) {
+      return Promise.resolve({ ok: false, error: 'too many pending actions for this plugin' })
+    }
+    return this.dispatch({ ownerWindowId, pluginId, viewId }, 'openHostUi', { target })
   }
 
   /** 连接 IPC 只接受本窗口仍在途的 openTerminal 请求，归属由 main 推导。 */
