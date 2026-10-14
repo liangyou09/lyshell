@@ -864,6 +864,9 @@ app.whenReady().then(async () => {
     const { startMcpHttpServer, stopMcpHttpServer } = await import('@main/mcp/http-server')
     await startMcpHttpServer()
     stopMcpHttpServerImpl = stopMcpHttpServer
+    // Pet 托管控制服务：接线到 dsh 桥的控制端点（只读快照/写操作都走 /api/exclusive-control）
+    const { wireExclusiveControl } = await import('@main/dsh/exclusive-runtime')
+    wireExclusiveControl()
   } catch (err) {
     log.error('Failed to start MCP HTTP server:', err)
   }

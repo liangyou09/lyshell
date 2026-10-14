@@ -75,7 +75,7 @@ const open = (c: ContractCase, paneId: string, variant = 0): string => {
         ? DOC_INFO
         : { ...DOC_INFO, path: `/tmp/a${variant}.md`, title: `a${variant}.md` })
     case 'dshWeb':
-      st.openDshWebInPane(paneId, { url: 'http://127.0.0.1:3080', name: 'dsh web' })
+      st.openDshWebInPane(paneId, { kind: 'dshWeb', url: 'http://127.0.0.1:3080', name: 'dsh web' })
       return DSH_WEB_OVERLAY_ID
     case 'mcpAudit':
       st.openMcpAuditInPane(paneId)
@@ -175,6 +175,85 @@ describe.each(CASES)('$kind：归一化覆盖层契约', (c) => {
     } finally {
       delete (window as unknown as { electronAPI?: unknown }).electronAPI
     }
+  })
+
+  // S4：只读工作台详情页签关闭必须只 detach 视图 —— 普通页签仍走原「回收后台」语义
+  it('关闭副作用：详情页签（detail=true）只 detach，不杀共享后台', () => {
+    if (c.kind !== 'dshWeb') return
+    const spy = vi.fn()
+    ;(window as unknown as { electronAPI: unknown }).electronAPI = { closeDshWeb: spy }
+    try {
+      const id = open(c, 'pane-1')
+      usePaneStore.getState().updateDshWebInPane(id, { detail: true })
+      usePaneStore.getState().closeOverlay(id)
+      expect(spy).toHaveBeenCalledWith({ detach: true })
+    } finally {
+      delete (window as unknown as { electronAPI?: unknown }).electronAPI
+    }
+  })
+
+  it('关闭副作用：普通 dshWeb 页签不带 detach（保持既有回收语义）', () => {
+    if (c.kind !== 'dshWeb') return
+    const spy = vi.fn()
+    ;(window as unknown as { electronAPI: unknown }).electronAPI = { closeDshWeb: spy }
+    try {
+      const id = open(c, 'pane-1')
+      usePaneStore.getState().closeOverlay(id)
+      expect(spy).toHaveBeenCalledWith({})
+    } finally {
+      delete (window as unknown as { electronAPI?: unknown }).electronAPI
+    }
+  })
+
+  // S4 单页签：重复详情下发（同实例同会话）只复用唯一页签，不新增、不重挂
+  it('重复打开详情：仍是唯一哨兵页签，payload 原位更新（url 不变）', () => {
+    if (c.kind !== 'dshWeb') return
+    const first = open(c, 'pane-1')
+    const st = usePaneStore.getState()
+    st.updateDshWebInPane(first, { detail: true, readOnly: true, petSessionId: 's-pet' })
+    usePaneStore.getState().openDshWebInPane('pane-1', {
+      kind: 'dshWeb', url: 'http://127.0.0.1:3080', name: 'dsh web', detail: true, readOnly: true, petSessionId: 's-pet'
+    })
+    const after = usePaneStore.getState()
+    expect(after.getOverlayByKind('dshWeb')?.ref.id).toBe(first)
+    const payload = after.getOverlayPayload(first) as { kind: string; url?: string; detail?: boolean }
+    expect(payload.kind).toBe('dshWeb')
+    expect(payload.url).toBe('http://127.0.0.1:3080')
+    expect(payload.detail).toBe(true)
+    // 页签数量不变（同 pane 内 dshWeb 只有一个实例）
+    const leaf = after.getPaneById('pane-1') as PaneLeaf
+    expect(leaf.overlays.filter(r => r.kind === 'dshWeb').length).toBe(1)
+  })
+
+  // S4：状态条回写权威只读态 ⇒ 只改 payload，**不得**动布局/激活态（否则等于把用户拽回工作台）
+  it('updateDshWebInPane：原位刷新 payload，不换页签、不改激活态、不切 activePaneId', () => {
+    if (c.kind !== 'dshWeb') return
+    reset(splitLayout(leaf('pane-1', ['s-a']), leaf('pane-2', ['s-b'])))
+    const id = open(c, 'pane-1')
+    // 用户切到 pane-2 的终端（工作台页签保留但已去活）
+    usePaneStore.setState({ layout: { ...usePaneStore.getState().layout, activePaneId: 'pane-2' } })
+    usePaneStore.getState().deactivateOverlay(id)
+    const before = usePaneStore.getState()
+    const rootBefore = before.layout.root
+    expect(before.isOverlayActive(id)).toBe(false)
+
+    before.updateDshWebInPane(id, { readOnly: true, petSessionId: 's-pet' })
+    const after = usePaneStore.getState()
+    // 布局树引用原样（没有任何树改动 = 不可能radio 激活别的页签）
+    expect(after.layout.root).toBe(rootBefore)
+    expect(after.layout.activePaneId).toBe('pane-2')
+    expect(after.isOverlayActive(id)).toBe(false)
+    expect(after.getOverlayPaneId(id)).toBe('pane-1')
+    expect(after.getOverlayPayload(id)).toMatchObject({ kind: 'dshWeb', readOnly: true, petSessionId: 's-pet' })
+
+    // 同值再写：payload 引用不变（避免每次轮询都触发无谓重渲染）
+    const payloadBefore = after.getOverlayPayload(id)
+    after.updateDshWebInPane(id, { readOnly: true, petSessionId: 's-pet' })
+    expect(usePaneStore.getState().getOverlayPayload(id)).toBe(payloadBefore)
+
+    // 非 dshWeb / 不存在的 id：安全 no-op
+    expect(() => after.updateDshWebInPane('nope', { readOnly: true })).not.toThrow()
+    expect(usePaneStore.getState().getOverlayPayload('nope')).toBeUndefined()
   })
 
   it('移动（中心落点）：改挂载目标 pane、去活其覆盖层、slot 复位钉尾、源 pane 会话不动', () => {

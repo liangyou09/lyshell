@@ -1,4 +1,4 @@
-﻿/**
+/**
  * MCP HTTP API 服务端
  * 运行于 LyShell 主进程中，提供 HTTP API 供 MCP Server 进程调用
  * 监听 127.0.0.1:0（随机端口），通过端口文件通知 MCP Server
@@ -25,6 +25,8 @@ import { ConnectionType, ConnectionStatus, SessionConfig } from '@shared/types'
 import type { FileInfo } from '@shared/types'
 import { DEFAULT_THEME_DARK, TERMINAL_ENCODINGS } from '@shared/constants'
 import { API_ROUTES, type McpCapability } from '@shared/api-routes'
+import { EXCLUSIVE_CONTROL_BASE } from '@shared/exclusive-control'
+import { handleExclusiveControlRequest } from './exclusive-routes'
 import { captureTerminalScreenshot } from './terminal-screenshot'
 import { streamTerminal, closeTerminalStreams } from './terminal-stream'
 import * as mcpAuth from './auth'
@@ -459,6 +461,30 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   try {
     if (req.method === 'GET' && url.pathname === '/api/health') {
       return sendJson(res, 200, { success: true, data: { status: 'ok' } })
+    }
+
+    // Pet 托管控制族不进 API_ROUTES / stdio MCP，普通 MCP 权限不能冒充 aipet host。
+    // 凭据与快照读规则见 exclusive-routes.ts。
+    if (url.pathname.startsWith(EXCLUSIVE_CONTROL_BASE)) {
+      if (!binding) {
+        // health 之外的路由到这里必有 binding；独占族额外要求凭据（不做匿名只读）
+        auditMcpOperation({ operation: 'exclusive_control', capability: 'auth', allowed: false, reason: 'invalid token' })
+        return sendJson(res, 401, { success: false, error: 'Unauthorized' })
+      }
+      handleExclusiveControlRequest(req, url, binding).then(
+        (result) => {
+          if (result === null) return sendJson(res, 404, { success: false, error: 'Not found' })
+          const body = result.body as { ok?: boolean; error?: string }
+          // 控制族自带 ok/code 语义；这里再套上 LyShell API 的 success 信封（data 原样带回）
+          if (result.status >= 400 || body.ok === false) {
+            sendJson(res, result.status, { success: false, error: body.error ?? 'Exclusive control refused the request', data: result.body })
+            return
+          }
+          sendJson(res, result.status, { success: true, data: result.body })
+        },
+        (err: unknown) => sendJson(res, 500, { success: false, error: (err as Error).message })
+      )
+      return
     }
     if (req.method === 'GET' && url.pathname === '/api/tools') {
       const settings = getMcpSecuritySettings()

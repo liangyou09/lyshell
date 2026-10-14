@@ -8,6 +8,12 @@ import { pluginOverlayIds, pluginWebOwner } from '@shared/plugin-web-resources'
 import { usePluginStore } from './plugin-store'
 
 /**
+ * dsh Web 单例 overlay 的 payload 形状（S4 起含共享工作台详情态）。
+ * 从共享判别联合里取出来，避免 store 里再抄一份字段表。
+ */
+export type DshWebOverlayInfo = Extract<OverlayPayload, { kind: 'dshWeb' }>
+
+/**
  * 分屏状态管理 —— 归一化覆盖层模型
  *
  * 「占据 pane 的东西」共五种：终端会话 + 四种覆盖层（web / doc / dshWeb / mcpAudit）。
@@ -202,7 +208,9 @@ interface PaneStore {
   // ===== 有独立语义/生产调用者的种类入口（纯委托门面已删，直接用上方通用操作） =====
   openMcpAuditInPane: (paneId: string) => void
   closeMcpAudit: () => void
-  openDshWebInPane: (paneId: string, info: { url: string; name: string; cwd?: string }) => void
+  openDshWebInPane: (paneId: string, info: DshWebOverlayInfo) => void
+  /** S4：共享工作台详情态刷新（只读控制态 / Pet 目标会话 / 导航结果），原位改 payload 不重挂 webview */
+  updateDshWebInPane: (id: string, patch: Partial<DshWebOverlayInfo>) => void
   // opts.background：弹窗修饰键转发（中键/Ctrl+点击）的后台页签语义 —— 挂载不激活，
   // 不抢焦点；用户留在原 pane 原页签
   openWebTab: (rawUrl: string, paneId?: string, opts?: { background?: boolean; postToken?: string; ownerPluginId?: string }) => { ok: true } | { ok: false; error: string }
@@ -1060,10 +1068,23 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
 
   // dsh Web UI 页签（单例）：打开时指定承载 pane；空 paneId 回落首个叶子 pane。
   // 打开即激活；切到终端标签走 deactivate（隐藏但保留 webview 与子进程），✕ 走 close（真正回收）
+  // S4：同一单例 id ⇒ 重复打开（含 Pet 详情重复下发）只复用这一个页签，src 不变则 webview 不重载。
   openDshWebInPane: (paneId, info) => {
     const target = paneId || get().getAllLeafPanes()[0]?.id
     if (!target) return
-    get().mountOverlay(target, { kind: 'dshWeb', ...info })
+    // info 已含 kind（DshWebOverlayInfo）：显式展开，不要把 kind 再写一遍（会覆盖调用方字段）
+    get().mountOverlay(target, info)
+  },
+
+  // S4：只读态刷新只改 payload 字段（url 不变 ⇒ React 不动 webview 的 src 属性 ⇒ 不重载、不 restart）
+  updateDshWebInPane: (id, patch) => {
+    const st = get()
+    const payload = st.overlayPayloads[id]
+    if (!payload || payload.kind !== 'dshWeb') return
+    // 同值短路：避免每秒轮询都换 payload 引用，触发无谓重渲染
+    const changed = Object.entries(patch).some(([key, value]) => (payload as Record<string, unknown>)[key] !== value)
+    if (!changed) return
+    set({ overlayPayloads: { ...st.overlayPayloads, [id]: { ...payload, ...patch } } })
   },
 
   // ===== 网页页签（多开，插件面板 URL 栏 / 终端 Ctrl+点击 URL 入口） =====

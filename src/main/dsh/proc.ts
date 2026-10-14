@@ -43,6 +43,34 @@ export function buildDshWebCmdline(
   return [command, ...args].join(' ')
 }
 
+/**
+ * 实际 spawn 用的 argv —— 托管路径会在 `web` **之后**、**第一个 app flag 之前**插入
+ * `--patch <绝对路径>`：
+ *
+ *   dsh web --patch <abs> --port 0 --no-open
+ *
+ * 顺序是**启动可行性约束**，不是风格问题（contract §13，P4 真实启动实测）：
+ *   根 Command 同时开 allowUnknownOption + passThroughOptions，commander 遇到第一个本命令
+ *   不认识的选项就把该 token 及其后所有 token 原样交给 app（`commander/lib/command.js:1866-1900`）。
+ *   `--port`/`--no-open` 属于 web app ⇒ 从 `--port` 起整段变 app args。若 `--patch` 落在
+ *   `--port` 之后，app 自己的 commander（无 allowUnknownOption）报 `unknown option '--patch'`
+ *   ⇒ exit 1，宿主半从未 apply。`--patch` 是启动器选项，必须先被启动器消费。
+ *
+ * 无 patch 时原样返回 DSH_WEB_SPAWN_ARGS（既有行为不变）。
+ */
+export function buildDshWebSpawnArgs(patchFile?: string | null): string[] {
+  if (!patchFile) return [...DSH_WEB_SPAWN_ARGS]
+  return ['web', '--patch', patchFile, '--port', '0', '--no-open']
+}
+
+/**
+ * 是否**命中清扫签名**的 argv 形态（matcher 只认四项判据，不看 `--patch` 位置）。
+ * 导出让「真实 spawn 形态仍被 matcher 命中」这条断言在测试里可直接引用同一份常量。
+ */
+export function isLyShellDshWebArgs(args: readonly string[]): boolean {
+  return isLyShellDshWebCmdline(buildDshWebCmdline(DSH_WEB_COMMAND, args))
+}
+
 /** 进程表一行。name/cmdline 来自 Win32_Process（或 ps 的 comm/args）；cmdline 可能为 null（受保护进程）。 */
 export interface ProcInfo {
   pid: number

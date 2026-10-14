@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import SessionsPanel from './SessionsPanel'
@@ -22,6 +22,8 @@ import SettingsPanel from './SettingsPanel'
 import { useSessionStore } from '../../stores/session-store'
 import { useTerminalStore } from '../../stores/terminal-store'
 import { usePaneStore, findPane } from '../../stores/pane-store'
+import { DSH_WEB_OVERLAY_ID } from '../../stores/overlay-kinds'
+import { createWorkbenchDetailController, setWorkbenchDetailController } from '../../stores/workbench-detail'
 import { useThemeStore } from '../../stores/theme-store'
 import { useLocaleStore } from '../../stores/locale-store'
 import { useQuickCommandsStore } from '../../stores/quick-commands-store'
@@ -909,7 +911,7 @@ const MainWindow: React.FC = () => {
       // cwd 回传仅用于页签 tooltip 标注运行目录（PaneTabBar 读 dshWeb.cwd）。页签名优先取调用方给的名字，
       // 否则回落常量 —— 默认目录 $DSH_HOME/web 的基名只是 "web"，不适合直接当页签名。
       const cwd = res.cwd as string | undefined
-      const info = { url: res.url as string, name: name ?? 'DeepSeek Harness', cwd }
+      const info = { kind: 'dshWeb' as const, url: res.url as string, name: name ?? 'DeepSeek Harness', cwd }
       openDshWebInPane(paneLayout.activePaneId, info)
       return { success: true as const }
     } catch (err) {
@@ -917,6 +919,80 @@ const MainWindow: React.FC = () => {
       return { success: false as const, error: err instanceof Error ? err.message : undefined }
     }
   }, [])
+
+  // ===== 共享工作台详情（Pet 绑定期间） =====
+  // 详情经**现有 dshWeb 单例 overlay** 打开**同一后台**官方 Web（acquire 复用，不 restart）。
+  // 身份记账（已应用 / 已关闭 / 在飞 / 代际）全在 stores/workbench-detail：
+  // 那一面还有第二个调用方 —— PaneView 里的连接状态条（它才知道用户何时关了页签、相位何时变 free）。
+  const workbenchDetail = useMemo(
+    () =>
+      createWorkbenchDetailController({
+        openDetail: (target) => {
+          const api = window.electronAPI
+          if (!api?.openDshWebDetail) return Promise.resolve({ success: false, error: 'detail IPC unavailable' })
+          return api.openDshWebDetail(target)
+        },
+        findTab: () => {
+          const existing = usePaneStore.getState().getOverlayByKind('dshWeb')
+          return existing && existing.ref.id === DSH_WEB_OVERLAY_ID ? { id: existing.ref.id } : null
+        },
+        patchTab: (id, patch) => usePaneStore.getState().updateDshWebInPane(id, patch),
+        mountTab: (payload) => {
+          const { openDshWebInPane, layout } = usePaneStore.getState()
+          openDshWebInPane(layout.activePaneId, payload)
+        }
+      }),
+    []
+  )
+
+  const ensureWorkbenchDetail = useCallback(
+    (target: { key: string | null; sessionId: string | null }): Promise<void> => workbenchDetail.ensure(target),
+    [workbenchDetail]
+  )
+
+  // 把这块记账暴露给连接状态条（PaneView 里的 dshWeb overlay）：
+  // 它才知道用户何时关了页签、相位何时离开 held。卸载时撤销，避免指向已废弃的实例。
+  useEffect(() => {
+    setWorkbenchDetailController(workbenchDetail)
+    return () => setWorkbenchDetailController(null)
+  }, [workbenchDetail])
+
+  // 详情面推送（主进程在**真实控制状态变化**时发；同一身份不重发）：
+  // 据此打开/复用单页签。身份没变 ⇒ 无动作，用户浏览历史不受影响。
+  useEffect(() => {
+    const api = window.electronAPI
+    if (!api?.onDshWebDetailChanged) return
+    return api.onDshWebDetailChanged((payload) => {
+      const detail = payload?.detail
+      if (!detail || !detail.key) {
+        // Pet 绑定已结束：解除关闭记录，Web 继续可操作（详情页签保留，历史/流仍可看）
+        workbenchDetail.release()
+        workbenchDetail.notePhase('free')
+        return
+      }
+      void ensureWorkbenchDetail({ key: detail.key, sessionId: detail.petSessionId ?? null })
+    })
+  }, [ensureWorkbenchDetail, workbenchDetail])
+
+  // 兜底对账（低频）：主进程推送可能先于窗口或订阅挂载。
+  // 只有**真的处于 held 且有目标会话**才开页签；同身份已被用户关掉 ⇒ 不再重开（关闭即关闭）。
+  useEffect(() => {
+    let cancelled = false
+    const timer = window.setInterval(() => {
+      if (cancelled || !window.electronAPI?.getExclusiveSnapshot) return
+      void window.electronAPI.getExclusiveSnapshot().then((res) => {
+        if (cancelled) return
+        const phase = res?.snapshot?.phase ?? 'free'
+        workbenchDetail.notePhase(phase)
+        if (phase !== 'held' && phase !== 'releasing') return
+        const sessionId = res?.detail?.petSessionId ?? res?.snapshot?.viewer?.petSessionId ?? null
+        const key = res?.detail?.key ?? null
+        if (!sessionId || !key) return
+        void ensureWorkbenchDetail({ key, sessionId })
+      }).catch(() => { /* 主进程不可达：状态条会显示明确错误 */ })
+    }, 10_000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [ensureWorkbenchDetail, workbenchDetail])
 
   // 点击会话直接开启终端 —— 本体在 commands/launch.ts(与 /ls 清点文档的行链接
   // open-session 共用同一条链:touch 访问时间 + runtime 克隆连接)

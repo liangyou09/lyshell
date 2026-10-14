@@ -14,7 +14,9 @@ import {
   revokePluginUiToken,
   revokeAllPluginTokens,
   hasPluginUiToken,
-  getPluginUiToken
+  getPluginUiToken,
+  bindDshBridgeToken,
+  revokeDshBridgeToken
 } from './auth'
 
 describe('plugin token (§7 plugin 档)', () => {
@@ -172,5 +174,44 @@ describe('plugin UI token（界面视图凭据，与 host token 并存）', () =
     expect(new Set([hostA, uiA, uiB]).size).toBe(3)
     expect(resolveToken(uiA)!.pluginId).toBe('plugin-a')
     expect(resolveToken(uiB)!.pluginId).toBe('plugin-b')
+  })
+})
+
+describe('dshBridge token（独占控制专用凭据）', () => {
+  beforeEach(() => {
+    clearAllTokens()
+  })
+
+  it('绑定实例后解析为 dshBridge 并带实例 id；与 plugin/session/global 分表', () => {
+    const bridge = bindDshBridgeToken('inst-1')
+    const plain = bindPluginToken('my-plugin', ['read'])
+    const ui = bindPluginUiToken('my-plugin', ['uiControl'])
+    const binding = resolveToken(bridge)
+    expect(binding).not.toBeNull()
+    expect(binding!.kind).toBe('dshBridge')
+    expect(binding!.dshInstanceId).toBe('inst-1')
+    // 其他三类凭据绝不会被解析成 dshBridge（独占控制要拒绝它们冒充）
+    expect(resolveToken(plain)!.kind).toBe('plugin')
+    expect(resolveToken(ui)!.kind).toBe('plugin')
+    expect(resolveToken(ui)!.tokenSource).toBe('ui')
+  })
+
+  it('重新绑定同一实例使旧凭据失效；撤销后失效', () => {
+    const first = bindDshBridgeToken('inst-1')
+    const second = bindDshBridgeToken('inst-1')
+    expect(resolveToken(first)).toBeNull()
+    expect(resolveToken(second)!.dshInstanceId).toBe('inst-1')
+    revokeDshBridgeToken('inst-1')
+    expect(resolveToken(second)).toBeNull()
+  })
+
+  it('两个实例各自独立（换代不影响另一个）', () => {
+    const a = bindDshBridgeToken('inst-a')
+    const b = bindDshBridgeToken('inst-b')
+    expect(resolveToken(a)!.dshInstanceId).toBe('inst-a')
+    expect(resolveToken(b)!.dshInstanceId).toBe('inst-b')
+    revokeDshBridgeToken('inst-a')
+    expect(resolveToken(a)).toBeNull()
+    expect(resolveToken(b)!.dshInstanceId).toBe('inst-b')
   })
 })

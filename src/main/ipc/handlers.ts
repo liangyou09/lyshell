@@ -12,13 +12,13 @@ import { sessionRepository, preferencesRepository, quickCommandsRepository } fro
 import { agentRepository } from '../storage/agent-repository'
 import type { AgentConfig } from '../storage/agent-repository'
 import { dshWebManager } from '../dsh/web'
-import { resolveDshHome } from '../dsh/env'
+import { createDshWebLaunchResolver } from '../dsh/launch-resolve'
 import { readSystemPath } from '../env/refresh'
 import { resolveWorkspaceCwd } from '../harness/cwd'
 import { listWorktreeKeys, resolveLaunchWorktree, validateWorktreeKey } from '../harness/worktree'
-import { createTaskSerializer } from '../harness/task-serializer'
+import { launchResolveSerializer } from '../harness/task-serializer'
 import { detectDependencies } from '../harness/detect'
-import { HARNESS_AGENTS, resolveActiveProfileEnv, resolveWorkspaceEnv } from '../harness/config'
+import { HARNESS_AGENTS, resolveWorkspaceEnv } from '../harness/config'
 import { migrateInlineEnvToProfiles } from '../harness/migrate-env'
 import { migrateKindEnvProfilesToGlobal, migrateProfilesToStructured } from '../harness/migrate-profiles'
 import { resolveAgentLaunchEnv } from '../storage/agent-repository'
@@ -31,6 +31,7 @@ import { findPwshPath, findExplorerShell } from '../connectors/local'
 import { explorerLaunchQueue, validateExplorerDirectory } from '../explorer-launch'
 import { reachabilityProber, type ReachabilityTarget } from '../reachability/reachability-prober'
 import { ConnectionType, isDocPath, DOC_MAX_REMOTE_BYTES, DOC_MAX_LOCAL_BYTES } from '@shared/types'
+import type { ExclusiveWorkbenchDetail } from '@shared/exclusive-control'
 import { TERMINAL_ENCODINGS, DEFAULT_THEME_DARK } from '@shared/constants'
 import type { DocReadResult } from '@shared/types'
 import * as iconv from 'iconv-lite'
@@ -41,6 +42,7 @@ import {
   assertExplorerLaunchConsumer,
   assertConnectionCloneSourceId,
   assertPluginActionRequestId,
+  assertBoolean,
   assertNumber,
   assertObject,
   assertString,
@@ -275,6 +277,17 @@ function sendToAllWindows(channel: string, ...args: any[]): void {
  */
 export function broadcastSessionsChanged(): void {
   sendToAllWindows(IPC_CHANNELS.SESSIONS_CHANGED)
+}
+
+/**
+ * S4：共享工作台**详情面**变化推送（无凭据）。
+ *
+ * 只在详情面身份（phase/epoch/taskId/sessionId）变化时推 —— 用户自己浏览历史不改变身份，
+ * 所以「同一实例同一会话」的重复推送不会把用户从历史里拽回 Pet 任务会话。
+ * `force` 用于详情页签刚打开/渲染层刚重载时的补发：渲染层按身份断言，不会因此重复动作。
+ */
+export function broadcastDshWebDetail(detail: ExclusiveWorkbenchDetail, force = false): void {
+  sendToAllWindows('dsh:web:detail-changed', { detail, force })
 }
 
 /** 禁用/卸载共用：先失效在途动作，再完整断开资源，最后刷新保存项。 */
@@ -2317,7 +2330,9 @@ export function registerIPCHandlers(): void {
   // 命中旧 worktree 迁移 —— 后执行的 move 失败后会把前者已持久化的 key 回滚成 undefined，
   // 甚至返回已被前者迁走的旧路径。锁罩住「锁内重读记录 + resolveLaunchWorktree」全程：
   // 后来者读到前者刚持久化的 key，自然走复用分支。TUI launch 与 dsh web 共用同一实例。
-  const serializeLaunchResolve = createTaskSerializer()
+  // 共享单例（task-serializer.ts）：dsh Web 的启动解析另走 launch-resolve.ts，
+  // 若两边各 createTaskSerializer() 就是两把互不相识的锁，worktree 迁移会互相回滚。
+  const serializeLaunchResolve = launchResolveSerializer
 
   // 遍历 HARNESS_AGENTS 注册通用通道族：<kind>:detect / <kind>:workspace:list|add|update|delete|launch。
   // 三份实例（dsh/codex/claude）共享同一套逻辑，仅通过 runtime 注入差异点：
@@ -2575,26 +2590,20 @@ export function registerIPCHandlers(): void {
   })
 
   // ========== DeepSeek Harness Web UI (dsh 专属) ==========
-  // 启动 Web UI：spawn `dsh web --port 0` + 解析 stdout 端口，返回 URL 供渲染层 <webview> 加载。
-  // Web 仅需 dsh（dsh-tui 是 TUI 前端），model 预设（cordis.patch.yml）是 dsh-tui 专用，这里不写；
-  // env（DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL / DSH_HOME 等）仍注入子进程。
+  // 启动 Web UI：spawn `dsh web [--patch <abs>] --port 0 --no-open` + 解析 stdout 端口，
+  // 返回 URL 供渲染层 <webview> 加载。Web 仅需 dsh（dsh-tui 是 TUI 前端），
+  // model 预设（cordis.patch.yml）是 dsh-tui 专用，这里不写；env 仍注入子进程。
+  //
+  // 启动参数的解析（cwd / 变量组 / DSH_HOME / worktree / 依赖探测）统一走
+  // dsh/launch-resolve.ts —— 托管 acquire 用的是**同一个**服务，禁止在这里再拼一套。
   const dshRuntime = HARNESS_AGENTS.dsh
-  // Web UI 默认工作目录 —— deepseek-harness 自己的专属工作区，与 TUI 工作区解耦。
-  // 取法：$DSH_HOME/web（dsh 未显式设置 DSH_HOME 时回落 ~/.dsh/web），并确保目录存在。
-  // 用 DSH_HOME 下的子目录而非 DSH_HOME 本身：dsh 把 workspaceRoot 取作启动 cwd，
-  // 直接落在 home 会把配置/凭据目录当成 agent 的可写工作区，混进 web 会话里。
-  // 入参 env 已过 normalizeDshHomeEnv（env.DSH_HOME 若在必为绝对路径）；但系统环境变量
-  // DSH_HOME 走不进变量组、从未被校验，故仍要对 home 兜底展开 ~ + 校验绝对路径。
-  const defaultDshWebCwd = (env: Record<string, string> | undefined): string => {
-    const rawHome = env?.DSH_HOME?.trim() || process.env.DSH_HOME?.trim()
-    // 展开 ~ + 校验绝对路径，空白/相对一律回落 ~/.dsh（纯逻辑在 resolveDshHome，见 dsh/env.ts）
-    const home = resolveDshHome(rawHome)
-    const dir = path.join(home, 'web')
-    fs.mkdirSync(dir, { recursive: true })
-    return dir
-  }
-  // Web UI 不绑定任何单个 TUI 工作区：默认在 dsh 自己的专属目录开（workspaceId/cwd 均缺省时），
-  // 传 workspaceId 则沿用该工作区目录 + 三级 env 解析，传 cwd 则直接用该目录（两者互斥，见下方守卫）。
+  const dshLaunchResolver = createDshWebLaunchResolver(dshRuntime, {
+    // 与 TUI 启动共用同一份串行器（见上方 serializeLaunchResolve 的说明）
+    serialize: serializeLaunchResolve
+  })
+  // Web UI 不绑定任何单个 TUI 工作区：默认在 dsh 自己的专属目录开（workspaceId/cwd 均缺省时，
+  // 解析服务落 $DSH_HOME/web），传 workspaceId 则沿用该工作区目录 + 三级 env 解析，
+  // 传 cwd 则直接用该目录（两者互斥，解析服务里同样守卫一次）。
   // TODO: workspaceId/cwd 是前向预留 API —— 渲染层唯一入口 handleNameplate（HarnessPanel.tsx）只传 {}，
   // 两分支尚无调用方可达；若近期不接「按工作区开 Web」，别把这两条判成死分支删掉。
   ipcMain.handle('dsh:web:open', async (_event, target: unknown) => {
@@ -2603,77 +2612,146 @@ export function registerIPCHandlers(): void {
       const workspaceId = safe.workspaceId === undefined ? undefined : assertWorkspaceId(safe.workspaceId)
       const rawCwd = safe.cwd === undefined ? undefined : assertString(safe.cwd, 'target.cwd', { maxLength: 4096 })
 
-      // workspaceId 与 cwd 互斥：同传时目录与 env 语义歧义（目录取工作区还是 cwd？env 取工作区链还是已启用组？），
-      // 明确拒绝而非静默丢 cwd（此前 workspaceId 分支会直接忽略 rawCwd）。
-      if (workspaceId !== undefined && rawCwd !== undefined) {
-        return { success: false, error: 'workspaceId and cwd are mutually exclusive' }
-      }
+      const resolved = await dshLaunchResolver.resolve({ workspaceId, cwd: rawCwd })
+      if (!resolved.ok) return { success: false, error: resolved.error }
 
-      // 启动前复核 dsh 是否仍在 PATH 上（仅 dsh，不依赖 dsh-tui，故只扫 dsh 一个二进制）
-      if (!detectDependencies(['dsh'], readSystemPath() ?? undefined).dsh) {
-        return { success: false, error: 'dsh not installed' }
-      }
-
-      // cwd：工作区 → 显式 cwd → dsh 专属默认目录（$DSH_HOME/web，不存在则建）
-      let envSource: Record<string, string> | undefined
-      let cwdPath: string | undefined
-      if (workspaceId !== undefined) {
-        const workspace = dshRuntime.repository.get(workspaceId)
-        if (!workspace) return { success: false, error: 'Workspace not found' }
-        const cwd = resolveWorkspaceCwd(workspace.cwd)
-        if (!cwd.ok) return { success: false, error: cwd.error }
-        cwdPath = cwd.path
-        // worktree 隔离与 TUI 启动同语义：Web 也在专属 worktree 里跑；key 决策与存量迁移
-        // 同 TUI 启动（resolveLaunchWorktree：共享名优先，缺省生成可读 key 并回填持久化），
-        // 且共用同一串行化器 —— TUI 与 Web 同时启动同一工作区也不会撞迁移
-        if (workspace.isolation === 'worktree') {
-          const wt = await serializeLaunchResolve(`dsh:${workspaceId}`, async () => {
-            const fresh = dshRuntime.repository.get(workspaceId)
-            if (!fresh) return { ok: false as const, error: 'Workspace not found' }
-            return resolveLaunchWorktree(cwd.path, 'dsh', fresh, (key) => dshRuntime.repository.update({ ...fresh, worktreeKey: key }))
-          })
-          if (!wt.ok) return { success: false, error: wt.error }
-          cwdPath = wt.path
-        }
-        // 与 TUI 启动同一份解析结果（绑定组 → 已启用组 → legacy → 系统）
-        envSource = resolveWorkspaceEnv(dshRuntime, workspace)
-      } else {
-        // 无工作区可绑：env 走「全局启用组（按 dsh 映射物化）→ 系统」—— 与 TUI 启动
-        // 同一份解析，结构化核心（baseUrl/apiKey）在此物化成 DEEPSEEK_* 变量名
-        envSource = resolveActiveProfileEnv(dshRuntime)
-        if (rawCwd !== undefined) {
-          const cwd = resolveWorkspaceCwd(rawCwd)
-          if (!cwd.ok) return { success: false, error: cwd.error }
-          cwdPath = cwd.path
+      // S4：托管期间（Pet 托管控制 / 共享工作台详情持有）**绝不**走显式重开 —— open() 会先杀旧实例，
+      // 那会打断 Pet 正在跑的任务。改走 acquire 复用路径（同键复用、异键明确 conflict，不 restart）。
+      const runtime = await import('../dsh/exclusive-runtime')
+      const exclusive = runtime.getExclusiveControl()
+      const managed = dshWebManager.isManaged || (exclusive ? exclusive.isHeld || exclusive.isReleasing : false)
+      if (managed) {
+        const reused = await dshWebManager.acquire((t) => dshLaunchResolver.resolve(t), {
+          target: { workspaceId, cwd: rawCwd }
+        })
+        if (!reused.ok) return { success: false, error: reused.error, code: reused.code }
+        return {
+          success: true,
+          url: reused.url,
+          cwd: reused.identity.cwd,
+          reused: true,
+          // v3：托管绑定只管理 Pet 请求，官方 Web 始终可操作。
+          readOnly: false
         }
       }
 
-      // 先归一化 DSH_HOME（相对/空白兜底），再据其解析默认 cwd —— 否则 defaultDshWebCwd
-      // 会拿到未展开的 ~ 或相对路径，在错误位置 mkdir；失败路径也不会先留一个空目录。
-      const envResult = dshRuntime.normalizeEnv(envSource)
-      if (!envResult.ok) {
-        return { success: false, error: envResult.error }
-      }
-
-      // 默认分支（既无 workspaceId 也无 cwd）才落 $DSH_HOME/web，且必须在 env 归一化之后
-      if (cwdPath === undefined) {
-        cwdPath = defaultDshWebCwd(envResult.env)
-      }
-
-      const result = await dshWebManager.open({ cwd: cwdPath, env: envResult.env })
-      if (!result.ok) return { success: false, error: result.error }
+      // 显式 open：这是「显式重开」语义（会先关旧实例），并尽量带桥启动；
+      // 带桥时握手成功才算 ready（桥包不可用则退回无桥 Web，功能不退化）。
+      const result = await dshWebManager.open({
+        cwd: resolved.launch.cwd,
+        env: resolved.launch.env,
+        launch: resolved.launch,
+        bridge: 'auto'
+      })
+      if (!result.ok) return { success: false, error: result.error, code: result.code }
       // cwd 回传：渲染层用它标注 Web 页签的运行目录（tooltip「正在这个目录跑」）
-      return { success: true, url: result.url, cwd: cwdPath }
+      return { success: true, url: result.url, cwd: resolved.launch.cwd, reused: false, readOnly: false }
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }
   })
 
-  // 关闭 Web UI：回收子进程；渲染层 <webview> 由自身卸载随覆盖层销毁。
+  // 共享工作台详情（S4）：经**现有 dshWeb 单例 overlay** 打开**同一后台**官方 Web。
+  // 只走 acquire 复用路径（绝不 open() 重启），并把 Pet 的会话导航请求冻结成一次 viewer 请求。
+  ipcMain.handle('dsh:web:detail', async (_event, target: unknown) => {
+    try {
+      const safe = assertObject(target ?? {}, 'target')
+      const sessionId = safe.sessionId === undefined ? undefined : assertString(safe.sessionId, 'target.sessionId', { maxLength: 128 })
+      const name = safe.name === undefined ? undefined : assertString(safe.name, 'target.name', { maxLength: 200 })
+      const runtime = await import('../dsh/exclusive-runtime')
+      const detail = await runtime.acquireWorkbenchDetail()
+      if (!detail.ok) return { success: false, error: detail.error, code: detail.code }
+      // 导航请求：同一实例同一会话 ⇒ 复用（跳过），不重发、不 restart；
+      // 迟到（viewer revision 已被用户浏览推进）⇒ 明确报错，不重试、不拽回。
+      let navigation: { ok: boolean; skipped?: boolean; error?: string; code?: string } | null = null
+      if (sessionId) {
+        const nav = await runtime.requestWorkbenchNavigation(sessionId)
+        navigation = nav.ok ? { ok: true, skipped: nav.skipped } : { ok: false, error: nav.error, code: nav.code }
+      }
+      // 详情面补发（force）：页签刚打开/渲染层刚重载时需要一份当前状态，
+      // 即使身份没变也要告知 —— 但渲染层按身份断言，同一身份不会重复动作。
+      const { detail: surface } = runtime.publishWorkbenchDetail(true)
+      broadcastDshWebDetail(surface, true)
+      return {
+        success: true,
+        url: detail.url,
+        cwd: detail.cwd,
+        name,
+        instanceId: detail.instanceId,
+        instanceEpoch: detail.instanceEpoch,
+        reused: detail.reused,
+        readOnly: detail.readOnly,
+        petSessionId: detail.viewer?.petSessionId ?? null,
+        currentSessionId: detail.viewer?.currentSessionId ?? null,
+        viewerRevision: detail.viewer?.revision ?? 0,
+        surface,
+        navigation
+      }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  // 共享工作台导航（用户在 LyShell 侧显式「回到 Pet 任务会话」；不自动、不轮询拽回）。
+  ipcMain.handle('dsh:web:viewer-nav', async (_event, target: unknown) => {
+    try {
+      const safe = assertObject(target ?? {}, 'target')
+      const sessionId = assertString(safe.sessionId, 'target.sessionId', { maxLength: 128 })
+      const runtime = await import('../dsh/exclusive-runtime')
+      const nav = await runtime.requestWorkbenchNavigation(sessionId)
+      if (!nav.ok) return { success: false, error: nav.error, code: nav.code }
+      return {
+        success: true,
+        skipped: nav.skipped,
+        currentSessionId: nav.viewer?.currentSessionId ?? null,
+        requestId: nav.viewer?.request?.requestId ?? null,
+        revision: nav.viewer?.request?.revision ?? nav.viewer?.revision ?? 0
+      }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  // 关闭 Web UI：默认回收子进程（渲染层 <webview> 由自身卸载随覆盖层销毁）。
+  //   - `target.detach === true`（共享工作台详情页签）：**只 detach 视图** —— 解绑详情 keep-alive
+  //     与租约，绝不杀共享后台（Pet 的任务还在跑；退出仍走 closeForQuit 的原 Job 树回收）。
+  //   - 托管期间（Pet 托管控制持有）：同样不杀，明确告诉渲染层这次只解绑了视图。
   // 等树杀落定再回：渲染层拿这个时机更新页签状态，回早了用户切回来还撞着写锁。
-  ipcMain.handle('dsh:web:close', async () => {
+  ipcMain.handle('dsh:web:close', async (_event, target: unknown) => {
+    const safe = assertObject(target ?? {}, 'target')
+    const detach = safe.detach === undefined ? false : assertBoolean(safe.detach, 'target.detach')
+    if (detach) {
+      const runtime = await import('../dsh/exclusive-runtime')
+      runtime.releaseWorkbenchDetail()
+      return { success: true, detached: true, killed: false }
+    }
+    if (dshWebManager.isManaged) {
+      log.info('[dsh web] close requested while managed; view detached, shared backend kept')
+      return { success: true, detached: true, killed: false, reason: 'managed' }
+    }
     await dshWebManager.close()
-    return { success: true }
+    return { success: true, detached: false, killed: true }
+  })
+
+  // Pet 托管控制只读快照（渲染层用；**不含凭据**）：共享工作台页签据此标注「由 PetLink 控制，仅可查看」
+  // 并提供「回到 Pet 任务会话」入口。桥不可达时如实报错，不用旧快照假装一切正常。
+  ipcMain.handle('exclusive:snapshot', async () => {
+    try {
+      const runtime = await import('../dsh/exclusive-runtime')
+      const service = runtime.getExclusiveControl()
+      if (!service) return { success: true, snapshot: null }
+      const synced = await runtime.syncExclusiveBridgeState()
+      // 详情面随快照一起回（渲染层挂载时立刻有值），并在身份变化时补推事件 ——
+      // 唯一 payload 断言点在渲染层，这里只负责「如实告知变了」。
+      const { detail, changed } = runtime.publishWorkbenchDetail()
+      if (changed) broadcastDshWebDetail(detail)
+      if (!synced.ok && (service.isHeld || service.isReleasing)) {
+        return { success: false, error: synced.error, code: synced.code, snapshot: service.getSnapshot(), detail }
+      }
+      return { success: true, snapshot: service.getSnapshot(), detail }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
   })
 
   // ========== 网页访问栏（通用网页页签） ==========

@@ -45,3 +45,16 @@ export function createTaskSerializer(): TaskSerializer {
   })
   return serializer
 }
+
+/**
+ * 启动解析的**共享**串行器（全主进程唯一一份）。
+ *
+ * 为什么必须是同一实例：工作区 worktree 的 key 决策与存量迁移（resolveLaunchWorktree）
+ * 是「读记录 → 迁移/持久化」的读改写序列，而它有两个入口 —— TUI 启动（`workspace:launch`）
+ * 与 dsh Web 启动（`dsh:web:open` / 托管 acquire）。两个入口各拿一个 serializer 就等于
+ * 两把互不相识的锁：同一工作区同时开 TUI 与 Web 会同时进入迁移分支，后执行的 move 失败
+ * 后会把前者已持久化的 key 回滚成 undefined。
+ *
+ * 解析服务（dsh/launch-resolve.ts）与 handlers 都从这里取，禁止各自 createTaskSerializer()。
+ */
+export const launchResolveSerializer: TaskSerializer = createTaskSerializer()

@@ -18,13 +18,17 @@
  *             不要求 allowExternalMcpClients（plugin 是内部 host，非外部 client），
  *             不受 settings.allow* 控制（grantedCapabilities 是独立授权）。
  *             插件启用/禁用/卸载时撤销（revokePluginToken，§8.4 三步撤销的第 2 步）。
+ *
+ *   - dshBridge: 历史保留的凭据类型；当前没有生产 bind 调用，也不注入 dsh。
+ *             当前桥使用 dsh/bridge.ts 的 host-only key，与本机 HTTP API token 分离。
+ *             dshBridge 不获得 Pet 写权限或普通 MCP capability；不能以它冒充 aipet host。
  */
 
 import * as crypto from 'crypto'
 import log from 'electron-log'
 import type { McpCapability } from '@shared/api-routes'
 
-export type TokenKind = 'global' | 'session' | 'plugin'
+export type TokenKind = 'global' | 'session' | 'plugin' | 'dshBridge'
 
 export interface TokenBinding {
   kind: TokenKind
@@ -40,6 +44,8 @@ export interface TokenBinding {
    * （兼容既有调用方）。鉴权能力集两者同权，均按 pluginId 路由 grantedCapabilities。
    */
   tokenSource?: 'host' | 'ui'
+  /** 当 kind === 'dshBridge' 时，该凭据绑定的 dsh 实例身份（由 dsh 进程铸造并自报核对） */
+  dshInstanceId?: string
 }
 
 const sessionTokens = new Map<string, string>()  // sessionId -> token
@@ -48,6 +54,8 @@ const pluginTokens = new Map<string, { token: string; capabilities: McpCapabilit
 // 同一插件可同时持有两者，二次 bind 互不覆盖。token 只留在 main，不下发给 renderer/guest/插件宿主。
 const pluginUiTokens = new Map<string, { token: string; capabilities: McpCapability[] }>()  // pluginId -> { token, capabilities }
 let globalToken: string | null = null
+// dshBridge 凭据（每个受控 dsh 实例一条；换代/关闭即撤）
+const dshBridgeTokens = new Map<string, string>()  // instanceId -> token
 
 /**
  * 旋转全局 token —— LyShell 启动时调用。
@@ -110,6 +118,33 @@ export function bindPluginToken(pluginId: string, capabilities: McpCapability[])
 export function revokePluginToken(pluginId: string): void {
   if (pluginTokens.delete(pluginId)) {
     log.info(`[MCP][auth] revoked plugin token for ${pluginId}`)
+    notifyPluginTokenRevoked(pluginId)
+  }
+}
+
+/**
+ * host token 撤销订阅（独占控制用）。
+ * 为什么放这里：撤销发生在 auth（插件宿主/卸载路径），而独占控制要据此立即释放控制权；
+ * 由 auth 提供一个小订阅点，避免 auth 反向 import dsh 模块形成循环。
+ * 只通知**真实发生了撤销**的情况（原本没有 token 不通知）。
+ */
+export type PluginTokenRevokedListener = (pluginId: string) => void
+const pluginTokenRevokedListeners = new Set<PluginTokenRevokedListener>()
+
+export function onPluginTokenRevoked(listener: PluginTokenRevokedListener): () => void {
+  pluginTokenRevokedListeners.add(listener)
+  return () => {
+    pluginTokenRevokedListeners.delete(listener)
+  }
+}
+
+function notifyPluginTokenRevoked(pluginId: string): void {
+  for (const listener of [...pluginTokenRevokedListeners]) {
+    try {
+      listener(pluginId)
+    } catch (err) {
+      log.warn(`[MCP][auth] plugin token revoked listener failed for ${pluginId}:`, err)
+    }
   }
 }
 
@@ -152,13 +187,41 @@ export function revokeAllPluginTokens(pluginId: string): void {
 }
 
 /**
+ * 历史保留的 dshBridge 绑定 API（当前仅测试使用，不在生产启动链注入）。
+ * 绑定 instanceId：实例换代（close/重开/崩溃）后旧凭据立即失效。
+ */
+export function bindDshBridgeToken(instanceId: string): string {
+  revokeDshBridgeToken(instanceId)
+  const token = crypto.randomBytes(32).toString('hex')
+  dshBridgeTokens.set(instanceId, token)
+  // 只记录实例 id，绝不记录 token 本身
+  log.info(`[MCP][auth] bound exclusive-control token for dsh instance ${instanceId}`)
+  return token
+}
+
+/** 撤销某个 dsh 实例的独占控制凭据（实例换代/关闭/无桥时调用）。 */
+export function revokeDshBridgeToken(instanceId: string): void {
+  if (dshBridgeTokens.delete(instanceId)) {
+    log.info(`[MCP][auth] revoked exclusive-control token for dsh instance ${instanceId}`)
+  }
+}
+
+/** 撤销全部 dsh 实例的独占控制凭据（退出路径）。 */
+export function revokeAllDshBridgeTokens(): void {
+  if (dshBridgeTokens.size > 0) dshBridgeTokens.clear()
+}
+
+/**
  * 在 LyShell 退出时清空所有 token。
  */
 export function clearAllTokens(): void {
+  const revokedPlugins = [...pluginTokens.keys()]
   sessionTokens.clear()
   pluginTokens.clear()
   pluginUiTokens.clear()
+  dshBridgeTokens.clear()
   globalToken = null
+  for (const pluginId of revokedPlugins) notifyPluginTokenRevoked(pluginId)
 }
 
 /**
@@ -198,6 +261,13 @@ export function resolveToken(token: string | string[] | undefined): TokenBinding
     const expected = Buffer.from(uiToken, 'utf8')
     if (expected.length === candidate.length && crypto.timingSafeEqual(expected, candidate)) {
       return { kind: 'plugin', pluginId, capabilities, tokenSource: 'ui' }
+    }
+  }
+
+  for (const [instanceId, bridgeToken] of dshBridgeTokens) {
+    const expected = Buffer.from(bridgeToken, 'utf8')
+    if (expected.length === candidate.length && crypto.timingSafeEqual(expected, candidate)) {
+      return { kind: 'dshBridge', dshInstanceId: instanceId }
     }
   }
 

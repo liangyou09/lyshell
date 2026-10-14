@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type { WorktreeListResult } from '@shared/worktree'
 import type { SessionConfig, TerminalEncoding, WebTabPopupRequest } from '@shared/types'
+import type { ExclusiveWorkbenchDetail } from '@shared/exclusive-control'
 
 // IPC 通道定义
 const IPC_CHANNELS = {
@@ -124,7 +125,11 @@ const IPC_CHANNELS = {
   DSH_WORKSPACE_LAUNCH: 'dsh:workspace:launch',
   DSH_ENV_DEFAULTS: 'dsh:env:defaults',
   DSH_WEB_OPEN: 'dsh:web:open',
+  DSH_WEB_DETAIL: 'dsh:web:detail',  // S4：共享工作台详情（复用同一后台，不重启）
+  DSH_WEB_VIEWER_NAV: 'dsh:web:viewer-nav',  // S4：冻结 revision 的工作台导航请求
   DSH_WEB_CLOSE: 'dsh:web:close',
+  EXCLUSIVE_SNAPSHOT: 'exclusive:snapshot',  // S4：独占只读快照（无凭据）
+  DSH_WEB_DETAIL_CHANGED: 'dsh:web:detail-changed',  // S4：详情面身份变化推送（无凭据）
 
   // 网页访问栏（通用网页页签）
   WEBBAR_FETCH_FAVICON: 'webbar:fetch-favicon',
@@ -359,7 +364,28 @@ const electronAPI = {
   launchDshWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_LAUNCH, workspaceId),
   getDshEnvDefaults: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_DEFAULTS),
   openDshWeb: (target: { workspaceId?: string; cwd?: string }) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_OPEN, target),
-  closeDshWeb: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_CLOSE),
+  // S4 共享工作台：详情经现有 dshWeb 单例 overlay 打开同一后台官方 Web（acquire 复用，不重启）。
+  // sessionId 是 Pet 正在控制的会话 —— 会冻结成一次 viewer 导航请求（ack 由官方 UI 实际当前会话证明）。
+  openDshWebDetail: (target: { sessionId?: string; name?: string }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_DETAIL, target),
+  // 显式「回到 Pet 任务会话」（新 revision；不会自动拽回，用户浏览历史优先）
+  requestDshWebViewerNav: (target: { sessionId: string }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_VIEWER_NAV, target),
+  // detach:true = 只解绑详情视图，绝不杀共享后台（Pet 的任务还在跑）
+  closeDshWeb: (target?: { detach?: boolean }) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_CLOSE, target ?? {}),
+  // 独占只读快照（无凭据）：共享工作台页签据此显示控制态与「回到 Pet 会话」入口
+  getExclusiveSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.EXCLUSIVE_SNAPSHOT),
+  // S4：详情面变化推送（dsh:web:detail-changed）。唯一触发源是**真实控制状态变化**
+  // （acquire/submit/session 等落在主进程的变更），渲染层据此决定要不要打开/切换到详情页签；
+  // 身份没变就不推 —— 因此用户浏览历史后不会被同一身份的重复推送拽回。
+  onDshWebDetailChanged: (
+    callback: (payload: { detail: ExclusiveWorkbenchDetail; force?: boolean }) => void
+  ) => {
+    const listener = (_event: IpcRendererEvent, payload: unknown) =>
+      callback(payload as { detail: ExclusiveWorkbenchDetail; force?: boolean })
+    ipcRenderer.on(IPC_CHANNELS.DSH_WEB_DETAIL_CHANGED, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.DSH_WEB_DETAIL_CHANGED, listener)
+  },
 
   // 网页访问栏 favicon 代取（主进程限制 http/https + 体积，返回 data URI；渲染层 CSP 不放行远程图）
   fetchFavicon: (url: string): Promise<{ success: true; dataUri: string } | { success: false; error: string }> =>

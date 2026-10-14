@@ -96,5 +96,28 @@ export interface WebTabPopupRequest {
 export type OverlayPayload = { ownerPluginId?: string } & (
   | { kind: 'web'; url: string; title: string; favicon?: string; nav?: WebTabNav; postToken?: string }
   | { kind: 'doc' } & DocOverlayPayload
-  | { kind: 'dshWeb'; url: string; name: string; cwd?: string }
+  | {
+      kind: 'dshWeb'
+      url: string
+      name: string
+      cwd?: string
+      /**
+       * S4 共享工作台详情：Pet 详情经**同一个单例 overlay** 打开**同一个后台**官方 Web。
+       * `detail=true` 时关闭页签只 detach 视图（绝不杀共享后台），并显示只读控制态。
+       */
+      detail?: boolean
+      /** 兼容字段：v3 始终为 false，官方 Web 可操作 */
+      readOnly?: boolean
+      /**
+       * Pet 正在控制的会话（「回到 Pet 任务会话」入口的目标；null = 当前无活动任务）。
+       * 这是**首次挂载**时的已知值；随后由状态条自读主进程快照（viewer.petSessionId）接管 ——
+       * 「官方 UI 当前会话 / 导航是否已落地」不在 payload 里另存一份，避免出现第二个真相源。
+       */
+      petSessionId?: string | null
+      /**
+       * 详情面身份（phase:epoch:taskId:sessionId）。渲染层用它记「这条详情已经落地过」以及
+       * **用户关掉的是哪个身份** —— 同身份不再自动重开（见 stores/workbench-detail）。
+       */
+      workbenchKey?: string | null
+    }
   | { kind: 'mcpAudit' })

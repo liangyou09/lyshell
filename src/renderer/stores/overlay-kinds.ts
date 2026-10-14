@@ -1,4 +1,5 @@
 import type { OverlayKind, OverlayPayload } from '@shared/types'
+import { workbenchDetailLane } from './workbench-detail'
 
 /**
  * 覆盖层种类注册表（store 侧行为表）—— 归一化模型的核心。
@@ -58,7 +59,15 @@ export const OVERLAY_KINDS: Record<OverlayKind, OverlayKindDef> = {
     unmountWhenInactive: false,
     dropAccent: { bg: 'var(--reachable-glow)', border: 'var(--reachable)' },
     dropLabelKey: 'pane.moveWebHere',
-    closeSideEffect: () => { void window.electronAPI?.closeDshWeb?.() }
+    closeSideEffect: (payload) => {
+      // S4：共享工作台详情页签关闭 ⇒ 只 detach 视图（解绑详情 keep-alive/租约），
+      // **绝不**杀共享后台 —— Pet 的任务还在跑，退出仍走原 Job 树回收。
+      const detail = payload.kind === 'dshWeb' && payload.detail === true
+      // 记住「用户关掉的是哪个详情身份」：同身份从此不再被自动重开（只有新身份/新控制轮次才解除）。
+      // 这一步必须在这里做 —— 详情面推送与 10s 兜底对账都不知道用户关过页签。
+      if (detail && payload.kind === 'dshWeb') workbenchDetailLane()?.noteClosed(payload.workbenchKey ?? null)
+      void window.electronAPI?.closeDshWeb?.(detail ? { detach: true } : {})
+    }
   },
   web: {
     singleton: false,

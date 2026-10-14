@@ -325,6 +325,27 @@
     "wsEnvFollowNow": "当前 · {{name}}",
     "wsEnvNone": "还没有变量组 · 启动将使用系统环境变量"
   },
+  "dshWorkbench": {
+    "title": "与 PetLink 共用 Harness",
+    "titleFree": "PetLink 已断开",
+    "held": "官方工作台可以正常输入、新建会话和操作历史会话。",
+    "heldApproval": "Pet 当前任务有操作需要在桌宠确认；官方工作台仍可正常使用。",
+    "releasing": "PetLink 正在断开，官方工作台仍可正常使用。",
+    "released": "官方工作台可以正常使用。",
+    "offline": "无法读取 PetLink 连接状态，请重试连接。",
+    "offlineHint": "PetLink 状态不可用",
+    "retry": "重试连接",
+    "target": "Pet 任务会话：{{id}}",
+    "back": "回到 Pet 任务会话",
+    "backHint": "只在你主动点击时导航；你自己浏览历史不会被自动拽回",
+    "onTarget": "已在该任务会话",
+    "navPending": "导航请求已下发，等待官方界面确认…",
+    "navOk": "已确认到达该任务会话",
+    "navError": "导航未落地：{{reason}}",
+    "navFailed": "官方界面未完成导航，请重试",
+    "navTimeout": "未收到官方界面确认，请重试",
+    "navUnavailable": "当前通道不支持导航请求"
+  },
   "codex": {
     "title": "Codex",
     "detecting": "检测中…",

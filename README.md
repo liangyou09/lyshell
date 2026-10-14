@@ -8,6 +8,8 @@
 
 # 💻 LyShell
 
+This checkout supports a shared official Harness backend with the controlled PetLink plugin. The official workbench stays usable for input, new sessions and history; Pet detail reuses one main-area tab. See the [usage, permission and compatibility guide (Chinese)](docs/petlink-shared-harness.md).
+
 > 🔌 **Your terminal, now AI's terminal too.** LyShell is a Windows terminal with a built-in MCP server — letting Claude Code and other AI clients drive your SSH / Telnet / serial / local PTY sessions directly. Plus a `Ctrl+Shift+P` command palette, AI Harness workspaces with git-worktree isolation (TUI + embedded Web UI), document tabs, in-app web tabs, AI Agent launcher, plugin system, and Python scripting.
 
 **English** | [简体中文](README.zh.md)

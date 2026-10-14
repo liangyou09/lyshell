@@ -29,6 +29,12 @@ files:
 extraResources:
   - from: resources/icons
     to: icons
+  # dsh 双端桥产品包（host 半 index.mjs + client 半 client.js + package.json）。
+  # 必须落在 asar **外**（resources/dsh-bridge）：dsh 是独立 node 进程，按绝对路径装载
+  # `--patch` 里的 insert 行，asar 内部路径它读不到。安装/装载规则：不经用户 dsh profile 安装，
+  # 也不修改已安装 dsh —— 运行期只写一个宿主 owned 的 patch 文件指向这里。
+  - from: resources/dsh-bridge
+    to: dsh-bridge
 
 win:
   target:

@@ -9,8 +9,34 @@ import { readSystemPath } from '../env/refresh'
 import { resolveDshHome } from './env'
 import { attachDshProcessJob, type DshProcessJob } from './windows-job'
 import {
+  BRIDGE_RUNTIME_DIR_NAME,
+  buildLaunchLine,
+  checkBridgeIdentity,
+  locateBridgePackage,
+  prepareBridgeRuntime,
+  quoteWindowsCmdArg,
+  requestBridgeHandshake,
+  UnsafeBridgePathError,
+  type BridgeHandshakeResult,
+  type BridgePackageLocation,
+  type BridgeRuntimePlan,
+  type DshInstanceIdentity
+} from './bridge'
+import {
+  buildChildEnv,
+  describeLaunch,
+  fingerprintLaunchConfig,
+  launchConfigParts,
+  launchEnvParts,
+  launchInstanceKey,
+  materializeLaunchEnv,
+  type DshWebLaunchResolveResult,
+  type DshWebLaunchTarget,
+  type ResolvedDshWebLaunch
+} from './launch-resolve'
+import {
   DSH_WEB_COMMAND,
-  DSH_WEB_SPAWN_ARGS,
+  buildDshWebSpawnArgs,
   killPidTree,
   collectDescendantPids,
   findOrphanDshWebPids,
@@ -64,9 +90,70 @@ const IDENTITY_LOOKUP_BUDGET_MS = 1200
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
+/**
+ * 失败分类 —— 供托管 acquire 映射到协议错误码（`instance/no-bridge` 501 / `instance/unavailable` 503 …）。
+ * `superseded`/`starting` 只在管理器内部出现，不映射到「需要用户重启」的语义。
+ */
+export type DshWebFailureCode = 'no-bridge' | 'unavailable' | 'superseded' | 'managed'
+
 export type DshWebLaunchResult =
   | { ok: true; url: string }
-  | { ok: false; error: string }
+  | { ok: false; error: string; code?: DshWebFailureCode }
+
+/**
+ * 桥装载模式：
+ *   - `auto`（显式 open 的默认）：桥包可用就带桥启动**且必须握手成功**才算 ready；
+ *     桥包不可用（开发环境未随包、路径不安全）则照旧不开桥 —— Web UI 功能不退化。
+ *   - `required`（托管 acquire）：桥不可用/握手失败一律失败（`no-bridge`），**绝不**降级成
+ *     一个没有桥的实例。
+ *   - `off`：显式不要桥（诊断/回归用）。
+ */
+export type DshBridgeMode = 'auto' | 'required' | 'off'
+
+export interface DshWebOpenOptions {
+  cwd: string
+  env?: Record<string, string>
+  bridge?: DshBridgeMode
+  /** 已解析的启动目标：用于「同键」判据与冲突报错；缺省时按 cwd/env 现算一个等价键 */
+  launch?: ResolvedDshWebLaunch
+}
+
+/** 管理器对外可注入的边界（测试与打包态区分）；生产走 defaultDshWebManagerDeps()。 */
+export interface DshWebManagerDeps {
+  /** 定位随包发布的桥包；null ⇒ 无桥 */
+  locateBridge?: () => BridgePackageLocation | null
+  /** 准备宿主 owned 运行资源（确定性 patch 文件 + 运行期随机 host-only key） */
+  prepareBridge?: (opts: {
+    cwd: string
+    runtimeDir: string
+    location: BridgePackageLocation
+  }) => BridgeRuntimePlan
+  /** 桥握手（host-only；真实实现是回环 HTTP + 内存 cookie） */
+  handshake?: (opts: { origin: string; cookie: string | null; key: string }) => Promise<BridgeHandshakeResult>
+  /** 宿主 owned 运行目录（userData 下；绝不写进 DSH_HOME / 工作区） */
+  bridgeRuntimeDir?: () => string
+}
+
+/**
+ * 生产默认边界。**没有真实 Electron app 就不启用桥**：桥包的定位依赖安装布局
+ * （`app.isPackaged` + `process.resourcesPath` / `app.getAppPath()`），拿不到这些事实时
+ * 只能判「无桥」—— 而不是猜一个路径。单测因此天然走无桥分支，可用构造参数注入假边界。
+ */
+export function defaultDshWebManagerDeps(): DshWebManagerDeps {
+  return {
+    locateBridge: () => {
+      if (typeof app?.isPackaged !== 'boolean') return null
+      return locateBridgePackage({
+        isPackaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+        devRoot: app.getAppPath()
+      })
+    },
+    prepareBridge: prepareBridgeRuntime,
+    handshake: (opts) => requestBridgeHandshake({ origin: opts.origin, cookie: opts.cookie, key: opts.key }),
+    bridgeRuntimeDir: () => join(app.getPath('userData'), BRIDGE_RUNTIME_DIR_NAME)
+  }
+}
 
 /** 从 dsh stdout 的 ready 行解析回显 URL（未校验）。纯函数，便于单测；无匹配返回 null。 */
 export function parseReadyUrl(stdout: string): string | null {
@@ -204,6 +291,91 @@ export function parseSetCookieEntry(header: string): ParsedCookie | null {
   return { name, value, path, httpOnly, sameSite, ...(maxAge !== undefined ? { maxAge } : {}) }
 }
 
+/**
+ * 从**最终 childEnv** 取 cmd.exe：Windows 上大小写无关（ComSpec / COMSPEC / comspec 同名），
+ * 且必须在 overrides 合入之后取 —— 否则命令行用的 shell 与子进程 env 里的 ComSpec 可以不一致。
+ */
+export function comSpecFromEnv(env: Record<string, string | undefined>): string | undefined {
+  for (const [name, value] of Object.entries(env)) {
+    if (name.toLowerCase() === 'comspec') {
+      const trimmed = typeof value === 'string' ? value.trim() : ''
+      if (trimmed) return trimmed
+    }
+  }
+  return undefined
+}
+
+/**
+ * 缺省解析结果下的等价启动键（显式 open 没走解析服务时用）。
+ * env 参与摘要但**不回显** —— 与解析服务同一份 fingerprintLaunchConfig（加盐），
+ * 并且同样把**实际启动环境快照**计入：否则「解析出来的键」与「直接 open 出来的键」
+ * 会在系统 PATH 变化时各算各的，同一个后台被判成两个配置。
+ */
+function synthesizeLaunch(cwd: string, env?: Record<string, string>): ResolvedDshWebLaunch {
+  const launchEnv = materializeLaunchEnv({
+    base: { ...process.env },
+    systemPath: readSystemPath(),
+    overrides: env
+  })
+  const dshHome = resolveDshHome(env?.DSH_HOME ?? process.env.DSH_HOME)
+  return {
+    workspaceId: null,
+    cwd,
+    env,
+    dshHome,
+    launchEnv,
+    configFingerprint: fingerprintLaunchConfig([
+      ...launchConfigParts({ workspaceId: '', cwd, dshHome, env }),
+      ...launchEnvParts(launchEnv)
+    ]),
+    envKeyCount: env ? Object.keys(env).length : 0
+  }
+}
+
+/** 托管 acquire 的错误码：与 protocol-v1.ts §2 的错误码同名，S3 直接映射到 HTTP 状态。 */
+export type DshAcquireErrorCode =
+  | 'bad-request'
+  | 'workspace-not-found'
+  | 'invalid-cwd'
+  | 'env-invalid'
+  | 'dsh-missing'
+  | 'instance/conflict'
+  | 'instance/no-bridge'
+  | 'instance/starting'
+  | 'instance/unavailable'
+
+/** 冲突/无桥时报给调用方的**当前实例权威值**（只有 id 与路径，没有 env 键值、没有凭据）。 */
+export interface DshInstanceAuthoritativeView {
+  workspaceId: string | null
+  cwd: string
+  dshHome: string
+  envKeyCount: number
+}
+
+export type DshEnsureResult =
+  | {
+      ok: true
+      /** true = 复用了既有实例（此路径**没有**调用 open()，也就没有 kill 旧进程） */
+      reused: boolean
+      url: string
+      identity: DshInstanceIdentity
+      bindingId?: string
+    }
+  | {
+      ok: false
+      code: DshAcquireErrorCode
+      error: string
+      /** 明示当前实例的权威值，便于调用方判断是「要显式重开」还是「请求错了」 */
+      current?: DshInstanceAuthoritativeView
+    }
+
+export type DshReleaseResult =
+  | { released: true; backendStopped: false }
+  | { released: false; code: 'auth/epoch-stale' | 'auth/binding-not-owned' | 'instance/unavailable'; error: string }
+
+/** 目标 → 启动参数解析（由 dsh/launch-resolve.ts 提供；open 与 acquire 共用同一实现）。 */
+export type DshWebTargetResolver = (target: DshWebLaunchTarget) => Promise<DshWebLaunchResolveResult>
+
 export class DshWebManager {
   private child: ChildProcess | null = null
   private url: string | null = null
@@ -257,6 +429,59 @@ export class DshWebManager {
    */
   private readonly sessionStartedAt = Date.now()
 
+  /** 可注入边界（桥定位/准备/握手、宿主运行目录）；不传即生产默认。 */
+  private readonly deps: DshWebManagerDeps
+
+  /**
+   * 当前**已就绪**实例（ready = 子进程活着 **且** 桥握手成功）。
+   * 只有它就是「可以被 acquire 复用的同一实例」；没有它时 acquire 决不调用 open()
+   * （open() 会先杀旧实例 —— 复用路径绝不能走它）。
+   */
+  private readyInstance: {
+    generation: number
+    key: string
+    url: string
+    launch: ResolvedDshWebLaunch
+    identity: DshInstanceIdentity
+    plan: BridgeRuntimePlan | null
+    /** 桥自报的Pet 托管控制回环端口（0/缺省 = 本桥没有控制面） */
+    controlPort: number
+  } | null = null
+
+  /**
+   * 正在启动中的实例：`promise` 是**同一个**启动 Promise，同键并发请求全部合并到它，
+   * 异键请求既不排队顶掉它、也不另起一个（明确 `instance/starting`）。
+   */
+  private starting: {
+    key: string
+    promise: Promise<DshEnsureResult>
+    /** 本次启动的目标（合并请求要拿它重试，不能靠猜当前实例） */
+    launch: ResolvedDshWebLaunch
+    currentView: DshInstanceAuthoritativeView
+  } | null = null
+
+  /**
+   * 运行中实例的启动键（**即使没有桥**也登记）：用于把「运行中但无桥」与「运行中且键不同」
+   * 分开 —— 前者明确 `instance/no-bridge`（不自动重启），后者明确 `instance/conflict`。
+   */
+  private runningLaunch: { key: string; launch: ResolvedDshWebLaunch } | null = null
+
+  /**
+   * 租约（bindingId → 该绑定看到的实例身份）。`release` 只解绑，**绝不** kill 共享后台；
+   * epoch 在实例换代后失效（旧 epoch 的 release / 迟到回执一律拒绝）。
+   */
+  private readonly leases = new Map<string, { instanceId: string; instanceEpoch: number; key: string }>()
+
+  /**
+   * 托管 keep-alive 持有者（S4）：只要有持有者，就不允许通过 close()/open() 关闭或重启
+   * 这个共享后台。持有者是具名集合（幂等），解绑只影响这一个名字。
+   */
+  private readonly backendHolders = new Set<string>()
+
+  constructor(deps: DshWebManagerDeps = defaultDshWebManagerDeps()) {
+    this.deps = deps
+  }
+
   get running(): boolean {
     return this.child !== null
   }
@@ -265,8 +490,69 @@ export class DshWebManager {
     return this.url
   }
 
-  /** 启动 `dsh web --port 0`，解析 stdout 拿 URL；已运行则先关闭旧的（同一时刻至多一个 web 实例）。 */
-  async open(opts: { cwd: string; env?: Record<string, string> }): Promise<DshWebLaunchResult> {
+  /** 当前就绪实例的身份（未就绪返回 null）。凭据与 env 值都不在这里。 */
+  get instanceIdentity(): DshInstanceIdentity | null {
+    return this.readyInstance ? { ...this.readyInstance.identity } : null
+  }
+
+  /**
+   * 桥的Pet 托管控制端点（回环端口 + host-only key，**只内存**）。
+   * 未就绪/旧版桥（没报 controlPort）返回 null ⇒ Pet 托管控制明确报 bridge/unavailable，不降级。
+   */
+  get bridgeControlEndpoint(): { port: number; key: string } | null {
+    const ready = this.readyInstance
+    if (!ready || !this.child || !ready.plan) return null
+    if (!ready.controlPort) return null
+    return { port: ready.controlPort, key: ready.plan.key }
+  }
+
+  /** 是否有任何租约持有该后台（页签关闭/释放判定用；S4 会读它）。 */
+  get leaseCount(): number {
+    return this.leases.size
+  }
+
+  /**
+   * 托管 keep-alive 持有者（宿主模块登记的「这条后台有活的任务/视图在用它」）。
+   *
+   * S4 语义：只要还有持有者，`close()` / `dsh:web:open` 都**不得**杀这个共享后台 ——
+   * 关闭详情 overlay 只 detach 视图，显式重开也会被明确拒绝（官方 Web 写操作保持可用）。
+   * 退出路径不受影响：`closeForQuit` 仍走原 Job/进程树回收。
+   */
+  retainBackend(holderId: string): void {
+    if (!holderId) return
+    this.backendHolders.add(holderId)
+  }
+
+  /** 解除一个 keep-alive 持有者（只解绑，绝不 kill）。 */
+  unretainBackend(holderId: string): void {
+    this.backendHolders.delete(holderId)
+  }
+
+  /** 当前是否有托管持有者（Pet 托管控制 / 共享工作台详情）。 */
+  get isManaged(): boolean {
+    return this.backendHolders.size > 0
+  }
+
+  /** 当前 keep-alive 持有者快照（诊断/测试；不含凭据）。 */
+  managedHolders(): string[] {
+    return [...this.backendHolders]
+  }
+
+  /**
+   * 启动 `dsh web [--patch <abs>] --port 0 --no-open`，解析 stdout 拿 URL；
+   * 已运行则先关闭旧的（同一时刻至多一个 web 实例）—— 这是**显式重开**语义，
+   * 复用路径（ensure/acquire）绝不走它。
+   *
+   * 带桥启动时：**bridge handshake 成功之后**才 resolve `{ok:true}`；任何失败路径都会
+   * 清掉启动登记、临时 patch 与内存凭据，不留「假 ready」。
+   */
+  async open(opts: DshWebOpenOptions): Promise<DshWebLaunchResult> {
+    // 托管期间（Pet 托管控制 / 共享工作台详情持有）绝不走显式重开：open() 会先杀旧实例，
+    // 那会打断 Pet 正在跑的任务。明确拒绝，调用方改走 acquire 复用路径。
+    if (this.isManaged) {
+      log.warn(`[dsh web] explicit reopen refused while managed by: ${this.managedHolders().join(', ')}`)
+      return { ok: false, error: 'the shared dsh web backend is under PetLink control; reopen it after control is released', code: 'managed' }
+    }
     // 先推进代际再关闭旧实例：旧进程退出时其 exit/error 回调因 generation 不匹配被忽略，
     // 不会把随后 spawn 的新进程 this.child 清成 null（快速切换工作区导致的孤儿进程根因）。
     const generation = ++this.generation
@@ -281,59 +567,133 @@ export class DshWebManager {
     await sweepOrphanDshWeb()
     await this.clearPendingIfGone()
     if (this.pendingPid !== null) {
-      return { ok: false, error: 'Previous dsh web process is still being cleaned up; try again later' }
+      return { ok: false, error: 'Previous dsh web process is still being cleaned up; try again later', code: 'unavailable' }
     }
     // 这一段 await 期间可能已被顶掉，且顶掉它的**可能是 close() 而不是新的 open()** ——
     // 关窗 / 退出时来一条 close() 请求，若这里不认它，醒来照样 spawn，进程就再没人回收了。
     // 故 close() 也会推进 generation，两种顶替在这里一视同仁。
     if (generation !== this.generation) {
-      return { ok: false, error: 'dsh web open was superseded by a newer request' }
+      return { ok: false, error: 'dsh web open was superseded by a newer request', code: 'superseded' }
     }
+
+    // 桥的隔离运行资源（本次独有的运行目录 + 运行期随机 host-only key）必须在 spawn 之前备好：
+    // key 只经 env 进子进程，patch 只写宿主 owned 目录。任一步失败按模式降级/报错，绝不半开。
+    const bridgeMode: DshBridgeMode = opts.bridge ?? 'auto'
+    let plan: BridgeRuntimePlan | null = null
+    if (bridgeMode !== 'off') {
+      try {
+        const location = this.deps.locateBridge?.() ?? null
+        if (location) {
+          const runtimeDir = this.deps.bridgeRuntimeDir
+            ? this.deps.bridgeRuntimeDir()
+            : join(app.getPath('userData'), BRIDGE_RUNTIME_DIR_NAME)
+          plan = (this.deps.prepareBridge ?? prepareBridgeRuntime)({
+            cwd: opts.cwd,
+            runtimeDir,
+            location
+          })
+        }
+      } catch (error) {
+        // 路径不安全（cmd 元字符）或写盘失败：明确按「桥不可用」处理，绝不带着半成品启动
+        plan = null
+        log.warn('dsh web bridge preparation failed:', (error as Error).message)
+      }
+      if (!plan && bridgeMode === 'required') {
+        return { ok: false, error: 'harness bridge package is unavailable', code: 'no-bridge' }
+      }
+    }
+
+    const onWindows = process.platform === 'win32'
+    let launchCommand = ''
+    let spawnArgs: string[] = []
+    try {
+      spawnArgs = buildDshWebSpawnArgs(plan ? plan.patchFile : null)
+      // Windows 走 cmd.exe /c「整行」，含空格路径必须安全 quote（POSIX 是数组传参，不经 shell）
+      launchCommand = buildLaunchLine(DSH_WEB_COMMAND, spawnArgs, onWindows ? quoteWindowsCmdArg : (a) => a)
+    } catch (error) {
+      plan?.cleanup()
+      const reason = error instanceof UnsafeBridgePathError ? 'bridge patch path is not cmd-safe' : 'failed to build launch command'
+      log.warn('dsh web launch line rejected:', reason)
+      return { ok: false, error: reason, code: 'no-bridge' }
+    }
+
+    // 启动键：同键 = 同一实例配置（workspaceId/cwd/DSH_HOME/有效启动配置摘要）。
+    // 没有解析结果时按 cwd+env 现算一个等价键 —— 显式 open 也能被 acquire 正确判「同键/异键」。
+    const launch: ResolvedDshWebLaunch = opts.launch ?? synthesizeLaunch(opts.cwd, opts.env)
+    const launchKey = launchInstanceKey(launch)
+    // 期望的 DSH_HOME：调用方给了已解析目标就以它为准（与解析服务同一份决定），
+    // 否则按子进程 env 现算 —— 桥自报的 DSH_HOME 必须与这个值一致才算「同一个后台」。
+    const expectedDshHome = opts.launch ? opts.launch.dshHome : resolveDshHome(opts.env?.DSH_HOME ?? process.env.DSH_HOME)
 
     return new Promise<DshWebLaunchResult>((resolve) => {
       let settled = false
-      let readyHandled = false  // 命中 ready 行即刻锁门，不等 exchange 结束才防重入
+      let readyHandled = false  // 命中 ready 行即刻锁门，不等 exchange/handshake 结束才防重入
       let stdoutBuf = ''
       let stderrBuf = ''
+
+      /** 失败路径统一的桥资源回收：删 patch + 丢弃 key（内存），不留半个桥。 */
+      const dropBridge = (): void => {
+        if (!plan) return
+        try {
+          plan.cleanup()
+        } catch (err) {
+          log.warn('dsh web bridge cleanup failed:', (err as Error).message)
+        }
+      }
 
       const finish = (result: DshWebLaunchResult): void => {
         if (settled) return
         settled = true
         clearTimeout(timer)
         if (generation !== this.generation) {
-          // 被更新的 open() 顶掉：不碰 this.url/this.child（那是新一代的指针），
+          // 被更新的 open()/close() 顶掉：不碰 this.url/this.child（那是新一代的指针），
           // 但 promise 必须落定 —— 否则渲染层那个 openDshWeb 会一直挂着
-          resolve({ ok: false, error: 'dsh web open was superseded by a newer request' })
+          dropBridge()
+          resolve({ ok: false, error: 'dsh web open was superseded by a newer request', code: 'superseded' })
           return
         }
         this.url = result.ok ? result.url : null
+        if (!result.ok) {
+          this.runningLaunch = null
+          this.readyInstance = null
+          dropBridge()
+        }
         resolve(result)
       }
 
-      // 即时读取系统 PATH（用户改环境变量后无需重启 app），再叠加工作区 env。
-      const systemPath = readSystemPath()
-      // 复制 process.env 再展开 DSH_HOME 的字面 ~（与 cwd 侧 defaultDshWebCwd 的 resolveDshHome 对齐），
-      // 避免 cwd 已展开而子进程 DSH_HOME 仍是字面 ~ 导致两边目录错位；不直接改 process.env 引用。
-      const baseEnv: Record<string, string | undefined> = { ...process.env }
-      if (systemPath) baseEnv.PATH = systemPath
-      if (baseEnv.DSH_HOME) baseEnv.DSH_HOME = resolveDshHome(baseEnv.DSH_HOME)
+      // 子进程 env 一律取自**解析时冻结的启动环境快照**（没有快照才现算），
+      // 不再二次读 process.env / 系统 PATH —— 否则摘要里的配置与实际启动环境会漂移。
+      const launchEnv = launch.launchEnv ?? materializeLaunchEnv({
+        base: { ...process.env },
+        systemPath: readSystemPath(),
+        overrides: opts.env
+      })
+      const childEnvBase = buildChildEnv(launchEnv, resolveDshHome)
+      // host-only 凭据**最后**注入：工作区 env 里的同名键不能覆盖/伪造它。
+      const bridgeEnv = plan ? plan.childEnv() : undefined
+      const childEnv = bridgeEnv ? { ...childEnvBase, ...bridgeEnv } : childEnvBase
 
       // 出生观察点必须取在 spawn 之前：spawn 到落盘之间进程可能已经死过一轮，取晚了
       // 会把复用进程的出生时刻包进「不晚于记录」的冒充窗口里（见 ownedPids 注释）。
       const spawnedAt = Date.now()
-      const onWindows = process.platform === 'win32'
+      // cmd.exe 取自**最终 childEnv**（含配置 overrides，大小写无关）：否则「决定启动方式的
+      // 环境」与摘要/实际子进程环境可以指向不同的 shell。
+      const comSpec = comSpecFromEnv(childEnv) ?? 'cmd.exe'
       // cmd 先阻塞在 stdin，等主进程把它加入 Job 后才执行 dsh。
       // 这样 dsh/node 不会抢在 AssignProcessToJobObject 前出生并漏出 Job。
-      const launchCommand = `${DSH_WEB_COMMAND} ${DSH_WEB_SPAWN_ARGS.join(' ')}`
-      const child = spawn(onWindows ? (process.env.ComSpec || 'cmd.exe') : DSH_WEB_COMMAND,
-        onWindows ? ['/d', '/s', '/c', `set /p LYSHELL_DSH_GATE= && ${launchCommand}`] : [...DSH_WEB_SPAWN_ARGS], {
+      const child = spawn(onWindows ? comSpec : DSH_WEB_COMMAND,
+        onWindows ? ['/d', '/s', '/c', `set /p LYSHELL_DSH_GATE= && ${launchCommand}`] : spawnArgs, {
         cwd: opts.cwd,
-        env: opts.env ? { ...baseEnv, ...opts.env } : baseEnv,
+        env: childEnv,
         shell: false,
         windowsHide: true,
         stdio: [onWindows ? 'pipe' : 'ignore', 'pipe', 'pipe']
       })
       this.child = child
+      this.runningLaunch = { key: launchKey, launch }
+      // 新实例开始启动：上一代的就绪登记与租约立即作废（旧 epoch 不再可用）。
+      this.readyInstance = null
+      this.leases.clear()
       // 先登记「这个 pid 是本会话的」（值 = 出生观察点，兼作后续归属操作的身份令牌），
       // 再留档 —— 启动恢复可能正并发跑着，这道门保证它绝不会把这个刚 spawn 的进程当成遗留物收掉。
       if (child.pid) this.ownedPids.set(child.pid, spawnedAt)
@@ -398,9 +758,55 @@ export class DshWebManager {
         // 主进程用 raw URL（含 token）发一次请求把 cookie 换进 persist:dshweb 这个 partition
         // 的 cookie jar，再照旧把干净的 origin-only URL 交给渲染层。
         // 注意：exchange 的 http 请求（≤5s）会推迟 ready IPC 的 resolve，但仍在 60s 总超时窗口内。
-        this.exchangeTokenForCookie(raw).finally(() => {
+        void (async () => {
+          const cookie = await this.exchangeTokenForCookie(raw)
+          if (!plan) {
+            finish({ ok: true, url })
+            return
+          }
+          // 带桥启动：**必须完成 host-only 握手**才算 ready —— 否则就是「假 ready」
+          // （后台起来了但没有桥，S3 的任务/审批面根本不存在）。
+          const result = await (this.deps.handshake ?? ((o) =>
+            requestBridgeHandshake({ origin: o.origin, cookie: o.cookie, key: o.key })))({
+            origin: url,
+            cookie,
+            key: plan.key
+          })
+          if (!result.ok) {
+            // 失败：清 patch、丢 key、树杀进程，绝不留登记为「就绪」的实例
+            log.warn(`dsh web bridge handshake failed: ${result.reason}`)
+            void this.enqueueClose().catch((err) => log.warn('dsh web close after bridge failure failed:', err))
+            finish({ ok: false, error: `harness bridge handshake failed: ${result.reason}`, code: 'no-bridge' })
+            return
+          }
+          const identity = checkBridgeIdentity(result.handshake, { cwd: opts.cwd, dshHome: expectedDshHome })
+          if (!identity.ok) {
+            log.warn(`dsh web bridge identity mismatch: ${identity.reason}`)
+            void this.enqueueClose().catch((err) => log.warn('dsh web close after identity mismatch failed:', err))
+            finish({ ok: false, error: `harness bridge identity mismatch: ${identity.reason}`, code: 'no-bridge' })
+            return
+          }
+          if (generation === this.generation) {
+            this.readyInstance = {
+              generation,
+              key: launchKey,
+              url,
+              launch,
+              identity: {
+                instanceId: result.handshake.instanceId,
+                instanceEpoch: result.handshake.instanceEpoch,
+                cwd: result.handshake.cwd,
+                dshHome: result.handshake.dshHome,
+                workspaceId: launch.workspaceId,
+                bridgeLoaded: true,
+                clientBundle: result.handshake.clientBundle
+              },
+              plan,
+              controlPort: result.handshake.controlPort
+            }
+          }
           finish({ ok: true, url })
-        })
+        })()
       })
       // stderr 仅用于失败诊断（保留尾部），不参与 ready 判定
       child.stderr?.setEncoding('utf-8')
@@ -441,6 +847,12 @@ export class DshWebManager {
         if (generation === this.generation) {
           this.child = null
           this.url = null
+          // 实例没了：就绪登记、运行登记与租约一并失效（旧 epoch 的迟到回执不得再被接受）
+          this.readyInstance = null
+          this.runningLaunch = null
+          this.leases.clear()
+          // 托管 keep-alive 持有者随实例消失失效，否则会永久挡住显式重开
+          this.backendHolders.clear()
           if (child.pid) {
             this.releaseOwnedPid(child.pid, spawnedAt)
           }
@@ -461,19 +873,238 @@ export class DshWebManager {
     })
   }
 
-  /** 用 dsh web 的 ready URL（含 ?token=…）做一次 HTTP 请求，把 303 下发的会话 cookie
+  /**
+   * 托管 acquire：**同一实例语义**的唯一入口。
+   *
+   *   - 默认请求（既无 workspaceId 也无 cwd）：复用当前实例（就绪或启动中），
+   *     这样「打开详情」这类无参数调用不会另起一个后台，也不会触发解析副作用；
+   *   - 显式目标：先经解析服务得到启动参数，再走 ensure；
+   *   - 一切失败都带明确错误码（conflict / no-bridge / starting / unavailable），
+   *     **不自动重启**、**不静默切换**工作区或 DSH_HOME。
+   */
+  async acquire(
+    resolve: DshWebTargetResolver,
+    opts: { target?: DshWebLaunchTarget; bindingId?: string } = {}
+  ): Promise<DshEnsureResult> {
+    const target = opts.target
+    const isDefaultTarget = target === undefined || (target.workspaceId === undefined && target.cwd === undefined)
+    if (isDefaultTarget) {
+      // 启动中：默认请求直接并到同一个启动 Promise 上（不解析、不另起）
+      if (this.starting) return this.mergeStarting(opts.bindingId, this.starting.key, this.starting.launch)
+      // 已就绪：按当前实例自己的键 ensure ⇒ 命中「同键复用」分支，不调用 open()
+      if (this.readyInstance) return this.ensure(this.readyInstance.launch, { bindingId: opts.bindingId })
+      // 运行中但无桥：显式 no-bridge（不自动重启）
+      if (this.child && this.runningLaunch) return this.noBridgeResult(this.runningLaunch.launch)
+    }
+    const resolved = await resolve(target ?? {})
+    if (!resolved.ok) return { ok: false, code: resolved.code, error: resolved.error }
+    return this.ensure(resolved.launch, { bindingId: opts.bindingId })
+  }
+
+  /**
+   * ensure：保证「这组启动配置」有一个就绪实例，并返回它的**真实身份**。
+   *
+   *   1. 同键并发 ⇒ 合并到**同一个**启动 Promise（只 spawn 一次）；
+   *   2. 已就绪且同键 ⇒ 直接复用（**不调用 open()** —— open() 会先杀旧实例）；
+   *   3. 已就绪但异键 ⇒ `instance/conflict`（附当前权威值，无副作用）；
+   *   4. 运行中但无桥 ⇒ `instance/no-bridge`（明确不支持，**不自动 restart**）；
+   *   5. 启动中的异键 ⇒ `instance/starting`（不顶掉正在启动的那个）；
+   *   6. 其余 ⇒ 带桥启动，**握手成功才算成功**；失败清理登记/临时 patch/内存凭据后返回错误。
+   */
+  async ensure(launch: ResolvedDshWebLaunch, opts: { bindingId?: string } = {}): Promise<DshEnsureResult> {
+    const key = launchInstanceKey(launch)
+
+    // 1. 启动中：同键合并到同一个启动 Promise（只 spawn 一次），异键明确拒绝（绝不顶掉正在启动的实例）
+    if (this.starting) {
+      if (this.starting.key === key) return this.mergeStarting(opts.bindingId, key, launch)
+      return {
+        ok: false,
+        code: 'instance/starting',
+        error: 'a dsh web instance is already starting with a different launch configuration',
+        current: this.starting.currentView
+      }
+    }
+
+    // 2/3. 已就绪
+    if (this.readyInstance && this.child) {
+      if (this.readyInstance.key === key) {
+        const bindingId = this.registerLease(opts.bindingId, this.readyInstance.identity, key)
+        return {
+          ok: true,
+          reused: true,
+          url: this.readyInstance.url,
+          identity: { ...this.readyInstance.identity },
+          ...(bindingId ? { bindingId } : {})
+        }
+      }
+      return {
+        ok: false,
+        code: 'instance/conflict',
+        error: 'a dsh web instance is already running with a different workspace/cwd/DSH_HOME/launch configuration',
+        current: describeLaunch(this.readyInstance.launch)
+      }
+    }
+
+    // 4. 运行中但还没有桥（老实例、或桥启动失败后残留）：明确不支持，等用户显式重开
+    if (this.child && this.runningLaunch) {
+      if (this.runningLaunch.key === key) return this.noBridgeResult(this.runningLaunch.launch)
+      return {
+        ok: false,
+        code: 'instance/conflict',
+        error: 'a dsh web instance is already running with a different workspace/cwd/DSH_HOME/launch configuration',
+        current: describeLaunch(this.runningLaunch.launch)
+      }
+    }
+
+    // 5. 启动；启动 promise 自己登记自己，落定时只在「还是我这一代」时才清空登记
+    const start = this.startInstance(launch, key, opts)
+    const pending = start.finally(() => {
+      if (this.starting && this.starting.promise === pending) this.starting = null
+    })
+    this.starting = { key, promise: pending, launch, currentView: describeLaunch(launch) }
+    return pending
+  }
+
+  /** 启动一个带桥的实例；失败时登记/临时 patch/内存凭据全部清理，不留「假 ready」。 */
+  private async startInstance(
+    launch: ResolvedDshWebLaunch,
+    key: string,
+    opts: { bindingId?: string }
+  ): Promise<DshEnsureResult> {
+    const result = await this.open({ cwd: launch.cwd, env: launch.env, launch, bridge: 'required' })
+    if (!result.ok) {
+      return {
+        ok: false,
+        code: result.code === 'no-bridge' ? 'instance/no-bridge' : 'instance/unavailable',
+        error: result.error
+      }
+    }
+    const ready = this.readyInstance
+    if (!ready || ready.key !== key) {
+      // 握手成功但登记对不上（被更新的请求顶掉）：不谎报成功，也不复用
+      return { ok: false, code: 'instance/unavailable', error: 'dsh web instance became unavailable during startup' }
+    }
+    const bindingId = this.registerLease(opts.bindingId, ready.identity, key)
+    return {
+      ok: true,
+      reused: false,
+      url: ready.url,
+      identity: { ...ready.identity },
+      ...(bindingId ? { bindingId } : {})
+    }
+  }
+
+  /**
+   * 释放一个绑定：**只解绑**，绝不 kill 共享后台（契约 §12.2 / 决定 12.2）。
+   * 旧 epoch 的 release 一律拒绝（`auth/epoch-stale`），避免旧绑定把新实例的租约解掉。
+   */
+  release(bindingId: string, opts: { instanceEpoch?: number } = {}): DshReleaseResult {
+    const lease = this.leases.get(bindingId)
+    if (!lease) {
+      return { released: false, code: 'auth/binding-not-owned', error: 'no such binding' }
+    }
+    if (opts.instanceEpoch !== undefined && opts.instanceEpoch !== lease.instanceEpoch) {
+      return { released: false, code: 'auth/epoch-stale', error: 'binding belongs to a stale instance epoch' }
+    }
+    this.leases.delete(bindingId)
+    return { released: true, backendStopped: false }
+  }
+
+  /** 当前租约快照（诊断/测试；不含凭据）。 */
+  activeLeases(): Array<{ bindingId: string; instanceId: string; instanceEpoch: number }> {
+    return [...this.leases.entries()].map(([bindingId, lease]) => ({
+      bindingId,
+      instanceId: lease.instanceId,
+      instanceEpoch: lease.instanceEpoch
+    }))
+  }
+
+  /**
+   * 把调用方并到**正在进行的**同键启动上：只等那一个 spawn，绝不另起、绝不顶掉它。
+   *
+   * 关键点：合并的是**启动动作**，不是身份登记。启动 promise 只认「一个实例」，
+   * 但每个 caller 都拿自己的 bindingId 独立登记一条租约并各拿各的返回；
+   * 把首 caller 的 bindingId 转手给后来者，会让后来者 release 掉别人的绑定
+   * （同键重复 acquire 的正确性靠的就是「一 caller 一租约」）。
+   *
+   * await 之后、登记租约之前必须**再核对一次**：这段窗口里 close()/restart 完全可能已经发生，
+   * 那时启动 promise 虽已成功落定，但它描述的那个实例已经没了 —— 此时登记租约就是把旧 epoch
+   * 的绑定发给调用方（随后它 release/审批都会打到已经不存在的实例上）。宁可明确 unavailable。
+   */
+  private async mergeStarting(
+    bindingId: string | undefined,
+    expectedKey: string,
+    launch: ResolvedDshWebLaunch
+  ): Promise<DshEnsureResult> {
+    const inFlight = this.starting
+    // 读到 starting 与真正 await 之间可能已被清空；那说明启动已落定，拿**同一个目标**重新 ensure 一次
+    if (!inFlight || inFlight.key !== expectedKey) return this.ensure(launch, { bindingId })
+    const result = await inFlight.promise
+    // 失败就把原样的错误（含错误码与当前权威值）交给每个 caller —— 不伪造成功、不登记租约
+    if (!result.ok) return result
+    // 成功落定 ≠ 实例还在：close()/新代 open() 会清掉就绪登记、推进代际并作废旧租约。
+    // 判据取「就绪登记仍是同一个实例身份 + 子进程还在 + 键没变」，任一不成立就不再登记。
+    const ready = this.readyInstance
+    const stillCurrent =
+      ready !== null &&
+      this.child !== null &&
+      ready.key === expectedKey &&
+      ready.identity.instanceId === result.identity.instanceId &&
+      ready.identity.instanceEpoch === result.identity.instanceEpoch
+    if (!stillCurrent) {
+      return {
+        ok: false,
+        code: 'instance/unavailable',
+        error: 'dsh web instance was closed or replaced before the merged acquire completed'
+      }
+    }
+    // 必须**覆盖** result 上的 bindingId（首 caller 的那条），否则没带 binding 的后来者会被登记成
+    // 首 caller 的绑定 —— 那正是「共享首 caller 绑定」的错误语义。
+    const binding = this.registerLease(bindingId, result.identity, inFlight.key)
+    return { ...result, bindingId: binding }
+  }
+
+  private noBridgeResult(launch: ResolvedDshWebLaunch): DshEnsureResult {
+    return {
+      ok: false,
+      code: 'instance/no-bridge',
+      error: 'the running dsh web instance has no harness bridge; reopen it explicitly while idle',
+      current: describeLaunch(launch)
+    }
+  }
+
+  private registerLease(
+    bindingId: string | undefined,
+    identity: DshInstanceIdentity,
+    key: string
+  ): string | undefined {
+    if (!bindingId) return undefined
+    this.leases.set(bindingId, {
+      instanceId: identity.instanceId,
+      instanceEpoch: identity.instanceEpoch,
+      key
+    })
+    return bindingId
+  }
+
+  /**
+   * 用 dsh web 的 ready URL（含 ?token=…）做一次 HTTP 请求，把 303 下发的会话 cookie
    *  写进 persist:dshweb 的 partition cookie jar。这样 webview 加载干净 origin URL 时
-   *  浏览器自动带 cookie，鉴权通过。失败静默放行（打一条 warn）：最多回到 401 白页。 */
-  private exchangeTokenForCookie(rawUrl: string): Promise<void> {
+   *  浏览器自动带 cookie，鉴权通过。失败静默放行（打一条 warn）：最多回到 401 白页。
+   *
+   *  返回值 = 这次交换拿到的 `name=value; …` 头（**仅供内存内一次性使用**：桥的 host-only
+   *  握手要带 dsh 自身的鉴权 cookie，而 dsh token 绝不能出现在请求 URL/query 里）。
+   *  该字符串**绝不**进日志、状态或任何返回值。 */
+  private exchangeTokenForCookie(rawUrl: string): Promise<string | null> {
     let parsed: URL
     try {
       parsed = new URL(rawUrl)
     } catch {
-      return Promise.resolve()
+      return Promise.resolve(null)
     }
     const mod = parsed.protocol === 'https:' ? https : http
 
-    return new Promise<void>((resolve) => {
+    return new Promise<string | null>((resolve) => {
       // 传 URL 对象而非手动构造 options：
       // Node 的 urlToHttpOptions 会剥离 IPv6 hostname 的方括号（如 [::1] → ::1），
       // 并补上默认端口 —— 直接用 parsed.hostname 会带方括号，http.request 解不了。
@@ -488,16 +1119,17 @@ export class DshWebManager {
           res.resume()
           const rawCookies = res.headers['set-cookie']
           if (!rawCookies || rawCookies.length === 0) {
-            resolve()
+            resolve(null)
             return
           }
           const entries = (Array.isArray(rawCookies) ? rawCookies : [rawCookies])
             .map(h => parseSetCookieEntry(h))
             .filter((e): e is ParsedCookie => e !== null)
           if (entries.length === 0) {
-            resolve()
+            resolve(null)
             return
           }
+          const header = entries.map((e) => `${e.name}=${e.value}`).join('; ')
           const dshSession = session.fromPartition(DSH_WEB_PARTITION)
           const origin = parsed.origin
           const secure = parsed.protocol === 'https:'
@@ -506,19 +1138,19 @@ export class DshWebManager {
             dshSession.cookies.set(toCookieDetails(e, origin, secure, nowSec))
               .catch(() => { /* 单条写入失败不阻塞其余 */ })
           )).then(
-            () => resolve(),
-            () => resolve()
+            () => resolve(header),
+            () => resolve(header)
           )
         }
       )
       req.on('error', (err) => {
         log.warn('dsh web cookie exchange request failed:', err.message)
-        resolve()
+        resolve(null)
       })
       req.on('timeout', () => {
         req.destroy()
         log.warn('dsh web cookie exchange timed out')
-        resolve()
+        resolve(null)
       })
       req.end()
     })
@@ -541,7 +1173,17 @@ export class DshWebManager {
    * **绝不 reject**（killChildTree 全程吞错）—— 调用方的 .catch 只是保险丝。
    */
   close(): Promise<void> {
+    // S4：托管期间（held/releasing 或详情视图持有）关闭页签只 **detach 视图**，绝不杀共享后台。
+    // 关窗（macOS）也走这里 —— 后台留给正在跑的任务；退出仍走 closeForQuit 的原 Job 树回收。
+    if (this.isManaged) {
+      log.info(`[dsh web] close requested while managed (${this.managedHolders().join(', ')}); view detached, backend kept`)
+      return Promise.resolve()
+    }
     this.generation++
+    this.invalidateInstance()
+    // 显式关闭也作废「正在启动」的登记：旧启动的 open() 会因代际不符返回 superseded，
+    // 之后的 ensure 该起一个新实例，而不是被一个注定失败的启动挡住。
+    this.starting = null
     return this.enqueueClose()
   }
 
@@ -561,8 +1203,32 @@ export class DshWebManager {
     const pid = this.child?.pid ?? this.killingPid ?? this.pendingPid
     this.child = null
     this.url = null
+    this.invalidateInstance()
+    this.starting = null
     if (!pid) return Promise.resolve()
     return this.killChildTree(pid, { deadline })
+  }
+
+  /**
+   * 实例失效：就绪登记、运行登记与全部租约一起作废，并回收桥的宿主 owned 运行资源
+   * （删确定性 patch 文件 + 释放内存里的 host-only key）。
+   *
+   * 这是「旧 epoch 失效」的落点：显式 close/quit 之后，任何按旧身份到达的请求都必须
+   * 被拒（`auth/epoch-stale`），也**不**能污染随后起来的新实例。
+   */
+  private invalidateInstance(): void {
+    const plan = this.readyInstance?.plan ?? null
+    this.readyInstance = null
+    this.runningLaunch = null
+    this.leases.clear()
+    // 实例没了就没有「还在用这条后台」的持有者：留着会永久挡住显式重开（托管死锁）。
+    this.backendHolders.clear()
+    if (!plan) return
+    try {
+      plan.cleanup()
+    } catch (err) {
+      log.warn('dsh web bridge cleanup on close failed:', (err as Error).message)
+    }
   }
 
   /**
@@ -582,6 +1248,9 @@ export class DshWebManager {
       const child = this.child
       this.child = null
       this.url = null
+      // 关闭即失效：就绪登记/租约/桥运行资源在动手树杀之前先作废 —— 任何并发的
+      // acquire 都不会在这段窗口里把「正在被杀的实例」当成可复用的同一实例。
+      this.invalidateInstance()
       if (!child && !this.pendingPid) return
       const pid = child?.pid ?? this.pendingPid
       if (!pid) {

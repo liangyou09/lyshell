@@ -1,0 +1,9 @@
+{
+  "name": "lyshell-harness-bridge",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "exports": { ".": "./index.mjs", "./client": "./client.js" },
+  "dsh": { "client": { "platform": "web" } }
+}

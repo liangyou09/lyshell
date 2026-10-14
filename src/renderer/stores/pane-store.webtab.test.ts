@@ -28,7 +28,7 @@ const leaf = (id: string, sessions: string[], overlays: OverlayRef[] = []): Pane
 
 const layoutOf = (root: PaneNode): PaneLayout => ({ root, activePaneId: root.type === 'leaf' ? root.id : '' })
 
-const WEB_INFO = { url: 'http://127.0.0.1:3080', name: 'dsh web' }
+const WEB_INFO = { kind: 'dshWeb' as const, url: 'http://127.0.0.1:3080', name: 'dsh web' }
 
 const dshRef = (slot: number | null, active = true): OverlayRef =>
   ({ id: DSH_WEB_OVERLAY_ID, kind: 'dshWeb', active, slot })
@@ -45,7 +45,7 @@ const setup = (
 ) => {
   usePaneStore.setState({
     layout: layoutOf(leaf('pane-1', sessions, [dshRef(tabIndex, dshActive)])),
-    overlayPayloads: { [DSH_WEB_OVERLAY_ID]: { kind: 'dshWeb', ...WEB_INFO } },
+    overlayPayloads: { [DSH_WEB_OVERLAY_ID]: WEB_INFO },
     draggingOverlayId: null,
     hiddenTabSessions: {},
     ...extra
@@ -390,7 +390,7 @@ const setupWeb = (
   localStorage.removeItem('lyshell.webTabFavicons.v1')
   const payloads: Record<string, OverlayPayload> = {}
   for (const r of refs) {
-    if (r.id === DSH_WEB_OVERLAY_ID) payloads[r.id] = { kind: 'dshWeb', ...WEB_INFO }
+    if (r.id === DSH_WEB_OVERLAY_ID) payloads[r.id] = WEB_INFO
     else if (r.id === MCP_AUDIT_OVERLAY_ID) payloads[r.id] = { kind: 'mcpAudit' }
   }
   usePaneStore.setState({

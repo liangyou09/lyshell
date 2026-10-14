@@ -9,6 +9,7 @@ import {
   DSH_WEB_COMMAND,
   DSH_WEB_SPAWN_ARGS,
   buildDshWebCmdline,
+  buildDshWebSpawnArgs,
   parseWin32ProcessJson,
   parsePsOutput,
   tokenizeCmdline,
@@ -27,6 +28,7 @@ import {
   type ProcInfo,
   type RecordedPid
 } from './proc'
+import { buildLaunchLine, quoteWindowsCmdArg } from './bridge'
 
 /** 实测抓到的 LyShell spawn 签名（npm shim 把 bin.js 拆成带引号的独立 token） */
 const LYSHELL_DSH_WEB =
@@ -1699,5 +1701,52 @@ describe('pid 留档读写', () => {
       await fsp.rm(path, { recursive: true, force: true })
       await fsp.rm(`${path}.tmp`, { force: true })
     }
+  })
+})
+
+/**
+ * 托管形态 argv（带 `--patch`）必须**仍然命中清扫签名** —— 清扫面不能因为加了桥而失效，
+ * 也不能被放宽（用户手动起的 dsh web 仍不得命中）。
+ * 这里用 bridge.ts 的 Windows quote 规则拼命令行，与 web.ts 实际 spawn 的命令行同源。
+ */
+describe('托管形态 argv（web --patch <abs> …）与孤儿清扫签名', () => {
+  const SPACEY_PATCH = 'C:\\Users\\a b\\AppData\\Roaming\\lyshell\\dsh-bridge-runtime\\lyshell-harness.patch.yml'
+
+  it('buildDshWebSpawnArgs 把 --patch 放在 web 之后、app flag 之前（启动可行性约束）', () => {
+    expect(buildDshWebSpawnArgs()).toEqual(['web', '--port', '0', '--no-open'])
+    expect(buildDshWebSpawnArgs('/tmp/p.patch.yml')).toEqual([
+      'web', '--patch', '/tmp/p.patch.yml', '--port', '0', '--no-open'
+    ])
+    // 位置断言：--patch 的 index 必须小于 --port 的 index（放到 app flag 之后 ⇒ 交给 app ⇒ exit 1）
+    const args = buildDshWebSpawnArgs('/tmp/p.patch.yml')
+    expect(args.indexOf('--patch')).toBeLessThan(args.indexOf('--port'))
+  })
+
+  it('真实 spawn 形态（npm shim：node bin.js web --patch "<含空格路径>" --port 0 --no-open）命中 matcher', () => {
+    const args = buildDshWebSpawnArgs(SPACEY_PATCH)
+    const quoted = buildLaunchLine('node', args, quoteWindowsCmdArg)
+    const real = `"node"   "C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js" ${quoted.replace(/^node /, '')}`
+    // 含空格路径被双引号包裹成一个 token（否则 tokenize 会把路径拆成两截）
+    expect(tokenizeCmdline(real)[4]).toBe(SPACEY_PATCH)
+    expect(isLyShellDshWebCmdline(real)).toBe(true)
+    // 直接按 LyShell 自己拼的命令行（dsh shim 入口 + cmd 安全 quote）也必须命中，
+    // 且含空格路径仍是**单个** token（matcher 只看四项判据，不看 --patch 位置）
+    const shimLine = buildLaunchLine(DSH_WEB_COMMAND, args, quoteWindowsCmdArg)
+    expect(isLyShellDshWebCmdline(shimLine)).toBe(true)
+    expect(tokenizeCmdline(shimLine)).toContain(SPACEY_PATCH)
+  })
+
+  it('用户手动起的实例即使带 --patch 也不命中（清扫面没有被放宽）', () => {
+    const manual =
+      'D:\\software\\nodejs\\node.exe C:\\Users\\u\\AppData\\Roaming\\npm/node_modules/@deepseek-ai/dsh/lib/bin.js ' +
+      'web --patch "C:\\Users\\a b\\p.yml" --no-open --port 18123'
+    expect(isLyShellDshWebCmdline(manual)).toBe(false)
+  })
+
+  it('cmd.exe 整行（set /p gate + && dsh web --patch "…" --port 0 --no-open）里的 argv 仍被识别', () => {
+    const args = buildDshWebSpawnArgs(SPACEY_PATCH)
+    const line = `set /p LYSHELL_DSH_GATE= && ${buildLaunchLine(DSH_WEB_COMMAND, args, quoteWindowsCmdArg)}`
+    expect(isLyShellDshWebCmdline(line)).toBe(true)
+    expect(tokenizeCmdline(line)).toContain(SPACEY_PATCH)
   })
 })
