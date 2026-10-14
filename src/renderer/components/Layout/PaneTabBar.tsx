@@ -145,7 +145,17 @@ type OverlayTabContent = React.FC<{ payload: OverlayPayload }>
 
 const DshWebTabContent: OverlayTabContent = ({ payload }) =>
   payload.kind === 'dshWeb'
-    ? <span className="text-xs truncate flex-1 min-w-0">{payload.name}</span>
+    ? (
+      <span className="text-xs truncate flex-1 min-w-0">
+        {payload.held ? (
+          // 共享中：页签名顶替原先那条状态条的信号。petlink 用 amber 点色
+          // （与状态条 title 同源主题令牌），dsh 沿用页签字色。
+          <>dsh &amp; <span style={{ color: 'var(--amber)' }}>petlink</span></>
+        ) : (
+          payload.name
+        )}
+      </span>
+    )
     : null
 
 const WebTabContent: OverlayTabContent = ({ payload }) => {

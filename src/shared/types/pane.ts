@@ -109,9 +109,16 @@ export type OverlayPayload = { ownerPluginId?: string } & (
       /** 兼容字段：v3 始终为 false，官方 Web 可操作 */
       readOnly?: boolean
       /**
-       * Pet 正在控制的会话（「回到 Pet 任务会话」入口的目标；null = 当前无活动任务）。
-       * 这是**首次挂载**时的已知值；随后由状态条自读主进程快照（viewer.petSessionId）接管 ——
-       * 「官方 UI 当前会话 / 导航是否已落地」不在 payload 里另存一份，避免出现第二个真相源。
+       * PetLink 正占用共享 Harness（权威相位 held/releasing）。
+       * 页签名据此切成 `dsh & petlink`（见 PaneTabBar 的 DshWebTabContent）——
+       * 原先压在 webview 顶上的可见状态条已撤掉，信号收进页签名。
+       */
+      held?: boolean
+      /**
+       * Pet 正在控制的会话（null = 当前无活动任务）。
+       * 这是**首次挂载**时的已知值；随后由无界面轮询（useWorkbenchSnapshot）自读主进程
+       * 快照（viewer.petSessionId）接管 —— 「官方 UI 当前会话 / 导航是否已落地」不在
+       * payload 里另存一份，避免出现第二个真相源。
        */
       petSessionId?: string | null
       /**

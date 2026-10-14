@@ -1,13 +1,12 @@
 import React, { useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { usePaneStore } from '../../stores/pane-store'
-import { workbenchDetailLane } from '../../stores/workbench-detail'
 import { OVERLAY_KINDS } from '../../stores'
 import TerminalView from '../Terminal/TerminalView'
 import CommandScreen from '../CommandScreen/CommandScreen'
 import PaneTabBar from './PaneTabBar'
 import { McpAuditPanel } from './McpAuditPanel'
-import { DshWebWorkbenchStrip } from './DshWebWorkbenchStrip'
+import { useWorkbenchSnapshot } from './useWorkbenchSnapshot'
 import DocTabOverlay from '../DocPanel/DocTabOverlay'
 import SplitDivider from './SplitDivider'
 import { resolveOverlayDragId } from './overlay-drag'
@@ -51,27 +50,15 @@ McpAuditOverlay.displayName = 'McpAuditOverlay'
 
 // dsh Web UI：webview 单例。partition 与主进程 will-attach-webview 分流锁定耦合，勿改
 //
-// S4 共享工作台：Pet 绑定期间在 webview 之上压一条状态条（相位/原因/导航 ack/重试/回到 Pet 会话）。
-// 条仅显示连接状态、Pet 目标与显式导航，v3 官方 Web 始终可输入和操作。
+// S4 共享工作台：Pet 绑定期间的权威相位由无界面轮询（useWorkbenchSnapshot）记账，
+// 「PetLink 占用中」改由页签名表达（dsh & petlink）。这里不再压可见状态条 ——
+// 它贴在 webview 顶部，会被读成终端内容区的第一行。v3 官方 Web 始终可输入和操作。
 const DshWebOverlay = React.memo<OverlayContentProps>(({ overlay, payload }) => {
+  // 无界面记账（held / petSessionId / 详情面相位）。hook 必须在早退之前调用。
+  useWorkbenchSnapshot(overlay.id)
   if (payload.kind !== 'dshWeb') return null
   return (
     <div className="w-full h-full flex flex-col">
-      <DshWebWorkbenchStrip
-        detail={payload.detail === true}
-        initialPetSessionId={payload.petSessionId ?? null}
-        // 状态条读到新鲜快照后把权威只读态/Pet 目标回写页签 payload（原位改字段，不重挂 webview），
-        // 并把相位变化报给详情面状态机（离开 held = 新控制轮次，解除「用户已关闭」记录）。
-        // 走 getState() 现取 store：这里刻意不订阅 pane-store，避免每次 payload 回写又触发本组件重渲染。
-        onSnapshot={({ readOnly, petSessionId, phase }) => {
-          usePaneStore.getState().updateDshWebInPane(overlay.id, { readOnly, petSessionId })
-          const lane = workbenchDetailLane()
-          if (!lane) return
-          const current = usePaneStore.getState().getOverlayPayload(overlay.id)
-          lane.noteKey(current && current.kind === 'dshWeb' ? current.workbenchKey ?? null : null)
-          lane.notePhase(phase)
-        }}
-      />
       <webview partition={DSH_WEB_PARTITION} src={payload.url} className="w-full flex-1 min-h-0" />
     </div>
   )

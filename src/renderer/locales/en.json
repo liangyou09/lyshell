@@ -325,27 +325,6 @@
     "wsEnvFollowNow": "now · {{name}}",
     "wsEnvNone": "No variable sets yet · launches use the system environment"
   },
-  "dshWorkbench": {
-    "title": "Harness shared with PetLink",
-    "titleFree": "PetLink disconnected",
-    "held": "The official workbench supports input, new sessions and existing sessions.",
-    "heldApproval": "Answer the Pet task's pending approval in PetLink; the official workbench remains usable.",
-    "releasing": "PetLink is disconnecting; the official workbench remains usable.",
-    "released": "The official workbench remains usable.",
-    "offline": "Cannot read PetLink connection state. Retry the connection.",
-    "offlineHint": "PetLink state unavailable",
-    "retry": "Retry",
-    "target": "Pet task session: {{id}}",
-    "back": "Back to Pet task session",
-    "backHint": "Navigates only when you click; your own browsing history is never yanked back",
-    "onTarget": "Already on that task session",
-    "navPending": "Navigation requested; waiting for the official UI to confirm…",
-    "navOk": "Confirmed on that task session",
-    "navError": "Navigation did not land: {{reason}}",
-    "navFailed": "The official workbench did not finish navigating. Retry.",
-    "navTimeout": "No confirmation from the official workbench. Retry.",
-    "navUnavailable": "This channel does not support navigation requests"
-  },
   "codex": {
     "title": "Codex",
     "detecting": "Detecting…",

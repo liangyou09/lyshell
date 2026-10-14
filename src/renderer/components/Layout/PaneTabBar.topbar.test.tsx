@@ -51,6 +51,19 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('PaneTabBar 顶排页签条(渲染断言)', () => {
+  it('dsh 页签跟随共享状态切换名称，保持同一个页签节点', () => {
+    usePaneStore.setState({ overlayPayloads: { '__dsh_web__': DSH_PAYLOAD } })
+    const { container } = render(<PaneTabBar pane={makePane([], [DSH_REF(null, true)])} isTop />)
+    const tab = container.querySelector('[data-tab-id="__dsh_web__"]')
+    expect(tab?.textContent).toContain('dsh web')
+    act(() => usePaneStore.getState().updateDshWebInPane('__dsh_web__', { held: true }))
+    expect(tab?.textContent).toContain('dsh & petlink')
+    expect(container.querySelector('[data-tab-id="__dsh_web__"]')).toBe(tab)
+    act(() => usePaneStore.getState().updateDshWebInPane('__dsh_web__', { held: false }))
+    expect(tab?.textContent).toContain('dsh web')
+    expect(tab?.textContent).not.toContain('petlink')
+  })
+
   it('空 pane 顶排渲染 28px 空条:可拖窗 + 左右留白,第一行永远存在', () => {
     const { container } = render(<PaneTabBar pane={makePane([])} isTop isTopLeft isTopRight />)
     const bar = container.firstElementChild as HTMLElement

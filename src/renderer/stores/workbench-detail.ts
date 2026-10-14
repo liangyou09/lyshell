@@ -3,7 +3,7 @@
  *
  * 为什么单独一个模块：这一面有两个互不相邻的调用方 ——
  *   ① 主进程的详情面推送 / 低频兜底对账（挂在 MainWindow）；
- *   ② 连接状态条（挂在 PaneView 里的 dshWeb overlay，知道用户什么时候关掉了页签、相位何时变 free）。
+ *   ② 无界面轮询 useWorkbenchSnapshot（挂在 PaneView 里的 dshWeb overlay，知道用户什么时候关掉了页签、相位何时变 free）。
  * 把「身份 / 在飞 / 已关闭 / 代际」这套记账放在这里，两边共用同一份，避免各记一半导致关闭后又被重开。
  *
  * 硬约束（对应 S4 验收）：
@@ -77,9 +77,9 @@ export interface WorkbenchDetailTarget {
 export interface WorkbenchDetailController {
   /** 详情面推送 / 兜底对账的统一入口（幂等、去重、可作废）。 */
   ensure: (target: WorkbenchDetailTarget) => Promise<void>
-  /** 连接状态条回报的权威相位（held / releasing / free / acquiring）。 */
+  /** 无界面轮询回报的权威相位（held / releasing / free / acquiring）。 */
   notePhase: (phase: string | null) => void
-  /** 连接状态条回报的当前详情身份 key（页签关闭时用它记住「关的是哪个身份」）。 */
+  /** 无界面轮询回报的当前详情身份 key（页签关闭时用它记住「关的是哪个身份」）。 */
   noteKey: (key: string | null) => void
   /** 用户显式关闭了详情页签（只有 detail 页签才算）。 */
   noteClosed: (key: string | null) => void
@@ -109,7 +109,7 @@ export function createWorkbenchDetailController(
   let generation = 0
   /** 上一次看到的控制相位（用于识别「新一轮控制」） */
   let phase: string | null = null
-  /** 状态条最近回报的详情身份（页签关闭时用它记住关的是哪个身份） */
+  /** 轮询最近回报的详情身份（页签关闭时用它记住关的是哪个身份） */
   let currentKey: string | null = null
 
   /** 页签在 ⇒ 只刷新 payload；返回是否已存在（存在即不需要挂载）。 */
@@ -243,7 +243,7 @@ export function createWorkbenchDetailController(
   }
 }
 
-// ===== 渲染层单例（MainWindow 注册；PaneView 里的状态条按同一份记账上报） =====
+// ===== 渲染层单例（MainWindow 注册；PaneView 里的无界面轮询按同一份记账上报） =====
 
 let controller: WorkbenchDetailController | null = null
 
@@ -252,7 +252,7 @@ export function setWorkbenchDetailController(next: WorkbenchDetailController | n
   controller = next
 }
 
-/** 当前详情面状态机（未挂载时返回 null —— 状态条据此静默跳过上报）。 */
+/** 当前详情面状态机（未挂载时返回 null —— 轮询据此静默跳过上报）。 */
 export function workbenchDetailLane(): WorkbenchDetailController | null {
   return controller
 }

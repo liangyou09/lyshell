@@ -923,7 +923,7 @@ const MainWindow: React.FC = () => {
   // ===== 共享工作台详情（Pet 绑定期间） =====
   // 详情经**现有 dshWeb 单例 overlay** 打开**同一后台**官方 Web（acquire 复用，不 restart）。
   // 身份记账（已应用 / 已关闭 / 在飞 / 代际）全在 stores/workbench-detail：
-  // 那一面还有第二个调用方 —— PaneView 里的连接状态条（它才知道用户何时关了页签、相位何时变 free）。
+  // 那一面还有第二个调用方 —— PaneView 里的无界面轮询（它才知道用户何时关了页签、相位何时变 free）。
   const workbenchDetail = useMemo(
     () =>
       createWorkbenchDetailController({
@@ -950,7 +950,7 @@ const MainWindow: React.FC = () => {
     [workbenchDetail]
   )
 
-  // 把这块记账暴露给连接状态条（PaneView 里的 dshWeb overlay）：
+  // 把这块记账暴露给无界面轮询（PaneView 里的 dshWeb overlay）：
   // 它才知道用户何时关了页签、相位何时离开 held。卸载时撤销，避免指向已废弃的实例。
   useEffect(() => {
     setWorkbenchDetailController(workbenchDetail)
@@ -981,15 +981,15 @@ const MainWindow: React.FC = () => {
     const timer = window.setInterval(() => {
       if (cancelled || !window.electronAPI?.getExclusiveSnapshot) return
       void window.electronAPI.getExclusiveSnapshot().then((res) => {
-        if (cancelled) return
-        const phase = res?.snapshot?.phase ?? 'free'
+        if (cancelled || res?.success === false || !res?.snapshot) return
+        const phase = res.snapshot.phase
         workbenchDetail.notePhase(phase)
         if (phase !== 'held' && phase !== 'releasing') return
         const sessionId = res?.detail?.petSessionId ?? res?.snapshot?.viewer?.petSessionId ?? null
         const key = res?.detail?.key ?? null
         if (!sessionId || !key) return
         void ensureWorkbenchDetail({ key, sessionId })
-      }).catch(() => { /* 主进程不可达：状态条会显示明确错误 */ })
+      }).catch(() => { /* 主进程不可达：轮询保持不动，不假装已释放 */ })
     }, 10_000)
     return () => { cancelled = true; window.clearInterval(timer) }
   }, [ensureWorkbenchDetail, workbenchDetail])
