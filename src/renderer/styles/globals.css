@@ -1678,6 +1678,13 @@
   transform: translateY(-50%);
 }
 
+/* 网页客体避免挂在 transform 合成层下；用布局偏移保持原先的合缝锚点，
+   开合仍居中裁切，展开落定后距纸缘 4px，不再对整页做纹理平移。 */
+.web-mini-browser > .scroll-dual-paper > .scroll-dual-body {
+  top: calc((100% - var(--dual-h, 20px) + 28px) / 2);
+  transform: none;
+}
+
 /* 蝴蝶结 —— 满卷(rolled)时上下双卷各拴一只:槽位占行首(flow 恒定槽,
    开合两态同占、行首不跳),绳色随轴头(amber);显隐/摆动/解绳全套共用
    scroll-tie 的 :is 机械(列表里已挂 .scroll-dual.rolled),这里只覆写

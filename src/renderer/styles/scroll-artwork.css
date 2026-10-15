@@ -204,6 +204,10 @@
   left: 1px;
   right: 1px;
 }
+/* 玉轴画心预算为 36px，与基础材质共用无变换的居中布局。 */
+[data-scroll-material="jade"] .web-mini-browser > .scroll-dual-paper > .scroll-dual-body {
+  top: calc((100% - var(--dual-h, 44px) + 36px) / 2);
+}
 [data-scroll-material="jade"] .scroll-dual-compact.rolled::before {
   inset-inline: var(--scroll-compact-paper-inset);
 }
