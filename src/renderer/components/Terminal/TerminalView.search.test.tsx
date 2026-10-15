@@ -17,6 +17,7 @@ vi.mock('../DocPanel/registerDocLinkProvider', () => ({ registerDocLinkProvider:
 const findNext = vi.fn<[term: string, options?: ISearchOptions], boolean>()
 const findPrevious = vi.fn(() => true)
 const clearDecorations = vi.fn()
+const clearSelection = vi.fn()
 const getSelection = vi.fn(() => '')
 let onResults: ((results: ISearchResultChangeEvent) => void) | undefined
 let savedFonts: PropertyDescriptor | undefined
@@ -46,7 +47,7 @@ beforeEach(async () => {
   element.appendChild(terminalScreen)
   useTerminalStore.getState().registerTerminal(
     'search-test',
-    { options: {}, cols: 80, rows: 24, getSelection, element, modes: { mouseTrackingMode: 'none' } } as unknown as Terminal,
+    { options: {}, cols: 80, rows: 24, getSelection, clearSelection, element, modes: { mouseTrackingMode: 'none' } } as unknown as Terminal,
     { fit: vi.fn() } as unknown as FitAddon,
     {
       findNext,
@@ -136,8 +137,9 @@ describe('TerminalView 实时搜索', () => {
   it('全部标签模式下不留下当前标签高亮，切回时应用最新选项', () => {
     const input = openSearch()
     fireEvent.change(input, { target: { value: 'shell' } })
-    fireEvent.click(screen.getByRole('radio', { name: 'All' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'All terminals' }))
     expect(clearDecorations).toHaveBeenCalled()
+    expect(clearSelection).toHaveBeenCalled()
     expect(screen.getByRole('status').textContent).toBe('—')
     findNext.mockClear()
     fireEvent.click(screen.getByRole('checkbox', { name: 'Match case' }))

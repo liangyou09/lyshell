@@ -17,6 +17,7 @@ import { Unicode15Provider } from './unicode15-provider'
 import { registerDocLinkProvider } from '../DocPanel/registerDocLinkProvider'
 import { PALETTE_CLOSED_EVENT } from '../../commands/palette'
 import TerminalSearchPanel from './TerminalSearchPanel'
+import { searchAllTerminals } from './search-all-terminals'
 import { bindSelectionCopy } from './selection-copy'
 
 // 注意：本组件依赖 xterm.js 内部私有 API，无稳定性承诺，xterm 任何版本更新都可能改名或移除。
@@ -33,7 +34,6 @@ import { bindSelectionCopy } from './selection-copy'
 interface TerminalViewProps {
   sessionId: string
   paneId?: string
-  onSearchAllTabs?: (text: string, direction: 'next' | 'prev') => void
 }
 
 // SearchAddon 装饰配置:必传 matchOverviewRuler。
@@ -131,7 +131,7 @@ function patchXtermFloatMeasure(terminal: Terminal): void {
  * 终端视图组件
  * 终端实例存储在全局 store 中，与 sessionId 绑定，不受组件生命周期影响
  */
-const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearchAllTabs }) => {
+const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId }) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
   const resizeTimeoutRef = useRef<number | null>(null)
@@ -166,6 +166,24 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   const [isDragging, setIsDragging] = useState(false)
   const dragOffsetRef = useRef({ x: 0, y: 0 })
   const searchInputRef = useRef<HTMLTextAreaElement>(null)
+  const receivingSearchRef = useRef(false)
+  const [allTabsNoMatches, setAllTabsNoMatches] = useState(false)
+  useEffect(() => {
+    const receive = (event: Event) => {
+      const data = (event as CustomEvent<{ sessionId: string; text: string; caseSensitive: boolean; regex: boolean; wholeWord: boolean }>).detail
+      if (!data || data.sessionId !== sessionId) return
+      receivingSearchRef.current = true
+      setSearchText(data.text)
+      setCaseSensitive(data.caseSensitive)
+      setUseRegex(data.regex)
+      setWholeWord(data.wholeWord)
+      setSearchScope('all')
+      setShowSearch(true)
+      setTimeout(() => searchInputRef.current?.focus(), 0)
+    }
+    window.addEventListener('lyshell:terminal-search', receive)
+    return () => window.removeEventListener('lyshell:terminal-search', receive)
+  }, [sessionId])
   const scrollbackLines = parseInt(localStorage.getItem('terminalScrollback') || '10000')
   const fontSize = snapTerminalFontSize(parseInt(localStorage.getItem('terminalFontSize') || String(DEFAULT_TERMINAL_FONT_SIZE)))
   const fontSizeRef = useRef(fontSize)
@@ -213,6 +231,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   const focusTerminalIfActive = useCallback(() => {
     const paneStore = usePaneStore.getState()
     if (useUiStore.getState().paletteOpen) return
+    if (containerRef.current?.parentElement?.querySelector('[data-search-panel]')) return
     if (paneId && paneStore.layout.activePaneId !== paneId) return
     const pane = paneId ? paneStore.getPaneById(paneId) : undefined
     const isActive = pane?.type === 'leaf'
@@ -905,7 +924,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   useEffect(() => {
     if (!isTabActive) return
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && (e.key === 'f' || e.key === 'F')) {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && !e.isComposing && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault()
         e.stopPropagation()
         setShowSearch(true)
@@ -1114,7 +1133,16 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
       }
     } else {
       // 所有选项卡搜索
-      onSearchAllTabs?.(searchText, direction)
+      const target = searchAllTerminals(sessionId, searchText, direction, searchOptions)
+      setAllTabsNoMatches(!target)
+      if (target && target !== sessionId) {
+        setShowSearch(false)
+        window.dispatchEvent(new CustomEvent('lyshell:terminal-search', {
+          detail: { sessionId: target, text: searchText, ...searchOptions }
+        }))
+      } else if (!target) {
+        setMatchInfo({ idx: -1, total: 0 })
+      }
     }
   }
 
@@ -1132,6 +1160,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   // 输入框键盘:Enter=next, Shift+Enter=prev, Alt+A=切换 scope
   // (Esc 不在这里:useEscDismiss 在 document 捕获层截停收起,到不了 React 的处理器)
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing) return
     if (e.key === 'Enter') {
       e.preventDefault()
       doSearch(e.shiftKey ? 'prev' : 'next')
@@ -1145,8 +1174,16 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
   // 先失效装饰缓存，确保同词切选项也重算全部匹配；实时搜索用 incremental。
   useEffect(() => {
     if (!showSearch || !isTabActive) return
+    setAllTabsNoMatches(false)
+    if (receivingSearchRef.current) {
+      receivingSearchRef.current = false
+      return
+    }
     if (searchScope === 'all' || !searchText || !isSearchRegexValid) {
       searchAddonRef.current?.clearDecorations()
+      // 清理装饰会失效 addon 的搜索缓存；同时清选区，让新一轮跨终端搜索
+      // 从边界开始，避免旧选区被当成新词的起点并误判为已经循环。
+      if (searchScope === 'all') getTerminal(sessionId)?.terminal.clearSelection()
       setMatchInfo({ idx: -1, total: 0 })
     } else if (searchAddonRef.current) {
       searchAddonRef.current.clearDecorations()
@@ -1158,7 +1195,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
         decorations: SEARCH_DECORATIONS
       })
     }
-  }, [showSearch, isTabActive, searchScope, searchText, caseSensitive, useRegex, wholeWord, isSearchRegexValid])
+  }, [showSearch, isTabActive, searchScope, searchText, caseSensitive, useRegex, wholeWord, isSearchRegexValid, getTerminal, sessionId])
 
   // 拖动开始:按下顶栏时记录指针在面板内的偏移
   const startDrag = (e: React.MouseEvent) => {
@@ -1222,6 +1259,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, onSearch
           wholeWord={wholeWord}
           invalidRegex={!isSearchRegexValid}
           matchInfo={matchInfo}
+          allTabsNoMatches={allTabsNoMatches}
           onDragStart={startDrag}
           onSearchChange={handleSearchChange}
           onKeyDown={handleSearchKeyDown}

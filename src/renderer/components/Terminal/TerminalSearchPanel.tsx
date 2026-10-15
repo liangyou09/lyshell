@@ -58,6 +58,9 @@ interface TerminalSearchPanelProps {
   onRegexChange: () => void
   onWholeWordChange: () => void
   onScopeChange: (scope: 'current' | 'all') => void
+  showScope?: boolean
+  showAdvanced?: boolean
+  allTabsNoMatches?: boolean
 }
 
 const TerminalSearchPanel: React.FC<TerminalSearchPanelProps> = (props) => {
@@ -108,8 +111,8 @@ const TerminalSearchPanel: React.FC<TerminalSearchPanelProps> = (props) => {
 
           <div className="terminal-search-options">
             <SearchOption checked={props.caseSensitive} label={t('terminal.search.matchCase')} onChange={props.onCaseSensitiveChange} />
-            <SearchOption checked={props.useRegex} label={t('terminal.search.regex')} onChange={props.onRegexChange} />
-            <SearchOption checked={props.wholeWord} label={t('terminal.search.wholeWord')} onChange={props.onWholeWordChange} />
+            {props.showAdvanced !== false && <SearchOption checked={props.useRegex} label={t('terminal.search.regex')} onChange={props.onRegexChange} />}
+            {props.showAdvanced !== false && <SearchOption checked={props.wholeWord} label={t('terminal.search.wholeWord')} onChange={props.onWholeWordChange} />}
           </div>
 
           <div className="terminal-search-results">
@@ -117,7 +120,7 @@ const TerminalSearchPanel: React.FC<TerminalSearchPanelProps> = (props) => {
               {props.invalidRegex
                 ? t('terminal.search.invalidRegex')
                 : searchScope === 'all'
-                ? <span title={t('terminal.search.allTabsNoCount')}>—</span>
+                ? props.allTabsNoMatches ? t('terminal.search.noMatches') : <span title={t('terminal.search.allTabsNoCount')}>—</span>
                 : searchText
                   ? matchInfo.total === -1
                     ? t('terminal.search.matchesOverLimit')
@@ -126,17 +129,17 @@ const TerminalSearchPanel: React.FC<TerminalSearchPanelProps> = (props) => {
                       : <><strong>{matchInfo.idx + 1}</strong> / {matchInfo.total}</>
                   : '—'}
             </span>
-            <div className="terminal-search-scope" role="radiogroup" aria-label={t('terminal.search.scopeLabel')}>
+            {props.showScope !== false && <div className="terminal-search-scope" role="radiogroup" aria-label={t('terminal.search.scopeLabel')}>
               <span>{t('terminal.search.scopeLabel')}</span>
               <SearchOption radio name={scopeName} checked={searchScope === 'current'} label={t('terminal.search.scopeCurrent')} title={t('terminal.search.searchThisTab')} onChange={() => props.onScopeChange('current')} />
               <SearchOption radio name={scopeName} checked={searchScope === 'all'} label={t('terminal.search.scopeAll')} title={t('terminal.search.searchAllTabs')} onChange={() => props.onScopeChange('all')} />
-            </div>
+            </div>}
           </div>
 
           <div className="terminal-search-hints">
             <span><kbd>↵</kbd>{t('terminal.search.hintNext')}</span>
             <span><kbd>⇧↵</kbd>{t('terminal.search.hintPrev')}</span>
-            <span><kbd>Alt A</kbd>{t('terminal.search.hintScope')}</span>
+            {props.showScope !== false && <span><kbd>Alt A</kbd>{t('terminal.search.hintScope')}</span>}
             <span><kbd>Esc</kbd>{t('terminal.search.hintClose')}</span>
           </div>
         </div>

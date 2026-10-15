@@ -43,7 +43,7 @@ import { pluginGuestRegistry } from './plugin/view-guests'
 import { validateManifest, manifestPluginViews, isPluginFrameNavigationAllowed } from '@shared/plugin-types'
 import { dshWebManager } from './dsh/web'
 import { KILL_STEP_TIMEOUT_FLOOR_MS, sweepOrphanDshWeb } from './dsh/proc'
-import { IPC_CHANNELS, WEBBAR_DEEPLINK_SCHEMES, WEBBAR_PARTITION } from '@shared/constants'
+import { IPC_CHANNELS, WEBBAR_DEEPLINK_SCHEMES, WEBBAR_PARTITION, DSH_WEB_PARTITION } from '@shared/constants'
 import { matchWebTabShortcut } from '@shared/webtab-shortcut'
 import { createLogTap } from '@shared/log-throttle'
 import { decideWebviewFrameNavigation, gateWebviewSubframeNavigation } from './webview-frame-navigation'
@@ -618,6 +618,7 @@ function createMainWindow(): void {
     // 返回同 partition 的 session 单例，webview 挂载的 session 与之身份相等即
     // 网页访问栏。
     const isWebbar = webContents.session === session.fromPartition(WEBBAR_PARTITION)
+    const isDsh = webContents.session === session.fromPartition(DSH_WEB_PARTITION)
     webContents.setWindowOpenHandler(({ url, disposition, postBody, referrer }) => {
       // webview 一律不开新窗口/弹窗（deny，也不交系统浏览器避免泄 URL）。网页访问栏
       // （完整页签 + 小窗）的 http/https 开窗请求按 disposition 分流。先摆映射实证
@@ -697,14 +698,15 @@ function createMainWindow(): void {
     // 网页页签快捷键：焦点进 webview 后键盘全被 guest 吃掉，宿主 keydown 收不到。
     // 在 guest 事件分发前拦截浏览器手势（Ctrl+R/Alt+←→/Ctrl+L 等），掐掉
     // guest 的默认动作后转发渲染层路由到「活动网页页签」—— 与宿主侧快捷键
-    // 走同一控制层。仅网页访问栏挂（dsh web 保持锁定，无浏览语义）；写轮眼小窗
+    // 走同一控制层。dsh web 仅接入 Ctrl+F 内容查找，保留其余页面按键；写轮眼小窗
     // 与完整页签同 session，凭 webbarMiniWebContentsId 在事件拍排除（登记细节
     // 见其注释）—— 小窗内的按键原样进页面。
-    if (isWebbar) {
+    if (isWebbar || isDsh) {
       webContents.on('before-input-event', (event, input) => {
         if (webContents.id === webbarMiniWebContentsId) return
         const action = matchWebTabShortcut(input)
         if (!action) return
+        if (!isWebbar && action !== 'find') return
         event.preventDefault()
         mainWindow?.webContents.send(IPC_CHANNELS.WEB_TAB_SHORTCUT, action)
       })

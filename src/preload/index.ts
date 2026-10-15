@@ -3,6 +3,7 @@ import type { IpcRendererEvent } from 'electron'
 import type { WorktreeListResult } from '@shared/worktree'
 import type { SessionConfig, TerminalEncoding, WebTabPopupRequest } from '@shared/types'
 import type { ExclusiveWorkbenchDetail } from '@shared/exclusive-control'
+import { isWebTabShortcutAction } from '@shared/webtab-shortcut'
 
 // IPC 通道定义
 const IPC_CHANNELS = {
@@ -298,7 +299,9 @@ const electronAPI = {
   // 网页页签快捷键（main→renderer）：焦点在 webview 内时宿主收不到 keydown，
   // 主进程 before-input-event 拦截后经此转发，渲染层路由到活动网页页签
   onWebTabShortcut: (callback: (action: string) => void) => {
-    const listener = (_e: IpcRendererEvent, action: string): void => callback(action)
+    const listener = (_e: IpcRendererEvent, action: unknown): void => {
+      if (isWebTabShortcutAction(action)) callback(action)
+    }
     ipcRenderer.on(IPC_CHANNELS.WEB_TAB_SHORTCUT, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.WEB_TAB_SHORTCUT, listener)
   },

@@ -295,7 +295,7 @@ Instant switching, no restart.
 | Shortcut | Action |
 |----------|--------|
 | `Ctrl + \`` | Session float window |
-| `Ctrl + F` | Terminal search |
+| `Ctrl + F` | Search current tab content |
 | `Ctrl + F1` ~ `F12` | Quick command 1–12 |
 | `Ctrl + Shift + H` / `V` | Horizontal / vertical split |
 | `Ctrl + Shift + P` | Fullscreen command palette |
@@ -303,6 +303,8 @@ Instant switching, no restart.
 | `Alt + 1…9` | Switch left panels |
 | Right-click | Paste |
 | Middle-click | Terminal search |
+
+Terminal search offers **Current tab / All terminals**. Cross-terminal navigation follows pane and tab order and skips hidden terminal tabs. Documents, web pages, DeepSeek, and MCP audit tabs search only the current tab's displayed content; audit search covers the current page of records. Press `Enter` for next, `Shift + Enter` for previous, and `Esc` to close. Web and DeepSeek pages support case-sensitive search; regular expressions and whole-word matching are available in terminals and text views such as documents.
 
 ## Settings highlights
 

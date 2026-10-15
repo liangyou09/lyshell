@@ -4,6 +4,7 @@ import { usePaneStore } from '../../stores/pane-store'
 import type { DocOverlayPayload } from '@shared/types'
 import DocHeader from './DocHeader'
 import { extractHeadings } from './docHeadings'
+import SearchableTab from '../Search/SearchableTab'
 
 // lazy：把文档渲染拆出主 chunk（react-markdown + highlight.js 体积可观，P3 接入后生效）
 const MarkdownDoc = React.lazy(() => import('./MarkdownDoc'))
@@ -29,9 +30,9 @@ const DocTabOverlay: React.FC<{ id: string; paneId: string; payload: DocOverlayP
     // doc-pane：整片文档页签的命名容器查询锚点 —— 头条（含目录开关）与阅读画布
     // 分属兄弟子树，各自做容器会量出不同宽度（头条有 px-3 内距），620px 阈值翻转
     // 点错开会出现「轨还开着、唯一开关已隐藏」的窗口；统一锚在这一层两者同宽
-    <div className="doc-pane absolute inset-0 flex flex-col bg-[var(--terminal-bg)]">
+    <SearchableTab id={id} className="doc-pane absolute inset-0 flex flex-col bg-[var(--terminal-bg)]">
       <DocHeader id={id} payload={payload} hasHeadings={hasHeadings} onClose={() => closeDocTab(id)} />
-      <div className="flex-1 overflow-hidden">
+      <div data-tab-search-content className="flex-1 overflow-hidden">
         {payload.loadError ? (
           <div className="h-full flex items-center justify-center">
             <div className="text-center max-w-[80%]">
@@ -53,7 +54,7 @@ const DocTabOverlay: React.FC<{ id: string; paneId: string; payload: DocOverlayP
           </Suspense>
         )}
       </div>
-    </div>
+    </SearchableTab>
   )
 }
 

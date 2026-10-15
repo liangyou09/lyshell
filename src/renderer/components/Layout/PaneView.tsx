@@ -13,6 +13,7 @@ import { resolveOverlayDragId } from './overlay-drag'
 import { WEB_TAB_PLACEHOLDER_ATTR } from './WebTabLayer'
 import type { PaneNode, SplitDirection, OverlayKind, OverlayPayload, OverlayRef, DocOverlayPayload } from '@shared/types'
 import { DSH_WEB_PARTITION } from '@shared/constants'
+import SearchableTab from '../Search/SearchableTab'
 
 type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center' | null
 
@@ -44,7 +45,7 @@ interface OverlayContentProps {
 // MCP 审计面板：单例纯 DOM；「去活即卸载」由 OVERLAY_KINDS.unmountWhenInactive 承担
 const McpAuditOverlay = React.memo<OverlayContentProps>(({ overlay }) => {
   const closeOverlay = usePaneStore(s => s.closeOverlay)
-  return <McpAuditPanel onClose={() => closeOverlay(overlay.id)} />
+  return <SearchableTab id={overlay.id}><McpAuditPanel onClose={() => closeOverlay(overlay.id)} /></SearchableTab>
 })
 McpAuditOverlay.displayName = 'McpAuditOverlay'
 
@@ -58,9 +59,9 @@ const DshWebOverlay = React.memo<OverlayContentProps>(({ overlay, payload }) => 
   useWorkbenchSnapshot(overlay.id)
   if (payload.kind !== 'dshWeb') return null
   return (
-    <div className="w-full h-full flex flex-col">
+    <SearchableTab id={overlay.id} web className="relative w-full h-full flex flex-col">
       <webview partition={DSH_WEB_PARTITION} src={payload.url} className="w-full flex-1 min-h-0" />
-    </div>
+    </SearchableTab>
   )
 })
 DshWebOverlay.displayName = 'DshWebOverlay'

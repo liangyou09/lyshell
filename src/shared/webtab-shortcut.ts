@@ -6,6 +6,7 @@
  * - Ctrl/Cmd+R（无 Shift）刷新 / +Shift 强制刷新（忽略缓存）
  * - Alt+← / Alt+→（无 Ctrl）后退 / 前进
  * - Ctrl/Cmd+L 聚焦地址栏（渲染层切到 Web 面板并聚焦 URL 输入框）
+ * - Ctrl/Cmd+F 当前页签内容查找（dsh Web 只接入这一项）
  *
  * 拦截范围约束（两侧路由层各自把守，匹配函数本身不判断焦点）：
  * - 渲染层宿主 keydown：仅当活动分屏正显示网页页签时拦。xterm 只对「无 Shift 的
@@ -23,10 +24,11 @@ export type WebTabShortcutAction =
   | 'back'
   | 'forward'
   | 'focus-address-bar'
+  | 'find'
 
 /** IPC 转发后的 action 白名单（preload 边界值校验用） */
 const WEB_TAB_ACTIONS: ReadonlySet<string> = new Set<WebTabShortcutAction>([
-  'reload', 'reload-hard', 'back', 'forward', 'focus-address-bar'
+  'reload', 'reload-hard', 'back', 'forward', 'focus-address-bar', 'find'
 ])
 
 /** preload 边界到达的 action 不可信：白名单收窄后才路由（防 IPC 复用/注入） */
@@ -62,6 +64,7 @@ export function matchWebTabShortcut(input: ShortcutInputShape): WebTabShortcutAc
   const key = input.key.toLowerCase()
 
   if (ctrl && !input.alt) {
+    if (key === 'f' && !input.shift) return 'find'
     if (key === 'r') return input.shift ? 'reload-hard' : 'reload'
     if (key === 'l' && !input.shift) return 'focus-address-bar'
     return null

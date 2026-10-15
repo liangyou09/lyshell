@@ -7,6 +7,7 @@ import ActivityRail, { type NavTab, RAIL_WIDTH, isFixedNavTab } from './Activity
 import AgentsPanel from './AgentsPanel'
 import SplitPaneContainer, { isTextEditingTarget } from './SplitPaneContainer'
 import WebTabLayer from './WebTabLayer'
+import { FIND_IN_TAB_EVENT } from '../Search/SearchableTab'
 import FloatWindow from '../FloatWindow/FloatWindow'
 import CommandScreen from '../CommandScreen/CommandScreen'
 import TopRightControls from './TopRightControls'
@@ -769,6 +770,7 @@ const MainWindow: React.FC = () => {
       case 'reload-hard': reloadActiveWebTab(true); break
       case 'back': activeWebTabGoBack(); break
       case 'forward': activeWebTabGoForward(); break
+      case 'find': window.dispatchEvent(new Event(FIND_IN_TAB_EVENT)); break
       case 'focus-address-bar':
         // Ctrl+L:切到 Web 面板 + 展开侧栏;聚焦经 ui-store 请求令牌 —— 请求与
         // 「切面板/展开侧栏」同批提交,WebPanel 的消费 effect 在提交后跑,面板

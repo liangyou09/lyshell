@@ -48,6 +48,13 @@ describe('matchWebTabShortcut：命中矩阵', () => {
 })
 
 describe('matchWebTabShortcut：让位规则', () => {
+  it('Ctrl/Cmd+F 打开当前内容查找，Shift/Alt/IME 组合让位', () => {
+    expect(matchWebTabShortcut(key({ control: true, key: 'f' }))).toBe('find')
+    expect(matchWebTabShortcut(key({ meta: true, key: 'F' }))).toBe('find')
+    expect(matchWebTabShortcut(key({ control: true, shift: true, key: 'f' }))).toBeNull()
+    expect(matchWebTabShortcut(key({ control: true, alt: true, key: 'f' }))).toBeNull()
+    expect(matchWebTabShortcut(key({ control: true, isComposing: true, key: 'f' }))).toBeNull()
+  })
   it('keyUp / 长按 autoRepeat 不拦', () => {
     expect(matchWebTabShortcut(key({ control: true, type: 'keyUp' }))).toBeNull()
     expect(matchWebTabShortcut(key({ control: true, isAutoRepeat: true }))).toBeNull()
@@ -84,13 +91,13 @@ describe('matchWebTabShortcut：让位规则', () => {
 
   it('其他 Ctrl+字母不拦（只有 R/L 有浏览器语义）', () => {
     expect(matchWebTabShortcut(key({ control: true, key: 't' }))).toBeNull()
-    expect(matchWebTabShortcut(key({ control: true, key: 'f' }))).toBeNull()
+    expect(matchWebTabShortcut(key({ control: true, key: 'x' }))).toBeNull()
   })
 })
 
 describe('isWebTabShortcutAction：IPC 边界白名单', () => {
-  it('五个合法 action 收窄通过', () => {
-    for (const a of ['reload', 'reload-hard', 'back', 'forward', 'focus-address-bar']) {
+  it('六个合法 action 收窄通过', () => {
+    for (const a of ['reload', 'reload-hard', 'back', 'forward', 'focus-address-bar', 'find']) {
       expect(isWebTabShortcutAction(a)).toBe(true)
     }
   })

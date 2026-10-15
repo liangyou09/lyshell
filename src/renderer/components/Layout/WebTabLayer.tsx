@@ -5,6 +5,7 @@ import { usePaneStore } from '../../stores/pane-store'
 import { registerWebview, unregisterWebview, activeWebTabId } from './web-tab-controls'
 import type { OverlayPayload, PaneNode } from '@shared/types'
 import { WEBBAR_PARTITION } from '@shared/constants'
+import SearchableTab from '../Search/SearchableTab'
 
 // 占位（PaneView 内）与实体（本层内）互认的 DOM 锚点；值本身写入字面量属性
 export const WEB_TAB_PLACEHOLDER_ATTR = 'data-webtab-placeholder'
@@ -266,7 +267,7 @@ const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: string }> =
   }, [id, url, postToken, setWebTabTitle, setWebTabFavicon, setWebTabNav, recordWebTabVisit, settleWebTabPost])
 
   return (
-    <div className="relative w-full h-full">
+    <SearchableTab id={id} web>
       {/* Electron webview 专属属性，React 的通用 DOM 规则不认识。 */}
       {/* eslint-disable react/no-unknown-property */}
       <webview
@@ -290,7 +291,7 @@ const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: string }> =
           </p>
         </div>
       )}
-    </div>
+    </SearchableTab>
   )
 }
 

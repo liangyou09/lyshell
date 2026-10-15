@@ -295,7 +295,7 @@ DELETE http://127.0.0.1:${LYSHELL_MCP_PORT}/api/plugins/${LYSHELL_PLUGIN_ID}/vie
 | 快捷键 | 功能 |
 |--------|------|
 | `Ctrl + \`` | 会话浮窗 |
-| `Ctrl + F` | 终端搜索 |
+| `Ctrl + F` | 搜索当前页签内容 |
 | `Ctrl + F1` ~ `F12` | 快捷命令 1–12 |
 | `Ctrl + Shift + H` / `V` | 水平 / 垂直分屏 |
 | `Ctrl + Shift + P` | 全屏命令面板 |
@@ -303,6 +303,8 @@ DELETE http://127.0.0.1:${LYSHELL_MCP_PORT}/api/plugins/${LYSHELL_PLUGIN_ID}/vie
 | `Alt + 1…9` | 切换左侧面板 |
 | 右键 | 粘贴 |
 | 鼠标中键 | 终端搜索 |
+
+终端搜索可切换「本标签 / 所有终端」，跨终端按分屏及页签顺序查找，跳过已隐藏的终端标签。文档、网页、DeepSeek 与 MCP 审计页签只搜索当前页签已显示的内容；审计仅包含当前分页。`Enter` 查找下一条，`Shift + Enter` 查找上一条，`Esc` 关闭。网页与 DeepSeek 页面支持区分大小写，正则表达式及全字匹配仅用于终端和文档等文本视图。
 
 ## 设置要点
 
