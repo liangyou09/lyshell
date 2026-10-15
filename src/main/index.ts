@@ -9,6 +9,8 @@ import { randomUUID } from 'crypto'
 import { seedDevConfigFromProd } from './dev-user-data'
 import { startDemoStage } from './demo-stage'
 import { setTerminalCaptureWindow } from './mcp/terminal-screenshot'
+import { startMcpHttpServer, stopMcpHttpServer } from './mcp/http-server'
+import { wireExclusiveControl } from './dsh/exclusive-runtime'
 import { explorerLaunchQueue, parseExplorerDirectory, validateExplorerDirectory } from './explorer-launch'
 import { readActiveExplorerDirectory } from './explorer-directory'
 
@@ -876,11 +878,9 @@ app.whenReady().then(async () => {
   // 启动 MCP HTTP 服务器（必须在创建任何会话/窗口前完成，
   // 否则用户在窗口中开本地终端时端口尚未就绪，session-token env 无法注入）
   try {
-    const { startMcpHttpServer, stopMcpHttpServer } = await import('@main/mcp/http-server')
     await startMcpHttpServer()
     stopMcpHttpServerImpl = stopMcpHttpServer
     // Pet 托管控制服务：接线到 dsh 桥的控制端点（只读快照/写操作都走 /api/exclusive-control）
-    const { wireExclusiveControl } = await import('@main/dsh/exclusive-runtime')
     wireExclusiveControl()
   } catch (err) {
     log.error('Failed to start MCP HTTP server:', err)

@@ -108,6 +108,8 @@ export default defineConfig({
           manualChunks: {
             'xterm': ['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-search'],
             'react': ['react', 'react-dom'],
+            // 大段静态更新日志独立打包，设置面板仍同步挂载以保持插件打开回执时序。
+            'release-notes': [resolve(__dirname, 'CHANGELOG.md') + '?raw'],
             'vendor': ['zustand', 'lodash-es', 'dayjs', 'classnames']
           }
         }

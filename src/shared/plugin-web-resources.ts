@@ -1,7 +1,7 @@
 import { PLUGIN_VIEW_CONNECT_ORIGIN_PATTERN, type PluginViewMeta } from './plugin-types'
 import type { OverlayPayload } from './types'
 
-function normalizePluginWebOrigin(origin: string): string | undefined {
+export function normalizePluginWebOrigin(origin: string): string | undefined {
   if (!/^https?:/.test(origin) || !PLUGIN_VIEW_CONNECT_ORIGIN_PATTERN.test(origin)) return undefined
   try { return new URL(origin).origin } catch { return undefined }
 }

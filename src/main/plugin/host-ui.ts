@@ -29,7 +29,7 @@ export async function openPluginHostUi(raw: unknown, binding: TokenBinding, deps
   }
   const view = deps.views(request.pluginId).find(view => request.target === 'settings'
     ? view.surface === 'settings'
-    : view.id === 'chat2' && view.surface !== 'settings')
+    : view.id === 'pets' && view.surface !== 'settings')
   if (!view) return fail(404, 'host UI target is not registered')
   const result = await deps.open(request, view.id)
   if (!result.ok) return fail(503, result.error ?? 'host UI is unavailable')

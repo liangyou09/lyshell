@@ -299,7 +299,7 @@ export async function handleExclusiveControlRequest(
     const sessionId = fingerprint.sessionId as string | undefined
     // 先让真实渲染层挂载官方工作台，再等页面 ack；否则冷页签无法完成导航。
     const { detail: surface } = publishWorkbenchDetail(true)
-    broadcastDshWebDetail(surface, true)
+    broadcastDshWebDetail(surface, true, true)
     let navigation: { ok: boolean; skipped?: boolean; code?: string; error?: string } | null = null
     if (sessionId) {
       const nav = await confirmWorkbenchNavigation(sessionId)

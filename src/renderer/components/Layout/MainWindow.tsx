@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import React, { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import cn from 'classnames'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
@@ -17,8 +17,6 @@ import PluginPanel from './PluginPanel'
 import WebPanel from './WebPanel'
 import PluginViewPanel from './PluginViewPanel'
 import PluginViewDialog, { type PluginViewDialogSpec } from './PluginViewDialog'
-import HarnessPanel from './HarnessPanel'
-import EnvProfilePanel from './EnvProfilePanel'
 import SettingsPanel from './SettingsPanel'
 import { useSessionStore } from '../../stores/session-store'
 import { useTerminalStore } from '../../stores/terminal-store'
@@ -44,6 +42,11 @@ import {
   activeWebTabId, reloadActiveWebTab, activeWebTabGoBack, activeWebTabGoForward
 } from './web-tab-controls'
 import { openWebTabPopup } from './web-tab-popup'
+import { openPluginChatTab } from './plugin-chat-tab'
+
+// 工作区和环境编辑器按需加载，避免占用默认会话面板的启动入口 chunk。
+const HarnessPanel = lazy(() => import('./HarnessPanel'))
+const EnvProfilePanel = lazy(() => import('./EnvProfilePanel'))
 
 // 左列收起态/宽度的 localStorage 镜像 key -- 主进程 config 异步,首帧用它同步定态防闪
 // (activeNav 的 lyshell.navTab.v1 同款规避);懒读与双写共用常量,防两处字面量漂移
@@ -128,7 +131,8 @@ const MainWindow: React.FC = () => {
   const pluginViewsLoaded = usePluginStore((s) => s.loaded)
   // 已启用插件才会带 views（禁用的 views 恒为空数组,plugin:list 同源保证）
   const pluginViews = React.useMemo(() => pluginItems.flatMap((p) => p.views), [pluginItems])
-  const railPluginViews = React.useMemo(() => pluginViews.filter(v => v.surface !== 'settings'), [pluginViews])
+  const railPluginViews = React.useMemo(() => pluginViews.filter(v => v.surface !== 'settings'
+    && !(v.pluginId === 'aipet' && ['chat', 'chat2'].includes(v.id))), [pluginViews])
   const [requestedSettingsView, setRequestedSettingsView] = useState<{ key: string; nonce: number } | null>(null)
 
   // 保活集：首次激活过的复合键。切走仅 CSS 隐藏;注销/禁用/卸载的键由下方列表
@@ -228,21 +232,22 @@ const MainWindow: React.FC = () => {
             if (!isActive()) { reply(false, 'plugin resources were released'); break }
             const view = usePluginStore.getState().items.flatMap(item => item.views)
               .find(view => view.pluginId === request.pluginId && view.id === request.viewId)
-            if (!view || (params.target === 'settings' ? view.surface !== 'settings' : view.surface === 'settings' || view.id !== 'chat2')) {
+            if (!view || (params.target === 'settings' ? view.surface !== 'settings' : view.surface === 'settings' || view.id !== 'pets')) {
               reply(false, 'host UI target is not registered')
               break
             }
+            if (params.target === 'chat') {
+              // 与设置入口一致：React 提交页签挂载后再向 host 确认接收。
+              const result = flushSync(() => openPluginChatTab(view))
+              reply(result.ok, result.error)
+              break
+            }
             const key = makePluginViewKey(view.pluginId, view.id)
-            // 回执发生在 React 已提交目标面板之后，重复点击复用既有 Chat2 guest。
+            // 设置页回执发生在 React 已提交目标面板之后。
             flushSync(() => {
               setSidebarCollapsed(false)
-              if (params.target === 'settings') {
-                setRequestedSettingsView(prev => ({ key, nonce: (prev?.nonce ?? 0) + 1 }))
-                handleNavChange('settings')
-              } else {
-                setAlivePluginViews(prev => new Set(prev).add(key))
-                handleNavChange(key)
-              }
+              setRequestedSettingsView(prev => ({ key, nonce: (prev?.nonce ?? 0) + 1 }))
+              handleNavChange('settings')
             })
             reply(true)
             break
@@ -963,6 +968,7 @@ const MainWindow: React.FC = () => {
           const existing = usePaneStore.getState().getOverlayByKind('dshWeb')
           return existing && existing.ref.id === DSH_WEB_OVERLAY_ID ? { id: existing.ref.id } : null
         },
+        activateTab: id => usePaneStore.getState().activateOverlay(id),
         patchTab: (id, patch) => usePaneStore.getState().updateDshWebInPane(id, patch),
         mountTab: (payload) => {
           const { openDshWebInPane, layout } = usePaneStore.getState()
@@ -973,7 +979,7 @@ const MainWindow: React.FC = () => {
   )
 
   const ensureWorkbenchDetail = useCallback(
-    (target: { key: string | null; sessionId: string | null }): Promise<void> => workbenchDetail.ensure(target),
+    (target: { key: string | null; sessionId: string | null; reopen?: boolean }): Promise<void> => workbenchDetail.ensure(target),
     [workbenchDetail]
   )
 
@@ -997,7 +1003,7 @@ const MainWindow: React.FC = () => {
         workbenchDetail.notePhase('free')
         return
       }
-      void ensureWorkbenchDetail({ key: detail.key, sessionId: detail.petSessionId ?? null })
+      void ensureWorkbenchDetail({ key: detail.key, sessionId: detail.petSessionId ?? null, reopen: payload.reopen === true })
     })
   }, [ensureWorkbenchDetail, workbenchDetail])
 
@@ -1095,10 +1101,12 @@ const MainWindow: React.FC = () => {
               />
             )}
             {activeNav === 'agents' && <AgentsPanel />}
-            {activeNav === 'dsh' && <HarnessPanel agent="dsh" onOpenWeb={handleOpenWeb} />}
-            {activeNav === 'codex' && <HarnessPanel agent="codex" />}
-            {activeNav === 'claude' && <HarnessPanel agent="claude" />}
-            {activeNav === 'env' && <EnvProfilePanel />}
+            <Suspense fallback={null}>
+              {activeNav === 'dsh' && <HarnessPanel agent="dsh" onOpenWeb={handleOpenWeb} />}
+              {activeNav === 'codex' && <HarnessPanel agent="codex" />}
+              {activeNav === 'claude' && <HarnessPanel agent="claude" />}
+              {activeNav === 'env' && <EnvProfilePanel />}
+            </Suspense>
             {activeNav === 'plugins' && <PluginPanel />}
             {/* Web 面板保活常挂载(见 webPanelAlive 注释),切走时经 visible 隐藏 */}
             {webPanelAlive && <WebPanel visible={activeNav === 'web'} />}

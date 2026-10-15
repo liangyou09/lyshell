@@ -9,7 +9,7 @@
  * 硬约束（对应 S4 验收）：
  *   - 同一身份重复下发 ⇒ 页签在就只刷新 payload，绝不重挂（重挂会 radio 激活，把用户拽回工作台）；
  *   - 用户**显式关掉**同身份页签 ⇒ 持久关闭：低频对账/补发推送都不再挂载，
- *     只有新身份（epoch/taskId/sessionId 变）或新控制轮次（相位离开 held）才解除；
+ *     用户显式重新打开、新身份或新控制轮次才解除；
  *   - 同一身份的在飞请求**去重**（主进程会在返回前 force 广播，没有它就会递归重进）；
  *   - 旧 promise 落地前核对代际与目标：目标变了/释放了/用户关掉了 ⇒ 一律不落页签。
  */
@@ -49,6 +49,7 @@ export interface WorkbenchDetailDeps {
   openDetail: (target: { sessionId?: string; name?: string }) => Promise<WorkbenchDetailOpenResult>
   /** 找现有 dshWeb 单例页签（用于「页签在就只刷新 payload」） */
   findTab: () => { id: string } | null
+  activateTab?: (id: string) => void
   /**
    * 原位刷新 payload（**不动布局、不改激活态**）。
    * 含 `url`/`cwd`：后台换代（新端口）时现有 webview 必须跟着换地址，否则会一直指向旧实例；
@@ -72,6 +73,8 @@ export interface WorkbenchDetailTarget {
   key: string | null
   sessionId: string | null
   name?: string
+  /** 用户显式打开；普通补发和轮询不得清除关闭记录。 */
+  reopen?: boolean
 }
 
 export interface WorkbenchDetailController {
@@ -143,14 +146,14 @@ export function createWorkbenchDetailController(
       } catch (err) {
         console.warn('[workbench] detail open threw:', err)
         // 抛错等同于失败：同样不假标成功并恢复可用
-        if (applied.key === key) applied = { key: null, sessionId: null }
+        if (generation === startedAt && applied.key === key) applied = { key: null, sessionId: null }
         return
       }
       // 失败（无桥/无独占/导航被拒）如实记下：**不假标成功**，并显式恢复可用
       // （清掉乐观写入的 applied），让下一次真实变化/低频对账能再试一次。
       if (!res || res.success === false) {
         console.warn('[workbench] detail open failed:', res?.error)
-        if (applied.key === key) applied = { key: null, sessionId: null }
+        if (generation === startedAt && applied.key === key) applied = { key: null, sessionId: null }
         return
       }
       // 落地前核对：期间目标变了 / 控制释放了 / 新控制轮次 ⇒ 旧 promise 绝不落页签
@@ -193,6 +196,18 @@ export function createWorkbenchDetailController(
 
   return {
     ensure: (target) => {
+      if (target.reopen && target.key) {
+        const tab = deps.findTab()
+        if (closed.delete(target.key)) {
+          // 关闭期间的旧请求作废；显式重开使用新一代并允许重新挂载。
+          generation += 1
+          inflight.delete(target.key)
+          applied = { key: null, sessionId: null }
+        } else if (!tab && !inflight.has(target.key)) {
+          applied = { key: null, sessionId: null }
+        }
+        if (tab) deps.activateTab?.(tab.id)
+      }
       // 同一身份已应用 ⇒ 最常见的重复（force 补发 / 10s 对账）：
       //   - 有在飞请求就把它的 promise 交回去（调用方 await 的必须是真落地，不是空转）；
       //   - 页签在就刷新 payload；

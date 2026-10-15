@@ -30,6 +30,7 @@ import { handleExclusiveControlRequest } from './exclusive-routes'
 import { captureTerminalScreenshot } from './terminal-screenshot'
 import { streamTerminal, closeTerminalStreams } from './terminal-stream'
 import * as mcpAuth from './auth'
+import { setMcpHttpPort } from './http-port'
 import type { TokenBinding, TokenKind } from './auth'
 import { scanDestructiveCommand } from './destructive-check'
 import { compileGlob, relPath } from './glob'
@@ -38,6 +39,8 @@ import { ensurePluginUiToken, maybeRevokePluginUiToken } from '../plugin/view-to
 import { installPluginViewProtocolHandler } from '../plugin/view-protocol'
 import { teardownPluginViewGuests } from '../plugin/view-bridge'
 import { openPluginHostUi, dispatchPluginHostUi } from '../plugin/host-ui'
+import { readPetLLMConfig } from '../plugin/pet-llm'
+import { envProfileRepository } from '../storage/env-profile-repository'
 import { pluginRepository, getPluginsDir } from '../storage/plugin-repository'
 import { pluginResources } from '../plugin/resource-registry'
 import { createTrackedSession, resolveSessionResourceOwner, trackSessionConnectionResource, trackSessionResource } from './session-resources'
@@ -74,7 +77,6 @@ import type {
 } from './types'
 
 let server: http.Server | null = null
-let httpPort: number | null = null
 const PORT_FILE_NAME = 'mcp-server.json'
 const MAX_COMMAND_TIMEOUT_MS = 120000
 const MAX_READ_FILE_BYTES = 1048576
@@ -137,9 +139,7 @@ const DEFAULT_MCP_SECURITY: Required<McpSecuritySettings> = {
  * 返回 MCP HTTP 服务端监听的端口（未启动时为 null）。
  * session-manager 创建本地 PTY 时需要把端口经环境变量注入。
  */
-export function getMcpHttpPort(): number | null {
-  return httpPort
-}
+export { getMcpHttpPort } from './http-port'
 
 /**
  * 启动 MCP HTTP 服务端
@@ -162,7 +162,8 @@ export async function startMcpHttpServer(): Promise<void> {
   })
 
   const address = server!.address() as net.AddressInfo
-  httpPort = address.port
+  const httpPort = address.port
+  setMcpHttpPort(httpPort)
 
   // 写入端口文件（供 MCP Server 进程回连发现端口/token）
   // token 在外部访问关闭时为 null，外部进程读到也无法接入
@@ -214,7 +215,7 @@ export async function stopMcpHttpServer(): Promise<void> {
       server!.close(() => resolve())
     })
     server = null
-    httpPort = null
+    setMcpHttpPort(null)
   }
 
   // 不再自动清理用户外部配置；如需移除，用户自行执行 claude mcp remove lyshell
@@ -575,6 +576,14 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         }
 
         switch (url.pathname) {
+          case '/api/plugins/aipet/llm-config': {
+            const result = readPetLLMConfig(ctxBinding, {
+              plugin: id => pluginRepository.get(id),
+              activeProfile: () => envProfileRepository.getActiveProfile()
+            })
+            res.setHeader('Cache-Control', 'no-store')
+            return sendJson(res, result.status, result.body)
+          }
           case '/api/plugins/ui/open':
             return openPluginHostUi(data, ctxBinding, {
               plugin: id => pluginRepository.get(id),

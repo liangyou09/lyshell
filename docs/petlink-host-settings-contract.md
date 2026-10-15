@@ -5,10 +5,10 @@
 ## 宿主打开入口
 
 `POST /api/plugins/ui/open`，HTTP header `x-lyshell-token` 使用插件真实 host token。
-body 严格为 `{ "target": "chat2" | "settings", "pluginId": "aipet" }`。
+body 严格为 `{ "target": "chat" | "settings", "pluginId": "aipet" }`。
 要求：有效 host plugin token（拒绝 UI/global/session/dshBridge）、token.pluginId 与 body 一致、插件已启用，token 与当前安装授权均包含 `uiControl`。
 
-- `chat2`：定位本插件已注册 id 为 `chat2` 的普通视图，恢复/显示/聚焦 LyShell 主窗口，打开机柜栏原有 Chat2 视图。重复点击复用保活 guest，不打开 PetLink 自己窗口，不触动共享工作台。
+- `chat`：用户从宠物聊天会话列表选择会话后，请求宿主定位本插件已注册的 `pets` 会话列表，从清单 HTTP `connectOrigins` 取聊天来源，在终端主区域打开 `/ui/chat/` 网页页签。不注册侧栏聊天视图。重复点击聚焦原页签并保留页面状态；关闭后可重开。不打开 PetLink 自己窗口，不触动共享工作台。
 - `settings`：定位本插件第一个已注册设置视图，恢复/显示/聚焦主窗口，切到 LyShell 设置并选择该插件设置页。
 - 响应：`{ success: true, data: { target, pluginId } }`。成功需 renderer 确认已接收并挂载目标；不返回任何凭据或端口。错误：401 无效/已撤销 token，403 身份/权限/启用检查失败，400 body 非法，404 没有注册目标，503 主窗口不可用/renderer 超时。
 - 不进入通用 MCP 工具列表；不得使用页面 UI token 直接调用。
@@ -21,7 +21,7 @@ body 严格为 `{ "target": "chat2" | "settings", "pluginId": "aipet" }`。
 {
   "capabilities": ["uiControl"],
   "contributes": {
-    "views": [{ "id": "chat2", "title": "聊天2", "entry": "views/chat2.html", "connectOrigins": ["http://127.0.0.1:31517"] }],
+    "views": [{ "id": "pets", "title": "PetLink 宠物", "entry": "views/pets.html", "connectOrigins": ["http://127.0.0.1:31517"] }],
     "settings": [{ "id": "settings", "title": "PetLink", "entry": "views/settings.html", "connectOrigins": ["http://127.0.0.1:31517"] }]
   }
 }
@@ -34,7 +34,7 @@ body 严格为 `{ "target": "chat2" | "settings", "pluginId": "aipet" }`。
 
 ## 同源 PetLink 页面嵌入（已确认）
 
-视图允许可选 `frameOrigins: ["http://127.0.0.1:31517"]`（最多 8 项，严格 loopback HTTP(S) origin、拒绝远程/路径/query/重复项）；未声明时 `frame-src 'none'`。父会话提供本地 `views/chat2.html` 与 `views/settings.html`，使用 sandbox iframe（仅 allow-scripts allow-same-origin），分别指向 `/ui/chat/` 和 `/ui/settings/`。
+视图允许可选 `frameOrigins: ["http://127.0.0.1:31517"]`（最多 8 项，严格 loopback HTTP(S) origin、拒绝远程/路径/query/重复项）；未声明时 `frame-src 'none'`。设置视图可通过本地 `views/settings.html` 的 sandbox iframe（仅 allow-scripts allow-same-origin）嵌入 `/ui/settings/`；聊天直接在终端主区域网页页签加载 `/ui/chat/`。
 
 主 frame 仍只能导航本插件 `lyshell-plugin://` 资源；子 frame 导航及重定向只允许本视图 frameOrigins。强制 `nodeIntegrationInSubFrames: false`，preload 仅主 frame 暴露 `window.lyshellView`。main 的 guest IPC 检查 senderFrame 无 parent，子 frame 不获得宿主 API；iframe 通过 PetLink 同源配置 API/WS adapter 工作。
 
@@ -44,4 +44,4 @@ LyShell 沿用 persistent 插件 host + spawnControlled 的启动/退出/禁用�
 
 正常禁用/卸载/宿主重启/应用退出：先经 host IPC 调用并等待 async `deactivate()`（host 每插件 7s，main IPC 7.5s 总有界等待，多插件并行）；此时该插件仍启用，host token、HTTP 与共享工作台后台仍有效，允许 PetLink 完成既有 release。之后再撤 token、停止 HTTP（应用退出时）并沿用进程树强制回收。崩溃/异常退出仍立即撤 token，无延迟授权。不会无限等待挂住插件。
 
-LyShell 文件由本会话负责；AIPet/lyshell-plugin 文件由父会话负责。源码检查发现 LyShell 无独立 Chat2 组件，因此 AIPet 侧须确保 `chat2` 已注册为普通插件视图，建议清单声明以避免运行时注册竞态。
+LyShell 文件由本会话负责；AIPet/lyshell-plugin 文件由父会话负责。AIPet 侧须在清单注册 `pets` 普通视图并声明聊天服务的 HTTP `connectOrigins`，避免运行时注册竞态；无需注册独立聊天侧栏视图。

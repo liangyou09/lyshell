@@ -9,6 +9,8 @@ import { OutputBuffer } from './output-buffer'
 import { OscCwdTracker } from './osc-cwd-tracker'
 import { fileManager, cancelDownloadsBySession, cancelUploadsBySession } from '@main/file'
 import { pluginResources } from '@main/plugin/resource-registry'
+import { getMcpHttpPort } from '@main/mcp/http-port'
+import * as mcpAuth from '@main/mcp/auth'
 
 const SHELL_OPEN_CLEANUP_TIMEOUT_MS = 5000
 
@@ -432,8 +434,6 @@ export class SessionManager extends EventEmitter {
           // PTY 内孵化的 Claude Code / MCP Server 子进程将自动继承，
           // 外部进程拿不到 -> 实现"MCP 仅对 LyShell 内部终端开放"。
           // 端口未就绪（HTTP 服务尚未启动）则跳过注入，PTY 仍可正常运行，只是无法连 MCP。
-          const mcpAuth = await import('@main/mcp/auth')
-          const { getMcpHttpPort } = await import('@main/mcp/http-server')
           const { LYSHELL_MCP_ENV } = await import('@main/mcp/types')
           if (!isCurrentAttempt()) throw new Error(`Connection superseded: ${id}`)
           const sessionToken = mcpAuth.bindSessionToken(id)
@@ -584,9 +584,6 @@ export class SessionManager extends EventEmitter {
       } catch (err) {
         log.warn(`File cleanup on disconnect failed for ${id}:`, err)
       }
-      if (!isSameSession()) return
-
-      const mcpAuth = await import('@main/mcp/auth')
       if (!isSameSession()) return
       mcpAuth.revokeSessionToken(id)
       if (!isSameSession()) return

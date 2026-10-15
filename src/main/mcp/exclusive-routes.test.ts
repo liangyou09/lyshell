@@ -30,7 +30,7 @@ const bridge = vi.hoisted(() => ({
 /** S5：详情面 runtime 的替身（真实实现在 exclusive-runtime.test.ts 覆盖）。 */
 const workbench = vi.hoisted(() => ({
   acquires: 0,
-  broadcasts: [] as Array<{ detail: unknown; force: boolean }>,
+  broadcasts: [] as Array<{ detail: unknown; force: boolean; reopen: boolean }>,
   result: {
     ok: true as boolean,
     code: 'instance/no-bridge',
@@ -87,8 +87,8 @@ vi.mock('../dsh/exclusive-runtime', () => ({
 }))
 
 vi.mock('../ipc/handlers', () => ({
-  broadcastDshWebDetail: (detail: unknown, force = false) => {
-    workbench.broadcasts.push({ detail, force })
+  broadcastDshWebDetail: (detail: unknown, force = false, reopen = false) => {
+    workbench.broadcasts.push({ detail, force, reopen })
   }
 }))
 
@@ -436,6 +436,7 @@ describe('独占控制路由：托管工作台详情（S5）', () => {
     // force 补发：页签刚打开/渲染层刚重载时也要拿到当前详情面；身份不变 ⇒ 渲染层不会重挂。
     expect(workbench.broadcasts.length).toBe(broadcasts + 1)
     expect(workbench.broadcasts.at(-1)?.force).toBe(true)
+    expect(workbench.broadcasts.at(-1)?.reopen).toBe(true)
   })
 
   it('导航被用户浏览作废：navigation.ok=false 如实回执（不 fake ack、不重试）', async () => {

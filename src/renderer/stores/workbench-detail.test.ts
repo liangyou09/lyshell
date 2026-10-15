@@ -92,6 +92,67 @@ function makeHarness(): Harness {
 const OPEN_OK = { success: true as const, url: 'http://127.0.0.1:3080', cwd: '/tmp', readOnly: true, petSessionId: 's-1' }
 
 describe('只读工作台详情面：同身份去重与关闭持久化', () => {
+  it.each(['failure', 'throw'])('显式重开后旧请求 %s 不得清除新代际状态或关闭记录', async outcome => {
+    const h = makeHarness()
+    let finishOld!: () => void
+    const openDetail = vi.fn(h.deps.openDetail).mockImplementationOnce(() => new Promise((resolve, reject) => {
+      finishOld = () => outcome === 'throw' ? reject(new Error('old request')) : resolve({ success: false })
+    }))
+    const c = createWorkbenchDetailController({ ...h.deps, openDetail })
+    const target = { key: 'held:1:-:s-1', sessionId: 's-1' }
+    const old = c.ensure(target)
+    c.noteClosed(target.key)
+    const reopened = c.ensure({ ...target, reopen: true })
+    finishOld()
+    await old
+    expect(c.appliedKey()).toBe(target.key)
+    h.resolveOpen(OPEN_OK)
+    await reopened
+    c.noteClosed(target.key)
+    h.setTab(null)
+    await c.ensure(target)
+    expect(openDetail).toHaveBeenCalledTimes(2)
+    expect(c.isClosed(target.key)).toBe(true)
+  })
+  it('关闭后普通推送不重开，显式打开重建页签并合并重复请求', async () => {
+    const h = makeHarness()
+    const activateTab = vi.fn()
+    const c = createWorkbenchDetailController({ ...h.deps, activateTab })
+    const target = { key: 'held:1:-:s-1', sessionId: 's-1' }
+    const first = c.ensure(target)
+    h.resolveOpen(OPEN_OK)
+    await first
+    c.noteClosed(target.key)
+    h.setTab(null)
+    await c.ensure(target)
+    expect(h.openDetail).toHaveBeenCalledTimes(1)
+    const reopened = c.ensure({ ...target, reopen: true })
+    const duplicate = c.ensure({ ...target, reopen: true })
+    expect(h.openDetail).toHaveBeenCalledTimes(2)
+    expect(c.isClosed(target.key)).toBe(false)
+    h.resolveOpen(OPEN_OK)
+    await Promise.all([reopened, duplicate])
+    expect(h.mounts).toHaveLength(2)
+    await c.ensure({ ...target, reopen: true })
+    expect(activateTab).toHaveBeenCalledWith(DSH_WEB_OVERLAY_ID)
+    expect(h.openDetail).toHaveBeenCalledTimes(2)
+  })
+
+  it('关闭在飞页签后显式重开，旧回包不得阻止新页签挂载', async () => {
+    const h = makeHarness()
+    const c = createWorkbenchDetailController(h.deps)
+    const target = { key: 'held:1:-:s-1', sessionId: 's-1' }
+    const old = c.ensure(target)
+    c.noteClosed(target.key)
+    const reopened = c.ensure({ ...target, reopen: true })
+    expect(h.openDetail).toHaveBeenCalledTimes(2)
+    h.resolveOpen(OPEN_OK)
+    await old
+    expect(h.mounts).toHaveLength(0)
+    h.resolveOpen(OPEN_OK)
+    await reopened
+    expect(h.mounts).toHaveLength(1)
+  })
   it('用户在飞期间重复推送同一身份：只发一次 openDetail（主进程会 force 广播，去的重就在这里）', async () => {
     const h = makeHarness()
     const c = createWorkbenchDetailController(h.deps)

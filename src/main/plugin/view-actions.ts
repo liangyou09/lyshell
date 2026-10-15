@@ -359,7 +359,7 @@ export class PluginActionDispatcher {
   }
 
   /** 仅供已完成 host-token 鉴权的 HTTP 路由使用，不进入 guest 可调用动作表。 */
-  openHostUi(ownerWindowId: number, pluginId: string, viewId: string, target: 'chat2' | 'settings'): Promise<ActionResult> {
+  openHostUi(ownerWindowId: number, pluginId: string, viewId: string, target: 'chat' | 'settings'): Promise<ActionResult> {
     if ([...this.pending.values()].filter(p => p.pluginId === pluginId).length >= MAX_PENDING_PER_PLUGIN) {
       return Promise.resolve({ ok: false, error: 'too many pending actions for this plugin' })
     }

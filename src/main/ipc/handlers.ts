@@ -12,6 +12,7 @@ import { sessionRepository, preferencesRepository, quickCommandsRepository } fro
 import { agentRepository } from '../storage/agent-repository'
 import type { AgentConfig } from '../storage/agent-repository'
 import { dshWebManager } from '../dsh/web'
+import * as exclusiveRuntime from '../dsh/exclusive-runtime'
 import { createDshWebLaunchResolver } from '../dsh/launch-resolve'
 import { readSystemPath } from '../env/refresh'
 import { resolveWorkspaceCwd } from '../harness/cwd'
@@ -286,8 +287,8 @@ export function broadcastSessionsChanged(): void {
  * 所以「同一实例同一会话」的重复推送不会把用户从历史里拽回 Pet 任务会话。
  * `force` 用于详情页签刚打开/渲染层刚重载时的补发：渲染层按身份断言，不会因此重复动作。
  */
-export function broadcastDshWebDetail(detail: ExclusiveWorkbenchDetail, force = false): void {
-  sendToAllWindows('dsh:web:detail-changed', { detail, force })
+export function broadcastDshWebDetail(detail: ExclusiveWorkbenchDetail, force = false, reopen = false): void {
+  sendToAllWindows('dsh:web:detail-changed', { detail, force, reopen })
 }
 
 /** 禁用/卸载共用：先失效在途动作，再完整断开资源，最后刷新保存项。 */
@@ -2617,8 +2618,7 @@ export function registerIPCHandlers(): void {
 
       // S4：托管期间（Pet 托管控制 / 共享工作台详情持有）**绝不**走显式重开 —— open() 会先杀旧实例，
       // 那会打断 Pet 正在跑的任务。改走 acquire 复用路径（同键复用、异键明确 conflict，不 restart）。
-      const runtime = await import('../dsh/exclusive-runtime')
-      const exclusive = runtime.getExclusiveControl()
+      const exclusive = exclusiveRuntime.getExclusiveControl()
       const managed = dshWebManager.isManaged || (exclusive ? exclusive.isHeld || exclusive.isReleasing : false)
       if (managed) {
         const reused = await dshWebManager.acquire((t) => dshLaunchResolver.resolve(t), {
@@ -2658,19 +2658,18 @@ export function registerIPCHandlers(): void {
       const safe = assertObject(target ?? {}, 'target')
       const sessionId = safe.sessionId === undefined ? undefined : assertString(safe.sessionId, 'target.sessionId', { maxLength: 128 })
       const name = safe.name === undefined ? undefined : assertString(safe.name, 'target.name', { maxLength: 200 })
-      const runtime = await import('../dsh/exclusive-runtime')
-      const detail = await runtime.acquireWorkbenchDetail()
+      const detail = await exclusiveRuntime.acquireWorkbenchDetail()
       if (!detail.ok) return { success: false, error: detail.error, code: detail.code }
       // 导航请求：同一实例同一会话 ⇒ 复用（跳过），不重发、不 restart；
       // 迟到（viewer revision 已被用户浏览推进）⇒ 明确报错，不重试、不拽回。
       let navigation: { ok: boolean; skipped?: boolean; error?: string; code?: string } | null = null
       if (sessionId) {
-        const nav = await runtime.requestWorkbenchNavigation(sessionId)
+        const nav = await exclusiveRuntime.requestWorkbenchNavigation(sessionId)
         navigation = nav.ok ? { ok: true, skipped: nav.skipped } : { ok: false, error: nav.error, code: nav.code }
       }
       // 详情面补发（force）：页签刚打开/渲染层刚重载时需要一份当前状态，
       // 即使身份没变也要告知 —— 但渲染层按身份断言，同一身份不会重复动作。
-      const { detail: surface } = runtime.publishWorkbenchDetail(true)
+      const { detail: surface } = exclusiveRuntime.publishWorkbenchDetail(true)
       broadcastDshWebDetail(surface, true)
       return {
         success: true,
@@ -2697,8 +2696,7 @@ export function registerIPCHandlers(): void {
     try {
       const safe = assertObject(target ?? {}, 'target')
       const sessionId = assertString(safe.sessionId, 'target.sessionId', { maxLength: 128 })
-      const runtime = await import('../dsh/exclusive-runtime')
-      const nav = await runtime.requestWorkbenchNavigation(sessionId)
+      const nav = await exclusiveRuntime.requestWorkbenchNavigation(sessionId)
       if (!nav.ok) return { success: false, error: nav.error, code: nav.code }
       return {
         success: true,
@@ -2721,8 +2719,7 @@ export function registerIPCHandlers(): void {
     const safe = assertObject(target ?? {}, 'target')
     const detach = safe.detach === undefined ? false : assertBoolean(safe.detach, 'target.detach')
     if (detach) {
-      const runtime = await import('../dsh/exclusive-runtime')
-      runtime.releaseWorkbenchDetail()
+      exclusiveRuntime.releaseWorkbenchDetail()
       return { success: true, detached: true, killed: false }
     }
     if (dshWebManager.isManaged) {
@@ -2737,13 +2734,12 @@ export function registerIPCHandlers(): void {
   // 并提供「回到 Pet 任务会话」入口。桥不可达时如实报错，不用旧快照假装一切正常。
   ipcMain.handle('exclusive:snapshot', async () => {
     try {
-      const runtime = await import('../dsh/exclusive-runtime')
-      const service = runtime.getExclusiveControl()
+      const service = exclusiveRuntime.getExclusiveControl()
       if (!service) return { success: true, snapshot: null }
-      const synced = await runtime.syncExclusiveBridgeState()
+      const synced = await exclusiveRuntime.syncExclusiveBridgeState()
       // 详情面随快照一起回（渲染层挂载时立刻有值），并在身份变化时补推事件 ——
       // 唯一 payload 断言点在渲染层，这里只负责「如实告知变了」。
-      const { detail, changed } = runtime.publishWorkbenchDetail()
+      const { detail, changed } = exclusiveRuntime.publishWorkbenchDetail()
       if (changed) broadcastDshWebDetail(detail)
       if (!synced.ok && (service.isHeld || service.isReleasing)) {
         return { success: false, error: synced.error, code: synced.code, snapshot: service.getSnapshot(), detail }

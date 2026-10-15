@@ -4,11 +4,11 @@ import type { TokenBinding } from '../mcp/auth'
 import type { PluginViewMeta } from '@shared/plugin-types'
 
 const host: TokenBinding = { kind: 'plugin', pluginId: 'aipet', tokenSource: 'host', capabilities: ['uiControl'] }
-const body = { pluginId: 'aipet', target: 'chat2' }
+const body = { pluginId: 'aipet', target: 'chat' }
 const setup = () => ({
   plugin: vi.fn(() => ({ enabled: true, grantedCapabilities: ['uiControl'] as ['uiControl'] })),
   views: vi.fn((): PluginViewMeta[] => [
-    { pluginId: 'aipet', id: 'chat2', title: '聊天2', entry: 'views/chat2.html', source: 'manifest' },
+    { pluginId: 'aipet', id: 'pets', title: 'PetLink 宠物', entry: 'views/pets.html', source: 'manifest' },
     { pluginId: 'aipet', id: 'settings', title: 'PetLink', entry: 'views/settings.html', source: 'manifest', surface: 'settings' }
   ]),
   open: vi.fn(async () => ({ ok: true }))
@@ -31,11 +31,11 @@ describe('插件宿主界面入口', () => {
     expect((await openPluginHostUi(body, host, deps)).status).toBe(403)
     expect(deps.open).not.toHaveBeenCalled()
   })
-  it.each(['chat2', 'settings'])('打开已注册的 %s，成功响应只包含目标身份', async target => {
+  it.each(['chat', 'settings'])('打开已注册的 %s，成功响应只包含目标身份', async target => {
     const deps = setup()
     const request = { pluginId: 'aipet', target }
     expect(await openPluginHostUi(request, host, deps)).toEqual({ status: 200, body: { success: true, data: request } })
-    expect(deps.open).toHaveBeenCalledWith(request, target)
+    expect(deps.open).toHaveBeenCalledWith(request, target === 'chat' ? 'pets' : 'settings')
   })
   it('拒绝未知目标/额外 URL；没有目标不聚焦宿主', async () => {
     const deps = setup()

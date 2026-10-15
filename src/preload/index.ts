@@ -379,10 +379,10 @@ const electronAPI = {
   // （acquire/submit/session 等落在主进程的变更），渲染层据此决定要不要打开/切换到详情页签；
   // 身份没变就不推 —— 因此用户浏览历史后不会被同一身份的重复推送拽回。
   onDshWebDetailChanged: (
-    callback: (payload: { detail: ExclusiveWorkbenchDetail; force?: boolean }) => void
+    callback: (payload: { detail: ExclusiveWorkbenchDetail; force?: boolean; reopen?: boolean }) => void
   ) => {
     const listener = (_event: IpcRendererEvent, payload: unknown) =>
-      callback(payload as { detail: ExclusiveWorkbenchDetail; force?: boolean })
+      callback(payload as { detail: ExclusiveWorkbenchDetail; force?: boolean; reopen?: boolean })
     ipcRenderer.on(IPC_CHANNELS.DSH_WEB_DETAIL_CHANGED, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.DSH_WEB_DETAIL_CHANGED, listener)
   },

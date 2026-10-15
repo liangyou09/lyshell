@@ -33,14 +33,14 @@ const validManifest: Record<string, unknown> = {
 
 describe('validateManifest', () => {
   it('设置贡献与普通视图共用身份、入口和容量安全闸', () => {
-    const chat = { id: 'chat2', title: '聊天2', entry: 'views/chat2.html' }
+    const chat = { id: 'chat', title: '聊天', entry: 'views/chat.html' }
     const settings = { id: 'settings', title: 'PetLink', entry: 'views/settings.html', frameOrigins: ['http://127.0.0.1:31517'] }
     const result = validateManifest({ ...validManifest, contributes: { views: [chat], settings: [settings] } })
     expect(result.ok).toBe(true)
     expect(manifestPluginViews(result.manifest!)).toEqual([chat, { ...settings, surface: 'settings' }])
     for (const invalid of [
-      { views: [chat], settings: [{ ...settings, id: 'chat2' }] },
-      { views: [chat], settings: [{ ...settings, entry: 'views/chat2.html' }] },
+      { views: [chat], settings: [{ ...settings, id: 'chat' }] },
+      { views: [chat], settings: [{ ...settings, entry: 'views/chat.html' }] },
       { settings: [{ ...settings, entry: '../settings.html' }] },
       { settings: [{ ...settings, entry: 'https://example.com/settings.html' }] },
       { views: [chat], settings: Array.from({ length: 8 }, (_, i) => ({ ...settings, id: `setting-${i}`, entry: `views/setting-${i}.html` })) }
@@ -57,7 +57,7 @@ describe('validateManifest', () => {
     expect(validateViewDefinition({ ...view, frameOrigins: origins }).view?.frameOrigins).toEqual(origins)
     expect(isPluginFrameNavigationAllowed('http://127.0.0.1:31517/ui/settings/')).toBe(false)
     expect(isPluginFrameNavigationAllowed('http://127.0.0.1:31517/ui/settings/', origins)).toBe(true)
-    for (const url of ['https://example.com', 'http://127.0.0.1:31518', 'http://user:pass@127.0.0.1:31517', 'lyshell-plugin://aipet/chat2.html']) {
+    for (const url of ['https://example.com', 'http://127.0.0.1:31518', 'http://user:pass@127.0.0.1:31517', 'lyshell-plugin://aipet/chat.html']) {
       expect(isPluginFrameNavigationAllowed(url, origins)).toBe(false)
     }
   })
