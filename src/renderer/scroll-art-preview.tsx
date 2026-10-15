@@ -1,7 +1,8 @@
 import React, { useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ScrollPaper, ScrollRoller, SingleScroll, XuanPaper } from './components/Layout/ScrollArtwork'
-import { ScrollTie } from './components/Layout/ScrollFold'
+import ScrollFold, { ScrollTie } from './components/Layout/ScrollFold'
+import { GroupHeader } from './components/Layout/SessionsPanel'
 import { BrushArtwork } from './components/Layout/BrushArtwork'
 import QuickCommandsPanel from './components/QuickCommands/QuickCommandsPanel'
 import TerminalSearchPanel from './components/Terminal/TerminalSearchPanel'
@@ -60,6 +61,38 @@ function TerminalSearchPreview(): React.ReactElement {
   </div>
 }
 
+// 使用生产分组标题与工具面板装配，集中验收纸纹、纸尾、轴肩和开合后的色差。
+function RollMaterialPreview(): React.ReactElement {
+  const [singleOpen, setSingleOpen] = useState(false)
+  const [localOpen, setLocalOpen] = useState(false)
+  const [toolOpen, setToolOpen] = useState(false)
+  return <div className="art-roll-material">
+    <div className="group-list">
+      <div className="group-list-body">
+        <GroupHeader label="开发服务器" count={2} collapsed={!singleOpen} onToggle={() => setSingleOpen(!singleOpen)} />
+        <ScrollFold open={singleOpen}>
+          <div className="paper-sheet art-roll-rows"><span>app-server</span><span>database</span></div>
+        </ScrollFold>
+        <GroupHeader label="本地终端" count={1} tone="local" collapsed={!localOpen} onToggle={() => setLocalOpen(!localOpen)} />
+        <ScrollFold open={localOpen}>
+          <div className="paper-sheet art-roll-rows"><span>PowerShell</span></div>
+        </ScrollFold>
+      </div>
+    </div>
+    <div className={`scroll-dual scroll-dual-compact ${toolOpen ? 'open' : 'rolled'}`} style={{ height: toolOpen ? 136 : 'var(--scroll-dual-rolled-height)', '--dual-h': '136px' } as React.CSSProperties}>
+      <button type="button" className="scroll-dual-rod" aria-label="工具面板开合" aria-expanded={toolOpen} onClick={() => setToolOpen(!toolOpen)}>
+        <span className="rod-caps" /><span className="scroll-dual-tie"><ScrollTie /></span>
+      </button>
+      <div className="scroll-dual-paper" {...(toolOpen ? {} : { inert: '' })}>
+        <div className="scroll-dual-body art-roll-rows"><span>src / renderer</span><span>WebPanel.tsx</span><span>SessionsPanel.tsx</span></div>
+      </div>
+      <button type="button" className="scroll-dual-rod scroll-dual-rod-b" aria-label="工具面板下轴开合" aria-expanded={toolOpen} onClick={() => setToolOpen(!toolOpen)}>
+        <span className="rod-caps" /><span className="scroll-dual-tie"><ScrollTie /></span>
+      </button>
+    </div>
+  </div>
+}
+
 function ThemePreview({ dark }: { dark: boolean }): React.ReactElement {
   const [singleOpen, setSingleOpen] = useState(true)
   const [dualOpen, setDualOpen] = useState(true)
@@ -76,6 +109,8 @@ function ThemePreview({ dark }: { dark: boolean }): React.ReactElement {
       </div>
       <SessionDialog open={dialog === 'session'} onClose={() => setDialog(null)} onSubmit={() => { setDialog(null); return null }} />
       <ExportImportDialog open={dialog === 'export'} onClose={() => setDialog(null)} sessions={[]} quickCommands={useQuickCommandsStore.getState().commands} onImportComplete={() => setDialog(null)} />
+      <h3>收卷材质 · 点击比较展开纸面</h3>
+      <RollMaterialPreview />
       <h3>终端查找 · 真实组件 / 示例结果</h3>
       <TerminalSearchPreview />
       <h3>快捷命令 · 木匣盖与玉章匣盘</h3>

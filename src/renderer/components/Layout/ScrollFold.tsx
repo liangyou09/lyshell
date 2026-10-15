@@ -31,8 +31,22 @@ const ScrollFold: React.FC<{
  * 故意不规则:绳 S 形微歪、两环不等形、双尾不对称 —— 手工系的绳。基础槽位
  * 占 12×16,分组卷在 CSS 里放大一档,开合行首不跳。
  */
-export const ScrollTie: React.FC<{ group?: boolean }> = ({ group = false }) => (
+export const ScrollTie: React.FC<{ group?: boolean }> = ({ group = false }) => {
+  const textureId = `scroll-tie-texture-${React.useId().replace(/:/g, '')}`
+  return (
   <svg className="scroll-tie" width="12" height="16" viewBox="0 0 12 16" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <defs>
+      {/* 从同一张蝴蝶结图的竖绳中段取纹，束绳与结共用编织和受光。 */}
+      <pattern id={textureId} patternUnits="userSpaceOnUse" width="1.6" height="4" viewBox="600 300 45 180" preserveAspectRatio="none">
+        <image href={silkTie} width="1254" height="1254" />
+      </pattern>
+    </defs>
+    {/* 束绳只画正面：上下缘绕到背后，背面绳段被纸卷遮住，不能画成透视圆环。 */}
+    <g className="scroll-tie-wrap">
+      <path d="M6 .7C5 1.4 4.9 4.6 5.8 7.8C6.4 10.6 6.9 13.8 6 15.3" stroke="#302316" strokeOpacity=".45" strokeWidth="2.1" />
+      <path d="M6 .7C5 1.4 4.9 4.6 5.8 7.8C6.4 10.6 6.9 13.8 6 15.3" stroke={`url(#${textureId})`} strokeWidth="1.6" />
+      <path d="M5.2 2.3C5 3.4 5.2 5.2 5.6 6.6M6.3 9.5C6.7 11.2 6.8 12.7 6.4 14" stroke="#fff2ce" strokeOpacity=".35" strokeWidth=".25" />
+    </g>
     <image className="scroll-tie-art" href={silkTie} width="12" height="16" preserveAspectRatio="xMidYMid meet" />
     {group ? <>
     {/* 绕轴的一圈绳:暗边压进卷面，亮脊提起绳的圆度。 */}
@@ -57,6 +71,7 @@ export const ScrollTie: React.FC<{ group?: boolean }> = ({ group = false }) => (
       <path className="scroll-tie-tail-r" d="M6.5 8.7C7.7 9.9 8.5 11.5 7.8 13.2C7.3 14.4 7.7 15.2 7 15.5" strokeWidth="1.05" />
     </>}
   </svg>
-)
+  )
+}
 
 export default ScrollFold

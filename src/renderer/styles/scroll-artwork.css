@@ -12,6 +12,11 @@
   --scroll-art-texture-image: url('../assets/scroll/xuan-paper-light-v1.png');
   --scroll-art-texture-wash: color-mix(in srgb, var(--scroll-art-paper-color) 38%, transparent);
   --scroll-art-input-wash: color-mix(in srgb, var(--scroll-art-paper-color) 15%, transparent);
+  --scroll-art-roll-lighting: linear-gradient(to bottom, #49352238, #fff9ec22 13%, #fff9ec55 30%, transparent 55%, #49352212 78%, #49352240);
+  --scroll-art-roll-filter: none;
+  --scroll-art-roll-edge: #75604444;
+  --scroll-art-roll-opening: #5b4a2f77;
+  --scroll-art-roll-lip: color-mix(in srgb, var(--scroll-art-paper-color) 90%, white);
 }
 [data-theme-mode="dark"] {
   --scroll-art-filter: brightness(.58) saturate(.7) sepia(.12) drop-shadow(0 1px 2px #0008);
@@ -24,6 +29,12 @@
   --scroll-art-texture-image: url('../assets/scroll/xuan-paper-dark-v1.png');
   --scroll-art-texture-wash: color-mix(in srgb, var(--scroll-art-paper-color) 65%, transparent);
   --scroll-art-input-wash: color-mix(in srgb, var(--scroll-art-paper-color) 35%, transparent);
+  --scroll-art-roll-lighting: linear-gradient(to bottom, #0005, #f8e7c514 13%, #f8e7c52b 30%, transparent 58%, #0002 78%, #0006);
+  /* 只补偿纸面的父级玉轴滤镜，让纸纹和展开纸面使用同一套主题颜色。 */
+  --scroll-art-roll-filter: brightness(1.724) saturate(1.429);
+  --scroll-art-roll-edge: #15120e33;
+  --scroll-art-roll-opening: #09080699;
+  --scroll-art-roll-lip: color-mix(in srgb, var(--scroll-art-paper-color) 92%, #eee3cb);
 }
 [data-scroll-material="jade"] {
   --scroll-paper: var(--scroll-art-paper-color);
@@ -54,6 +65,63 @@
 [data-scroll-material="jade"] .rod-caps::before,
 [data-scroll-material="jade"] .rod-caps::after,
 [data-scroll-material="jade"] .rod-caps > .scroll-rod-collar { display: none; }
+/* 单/双轴收卷共用宣纸材质：真实纸纹叠柔和圆弧受光，图集只画玉轴头。
+   绝对定位不撑高标题，也不改变轴头的比例；双轴跟随自己的细卷直径。 */
+[data-scroll-material="jade"] .scroll-head.rolled > .rod-caps,
+[data-scroll-material="jade"] .scroll-dual.rolled > .scroll-dual-rod > .rod-caps {
+  /* 不填充旧纸面，避免两套纸边在端面圆角下叠成多层轮廓。 */
+  border-image-slice: 735 185 349 185;
+}
+[data-scroll-material="jade"] .scroll-dual.rolled > .scroll-dual-rod > .rod-caps {
+  --scroll-art-roll-diameter: var(--scroll-art-height);
+}
+[data-scroll-material="jade"] .scroll-head.rolled > .rod-caps::after,
+[data-scroll-material="jade"] .scroll-dual.rolled > .scroll-dual-rod > .rod-caps::after {
+  display: block;
+  opacity: 1;
+  top: 50%;
+  left: -1px;
+  right: -1px;
+  width: auto;
+  height: var(--scroll-art-roll-diameter, 16px);
+  transform: translateY(-50%);
+  clip-path: none;
+  border-radius: 2px / 28%;
+  filter: var(--scroll-art-roll-filter);
+  background-color: var(--scroll-art-paper-color);
+  background-image:
+    linear-gradient(to right, var(--scroll-art-roll-edge), transparent 4px, transparent calc(100% - 4px), var(--scroll-art-roll-edge)),
+    var(--scroll-art-roll-lighting),
+    linear-gradient(var(--scroll-art-texture-wash), var(--scroll-art-texture-wash)),
+    var(--scroll-art-texture-image);
+  background-size: 100% 100%, 100% 100%, 100% 100%, 280px 280px;
+  background-position: center, center, center, 18px 42px;
+  background-repeat: no-repeat, no-repeat, no-repeat, repeat;
+  box-shadow: 0 1px 2px #38271533;
+}
+/* 单轴纸尾朝下：纸唇沿下缘轻微垂出，暗缝在纸唇上方，上沿不画缝。 */
+[data-scroll-material="jade"] .scroll-head.rolled > .rod-caps::before {
+  display: block;
+  z-index: 1;
+  top: calc(50% + 5px);
+  left: -1px;
+  right: -1px;
+  width: auto;
+  height: 4px;
+  transform: none;
+  clip-path: polygon(0 0, 100% 0, 100% 75%, 96% 73%, 73% 61%, 40% 87%, 5% 72%, 0 70%);
+  border-radius: 0;
+  filter: var(--scroll-art-roll-filter);
+  background-color: var(--scroll-art-roll-lip);
+  background-image:
+    linear-gradient(to bottom, var(--scroll-art-roll-opening) 0 1px, transparent 1px),
+    linear-gradient(var(--scroll-art-texture-wash), var(--scroll-art-texture-wash)),
+    var(--scroll-art-texture-image);
+  background-size: 100% 100%, 100% 100%, 280px 280px;
+  background-position: center, center, 18px 54px;
+  mask-image: none;
+  box-shadow: none;
+}
 [data-scroll-material="jade"] .scroll-dual > .scroll-dual-rod > .rod-caps {
   --scroll-art-height: 18px;
   height: var(--scroll-art-height);
@@ -115,6 +183,30 @@
     inset 4px 0 var(--scroll-art-rule), inset -4px 0 var(--scroll-art-rule);
 }
 .scroll-art-paper { padding: 16px 20px; }
+/* 栏底工具面板：轴体等比缩小，纸面延伸至轴头内缘，画心只留 1px 纸边。
+   上下辊高度与开合预算保持原值，避免调宽影响拖高和网页布局。 */
+[data-scroll-material="jade"] .scroll-dual-compact {
+  --scroll-compact-paper-inset: 6px;
+}
+[data-scroll-material="jade"] .scroll-dual-compact > .scroll-dual-rod > .rod-caps {
+  --scroll-art-height: 14px;
+  top: 3px;
+}
+[data-scroll-material="jade"] .scroll-dual-compact.rolled > .scroll-dual-rod > .rod-caps {
+  --scroll-art-height: 12px;
+  top: 1px;
+}
+[data-scroll-material="jade"] .scroll-dual-compact > .scroll-dual-paper {
+  margin-inline: var(--scroll-compact-paper-inset);
+  box-shadow: inset 1px 0 var(--scroll-art-rule), inset -1px 0 var(--scroll-art-rule);
+}
+[data-scroll-material="jade"] .scroll-dual-compact > .scroll-dual-paper > .scroll-dual-body {
+  left: 1px;
+  right: 1px;
+}
+[data-scroll-material="jade"] .scroll-dual-compact.rolled::before {
+  inset-inline: var(--scroll-compact-paper-inset);
+}
 .scroll-art-single > .scroll-head { width: 100%; height: 22px; padding: 0; position: relative; background: transparent; border: 0; cursor: pointer; }
 .scroll-art-single > .scroll-head:not(.rolled):has(> .rod-caps)::before,
 .scroll-art-single > .scroll-head::after { display: none; }
@@ -208,9 +300,14 @@
   background-repeat: no-repeat, repeat;
 }
 /* ImageGen 透明丝绳：玉石大画轴使用美术图，小于 8px 的筛选轴保留线绘。 */
-.scroll-tie-art { display: none; }
-[data-scroll-material="jade"] :is(.scroll-head, .scroll-dual) .scroll-tie > :not(.scroll-tie-art) { display: none; }
+.scroll-tie-art,
+.scroll-tie-wrap { display: none; }
+[data-scroll-material="jade"] :is(.scroll-head, .scroll-dual) .scroll-tie > :not(defs):not(.scroll-tie-art):not(.scroll-tie-wrap) { display: none; }
 [data-scroll-material="jade"] :is(.scroll-head, .scroll-dual) .scroll-tie-art { display: block; }
+[data-scroll-material="jade"] :is(.scroll-head, .scroll-dual) .scroll-tie-wrap { display: block; }
+[data-scroll-material="jade"] :is(.scroll-head, .scroll-dual) .scroll-tie-art { transform: translateY(.5px); }
+/* 束绳跨过纸卷上下缘后隐入背面；双轴随 12px 纸卷缩小正面绳段。 */
+[data-scroll-material="jade"] .scroll-dual > .scroll-dual-rod > .scroll-dual-tie .scroll-tie-wrap { transform: translateY(1.76px) scaleY(.78); }
 [data-scroll-material="jade"] .scroll-head .scroll-tie { width: 20px; height: 24px; transform: translateX(7px); }
 /* 解绳后的槽位与题名行高一致，避免隐藏的绳结撑高展开标题。 */
 [data-scroll-material="jade"] .scroll-head:not(.rolled) .scroll-tie { height: 20px; }
@@ -221,8 +318,10 @@
 }
 [data-scroll-material="jade"] .scroll-dual-tie .scroll-tie { width: 18px; height: 20px; }
 .scroll-art-single-tie { position: absolute; top: -3px; left: 30px; pointer-events: none; }
-[data-theme-mode="dark"] [data-scroll-material="jade"] .scroll-tie-art,
-[data-theme-mode="dark"][data-scroll-material="jade"] .scroll-tie-art { filter: brightness(.88) saturate(.85); }
+[data-theme-mode="dark"] [data-scroll-material="jade"] :is(.scroll-tie-art, .scroll-tie-wrap),
+[data-theme-mode="dark"][data-scroll-material="jade"] :is(.scroll-tie-art, .scroll-tie-wrap) {
+  filter: brightness(1.5) saturate(.9) drop-shadow(0 1px 1px #0009);
+}
 
 /* 文房毛笔：两端图像不拉长，只伸缩中段木杆；悬停/执笔沿用原按钮动作。 */
 .brush-art {

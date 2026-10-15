@@ -1576,12 +1576,12 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
             (body 裱边四周各 4px,见 globals.css)。装配总高(= 双辊 20 +
             裱边 8 + 画心)沿用 fileManagerHeight 存档语义,拖动映射 1:1
             不变。fmConfigLoaded 门:对账落定前连装配也不挂(旧代码只门内
-            容),存档关闭态冷启动零闪现;装配左右缘 6(mx-1.5)与墙/笔架同线 */}
+            容),存档关闭态冷启动零闪现;装配横向铺满面板，轴头不另留外边距 */}
         {fmConfigLoaded && (
           <div
             ref={fmAssemblyRef}
             className={cn(
-              'scroll-dual mx-1.5 flex-shrink-0 select-none',
+              'scroll-dual scroll-dual-compact flex-shrink-0 select-none',
               fileManagerClosed ? 'rolled' : 'open',
               isResizingHeight && 'resizing'
             )}

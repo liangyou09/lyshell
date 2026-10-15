@@ -1171,7 +1171,7 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
           --web-group,不取 amber) */}
       <div
         className={cn(
-          'scroll-dual scroll-dual-web flex-shrink-0 select-none',
+          'scroll-dual scroll-dual-compact scroll-dual-web -mx-1.5 flex-shrink-0 select-none',
           miniClosed ? 'rolled' : 'open',
           miniResizing && 'resizing'
         )}

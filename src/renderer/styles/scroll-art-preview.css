@@ -1,4 +1,7 @@
 .art-preview-page { margin: 0; background: #dfdcd5; font-family: 'Microsoft YaHei', sans-serif; }
+.art-roll-material { display: grid; gap: 12px; }
+.art-roll-material .scroll-dual-rod { padding: 0; border: 0; background: transparent; cursor: pointer; }
+.art-roll-rows { display: flex; flex-direction: column; gap: 6px; padding: 8px; color: var(--scroll-art-ink); font-size: 12px; }
 .art-gallery { max-width: 1120px; padding: 32px; margin: auto; color: #493d31; }
 .art-gallery h1 { font-size: 26px; margin: 0 0 8px; }
 .art-gallery > p { font-size: 13px; margin-bottom: 24px; }
