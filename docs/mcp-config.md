@@ -92,5 +92,7 @@ Claude Code / MCP 客户端 ──stdio──▶ mcpServer.js ──HTTP──�
 
 ## 相关 · Related
 
+- [LyShell 原生 Harness 工作接口](native-harness-work.md)：`lyshell_harness_work` / `/api/harness/work/*`，独立于 PetLink 的任务、状态、审批与停止能力。
+
 - [README · MCP 集成](../README.md#-mcp-integration) · [中文 README](../README.zh.md#-mcp-集成)
 - [插件示例 · my-pet-plugin](../examples/my-pet-plugin/README.md) —— 一个「像 Claude 一样经 stdio MCP 连 LyShell」的完整参考实现。*A complete reference implementation that "connects to LyShell over stdio MCP, just like Claude".*

@@ -1,0 +1,24 @@
+import { describe, it, expect } from 'vitest'
+import { parseHarnessWorkRequest } from './harness-work'
+import { API_ROUTES, MCP_TOOL_DEFINITIONS, PATH_BY_NAME } from './api-routes'
+
+describe('原生 Harness 请求契约', () => {
+  it.each([
+    { kind: 'state' }, { kind: 'targets' }, { kind: 'disconnect' }, { kind: 'new' },
+    { kind: 'new', workspace: 'D:/project' }, { kind: 'select', sessionId: 's' },
+    { kind: 'submit', sessionId: 's', text: 'task', requestId: 'r' },
+    { kind: 'cancel', taskId: 't' }, { kind: 'approve', id: 'a', optionId: 'rejected' }
+  ])('接受合法请求 %j', value => expect(parseHarnessWorkRequest(value)).toEqual(value))
+  it.each([
+    null, [], {}, { kind: 'toString' }, { kind: '__proto__' }, { kind: 'acquire', epoch: 1 },
+    { kind: 'state', owner: 'pet' }, { kind: 'new', workspace: 'bad\0path' },
+    { kind: 'submit', requestId: 'r', text: 'x' }, { kind: 'submit', sessionId: 's', requestId: 'r', text: ' ' },
+    { kind: 'submit', sessionId: 's', requestId: 'r', text: 'x'.repeat(32001) },
+    { kind: 'approve', id: 'a', optionId: 'always' }, { kind: 'approve', id: 'a', optionId: ['rejected'] }, { kind: 'cancel' }
+  ])('拒绝非法或越权字段 %j', value => expect(parseHarnessWorkRequest(value)).toBeNull())
+  it('HTTP/MCP 共用唯一契约与工具名', () => {
+    expect(API_ROUTES.filter(route => route.name === 'lyshell_harness_work')).toHaveLength(1)
+    expect(MCP_TOOL_DEFINITIONS.find(tool => tool.name === 'lyshell_harness_work')).toBeTruthy()
+    expect(PATH_BY_NAME.get('lyshell_harness_work')).toBe('/api/harness/work/request')
+  })
+})

@@ -3,6 +3,7 @@ import http from 'http'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { createRequire } from 'module'
 import { BRIDGE_KEY_HEADER } from './bridge'
 
 vi.mock('electron-log', () => ({ default: { info: () => {}, error: () => {}, warn: () => {} } }))
@@ -52,6 +53,7 @@ interface BridgeHarness {
   /** 官方 session/event 投放（真实事件形状） */
   turnStart: (sessionId: string, turn: number) => void
   turnEnd: (sessionId: string, turn: number, kind: string) => void
+  sessionEvent: (sessionId: string, type: string, data: Record<string, unknown>) => void
   agentError: (sessionId: string, error: unknown) => void
   /** 控制面（真实回环 HTTP + host-only 头） */
   post: (payload: unknown, key?: string) => Promise<{ status: number; body: Record<string, unknown> }>
@@ -76,10 +78,109 @@ interface BridgeHarness {
 
 const bridgeSource = (): string => readFileSync(join(process.cwd(), 'resources', 'dsh-bridge', 'index.mjs'), 'utf8')
 
+describe('原生 Harness 工作通道与 Pet 共存', () => {
+  const a = 'a'.repeat(64)
+  const b = 'b'.repeat(64)
+  const native = (h: BridgeHarness, owner: string, request: Record<string, unknown>) => h.post({ cmd: 'native-work', owner, request })
+
+  it('提交抛错保留未确认任务，重复 requestId 不重发且不谎报接受', async () => {
+    const h = await makeHarness({ promptError: true })
+    try {
+      const sessionId = String((await native(h, a, { kind: 'new' })).body.sessionId)
+      const request = { kind: 'submit', sessionId, requestId: 'unknown', text: 'one' }
+      expect((await native(h, a, request)).status).toBe(409)
+      expect((await native(h, a, { kind: 'state' })).body).toMatchObject({ status: 'error', taskState: 'unconfirmed' })
+      expect((await native(h, a, request)).body).toMatchObject({ accepted: false, duplicate: true, taskState: 'unconfirmed' })
+      expect(h.calls.prompt).toHaveLength(1)
+      h.turnStart(sessionId, 1)
+      h.turnEnd(sessionId, 1, 'completed')
+      expect((await native(h, a, { kind: 'state' })).body.taskState).toBe('completed')
+    } finally { h.dispose() }
+  })
+
+  it('只选择自己新建的会话，拒绝 Pet/Web 与另一调用方会话', async () => {
+    const h = await makeHarness({ agents: ['pet-session'] })
+    try {
+      const created = await native(h, a, { kind: 'new', workspace: process.cwd() })
+      const sessionId = created.body.sessionId
+      expect(created.status).toBe(200)
+      expect((await native(h, b, { kind: 'select', sessionId })).body.code).toBe('task/not-found')
+      expect((await native(h, a, { kind: 'select', sessionId: 'pet-session' })).body.code).toBe('task/not-found')
+      await h.post({ cmd: 'acquire', epoch: 1, bindingId: 'pet' })
+      expect((await h.post({ cmd: 'session', epoch: 1, mode: 'select', sessionId })).body.code).toBe('control/held-by-other')
+      expect((await h.post({ cmd: 'submit', epoch: 1, taskId: 'pet-task', sessionId, text: 'wrong owner' })).body.code).toBe('control/held-by-other')
+      expect((await native(h, b, { kind: 'state' })).body.sessions).toEqual([])
+    } finally { h.dispose() }
+  })
+
+  it('原生与 Pet 可并行提交，审批与 release 互不干扰，只认各自官方终态', async () => {
+    const h = await makeHarness({ agents: ['pet-session'] })
+    try {
+      await h.post({ cmd: 'acquire', epoch: 3, bindingId: 'pet' })
+      const sessionId = String((await native(h, a, { kind: 'new' })).body.sessionId)
+      const submitted = await native(h, a, { kind: 'submit', sessionId, requestId: 'native-r1', text: 'native' })
+      expect(submitted.body.taskState).toBe('accepted')
+      await h.post({ cmd: 'submit', epoch: 3, taskId: 'pet-task', sessionId: 'pet-session', text: 'pet' })
+      h.turnStart(sessionId, 1)
+      h.turnStart('pet-session', 2)
+      h.sessionEvent(sessionId, 'tool/call', { callId: 'native-call', name: 'shell', arguments: '{"command":"pwd"}' })
+      const ownApproval = h.approvalRequest({ agent: { session: { id: sessionId } }, toolName: 'shell', callId: 'native-call' })
+      const petApproval = h.approvalRequest({ agent: { session: { id: 'pet-session' } }, toolName: 'write' })
+      const ownState = (await native(h, a, { kind: 'state' })).body
+      const approvals = ownState.approvals as Array<{ id: string }>
+      expect(ownState.status).toBe('approval')
+      expect(approvals).toHaveLength(1)
+      expect(approvals[0]).toMatchObject({ callId: 'native-call' })
+      expect(ownState.transcript).toContainEqual(expect.objectContaining({ kind: 'tool-call', callId: 'native-call', text: '{"command":"pwd"}' }))
+      expect((await native(h, b, { kind: 'approve', id: approvals[0].id, optionId: 'allowed-once' })).body.code).toBe('approval/not-pending')
+      expect((await h.post({ cmd: 'approve', epoch: 3, approvalId: approvals[0].id, outcome: 'allowed-once' })).body.code).toBe('approval/not-pending')
+      await native(h, a, { kind: 'approve', id: approvals[0].id, optionId: 'rejected' })
+      expect(await ownApproval.result).toBe('rejected')
+      h.sessionEvent(sessionId, 'tool/result', { message: { toolCallId: 'native-call', isError: true, content: [{ type: 'text', text: 'rejected' }] } })
+      expect((await native(h, a, { kind: 'state' })).body.transcript).toContainEqual(expect.objectContaining({ kind: 'tool-result', callId: 'native-call', failed: true }))
+      h.turnEnd('pet-session', 2, 'completed')
+      expect(await petApproval.result).toBe('cancelled')
+      await h.post({ cmd: 'release', epoch: 3 })
+      expect((await native(h, a, { kind: 'state' })).body.taskState).toBe('running')
+      h.turnEnd(sessionId, 77, 'completed')
+      expect((await native(h, a, { kind: 'state' })).body.taskState).toBe('running')
+      h.turnEnd(sessionId, 1, 'completed')
+      expect((await native(h, a, { kind: 'state' })).body.taskState).toBe('completed')
+      expect(h.calls.prompt).toHaveLength(2)
+    } finally { h.dispose() }
+  })
+
+  it('并发相同 requestId 只提交一次，冲突/忙碌/陈旧会话与停止均明确拒绝', async () => {
+    const h = await makeHarness()
+    try {
+      const sessionId = String((await native(h, a, { kind: 'new' })).body.sessionId)
+      const request = { kind: 'submit', sessionId, requestId: 'r1', text: 'one' }
+      const replies = await Promise.all([native(h, a, request), native(h, a, request)])
+      expect(replies.every(reply => reply.status === 200)).toBe(true)
+      expect(h.calls.prompt).toHaveLength(1)
+      expect(replies[1].body.acceptedTaskId).toBe(replies[0].body.acceptedTaskId)
+      expect((await native(h, a, { ...request, text: 'changed' })).status).toBe(400)
+      expect((await native(h, a, { ...request, requestId: 'r2' })).body.code).toBe('task/busy')
+      expect((await native(h, a, { kind: 'disconnect' })).body.code).toBe('task/busy')
+      expect((await native(h, a, { kind: 'cancel', taskId: 'wrong' })).body.code).toBe('task/not-found')
+      expect((await native(h, a, { ...request, sessionId: 'stale' })).body.code).toBe('task/not-found')
+      h.turnStart(sessionId, 1)
+      await native(h, a, { kind: 'cancel', taskId: replies[0].body.taskId })
+      expect(h.calls.cancel).toEqual([sessionId])
+      expect((await native(h, a, { kind: 'state' })).body.taskState).toBe('running')
+      h.turnEnd(sessionId, 1, 'aborted')
+      expect((await native(h, a, { kind: 'state' })).body.taskState).toBe('cancelled')
+      expect((await native(h, a, { kind: 'disconnect' })).body.sessionId).toBeNull()
+    } finally { h.dispose() }
+  })
+})
+
 function makeBridgePackage(dir: string): void {
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'index.mjs'), bridgeSource(), 'utf8')
   writeFileSync(join(dir, 'client.js'), '// client half\n', 'utf8')
+  // 在 Node 原生模块中 import，避免 Vitest VM 的临时模块缓存/回调介入。
+  writeFileSync(join(dir, 'import.cjs'), 'module.exports = specifier => import(specifier)\n', 'utf8')
   writeFileSync(
     join(dir, 'package.json'),
     JSON.stringify({
@@ -93,10 +194,11 @@ function makeBridgePackage(dir: string): void {
 
 async function loadBridge(dir: string): Promise<{ apply: (ctx: unknown) => void }> {
   const url = `${new URL(`file://${join(dir, 'index.mjs').replace(/\\/g, '/')}`).href}?case=${loadSeq++}`
-  return (await import(/* @vite-ignore */ url)) as { apply: (ctx: unknown) => void }
+  const importEsm = createRequire(import.meta.url)(join(dir, 'import.cjs')) as (specifier: string) => Promise<{ apply: (ctx: unknown) => void }>
+  return importEsm(url)
 }
 
-async function makeHarness(opts: { key?: string; agents?: string[] } = {}): Promise<BridgeHarness> {
+async function makeHarness(opts: { key?: string; agents?: string[]; promptError?: boolean } = {}): Promise<BridgeHarness> {
   const dir = join(tempDir('lyshell-s3-bridge-'), 'dsh-bridge')
   makeBridgePackage(dir)
   const routes: RegisteredRoute[] = []
@@ -143,6 +245,7 @@ async function makeHarness(opts: { key?: string; agents?: string[] } = {}): Prom
         text: request.content.map((part) => part.text).join(''),
         hasSignal: signal !== undefined
       })
+      if (opts.promptError) throw new Error('unknown transport outcome')
       return { accepted: true }
     },
     cancel: (request: { sessionId: string }) => {
@@ -356,6 +459,7 @@ async function makeHarness(opts: { key?: string; agents?: string[] } = {}): Prom
       missing.delete(sessionId)
     },
     turnStart: (sessionId, turn) => emitSessionEvent(sessionId, 'turn/start', { turn }),
+    sessionEvent: emitSessionEvent,
     turnEnd: (sessionId, turn, kind) => emitSessionEvent(sessionId, 'turn/end', { turn, reason: { kind } }),
     agentError: (sessionId, error) => {
       for (const hook of hooks.get('agent/error') ?? []) hook.call(null, { agent: { id: sessionId }, error })

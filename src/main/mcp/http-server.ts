@@ -27,6 +27,8 @@ import { DEFAULT_THEME_DARK, TERMINAL_ENCODINGS } from '@shared/constants'
 import { API_ROUTES, type McpCapability } from '@shared/api-routes'
 import { EXCLUSIVE_CONTROL_BASE } from '@shared/exclusive-control'
 import { handleExclusiveControlRequest } from './exclusive-routes'
+import { parseHarnessWorkRequest } from '@shared/harness-work'
+import { harnessWorkOwner, runHarnessWork } from '../dsh/work'
 import { captureTerminalScreenshot } from './terminal-screenshot'
 import { streamTerminal, closeTerminalStreams } from './terminal-stream'
 import * as mcpAuth from './auth'
@@ -463,6 +465,11 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   try {
     if (req.method === 'GET' && url.pathname === '/api/health') {
       return sendJson(res, 200, { success: true, data: { status: 'ok' } })
+    }
+
+    if (url.pathname === '/api/harness/work/state' || url.pathname === '/api/harness/work/request') {
+      void handleHarnessWork(req, res, url, binding!).catch(() => sendJson(res, 500, { success: false, error: 'Harness work request failed; read state before retrying' }))
+      return
     }
 
     // Pet 托管控制族不进 API_ROUTES / stdio MCP，普通 MCP 权限不能冒充 aipet host。
@@ -2587,9 +2594,41 @@ export function isSessionAllowedForMcp(sessionId: string): boolean {
   return true
 }
 
-/**
- * 校验本地路径安全：禁止路径穿越（含 .. 分量）
- */
+/** 原生 Harness 与 Pet 插件身份分离；每次请求及启动后重新核对实际 token。 */
+async function handleHarnessWork(req: http.IncomingMessage, res: http.ServerResponse, url: URL, binding: TokenBinding): Promise<void> {
+  if ((url.pathname.endsWith('/state') && req.method !== 'GET') || (url.pathname.endsWith('/request') && req.method !== 'POST')) {
+    return sendJson(res, 405, { success: false, error: 'Method not allowed' })
+  }
+  if (binding.kind !== 'global' && binding.kind !== 'session') {
+    return sendJson(res, 403, { success: false, error: 'Native Harness work requires a LyShell client credential; plugin credentials cannot control it' })
+  }
+  let value: unknown = { kind: 'state' }
+  if (req.method === 'POST') {
+    // 32000 字符经 JSON 转义最多占 192000 字节，不能按普通 UTF-8 文本估算。
+    try { value = JSON.parse(await readBody(req, 256 * 1024)) }
+    catch { return sendJson(res, 400, { success: false, error: 'Invalid work request JSON' }) }
+  }
+  const request = parseHarnessWorkRequest(value)
+  if (!request) return sendJson(res, 400, { success: false, error: 'Invalid Harness work request' })
+  const writing = request.kind !== 'state' && request.kind !== 'targets'
+  const token = req.headers['x-lyshell-token'] as string
+  const stillAuthorized = (): boolean => {
+    const current = mcpAuth.resolveToken(token)
+    const settings = getMcpSecuritySettings()
+    return current !== null && current.kind === binding.kind && settings.enabled &&
+      isSessionAllowedForMcp(binding.originSessionId ?? '') &&
+      (binding.kind === 'session' || (settings.allowExternalMcpClients === true &&
+        (writing ? settings.allowLocalExecute && settings.allowFileWrite : settings.allowRead)))
+  }
+  if (!stillAuthorized()) return sendJson(res, 403, { success: false, error: 'Harness work access is disabled or credential revoked (writes require localExecute and fileWrite)' })
+  const auth = await authorizeMcpOperation('harness_work', writing ? 'localExecute' : 'read', binding.originSessionId,
+    `Harness ${request.kind}${request.kind === 'submit' ? ': ' + summarizeText(request.text, 512) : ''}`, binding)
+  if (!auth.allowed || !stillAuthorized()) return sendJson(res, 403, { success: false, error: auth.reason ?? 'Work credential revoked' })
+  const reply = await runHarnessWork(harnessWorkOwner(token), request, stillAuthorized)
+  sendJson(res, reply.status, { success: reply.body.ok === true, data: reply.body,
+    ...(reply.body.ok !== true ? { error: typeof reply.body.error === 'string' ? reply.body.error : 'Harness work request failed' } : {}) })
+}
+
 async function authorizeMcpOperation(
   operation: string,
   capability: McpCapability,

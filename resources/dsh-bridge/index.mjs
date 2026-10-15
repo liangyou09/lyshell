@@ -19,7 +19,7 @@
 //   * clientBundle 只报**实测事实**（exports['./client'] 指向的文件真实存在且平台为 web），
 //     不用常量自报能力。
 //   * 除注册路由与 `ctx.sessionController` / `ctx.agents` 外不 import 已安装 dsh 的内部模块。
-import { randomUUID, timingSafeEqual, createHmac, randomBytes } from 'node:crypto'
+import { randomUUID, timingSafeEqual, createHmac, randomBytes, createHash } from 'node:crypto'
 import { accessSync, constants, existsSync, readFileSync } from 'node:fs'
 import http from 'node:http'
 import { homedir } from 'node:os'
@@ -226,6 +226,8 @@ export function apply(ctx) {
   const toolNames = new Map()
   const pendingApprovals = new Map()
   const taskWaiters = new Set()
+  // 原生外部工作通道独立持有会话、任务与审批，不占用 Pet 的 heldEpoch。
+  const nativeWork = createNativeWorkController(ctx, () => ({ instanceId, instanceEpoch }))
 
   // ===== 工作台查看器（S4）：官方页面的当前会话、未落地导航请求、最近一次真实 ack =====
   // 全部状态只在内存；不含凭据、不含页面内容。
@@ -545,6 +547,7 @@ export function apply(ctx) {
     if (payload.cmd === 'submit') {
       if (!isBoundedId(payload.taskId) || !isBoundedId(payload.sessionId) || typeof payload.text !== 'string' || !payload.text.trim() || payload.text.length > 32000) throw new BridgeError('bad-request', 'invalid submit')
       if (activeTask && !terminal(activeTask)) throw new BridgeError('task/busy', 'task already active')
+      if (nativeWork.owns(payload.sessionId)) throw new BridgeError('control/held-by-other', 'native work session')
       const agent = await resolveAgent(payload.sessionId)
       if (!Number.isSafeInteger(agent.session.seq)) throw new BridgeError('bridge/unavailable', 'session boundary unavailable')
       floorSeq = agent.session.seq
@@ -577,6 +580,7 @@ export function apply(ctx) {
         return { ...snapshot(), sessionId: created.sessionId }
       }
       if (payload.mode !== 'select' || !isBoundedId(payload.sessionId)) throw new BridgeError('bad-request', 'invalid session selection')
+      if (nativeWork.owns(payload.sessionId)) throw new BridgeError('control/held-by-other', 'native work session')
       await resolveAgent(payload.sessionId)
       return { ...snapshot(), sessionId: payload.sessionId }
     }
@@ -595,6 +599,7 @@ export function apply(ctx) {
   }
   async function runCommand(payload) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new BridgeError('bad-request', 'invalid command')
+    if (payload.cmd === 'native-work') return nativeWork.request(payload.owner, payload.request)
     if (payload.cmd === 'snapshot' || payload.cmd === 'poll') return { ...snapshot(), webBusy: anyRunning() }
     if (payload.cmd === 'approve') {
       requireEpoch(payload)
@@ -831,6 +836,188 @@ export function apply(ctx) {
   }, 'lyshell-harness-bridge: exclusive control listener')
 
   process.stdout.write(`lyshell-harness-bridge: host half applied (protocol ${HARNESS_PROTOCOL_VERSION})\n`)
+}
+
+/** 原生工作通道：仅接受宿主转发，绝不接管现有 Web/Pet 会话。 */
+export function createNativeWorkController(ctx, identity) {
+  const owners = new Map()
+  const ownedSessions = new Set()
+  const service = name => typeof ctx.get === 'function' ? ctx.get(name) : ctx[name]
+  const controller = () => service('sessionController')
+  const terminal = task => task && ['completed', 'failed', 'cancelled'].includes(task.state)
+  const fail = (code = 'bad-request') => { throw new BridgeError(code, 'native work request refused') }
+  const stateOf = owner => {
+    if (typeof owner !== 'string' || !/^[a-f0-9]{64}$/.test(owner)) fail()
+    let state = owners.get(owner)
+    if (!state) {
+      if (owners.size >= 64) fail('task/busy')
+      state = { sessionId: null, sessions: new Map(), task: null, turn: null, floor: 0,
+        transcript: [], seq: 0, truncated: false, approvals: new Map(), requests: new Map(), tail: Promise.resolve() }
+      owners.set(owner, state)
+    }
+    return state
+  }
+  const snapshot = state => ({ ok: true, identity: identity(),
+    status: state.approvals.size ? 'approval' : state.task?.state === 'unconfirmed' ? 'error' : state.task && !terminal(state.task) ? 'running' : 'idle',
+    sessionId: state.sessionId, taskId: state.task?.taskId ?? null,
+    taskState: state.task?.state ?? null, task: state.task ? { ...state.task } : null,
+    workspace: state.sessions.get(state.sessionId)?.workspace ?? null,
+    sessions: [...state.sessions.values()].map(row => ({ ...row })),
+    approvals: [...state.approvals.values()].map(entry => ({ ...entry.view })),
+    transcript: state.transcript.map(entry => ({ ...entry })),
+    transcriptTruncated: state.truncated || state.seq > state.transcript.length })
+  const clearApprovals = state => { for (const entry of [...state.approvals.values()]) entry.finish('cancelled') }
+  const active = sessionId => [...owners.values()].find(state => state.task?.sessionId === sessionId && !terminal(state.task))
+  const push = (state, kind, text, extra = {}) => {
+    if (typeof text !== 'string') return
+    // 先截取再分块，避免巨大工具结果产生无界临时分配。
+    const bounded = text.slice(-128 * 1024)
+    if (bounded.length < text.length) state.truncated = true
+    for (let offset = 0; offset < bounded.length; offset += 512) {
+      state.transcript.push({ seq: ++state.seq, kind, text: bounded.slice(offset, offset + 512),
+        at: Date.now(), taskId: state.task.taskId, sessionId: state.task.sessionId, ...extra })
+    }
+    if (state.transcript.length > 256) state.transcript.splice(0, state.transcript.length - 256)
+  }
+  const textOf = message => (message?.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n')
+  ctx.effect(() => ctx.on('session/event', (session, event) => {
+    const state = active(session?.id)
+    if (!state || event.seq < state.floor) return
+    if (event.type === 'turn/start') {
+      state.turn = event.data.turn
+      state.task.state = 'running'
+      const receipt = state.requests.get(state.task.requestId)
+      if (receipt) receipt.accepted = true
+    } else if (event.type === 'turn/end' && state.turn !== null && event.data.turn === state.turn) {
+      const reason = event.data.reason?.kind
+      state.task.state = reason === 'completed' ? 'completed' : ['aborted', 'interrupted', 'forked'].includes(reason) ? 'cancelled' : 'failed'
+      state.task.endedAt = Date.now()
+      state.task.endReason = reason || 'unknown'
+      clearApprovals(state)
+    } else if (event.type === 'user/message') push(state, 'user', textOf(event.data))
+    else if (event.type === 'assistant/message') push(state, 'assistant', textOf(event.data.message))
+    else if (event.type === 'tool/call') push(state, 'tool-call', event.data.arguments, { toolName: event.data.name, callId: event.data.callId })
+    else if (event.type === 'tool/result') push(state, 'tool-result', textOf(event.data.message), { callId: event.data.message.toolCallId, failed: event.data.message.isError === true })
+  }), 'lyshell native work: turn evidence')
+  ctx.effect(() => ctx.on('agent/error', ({ agent, error }) => {
+    const state = active(agent?.id)
+    if (state) state.task.diagnostic = workDiagnostic(error)
+  }), 'lyshell native work: error evidence')
+  ctx.effect(() => ctx.on('approval/request', (request, next) => {
+    const state = active(request.agent?.session?.id)
+    if (!state) return next()
+    if (state.approvals.size >= 128) return 'cancelled'
+    if (request.signal?.aborted) return 'cancelled'
+    const id = randomUUID()
+    const view = { id, taskId: state.task.taskId, sessionId: state.task.sessionId,
+      toolName: request.toolName, callId: request.callId, reason: typeof request.reason === 'string' ? request.reason.slice(0, 2000) : '',
+      options: ['allowed-once', 'rejected', 'cancelled'], askedAt: Date.now() }
+    return new Promise(resolvePromise => {
+      const finish = value => {
+        if (!state.approvals.delete(id)) return
+        clearTimeout(timer)
+        request.signal?.removeEventListener('abort', abort)
+        resolvePromise(value)
+      }
+      const abort = () => finish('cancelled')
+      const timer = setTimeout(abort, APPROVAL_WAIT_MS)
+      state.approvals.set(id, { view, finish })
+      request.signal?.addEventListener('abort', abort, { once: true })
+      if (request.signal?.aborted) abort()
+    })
+  }, { prepend: true }), 'lyshell native work: isolated approvals')
+  ctx.effect(() => () => { for (const state of owners.values()) clearApprovals(state) }, 'lyshell native work: cleanup')
+
+  async function mutate(state, request) {
+    const busy = state.task && !terminal(state.task)
+    if (request.kind === 'submit') {
+      if (request.sessionId !== state.sessionId) fail('task/not-found')
+      const previous = state.requests.get(request.requestId)
+      const digest = createHash('sha256').update(request.text).digest('hex')
+      if (previous) {
+        if (previous.digest !== digest || previous.sessionId !== state.sessionId) fail()
+        return { ...snapshot(state), accepted: previous.accepted, duplicate: true, acceptedTaskId: previous.taskId }
+      }
+      if (busy) fail('task/busy')
+      if (!state.sessionId || !state.sessions.has(state.sessionId)) fail('task/not-found')
+      const result = await controller().resolveAgent(state.sessionId)
+      const agent = result?.agent
+      if (!agent || result.error || !Number.isSafeInteger(agent.session.seq)) fail('task/not-found')
+      // 用户可能在官方工作台运行该会话。拒绝排队混入其它回合。
+      if (agent.status === 'running') fail('task/busy')
+      const taskId = randomUUID()
+      state.floor = agent.session.seq
+      state.turn = null
+      state.transcript = []
+      state.seq = 0
+      state.truncated = false
+      state.task = { taskId, sessionId: state.sessionId, state: 'accepted', acceptedAt: Date.now(), requestId: request.requestId }
+      // 在 prompt 往返之前记账：超时/抛错不能触发重复提交。
+      const receipt = { taskId, sessionId: state.sessionId, digest, accepted: false }
+      state.requests.set(request.requestId, receipt)
+      if (state.requests.size > 256) state.requests.delete(state.requests.keys().next().value)
+      try {
+        await controller().prompt({ sessionId: state.sessionId, requestId: taskId, mode: 'queue',
+          content: [{ type: 'text', text: request.text }] }, new AbortController().signal)
+        receipt.accepted = true
+      } catch {
+        if (state.task.state === 'accepted') state.task.state = 'unconfirmed'
+        fail('bridge/unavailable')
+      }
+      return { ...snapshot(state), accepted: true, acceptedTaskId: taskId }
+    }
+    if (request.kind === 'cancel') {
+      if (!busy || state.task.taskId !== request.taskId) fail('task/not-found')
+      // 已接受但尚未进入回合时，不谎报取消成功；调用方稍后读状态再停止。
+      if (state.task.state !== 'running') fail('task/busy')
+      clearApprovals(state)
+      await controller().cancel({ sessionId: state.task.sessionId })
+      return snapshot(state)
+    }
+    if (busy) fail('task/busy')
+    if (request.kind === 'disconnect') {
+      state.sessionId = null
+      return snapshot(state)
+    }
+    if (request.kind === 'new') {
+      if (state.sessions.size >= 64) fail('task/busy')
+      const cwd = request.workspace ?? process.cwd()
+      if (typeof cwd !== 'string' || !isAbsolute(cwd)) fail()
+      const created = await controller().create({ cwd })
+      if (!isBoundedId(created?.sessionId)) fail('bridge/unavailable')
+      ownedSessions.add(created.sessionId)
+      state.sessions.set(created.sessionId, { sessionId: created.sessionId, workspace: cwd })
+      state.sessionId = created.sessionId
+    } else if (request.kind === 'select') {
+      if (!state.sessions.has(request.sessionId)) fail('task/not-found')
+      state.sessionId = request.sessionId
+    } else fail()
+    state.task = null
+    state.transcript = []
+    state.seq = 0
+    state.truncated = false
+    return snapshot(state)
+  }
+  return {
+    owns: sessionId => ownedSessions.has(sessionId),
+    async request(owner, request) {
+      const state = stateOf(owner)
+      if (!request || typeof request !== 'object') fail()
+      if (request.kind === 'state' || request.kind === 'targets') return snapshot(state)
+      if (request.kind === 'approve') {
+        const entry = state.approvals.get(request.id)
+        if (!entry || entry.view.taskId !== state.task?.taskId || terminal(state.task)) fail('approval/not-pending')
+        if (!entry.view.options.includes(request.optionId)) fail()
+        entry.finish(request.optionId)
+        return snapshot(state)
+      }
+      if (request.kind === 'submit' && (!isBoundedId(request.requestId) || typeof request.text !== 'string' ||
+        !request.text.trim() || request.text.length > 32000)) fail()
+      const result = state.tail.then(() => mutate(state, request))
+      state.tail = result.catch(() => {})
+      return result
+    }
+  }
 }
 
 export default { name, inject, apply }

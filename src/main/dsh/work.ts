@@ -1,0 +1,107 @@
+import http from 'http'
+import { createHash } from 'crypto'
+import { statSync } from 'fs'
+import { isAbsolute } from 'path'
+import type { HarnessWorkRequest } from '@shared/harness-work'
+import { BRIDGE_KEY_HEADER } from './bridge'
+import { dshWebManager } from './web'
+import { createDshWebLaunchResolver } from './launch-resolve'
+import { HARNESS_AGENTS } from '../harness/config'
+
+export interface WorkReply { status: number; body: Record<string, unknown> }
+const unavailable = (): WorkReply => ({ status: 503, body: {
+  ok: false, code: 'bridge/unavailable', error: 'Harness response unavailable; execution may be unconfirmed. Read state before any retry.'
+} })
+
+/** 凭据本身不离开 main；hash 只是桥内租户键，不是可用于鉴权的 token。 */
+export function harnessWorkOwner(token: string): string {
+  return createHash('sha256').update('lyshell-native-work\0').update(token).digest('hex')
+}
+
+export async function requestNativeWorkBridge(
+  endpoint: { port: number; key: string }, owner: string, request: HarnessWorkRequest
+): Promise<WorkReply> {
+  const body = JSON.stringify({ cmd: 'native-work', owner, request })
+  return new Promise(resolve => {
+    let settled = false
+    const done = (reply: WorkReply): void => { if (!settled) { settled = true; resolve(reply) } }
+    const req = http.request({ hostname: '127.0.0.1', port: endpoint.port, path: '/', method: 'POST',
+      headers: { [BRIDGE_KEY_HEADER]: endpoint.key, 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) },
+      timeout: 30000
+    }, res => {
+      const chunks: Buffer[] = []
+      let size = 0
+      res.on('data', (chunk: Buffer) => {
+        size += chunk.length
+        // 状态同时包含 64 个目录、128 个审批及 128K 字符输出；转义后可超过 1MiB。
+        if (size > 4 * 1024 * 1024) { req.destroy(); done(unavailable()); return }
+        chunks.push(chunk)
+      })
+      res.on('error', () => done(unavailable()))
+      res.on('aborted', () => done(unavailable()))
+      res.on('end', () => {
+        try {
+          const payload = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
+          if (payload?.ok === true && res.statusCode === 200) done({ status: 200, body: payload })
+          else if (payload?.ok === false) done({ status: res.statusCode === 400 ? 400 : 409, body: {
+            ok: false, code: typeof payload.code === 'string' ? payload.code : 'bridge/unavailable', error: 'Harness refused the work request'
+          } })
+          else done(unavailable())
+        } catch { done(unavailable()) }
+      })
+    })
+    req.on('error', () => done(unavailable()))
+    req.on('timeout', () => { req.destroy(); done(unavailable()) })
+    req.end(body)
+  })
+}
+
+/** 使用现有后台租约；Pet 的 acquire/release/revoke 不涉及此 holder。 */
+export async function runHarnessWork(
+  owner: string, request: HarnessWorkRequest, stillAuthorized: () => boolean
+): Promise<WorkReply> {
+  if (['state', 'targets', 'approve'].includes(request.kind)) return executeHarnessWork(owner, request, stillAuthorized)
+  const previous = mutationLanes.get(owner) ?? Promise.resolve()
+  const result = previous.then(() => executeHarnessWork(owner, request, stillAuthorized))
+  const tail = result.then(() => {}, () => {})
+  mutationLanes.set(owner, tail)
+  void tail.then(() => { if (mutationLanes.get(owner) === tail) mutationLanes.delete(owner) })
+  return result
+}
+
+const mutationLanes = new Map<string, Promise<void>>()
+
+async function executeHarnessWork(
+  owner: string, request: HarnessWorkRequest, stillAuthorized: () => boolean
+): Promise<WorkReply> {
+  const holder = `native-work:${owner}`
+  if (!stillAuthorized()) return { status: 403, body: { ok: false, error: 'Work credential revoked' } }
+  if (request.kind === 'new' && request.workspace !== undefined) {
+    let valid = false
+    try { valid = isAbsolute(request.workspace) && statSync(request.workspace).isDirectory() } catch { /* 无效目录 */ }
+    if (!valid) return { status: 400, body: { ok: false, code: 'bad-request', error: 'workspace must be an existing absolute directory' } }
+  }
+  if (!dshWebManager.bridgeControlEndpoint && request.kind !== 'new') {
+    if (request.kind !== 'state' && request.kind !== 'targets') return unavailable()
+    return { status: 200, body: { ok: true, status: 'offline', sessionId: null, taskId: null, taskState: null,
+      sessions: [], approvals: [], transcript: [], recovery: 'Backend unavailable; previous task outcome is unknown' } }
+  }
+  // 读状态无启动副作用。变更先持有后台，避免用户重开工作台终止在途任务。
+  if (!['state', 'targets', 'disconnect'].includes(request.kind)) {
+    const resolver = createDshWebLaunchResolver(HARNESS_AGENTS.dsh)
+    const result = await dshWebManager.acquire(target => resolver.resolve(target), { bindingId: holder })
+    if (!result.ok) return { status: 409, body: { ok: false, code: result.code, error: result.error } }
+    if (!stillAuthorized()) { dshWebManager.release(holder); return { status: 403, body: { ok: false, error: 'Work credential revoked' } } }
+    dshWebManager.retainBackend(holder)
+  }
+  const endpoint = dshWebManager.bridgeControlEndpoint
+  if (!endpoint) return unavailable()
+  if (!stillAuthorized()) return { status: 403, body: { ok: false, error: 'Work credential revoked' } }
+  const result = await requestNativeWorkBridge(endpoint, owner, request)
+  if (request.kind === 'disconnect' && result.body.ok === true) {
+    dshWebManager.unretainBackend(holder)
+    dshWebManager.release(holder)
+  }
+  if (!stillAuthorized()) return { status: 403, body: { ok: false, error: 'Work credential revoked' } }
+  return result
+}

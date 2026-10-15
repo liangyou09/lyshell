@@ -17,6 +17,7 @@
  */
 
 import { TERMINAL_ENCODINGS } from './constants'
+import { HARNESS_WORK_ROUTE } from './harness-work'
 
 /** MCP 能力集。与 src/main/mcp/http-server.ts / mcp/auth.ts 保持一致（此处为唯一来源）。 */
 export type McpCapability =
@@ -184,6 +185,7 @@ const fileEntrySchema = {
 const BOTH: TransportKind[] = ['http', 'stdio-mcp']
 
 export const API_ROUTES: ApiRouteMeta[] = [
+  HARNESS_WORK_ROUTE,
   // ---------- 会话管理 ----------
   {
     name: 'lyshell_list_sessions',

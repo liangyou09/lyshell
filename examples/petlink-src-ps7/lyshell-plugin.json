@@ -1,0 +1,18 @@
+{
+  "id": "petlink-src-ps7",
+  "name": "PetLink 源码 PS7",
+  "version": "0.1.0",
+  "engines": { "lyshell": ">=1.0" },
+  "runtime": "node",
+  "capabilities": ["read", "sessionControl", "uiControl"],
+  "contributes": {
+    "views": [
+      {
+        "id": "launcher",
+        "title": "PetLink 源码 PS7",
+        "icon": "icon.svg",
+        "entry": "views/launcher.html"
+      }
+    ]
+  }
+}

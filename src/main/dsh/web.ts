@@ -551,7 +551,7 @@ export class DshWebManager {
     // 那会打断 Pet 正在跑的任务。明确拒绝，调用方改走 acquire 复用路径。
     if (this.isManaged) {
       log.warn(`[dsh web] explicit reopen refused while managed by: ${this.managedHolders().join(', ')}`)
-      return { ok: false, error: 'the shared dsh web backend is under PetLink control; reopen it after control is released', code: 'managed' }
+      return { ok: false, error: 'the shared dsh web backend has active consumers; disconnect them before reopening', code: 'managed' }
     }
     // 先推进代际再关闭旧实例：旧进程退出时其 exit/error 回调因 generation 不匹配被忽略，
     // 不会把随后 spawn 的新进程 this.child 清成 null（快速切换工作区导致的孤儿进程根因）。

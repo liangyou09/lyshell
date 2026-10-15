@@ -1,0 +1,18 @@
+{
+  "id": "lyshell-src-ps7",
+  "name": "LyShell 源码 PS7",
+  "version": "0.1.0",
+  "engines": { "lyshell": ">=1.0" },
+  "runtime": "node",
+  "capabilities": ["read", "sessionControl", "uiControl"],
+  "contributes": {
+    "views": [
+      {
+        "id": "launcher",
+        "title": "LyShell 源码 PS7",
+        "icon": "icon.svg",
+        "entry": "views/launcher.html"
+      }
+    ]
+  }
+}
