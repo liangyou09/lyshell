@@ -166,6 +166,36 @@
     "web": "写轮眼",
     "settings": "设置"
   },
+  "webCertificate": {
+    "title": "您的连接不是私密连接",
+    "description": "无法验证 {{host}} 的身份。继续访问可能使密码或其他信息面临风险。",
+    "advanced": "高级",
+    "hideAdvanced": "收起高级选项",
+    "back": "返回安全页面",
+    "warning": "此网站的证书未通过安全校验。仅在你确认网站和证书可信时继续。",
+    "scope": "仅信任此主机的这张证书，适用于内置浏览器的所有页签和端口，完全退出 LyShell 后失效。",
+    "details": "查看证书详情",
+    "subject": "颁发给",
+    "issuer": "颁发者",
+    "validity": "有效期",
+    "proceed": "继续前往 {{host}}（不安全）",
+    "connecting": "正在连接…",
+    "reading": "正在读取证书…"
+  },
+  "browserPrompt": {
+    "passwordTitle": "保存密码？",
+    "passwordDescription": "下次登录时可自动填写。",
+    "website": "网站",
+    "username": "用户名",
+    "noUsername": "未填写用户名",
+    "passwordHint": "系统加密，仅保存在此设备。",
+    "notNow": "暂不保存",
+    "save": "保存密码",
+    "working": "正在处理…",
+    "retrySave": "重新保存",
+    "saveFailed": "密码尚未保存。请检查系统加密和本机存储状态后重试。",
+    "unavailable": "页面已变化，请关闭提示卡后重新尝试。"
+  },
   "webBar": {
     "title": "写轮眼",
     "placeholder": "输入 URL 回车打开",
@@ -187,6 +217,7 @@
     "loadFailedHint": "{{error}} · {{url}}",
     "retry": "重新加载",
     "errorDetails": "错误详情",
+    "certificateUnavailable": "证书或页面已变化，请重新加载页面后再试。",
     "failure": {
       "offline": "网络连接已断开。请检查网络连接后重新加载。",
       "dns": "找不到这个网站。请检查地址是否正确，或检查网络与 DNS 设置。",

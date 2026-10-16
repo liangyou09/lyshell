@@ -285,7 +285,10 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
         </div>
       )}
       {loadState === 'failed' && loadError && (
-        <WebLoadError failure={loadError} onRetry={() => {
+        <WebLoadError failure={loadError} getGuestId={() => ref.current?.getWebContentsId()} onLeave={() => {
+          try { if (ref.current?.canGoBack()) { ref.current.goBack(); return } } catch { /* guest 可能已销毁。 */ }
+          usePaneStore.getState().closeOverlay(id)
+        }} onRetry={() => {
           const el = ref.current
           if (!el) return
           // 按实际失败地址重试，避免 reload 回到先前成功的页面；不重放 POST 正文。

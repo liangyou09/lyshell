@@ -1,0 +1,72 @@
+.browser-prompt-page { margin: 0; background: transparent; width: 100vw; height: 100vh; overflow: hidden; }
+.browser-prompt-page #root { width: 100%; height: 100%; overflow: hidden; }
+.browser-prompt {
+  --dialog-paper: #fff;
+  --dialog-ink: #202124;
+  --dialog-muted: #5f6368;
+  --dialog-rule: #e3e5e8;
+  --dialog-field: #fff;
+  --dialog-selected: #edf3ef;
+  --dialog-jade: #3f6b55;
+  --dialog-jade-hover: #315642;
+  --dialog-link: #37624d;
+  --dialog-error: #a33229;
+  --dialog-success: #37624d;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: 100dvh;
+  overflow: hidden;
+  border: 1px solid var(--dialog-rule);
+  color: var(--dialog-ink);
+  background: var(--dialog-paper);
+  font: 12px/1.5 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  color-scheme: light;
+}
+[data-theme-mode="dark"] .browser-prompt {
+  --dialog-paper: #292a2d;
+  --dialog-ink: #e8eaed;
+  --dialog-muted: #bdc1c6;
+  --dialog-rule: #4a4d52;
+  --dialog-field: #35373b;
+  --dialog-selected: #3a4941;
+  --dialog-link: #b1d0ba;
+  --dialog-error: #f1a29a;
+  --dialog-success: #b1d0ba;
+  color-scheme: dark;
+}
+.browser-prompt-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 40px 8px 12px;
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+.browser-prompt-heading h1 { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; }
+.browser-prompt-icon svg { width: 18px; height: 18px; }
+.browser-prompt-icon { color: var(--dialog-success); display: flex; flex-shrink: 0; }
+.browser-prompt-close {
+  position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; display: grid; place-items: center;
+  border: 0; border-radius: 4px; background: transparent; color: var(--dialog-muted); cursor: pointer; -webkit-app-region: no-drag;
+}
+.browser-prompt-close:hover { background: var(--dialog-selected); color: var(--dialog-ink); }
+.browser-prompt-content { min-height: 0; flex: 1; overflow-y: auto; padding: 0 12px 8px; scrollbar-color: var(--dialog-muted) var(--dialog-paper); }
+.browser-prompt-description { margin: 0 0 8px; color: var(--dialog-muted); }
+.browser-prompt-identity { display: grid; gap: 4px; margin: 0; }
+.browser-prompt-identity > div { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 8px; }
+.browser-prompt dt { color: var(--dialog-muted); }
+.browser-prompt dd { margin: 0; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; user-select: text; }
+.browser-prompt-identity dd { font-weight: 500; max-height: 3em; overflow-y: auto; }
+.browser-prompt-hint { margin: 8px 0 0; color: var(--dialog-muted); font-size: 11px; }
+.browser-prompt-error { margin: 8px 0 0; color: var(--dialog-error); }
+.browser-prompt-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 12px 12px; border-top: 1px solid var(--dialog-rule); flex-shrink: 0; }
+.browser-prompt-actions button { min-height: 28px; min-width: 72px; padding: 4px 10px; border: 1px solid var(--dialog-rule); border-radius: 4px; background: var(--dialog-field); color: var(--dialog-ink); font: inherit; cursor: pointer; }
+.browser-prompt-actions button:hover { background: var(--dialog-selected); }
+.browser-prompt-actions .browser-prompt-primary { background: var(--dialog-jade); border-color: var(--dialog-jade); color: #fff; }
+.browser-prompt-actions .browser-prompt-primary:hover { background: var(--dialog-jade-hover); }
+.browser-prompt button:focus-visible { outline: 2px solid var(--dialog-link); outline-offset: 2px; }
+.browser-prompt button:disabled { opacity: .55; cursor: not-allowed; }
+.browser-prompt ::selection { background: var(--dialog-selected); color: var(--dialog-ink); }
+@media (max-width: 300px) { .browser-prompt-actions { flex-wrap: wrap; } }

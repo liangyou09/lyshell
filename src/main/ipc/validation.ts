@@ -10,6 +10,15 @@ export function validateBrowserRequest(raw: unknown): BrowserRequest {
     case 'save': return { kind: 'save', settings: validateBrowserSettings(value.settings) }
     case 'clear': return { kind: 'clear', target: assertEnum(value.target, 'target', ['cache', 'siteData'] as const) }
     case 'deletePassword': return { kind: 'deletePassword', id: assertString(value.id, 'id', { maxLength: 128 }) }
+    case 'certificateInfo': case 'trustCertificate': {
+      const url = assertString(value.url, 'url', { maxLength: 16384 })
+      let parsed: URL
+      try { parsed = new URL(url) } catch { throw new ValidationError('Invalid certificate URL') }
+      if (parsed.protocol !== 'https:' || parsed.username || parsed.password) throw new ValidationError('Invalid certificate URL')
+      const guestId = assertNumber(value.guestId, 'guestId', { min: 1, integer: true })
+      return value.kind === 'certificateInfo' ? { kind: 'certificateInfo', guestId, url: parsed.href }
+        : { kind: 'trustCertificate', guestId, url: parsed.href, certificateId: assertString(value.certificateId, 'certificateId', { maxLength: 128 }) }
+    }
     case 'savePassword': return {
       kind: 'savePassword', origin: assertString(value.origin, 'origin', { maxLength: 4096 }),
       username: assertString(value.username, 'username', { maxLength: 1024, allowEmpty: true }),

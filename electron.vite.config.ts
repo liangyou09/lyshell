@@ -53,7 +53,8 @@ export default defineConfig({
           // 插件视图 guest 页面专用 preload（pluginView.js）：guest sandboxed preload，
           // 只经 contextBridge 暴露 window.lyshellView（bootstrap/callApi/动作/弹窗）
           pluginView: resolve(__dirname, 'src/preload/plugin-view.ts'),
-          browserLogin: resolve(__dirname, 'src/preload/browser-login.ts')
+          browserLogin: resolve(__dirname, 'src/preload/browser-login.ts'),
+          browserPrompt: resolve(__dirname, 'src/preload/browser-prompt.ts')
         },
         output: {
           format: 'cjs',
@@ -99,7 +100,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/renderer/index.html'),
-          scrollArtPreview: resolve(__dirname, 'src/renderer/scroll-art-preview.html')
+          scrollArtPreview: resolve(__dirname, 'src/renderer/scroll-art-preview.html'),
+          browserPrompt: resolve(__dirname, 'src/renderer/browser-prompt.html')
         },
         output: {
           format: 'esm',

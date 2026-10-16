@@ -406,7 +406,7 @@ export function registerIPCHandlers(): void {
   ipcMain.handle(BROWSER_CHANNEL, async (event, raw: unknown) => {
     // 普通网页/插件 guest 不能读取密码列表、改变代理或清理会话。
     if (event.sender.getType() !== 'window' || !BrowserWindow.fromWebContents(event.sender) || event.senderFrame !== event.sender.mainFrame) return { success: false, error: 'browserAccessDenied' }
-    try { return await browserRequest(validateBrowserRequest(raw)) }
+    try { return await browserRequest(validateBrowserRequest(raw), event.sender.id) }
     catch { return { success: false, error: 'browserInvalidSettings' } }
   })
   log.info('Registering IPC handlers...')

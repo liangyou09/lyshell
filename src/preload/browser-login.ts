@@ -1,16 +1,15 @@
 import { ipcRenderer } from 'electron'
+import { loginClickTarget, loginFieldsFor, type LoginFields } from './browser-login-fields'
 
-// 不暴露 contextBridge。仅顶层文档的标准登录表单可保存/填充密码。
+// 不暴露 contextBridge。仅顶层文档的登录区域可保存/填充密码。
 if (window.top === window) {
   const origin = location.origin
   let filling = false
-  const loginFields = (form: HTMLFormElement) => {
-    const passwords = Array.from(form.querySelectorAll<HTMLInputElement>('input[type="password"]')).filter(el => !el.disabled && el.autocomplete !== 'new-password')
-    if (passwords.length !== 1 || form.querySelector('input[autocomplete="new-password"]')) return null
-    const password = passwords[0]
-    const inputs = Array.from(form.querySelectorAll<HTMLInputElement>('input')).filter(el => !el.disabled && !el.readOnly && ['text', 'email', 'tel'].includes(el.type))
-    const username = inputs.find(el => el.autocomplete === 'username') ?? inputs.filter(el => !!(el.compareDocumentPosition(password) & Node.DOCUMENT_POSITION_FOLLOWING)).at(-1)
-    return { username, password }
+  let lastCapture = 0
+  const capture = (fields: LoginFields | null): void => {
+    if (!fields || !fields.password.value || location.origin !== origin || Date.now() - lastCapture < 500) return
+    lastCapture = Date.now()
+    ipcRenderer.send('browser:password-capture', { origin, username: fields.username?.value ?? '', password: fields.password.value })
   }
   const setValue = (input: HTMLInputElement, value: string) => {
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
@@ -20,8 +19,8 @@ if (window.top === window) {
   }
   // 用户聚焦登录表单才取密码，避免后台页面或隐藏表单自动提取。
   document.addEventListener('focusin', async event => {
-    if (!event.isTrusted || !navigator.userActivation.isActive || filling || !(event.target instanceof HTMLInputElement) || !event.target.form) return
-    const fields = loginFields(event.target.form)
+    if (!event.isTrusted || !navigator.userActivation.isActive || filling || !(event.target instanceof HTMLInputElement)) return
+    const fields = loginFieldsFor(event.target)
     if (!fields || ![fields.username, fields.password].includes(event.target) || fields.password.value || !fields.password.getClientRects().length || getComputedStyle(fields.password).visibility === 'hidden') return
     filling = true
     try {
@@ -34,8 +33,18 @@ if (window.top === window) {
   }, true)
   document.addEventListener('submit', event => {
     if (!event.isTrusted || !(event.target instanceof HTMLFormElement) || location.origin !== origin) return
-    const fields = loginFields(event.target)
-    if (!fields || !fields.password.value) return
-    ipcRenderer.send('browser:password-capture', { origin, username: fields.username?.value ?? '', password: fields.password.value })
+    capture(loginFieldsFor(event.target))
+  }, true)
+  // Vue/React 登录按钮常用 type=button + click/AJAX，不会产生原生 submit。
+  // 在捕获阶段读取字段，页面的处理函数即使清空输入或切换路由也不会漏掉。
+  document.addEventListener('click', event => {
+    if (!event.isTrusted || !(event.target instanceof Element)) return
+    const button = loginClickTarget(event.target)
+    if (button) capture(loginFieldsFor(button))
+  }, true)
+  document.addEventListener('keydown', event => {
+    if (!event.isTrusted || event.key !== 'Enter' || event.isComposing || event.ctrlKey || event.altKey || event.metaKey || !(event.target instanceof HTMLInputElement)) return
+    const fields = loginFieldsFor(event.target)
+    if (fields) capture(fields)
   }, true)
 }

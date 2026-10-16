@@ -25,6 +25,16 @@ export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
   permissions: { camera: 'ask', microphone: 'ask', notifications: 'ask', geolocation: 'ask', clipboard: 'ask' }
 }
 export interface BrowserPasswordInfo { id: string; origin: string; username: string; updatedAt: number }
+export interface BrowserCertificateInfo {
+  certificateId: string
+  origin: string
+  error: string
+  subject: string
+  issuer: string
+  validFrom: string
+  validTo: string
+  fingerprint: string
+}
 export type BrowserRequest =
   | { kind: 'get' }
   | { kind: 'save'; settings: BrowserSettings }
@@ -32,12 +42,16 @@ export type BrowserRequest =
   | { kind: 'passwords' }
   | { kind: 'savePassword'; origin: string; username: string; password: string }
   | { kind: 'deletePassword'; id: string }
+  | { kind: 'certificateInfo'; guestId: number; url: string }
+  | { kind: 'trustCertificate'; guestId: number; url: string; certificateId: string }
 export interface BrowserResult {
   success: boolean
   error?: string
   settings?: BrowserSettings
   passwords?: BrowserPasswordInfo[]
   encryptionAvailable?: boolean
+  certificateTrusted?: boolean
+  certificate?: BrowserCertificateInfo
 }
 
 /** 地址栏才支持搜索；导航/弹窗的 URL 闸不接受搜索词。 */

@@ -13,6 +13,24 @@ function fail(element: Element, fields: object): void {
 }
 
 describe('网页失败页', () => {
+  it('完整页签以实际 guest 和失败 URL 确认证书，获准后重试', async () => {
+    const request = vi.fn().mockImplementation(async raw => raw.kind === 'certificateInfo' ? { success: true, certificate: { certificateId: 'actual-failure', subject: '', issuer: '', validFrom: '', validTo: '', fingerprint: '' } } : { success: true, certificateTrusted: true })
+    const oldApi = window.electronAPI
+    window.electronAPI = { ...oldApi, browserRequest: request }
+    try {
+      render(<WebTabOverlay id="certificate-test" url="https://first.example/" />)
+      const el = document.querySelector('webview')!
+      const loadURL = vi.fn().mockResolvedValue(undefined)
+      Object.assign(el, { loadURL, getWebContentsId: () => 1234 })
+      const url = 'https://10.5.20.36:8072/'
+      fail(el, { errorCode: -202, errorDescription: 'ERR_CERT_AUTHORITY_INVALID', validatedURL: url, isMainFrame: true })
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Advanced' })) })
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Proceed to/ })) })
+      expect(request).toHaveBeenCalledWith({ kind: 'trustCertificate', guestId: 1234, url, certificateId: 'actual-failure' })
+      expect(loadURL).toHaveBeenCalledWith(url)
+    } finally { window.electronAPI = oldApi }
+  })
+
   it('显示实际失败地址与原因，重试该地址并在成功后恢复页面', () => {
     render(<WebTabOverlay id="failure-test" url="https://first.example/" />)
     const el = document.querySelector('webview')!

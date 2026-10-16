@@ -7,6 +7,8 @@ import { WEBBAR_PARTITION } from '@shared/constants'
 import { BROWSER_CAPTURE_CHANNEL, BROWSER_FILL_CHANNEL, DEFAULT_BROWSER_SETTINGS, browserOrigin, type BrowserPermission, type BrowserRequest, type BrowserResult, type BrowserSettings } from '@shared/browser-settings'
 import { validateBrowserSettings } from './validation'
 import { BrowserPasswords } from './passwords'
+import { confirmBrowserCertificate, getBrowserCertificate, invalidateBrowserCertificatePrompts, setupBrowserCertificates } from './certificates'
+import { initializeBrowserPrompts, requestBrowserPrompt } from './prompts'
 
 const passwords = new BrowserPasswords()
 let settings: BrowserSettings | null = null
@@ -43,6 +45,7 @@ async function applyProxy(value: BrowserSettings): Promise<void> {
 }
 
 export function setupBrowserGuest(guest: WebContents): void {
+  setupBrowserCertificates(guest)
   const reset = () => {
     documentEpochs.set(guest.id, (documentEpochs.get(guest.id) ?? 0) + 1)
     for (const key of grants) if (key.startsWith(`${guest.id}|`)) grants.delete(key)
@@ -60,6 +63,7 @@ function permissionKeys(permission: string, mediaTypes?: string[]): BrowserPermi
 }
 
 export async function initializeBrowser(): Promise<void> {
+  initializeBrowserPrompts()
   await applyProxy(getBrowserSettings())
   const ses = browserSession()
   ses.setPermissionCheckHandler((guest, permission, origin, details) => {
@@ -105,19 +109,19 @@ export async function initializeBrowser(): Promise<void> {
     try { const old = passwords.find(origin); if (old?.username === username && old.password === password) return } catch { return }
     lastCapture.set(guest.id, Date.now())
     prompting.add(guest.id)
-    const parent = BrowserWindow.fromWebContents(guest.hostWebContents ?? guest)
-    const options: Electron.MessageBoxOptions = { type: 'question', title: label('保存密码', 'Save password'), message: label('保存此网站的登录密码？', 'Save the password for this website?'), detail: `${origin}\n${username}\n\n${label('使用系统加密保存到本机。', 'Stored on this computer using system encryption.')}`, buttons: [label('暂不保存', 'Not now'), label('保存', 'Save')], defaultId: 0, cancelId: 0, noLink: true }
-    void (parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options)).then(result => {
-      if (result.response === 1 && getBrowserSettings().savePasswords) passwords.save(origin, username, password)
-    }).catch(() => {
-      // 只展示固定文案，异常内容可能带有凭据或磁盘上下文。
-      void dialog.showMessageBox({ type: 'error', title: label('保存密码失败', 'Password was not saved'), message: label('请检查系统加密和本机存储状态后重试。', 'Check system encryption and local storage, then try again.') }).catch(() => undefined)
-    }).finally(() => prompting.delete(guest.id))
+    const current = () => !guest.isDestroyed() && browserOrigin(guest.getURL()) === origin && getBrowserSettings().savePasswords
+    // 密码仅保留在 main 闭包中；独立确认页只收到站点和用户名。保存失败留在弹窗内重试。
+    void requestBrowserPrompt(guest, { kind: 'password', origin, username }, {
+      current,
+      confirm: () => { if (!current()) throw new Error('Password confirmation expired'); passwords.save(origin, username, password) }
+    }).catch(() => undefined).finally(() => prompting.delete(guest.id))
   })
 }
 
 /** 由已验证的宿主 IPC 调用。写入串行，代理应用失败不会保存半份配置。 */
-export function browserRequest(request: BrowserRequest): Promise<BrowserResult> {
+export function browserRequest(request: BrowserRequest, ownerId?: number): Promise<BrowserResult> {
+  if (request.kind === 'certificateInfo') return Promise.resolve(getBrowserCertificate(ownerId ?? -1, request.guestId, request.url))
+  if (request.kind === 'trustCertificate') return confirmBrowserCertificate(ownerId ?? -1, request.guestId, request.url, request.certificateId)
   const result = operations.then(async (): Promise<BrowserResult> => {
     try {
       switch (request.kind) {
@@ -139,7 +143,7 @@ export function browserRequest(request: BrowserRequest): Promise<BrowserResult> 
         }
         case 'clear':
           if (request.target === 'cache') await browserSession().clearCache()
-          else { await browserSession().clearStorageData(); await browserSession().closeAllConnections(); grants.clear() }
+          else { invalidateBrowserCertificatePrompts(); await browserSession().clearStorageData(); await browserSession().closeAllConnections(); grants.clear() }
           return { success: true }
         case 'passwords': return { success: true, passwords: passwords.list(), encryptionAvailable: passwords.available() }
         case 'savePassword': passwords.save(request.origin, request.username, request.password); return { success: true, passwords: passwords.list() }

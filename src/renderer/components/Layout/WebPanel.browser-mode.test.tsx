@@ -166,6 +166,24 @@ afterEach(() => {
 })
 
 describe('小窗失败页', () => {
+  it('证书确认入口使用小窗 guest ID 并在获准后重试失败地址', async () => {
+    setupBrowserMode()
+    const request = vi.fn().mockImplementation(async raw => raw.kind === 'certificateInfo' ? { success: true, certificate: { certificateId: 'actual-failure', subject: '', issuer: '', validFrom: '', validTo: '', fingerprint: '' } } : { success: true, certificateTrusted: true })
+    localStorage.setItem('lyshell.webbarMini.url.v1', 'https://first.example/')
+    render(<WebPanel visible />)
+    await waitFor(() => expect(document.querySelector('webview')).toBeTruthy())
+    window.electronAPI.browserRequest = request
+    const el = wvOf()
+    const url = 'https://10.5.20.36:8072/'
+    act(() => { el.dispatchEvent(Object.assign(new Event('did-fail-load'), {
+      isMainFrame: true, errorCode: -202, errorDescription: 'ERR_CERT_AUTHORITY_INVALID', validatedURL: url
+    })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Advanced' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Proceed to/ })) })
+    expect(request).toHaveBeenCalledWith({ kind: 'trustCertificate', guestId: 4242, url, certificateId: 'actual-failure' })
+    expect(el.loadURL).toHaveBeenCalledWith(url)
+  })
+
   it('主框架失败显示恢复入口，重试实际失败地址，加载成功收起提示', async () => {
     setupBrowserMode()
     localStorage.setItem('lyshell.webbarMini.url.v1', 'https://first.example/')

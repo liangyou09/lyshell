@@ -1,14 +1,19 @@
 import { useTranslation } from 'react-i18next'
 import cn from 'classnames'
 import { webLoadFailureReason, type WebLoadFailure } from './web-load-error'
+import WebCertificateError from './WebCertificateError'
 
 /** 完整页签与小窗共用的失败页；窄窗可换行，矮窗可滚动，保留地址与诊断信息。 */
-export default function WebLoadError({ failure, onRetry, compact = false }: {
+export default function WebLoadError({ failure, onRetry, getGuestId, onLeave, compact = false }: {
   failure: WebLoadFailure
   onRetry: () => void
+  getGuestId?: () => number | undefined
+  onLeave?: () => void
   compact?: boolean
 }): JSX.Element {
   const { t } = useTranslation()
+  const certificateFailure = webLoadFailureReason(failure) === 'certificate' && /^https:\/\//i.test(failure.url)
+  if (certificateFailure && getGuestId) return <WebCertificateError failure={failure} onRetry={onRetry} getGuestId={getGuestId} onLeave={onLeave} compact={compact} />
   let address = failure.url
   try { address = new URL(failure.url).host || failure.url } catch { /* 非标准地址保留原值 */ }
   return (

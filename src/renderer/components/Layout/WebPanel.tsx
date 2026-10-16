@@ -1366,7 +1366,10 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
                         </div>
                       )}
                       {miniFailed && (
-                        <WebLoadError compact failure={miniFailed} onRetry={() => {
+                        <WebLoadError compact failure={miniFailed} getGuestId={() => miniEl?.getWebContentsId()} onLeave={() => {
+                          try { if (miniReady && miniEl?.canGoBack()) { miniEl.goBack(); return } } catch { /* guest 可能已销毁。 */ }
+                          handleMiniClosePage()
+                        }} onRetry={() => {
                           if (miniEl) settleWebview(() => miniEl.loadURL(miniFailed.url))
                         }} />
                       )}

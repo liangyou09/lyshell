@@ -26,6 +26,12 @@ vi.mock('./passwords', () => ({ BrowserPasswords: class {
   list = () => []
   delete = vi.fn()
 } }))
+vi.mock('./prompts', () => ({ initializeBrowserPrompts: vi.fn(), requestBrowserPrompt: async (_guest: unknown, content: unknown, options: { current: () => boolean; confirm: () => void }) => {
+  const result = await mocks.dialog(content)
+  if (result.response !== 1 || !options.current()) return false
+  options.confirm()
+  return true
+} }))
 
 function guest() {
   return Object.assign(new EventEmitter(), { id: 1, session: ses, mainFrame: { url: 'https://example.com/login' }, getURL: () => 'https://example.com/login', isDestroyed: () => false, getType: () => 'webview', setZoomFactor: vi.fn(), hostWebContents: null })
@@ -98,7 +104,7 @@ describe('浏览器主进程会话隔离', () => {
     expect(mocks.savePassword).toHaveBeenCalledWith('https://example.com', 'alice', 'fixture-secret')
     const options = mocks.dialog.mock.calls[0][0]
     expect(JSON.stringify(options)).not.toContain('fixture-secret')
-    expect(options.defaultId).toBe(0)
+    expect(options).toEqual({ kind: 'password', origin: 'https://example.com', username: 'alice' })
   })
   it('同源换页也让旧权限确认失效', async () => {
     const service = await import('./service')

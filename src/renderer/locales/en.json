@@ -164,6 +164,36 @@
     "web": "Sharingan",
     "settings": "Settings"
   },
+  "webCertificate": {
+    "title": "Your connection is not private",
+    "description": "The identity of {{host}} could not be verified. Continuing could put your passwords or other information at risk.",
+    "advanced": "Advanced",
+    "hideAdvanced": "Hide advanced",
+    "back": "Back to safety",
+    "warning": "This certificate did not pass security checks. Continue only if you trust this website and its certificate.",
+    "scope": "Trust applies to this host and certificate across built-in browser tabs and ports, until LyShell is fully closed.",
+    "details": "View certificate details",
+    "subject": "Subject",
+    "issuer": "Issuer",
+    "validity": "Validity",
+    "proceed": "Proceed to {{host}} (unsafe)",
+    "connecting": "Connecting…",
+    "reading": "Reading certificate…"
+  },
+  "browserPrompt": {
+    "passwordTitle": "Save password?",
+    "passwordDescription": "Fill it in automatically next time.",
+    "website": "Website",
+    "username": "Username",
+    "noUsername": "No username entered",
+    "passwordHint": "Encrypted by the system. Stored only on this device.",
+    "notNow": "Not now",
+    "save": "Save password",
+    "working": "Working…",
+    "retrySave": "Retry saving",
+    "saveFailed": "Your password has not been saved. Check system encryption and local storage, then try again.",
+    "unavailable": "The page has changed. Close this card and try again."
+  },
   "webBar": {
     "title": "Sharingan",
     "placeholder": "Enter a URL and press Enter",
@@ -185,6 +215,7 @@
     "loadFailedHint": "{{error}} · {{url}}",
     "retry": "Reload page",
     "errorDetails": "Error details",
+    "certificateUnavailable": "The certificate or page has changed. Reload the page and try again.",
     "failure": {
       "offline": "You are offline. Check your internet connection, then reload the page.",
       "dns": "This site could not be found. Check the address, your connection, or your DNS settings.",

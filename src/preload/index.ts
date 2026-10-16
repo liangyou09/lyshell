@@ -279,6 +279,7 @@ const electronAPI = {
 
   // 配置管理
   getConfig: (key: string) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET, key),
+  // 证书确认也经此宿主通道；网页 guest 没有信任证书的 bridge。
   browserRequest: (request: BrowserRequest): Promise<BrowserResult> => ipcRenderer.invoke('browser:request', request),
   setConfig: (key: string, value: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_SET, key, value),
   getMcpAddCommand: () => ipcRenderer.invoke(IPC_CHANNELS.MCP_GET_ADD_COMMAND),
