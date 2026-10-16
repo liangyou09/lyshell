@@ -20,7 +20,7 @@
     "preview:scroll": "vite preview --outDir dist/renderer --host 127.0.0.1 --port 4174 --strictPort",
     "start": "electron .",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
-    "rebuild": "electron-builder install-app-deps",
+    "rebuild": "node scripts/postinstall.cjs",
     "postinstall": "node scripts/postinstall.cjs",
     "pack": "npm run build && electron-builder --dir && node scripts/rename-unpacked.cjs",
     "dist": "npm run build && electron-builder",
@@ -51,7 +51,7 @@
     "js-yaml": "^4.3.1",
     "koffi": "^3.3.1",
     "lodash-es": "^4.17.21",
-    "node-pty": "^1.0.0",
+    "node-pty": "1.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-i18next": "^17.0.8",
@@ -66,6 +66,7 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
+    "@electron/rebuild": "4.2.1",
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/tsconfig": "^1.0.1",
     "@electron-toolkit/utils": "^3.0.0",
@@ -82,8 +83,8 @@
     "@vitejs/plugin-react": "^4.2.0",
     "@vitest/ui": "^1.2.0",
     "autoprefixer": "^10.4.17",
-    "electron": "^28.3.3",
-    "electron-builder": "^24.12.0",
+    "electron": "43.7.11",
+    "electron-builder": "26.15.3",
     "electron-vite": "^2.0.0",
     "esbuild": "^0.20.0",
     "eslint": "^8.56.0",
@@ -97,5 +98,8 @@
     "typescript": "^5.3.3",
     "vite": "^5.1.0",
     "vitest": "^1.2.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

@@ -393,10 +393,10 @@ function setupPluginGuest(guestContents: Electron.WebContents, pending: PendingP
   // guest console 转发（取证通道，与 webbar 一致；warn 及以上）。经限速 tap:
   // 插件页可以按管线速度 console.error,不设闸会冲掉 main.log 里有用内容。
   const consoleTap = createLogTap((line) => log.warn(line), { maxLines: 20 })
-  guestContents.on('console-message', (_event, level, message, line, sourceId) => {
-    if (level < 2) return
+  guestContents.on('console-message', ({ level, message, lineNumber, sourceId }) => {
+    if (level !== 'warning' && level !== 'error') return
     const text = message.length > 500 ? `${message.slice(0, 500)}…` : message
-    consoleTap(`[plugin-view console] ${pending.pluginId}/${pending.viewId} (${sourceId}:${line}) ${text}`)
+    consoleTap(`[plugin-view console] ${pending.pluginId}/${pending.viewId} (${sourceId}:${lineNumber}) ${text}`)
   })
 }
 
@@ -717,10 +717,10 @@ function createMainWindow(): void {
     // 无从下手。warn 及以上转发进主日志（info 级心跳噪音大不转），消息截长防单条
     // 刷屏 + 限速 tap 防速率刷屏
     const consoleTap = createLogTap((line) => log.warn(line), { maxLines: 20 })
-    webContents.on('console-message', (_event, level, message, line, sourceId) => {
-      if (level < 2) return
+    webContents.on('console-message', ({ level, message, lineNumber, sourceId }) => {
+      if (level !== 'warning' && level !== 'error') return
       const text = message.length > 500 ? `${message.slice(0, 500)}…` : message
-      consoleTap(`[guest console] ${webContents.getURL()} (${sourceId}:${line}) ${text}`)
+      consoleTap(`[guest console] ${webContents.getURL()} (${sourceId}:${lineNumber}) ${text}`)
     })
     // 导航闸 —— will-navigate（锚点点击 / JS location 赋值）与 will-redirect（302/
     // meta refresh 的服务端落点）两条事件共用同一策略：实证（Electron 28 探针）锚点与

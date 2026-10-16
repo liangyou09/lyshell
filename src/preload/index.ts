@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type { WorktreeListResult } from '@shared/worktree'
 import type { SessionConfig, TerminalEncoding, WebTabPopupRequest } from '@shared/types'
@@ -186,6 +186,8 @@ const IPC_CHANNELS = {
 
 // 暴露给渲染进程的 API
 const electronAPI = {
+  // File.path 自 Electron 32 移除；只在受信任宿主 preload 中解析原生拖放文件。
+  getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   takeExplorerLaunches: (): Promise<SessionConfig[]> => ipcRenderer.invoke(IPC_CHANNELS.EXPLORER_LAUNCH_TAKE),
   onExplorerLaunchPending: (callback: () => void) => {
     const listener = () => callback()

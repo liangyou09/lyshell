@@ -44,12 +44,12 @@ Read the native work contract before delegating: **`D:/workspace/claude/LyShell/
 
 LyShell — Electron + React + xterm.js terminal app supporting SSH, Telnet, serial, and local PTY connections, with a built‑in SFTP file manager, quick commands, AI Agent launchers, a Python scripting engine, a sandboxed plugin system, Harness/dsh/codex agent workspaces, and an MCP HTTP API for external tooling.
 
-Stack: Electron 28, TypeScript 5, React 18, xterm.js, node-pty, ssh2, serialport, Zustand, TailwindCSS, electron-vite.
+Stack: Electron 43 (Chromium 150), TypeScript 5, React 18, xterm.js, node-pty 1.1 (Node-API), ssh2, serialport, Zustand, TailwindCSS, electron-vite. Development requires Node.js 22.12 or later.
 
 ## Commands
 
 ```bash
-npm install              # install deps; postinstall (scripts/postinstall.cjs) rebuilds native modules for the Electron 28 ABI — full rebuild on node 18/20 LTS, ConPTY-only on Windows + node 24 (node-pty 1.0.0's winpty target can't compile there)
+npm install              # install deps; postinstall verifies native modules in the pinned Electron runtime, rebuilding when needed (Node.js >=22.12)
 npm run pack             # build + unpacked dir (no installer)
 npm run rebuild          # rebuild native modules (serialport, node-pty) for current Electron ABI — required after Electron upgrades or fresh installs on a new machine
 npm run dev              # electron-vite dev (renderer HMR + main reload)

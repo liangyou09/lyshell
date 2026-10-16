@@ -294,8 +294,7 @@ const FileManagerPanel: React.FC = () => {
     if (droppedFiles.length === 0) return
 
     for (const file of droppedFiles) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const localPath = (file as any).path
+      const localPath = window.electronAPI.getPathForFile(file)
       if (localPath) handleUpload(localPath, file.name)
     }
   }

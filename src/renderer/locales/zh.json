@@ -165,6 +165,16 @@
     "loading": "加载中…",
     "loadFailed": "页面加载失败",
     "loadFailedHint": "{{error}} · {{url}}",
+    "retry": "重新加载",
+    "errorDetails": "错误详情",
+    "failure": {
+      "offline": "网络连接已断开。请检查网络连接后重新加载。",
+      "dns": "找不到这个网站。请检查地址是否正确，或检查网络与 DNS 设置。",
+      "refused": "网站拒绝了连接。请确认服务已启动，并检查地址和端口。",
+      "timeout": "网站响应超时。请稍后重试，或检查网络与代理设置。",
+      "certificate": "无法验证网站的安全证书。请检查系统时间，或联系网站管理员。",
+      "generic": "暂时无法打开这个页面。请检查网址和网络连接后重试。"
+    },
     "mini": "小窗",
     "miniPlaceholder": "小窗地址，回车浏览",
     "miniBack": "后退",

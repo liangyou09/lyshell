@@ -1740,26 +1740,6 @@
   filter: drop-shadow(0 1.5px 2px rgba(0, 0, 0, .18));
 }
 
-/* ─── IconBtn 白面辉光(.icon-bright-glow)── Web 栏铭牌行按钮簇用 ───
-   白已顶满中性色阶(#FFF 上无更亮),「再亮」只能加光晕:整枚图标透
-   currentColor 辉光(与 scroll-chip.on 解绳点亮同语言),amber 悬停时晕
-   随字面同步变琥珀(drop-shadow 不写颜色即取 color)。45% 与辊头开态辉光
-   同度 —— 近黑 rack 底上读作「点亮」而非「发光体」 */
-.icon-bright-glow svg {
-  filter: drop-shadow(0 0 3px color-mix(in srgb, currentColor 45%, transparent));
-}
-/* 浅色主题:白面在浅底(rack-paper #F3F3F3 / rack-lark #F5F6F7)上对比崩坏
-   (<1.2:1,读不出),面回落文字色令牌 --text-rack(深墨,两浅主题各自定义);
-   辉光随 currentColor 收敛成细墨晕。hover 的 text-white / disabled:hover 一并
-   压回(属性+类+:hover 三档特异性稳赢同文件更早的 Tailwind hover 工具类),
-   悬停反馈只留 bg-slot 一档 —— 与 dark 的「白已顶满、只动底」同口径 */
-[data-theme-mode="light"] .icon-bright-glow {
-  color: var(--text-rack);
-}
-[data-theme-mode="light"] .icon-bright-glow:hover {
-  color: var(--text-rack);
-}
-
 /* ─── 活动轨 web 槽位激活(.rail-icon-web-active)── 写轮眼开眼色 ───
    dark 取 --web-group 亮青(段身份,与 Web 栏轴头/地址栏署名同一件物);
    token 本身不随主题走(见其 token 注),亮青压浅色激活底读不出,感知层乘

@@ -165,6 +165,36 @@ afterEach(() => {
   unregisterWebview('web-1')
 })
 
+describe('小窗失败页', () => {
+  it('主框架失败显示恢复入口，重试实际失败地址，加载成功收起提示', async () => {
+    setupBrowserMode()
+    localStorage.setItem('lyshell.webbarMini.url.v1', 'https://first.example/')
+    render(<WebPanel />)
+    await waitFor(() => expect(document.querySelector('webview')).toBeTruthy())
+    const el = wvOf()
+    act(() => {
+      el.dispatchEvent(Object.assign(new Event('did-fail-load'), {
+        isMainFrame: false, errorCode: -105
+      }))
+    })
+    expect(screen.queryByRole('button', { name: 'Reload page' })).toBeNull()
+    const failedUrl = 'http://localhost:8765/failed'
+    act(() => {
+      el.dispatchEvent(new CustomEvent('did-fail-load', { detail: {
+        isMainFrame: true, errorCode: -102, errorDescription: 'ERR_CONNECTION_REFUSED', validatedURL: failedUrl
+      } }))
+      el.dispatchEvent(new Event('did-stop-loading'))
+    })
+    expect(screen.getByRole('status').textContent).toContain('service is running')
+    fireEvent.click(screen.getByRole('button', { name: 'Reload page' }))
+    expect(el.loadURL).toHaveBeenCalledWith(failedUrl)
+    act(() => { el.dispatchEvent(new Event('did-start-loading')) })
+    expect(screen.queryByRole('button', { name: 'Reload page' })).toBeNull()
+    fireDomReady()
+    expect(screen.queryByText('Loading…')).toBeNull()
+  })
+})
+
 describe('插件聊天小窗回收', () => {
   it.each([
     ['http://127.0.0.1:31517/ui/chat/', true],
@@ -567,11 +597,8 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     render(<WebPanel />)
     const clear = screen.getByTitle('Clear') as HTMLButtonElement
     expect(clear.className).toContain('win-no-drag')
-    // lg + bright 档:28px 面、白面 + currentColor 辉光(白顶满色阶后「亮」
-    // 走光晕,按钮簇是铭牌行的主体操作)
+    // 操作面仍为 28px，放大图标不挤占标题或改变工具条几何。
     expect(clear.className).toContain('w-[28px]')
-    expect(clear.className).toContain('text-white')
-    expect(clear.className).toContain('icon-bright-glow')
     expect(clear.disabled).toBe(true)   // 无历史无物可清
     act(() => {
       usePaneStore.setState({ webTabHistory: ['https://a.example.com/one'] })
@@ -586,10 +613,8 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
       const btn = screen.getByTitle(title) as HTMLButtonElement
       expect(btn.className).toContain('win-no-drag')
       expect(btn.closest('.win-drag')).toBeTruthy()   // 所在行 = 铭牌拖拽区
-      // lg + bright 档(与清空钮同规:白面 + 辉光)
+      // 与清空钮保持相同操作面。
       expect(btn.className).toContain('w-[28px]')
-      expect(btn.className).toContain('text-white')
-      expect(btn.className).toContain('icon-bright-glow')
     }
     // 桩 nav 快照 canGoBack/canGoForward = false → 前后禁用;有活动页签 →
     // 刷新/检查可用(刷新与停止共用一钮,非 loading 态题「Reload (Ctrl+R)」)

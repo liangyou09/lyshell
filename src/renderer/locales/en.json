@@ -165,6 +165,16 @@
     "loading": "Loading…",
     "loadFailed": "Failed to load page",
     "loadFailedHint": "{{error}} · {{url}}",
+    "retry": "Reload page",
+    "errorDetails": "Error details",
+    "failure": {
+      "offline": "You are offline. Check your internet connection, then reload the page.",
+      "dns": "This site could not be found. Check the address, your connection, or your DNS settings.",
+      "refused": "The site refused the connection. Make sure the service is running and check the address and port.",
+      "timeout": "The site took too long to respond. Try again later, or check your connection and proxy settings.",
+      "certificate": "The site's security certificate could not be verified. Check your system clock or contact the site administrator.",
+      "generic": "This page could not be opened. Check the address and your connection, then try again."
+    },
     "mini": "Mini pane",
     "miniPlaceholder": "Mini address, Enter to browse",
     "miniBack": "Back",

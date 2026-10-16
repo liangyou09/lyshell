@@ -19,6 +19,8 @@ import ScrollFold, { ScrollTie } from './ScrollFold'
 import { IconBtn } from './IconBtn'
 import { useDismiss } from '../../hooks'
 import { WEBBAR_PARTITION } from '@shared/constants'
+import WebLoadError from './WebLoadError'
+import { webLoadFailureFromEvent, type WebLoadFailure } from './web-load-error'
 
 /** datalist 选项 label 用:取 hostname,取不到回落原样字符串(与页签 title 初始值同源);
     历史行本身直接显示完整 URL,不再缩略为 hostname */
@@ -98,7 +100,7 @@ function guessOriginFavicon(url: string): Promise<string | null> {
 
 /** 线稿图标底座 —— 本文件所有 lucide 风格图标的统一外壳:24 viewBox、stroke
  *  随 currentColor、圆帽圆角,描边随渲染尺寸反比提粗(小尺寸细线发虚 ——
- *  14px 档 2.5、感知 ~1.45px,12px 档 2、感知 1px 与旧值一致:提粗只落在
+ *  顶栏 18px 档 2.5、感知 ~1.88px,12px 档 2、感知 1px:提粗只落在
  *  铭牌行的 lg 档,小窗工具条原样)。各图标只写路径,不再各自拼 svg 属性 */
 const Glyph: React.FC<{ size?: number; children: React.ReactNode }> = ({ size = 12, children }) => (
   <svg
@@ -117,12 +119,9 @@ const Glyph: React.FC<{ size?: number; children: React.ReactNode }> = ({ size = 
 )
 
 /** 导航图标组(lucide 线稿风格)——后退/前进/刷新/停止。size 供铭牌行(IconBtn
- *  lg 档)放大到 14,缺省 12 = 小窗工具条原尺 */
-/** 后退/前进 = 单笔角括号 —— 读形对齐左窗栏收起控位(ActivityRail
- *  IconCollapseRail)的 chevron,大小也对齐它的物理份量:那颗在 24px 盒里
- *  占 6×10.8(口高 45%),本行图标盒只有 14px,等比放大即 24vb 下 10×18
- *  (口高 75%)—— 之前 7×12 渲染才 4×7px,比邻位的刷新/检查矮一头,读作
- *  缩水;进深:口高仍是 5:9 同比例 */
+ *  lg 档)放大到 18,缺省 12 = 小窗工具条原尺 */
+/** 后退/前进使用与活动轨一致的 chevron；18px 档占高 13.5px，
+ *  与刷新图标保持相近的视觉份量。小窗仍由 size=12 缩放。 */
 const ChevronLeftIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
   <Glyph size={size}>
     <path d="m17 3-10 9 10 9" />
@@ -283,6 +282,7 @@ const TrashIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
     <path d="M3 6h18" />
     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
     <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    <path d="M10 10v7M14 10v7" />
   </Glyph>
 )
 
@@ -471,7 +471,7 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
   // 渐进上屏(实机探针:本地页 28ms 可画、遮罩整压 12s)。工具条停止钮仍跟
   // miniLoading,慢资源期间仍可点停
   const [miniCovering, setMiniCovering] = useState(false)
-  const [miniFailed, setMiniFailed] = useState<string | null>(null)
+  const [miniFailed, setMiniFailed] = useState<WebLoadFailure | null>(null)
   const [miniNav, setMiniNav] = useState({ canGoBack: false, canGoForward: false })
   // webview 元素经回调 ref 落 state：只有开眼后才挂载，事件/导航 effect 以它为 dep
   const [miniEl, setMiniEl] = useState<WebviewTag | null>(null)
@@ -746,10 +746,8 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
     // stop-loading 收遮罩是 dom-ready 的兜底:异常路径(不触发 dom-ready 的失败)防遮罩滞留
     const onStopLoading = (): void => { setMiniLoading(false); setMiniCovering(false) }
     const onFail = (e: Event): void => {
-      const evt = e as CustomEvent<unknown> & { errorCode?: number; errorDescription?: string; isMainFrame?: boolean }
-      if (evt.isMainFrame === false) return
-      if (evt.errorCode === -3) return
-      setMiniFailed(evt.errorDescription || (evt.errorCode !== undefined ? `ERR_${evt.errorCode}` : 'ERROR'))
+      const failure = webLoadFailureFromEvent(e, miniLastUrlRef.current)
+      if (failure) setMiniFailed(failure)
     }
     // 记历史吃 miniLastUrlRef（导航落点，初始化即挂载目标）而非 getURL()：
     // 事件回调不碰方法面，did-finish-load 理论晚于 dom-ready 但不赌时序
@@ -916,14 +914,14 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
         {/* 导航簇 —— 落点 = 活动网页页签(web-tab-controls 控制层);可用性随
             活动页签:无页签全禁,前后随 nav 快照,刷新/停止随加载周期换图。
             IconBtn lg + bright 档:按钮簇是这行的主体操作,面 28px、字面 rack
-            常亮(五处头条默认档不受影响),图标同提 14。窄栏收纳
+            常亮、实色底、不叠光晕,图标 18px。窄栏收纳
             (WEBBAR_NAMEPLATE_COMPACT_WIDTH):副操作检查/清空离场让位题名,
             主导航三钮恒在 */}
         <IconBtn title={t('webBar.back')} amber size="lg" bright disabled={!activeNav?.canGoBack} onClick={activeWebTabGoBack}>
-          <ChevronLeftIcon size={14} />
+          <ChevronLeftIcon size={18} />
         </IconBtn>
         <IconBtn title={t('webBar.forward')} amber size="lg" bright disabled={!activeNav?.canGoForward} onClick={activeWebTabGoForward}>
-          <ChevronRightIcon size={14} />
+          <ChevronRightIcon size={18} />
         </IconBtn>
         <IconBtn
           title={activeNav?.loading ? t('webBar.stop') : t('webBar.reload')}
@@ -933,19 +931,19 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
           disabled={activeWebTabId === null}
           onClick={() => (activeNav?.loading ? stopActiveWebTab() : reloadActiveWebTab(false))}
         >
-          {activeNav?.loading ? <StopIcon size={14} /> : <RotateCwIcon size={14} />}
+          {activeNav?.loading ? <StopIcon size={18} /> : <RotateCwIcon size={18} />}
         </IconBtn>
         {/* 检查网页:打开活动网页页签客体的 DevTools —— 页面行为异常(按钮点不动、
             疑似脚本报错)时的取证入口,报错只进客体 devtools 不开则完全不可见 */}
         {!navCompact && (
           <IconBtn title={t('webBar.devtools')} amber size="lg" bright disabled={activeWebTabId === null} onClick={openActiveWebTabDevTools}>
-            <CodeIcon size={14} />
+            <CodeIcon size={18} />
           </IconBtn>
         )}
         {/* 清空最近访问 —— 历史空时禁用,无物可清 */}
         {!navCompact && (
           <IconBtn onClick={clearWebTabHistory} title={t('webBar.clear')} size="lg" bright disabled={webTabHistory.length === 0}>
-            <TrashIcon size={14} />
+            <TrashIcon size={18} />
           </IconBtn>
         )}
         {/* 溢出菜单 —— 窄栏收纳时检查/清空的落点(功能不随收纳消失):触发钮
@@ -955,7 +953,7 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
         {navCompact && (
           <div ref={navMoreRef} className="relative flex-shrink-0">
             <IconBtn title={t('webBar.more')} amber size="lg" bright onClick={() => setNavMoreOpen(o => !o)}>
-              <MoreIcon />
+              <MoreIcon size={18} />
             </IconBtn>
             {navMoreOpen && (
               <div className="win-no-drag absolute top-full right-0 mt-1 z-50 w-[168px] bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm p-1 shadow-xl">
@@ -1333,12 +1331,9 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
                         </div>
                       )}
                       {miniFailed && (
-                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[var(--terminal-bg)]">
-                          <p className="text-sm text-gray-300">{t('webBar.loadFailed')}</p>
-                          <p className="max-w-[80%] truncate font-mono text-xs text-gray-500">
-                            {t('webBar.loadFailedHint', { error: miniFailed, url: miniUrl })}
-                          </p>
-                        </div>
+                        <WebLoadError compact failure={miniFailed} onRetry={() => {
+                          if (miniEl) settleWebview(() => miniEl.loadURL(miniFailed.url))
+                        }} />
                       )}
                     </>
                   ) : null}

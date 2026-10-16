@@ -6,6 +6,8 @@ import { registerWebview, unregisterWebview, activeWebTabId } from './web-tab-co
 import type { OverlayPayload, PaneNode } from '@shared/types'
 import { WEBBAR_PARTITION } from '@shared/constants'
 import SearchableTab from '../Search/SearchableTab'
+import WebLoadError from './WebLoadError'
+import { webLoadFailureFromEvent, type WebLoadFailure } from './web-load-error'
 
 // 占位（PaneView 内）与实体（本层内）互认的 DOM 锚点；值本身写入字面量属性
 export const WEB_TAB_PLACEHOLDER_ATTR = 'data-webtab-placeholder'
@@ -77,7 +79,7 @@ function faviconUrlFromEvent(e: Event): string | undefined {
  * WebPanel 地址栏与导航按钮消费；元素登记进 web-tab-controls 注册表，
  * 面板按钮与宿主/主进程快捷键经它对本页签下指令。
  */
-const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: string }> = ({ id, url, postToken }) => {
+export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: string }> = ({ id, url, postToken }) => {
   const setWebTabTitle = usePaneStore(s => s.setWebTabTitle)
   const setWebTabFavicon = usePaneStore(s => s.setWebTabFavicon)
   const setWebTabNav = usePaneStore(s => s.setWebTabNav)
@@ -90,9 +92,9 @@ const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: string }> =
   // redirect 链的每一跳都会触发 did-navigate，落点才是用户真正到达的地址
   const lastUrlRef = useRef('')
   // 加载态：webview 无内建 UI，失败=纯白屏零反馈（外站不可达与「没打开」无法
-  // 区分）。loading 铺轻提示挡白闪，failed 铺错误浮层把 errno 直接亮出来
+  // 区分）。loading 铺轻提示挡白闪，failed 提供原因、重试与可展开的诊断详情
   const [loadState, setLoadState] = useState<'loading' | 'done' | 'failed'>('loading')
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<WebLoadFailure | null>(null)
   // src 按实例快照：POST 页签首航落定后 settleWebTabPost 会把 payload.url 改写为
   // 落点 —— 若 src 直读 prop，存活 webview 的 src 属性变化会再触发一次 GET 导航
   // 把刚登录的页面顶掉。普通页签 url 恒定，快照与原行为等价。
@@ -208,11 +210,11 @@ const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: string }> =
         // 此处即终局 —— 摘除死令牌，防异常重挂再撞一次拒（重挂改按打开 URL
         // GET 回落；终局长相不变：本实例仍铺失败浮层）
         settleWebTabPost(id)
-        setLoadError('POST navigation rejected')
+        setLoadError({ url, description: 'POST navigation rejected' })
         setLoadState('failed')
       }).catch(err => {
         settleWebTabPost(id)
-        setLoadError(String(err))
+        setLoadError({ url, description: String(err) })
         setLoadState('failed')
       })
     }
@@ -233,13 +235,10 @@ const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: string }> =
       setWebTabNav(id, { loading: false })
     }
     const onLoadFail = (e: Event): void => {
-      const evt = e as CustomEvent<unknown> & {
-        errorCode?: number; errorDescription?: string; isMainFrame?: boolean
-      }
       // 子框架资源失败不铺满屏浮层；ERR_ABORTED(-3) 是重定向/中途取消的常态噪音
-      if (evt.isMainFrame === false) return
-      if (evt.errorCode === -3) return
-      setLoadError(evt.errorDescription || (evt.errorCode !== undefined ? `ERR_${evt.errorCode}` : 'ERROR'))
+      const failure = webLoadFailureFromEvent(e, lastUrlRef.current || url)
+      if (!failure) return
+      setLoadError(failure)
       setLoadState('failed')
     }
     el.addEventListener('page-title-updated', onTitle)
@@ -283,13 +282,13 @@ const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: string }> =
           {t('webBar.loading')}
         </div>
       )}
-      {loadState === 'failed' && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[var(--terminal-bg)]">
-          <p className="text-sm text-gray-300">{t('webBar.loadFailed')}</p>
-          <p className="max-w-[80%] truncate font-mono text-xs text-gray-500">
-            {t('webBar.loadFailedHint', { error: loadError ?? 'ERROR', url })}
-          </p>
-        </div>
+      {loadState === 'failed' && loadError && (
+        <WebLoadError failure={loadError} onRetry={() => {
+          const el = ref.current
+          if (!el) return
+          // 按实际失败地址重试，避免 reload 回到先前成功的页面；不重放 POST 正文。
+          try { void el.loadURL(loadError.url).catch(() => { /* did-fail-load 呈现详情 */ }) } catch { return }
+        }} />
       )}
     </SearchableTab>
   )

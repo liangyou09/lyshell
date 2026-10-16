@@ -897,7 +897,7 @@ const MainWindow: React.FC = () => {
     e.preventDefault()
     e.stopPropagation()
     for (const file of Array.from(e.dataTransfer.files)) {
-      const p = (file as unknown as { path?: string }).path
+      const p = window.electronAPI.getPathForFile(file)
       if (p && isDocPath(p)) void openLocalDoc(p)
     }
   }
@@ -1138,11 +1138,10 @@ const MainWindow: React.FC = () => {
             onPointerCancel={endSidebarResize}
             onLostPointerCapture={endSidebarResize}
           >
-            <span className="sidebar-resize-grip" aria-hidden />
             {/* 左侧 4px 命中热区(面板边缘最右 4px 可见条 + 面板内容最后 4px),扩命中不扩可见宽 */}
             <div
               style={{ left: -SIDEBAR_DIVIDER_WIDTH, width: SIDEBAR_DIVIDER_WIDTH }}
-              className="absolute top-0 bottom-0 cursor-col-resize"
+              className="win-no-drag absolute top-0 bottom-0 cursor-col-resize"
               onPointerDown={startSidebarResize}
               onPointerMove={handleSidebarResizeMove}
               onPointerUp={endSidebarResize}

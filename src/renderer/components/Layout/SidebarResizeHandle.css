@@ -1,8 +1,10 @@
 /* 可见线与命中区域分开：保留原调宽占位及热区，不挤压面板内容。 */
 .sidebar-resize-handle {
   position: relative;
+  /* 高于面板头行(z-index: 10)，让顶部扩展热区也能接收调宽事件。 */
+  z-index: 20;
   flex-shrink: 0;
-  background: var(--bg-rack);
+  background: transparent;
   cursor: col-resize;
   touch-action: none;
   user-select: none;
@@ -20,33 +22,13 @@
   transition: background-color 140ms ease;
 }
 
-.sidebar-resize-grip {
-  position: absolute;
-  top: 50%;
-  left: calc(50% - 1px);
-  width: 2px;
-  height: 32px;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--text-rack-data) 45%, var(--bg-rack));
-  transform: translateY(-50%);
-  pointer-events: none;
-  transition: background-color 140ms ease, height 140ms ease;
-}
-
 .sidebar-resize-handle:hover::before,
 .sidebar-resize-handle.is-resizing::before {
   background: color-mix(in srgb, var(--amber) 35%, var(--rule-soft));
 }
 
-.sidebar-resize-handle:hover .sidebar-resize-grip,
-.sidebar-resize-handle.is-resizing .sidebar-resize-grip {
-  height: 40px;
-  background: var(--amber);
-}
-
 .sidebar-resize-handle.is-resizing { cursor: col-resize; }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-resize-handle::before,
-  .sidebar-resize-grip { transition: none; }
+  .sidebar-resize-handle::before { transition: none; }
 }

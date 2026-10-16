@@ -40,12 +40,13 @@ const PluginViewPanel: React.FC<{ view: PluginViewMeta; visible: boolean }> = ({
       if (evt.errorCode === LOAD_ABORTED) return
       setFailed(evt.errorDescription || (evt.errorCode !== undefined ? `ERR_${evt.errorCode}` : 'load failed'))
     }
+    // Electron 29 已移除 crashed，异常退出统一由 render-process-gone 通知。
     const onCrashed = (): void => setFailed(t('pluginView.crashed'))
     el.addEventListener('did-fail-load', onFail)
-    el.addEventListener('crashed', onCrashed)
+    el.addEventListener('render-process-gone', onCrashed)
     return () => {
       el.removeEventListener('did-fail-load', onFail)
-      el.removeEventListener('crashed', onCrashed)
+      el.removeEventListener('render-process-gone', onCrashed)
     }
   }, [attempt, t])
 
