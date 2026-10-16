@@ -8,6 +8,8 @@ import { WEBBAR_PARTITION } from '@shared/constants'
 import SearchableTab from '../Search/SearchableTab'
 import WebLoadError from './WebLoadError'
 import { webLoadFailureFromEvent, type WebLoadFailure } from './web-load-error'
+import { BROWSER_NEW_TAB_URL } from '@shared/browser-settings'
+import CommandScreen from '../CommandScreen/CommandScreen'
 
 // 占位（PaneView 内）与实体（本层内）互认的 DOM 锚点；值本身写入字面量属性
 export const WEB_TAB_PLACEHOLDER_ATTR = 'data-webtab-placeholder'
@@ -418,13 +420,16 @@ const WebTabLayer: React.FC = () => {
         <div
           key={entry.id}
           data-webtab-wrapper={entry.id}
+          onMouseDownCapture={() => usePaneStore.getState().setActivePane(entry.paneId)}
           className="absolute"
           style={{
             visibility: entry.active ? 'visible' : 'hidden',
             pointerEvents: entry.active ? 'auto' : 'none'
           }}
         >
-          <WebTabOverlay id={entry.id} url={entry.url} postToken={entry.postToken} />
+          {entry.url === BROWSER_NEW_TAB_URL
+            ? <CommandScreen mode="embedded" paneActive={entry.active && layout.activePaneId === entry.paneId} covered={!entry.active} paneId={entry.paneId} webTabId={entry.id} />
+            : <WebTabOverlay id={entry.id} url={entry.url} postToken={entry.postToken} />}
         </div>
       ))}
     </div>

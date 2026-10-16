@@ -7,16 +7,17 @@ import DocTabOverlay from '../DocPanel/DocTabOverlay'
 import type { DocOverlayPayload } from '@shared/types'
 import { useEscDismiss } from '../../hooks'
 import CommandWelcome from './CommandWelcome'
+import { usePaneStore } from '../../stores/pane-store'
 
 /**
  * 全屏 TUI 命令界面 —— 空状态(嵌入 pane)与全局面板(Ctrl+Shift+P)共用。
  *
- * 命令内容保留等宽字体和琥珀候选高亮；嵌入待命画布使用水墨题签与墨色输入线。
+ * 命令内容保留等宽字体和琥珀候选高亮；欢迎态只展示网址/搜索输入，输入 / 后进入命令界面。
  * 嵌入模式的输入、候选和输出共用居中内容列。四段:输出滚动区(命令回显,
  * 像 shell;嵌入空态首次待命展示水墨远景，输入或有输出后让位)/ 候选列表(输入非空才出现 —— 空输入是纯待命态,无补全
  * 无提示,↑↓ 翻命令历史;选中行 amber 反色,Tab 补全选中项;带参命令进入参数
  * 区后切换为参数目录 —— 参数区刚开(按了空格)时 ↑↓ 翻这条命令的参数历史)/ prompt(空
- * 输入时是细光标和 ghost 提示；嵌入只提示 /，全局面板提示 help、/?、/；
+ * 输入时是细光标和 ghost 提示；命令模式空输入提示 /，全局面板提示 help、/?、/；
  * 三个入口均展开完整命令目录，输入即让位)/ 快捷键提示栏(嵌入待命时隐藏)。
  * 全局面板保留 CRT 扫描线，嵌入画布保持干净以适配明暗主题。
  *
@@ -39,6 +40,9 @@ interface HistoryEntry {
 
 interface CommandScreenProps {
   mode: 'embedded' | 'overlay'
+  paneId?: string
+  /** 欢迎页签输入地址后原位进入网页，保留页签身份与排列位置。 */
+  webTabId?: string
   /** embedded:所属 pane 激活时聚焦(activePaneId 启动后才落定,靠变化重触发) */
   paneActive?: boolean
   /** embedded:命令屏被活面板覆盖层(网页 / dsh web / MCP 审计,absolute inset-0
@@ -142,7 +146,7 @@ const OutputBody: React.FC<{ output: string }> = ({ output }) => {
   )
 }
 
-const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered, inlineDoc, onClose }) => {
+const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneId, webTabId, paneActive, covered, inlineDoc, onClose }) => {
   const { t } = useTranslation()
   const [value, setValue] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -156,6 +160,7 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
   // IME 组合中:块状光标让位原生 caret(组合文本的位置才是用户当下看的)
   const [composing, setComposing] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const outputRef = useRef<HTMLDivElement>(null)
 
@@ -192,15 +197,25 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
   const browsingLines = historyBrowse !== null && historyBrowse.scope === ''
   const listVisible = !browsingLines && value.trim() !== ''
   const quietFooter = mode === 'embedded' && !listVisible && !inlineDoc && history.length === 0
+  const welcomeVisible = mode === 'embedded' && !inlineDoc && history.length === 0 && value.trim() === '' && !composing
 
   // 聚焦:overlay 挂载即聚焦;embedded 等所属 pane 激活(启动时 activePaneId
   // 晚于挂载落定,依赖 paneActive 翻转重触发追平)。embedded 被覆盖层(文档
   // 页签)盖住时让出焦点 —— 键盘不该打进看不见的输入框里攒出一条幽灵命令;
   // 覆盖层全撤(关掉清单页签)后收回,接着打字不用先点一下输入框
   useEffect(() => {
-    if (mode === 'overlay' || (paneActive && !covered)) inputRef.current?.focus()
-    else if (covered) inputRef.current?.blur()
-  }, [mode, paneActive, covered])
+    if (mode === 'overlay' || (paneActive && !covered)) {
+      if (searchInputRef.current) searchInputRef.current.focus()
+      else inputRef.current?.focus()
+    } else if (covered) { inputRef.current?.blur(); searchInputRef.current?.blur() }
+  }, [mode, paneActive, covered, webTabId])
+
+  // 欢迎输入与命令输入交替挂载；只接回悬空焦点，保留命令打开的对话框焦点。
+  useEffect(() => {
+    if (paneActive && !covered && document.activeElement === document.body) {
+      (searchInputRef.current ?? inputRef.current)?.focus()
+    }
+  }, [welcomeVisible, paneActive, covered])
 
   // 全局命令面板(盖在本屏之上)关闭:面板卸载会把焦点摔到 body,而 paneActive/
   // covered 都没变、上方聚焦 effect 不重跑 —— 听关闭事件把键盘接回。只认活动
@@ -210,12 +225,13 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
     if (mode !== 'embedded') return
     const onPaletteClosed = () => {
       if (paneActive && !covered && document.activeElement === document.body) {
-        inputRef.current?.focus()
+        const targetInput = searchInputRef.current ?? inputRef.current
+        targetInput?.focus()
       }
     }
     window.addEventListener(PALETTE_CLOSED_EVENT, onPaletteClosed)
     return () => window.removeEventListener(PALETTE_CLOSED_EVENT, onPaletteClosed)
-  }, [mode, paneActive, covered])
+  }, [mode, paneActive, covered, webTabId])
 
   // 点击任意处聚焦 prompt —— TUI 惯例:整屏就是输入面(xterm 同款 mousedown 聚焦);
   // 也是焦点意外丢失(窗口切回 / 时序竞态)的自愈通道。被覆盖层盖住时不抢焦点
@@ -226,6 +242,7 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
   // 例外:prompt 自身与纯文本/留白不拦,光标定位与文档拖选维持原生行为
   const handleRootMouseDown = (e: React.MouseEvent) => {
     if (covered) return
+    if ((e.target as HTMLElement).closest('.command-welcome-search')) return
     if (e.button !== 0) return
     // 从点击目标向上走到命令屏根(不越过根,页签条等外部容器不归这里管),途中
     // 撞上第一个可聚焦元素即拦
@@ -238,7 +255,8 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
       }
       node = node.parentElement
     }
-    inputRef.current?.focus()
+    const targetInput = searchInputRef.current ?? inputRef.current
+    targetInput?.focus()
   }
 
   // mousedown 版聚焦在真实浏览器里会被默认动作反杀:浏览器把 mousedown 的默认
@@ -257,7 +275,8 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
       if (node.matches('button, a, input, select, textarea, [tabindex]')) return
       node = node.parentElement
     }
-    inputRef.current?.focus()
+    const targetInput = searchInputRef.current ?? inputRef.current
+    targetInput?.focus()
   }
 
   // 新输出滚到底(shell 习惯:最新输出可见)
@@ -418,6 +437,7 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
 
   return (
     <div
+      {...(covered ? { inert: '' } : {})}
       onMouseDown={handleRootMouseDown}
       onClick={handleRootClick}
       data-mode={mode}
@@ -431,13 +451,17 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
         <div className="flex-1 min-h-0 relative">
           <DocTabOverlay id={inlineDoc.id} paneId={inlineDoc.paneId} payload={inlineDoc.payload} />
         </div>
-      ) : mode === 'embedded' && history.length === 0 && value.trim() === '' && !composing ? (
+      ) : welcomeVisible ? (
         <div className="flex-1 min-h-0">
-          <CommandWelcome onCommand={name => {
+          <CommandWelcome searchInputRef={searchInputRef} onStartCommand={raw => {
+            setValue(raw)
+            setSelectedIndex(0)
+            setHistoryBrowse(null)
+          }} onNavigate={url => usePaneStore.getState().openWebTab(url, paneId, webTabId ? { replaceStartTabId: webTabId } : undefined).ok} onCommand={name => {
             const entry = findExact(name)
             if (entry) {
               // 键盘/辅助技术激活没有 mousedown；先把焦点交回输入，再执行可能打开对话框的命令。
-              inputRef.current?.focus()
+              searchInputRef.current?.focus()
               execute(entry)
             }
           }} />
@@ -508,7 +532,7 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
       )}
 
       {/* prompt 输入行 —— 细光标与模式对应的简短提示，开始输入即让位。 */}
-      <div className="command-screen-input-area">
+      {!welcomeVisible && <div className="command-screen-input-area">
         <div className="command-screen-prompt">
           <span className="command-screen-prefix" aria-hidden="true">❯</span>
           <div className="command-screen-input-wrap">
@@ -539,11 +563,11 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
           </div>
           <kbd aria-hidden="true" className="command-screen-enter">Enter ↵</kbd>
         </div>
-      </div>
+      </div>}
 
       {/* 状态栏:与画布融合的快捷键底栏;tabular-nums 防计数跳动推挤。
           计数与候选列表同门 —— 空输入待命态不出现(无提示),输入后亮出 */}
-      <div className="command-screen-footer" data-quiet={quietFooter} aria-hidden={quietFooter}>
+      {!welcomeVisible && <div className="command-screen-footer" data-quiet={quietFooter} aria-hidden={quietFooter}>
         <div className="command-screen-shortcuts">
           {([
             ['↑↓', 'select'], ['Tab', 'complete'], ['Enter', 'run'],
@@ -561,7 +585,7 @@ const CommandScreen: React.FC<CommandScreenProps> = ({ mode, paneActive, covered
               : t('commandBar.matchCount', { matched: matches.length, total: COMMANDS.length })}
           </span>
         )}
-      </div>
+      </div>}
 
       {/* CRT 扫描线只用于全局命令面板，不覆盖欢迎插画与浅色画布。 */}
       {mode === 'overlay' && <div aria-hidden className="absolute inset-0 pointer-events-none cs-scanlines" />}

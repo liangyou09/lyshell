@@ -58,9 +58,9 @@ afterEach(() => {
 
 /** 渲染命令屏并键入一段输入(fireEvent.change 模拟逐字输入的最终态) */
 const type = (text: string): HTMLInputElement => {
-  const input = screen.getByRole('textbox') as HTMLInputElement
+  const input = (screen.queryByRole('searchbox') ?? screen.getByRole('textbox')) as HTMLInputElement
   fireEvent.change(input, { target: { value: text } })
-  return input
+  return (screen.queryByRole('searchbox') ?? screen.getByRole('textbox')) as HTMLInputElement
 }
 
 const keyDown = (input: HTMLInputElement, key: string): void => {
@@ -321,7 +321,7 @@ describe('CommandScreen:命令历史(输入空时 ↑↓ 翻历史)', () => {
 describe('CommandScreen:embedded 焦点让位与收回(覆盖层盖屏)', () => {
   // 空态跑 /ls、/help 会开出文档页签(absolute inset-0)盖住命令屏:期间键盘
   // 不该打进看不见的输入框攒幽灵命令,关掉页签后焦点要自动收回接着打字
-  const inputOf = (): HTMLInputElement => screen.getByRole('textbox') as HTMLInputElement
+  const inputOf = (): HTMLInputElement => (screen.queryByRole('searchbox') ?? screen.getByRole('textbox')) as HTMLInputElement
 
   it('被覆盖层盖住时让出焦点,覆盖层全撤后收回', () => {
     const { rerender } = render(<CommandScreen mode="embedded" paneActive covered />)
@@ -358,7 +358,7 @@ describe('CommandScreen:点击自愈与面板关闭接回(焦点丢失的真实�
   // 会把焦点搬到 body,mousedown 版聚焦被默认动作反杀(点一下 = 失焦)。这里直接
   // blur 复现"焦点悬空在 body"的终态,验证两道收回:click 时刻的自愈与全局命令
   // 面板关闭事件的接回
-  const inputOf = (): HTMLInputElement => screen.getByRole('textbox') as HTMLInputElement
+  const inputOf = (): HTMLInputElement => (screen.queryByRole('searchbox') ?? screen.getByRole('textbox')) as HTMLInputElement
 
   it('失焦后点击屏面留白/纯文本:click 把焦点收回 prompt', () => {
     const { container } = render(<CommandScreen mode="embedded" paneActive />)
@@ -422,14 +422,14 @@ describe('CommandScreen:空输入待命(只有输入命令才开始补全和提�
 
   it('嵌入待命提示只保留 / 入口;help、/?、/ 三者都展开完整目录,输入即让位', () => {
     render(<CommandScreen mode="embedded" paneActive />)
-    // 待命:细光标后只提示 / 入口;候选行仍不出现
-    expect(screen.getByText('Type / to explore commands')).toBeTruthy()
+    // 欢迎态只保留搜索输入，轻量提示说明 / 入口；候选行尚未展开。
+    expect(screen.getByText('Type / for commands · Ctrl+Shift+P opens the command palette')).toBeTruthy()
     expect(screen.queryByText('/help', { selector: 'span' })).toBeNull()
 
-    const input = screen.getByRole('textbox') as HTMLInputElement
+    const input = type('/')
     // help(传统别名,Windows CMD 语义):完整目录(不止 help 前缀的 1 条),ghost 让位
     type('help')
-    expect(screen.queryByText('Type / to explore commands')).toBeNull()
+    expect(screen.queryByText('Type / for commands · Ctrl+Shift+P opens the command palette')).toBeNull()
     expect(screen.getByText('/settings')).toBeTruthy()
     expect(screen.getByText(/commands/)).toBeTruthy()
 
@@ -459,13 +459,14 @@ describe('CommandScreen:空输入待命(只有输入命令才开始补全和提�
     render(<CommandScreen mode="embedded" paneActive />)
     expect(screen.getByRole('heading', { name: 'LyShell' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Local terminal' })).toBeTruthy()
-    expect(document.activeElement).toBe(screen.getByRole('textbox'))
+    expect(document.activeElement).toBe(screen.getByRole('searchbox'))
+    expect(screen.queryByRole('textbox')).toBeNull()
     const input = type('/')
     expect(screen.queryByRole('heading')).toBeNull()
     keyDown(input, 'Escape')
     expect(screen.getByRole('heading')).toBeTruthy()
-    type('/?')
-    keyDown(input, 'Enter')
+    expect(document.activeElement).toBe(screen.getByRole('searchbox'))
+    keyDown(type('/?'), 'Enter')
     // 有输出后即使输入已清空也不再展示插画，避免遮住命令结果。
     expect(screen.queryByRole('heading')).toBeNull()
     expect(screen.getByText('LyShell · 14 Commands')).toBeTruthy()

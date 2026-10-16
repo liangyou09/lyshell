@@ -18,6 +18,7 @@ import { ConnectionStatus } from '@shared/types'
 import type { OverlayPayload, OverlayRef, PaneLeaf, SessionConfig } from '@shared/types'
 import { TOPBAR_HEIGHT, TOPBAR_GRIP_WIDTH } from './topbar-metrics'
 import { PALETTE_EVENT } from '../../commands/palette'
+import { BROWSER_NEW_TAB_URL } from '@shared/browser-settings'
 
 const DSH_REF = (slot: number | null, active = false): OverlayRef =>
   ({ id: '__dsh_web__', kind: 'dshWeb', active, slot })
@@ -42,6 +43,7 @@ const makeSession = (id: string, name: string, tags?: string[]) => ({
 beforeEach(() => {
   useSessionStore.setState({ sessions: [] })
   usePaneStore.setState({
+    layout: { root: makePane([]), activePaneId: 'pane-1' },
     overlayPayloads: {},
     draggingOverlayId: null,
     hiddenTabSessions: {}
@@ -74,6 +76,7 @@ describe('PaneTabBar 顶排页签条(渲染断言)', () => {
     expect(bar.style.paddingLeft).toBe('var(--top-left-reserve)')
     // 右留白读 CSS 变量 -- 由 TopRightControls 实测发布(globals.css :root 兜底 130px)
     expect(bar.style.paddingRight).toBe('var(--top-right-reserve)')
+    expect(container.querySelector('.pane-tab-newtab')).toBeNull()
   })
 
   it('空 pane 非顶排不渲染(窗口中部不出现空条)', () => {
@@ -227,14 +230,13 @@ describe('PaneTabBar 顶排页签条(渲染断言)', () => {
     const scrollArea = (container.firstElementChild as HTMLElement).firstElementChild as HTMLElement
     expect(plus.parentElement).toBe(scrollArea)
     expect(plus.previousElementSibling?.getAttribute('data-tab-id')).toBe('s2')
-    // 点击派发打开全局命令面板事件(REPL 入口,常驻挂载的 MainWindow 监听后开面板)。
-    // try/finally 兜清理:断言失败时监听器不能漏在跨用例存活的 window 上
-    // (泄漏的 vi.fn 会继续吃后续用例派发的事件)
+    // 新建欢迎页签；全局命令面板保持关闭。
     const onPalette = vi.fn()
     window.addEventListener(PALETTE_EVENT, onPalette)
     try {
       fireEvent.click(plus)
-      expect(onPalette).toHaveBeenCalledTimes(1)
+      expect(onPalette).not.toHaveBeenCalled()
+      expect(Object.values(usePaneStore.getState().overlayPayloads)).toContainEqual({ kind: 'web', url: BROWSER_NEW_TAB_URL, title: '' })
     } finally {
       window.removeEventListener(PALETTE_EVENT, onPalette)
     }
@@ -468,7 +470,7 @@ describe('globals.css 拖拽区与内框', () => {
 })
 
 describe('MainWindow 布局不变量', () => {
-  it('页签条「+」钮经 window 事件打开全局命令面板(与 Ctrl+Shift+P 同一面板)', () => {
+  it('全局命令面板仍保留独立事件入口', () => {
     // 事件常量与监听落点(面板挂常驻 MainWindow;派发侧的渲染断言在上方顶排测试)
     expect(MAIN_WINDOW).toContain('PALETTE_EVENT')
     expect(MAIN_WINDOW).toContain('addEventListener(PALETTE_EVENT')

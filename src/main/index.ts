@@ -48,6 +48,7 @@ import { matchWebTabShortcut } from '@shared/webtab-shortcut'
 import { createLogTap } from '@shared/log-throttle'
 import { decideWebviewFrameNavigation, gateWebviewSubframeNavigation } from './webview-frame-navigation'
 import { PendingWebbarPostStore, webbarPostLoadOptions, webbarPostRawBytesWithinLimit } from './webbar-post'
+import { initializeBrowser, setupBrowserGuest } from './browser/service'
 
 // 日志配置
 log.transports.file.level = 'info'
@@ -588,7 +589,11 @@ function createMainWindow(): void {
     // 显式锁定 webview 的 webPreferences（防注入；主窗口已 sandbox/contextIsolation）。
     // 插件 guest 的 preload 一律是打包内 pluginView.js（页面无法注入自己的 preload，
     // 也无 Node 能力；bridge IPC 在 main 侧按登记身份核对）。
-    if (
+    // 所有非插件 preload 也由 main 固定，renderer 不能注入自己的脚本。
+    delete webPreferences.preload
+    if (params?.partition === WEBBAR_PARTITION) {
+      webPreferences.preload = join(__dirname, '../preload/browserLogin.js')
+    } else if (
       typeof params?.partition === 'string' &&
       params.partition.startsWith(PLUGIN_VIEW_PARTITION_PREFIX)
     ) {
@@ -618,6 +623,7 @@ function createMainWindow(): void {
     // 返回同 partition 的 session 单例，webview 挂载的 session 与之身份相等即
     // 网页访问栏。
     const isWebbar = webContents.session === session.fromPartition(WEBBAR_PARTITION)
+    if (isWebbar) setupBrowserGuest(webContents)
     const isDsh = webContents.session === session.fromPartition(DSH_WEB_PARTITION)
     webContents.setWindowOpenHandler(({ url, disposition, postBody, referrer }) => {
       // webview 一律不开新窗口/弹窗（deny，也不交系统浏览器避免泄 URL）。网页访问栏
@@ -864,6 +870,7 @@ app.whenReady().then(async () => {
   const webbarSession = session.fromPartition(WEBBAR_PARTITION)
   const browserUserAgent = webbarSession.getUserAgent().replace(/\s+(?:lyshell|Electron)\/\S+/gi, '')
   webbarSession.setUserAgent(browserUserAgent)
+  await initializeBrowser()
 
   // 清扫上次崩溃/强杀遗留的孤儿 dsh web（会占着 DSH 会话写锁 → 「当前会话已被占用」）。
   // 两条互补路径，覆盖面对齐 proc.ts 的三层防护：

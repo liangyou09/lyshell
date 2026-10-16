@@ -4,6 +4,7 @@ import type { WorktreeListResult } from '@shared/worktree'
 import type { SessionConfig, TerminalEncoding, WebTabPopupRequest } from '@shared/types'
 import type { ExclusiveWorkbenchDetail } from '@shared/exclusive-control'
 import { isWebTabShortcutAction } from '@shared/webtab-shortcut'
+import type { BrowserRequest, BrowserResult } from '@shared/browser-settings'
 
 // IPC 通道定义
 const IPC_CHANNELS = {
@@ -278,6 +279,7 @@ const electronAPI = {
 
   // 配置管理
   getConfig: (key: string) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET, key),
+  browserRequest: (request: BrowserRequest): Promise<BrowserResult> => ipcRenderer.invoke('browser:request', request),
   setConfig: (key: string, value: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_SET, key, value),
   getMcpAddCommand: () => ipcRenderer.invoke(IPC_CHANNELS.MCP_GET_ADD_COMMAND),
   getMcpAudit: (filter?: unknown) => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_LIST, filter),

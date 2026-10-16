@@ -2,6 +2,7 @@
 .command-welcome {
   position: relative;
   isolation: isolate;
+  container-type: size;
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -11,26 +12,55 @@
   justify-content: safe center;
   padding: 28px 20px;
   text-align: center;
-  font-family: Georgia, 'KaiTi', 'STKaiti', 'FangSong', serif;
+  font-family: 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 .command-welcome-landscape {
   position: absolute;
   z-index: -1;
-  inset: 0;
-  background: url('../../assets/welcome/ink-landscape-horse-depth-v15.png') center bottom / min(100%, 900px) auto no-repeat;
+  inset: auto 0 0;
+  width: min(100%, 760px);
+  height: min(58cqh, 440px);
+  margin-inline: auto;
+  background: url('../../assets/welcome/ink-landscape-horse-depth-v15.png') center bottom / contain no-repeat;
   /* 深色底保留原画的墨色，以淡雾托出马身；反色会倒置笔触和肌理。 */
   filter: grayscale(1);
-  opacity: .62;
+  opacity: .085;
   pointer-events: none;
 }
 :is([data-theme-mode="light"], [data-theme="rack-paper"], [data-theme="rack-lark"]) .command-welcome-landscape {
   filter: grayscale(1);
-  opacity: .3;
+  opacity: .1;
 }
-.command-welcome-inscription { position: relative; margin-bottom: 14%; }
+.command-welcome-inscription { position: relative; width: min(100%, 600px); margin-bottom: clamp(0px, calc(100cqh - 440px), 140px); }
+.command-welcome-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(100%, 560px);
+  min-height: 48px;
+  margin: 26px auto 0;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--rule) 70%, var(--text-rack-data) 30%);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--terminal-bg) 80%, var(--bg-rack) 20%);
+  color: var(--text-rack);
+  font-family: 'Segoe UI', system-ui, 'Microsoft YaHei', sans-serif;
+  text-align: left;
+}
+.command-welcome-search:focus-within { border-color: color-mix(in srgb, var(--text-rack-data) 75%, var(--rule) 25%); }
+.command-welcome-search select { flex: 0 1 108px; min-width: 64px; max-width: 108px; padding: 4px 3px; background: transparent; color: var(--text-rack-data); font: inherit; font-size: 12px; }
+.command-welcome-search option { background: var(--terminal-bg); color: var(--text-rack); }
+.command-welcome-search input { flex: 1; min-width: 0; padding: 4px 0; background: transparent; color: var(--text-rack); caret-color: var(--amber); font: inherit; font-size: 14px; outline: none; }
+.command-welcome-search input::placeholder { color: var(--text-rack-data); opacity: 1; }
+.command-welcome-search button { display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; border-radius: 4px; color: var(--text-rack-data); }
+.command-welcome-search button:hover:enabled { background: var(--bg-slot); color: var(--text-rack); }
+.command-welcome-search :is(select, button):focus-visible { outline: 1px solid var(--amber); outline-offset: 2px; }
+.command-welcome-search :disabled { opacity: .45; cursor: default; }
+.command-welcome-inscription > .command-welcome-search-notice { margin: 9px 0 0; color: var(--text-rack-data); font: 12px/1.6 'Segoe UI', system-ui, sans-serif; letter-spacing: normal; }
 .command-welcome h1 { margin: 0; color: var(--text-rack-data); font: 300 26px/1.5 Georgia, serif; letter-spacing: .16em; }
-.command-welcome-inscription > p { margin: 12px 0 0; color: var(--text-rack-mute); font-size: 13px; line-height: 1.8; letter-spacing: .12em; }
-.command-welcome-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 22px; }
+.command-welcome-inscription > p { margin: 10px 0 0; color: var(--text-rack-mute); font-size: 13px; line-height: 1.8; letter-spacing: .03em; }
+.command-welcome-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 18px; }
+.command-welcome-inscription > .command-welcome-command-hint { margin-top: 18px; font-size: 11px; letter-spacing: 0; }
 .command-welcome-action {
   position: relative;
   min-height: 36px;
@@ -39,8 +69,8 @@
   background: transparent;
   color: var(--text-rack-data);
   font: inherit;
-  font-size: 14px;
-  letter-spacing: .08em;
+  font-size: 13px;
+  letter-spacing: .02em;
   transition: color 160ms;
 }
 /* 淡墨短线作为题签的落笔；保持足够的按钮热区，悬停时线条加深。 */
@@ -58,6 +88,10 @@
 .command-welcome-action:hover { color: var(--text-rack); }
 .command-welcome-action:hover::after { opacity: .7; }
 .command-welcome-action:focus-visible { outline: 1px solid var(--text-rack-data); outline-offset: 3px; border-radius: 2px; }
+/* 矮分屏优先放下操作，远景随可用高度退场。 */
+@container (max-height: 440px) {
+  .command-welcome-landscape { display: none; }
+}
 
 /* 命令画布：输入是一条题跋式细线，命令文字保留等宽字体方便读写。 */
 .command-screen { container-type: inline-size; }

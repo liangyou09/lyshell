@@ -29,6 +29,7 @@ import { useLocaleStore } from '../../stores/locale-store'
 import { useQuickCommandsStore } from '../../stores/quick-commands-store'
 import { useUiStore } from '../../stores/ui-store'
 import { usePluginStore } from '../../stores/plugin-store'
+import { initializeBrowserSession } from '../../stores/browser-session'
 import { NAV_EVENT } from '../../commands/command-registry'
 import { PALETTE_EVENT, dispatchPaletteClosed } from '../../commands/palette'
 import { connectSession } from '../../commands/launch'
@@ -325,6 +326,9 @@ const MainWindow: React.FC = () => {
     useUiStore.getState().setPaletteOpen(false)
     setTimeout(dispatchPaletteClosed, 0)
   }, [])
+
+  // 先加载浏览器隐私配置，再恢复地址与订阅持久化。
+  useEffect(() => initializeBrowserSession(), [])
 
   // 加载主题（index.html 已早期应用，这里仅同步 store 状态）
   useEffect(() => {
@@ -1111,7 +1115,10 @@ const MainWindow: React.FC = () => {
             </Suspense>
             {activeNav === 'plugins' && <PluginPanel />}
             {/* Web 面板保活常挂载(见 webPanelAlive 注释),切走时经 visible 隐藏 */}
-            {webPanelAlive && <WebPanel visible={activeNav === 'web'} />}
+            {webPanelAlive && <WebPanel visible={activeNav === 'web'} onOpenSettings={() => {
+              setRequestedSettingsView({ key: 'browser', nonce: Date.now() })
+              handleNavChange('settings')
+            }} />}
             {/* 插件视图面板(保活):首次激活后常挂载,absolute 叠放互不挤占,同屏只
                 显示 activeNav 命中的那个;列表摘除时由上方 effect 卸载失效键 */}
             {railPluginViews.map((view) => {

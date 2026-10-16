@@ -95,6 +95,9 @@ import type {
   ActivationEvent
 } from '@shared/plugin-types'
 import type { McpCapability } from '@shared/api-routes'
+import { BROWSER_CHANNEL } from '@shared/browser-settings'
+import { browserRequest } from '../browser/service'
+import { validateBrowserRequest } from './validation'
 
 /**
  * 任务元信息（用于保存下载记录）
@@ -400,6 +403,12 @@ function sanitizeMessageBoxOptions(options: unknown): MessageBoxOptions {
  * 注册所有 IPC 处理器
  */
 export function registerIPCHandlers(): void {
+  ipcMain.handle(BROWSER_CHANNEL, async (event, raw: unknown) => {
+    // 普通网页/插件 guest 不能读取密码列表、改变代理或清理会话。
+    if (event.sender.getType() !== 'window' || !BrowserWindow.fromWebContents(event.sender) || event.senderFrame !== event.sender.mainFrame) return { success: false, error: 'browserAccessDenied' }
+    try { return await browserRequest(validateBrowserRequest(raw)) }
+    catch { return { success: false, error: 'browserInvalidSettings' } }
+  })
   log.info('Registering IPC handlers...')
 
   // 旧 per-kind 变量组文件（dsh/codex/claude-env-profiles.json）并入全局库的一次性迁移

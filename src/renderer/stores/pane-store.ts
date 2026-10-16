@@ -6,6 +6,8 @@ import type {
 import { OVERLAY_KINDS, MCP_AUDIT_OVERLAY_ID } from './overlay-kinds'
 import { pluginOverlayIds, pluginWebOwner } from '@shared/plugin-web-resources'
 import { usePluginStore } from './plugin-store'
+import { useBrowserSettingsStore } from './browser-settings-store'
+import { BROWSER_NEW_TAB_URL } from '@shared/browser-settings'
 
 /**
  * dsh Web 单例 overlay 的 payload 形状（S4 起含共享工作台详情态）。
@@ -213,7 +215,8 @@ interface PaneStore {
   updateDshWebInPane: (id: string, patch: Partial<DshWebOverlayInfo>) => void
   // opts.background：弹窗修饰键转发（中键/Ctrl+点击）的后台页签语义 —— 挂载不激活，
   // 不抢焦点；用户留在原 pane 原页签
-  openWebTab: (rawUrl: string, paneId?: string, opts?: { background?: boolean; postToken?: string; ownerPluginId?: string }) => { ok: true } | { ok: false; error: string }
+  openStartTab: (paneId?: string) => string | null
+  openWebTab: (rawUrl: string, paneId?: string, opts?: { background?: boolean; postToken?: string; ownerPluginId?: string; replaceStartTabId?: string }) => { ok: true } | { ok: false; error: string }
   // POST 首航落定（WebTabOverlay 在 did-navigate / 认领失败时调）：主进程令牌
   // take 即销毁，认领后必须从 payload 摘除 —— 否则重挂（拖分屏/拆分）拿死令牌
   // 再认领必拒。落点已知时把 url 一并改写为落点：页签身份从「POST 目标」变成
@@ -1088,9 +1091,15 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
   },
 
   // ===== 网页页签（多开，插件面板 URL 栏 / 终端 Ctrl+点击 URL 入口） =====
+  openStartTab: paneId => get().mountOverlay(paneId, { kind: 'web', url: BROWSER_NEW_TAB_URL, title: '' }),
   openWebTab: (rawUrl, paneId, opts) => {
     const url = normalizeWebBarUrl(rawUrl)
     if (!url) return { ok: false, error: 'invalid URL' }
+    const replacing = opts?.replaceStartTabId ? findOverlayRef(get().layout.root, opts.replaceStartTabId) : undefined
+    if (opts?.replaceStartTabId) {
+      const payload = get().overlayPayloads[opts.replaceStartTabId]
+      if (!replacing || payload?.kind !== 'web' || payload.url !== BROWSER_NEW_TAB_URL) return { ok: false, error: 'start tab is no longer available' }
+    }
     const plugins = usePluginStore.getState()
     const ownerPluginId = opts?.ownerPluginId ?? pluginWebOwner(url, plugins.items.filter(p => p.enabled).flatMap(p => p.views))
     if (ownerPluginId && (plugins.items.some(p => p.id === ownerPluginId && !p.enabled)
@@ -1101,11 +1110,11 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     // 打开但加载失败的 URL 不进「最近访问」。
     // paneId：终端 Ctrl+点击的落点（点击终端所在 pane）；未指定回落活动 pane（URL 栏语义）。
     // opts.background：弹窗修饰键转发 —— 后台页签，见 mountOverlay 的 background 注
-    const id = get().mountOverlay(paneId, {
+    const id = get().mountOverlay(replacing?.leaf.id ?? paneId, {
       kind: 'web', url, title: new URL(url).hostname,
       ...(opts?.postToken ? { postToken: opts.postToken } : {}),
       ...(ownerPluginId ? { ownerPluginId } : {})
-    }, opts?.background ? { background: true } : undefined)
+    }, { ...(opts?.background ? { background: true } : {}), ...(opts?.replaceStartTabId ? { id: opts.replaceStartTabId } : {}) })
     return id ? { ok: true } : { ok: false, error: 'no pane available' }
   },
   settleWebTabPost: (id, landedUrl) => {
@@ -1142,6 +1151,10 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     set(st => {
       const payload = st.overlayPayloads[id]
       if (payload?.kind !== 'web' || payload.favicon === favicon) return {}
+      const browser = useBrowserSettingsStore.getState()
+      if (!browser.loaded || browser.error || !browser.settings.rememberHistory) {
+        return { overlayPayloads: { ...st.overlayPayloads, [id]: { ...payload, favicon } } }
+      }
       // 同步落「最近访问」favicon 映射。注意 page-favicon-updated 常先于 did-finish-load
       // （历史记录时机），裁剪键集合须并入该 URL，否则刚捕获的图标会被当孤儿裁掉
       const merged = { ...st.webTabFavicons, [payload.url]: favicon }
@@ -1228,6 +1241,8 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
 
   // ===== 网页访问栏历史 =====
   recordWebTabVisit: (url) => {
+    const browser = useBrowserSettingsStore.getState()
+    if (!browser.loaded || browser.error || !browser.settings.rememberHistory) return
     const st = get()
     // 已在顶部（重复 did-finish-load，如页内锚点刷新）直接跳过，少一次 setState
     if (st.webTabHistory[0] === url) return

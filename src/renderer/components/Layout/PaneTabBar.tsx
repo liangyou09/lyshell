@@ -4,7 +4,7 @@ import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { useSessionStore, type SessionState } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
-import { dispatchOpenPalette } from '../../commands/palette'
+import { BROWSER_NEW_TAB_URL } from '@shared/browser-settings'
 import { OVERLAY_DRAG_MARKER, parseOverlayDragMarker, resolveOverlayDragId } from './overlay-drag'
 import { harnessKindFromTags, type HarnessAgentKind } from '@shared/harness'
 import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
@@ -159,11 +159,12 @@ const DshWebTabContent: OverlayTabContent = ({ payload }) =>
     : null
 
 const WebTabContent: OverlayTabContent = ({ payload }) => {
+  const { t } = useTranslation()
   if (payload.kind !== 'web') return null
   return (
     <>
       {payload.favicon && <WebTabFavicon key={payload.favicon} src={payload.favicon} />}
-      <span className="text-xs truncate flex-1 min-w-0">{payload.title}</span>
+      <span className="text-xs truncate flex-1 min-w-0">{payload.url === BROWSER_NEW_TAB_URL ? t('pane.startTab') : payload.title}</span>
     </>
   )
 }
@@ -215,7 +216,7 @@ const OVERLAY_TAB_SPECS: Record<OverlayKind, OverlayTabSpec> = {
   },
   web: {
     Content: WebTabContent,
-    tabTitle: p => (p.kind === 'web' ? p.url : ''),
+    tabTitle: (p, t) => (p.kind === 'web' ? p.url === BROWSER_NEW_TAB_URL ? t('pane.startTab') : p.url : ''),
     closeTitle: t => t('pane.webTabClose')
   },
   doc: {
@@ -827,20 +828,8 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
   }
 
   // 无会话且本 pane 无任何覆盖层页签时不渲染标签栏，避免中部空条；打开时仍需标签栏承载页签。
-  // 顶排 pane 例外：渲染与第一行等高的空条，保证窗口第一行永远存在(承载窗口拖拽区 + pill/控制簇浮层下方的底色)
-  if (paneSessions.length === 0 && pane.overlays.length === 0) {
-    if (!isTop) return null
-    return (
-      <div
-        className="win-drag select-none bg-[var(--bg-rack)] transition-[padding-left] duration-150 ease-out"
-        style={{
-          height: TOPBAR_HEIGHT,
-          paddingLeft: isTopLeft ? 'var(--top-left-reserve)' : undefined,
-          paddingRight: isTopRight ? 'var(--top-right-reserve)' : undefined
-        }}
-      />
-    )
-  }
+  // 顶排保留第一行供拖窗；空态已有欢迎页，不显示「+」。
+  if (paneSessions.length === 0 && pane.overlays.length === 0 && !isTop) return null
 
   // 计算会话名称编号 - 基于全局同名会话
   const getNameWithIndex = (session: typeof paneSessions[0]) => {
@@ -1040,14 +1029,11 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
           />
         ))}
 
-        {/* 「+」新建页签钮(仅顶排) —— 跟随最后一个页签:紧贴末签而非钉在条尾
-            右缘,页签增删它随行进退;空 pane 不渲染(命令屏常驻,无须再开 REPL)。
-            flex-shrink-0 常驻占位:页签只缩不滚,28px 永不被挤占。点击打开全局
-            命令面板(与空状态同一 REPL,/new、/local 都在那里)。非顶排条以 pane
-            边框收尾,不放 + 避免中部多出占位 */}
-        {isTop && (
+        {/* 有页签时「+」紧贴末签，打开本 pane 的欢迎页签。 */}
+        {isTop && tabItems.length > 0 && (
           <button
-            onClick={dispatchOpenPalette}
+            type="button"
+            onClick={() => usePaneStore.getState().openStartTab(pane.id)}
             title={t('pane.newTab')}
             aria-label={t('pane.newTab')}
             className="pane-tab-newtab win-no-drag w-[28px] h-full flex-shrink-0 flex items-center justify-center text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)] cursor-pointer select-none transition-colors"

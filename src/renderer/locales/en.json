@@ -1,4 +1,22 @@
 {
+  "browser": {
+    "title": "Browser settings", "scope": "For web tabs and the mini browser. Changes take effect after saving.",
+    "general": "General", "homePage": "Home page", "homeHint": "Adds a Home button to the browser toolbar. Leave empty to hide it.",
+    "openHome": "Open home page", "searchEngine": "Address bar search engine", "noSearch": "Off (URLs only)", "zoom": "Default page zoom",
+    "restoreTabs": "Restore web tabs on startup", "restoreMini": "Remember the mini browser's last page", "restoreHint": "Restores page URLs only, without form contents, POST requests or plugin pages.",
+    "network": "Network", "proxyMode": "Connection", "systemProxy": "Use system proxy", "directProxy": "Direct connection", "fixedProxy": "Manual proxy",
+    "proxyServer": "Proxy server", "proxyBypass": "Bypass proxy for", "proxyHint": "Supports HTTP, HTTPS, SOCKS4 and SOCKS5. Example: http://127.0.0.1:7890. Separate bypass rules with semicolons. Authenticated proxies are not supported.",
+    "networkHint": "Applies to the built-in browser. Reload pages after switching proxies.",
+    "privacy": "Browsing data", "rememberHistory": "Record recent visits", "historyHint": "Turning this off stops new entries. Existing history can be cleared below.",
+    "clearHistory": "Clear browsing history", "clearCache": "Clear page cache", "clearSiteData": "Clear cookies and site data", "confirmSiteData": "This clears website sessions and offline data. You will need to sign in again. Saved passwords are kept.", "confirmHistory": "Clear all recent visits?", "confirmClear": "Confirm clear", "cancel": "Cancel", "dataHint": "Reload open pages after clearing site data.",
+    "sitePermissions": "Site permissions", "permissionHint": "Ask when a website requests access. An approval lasts for the current page only.",
+    "permissions": { "camera": "Camera", "microphone": "Microphone", "notifications": "Notifications", "geolocation": "Location", "clipboard": "Read clipboard" }, "ask": "Ask each time", "deny": "Block",
+    "passwords": "Passwords", "savePasswords": "Offer to save and fill passwords", "passwordHint": "Offers to save standard login forms. Focus a login field to fill the most recently saved account for that site, or add an account manually. Passwords are encrypted with a system key and stored on this computer.",
+    "encryptionUnavailable": "System encryption is unavailable. Passwords cannot be saved or filled.", "noPasswords": "No saved passwords yet.", "noUsername": "No username",
+    "delete": "Delete", "confirmDelete": "Confirm delete", "deleteAccount": "Delete {{username}} at {{origin}}", "addPassword": "Add or update password", "website": "Website URL", "username": "Username", "password": "Password", "savePassword": "Save password",
+    "invalidPassword": "Enter a valid HTTP/HTTPS website URL and a password.", "saveSettings": "Save settings", "unsaved": "Unsaved changes", "upToDate": "Settings are up to date", "working": "Working…",
+    "saved": "Saved.", "cleared": "Cleared.", "deleted": "Password deleted.", "browserUnavailable": "Browser settings are unavailable. Restart with the latest version.", "browserOperationFailed": "Operation failed. Check your settings or system encryption and try again.", "browserInvalidSettings": "Invalid settings. Check the website and proxy URL formats.", "browserAccessDenied": "This window cannot change browser settings."
+  },
   "groupList": { "expandAll": "Expand all", "collapseAll": "Collapse all" },
   "common": {
     "status": {
@@ -534,6 +552,7 @@
   "commandBar": {
     "keys": { "select": "select", "complete": "complete", "run": "run", "clear": "clear", "close": "close" },
     "welcome": {
+      "address": "URL or search", "searchPlaceholder": "Enter a URL or search", "urlPlaceholder": "Enter a URL", "urlsOnly": "URL only", "go": "Open", "commandHint": "Type / for commands · Ctrl+Shift+P opens the command palette",
       "title": "Your connection starts here",
       "local": "Local terminal",
       "new": "New connection",
@@ -756,7 +775,8 @@
     "speedM": "{{n}}M/s"
   },
   "pane": {
-    "newTab": "New tab (open command palette)",
+    "newTab": "New tab",
+    "startTab": "New tab",
     "lockedByMcp": "MCP is using this terminal",
     "mcpTab": "MCP Activity",
     "mcpTabHint": "MCP activity audit · click to toggle · ESC to close",

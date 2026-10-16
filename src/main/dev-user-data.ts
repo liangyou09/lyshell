@@ -212,12 +212,14 @@ function seedDevConfigFrom(prodUserDataDir: string, devUserDataDir: string): 'se
   mkdirSync(dstDir, { recursive: true })
 
   let failed = false
-  // 含凭据的文件不播:sessions.json 是明文密码/私钥;env-profiles.json(含旧 per-kind
+  // 含凭据的文件不播:sessions.json 是密码/私钥，browser-passwords.json 是系统加密的密码库；
+  // env-profiles.json(含旧 per-kind
   // dsh/codex/claude-env-profiles.json)是 apiKey 与敏感环境变量 —— dev 档案常被分享
   // 排查,播过去等于外带模型凭据。宁可让 envProfileId 悬空(=当作没绑,回落系统环境)
   // 也不把凭据写进可分享档案;旧 per-kind 文件同样带 apiKey,不能只挡全局库那一份。
   const SKIP_FILES = new Set([
     'sessions.json',
+    'browser-passwords.json',
     'env-profiles.json',
     'dsh-env-profiles.json',
     'codex-env-profiles.json',

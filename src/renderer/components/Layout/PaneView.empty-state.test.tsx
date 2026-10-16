@@ -76,7 +76,7 @@ const Harness: React.FC = () => {
   return <PaneView node={root} isTop isTopLeft isTopRight />
 }
 
-const inputOf = (): HTMLInputElement => screen.getByRole('textbox') as HTMLInputElement
+const inputOf = (): HTMLInputElement => (screen.queryByRole('searchbox') ?? screen.getByRole('textbox')) as HTMLInputElement
 const pane = (): ReturnType<typeof usePaneStore.getState> => usePaneStore.getState()
 
 beforeEach(() => {

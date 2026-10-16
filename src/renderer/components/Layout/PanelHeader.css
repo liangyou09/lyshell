@@ -37,8 +37,6 @@
   width: 20px;
   height: 20px;
   flex-shrink: 0;
-  padding: 1px;
-  border-radius: 5px;
   object-fit: contain;
 }
 

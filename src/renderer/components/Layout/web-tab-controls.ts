@@ -14,6 +14,7 @@
 import type { WebviewTag } from 'electron'
 import type { PaneLayout } from '@shared/types'
 import { usePaneStore, normalizeWebBarUrl, findPane } from '../../stores/pane-store'
+import { BROWSER_NEW_TAB_URL } from '@shared/browser-settings'
 
 /** overlay id → webview 元素（WebTabOverlay 挂载期登记，卸载即注销） */
 const webviews = new Map<string, WebviewTag>()
@@ -84,6 +85,11 @@ function activeWebview(): WebviewTag | null {
 export function navigateActiveWebTab(raw: string): boolean {
   const url = normalizeWebBarUrl(raw)
   if (!url) return false
+  const id = activeWebTabId()
+  const payload = id ? usePaneStore.getState().overlayPayloads[id] : undefined
+  if (id && payload?.kind === 'web' && payload.url === BROWSER_NEW_TAB_URL) {
+    return usePaneStore.getState().openWebTab(url, undefined, { replaceStartTabId: id }).ok
+  }
   activeWebview()?.loadURL(url)
   return true
 }

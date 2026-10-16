@@ -228,6 +228,7 @@ describe('dev-user-data 档案播种', () => {
   it('含凭据的文件不播（会话密码 / 变量组 apiKey），其余文件照常播种', async () => {
     seed(prodConfig, {
       'sessions.json': JSON.stringify([{ id: 's1', password: 'secret' }]),
+      'browser-passwords.json': JSON.stringify([{ id: 'p1', encrypted: 'fixture-encrypted-secret' }]),
       'env-profiles.json': JSON.stringify({ profiles: [{ id: 'e1', apiKey: 'sk-secret' }] }),
       'dsh-env-profiles.json': JSON.stringify([{ id: 'e0', apiKey: 'sk-legacy' }]),
       'dsh-workspaces.json': JSON.stringify([{ id: 'w1' }])
@@ -238,6 +239,7 @@ describe('dev-user-data 档案播种', () => {
     // dev 档案常被分享排查：密码与模型凭据一律不落进去。变量组整份不播是
     // 有意取舍 —— envProfileId 会悬空（=当作没绑），但换凭据不外带。
     expect(existsSync(join(devConfig, 'sessions.json'))).toBe(false)
+    expect(existsSync(join(devConfig, 'browser-passwords.json'))).toBe(false)
     expect(existsSync(join(devConfig, 'env-profiles.json'))).toBe(false)
     expect(existsSync(join(devConfig, 'dsh-env-profiles.json'))).toBe(false)
     expect(readDev('dsh-workspaces.json')).toEqual([{ id: 'w1' }])

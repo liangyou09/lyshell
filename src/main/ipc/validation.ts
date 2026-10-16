@@ -1,5 +1,23 @@
 import log from 'electron-log'
 import { extractErrorMessage } from '../terminal/session-manager'
+import { type BrowserRequest } from '@shared/browser-settings'
+import { validateBrowserSettings } from '../browser/validation'
+
+export function validateBrowserRequest(raw: unknown): BrowserRequest {
+  const value = assertObject(raw, 'browserRequest')
+  switch (value.kind) {
+    case 'get': case 'passwords': return { kind: value.kind }
+    case 'save': return { kind: 'save', settings: validateBrowserSettings(value.settings) }
+    case 'clear': return { kind: 'clear', target: assertEnum(value.target, 'target', ['cache', 'siteData'] as const) }
+    case 'deletePassword': return { kind: 'deletePassword', id: assertString(value.id, 'id', { maxLength: 128 }) }
+    case 'savePassword': return {
+      kind: 'savePassword', origin: assertString(value.origin, 'origin', { maxLength: 4096 }),
+      username: assertString(value.username, 'username', { maxLength: 1024, allowEmpty: true }),
+      password: assertString(value.password, 'password', { maxLength: 4096 })
+    }
+    default: throw new ValidationError('Unknown browser request')
+  }
+}
 
 interface StringOptions {
   maxLength?: number

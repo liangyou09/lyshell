@@ -21,6 +21,8 @@ import { useDismiss } from '../../hooks'
 import { WEBBAR_PARTITION } from '@shared/constants'
 import WebLoadError from './WebLoadError'
 import { webLoadFailureFromEvent, type WebLoadFailure } from './web-load-error'
+import { browserAddress, BROWSER_NEW_TAB_URL } from '@shared/browser-settings'
+import { useBrowserSettingsStore } from '../../stores/browser-settings-store'
 
 /** datalist 选项 label 用:取 hostname,取不到回落原样字符串(与页签 title 初始值同源);
     历史行本身直接显示完整 URL,不再缩略为 hostname */
@@ -410,8 +412,11 @@ const WebGroupHeader: React.FC<{
  * 样式沿用面板令牌(--bg-elev/--bg-slot/--rule/--amber/--text-rack*)与
  * [font-family:inherit] 12px 基线,头条与 SessionsPanel/PluginPanel 同构。
  */
-const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
+const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = ({ visible = true, onOpenSettings }) => {
   const { t } = useTranslation()
+  const browserSettings = useBrowserSettingsStore(s => s.settings)
+  const browserLoaded = useBrowserSettingsStore(s => s.loaded)
+  const browserError = useBrowserSettingsStore(s => s.error)
   const openWebTab = usePaneStore((s) => s.openWebTab)
   const webTabHistory = usePaneStore((s) => s.webTabHistory)
   const webTabFavicons = usePaneStore((s) => s.webTabFavicons)
@@ -452,6 +457,8 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
   // 保活下全 session 仅此一次真导航，切机柜页签/合卷/回切都零重载，像「常驻的地方」
   // 而不是每次重填的表单
   const [miniUrl, setMiniUrl] = useState<string | null>(() => {
+    const config = useBrowserSettingsStore.getState()
+    if (!config.loaded || config.error || !config.settings.restoreMini) return null
     try {
       const v = localStorage.getItem(MINI_URL_STORAGE_KEY)
       // 前缀门 + normalizeWebBarUrl 双校验：存档只可能来自归一化后的地址或导航
@@ -464,6 +471,17 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
     } catch { return null }
   })
   const [miniInput, setMiniInput] = useState(miniUrl ?? '')
+  const miniRestoreChecked = useRef(browserLoaded && !browserError)
+  useEffect(() => {
+    if (!browserLoaded || browserError || miniRestoreChecked.current) return
+    miniRestoreChecked.current = true
+    if (!browserSettings.restoreMini) return
+    try {
+      const saved = localStorage.getItem(MINI_URL_STORAGE_KEY)
+      const url = saved && /^https?:\/\//.test(saved) ? normalizeWebBarUrl(saved) : null
+      if (url) { setMiniUrl(url); setMiniSrc(url); setMiniInput(url) }
+    } catch { /* 恢复失败保留空页 */ }
+  }, [browserLoaded, browserError, browserSettings.restoreMini])
   const [miniLoading, setMiniLoading] = useState(false)
   // 加载遮罩与 miniLoading(工具条停止钮跟的完整加载周期)分离:遮罩 dom-ready
   // 即收 —— did-stop-loading 要等全部子资源(广告/统计/慢图)落定,真实站点上
@@ -502,7 +520,7 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
   const activeNav = activeWebTab?.kind === 'web' ? activeWebTab.nav : undefined
   const activeUrl = activeWebTab?.kind === 'web' ? activeWebTab.url : undefined
   // 当前 URL:导航回写优先,首航未完成(nav 缺省)回落打开时 URL
-  const displayUrl = activeNav?.url ?? activeUrl ?? ''
+  const displayUrl = activeUrl === BROWSER_NEW_TAB_URL ? '' : activeNav?.url ?? activeUrl ?? ''
 
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -620,7 +638,7 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
 
   // 铭牌行收纳(阈值见常量注):根宽未量得(0)不收 —— RO 的初始通知在首次
   // 绘制前落,按全簇渲染不产生闪变;jsdom 无 RO 恒全簇(测试桩依赖)
-  const navCompact = rootWidth > 0 && rootWidth < WEBBAR_NAMEPLATE_COMPACT_WIDTH
+  const navCompact = rootWidth > 0 && rootWidth < WEBBAR_NAMEPLATE_COMPACT_WIDTH + (onOpenSettings ? 32 : 0) + (browserSettings.homePage ? 32 : 0)
   // 溢出菜单(navCompact 时检查/清空的落点,功能不随收纳消失):开合 state +
   // 收层机械(useDismiss 外点/ESC,与状态栏编码菜单/图标选择器同一套)
   const [navMoreOpen, setNavMoreOpen] = useState(false)
@@ -679,9 +697,14 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
 
   // 小窗上次地址存档:miniUrl 每变即写(did-navigate 回写后的落点,非输入原值)
   useEffect(() => {
+    if (!browserLoaded || browserError) return
+    if (!browserSettings.restoreMini) {
+      try { localStorage.removeItem(MINI_URL_STORAGE_KEY) } catch { /* quota */ }
+      return
+    }
     if (miniUrl === null) return
     try { localStorage.setItem(MINI_URL_STORAGE_KEY, miniUrl) } catch { /* quota */ }
-  }, [miniUrl])
+  }, [miniUrl, browserLoaded, browserError, browserSettings.restoreMini])
 
   // 小窗导航:miniUrl 是「应显示的地址」,元素 getURL() 是「实际所在地址」,不等才
   // loadURL —— 幂等设计:did-navigate 把落点回写进 miniUrl 后两者相等自然停手
@@ -776,11 +799,13 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
   // 公共 notice 通道(与主地址栏同一条错误路径)。reload 的 Promise 拒绝经
   // settleWebview 收口(工具条按钮同)
   const loadMini = (raw: string): boolean => {
-    const norm = normalizeWebBarUrl(raw)
+    const norm = browserAddress(raw, browserSettings.searchEngine)
     if (!norm) {
       setNotice(t('webBar.invalid'))
       return false
     }
+    // 显式输入优先，不能被尚未返回的冷启动设置覆盖。
+    miniRestoreChecked.current = true
     // 小窗处于关闭态时的载入(Ctrl+点击历史行) = 预览意图,顺手重开:未挂载过时
     // URL 只落 state 而画心还是空态,点击像静默无反馈;已挂载(保活)则只是重新展卷
     if (miniClosed) setMiniClosed(false)
@@ -877,8 +902,10 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
   // 路径)。rawArg 供 Enter 的延迟路径传入 datalist 提交后的 DOM 值
   const handleOpenWebTab = (rawArg?: string): void => {
     setNotice(null)
-    const raw = (rawArg ?? webBarInput).trim()
-    if (!raw) return
+    const input = (rawArg ?? webBarInput).trim()
+    if (!input) return
+    const raw = browserAddress(input, browserSettings.searchEngine)
+    if (!raw) { setNotice(t('webBar.invalid')); return }
     if (activeWebTabId !== null) {
       if (!navigateActiveWebTab(raw)) {
         setNotice(t('webBar.invalid'))
@@ -910,6 +937,12 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
         count={navCompact ? undefined : webTabHistory.length}
         countHint={t('panelHeader.recentVisits')}
         actions={<>
+          {!navCompact && onOpenSettings && <IconBtn title={t('browser.title')} amber size="lg" bright onClick={onOpenSettings}>
+            <Glyph size={18}><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1" /><circle cx="12" cy="12" r="5" /></Glyph>
+          </IconBtn>}
+          {!navCompact && browserSettings.homePage && <IconBtn title={t('browser.openHome')} amber size="lg" bright onClick={() => handleOpenWebTab(browserSettings.homePage)}>
+            <Glyph size={18}><path d="m3 10 9-7 9 7M5 9v12h5v-7h4v7h5V9" /></Glyph>
+          </IconBtn>}
           {!navCompact && webGroups.length > 0 && <GroupListActions allCollapsed={allGroupsCollapsed} allExpanded={allGroupsExpanded} onChange={setAllGroupsCollapsed} />}
         {/* 导航簇 —— 落点 = 活动网页页签(web-tab-controls 控制层);可用性随
             活动页签:无页签全禁,前后随 nav 快照,刷新/停止随加载周期换图。
@@ -957,6 +990,8 @@ const WebPanel: React.FC<{ visible?: boolean }> = ({ visible = true }) => {
             </IconBtn>
             {navMoreOpen && (
               <div className="win-no-drag absolute top-full right-0 mt-1 z-50 w-[168px] bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm p-1 shadow-xl">
+                {onOpenSettings && <button type="button" role="menuitem" onClick={() => { setNavMoreOpen(false); onOpenSettings() }} className="w-full px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)]">{t('browser.title')}</button>}
+                {browserSettings.homePage && <button type="button" role="menuitem" onClick={() => { setNavMoreOpen(false); handleOpenWebTab(browserSettings.homePage) }} className="w-full px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)]">{t('browser.openHome')}</button>}
                 {webGroups.length > 0 && (
                   <button
                     type="button"

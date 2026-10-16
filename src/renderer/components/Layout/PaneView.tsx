@@ -568,6 +568,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
                拖拽分屏不受影响 */
             <CommandScreen
               mode="embedded"
+              paneId={node.id}
               paneActive={isActive}
               covered={node.overlays.some(r => r.active && r.kind !== 'doc')}
               inlineDoc={inlineDocRef && inlineDocPayload
