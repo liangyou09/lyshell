@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type { WorktreeListResult } from '@shared/worktree'
+import { DSH_MARKET_CHANNEL, type DshMarketAction, type DshMarketResult } from '@shared/dsh-market'
 import type { SessionConfig, TerminalEncoding, WebTabPopupRequest } from '@shared/types'
 import type { ExclusiveWorkbenchDetail } from '@shared/exclusive-control'
 import { isWebTabShortcutAction } from '@shared/webtab-shortcut'
@@ -376,6 +377,7 @@ const electronAPI = {
 
   // DeepSeek Harness (dsh)
   detectDsh: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_DETECT),
+  requestDshMarket: (action: DshMarketAction): Promise<DshMarketResult> => ipcRenderer.invoke(DSH_MARKET_CHANNEL, action),
   listDshWorkspaces: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_LIST),
   addDshWorkspace: (workspace: unknown) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_ADD, workspace),
   updateDshWorkspace: (workspace: unknown) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_UPDATE, workspace),

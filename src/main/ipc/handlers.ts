@@ -12,6 +12,9 @@ import { sessionRepository, preferencesRepository, quickCommandsRepository } fro
 import { agentRepository } from '../storage/agent-repository'
 import type { AgentConfig } from '../storage/agent-repository'
 import { dshWebManager } from '../dsh/web'
+import { requestDshMarket } from '../dsh/market'
+import { DSH_MARKET_CHANNEL } from '@shared/dsh-market'
+import { validateDshMarketAction } from './validation'
 import * as exclusiveRuntime from '../dsh/exclusive-runtime'
 import { createDshWebLaunchResolver } from '../dsh/launch-resolve'
 import { readSystemPath } from '../env/refresh'
@@ -2609,6 +2612,17 @@ export function registerIPCHandlers(): void {
   })
 
   // ========== DeepSeek Harness Web UI (dsh 专属) ==========
+  ipcMain.handle(DSH_MARKET_CHANNEL, async (event, action: unknown) => {
+    try {
+      if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) {
+        throw new ValidationError('DSH Market requires the main window')
+      }
+      return await requestDshMarket(validateDshMarketAction(action))
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
   // 启动 Web UI：spawn `dsh web [--patch <abs>] --port 0 --no-open` + 解析 stdout 端口，
   // 返回 URL 供渲染层 <webview> 加载。Web 仅需 dsh（dsh-tui 是 TUI 前端），
   // model 预设（cordis.patch.yml）是 dsh-tui 专用，这里不写；env 仍注入子进程。

@@ -533,7 +533,36 @@
 
   window.__ModuleLoader__.load({
     id: 'lyshell-harness-bridge',
-    factory: function () {
+    factory: function (require) {
+      // 侧栏是独立浏览器视图：通过市场公开服务渲染，不参与工作台会话导航/ack。
+      if (new URLSearchParams(window.location.search).get('lyshellView') === 'market') {
+        return {
+          inject: ['slots'],
+          apply(ctx) {
+            var React = require('react')
+            function frame(content) {
+              return React.createElement('div', {
+                id: 'lyshell-market-root',
+                style: { height: '100vh', minWidth: 0, padding: 10, boxSizing: 'border-box', overflow: 'hidden', background: 'var(--dsw-alias-bg-layer-1,#f7f8fa)', color: 'var(--dsw-alias-label-primary,#1f2328)' }
+              }, content)
+            }
+            // root 是官方 single slot：较低 priority 覆盖工作台外壳，卸载时自动恢复。
+            // 这样工作台的 onboarding、会话弹窗不会盖住市场，也无需修改 DOM 或 React 内部。
+            ctx.slots.inject('root', function () {
+              ctx.effect(function () {
+                return ctx.slots.register({ name: 'root', priority: -1000 }, function () {
+                  return frame(React.createElement('p', null, '正在加载插件市场；若未出现，请更新 dshmarket 后重新连接。 / Loading market. Update dshmarket and reconnect if it does not appear.'))
+                })
+              }, 'LyShell market loading view')
+              ctx.inject(['market'], function (scope) {
+                scope.effect(function () {
+                  return scope.slots.register({ name: 'root', priority: -1001 }, function () { return frame(scope.market.render()) })
+                }, 'LyShell public market.render')
+              })
+            })
+          }
+        }
+      }
       // S2 的存在性标记保留（验证方按它确认 client 半随实例装载）；S4 起它同时是**实测**状态面。
       globalThis.__LYSHELL_HARNESS_CLIENT__ = {
         protocolVersion: 2,

@@ -222,7 +222,12 @@ export function createDshWebLaunchResolver(
   runtime: HarnessAgentRuntime,
   overrides: Partial<DshWebLaunchResolveDeps> = {}
 ): DshWebLaunchResolver {
-  const deps: DshWebLaunchResolveDeps = { ...defaultDshWebResolveDeps(), ...overrides }
+  const deps: DshWebLaunchResolveDeps = {
+    ...defaultDshWebResolveDeps(),
+    // 与工作区 CLI 共用环境归一化，包含 LyShell 自有 pnpm 的 PATH。
+    normalizeEnv: runtime.normalizeEnv ?? normalizeDshHomeEnv,
+    ...overrides
+  }
 
   const resolveTarget = async (target: DshWebLaunchTarget): Promise<DshWebLaunchResolveResult> => {
     const { workspaceId, cwd: rawCwd } = target

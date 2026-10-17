@@ -95,6 +95,17 @@ function makeHarness(opts: {
 }
 
 describe('dsh Web 启动解析服务（open 与托管 acquire 共用）', () => {
+  it('默认使用 Harness 的运行时归一化，工具 PATH 进入冻结的启动环境', async () => {
+    const h = makeHarness()
+    const normalizeEnv = vi.fn(() => ({ ok: true as const, env: { PATH: 'managed-tools', DSH_HOME: 'C:\\home' } }))
+    const overrides = { ...h.resolver.deps }
+    delete (overrides as Partial<DshWebLaunchResolveDeps>).normalizeEnv
+    const resolver = createDshWebLaunchResolver({ normalizeEnv } as unknown as HarnessAgentRuntime, overrides)
+    const result = await resolver.resolve({ cwd: 'C:\\work' })
+    expect(normalizeEnv).toHaveBeenCalledOnce()
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(buildChildEnv(result.launch.launchEnv, resolveDshHome).PATH).toBe('managed-tools')
+  })
   it('显式 cwd：用该目录 + 全局启用组的 env（与 TUI 启动同一份物化）', async () => {
     const h = makeHarness()
     const r = await h.resolver.resolve({ cwd: 'C:\\work' })

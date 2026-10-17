@@ -129,9 +129,11 @@ The agent launcher is agent-agnostic — no lock-in. Any CLI tool can be registe
 
 An agent can bind to an env profile (next section) so credentials stay centralized.
 
-## DeepSeek Harness workspaces
+## DeepSeek Harness plugin market and workbench
 
-`dsh`, `codex`, and `claude` are first-class in the Harness panel: dedicated left-rail tabs, per-agent workspace lists, dependency detection.
+The DeepSeek Harness sidebar embeds dsh-market for searching, installing and managing DSH plugins. On first use, choose **Install dsh-market**. If pnpm is missing, the installer puts it in LyShell's own tools directory without changing the system PATH. Finish DSH tasks and close its backend before installing; an active shared backend is never restarted automatically. Switching sidebar tabs preserves the market and its search state. Click the DeepSeek Harness heading to open the full workbench.
+
+Codex and Claude retain their workspace lists and dependency detection.
 
 ### Workspaces
 
@@ -146,7 +148,7 @@ Point multiple agents at the same repository without stomping each other: flip a
 
 ### Launching
 
-- **Terminal TUI** — `dsh-tui` etc. run as a standard terminal tab
+- **Terminal CLI** — Codex and Claude workspaces run as standard terminal tabs
 - **Embedded Web UI** — spawned as `dsh web --port 0`; LyShell parses the real port and renders it in an in-app `<webview>` tab, loopback-locked and URL-validated
 - Both can run **side by side**: drag the Web UI tab to a pane edge; drag back to the center to remount
 

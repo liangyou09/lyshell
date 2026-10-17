@@ -331,6 +331,18 @@
     "copy": "Duplicate",
     "copySuffix": " copy"
   },
+  "dshMarket": {
+    "title": "Plugin Market",
+    "workbench": "Open DeepSeek Harness workbench",
+    "reconnect": "Reconnect market",
+    "loading": "Connecting to the plugin market…",
+    "installing": "Installing the plugin market. The first install may take a few minutes…",
+    "install": "Install dsh-market",
+    "installHint": "Install dsh-market in the current DSH environment's Web profile to search, install and manage plugins here.",
+    "retryHint": "Could not connect to the market. Reconnect, or install dsh-market if it is not installed yet.",
+    "backendInUse": "DSH is running. Finish tasks and close the DSH workbench, or restart LyShell and install the market before opening the workbench.",
+    "failed": "The plugin market could not load. Please reconnect."
+  },
   "dsh": {
     "title": "DeepSeek Harness",
     "detecting": "Detecting…",

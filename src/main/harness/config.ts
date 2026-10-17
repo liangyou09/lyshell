@@ -12,6 +12,7 @@ import { envProfileRepository as envRepository, type EnvProfileRepository } from
 import { detectDependencies } from './detect'
 import { buildCliLaunchCommand, type LaunchCommandResult } from './launch'
 import { normalizeDshHomeEnv, type NormalizedEnvResult } from '../dsh/env'
+import { withInstalledMarketTools } from '../dsh/market-tools'
 import { presetDshTuiModel, clearDshTuiModel, type PresetModelResult } from '../dsh/model-preset'
 import { presetCodexBaseUrl } from '../codex/base-url-preset'
 
@@ -120,7 +121,10 @@ export const HARNESS_AGENTS: Record<HarnessAgentKind, HarnessAgentRuntime> = {
     dependencies: HARNESS_AGENT_VIEWS.dsh.dependencies,
     envDefaults: () => HARNESS_AGENT_VIEWS.dsh.envDefaults,
     buildLaunchCommand: () => ({ ok: true, command: 'dsh-tui' }),
-    normalizeEnv: normalizeDshHomeEnv,
+    normalizeEnv: env => {
+      const normalized = normalizeDshHomeEnv(env)
+      return normalized.ok ? { ok: true, env: withInstalledMarketTools(normalized.env) } : normalized
+    },
     prepareModel: (ws, env) =>
       ws.model ? presetDshTuiModel(ws.model, env) : clearDshTuiModel(env)
   },

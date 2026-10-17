@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { join } from 'path'
+import { join, isAbsolute } from 'path'
 import { existsSync, readFileSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'fs'
 import log from 'electron-log'
 
@@ -277,7 +277,9 @@ function seedDevConfigFrom(prodUserDataDir: string, devUserDataDir: string): 'se
 
 // 模块顶层只做 dev 路径切换（时序硬约束第 1 段），播种见 seedDevConfigFromProd
 const prodUserDataDir = app.isPackaged ? null : app.getPath('userData')
-const devUserDataDir = app.isPackaged ? null : join(app.getPath('appData'), 'lyshell-dev')
+const demoProfile = process.argv.includes('--demo-stage') ? process.env.LYSHELL_DEMO_PROFILE : undefined
+if (demoProfile && !isAbsolute(demoProfile)) throw new Error('LYSHELL_DEMO_PROFILE must be absolute')
+const devUserDataDir = app.isPackaged ? null : demoProfile || join(app.getPath('appData'), 'lyshell-dev')
 if (devUserDataDir !== null) {
   // 分离前的原始 userData 就是正式版档案（Electron 默认按 app name 解析，与打包版同目录）
   app.setPath('userData', devUserDataDir)
@@ -291,6 +293,7 @@ if (devUserDataDir !== null) {
  * 也写进去。
  */
 export function seedDevConfigFromProd(): void {
+  if (demoProfile) return
   if (prodUserDataDir === null || devUserDataDir === null) return
   try {
     const markerPath = join(devUserDataDir, 'config', SEED_MARKER)

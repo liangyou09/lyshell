@@ -48,6 +48,7 @@ import { openPluginChatTab } from './plugin-chat-tab'
 
 // 工作区和环境编辑器按需加载，避免占用默认会话面板的启动入口 chunk。
 const HarnessPanel = lazy(() => import('./HarnessPanel'))
+const DshMarketPanel = lazy(() => import('./DshMarketPanel'))
 const EnvProfilePanel = lazy(() => import('./EnvProfilePanel'))
 
 // 左列收起态/宽度的 localStorage 镜像 key -- 主进程 config 异步,首帧用它同步定态防闪
@@ -83,8 +84,10 @@ const MainWindow: React.FC = () => {
   // 重载小窗页面(本列收起「内容保持挂载」的同款取舍);未激活过不挂,不为从没
   // 用过小窗的用户白拉 guest 进程
   const [webPanelAlive, setWebPanelAlive] = useState(() => activeNav === 'web')
+  const [dshPanelAlive, setDshPanelAlive] = useState(() => activeNav === 'dsh')
   useEffect(() => {
     if (activeNav === 'web') setWebPanelAlive(true)
+    if (activeNav === 'dsh') setDshPanelAlive(true)
   }, [activeNav])
   // 左列宽度(三栏共享) -- localStorage 同步懒读定首帧(同 sidebarCollapsed),config 异步对账;
   // ActivityRail 固定 RAIL_WIDTH 在其左,面板填剩余宽。这里存的是「偏好宽」:上限不在此
@@ -1109,7 +1112,9 @@ const MainWindow: React.FC = () => {
             )}
             {activeNav === 'agents' && <AgentsPanel />}
             <Suspense fallback={null}>
-              {activeNav === 'dsh' && <HarnessPanel agent="dsh" onOpenWeb={handleOpenWeb} />}
+              {dshPanelAlive && <div className={cn('absolute inset-0', activeNav !== 'dsh' && 'hidden')}>
+                <DshMarketPanel onOpenWeb={handleOpenWeb} />
+              </div>}
               {activeNav === 'codex' && <HarnessPanel agent="codex" />}
               {activeNav === 'claude' && <HarnessPanel agent="claude" />}
               {activeNav === 'env' && <EnvProfilePanel />}

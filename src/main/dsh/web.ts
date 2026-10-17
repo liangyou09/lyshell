@@ -477,6 +477,8 @@ export class DshWebManager {
    * 这个共享后台。持有者是具名集合（幂等），解绑只影响这一个名字。
    */
   private readonly backendHolders = new Set<string>()
+  /** profile 写入锁独立于后台代际，旧实例清理不得把安装中的锁一起清除。 */
+  private profileMutationHolder: string | null = null
 
   constructor(deps: DshWebManagerDeps = defaultDshWebManagerDeps()) {
     this.deps = deps
@@ -528,14 +530,24 @@ export class DshWebManager {
     this.backendHolders.delete(holderId)
   }
 
+  beginProfileMutation(holderId: string): boolean {
+    if (!holderId || this.running || this.isManaged || this.killingPid !== null || this.pendingPid !== null) return false
+    this.profileMutationHolder = holderId
+    return true
+  }
+
+  endProfileMutation(holderId: string): void {
+    if (this.profileMutationHolder === holderId) this.profileMutationHolder = null
+  }
+
   /** 当前是否有托管持有者（Pet 托管控制 / 共享工作台详情）。 */
   get isManaged(): boolean {
-    return this.backendHolders.size > 0
+    return this.backendHolders.size > 0 || this.profileMutationHolder !== null
   }
 
   /** 当前 keep-alive 持有者快照（诊断/测试；不含凭据）。 */
   managedHolders(): string[] {
-    return [...this.backendHolders]
+    return [...this.backendHolders, ...(this.profileMutationHolder ? [this.profileMutationHolder] : [])]
   }
 
   /**
@@ -574,6 +586,11 @@ export class DshWebManager {
     // 故 close() 也会推进 generation，两种顶替在这里一视同仁。
     if (generation !== this.generation) {
       return { ok: false, error: 'dsh web open was superseded by a newer request', code: 'superseded' }
+    }
+    // 清理旧进程期间可能开始安装市场：安装持有者先于 CLI 写盘认领后台，
+    // 此时不得再启动一个读同一 profile 的实例。
+    if (this.isManaged) {
+      return { ok: false, error: 'the shared dsh backend is in use; try again after the current operation', code: 'managed' }
     }
 
     // 桥的隔离运行资源（本次独有的运行目录 + 运行期随机 host-only key）必须在 spawn 之前备好：
@@ -686,6 +703,8 @@ export class DshWebManager {
         cwd: opts.cwd,
         env: childEnv,
         shell: false,
+        // launchCommand 已按 cmd 规则引用参数；禁止 Node 再把内部双引号转成 \"。
+        windowsVerbatimArguments: onWindows,
         windowsHide: true,
         stdio: [onWindows ? 'pipe' : 'ignore', 'pipe', 'pipe']
       })
@@ -1221,7 +1240,7 @@ export class DshWebManager {
     this.readyInstance = null
     this.runningLaunch = null
     this.leases.clear()
-    // 实例没了就没有「还在用这条后台」的持有者：留着会永久挡住显式重开（托管死锁）。
+    // 实例租约随后台失效；独立的 profile 写入锁仍由安装方在 finally 中释放。
     this.backendHolders.clear()
     if (!plan) return
     try {

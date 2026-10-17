@@ -20,7 +20,7 @@ function createWindow(): BrowserWindow {
       executeJavaScript: vi.fn(async () => 0)
     }),
     isDestroyed: () => false, isMinimized: () => false, isMaximized: () => false,
-    setTitle: vi.fn(), setContentSize: vi.fn(), center: vi.fn(), showInactive: vi.fn()
+    setTitle: vi.fn(), setBounds: vi.fn(), center: vi.fn(), showInactive: vi.fn()
   })
   windows.push(window)
   return window as unknown as BrowserWindow
@@ -111,6 +111,8 @@ describe('演示服务生命周期', () => {
     })
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ready: true, index: 0 })
-    expect(second.webContents.executeJavaScript).toHaveBeenCalledWith('window.lyshellDemoScene(0)')
+    expect(second.webContents.executeJavaScript).toHaveBeenCalledWith(
+      expect.stringMatching(/^window\.lyshellDemoOrigin='http:\/\/127\.0\.0\.1:\d+';window\.lyshellDemoScene\(0\)$/)
+    )
   })
 })

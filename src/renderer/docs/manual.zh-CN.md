@@ -129,9 +129,11 @@ Agent 启动栏与 Agent 无关 —— 不绑定任何 AI 工具。任意 CLI �
 
 Agent 可绑定一个环境变量组（见下节），凭据集中管理。
 
-## DeepSeek Harness 工作区
+## DeepSeek Harness 插件市场与工作台
 
-`dsh`、`codex`、`claude` 在 Harness 面板中是一等公民：各自独立左侧页签、专属工作区列表、依赖检测。
+DeepSeek Harness 左侧页签直接展示 dsh-market，可搜索、安装和管理 DSH 插件。首次使用点击「安装 dsh-market」，安装器会在需要时把 pnpm 放到 LyShell 专属工具目录，不改系统 PATH。安装前须结束 DSH 任务并关闭后台；运行中的共享后台不会被自动重启。切换左侧页签保留市场页面及搜索状态，点击顶部 DeepSeek Harness 标题可打开完整工作台。
+
+Codex、Claude 继续提供各自的工作区列表和依赖检测。
 
 ### 工作区
 
@@ -146,9 +148,9 @@ Agent 可绑定一个环境变量组（见下节），凭据集中管理。
 
 ### 启动方式
 
-- **终端 TUI** —— `dsh-tui` 等作为标准终端页签运行
+- **终端 CLI** —— Codex、Claude 工作区作为标准终端页签运行
 - **内嵌 Web UI** —— 以 `dsh web --port 0` 启动，LyShell 解析真实端口后渲染进应用内 `<webview>` 页签；回环锁定 + URL 校验
-- 两者可**同框并排**：把 Web UI 页签拖到分屏边缘即可，拖回中央还原
+- Web UI 与终端可**同框并排**：把 Web UI 页签拖到分屏边缘即可，拖回中央还原
 
 ### 依赖检测
 

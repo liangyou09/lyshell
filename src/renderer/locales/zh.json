@@ -333,6 +333,18 @@
     "copy": "复制",
     "copySuffix": " 副本"
   },
+  "dshMarket": {
+    "title": "插件市场",
+    "workbench": "打开 DeepSeek Harness 工作台",
+    "reconnect": "重新连接市场",
+    "loading": "正在连接插件市场…",
+    "installing": "正在安装插件市场，首次安装可能需要几分钟…",
+    "install": "安装 dsh-market",
+    "installHint": "在当前 DSH 环境的 Web profile 中安装 dsh-market，即可在此搜索、安装和管理插件。",
+    "retryHint": "连接市场失败。可重新连接，或在尚未安装时安装 dsh-market。",
+    "backendInUse": "DSH 后台正在运行。请先结束任务并关闭 DSH 工作台，或重启 LyShell 后在打开工作台前安装市场。",
+    "failed": "插件市场加载失败，请重新连接。"
+  },
   "dsh": {
     "title": "DeepSeek Harness",
     "detecting": "检测中…",

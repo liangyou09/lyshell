@@ -1,4 +1,5 @@
 import log from 'electron-log'
+import { DSH_MARKET_ACTIONS, type DshMarketAction } from '@shared/dsh-market'
 import type { BrowserDevToolsRequest } from '@shared/browser-devtools'
 import { extractErrorMessage } from '../terminal/session-manager'
 import { type BrowserRequest } from '@shared/browser-settings'
@@ -248,6 +249,10 @@ export function validationFailure(error: unknown): { success: false, error: stri
 
 export function invalidRequest(message: string): never {
   throw new ValidationError(message)
+}
+
+export function validateDshMarketAction(value: unknown): DshMarketAction {
+  return assertEnum(value, 'market action', DSH_MARKET_ACTIONS)
 }
 
 export function failureFromError(error: unknown): { success: false, error: string } {

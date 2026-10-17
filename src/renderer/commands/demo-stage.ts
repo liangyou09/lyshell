@@ -5,11 +5,13 @@ import { useSessionStore } from '../stores/session-store'
 import { openBuiltinHelpDoc } from '../components/DocPanel/readDoc'
 import { isInventoryDocPath, openInventoryDoc } from './inventory'
 import { ConnectionType } from '@shared/types'
+import { presentUpdateScene } from './demo-updates'
 
 declare global { interface Window { lyshellDemoScene(index: number): Promise<number> } }
 
 // 供主进程固定演示场景使用；沿用真实命令和页面，绝不启动 AI 或插件任务。
 window.lyshellDemoScene = async (index: number): Promise<number> => {
+  if (index >= 18 && index <= 45) return presentUpdateScene(index)
   if (!Number.isInteger(index) || index < 0 || index > 6) throw new Error('场景无效')
   const pane = usePaneStore.getState()
   let docId: string | undefined

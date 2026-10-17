@@ -121,7 +121,7 @@ describe('DshWebManager 生命周期', () => {
     await flush()
     if (process.platform === 'win32') {
       expect(mocks.spawn).toHaveBeenCalledWith(expect.stringMatching(/cmd\.exe$/i),
-        expect.arrayContaining(['/d', '/s', '/c']), expect.objectContaining({ shell: false }))
+        expect.arrayContaining(['/d', '/s', '/c']), expect.objectContaining({ shell: false, windowsVerbatimArguments: true }))
       expect(child.stdin.end).toHaveBeenCalledWith('start\n')
     }
     await manager.close()
@@ -224,6 +224,43 @@ describe('DshWebManager 生命周期', () => {
     expect(manager.running).toBe(false)
   })
 
+  it('启动清扫期间市场开始安装时不再 spawn 同一后台', async () => {
+    let finishSweep!: () => void
+    mocks.sweep.mockImplementation(() => new Promise<void>(resolve => { finishSweep = resolve }))
+    const manager = new DshWebManager()
+    const opening = manager.open({ cwd: 'C:\\ws' })
+    await vi.waitFor(() => expect(finishSweep).toBeTypeOf('function'))
+    manager.retainBackend('sidebar:dsh-market:install')
+    finishSweep()
+    expect(await opening).toMatchObject({ ok: false, code: 'managed' })
+    expect(mocks.spawn).not.toHaveBeenCalled()
+  })
+
+  it('排队清理旧实例不得清除 profile 安装锁，也不得在安装期间 spawn', async () => {
+    const manager = new DshWebManager()
+    const opening = manager.open({ cwd: 'C:\\ws' })
+    // open 的 doClose 尚未执行，模拟同一轮开始的安装操作。
+    expect(manager.beginProfileMutation('market-install')).toBe(true)
+    expect(await opening).toMatchObject({ ok: false, code: 'managed' })
+    expect(manager.isManaged).toBe(true)
+    expect(mocks.spawn).not.toHaveBeenCalled()
+    manager.endProfileMutation('wrong-owner')
+    expect(manager.isManaged).toBe(true)
+    manager.endProfileMutation('market-install')
+    expect(manager.isManaged).toBe(false)
+  })
+
+  it('profile 安装不能与后台持有者或另一次安装重叠', () => {
+    const manager = new DshWebManager()
+    manager.retainBackend('native-work')
+    expect(manager.beginProfileMutation('market-install')).toBe(false)
+    manager.unretainBackend('native-work')
+    expect(manager.beginProfileMutation('market-install')).toBe(true)
+    expect(manager.beginProfileMutation('another-install')).toBe(false)
+    expect(manager.managedHolders()).toContain('market-install')
+    manager.endProfileMutation('market-install')
+  })
+
   it('close() 推进代际并树杀当前 child（带默认预算）；迟到的 exit 不得回写状态或误报成功', async () => {
     const child = fakeChild(4242)
     mocks.spawn.mockReturnValue(child as unknown as ChildProcess)
@@ -233,6 +270,7 @@ describe('DshWebManager 生命周期', () => {
     await flush()
     expect(mocks.spawn).toHaveBeenCalledTimes(1)
     expect(manager.running).toBe(true)
+    expect(manager.beginProfileMutation('market-install')).toBe(false)
 
     await manager.close()
     expect(mocks.killPidTree).toHaveBeenCalledWith(4242, undefined, { deadline: expect.any(Number), ownedRootSpawnedAt: expect.any(Number) })
@@ -263,6 +301,8 @@ describe('DshWebManager 生命周期', () => {
     const windowClose = manager.close()
     await flush()
     expect(mocks.killPidTree).toHaveBeenCalledTimes(1)
+    expect(manager.running).toBe(false)
+    expect(manager.beginProfileMutation('market-install')).toBe(false)
 
     // 退出：必须立刻再发一轮（this.child 已被慢的那轮清空，只能靠 killingPid 找到目标）
     const deadline = Date.now() + 2500
