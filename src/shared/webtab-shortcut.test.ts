@@ -18,6 +18,17 @@ const key = (over: Partial<ShortcutInputShape>): ShortcutInputShape => ({
 })
 
 describe('matchWebTabShortcut：命中矩阵', () => {
+  it('无修饰键 F12 开关 DevTools，兼容 rawKeyDown', () => {
+    expect(matchWebTabShortcut(key({ key: 'F12' }))).toBe('toggle-devtools')
+    expect(matchWebTabShortcut(key({ key: 'F12', type: 'rawKeyDown' }))).toBe('toggle-devtools')
+  })
+
+  it.each([
+    { control: true }, { meta: true }, { alt: true }, { shift: true },
+    { type: 'keyUp' }, { isAutoRepeat: true }, { isComposing: true }
+  ])('F12 让位修饰键/重复/输入法：%j', patch => {
+    expect(matchWebTabShortcut(key({ key: 'F12', ...patch }))).toBeNull()
+  })
   it('Ctrl+R → reload', () => {
     expect(matchWebTabShortcut(key({ control: true }))).toBe('reload')
   })
@@ -96,8 +107,8 @@ describe('matchWebTabShortcut：让位规则', () => {
 })
 
 describe('isWebTabShortcutAction：IPC 边界白名单', () => {
-  it('六个合法 action 收窄通过', () => {
-    for (const a of ['reload', 'reload-hard', 'back', 'forward', 'focus-address-bar', 'find']) {
+  it('七个合法 action 收窄通过', () => {
+    for (const a of ['reload', 'reload-hard', 'back', 'forward', 'focus-address-bar', 'find', 'toggle-devtools']) {
       expect(isWebTabShortcutAction(a)).toBe(true)
     }
   })

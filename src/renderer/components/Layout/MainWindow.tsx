@@ -41,7 +41,7 @@ import { uniquePluginWebOrigins } from '@shared/plugin-web-resources'
 import type { SessionConfig, QuickCommand } from '@shared/types'
 import { matchWebTabShortcut, isWebTabShortcutAction, type WebTabShortcutAction } from '@shared/webtab-shortcut'
 import {
-  activeWebTabId, reloadActiveWebTab, activeWebTabGoBack, activeWebTabGoForward
+  activeWebTabId, reloadActiveWebTab, activeWebTabGoBack, activeWebTabGoForward, openActiveWebTabDevTools
 } from './web-tab-controls'
 import { openWebTabPopup } from './web-tab-popup'
 import { openPluginChatTab } from './plugin-chat-tab'
@@ -775,6 +775,7 @@ const MainWindow: React.FC = () => {
       case 'back': activeWebTabGoBack(); break
       case 'forward': activeWebTabGoForward(); break
       case 'find': window.dispatchEvent(new Event(FIND_IN_TAB_EVENT)); break
+      case 'toggle-devtools': openActiveWebTabDevTools(); break
       case 'focus-address-bar':
         // Ctrl+L:切到 Web 面板 + 展开侧栏;聚焦经 ui-store 请求令牌 —— 请求与
         // 「切面板/展开侧栏」同批提交,WebPanel 的消费 effect 在提交后跑,面板
@@ -803,7 +804,7 @@ const MainWindow: React.FC = () => {
       //   正是网页,刷新即所见即所得
       const target = e.target
       if (target instanceof HTMLElement) {
-        if (isTextEditingTarget(target)) return
+        if (isTextEditingTarget(target) && e.key !== 'F12') return
         if (target.closest('.xterm') &&
           target.closest('[data-pane-id]')?.getAttribute('data-pane-id') !==
           usePaneStore.getState().layout.activePaneId) return

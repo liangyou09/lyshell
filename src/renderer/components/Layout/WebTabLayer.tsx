@@ -2,7 +2,8 @@ import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from '
 import { useTranslation } from 'react-i18next'
 import type { WebviewTag } from 'electron'
 import { usePaneStore } from '../../stores/pane-store'
-import { registerWebview, unregisterWebview, activeWebTabId } from './web-tab-controls'
+import { registerWebview, unregisterWebview, activeWebTabId, registerWebTabDevTools } from './web-tab-controls'
+import WebTabDevTools from './WebTabDevTools'
 import type { OverlayPayload, PaneNode } from '@shared/types'
 import { WEBBAR_PARTITION } from '@shared/constants'
 import SearchableTab from '../Search/SearchableTab'
@@ -89,6 +90,19 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
   const settleWebTabPost = usePaneStore(s => s.settleWebTabPost)
   const { t } = useTranslation()
   const ref = useRef<WebviewTag | null>(null)
+  const [devToolsOpen, setDevToolsOpen] = useState(false)
+  const closeDevTools = useCallback(() => {
+    setDevToolsOpen(false)
+    try { ref.current?.focus() } catch { /* guest 已销毁。 */ }
+  }, [])
+  useLayoutEffect(() => {
+    const page = ref.current
+    return registerWebTabDevTools(id, () => {
+      if (!page) return
+      try { page.getWebContentsId() } catch { return /* dom-ready 前不打开。 */ }
+      setDevToolsOpen(value => !value)
+    })
+  }, [id])
   const postRequestedRef = useRef(false)
   // 最近一次主框架导航的落点 URL：历史记录与地址栏数据都吃它而非打开时的 url ——
   // redirect 链的每一跳都会触发 did-navigate，落点才是用户真正到达的地址
@@ -268,34 +282,37 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
   }, [id, url, postToken, setWebTabTitle, setWebTabFavicon, setWebTabNav, recordWebTabVisit, settleWebTabPost])
 
   return (
-    <SearchableTab id={id} web>
-      {/* Electron webview 专属属性，React 的通用 DOM 规则不认识。 */}
-      {/* eslint-disable react/no-unknown-property */}
-      <webview
-        ref={ref}
-        partition={WEBBAR_PARTITION}
-        src={initialSrc}
-        allowpopups=""
-        className="w-full h-full"
-      />
-      {/* eslint-enable react/no-unknown-property */}
-      {loadState === 'loading' && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--terminal-bg)] text-sm text-gray-400 pointer-events-none">
-          {t('webBar.loading')}
-        </div>
-      )}
-      {loadState === 'failed' && loadError && (
-        <WebLoadError failure={loadError} getGuestId={() => ref.current?.getWebContentsId()} onLeave={() => {
-          try { if (ref.current?.canGoBack()) { ref.current.goBack(); return } } catch { /* guest 可能已销毁。 */ }
-          usePaneStore.getState().closeOverlay(id)
-        }} onRetry={() => {
-          const el = ref.current
-          if (!el) return
-          // 按实际失败地址重试，避免 reload 回到先前成功的页面；不重放 POST 正文。
-          try { void el.loadURL(loadError.url).catch(() => { /* did-fail-load 呈现详情 */ }) } catch { return }
-        }} />
-      )}
-    </SearchableTab>
+    <div className="relative flex h-full w-full flex-col overflow-hidden">
+      <SearchableTab id={id} web className="relative min-h-0 w-full flex-1">
+        {/* Electron webview 专属属性，React 的通用 DOM 规则不认识。 */}
+        {/* eslint-disable react/no-unknown-property */}
+        <webview
+          ref={ref}
+          partition={WEBBAR_PARTITION}
+          src={initialSrc}
+          allowpopups=""
+          className="w-full h-full"
+        />
+        {/* eslint-enable react/no-unknown-property */}
+        {loadState === 'loading' && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--terminal-bg)] text-sm text-gray-400 pointer-events-none">
+            {t('webBar.loading')}
+          </div>
+        )}
+        {loadState === 'failed' && loadError && (
+          <WebLoadError failure={loadError} getGuestId={() => ref.current?.getWebContentsId()} onLeave={() => {
+            try { if (ref.current?.canGoBack()) { ref.current.goBack(); return } } catch { /* guest 可能已销毁。 */ }
+            usePaneStore.getState().closeOverlay(id)
+          }} onRetry={() => {
+            const el = ref.current
+            if (!el) return
+            // 按实际失败地址重试，避免 reload 回到先前成功的页面；不重放 POST 正文。
+            try { void el.loadURL(loadError.url).catch(() => { /* did-fail-load 呈现详情 */ }) } catch { return }
+          }} />
+        )}
+      </SearchableTab>
+      {devToolsOpen && <WebTabDevTools id={id} pageRef={ref} onClose={closeDevTools} />}
+    </div>
   )
 }
 

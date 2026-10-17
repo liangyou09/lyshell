@@ -96,6 +96,9 @@ import type {
 } from '@shared/plugin-types'
 import type { McpCapability } from '@shared/api-routes'
 import { BROWSER_CHANNEL } from '@shared/browser-settings'
+import { BROWSER_DEVTOOLS_CHANNEL } from '@shared/browser-devtools'
+import { browserDevToolsRequest } from '../browser/devtools'
+import { validateWebTabDevToolsRequest } from './validation'
 import { browserRequest } from '../browser/service'
 import { validateBrowserRequest } from './validation'
 
@@ -403,6 +406,12 @@ function sanitizeMessageBoxOptions(options: unknown): MessageBoxOptions {
  * 注册所有 IPC 处理器
  */
 export function registerIPCHandlers(): void {
+  ipcMain.handle(BROWSER_DEVTOOLS_CHANNEL, (event, raw: unknown) => {
+    if (event.sender.getType() !== 'window' || !BrowserWindow.fromWebContents(event.sender) || event.senderFrame !== event.sender.mainFrame) return { success: false }
+    try {
+      return browserDevToolsRequest(event.sender, validateWebTabDevToolsRequest(raw))
+    } catch { return { success: false } }
+  })
   ipcMain.handle(BROWSER_CHANNEL, async (event, raw: unknown) => {
     // 普通网页/插件 guest 不能读取密码列表、改变代理或清理会话。
     if (event.sender.getType() !== 'window' || !BrowserWindow.fromWebContents(event.sender) || event.senderFrame !== event.sender.mainFrame) return { success: false, error: 'browserAccessDenied' }

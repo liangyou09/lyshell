@@ -5,6 +5,7 @@ import type { SessionConfig, TerminalEncoding, WebTabPopupRequest } from '@share
 import type { ExclusiveWorkbenchDetail } from '@shared/exclusive-control'
 import { isWebTabShortcutAction } from '@shared/webtab-shortcut'
 import type { BrowserRequest, BrowserResult } from '@shared/browser-settings'
+import { BROWSER_DEVTOOLS_CHANNEL, BROWSER_DEVTOOLS_EVENT, type BrowserDevToolsRequest, type BrowserDevToolsEvent } from '@shared/browser-devtools'
 
 // IPC 通道定义
 const IPC_CHANNELS = {
@@ -322,6 +323,16 @@ const electronAPI = {
   },
   loadWebTabPost: (token: string, webContentsId: number): Promise<{ success: boolean }> =>
     ipcRenderer.invoke(IPC_CHANNELS.WEB_TAB_POST_LOAD, token, webContentsId),
+
+  webTabDevTools: (request: BrowserDevToolsRequest): Promise<{ success: boolean; inspectorId?: number }> =>
+    ipcRenderer.invoke(BROWSER_DEVTOOLS_CHANNEL, request),
+  onWebTabDevToolsEvent: (callback: (event: BrowserDevToolsEvent) => void) => {
+    const listener = (_event: IpcRendererEvent, value: BrowserDevToolsEvent): void => {
+      if (value && (value.kind === 'focus' || value.kind === 'closed') && Number.isSafeInteger(value.pageId) && value.pageId > 0 && Number.isSafeInteger(value.inspectorId) && value.inspectorId > 0) callback(value)
+    }
+    ipcRenderer.on(BROWSER_DEVTOOLS_EVENT, listener)
+    return () => ipcRenderer.removeListener(BROWSER_DEVTOOLS_EVENT, listener)
+  },
 
   // 写轮眼小窗登记（renderer→main）：小窗与完整页签共用 webbar partition（共享
   // 登录态）后，主进程快捷键转发无法凭 session 区分两者 —— 小窗 dom-ready 后把

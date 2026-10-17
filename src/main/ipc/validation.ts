@@ -1,4 +1,5 @@
 import log from 'electron-log'
+import type { BrowserDevToolsRequest } from '@shared/browser-devtools'
 import { extractErrorMessage } from '../terminal/session-manager'
 import { type BrowserRequest } from '@shared/browser-settings'
 import { validateBrowserSettings } from '../browser/validation'
@@ -79,6 +80,23 @@ export class ValidationError extends Error {
     super(message)
     this.name = 'ValidationError'
   }
+}
+
+export function validateWebTabDevToolsRequest(raw: unknown): BrowserDevToolsRequest {
+  const value = assertObject(raw, 'devtoolsRequest')
+  const pageId = assertNumber(value.pageId, 'pageId', { min: 1, max: Number.MAX_SAFE_INTEGER, integer: true })
+  const kind = assertEnum(value.kind, 'kind', ['open', 'layout', 'close'] as const)
+  const inspectorId = kind !== 'open' ? assertNumber(value.inspectorId, 'inspectorId', { min: 1, max: Number.MAX_SAFE_INTEGER, integer: true }) : undefined
+  if (kind === 'close') return { kind, pageId, inspectorId: inspectorId! }
+  if (kind === 'layout' && value.bounds === null) return { kind, pageId, inspectorId: inspectorId!, bounds: null }
+  const bounds = assertObject(value.bounds, 'bounds')
+  const parsed = {
+    x: assertNumber(bounds.x, 'x', { min: -100000, max: 100000 }),
+    y: assertNumber(bounds.y, 'y', { min: -100000, max: 100000 }),
+    width: assertNumber(bounds.width, 'width', { min: 0, max: 100000 }),
+    height: assertNumber(bounds.height, 'height', { min: 0, max: 100000 })
+  }
+  return kind === 'open' ? { kind, pageId, bounds: parsed } : { kind, pageId, inspectorId: inspectorId!, bounds: parsed }
 }
 
 /** POST 页签认领只收主进程发放的 UUID token 和有效 guest id。 */

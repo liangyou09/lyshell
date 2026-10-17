@@ -627,7 +627,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
   it('导航簇（后退/前进/刷新/检查）住铭牌行（IconBtn lg/bright 档脱离拖拽区），可用性随活动页签与 nav 快照', () => {
     setupBrowserMode()
     render(<WebPanel />)
-    for (const title of ['Back (Alt+←)', 'Forward (Alt+→)', 'Reload (Ctrl+R)', 'Inspect page (DevTools)']) {
+    for (const title of ['Back (Alt+←)', 'Forward (Alt+→)', 'Reload (Ctrl+R)', 'Toggle DevTools (F12)']) {
       const btn = screen.getByTitle(title) as HTMLButtonElement
       expect(btn.className).toContain('win-no-drag')
       expect(btn.closest('.win-drag')).toBeTruthy()   // 所在行 = 铭牌拖拽区
@@ -639,7 +639,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     expect((screen.getByTitle('Back (Alt+←)') as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByTitle('Forward (Alt+→)') as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByTitle('Reload (Ctrl+R)') as HTMLButtonElement).disabled).toBe(false)
-    expect((screen.getByTitle('Inspect page (DevTools)') as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByTitle('Toggle DevTools (F12)') as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('窄栏收纳:根宽 < 340 时分组操作/检查/清空进入菜单,主导航三钮恒在;宽回来归位', () => {
@@ -660,7 +660,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
       act(() => fire([], undefined as unknown as ResizeObserver))
       // 240 默认宽:次操作收进溢出菜单(「…」)，为题名留座。
       // 主导航三钮在
-      expect(screen.queryByTitle('Inspect page (DevTools)')).toBeNull()
+      expect(screen.queryByTitle('Toggle DevTools (F12)')).toBeNull()
       expect(screen.queryByTitle('Clear')).toBeNull()
       expect(screen.getByTitle('More actions')).toBeTruthy()
       expect(screen.getByTitle('Reload (Ctrl+R)')).toBeTruthy()
@@ -669,7 +669,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
       // 开菜单:两项齐(文字直读,禁用条件与平铺钮同源);点清空真执行且菜单收起
       act(() => { usePaneStore.setState({ webTabHistory: ['https://a.example.com/one'] }) })
       fireEvent.click(screen.getByTitle('More actions'))
-      expect(screen.getByText('Inspect page (DevTools)')).toBeTruthy()
+      expect(screen.getByText('Toggle DevTools (F12)')).toBeTruthy()
       fireEvent.click(screen.getByRole('menuitem', { name: 'Collapse all' }))
       expect(container.querySelector('.group-list .scroll-head')?.getAttribute('aria-expanded')).toBe('false')
       expect(screen.queryByRole('menuitem')).toBeNull()
@@ -682,13 +682,13 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
       expect(screen.queryByText('Clear')).toBeNull()
       // 开着菜单拉宽:浮层卸载之外 open 复位 —— 不再占 useDismiss 的 ESC 回退栈
       fireEvent.click(screen.getByTitle('More actions'))
-      expect(screen.getByText('Inspect page (DevTools)')).toBeTruthy()
+      expect(screen.getByText('Toggle DevTools (F12)')).toBeTruthy()
       vi.mocked(root.getBoundingClientRect).mockReturnValue({ ...rect, width: 360, right: 360 } as DOMRect)
       act(() => fire([], undefined as unknown as ResizeObserver))
       // 全簇归位(平铺钮 title 直读),菜单开态一并收口(菜单项是文字,已不在)
-      expect(screen.getByTitle('Inspect page (DevTools)')).toBeTruthy()
+      expect(screen.getByTitle('Toggle DevTools (F12)')).toBeTruthy()
       expect(screen.getByTitle('Clear')).toBeTruthy()
-      expect(screen.queryByText('Inspect page (DevTools)')).toBeNull()
+      expect(screen.queryByText('Toggle DevTools (F12)')).toBeNull()
       // 再缩窄:菜单不自行重现(状态已复位),点触发钮才开
       vi.mocked(root.getBoundingClientRect).mockReturnValue(rect)
       act(() => fire([], undefined as unknown as ResizeObserver))

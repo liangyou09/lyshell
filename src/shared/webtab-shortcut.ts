@@ -7,6 +7,7 @@
  * - Alt+← / Alt+→（无 Ctrl）后退 / 前进
  * - Ctrl/Cmd+L 聚焦地址栏（渲染层切到 Web 面板并聚焦 URL 输入框）
  * - Ctrl/Cmd+F 当前页签内容查找（dsh Web 只接入这一项）
+ * - F12 开关普通网页页签的内嵌开发者工具（不带修饰键）
  *
  * 拦截范围约束（两侧路由层各自把守，匹配函数本身不判断焦点）：
  * - 渲染层宿主 keydown：仅当活动分屏正显示网页页签时拦。xterm 只对「无 Shift 的
@@ -25,10 +26,11 @@ export type WebTabShortcutAction =
   | 'forward'
   | 'focus-address-bar'
   | 'find'
+  | 'toggle-devtools'
 
 /** IPC 转发后的 action 白名单（preload 边界值校验用） */
 const WEB_TAB_ACTIONS: ReadonlySet<string> = new Set<WebTabShortcutAction>([
-  'reload', 'reload-hard', 'back', 'forward', 'focus-address-bar', 'find'
+  'reload', 'reload-hard', 'back', 'forward', 'focus-address-bar', 'find', 'toggle-devtools'
 ])
 
 /** preload 边界到达的 action 不可信：白名单收窄后才路由（防 IPC 复用/注入） */
@@ -62,6 +64,8 @@ export function matchWebTabShortcut(input: ShortcutInputShape): WebTabShortcutAc
   if (input.isComposing) return null
   const ctrl = input.control || (input.meta ?? false)
   const key = input.key.toLowerCase()
+
+  if (key === 'f12' && !ctrl && !input.alt && !input.shift) return 'toggle-devtools'
 
   if (ctrl && !input.alt) {
     if (key === 'f' && !input.shift) return 'find'

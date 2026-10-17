@@ -18,6 +18,12 @@ import { BROWSER_NEW_TAB_URL } from '@shared/browser-settings'
 
 /** overlay id → webview 元素（WebTabOverlay 挂载期登记，卸载即注销） */
 const webviews = new Map<string, WebviewTag>()
+const devToolsToggles = new Map<string, () => void>()
+
+export function registerWebTabDevTools(id: string, toggle: () => void): () => void {
+  devToolsToggles.set(id, toggle)
+  return () => { devToolsToggles.delete(id) }
+}
 const miniWebviews = new Set<WebviewTag>()
 
 export function registerMiniWebview(el: WebviewTag): void { miniWebviews.add(el) }
@@ -115,8 +121,8 @@ export function activeWebTabGoForward(): void {
   activeWebview()?.goForward()
 }
 
-/** 打开活动网页页签客体的 DevTools：页面行为异常（按钮点不动、脚本疑似报错）时
- *  的取证入口 —— 客体 console 的报错只进 guest devtools，不开则完全不可见 */
+/** 开关活动网页页签下方的 DevTools，按钮与 F12 共用页签内的承载区。 */
 export function openActiveWebTabDevTools(): void {
-  activeWebview()?.openDevTools()
+  const id = activeWebTabId()
+  if (id) devToolsToggles.get(id)?.()
 }
