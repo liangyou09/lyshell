@@ -9,6 +9,90 @@ Published release notes are archived in full in their original language. Click a
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-10-18
+
+LyShell 2.0.2 完善内置浏览器与内容查找，新增 DSH 侧栏插件市场和原生 Harness 工作通道，改进 PetLink 与共享工作台的协作，并升级 Electron 运行时。以下内容汇总自 2.0.1 以来的更新。
+
+LyShell 2.0.2 expands the built-in browser and content search, adds a DSH sidebar plugin market and a native Harness work channel, improves PetLink integration with the shared workbench, and upgrades the Electron runtime. This release brings together the changes since 2.0.1.
+
+### ✨ 新增 / New Features
+
+- **浏览器设置与统一欢迎页**：欢迎页与新建页签统一提供网址和搜索输入，支持选择默认搜索引擎。新增主页、50%–200% 缩放、代理、访问记录、网页恢复及缓存和网站数据清理设置；普通网页与小窗共用浏览器配置。
+
+  **Browser settings and welcome page**: The welcome page and new tabs share an address/search field with a selectable default search engine. Added settings for a home page, 50%–200% zoom, proxies, history, page restoration, and clearing cache and site data. Regular web tabs and the mini-browser share these settings.
+
+- **密码保存与网站权限**：登录时可确认保存或更新密码，并在设置中管理账号；密码使用系统密钥加密，在用户操作登录区域时按站点匹配填充。摄像头、麦克风、通知、位置和读取剪贴板支持询问或禁止；证书错误页可查看证书详情，确认后仅在当前浏览器会话中信任对应主机与证书。
+
+  **Passwords and site permissions**: Confirm password saves or updates during sign-in and manage accounts in settings. Passwords use system encryption and are filled for the matching site when the user interacts with its sign-in area. Camera, microphone, notifications, location, and clipboard reads can prompt or be denied. Certificate error pages show certificate details and allow confirmed exceptions for the matching host and certificate in the current browser session.
+
+- **网页内嵌开发者工具**：普通网页页签支持按 `F12` 或点击检查网页按钮，在页面下方打开开发者工具，并拖动分隔条调整高度。
+
+  **Embedded web developer tools**: Press `F12` or use the inspect button in regular web tabs to open developer tools below the page, with a draggable divider to adjust their height.
+
+- **页签内容查找与跨终端搜索**：`Ctrl+F` 支持文档、网页、DeepSeek 工作台和 MCP 审计页签的当前内容查找。终端可切换「本标签 / 所有终端」，按分屏和页签顺序跳转匹配结果，跳过隐藏终端。网页与 DeepSeek 页面支持区分大小写；正则与全字匹配用于终端、文档等文本视图。
+
+  **Find in tabs and across terminals**: Use `Ctrl+F` to search the current content of documents, web pages, the DeepSeek workbench, and MCP audit tabs. Terminal search can target the current tab or all terminals, following pane and tab order and skipping hidden terminals. Web pages and DeepSeek support case matching; regular expressions and whole-word matching are available in terminals and text views such as documents.
+
+- **DSH 侧栏插件市场**：在侧栏浏览、搜索和安装 DSH 插件，提供市场安装与重新连接入口，切换面板保留页面状态。市场复用共享 Harness 后台；后台使用中会提示先结束任务并关闭工作台，再进行市场安装。
+
+  **DSH sidebar plugin market**: Browse, search, and install DSH plugins from the sidebar, with market setup and reconnect actions and preserved page state when switching panels. The market reuses the shared Harness backend; setup prompts users to finish tasks and close the workbench when that backend is in use.
+
+- **原生 Harness 工作通道**：新增 MCP 工具 `lyshell_harness_work` 及配套 HTTP 接口，支持创建工作会话、提交任务、查看状态与输出、处理审批和取消任务。不同调用凭据的会话、任务和审批相互隔离，可与 PetLink 共用后台。
+
+  **Native Harness work channel**: The new `lyshell_harness_work` MCP tool and HTTP endpoints support work sessions, task submission, status and output tracking, approvals, and cancellation. Sessions, tasks, and approvals are isolated by caller credential while sharing the backend with PetLink.
+
+### 🧩 插件与协作 / Plugins and Collaboration
+
+- **PetLink 共享工作台**：PetLink 与 LyShell 复用一个兼容的 Harness 后台，在主区域同一官方工作台页签查看任务详情。关闭详情页签后任务继续；再次请求详情时可重开，重复状态推送不打断用户浏览历史。工作台保留正常输入、新建会话及配置能力。
+
+  **Shared PetLink workbench**: PetLink and LyShell reuse a compatible Harness backend and show task details in the same official workbench tab. Tasks continue when the details tab is closed and an explicit details action can reopen it. Repeated state updates preserve the user's history browsing. Normal workbench input, session creation, and configuration remain available.
+
+- **插件设置与聊天入口**：插件可通过 `contributes.settings` 将设置页嵌入 LyShell 设置。PetLink 可定位其设置页，或在主区域打开并复用聊天页签；完善聊天与模型接入。新增从源码目录启动 PowerShell 7 的示例插件。
+
+  **Plugin settings and chat entry points**: Plugins can embed settings pages through `contributes.settings`. PetLink can open its settings or open and reuse a chat tab in the main area, with improved chat and model integration. Added example plugins for launching PowerShell 7 from a source workspace.
+
+### 🎨 界面与修复 / Interface and Fixes
+
+- 改善迷你浏览器清晰度，完善网页加载失败后的提示与重试，以及插件页面崩溃后的恢复。
+
+  Improved mini-browser clarity, web page loading errors and retries, and recovery after plugin page crashes.
+
+- 修复查找结果的选区跳转与文档匹配边界，完善欢迎页焦点、窄侧栏布局及面板折叠交互。
+
+  Fixed selection navigation and document match boundaries in search, and refined welcome-page focus, narrow sidebars, and panel folding.
+
+- 完善画轴材质、紧凑面板与嵌套绳结样式，优化市场面板层次和页面颜色同步。
+
+  Refined scroll materials, compact panels, and nested knot styling, with improved market panel layering and page color synchronization.
+
+- 修复工作台详情重开及过期异步响应的竞态，完善插件异步停机、安装替换、共享后台连接与退出清理。
+
+  Fixed races when reopening workbench details and handling stale asynchronous responses, and improved asynchronous plugin shutdown, installation replacement, shared backend connections, and exit cleanup.
+
+### ⚙️ 运行时与兼容性 / Runtime and Compatibility
+
+- Electron 升级至 **43.7.11**，node-pty 升级至 **1.1.0**；适配新运行时的原生文件拖放、网页事件及原生模块加载。源码开发需要 Node.js **22.12 或更高版本**。
+
+  Upgraded Electron to **43.7.11** and node-pty to **1.1.0**, adapting native file drag-and-drop, web events, and native module loading. Source development requires Node.js **22.12 or later**.
+
+- 浏览器代理与隐私设置仅作用于普通网页和小窗；网页标签恢复默认关闭，恢复 URL 不重放表单提交。系统加密不可用时，密码保存与填充不可用。
+
+  Browser proxy and privacy settings apply to regular web tabs and the mini-browser. Web tab restoration is off by default and restores URLs without replaying form submissions. Password saving and filling are unavailable when system encryption is unavailable.
+
+- PetLink 共享模式需配套兼容的 PetLink 构建与已安装的官方 DeepSeek Harness；本地集成验证使用 `dsh 0.2.0-rc.2`。原生工作通道沿用 MCP 权限，外部客户端需显式开启外部接入；后台重启后需新建工作会话，不自动重发结果未知的任务。
+
+  Shared PetLink mode requires a compatible PetLink build and an installed official DeepSeek Harness; local integration validation used `dsh 0.2.0-rc.2`. The native work channel follows MCP permissions and requires external access to be explicitly enabled for external clients. Create a new work session after a backend restart; tasks with unknown submission outcomes are not automatically resubmitted.
+
+### 📦 Windows 发行文件 / Windows Release Files
+
+- `LyShell-2.0.2-x64-setup.exe`：Windows 10 / 11 x64 安装版，可选择安装目录并创建快捷方式。
+
+  `LyShell-2.0.2-x64-setup.exe`: Windows 10 / 11 x64 installer with a selectable installation directory and shortcuts.
+
+- `LyShell-2.0.2-x64-portable.exe`：Windows 10 / 11 x64 便携版，免安装运行。
+
+  `LyShell-2.0.2-x64-portable.exe`: Windows 10 / 11 x64 portable executable; runs without installation.
+
 ## [2.0.1] - 2026-10-12
 
 LyShell 2.0.1 完善画卷式终端与侧栏体验，新增终端截图和输出事件流，修复搜索覆盖剪贴板、SFTP 上传及版本信息显示问题。以下内容汇总自 2.0.0 以来的更新。
@@ -494,7 +578,8 @@ A full plugin host with per-plugin capability gates, token-based auth, and local
 - 新增插件系统（Python / Node.js 两种运行时，支持开发目录 / ZIP / URL 安装）。*Plugin system with Python and Node.js runtimes, installable from a dev directory, ZIP, or URL.*
 - 提供 MCP HTTP API，供外部工具与 AI Agent 编排终端会话。*MCP HTTP API for external tools and AI agents to orchestrate terminal sessions.*
 
-[Unreleased]: https://github.com/liangyou09/lyshell/compare/v2.0.1...HEAD
+[Unreleased]: https://github.com/liangyou09/lyshell/compare/v2.0.2...HEAD
+[2.0.2]: https://github.com/liangyou09/lyshell/releases/tag/v2.0.2
 [2.0.1]: https://github.com/liangyou09/lyshell/releases/tag/v2.0.1
 [2.0.0]: https://github.com/liangyou09/lyshell/releases/tag/v2.0.0
 [1.0.9]: https://github.com/liangyou09/lyshell/releases/tag/1.0.9

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/LyShell-v2.0.1-0078D4?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/LyShell-v2.0.2-0078D4?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square" alt="platform">
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="license">
   <img src="https://img.shields.io/badge/MCP-ready-FF6B6B?style=flat-square" alt="mcp">
@@ -12,7 +12,7 @@
 
 **简体中文** | [English](README.md)
 
-[v2.0.1 中英文更新日志 / Changelog](CHANGELOG.md)
+[v2.0.2 中英文更新日志 / Changelog](CHANGELOG.md)
 
 当前 checkout 的 [PetLink 共享 Harness 说明](docs/petlink-shared-harness.md)：受控插件复用一个可用后台与主区域同一官方页签，Web 正常输入、新建和操作历史；包含权限、兼容与升级边界。
 
