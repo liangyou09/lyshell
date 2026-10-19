@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
 import { McpActivityRailSlot } from './McpActivityRailSlot'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
+import SidebarToggle from './SidebarToggle'
 import { makePluginViewKey, parsePluginViewKey } from '@shared/plugin-types'
 import type { PluginViewMeta } from '@shared/plugin-types'
 
@@ -116,13 +117,6 @@ const IconWeb: React.FC = () => (
   </svg>
 )
 
-/** 收起控位 = 双层左箭头；尺寸略小，让导航图标保持主次。 */
-const IconCollapseRail: React.FC = () => (
-  <svg aria-hidden width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-    <path d="m11 6-6 6 6 6m7-12-6 6 6 6" />
-  </svg>
-)
-
 /** 设置 = 圆角齿轮；画布留出边缘余量，避免齿尖贴近托座。 */
 const IconSettings: React.FC = () => (
   <svg aria-hidden width="22" height="22" viewBox="-1 -1 26 26" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
@@ -217,30 +211,10 @@ const ActivityRail: React.FC<ActivityRailProps> = ({
       className="activity-rail flex flex-col items-stretch h-full flex-shrink-0 bg-[var(--bg-base)] select-none"
       style={{ width: RAIL_WIDTH }}
     >
-      {/* 轨顶收起控位 -- 左列展开时的收起开关(收起态由终端列左上 ghost 控位接棒,见 MainWindow)。
-          非页签:无 role=tab/激活态。槽高对齐终端第一行(TOPBAR_HEIGHT)，背景与
-          面板头条、页签条同为 rack，不画底线，用色阶区分下方内容。
-          下方内容页签取 40 行高 -- 第一行 36 是跨窗
-          对齐的 chrome 行高,内容槽给图标托座留呼吸(44 过疏 / 36 过挤的折中)。
-          ghost 语言与收起态 pill 同源:静息线走 --text-tab-idle(轨上未选中
-          图标的统一档,见组件 docstring),悬停 bg-rack 托起(轨槽的一步抬升,
-          对应 pill 的 bg-elev)+ chevron 提亮到 rack */}
-      <button
-        type="button"
-        onClick={onCollapse}
-        title={t('settings.collapseSidebar')}
-        aria-label={t('settings.collapseSidebar')}
-        style={{ height: TOPBAR_HEIGHT }}
-        className={cn(
-          'relative flex items-center justify-center transition-colors group',
-          'bg-[var(--bg-rack)] hover:bg-[var(--bg-slot)]',
-          'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--amber)]'
-        )}
-      >
-        <span className="activity-rail-icon text-[var(--text-tab-idle)] group-hover:text-[var(--text-rack)] group-focus-visible:text-[var(--text-rack)] transition-colors">
-          <IconCollapseRail />
-        </span>
-      </button>
+      {/* 开合共用控位；与第一行等高，独立于下方导航页签。 */}
+      <div className="flex-shrink-0" style={{ height: TOPBAR_HEIGHT }}>
+        <SidebarToggle collapsed={false} onClick={onCollapse} />
+      </div>
 
       {/* 页签笼 -- 机柜轨与面板的竖分隔线(border-r)画在这里而不是轨容器上:
           收起槽所在的窗口第一行不画竖线,收起槽 + 面板头条读作一条连续横带,

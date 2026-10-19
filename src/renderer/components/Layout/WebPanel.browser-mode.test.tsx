@@ -224,7 +224,8 @@ describe('网址收藏', () => {
     render(<WebPanel />)
     const historyRow = screen.getByRole('button', { name: url }).parentElement!
     fireEvent.click(historyRow.querySelector<HTMLButtonElement>('[title="Bookmark this URL"]')!)
-    fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    fireEvent.click(screen.getByTitle('More actions'))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Clear' }))
     expect(usePaneStore.getState().webTabHistory).toEqual([])
     fireEvent.click(screen.getByRole('tab', { name: /Bookmarks/ }))
     const saved = screen.getByRole('button', { name: 'saved.example' })
@@ -733,18 +734,29 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     expect(container.querySelector('.group-list .scroll-dual-rod')).toBeNull()
   })
 
-  it('清空钮住铭牌行（IconBtn 内建 win-no-drag 脱离整行拖拽区），历史空时禁用', () => {
+  it('清空只在更多菜单提供：打开或取消菜单不清历史，选中清空才执行', () => {
     setupBrowserMode()
     render(<WebPanel />)
-    const clear = screen.getByTitle('Clear') as HTMLButtonElement
-    expect(clear.className).toContain('win-no-drag')
-    // 操作面仍为 28px，放大图标不挤占标题或改变工具条几何。
-    expect(clear.className).toContain('w-[28px]')
-    expect(clear.disabled).toBe(true)   // 无历史无物可清
-    act(() => {
-      usePaneStore.setState({ webTabHistory: ['https://a.example.com/one'] })
-    })
-    expect((screen.getByTitle('Clear') as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.queryByTitle('Clear')).toBeNull()
+    const more = screen.getByTitle('More actions') as HTMLButtonElement
+    expect(more.className).toContain('win-no-drag')
+    expect(more.className).toContain('w-[28px]')
+    fireEvent.click(more)
+    expect((screen.getByRole('menuitem', { name: 'Clear' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    act(() => { usePaneStore.setState({ webTabHistory: ['https://a.example.com/one'] }) })
+    fireEvent.click(more)
+    expect(usePaneStore.getState().webTabHistory).toHaveLength(1)
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByRole('menuitem', { name: 'Clear' })).toBeNull()
+    expect(usePaneStore.getState().webTabHistory).toHaveLength(1)
+    fireEvent.click(more)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(usePaneStore.getState().webTabHistory).toHaveLength(1)
+    fireEvent.click(more)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Clear' }))
+    expect(usePaneStore.getState().webTabHistory).toHaveLength(0)
+    expect(screen.queryByRole('menuitem')).toBeNull()
   })
 
   it('导航簇保留后退/前进，移除刷新与检查按钮，加载时可停止', () => {
@@ -771,6 +783,55 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     expect(el.reload).not.toHaveBeenCalled()
     act(() => { usePaneStore.getState().setWebTabNav('web-1', { loading: false }) })
     expect(screen.queryByTitle('Stop loading')).toBeNull()
+  })
+
+  it('更多菜单打开后聚焦操作，Esc 和执行清空后归还焦点', () => {
+    setupBrowserMode()
+    usePaneStore.setState({ webTabHistory: ['https://focus.example/'] })
+    render(<WebPanel />)
+    const more = screen.getByRole('button', { name: 'More actions' })
+    more.focus()
+    fireEvent.click(more)
+    const clear = screen.getByRole('menuitem', { name: 'Clear' })
+    expect(more.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByRole('menu').id).toBe(more.getAttribute('aria-controls'))
+    expect(document.activeElement).toBe(clear)
+    fireEvent.keyDown(clear, { key: 'Escape' })
+    expect(document.activeElement).toBe(more)
+    expect(more.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(more)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Clear' }))
+    expect(document.activeElement).toBe(more)
+    expect(usePaneStore.getState().webTabHistory).toEqual([])
+  })
+
+  it('更多菜单随面板隐藏关闭，隐藏期间 Esc 不被消费，恢复后不自行重开', () => {
+    setupBrowserMode()
+    const view = render(<WebPanel visible />)
+    fireEvent.click(screen.getByTitle('More actions'))
+    expect(screen.getByRole('menuitem', { name: 'Clear' })).toBeTruthy()
+    view.rerender(<WebPanel visible={false} />)
+    const escaped = vi.fn()
+    document.body.addEventListener('keydown', escaped)
+    try {
+      fireEvent.keyDown(document.body, { key: 'Escape' })
+      expect(escaped).toHaveBeenCalledOnce()
+    } finally {
+      document.body.removeEventListener('keydown', escaped)
+    }
+    view.rerender(<WebPanel visible />)
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(screen.getByTitle('More actions').getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('切换到收藏列表后关闭最近访问菜单', () => {
+    setupBrowserMode()
+    render(<WebPanel />)
+    fireEvent.click(screen.getByTitle('More actions'))
+    fireEvent.click(screen.getByRole('tab', { name: /Bookmarks/ }))
+    expect(screen.queryByRole('menuitem')).toBeNull()
+    fireEvent.click(screen.getByRole('tab', { name: /Recent/ }))
+    expect(screen.queryByRole('menuitem')).toBeNull()
   })
 
   it('窄栏收纳:分组操作/清空进入菜单，检查入口在窄栏菜单与宽栏均不出现', () => {
@@ -801,6 +862,21 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
       act(() => { usePaneStore.setState({ webTabHistory: ['https://a.example.com/one'] }) })
       fireEvent.click(screen.getByTitle('More actions'))
       expect(screen.queryByText('Toggle DevTools (F12)')).toBeNull()
+      const groupAction = screen.getByRole('menuitem', { name: 'Collapse all' })
+      const clearAction = screen.getByRole('menuitem', { name: 'Clear' })
+      expect(document.activeElement).toBe(groupAction)
+      fireEvent.keyDown(groupAction, { key: 'ArrowDown' })
+      expect(document.activeElement).toBe(clearAction)
+      fireEvent.keyDown(clearAction, { key: 'ArrowDown' })
+      expect(document.activeElement).toBe(groupAction)
+      fireEvent.keyDown(groupAction, { key: 'End' })
+      expect(document.activeElement).toBe(clearAction)
+      fireEvent.keyDown(clearAction, { key: 'Home' })
+      expect(document.activeElement).toBe(groupAction)
+      fireEvent.keyDown(groupAction, { key: 'Tab' })
+      expect(screen.queryByRole('menu')).toBeNull()
+      expect(document.activeElement).toBe(screen.getByTitle('More actions'))
+      fireEvent.click(screen.getByTitle('More actions'))
       fireEvent.click(screen.getByRole('menuitem', { name: 'Collapse all' }))
       expect(container.querySelector('.group-list .scroll-head')?.getAttribute('aria-expanded')).toBe('false')
       expect(screen.queryByRole('menuitem')).toBeNull()
@@ -816,9 +892,10 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
       expect(screen.getByText('Clear')).toBeTruthy()
       vi.mocked(root.getBoundingClientRect).mockReturnValue({ ...rect, width: 360, right: 360 } as DOMRect)
       act(() => fire([], undefined as unknown as ResizeObserver))
-      // 全簇归位(平铺钮 title 直读),菜单开态一并收口(菜单项是文字,已不在)
+      // 全簇归位，清空仍留在更多菜单，菜单开态一并收口
       expect(screen.queryByTitle('Toggle DevTools (F12)')).toBeNull()
-      expect(screen.getByTitle('Clear')).toBeTruthy()
+      expect(screen.queryByTitle('Clear')).toBeNull()
+      expect(screen.getByTitle('More actions')).toBeTruthy()
       expect(screen.queryByText('Toggle DevTools (F12)')).toBeNull()
       // 再缩窄:菜单不自行重现(状态已复位),点触发钮才开
       vi.mocked(root.getBoundingClientRect).mockReturnValue(rect)

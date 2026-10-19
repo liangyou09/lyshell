@@ -25,7 +25,7 @@
   border: 0;
   border-radius: 5px;
   background: transparent;
-  color: var(--text-tab-idle);
+  color: var(--text-rack);
   cursor: pointer;
   transition: color 150ms ease, background-color 150ms ease;
 }
@@ -34,7 +34,7 @@
 .group-list-actions button:hover:not(:disabled) { color: var(--amber); background: var(--bg-slot); }
 .group-list-actions button:active:not(:disabled) { background: color-mix(in srgb, var(--amber) 12%, var(--bg-slot)); }
 .group-list-actions button:disabled { opacity: .4; cursor: default; }
-.group-list-actions button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.group-list-actions button:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) {
   .group-list-actions button { transition: none; }
 }

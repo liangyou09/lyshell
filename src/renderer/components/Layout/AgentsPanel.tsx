@@ -504,8 +504,8 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
         title={t('agents.title')}
         count={agents.length}
         actions={<>
-          {onOpenEnvSettings && <IconBtn title={t('env.manage')} onClick={onOpenEnvSettings}><SettingsGlyph name="env" /></IconBtn>}
           {agentGroups.length > 0 && <GroupListActions allCollapsed={allDirsCollapsed} allExpanded={allDirsExpanded} onChange={setAllDirsCollapsed} />}
+          {onOpenEnvSettings && <IconBtn title={t('env.manage')} onClick={onOpenEnvSettings}><SettingsGlyph name="env" /></IconBtn>}
           <PanelHeaderAction label={t('panelHeader.add')} title={t('sidebar.addAgent')} onClick={handleAdd} />
         </>}
       />

@@ -4,6 +4,7 @@ import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import SessionsPanel from './SessionsPanel'
 import ActivityRail, { type NavTab, RAIL_WIDTH, isFixedNavTab } from './ActivityRail'
+import SidebarToggle from './SidebarToggle'
 import AgentsPanel from './AgentsPanel'
 import SplitPaneContainer from './SplitPaneContainer'
 import { isWebTabShortcutTarget } from './keyboard-target'
@@ -1097,6 +1098,7 @@ const MainWindow: React.FC = () => {
           sidebarCollapsed && 'pointer-events-none' // 收起瞬间即不可交互
         )}
         style={{ width: sidebarCollapsed ? 0 : leftColumnWidth }}
+        id="workspace-sidebar"
         aria-hidden={sidebarCollapsed}
         /* inert 把收起的左列整体移出 Tab 序列与无障碍树 -- aria-hidden 只藏不撤焦,
            focus 仍会落进不可见面板;React 18 不识别 inert 布尔 prop,故用展开注入空串 */
@@ -1135,7 +1137,7 @@ const MainWindow: React.FC = () => {
             </Suspense>
             {activeNav === 'plugins' && <PluginPanel />}
             {/* Web 面板保活常挂载(见 webPanelAlive 注释),切走时经 visible 隐藏 */}
-            {webPanelAlive && <WebPanel visible={activeNav === 'web'} onOpenSettings={() => {
+            {webPanelAlive && <WebPanel visible={activeNav === 'web' && !sidebarCollapsed} onOpenSettings={() => {
               setRequestedSettingsView(prev => ({ key: 'browser', nonce: (prev?.nonce ?? 0) + 1, returnTo: 'web' }))
               handleNavChange('settings')
             }} />}
@@ -1202,13 +1204,7 @@ const MainWindow: React.FC = () => {
               （z-30），高于普通覆盖层；层级纪律见 WebTabLayer.tsx 头注。 */}
           <WebTabLayer />
 
-          {/* 左上侧栏展开控位(ghost,无按钮形) -- 仅收起态可见:静息 chevron 走
-              mute(与轨顶收起槽同档),悬停整块托起(bg-elev)+ chevron 提亮到 data,点击展开;展开态的收起开关
-              在机柜轨顶槽(ActivityRail onCollapse)。第一行其余区域是窗口拖拽区,
-              收不到 click,故命中区收敛在这块 win-no-drag 条带里(TOP_LEFT_RESERVE 宽)。
-              淡出时 strip 整体 pointer-events-none,这片留白还给第一行窗口拖拽区。
-              32×36 命中区恰好齐平 36px 的第一行(SIDEBAR_PILL_HEIGHT = TOPBAR_HEIGHT);
-              顶左角 8px 随窗口圆角收圆(镜像 edge-frame 左下角)。 */}
+          {/* 收起态沿用轨顶同款开关；44px 预留与导航轨对齐，避免开合时控位偏移。 */}
           <div
             className={cn(
               'win-no-drag absolute top-0 left-0 z-40 flex items-center bg-[var(--bg-rack)] select-none',
@@ -1218,31 +1214,11 @@ const MainWindow: React.FC = () => {
             style={{ height: SIDEBAR_PILL_HEIGHT, width: TOP_LEFT_RESERVE }}
             aria-hidden={!sidebarCollapsed}
           >
-            <button
-              type="button"
+            <SidebarToggle
+              collapsed
               onClick={() => setSidebarCollapsed(false)}
               tabIndex={sidebarCollapsed ? 0 : -1}
-              title={t('settings.expandSidebar')}
-              aria-label={t('settings.expandSidebar')}
-              className={cn(
-                'w-full h-full rounded-[8px_2px_2px_2px]',
-                'flex items-center justify-center cursor-pointer group',
-                'transition-[background-color] duration-150',
-                // 无按钮形:无边框无底色,悬停整块托起 + chevron 提亮,不点亮边缘
-                'hover:bg-[var(--bg-elev)]',
-                'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--amber)]'
-              )}
-            >
-              {/* 单层 » 余痕 -- Edge 收起侧栏后的展开惯例,指向左列滑入方向。
-                  chevron 静息 tab-idle 与轨上收起控位同源同档(用户校准从 mute 提亮) */}
-              <svg
-                width="18" height="18" viewBox="0 0 16 16" fill="none"
-                stroke="currentColor" strokeWidth="1.6" strokeLinecap="square" strokeLinejoin="miter"
-                className="text-[var(--text-tab-idle)] group-hover:text-[var(--text-rack)] group-focus-visible:text-[var(--text-rack)] transition-colors"
-              >
-                <path d="M6 4.5 L10.5 8 L6 11.5" />
-              </svg>
-            </button>
+            />
           </div>
 
           {/* 侧栏收起时的 L 形内框 -- 左+下两条等宽线(--edge-frame-width),左下角随窗口圆角(8px)连续拐弯

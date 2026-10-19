@@ -510,6 +510,10 @@ describe('MainWindow 布局不变量', () => {
     expect(MAIN_WINDOW).toContain("setConfig('sidebarCollapsed'")
   })
 
+  it('侧栏收起同时隐藏保活网页面板，让菜单退出 Esc 栈', () => {
+    expect(MAIN_WINDOW).toContain("<WebPanel visible={activeNav === 'web' && !sidebarCollapsed}")
+  })
+
   it('收起时内框画在终端让出的槽位里,页签拖拽分屏期间让位', () => {
     expect(MAIN_WINDOW).toContain('edge-hit')   // 两条槽位命中条(左+下)
     expect(MAIN_WINDOW).toContain('edge-frame') // 单元素画整框(左+下边框,左下 8px 圆角连续)

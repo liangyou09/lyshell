@@ -1,6 +1,6 @@
 import { GroupListActions } from './GroupList'
 import { PanelHeader } from './PanelHeader'
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import type { WebviewTag } from 'electron'
@@ -645,17 +645,26 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
   // 铭牌行收纳(阈值见常量注):根宽未量得(0)不收 —— RO 的初始通知在首次
   // 绘制前落,按全簇渲染不产生闪变;jsdom 无 RO 恒全簇(测试桩依赖)
   const navCompact = rootWidth > 0 && rootWidth < WEBBAR_NAMEPLATE_COMPACT_WIDTH + (onOpenSettings ? 32 : 0) + (browserSettings.homePage ? 32 : 0)
-  // 溢出菜单(navCompact 时分组/清空的落点,功能不随收纳消失):开合 state +
+  // 清空始终收进更多菜单，窄栏再收纳分组/设置；避免首行一次误点就清空历史。
   // 收层机械(useDismiss 外点/ESC,与状态栏编码菜单/图标选择器同一套)
   const [navMoreOpen, setNavMoreOpen] = useState(false)
   const navMoreRef = useRef<HTMLDivElement>(null)
-  useDismiss(navMoreOpen, () => setNavMoreOpen(false), [navMoreRef])
-  // 退出窄栏(拉宽回平铺簇)时随收菜单:浮层虽卸载,open=true 仍占 useDismiss
-  // 的 ESC 回退栈顶(再按 ESC 会被它消费截停,又不落在任何可见层上);不复位的
-  // 话再缩窄时菜单还自行重现。与收纳态同源驱动,不必等外点/ESC 收层
+  const navMoreTriggerRef = useRef<HTMLButtonElement>(null)
+  const navMoreId = useId()
+  const closeNavMore = useCallback((): void => {
+    setNavMoreOpen(false)
+    // 菜单项卸载前归还焦点，Esc/执行动作后继续从触发钮导航。
+    if (navMoreRef.current?.contains(document.activeElement)) navMoreTriggerRef.current?.focus()
+  }, [])
+  useDismiss(navMoreOpen && visible, closeNavMore, [navMoreRef])
   useEffect(() => {
-    if (!navCompact) setNavMoreOpen(false)
-  }, [navCompact])
+    if (navMoreOpen && visible) navMoreRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus()
+  }, [navMoreOpen, visible])
+  // 切换布局、列表或面板时收口，避免隐藏菜单继续占用 ESC 栈。
+  useEffect(() => {
+    if (visible) closeNavMore()
+    else setNavMoreOpen(false)
+  }, [navCompact, listView, visible, closeNavMore])
 
   // 双开画轴内容挂载裁决(保活):首次开卷挂载,此后不再卸载 —— 合卷的裁剪由纸
   // 承担(.scroll-dual-paper overflow:hidden,纸高收到 0 整体裁掉画心),内容留树
@@ -960,8 +969,8 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
           {!navCompact && listView === 'recent' && webGroups.length > 0 && <GroupListActions allCollapsed={allGroupsCollapsed} allExpanded={allGroupsExpanded} onChange={setAllGroupsCollapsed} />}
         {/* 导航簇 —— 落点 = 活动网页页签(web-tab-controls 控制层);可用性随
             活动页签:无页签前后禁用，前后随 nav 快照，加载时显示停止按钮。
-            IconBtn lg + bright 档:按钮簇是这行的主体操作,面 28px、字面 rack
-            常亮、实色底、不叠光晕,图标 18px。窄栏收纳
+            IconBtn lg + bright 档:按钮簇共用 28px 透明操作面、rack 前景和悬停浅底，
+            18px 图标的视觉描边为 1.5px，与分组双箭头一致。窄栏收纳
             (WEBBAR_NAMEPLATE_COMPACT_WIDTH):副操作分组/清空离场让位题名,
             前后导航恒在，刷新使用 F5 */}
         <IconBtn title={t('webBar.back')} amber size="lg" bright disabled={!activeNav?.canGoBack} onClick={activeWebTabGoBack}>
@@ -979,30 +988,32 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
         >
           <StopIcon size={18} />
         </IconBtn>}
-        {/* 清空最近访问 —— 历史空时禁用,无物可清 */}
-        {!navCompact && listView === 'recent' && (
-          <IconBtn onClick={clearWebTabHistory} title={t('webBar.clear')} size="lg" bright disabled={webTabHistory.length === 0}>
-            <TrashIcon size={18} />
-          </IconBtn>
-        )}
-        {/* 溢出菜单 —— 窄栏收纳时分组/清空与设置的落点:触发钮
-            「…」+ 下拉菜单。收层走 useDismiss(外点/ESC,见 state 处注);浮层
-            挂 win-no-drag 脱离整行拖拽区,点击才落得进;项的禁用条件与平铺
-            钮完全一致,行为同源不分叉 */}
-        {navCompact && (
+        {/* 清空仅在更多菜单中提供；窄栏额外收纳设置与分组操作。 */}
+        {(navCompact || listView === 'recent') && (
           <div ref={navMoreRef} className="relative flex-shrink-0">
-            <IconBtn title={t('webBar.more')} amber size="lg" bright onClick={() => setNavMoreOpen(o => !o)}>
+            <IconBtn ref={navMoreTriggerRef} title={t('webBar.more')} aria-haspopup="menu" aria-expanded={navMoreOpen} aria-controls={navMoreOpen ? navMoreId : undefined} amber size="lg" bright onClick={() => setNavMoreOpen(o => !o)}>
               <MoreIcon size={18} />
             </IconBtn>
             {navMoreOpen && (
-              <div className="win-no-drag absolute top-full right-0 mt-1 z-50 w-[168px] bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm p-1 shadow-xl">
-                {onOpenSettings && <button type="button" role="menuitem" onClick={() => { setNavMoreOpen(false); onOpenSettings() }} className="w-full px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)]">{t('browser.title')}</button>}
-                {browserSettings.homePage && <button type="button" role="menuitem" onClick={() => { setNavMoreOpen(false); handleOpenWebTab(browserSettings.homePage) }} className="w-full px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)]">{t('browser.openHome')}</button>}
-                {listView === 'recent' && webGroups.length > 0 && (
+              <div id={navMoreId} role="menu" aria-label={t('webBar.more')}
+                onKeyDown={event => {
+                  if (event.key === 'Tab') { closeNavMore(); return }
+                  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+                  event.preventDefault()
+                  const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)'))
+                  const index = items.indexOf(document.activeElement as HTMLButtonElement)
+                  const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+                    : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+                  items[next]?.focus()
+                }}
+                className="win-no-drag absolute top-full right-0 mt-1 z-50 w-[168px] bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm p-1 shadow-xl [&_button:focus-visible]:outline [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-[var(--amber)]">
+                {navCompact && onOpenSettings && <button type="button" role="menuitem" onClick={() => { closeNavMore(); onOpenSettings() }} className="w-full px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)]">{t('browser.title')}</button>}
+                {navCompact && browserSettings.homePage && <button type="button" role="menuitem" onClick={() => { closeNavMore(); handleOpenWebTab(browserSettings.homePage) }} className="w-full px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)]">{t('browser.openHome')}</button>}
+                {navCompact && listView === 'recent' && webGroups.length > 0 && (
                   <button
                     type="button"
                     role="menuitem"
-                    onClick={() => { setNavMoreOpen(false); setAllGroupsCollapsed(!allGroupsCollapsed) }}
+                    onClick={() => { closeNavMore(); setAllGroupsCollapsed(!allGroupsCollapsed) }}
                     className="w-full px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)]"
                   >
                     {t(allGroupsCollapsed ? 'groupList.expandAll' : 'groupList.collapseAll')}
@@ -1012,7 +1023,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
                   type="button"
                   role="menuitem"
                   disabled={webTabHistory.length === 0}
-                  onClick={() => { setNavMoreOpen(false); clearWebTabHistory() }}
+                  onClick={() => { closeNavMore(); clearWebTabHistory() }}
                   className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)] disabled:opacity-40 disabled:cursor-default transition-colors"
                 >
                   <TrashIcon size={13} />

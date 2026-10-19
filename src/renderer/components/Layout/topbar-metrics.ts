@@ -18,10 +18,10 @@ export const TOPBAR_HEIGHT = 36
 export const PANEL_STRIP_HEIGHT = 30
 
 /** 左上侧栏开关 pill 预留宽 -- MainWindow 浮层挂载 / PaneTabBar 左留白共用 */
-export const TOP_LEFT_RESERVE = 32
+export const TOP_LEFT_RESERVE = 44
 
-/** 收起态展开 pill 的高度 -- 与 TOPBAR_HEIGHT 同值:32×36 方块恰好填满第一行左端,
- *  不探进终端画布;顶左角按窗口圆角 8px 收圆(镜像 edge-frame 左下角的做法)。
+/** 收起态展开控位的高度 -- 与 TOPBAR_HEIGHT 同值:44×36 控位恰好填满第一行左端,
+ *  不探进终端画布；按钮内托座的尺寸与圆角由 SidebarToggle 统一控制。
  *  刻意保留独立常量而非直接引用:行高与 pill 高是两个语义,允许再次分叉 */
 export const SIDEBAR_PILL_HEIGHT = 36
 
