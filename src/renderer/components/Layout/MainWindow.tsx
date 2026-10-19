@@ -18,7 +18,7 @@ import PluginPanel from './PluginPanel'
 import WebPanel from './WebPanel'
 import PluginViewPanel from './PluginViewPanel'
 import PluginViewDialog, { type PluginViewDialogSpec } from './PluginViewDialog'
-import SettingsPanel from './SettingsPanel'
+import SettingsPanel, { type SettingsViewRequest } from './SettingsPanel'
 import { useSessionStore } from '../../stores/session-store'
 import { useTerminalStore } from '../../stores/terminal-store'
 import { usePaneStore, findPane } from '../../stores/pane-store'
@@ -122,6 +122,7 @@ const MainWindow: React.FC = () => {
 
   // 切换左列页签 -- 持久化到 localStorage(Alt+1/2/3 与页签轨点击共用)
   const handleNavChange = useCallback((tab: NavTab) => {
+    if (tab !== 'settings') setRequestedSettingsView(null)
     setActiveNav(tab)
     try { localStorage.setItem('lyshell.navTab.v1', tab) } catch { /* quota */ }
   }, [])
@@ -138,7 +139,7 @@ const MainWindow: React.FC = () => {
   const pluginViews = React.useMemo(() => pluginItems.flatMap((p) => p.views), [pluginItems])
   const railPluginViews = React.useMemo(() => pluginViews.filter(v => v.surface !== 'settings'
     && !(v.pluginId === 'aipet' && ['chat', 'chat2'].includes(v.id))), [pluginViews])
-  const [requestedSettingsView, setRequestedSettingsView] = useState<{ key: string; nonce: number } | null>(null)
+  const [requestedSettingsView, setRequestedSettingsView] = useState<SettingsViewRequest | null>(null)
 
   // 保活集：首次激活过的复合键。切走仅 CSS 隐藏;注销/禁用/卸载的键由下方列表
   // 同步 effect 摘除（面板卸载 → webview 销毁 → main 的 guest 清理链）
@@ -1122,7 +1123,7 @@ const MainWindow: React.FC = () => {
             {activeNav === 'plugins' && <PluginPanel />}
             {/* Web 面板保活常挂载(见 webPanelAlive 注释),切走时经 visible 隐藏 */}
             {webPanelAlive && <WebPanel visible={activeNav === 'web'} onOpenSettings={() => {
-              setRequestedSettingsView({ key: 'browser', nonce: Date.now() })
+              setRequestedSettingsView(prev => ({ key: 'browser', nonce: (prev?.nonce ?? 0) + 1, returnTo: 'web' }))
               handleNavChange('settings')
             }} />}
             {/* 插件视图面板(保活):首次激活后常挂载,absolute 叠放互不挤占,同屏只
@@ -1139,7 +1140,7 @@ const MainWindow: React.FC = () => {
                 </div>
               )
             })}
-            {activeNav === 'settings' && <SettingsPanel requestedView={requestedSettingsView} />}
+            {activeNav === 'settings' && <SettingsPanel requestedView={requestedSettingsView} onReturnBrowser={() => handleNavChange('web')} />}
           </div>
           {/* 宽度调整条 */}
           <div

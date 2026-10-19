@@ -9,10 +9,11 @@ import './SettingsPanel.css'
 import { usePluginStore } from '@/stores/plugin-store'
 import { makePluginViewKey } from '@shared/plugin-types'
 import PluginViewPanel from './PluginViewPanel'
-import BrowserSettingsPanel from './BrowserSettingsPanel'
+import BrowserSettingsPanel, { type BrowserSettingsCategory } from './BrowserSettingsPanel'
+import { SettingsBackGlyph, SettingsNavigation } from './SettingsNavigation'
 
 /**
- * 设置面板集中展示常用设置，以紧凑分区适配可调宽的左侧栏。
+ * 设置面板按用途导航，每次只展示当前分类，适配可调宽的左侧栏。
  * 设置值沿用 localStorage + IPC 持久化；主题/语言初始化仍由 MainWindow 负责。
  * MCP 配置入口保留在 /help 手册的「MCP 集成」段。
  */
@@ -37,10 +38,10 @@ const SettingCard: React.FC<{
   children: React.ReactNode
 }> = ({ title, right, children }) => (
   <section className="settings-card">
-    <div className="settings-card-heading">
+    {title && <div className="settings-card-heading">
       <h2>{title}</h2>
       {right}
-    </div>
+    </div>}
     {children}
   </section>
 )
@@ -51,19 +52,55 @@ const CheckMark: React.FC = () => (
   </svg>
 )
 
-const SettingsPanel: React.FC<{ requestedView?: { key: string; nonce: number } | null }> = ({ requestedView }) => {
+const NumberStepper: React.FC<{
+  label: string
+  canDecrease: boolean
+  canIncrease: boolean
+  onStep: (direction: -1 | 1) => void
+}> = ({ label, canDecrease, canIncrease, onStep }) => {
+  const { t } = useTranslation()
+  return <span className="settings-number-stepper">
+    {([1, -1] as const).map(direction => {
+      const action = t(direction === 1 ? 'settings.increaseValue' : 'settings.decreaseValue', { setting: label })
+      return <button key={direction} type="button" title={action} aria-label={action} disabled={direction === 1 ? !canIncrease : !canDecrease} onMouseDown={event => event.preventDefault()} onClick={() => onStep(direction)}>
+        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={direction === 1 ? 'm4 10 4-4 4 4' : 'm4 6 4 4 4-4'} /></svg>
+      </button>
+    })}
+  </span>
+}
+
+export interface SettingsViewRequest {
+  key: string
+  nonce: number
+  returnTo?: 'web'
+}
+
+const BUILTIN_VIEWS = ['home', '', 'browser']
+
+const normalizeScrollback = (value: number) => Number.isFinite(value)
+  ? Math.max(1000, Math.min(100000, Math.trunc(value)))
+  : 10000
+
+const SettingsPanel: React.FC<{
+  requestedView?: SettingsViewRequest | null
+  onReturnBrowser?: () => void
+}> = ({ requestedView, onReturnBrowser }) => {
   const pluginItems = usePluginStore(state => state.items)
   const settingsViews = React.useMemo(() => pluginItems.flatMap(item => item.views).filter(view => view.surface === 'settings'), [pluginItems])
-  const [selectedView, setSelectedView] = useState(requestedView?.key ?? '')
+  const [selectedView, setSelectedView] = useState(requestedView?.key ?? 'home')
+  const [browserCategory, setBrowserCategory] = useState<BrowserSettingsCategory | null>(null)
+  const [browserVisited, setBrowserVisited] = useState(requestedView?.key === 'browser')
   const activeSettingsView = settingsViews.find(view => makePluginViewKey(view.pluginId, view.id) === selectedView)
-  useEffect(() => { setSelectedView(requestedView?.key ?? '') }, [requestedView])
+  useEffect(() => { setSelectedView(requestedView?.key ?? 'home'); setBrowserCategory(null) }, [requestedView])
   useEffect(() => {
-    if (selectedView && selectedView !== 'browser' && !activeSettingsView) setSelectedView('')
+    if (!BUILTIN_VIEWS.includes(selectedView) && !activeSettingsView) setSelectedView('home')
   }, [selectedView, activeSettingsView])
-  const [scrollbackLines, setScrollbackLines] = useState(() => {
+  useEffect(() => { if (selectedView === 'browser') setBrowserVisited(true) }, [selectedView])
+  const [scrollbackInput, setScrollbackInput] = useState(() => {
     const saved = localStorage.getItem('terminalScrollback')
-    return saved ? parseInt(saved) : 10000
+    return String(normalizeScrollback(saved ? Number(saved) : 10000))
   })
+  const scrollbackLines = Number(scrollbackInput)
   const [fontSize, setFontSize] = useState(() => {
     const saved = localStorage.getItem('terminalFontSize')
     return saved ? snapTerminalFontSize(parseInt(saved)) : DEFAULT_TERMINAL_FONT_SIZE
@@ -75,6 +112,30 @@ const SettingsPanel: React.FC<{ requestedView?: { key: string; nonce: number } |
   const { themeId, setTheme, customColors, setCustomColors } = useThemeStore()
   const { localeId, setLocale } = useLocaleStore()
   const { t } = useTranslation()
+  const categories = [
+    { key: '', icon: 'terminal', label: t('settings.terminalSettings'), hint: t('settings.navigation.terminal') },
+    { key: 'browser', icon: 'browser', label: t('browser.title'), hint: t('settings.navigation.browser') },
+    ...settingsViews.map(view => ({ key: makePluginViewKey(view.pluginId, view.id), icon: 'plugin', label: view.title }))
+  ]
+  const isHome = selectedView === 'home'
+  const title = isHome ? t('settings.title') : selectedView === 'browser' && browserCategory ? t(`browser.${browserCategory}`) : categories.find(item => item.key === selectedView)?.label ?? t('settings.title')
+  const goBack = () => {
+    if (selectedView === 'browser' && browserCategory) setBrowserCategory(null)
+    else setSelectedView('home')
+  }
+
+  const applyFontSize = (value: number) => {
+    const next = snapTerminalFontSize(value)
+    setFontSize(next)
+    localStorage.setItem('terminalFontSize', next.toString())
+    window.dispatchEvent(new CustomEvent('terminalFontSizeChanged', { detail: next }))
+  }
+
+  const applyScrollback = (value: number) => {
+    const next = normalizeScrollback(value)
+    setScrollbackInput(String(next))
+    localStorage.setItem('terminalScrollback', String(next))
+  }
 
   const applyWindowSize = async (w: number, h: number) => {
     const result = await window.electronAPI?.setWindowSize(w, h)
@@ -159,30 +220,29 @@ const SettingsPanel: React.FC<{ requestedView?: { key: string; nonce: number } |
       {/* 头行与终端页签对齐，保留窗口拖拽区。 */}
       <PanelHeader
         title={t('settings.title')}
-        titleAccessory={<button type="button" className="settings-version win-no-drag" title={t('settings.viewReleaseNotes')} aria-label={t('settings.versionReleaseNotes', { version: __APP_VERSION__ })} onClick={openReleaseNotes}>v{__APP_VERSION__}</button>}
+        titleAccessory={requestedView?.returnTo !== 'web' && <button type="button" className="settings-version win-no-drag" title={t('settings.viewReleaseNotes')} aria-label={t('settings.versionReleaseNotes', { version: __APP_VERSION__ })} onClick={openReleaseNotes}>v{__APP_VERSION__}</button>}
+        actions={requestedView?.returnTo === 'web' && onReturnBrowser && <button type="button" className="settings-back win-no-drag" title={t('settings.returnBrowser')} aria-label={t('settings.returnBrowser')} onClick={onReturnBrowser}><SettingsBackGlyph /><span>{t('settings.returnBrowser')}</span></button>}
       />
-
-      <label className="settings-section-picker">
-          <span>{t('settings.section')}</span>
-          <select className="settings-input" value={selectedView === 'browser' || activeSettingsView ? selectedView : ''} onChange={event => setSelectedView(event.target.value)}>
-            <option value="">{t('settings.general')}</option>
-            <option value="browser">{t('browser.title')}</option>
-            {settingsViews.map(view => (
-              <option key={makePluginViewKey(view.pluginId, view.id)} value={makePluginViewKey(view.pluginId, view.id)}>{view.title}</option>
-            ))}
-          </select>
-      </label>
-      {selectedView === 'browser' ? <BrowserSettingsPanel /> : activeSettingsView ? (
+      <div className="settings-frame">
+      {!isHome && <button type="button" className="settings-category-header" title={t(selectedView === 'browser' && browserCategory ? 'browser.backToCategories' : 'settings.backToCategories')} aria-label={t(selectedView === 'browser' && browserCategory ? 'browser.backToCategories' : 'settings.backToCategories')} onClick={goBack}>
+        <span className="settings-content-back" aria-hidden="true"><SettingsBackGlyph /></span>
+        <span className="settings-category-title">{title}</span>
+      </button>}
+      {isHome && <div className="settings-content settings-index"><SettingsNavigation label={t('settings.section')} items={categories} onSelect={setSelectedView} /></div>}
+      {/* 分类切换保留浏览器草稿；隐藏区域不参与布局或键盘导航。 */}
+      {(browserVisited || selectedView === 'browser') && <div className="settings-browser-content" hidden={selectedView !== 'browser'}><BrowserSettingsPanel category={browserCategory} onCategoryChange={setBrowserCategory} /></div>}
+      {activeSettingsView ? (
         <div className="settings-plugin-content">
           <PluginViewPanel key={selectedView} view={activeSettingsView} visible />
         </div>
-      ) : <div className="settings-content">
-        <SettingCard title={t('settings.sections.terminal')}>
-          <label className="settings-field-row">
-            <span>{t('settings.font')}</span>
+      ) : !isHome && selectedView !== 'browser' && <div className="settings-content" key={selectedView}>
+        {selectedView === '' && <><SettingCard title={t('settings.sections.terminal')}>
+          <div className="settings-field-row">
+            <label htmlFor="settings-terminal-font">{t('settings.font')}</label>
             <span className="settings-number-field">
               <input
                 type="number"
+                id="settings-terminal-font"
                 aria-label={t('settings.font')}
                 value={fontSize}
                 onChange={(e) => {
@@ -190,46 +250,47 @@ const SettingsPanel: React.FC<{ requestedView?: { key: string; nonce: number } |
                   const raw = parseInt(e.target.value)
                   const draft = Number.isFinite(raw) ? raw : DEFAULT_TERMINAL_FONT_SIZE
                   if ((e.nativeEvent as InputEvent).inputType == null) {
-                    const next = snapTerminalFontSize(draft)
-                    setFontSize(next)
-                    localStorage.setItem('terminalFontSize', next.toString())
-                    window.dispatchEvent(new CustomEvent('terminalFontSizeChanged', { detail: next }))
+                    applyFontSize(draft)
                   } else {
                     setFontSize(draft)
                   }
                 }}
-                onBlur={() => {
-                  const next = snapTerminalFontSize(fontSize)
-                  setFontSize(next)
-                  localStorage.setItem('terminalFontSize', next.toString())
-                  window.dispatchEvent(new CustomEvent('terminalFontSizeChanged', { detail: next }))
-                }}
+                onBlur={() => applyFontSize(fontSize)}
                 min={TERMINAL_FONT_SIZE_MIN}
                 max={TERMINAL_FONT_SIZE_MAX}
                 step={TERMINAL_FONT_SIZE_STEP}
               />
-              <span>{t('settings.px')}</span>
+              <span className="settings-number-unit">{t('settings.px')}</span>
+              <NumberStepper label={t('settings.font')} canDecrease={fontSize > TERMINAL_FONT_SIZE_MIN} canIncrease={fontSize < TERMINAL_FONT_SIZE_MAX} onStep={direction => applyFontSize(fontSize + direction * TERMINAL_FONT_SIZE_STEP)} />
             </span>
-          </label>
-          <label className="settings-field-row">
-            <span>{t('settings.buffer')}</span>
+          </div>
+          <div className="settings-field-row">
+            <label htmlFor="settings-terminal-scrollback">{t('settings.buffer')}</label>
             <span className="settings-number-field">
               <input
                 type="number"
+                id="settings-terminal-scrollback"
                 aria-label={t('settings.buffer')}
-                value={scrollbackLines}
-                onChange={(e) => {
-                  const value = parseInt(e.target.value) || 1000
-                  setScrollbackLines(value)
-                  localStorage.setItem('terminalScrollback', value.toString())
+                value={scrollbackInput}
+                onChange={e => {
+                  const input = e.target.value
+                  setScrollbackInput(input)
+                  const value = Number(input)
+                  // 合法输入立即持久化；编辑中的空值或越界草稿等失焦后统一校正。
+                  if (Number.isInteger(value) && value >= 1000 && value <= 100000) {
+                    localStorage.setItem('terminalScrollback', String(value))
+                  }
                 }}
+                onBlur={() => applyScrollback(scrollbackLines)}
+                onKeyDown={e => { if (e.key === 'Enter') applyScrollback(scrollbackLines) }}
                 min={1000}
                 max={100000}
                 step={1000}
               />
-              <span>{t('settings.lines')}</span>
+              <span className="settings-number-unit">{t('settings.lines')}</span>
+              <NumberStepper label={t('settings.buffer')} canDecrease={scrollbackLines > 1000} canIncrease={scrollbackLines < 100000} onStep={direction => applyScrollback(scrollbackLines + direction * 1000)} />
             </span>
-          </label>
+          </div>
           <div className="settings-field-row">
             <span id="settings-cursor-label">{t('settings.cursor')}</span>
             <label className="settings-switch-label">
@@ -248,10 +309,10 @@ const SettingsPanel: React.FC<{ requestedView?: { key: string; nonce: number } |
               />
             </label>
           </div>
-        </SettingCard>
-        <p className="settings-note">{t('settings.applyHint')}</p>
+          <p className="settings-note">{t('settings.applyHint')}</p>
+        </SettingCard></>}
 
-        <SettingCard
+        {selectedView === '' && <><SettingCard
           title={t('settings.theme')}
           right={<span className="settings-current-value">{AVAILABLE_THEMES.find(theme => theme.id === themeId)?.name}</span>}
         >
@@ -264,25 +325,17 @@ const SettingsPanel: React.FC<{ requestedView?: { key: string; nonce: number } |
                   type="button"
                   aria-pressed={active}
                   onClick={() => setTheme(theme.id)}
-                  title={theme.description}
+                  title={t(theme.descriptionKey)}
                   className={cn('settings-theme', active && 'is-active')}
-                  data-theme={theme.id}
-                  style={theme.id === CUSTOM_THEME_ID ? customThemeVars as React.CSSProperties : undefined}
                 >
                   <span
                     className="settings-theme-preview"
+                    data-theme={theme.id}
+                    style={theme.id === CUSTOM_THEME_ID ? customThemeVars as React.CSSProperties : undefined}
                     aria-hidden="true"
                   >
-                    <span className="settings-theme-rail">
-                      <i />
-                      <i />
-                      <i />
-                    </span>
-                    <span className="settings-theme-screen">
-                      <span />
-                      <span className="settings-theme-code">&gt;_</span>
-                      <span />
-                    </span>
+                    <span className="settings-theme-rail" />
+                    <span className="settings-theme-screen" />
                   </span>
                   <span className="settings-theme-caption">
                     <span>{theme.name}</span>
@@ -327,9 +380,9 @@ const SettingsPanel: React.FC<{ requestedView?: { key: string; nonce: number } |
               </button>
             ))}
           </div>
-        </SettingCard>
+        </SettingCard></>}
 
-        <SettingCard title={t('settings.windowSize')}>
+        {selectedView === '' && <SettingCard title={t('settings.windowSize')}>
           <select
             aria-label={t('settings.windowSize')}
             value={activeWindowPreset ? `${activeWindowPreset.width}x${activeWindowPreset.height}` : 'custom'}
@@ -377,32 +430,36 @@ const SettingsPanel: React.FC<{ requestedView?: { key: string; nonce: number } |
               {t('settings.apply')}
             </button>
           </div>
-        </SettingCard>
+        </SettingCard>}
 
-        <SettingCard title={t('settings.download')}>
+        {selectedView === '' && <SettingCard title={t('settings.download')}>
           <p className="settings-path-label">{t('settings.defaultSavePath')}</p>
-          <button
-            type="button"
-            onClick={handleSelectDownloadDir}
-            className="settings-path settings-input"
-            title={downloadDir || t('settings.clickToSelect')}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9H3V7Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-            </svg>
-            <span>{downloadDir || t('settings.clickToChoose')}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => downloadDir && window.electronAPI?.openFolder(downloadDir)}
-            disabled={!downloadDir}
-            className="settings-open-folder"
-          >
-            {t('settings.openFolder')}
-            <span aria-hidden="true">↗</span>
-          </button>
-        </SettingCard>
+          <div className="settings-path settings-input">
+            <button
+              type="button"
+              onClick={() => downloadDir && window.electronAPI?.openFolder(downloadDir)}
+              disabled={!downloadDir}
+              className="settings-path-open"
+              title={t('settings.openFolder')}
+              aria-label={t('settings.openFolder')}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9H3V7Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              onClick={handleSelectDownloadDir}
+              className="settings-path-select"
+              title={downloadDir || t('settings.clickToSelect')}
+              aria-label={t('settings.clickToSelect')}
+            >
+              <span>{downloadDir || t('settings.clickToChoose')}</span>
+            </button>
+          </div>
+        </SettingCard>}
       </div>}
+      </div>
     </div>
   )
 }

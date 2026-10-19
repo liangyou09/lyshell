@@ -19,12 +19,13 @@ import { DEFAULT_SCROLL_MATERIAL, SCROLL_MATERIAL_STORAGE_KEY, normalizeScrollMa
  *   2. 在下方 AVAILABLE_THEMES 里加一项
  *   3. 同步更新 src/renderer/theme-init.ts 的 VALID_THEMES 数组
  *      （早期 FOUC 防护脚本——故意不 import 本文件以保持最轻）
+ *   4. 在 locales/zh.json 和 locales/en.json 添加主题说明翻译
  */
 
 export interface ThemeMeta {
   id: string
   name: string
-  description: string
+  descriptionKey: string
   /** 浅色主题标记 —— applyTheme 据此在 <html> 打 data-theme-mode="light",
       供 CSS 做明暗分叉(如暗色 favicon 不反转)。Custom 主题不设此值,
       运行时按 base 底色亮度派生。 */
@@ -55,45 +56,45 @@ export const AVAILABLE_THEMES: ThemeMeta[] = [
   {
     id: 'rack-graphite',
     name: 'Graphite',
-    description: '深石墨 + 钨丝琥珀（默认）',
+    descriptionKey: 'settings.themeDescriptions.graphite',
     preview: { bgBase: '#0D1116', bgRack: '#161B20', bgSlot: '#1C2228', text: '#E4E7EA' }
   },
   {
     id: 'rack-slate',
     name: 'Slate',
-    description: '偏蓝石板，焦点同琥珀',
+    descriptionKey: 'settings.themeDescriptions.slate',
     preview: { bgBase: '#0A0F15', bgRack: '#131A23', bgSlot: '#18212C', text: '#E2E6EC' }
   },
   {
     id: 'rack-carbon',
     name: 'Carbon',
-    description: '中性炭灰，无蓝调',
+    descriptionKey: 'settings.themeDescriptions.carbon',
     preview: { bgBase: '#0F0F0F', bgRack: '#181818', bgSlot: '#1E1E1E', text: '#E6E6E6' }
   },
   {
     id: 'rack-paper',
     name: 'Paper',
-    description: 'Edge 风亮色 · 白画布 + 铜铅笔',
+    descriptionKey: 'settings.themeDescriptions.paper',
     isLight: true,
     preview: { bgBase: '#F3F3F3', bgRack: '#EBEBEB', bgSlot: '#E2E2E2', text: '#202020' }
   },
   {
     id: 'rack-lark',
     name: 'Lark',
-    description: '飞书风亮色 · 白画布 + 品牌蓝',
+    descriptionKey: 'settings.themeDescriptions.lark',
     isLight: true,
     preview: { bgBase: '#F5F6F7', bgRack: '#EDEEF0', bgSlot: '#E5E6EB', text: '#1F2329' }
   },
   {
     id: 'rack-ember',
     name: 'Ember',
-    description: '暖色暗主题，胡桃木褐 + 暖琥珀',
+    descriptionKey: 'settings.themeDescriptions.ember',
     preview: { bgBase: '#150F0A', bgRack: '#221A12', bgSlot: '#2A2018', text: '#EFE7DA' }
   },
   {
     id: 'rack-custom',
     name: 'Custom',
-    description: 'RGB 自定义底色与焦点色',
+    descriptionKey: 'settings.themeDescriptions.custom',
     preview: { bgBase: '#0D1116', bgRack: '#161B20', bgSlot: '#1C2228', text: '#E4E7EA' }
   }
 ]

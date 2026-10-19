@@ -21,10 +21,11 @@ const plugin = {
 describe('宿主插件设置', () => {
   it('选择设置嵌入安全 webview，重复宿主请求重新定位，禁用即卸载', () => {
     usePluginStore.setState({ items: [plugin] })
-    const { container, getByLabelText, rerender } = render(<SettingsPanel requestedView={{ key: 'plugin:aipet:settings', nonce: 1 }} />)
+    const { container, getByRole, rerender } = render(<SettingsPanel requestedView={{ key: 'plugin:aipet:settings', nonce: 1 }} />)
     expect(container.querySelector('webview')?.getAttribute('src')).toBe('lyshell-plugin://aipet/settings.html')
     expect(container.querySelector('webview')?.getAttribute('partition')).toBe('pluginviews:aipet')
-    fireEvent.change(getByLabelText('settings.section'), { target: { value: '' } })
+    fireEvent.click(getByRole('button', { name: 'settings.backToCategories' }))
+    fireEvent.click(getByRole('button', { name: 'settings.terminalSettings' }))
     expect(container.querySelector('webview')).toBeNull()
     rerender(<SettingsPanel requestedView={{ key: 'plugin:aipet:settings', nonce: 2 }} />)
     expect(container.querySelector('webview')).not.toBeNull()

@@ -17,6 +17,7 @@ afterEach(cleanup)
 describe('浏览器设置交互', () => {
   it('修改配置只有保存才提交，失败后保留草稿供重试', async () => {
     const view = render(<BrowserSettingsPanel />)
+    fireEvent.click(view.getByRole('button', { name: 'browser.general' }))
     await waitFor(() => expect(api).toHaveBeenCalledWith({ kind: 'get' }))
     await act(async () => {})
     fireEvent.change(view.getByLabelText('browser.homePage'), { target: { value: 'https://home.example.com' } })
@@ -32,6 +33,7 @@ describe('浏览器设置交互', () => {
   it('清理登录数据前需要确认，缓存清理独立', async () => {
     const view = render(<BrowserSettingsPanel />)
     await act(async () => {})
+    fireEvent.click(view.getByRole('button', { name: 'browser.privacy' }))
     fireEvent.click(view.getByText('browser.clearSiteData'))
     expect(api.mock.calls.some(([r]) => r.kind === 'clear')).toBe(false)
     fireEvent.click(view.getByText('browser.cancel'))
@@ -46,6 +48,7 @@ describe('浏览器设置交互', () => {
   it('密码列表不暴露秘密，新增后清空密码输入', async () => {
     api.mockImplementation(async (r: BrowserRequest) => r.kind === 'passwords' ? { success: true, passwords: [{ id: 'p1', origin: 'https://example.com', username: 'alice', updatedAt: 1 }] } : { success: true, settings: DEFAULT_BROWSER_SETTINGS, encryptionAvailable: true, passwords: [] })
     const view = render(<BrowserSettingsPanel />)
+    fireEvent.click(view.getByRole('button', { name: 'browser.passwords' }))
     await waitFor(() => expect(view.getByText('alice')).toBeTruthy())
     expect(api.mock.calls.some(([r]) => r.kind === 'savePassword')).toBe(false)
     fireEvent.click(view.getByText('browser.addPassword'))
@@ -58,5 +61,21 @@ describe('浏览器设置交互', () => {
     await waitFor(() => expect(view.queryByLabelText('browser.password')).toBeNull())
     fireEvent.click(view.getByText('browser.addPassword'))
     expect((view.getByLabelText('browser.password') as HTMLInputElement).value).toBe('')
+  })
+
+  it('只显示当前分类，切换分类保留配置草稿并统一保存', async () => {
+    const view = render(<BrowserSettingsPanel />)
+    await act(async () => {})
+    fireEvent.click(view.getByRole('button', { name: 'browser.general' }))
+    fireEvent.change(view.getByLabelText('browser.homePage'), { target: { value: 'https://home.example.com' } })
+    fireEvent.click(view.getByRole('button', { name: 'browser.backToCategories' }))
+    fireEvent.click(view.getByRole('button', { name: 'browser.network' }))
+    expect(view.queryByLabelText('browser.homePage')).toBeNull()
+    fireEvent.change(view.getByLabelText('browser.proxyMode'), { target: { value: 'direct' } })
+    fireEvent.click(view.getByRole('button', { name: 'browser.backToCategories' }))
+    fireEvent.click(view.getByRole('button', { name: 'browser.general' }))
+    expect((view.getByLabelText('browser.homePage') as HTMLInputElement).value).toBe('https://home.example.com')
+    fireEvent.click(view.getByRole('button', { name: 'browser.saveSettings' }))
+    await waitFor(() => expect(useBrowserSettingsStore.getState().settings).toMatchObject({ homePage: 'https://home.example.com', proxyMode: 'direct' }))
   })
 })

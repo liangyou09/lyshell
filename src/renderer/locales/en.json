@@ -1,5 +1,8 @@
 {
   "browser": {
+    "backToCategories": "Back to browser settings",
+    "categoryHints": { "general": "Home, search and startup", "network": "Proxy and connections", "privacy": "History, cache and cookies", "sitePermissions": "Camera, microphone and location", "passwords": "Saved accounts and sign-ins" },
+    "category": "Browser section",
     "title": "Browser settings", "scope": "For web tabs and the mini browser. Changes take effect after saving.",
     "general": "General", "homePage": "Home page", "homeHint": "Adds a Home button to the browser toolbar. Leave empty to hide it.",
     "openHome": "Open home page", "searchEngine": "Address bar search engine", "noSearch": "Off (URLs only)", "zoom": "Default page zoom",
@@ -54,6 +57,13 @@
     "recentVisits": "Recent visits"
   },
   "settings": {
+    "increaseValue": "Increase {{setting}}",
+    "decreaseValue": "Decrease {{setting}}",
+    "terminalSettings": "Terminal settings",
+    "back": "Back",
+    "backToCategories": "Back to all settings",
+    "navigation": { "appearance": "Colors and language", "terminal": "Display, appearance, window and downloads", "browser": "Home, network and privacy" },
+    "returnBrowser": "Back to browser",
     "section": "Section",
     "general": "General",
     "releaseNotes": "Release notes",
@@ -87,6 +97,15 @@
     "blinkOn": "Blink On",
     "blinkOff": "Blink Off",
     "theme": "Theme",
+    "themeDescriptions": {
+      "graphite": "Deep graphite with tungsten amber (default)",
+      "slate": "Blue-toned slate with amber accents",
+      "carbon": "Neutral charcoal with no blue tint",
+      "paper": "Edge-inspired light theme with a white canvas and copper accents",
+      "lark": "Lark-inspired light theme with a white canvas and blue accents",
+      "ember": "Warm dark theme with walnut brown and amber accents",
+      "custom": "Custom RGB background and accent colors"
+    },
     "language": "Language",
     "pickBaseColor": "Pick base color",
     "pickAccentColor": "Pick accent color",

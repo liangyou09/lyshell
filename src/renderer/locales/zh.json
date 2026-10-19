@@ -1,5 +1,8 @@
 {
   "browser": {
+    "backToCategories": "返回浏览器设置",
+    "categoryHints": { "general": "主页、搜索与启动恢复", "network": "代理服务器与连接方式", "privacy": "访问记录、缓存与 Cookie", "sitePermissions": "摄像头、麦克风与位置", "passwords": "保存与管理登录账号" },
+    "category": "浏览器分类",
     "title": "浏览器设置", "scope": "适用于网页标签页和小窗。设置保存后生效。",
     "general": "基础", "homePage": "主页", "homeHint": "填写后，浏览器工具栏会显示主页按钮。留空则隐藏。",
     "openHome": "打开主页", "searchEngine": "地址栏搜索引擎", "noSearch": "关闭搜索（仅输入网址）", "zoom": "网页默认缩放",
@@ -56,6 +59,13 @@
     "recentVisits": "最近访问"
   },
   "settings": {
+    "increaseValue": "增大{{setting}}",
+    "decreaseValue": "减小{{setting}}",
+    "terminalSettings": "终端设置",
+    "back": "返回",
+    "backToCategories": "返回全部设置",
+    "navigation": { "appearance": "主题配色与界面语言", "terminal": "显示、外观、窗口与下载", "browser": "主页、网络与隐私" },
+    "returnBrowser": "返回浏览器",
     "section": "设置分类",
     "general": "通用设置",
     "releaseNotes": "更新说明",
@@ -89,6 +99,15 @@
     "blinkOn": "闪烁开",
     "blinkOff": "闪烁关",
     "theme": "主题",
+    "themeDescriptions": {
+      "graphite": "深石墨 + 钨丝琥珀（默认）",
+      "slate": "偏蓝石板，焦点同琥珀",
+      "carbon": "中性炭灰，无蓝调",
+      "paper": "Edge 风亮色 · 白画布 + 铜铅笔",
+      "lark": "飞书风亮色 · 白画布 + 品牌蓝",
+      "ember": "暖色暗主题，胡桃木褐 + 暖琥珀",
+      "custom": "RGB 自定义底色与焦点色"
+    },
     "language": "语言",
     "pickBaseColor": "选择底色",
     "pickAccentColor": "选择焦点色",

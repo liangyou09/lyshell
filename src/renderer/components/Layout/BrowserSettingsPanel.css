@@ -1,26 +1,28 @@
 .browser-settings { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
 .browser-fields { min-width: 0; border: 0; padding: 0; margin: 0; }
-.browser-intro { margin: 0 1px 10px; color: var(--text-rack-data); font-size: 11px; line-height: 1.6; }
-.browser-field { display: flex; flex-direction: column; gap: 5px; margin: 9px 0; }
-.browser-field > span { color: var(--text-rack-data); font-size: 11px; }
-.browser-hint { color: var(--text-rack-data); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.browser-scope { margin: 16px 8px 12px; color: var(--text-rack-data); font-size: var(--settings-text-size, 12px); line-height: 1.5; }
+.browser-field { display: flex; flex-direction: column; gap: 7px; margin: 0 0 16px; }
+.browser-field > span { color: var(--text-rack-data); font-size: var(--settings-text-size, 12px); }
+.browser-hint { color: var(--text-rack-data); font-size: var(--settings-text-size, 12px); line-height: 1.5; overflow-wrap: anywhere; }
+.browser-field + .browser-hint { margin-top: -8px; margin-bottom: 16px; }
+.browser-switch-row + .browser-hint { margin-top: 8px; }
 .browser-switch-row { gap: 12px; cursor: pointer; }
 .browser-switch-row > span { flex: 1; }
 .browser-permission-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(90px, 110px); gap: 10px; align-items: center; padding: 6px 0; }
 .browser-data-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 9px; margin-bottom: 8px; }
 .browser-confirm, .browser-add-password { margin: 9px 0; padding-top: 9px; border-top: 1px solid var(--rule); }
-.browser-confirm p { margin-bottom: 8px; line-height: 1.6; }
-.browser-action-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.browser-confirm p { margin-bottom: 8px; line-height: 1.5; }
+.browser-action-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .browser-action-row > button { flex: 0 1 auto; width: auto; }
 .browser-password-entry { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 0; border-top: 1px solid var(--rule); }
 .browser-password-entry > div:first-child { flex: 1 1 100px; min-width: 0; }
-.browser-password-entry strong, .browser-password-entry span { display: block; overflow-wrap: anywhere; font-size: 11px; }
+.browser-password-entry strong, .browser-password-entry span { display: block; overflow-wrap: anywhere; font-size: var(--settings-text-size, 12px); }
 .browser-password-entry strong { font-weight: 500; }
 .browser-password-entry span { color: var(--text-rack-data); margin-top: 3px; }
 .browser-password-entry .browser-delete { flex: 0 0 auto; width: auto; }
 .browser-password-list { margin: 10px 0; }
-.browser-settings-footer { flex-shrink: 0; padding: 9px; background: var(--bg-rack); border-top: 1px solid var(--rule); }
-.browser-feedback { font-size: 11px; line-height: 1.6; margin-bottom: 8px; overflow-wrap: anywhere; color: var(--text-rack); }
+.browser-settings-footer { flex-shrink: 0; padding: 12px 14px; background: var(--bg-rack); border-top: 1px solid var(--rule); }
+.browser-feedback { font-size: var(--settings-text-size, 12px); line-height: 1.5; margin-bottom: 8px; overflow-wrap: anywhere; color: var(--text-rack); }
 .browser-feedback.is-error { color: var(--error, #d85858); }
 .browser-settings button:disabled { opacity: .5; cursor: not-allowed; }
 .browser-settings :is(input, select, button):focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }

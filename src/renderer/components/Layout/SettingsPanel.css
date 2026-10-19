@@ -1,5 +1,7 @@
 /* 设置布局使用容器宽度响应侧栏拖拽，不依赖主窗口宽度。 */
 .settings-panel {
+  --settings-font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --settings-text-size: 12px;
   container-type: inline-size;
   display: flex;
   flex-direction: column;
@@ -7,27 +9,109 @@
   min-width: 0;
   background: var(--bg-base);
   color: var(--text-rack);
-  font-family: 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  font-size: 12px;
+  font-family: var(--settings-font-family);
+  font-size: var(--settings-text-size);
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+/* 内容和表单控件共用字体与字号，层级通过字重、颜色和间距表达。 */
+.settings-frame :is(button, input, select, textarea) {
+  font-family: inherit;
+  font-size: var(--settings-text-size);
+  line-height: 1.5;
+}
+
+.settings-frame button { font-weight: 500; }
+
+/* 与 Claude 工作区内容框保持相同的侧距、小圆角和淡绢边线。 */
+.settings-frame {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  margin: 8px 6px 6px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--scroll-silk) 35%, transparent);
+  border-radius: 3px;
 }
 
 .settings-content {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 8px 8px 12px;
+  padding: 16px 14px;
   scrollbar-gutter: stable;
 }
 
-.settings-section-picker {
+.settings-back {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px;
-  border-bottom: 1px solid var(--rule);
+  gap: 3px;
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: 3px 6px 3px 2px;
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--text-rack-data);
 }
 
-.settings-section-picker select { flex: 1; min-width: 0; }
+.settings-back:hover { background: var(--bg-slot); }
+
+@container panel-header (max-width: 190px) {
+  html[lang="en"] .settings-back > span { display: none; }
+}
+
+.settings-content-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--text-rack-data);
+}
+
+.settings-category-header { display: flex; flex-shrink: 0; align-items: center; gap: 8px; width: 100%; height: 36px; padding: 5px 12px; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--text-rack) 10%, transparent); background: transparent; text-align: left; color: var(--text-rack); cursor: pointer; transition: background-color 140ms ease; }
+.settings-panel .settings-category-header:hover { background: color-mix(in srgb, var(--bg-slot) 40%, var(--bg-base)); color: var(--text-rack); }
+.settings-category-header:hover .settings-content-back { color: var(--text-rack); }
+.settings-panel .settings-category-header:active { background: var(--bg-slot); }
+.settings-panel .settings-category-header:focus-visible { outline-offset: -2px; }
+.settings-category-title { min-width: 0; font-weight: 500; font-size: var(--settings-text-size); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-index { padding: 8px; }
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  min-height: 64px;
+  padding: 12px 8px;
+  border-radius: 6px;
+  color: var(--text-rack);
+  text-align: left;
+}
+
+.settings-nav-item + .settings-nav-item::before { content: ''; position: absolute; inset: 0 8px auto 48px; height: 1px; background: var(--rule-soft); }
+.settings-nav-item:hover { background: var(--bg-slot); }
+.settings-nav-icon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 32px; color: var(--text-rack-data); }
+.settings-nav-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 4px; }
+.settings-nav-label { font-size: var(--settings-text-size); font-weight: 500; overflow-wrap: anywhere; }
+.settings-nav-hint { color: var(--text-rack-data); font-size: var(--settings-text-size); font-weight: 400; line-height: 1.5; overflow-wrap: anywhere; }
+.settings-nav-chevron { flex-shrink: 0; color: var(--text-rack-mute); }
+.settings-nav-item:hover .settings-nav-icon, .settings-nav-item:hover .settings-nav-chevron { color: var(--amber); }
+.settings-browser-content { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.settings-panel [hidden] { display: none; }
 .settings-plugin-content { flex: 1; min-height: 0; overflow: hidden; }
 
 .settings-version {
@@ -64,24 +148,22 @@
 
 .settings-card {
   min-width: 0;
-  margin-bottom: 8px;
-  padding: 9px;
-  border: 1px solid var(--rule);
-  border-radius: 5px;
-  background: var(--bg-rack);
 }
+
+.settings-card + .settings-card { position: relative; margin-top: 24px; }
+.settings-card + .settings-card::before { content: ''; position: absolute; top: -12px; inset-inline: 0; height: 1px; background: color-mix(in srgb, var(--text-rack) 7%, transparent); }
 
 .settings-card-heading {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 7px;
+  margin-bottom: 10px;
 }
 
 .settings-card-heading h2 {
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--settings-text-size);
   font-weight: 600;
 }
 
@@ -90,7 +172,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--text-rack-data);
-  font-size: 10px;
+  font-size: var(--settings-text-size);
 }
 
 .settings-theme-grid {
@@ -103,8 +185,8 @@
 .settings-language-option {
   min-width: 0;
   border: 1px solid var(--rule);
-  border-radius: 6px;
-  background: var(--bg-slot);
+  border-radius: 5px;
+  background: transparent;
   color: var(--text-rack-data);
   transition: border-color 120ms, background-color 120ms;
 }
@@ -112,62 +194,49 @@
 .settings-theme {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px;
-  min-height: 34px;
+  gap: 6px;
+  padding: 6px;
+  min-height: 32px;
   text-align: left;
-  background: var(--bg-rack);
+  border-color: var(--rule-soft);
   color: var(--text-rack);
 }
 
-/* 每个选项作用域内使用其主题令牌，选中态保留真实配色。 */
-.settings-theme.is-active {
-  border-color: var(--amber);
-  box-shadow: inset 0 0 0 1px var(--amber);
+/* 外层使用当前界面配色，缩略色样独立展示候选主题。 */
+.settings-theme.is-active,
+.settings-language-option.is-active {
+  border-color: color-mix(in srgb, var(--amber) 45%, var(--rule));
+  background: var(--amber-soft);
+  color: var(--amber);
 }
 
 .settings-theme-preview {
-  display: flex;
+  position: relative;
   flex-shrink: 0;
-  gap: 2px;
-  width: 26px;
-  height: 24px;
+  width: 18px;
+  height: 18px;
   overflow: hidden;
-  border-radius: 3px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
   background: var(--bg-base);
 }
 
 .settings-theme-rail {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  width: 25%;
-  padding: 4px 1px;
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
   background: var(--bg-slot);
 }
 
-.settings-theme-rail i {
-  height: 3px;
-  border-radius: 1px;
-  background: var(--text-rack);
-}
-
-.settings-theme-rail i { opacity: .25; }
-.settings-theme-rail i:first-child { background: var(--amber); opacity: 1; }
-
 .settings-theme-screen {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-  padding: 3px 2px 3px 0;
+  position: absolute;
+  right: 3px;
+  top: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
 }
-
-.settings-theme-screen > span:first-child { width: 100%; height: 4px; background: var(--amber); }
-.settings-theme-screen > span:last-child { width: 55%; height: 2px; background: var(--text-rack); opacity: .25; }
-.settings-theme-code { font: 8px/1 monospace; opacity: .8; }
 
 .settings-theme-caption {
   display: flex;
@@ -177,17 +246,11 @@
   min-width: 0;
   gap: 2px;
   padding: 0;
-  font-size: 10px;
+  font-size: var(--settings-text-size);
 }
 
-.settings-theme-caption > span { overflow: hidden; text-overflow: ellipsis; }
+.settings-theme-caption > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-theme-caption svg { flex-shrink: 0; }
-
-.settings-language-option.is-active {
-  border-color: var(--amber);
-  background: var(--amber-soft);
-  color: var(--amber);
-}
 
 .settings-custom-colors {
   margin-top: 12px;
@@ -206,10 +269,10 @@
   flex-wrap: wrap;
   justify-content: space-between;
   padding: 5px 0;
-  font-size: 11px;
+  font-size: var(--settings-text-size);
 }
 
-.settings-color-value { color: var(--text-rack-data); font-family: monospace; }
+.settings-color-value { color: var(--text-rack-data); font-variant-numeric: tabular-nums; }
 .settings-color-value input { width: 24px; height: 24px; padding: 0; border: 0; background: transparent; cursor: pointer; }
 
 
@@ -217,12 +280,12 @@
 .settings-note {
   margin-top: 6px;
   color: var(--text-rack-data);
-  font-size: 11px;
+  font-size: var(--settings-text-size);
   line-height: 1.5;
 }
 
 .settings-note {
-  margin: -2px 2px 9px;
+  margin: 8px 0 0;
 }
 
 .settings-field-row {
@@ -231,38 +294,62 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 36px;
+  min-height: 40px;
   padding: 4px 0;
 }
-
-.settings-field-row + .settings-field-row { border-top: 1px solid var(--rule); }
 
 .settings-number-field {
   display: flex;
   align-items: center;
-  flex: 0 1 110px;
+  flex: 0 1 128px;
   min-width: 0;
-  height: 28px;
+  height: 32px;
   overflow: hidden;
   border: 1px solid var(--rule);
-  border-radius: 5px;
+  border-radius: 6px;
   background: var(--bg-slot);
+  transition: border-color 140ms ease, background-color 140ms ease;
 }
 
 .settings-number-field input {
   width: 100%;
   min-width: 0;
   height: 100%;
-  padding-left: 8px;
+  padding: 0 4px 0 10px;
   background: transparent;
   outline: none;
-  font-family: monospace;
+  text-align: left;
+  color: var(--text-rack);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }
 
-.settings-number-field > span { padding: 0 6px; color: var(--text-rack-data); font-size: 10px; }
-.settings-number-field:focus-within { border-color: var(--amber); }
+.settings-number-unit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  flex-shrink: 0;
+  padding: 0 6px 0 4px;
+  color: var(--text-rack-data);
+  font-size: var(--settings-text-size);
+}
 
-.settings-switch-label { display: flex; align-items: center; gap: 8px; color: var(--text-rack-data); font-size: 11px; cursor: pointer; }
+.settings-number-field:hover { border-color: var(--text-rack-mute); }
+.settings-number-field:focus-within { border-color: var(--amber); }
+.settings-number-field:has(input:focus-visible) { outline: 2px solid var(--amber); outline-offset: 2px; }
+.settings-panel .settings-number-field input:focus-visible { outline: none; }
+.settings-number-field input { appearance: textfield; }
+.settings-number-field input::-webkit-inner-spin-button,
+.settings-number-field input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.settings-number-stepper { display: grid; grid-template-rows: repeat(2, minmax(0, 1fr)); flex-shrink: 0; align-self: stretch; width: 24px; padding: 1px 2px 1px 0; }
+.settings-number-stepper button { display: flex; align-items: center; justify-content: center; min-height: 0; padding: 0; border-radius: 3px; color: var(--text-rack-data); }
+.settings-number-stepper button:enabled:hover { background: var(--bg-rack); }
+.settings-number-stepper button:enabled:active { background: var(--amber-soft); }
+.settings-number-stepper button:disabled { opacity: .25; cursor: default; }
+.settings-panel .settings-number-stepper button:focus-visible { outline-offset: -2px; }
+
+.settings-switch-label { display: flex; align-items: center; gap: 8px; color: var(--text-rack-data); font-size: var(--settings-text-size); cursor: pointer; }
 
 .settings-switch {
   appearance: none;
@@ -290,48 +377,51 @@
 .settings-switch:checked::before { transform: translateX(12px); background: var(--amber); }
 
 .settings-language { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.settings-language-option { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 5px; min-height: 28px; padding: 4px; }
+.settings-language-option { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 5px; min-height: 32px; padding: 6px 8px; }
 
 .settings-input {
   width: 100%;
   min-width: 0;
-  min-height: 28px;
-  padding: 4px 7px;
+  min-height: 32px;
+  padding: 6px 8px;
   border: 1px solid var(--rule);
   border-radius: 5px;
   background: var(--bg-slot);
   color: var(--text-rack);
-  font-size: 12px;
+  font-size: var(--settings-text-size);
 }
 
 .settings-input:focus { outline: none; border-color: var(--amber); }
 .settings-preset { margin-bottom: 7px; cursor: pointer; }
-.settings-window-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; gap: 5px; align-items: center; }
-.settings-window-grid label { display: flex; min-width: 0; align-items: center; gap: 4px; }
-.settings-window-grid label > span { flex-shrink: 0; color: var(--text-rack-data); font-size: 10px; }
-.settings-window-grid input { font-family: monospace; }
+.settings-window-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; gap: 5px; align-items: end; }
+.settings-window-grid label { display: flex; min-width: 0; flex-direction: column; align-items: stretch; gap: 4px; }
+.settings-window-grid label > span { flex-shrink: 0; color: var(--text-rack-data); font-size: var(--settings-text-size); }
+.settings-window-grid input { font-variant-numeric: tabular-nums; }
 
 .settings-apply {
-  min-height: 28px;
+  min-height: 32px;
   padding: 3px 7px;
   border: 1px solid var(--amber);
   border-radius: 5px;
   background: var(--amber-soft);
   color: var(--amber);
-  font-weight: 600;
+  font-weight: 500;
 }
 
-.settings-path-label { margin-bottom: 6px; color: var(--text-rack-data); font-size: 11px; }
-.settings-path { display: flex; align-items: center; gap: 7px; text-align: left; }
-.settings-path svg { flex-shrink: 0; color: var(--text-rack-data); }
-.settings-path > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.settings-open-folder { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 30px; margin-top: 6px; color: var(--text-rack-data); font-size: 11px; text-align: left; }
-.settings-open-folder:disabled { opacity: .45; cursor: not-allowed; }
+.settings-path-label { margin-bottom: 6px; color: var(--text-rack-data); font-size: var(--settings-text-size); }
+.settings-path { display: flex; align-items: stretch; padding: 0; text-align: left; }
+.settings-path-open { display: flex; flex: 0 0 32px; align-items: center; justify-content: center; color: var(--text-rack-data); border-radius: 4px; }
+.settings-path-open:enabled:hover { background: var(--amber-soft); }
+.settings-path-open:disabled { opacity: .45; cursor: not-allowed; }
+.settings-path-select { display: flex; flex: 1; min-width: 0; align-items: center; min-height: 30px; padding: 6px 8px 6px 0; text-align: left; border-radius: 4px; }
+.settings-path-select > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .settings-panel button:enabled:hover { color: var(--amber); }
 .settings-theme:hover,
-.settings-language-option:hover,
-.settings-path:hover { border-color: var(--amber); }
+.settings-language-option:hover { background: var(--bg-slot); border-color: var(--text-rack-mute); }
+.settings-theme.is-active:hover,
+.settings-language-option.is-active:hover { background: var(--amber-soft); border-color: var(--amber); }
+.settings-path:focus-within { border-color: var(--amber); }
 
 .settings-panel button:focus-visible,
 .settings-panel input:focus-visible,
@@ -340,37 +430,34 @@
   outline-offset: 2px;
 }
 
+/* 路径是一个组合控件：外框显示焦点，底色区分当前键盘操作区域。 */
+.settings-panel .settings-path button:focus-visible { outline: none; background: var(--amber-soft); }
+.settings-path:has(button:focus-visible) { outline: 2px solid var(--amber); outline-offset: 2px; }
+
 /* 窄栏表单允许换行，主题保留一列以展示完整名称。 */
 @container (max-width: 230px) {
-  .settings-content { padding-inline: 6px; }
-  .settings-card { padding: 7px; }
+  .settings-content { padding-inline: 12px; }
+  .settings-index { padding-inline: 4px; }
+  .settings-nav-item { gap: 8px; }
   .settings-theme-grid { grid-template-columns: minmax(0, 1fr); }
+  .settings-language { grid-template-columns: minmax(0, 1fr); }
   .settings-field-row { flex-direction: column; align-items: stretch; }
   .settings-number-field { flex-basis: auto; }
   .settings-switch-label { justify-content: space-between; }
 }
 
 @container (max-width: 300px) {
-  .settings-window-grid label { position: relative; }
-  .settings-window-grid label > span { position: absolute; left: 6px; }
-  .settings-window-grid input { padding-left: 20px; padding-right: 2px; font-size: 11px; }
-  .settings-window-grid label > span { font-size: 9px; }
   html[lang="en"] .settings-window-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  html[lang="en"] .settings-window-grid label { flex-direction: column; align-items: stretch; gap: 2px; }
-  html[lang="en"] .settings-window-grid label > span { position: static; }
-  html[lang="en"] .settings-window-grid input { padding-left: 6px; }
-  html[lang="en"] .settings-apply { grid-column: 1 / -1; }
+  html[lang="en"] .settings-window-grid .settings-apply { grid-column: 1 / -1; }
 }
 
 @container (max-width: 230px) {
   .settings-window-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .settings-window-grid label { flex-direction: column; align-items: stretch; gap: 2px; }
-  .settings-window-grid label > span { position: static; }
-  .settings-window-grid input { padding-left: 6px; }
-  .settings-apply { grid-column: 1 / -1; }
+  .settings-window-grid .settings-apply { grid-column: 1 / -1; }
+  .settings-frame .browser-permission-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
 }
 
-@container (min-width: 340px) {
+@container (min-width: 440px) {
   .settings-theme-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
