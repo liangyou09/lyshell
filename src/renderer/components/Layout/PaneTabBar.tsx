@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useSessionStore, type SessionState } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import { BROWSER_NEW_TAB_URL } from '@shared/browser-settings'
+import { normalizeBookmarkUrl, useBrowserBookmarksStore } from '../../stores/browser-bookmarks-store'
 import { OVERLAY_DRAG_MARKER, parseOverlayDragMarker, resolveOverlayDragId } from './overlay-drag'
 import { harnessKindFromTags, type HarnessAgentKind } from '@shared/harness'
 import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
@@ -165,8 +166,44 @@ const WebTabContent: OverlayTabContent = ({ payload }) => {
     <>
       {payload.favicon && <WebTabFavicon key={payload.favicon} src={payload.favicon} />}
       <span className="text-xs truncate flex-1 min-w-0">{payload.url === BROWSER_NEW_TAB_URL ? t('pane.startTab') : payload.title}</span>
+      {payload.url !== BROWSER_NEW_TAB_URL && <WebTabBookmarkButton payload={payload} />}
     </>
   )
+}
+
+const WebTabBookmarkButton: React.FC<{ payload: Extract<OverlayPayload, { kind: 'web' }> }> = ({ payload }) => {
+  const { t } = useTranslation()
+  const url = normalizeBookmarkUrl(payload.nav?.url ?? payload.url)
+  const bookmarked = useBrowserBookmarksStore(s => s.bookmarks.some(item => item.url === url))
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    if (!failed) return
+    const timer = setTimeout(() => setFailed(false), 5000)
+    return () => clearTimeout(timer)
+  }, [failed])
+  if (!url) return null
+  const label = t(bookmarked ? 'webBar.removeBookmark' : 'webBar.addBookmark')
+  return <>
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      aria-pressed={bookmarked}
+      onMouseDown={e => { e.preventDefault(); e.stopPropagation() }}
+      onClick={e => {
+        e.stopPropagation()
+        const store = useBrowserBookmarksStore.getState()
+        const result = bookmarked ? store.removeBookmark(url) : store.addBookmark(url, payload.title)
+        setFailed(!result.success)
+      }}
+      className={cn('win-no-drag w-[18px] h-[18px] flex-shrink-0 flex items-center justify-center rounded-[2px] hover:bg-[var(--bg-slot)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)]', bookmarked ? 'text-[var(--amber)]' : 'text-[var(--text-tab-idle)] hover:text-[var(--amber)]')}
+    >
+      <svg aria-hidden width="13" height="13" viewBox="0 0 24 24" fill={bookmarked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="m12 3 2.78 5.63L21 9.54l-4.5 4.39 1.06 6.2L12 17.2l-5.56 2.93 1.06-6.2L3 9.54l6.22-.91L12 3Z" />
+      </svg>
+    </button>
+    {failed && createPortal(<div role="alert" className="fixed bottom-4 left-4 z-[1000] max-w-sm px-3 py-2 rounded-sm bg-[var(--bg-elev)] text-xs text-[var(--text-rack)] border border-[var(--rule)]">{t('webBar.bookmarkSaveFailed')}</div>, document.body)}
+  </>
 }
 
 const DocTabContent: OverlayTabContent = ({ payload }) => {
@@ -216,7 +253,7 @@ const OVERLAY_TAB_SPECS: Record<OverlayKind, OverlayTabSpec> = {
   },
   web: {
     Content: WebTabContent,
-    tabTitle: (p, t) => (p.kind === 'web' ? p.url === BROWSER_NEW_TAB_URL ? t('pane.startTab') : p.url : ''),
+    tabTitle: (p, t) => (p.kind === 'web' ? p.url === BROWSER_NEW_TAB_URL ? t('pane.startTab') : p.nav?.url ?? p.url : ''),
     closeTitle: t => t('pane.webTabClose')
   },
   doc: {

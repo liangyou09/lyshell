@@ -11,8 +11,8 @@ import { matchesPluginWebOrigin, uniquePluginWebOrigins } from '@shared/plugin-w
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { WebTabFavicon } from './PaneTabBar'
 import {
-  selectActiveWebTabId, navigateActiveWebTab, reloadActiveWebTab, stopActiveWebTab,
-  activeWebTabGoBack, activeWebTabGoForward, getWebview, openActiveWebTabDevTools,
+  selectActiveWebTabId, navigateActiveWebTab, stopActiveWebTab,
+  activeWebTabGoBack, activeWebTabGoForward, getWebview,
   registerMiniWebview, unregisterMiniWebview
 } from './web-tab-controls'
 import ScrollFold, { ScrollTie } from './ScrollFold'
@@ -23,6 +23,8 @@ import WebLoadError from './WebLoadError'
 import { webLoadFailureFromEvent, type WebLoadFailure } from './web-load-error'
 import { browserAddress, BROWSER_NEW_TAB_URL } from '@shared/browser-settings'
 import { useBrowserSettingsStore } from '../../stores/browser-settings-store'
+import { matchWebTabShortcut } from '@shared/webtab-shortcut'
+import { normalizeBookmarkUrl, useBrowserBookmarksStore } from '../../stores/browser-bookmarks-store'
 
 /** datalist 选项 label 用:取 hostname,取不到回落原样字符串(与页签 title 初始值同源);
     历史行本身直接显示完整 URL,不再缩略为 hostname */
@@ -120,7 +122,7 @@ const Glyph: React.FC<{ size?: number; children: React.ReactNode }> = ({ size = 
   </svg>
 )
 
-/** 导航图标组(lucide 线稿风格)——后退/前进/刷新/停止。size 供铭牌行(IconBtn
+/** 导航图标组(lucide 线稿风格)——后退/前进/停止。size 供铭牌行(IconBtn
  *  lg 档)放大到 18,缺省 12 = 小窗工具条原尺 */
 /** 后退/前进使用与活动轨一致的 chevron；18px 档占高 13.5px，
  *  与刷新图标保持相近的视觉份量。小窗仍由 size=12 缩放。 */
@@ -134,12 +136,6 @@ const ChevronRightIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
     <path d="m7 3 10 9-10 9" />
   </Glyph>
 )
-const RotateCwIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
-  <Glyph size={size}>
-    <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-    <path d="M21 3v5h-5" />
-  </Glyph>
-)
 const StopIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
   <Glyph size={size}>
     {/* 圆角提到 2(浏览器 stop 的读形):描边 2.5 下 rx1 已被吃成直角,
@@ -147,11 +143,9 @@ const StopIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
     <rect width="13" height="13" x="5.5" y="5.5" rx="2" />
   </Glyph>
 )
-/** 检查网页(客体 DevTools)图标 —— 同组线稿风格,code 括号 */
-const CodeIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
+const BookmarkIcon: React.FC<{ filled?: boolean; size?: number }> = ({ filled, size = 14 }) => (
   <Glyph size={size}>
-    <path d="m16 18 6-6-6-6" />
-    <path d="m8 6-6 6 6 6" />
+    <path fill={filled ? 'currentColor' : 'none'} d="m12 3 2.78 5.63L21 9.54l-4.5 4.39 1.06 6.2L12 17.2l-5.56 2.93 1.06-6.2L3 9.54l6.22-.91L12 3Z" />
   </Glyph>
 )
 
@@ -174,7 +168,7 @@ const NavButton: React.FC<{
 )
 
 // 统一首行新增品牌、计数和分组按钮后，需要为全簇重新预留宽度。
-// 窄栏保留三枚导航钮，分组开合与检查/清空一起收进更多菜单。
+// 窄栏保留前后导航与加载时的停止钮，分组开合与清空一起收进更多菜单。
 const WEBBAR_NAMEPLATE_COMPACT_WIDTH = 340
 
 // ===== 写轮眼小窗（栏底迷你浏览器）的持久化与几何常量 =====
@@ -288,7 +282,7 @@ const TrashIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
   </Glyph>
 )
 
-/** 溢出菜单钮(lucide more-horizontal 线稿风格)—— 窄栏收纳的检查/清空住这里;
+/** 溢出菜单钮(lucide more-horizontal 线稿风格)—— 窄栏收纳的分组操作/清空住这里;
  *  三点走实心圆(1 半径描边在 14px 下只剩亚像素点,填色才读得出「省略号」) */
 const MoreIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
   <Glyph size={size}>
@@ -382,7 +376,7 @@ const WebGroupHeader: React.FC<{
 /**
  * 网页访问面板(机柜左列 Web 页签)。
  * 双模式:活动分屏正显示网页页签时是「浏览器 chrome」—— 地址栏同步当前 URL
- * (payload.nav,did-navigate 回写)、Enter 就地导航、后退/前进/刷新/停止/检查
+ * (payload.nav,did-navigate 回写)、Enter 就地导航、后退/前进/停止
  * 按钮住铭牌行(IconBtn,指令经 web-tab-controls 落到活动页签);否则是「启动器」
  * —— 顶部 URL 栏输入完整网址,以终端页签形式打开在活动分屏(多页签,类似 dsh
  * Web 页签),打开的网页一律走终端页签栏切换/关闭,面板不再列清单。
@@ -400,8 +394,8 @@ const WebGroupHeader: React.FC<{
  * 持久化高度)的迷你浏览器:不动用终端分屏的快速查阅面,历史行上的
  * 「在小窗打开」按钮或 Ctrl+点击历史行在此预览,↗ 升格为完整网页页签,✕ 关页回空态(guest 销毁、localStorage 存档清掉);
  * webview 与完整网页页签共用 partition persist:webbar
- * (cookie/localStorage 同仓,登录态互通 —— 页签里登过小窗即登录态),快捷键转发
- * 不挂(经 dom-ready 登记 webContentsId 排除,避免路由到活动页签的错位,见
+ * (cookie/localStorage 同仓,登录态互通 —— 页签里登过小窗即登录态),F5 刷新小窗自身，
+ * 其余快捷键不转发到活动完整页签(经 dom-ready 登记 webContentsId 区分，见
  * main/index.ts),上次地址 localStorage 恢复。
  * webview 保活:本面板经 MainWindow 的 webPanelAlive 门首次激活后常挂载,此后
  * 切机柜页签只 display:none 隐藏、合卷只由纸(overflow:hidden)裁掉画心 ——
@@ -420,6 +414,17 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
   const openWebTab = usePaneStore((s) => s.openWebTab)
   const webTabHistory = usePaneStore((s) => s.webTabHistory)
   const webTabFavicons = usePaneStore((s) => s.webTabFavicons)
+  const bookmarks = useBrowserBookmarksStore(s => s.bookmarks)
+  const addBookmark = useBrowserBookmarksStore(s => s.addBookmark)
+  const removeBookmark = useBrowserBookmarksStore(s => s.removeBookmark)
+  const [listView, setListView] = useState<'recent' | 'bookmarks'>('recent')
+  const bookmarkUrls = useMemo(() => new Set(bookmarks.map(item => item.url)), [bookmarks])
+  const isBookmarked = (url: string): boolean => bookmarkUrls.has(normalizeBookmarkUrl(url) ?? '')
+  const toggleBookmark = (url: string, title?: string): void => {
+    const page = Object.values(usePaneStore.getState().overlayPayloads).find(item => item.kind === 'web' && normalizeBookmarkUrl(item.nav?.url ?? item.url) === normalizeBookmarkUrl(url))
+    const result = isBookmarked(url) ? removeBookmark(url) : addBookmark(url, title || (page?.kind === 'web' ? page.title : undefined))
+    setNotice(result.success ? null : t(`webBar.${result.error === 'storageFailed' ? 'bookmarkSaveFailed' : 'invalid'}`))
+  }
   // 最近历史的域名分组视图(组序/组内序吃历史本身的最近优先序)与组开合态:
   // host → 收起?。组件随机柜页签切换保活,开合态跨切页签留存;历史增删后
   // 消失的组在表里留的陈旧键无害
@@ -507,6 +512,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
   // onNav 每次覆写 —— did-finish-load 记历史吃它而非 getURL()，事件回调一律
   // 不碰方法面，也不赌 did-finish-load 与 dom-ready 的时序（ref 无闭包陈旧问题）
   const miniLastUrlRef = useRef<string>(miniUrl ?? '')
+  const miniTitleRef = useRef('')
   const miniInputRef = useRef<HTMLInputElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -639,7 +645,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
   // 铭牌行收纳(阈值见常量注):根宽未量得(0)不收 —— RO 的初始通知在首次
   // 绘制前落,按全簇渲染不产生闪变;jsdom 无 RO 恒全簇(测试桩依赖)
   const navCompact = rootWidth > 0 && rootWidth < WEBBAR_NAMEPLATE_COMPACT_WIDTH + (onOpenSettings ? 32 : 0) + (browserSettings.homePage ? 32 : 0)
-  // 溢出菜单(navCompact 时检查/清空的落点,功能不随收纳消失):开合 state +
+  // 溢出菜单(navCompact 时分组/清空的落点,功能不随收纳消失):开合 state +
   // 收层机械(useDismiss 外点/ESC,与状态栏编码菜单/图标选择器同一套)
   const [navMoreOpen, setNavMoreOpen] = useState(false)
   const navMoreRef = useRef<HTMLDivElement>(null)
@@ -749,7 +755,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
       setMiniCovering(false)
       // 小窗与完整页签共用 webbar partition(登录态互通):主进程的快捷键转发凭
       // webContentsId 登记区分两者,这里把小窗报上去 —— 之后小窗内的按键不再被
-      // 拦截转发到「活动完整页签」,reload/后退由 guest 原生处理。登记晚于
+      // 拦截转发到「活动完整页签」，F5 由主进程刷新小窗自身。登记晚于
       // did-attach(getWebContentsId 在 dom-ready 前调用会抛错,只能在这拍报)。
       // 保活下元素不重挂,dom-ready 每元素生命周期一次;元素级重建(极端路径)
       // 产生新 id、新元素 dom-ready 重报覆盖
@@ -761,11 +767,16 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
       const url = evt.url ?? evt.detail?.url
       const isMainFrame = evt.isMainFrame ?? evt.detail?.isMainFrame
       if (isMainFrame === false || !url) return
+      if (miniLastUrlRef.current !== url && e.type !== 'did-navigate-in-page') miniTitleRef.current = ''
       miniLastUrlRef.current = url
       setMiniUrl(url)
       setMiniNav({ canGoBack: miniEl.canGoBack(), canGoForward: miniEl.canGoForward() })
     }
     const onStartLoading = (): void => { setMiniLoading(true); setMiniCovering(true); setMiniFailed(null) }
+    const onTitle = (e: Event): void => {
+      const event = e as CustomEvent<{ title?: string }> & { title?: string }
+      miniTitleRef.current = event.title ?? event.detail?.title ?? ''
+    }
     // stop-loading 收遮罩是 dom-ready 的兜底:异常路径(不触发 dom-ready 的失败)防遮罩滞留
     const onStopLoading = (): void => { setMiniLoading(false); setMiniCovering(false) }
     const onFail = (e: Event): void => {
@@ -782,6 +793,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
     miniEl.addEventListener('did-stop-loading', onStopLoading)
     miniEl.addEventListener('did-fail-load', onFail)
     miniEl.addEventListener('did-finish-load', onLoadFinish)
+    miniEl.addEventListener('page-title-updated', onTitle)
     return () => {
       unregisterMiniWebview(miniEl)
       miniEl.removeEventListener('dom-ready', onDomReady)
@@ -791,6 +803,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
       miniEl.removeEventListener('did-stop-loading', onStopLoading)
       miniEl.removeEventListener('did-fail-load', onFail)
       miniEl.removeEventListener('did-finish-load', onLoadFinish)
+      miniEl.removeEventListener('page-title-updated', onTitle)
     }
   }, [miniEl, recordWebTabVisit])
 
@@ -814,6 +827,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
       settleWebview(() => el.reload())
       return true
     }
+    if (miniLastUrlRef.current !== norm) miniTitleRef.current = ''
     // 未挂载期冻结 src 跟随目标:挂载提交即首航地址,不先白拉一次旧存档页
     // (已挂载则 src 冻结纪律生效,导航交给 loadURL effect)
     if (el === null) setMiniSrc(norm)
@@ -934,8 +948,8 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
     >
       <PanelHeader
         title={t('webBar.title')}
-        count={navCompact ? undefined : webTabHistory.length}
-        countHint={t('panelHeader.recentVisits')}
+        count={navCompact ? undefined : listView === 'bookmarks' ? bookmarks.length : webTabHistory.length}
+        countHint={t(listView === 'bookmarks' ? 'webBar.bookmarks' : 'panelHeader.recentVisits')}
         actions={<>
           {!navCompact && onOpenSettings && <IconBtn title={t('browser.title')} amber size="lg" bright onClick={onOpenSettings}>
             <Glyph size={18}><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1" /><circle cx="12" cy="12" r="5" /></Glyph>
@@ -943,44 +957,36 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
           {!navCompact && browserSettings.homePage && <IconBtn title={t('browser.openHome')} amber size="lg" bright onClick={() => handleOpenWebTab(browserSettings.homePage)}>
             <Glyph size={18}><path d="m3 10 9-7 9 7M5 9v12h5v-7h4v7h5V9" /></Glyph>
           </IconBtn>}
-          {!navCompact && webGroups.length > 0 && <GroupListActions allCollapsed={allGroupsCollapsed} allExpanded={allGroupsExpanded} onChange={setAllGroupsCollapsed} />}
+          {!navCompact && listView === 'recent' && webGroups.length > 0 && <GroupListActions allCollapsed={allGroupsCollapsed} allExpanded={allGroupsExpanded} onChange={setAllGroupsCollapsed} />}
         {/* 导航簇 —— 落点 = 活动网页页签(web-tab-controls 控制层);可用性随
-            活动页签:无页签全禁,前后随 nav 快照,刷新/停止随加载周期换图。
+            活动页签:无页签前后禁用，前后随 nav 快照，加载时显示停止按钮。
             IconBtn lg + bright 档:按钮簇是这行的主体操作,面 28px、字面 rack
             常亮、实色底、不叠光晕,图标 18px。窄栏收纳
-            (WEBBAR_NAMEPLATE_COMPACT_WIDTH):副操作检查/清空离场让位题名,
-            主导航三钮恒在 */}
+            (WEBBAR_NAMEPLATE_COMPACT_WIDTH):副操作分组/清空离场让位题名,
+            前后导航恒在，刷新使用 F5 */}
         <IconBtn title={t('webBar.back')} amber size="lg" bright disabled={!activeNav?.canGoBack} onClick={activeWebTabGoBack}>
           <ChevronLeftIcon size={18} />
         </IconBtn>
         <IconBtn title={t('webBar.forward')} amber size="lg" bright disabled={!activeNav?.canGoForward} onClick={activeWebTabGoForward}>
           <ChevronRightIcon size={18} />
         </IconBtn>
-        <IconBtn
-          title={activeNav?.loading ? t('webBar.stop') : t('webBar.reload')}
+        {activeNav?.loading && <IconBtn
+          title={t('webBar.stop')}
           amber
           size="lg"
           bright
-          disabled={activeWebTabId === null}
-          onClick={() => (activeNav?.loading ? stopActiveWebTab() : reloadActiveWebTab(false))}
+          onClick={stopActiveWebTab}
         >
-          {activeNav?.loading ? <StopIcon size={18} /> : <RotateCwIcon size={18} />}
-        </IconBtn>
-        {/* 检查网页:打开活动网页页签客体的 DevTools —— 页面行为异常(按钮点不动、
-            疑似脚本报错)时的取证入口,报错只进客体 devtools 不开则完全不可见 */}
-        {!navCompact && (
-          <IconBtn title={t('webBar.devtools')} amber size="lg" bright disabled={activeWebTabId === null} onClick={openActiveWebTabDevTools}>
-            <CodeIcon size={18} />
-          </IconBtn>
-        )}
+          <StopIcon size={18} />
+        </IconBtn>}
         {/* 清空最近访问 —— 历史空时禁用,无物可清 */}
-        {!navCompact && (
+        {!navCompact && listView === 'recent' && (
           <IconBtn onClick={clearWebTabHistory} title={t('webBar.clear')} size="lg" bright disabled={webTabHistory.length === 0}>
             <TrashIcon size={18} />
           </IconBtn>
         )}
-        {/* 溢出菜单 —— 窄栏收纳时检查/清空的落点(功能不随收纳消失):触发钮
-            「…」+ 下拉两项。收层走 useDismiss(外点/ESC,见 state 处注);浮层
+        {/* 溢出菜单 —— 窄栏收纳时分组/清空与设置的落点:触发钮
+            「…」+ 下拉菜单。收层走 useDismiss(外点/ESC,见 state 处注);浮层
             挂 win-no-drag 脱离整行拖拽区,点击才落得进;项的禁用条件与平铺
             钮完全一致,行为同源不分叉 */}
         {navCompact && (
@@ -992,7 +998,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
               <div className="win-no-drag absolute top-full right-0 mt-1 z-50 w-[168px] bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm p-1 shadow-xl">
                 {onOpenSettings && <button type="button" role="menuitem" onClick={() => { setNavMoreOpen(false); onOpenSettings() }} className="w-full px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)]">{t('browser.title')}</button>}
                 {browserSettings.homePage && <button type="button" role="menuitem" onClick={() => { setNavMoreOpen(false); handleOpenWebTab(browserSettings.homePage) }} className="w-full px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)]">{t('browser.openHome')}</button>}
-                {webGroups.length > 0 && (
+                {listView === 'recent' && webGroups.length > 0 && (
                   <button
                     type="button"
                     role="menuitem"
@@ -1002,17 +1008,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
                     {t(allGroupsCollapsed ? 'groupList.expandAll' : 'groupList.collapseAll')}
                   </button>
                 )}
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={activeWebTabId === null}
-                  onClick={() => { setNavMoreOpen(false); openActiveWebTabDevTools() }}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)] disabled:opacity-40 disabled:cursor-default transition-colors"
-                >
-                  <CodeIcon size={13} />
-                  <span className="truncate">{t('webBar.devtools')}</span>
-                </button>
-                <button
+                {listView === 'recent' && <button
                   type="button"
                   role="menuitem"
                   disabled={webTabHistory.length === 0}
@@ -1021,7 +1017,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
                 >
                   <TrashIcon size={13} />
                   <span className="truncate">{t('webBar.clear')}</span>
-                </button>
+                </button>}
               </div>
             )}
           </div>
@@ -1039,7 +1035,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
           与会话栏过滤区底线同法)把动作区与历史区分开;导航键已迁铭牌行,
           此行只留地址栏(旧行上 px-3 已撤 —— 侧距统一由内容壳出,不再叠两层) */}
       <div className="flex-shrink-0 h-[44px] flex flex-col">
-        <div className="flex-1 flex items-center">
+        <div className="flex-1 flex items-center gap-1">
           {/* 网页访问栏 —— 双开画轴(与小窗地址栏/会话搜索框同款挂轴化,机械全在
               globals.css 的 .scroll-search 系列):两端各一竖辊,常开不随聚焦
               收放(同会话搜索框「常在的动作位」语义)—— 地址作墨 mono 居中
@@ -1101,9 +1097,9 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
               spellCheck={false}
               className="scroll-search-input relative z-[2] flex-1 min-w-0 ml-[18px] mr-[12px] bg-transparent border-none outline-none font-mono text-[13px] text-center text-[var(--text-rack)] caret-[var(--amber)]"
             />
-            {/* datalist 选项 = 全量历史(store 已封顶 30 条,无需再截) */}
+            {/* 收藏与最近访问共用地址补全，按 URL 去重。 */}
             <datalist id="lyshell-webbar-history">
-              {webTabHistory.map(url => (
+              {Array.from(new Set([...bookmarks.map(item => item.url), ...webTabHistory])).map(url => (
                 <option key={url} value={url}>{hostOf(url)}</option>
               ))}
             </datalist>
@@ -1117,10 +1113,54 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
           语法:历史卡与拖高条之间只留 6px 空气);旧 px-3 已撤不叠两层 */}
       <div className="flex-1 min-h-0 flex flex-col pt-1.5 pb-1.5 space-y-2">
 
-        {notice && <div className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] break-all">{notice}</div>}
+        {notice && <div role="status" className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] break-all">{notice}</div>}
+
+        <div role="tablist" aria-label={t('webBar.websiteLists')} className="flex flex-shrink-0 gap-1 border-b border-[var(--rule-soft)]">
+          {(['recent', 'bookmarks'] as const).map(view => (
+            <button
+              key={view}
+              type="button"
+              role="tab"
+              id={`web-list-tab-${view}`}
+              aria-selected={listView === view}
+              aria-controls="web-list-content"
+              tabIndex={listView === view ? 0 : -1}
+              onClick={() => setListView(view)}
+              onKeyDown={e => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return
+                e.preventDefault()
+                const next = e.key === 'Home' ? 'recent' : e.key === 'End' ? 'bookmarks' : view === 'recent' ? 'bookmarks' : 'recent'
+                setListView(next)
+                document.getElementById(`web-list-tab-${next}`)?.focus()
+              }}
+              className={cn('flex items-center gap-1.5 min-w-0 px-2 py-1.5 text-xs border-b-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)]', listView === view ? 'border-[var(--amber)] text-[var(--text-rack)]' : 'border-transparent text-[var(--text-rack-data)] hover:bg-[var(--bg-slot)]')}
+            >
+              {view === 'bookmarks' && <BookmarkIcon />}
+              <span>{t(`webBar.${view}`)}</span>
+              <span className="text-[var(--text-rack-data)]">{view === 'recent' ? webTabHistory.length : bookmarks.length}</span>
+            </button>
+          ))}
+        </div>
+
+        <div id="web-list-content" role="tabpanel" aria-labelledby={`web-list-tab-${listView}`} className="flex-1 min-h-0 flex flex-col">
+        {listView === 'bookmarks' && (
+          <div className="rack-scroll flex-1 min-h-0 overflow-y-auto">
+            {bookmarks.length === 0 ? (
+              <p className="px-3 py-4 text-xs leading-relaxed text-[var(--text-rack-data)]">{t('webBar.bookmarksEmpty')}</p>
+            ) : bookmarks.map(item => (
+              <div key={item.url} className="flex items-center gap-1 px-2 py-1 border-b border-[var(--rule-soft)] hover:bg-[var(--bg-slot)]">
+                <button type="button" onClick={e => { if (e.ctrlKey || e.metaKey) loadMini(item.url); else openWebTab(item.url) }} title={item.url} className="flex-1 min-w-0 py-1 text-left text-xs text-[var(--text-rack)] hover:text-[var(--amber)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)]">
+                  <span className="block truncate">{item.title}</span>
+                </button>
+                <button type="button" title={t('webBar.openMini')} onClick={() => loadMini(item.url)} className="w-6 h-6 flex-shrink-0 flex items-center justify-center text-[var(--text-rack)] hover:text-[var(--amber)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)]"><MiniOpenIcon size={14} /></button>
+                <button type="button" title={t('webBar.removeBookmark')} onClick={() => toggleBookmark(item.url)} className="w-6 h-6 flex-shrink-0 flex items-center justify-center text-[var(--amber)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)]"><BookmarkIcon filled /></button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* 分组列表：单画轴独立开合，顶部按钮批量展开或收起。 */}
-        {webGroups.length > 0 && (
+        {listView === 'recent' && webGroups.length > 0 && (
           <div className="group-list scroll-dual-web flex-1 min-h-0">
             <div className="group-list-viewport rack-scroll">
               <div className="group-list-body">
@@ -1154,6 +1194,16 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
                             >
                               {url}
                             </button>
+                            <button
+                              type="button"
+                              title={t(isBookmarked(url) ? 'webBar.removeBookmark' : 'webBar.addBookmark')}
+                              aria-pressed={isBookmarked(url)}
+                              disabled={!normalizeBookmarkUrl(url)}
+                              onClick={() => toggleBookmark(url)}
+                              className={cn('w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-sm hover:bg-[var(--bg-slot)] disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)]', isBookmarked(url) ? 'text-[var(--amber)]' : 'text-[var(--text-rack)]')}
+                            >
+                              <BookmarkIcon filled={isBookmarked(url)} />
+                            </button>
                             {/* 在小窗打开 —— 显式按钮(此前只有 Ctrl+点击隐藏手势):与 Ctrl+点击
                                 同走 loadMini 入口,小窗收着时顺手重开(见 loadMini),同址 = 刷新 */}
                             <button
@@ -1181,6 +1231,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
 
           </div>
         )}
+        </div>
       </div>
 
       {/* ===== 写轮眼小窗双开画轴 —— 栏底面板的展开/收起挂轴化 =====
@@ -1203,6 +1254,18 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
           挂 scroll-dual-web 青蓝段身份(与最近访问墙同一件物,取
           --web-group,不取 amber) */}
       <div
+        onKeyDownCapture={e => {
+          const action = matchWebTabShortcut({
+            type: 'keyDown', key: e.key, control: e.ctrlKey, alt: e.altKey,
+            shift: e.shiftKey, meta: e.metaKey, isAutoRepeat: e.repeat,
+            isComposing: e.nativeEvent.isComposing
+          })
+          if (action !== 'reload' && action !== 'reload-hard') return
+          e.preventDefault()
+          e.stopPropagation()
+          if (!miniReady || !miniUrl) return
+          settleWebview(() => action === 'reload-hard' ? miniEl?.reloadIgnoringCache() : miniEl?.reload())
+        }}
         className={cn(
           'scroll-dual scroll-dual-compact scroll-dual-web web-mini-browser -mx-1.5 flex-shrink-0 select-none',
           miniClosed ? 'rolled' : 'open',
@@ -1272,9 +1335,9 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
           <div className="scroll-dual-body">
             {miniContentMounted && (
               <div className="flex flex-col h-full">
-                {/* 迷你工具条:勾玉开眼指示 + 后退/前进/刷新停止 + 小窗地址(datalist
-                    复用主地址栏的全量历史)+ 升格 + 关页。tooltip 不写快捷键提示 —— 小窗不挂
-                    before-input-event 转发(路由错位问题,见 main/index.ts),写了就是假话。
+                {/* 迷你工具条:勾玉开眼指示 + 后退/前进/加载时停止 + 小窗地址(datalist
+                    复用主地址栏的全量历史)+ 升格 + 关页。刷新由 F5 处理，
+                    guest 内的按键由主进程直接刷新小窗，不转发到完整页签。
                     条高 32px = 双开画轴地址栏的满高(辊 24px 上下各留 4px 气) */}
                 <div className="flex items-center gap-[3px] px-2 h-[32px] flex-shrink-0 bg-[var(--bg-rack)] border-b border-[var(--rule)]">
                   <MiniEyeGlyph lit={miniUrl !== null} label={t('webBar.mini')} />
@@ -1284,13 +1347,13 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
                   <NavButton title={t('webBar.miniForward')} disabled={!miniNav.canGoForward} onClick={() => settleWebview(() => miniEl?.goForward())}>
                     <ChevronRightIcon />
                   </NavButton>
-                  <NavButton
-                    title={miniLoading ? t('webBar.miniStop') : t('webBar.miniReload')}
+                  {miniLoading && <NavButton
+                    title={t('webBar.miniStop')}
                     disabled={miniUrl === null || !miniReady}
-                    onClick={() => settleWebview(() => (miniLoading ? miniEl?.stop() : miniEl?.reload()))}
+                    onClick={() => settleWebview(() => miniEl?.stop())}
                   >
-                    {miniLoading ? <StopIcon /> : <RotateCwIcon />}
-                  </NavButton>
+                    <StopIcon />
+                  </NavButton>}
                   {/* 小窗地址 —— 双开画轴(与会话搜索框同款挂轴化,机械全在 globals.css 的
                       .scroll-search 系列):两端各一竖辊,常开不随聚焦收放(同主地址栏/
                       会话搜索框「常在动作位」语义)—— 地址作墨 mono 居中落于纸面、
@@ -1330,6 +1393,9 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
                       className="scroll-search-input relative z-[2] flex-1 min-w-0 mx-[18px] bg-transparent border-none outline-none font-mono text-[11px] text-center text-[var(--text-rack)] caret-[var(--amber)]"
                     />
                   </label>
+                  <NavButton title={t(isBookmarked(miniUrl ?? '') ? 'webBar.removeBookmark' : 'webBar.addBookmark')} disabled={!normalizeBookmarkUrl(miniUrl ?? '')} onClick={() => toggleBookmark(miniUrl ?? '', miniTitleRef.current)}>
+                    <BookmarkIcon filled={isBookmarked(miniUrl ?? '')} size={12} />
+                  </NavButton>
                   <NavButton title={t('webBar.miniOpenTab')} disabled={miniUrl === null} onClick={handleMiniPromote}>
                     <PromoteIcon />
                   </NavButton>

@@ -5,7 +5,8 @@ import { useTranslation } from 'react-i18next'
 import SessionsPanel from './SessionsPanel'
 import ActivityRail, { type NavTab, RAIL_WIDTH, isFixedNavTab } from './ActivityRail'
 import AgentsPanel from './AgentsPanel'
-import SplitPaneContainer, { isTextEditingTarget } from './SplitPaneContainer'
+import SplitPaneContainer from './SplitPaneContainer'
+import { isWebTabShortcutTarget } from './keyboard-target'
 import WebTabLayer from './WebTabLayer'
 import { FIND_IN_TAB_EVENT } from '../Search/SearchableTab'
 import FloatWindow from '../FloatWindow/FloatWindow'
@@ -819,13 +820,7 @@ const MainWindow: React.FC = () => {
       //   activePaneId 不移 DOM 焦点,焦点残留在别的 pane 的终端时按键归终端
       //   (Ctrl+R 反向搜索);活动 pane 自己的隐藏终端残留焦点时,眼前显示的
       //   正是网页,刷新即所见即所得
-      const target = e.target
-      if (target instanceof HTMLElement) {
-        if (isTextEditingTarget(target) && e.key !== 'F12') return
-        if (target.closest('.xterm') &&
-          target.closest('[data-pane-id]')?.getAttribute('data-pane-id') !==
-          usePaneStore.getState().layout.activePaneId) return
-      }
+      if (!isWebTabShortcutTarget(e.target, e.key, usePaneStore.getState().layout.activePaneId)) return
       const action = matchWebTabShortcut({
         type: 'keyDown',
         key: e.key,

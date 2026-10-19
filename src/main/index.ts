@@ -44,7 +44,7 @@ import { validateManifest, manifestPluginViews, isPluginFrameNavigationAllowed }
 import { dshWebManager } from './dsh/web'
 import { KILL_STEP_TIMEOUT_FLOOR_MS, sweepOrphanDshWeb } from './dsh/proc'
 import { IPC_CHANNELS, WEBBAR_DEEPLINK_SCHEMES, WEBBAR_PARTITION, DSH_WEB_PARTITION } from '@shared/constants'
-import { matchWebTabShortcut } from '@shared/webtab-shortcut'
+import { handleBrowserShortcut } from './browser/shortcuts'
 import { createLogTap } from '@shared/log-throttle'
 import { decideWebviewFrameNavigation, gateWebviewSubframeNavigation } from './webview-frame-navigation'
 import { PendingWebbarPostStore, webbarPostLoadOptions, webbarPostRawBytesWithinLimit } from './webbar-post'
@@ -111,11 +111,11 @@ let stopMcpHttpServerImpl: (() => Promise<void>) | undefined
 
 // 写轮眼小窗（左列 Web 面板栏底迷你浏览器）的 webContentsId —— 小窗并入 webbar
 // partition 后 session 身份不再能区分小窗与完整页签，而 webbar 挂的快捷键转发
-// 一律指向「活动完整页签」，小窗若同样被转发会出现「焦点在小窗内按 Ctrl+R 却
+// 一律指向「活动完整页签」，小窗若同样被转发会出现「焦点在小窗内按 F5 却
 // 刷新了别的页签」的错位。渲染层在小窗 dom-ready 后经 WEBBAR_REGISTER_MINI 把
 // webContentsId 报上来（getWebContentsId 等 webview 方法面 dom-ready 前一律抛错，
 // 登记只能在那时），before-input-event 转发在事件拍核对这份登记、跳过小窗 ——
-// 页面级按键原样进页面，reload/后退由 guest 原生处理（工具条按钮仍可用）。
+// F5 就地刷新小窗自身，其余页面级按键原样进页面。
 // 登记前的小窗按键会按完整页签路由：竞态窗极小（小窗需先被点击聚焦，点击必然
 // 晚于 dom-ready）；小窗重挂（关再开/切回 Web 面板）产生新 id、dom-ready 重报，
 // 槽位后者覆盖前者；登记 handler 里挂 destroyed 自清，小窗销毁即清空槽位
@@ -702,19 +702,16 @@ function createMainWindow(): void {
       return { action: 'deny' }
     })
     // 网页页签快捷键：焦点进 webview 后键盘全被 guest 吃掉，宿主 keydown 收不到。
-    // 在 guest 事件分发前拦截浏览器手势（Ctrl+R/Alt+←→/Ctrl+L 等），掐掉
+    // 在 guest 事件分发前拦截浏览器手势（F5/Alt+←→/Ctrl+L 等），掐掉
     // guest 的默认动作后转发渲染层路由到「活动网页页签」—— 与宿主侧快捷键
     // 走同一控制层。dsh web 仅接入 Ctrl+F 内容查找，保留其余页面按键；写轮眼小窗
-    // 与完整页签同 session，凭 webbarMiniWebContentsId 在事件拍排除（登记细节
-    // 见其注释）—— 小窗内的按键原样进页面。
+    // 与完整页签同 session，凭 webbarMiniWebContentsId 区分（登记细节见其注释），
+    // 小窗 F5 直接刷新自身，其余按键原样进页面。
     if (isWebbar || isDsh) {
       webContents.on('before-input-event', (event, input) => {
-        if (webContents.id === webbarMiniWebContentsId) return
-        const action = matchWebTabShortcut(input)
-        if (!action) return
-        if (!isWebbar && action !== 'find') return
-        event.preventDefault()
-        mainWindow?.webContents.send(IPC_CHANNELS.WEB_TAB_SHORTCUT, action)
+        handleBrowserShortcut(webContents, event, input,
+          webContents.id === webbarMiniWebContentsId ? 'mini' : isWebbar ? 'tab' : 'dsh',
+          action => mainWindow?.webContents.send(IPC_CHANNELS.WEB_TAB_SHORTCUT, action))
       })
     }
     // guest 页面 console 转发（取证通道）：webview 客体里页面脚本的报错（Uncaught

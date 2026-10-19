@@ -40,10 +40,12 @@ import { render, cleanup, screen, act, fireEvent, waitFor } from '@testing-libra
 import type { WebviewTag } from 'electron'
 import { usePaneStore } from '../../stores/pane-store'
 import { useUiStore } from '../../stores/ui-store'
+import { BROWSER_BOOKMARKS_KEY, useBrowserBookmarksStore } from '../../stores/browser-bookmarks-store'
 import { registerWebview, unregisterWebview } from './web-tab-controls'
 import type { OverlayPayload, WebTabNav } from '@shared/types'
 import { WEBBAR_PARTITION } from '@shared/constants'
 import WebPanel from './WebPanel'
+import PaneTabBar from './PaneTabBar'
 import '../../i18n'
 
 const navOf = (patch: Partial<WebTabNav>): WebTabNav => ({
@@ -110,6 +112,7 @@ const webviewProto = document.createElement('webview').constructor.prototype as 
 if (!webviewProto['loadURL']) {
   webviewProto['loadURL'] = vi.fn()
   webviewProto['reload'] = vi.fn()
+  webviewProto['reloadIgnoringCache'] = vi.fn()
   webviewProto['goBack'] = vi.fn()
   webviewProto['goForward'] = vi.fn()
   webviewProto['stop'] = vi.fn()
@@ -123,6 +126,7 @@ if (!webviewProto['loadURL']) {
 type MiniWebviewStub = HTMLUnknownElement & {
   loadURL: ReturnType<typeof vi.fn>
   reload: ReturnType<typeof vi.fn>
+  reloadIgnoringCache: ReturnType<typeof vi.fn>
   goBack: ReturnType<typeof vi.fn>
   goForward: ReturnType<typeof vi.fn>
   stop: ReturnType<typeof vi.fn>
@@ -141,12 +145,14 @@ const fireDomReady = (): void => {
 
 beforeEach(() => {
   useUiStore.setState({ webBarFocusRequest: 0 })
+  useBrowserBookmarksStore.setState({ bookmarks: [] })
+  localStorage.removeItem(BROWSER_BOOKMARKS_KEY)
   unregisterWebview('web-1')
   // 小窗恢复地址不跨用例带毒
   localStorage.removeItem('lyshell.webbarMini.url.v1')
   // 原型桩是全文件共享的 mock，逐例清计数（方法面全量清，防前例调用计数
   // 污染后续断言 —— getURL/canGoBack/canGoForward 同样是断言对象）
-  for (const k of ['loadURL', 'reload', 'goBack', 'goForward', 'stop', 'getURL', 'canGoBack', 'canGoForward', 'getWebContentsId'] as const) {
+  for (const k of ['loadURL', 'reload', 'reloadIgnoringCache', 'goBack', 'goForward', 'stop', 'getURL', 'canGoBack', 'canGoForward', 'getWebContentsId'] as const) {
     (webviewProto[k] as ReturnType<typeof vi.fn>).mockClear()
   }
   // electronAPI 桩：带历史的用例会打 favicon 猜测（缺省会变未处理拒绝）；
@@ -163,6 +169,97 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   unregisterWebview('web-1')
+})
+
+describe('网址收藏', () => {
+  const renderWithWebTab = () => {
+    const pane = usePaneStore.getState().layout.root
+    if (pane.type !== 'leaf') throw new Error('Expected one pane')
+    return render(<><PaneTabBar pane={pane} isTop /><WebPanel /></>)
+  }
+
+  it('主地址栏不再提供收藏入口', () => {
+    setupBrowserMode()
+    usePaneStore.setState({ layout: { root: { id: 'pane-1', type: 'leaf', sessions: [], activeSessionId: null, overlays: [] }, activePaneId: 'pane-1' }, overlayPayloads: {} })
+    render(<WebPanel />)
+    fireEvent.change(inputOf(), { target: { value: 'docs.example.com/guide' } })
+    expect(screen.getAllByRole('button', { name: 'Bookmark this URL' })).toHaveLength(1)
+    expect((screen.getByRole('button', { name: 'Bookmark this URL' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(useBrowserBookmarksStore.getState().bookmarks).toEqual([])
+    expect(Object.keys(usePaneStore.getState().overlayPayloads)).toHaveLength(0)
+  })
+
+  it('小窗星标收藏小窗实际地址，不误收活动页签地址', async () => {
+    setupBrowserMode()
+    localStorage.setItem('lyshell.webbarMini.url.v1', 'https://mini.example/preview')
+    render(<WebPanel />)
+    await waitFor(() => expect(document.querySelector('webview')).toBeTruthy())
+    act(() => { wvOf().dispatchEvent(Object.assign(new Event('page-title-updated'), { title: '小窗预览文档' })) })
+    fireEvent.click(screen.getByRole('button', { name: 'Bookmark this URL' }))
+    expect(useBrowserBookmarksStore.getState().bookmarks).toEqual([{ url: 'https://mini.example/preview', title: '小窗预览文档' }])
+    fireEvent.click(screen.getByRole('button', { name: 'Remove bookmark' }))
+    expect(useBrowserBookmarksStore.getState().bookmarks).toEqual([])
+  })
+
+  it('收藏导航后的实际地址，保留标题；编辑地址栏不改变当前页收藏目标', () => {
+    setupBrowserMode(navOf({ url: 'https://redirect.example/docs#intro' }))
+    renderWithWebTab()
+    fireEvent.change(inputOf(), { target: { value: 'https://draft.example/' } })
+    fireEvent.click(screen.getAllByRole('button', { name: 'Bookmark this URL' })[0])
+    expect(useBrowserBookmarksStore.getState().bookmarks).toEqual([{ url: 'https://redirect.example/docs#intro', title: 'example' }])
+    expect(screen.getAllByRole('button', { name: 'Remove bookmark' })[0].getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('tab', { name: /Bookmarks/ }))
+    const bookmark = screen.getByRole('button', { name: 'example' })
+    expect(bookmark.title).toBe('https://redirect.example/docs#intro')
+    expect(bookmark.textContent).toBe('example')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Remove bookmark' })[1])
+    expect(useBrowserBookmarksStore.getState().bookmarks).toEqual([])
+    expect(screen.getByText(/Click the star on a web tab/)).toBeTruthy()
+  })
+
+  it('从最近访问收藏，清空历史不删除收藏，并可打开页签或小窗', () => {
+    setupBrowserMode()
+    const url = 'https://saved.example/guide'
+    usePaneStore.setState({ webTabHistory: [url] })
+    render(<WebPanel />)
+    const historyRow = screen.getByRole('button', { name: url }).parentElement!
+    fireEvent.click(historyRow.querySelector<HTMLButtonElement>('[title="Bookmark this URL"]')!)
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    expect(usePaneStore.getState().webTabHistory).toEqual([])
+    fireEvent.click(screen.getByRole('tab', { name: /Bookmarks/ }))
+    const saved = screen.getByRole('button', { name: 'saved.example' })
+    expect(saved.title).toBe(url)
+    fireEvent.click(saved, { ctrlKey: true })
+    expect(miniInputOf().value).toBe(url)
+    fireEvent.click(saved)
+    expect(Object.values(usePaneStore.getState().overlayPayloads).some(item => item.kind === 'web' && item.url === url)).toBe(true)
+    expect(useBrowserBookmarksStore.getState().bookmarks).toHaveLength(1)
+    expect(JSON.parse(localStorage.getItem(BROWSER_BOOKMARKS_KEY)!)).toHaveLength(1)
+  })
+
+  it('收藏空态支持键盘切换，新标签页不能收藏', () => {
+    setupBrowserMode()
+    usePaneStore.setState({ overlayPayloads: { 'web-1': { kind: 'web', url: 'lyshell://new-tab', title: 'New tab' } } })
+    renderWithWebTab()
+    expect((screen.getAllByRole('button', { name: 'Bookmark this URL' })[0] as HTMLButtonElement).disabled).toBe(true)
+    const recent = screen.getByRole('tab', { name: /Recent/ })
+    fireEvent.keyDown(recent, { key: 'ArrowRight' })
+    const bookmarks = screen.getByRole('tab', { name: /Bookmarks/ })
+    expect(document.activeElement).toBe(bookmarks)
+    expect(bookmarks.getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByText(/Click the star on a web tab/)).toBeTruthy()
+  })
+
+  it('存储失败时显示提示，星标保持未收藏', () => {
+    setupBrowserMode()
+    renderWithWebTab()
+    const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('full') })
+    try {
+      fireEvent.click(screen.getAllByRole('button', { name: 'Bookmark this URL' })[0])
+      expect(screen.getByRole('alert').textContent).toMatch(/Could not save bookmarks/)
+      expect(screen.queryByRole('button', { name: 'Remove bookmark' })).toBeNull()
+    } finally { write.mockRestore() }
+  })
 })
 
 describe('小窗失败页', () => {
@@ -471,6 +568,32 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
       expect((window.electronAPI.registerWebbarMini as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(4242))
   })
 
+  it('小窗移除刷新按钮，工具条 F5 只刷新小窗，加载时可停止', async () => {
+    setupBrowserMode()
+    const active = makeWebview()
+    registerWebview('web-1', active as unknown as WebviewTag)
+    render(<WebPanel />)
+    fireEvent.change(miniInputOf(), { target: { value: 'https://mini.example/' } })
+    fireEvent.keyDown(miniInputOf(), { key: 'Enter' })
+    await waitFor(() => expect(document.querySelector('webview')).toBeTruthy())
+    const mini = wvOf()
+    expect(screen.queryByTitle('Reload')).toBeNull()
+    fireEvent.keyDown(miniInputOf(), { key: 'F5' })
+    expect(mini.reload).not.toHaveBeenCalled()
+    fireDomReady()
+    fireEvent.keyDown(miniInputOf(), { key: 'F5' })
+    fireEvent.keyDown(miniInputOf(), { key: 'F5', shiftKey: true })
+    expect(mini.reload).toHaveBeenCalledOnce()
+    expect(mini.reloadIgnoringCache).toHaveBeenCalledOnce()
+    expect(active.reload).not.toHaveBeenCalled()
+    expect(active.reloadIgnoringCache).not.toHaveBeenCalled()
+    act(() => { mini.dispatchEvent(new Event('did-start-loading')) })
+    fireEvent.click(screen.getByTitle('Stop loading'))
+    expect(mini.stop).toHaveBeenCalledOnce()
+    act(() => { mini.dispatchEvent(new Event('did-stop-loading')) })
+    expect(screen.queryByTitle('Stop loading')).toBeNull()
+  })
+
   it('非法地址 → 面板公共 notice 通道，不开眼', async () => {
     setupBrowserMode()
     render(<WebPanel />)
@@ -624,25 +747,33 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     expect((screen.getByTitle('Clear') as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('导航簇（后退/前进/刷新/检查）住铭牌行（IconBtn lg/bright 档脱离拖拽区），可用性随活动页签与 nav 快照', () => {
+  it('导航簇保留后退/前进，移除刷新与检查按钮，加载时可停止', () => {
     setupBrowserMode()
     render(<WebPanel />)
-    for (const title of ['Back (Alt+←)', 'Forward (Alt+→)', 'Reload (Ctrl+R)', 'Toggle DevTools (F12)']) {
+    for (const title of ['Back (Alt+←)', 'Forward (Alt+→)']) {
       const btn = screen.getByTitle(title) as HTMLButtonElement
       expect(btn.className).toContain('win-no-drag')
       expect(btn.closest('.win-drag')).toBeTruthy()   // 所在行 = 铭牌拖拽区
       // 与清空钮保持相同操作面。
       expect(btn.className).toContain('w-[28px]')
     }
-    // 桩 nav 快照 canGoBack/canGoForward = false → 前后禁用;有活动页签 →
-    // 刷新/检查可用(刷新与停止共用一钮,非 loading 态题「Reload (Ctrl+R)」)
+    // 前后可用性跟随导航快照，停止按钮只在加载时出现。
     expect((screen.getByTitle('Back (Alt+←)') as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByTitle('Forward (Alt+→)') as HTMLButtonElement).disabled).toBe(true)
-    expect((screen.getByTitle('Reload (Ctrl+R)') as HTMLButtonElement).disabled).toBe(false)
-    expect((screen.getByTitle('Toggle DevTools (F12)') as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.queryByTitle('Reload (F5)')).toBeNull()
+    expect(screen.queryByTitle('Stop loading')).toBeNull()
+    expect(screen.queryByTitle('Toggle DevTools (F12)')).toBeNull()
+    const el = makeWebview()
+    registerWebview('web-1', el as unknown as WebviewTag)
+    act(() => { usePaneStore.getState().setWebTabNav('web-1', { loading: true }) })
+    fireEvent.click(screen.getByTitle('Stop loading'))
+    expect(el.stop).toHaveBeenCalledOnce()
+    expect(el.reload).not.toHaveBeenCalled()
+    act(() => { usePaneStore.getState().setWebTabNav('web-1', { loading: false }) })
+    expect(screen.queryByTitle('Stop loading')).toBeNull()
   })
 
-  it('窄栏收纳:根宽 < 340 时分组操作/检查/清空进入菜单,主导航三钮恒在;宽回来归位', () => {
+  it('窄栏收纳:分组操作/清空进入菜单，检查入口在窄栏菜单与宽栏均不出现', () => {
     // jsdom 无 ResizeObserver:桩一个捕获回调的类,手动喂根宽
     let fire: ResizeObserverCallback = () => {}
     class ROStub {
@@ -659,17 +790,17 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
       vi.spyOn(root, 'getBoundingClientRect').mockReturnValue(rect)
       act(() => fire([], undefined as unknown as ResizeObserver))
       // 240 默认宽:次操作收进溢出菜单(「…」)，为题名留座。
-      // 主导航三钮在
+      // 前后导航保留，刷新按钮不再出现。
       expect(screen.queryByTitle('Toggle DevTools (F12)')).toBeNull()
       expect(screen.queryByTitle('Clear')).toBeNull()
       expect(screen.getByTitle('More actions')).toBeTruthy()
-      expect(screen.getByTitle('Reload (Ctrl+R)')).toBeTruthy()
+      expect(screen.queryByTitle('Reload (F5)')).toBeNull()
       expect(screen.getByTitle('Back (Alt+←)')).toBeTruthy()
       expect(screen.getByTitle('Forward (Alt+→)')).toBeTruthy()
-      // 开菜单:两项齐(文字直读,禁用条件与平铺钮同源);点清空真执行且菜单收起
+      // 开菜单:仅保留分组和清空，点清空真执行且菜单收起。
       act(() => { usePaneStore.setState({ webTabHistory: ['https://a.example.com/one'] }) })
       fireEvent.click(screen.getByTitle('More actions'))
-      expect(screen.getByText('Toggle DevTools (F12)')).toBeTruthy()
+      expect(screen.queryByText('Toggle DevTools (F12)')).toBeNull()
       fireEvent.click(screen.getByRole('menuitem', { name: 'Collapse all' }))
       expect(container.querySelector('.group-list .scroll-head')?.getAttribute('aria-expanded')).toBe('false')
       expect(screen.queryByRole('menuitem')).toBeNull()
@@ -682,11 +813,11 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
       expect(screen.queryByText('Clear')).toBeNull()
       // 开着菜单拉宽:浮层卸载之外 open 复位 —— 不再占 useDismiss 的 ESC 回退栈
       fireEvent.click(screen.getByTitle('More actions'))
-      expect(screen.getByText('Toggle DevTools (F12)')).toBeTruthy()
+      expect(screen.getByText('Clear')).toBeTruthy()
       vi.mocked(root.getBoundingClientRect).mockReturnValue({ ...rect, width: 360, right: 360 } as DOMRect)
       act(() => fire([], undefined as unknown as ResizeObserver))
       // 全簇归位(平铺钮 title 直读),菜单开态一并收口(菜单项是文字,已不在)
-      expect(screen.getByTitle('Toggle DevTools (F12)')).toBeTruthy()
+      expect(screen.queryByTitle('Toggle DevTools (F12)')).toBeNull()
       expect(screen.getByTitle('Clear')).toBeTruthy()
       expect(screen.queryByText('Toggle DevTools (F12)')).toBeNull()
       // 再缩窄:菜单不自行重现(状态已复位),点触发钮才开

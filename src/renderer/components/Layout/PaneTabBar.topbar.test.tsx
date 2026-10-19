@@ -19,6 +19,8 @@ import type { OverlayPayload, OverlayRef, PaneLeaf, SessionConfig } from '@share
 import { TOPBAR_HEIGHT, TOPBAR_GRIP_WIDTH } from './topbar-metrics'
 import { PALETTE_EVENT } from '../../commands/palette'
 import { BROWSER_NEW_TAB_URL } from '@shared/browser-settings'
+import { BROWSER_BOOKMARKS_KEY, useBrowserBookmarksStore } from '../../stores/browser-bookmarks-store'
+import '../../i18n'
 
 const DSH_REF = (slot: number | null, active = false): OverlayRef =>
   ({ id: '__dsh_web__', kind: 'dshWeb', active, slot })
@@ -41,6 +43,8 @@ const makeSession = (id: string, name: string, tags?: string[]) => ({
 })
 
 beforeEach(() => {
+  useBrowserBookmarksStore.setState({ bookmarks: [] })
+  localStorage.removeItem(BROWSER_BOOKMARKS_KEY)
   useSessionStore.setState({ sessions: [] })
   usePaneStore.setState({
     layout: { root: makePane([]), activePaneId: 'pane-1' },
@@ -53,6 +57,31 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('PaneTabBar 顶排页签条(渲染断言)', () => {
+  it('网页页签可按实际 URL 和网页标题收藏，不激活后台页签或关闭页签', () => {
+    const pane = makePane([], [{ id: 'web-1', kind: 'web', active: false, slot: null }])
+    usePaneStore.setState({ layout: { root: pane, activePaneId: pane.id }, overlayPayloads: {
+      'web-1': { kind: 'web', url: 'https://initial.example/', title: '网页实际标题', nav: { url: 'https://final.example/docs?q=1#part', loading: false, canGoBack: false, canGoForward: false } }
+    } })
+    const { container, getByRole } = render(<PaneTabBar pane={pane} isTop />)
+    const tab = container.querySelector<HTMLElement>('[data-tab-id="web-1"]')!
+    expect(tab.title).toBe('https://final.example/docs?q=1#part')
+    fireEvent.click(getByRole('button', { name: 'Bookmark this URL' }))
+    expect(useBrowserBookmarksStore.getState().bookmarks).toEqual([{ url: tab.title, title: '网页实际标题' }])
+    expect(JSON.parse(localStorage.getItem(BROWSER_BOOKMARKS_KEY)!)[0].title).toBe('网页实际标题')
+    expect(usePaneStore.getState().layout.root).toBe(pane)
+    expect(usePaneStore.getState().overlayPayloads['web-1']).toBeTruthy()
+    expect(getByRole('button', { name: 'Remove bookmark' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(getByRole('button', { name: 'Remove bookmark' }))
+    expect(useBrowserBookmarksStore.getState().bookmarks).toEqual([])
+  })
+
+  it('欢迎页签和终端页签不提供网址收藏按钮', () => {
+    useSessionStore.setState({ sessions: [makeSession('s1', 'terminal')] })
+    usePaneStore.setState({ overlayPayloads: { 'start': { kind: 'web', url: BROWSER_NEW_TAB_URL, title: 'New tab' } } })
+    const { queryByRole } = render(<PaneTabBar pane={makePane(['s1'], [{ id: 'start', kind: 'web', active: true, slot: null }])} isTop />)
+    expect(queryByRole('button', { name: 'Bookmark this URL' })).toBeNull()
+  })
+
   it('dsh 页签跟随共享状态切换名称，保持同一个页签节点', () => {
     usePaneStore.setState({ overlayPayloads: { '__dsh_web__': DSH_PAYLOAD } })
     const { container } = render(<PaneTabBar pane={makePane([], [DSH_REF(null, true)])} isTop />)

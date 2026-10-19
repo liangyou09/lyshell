@@ -100,7 +100,7 @@ export function navigateActiveWebTab(raw: string): boolean {
   return true
 }
 
-/** 刷新活动网页页签（hard=true 忽略缓存强刷，对应 Ctrl+Shift+R） */
+/** 刷新活动网页页签（F5；hard=true 忽略缓存强刷，对应 Shift+F5） */
 export function reloadActiveWebTab(hard: boolean): void {
   const el = activeWebview()
   if (!el) return
@@ -121,7 +121,7 @@ export function activeWebTabGoForward(): void {
   activeWebview()?.goForward()
 }
 
-/** 开关活动网页页签下方的 DevTools，按钮与 F12 共用页签内的承载区。 */
+/** F12 开关活动网页页签下方的 DevTools。 */
 export function openActiveWebTabDevTools(): void {
   const id = activeWebTabId()
   if (id) devToolsToggles.get(id)?.()

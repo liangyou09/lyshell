@@ -3,7 +3,7 @@
  * 故放 shared —— 两 bundle 各自编译，跨 bundle 引用只有 shared 可达）。
  *
  * 手势集（对齐浏览器惯例）：
- * - Ctrl/Cmd+R（无 Shift）刷新 / +Shift 强制刷新（忽略缓存）
+ * - F5 刷新 / Shift+F5 强制刷新（忽略缓存）；Ctrl+F5 留给快捷命令
  * - Alt+← / Alt+→（无 Ctrl）后退 / 前进
  * - Ctrl/Cmd+L 聚焦地址栏（渲染层切到 Web 面板并聚焦 URL 输入框）
  * - Ctrl/Cmd+F 当前页签内容查找（dsh Web 只接入这一项）
@@ -16,7 +16,7 @@
  *   行为不被劫持。
  * - 主进程 before-input-event：焦点在 webview 内，键盘全被 guest 吃掉，宿主
  *   keydown 收不到 —— 在 guest 事件分发前拦截（仅 webbar partition 的完整页签；
- *   同 partition 的写轮眼小窗经 webContentsId 登记排除，dsh 锁定不挂）。
+ *   同 partition 的写轮眼小窗经 webContentsId 登记后就地处理刷新，不转发；dsh 仅查找）。
  */
 
 export type WebTabShortcutAction =
@@ -66,10 +66,10 @@ export function matchWebTabShortcut(input: ShortcutInputShape): WebTabShortcutAc
   const key = input.key.toLowerCase()
 
   if (key === 'f12' && !ctrl && !input.alt && !input.shift) return 'toggle-devtools'
+  if (key === 'f5' && !ctrl && !input.alt) return input.shift ? 'reload-hard' : 'reload'
 
   if (ctrl && !input.alt) {
     if (key === 'f' && !input.shift) return 'find'
-    if (key === 'r') return input.shift ? 'reload-hard' : 'reload'
     if (key === 'l' && !input.shift) return 'focus-address-bar'
     return null
   }

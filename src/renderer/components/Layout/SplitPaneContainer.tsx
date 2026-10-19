@@ -2,16 +2,13 @@ import React, { useEffect, useRef } from 'react'
 import { usePaneStore } from '../../stores/pane-store'
 import PaneView from './PaneView'
 import { useShallow } from 'zustand/react/shallow'
+import { isTextEditingTarget } from './keyboard-target'
 
 // 文本编辑目标判定：INPUT/TEXTAREA/contentEditable（xterm 的隐藏 textarea 除外 ——
 // 终端焦点就落在它身上，不是"输入框"语义）。导出共用：Ctrl+方向 的守卫（本文件）
 // 与 MainWindow 网页页签快捷键的焦点落点守卫（真输入框里打字不劫持浏览器手势）
 // 是同一语义，不复制两份判定
-export const isTextEditingTarget = (target: EventTarget | null): boolean => {
-  if (!(target instanceof HTMLElement)) return false
-  if (target.closest('.xterm')) return false
-  return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
-}
+export { isTextEditingTarget } from './keyboard-target'
 
 /**
  * 分屏容器组件

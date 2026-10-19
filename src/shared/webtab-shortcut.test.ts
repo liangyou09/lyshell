@@ -29,17 +29,17 @@ describe('matchWebTabShortcut：命中矩阵', () => {
   ])('F12 让位修饰键/重复/输入法：%j', patch => {
     expect(matchWebTabShortcut(key({ key: 'F12', ...patch }))).toBeNull()
   })
-  it('Ctrl+R → reload', () => {
-    expect(matchWebTabShortcut(key({ control: true }))).toBe('reload')
+  it('F5 → reload', () => {
+    expect(matchWebTabShortcut(key({ key: 'F5' }))).toBe('reload')
   })
 
-  it('Ctrl+Shift+R → reload-hard（含 Shift 大写形态 R）', () => {
-    expect(matchWebTabShortcut(key({ control: true, shift: true }))).toBe('reload-hard')
-    expect(matchWebTabShortcut(key({ control: true, shift: true, key: 'R' }))).toBe('reload-hard')
+  it('Shift+F5 → reload-hard', () => {
+    expect(matchWebTabShortcut(key({ key: 'F5', shift: true }))).toBe('reload-hard')
   })
 
-  it('Shift 不改变字母键大小写匹配（小写 shift 形态也算 R）', () => {
-    expect(matchWebTabShortcut(key({ control: true, key: 'R' }))).toBe('reload')
+  it.each([{ control: true }, { meta: true }, { control: true, shift: true }])('旧的 Ctrl/Cmd+R 不再匹配刷新：%j', modifiers => {
+    expect(matchWebTabShortcut(key({ key: 'r', ...modifiers }))).toBeNull()
+    expect(matchWebTabShortcut(key({ key: 'R', ...modifiers }))).toBeNull()
   })
 
   it('Alt+← / Alt+→ → back / forward', () => {
@@ -53,8 +53,8 @@ describe('matchWebTabShortcut：命中矩阵', () => {
     expect(matchWebTabShortcut(key({ control: true, shift: true, key: 'L' }))).toBeNull()
   })
 
-  it('meta(Cmd)+R 等价 Ctrl+R', () => {
-    expect(matchWebTabShortcut(key({ control: false, meta: true }))).toBe('reload')
+  it.each([{ control: true }, { meta: true }, { alt: true }, { isAutoRepeat: true }, { isComposing: true }, { type: 'keyUp' }])('F5 让位其他修饰键/重复/输入法：%j', patch => {
+    expect(matchWebTabShortcut(key({ key: 'F5', ...patch }))).toBeNull()
   })
 })
 
@@ -72,7 +72,8 @@ describe('matchWebTabShortcut：让位规则', () => {
   })
 
   it('rawKeyDown 同样命中（Chromium 非合并路径派发 rawKeyDown，只认 keyDown 会失灵）', () => {
-    expect(matchWebTabShortcut(key({ control: true, type: 'rawKeyDown' }))).toBe('reload')
+    expect(matchWebTabShortcut(key({ key: 'F5', type: 'rawKeyDown' }))).toBe('reload')
+    expect(matchWebTabShortcut(key({ key: 'F5', shift: true, type: 'rawKeyDown' }))).toBe('reload-hard')
     expect(matchWebTabShortcut(key({ alt: true, key: 'ArrowLeft', type: 'rawKeyDown' }))).toBe('back')
   })
 
@@ -100,7 +101,7 @@ describe('matchWebTabShortcut：让位规则', () => {
     expect(matchWebTabShortcut(key({ alt: true, shift: true, key: 'ArrowLeft' }))).toBeNull()
   })
 
-  it('其他 Ctrl+字母不拦（只有 R/L 有浏览器语义）', () => {
+  it('其他 Ctrl+字母不拦（只有 F/L 有浏览器语义）', () => {
     expect(matchWebTabShortcut(key({ control: true, key: 't' }))).toBeNull()
     expect(matchWebTabShortcut(key({ control: true, key: 'x' }))).toBeNull()
   })
