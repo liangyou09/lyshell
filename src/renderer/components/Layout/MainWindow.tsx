@@ -13,7 +13,8 @@ import { FIND_IN_TAB_EVENT } from '../Search/SearchableTab'
 import FloatWindow from '../FloatWindow/FloatWindow'
 import CommandScreen from '../CommandScreen/CommandScreen'
 import TopRightControls from './TopRightControls'
-import { TOPBAR_HEIGHT, TOP_LEFT_RESERVE, SIDEBAR_DIVIDER_WIDTH, SIDEBAR_PILL_HEIGHT } from './topbar-metrics'
+import { TOPBAR_HEIGHT, TOP_LEFT_RESERVE, TOP_LEFT_ICON_RESERVE, SIDEBAR_DIVIDER_WIDTH, SIDEBAR_PILL_HEIGHT } from './topbar-metrics'
+import { hasVisiblePaneTabs } from './sidebar-brand'
 import './SidebarResizeHandle.css'
 import { startAllHarnessDetects } from './harness-detect'
 import PluginPanel from './PluginPanel'
@@ -116,9 +117,11 @@ const MainWindow: React.FC = () => {
   const paletteOpen = useUiStore(s => s.paletteOpen)
   const [isMaximized, setIsMaximized] = useState(false)
   const { sessions, loadSessions, syncSessionsFromBackend } = useSessionStore()
-  // 不订阅 layout：本组件 JSX 不消费布局树（activePaneId 只在事件回调里经
-  // getState 现取），订阅会让高频布局写入（拖分屏比例的 setSplitRatio ~60Hz）
-  // 逐帧重渲整个窗口 chrome
+  // 只订阅「是否存在可见页签」的布尔值，拖动分屏比例不会逐帧重渲窗口 chrome。
+  const hasVisibleTabs = usePaneStore(state => hasVisiblePaneTabs(
+    state.layout.root, sessions, state.hiddenTabSessions, state.overlayPayloads
+  ))
+  const sidebarToggleWidth = hasVisibleTabs ? TOP_LEFT_ICON_RESERVE : TOP_LEFT_RESERVE
   const { initFromStorage } = useThemeStore()
   const { initFromStorage: initLocaleFromStorage } = useLocaleStore()
   const { t } = useTranslation()
@@ -1189,7 +1192,7 @@ const MainWindow: React.FC = () => {
           /* 第一行最左页签条的左留白 -- 收起时给展开 pill 让位(TOP_LEFT_RESERVE),
              展开时归零让页签紧贴左列;PaneTabBar 读 var() 消费(镜像右端 --top-right-reserve
              的变量架构,但值随侧栏状态同步切换,无需实测) */
-          style={{ '--top-left-reserve': sidebarCollapsed ? `${TOP_LEFT_RESERVE}px` : '0px' } as React.CSSProperties}
+          style={{ '--top-left-reserve': sidebarCollapsed ? `${sidebarToggleWidth}px` : '0px' } as React.CSSProperties}
         >
           {/* 侧栏收起时,终端画布向内让出框线宽的槽位给内框线 -- 框线画在槽里而不是浮在
               终端内容上方;画布缩量由 pane-resize ResizeObserver 感知,xterm 随之重新 fit。
@@ -1204,18 +1207,19 @@ const MainWindow: React.FC = () => {
               （z-30），高于普通覆盖层；层级纪律见 WebTabLayer.tsx 头注。 */}
           <WebTabLayer />
 
-          {/* 收起态沿用轨顶同款开关；44px 预留与导航轨对齐，避免开合时控位偏移。 */}
+          {/* 有页签时只保留图标；空态显示名称与版本，浮层与页签始终共用相同预留宽。 */}
           <div
             className={cn(
               'win-no-drag absolute top-0 left-0 z-40 flex items-center bg-[var(--bg-rack)] select-none',
               'transition-opacity duration-150 ease-out',
               !sidebarCollapsed && 'opacity-0 pointer-events-none'
             )}
-            style={{ height: SIDEBAR_PILL_HEIGHT, width: TOP_LEFT_RESERVE }}
+            style={{ height: SIDEBAR_PILL_HEIGHT, width: sidebarToggleWidth }}
             aria-hidden={!sidebarCollapsed}
           >
             <SidebarToggle
               collapsed
+              showBrand={!hasVisibleTabs}
               onClick={() => setSidebarCollapsed(false)}
               tabIndex={sidebarCollapsed ? 0 : -1}
             />

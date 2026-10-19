@@ -4,9 +4,6 @@ import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { IconPlus } from './IconBtn'
 import './PanelHeader.css'
 
-// 复用窗口与安装包的品牌图标，避免标题栏另存一份后随版本漂移。
-const lyShellIcon = new URL('../../../../resources/icons/icon-windows.png', import.meta.url).href
-
 interface PanelHeaderProps {
   title: string
   titleAccessory?: React.ReactNode
@@ -25,7 +22,6 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
 }) => (
   <header className="panel-header win-drag" style={{ height: TOPBAR_HEIGHT }}>
     <div className="panel-header-nameplate">
-      <img className="panel-header-brand" src={lyShellIcon} alt="" aria-hidden draggable={false} />
       {onTitleClick ? (
         <button
           type="button"

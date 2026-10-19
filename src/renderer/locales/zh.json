@@ -166,9 +166,12 @@
     "runOk": "运行已触发",
     "runFail": "运行失败",
     "confirmUninstall": "再点一次确认卸载",
+    "confirmUninstallAction": "确认卸载",
     "uninstall": "卸载",
     "uninstallFail": "卸载失败",
-    "toggleFail": "操作失败"
+    "toggleFail": "操作失败",
+    "technicalDetails": "技术信息",
+    "updating": "切换中…"
   },
   "pluginView": {
     "loadFailed": "视图加载失败",

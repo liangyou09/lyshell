@@ -379,6 +379,8 @@ export function validateViewDefinitionList(
 export interface LyShellPluginManifest {
   id: string
   name: string
+  /** 插件用途说明，供管理面板展示。 */
+  description?: string
   version: string
   /** 引擎兼容性，如 "^1.0" */
   engines: { lyshell: string }
@@ -461,6 +463,8 @@ export interface ManifestValidation {
 export interface PluginListItem extends PluginRegistryEntry {
   /** manifest.name(manifest 读失败降级为 id) */
   name: string
+  /** manifest.description，旧插件可不提供。 */
+  description?: string
   /** manifest 运行时(manifest 读失败为 'node') */
   runtime: PluginRuntime
   /** manifest 生命周期(manifest 读失败按 runtime 取默认值) */
@@ -622,6 +626,9 @@ export function validateManifest(raw: unknown): ManifestValidation {
   }
   if (typeof m.name !== 'string' || m.name.length === 0) {
     errors.push('name must be a non-empty string')
+  }
+  if (m.description !== undefined && typeof m.description !== 'string') {
+    errors.push('description must be a string if present')
   }
   if (typeof m.version !== 'string' || !/^\d+\.\d+\.\d+/.test(m.version)) {
     errors.push('version must be semver-like (x.y.z)')

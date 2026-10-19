@@ -2911,6 +2911,7 @@ export function registerIPCHandlers(): void {
   /** 读单条 entry 的 manifest 展示字段;manifest 读失败时降级(name=id、runtime='node')。 */
   const enrichEntry = (entry: PluginRegistryEntry): PluginListItem => {
     let name = entry.id
+    let description: string | undefined
     let runtime: PluginRuntime = 'node'
     let lifecycle: PluginLifecycle = normalizeLifecycle(runtime)
     let main: string | undefined
@@ -2923,6 +2924,7 @@ export function registerIPCHandlers(): void {
         const result = validateManifest(JSON.parse(fs.readFileSync(manifestPath, 'utf-8')))
         if (result.ok && result.manifest) {
           name = result.manifest.name
+          description = result.manifest.description
           runtime = result.manifest.runtime
           lifecycle = normalizeLifecycle(runtime, result.manifest.lifecycle)
           main = result.manifest.main
@@ -2941,7 +2943,7 @@ export function registerIPCHandlers(): void {
     } catch (e) {
       log.warn(`[plugin] view registry unavailable for ${entry.id}:`, e)
     }
-    return { ...entry, name, runtime, lifecycle, main, activationEvents, capabilities, views }
+    return { ...entry, name, description, runtime, lifecycle, main, activationEvents, capabilities, views }
   }
 
   ipcMain.handle('plugin:list', async () => {

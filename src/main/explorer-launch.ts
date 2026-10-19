@@ -15,9 +15,10 @@ export function parseExplorerDirectory(
     if (!directory || directory.startsWith('--') || directory.includes('\0')) return null
     return win32.resolve(workingDirectory, directory)
   }
-  // App Paths 启动 cwd 可能是安装目录，地址栏优先采用前台 Explorer 活动页签目录。
+  // 只有读到前台 Explorer 活动页签目录才隐式打开终端。
+  // 安装器、快捷方式启动的 cwd 可能是安装目录，不能将它当作打开目录请求。
   // 开发模式和带其它参数的启动保持原行为（例如 --demo-stage）。
-  return implicitLaunch && args.length === 0 ? explorerDirectory ?? workingDirectory : null
+  return implicitLaunch && args.length === 0 ? explorerDirectory : null
 }
 
 export function validateExplorerDirectory(directory: unknown): string | null {

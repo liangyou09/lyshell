@@ -32,6 +32,13 @@ const validManifest: Record<string, unknown> = {
 }
 
 describe('validateManifest', () => {
+  it('说明字段可选，提供时必须是文本', () => {
+    expect(validateManifest(validManifest).ok).toBe(true)
+    expect(validateManifest({ ...validManifest, description: '插件用途说明' }).manifest?.description).toBe('插件用途说明')
+    for (const description of [null, 42, {}, []]) {
+      expect(validateManifest({ ...validManifest, description }).ok).toBe(false)
+    }
+  })
   it('设置贡献与普通视图共用身份、入口和容量安全闸', () => {
     const chat = { id: 'chat', title: '聊天', entry: 'views/chat.html' }
     const settings = { id: 'settings', title: 'PetLink', entry: 'views/settings.html', frameOrigins: ['http://127.0.0.1:31517'] }

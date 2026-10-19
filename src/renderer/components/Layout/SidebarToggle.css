@@ -41,26 +41,49 @@
   background: var(--bg-slot);
 }
 
-.sidebar-toggle-arrow {
-  transition: transform 160ms ease;
+.sidebar-toggle-brand {
+  display: block;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
-.sidebar-toggle:hover .sidebar-toggle-arrow {
-  transform: translateX(-1px);
+/* 有页签时控位收至 32px，图标保持原尺寸，减少两侧空白。 */
+.sidebar-toggle[data-collapsed="true"][data-brand-visible="false"] .sidebar-toggle-face {
+  width: 28px;
 }
 
-.sidebar-toggle[data-collapsed="true"]:hover .sidebar-toggle-arrow {
-  transform: translateX(1px);
+/* 收起时用完整品牌入口填充顶栏，图标保持与展开态相同的位置。 */
+.sidebar-toggle[data-brand-visible="true"] .sidebar-toggle-face {
+  width: calc(100% - 8px);
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 0 4px 0 8px;
+}
+
+.sidebar-toggle-wordmark {
+  color: var(--text-rack);
+  font-family: 'Segoe UI Variable Display', 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.sidebar-toggle-version {
+  margin-left: 2px;
+  color: var(--text-rack-data);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-toggle-face,
-  .sidebar-toggle-arrow {
+  .sidebar-toggle-face {
     transition: none;
-  }
-
-  .sidebar-toggle:hover .sidebar-toggle-arrow,
-  .sidebar-toggle[data-collapsed="true"]:hover .sidebar-toggle-arrow {
-    transform: none;
   }
 }

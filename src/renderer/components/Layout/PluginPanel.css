@@ -1,0 +1,57 @@
+/* 窄侧栏先给插件名称一整行，避免运行按钮和状态把名称挤到不可见。 */
+.plugin-card { container: plugin-card / inline-size; }
+
+@container plugin-card (max-width: 210px) {
+  .plugin-card .plugin-card-header {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    padding-right: 0;
+  }
+
+  .plugin-card .plugin-card-toggle {
+    flex: 0 0 calc(100% - 28px);
+    margin-right: 28px;
+  }
+
+  .plugin-card-state { margin-left: auto; }
+}
+
+/* 卸载保留危险操作的辨识度；文字混入主题前景，保证浅色主题同样清晰。 */
+.plugin-uninstall {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 66px;
+  min-height: 26px;
+  padding: 2px 7px;
+  flex-shrink: 0;
+  border: 1px solid color-mix(in srgb, var(--error-rack) 40%, var(--rule));
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--error-rack) 4%, var(--bg-slot));
+  color: color-mix(in srgb, var(--error-rack) 30%, var(--text-rack));
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms, border-color 120ms;
+}
+
+.plugin-uninstall svg {
+  flex-shrink: 0;
+}
+
+.plugin-uninstall:hover:not(:disabled),
+.plugin-uninstall-confirm {
+  border-color: var(--error-rack);
+  background: color-mix(in srgb, var(--error-rack) 12%, var(--bg-slot));
+}
+
+.plugin-uninstall:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.plugin-uninstall:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

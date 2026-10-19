@@ -17,10 +17,11 @@ export const TOPBAR_HEIGHT = 36
  *  (FileBrowser 工具条 / Sessions 底条),形成头行>控制条>状态条的主次层级 */
 export const PANEL_STRIP_HEIGHT = 30
 
-/** 左上侧栏开关 pill 预留宽 -- MainWindow 浮层挂载 / PaneTabBar 左留白共用 */
-export const TOP_LEFT_RESERVE = 44
+/** 无页签时显示「图标 + LyShell + 版本」；有页签时用图标入口，把宽度留给页签。 */
+export const TOP_LEFT_RESERVE = 128
+export const TOP_LEFT_ICON_RESERVE = 32
 
-/** 收起态展开控位的高度 -- 与 TOPBAR_HEIGHT 同值:44×36 控位恰好填满第一行左端,
+/** 收起态展开控位的高度 -- 与 TOPBAR_HEIGHT 同值:品牌入口恰好填满第一行左端,
  *  不探进终端画布；按钮内托座的尺寸与圆角由 SidebarToggle 统一控制。
  *  刻意保留独立常量而非直接引用:行高与 pill 高是两个语义,允许再次分叉 */
 export const SIDEBAR_PILL_HEIGHT = 36

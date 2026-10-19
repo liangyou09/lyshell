@@ -1,16 +1,12 @@
 import { PanelHeader, PanelHeaderAction, PanelHeaderMenu } from './PanelHeader'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { usePluginStore } from '../../stores/plugin-store'
 import { useUiStore } from '../../stores/ui-store'
 import { normalizeLifecycle } from '@shared/plugin-types'
 import type { LyShellPluginManifest, PluginLifecycle, PluginListItem } from '@shared/plugin-types'
-
-/** 卡片悬停操作簇的删除钮(与 Agent/工作区/变量组卡同一枚 11px 方角 X) */
-const IconX: React.FC = () => (
-  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 2l7 7M9 2l-7 7" /></svg>
-)
+import './PluginPanel.css'
 
 /** 安装来源(dev=文件夹/file=本地 zip/url=URL 下载)。决定走 installDev 还是 installZip。 */
 type PickedSource = 'dev' | 'file' | 'url'
@@ -52,6 +48,8 @@ const PluginPanel: React.FC = () => {
   } | null>(null)
   const [installEnabled, setInstallEnabled] = useState(true)
   const [busy, setBusy] = useState(false)
+  const togglingRef = useRef(new Set<string>())
+  const [togglingIds, setTogglingIds] = useState(new Set<string>())
   const [confirmUninstall, setConfirmUninstall] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   // URL 安装输入
@@ -152,9 +150,19 @@ const PluginPanel: React.FC = () => {
 
   // e.target.checked 是用户期望的新状态:true->enable,false->disable
   const handleToggle = async (id: string, nextEnabled: boolean): Promise<void> => {
+    if (busy || togglingRef.current.has(id)) return
+    togglingRef.current.add(id)
+    setTogglingIds(new Set(togglingRef.current))
     setNotice(null)
-    const ok = nextEnabled ? await enable(id) : await disable(id)
-    if (!ok) setNotice(t('plugin.toggleFail'))
+    try {
+      const ok = nextEnabled ? await enable(id) : await disable(id)
+      if (!ok) setNotice(t('plugin.toggleFail'))
+    } catch {
+      setNotice(t('plugin.toggleFail'))
+    } finally {
+      togglingRef.current.delete(id)
+      setTogglingIds(new Set(togglingRef.current))
+    }
   }
 
   const handleRunOneshot = async (id: string): Promise<void> => {
@@ -188,99 +196,121 @@ const PluginPanel: React.FC = () => {
   const sourceLabel = (s: PickedSource): string =>
     s === 'dev' ? 'dev' : s === 'file' ? t('plugin.sourceFile') : t('plugin.sourceUrl')
 
-  // 插件卡 —— 启用开关/运行钮/悬停卸载不变，平铺在纸面列表上。
+  // 整卡切换启用，技术信息按需展开；保留原生 checkbox 和 details 的键盘操作。
   const renderPluginCard = (p: PluginListItem) => (
     <div
       key={p.id}
+      onClick={(e) => {
+        // label 会转发一次原生 input 点击；详情及操作按钮也不参与整卡切换。
+        if ((e.target as Element).closest('label, input, button, details')) return
+        void handleToggle(p.id, !p.enabled)
+      }}
       onMouseLeave={() => { if (confirmUninstall === p.id) setConfirmUninstall(null) }}
-      // 独立卡语法（与 Harness 工作区/Agent 卡归一）：四边 rule 框 + 2px 圆角 +
-      // 槽位阶梯（slot 面 / 悬停 elev）+ 卡间 6px 暗沟（纸幅 space-y-1.5）；
-      // 行距 py-1.5 与全线同档。卡无主点击动作（启用开关/运行是卡内常驻
-      // 控件），光标不抢
-      className="group relative rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)] transition-colors px-2 py-1.5 space-y-1 overflow-hidden"
+      aria-busy={togglingIds.has(p.id)}
+      className={cn(
+        'plugin-card group relative rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)] transition-colors px-2 py-1 space-y-0.5 overflow-hidden focus-within:outline focus-within:outline-2 focus-within:outline-[var(--amber)] focus-within:outline-offset-[-2px]',
+        busy || togglingIds.has(p.id) ? 'cursor-wait' : 'cursor-pointer'
+      )}
     >
-      {/* 行 1：启用开关占用 20px 首槽（与其余卡的图标槽同列，勾态即卡的面貌）+
-          名称 + 单次插件的运行钮 + 版本 —— 原底部整行开关收进首行，四行卡瘦身为三行 */}
-      <div className="flex items-center gap-2.5">
+      <div className="plugin-card-header flex items-center gap-2 pr-7">
         <label
           title={p.enabled ? t('plugin.enabled') : t('plugin.disabled')}
-          className="flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center cursor-pointer"
+          className="plugin-card-toggle flex-1 min-w-0 min-h-[24px] flex items-center gap-2 px-1 cursor-[inherit]"
         >
           <input
             type="checkbox"
             checked={p.enabled}
+            // 切换中由同步守卫拦截重复操作；保留可聚焦状态，避免键盘焦点被浏览器移到 body。
+            disabled={busy}
+            aria-disabled={busy || togglingIds.has(p.id)}
             onChange={(e) => handleToggle(p.id, e.target.checked)}
-            className="w-3 h-3 accent-[var(--amber)]"
+            className="w-4 h-4 shrink-0 accent-[var(--amber)] cursor-[inherit] aria-disabled:opacity-50"
           />
+          <span title={p.name} className="min-w-0 text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate">{p.name}</span>
         </label>
-        <span className="flex-1 min-w-0 text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate">{p.name}</span>
         {p.lifecycle === 'oneshot' && (
           <button
             onClick={() => void handleRunOneshot(p.id)}
-            disabled={busy || !p.enabled}
+            disabled={busy || togglingIds.has(p.id) || !p.enabled}
             className="shrink-0 px-1.5 py-0.5 text-[10px] [font-family:inherit] rounded-[2px] bg-[var(--amber)] text-[var(--bg-base)] hover:brightness-110 disabled:opacity-50 cursor-pointer"
           >
             {t('plugin.run')}
           </button>
         )}
-        <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] shrink-0">{p.version}</span>
+        <span aria-live="polite" className={cn('plugin-card-state text-[10.5px] [font-family:inherit] shrink-0', p.enabled ? 'text-[var(--text-rack)]' : 'text-[var(--text-rack-data)]')}>
+          {togglingIds.has(p.id) ? t('plugin.updating') : p.enabled ? t('plugin.enabled') : t('plugin.disabled')}
+        </span>
       </div>
-      <div className="flex items-center gap-1.5 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">
-        <span className="truncate">{p.id}</span>
-        <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{p.runtime}</span>
-        <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{t(`plugin.lifecycle${p.lifecycle === 'oneshot' ? 'Oneshot' : 'Persistent'}`)}</span>
-        {p.dev && (
-          <span className="px-1 py-px rounded-[2px] border border-[var(--amber)] text-[var(--amber)] shrink-0">dev</span>
-        )}
-      </div>
-      {p.capabilities.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {p.capabilities.map((c) => {
-            const granted = p.grantedCapabilities.includes(c)
-            return (
-              <span
-                key={c}
-                title={capTitle(c, granted)}
-                className={cn(
-                  'px-1.5 py-px text-[10px] [font-family:inherit] rounded-[2px] border',
-                  granted
-                    ? 'border-[var(--amber)] text-[var(--amber)]'
-                    : 'border-[var(--rule)] text-[var(--text-rack-mute)] line-through'
-                )}
-              >
-                {c}
-              </span>
-            )
-          })}
-        </div>
+      {p.description?.trim() && (
+        <p title={p.description} className="px-1 text-[11px] leading-4 [font-family:inherit] text-[var(--text-rack-data)] break-words line-clamp-2">
+          {p.description}
+        </p>
       )}
-      {/* 悬停操作簇（卸载两步确认）—— 与 Agent/工作区/变量组卡同一套删除仪式：
-          右缘垂直居中、遮罩跟 elev 悬停面、focus-within 键盘可达、离卡撤防 */}
-      <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-elev)] from-[24%] to-transparent">
-        <button
-          onClick={async (e) => {
-            e.stopPropagation()
-            // 两步确认：首次点击切到确认态，再次点击才真正卸载
-            if (confirmUninstall !== p.id) {
-              setConfirmUninstall(p.id)
-              return
-            }
-            setConfirmUninstall(null)
-            await handleUninstall(p.id)
-          }}
-          disabled={busy}
-          title={confirmUninstall === p.id ? t('plugin.confirmUninstall') : t('plugin.uninstall')}
-          className={cn(
-            'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
-            confirmUninstall === p.id
-              ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
-              : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]',
-            busy && 'disabled:opacity-50'
-          )}
-        >
-          <IconX />
-        </button>
-      </div>
+      <details
+        onToggle={(e) => { if (!e.currentTarget.open && confirmUninstall === p.id) setConfirmUninstall(null) }}
+        className="group/details !mt-0 cursor-default text-[10.5px] [font-family:inherit]"
+      >
+        <summary title={t('plugin.technicalDetails')} className="absolute right-2 top-1 flex items-center justify-center w-6 h-6 text-[var(--text-rack-data)] hover:text-[var(--text-rack)] cursor-pointer list-none [&::-webkit-details-marker]:hidden focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)] rounded-[2px]">
+          <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" className="shrink-0 group-open/details:rotate-90"><path d="m3.5 2 3 3-3 3" /></svg>
+          <span className="sr-only">{t('plugin.technicalDetails')}</span>
+        </summary>
+        <div className="border-t border-[var(--rule)] pt-1.5 space-y-1">
+          <div className="flex items-center gap-1.5 text-[var(--text-rack-data)]">
+            <span className="min-w-0 break-all select-text">{p.id}</span>
+            <span className="text-[var(--text-rack-data)] shrink-0">{p.version}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[var(--text-rack-data)]">
+            <span>{p.runtime} · {t(`plugin.lifecycle${p.lifecycle === 'oneshot' ? 'Oneshot' : 'Persistent'}`)}</span>
+            {p.dev && <span>dev</span>}
+            {p.capabilities.map((c) => {
+              const granted = p.grantedCapabilities.includes(c)
+              return (
+                <span
+                  key={c}
+                  title={capTitle(c, granted)}
+                  className={cn(
+                    'px-1.5 py-px text-[10px] [font-family:inherit] rounded-[2px] border border-[var(--rule)]',
+                    !granted && 'line-through'
+                  )}
+                >
+                  {c}
+                </span>
+              )
+            })}
+            <button
+              type="button"
+              onClick={async (e) => {
+                e.stopPropagation()
+                // 两步确认：首次点击切到确认态，再次点击才真正卸载。
+                if (confirmUninstall !== p.id) {
+                  setConfirmUninstall(p.id)
+                  return
+                }
+                setConfirmUninstall(null)
+                await handleUninstall(p.id)
+              }}
+              disabled={busy || togglingIds.has(p.id)}
+              title={confirmUninstall === p.id ? t('plugin.confirmUninstall') : t('plugin.uninstall')}
+              onBlur={() => { if (confirmUninstall === p.id) setConfirmUninstall(null) }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && confirmUninstall === p.id) {
+                  e.stopPropagation()
+                  setConfirmUninstall(null)
+                }
+              }}
+              className={cn(
+                'plugin-uninstall ml-auto',
+                confirmUninstall === p.id && 'plugin-uninstall-confirm'
+              )}
+            >
+              <svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M2.5 4.5h11M6 4.5V2.5h4v2M4 4.5l.6 9h6.8l.6-9M6.5 7v4M9.5 7v4" />
+              </svg>
+              {confirmUninstall === p.id ? t('plugin.confirmUninstallAction') : t('plugin.uninstall')}
+            </button>
+          </div>
+        </div>
+      </details>
     </div>
   )
 
@@ -356,12 +386,12 @@ const PluginPanel: React.FC = () => {
             </div>
           )}
           {manifestLifecycle(picked.manifest) !== 'oneshot' && (
-            <label className="flex items-center gap-1.5 text-[11px] [font-family:inherit] text-[var(--text-rack)] cursor-pointer">
+            <label className="flex items-center gap-2 min-h-[32px] px-1 rounded-[2px] text-[11px] [font-family:inherit] text-[var(--text-rack)] cursor-pointer hover:bg-[var(--bg-elev)] focus-within:outline focus-within:outline-2 focus-within:outline-[var(--amber)] focus-within:outline-offset-[-2px]">
               <input
                 type="checkbox"
                 checked={installEnabled}
                 onChange={(e) => setInstallEnabled(e.target.checked)}
-                className="w-3 h-3 accent-[var(--amber)]"
+                className="w-4 h-4 shrink-0 accent-[var(--amber)] cursor-pointer"
               />
               {t('plugin.enableOnInstall')}
             </label>

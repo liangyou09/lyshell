@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import React, { useState } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import SidebarToggle from './SidebarToggle'
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
 
+beforeEach(() => { vi.stubGlobal('__APP_VERSION__', '2.0.2') })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 const Sidebar: React.FC = () => {
@@ -45,4 +46,16 @@ it('鼠标点击开关不安排键盘焦点转移', () => {
   fireEvent.click(screen.getByRole('button', { name: 'settings.collapseSidebar' }), { detail: 1 })
   expect(screen.getByRole('button', { name: 'settings.expandSidebar' })).toBeTruthy()
   expect(frame).not.toHaveBeenCalled()
+})
+
+it('收起时按页签状态切换纯图标和名称版本，保留展开操作的无障碍名称', () => {
+  const { container, rerender } = render(<SidebarToggle collapsed showBrand={false} onClick={() => {}} />)
+  expect(container.querySelector('.sidebar-toggle-wordmark')).toBeNull()
+  expect(container.querySelector('.sidebar-toggle-version')).toBeNull()
+  expect(screen.getByRole('button', { name: 'settings.expandSidebar' })).toBeTruthy()
+  rerender(<SidebarToggle collapsed showBrand onClick={() => {}} />)
+  expect(container.querySelector('.sidebar-toggle-wordmark')?.textContent).toBe('LyShell')
+  expect(container.querySelector('.sidebar-toggle-version')?.textContent).toBe('v2.0.2')
+  rerender(<SidebarToggle collapsed={false} showBrand onClick={() => {}} />)
+  expect(container.querySelector('.sidebar-toggle-wordmark')).toBeNull()
 })

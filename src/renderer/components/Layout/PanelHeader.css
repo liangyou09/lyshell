@@ -8,7 +8,8 @@
   gap: 8px;
   flex-shrink: 0;
   min-width: 0;
-  padding: 0 12px;
+  /* 品牌开合入口位于相邻导航轨，标题紧接控位，避免叠加左侧留白。 */
+  padding: 0 12px 0 0;
   background: var(--bg-rack);
   font-family: 'Segoe UI Variable Display', 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
@@ -31,13 +32,6 @@
   font-weight: 700;
   letter-spacing: -.01em;
   color: var(--text-rack);
-}
-
-.panel-header-brand {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  object-fit: contain;
 }
 
 .panel-header-title-button {
@@ -162,7 +156,6 @@
 .panel-header-menu-items button:disabled { opacity: .45; cursor: default; }
 
 @container panel-header (max-width: 240px) {
-  .panel-header-brand { display: none; }
   .panel-header-action-label { display: none; }
 }
 

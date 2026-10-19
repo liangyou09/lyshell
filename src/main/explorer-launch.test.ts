@@ -20,8 +20,16 @@ describe('parseExplorerDirectory', () => {
     expect(parseExplorerDirectory(['--open-directory', '.'], 'D:\\new folder', false)).toBe('D:\\new folder')
   })
 
-  it('无参数安装版启动在未找到前台 Explorer 时回落启动 cwd', () => {
-    expect(parseExplorerDirectory([], 'D:\\address bar', true)).toBe('D:\\address bar')
+  it.each(['C:\\Program Files\\LyShell', 'D:\\tool\\lyshell', 'C:\\Windows\\System32'])(
+    '无参数安装版启动未找到前台 Explorer 时不在启动目录 %s 打开终端', workingDirectory => {
+      expect(parseExplorerDirectory([], workingDirectory, true)).toBeNull()
+      expect(parseExplorerDirectory([], workingDirectory, true, null)).toBeNull()
+    }
+  )
+
+  it('仍允许显式打开安装目录', () => {
+    expect(parseExplorerDirectory(['--open-directory', '.'], 'D:\\tool\\lyshell', true))
+      .toBe('D:\\tool\\lyshell')
   })
 
   it('地址栏启动 cwd 为安装目录时，使用 Explorer 活动页签的目录', () => {
