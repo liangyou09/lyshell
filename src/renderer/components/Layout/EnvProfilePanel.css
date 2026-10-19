@@ -1,0 +1,126 @@
+/* 紧凑变量组列表，各条目内就地操作，选中与启用同步。 */
+.env-profile-panel {
+  container: env-profiles / inline-size;
+  --env-secondary: color-mix(in srgb, var(--text-rack-mute) 60%, var(--text-rack) 40%);
+  --env-surface: color-mix(in srgb, var(--terminal-bg) 88%, var(--bg-base));
+  --env-selection: color-mix(in srgb, var(--amber) 12%, var(--bg-base));
+  --env-border: color-mix(in srgb, var(--text-rack) 13%, transparent);
+}
+.env-profile-toolbar { flex-shrink: 0; padding: 9px 10px 8px; }
+.env-profile-toolbar-heading { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 28px; margin-bottom: 7px; }
+.env-profile-count { flex: 1; white-space: nowrap; color: var(--env-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
+.env-profile-toolbar .panel-header-primary { height: 28px; padding: 0 9px; border: 1px solid var(--env-border); border-radius: 4px; background: var(--env-surface); color: var(--text-rack); font-size: 12px; }
+.env-profile-toolbar .panel-header-primary:hover { background: var(--bg-slot); border-color: var(--text-rack-mute); }
+.env-profile-search { display: flex; align-items: center; gap: 7px; min-height: 30px; padding: 0 9px; border: 1px solid var(--env-border); border-radius: 5px; background: var(--env-surface); color: var(--env-secondary); }
+.env-profile-search:focus-within { border-color: var(--amber); outline: 1px solid var(--amber); outline-offset: -1px; }
+.env-profile-search > svg { flex-shrink: 0; }
+.env-profile-search input { width: 100%; min-width: 0; padding: 5px 0; border: 0; outline: none; background: transparent; color: var(--text-rack); caret-color: var(--amber); }
+.env-profile-search input::placeholder { color: var(--env-secondary); opacity: 1; }
+.env-profile-search input::-webkit-search-cancel-button { display: none; }
+.env-profile-search button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: inherit; cursor: pointer; }
+.env-profile-search button:hover { background: var(--bg-slot); }
+.env-profile-body { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.env-profile-error { padding: 8px 10px; color: var(--error-rack); overflow-wrap: anywhere; font-size: 12px; }
+.env-profile-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+.env-profile-list { display: flex; flex-direction: column; gap: 0; padding: 0 8px 8px; }
+.env-profile-row { position: relative; min-width: 0; border-radius: 4px; background: transparent; transition: background-color 140ms ease; }
+.env-profile-row + .env-profile-row::before { content: ''; position: absolute; top: 0; inset-inline: 10px; height: 1px; background: var(--env-border); pointer-events: none; }
+.env-profile-row:hover { background: color-mix(in srgb, var(--text-rack) 3%, var(--bg-base)); }
+.env-profile-row[data-active="true"] { background: var(--env-selection); }
+.env-profile-row[data-active="true"]::before, .env-profile-row[data-active="true"] + .env-profile-row::before { background: transparent; }
+.env-profile-panel .env-profile-main { display: flex; flex-direction: column; gap: 3px; width: 100%; min-width: 0; min-height: 58px; padding: 7px 10px; border: 0; border-radius: 4px; background: transparent; text-align: start; color: var(--text-rack); font: inherit; font-weight: 400; cursor: pointer; }
+.env-profile-toggle:disabled, .env-profile-main:disabled { cursor: wait; }
+.env-profile-panel :is(.env-profile-main, .env-profile-toggle, .env-profile-action, .env-profile-search button, .env-profile-empty button):focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
+.env-profile-heading { display: flex; align-items: center; gap: 7px; min-width: 0; width: calc(100% - 34px); min-height: 20px; }
+.env-profile-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; line-height: 1.4; }
+.env-profile-row[data-active="true"] .env-profile-name { font-weight: 600; }
+.env-profile-active { flex-shrink: 0; color: color-mix(in srgb, var(--amber) 45%, var(--text-rack)); font-size: 10.5px; line-height: 17px; white-space: nowrap; }
+.env-profile-panel .env-profile-toggle { position: absolute; top: 5px; right: 8px; display: inline-flex; align-items: center; width: 32px; height: 24px; padding: 4px; border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
+.env-profile-toggle::before { content: ''; position: absolute; inset: 4px 2px; border-radius: 8px; background: color-mix(in srgb, var(--text-rack) 24%, var(--env-surface)); }
+.env-profile-toggle > span { position: relative; width: 12px; height: 12px; border-radius: 50%; background: var(--env-surface); transition: transform 140ms ease; }
+.env-profile-toggle[aria-checked="true"]::before { background: var(--amber); }
+.env-profile-toggle[aria-checked="true"] > span { transform: translateX(12px); }
+.env-profile-meta { padding-inline-end: 80px; display: flex; align-items: baseline; gap: 8px; width: 100%; min-width: 0; color: var(--env-secondary); font-size: 11px; line-height: 1.5; }
+.env-profile-endpoint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.env-profile-extras, .env-profile-refs { flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.env-profile-refs { padding-inline-start: 7px; border-inline-start: 1px solid var(--env-border); }
+.env-profile-note { width: 100%; padding-inline-end: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--env-secondary); font-size: 11px; line-height: 1.5; }
+.env-profile-actions { position: absolute; right: 6px; bottom: 3px; display: flex; gap: 0; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 120ms ease; }
+.env-profile-row:hover .env-profile-actions, .env-profile-row:has(:focus-visible) .env-profile-actions { opacity: 1; visibility: visible; pointer-events: auto; }
+.env-profile-action { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 26px; width: 26px; height: 24px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--env-secondary); cursor: pointer; }
+.env-profile-action svg { flex-shrink: 0; width: 14px; height: 14px; }
+.env-profile-action > span { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.env-profile-panel .env-profile-action:enabled:hover { color: var(--text-rack); background: var(--bg-slot); }
+.env-profile-delete { border-color: transparent; background: transparent; }
+.env-profile-panel .env-profile-delete:enabled:hover, .env-profile-delete.is-confirming { color: var(--error-rack); background: color-mix(in srgb, var(--error-rack) 8%, transparent); }
+.env-profile-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px 12px; text-align: center; color: var(--env-secondary); font-size: 12px; }
+.env-profile-empty button { padding: 4px 8px; border: 1px solid var(--rule); border-radius: 4px; background: transparent; color: var(--text-rack); cursor: pointer; }
+.env-profile-empty button:hover { background: var(--bg-slot); }
+.env-profile-body[hidden] { display: none; }
+.env-profile-editor { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; color: var(--text-rack); }
+.env-editor-back { flex-shrink: 0; }
+.env-editor-scroll { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.env-editor-section { display: flex; flex-direction: column; gap: 10px; padding: 12px 10px; border-bottom: 1px solid var(--env-border); }
+.env-editor-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.env-editor-field label { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; font-size: 12px; font-weight: 500; }
+.env-editor-field label > span { color: var(--env-secondary); font-size: 11px; font-weight: 400; }
+.env-profile-editor input { width: 100%; min-width: 0; min-height: 30px; padding: 5px 8px; border: 1px solid var(--env-border); border-radius: 4px; background: var(--env-surface); color: var(--text-rack); font: inherit; font-size: 12px; line-height: 1.5; caret-color: var(--amber); }
+.env-profile-editor input::placeholder { color: var(--env-secondary); opacity: 1; }
+.env-profile-editor input:focus { outline: 1px solid var(--amber); outline-offset: -1px; border-color: var(--amber); }
+.env-profile-editor input[aria-invalid="true"] { border-color: var(--error-rack); }
+.env-profile-editor button:focus-visible, .env-profile-editor summary:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
+.env-editor-section-title h4 { margin: 0; font-size: 12px; font-weight: 600; }
+.env-editor-hint { margin: -5px 0 0; color: var(--env-secondary); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.env-editor-help { color: var(--env-secondary); font-size: 11px; line-height: 1.6; }
+.env-editor-help summary { width: fit-content; max-width: 100%; cursor: pointer; }
+.env-editor-help p { margin: 7px 0 0; overflow-wrap: anywhere; }
+.env-editor-presets { display: flex; flex-wrap: wrap; gap: 5px; }
+.env-editor-presets:empty { display: none; }
+.env-editor-presets button { padding: 3px 7px; border: 1px solid var(--env-border); border-radius: 4px; background: var(--env-surface); color: var(--text-rack); font-size: 11px; cursor: pointer; }
+.env-editor-presets button:hover { background: var(--bg-slot); }
+.env-profile-editor .env-rows-stacked { border-color: var(--env-border); border-radius: 4px; }
+.env-profile-editor .env-rows-stacked-row { display: grid; grid-template-columns: minmax(0, 1fr) 22px; align-items: center; gap: 5px; padding: 7px; }
+.env-rows-stacked-row .env-row-key { grid-column: 1; grid-row: 1; }
+.env-rows-stacked-row .env-row-value { grid-column: 1; grid-row: 2; }
+.env-rows-stacked-row .env-row-separator { display: none; }
+.env-rows-stacked-row .env-row-delete { grid-column: 2; grid-row: 1; }
+.env-rows-stacked-row .env-row-reveal { grid-column: 2; grid-row: 2; }
+.env-profile-editor .env-rows-stacked-row button { width: 22px; height: 24px; color: var(--env-secondary); }
+.env-editor-models { overflow: hidden; border: 1px solid var(--env-border); border-radius: 4px; background: var(--env-surface); }
+.env-editor-model-row { display: grid; grid-template-columns: minmax(0, 1fr) 24px; align-items: center; gap: 5px; padding: 6px; border-bottom: 1px solid var(--env-border); }
+.env-editor-model-row button { display: flex; align-items: center; justify-content: center; width: 24px; height: 26px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--env-secondary); cursor: pointer; }
+.env-editor-model-row button:hover { background: var(--bg-slot); color: var(--error-rack); }
+.env-editor-models .env-editor-add { width: 100%; padding: 7px 9px; border: 0; background: transparent; color: var(--text-rack); text-align: start; font-size: 12px; cursor: pointer; }
+.env-editor-add:hover { background: var(--bg-slot); }
+.env-editor-error, .env-editor-warning { margin: 0; padding: 8px 10px; color: var(--error-rack); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.env-editor-warning { padding: 0; color: var(--env-secondary); }
+.env-editor-danger { padding: 10px; }
+.env-editor-danger button { max-width: 100%; padding: 5px 0; border: 0; border-radius: 3px; background: transparent; color: var(--error-rack); font-size: 12px; text-align: start; cursor: pointer; overflow-wrap: anywhere; }
+.env-editor-footer { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); flex-shrink: 0; gap: 8px; padding: 9px 10px; border-top: 1px solid var(--env-border); background: var(--bg-base); }
+.env-editor-footer button { min-width: 0; min-height: 31px; padding: 5px 8px; border: 1px solid var(--env-border); border-radius: 4px; background: var(--env-surface); color: var(--text-rack); font-size: 12px; cursor: pointer; }
+.env-editor-footer button:hover { filter: brightness(.96); }
+.env-editor-footer .env-editor-save { border-color: transparent; background: var(--text-rack); color: var(--bg-base); }
+.env-profile-panel .env-profile-main:enabled:hover { color: var(--text-rack); }
+.env-profile-panel .env-profile-editor input:focus-visible { outline: 1px solid var(--amber); outline-offset: -1px; }
+.env-profile-panel .env-profile-search input:focus-visible { outline: none; }
+.env-profile-panel .env-editor-save:enabled:hover { color: var(--bg-base); }
+@container env-profiles (max-width: 230px) {
+  .env-profile-toolbar { padding-inline: 7px; }
+  .env-profile-toolbar-heading { gap: 4px; }
+  .env-profile-toolbar .panel-header-primary { padding-inline: 6px; }
+  .env-profile-list { padding-inline: 5px; }
+  .env-profile-meta { padding-inline-end: 74px; }
+  .env-profile-note { padding-inline-end: 74px; }
+  .env-profile-actions { right: 4px; }
+  .env-profile-action { flex-basis: 24px; width: 24px; }
+  .env-profile-extras, .env-profile-refs { display: none; }
+  .env-profile-main { padding-inline-start: 8px; }
+  .env-profile-active { display: none; }
+  .env-profile-meta { gap: 5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .env-profile-row, .env-profile-toggle > span, .env-profile-actions { transition: none; }
+}
+@media (hover: none) {
+  .env-profile-actions { opacity: 1; visibility: visible; pointer-events: auto; }
+}

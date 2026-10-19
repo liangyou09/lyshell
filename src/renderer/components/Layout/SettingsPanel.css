@@ -111,6 +111,7 @@
 .settings-nav-chevron { flex-shrink: 0; color: var(--text-rack-mute); }
 .settings-nav-item:hover .settings-nav-icon, .settings-nav-item:hover .settings-nav-chevron { color: var(--amber); }
 .settings-browser-content { display: flex; flex: 1; min-height: 0; min-width: 0; }
+.settings-env-content { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .settings-panel [hidden] { display: none; }
 .settings-plugin-content { flex: 1; min-height: 0; overflow: hidden; }
 

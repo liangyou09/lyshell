@@ -17,6 +17,24 @@ afterEach(async () => {
 })
 
 describe('市场连接生命周期', () => {
+  it('环境变量入口跳转设置，暂离后返回保留同一个 guest 且不重连市场', async () => {
+    const request = vi.fn().mockResolvedValue({ success: true, url: 'http://127.0.0.1:1234/?lyshellView=market' })
+    vi.stubGlobal('electronAPI', { requestDshMarket: request })
+    const openSettings = vi.fn()
+    const panel = (visible: boolean) => <div hidden={!visible}><DshMarketPanel onOpenWeb={vi.fn()} onOpenEnvSettings={openSettings} /></div>
+    const view = render(panel(true))
+    await act(async () => {})
+    const guest = view.container.querySelector('webview')
+    await act(async () => { view.getByRole('button', { name: 'zh:env.manage' }).click() })
+    expect(openSettings).toHaveBeenCalledOnce()
+    view.rerender(panel(false))
+    expect(view.queryByRole('button', { name: 'zh:env.manage' })).toBeNull()
+    view.rerender(panel(true))
+    expect(view.getByRole('button', { name: 'zh:env.manage' })).toBeTruthy()
+    expect(view.container.querySelector('webview')).toBe(guest)
+    expect(request.mock.calls).toEqual([['open']])
+  })
+
   it('忽略未就绪 guest 的同步异常，颜色请求按最新结果生效且重连清空旧表面', async () => {
     vi.stubGlobal('electronAPI', { requestDshMarket: vi.fn().mockResolvedValue({ success: true, url: 'http://127.0.0.1:1234/' }) })
     const view = render(<DshMarketPanel onOpenWeb={vi.fn()} />)

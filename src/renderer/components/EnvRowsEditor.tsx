@@ -30,6 +30,8 @@ export interface EnvRowsEditorTexts {
 }
 
 interface EnvRowsEditorProps {
+  /** 侧栏内编辑时将键和值分两行展示。 */
+  stacked?: boolean
   value: EnvRow[]
   onChange: (rows: EnvRow[]) => void
   texts: EnvRowsEditorTexts
@@ -56,7 +58,7 @@ const IconX: React.FC = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 2l7 7M9 2l-7 7" /></svg>
 )
 
-const EnvRowsEditor: React.FC<EnvRowsEditorProps> = ({ value, onChange, texts, onKeyChange }) => {
+const EnvRowsEditor: React.FC<EnvRowsEditorProps> = ({ value, onChange, texts, onKeyChange, stacked = false }) => {
   // 明文行号集合（仅敏感行有意义）；行号与 value 一一对应，删行时前移修正
   const [revealed, setRevealed] = useState<Set<number>>(new Set())
 
@@ -94,7 +96,7 @@ const EnvRowsEditor: React.FC<EnvRowsEditorProps> = ({ value, onChange, texts, o
     })
 
   return (
-    <div className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm overflow-hidden">
+    <div className={cn('bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm overflow-hidden', stacked && 'env-rows-stacked')}>
       {value.length === 0 ? (
         <button
           onClick={addRow}
@@ -110,22 +112,22 @@ const EnvRowsEditor: React.FC<EnvRowsEditorProps> = ({ value, onChange, texts, o
             const secret = isSecretEnvKey(row.key)
             const isRevealed = revealed.has(i)
             return (
-              <div key={i} className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0">
+              <div key={i} className={cn('flex items-center gap-1.5 px-2 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0', stacked && 'env-rows-stacked-row')}>
                 <input
                   type="text"
                   value={row.key}
                   onChange={(e) => updateRow(i, 'key', e.target.value)}
                   placeholder={texts.keyPh}
-                  className="flex-1 min-w-0 bg-transparent border-none text-[12px] [font-family:inherit] text-[var(--amber)] placeholder:text-[var(--text-rack-data)] focus:outline-none"
+                  className="env-row-key flex-1 min-w-0 bg-transparent border-none text-[12px] [font-family:inherit] text-[var(--amber)] placeholder:text-[var(--text-rack-data)] focus:outline-none"
                 />
-                <span className="text-[var(--text-rack-mute)] [font-family:inherit] text-[12px] select-none">=</span>
+                <span className="env-row-separator text-[var(--text-rack-mute)] [font-family:inherit] text-[12px] select-none">=</span>
                 <input
                   type="text"
                   value={row.value}
                   onChange={(e) => updateRow(i, 'value', e.target.value)}
                   placeholder={texts.valuePh}
                   className={cn(
-                    'flex-[2] min-w-0 bg-transparent border-none text-[12px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] focus:outline-none',
+                    'env-row-value flex-[2] min-w-0 bg-transparent border-none text-[12px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] focus:outline-none',
                     secret && !isRevealed && '[-webkit-text-security:disc]'
                   )}
                 />
@@ -133,7 +135,7 @@ const EnvRowsEditor: React.FC<EnvRowsEditorProps> = ({ value, onChange, texts, o
                   <button
                     onClick={() => toggleReveal(i)}
                     title={isRevealed ? texts.hideValue : texts.showValue}
-                    className="w-[18px] h-[18px] flex-shrink-0 inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] text-[var(--text-rack-faint)] hover:text-[var(--amber)] transition-colors"
+                    className="env-row-reveal w-[18px] h-[18px] flex-shrink-0 inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] text-[var(--text-rack-faint)] hover:text-[var(--amber)] transition-colors"
                   >
                     {isRevealed ? <IconEyeOff /> : <IconEye />}
                   </button>
@@ -141,7 +143,7 @@ const EnvRowsEditor: React.FC<EnvRowsEditorProps> = ({ value, onChange, texts, o
                 <button
                   onClick={() => removeRow(i)}
                   title={texts.deleteTitle}
-                  className="w-[18px] h-[18px] flex-shrink-0 inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] text-[var(--text-rack-faint)] hover:text-[var(--error-rack)] transition-colors"
+                  className="env-row-delete w-[18px] h-[18px] flex-shrink-0 inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] text-[var(--text-rack-faint)] hover:text-[var(--error-rack)] transition-colors"
                 >
                   <IconX />
                 </button>

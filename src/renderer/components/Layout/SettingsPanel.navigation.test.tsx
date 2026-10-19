@@ -16,12 +16,41 @@ beforeEach(() => {
   Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
     getDownloadConfig: async () => ({ success: true, data: { defaultDir: 'D:/Downloads' } }),
     getConfig: async () => ({ width: 1200, height: 800 }),
+    listEnvProfiles: async () => ({ profiles: [], activeProfileId: null, usage: {} }),
     browserRequest: async () => ({ success: true, settings: structuredClone(DEFAULT_BROWSER_SETTINGS), passwords: [], encryptionAvailable: true })
   } })
 })
 afterEach(cleanup)
 
 describe('设置分类导航', () => {
+  it('环境配置在栏内编辑，列表与编辑共用一条返回栏', async () => {
+    const view = render(<SettingsPanel requestedView={{ key: 'env', nonce: 1 }} />)
+    fireEvent.click(await view.findByRole('button', { name: 'env.addTitle' }))
+    expect(view.queryByRole('dialog')).toBeNull()
+    expect(view.getByRole('region', { name: 'env.addTitle' })).toBeTruthy()
+    expect(view.container.querySelectorAll('.settings-category-header')).toHaveLength(1)
+    expect(view.getByRole('button', { name: 'env.backToList' })).toBeTruthy()
+    expect(view.queryByRole('button', { name: 'settings.backToCategories' })).toBeNull()
+    fireEvent.click(view.getByRole('button', { name: 'env.backToList' }))
+    expect(view.container.querySelectorAll('.settings-category-header')).toHaveLength(1)
+    fireEvent.click(view.getByRole('button', { name: 'settings.backToCategories' }))
+    expect(view.getByRole('navigation', { name: 'settings.section' })).toBeTruthy()
+  })
+
+  it('环境变量在设置分类内，引用入口直达该分类并可返回来源页', async () => {
+    const back = vi.fn()
+    const view = render(<SettingsPanel />)
+    fireEvent.click(view.getByRole('button', { name: 'env.title' }))
+    expect(await view.findByRole('button', { name: 'env.addTitle' })).toBeTruthy()
+    expect(view.queryByRole('button', { name: 'settings.returnPage' })).toBeNull()
+    fireEvent.click(view.getByRole('button', { name: 'settings.backToCategories' }))
+    view.rerender(<SettingsPanel requestedView={{ key: 'env', nonce: 1, returnTo: 'codex' }} onReturnPage={back} />)
+    expect(await view.findByRole('button', { name: 'env.addTitle' })).toBeTruthy()
+    expect(view.queryByRole('navigation', { name: 'settings.section' })).toBeNull()
+    fireEvent.click(view.getByRole('button', { name: 'settings.returnPage' }))
+    expect(back).toHaveBeenCalledOnce()
+  })
+
   it('终端配置集中在一个入口，浏览器设置独立，并可返回分类', async () => {
     const view = render(<SettingsPanel />)
     await act(async () => {})

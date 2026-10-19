@@ -22,10 +22,8 @@ export function isFixedNavTab(tab: string): tab is FixedNavTab {
   return (FIXED_NAV_TABS as readonly string[]).includes(tab)
 }
 
-// 内容页签(上组):会话 / Agent / DeepSeek Harness / Codex / Claude / 变量组 / 插件 / 网页。
-// env 是三个 harness 与通用 Agent 共享的全局变量组库,排在启动面(sessions..claude)之后、
-// 资源组(plugins/web)之首。settings 是轨底独立工具槽,不在此列。
-const ALL_TABS: FixedNavTab[] = ['sessions', 'agents', 'dsh', 'codex', 'claude', 'env', 'plugins', 'web']
+// 环境变量归入设置；env 导航键仍接受旧快捷键、命令和文档链接。
+const ALL_TABS: FixedNavTab[] = ['sessions', 'agents', 'dsh', 'codex', 'claude', 'plugins', 'web']
 const TABS: FixedNavTab[] = ALL_TABS
 
 /** 轨宽(px) -- 单一真相源:本组件容器宽与 MainWindow 宽度拖拽算式共用,防两处漂移 */

@@ -6,6 +6,7 @@ const paths: Record<string, React.ReactNode> = {
   window: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M7 6.5h.01m3 0h.01" /></>,
   downloads: <><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4" /></>,
   browser: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a17 17 0 0 1 0 18 17 17 0 0 1 0-18Z" /></>,
+  env: <><path d="M4 7h5m4 0h7M4 17h9m4 0h3" /><circle cx="11" cy="7" r="2" /><circle cx="15" cy="17" r="2" /></>,
   general: <><path d="m3 11 9-8 9 8M5 9v12h5v-7h4v7h5V9" /></>,
   network: <><path d="M3 8a14 14 0 0 1 18 0M6 12a9 9 0 0 1 12 0m-9 4a4 4 0 0 1 6 0M12 20h.01" /></>,
   privacy: <><path d="M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5" /></>,

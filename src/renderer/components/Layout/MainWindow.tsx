@@ -49,7 +49,6 @@ import { openPluginChatTab } from './plugin-chat-tab'
 // 工作区和环境编辑器按需加载，避免占用默认会话面板的启动入口 chunk。
 const HarnessPanel = lazy(() => import('./HarnessPanel'))
 const DshMarketPanel = lazy(() => import('./DshMarketPanel'))
-const EnvProfilePanel = lazy(() => import('./EnvProfilePanel'))
 
 // 左列收起态/宽度的 localStorage 镜像 key -- 主进程 config 异步,首帧用它同步定态防闪
 // (activeNav 的 lyshell.navTab.v1 同款规避);懒读与双写共用常量,防两处字面量漂移
@@ -75,10 +74,13 @@ const MainWindow: React.FC = () => {
   const [activeNav, setActiveNav] = useState<NavTab>(() => {
     try {
       const saved = localStorage.getItem('lyshell.navTab.v1')
+      if (saved === 'env') return 'settings'
       if (saved && (isFixedNavTab(saved) || isPluginViewKey(saved))) return saved
     } catch { /* localStorage 不可用,回退默认 */ }
     return 'sessions'
   })
+  const activeNavRef = useRef(activeNav)
+  activeNavRef.current = activeNav
   // Web 面板保活门:首次激活后常挂载,切走仅 CSS 隐藏(display:none)—— 写轮眼
   // 小窗的 webview guest 随元素摘树即销毁,常挂载让切机柜页签/收起左列都不再
   // 重载小窗页面(本列收起「内容保持挂载」的同款取舍);未激活过不挂,不为从没
@@ -122,6 +124,13 @@ const MainWindow: React.FC = () => {
 
   // 切换左列页签 -- 持久化到 localStorage(Alt+1/2/3 与页签轨点击共用)
   const handleNavChange = useCallback((tab: NavTab) => {
+    if (tab === 'env') {
+      const source = activeNavRef.current
+      setRequestedSettingsView(prev => ({ key: 'env', nonce: (prev?.nonce ?? 0) + 1, returnTo: source === 'settings' ? prev?.returnTo : source }))
+      setActiveNav('settings')
+      try { localStorage.setItem('lyshell.navTab.v1', 'settings') } catch { /* quota */ }
+      return
+    }
     if (tab !== 'settings') setRequestedSettingsView(null)
     setActiveNav(tab)
     try { localStorage.setItem('lyshell.navTab.v1', tab) } catch { /* quota */ }
@@ -139,7 +148,11 @@ const MainWindow: React.FC = () => {
   const pluginViews = React.useMemo(() => pluginItems.flatMap((p) => p.views), [pluginItems])
   const railPluginViews = React.useMemo(() => pluginViews.filter(v => v.surface !== 'settings'
     && !(v.pluginId === 'aipet' && ['chat', 'chat2'].includes(v.id))), [pluginViews])
-  const [requestedSettingsView, setRequestedSettingsView] = useState<SettingsViewRequest | null>(null)
+  const [requestedSettingsView, setRequestedSettingsView] = useState<SettingsViewRequest | null>(() => {
+    try { return localStorage.getItem('lyshell.navTab.v1') === 'env' ? { key: 'env', nonce: 1 } : null } catch { return null }
+  })
+  // 从引用页临时进入设置时保留源面板，返回继续原来的编辑草稿。
+  const retainedNav = activeNav === 'settings' ? requestedSettingsView?.returnTo : undefined
 
   // 保活集：首次激活过的复合键。切走仅 CSS 隐藏;注销/禁用/卸载的键由下方列表
   // 同步 effect 摘除（面板卸载 → webview 销毁 → main 的 guest 清理链）
@@ -1111,14 +1124,19 @@ const MainWindow: React.FC = () => {
                 quickCommandsDisabled={overlayActiveHere}
               />
             )}
-            {activeNav === 'agents' && <AgentsPanel />}
+            {(activeNav === 'agents' || retainedNav === 'agents') && <div className={cn('h-full', activeNav !== 'agents' && 'hidden')}>
+              <AgentsPanel visible={activeNav === 'agents'} onOpenEnvSettings={() => handleNavChange('env')} />
+            </div>}
             <Suspense fallback={null}>
               {dshPanelAlive && <div className={cn('absolute inset-0', activeNav !== 'dsh' && 'hidden')}>
-                <DshMarketPanel onOpenWeb={handleOpenWeb} />
+                <DshMarketPanel onOpenWeb={handleOpenWeb} onOpenEnvSettings={() => handleNavChange('env')} />
               </div>}
-              {activeNav === 'codex' && <HarnessPanel agent="codex" />}
-              {activeNav === 'claude' && <HarnessPanel agent="claude" />}
-              {activeNav === 'env' && <EnvProfilePanel />}
+              {(activeNav === 'codex' || retainedNav === 'codex') && <div className={cn('h-full', activeNav !== 'codex' && 'hidden')}>
+                <HarnessPanel agent="codex" visible={activeNav === 'codex'} onOpenEnvSettings={() => handleNavChange('env')} />
+              </div>}
+              {(activeNav === 'claude' || retainedNav === 'claude') && <div className={cn('h-full', activeNav !== 'claude' && 'hidden')}>
+                <HarnessPanel agent="claude" visible={activeNav === 'claude'} onOpenEnvSettings={() => handleNavChange('env')} />
+              </div>}
             </Suspense>
             {activeNav === 'plugins' && <PluginPanel />}
             {/* Web 面板保活常挂载(见 webPanelAlive 注释),切走时经 visible 隐藏 */}
@@ -1140,7 +1158,7 @@ const MainWindow: React.FC = () => {
                 </div>
               )
             })}
-            {activeNav === 'settings' && <SettingsPanel requestedView={requestedSettingsView} onReturnBrowser={() => handleNavChange('web')} />}
+            {activeNav === 'settings' && <SettingsPanel requestedView={requestedSettingsView} onReturnPage={() => handleNavChange(requestedSettingsView?.returnTo ?? 'sessions')} />}
           </div>
           {/* 宽度调整条 */}
           <div

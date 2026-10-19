@@ -5,12 +5,15 @@ import { useTranslation } from 'react-i18next'
 import { DSH_WEB_PARTITION } from '@shared/constants'
 import type { DshMarketAction } from '@shared/dsh-market'
 import { PanelHeader } from './PanelHeader'
+import { IconBtn } from './IconBtn'
+import { SettingsGlyph } from './SettingsNavigation'
 import { PANEL_STRIP_HEIGHT } from './topbar-metrics'
 import './DshMarketPanel.css'
 
 /** 市场原页面住在左列，切页签保活；不把搜索/安装改写成另一套 LyShell 逻辑。 */
-export default function DshMarketPanel({ onOpenWeb }: {
+export default function DshMarketPanel({ onOpenWeb, onOpenEnvSettings }: {
   onOpenWeb: (target: { workspaceId?: string; cwd?: string }, name?: string) => Promise<{ success: boolean; error?: string }>
+  onOpenEnvSettings?: () => void
 }) {
   const { t } = useTranslation()
   const translate = useRef(t)
@@ -113,11 +116,14 @@ export default function DshMarketPanel({ onOpenWeb }: {
     '--dsh-market-ink': marketSurface.color
   } as CSSProperties : undefined}>
     <PanelHeader title={t('dsh.title')} onTitleClick={() => void openWorkbench()} titleHint={t('dshMarket.workbench')} actions={
-      <button type="button" disabled={busy} onClick={() => void connect()} className="panel-header-menu-trigger" title={t('dshMarket.reconnect')} aria-label={t('dshMarket.reconnect')}>
-        <svg aria-hidden="true" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M13 6a5 5 0 1 0 .1 3.4M13 2.5V6H9.5" />
-        </svg>
-      </button>
+      <>
+        {onOpenEnvSettings && <IconBtn title={t('env.manage')} onClick={onOpenEnvSettings}><SettingsGlyph name="env" /></IconBtn>}
+        <button type="button" disabled={busy} onClick={() => void connect()} className="panel-header-menu-trigger" title={t('dshMarket.reconnect')} aria-label={t('dshMarket.reconnect')}>
+          <svg aria-hidden="true" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M13 6a5 5 0 1 0 .1 3.4M13 2.5V6H9.5" />
+          </svg>
+        </button>
+      </>
     } />
     <div className="dsh-market-frame">
       <div className="dsh-market-section-bar" style={{ height: PANEL_STRIP_HEIGHT }}>

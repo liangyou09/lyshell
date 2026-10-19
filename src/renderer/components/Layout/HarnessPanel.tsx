@@ -2,6 +2,8 @@ import DialogClose from '@/components/Layout/DialogClose'
 import ScrollFold from './ScrollFold'
 import { GroupListActions } from './GroupList'
 import { PanelHeader, PanelHeaderAction } from './PanelHeader'
+import { IconBtn } from './IconBtn'
+import { SettingsGlyph } from './SettingsNavigation'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
@@ -133,7 +135,7 @@ const BusLed: React.FC<{ on: boolean }> = ({ on }) => (
   </>
 )
 
-const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { workspaceId?: string; cwd?: string }, name?: string) => Promise<{ success: boolean; error?: string }> }> = ({ agent, onOpenWeb }) => {
+const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpenEnvSettings?: () => void; onOpenWeb?: (target: { workspaceId?: string; cwd?: string }, name?: string) => Promise<{ success: boolean; error?: string }> }> = ({ agent, visible = true, onOpenEnvSettings, onOpenWeb }) => {
   const { t } = useTranslation()
   const view = HARNESS_AGENT_VIEWS[agent]
   const prefix = view.i18nPrefix
@@ -223,21 +225,28 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
     }
   }, [api, agent])
 
-  const loadEnvProfiles = useCallback(async () => {
-    try {
-      // 返回形状 { profiles, activeProfileId, usage }：全局变量组 + 全局启用指针
-      //（usage 本面板不用）—— 变量组列表 kind 无关，与 ENV 面板共用同一通道
-      const result = await window.electronAPI?.listEnvProfiles() as EnvProfileLibraryResult | undefined
-      if (result && Array.isArray(result.profiles)) {
-        setEnvProfiles(result.profiles as HarnessEnvProfile[])
-        setActiveProfileId(typeof result.activeProfileId === 'string' ? result.activeProfileId : null)
-        setEnvProfilesLoaded(true)
+  useEffect(() => {
+    if (!visible) return
+    let cancelled = false
+    void (async () => {
+      try {
+        // 返回形状 { profiles, activeProfileId, usage }：全局变量组 + 全局启用指针
+        //（usage 本面板不用）—— 变量组列表 kind 无关，与 ENV 面板共用同一通道
+        const result = await window.electronAPI?.listEnvProfiles() as EnvProfileLibraryResult | undefined
+        if (!cancelled && result && Array.isArray(result.profiles)) {
+          setEnvProfiles(result.profiles as HarnessEnvProfile[])
+          setActiveProfileId(typeof result.activeProfileId === 'string' ? result.activeProfileId : null)
+          setEnvProfilesLoaded(true)
+          setWsEnvProfileId(current => current && !result.profiles.some(p => p.id === current) ? undefined : current)
+        }
+      } catch (err) {
+        // 失败时不置 loaded：此后编辑工作区一律透传已有绑定，不拿一份没拉到的列表去判悬空
+        console.error(`Failed to load ${agent} env profiles:`, err)
       }
-    } catch (err) {
-      // 失败时不置 loaded：此后编辑工作区一律透传已有绑定，不拿一份没拉到的列表去判悬空
-      console.error(`Failed to load ${agent} env profiles:`, err)
-    }
-  }, [agent])
+    })()
+    // 暂离设置后可能马上返回，旧响应不得覆盖新列表或清除草稿绑定。
+    return () => { cancelled = true }
+  }, [agent, visible])
 
   // ── 目录分组视图(工作区按工作目录分组立在双开画轴墙上)──
   // 稳定分组:组序吃仓库自有的工作区顺序(首现序,不重排 —— 排序语义照旧落在
@@ -288,11 +297,10 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
       })
     }
     void loadWorkspaces()
-    void loadEnvProfiles()
     return () => {
       active = false
     }
-  }, [agent, loadWorkspaces, loadEnvProfiles])
+  }, [agent, loadWorkspaces])
 
   const copy = async (text: string, key: string) => {
     try {
@@ -342,7 +350,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
   // document 冒泡监听:栈顶成员在捕获层截停后自留监听收不到,第一下 ESC 表现为死键。
   // 处于删除二次确认态时,首次 ESC 仅回退确认态,再次 ESC 才关闭 —— 两步确认即栈内
   // 子层级,一次 ESC 退一层,与回退栈语义一致
-  useEscDismiss(showDialog, () => {
+  useEscDismiss(showDialog && visible, () => {
     if (confirmDelete) {
       setConfirmDelete(false)
       return
@@ -787,6 +795,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
         titleDisabled={!titleEnabled}
         actions={<>
           {listReady && wsGroups.length > 0 && <GroupListActions allCollapsed={allDirsCollapsed} allExpanded={allDirsExpanded} onChange={setAllDirsCollapsed} />}
+          {onOpenEnvSettings && <IconBtn title={t('env.manage')} onClick={onOpenEnvSettings}><SettingsGlyph name="env" /></IconBtn>}
           {listReady && <PanelHeaderAction label={t('panelHeader.create')} title={t(`${prefix}.wsAddTitle`)} onClick={handleAdd} />}
           {!launchReady && (
             <button
@@ -974,7 +983,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
       )}
 
       {/* 工作区新增/编辑对话框 —— 机柜"插槽规格表"同壳（参照 Agent 对话框） */}
-      {showDialog && (
+      {showDialog && visible && (
         <div className="ly-dialog-backdrop fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="ly-dialog-surface bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm w-[448px] max-h-[88vh] overflow-y-auto rack-scroll shadow-xl">
             <DialogClose onClose={() => setShowDialog(false)} />
@@ -1139,8 +1148,9 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; onOpenWeb?: (target: { w
                 原生 select（与权限档位下拉同款机柜样式，选项名后缀变量数）；「跟随」档位的
                 解析结果摊开在下沿提示行，免得用户还要切页签才知道实际会用哪份 */}
             <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="mb-2">
+              <div className="flex flex-wrap items-baseline gap-2 mb-2">
                 <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsEnvProfile`)}</span>
+                {onOpenEnvSettings && <button type="button" className="ml-auto text-[12px] text-[var(--text-rack-data)] hover:text-[var(--amber)] underline underline-offset-2" onClick={onOpenEnvSettings}>{t('env.manage')}</button>}
               </div>
               <select
                 value={wsEnvProfileId ?? ''}

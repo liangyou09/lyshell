@@ -1,6 +1,5 @@
-import DialogClose from '@/components/Layout/DialogClose'
 import { PanelHeader, PanelHeaderAction } from './PanelHeader'
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useId } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import {
@@ -14,19 +13,15 @@ import {
 } from '@shared/harness'
 import EnvRowsEditor, { type EnvRow } from '../EnvRowsEditor'
 import { useUiStore } from '../../stores/ui-store'
-import { useEscDismiss } from '../../hooks'
+import { SettingsBackGlyph } from './SettingsNavigation'
+import './EnvProfilePanel.css'
 
 /**
- * 环境变量面板 —— 全局变量组库的独占入口（左侧轨 env 页签）。
+ * 环境变量面板 —— 全局变量组库的独占入口（设置 → 环境变量）。
  *
- * 机柜语境里它是「配电盘」：变量组是从母线引出的电源模块，Agent 与各 harness
- * 工作区是从它取电的负载。本面板是唯一做增删改的地方；启用是主动作 —— 整卡
- * 即开关（role=switch，单击切换全局启用指针，右键 / 悬停 ✎ 编辑），卡面的签名
- * 元素是一枚断路器读数：方形拨片内嵌模块灯（未启用=暗槽、悬停=拨亮预览、
- * 启用=琥珀辉光）+ 丝印大写标签；同一时刻至多一组通电，通电卡的左沿点亮 2px
- * 琥珀母线导轨（dsh / codex / claude 与 dsh Web 共用同一根指针，结构化核心按
- * 消费方映射物化）；卡片右侧的「n 处引用」是负载侧的回读（Agent 显式绑定 +
- * 工作区显式绑定），悬停列出引用方名字。
+ * 列表按名称、上游地址和配置摘要分层。点击条目即选中并启用，
+ * 各条目内的编辑/复制/删除独立操作自己的配置，开关可停用当前组。
+ * 启用组用状态文字、开关和浅色底共同标识，同一时刻全应用只启用一组。
  *
  * CRUD 走 kind 无关的 env-profile:add/update/delete 通道；启用切换走
  * env-profile:setActive（主进程写的是同一份全局 activeProfileId 指针）。
@@ -44,6 +39,12 @@ const IconCopy: React.FC = () => (
   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
     <rect x="5.5" y="5.5" width="8" height="8" rx="1" />
     <path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2" />
+  </svg>
+)
+
+const IconDelete: React.FC<{ confirming: boolean }> = ({ confirming }) => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    {confirming ? <path d="m3 8 3 3 7-7" /> : <><path d="M2.5 4.5h11M6 4.5V2.5h4v2M4 4.5l.7 9h6.6l.7-9M6.5 7v4M9.5 7v4" /></>}
   </svg>
 )
 
@@ -73,17 +74,19 @@ const IconEyeOff: React.FC = () => (
 /** 单字段敏感输入(API Key 专用):默认打码,眼睛切换明文 —— 掩码手法与 EnvRowsEditor
  *  一致(-webkit-text-security:disc,不用 type=password 免去 Chromium 自带小眼睛) */
 interface SecretInputProps {
+  id?: string
   value: string
   onChange: (value: string) => void
   placeholder: string
   showTitle: string
   hideTitle: string
 }
-const SecretInput: React.FC<SecretInputProps> = ({ value, onChange, placeholder, showTitle, hideTitle }) => {
+const SecretInput: React.FC<SecretInputProps> = ({ id, value, onChange, placeholder, showTitle, hideTitle }) => {
   const [visible, setVisible] = useState(false)
   return (
     <div className="flex items-stretch gap-1">
       <input
+        id={id}
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -114,7 +117,7 @@ const DEFAULTS_LOADERS: Record<HarnessAgentKind, () => Promise<HarnessEnvDefault
   claude: () => window.electronAPI?.getClaudeEnvDefaults()
 }
 
-const EnvProfilePanel: React.FC = () => {
+const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => void }> = ({ embedded = false, onBackToSettings }) => {
   const { t } = useTranslation()
 
   // ── 库状态（env-profile:list 一并下发的三段） ──
@@ -128,14 +131,14 @@ const EnvProfilePanel: React.FC = () => {
   const [actionError, setActionError] = useState<string | null>(null)
   // 指针切换进行中：禁用全部分接开关（同一时刻只允许拨一格）
   const [switching, setSwitching] = useState(false)
-  // 卡片行内删除的两步确认：记录待确认的组 id（null = 无待确认）
+  const [search, setSearch] = useState('')
+  // 操作栏删除的两步确认：记录待确认的组 id（null = 无待确认）
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
-
-  // 各 kind 的推荐变量（对话框里的一键补全模板）
+  // 各 kind 的推荐变量（配置页里的一键补全模板）
   const [defaultsByKind, setDefaultsByKind] = useState<Partial<Record<HarnessAgentKind, HarnessEnvDefault[]>>>({})
 
-  // ── 新增/编辑对话框 ──
-  const [showDialog, setShowDialog] = useState(false)
+  // ── 新增/编辑配置页 ──
+  const [editing, setEditing] = useState(false)
   const [editProfile, setEditProfile] = useState<HarnessEnvProfile | undefined>(undefined)
   const [profileName, setProfileName] = useState('')
   const [profileNote, setProfileNote] = useState('')
@@ -149,14 +152,7 @@ const EnvProfilePanel: React.FC = () => {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
-  // 与 Agent/工作区弹窗共用 Esc 回退栈：先退删除确认，再关弹窗；IME 候选期不关闭。
-  useEscDismiss(showDialog, () => {
-    if (confirmDelete) {
-      setConfirmDelete(false)
-      return
-    }
-    setShowDialog(false)
-  })
+  const fieldId = useId()
 
   const load = useCallback(async () => {
     try {
@@ -208,14 +204,13 @@ const EnvProfilePanel: React.FC = () => {
     ].join('  ·  ')
   }
 
-  /** 拨全局总闸：点亮 = 把全应用启用指针拨到这组（原点亮组熄灭）；再点亮中的 =
-   *  拨回系统环境变量。同一时刻全应用至多一组通电 */
-  const toggleActive = async (profileId: string) => {
-    if (switching) return
+  /** 点击条目只启用；独立开关允许停用并回落系统环境变量，全应用至多启用一组。 */
+  const toggleActive = async (profileId: string, deactivateIfActive = true) => {
+    if (switching || (!deactivateIfActive && activeProfileId === profileId)) return
     setSwitching(true)
     setActionError(null)
     try {
-      const on = activeProfileId === profileId
+      const on = deactivateIfActive && activeProfileId === profileId
       const res = await window.electronAPI?.setEnvProfileActive(on ? null : profileId)
       if (res && (res as { success?: boolean }).success === false) {
         setActionError(typeof (res as { error?: unknown }).error === 'string'
@@ -228,13 +223,13 @@ const EnvProfilePanel: React.FC = () => {
     } finally {
       // 无论成败都重新拉取，失败时回落到真实状态。重拉落地前保持 switching ——
       // 「指针已切、列表未刷」的窗口里再点卡会用旧状态误判 on，把「切到 A」
-      // 算成「关闭 A」发给主进程；整卡即开关后快速连点远比旧的小 chip 常见
+      // 算成「关闭 A」发给主进程；条目和开关共享同一个请求锁
       await load()
       setSwitching(false)
     }
   }
 
-  // ── 对话框：模型选项行编辑（单列，供工作区模型建议） ──
+  // ── 配置页：模型选项行编辑（单列，供工作区模型建议） ──
   const addModelRow = () => setProfileModels((prev) => [...prev, ''])
   const updateModelRow = (i: number, value: string) =>
     setProfileModels((prev) => prev.map((m, idx) => (idx === i ? value : m)))
@@ -258,13 +253,14 @@ const EnvProfilePanel: React.FC = () => {
     ])
   }
 
-  const resetDialog = () => {
+  const resetEditor = () => {
     setTriedSubmit(false)
     setConfirmDelete(false)
     setSaveError(null)
   }
 
   const handleAdd = () => {
+    setDeleteConfirmId(null)
     setEditProfile(undefined)
     setProfileName('')
     setProfileNote('')
@@ -274,12 +270,12 @@ const EnvProfilePanel: React.FC = () => {
     // 模板开关（+ codex / + claude）按需一键补全
     setProfileEnv([])
     setProfileModels([])
-    resetDialog()
-    setShowDialog(true)
+    resetEditor()
+    setEditing(true)
   }
 
   // 外部「新建变量组」请求(ui-store,如 /ls 清点文档的新建链接):本面板条件挂载,
-  // 请求落 store 跨挂载存活,挂载后读到存量也能开对话框,消费后归零防误弹
+  // 请求落 store 跨挂载存活,挂载后读到存量也能开配置页,消费后归零防误弹
   const createRequestId = useUiStore(s => s.createDialogRequests.env ?? 0)
   useEffect(() => {
     if (!createRequestId) return
@@ -289,7 +285,7 @@ const EnvProfilePanel: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createRequestId])
 
-  // 外部「打开变量组」请求(/ls 清点文档点行内名称):按 id 找到组开编辑对话框。
+  // 外部「打开变量组」请求(/ls 清点文档点行内名称):按 id 找到组开编辑配置页。
   // 请求可能先于列表到达(刚随 navigate 挂载,load 未返回)—— 未就绪不消费,
   // 列表到了 effect 重跑;列表就绪仍找不到(快照后已删)也要消费,防陈旧请求
   // 随后续列表刷新反复触发
@@ -308,6 +304,7 @@ const EnvProfilePanel: React.FC = () => {
   }, [openItem, profiles, loaded])
 
   const handleEdit = (p: HarnessEnvProfile) => {
+    setDeleteConfirmId(null)
     setEditProfile(p)
     setProfileName(p.name)
     setProfileNote(p.note || '')
@@ -315,15 +312,16 @@ const EnvProfilePanel: React.FC = () => {
     setProfileApiKey(p.apiKey || '')
     setProfileEnv(Object.entries(p.env).map(([key, value]) => ({ key, value })))
     setProfileModels(p.models ? [...p.models] : [])
-    resetDialog()
-    setShowDialog(true)
+    resetEditor()
+    setEditing(true)
   }
 
   /**
-   * 复制变量组：以既有配置预填「新增」对话框（名称加后缀便于区分），保存才落盘，
+   * 复制变量组：以既有配置预填「新增」配置页（名称加后缀便于区分），保存才落盘，
    * 取消无副作用。走新增链路即不触碰启用指针 —— 副本不会抢走源组的分接档位。
    */
   const handleDuplicate = (p: HarnessEnvProfile) => {
+    setDeleteConfirmId(null)
     setEditProfile(undefined)
     setProfileName(`${p.name}${t('env.copySuffix')}`)
     setProfileNote(p.note || '')
@@ -331,8 +329,8 @@ const EnvProfilePanel: React.FC = () => {
     setProfileApiKey(p.apiKey || '')
     setProfileEnv(Object.entries(p.env).map(([key, value]) => ({ key, value })))
     setProfileModels(p.models ? [...p.models] : [])
-    resetDialog()
-    setShowDialog(true)
+    resetEditor()
+    setEditing(true)
   }
 
   // 折叠 env 行：丢弃空 key；同名 key 后者覆盖
@@ -360,7 +358,7 @@ const EnvProfilePanel: React.FC = () => {
     setSaveError(null)
     const name = profileName.trim()
     // note/models 传 undefined 即清空（主进程 `if (safe.x !== undefined)` 不写这个键，
-    // 记录整条替换后旧值即消失）—— 与工作区/变量组对话框同一套语义
+    // 记录整条替换后旧值即消失）—— 与工作区/变量组配置页同一套语义
     const note = profileNote.trim() || undefined
     // 核心两字段:trim 后为空传 undefined(主进程「非 undefined 即写入」的整条替换语义下
     // 即清空);apiKey 不 trim 值本体以外无从校验,与 baseUrl 同样按 trim 判空
@@ -383,14 +381,14 @@ const EnvProfilePanel: React.FC = () => {
       return
     }
     await load()
-    setShowDialog(false)
+    setEditing(false)
   }
 
-  const handleDialogDelete = async () => {
+  const handleEditorDelete = async () => {
     if (!confirmDelete) { setConfirmDelete(true); return }
     if (editProfile) {
       // 组是 Agent/工作区绑定的目标，删除后绑定方回落下一级 —— 重新拉取让引用计数归零。
-      // 失败(落盘失败/组已不存在)保留对话框并展示原因,不静默吞掉
+      // 失败(落盘失败/组已不存在)保留配置页并展示原因,不静默吞掉
       try {
         const res = await window.electronAPI?.deleteEnvProfile(editProfile.id)
         if (res && (res as { success?: boolean }).success === false) {
@@ -406,7 +404,7 @@ const EnvProfilePanel: React.FC = () => {
         return
       }
       await load()
-      setShowDialog(false)
+      setEditing(false)
     }
   }
 
@@ -420,411 +418,196 @@ const EnvProfilePanel: React.FC = () => {
   }
   const resetTriedSubmit = () => { if (triedSubmit) setTriedSubmit(false) }
 
-  // 变量组卡 —— 配电盘模块卡原样（整卡即开关/右键编辑/悬停操作簇全不动），
-  // 平铺在纸面列表上，卡间 6px 暗沟。
-  const renderProfileCard = (p: HarnessEnvProfile) => {
-    const total = usageCount(p.id)
-    const on = activeProfileId === p.id
-    return (
-      <div
-        key={p.id}
-        role="switch"
-        aria-checked={on}
-        tabIndex={0}
-        onClick={() => void toggleActive(p.id)}
-        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); handleEdit(p) }}
-        onKeyDown={(e) => {
-          // 按键来自悬停操作按钮（⧉/✎/✕）时不归卡片管：冒泡上来的 Enter/Space
-          // 若在此 preventDefault 会顺带压制按钮自身的 click 合成，变成「拨开关」
-          if (e.target !== e.currentTarget) return
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void toggleActive(p.id) }
-        }}
-        onMouseLeave={() => { if (deleteConfirmId === p.id) setDeleteConfirmId(null) }}
-        aria-label={p.name}
-        title={on ? t('env.deactivateTitle') : t('env.activateTitle')}
-        className={cn(
-          // 独立卡语法（与 Harness 工作区卡归一）：四边 rule 框 + 2px 圆角 +
-          // 卡间 6px 暗沟（纸幅 space-y-1.5）—— 槽位阶梯与全线一致
-          // （slot 面 / 悬停 elev / 琥珀启用语义不动）；行距 py-1.5
-          // 与工作区/Agent 卡同一档（两行卡）；overflow-hidden 裁导轨圆角
-          'group relative flex flex-col gap-1 px-2 py-1.5 transition-colors rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)] focus:outline-none focus-visible:border-[var(--amber)] overflow-hidden',
-          switching ? 'cursor-wait' : 'cursor-pointer'
-        )}
-      >
-        {/* 通电模块标识：全局启用指针指向本卡时，左沿点亮 2px 琥珀母线导轨
-            （与 HarnessPanel 缺依赖提示卡同一套通电卡语言）—— 全库至多一张
-            卡通电，扫一眼面板就能看到哪组在供全应用取电 */}
-        {on && (
-          <span
-            aria-hidden
-            className="absolute left-0 top-0 bottom-0 w-[2px] bg-[var(--amber)] shadow-[0_0_6px_var(--amber-glow)]"
-          />
-        )}
-        {/* 行 1：通电 LED + 组名 + hover 操作（复制/编辑/删除）。
-            整卡即开关（单击切换启用）—— 状态读数瘦身为名称前的 20px 槽
-            6px LED（亮=琥珀辉光，暗=熄槽、悬停拨亮预览），与左沿母线
-            导轨同一套通电语言（BusLed 同款），不再单独占一整行断路器药丸 */}
-        <div className="flex items-center gap-2">
-          <span
-            aria-hidden
-            className={cn(
-              'flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center'
-            )}
-          >
-            <span
-              className={cn(
-                'w-[6px] h-[6px] rounded-full transition-colors',
-                on
-                  ? 'bg-[var(--amber)] shadow-[0_0_5px_var(--amber-glow)]'
-                  : 'bg-[var(--text-rack-faint)] group-hover:bg-[var(--amber)]'
-              )}
-            />
-          </span>
-          <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">
-            {p.name}
-          </span>
-          <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-elev)] from-[24%] to-transparent">
-            <button
-              onClick={(e) => { e.stopPropagation(); handleDuplicate(p) }}
-              title={t('env.copy')}
-              className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
-            >
-              <IconCopy />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); handleEdit(p) }}
-              title={t('env.editTitle')}
-              className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
-            >
-              <IconEdit />
-            </button>
-            <button
-              onClick={async (e) => {
-                e.stopPropagation()
-                // 两步确认：首次点击切到确认态，再次点击才真正删除（与工作区/变量组一致）
-                if (deleteConfirmId !== p.id) {
-                  setDeleteConfirmId(p.id)
-                  return
-                }
-                setDeleteConfirmId(null)
-                // 失败(落盘失败/组已不存在)不静默:卡片在下方 load() 后"复活"
-                // 前给出原因 —— 与拨分接开关共用面板级 actionError
-                try {
-                  const res = await window.electronAPI?.deleteEnvProfile(p.id)
-                  if (res && (res as { success?: boolean }).success === false) {
-                    setActionError(typeof (res as { error?: unknown }).error === 'string'
-                      ? (res as { error: string }).error
-                      : t('env.deleteFailed'))
-                  }
-                } catch (err) {
-                  setActionError(err instanceof Error && err.message ? err.message : t('env.deleteFailed'))
-                } finally {
-                  await load()
-                }
-              }}
-              title={deleteConfirmId === p.id
-                ? (total > 0 ? t('env.confirmDeleteRefs', { count: total }) : t('env.confirmDelete'))
-                : t('env.delete')}
-              className={cn(
-                'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
-                deleteConfirmId === p.id
-                  ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
-                  : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]'
-              )}
-            >
-              <IconX />
-            </button>
-          </div>
-        </div>
+  const query = search.trim().toLocaleLowerCase()
+  // 只检索名称、地址和备注，不让凭据或附加变量值进入搜索结果。
+  const visibleProfiles = profiles.filter(p => !query || [p.name, p.baseUrl, p.note]
+    .some(value => value?.toLocaleLowerCase().includes(query)))
 
-        {/* 行 2：上游地址 host · 凭据指示 · 附加变量数 · 备注 + 引用回读 ——
-            结构化核心的读数面；引用数靠右收尾（悬停见引用方名单） */}
-        <div className="flex items-baseline gap-2 min-w-0">
-          <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">
-            {[
-              p.baseUrl ? baseUrlHost(p.baseUrl) : null,
-              p.apiKey ? t('env.keyPresent') : null,
-              Object.keys(p.env).length > 0 ? t('env.vars', { count: Object.keys(p.env).length }) : null,
-              p.note || null
-            ].filter(Boolean).join(' · ')}
+  const handleCardDelete = async (profile: HarnessEnvProfile) => {
+    if (deleteConfirmId !== profile.id) {
+      setDeleteConfirmId(profile.id)
+      return
+    }
+    setDeleteConfirmId(null)
+    setActionError(null)
+    try {
+      const result = await window.electronAPI?.deleteEnvProfile(profile.id)
+      if (result && (result as { success?: boolean }).success === false) {
+        setActionError(typeof (result as { error?: unknown }).error === 'string'
+          ? (result as { error: string }).error : t('env.deleteFailed'))
+      }
+    } catch (error) {
+      setActionError(error instanceof Error && error.message ? error.message : t('env.deleteFailed'))
+    } finally {
+      await load()
+    }
+  }
+
+  const renderProfileCard = (profile: HarnessEnvProfile) => {
+    const total = usageCount(profile.id)
+    const active = activeProfileId === profile.id
+    const description = profile.baseUrl ? baseUrlHost(profile.baseUrl)
+      : profile.apiKey ? t('env.keyPresent') : t('env.vars', { count: Object.keys(profile.env).length })
+    return <div key={profile.id} className="env-profile-row" data-active={active}
+      onMouseLeave={() => { if (deleteConfirmId === profile.id) setDeleteConfirmId(null) }}
+      onContextMenu={event => { event.preventDefault(); handleEdit(profile) }}>
+      <button type="button" aria-pressed={active} disabled={switching} aria-label={profile.name}
+        className="env-profile-main" onClick={() => { setDeleteConfirmId(null); void toggleActive(profile.id, false) }}>
+        <span className="env-profile-heading">
+          <span className="env-profile-name" title={profile.name}>{profile.name}</span>
+          {active && <span className="env-profile-active">{t('env.activeBadge')}</span>}
+        </span>
+        <span className="env-profile-meta">
+          <span className="env-profile-endpoint" title={description}>
+            {description}
           </span>
-          <span className="flex-1" />
-          {total > 0 ? (
-            <span title={usageNames(p.id)} className="shrink-0 text-[10px] [font-family:inherit] text-[var(--text-rack-mute)] tabular-nums">
-              {t('env.refs', { count: total })}
-            </span>
-          ) : (
-            <span className="shrink-0 text-[10px] [font-family:inherit] text-[var(--text-rack-faint)]">
-              {t('env.unused')}
-            </span>
-          )}
-        </div>
-      </div>
-    )
+          {(profile.baseUrl || profile.apiKey) && Object.keys(profile.env).length > 0 && <span className="env-profile-extras" data-count={Object.keys(profile.env).length} title={t('env.vars', { count: Object.keys(profile.env).length })}>{t('env.vars', { count: Object.keys(profile.env).length })}</span>}
+          {total > 0 && <span className="env-profile-refs" title={usageNames(profile.id)}>{t('env.refs', { count: total })}</span>}
+        </span>
+        {profile.note && <span className="env-profile-note" title={profile.note}>{profile.note}</span>}
+      </button>
+      <button type="button" role="switch" aria-checked={active} aria-label={profile.name}
+        disabled={switching} title={active ? t('env.deactivateTitle') : t('env.activateTitle')}
+        className="env-profile-toggle" onClick={() => { setDeleteConfirmId(null); void toggleActive(profile.id) }}><span /></button>
+      {renderProfileActions(profile)}
+    </div>
+  }
+
+  const renderProfileActions = (profile: HarnessEnvProfile) => {
+    const total = usageCount(profile.id)
+    return <div className="env-profile-actions" role="group" aria-label={profile.name} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDeleteConfirmId(null) }} onKeyDown={event => { if (event.key === 'Escape') setDeleteConfirmId(null) }}>
+        <button type="button" className="env-profile-action" title={`${t('env.editTitle')}: ${profile.name}`} aria-label={t('env.editTitle')} onClick={() => handleEdit(profile)}><IconEdit /><span>{t('env.editAction')}</span></button>
+        <button type="button" className="env-profile-action" title={`${t('env.copy')}: ${profile.name}`} aria-label={t('env.copy')} onClick={() => handleDuplicate(profile)}><IconCopy /><span>{t('env.copyAction')}</span></button>
+        <button type="button" className={cn('env-profile-action env-profile-delete', deleteConfirmId === profile.id && 'is-confirming')}
+          title={deleteConfirmId === profile.id ? (total > 0 ? t('env.confirmDeleteRefs', { count: total }) : t('env.confirmDelete')) : `${t('env.delete')}: ${profile.name}`}
+          aria-label={deleteConfirmId === profile.id ? (total > 0 ? t('env.confirmDeleteRefs', { count: total }) : t('env.confirmDelete')) : t('env.delete')}
+          onClick={() => void handleCardDelete(profile)}><IconDelete confirming={deleteConfirmId === profile.id} /><span>{deleteConfirmId === profile.id ? t('env.confirmDeleteAction') : t('env.delete')}</span></button>
+    </div>
   }
 
   return (
     <div
-      className="w-full h-full flex flex-col bg-[var(--bg-base)]"
-      style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
+      className="env-profile-panel w-full h-full flex flex-col bg-[var(--bg-base)]"
+      style={embedded ? undefined : { fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
-      <PanelHeader
+      {!embedded && <PanelHeader
         title={t('env.title')}
         count={profiles.length}
-        actions={<PanelHeaderAction label={t('panelHeader.create')} title={t('env.addTitle')} onClick={handleAdd} />}
-      />
+        actions={!editing && <PanelHeaderAction label={t('panelHeader.create')} title={t('env.addTitle')} onClick={handleAdd} />}
+      />}
 
-      {/* ===== 内容壳 ===== 头行以下整列离缘 6(mx-1.5) —— 与会话栏器物两端同线
-          (栏内器物一律离缘,纸面不再通铺到面板两缘);段内既有垫距保留;壳不
-          定位,fixed 弹窗与绝对定位浮层不受影响 */}
-      <div className="mx-1.5 flex-1 min-h-0 flex flex-col min-w-0">
+      {embedded && !editing && onBackToSettings && <button type="button" className="settings-category-header" title={t('settings.backToCategories')} aria-label={t('settings.backToCategories')} onClick={onBackToSettings}>
+        <span className="settings-content-back" aria-hidden="true"><SettingsBackGlyph /></span>
+        <span className="settings-category-title">{t('env.title')}</span>
+      </button>}
+
+      {!editing && <div className="env-profile-toolbar">
+        <div className="env-profile-toolbar-heading">
+          <span className="env-profile-count" title={loaded ? t('env.profileCount', { count: profiles.length }) : t('env.loading')} aria-live="polite">{loaded ? t('env.profileCount', { count: profiles.length }) : t('env.loading')}</span>
+          {embedded && <PanelHeaderAction label={t('panelHeader.create')} title={t('env.addTitle')} onClick={handleAdd} />}
+        </div>
+        <div className="env-profile-search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></svg>
+          <input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder={t('env.search')} aria-label={t('env.search')} spellCheck={false} />
+          {search && <button type="button" title={t('env.clearSearch')} aria-label={t('env.clearSearch')} onClick={() => setSearch('')}><IconX /></button>}
+        </div>
+      </div>}
+
+      <div className="env-profile-body" hidden={editing}>
 
       {/* 列表级错误横幅 */}
       {actionError && (
-        <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words pt-2">{actionError}</div>
+        <div role="alert" className="env-profile-error">{actionError}</div>
       )}
 
-      {/* 变量组没有分组开合，保留纸面卡片列表；滚动留在列表自身。 */}
-      {loaded && profiles.length > 0 ? (
-        <div className="flex-1 min-h-0 overflow-y-auto rack-scroll pt-1.5 pb-3">
-          <div className="flat-paper-list px-2 py-2 space-y-1.5">
-            {profiles.map(renderProfileCard)}
+      {loaded && visibleProfiles.length > 0 ? (
+        <div className="env-profile-scroll rack-scroll">
+          <div className="env-profile-list">
+            {visibleProfiles.map(renderProfileCard)}
           </div>
         </div>
+      ) : loaded && profiles.length > 0 ? (
+        <div className="env-profile-empty" role="status">
+          <span>{t('env.noMatches')}</span>
+          <button type="button" onClick={() => setSearch('')}>{t('env.clearSearch')}</button>
+        </div>
       ) : loaded && profiles.length === 0 ? (
-        // 空状态 —— 沿用机柜 ─ · ─ 分隔 + 提示（列表空则不立墙，与 Web 栏同口径）
-        <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 px-4 pb-6 text-center">
-          <span className="font-mono text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
-          <span className="text-[11.5px] [font-family:inherit] text-[var(--text-rack-mute)]">{t('env.empty')}</span>
-          <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">{t('env.emptyHint')}</span>
+        <div className="env-profile-empty">
+          <span>{t('env.empty')}</span>
+          <span>{t('env.emptyHint')}</span>
         </div>
       ) : null}
 
-      {/* 新增/编辑对话框 —— 机柜「插槽规格表」同壳（与 HarnessPanel 变量组对话框同款） */}
-      {showDialog && (
-        <div className="ly-dialog-backdrop fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div role="dialog" aria-modal="true" aria-label={editProfile ? t('env.editTitle') : t('env.addTitle')} className="ly-dialog-surface bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm w-[448px] max-h-[88vh] overflow-y-auto rack-scroll shadow-xl">
-            <DialogClose onClose={() => setShowDialog(false)} />
-            <div className="flex items-center h-10 px-4 border-b border-[var(--rule)] gap-2.5">
-              <span
-                className="inline-block w-2 h-2 rounded-full flex-shrink-0"
-                style={{ background: 'var(--amber)', boxShadow: '0 0 5px var(--amber)' }}
-              />
-              <span className="text-[13px] [font-family:inherit] font-medium tracking-[0.04em] text-[var(--text-rack)]">
-                {editProfile ? t('env.editTitle') : t('env.addTitle')}
-              </span>
-              <span className="flex-1" />
-              <span className="text-[10.5px] [font-family:inherit] tracking-[0.08em] px-1.5 py-px rounded-sm bg-[var(--bg-base)] border border-[var(--rule)] text-[var(--text-rack-mute)]">
-                GLOBAL
-              </span>
+      </div>
+
+      {editing && <section className="env-profile-editor" aria-label={editProfile ? t('env.editTitle') : t('env.addTitle')}
+        onKeyDown={event => {
+          if (event.key === 'Escape' && !event.nativeEvent.isComposing && confirmDelete) {
+            event.preventDefault()
+            event.stopPropagation()
+            setConfirmDelete(false)
+          }
+        }}>
+        <button type="button" className="settings-category-header env-editor-back" title={t('env.backToList')} aria-label={t('env.backToList')} onClick={() => setEditing(false)}>
+          <span className="settings-content-back" aria-hidden="true"><SettingsBackGlyph /></span>
+          <span className="settings-category-title">{editProfile ? t('env.editTitle') : t('env.addTitle')}</span>
+        </button>
+        <div className="env-editor-scroll rack-scroll">
+          <div className="env-editor-section">
+            <div className="env-editor-field">
+              <label htmlFor={`${fieldId}-name`}>{t('env.name')}</label>
+              <input id={`${fieldId}-name`} value={profileName} onChange={event => { setProfileName(event.target.value); resetTriedSubmit() }} placeholder={t('env.namePh')} autoFocus aria-invalid={triedSubmit && !profileName.trim()} />
             </div>
-
-            {/* 名称 */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t('env.name')}</span>
-              </div>
-              <input
-                type="text"
-                value={profileName}
-                onChange={(e) => { setProfileName(e.target.value); if (triedSubmit) setTriedSubmit(false) }}
-                placeholder={t('env.namePh')}
-                autoFocus
-                className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
-              />
-            </div>
-
-            {/* 备注（可选）—— 卡片行里跟在「n 个变量」后面单行显示，故用 input 而非 textarea */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--text-rack)]">{t('env.note')}</span>
-                <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t('env.noteHint')}</span>
-              </div>
-              <input
-                type="text"
-                value={profileNote}
-                onChange={(e) => setProfileNote(e.target.value)}
-                placeholder={t('env.notePh')}
-                className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
-              />
-            </div>
-
-            {/* Base URL —— 结构化核心之一:协议无关的上游地址,启动时按消费方映射
-                注入具体变量名(hint 一行列出三家映射,变量名跟着 agent 走不用记) */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="mb-2">
-                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t('env.baseUrl')}</span>
-                <div className="mt-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t('env.baseUrlHint')}</div>
-              </div>
-              <input
-                type="text"
-                value={profileBaseUrl}
-                onChange={(e) => { setProfileBaseUrl(e.target.value); if (triedSubmit) setTriedSubmit(false) }}
-                placeholder={t('env.baseUrlPh')}
-                spellCheck={false}
-                className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
-              />
-            </div>
-
-            {/* API Key —— 结构化核心之二:凭据。默认打码,眼睛切换明文 */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="mb-2">
-                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t('env.apiKey')}</span>
-                <div className="mt-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t('env.apiKeyHint')}</div>
-              </div>
-              <SecretInput
-                value={profileApiKey}
-                onChange={(v) => { setProfileApiKey(v); if (triedSubmit) setTriedSubmit(false) }}
-                placeholder={t('env.apiKeyPh')}
-                showTitle={t('env.showValue')}
-                hideTitle={t('env.hideValue')}
-              />
-            </div>
-
-            {/* 附加变量 + 各 kind 模板开关。
-                核心两字段放不下的其余配置(CODEX_HOME 等)在这里;核心键已被排除,
-                开关只补真正属于附加层的推荐项(title 列出会补进的 key,避免盲按) */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="mb-2">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t('env.extras')}</span>
-                  <span className="flex-1" />
-                  {HARNESS_AGENT_KINDS.map((kind) => {
-                    const missing = missingFor(kind)
-                    if (missing.length === 0) return null
-                    return (
-                      <button
-                        key={kind}
-                        onClick={() => fillFromDefaults(kind)}
-                        title={`${t('env.envFillTitle', { kind })}: ${missing.map((d) => d.key).join(', ')}`}
-                        className="px-1.5 py-0.5 text-[10.5px] [font-family:inherit] rounded-[2px] border border-[color-mix(in_srgb,var(--amber)_40%,var(--rule))] text-[var(--amber)] hover:bg-[var(--bg-slot)] hover:border-[var(--amber)] transition-colors whitespace-nowrap"
-                      >
-                        + {kind}
-                      </button>
-                    )
-                  })}
-                </div>
-                <div className="mt-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t('env.extrasHint')}</div>
-              </div>
-              <EnvRowsEditor
-                value={profileEnv}
-                onChange={setProfileEnv}
-                texts={envRowsTexts}
-                onKeyChange={resetTriedSubmit}
-              />
-              {/* 协议核心键混入附加变量的告警：多协议并存的旧组提升时只提走首个协议
-                  (liftStructuredFields 取首),其余协议键留在附加层并会原样注入所有
-                  消费方 —— 凭据串扰风险,提示用户收编到上方核心或拆分成组 */}
-              {profileEnv.some((row) => CORE_ENV_KEYS.has(row.key.trim())) && (
-                <div className="mt-1.5 text-[10.5px] [font-family:inherit] text-[var(--amber)]">
-                  {t('env.coreKeyInExtras')}
-                </div>
-              )}
-            </div>
-
-            {/* 模型选项 —— 单列可增删，供工作区「模型」输入框的建议（生效组排在内置建议之前） */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="mb-2">
-                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t('env.models')}</span>
-                <div className="mt-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">· {t('env.modelsHint')}</div>
-              </div>
-              <div className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm overflow-hidden">
-                {profileModels.length === 0 ? (
-                  <button
-                    onClick={addModelRow}
-                    className="w-full text-left py-1.5 px-2.5 text-[11.5px] [font-family:inherit] text-[var(--text-rack-data)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] transition-colors"
-                  >
-                    + {t('env.modelsAdd')}
-                  </button>
-                ) : (
-                  <>
-                    {profileModels.map((model, i) => (
-                      <div key={i} className="flex items-center gap-1.5 px-2 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0">
-                        <input
-                          type="text"
-                          value={model}
-                          onChange={(e) => updateModelRow(i, e.target.value)}
-                          placeholder={t('env.modelsPh')}
-                          className="flex-1 min-w-0 bg-transparent border-none text-[12px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] focus:outline-none"
-                        />
-                        <button
-                          onClick={() => removeModelRow(i)}
-                          title={t('env.delete')}
-                          className="w-[18px] h-[18px] flex-shrink-0 inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] text-[var(--text-rack-faint)] hover:text-[var(--error-rack)] transition-colors"
-                        >
-                          <IconX />
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      onClick={addModelRow}
-                      className="w-full text-left py-1.5 px-2.5 text-[11.5px] [font-family:inherit] text-[var(--text-rack-data)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] transition-colors"
-                    >
-                      + {t('env.modelsAdd')}
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* 校验提示（仅尝试提交后显示；baseUrl 格式错误单独一条，不与必填项混报） */}
-            {triedSubmit && !profileBaseUrlValid && (
-              <div className="px-4 py-2 text-[11px] [font-family:inherit] text-[var(--error-rack)] border-b border-[var(--rule)]">
-                {t('env.baseUrlInvalid')}
-              </div>
-            )}
-            {triedSubmit && profileBaseUrlValid && !profileValid && (
-              <div className="px-4 py-2 text-[11px] [font-family:inherit] text-[var(--error-rack)] border-b border-[var(--rule)]">
-                {t('env.required')}
-              </div>
-            )}
-
-            {/* 保存失败提示（校验未通过 / 落盘失败，保留表单） */}
-            {saveError && (
-              <div className="px-4 py-2 text-[11px] [font-family:inherit] text-[var(--error-rack)] border-b border-[var(--rule)] break-all">
-                {saveError}
-              </div>
-            )}
-
-            {/* footer：删除（两步确认）/ 取消 / 保存 */}
-            <div className="flex items-center justify-between px-4 py-3">
-              {editProfile ? (
-                <button
-                  onClick={() => void handleDialogDelete()}
-                  className={
-                    confirmDelete
-                      ? 'px-2.5 py-1 text-[12px] [font-family:inherit] rounded-sm bg-[var(--error-rack)] text-[var(--bg-base)] font-medium transition-colors'
-                      : 'px-2.5 py-1 text-[12px] [font-family:inherit] text-[var(--error-rack)] hover:bg-[var(--bg-slot)] rounded-sm transition-colors'
-                  }
-                >
-                  {confirmDelete ? t('env.confirmDelete') : t('env.delete')}
-                </button>
-              ) : (
-                <span />
-              )}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setShowDialog(false)}
-                  className="px-3 py-1 text-[13px] [font-family:inherit] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] transition-colors"
-                >
-                  {t('env.cancel')}
-                </button>
-                <button
-                  onClick={() => void handleSave()}
-                  className={`px-4 py-1 text-[13px] [font-family:inherit] rounded-sm font-medium transition-opacity ${
-                    profileValid
-                      ? 'bg-[var(--amber)] text-[var(--bg-base)] hover:opacity-90'
-                      : 'bg-[var(--bg-slot)] text-[var(--text-rack-dim)] opacity-70'
-                  }`}
-                >
-                  {t('env.save')}
-                </button>
-              </div>
+            <div className="env-editor-field">
+              <label htmlFor={`${fieldId}-note`}>{t('env.note')}<span>{t('env.noteHint')}</span></label>
+              <input id={`${fieldId}-note`} value={profileNote} onChange={event => setProfileNote(event.target.value)} placeholder={t('env.notePh')} />
             </div>
           </div>
+          <div className="env-editor-section">
+            <div className="env-editor-field">
+              <label htmlFor={`${fieldId}-url`}>{t('env.baseUrl')}</label>
+              <input id={`${fieldId}-url`} value={profileBaseUrl} onChange={event => { setProfileBaseUrl(event.target.value); resetTriedSubmit() }} placeholder={t('env.baseUrlPh')} spellCheck={false} aria-invalid={triedSubmit && !profileBaseUrlValid} />
+            </div>
+            <div className="env-editor-field">
+              <label htmlFor={`${fieldId}-key`}>{t('env.apiKey')}</label>
+              <SecretInput id={`${fieldId}-key`} value={profileApiKey} onChange={value => { setProfileApiKey(value); resetTriedSubmit() }} placeholder={t('env.apiKeyPh')} showTitle={t('env.showValue')} hideTitle={t('env.hideValue')} />
+            </div>
+            <details className="env-editor-help"><summary>{t('env.mappingHelp')}</summary><p>{t('env.baseUrlHint')}</p><p>{t('env.apiKeyHint')}</p></details>
+          </div>
+          <div className="env-editor-section">
+            <div className="env-editor-section-title"><h4>{t('env.extras')}</h4></div>
+            <p className="env-editor-hint">{t('env.extrasHint')}</p>
+            <div className="env-editor-presets">
+              {HARNESS_AGENT_KINDS.map(kind => {
+                const missing = missingFor(kind)
+                return missing.length > 0 && <button type="button" key={kind} onClick={() => fillFromDefaults(kind)} title={`${t('env.envFillTitle', { kind })}: ${missing.map(item => item.key).join(', ')}`}>+ {kind}</button>
+              })}
+            </div>
+            <EnvRowsEditor stacked value={profileEnv} onChange={setProfileEnv} texts={envRowsTexts} onKeyChange={resetTriedSubmit} />
+            {profileEnv.some(row => CORE_ENV_KEYS.has(row.key.trim())) && <p className="env-editor-warning">{t('env.coreKeyInExtras')}</p>}
+          </div>
+          <div className="env-editor-section">
+            <div className="env-editor-section-title"><h4>{t('env.models')}</h4></div>
+            <p className="env-editor-hint">{t('env.modelsHint')}</p>
+            <div className="env-editor-models">
+              {profileModels.map((model, index) => <div className="env-editor-model-row" key={index}>
+                <input value={model} onChange={event => updateModelRow(index, event.target.value)} placeholder={t('env.modelsPh')} aria-label={`${t('env.models')} ${index + 1}`} />
+                <button type="button" title={t('env.delete')} aria-label={t('env.delete')} onClick={() => removeModelRow(index)}><IconX /></button>
+              </div>)}
+              <button type="button" className="env-editor-add" onClick={addModelRow}>+ {t('env.modelsAdd')}</button>
+            </div>
+          </div>
+          {triedSubmit && !profileBaseUrlValid && <p role="alert" className="env-editor-error">{t('env.baseUrlInvalid')}</p>}
+          {triedSubmit && profileBaseUrlValid && !profileValid && <p role="alert" className="env-editor-error">{t('env.required')}</p>}
+          {saveError && <p role="alert" className="env-editor-error">{saveError}</p>}
+          {editProfile && <div className="env-editor-danger"><button type="button" onClick={() => void handleEditorDelete()}>{confirmDelete ? t('env.confirmDelete') : t('env.delete')}</button></div>}
         </div>
-      )}
-      </div>{/* ===== /内容壳 ===== */}
+        <footer className="env-editor-footer">
+          <button type="button" onClick={() => setEditing(false)}>{t('env.cancel')}</button>
+          <button type="button" className="env-editor-save" onClick={() => void handleSave()}>{t('env.save')}</button>
+        </footer>
+      </section>}
+
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { lazy, Suspense, useState, useEffect } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { useThemeStore, AVAILABLE_THEMES, CUSTOM_THEME_ID, deriveCustomVars, useLocaleStore, AVAILABLE_LOCALES, usePaneStore } from '@/stores'
@@ -11,6 +11,9 @@ import { makePluginViewKey } from '@shared/plugin-types'
 import PluginViewPanel from './PluginViewPanel'
 import BrowserSettingsPanel, { type BrowserSettingsCategory } from './BrowserSettingsPanel'
 import { SettingsBackGlyph, SettingsNavigation } from './SettingsNavigation'
+import type { NavTab } from './ActivityRail'
+
+const EnvProfilePanel = lazy(() => import('./EnvProfilePanel'))
 
 /**
  * 设置面板按用途导航，每次只展示当前分类，适配可调宽的左侧栏。
@@ -72,10 +75,10 @@ const NumberStepper: React.FC<{
 export interface SettingsViewRequest {
   key: string
   nonce: number
-  returnTo?: 'web'
+  returnTo?: NavTab
 }
 
-const BUILTIN_VIEWS = ['home', '', 'browser']
+const BUILTIN_VIEWS = ['home', '', 'browser', 'env']
 
 const normalizeScrollback = (value: number) => Number.isFinite(value)
   ? Math.max(1000, Math.min(100000, Math.trunc(value)))
@@ -84,7 +87,8 @@ const normalizeScrollback = (value: number) => Number.isFinite(value)
 const SettingsPanel: React.FC<{
   requestedView?: SettingsViewRequest | null
   onReturnBrowser?: () => void
-}> = ({ requestedView, onReturnBrowser }) => {
+  onReturnPage?: () => void
+}> = ({ requestedView, onReturnBrowser, onReturnPage }) => {
   const pluginItems = usePluginStore(state => state.items)
   const settingsViews = React.useMemo(() => pluginItems.flatMap(item => item.views).filter(view => view.surface === 'settings'), [pluginItems])
   const [selectedView, setSelectedView] = useState(requestedView?.key ?? 'home')
@@ -115,9 +119,12 @@ const SettingsPanel: React.FC<{
   const categories = [
     { key: '', icon: 'terminal', label: t('settings.terminalSettings'), hint: t('settings.navigation.terminal') },
     { key: 'browser', icon: 'browser', label: t('browser.title'), hint: t('settings.navigation.browser') },
+    { key: 'env', icon: 'env', label: t('env.title'), hint: t('settings.navigation.env') },
     ...settingsViews.map(view => ({ key: makePluginViewKey(view.pluginId, view.id), icon: 'plugin', label: view.title }))
   ]
   const isHome = selectedView === 'home'
+  const returnAction = onReturnPage ?? (requestedView?.returnTo === 'web' ? onReturnBrowser : undefined)
+  const returnLabel = t(requestedView?.returnTo === 'web' ? 'settings.returnBrowser' : 'settings.returnPage')
   const title = isHome ? t('settings.title') : selectedView === 'browser' && browserCategory ? t(`browser.${browserCategory}`) : categories.find(item => item.key === selectedView)?.label ?? t('settings.title')
   const goBack = () => {
     if (selectedView === 'browser' && browserCategory) setBrowserCategory(null)
@@ -220,22 +227,23 @@ const SettingsPanel: React.FC<{
       {/* 头行与终端页签对齐，保留窗口拖拽区。 */}
       <PanelHeader
         title={t('settings.title')}
-        titleAccessory={requestedView?.returnTo !== 'web' && <button type="button" className="settings-version win-no-drag" title={t('settings.viewReleaseNotes')} aria-label={t('settings.versionReleaseNotes', { version: __APP_VERSION__ })} onClick={openReleaseNotes}>v{__APP_VERSION__}</button>}
-        actions={requestedView?.returnTo === 'web' && onReturnBrowser && <button type="button" className="settings-back win-no-drag" title={t('settings.returnBrowser')} aria-label={t('settings.returnBrowser')} onClick={onReturnBrowser}><SettingsBackGlyph /><span>{t('settings.returnBrowser')}</span></button>}
+        titleAccessory={!requestedView?.returnTo && <button type="button" className="settings-version win-no-drag" title={t('settings.viewReleaseNotes')} aria-label={t('settings.versionReleaseNotes', { version: __APP_VERSION__ })} onClick={openReleaseNotes}>v{__APP_VERSION__}</button>}
+        actions={requestedView?.returnTo && returnAction && <button type="button" className="settings-back win-no-drag" title={returnLabel} aria-label={returnLabel} onClick={returnAction}><SettingsBackGlyph /><span>{returnLabel}</span></button>}
       />
       <div className="settings-frame">
-      {!isHome && <button type="button" className="settings-category-header" title={t(selectedView === 'browser' && browserCategory ? 'browser.backToCategories' : 'settings.backToCategories')} aria-label={t(selectedView === 'browser' && browserCategory ? 'browser.backToCategories' : 'settings.backToCategories')} onClick={goBack}>
+      {!isHome && selectedView !== 'env' && <button type="button" className="settings-category-header" title={t(selectedView === 'browser' && browserCategory ? 'browser.backToCategories' : 'settings.backToCategories')} aria-label={t(selectedView === 'browser' && browserCategory ? 'browser.backToCategories' : 'settings.backToCategories')} onClick={goBack}>
         <span className="settings-content-back" aria-hidden="true"><SettingsBackGlyph /></span>
         <span className="settings-category-title">{title}</span>
       </button>}
       {isHome && <div className="settings-content settings-index"><SettingsNavigation label={t('settings.section')} items={categories} onSelect={setSelectedView} /></div>}
       {/* 分类切换保留浏览器草稿；隐藏区域不参与布局或键盘导航。 */}
       {(browserVisited || selectedView === 'browser') && <div className="settings-browser-content" hidden={selectedView !== 'browser'}><BrowserSettingsPanel category={browserCategory} onCategoryChange={setBrowserCategory} /></div>}
+      {selectedView === 'env' && <div className="settings-env-content"><Suspense fallback={null}><EnvProfilePanel embedded onBackToSettings={() => setSelectedView('home')} /></Suspense></div>}
       {activeSettingsView ? (
         <div className="settings-plugin-content">
           <PluginViewPanel key={selectedView} view={activeSettingsView} visible />
         </div>
-      ) : !isHome && selectedView !== 'browser' && <div className="settings-content" key={selectedView}>
+      ) : !isHome && selectedView !== 'browser' && selectedView !== 'env' && <div className="settings-content" key={selectedView}>
         {selectedView === '' && <><SettingCard title={t('settings.sections.terminal')}>
           <div className="settings-field-row">
             <label htmlFor="settings-terminal-font">{t('settings.font')}</label>

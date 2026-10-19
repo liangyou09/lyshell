@@ -2,6 +2,8 @@ import DialogClose from '@/components/Layout/DialogClose'
 import ScrollFold from './ScrollFold'
 import { GroupListActions } from './GroupList'
 import { PanelHeader, PanelHeaderAction } from './PanelHeader'
+import { IconBtn } from './IconBtn'
+import { SettingsGlyph } from './SettingsNavigation'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
@@ -146,7 +148,7 @@ const AgentSlotIcon: React.FC<{ agent: AgentConfig }> = ({ agent }) => {
 // 组件
 // ─────────────────────────────────────────────────────────────────────────────
 
-const AgentsPanel: React.FC = () => {
+const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void }> = ({ visible = true, onOpenEnvSettings }) => {
   const { t } = useTranslation()
   const [agents, setAgents] = useState<AgentConfig[]>([])
   const [showDialog, setShowDialog] = useState(false)
@@ -195,15 +197,21 @@ const AgentsPanel: React.FC = () => {
   }
   useEffect(() => {
     void loadAgents()
+  }, [])
+  useEffect(() => {
+    if (!visible) return
+    let cancelled = false
     // 全局变量组与 agent 列表一并拉取(绑定下拉的数据源;返回形状 { profiles, activeProfileId, usage })
     window.electronAPI?.listEnvProfiles().then((result) => {
-      if (result && Array.isArray(result.profiles)) {
+      if (!cancelled && result && Array.isArray(result.profiles)) {
         setEnvProfiles(result.profiles as { id: string; name: string }[])
         setActiveProfileId(typeof result.activeProfileId === 'string' ? result.activeProfileId : null)
         setEnvProfilesLoaded(true)
+        setAgentEnvProfileId(current => current && !result.profiles.some(p => p.id === current) ? null : current)
       }
     }).catch((err) => console.error('Failed to load env profiles:', err))
-  }, [])
+    return () => { cancelled = true }
+  }, [visible])
 
   // ── 目录分组视图(agent 卡按工作目录分组立在双开画轴墙上)──
   // 稳定分组:有目录组吃仓库自有的 agent 顺序(首现序),未指定目录组排最后;
@@ -242,14 +250,14 @@ const AgentsPanel: React.FC = () => {
 
   // 图标选择器浮层:外部点击 / ESC 关闭 —— ESC 捕获截停(useDismiss),不穿透进
   // 下方层;浮层开着时对话框自己的 ESC 监听通常到不了,见下
-  useDismiss(iconPickerOpen, () => setIconPickerOpen(false), [iconPickerRef])
+  useDismiss(iconPickerOpen && visible, () => setIconPickerOpen(false), [iconPickerRef])
 
   // ESC 退出对话框 —— 入 ESC 回退栈(栈顶优先、逐层回退,IME 组合期不触发),不自留
   // document 冒泡监听:栈顶成员在捕获层截停后自留监听收不到,第一下 ESC 表现为死键。
   // 处于删除二次确认态时,首次 ESC 仅回退确认态,再次 ESC 才关闭 —— 两步确认即栈内
   // 子层级,一次 ESC 退一层,与回退栈语义一致。对话框内的图标浮层(useDismiss)开在
   // 上层时先收浮层,栈序自动裁决,无需 iconPickerOpen 特判
-  useEscDismiss(showDialog, () => {
+  useEscDismiss(showDialog && visible, () => {
     if (confirmDelete) {
       setConfirmDelete(false)
       return
@@ -496,6 +504,7 @@ const AgentsPanel: React.FC = () => {
         title={t('agents.title')}
         count={agents.length}
         actions={<>
+          {onOpenEnvSettings && <IconBtn title={t('env.manage')} onClick={onOpenEnvSettings}><SettingsGlyph name="env" /></IconBtn>}
           {agentGroups.length > 0 && <GroupListActions allCollapsed={allDirsCollapsed} allExpanded={allDirsExpanded} onChange={setAllDirsCollapsed} />}
           <PanelHeaderAction label={t('panelHeader.add')} title={t('sidebar.addAgent')} onClick={handleAdd} />
         </>}
@@ -552,7 +561,7 @@ const AgentsPanel: React.FC = () => {
       )}
 
       {/* Agent 编辑对话框 -- 机柜"插槽规格表":header + 面板(图标/名称) + 命令/工作目录/环境变量 + 实时预览 */}
-      {showDialog && (
+      {showDialog && visible && (
         <div className="ly-dialog-backdrop fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="ly-dialog-surface bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm w-[448px] max-h-[88vh] overflow-y-auto rack-scroll shadow-xl">
             <DialogClose onClose={() => setShowDialog(false)} />
@@ -665,9 +674,10 @@ const AgentsPanel: React.FC = () => {
 
             {/* ENV PROFILE -- 绑定全局变量组(优先于下方内联变量;与 Harness 工作区同一套绑定语义) */}
             <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="flex items-baseline gap-2 mb-2">
+              <div className="flex flex-wrap items-baseline gap-2 mb-2">
                 <span className="text-[12px] font-mono tracking-[0.06em] text-[var(--amber)]">{t('agents.edit.envProfile')}</span>
                 <span className="text-[10.5px] text-[var(--text-rack-mute)]">· {t('agents.edit.envProfileHint')}</span>
+                {onOpenEnvSettings && <button type="button" className="ml-auto text-[12px] text-[var(--text-rack-data)] hover:text-[var(--amber)] underline underline-offset-2" onClick={onOpenEnvSettings}>{t('env.manage')}</button>}
               </div>
               <select
                 value={agentEnvProfileId ?? ''}
