@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 
 // electron-log / electron.app.getPath 在 Node 测试环境不存在，mock 掉（对齐 harness-workspace-repository.test.ts）
 vi.mock('electron-log', () => ({
@@ -32,13 +32,22 @@ afterEach(() => {
 })
 
 describe('AgentRepository.load（env 清洗）', () => {
-  it('损坏 JSON / 非数组 JSON 时回落默认 Agent（恢复而非崩溃）', () => {
+  it('首次使用、删除最后一个启动项及重新加载都不会生成内置 Agent', () => {
+    const repo = new AgentRepository()
+    expect(repo.getAll()).toEqual([])
+    expect(JSON.parse(readFileSync(agentsPath, 'utf8'))).toEqual([])
+    const added = repo.add({ name: 'My command', command: 'my-tool', order: 0 })!
+    expect(repo.delete(added.id)).toBe(true)
+    expect(new AgentRepository().getAll()).toEqual([])
+  })
+
+  it('损坏 JSON / 非数组 JSON 时保持空列表，原文件不被默认配置覆盖', () => {
     seed('{ not valid json')
-    expect(new AgentRepository().getAll().length).toBeGreaterThan(0)
+    expect(new AgentRepository().getAll()).toEqual([])
+    expect(readFileSync(agentsPath, 'utf8')).toBe('{ not valid json')
     seed('{"a": 1}')
-    const agents = new AgentRepository().getAll()
-    // 非数组按损坏处理，回落 DEFAULT_AGENTS（与 harness 仓库的 rawList 处理一致）
-    expect(agents.map((a) => a.name)).toContain('Claude Code')
+    expect(new AgentRepository().getAll()).toEqual([])
+    expect(readFileSync(agentsPath, 'utf8')).toBe('{"a": 1}')
   })
 
   it('env 脏数据清洗：丢空 key / 含 NUL 的 key / 含 NUL 的 value / 非字符串值', () => {
@@ -133,8 +142,7 @@ describe('resolveAgentLaunchEnv（通用 Agent 启动 env 解析链）', () => {
 })
 
 describe('落盘失败回滚（内存不领先盘）', () => {
-  // 用目录占住 agents.json 路径让写必败（读同样失败 → load 回落默认 Agent，
-  // 正好给 update/delete 提供已知 id 的存量记录）
+  // 用目录占住 agents.json 路径让写必败。
   it('add 落盘失败返回 null 并回滚内存', () => {
     mkdirSync(agentsPath, { recursive: true })
     const repo = new AgentRepository()
@@ -143,18 +151,23 @@ describe('落盘失败回滚（内存不领先盘）', () => {
   })
 
   it('update 落盘失败返回 false 并回滚内存', () => {
-    mkdirSync(agentsPath, { recursive: true })
+    seed(JSON.stringify([{ id: 'custom', name: 'My command', command: 'my-tool', order: 0 }]))
     const repo = new AgentRepository()
-    const before = repo.get('agent-claude-code')!
+    const before = repo.get('custom')!
+    rmSync(agentsPath)
+    mkdirSync(agentsPath)
     expect(repo.update({ ...before, name: 'changed' })).toBe(false)
-    expect(repo.get('agent-claude-code')!.name).toBe(before.name)
+    expect(repo.get('custom')!.name).toBe(before.name)
   })
 
   it('delete 落盘失败返回 false 并回滚内存', () => {
-    mkdirSync(agentsPath, { recursive: true })
+    seed(JSON.stringify([{ id: 'custom', name: 'My command', command: 'my-tool', order: 0 }]))
     const repo = new AgentRepository()
-    expect(repo.delete('agent-claude-code')).toBe(false)
-    expect(repo.get('agent-claude-code')).toBeDefined()
+    expect(repo.get('custom')).toBeDefined()
+    rmSync(agentsPath)
+    mkdirSync(agentsPath)
+    expect(repo.delete('custom')).toBe(false)
+    expect(repo.get('custom')).toBeDefined()
   })
 
   it('原子写：rename 失败时 .tmp 被清理，不留半截临时文件', () => {

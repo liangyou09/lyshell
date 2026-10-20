@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { isAbsolute, resolve } from 'node:path'
 import { atomicWriteFileSync } from '../storage/repository'
 import type { HarnessWorkspaceRepository } from '../storage/harness-workspace-repository'
 import type { HarnessWorkspace } from '@shared/harness'
@@ -35,7 +35,11 @@ export function normalizeCodeWorkspaces(repository: HarnessWorkspaceRepository, 
       const suffix = ` (${++sequence})`
       name = `${base.slice(0, 120 - suffix.length)}${suffix}`
     }
-    const kept = { ...preset, name, order: result.length }
+    // 路径树需要真实的绝对目录层级，不能把 ~、.、.. 渲染为可点击的目录名。
+    // 不存在的旧目录仍保留，便于用户在设置中修复；相对脏数据不猜测其归属目录。
+    const expanded = expandTilde(preset.cwd)
+    const cwd = isAbsolute(expanded) ? resolve(expanded) : preset.cwd
+    const kept = { ...preset, name, cwd, order: result.length }
     labels.add(formatCodeWorkspaceName(kept))
     targets.set(target, kept)
     result.push(kept)

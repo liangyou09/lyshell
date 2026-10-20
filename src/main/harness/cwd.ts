@@ -1,6 +1,6 @@
 import { statSync } from 'fs'
 import { homedir } from 'os'
-import { isAbsolute, join } from 'path'
+import { isAbsolute, join, resolve } from 'path'
 
 /**
  * 工作目录校验（AI Harness 通用，dsh/codex/claude 共用）。
@@ -40,5 +40,5 @@ export function resolveWorkspaceCwd(input: string): ResolvedCwd {
   } catch {
     return { ok: false, error: 'workspace.cwd does not exist' }
   }
-  return { ok: true, path: expanded }
+  return { ok: true, path: resolve(expanded) }
 }

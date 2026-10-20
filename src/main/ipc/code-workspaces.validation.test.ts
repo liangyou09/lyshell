@@ -17,6 +17,17 @@ describe('工作区预设输入校验', () => {
   it('launch 只保留 kind/id，接受非空 id', () => {
     expect(validateCodeWorkspaceRequest({ kind: 'launch', id: 'preset-1', preset: { name: 'ignored' }, extra: true })).toEqual({ kind: 'launch', id: 'preset-1' })
   })
+  it('目录启动只保留预设 ID 和有界路径，不接受自定义 shell', () => {
+    expect(validateCodeWorkspaceRequest({ kind: 'launchDirectory', id: 'preset-1', cwd: 'D:/', shell: 'ignored' })).toEqual({ kind: 'launchDirectory', id: 'preset-1', cwd: 'D:/' })
+  })
+  it.each([
+    { kind: 'launchDirectory', id: 'preset-1', cwd: '' },
+    { kind: 'launchDirectory', id: 'preset-1', cwd: 'x'.repeat(4097) },
+    { kind: 'launchDirectory', id: 'preset-1' },
+    { kind: 'launchDirectory', id: '', cwd: 'D:/' },
+    { kind: 'launchDirectory', id: 'x'.repeat(129), cwd: 'D:/' },
+    { kind: 'launchDirectory', id: 42, cwd: 'D:/' }
+  ])('拒绝无效目录启动输入 %#', request => expect(() => validateCodeWorkspaceRequest(request)).toThrow())
   it.each([
     { kind: 'launch', id: '' },
     { kind: 'launch', id: 'x'.repeat(129) },

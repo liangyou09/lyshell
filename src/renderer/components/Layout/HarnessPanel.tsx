@@ -1,3 +1,4 @@
+import { findManagedWorkspace } from './work-launcher-tree'
 import DialogClose from '@/components/Layout/DialogClose'
 import ScrollFold from './ScrollFold'
 import { GroupListActions } from './GroupList'
@@ -226,20 +227,12 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
       setPresets(result.presets)
       const draftTarget = presetTargetRef.current
       if (showDialog && draftTarget) {
-        // 旧启动项按目标匹配预设；没有对应预设时保留当前目标，防止误换目录或 worktree。
-        const directoryKey = (cwd: string) => {
-          const path = normDirKey(cwd)
-          return /^[a-z]:[\\/]|^\\\\/i.test(path) ? path.replace(/\\/g, '/').toLowerCase() : path
-        }
-        const selected = result.presets.find(preset => directoryKey(preset.cwd) === directoryKey(draftTarget.cwd)
-          && (preset.isolation === 'worktree') === (draftTarget.isolation === 'worktree')
-          && (preset.isolation !== 'worktree' || preset.worktreeKey === draftTarget.worktreeKey))
-        const current = selected ?? { ...draftTarget, id: draftTarget.id.startsWith('current-') ? draftTarget.id : `current-${draftTarget.id}` }
-        if (!selected) setPresets([...result.presets, current])
-        setPresetId(current.id)
-        setWsName(draftTarget.name); setWsCwd(current.cwd)
-        setWsIsolation(current.isolation === 'worktree' ? 'worktree' : 'shared')
-        setWsWorktreeKey(current.worktreeKey || '')
+        const selected = findManagedWorkspace(draftTarget, result.presets, window.electronAPI.platform)
+        setPresetId(selected?.id ?? '')
+        setWsName(draftTarget.name)
+        setWsCwd(selected?.cwd ?? '')
+        setWsIsolation(selected?.isolation === 'worktree' ? 'worktree' : 'shared')
+        setWsWorktreeKey(selected?.worktreeKey || '')
       } else if (showDialog) {
         let previous = ''
         try { previous = localStorage.getItem('lyshell.codeWorkspacePreset.v1') || '' } catch { /* 使用首个预设 */ }
@@ -319,14 +312,17 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
   // 面板条件挂载,切机柜页签回来复位);列表增删留下的陈旧键无害
   const wsGroups = useMemo(() => {
     const map = new Map<string, HarnessWorkspace[]>()
-    for (const ws of workspaces) {
+    for (const snapshot of workspaces) {
+      const preset = usePreset ? findManagedWorkspace(snapshot, presets, window.electronAPI.platform) : undefined
+      if (usePreset && !preset) continue
+      const ws = preset ? { ...snapshot, workspacePresetId: preset.id, cwd: preset.cwd, isolation: preset.isolation, worktreeKey: preset.worktreeKey } : snapshot
       const key = normDirKey(ws.cwd)
       const list = map.get(key)
       if (list) list.push(ws)
       else map.set(key, [ws])
     }
     return [...map.entries()]
-  }, [workspaces])
+  }, [workspaces, presets, usePreset])
   const [collapsedDirs, setCollapsedDirs] = useState<Record<string, boolean>>({})
   const toggleDirCollapsed = useCallback((dir: string) => {
     setCollapsedDirs(s => ({ ...s, [dir]: !s[dir] }))
@@ -593,7 +589,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
       }
     }
   }
-  const valid = wsCwd.trim().length > 0 && (!usePreset || !!presetId)
+  const valid = wsCwd.trim().length > 0 && (!usePreset || presets.some(preset => preset.id === presetId))
   // worktree 生效 key 与路径预览派生值：显式 key 优先；空 key 的既有工作区预览回落私有
   // kind-<id>（迁移前的旧形态 —— 实际启动时 resolveLaunchWorktree 会生成可读 key 并把旧
   // worktree 原地改名迁移，启动时刻的时间戳无法预知，故预览只能显示旧路径）；新工作区空 key 则
@@ -632,12 +628,13 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
     // envProfileId 传 undefined 即「跟随已启用的变量组」；主进程按「键存在」判断，故必须显式带上这个键
     // worktreeKey 同理：空串 trim 后传 undefined = 私有 worktree（键必须显式存在才能清掉旧共享名）
     const worktreeKeyPayload = wsWorktreeKey.trim().length > 0 ? wsWorktreeKey.trim() : undefined
+    const managedTarget = usePreset ? { workspacePresetId: presetId } : {}
     savingRef.current = true
     setSaving(true)
     try {
       const res = editWorkspace
-        ? await api.update({ ...editWorkspace, name, cwd, note, model: modelPayload, envProfileId: wsEnvProfileId, isolation: wsIsolation, worktreeKey: worktreeKeyPayload, ...claudePermissionsPayload, ...codexPermissionsPayload })
-        : await api.add({ name, cwd, note, model: modelPayload, envProfileId: wsEnvProfileId, isolation: wsIsolation, worktreeKey: worktreeKeyPayload, ...claudePermissionsPayload, ...codexPermissionsPayload })
+        ? await api.update({ ...editWorkspace, ...managedTarget, name, cwd, note, model: modelPayload, envProfileId: wsEnvProfileId, isolation: wsIsolation, worktreeKey: worktreeKeyPayload, ...claudePermissionsPayload, ...codexPermissionsPayload })
+        : await api.add({ ...managedTarget, name, cwd, note, model: modelPayload, envProfileId: wsEnvProfileId, isolation: wsIsolation, worktreeKey: worktreeKeyPayload, ...claudePermissionsPayload, ...codexPermissionsPayload })
       // 保存失败（校验未通过 / 落盘失败）：保留表单，展示具体错误，不关闭对话框
       if (res && res.success === false) {
         setSaveError(typeof res.error === 'string' ? res.error : t(`${prefix}.wsSaveFailed`))
@@ -1292,7 +1289,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
       {/* DeepSeek 铭牌继续打开默认 Web UI；列表就绪后才提供新建工作区。 */}
       <PanelHeader
         title={t(`${prefix}.title`)}
-        count={listReady ? workspaces.length : undefined}
+        count={listReady ? wsGroups.reduce((count, [, list]) => count + list.length, 0) : undefined}
         countHint={t('panelHeader.workspaces')}
         onTitleClick={view.hasWeb ? handleNameplate : undefined}
         titleHint={view.hasWeb ? t(`${prefix}.webDefault`) : undefined}

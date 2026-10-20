@@ -35,6 +35,40 @@ beforeEach(() => {
 afterEach(() => { cleanup(); usePluginStore.setState(initialState, true) })
 
 describe('插件卡片交互', () => {
+  it('进程清理失败只显示一条提示，原始命令默认折叠并可关闭', async () => {
+    const rawError = 'Command failed: taskkill /PID 13524 /T /F\nWindows process cleanup error'
+    disable.mockImplementationOnce(async () => {
+      usePluginStore.setState({ error: rawError, items: [{ ...plugin, enabled: false }] })
+      return false
+    })
+    const view = render(<PluginPanel />)
+    fireEvent.click(view.getByRole('checkbox', { name: plugin.name }))
+    await waitFor(() => expect(view.getByRole('alert').textContent).toBe('plugin.cleanupUnconfirmed'))
+    expect(view.queryByRole('status')).toBeNull()
+    expect(view.queryByText('plugin.toggleFail')).toBeNull()
+    const diagnostics = view.getByText('plugin.errorDetails').closest('details')!
+    expect(diagnostics.open).toBe(false)
+    expect(diagnostics.querySelector('pre')?.textContent).toBe(rawError)
+    fireEvent.click(view.getByText('plugin.errorDetails'))
+    expect(diagnostics.open).toBe(true)
+    fireEvent.click(view.getByRole('button', { name: 'plugin.dismissNotice' }))
+    expect(view.queryByRole('alert')).toBeNull()
+    expect(view.queryByText('plugin.toggleFail')).toBeNull()
+    expect(usePluginStore.getState().error).toBeNull()
+    expect((view.getByRole('checkbox', { name: plugin.name }) as HTMLInputElement).checked).toBe(false)
+  })
+
+  it('普通错误保留原始详情，再次操作清除旧错误', async () => {
+    usePluginStore.setState({ error: 'Permission denied' })
+    const view = render(<PluginPanel />)
+    expect(view.getByRole('alert').textContent).toBe('plugin.toggleFail')
+    expect(view.queryByText('plugin.cleanupHint')).toBeNull()
+    fireEvent.click(view.getByRole('checkbox', { name: plugin.name }))
+    await waitFor(() => expect(disable).toHaveBeenCalledOnce())
+    expect(view.queryByRole('alert')).toBeNull()
+    expect(usePluginStore.getState().error).toBeNull()
+  })
+
   it('卡片空白、说明、名称和勾选框都能切换，每次仅调用一次', async () => {
     const view = render(<PluginPanel />)
     const checkbox = view.getByRole('checkbox', { name: plugin.name }) as HTMLInputElement

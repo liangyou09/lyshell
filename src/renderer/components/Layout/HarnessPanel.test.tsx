@@ -16,7 +16,7 @@ vi.mock('./harness-detect', () => ({
   redetectHarness: async () => null
 }))
 
-const presets: CodeWorkspacePreset[] = [{ id: 'shared', name: 'Project', cwd: 'D:/shared', order: 0, isolation: 'shared' }, { id: 'tree', name: 'Project feature', cwd: 'D:/shared', isolation: 'worktree', worktreeKey: 'feature', order: 1 }]
+const presets: CodeWorkspacePreset[] = [{ id: 'shared', name: 'Project', cwd: 'D:/shared', order: 0, isolation: 'shared' }, { id: 'tree', name: 'Project feature', cwd: 'D:/shared', isolation: 'worktree', worktreeKey: 'feature', order: 1 }, { id: 'existing-preset', name: 'Existing project', cwd: 'D:/existing', order: 2 }]
 const existing: HarnessWorkspace = { id: 'existing', name: 'Existing project', cwd: 'D:/existing', order: 0 }
 const createApi = () => ({
   listCodexWorkspaces: vi.fn(async () => [existing]),
@@ -42,26 +42,22 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('共享工作区预选', () => {
-  it('复制旧版私有 worktree 保留新树身份，不重新使用源树', async () => {
-    api.listCodexWorkspaces.mockResolvedValue([{ ...existing, isolation: 'worktree' }])
-    const view = render(<HarnessPanel agent="codex" />)
-    fireEvent.click(await view.findByRole('button', { name: 'Existing project' }))
-    await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('current-existing'))
-    fireEvent.click(view.getByRole('button', { name: 'codex.copy' }))
+  it.each(['codex', 'claude'] as const)('%s 不展示设置未收录或关联已失效的工作区，也不生成临时选项', async agent => {
+    const list = agent === 'codex' ? api.listCodexWorkspaces : api.listClaudeWorkspaces
+    list.mockResolvedValue([{ ...existing, cwd: 'D:/unmanaged' }, { ...existing, id: 'dangling', workspacePresetId: 'deleted' }])
+    const view = render(<HarnessPanel agent={agent} />)
     await act(async () => {})
-    fireEvent.click(view.getByRole('button', { name: 'codex.wsSave' }))
-    await waitFor(() => expect(api.addCodexWorkspace).toHaveBeenCalled())
-    const copied = api.addCodexWorkspace.mock.calls[0][0] as HarnessWorkspace
-    expect(copied.cwd).toBe('D:/existing')
-    expect(copied.isolation).toBe('worktree')
-    expect(copied.worktreeKey).toMatch(/^codex-/)
-    expect(copied.worktreeKey).not.toBe('codex-existing')
+    expect(view.queryByRole('button', { name: 'Existing project' })).toBeNull()
+    expect(view.container.querySelector('.harness-project-header')).toBeNull()
+    fireEvent.click(view.getByTitle(agent + '.wsAddTitle'))
+    await view.findByLabelText('settings.workspace')
+    expect(view.container.querySelector('option[value^="current-"]')).toBeNull()
   })
 
   it.each(['codex', 'claude'] as const)('%s 暂离设置后保留已选目标和模型草稿', async agent => {
     const view = render(<HarnessPanel agent={agent} />)
     fireEvent.click(await view.findByRole('button', { name: 'Existing project' }))
-    await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('current-existing'))
+    await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('existing-preset'))
     fireEvent.change(view.getByLabelText('settings.workspace'), { target: { value: 'tree' } })
     fireEvent.change(view.getByLabelText(agent + '.wsModel'), { target: { value: 'Draft model' } })
     view.rerender(<HarnessPanel agent={agent} visible={false} />)
@@ -73,15 +69,15 @@ describe('共享工作区预选', () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith(expect.objectContaining({ cwd: 'D:/shared', isolation: 'worktree', worktreeKey: 'feature', model: 'Draft model' })))
   })
 
-  it('复制未被预设收录的工作区保留源目录，不采用上次选择', async () => {
+  it('复制工作区沿用已关联设置预设，保留启动参数', async () => {
     localStorage.setItem('lyshell.codeWorkspacePreset.v1', 'tree')
     const view = render(<HarnessPanel agent="codex" />)
     fireEvent.click(await view.findByRole('button', { name: 'Existing project' }))
-    await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('current-existing'))
+    await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('existing-preset'))
     fireEvent.click(view.getByRole('button', { name: 'codex.copy' }))
-    await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('current-existing'))
+    await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('existing-preset'))
     fireEvent.click(view.getByRole('button', { name: 'codex.wsSave' }))
-    await waitFor(() => expect(api.addCodexWorkspace).toHaveBeenCalledWith(expect.objectContaining({ cwd: 'D:/existing', name: 'Existing projectcodex.copySuffix', isolation: 'shared' })))
+    await waitFor(() => expect(api.addCodexWorkspace).toHaveBeenCalledWith(expect.objectContaining({ cwd: 'D:/existing', name: 'Existing projectcodex.copySuffix', isolation: 'shared', workspacePresetId: 'existing-preset' })))
   })
 
   it('默认项目色跨 Codex / Claude 和列表重排保持一致', async () => {
@@ -89,6 +85,7 @@ describe('共享工作区预选', () => {
       { ...existing, cwd: 'D:/workspace/claude/LyShell' },
       { id: 'other', name: 'Pet workspace', cwd: 'D:/workspace/claude/AIPet', order: 1 }
     ]
+    api.codeWorkspaceRequest.mockResolvedValue({ success: true, presets: items.map((item, order) => ({ ...item, id: `preset-${order}` })) })
     api.listCodexWorkspaces.mockResolvedValue(items)
     api.listClaudeWorkspaces.mockResolvedValue([...items].reverse())
     const collect = (container: HTMLElement) => Object.fromEntries(
@@ -110,6 +107,7 @@ describe('共享工作区预选', () => {
     const items = [existing, { id: 'other', name: 'Another workspace', cwd: 'D:/other', order: 1 }]
     const list = agent === 'codex' ? api.listCodexWorkspaces : api.listClaudeWorkspaces
     list.mockResolvedValue(items)
+    api.codeWorkspaceRequest.mockResolvedValue({ success: true, presets: items.map((item, order) => ({ ...item, id: `preset-${order}` })) })
     const view = render(<HarnessPanel agent={agent} />)
     await view.findByRole('button', { name: 'Existing project' })
     expect(view.container.querySelector('.scroll-dual-seg')).toBeNull()
@@ -129,10 +127,12 @@ describe('共享工作区预选', () => {
   })
 
   it('同名项目组保留不同父目录提示和完整路径', async () => {
-    api.listCodexWorkspaces.mockResolvedValue([
+    const items = [
       { ...existing, cwd: 'D:/east/Project' },
       { id: 'other', name: 'Another workspace', cwd: 'D:/west/Project', order: 1 }
-    ])
+    ]
+    api.listCodexWorkspaces.mockResolvedValue(items)
+    api.codeWorkspaceRequest.mockResolvedValue({ success: true, presets: items.map((item, order) => ({ ...item, id: `preset-${order}` })) })
     const view = render(<HarnessPanel agent="codex" />)
     await view.findByRole('button', { name: 'Existing project' })
     const headers = [...view.container.querySelectorAll('.harness-project-header')]
@@ -166,7 +166,7 @@ describe('共享工作区预选', () => {
     await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('tree'))
     fireEvent.click(view.getByRole('button', { name: 'claude.wsCancel' }))
     fireEvent.contextMenu(await view.findByText('Existing project'))
-    await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('current-existing'))
+    await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('existing-preset'))
     expect(within(view.container.querySelector('#harness-ws-detail-existing') as HTMLElement).getByText('D:/existing')).toBeTruthy()
     expect(view.queryByLabelText('claude.wsCwd')).toBeNull()
   })
@@ -179,7 +179,7 @@ describe('共享工作区预选', () => {
     fireEvent.click(name)
     expect(detail.hidden).toBe(false)
     expect(view.container.querySelector('.ly-dialog-backdrop')).toBeNull()
-    await waitFor(() => expect((within(detail).getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('current-existing'))
+    await waitFor(() => expect((within(detail).getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('existing-preset'))
     expect(within(detail).getByText('D:/existing')).toBeTruthy()
     expect(view.queryByLabelText(agent + '.wsName')).toBeNull()
     expect(view.queryByLabelText(agent + '.wsCwd')).toBeNull()
@@ -190,7 +190,7 @@ describe('共享工作区预选', () => {
     fireEvent.click(within(detail).getByRole('button', { name: agent + '.wsCancel' }))
     expect(update).not.toHaveBeenCalled()
     fireEvent.click(name)
-    await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('current-existing'))
+    await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('existing-preset'))
     expect((view.getByLabelText(agent + '.wsModel') as HTMLInputElement).value).toBe('')
     fireEvent.change(view.getByLabelText('settings.workspace'), { target: { value: 'tree' } })
     fireEvent.change(view.getByLabelText(agent + '.wsModel'), { target: { value: 'Saved model' } })
@@ -205,7 +205,7 @@ describe('共享工作区预选', () => {
   it('保存拒绝和异常时保留编辑内容，重试后收起', async () => {
     const view = render(<HarnessPanel agent="codex" />)
     fireEvent.click(await view.findByRole('button', { name: 'Existing project' }))
-    await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('current-existing'))
+    await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('existing-preset'))
     fireEvent.change(view.getByLabelText('codex.wsModel'), { target: { value: 'Keep draft' } })
     api.updateCodexWorkspace.mockResolvedValueOnce({ success: false, error: 'Disk denied' })
     fireEvent.click(view.getByRole('button', { name: 'codex.wsSave' }))
@@ -222,7 +222,7 @@ describe('共享工作区预选', () => {
   it.each(['codex', 'claude'] as const)('%s 模型菜单可选候选，Escape 只收候选且模型可保存', async agent => {
     const view = render(<HarnessPanel agent={agent} />)
     fireEvent.click(await view.findByRole('button', { name: 'Existing project' }))
-    await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('current-existing'))
+    await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('existing-preset'))
     const input = view.getByLabelText(agent + '.wsModel')
     expect(input.getAttribute('list')).toBeNull()
     fireEvent.click(view.getByRole('button', { name: 'workspacePresets.modelSuggestions' }))
@@ -243,7 +243,7 @@ describe('共享工作区预选', () => {
     api.updateCodexWorkspace.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
     const view = render(<HarnessPanel agent="codex" />)
     fireEvent.click(await view.findByRole('button', { name: 'Existing project' }))
-    await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('current-existing'))
+    await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('existing-preset'))
     fireEvent.click(view.getByRole('button', { name: 'codex.wsSave' }))
     fireEvent.click(view.getByRole('button', { name: 'workspacePresets.saving' }))
     fireEvent.click(view.getByTitle('codex.wsAddTitle'))

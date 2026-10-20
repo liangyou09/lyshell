@@ -27,6 +27,7 @@ import { normalizeBookmarkUrl, useBrowserBookmarksStore } from '../../stores/bro
 import { useBrowserDownloads } from '../../stores/browser-downloads-store'
 import BrowserDownloads from './BrowserDownloads'
 import BrowserAddressField from './BrowserAddressField'
+import MiniBrowserActions from './MiniBrowserActions'
 import './WebPanel.css'
 
 /** 地址候选缺少收藏名称时使用主机名；历史行保留完整网址。 */
@@ -127,7 +128,7 @@ const BookmarkIcon: React.FC<{ filled?: boolean; size?: number }> = ({ filled, s
   </Glyph>
 )
 
-/** 导航按钮 —— 18px 图标钮（对齐面板既有图标钮规格），disabled 走 40% 透明度 */
+/** 小窗导航按钮：紧凑热区，图标与地址文字分开控制大小。 */
 const NavButton: React.FC<{
   title: string
   disabled?: boolean
@@ -137,9 +138,10 @@ const NavButton: React.FC<{
   <button
     type="button"
     title={title}
+    aria-label={title}
     disabled={disabled}
     onClick={onClick}
-    className="w-[18px] h-[18px] flex-shrink-0 flex items-center justify-center text-[var(--text-rack)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] disabled:opacity-40 disabled:hover:text-[var(--text-rack)] disabled:hover:bg-transparent disabled:cursor-default rounded-[2px] cursor-pointer transition-colors"
+    className="web-mini-button"
   >
     {children}
   </button>
@@ -1146,53 +1148,50 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
         <div className="scroll-dual-paper" {...(miniClosed ? { inert: '' } : {})}>
           <div className="scroll-dual-body">
             {miniContentMounted && (
-              <div className="flex flex-col h-full">
-                {/* 迷你工具条:勾玉开眼指示 + 后退/前进/加载时停止 + 小窗地址(与主地址栏共用最近访问和收藏候选)+ 升格 + 关页。刷新由 F5 处理，
-                    guest 内的按键由主进程直接刷新小窗，不转发到完整页签。
-                    工具条保持 32px 高，地址框 24px，预留上下各 4px */}
-                <div className="flex items-center gap-[3px] px-2 h-[32px] flex-shrink-0 bg-[var(--bg-rack)] border-b border-[var(--rule)]">
-                  <MiniEyeGlyph lit={miniUrl !== null} label={t('webBar.mini')} />
-                  <NavButton title={t('webBar.miniBack')} disabled={!miniNav.canGoBack} onClick={() => settleWebview(() => miniEl?.goBack())}>
-                    <ChevronLeftIcon />
-                  </NavButton>
-                  <NavButton title={t('webBar.miniForward')} disabled={!miniNav.canGoForward} onClick={() => settleWebview(() => miniEl?.goForward())}>
-                    <ChevronRightIcon />
-                  </NavButton>
-                  {miniLoading && <NavButton
-                    title={t('webBar.miniStop')}
-                    disabled={miniUrl === null || !miniReady}
-                    onClick={() => settleWebview(() => miniEl?.stop())}
-                  >
-                    <StopIcon />
-                  </NavButton>}
-                  {/* 小窗沿用同款输入框，24px 高度适配紧凑工具条。 */}
-                    <BrowserAddressField
-                      inputRef={miniInputRef} mini visible={visible} suggestions={addressSuggestions}
-                      renderIcon={url => <RecentFavicon url={url} favicon={webTabFavicons[url]} />}
-                      onSubmit={url => { setMiniInput(url); setNotice(null); loadMini(url) }}
-                      value={miniInput}
-                      onChange={(e) => setMiniInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Escape' && miniUrl !== null) {
-                          // Esc 放弃编辑,复位为当前页地址(同主地址栏语法)
-                          setMiniInput(miniUrl)
-                          miniInputRef.current?.blur()
-                        }
-                      }}
-                      onFocus={(e) => e.target.select()}
-                      aria-label={t('webBar.miniPlaceholder')}
-                      placeholder={t('webBar.miniPlaceholder')}
-                    />
-                  <NavButton title={t(isBookmarked(miniUrl ?? '') ? 'webBar.removeBookmark' : 'webBar.addBookmark')} disabled={!normalizeBookmarkUrl(miniUrl ?? '')} onClick={() => toggleBookmark(miniUrl ?? '', miniTitleRef.current)}>
-                    <BookmarkIcon filled={isBookmarked(miniUrl ?? '')} size={12} />
-                  </NavButton>
-                  <NavButton title={t('webBar.miniOpenTab')} disabled={miniUrl === null} onClick={handleMiniPromote}>
-                    <PromoteIcon />
-                  </NavButton>
-                  {/* 关页:闭眼回到空态,guest 销毁(见 handleMiniClosePage 注释) */}
-                  <NavButton title={t('webBar.miniClosePage')} disabled={miniUrl === null} onClick={handleMiniClosePage}>
-                    <XIcon />
-                  </NavButton>
+              <div className="web-mini-content flex flex-col h-full">
+                {/* 前后导航与更多常驻，低频操作收进菜单；加载时前进位换为停止，不额外占宽。
+                    刷新仍由 F5 处理，guest 内按键由主进程直接刷新小窗。 */}
+                <div className="web-mini-toolbar">
+                  <div className="web-mini-navigation">
+                    <NavButton title={t('webBar.miniBack')} disabled={!miniNav.canGoBack} onClick={() => settleWebview(() => miniEl?.goBack())}>
+                      <ChevronLeftIcon size={14} />
+                    </NavButton>
+                    {miniLoading ? <NavButton
+                        title={t('webBar.miniStop')}
+                        disabled={miniUrl === null || !miniReady}
+                        onClick={() => settleWebview(() => miniEl?.stop())}
+                      >
+                        <StopIcon size={14} />
+                      </NavButton> : <NavButton title={t('webBar.miniForward')} disabled={!miniNav.canGoForward} onClick={() => settleWebview(() => miniEl?.goForward())}>
+                        <ChevronRightIcon size={14} />
+                      </NavButton>}
+                  </div>
+                  {/* 地址空间优先，所有宽度均保持单行。 */}
+                  <BrowserAddressField
+                    inputRef={miniInputRef} mini visible={visible} suggestions={addressSuggestions}
+                    renderIcon={url => <RecentFavicon url={url} favicon={webTabFavicons[url]} />}
+                    onSubmit={url => { setMiniInput(url); setNotice(null); loadMini(url) }}
+                    value={miniInput}
+                    onChange={(e) => setMiniInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape' && miniUrl !== null) {
+                        // Esc 放弃编辑,复位为当前页地址(同主地址栏语法)
+                        setMiniInput(miniUrl)
+                        miniInputRef.current?.blur()
+                      }
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    aria-label={t('webBar.miniPlaceholder')}
+                    placeholder={t('webBar.miniPlaceholder')}
+                  />
+                  <MiniBrowserActions label={`${t('webBar.mini')} · ${t('webBar.more')}`} visible={visible && !miniClosed}
+                    actions={[
+                      { label: t(isBookmarked(miniUrl ?? '') ? 'webBar.removeBookmark' : 'webBar.addBookmark'),
+                        icon: <BookmarkIcon filled={isBookmarked(miniUrl ?? '')} size={14} />, disabled: !normalizeBookmarkUrl(miniUrl ?? ''),
+                        onClick: () => toggleBookmark(miniUrl ?? '', miniTitleRef.current) },
+                      { label: t('webBar.miniOpenTab'), icon: <PromoteIcon size={14} />, disabled: miniUrl === null, onClick: handleMiniPromote },
+                      { label: t('webBar.miniClosePage'), icon: <XIcon size={14} />, disabled: miniUrl === null, onClick: handleMiniClosePage }
+                    ]} />
                 </div>
                 {/* 浏览面:未开眼 = 空态指引(空屏是行动邀请);开眼 = webview + 加载/
                     失败浮层(WebTabOverlay 同款,webview 无内建 UI)。

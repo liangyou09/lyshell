@@ -1,13 +1,13 @@
 import DialogClose from '@/components/Layout/DialogClose'
-import { GroupListActions } from './GroupList'
-import { PanelHeader, PanelHeaderAction } from './PanelHeader'
-import { IconBtn } from './IconBtn'
-import { SettingsGlyph } from './SettingsNavigation'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { PanelHeader, PanelHeaderMenu } from './PanelHeader'
+import { IconPlus } from './IconBtn'
+import WorkspaceLauncherTree from './WorkspaceLauncherTree'
+import React, { useEffect, useRef, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
-import { normDirKey, wsDirDetail, wsDirLabel } from './ws-dir'
-import { workspaceProjectHue } from './workspace-project-color'
+import { findManagedWorkspace } from './work-launcher-tree'
+import { formatCodeWorkspaceName, type CodeWorkspacePreset } from '@shared/code-workspaces'
+import RackSelect from './RackSelect'
 import './HarnessPanel.css'
 import './AgentsPanel.css'
 import { generateWorktreeStamp } from '@shared/worktree'
@@ -19,21 +19,8 @@ const claudeIcon = new URL('../../assets/agent-icons/claude.png', import.meta.ur
 const codexIcon = new URL('../../assets/agent-icons/codex.png', import.meta.url).href
 
 /**
- * Agent 面板(机柜左列 Agents 页签内容)。
- *
- * 按工作目录(cwd)展示紧凑项目树，与 Claude / Codex 共用分组样式和项目色。
- * 显示名称 / 命令，单击启动、右键编辑、hover 出编辑/删除。
- * 状态、CRUD handler 与编辑对话框整体从 Sidebar 迁出,沿用 sidebar.agent* 文案键。
- *
- * 编辑对话框按"插槽规格表"组织:面板(图标+名称)/ 命令 / 工作目录 / 环境变量 / 实时预览,
- * 与 SessionDialog 同壳(448px / h-10 header / 电源 LED / rounded-sm)。
- * env 字段后端早已支持(注入孵化终端),此前 UI 未暴露 -- 此处补齐 key-value 行编辑器。
- *
- * 提亮处理(避免"暗淡"):section 眉条用 --amber(琥珀脊,结构化表单 + 贴合品牌焦点色);
- * 输入井用 --bg-slot(亮槽,而非比壳更深的暗坑)。
- * 字色分级:已填值 = --text-rack(最亮);placeholder / 路径 / 添加变量 = --text-rack-data(可读二级,
- * 仍比已填值暗,空/填区分保留);env 值提到 --text-rack 与命令同级;琥珀保留给焦点(env 键/眉条/❯)。
- * 预览井保持 --bg-base 深色 -- 它是终端屏,深色才对,琥珀 ❯ 已作标记。
+ * 与 Codex / Claude 共用设置工作区。名称启动命令，独立箭头展开行内配置；
+ * 新建弹窗与行内编辑共用字段、校验和保存流程。
  */
 
 interface AgentConfig {
@@ -41,7 +28,10 @@ interface AgentConfig {
   name: string
   command: string
   icon?: string
+  workspacePresetId?: string
   cwd?: string
+  isolation?: 'shared' | 'worktree'
+  worktreeKey?: string
   env?: Record<string, string>
   envProfileId?: string
   /** 绑定变量组时结构化核心(baseUrl/apiKey)的注入变量名(见主进程 AgentConfig) */
@@ -53,15 +43,8 @@ interface AgentConfig {
 // 图标(与 Sidebar 既有图标同语言:1.4 stroke / square cap)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const IconEdit = () => (
-  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 9l1-3 5-5 2 2-5 5z"/></svg>
-)
 const IconX = () => (
   <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square"><path d="M2 2l7 7M9 2l-7 7"/></svg>
-)
-/** 文件夹 -- 工作目录选择器按钮 */
-const IconFolder = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="square" strokeLinejoin="miter"><path d="M2 4.5h4l1.5 2H14v6H2z"/></svg>
 )
 /** 默认 agent 图标(未设 icon 时用) -- 与 ActivityRail 的机器人头同源 */
 const IconRobot = () => (
@@ -141,15 +124,29 @@ const AgentSlotIcon: React.FC<{ agent: AgentConfig }> = ({ agent }) => {
 // 组件
 // ─────────────────────────────────────────────────────────────────────────────
 
-const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void }> = ({ visible = true, onOpenEnvSettings }) => {
+const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void; onOpenWorkspaceSettings?: () => void }> = ({ visible = true, onOpenEnvSettings, onOpenWorkspaceSettings }) => {
   const { t } = useTranslation()
   const [agents, setAgents] = useState<AgentConfig[]>([])
   const [showDialog, setShowDialog] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
+  const editorTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const closeEditor = () => {
+    if (savingRef.current) return
+    setShowDialog(false)
+    setIconPickerOpen(false)
+    editorTriggerRef.current?.focus()
+  }
   const [editAgent, setEditAgent] = useState<AgentConfig | undefined>(undefined)
   const [agentName, setAgentName] = useState('')
   const [agentCommand, setAgentCommand] = useState('')
   const [agentIcon, setAgentIcon] = useState('')
   const [agentCwd, setAgentCwd] = useState('')
+  const [agentIsolation, setAgentIsolation] = useState<'shared' | 'worktree'>('shared')
+  const [agentWorktreeKey, setAgentWorktreeKey] = useState('')
+  const [workspacePresets, setWorkspacePresets] = useState<CodeWorkspacePreset[]>([])
+  const [agentPresetId, setAgentPresetId] = useState('')
+  const agentsRequestSeq = useRef(0)
   // 环境变量:以行数组编辑,保存时折叠为 Record<string,string>(空 key 行丢弃)
   const [agentEnv, setAgentEnv] = useState<{ key: string; value: string }[]>([])
   // 绑定的全局变量组 id(null = 不绑定,回落内联 env → 系统环境变量)
@@ -173,140 +170,95 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
   const [saveError, setSaveError] = useState<string | null>(null)
   // 列表级操作失败(卡片删除落盘失败等)—— 与 EnvProfilePanel 的 actionError 同族
   const [actionError, setActionError] = useState<string | null>(null)
+  const [launchingAgentId, setLaunchingAgentId] = useState<string | null>(null)
+  const launchingAgentRef = useRef(false)
   // 列表行内删除的两步确认:记录待确认的 agent id(null = 无待确认)——
   // 与 Harness 工作区/变量组卡同一套删除仪式
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   // 图标选择器浮层开合 + 外部点击关闭用 ref
   const [iconPickerOpen, setIconPickerOpen] = useState(false)
   const iconPickerRef = useRef<HTMLDivElement>(null)
-  // ── 顶部 Work Launcher ──
-  // 按目录和 worktree 身份去重，同仓库的不同树必须保留独立启动入口。
-  const [workspaceDirs, setWorkspaceDirs] = useState<Array<{ dir: string; id: string; worktreeKey?: string }>>([])
-  const [launchingWorkspaceId, setLaunchingWorkspaceId] = useState<string | null>(null)
-  const launchingWorkspaceRef = useRef(false)
 
   const loadAgents = async () => {
+    const requestSeq = ++agentsRequestSeq.current
     try {
       const result = await window.electronAPI?.listAgents()
-      if (Array.isArray(result)) setAgents(result as AgentConfig[])
+      if (requestSeq === agentsRequestSeq.current && Array.isArray(result)) setAgents(result as AgentConfig[])
     } catch (err) {
       console.error('Failed to load agents:', err)
     }
   }
   useEffect(() => {
-    void loadAgents()
-  }, [])
-  // 拉取设置 → 工作区 的预设列表,去重成顶部 Work Launcher 目录树
-  useEffect(() => {
-    if (!visible) return
-    let cancelled = false
-    void window.electronAPI?.codeWorkspaceRequest({ kind: 'list' }).then((res) => {
-      if (cancelled) return
-      if (!res?.success) { setActionError(res?.error || t('workspacePresets.failed')); return }
-      const seen = new Map<string, { dir: string; id: string; worktreeKey?: string }>()
-      for (const p of res.presets) {
-        const base = normDirKey(p.cwd)
-        const directory = window.electronAPI?.platform === 'win32' ? base.replace(/\\/g, '/').toLowerCase() : base
-        const worktreeKey = p.isolation === 'worktree' ? p.worktreeKey : undefined
-        const key = JSON.stringify([directory, worktreeKey ?? null])
-        if (!seen.has(key)) seen.set(key, { dir: p.cwd, id: p.id, worktreeKey })
-      }
-      setWorkspaceDirs([...seen.values()].sort((a, b) => a.dir.localeCompare(b.dir)))
-    }).catch((err) => { if (!cancelled) setActionError(err instanceof Error ? err.message : t('workspacePresets.failed')) })
-    return () => { cancelled = true }
-    // 仅进入面板时刷新，语言变化不覆盖当前请求。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (visible) void loadAgents()
   }, [visible])
+  const selectAgentPreset = (preset: CodeWorkspacePreset) => {
+    setAgentPresetId(preset.id); setAgentCwd(preset.cwd)
+    setAgentIsolation(preset.isolation === 'worktree' ? 'worktree' : 'shared')
+    setAgentWorktreeKey(preset.worktreeKey ?? '')
+    if (!editAgent && !agentName.trim()) setAgentName(preset.name)
+    setSaveError(null)
+    try { localStorage.setItem('lyshell.codeWorkspacePreset.v1', preset.id) } catch { /* 本次选择继续生效 */ }
+  }
+  useEffect(() => {
+    if (!showDialog) return
+    if (agentCwd || agentPresetId) {
+      const matched = findManagedWorkspace({ id: editAgent?.id ?? '', workspacePresetId: agentPresetId || undefined, cwd: agentCwd, isolation: agentIsolation, worktreeKey: agentWorktreeKey }, workspacePresets, window.electronAPI?.platform ?? '')
+      setAgentPresetId(matched?.id ?? '')
+      if (matched) {
+        setAgentCwd(matched.cwd)
+        setAgentIsolation(matched.isolation === 'worktree' ? 'worktree' : 'shared')
+        setAgentWorktreeKey(matched.worktreeKey ?? '')
+      }
+      return
+    }
+    if (!editAgent) {
+      let remembered = ''
+      try { remembered = localStorage.getItem('lyshell.codeWorkspacePreset.v1') || '' } catch { /* 使用首项 */ }
+      const selected = workspacePresets.find(preset => preset.id === remembered) ?? workspacePresets[0]
+      if (selected) selectAgentPreset(selected)
+    }
+    // 只在设置列表更新或打开编辑时同步目标，避免输入时重置草稿。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspacePresets, showDialog])
+
   useEffect(() => {
     if (!visible) return
     let cancelled = false
-    // 全局变量组与 agent 列表一并拉取(绑定下拉的数据源;返回形状 { profiles, activeProfileId, usage })
-    window.electronAPI?.listEnvProfiles().then((result) => {
+    void window.electronAPI?.listEnvProfiles().then(result => {
       if (!cancelled && result && Array.isArray(result.profiles)) {
-        setEnvProfiles(result.profiles as { id: string; name: string }[])
+        setEnvProfiles(result.profiles)
         setActiveProfileId(typeof result.activeProfileId === 'string' ? result.activeProfileId : null)
         setEnvProfilesLoaded(true)
         setAgentEnvProfileId(current => current && !result.profiles.some(p => p.id === current) ? null : current)
       }
-    }).catch((err) => console.error('Failed to load env profiles:', err))
+    }).catch(err => console.error('Failed to load env profiles:', err))
     return () => { cancelled = true }
   }, [visible])
 
-  // ── 目录分组视图(agent 卡按工作目录分组立在双开画轴墙上)──
-  // 稳定分组:有目录组吃仓库自有的 agent 顺序(首现序),未指定目录组排最后;
-  // 键归一化(normDirKey)剥尾
-  // 分隔符避免 D:\x 与 D:\x\ 裂成两组,根路径 / 保留原文(合法工作目录,不并进
-  // 「未指定目录」);cwd 可留空(留空用当前目录)—— 空目录的 agent 归进
-  // 「未指定目录」一组。组开合态与 Web 栏域名组同管线(组件内留存,不存档 ——
-  // 面板条件挂载,切机柜页签回来复位);增删留下的陈旧键无害
-  const agentGroups = useMemo(() => {
-    const map = new Map<string, AgentConfig[]>()
-    for (const agent of agents) {
-      const key = normDirKey(agent.cwd ?? '')
-      const list = map.get(key)
-      if (list) list.push(agent)
-      else map.set(key, [agent])
-    }
-    const groups = [...map.entries()]
-    const noDir = map.get('')
-    return noDir ? [...groups.filter(([dir]) => dir !== ''), ['', noDir] as [string, AgentConfig[]]] : groups
-  }, [agents])
-  const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => new Set())
-  const toggleDirCollapsed = (dir: string): void =>
-    setCollapsedDirs(prev => {
-      const next = new Set(prev)
-      if (next.has(dir)) next.delete(dir)
-      else next.add(dir)
-      return next
-    })
-  // 一键收/放(会话墙「全体」同语义):判据只看现存各组,陈旧键不掺和
-  const allDirsCollapsed =
-    agentGroups.length > 0 && agentGroups.every(([dir]) => collapsedDirs.has(dir))
-  const allDirsExpanded = agentGroups.every(([dir]) => !collapsedDirs.has(dir))
-  const setAllDirsCollapsed = (collapsed: boolean): void => {
-    setCollapsedDirs(collapsed ? new Set(agentGroups.map(([dir]) => dir)) : new Set())
-  }
-
-  // 图标选择器浮层:外部点击 / ESC 关闭 —— ESC 捕获截停(useDismiss),不穿透进
-  // 下方层;浮层开着时对话框自己的 ESC 监听通常到不了,见下
   useDismiss(iconPickerOpen && visible, () => setIconPickerOpen(false), [iconPickerRef])
-
-  // ESC 退出对话框 —— 入 ESC 回退栈(栈顶优先、逐层回退,IME 组合期不触发),不自留
-  // document 冒泡监听:栈顶成员在捕获层截停后自留监听收不到,第一下 ESC 表现为死键。
-  // 处于删除二次确认态时,首次 ESC 仅回退确认态,再次 ESC 才关闭 —— 两步确认即栈内
-  // 子层级,一次 ESC 退一层,与回退栈语义一致。对话框内的图标浮层(useDismiss)开在
-  // 上层时先收浮层,栈序自动裁决,无需 iconPickerOpen 特判
   useEscDismiss(showDialog && visible, () => {
-    if (confirmDelete) {
-      setConfirmDelete(false)
-      return
-    }
-    setShowDialog(false)
+    if (confirmDelete) { setConfirmDelete(false); return }
+    closeEditor()
   })
 
   const handleLaunch = async (agentId: string) => {
-    await window.electronAPI?.launchAgent(agentId)
-  }
-
-  // 顶部 Work Launcher 点击:按预设 id 在该目录启动 PS7 —— worktree 预设由主进程
-  // resolveWorkspaceCwd 落到 worktree 目录,而非原始仓库根
-  const handleLaunchWorkspace = async (id: string) => {
-    if (launchingWorkspaceRef.current) return
-    launchingWorkspaceRef.current = true
-    setLaunchingWorkspaceId(id)
+    if (launchingAgentRef.current) return
+    launchingAgentRef.current = true
+    setLaunchingAgentId(agentId)
     setActionError(null)
     try {
-      const result = await window.electronAPI?.codeWorkspaceRequest({ kind: 'launch', id })
-      if (!result?.success) setActionError(result?.error || t('workspacePresets.failed'))
-    } catch (error) { setActionError(error instanceof Error ? error.message : t('workspacePresets.failed')) }
-    finally { launchingWorkspaceRef.current = false; setLaunchingWorkspaceId(null) }
+      const result = await window.electronAPI?.launchAgent(agentId)
+      if (result?.success === false) setActionError(result.error || t('agents.launchFailed'))
+    } catch (error) { setActionError(error instanceof Error ? error.message : t('agents.launchFailed')) }
+    finally { launchingAgentRef.current = false; setLaunchingAgentId(null) }
   }
 
   const handleAdd = () => {
+    if (savingRef.current) return
+    editorTriggerRef.current = null
     setEditAgent(undefined)
     setAgentName(''); setAgentCommand(''); setAgentIcon(''); setAgentCwd('')
-    // 新建默认选中「已启用的变量组」—— 与 Harness 工作区对话框同一默认(用户拨的那根
-    // 指针就是当下想用的密钥);无启用指针回落「不绑定」(内联 env → 系统环境变量)
+    setAgentPresetId(''); setAgentIsolation('shared'); setAgentWorktreeKey('')
     setAgentEnv([]); setAgentEnvProfileId(activeProfileId)
     setAgentEnvKeyMapBaseUrl(''); setAgentEnvKeyMapApiKey('')
     setTriedSubmit(false); setConfirmDelete(false); setIconPickerOpen(false); setSaveError(null)
@@ -324,11 +276,15 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
     // 只为给新建表单预选默认绑定,不参与触发判据)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createRequestId])
-  const handleContextMenu = (agent: AgentConfig, e: React.MouseEvent) => {
-    e.preventDefault(); e.stopPropagation()
+  const handleEdit = (agent: AgentConfig) => {
+    if (savingRef.current) return
     setEditAgent(agent)
     setAgentName(agent.name); setAgentCommand(agent.command)
     setAgentIcon(agent.icon || ''); setAgentCwd(agent.cwd || '')
+    setAgentIsolation(agent.isolation === 'worktree' ? 'worktree' : 'shared')
+    setAgentWorktreeKey(agent.worktreeKey ?? '')
+    const matched = findManagedWorkspace(agent, workspacePresets, window.electronAPI?.platform ?? '')
+    setAgentPresetId(matched?.id ?? '')
     setAgentEnv(agent.env ? Object.entries(agent.env).map(([key, value]) => ({ key, value })) : [])
     // 绑定的变量组已被删除时按「不绑定」呈现 —— 与主进程 resolveAgentLaunchEnv 的回落
     // (悬空 → 内联 env → 系统)一致,否则下拉会显示成「什么都没选中」,看不出实际生效哪份。
@@ -346,7 +302,8 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
     setShowDialog(true)
   }
   const handleSave = async () => {
-    if (!agentCommand.trim()) {
+    if (savingRef.current) return
+    if (!agentCommand.trim() || (!workspacePresets.some(preset => preset.id === agentPresetId))) {
       setTriedSubmit(true)
       return
     }
@@ -370,6 +327,8 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
         ? { ...(mapBaseUrl ? { baseUrl: mapBaseUrl } : {}), ...(mapApiKey ? { apiKey: mapApiKey } : {}) }
         : undefined
     setSaveError(null)
+    savingRef.current = true
+    setSaving(true)
     // 双通道失败都落到 saveError:handler 正常返回走 success:false 分支,主进程
     // 意外抛错(invoke reject)走 catch —— 两边都保留表单,用户能看到原因
     try {
@@ -379,7 +338,10 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
             name,
             command: agentCommand.trim(),
             icon: agentIcon || undefined,
+            workspacePresetId: agentPresetId,
             cwd: agentCwd || undefined,
+            isolation: agentIsolation,
+            worktreeKey: agentIsolation === 'worktree' ? agentWorktreeKey : undefined,
             env: envPayload,
             envProfileId: envProfileIdPayload,
             envKeyMap: envKeyMapPayload
@@ -388,7 +350,10 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
             name,
             command: agentCommand.trim(),
             icon: agentIcon || undefined,
+            workspacePresetId: agentPresetId,
             cwd: agentCwd || undefined,
+            isolation: agentIsolation,
+            worktreeKey: agentIsolation === 'worktree' ? agentWorktreeKey : undefined,
             env: envPayload,
             envProfileId: envProfileIdPayload,
             envKeyMap: envKeyMapPayload,
@@ -398,12 +363,15 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
         setSaveError(typeof res.error === 'string' ? res.error : t('agents.edit.saveFailed'))
         return
       }
+      await loadAgents()
+      setShowDialog(false)
+      editorTriggerRef.current?.focus()
     } catch (err) {
       setSaveError(err instanceof Error && err.message ? err.message : t('agents.edit.saveFailed'))
-      return
+    } finally {
+      savingRef.current = false
+      setSaving(false)
     }
-    await loadAgents()
-    setShowDialog(false)
   }
   const handleDelete = async () => {
     // 两步确认:首次点击切到确认态,再次点击才真正删除
@@ -440,34 +408,260 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
     hideValue: t('agents.edit.envHideValue')
   }
 
-  // 工作目录:复用通用目录选择器(与下载设置同源),弹原生选择框;以当前填入路径为起始目录
-  const handlePickCwd = async () => {
-    const result = await window.electronAPI?.showOpenDialog({
-      title: t('agents.edit.browse'),
-      // 仅以绝对路径作起始目录;~ 开头 Electron 不展开,会相对 app cwd 打开,故跳过
-      defaultPath: agentCwd && !agentCwd.startsWith('~') ? agentCwd : undefined,
-      properties: ['openDirectory', 'createDirectory']
-    })
-    if (result && !result.canceled && result.filePaths.length > 0) {
-      setAgentCwd(result.filePaths[0])
-    }
-  }
-
   // 名称可留空(保存时默认「工作区-<时间戳>」),命令必填 —— 它才是 Agent 的身份
-  const valid = agentCommand.trim().length > 0
+  const valid = agentCommand.trim().length > 0 && (workspacePresets.some(preset => preset.id === agentPresetId))
   const envKeys = agentEnv.map(r => r.key.trim()).filter(Boolean)
   // 编辑中 command 对应的内置图标(emoji 为空时在选择器按钮上预览)
   const previewIcon = bundledIconFor(agentCommand)
+
+  // 新建与行内编辑共用字段、校验和保存流程。
+  const renderAgentEditor = (inline: boolean) => (
+    <fieldset disabled={saving} aria-busy={saving} className={cn('agents-editor', inline && 'agents-inline-editor')}>
+    {/* 工作区目标与 Codex / Claude 相同，只从设置预设选择。 */}
+    <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+      <div className="flex items-baseline gap-2 mb-2">
+        <label htmlFor="agent-workspace" className="text-[12px] text-[var(--amber)]">{t('settings.workspace')}</label>
+        {onOpenWorkspaceSettings && <button type="button" className="ml-auto text-[12px] text-[var(--text-rack-data)] underline underline-offset-2" onClick={onOpenWorkspaceSettings}>{t('workspacePresets.manage')}</button>}
+      </div>
+      <RackSelect id="agent-workspace" value={agentPresetId} className="rack-select"
+        onChange={event => { const preset = workspacePresets.find(item => item.id === event.target.value); if (preset) selectAgentPreset(preset) }}>
+        <option value="" disabled>{t('workspacePresets.choose')}</option>
+        {workspacePresets.map(preset => <option key={preset.id} value={preset.id}>{formatCodeWorkspaceName(preset)}</option>)}
+      </RackSelect>
+      <p className="agents-workspace-target">{agentCwd || t('workspacePresets.empty')}{agentIsolation === 'worktree' && agentWorktreeKey ? ` · ${agentWorktreeKey}` : ''}</p>
+    </div>
+
+    {/* 面板:图标 + 名称(插槽丝印) */}
+    <div className="flex items-center gap-2.5 py-3.5 px-4 border-b border-[var(--rule)]">
+      {/* 图标:点选 emoji(浮层);留空回退自动 exe 图标。非文本输入,避免敲 emoji 的别扭 */}
+      <div className="agents-icon-anchor relative flex-shrink-0" ref={iconPickerRef}>
+        <button
+          type="button"
+          onClick={() => setIconPickerOpen(o => !o)}
+          title={t('agents.edit.iconPh')}
+          className="w-7 h-7 flex items-center justify-center bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[var(--text-rack)] hover:border-[var(--amber)] focus:outline-none focus:border-[var(--amber)] transition-colors"
+        >
+          {agentIcon ? (
+            <span className="text-[15px] leading-none">{agentIcon}</span>
+          ) : previewIcon ? (
+            <BundledIconView entry={previewIcon} title={t('agents.edit.iconAuto')} className="w-[18px] h-[18px]" />
+          ) : (
+            <span className="text-[15px] leading-none text-[var(--text-rack-data)]">🤖</span>
+          )}
+        </button>
+        {iconPickerOpen && (
+          <div className="agents-icon-picker absolute top-full left-0 mt-1 z-50 w-[224px] bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm p-1.5 shadow-xl">
+            <div className="grid grid-cols-8 gap-0.5">
+              {ICON_EMOJIS.map(em => (
+                <button
+                  key={em}
+                  type="button"
+                  onClick={() => { setAgentIcon(em); setIconPickerOpen(false) }}
+                  className="w-6 h-6 flex items-center justify-center text-[15px] leading-none rounded-sm hover:bg-[var(--bg-slot)] transition-colors overflow-hidden"
+                >
+                  {em}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => { setAgentIcon(''); setIconPickerOpen(false) }}
+              className="mt-1 pt-1 w-full text-[10.5px] font-mono text-[var(--text-rack-data)] hover:text-[var(--amber)] border-t border-[var(--rule-soft)] transition-colors"
+            >
+              {t('agents.edit.iconClear')}
+            </button>
+          </div>
+        )}
+      </div>
+      <input
+        type="text"
+        aria-label={t('agents.edit.name')}
+        value={agentName}
+        onChange={(e) => { setAgentName(e.target.value); if (triedSubmit) setTriedSubmit(false) }}
+        placeholder={t('agents.edit.namePh')}
+        autoFocus
+        className="flex-1 min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
+      />
+    </div>
+
+    {/* COMMAND */}
+    <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+      <div className="flex items-baseline gap-2 mb-2">
+        <label htmlFor="agent-command" className="text-[12px] font-mono tracking-[0.06em] text-[var(--amber)]">{t('agents.edit.command')}</label>
+        <span className="text-[10.5px] text-[var(--text-rack-mute)]">· {t('agents.edit.commandHint')}</span>
+      </div>
+      <input
+        type="text"
+        id="agent-command"
+        value={agentCommand}
+        onChange={(e) => { setAgentCommand(e.target.value); if (triedSubmit) setTriedSubmit(false) }}
+        placeholder="claude"
+        className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 font-mono focus:outline-none focus:border-[var(--amber)]"
+      />
+    </div>
+
+    <details className="agents-editor-advanced" open={inline ? undefined : true}>
+      <summary>{t('workspacePresets.advanced')}</summary>
+    {/* ENV PROFILE -- 绑定全局变量组(优先于下方内联变量;与 Harness 工作区同一套绑定语义) */}
+    <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+      <div className="flex flex-wrap items-baseline gap-2 mb-2">
+        <span className="text-[12px] font-mono tracking-[0.06em] text-[var(--amber)]">{t('agents.edit.envProfile')}</span>
+        <span className="text-[10.5px] text-[var(--text-rack-mute)]">· {t('agents.edit.envProfileHint')}</span>
+        {onOpenEnvSettings && <button type="button" className="ml-auto text-[12px] text-[var(--text-rack-data)] hover:text-[var(--amber)] underline underline-offset-2" onClick={onOpenEnvSettings}>{t('env.manage')}</button>}
+      </div>
+      <select
+        value={agentEnvProfileId ?? ''}
+        onChange={(e) => setAgentEnvProfileId(e.target.value || null)}
+        className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] text-[var(--text-rack)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)] appearance-none cursor-pointer"
+      >
+        <option value="">{t('agents.edit.envProfileNone')}</option>
+        {envProfiles.map((p) => (
+          <option key={p.id} value={p.id}>{p.name}</option>
+        ))}
+      </select>
+      {/* 注入变量名:变量组核心存的是协议无关的 baseURL/apiKey,启动时按这两个
+          名字注入 —— 命令读哪些变量名只有 agent 作者知道,故跟 agent 走。
+          留空 = 不注入该维度(绑定的组仍透传附加变量) */}
+      {agentEnvProfileId && (
+        <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+          <input
+            type="text"
+            value={agentEnvKeyMapBaseUrl}
+            onChange={(e) => setAgentEnvKeyMapBaseUrl(e.target.value)}
+            placeholder={t('agents.edit.mapBaseUrl')}
+            title={t('agents.edit.mapHint')}
+            spellCheck={false}
+            className="w-full min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[12px] font-mono text-[var(--text-rack)] placeholder:text-[var(--text-rack-faint)] py-1 px-2 focus:outline-none focus:border-[var(--amber)]"
+          />
+          <input
+            type="text"
+            value={agentEnvKeyMapApiKey}
+            onChange={(e) => setAgentEnvKeyMapApiKey(e.target.value)}
+            placeholder={t('agents.edit.mapApiKey')}
+            title={t('agents.edit.mapHint')}
+            spellCheck={false}
+            className="w-full min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[12px] font-mono text-[var(--text-rack)] placeholder:text-[var(--text-rack-faint)] py-1 px-2 focus:outline-none focus:border-[var(--amber)]"
+          />
+        </div>
+      )}
+    </div>
+
+    {/* ENVIRONMENT -- 后端早已支持 env(注入孵化终端),此前 UI 未暴露;此处补齐 key-value 行编辑器(与 Harness 变量组共用组件,敏感值默认打码)。
+        绑定了变量组时提示「内联不生效」—— 解析链是绑定组 → 内联 → 系统(命中即用不合并) */}
+    <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+      <div className="flex items-baseline gap-2 mb-2">
+        <span className="text-[12px] font-mono tracking-[0.06em] text-[var(--amber)]">{t('agents.edit.env')}</span>
+        <span className="text-[10.5px] text-[var(--text-rack-mute)]">
+          · {agentEnvProfileId ? t('agents.edit.envInlineBound') : t('agents.edit.envHint')}
+        </span>
+      </div>
+      <EnvRowsEditor stacked={inline} value={agentEnv} onChange={setAgentEnv} texts={envRowsTexts} />
+    </div>
+
+    {/* PREVIEW -- 签名:实时渲染启动时真正执行的命令行(终端口吻,随输入更新) */}
+    <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+      <div className="flex items-baseline gap-2 mb-2">
+        <span className="text-[12px] font-mono tracking-[0.06em] text-[var(--amber)]">{t('agents.edit.preview')}</span>
+        <span className="text-[10.5px] text-[var(--text-rack-mute)]">· {t('agents.edit.previewHint')}</span>
+      </div>
+      <div className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm px-3 py-2 font-mono text-[12px] leading-relaxed overflow-hidden">
+        {agentCommand.trim() ? (
+          <div className="flex items-center gap-1.5 min-w-0">
+            {agentCwd.trim() && (
+              <span className="text-[var(--text-rack-data)] truncate">{agentCwd.trim()}</span>
+            )}
+            <span className="text-[var(--amber)] flex-shrink-0">❯</span>
+            <span className="text-[var(--text-rack)] truncate">{agentCommand.trim()}</span>
+          </div>
+        ) : (
+          <span className="text-[var(--text-rack-mute)]">{t('agents.edit.previewNoCmd')}</span>
+        )}
+        {envKeys.length > 0 && (
+          <div className="flex items-center gap-1.5 mt-1 min-w-0 flex-wrap">
+            <span className="text-[var(--text-rack-mute)] text-[10.5px]">env</span>
+            {envKeys.map((k, idx) => (
+              <span key={idx} className="text-[var(--amber)] text-[10.5px] tracking-[0.02em]">{k}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+
+    </details>
+
+    {/* 校验提示(仅尝试提交后显示) */}
+    {triedSubmit && !valid && (
+      <div className="px-4 py-2 text-[11px] text-[var(--error-rack)] border-b border-[var(--rule)]">
+        {t('agents.edit.required')}
+      </div>
+    )}
+
+    {/* 保存失败提示(校验未通过 / 落盘失败,保留表单) */}
+    {saveError && (
+      <div role="alert" className="px-4 py-2 text-[11px] text-[var(--error-rack)] border-b border-[var(--rule)] break-all">
+        {saveError}
+      </div>
+    )}
+
+    {/* footer:删除(两步确认)/ 取消 / 保存 */}
+    <div className="agents-editor-actions flex items-center justify-between px-4 py-3">
+      {editAgent ? (
+        <button
+          onClick={handleDelete}
+          className={
+            confirmDelete
+              ? 'px-2.5 py-1 text-[12px] rounded-sm bg-[var(--error-rack)] text-[var(--bg-base)] font-medium transition-colors'
+              : 'px-2.5 py-1 text-[12px] text-[var(--error-rack)] hover:bg-[var(--bg-slot)] rounded-sm transition-colors'
+          }
+        >
+          {confirmDelete ? t('agents.edit.confirmDelete') : t('sidebar.agentDelete')}
+        </button>
+      ) : (
+        <span />
+      )}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={closeEditor}
+          className="px-3 py-1 text-[13px] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] transition-colors"
+        >
+          {t('sidebar.agentCancel')}
+        </button>
+        <button
+          onClick={handleSave}
+          className={`px-4 py-1 text-[13px] rounded-sm font-medium transition-opacity ${
+            valid
+              ? 'bg-[var(--amber)] text-[var(--bg-base)] hover:opacity-90'
+              : 'bg-[var(--bg-slot)] text-[var(--text-rack-dim)] opacity-70'
+          }`}
+        >
+          {saving ? t('agents.edit.saving') : t('sidebar.agentSave')}
+        </button>
+      </div>
+    </div>
+    </fieldset>
+  )
 
   // 子项沿用项目树行边界，命令保留在名称下方；启动与编辑/删除按钮互不嵌套。
   const renderAgentCard = (agent: AgentConfig) => (
     <div key={agent.id} className="harness-workspace-item">
       <div
-        onContextMenu={(e) => handleContextMenu(agent, e)}
+        onContextMenu={e => { e.preventDefault(); e.stopPropagation(); handleEdit(agent) }}
         onMouseLeave={() => { if (deleteConfirmId === agent.id) setDeleteConfirmId(null) }}
         className="group relative harness-project-row agents-project-row"
       >
+        <button type="button" className="workspace-launcher-disclosure agents-editor-toggle"
+          title={t('sidebar.agentEditTitle')} aria-label={`${t('agents.edit.toggle')} · ${agent.name}`}
+          aria-expanded={showDialog && editAgent?.id === agent.id} aria-controls={`agent-editor-${agent.id}`}
+          disabled={saving}
+          onClick={event => {
+            editorTriggerRef.current = event.currentTarget
+            if (showDialog && editAgent?.id === agent.id) closeEditor()
+            else handleEdit(agent)
+          }}>
+          <svg className={cn('workspace-launcher-chevron', { 'is-open': showDialog && editAgent?.id === agent.id })} width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="m4.5 2.5 3.5 3.5-3.5 3.5" /></svg>
+        </button>
         <button type="button" className="harness-workspace-main agents-workspace-main" aria-label={agent.name}
+          disabled={launchingAgentId !== null || saving} aria-busy={launchingAgentId === agent.id}
           title={`${agent.name}: ${agent.command}`} onClick={() => handleLaunch(agent.id)}>
           {/* 图标槽:emoji > 内置品牌图标 > 默认机器人头 */}
           <span className="harness-workspace-symbol" aria-hidden="true">
@@ -483,13 +677,7 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
         {/* 悬停或键盘焦点进入行后显示操作，保留独立按钮位置 */}
         <div className="agents-workspace-actions">
           <button
-            onClick={(e) => handleContextMenu(agent, e)}
-            title={t('sidebar.agentEditTitle')}
-            className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
-          >
-            <IconEdit />
-          </button>
-          <button
+            disabled={saving}
             onClick={async (e) => {
               e.stopPropagation()
               // 两步确认:首次点击切到确认态,再次点击才真正删除(与工作区/变量组卡一致)
@@ -523,6 +711,9 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
           </button>
         </div>
       </div>
+      <div id={`agent-editor-${agent.id}`} hidden={!(showDialog && editAgent?.id === agent.id)}>
+        {showDialog && editAgent?.id === agent.id && visible && renderAgentEditor(true)}
+      </div>
     </div>
   )
 
@@ -531,102 +722,26 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
       className="flex flex-col h-full bg-[var(--bg-base)] min-w-0"
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
-      <PanelHeader
-        title={t('agents.workLauncher')}
-        count={agents.length}
-        actions={<>
-          {agentGroups.length > 0 && <GroupListActions allCollapsed={allDirsCollapsed} allExpanded={allDirsExpanded} onChange={setAllDirsCollapsed} />}
-          {onOpenEnvSettings && <IconBtn title={t('env.manage')} onClick={onOpenEnvSettings}><SettingsGlyph name="env" /></IconBtn>}
-          <PanelHeaderAction label={t('panelHeader.add')} title={t('sidebar.addAgent')} onClick={handleAdd} />
-        </>}
-      />
-
-      {/* 顶部 Work Launcher:设置 → 工作区 的工作路径去重树,点击在对应目录启动 PS7 */}
-      {workspaceDirs.length > 0 && (
-        <section className="mx-1.5 mt-1 flex-shrink-0 min-h-0" aria-label={t('agents.workLauncher')}>
-          <div className="harness-project-tree agents-work-launcher">
-            <div className="harness-project-viewport rack-scroll">
-              <div className="harness-project-body">
-                {workspaceDirs.map(({ dir, id, worktreeKey }) => {
-                  const detail = wsDirDetail(dir, workspaceDirs.map(d => d.dir))
-                  const label = wsDirLabel(dir) + (worktreeKey ? ` · ${worktreeKey}` : '')
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      className="harness-project-header"
-                      title={dir + (worktreeKey ? ` · ${worktreeKey}` : '')}
-                      aria-label={`${t('workspacePresets.launchPs7For', { name: label })} · ${dir}${worktreeKey ? ` · ${worktreeKey}` : ''}`}
-                      aria-busy={launchingWorkspaceId === id}
-                      disabled={launchingWorkspaceId !== null}
-                      style={{ '--project-hue': workspaceProjectHue(dir) } as React.CSSProperties}
-                      onClick={() => void handleLaunchWorkspace(id)}
-                    >
-                      <span className="harness-project-symbol" aria-hidden="true"><IconFolder /></span>
-                      <span className="harness-project-heading">
-                        <span className="harness-project-label">{label}</span>
-                        {detail.detailMarker && <span className="harness-project-parent">{detail.detail}</span>}
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-
-      <div className="mx-1.5 pt-1 flex-1 min-h-0 flex flex-col min-w-0">
-
-      {/* 列表级操作错误(卡片删除落盘失败等)—— 对齐 EnvProfilePanel 的 actionError 位 */}
-      {actionError && (
-        <div className="text-[10.5px] text-[var(--error-rack)] break-words pt-2">{actionError}</div>
-      )}
-
-      {/* 目录项目树：单组独立开合，顶部按钮批量展开或收起。 */}
-      {agentGroups.length > 0 ? (
-        <div className="harness-project-tree agents-project-tree">
-          <div className="harness-project-viewport rack-scroll">
-            <div className="harness-project-body">
-              {agentGroups.map(([dir, list], index) => {
-                const label = dir ? wsDirLabel(dir) : t('agents.groupNoDir')
-                const detail = dir ? wsDirDetail(dir, agentGroups.map(([key]) => key)) : undefined
-                const groupId = `agents-project-group-${index}`
-                return <div key={dir} className="harness-project-group"
-                  style={{ '--project-hue': workspaceProjectHue(dir) } as React.CSSProperties}>
-                  <button type="button" className="harness-project-header" title={dir || label}
-                    aria-expanded={!collapsedDirs.has(dir)} aria-controls={groupId} onClick={() => toggleDirCollapsed(dir)}>
-                    <span className="harness-project-symbol" aria-hidden="true"><IconFolder /></span>
-                    <span className="harness-project-heading">
-                      <span className="harness-project-label">{label}</span>
-                      {detail?.detailMarker && <span className="harness-project-parent">{detail.detail}</span>}
-                    </span>
-                    <span className="harness-project-count">{list.length}</span>
-                    <svg className={cn('harness-project-chevron', !collapsedDirs.has(dir) && 'is-open')} width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>
-                  </button>
-                  <div id={groupId} className="harness-project-items" hidden={collapsedDirs.has(dir)} role="group" aria-label={dir || label}>
-                    {list.map(renderAgentCard)}
-                  </div>
-                </div>
-              })}
-            </div>
-          </div>
-
-        </div>
-      ) : (
-        // 空状态 -- 沿用机柜 ─ · ─ 分隔 + 提示（历史空则不立墙，与 Web 栏同口径）
-        <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 px-4 pb-6 text-center">
-          <span className="font-mono text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
-          <span className="text-[11.5px] [font-family:inherit] text-[var(--text-rack-mute)]">{t('agents.empty')}</span>
-          <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">{t('agents.emptyHint')}</span>
-        </div>
-      )}
+      <WorkspaceLauncherTree visible={visible} agents={agents} renderAgent={renderAgentCard}
+        onManage={onOpenWorkspaceSettings} onPresetsChange={setWorkspacePresets} refreshKey={showDialog}
+        renderHeader={controls => <PanelHeader title={t('agents.workLauncher')} actions={<>
+          {controls}
+          <PanelHeaderMenu title={t('panelHeader.add')} icon={<IconPlus/>} items={[
+            { label: t('sidebar.addAgent'), onClick: handleAdd },
+            ...(onOpenWorkspaceSettings ? [{ label: t('workspacePresets.add'), onClick: onOpenWorkspaceSettings }] : [])
+          ]}/>
+          {(onOpenWorkspaceSettings || onOpenEnvSettings) && <PanelHeaderMenu title={t('agents.launcherManage')} items={[
+            ...(onOpenWorkspaceSettings ? [{ label: t('workspacePresets.manage'), onClick: onOpenWorkspaceSettings }] : []),
+            ...(onOpenEnvSettings ? [{ label: t('env.manage'), onClick: onOpenEnvSettings }] : [])
+          ]}/>}
+        </>}/>}/>
+      {actionError && <div role="alert" className="agents-launch-error">{actionError}</div>}
 
       {/* Agent 编辑对话框 -- 机柜"插槽规格表":header + 面板(图标/名称) + 命令/工作目录/环境变量 + 实时预览 */}
-      {showDialog && visible && (
+      {showDialog && !editAgent && visible && (
         <div className="ly-dialog-backdrop fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="ly-dialog-surface bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm w-[448px] max-h-[88vh] overflow-y-auto rack-scroll shadow-xl">
-            <DialogClose onClose={() => setShowDialog(false)} />
+            <DialogClose onClose={closeEditor} />
             {/* header:电源 LED + 标题 + 类型牌 */}
             <div className="flex items-center h-10 px-4 border-b border-[var(--rule)] gap-2.5">
               <span
@@ -642,236 +757,10 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
               </span>
             </div>
 
-            {/* 面板:图标 + 名称(插槽丝印) */}
-            <div className="flex items-center gap-2.5 py-3.5 px-4 border-b border-[var(--rule)]">
-              {/* 图标:点选 emoji(浮层);留空回退自动 exe 图标。非文本输入,避免敲 emoji 的别扭 */}
-              <div className="relative flex-shrink-0" ref={iconPickerRef}>
-                <button
-                  type="button"
-                  onClick={() => setIconPickerOpen(o => !o)}
-                  title={t('agents.edit.iconPh')}
-                  className="w-7 h-7 flex items-center justify-center bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[var(--text-rack)] hover:border-[var(--amber)] focus:outline-none focus:border-[var(--amber)] transition-colors"
-                >
-                  {agentIcon ? (
-                    <span className="text-[15px] leading-none">{agentIcon}</span>
-                  ) : previewIcon ? (
-                    <BundledIconView entry={previewIcon} title={t('agents.edit.iconAuto')} className="w-[18px] h-[18px]" />
-                  ) : (
-                    <span className="text-[15px] leading-none text-[var(--text-rack-data)]">🤖</span>
-                  )}
-                </button>
-                {iconPickerOpen && (
-                  <div className="absolute top-full left-0 mt-1 z-50 w-[224px] bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm p-1.5 shadow-xl">
-                    <div className="grid grid-cols-8 gap-0.5">
-                      {ICON_EMOJIS.map(em => (
-                        <button
-                          key={em}
-                          type="button"
-                          onClick={() => { setAgentIcon(em); setIconPickerOpen(false) }}
-                          className="w-6 h-6 flex items-center justify-center text-[15px] leading-none rounded-sm hover:bg-[var(--bg-slot)] transition-colors overflow-hidden"
-                        >
-                          {em}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => { setAgentIcon(''); setIconPickerOpen(false) }}
-                      className="mt-1 pt-1 w-full text-[10.5px] font-mono text-[var(--text-rack-data)] hover:text-[var(--amber)] border-t border-[var(--rule-soft)] transition-colors"
-                    >
-                      {t('agents.edit.iconClear')}
-                    </button>
-                  </div>
-                )}
-              </div>
-              <input
-                type="text"
-                value={agentName}
-                onChange={(e) => { setAgentName(e.target.value); if (triedSubmit) setTriedSubmit(false) }}
-                placeholder={t('agents.edit.namePh')}
-                autoFocus
-                className="flex-1 min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
-              />
-            </div>
-
-            {/* COMMAND */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-[12px] font-mono tracking-[0.06em] text-[var(--amber)]">{t('agents.edit.command')}</span>
-                <span className="text-[10.5px] text-[var(--text-rack-mute)]">· {t('agents.edit.commandHint')}</span>
-              </div>
-              <input
-                type="text"
-                value={agentCommand}
-                onChange={(e) => { setAgentCommand(e.target.value); if (triedSubmit) setTriedSubmit(false) }}
-                placeholder="claude"
-                className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 font-mono focus:outline-none focus:border-[var(--amber)]"
-              />
-            </div>
-
-            {/* WORKDIR */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-[12px] font-mono tracking-[0.06em] text-[var(--amber)]">{t('agents.edit.workdir')}</span>
-                <span className="text-[10.5px] text-[var(--text-rack-mute)]">· {t('agents.edit.workdirHint')}</span>
-              </div>
-              <div className="flex items-stretch gap-1.5">
-                <input
-                  type="text"
-                  value={agentCwd}
-                  onChange={(e) => setAgentCwd(e.target.value)}
-                  placeholder="~/projects/lyshell"
-                  className="flex-1 min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 font-mono focus:outline-none focus:border-[var(--amber)]"
-                />
-                <button
-                  type="button"
-                  onClick={handlePickCwd}
-                  title={t('agents.edit.browse')}
-                  className="flex-shrink-0 w-[34px] inline-flex items-center justify-center bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[var(--text-rack-mute)] hover:text-[var(--amber)] hover:border-[var(--amber)] transition-colors"
-                >
-                  <IconFolder />
-                </button>
-              </div>
-            </div>
-
-            {/* ENV PROFILE -- 绑定全局变量组(优先于下方内联变量;与 Harness 工作区同一套绑定语义) */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="flex flex-wrap items-baseline gap-2 mb-2">
-                <span className="text-[12px] font-mono tracking-[0.06em] text-[var(--amber)]">{t('agents.edit.envProfile')}</span>
-                <span className="text-[10.5px] text-[var(--text-rack-mute)]">· {t('agents.edit.envProfileHint')}</span>
-                {onOpenEnvSettings && <button type="button" className="ml-auto text-[12px] text-[var(--text-rack-data)] hover:text-[var(--amber)] underline underline-offset-2" onClick={onOpenEnvSettings}>{t('env.manage')}</button>}
-              </div>
-              <select
-                value={agentEnvProfileId ?? ''}
-                onChange={(e) => setAgentEnvProfileId(e.target.value || null)}
-                className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] text-[var(--text-rack)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)] appearance-none cursor-pointer"
-              >
-                <option value="">{t('agents.edit.envProfileNone')}</option>
-                {envProfiles.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-              {/* 注入变量名:变量组核心存的是协议无关的 baseURL/apiKey,启动时按这两个
-                  名字注入 —— 命令读哪些变量名只有 agent 作者知道,故跟 agent 走。
-                  留空 = 不注入该维度(绑定的组仍透传附加变量) */}
-              {agentEnvProfileId && (
-                <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-                  <input
-                    type="text"
-                    value={agentEnvKeyMapBaseUrl}
-                    onChange={(e) => setAgentEnvKeyMapBaseUrl(e.target.value)}
-                    placeholder={t('agents.edit.mapBaseUrl')}
-                    title={t('agents.edit.mapHint')}
-                    spellCheck={false}
-                    className="w-full min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[12px] font-mono text-[var(--text-rack)] placeholder:text-[var(--text-rack-faint)] py-1 px-2 focus:outline-none focus:border-[var(--amber)]"
-                  />
-                  <input
-                    type="text"
-                    value={agentEnvKeyMapApiKey}
-                    onChange={(e) => setAgentEnvKeyMapApiKey(e.target.value)}
-                    placeholder={t('agents.edit.mapApiKey')}
-                    title={t('agents.edit.mapHint')}
-                    spellCheck={false}
-                    className="w-full min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[12px] font-mono text-[var(--text-rack)] placeholder:text-[var(--text-rack-faint)] py-1 px-2 focus:outline-none focus:border-[var(--amber)]"
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* ENVIRONMENT -- 后端早已支持 env(注入孵化终端),此前 UI 未暴露;此处补齐 key-value 行编辑器(与 Harness 变量组共用组件,敏感值默认打码)。
-                绑定了变量组时提示「内联不生效」—— 解析链是绑定组 → 内联 → 系统(命中即用不合并) */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-[12px] font-mono tracking-[0.06em] text-[var(--amber)]">{t('agents.edit.env')}</span>
-                <span className="text-[10.5px] text-[var(--text-rack-mute)]">
-                  · {agentEnvProfileId ? t('agents.edit.envInlineBound') : t('agents.edit.envHint')}
-                </span>
-              </div>
-              <EnvRowsEditor value={agentEnv} onChange={setAgentEnv} texts={envRowsTexts} />
-            </div>
-
-            {/* PREVIEW -- 签名:实时渲染启动时真正执行的命令行(终端口吻,随输入更新) */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-[12px] font-mono tracking-[0.06em] text-[var(--amber)]">{t('agents.edit.preview')}</span>
-                <span className="text-[10.5px] text-[var(--text-rack-mute)]">· {t('agents.edit.previewHint')}</span>
-              </div>
-              <div className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm px-3 py-2 font-mono text-[12px] leading-relaxed overflow-hidden">
-                {agentCommand.trim() ? (
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    {agentCwd.trim() && (
-                      <span className="text-[var(--text-rack-data)] truncate">{agentCwd.trim()}</span>
-                    )}
-                    <span className="text-[var(--amber)] flex-shrink-0">❯</span>
-                    <span className="text-[var(--text-rack)] truncate">{agentCommand.trim()}</span>
-                  </div>
-                ) : (
-                  <span className="text-[var(--text-rack-mute)]">{t('agents.edit.previewNoCmd')}</span>
-                )}
-                {envKeys.length > 0 && (
-                  <div className="flex items-center gap-1.5 mt-1 min-w-0 flex-wrap">
-                    <span className="text-[var(--text-rack-mute)] text-[10.5px]">env</span>
-                    {envKeys.map((k, idx) => (
-                      <span key={idx} className="text-[var(--amber)] text-[10.5px] tracking-[0.02em]">{k}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* 校验提示(仅尝试提交后显示) */}
-            {triedSubmit && !valid && (
-              <div className="px-4 py-2 text-[11px] text-[var(--error-rack)] border-b border-[var(--rule)]">
-                {t('agents.edit.required')}
-              </div>
-            )}
-
-            {/* 保存失败提示(校验未通过 / 落盘失败,保留表单) */}
-            {saveError && (
-              <div className="px-4 py-2 text-[11px] text-[var(--error-rack)] border-b border-[var(--rule)] break-all">
-                {saveError}
-              </div>
-            )}
-
-            {/* footer:删除(两步确认)/ 取消 / 保存 */}
-            <div className="flex items-center justify-between px-4 py-3">
-              {editAgent ? (
-                <button
-                  onClick={handleDelete}
-                  className={
-                    confirmDelete
-                      ? 'px-2.5 py-1 text-[12px] rounded-sm bg-[var(--error-rack)] text-[var(--bg-base)] font-medium transition-colors'
-                      : 'px-2.5 py-1 text-[12px] text-[var(--error-rack)] hover:bg-[var(--bg-slot)] rounded-sm transition-colors'
-                  }
-                >
-                  {confirmDelete ? t('agents.edit.confirmDelete') : t('sidebar.agentDelete')}
-                </button>
-              ) : (
-                <span />
-              )}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setShowDialog(false)}
-                  className="px-3 py-1 text-[13px] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] transition-colors"
-                >
-                  {t('sidebar.agentCancel')}
-                </button>
-                <button
-                  onClick={handleSave}
-                  className={`px-4 py-1 text-[13px] rounded-sm font-medium transition-opacity ${
-                    valid
-                      ? 'bg-[var(--amber)] text-[var(--bg-base)] hover:opacity-90'
-                      : 'bg-[var(--bg-slot)] text-[var(--text-rack-dim)] opacity-70'
-                  }`}
-                >
-                  {t('sidebar.agentSave')}
-                </button>
-              </div>
-            </div>
+            {renderAgentEditor(false)}
           </div>
         </div>
       )}
-      </div>{/* ===== /内容壳 ===== */}
     </div>
   )
 }

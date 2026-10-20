@@ -62,7 +62,8 @@ function normalizeWorkspace(raw: unknown): HarnessWorkspace | null {
     : w.skipPermissions === true ? 'bypassPermissions' as const : undefined
   // codexPermissions 仅接受三档枚举字面量（其余按缺省 = 不追加参数，跟随 Codex 默认链）
   const codexPermissions = isCodexPermissionProfile(w.codexPermissions) ? w.codexPermissions : undefined
-  return { id: w.id, name: w.name, cwd: w.cwd, order: w.order, ...(note !== undefined ? { note } : {}), ...(model !== undefined ? { model } : {}), ...(env !== undefined ? { env } : {}), ...(envProfileId !== undefined ? { envProfileId } : {}), ...(isolation !== undefined ? { isolation } : {}), ...(worktreeKey !== undefined ? { worktreeKey } : {}), ...(claudePermissions !== undefined ? { claudePermissions } : {}), ...(codexPermissions !== undefined ? { codexPermissions } : {}) }
+  const workspacePresetId = typeof w.workspacePresetId === 'string' && w.workspacePresetId.length > 0 ? w.workspacePresetId : undefined
+  return { id: w.id, name: w.name, cwd: w.cwd, order: w.order, ...(workspacePresetId ? { workspacePresetId } : {}), ...(note !== undefined ? { note } : {}), ...(model !== undefined ? { model } : {}), ...(env !== undefined ? { env } : {}), ...(envProfileId !== undefined ? { envProfileId } : {}), ...(isolation !== undefined ? { isolation } : {}), ...(worktreeKey !== undefined ? { worktreeKey } : {}), ...(claudePermissions !== undefined ? { claudePermissions } : {}), ...(codexPermissions !== undefined ? { codexPermissions } : {}) }
 }
 
 /**
@@ -203,3 +204,5 @@ export class HarnessWorkspaceRepository {
 export const dshWorkspaceRepository = new HarnessWorkspaceRepository('dsh-workspaces.json')
 export const codexWorkspaceRepository = new HarnessWorkspaceRepository('codex-workspaces.json')
 export const claudeWorkspaceRepository = new HarnessWorkspaceRepository('claude-workspaces.json')
+
+export const codeWorkspacePresetRepository = new HarnessWorkspaceRepository('code-workspace-presets.json')

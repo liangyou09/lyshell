@@ -5,6 +5,18 @@ beforeEach(() => { usePluginStore.setState({ items: [], loading: false, loaded: 
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe('插件禁用清理失败反馈', () => {
+  it('启用被拒绝时保留返回的具体错误，关闭提示不改变插件状态', async () => {
+    vi.stubGlobal('window', { electronAPI: {
+      enablePlugin: vi.fn(async () => ({ success: false, error: 'Plugin process tree cleanup failed' }))
+    } })
+    expect(await usePluginStore.getState().enable('plugin')).toBe(false)
+    expect(usePluginStore.getState().error).toBe('Plugin process tree cleanup failed')
+    const items = usePluginStore.getState().items
+    usePluginStore.getState().clearError()
+    expect(usePluginStore.getState().error).toBeNull()
+    expect(usePluginStore.getState().items).toBe(items)
+  })
+
   it('显示主进程的清理错误，收到资源撤销通知后仍保留失败提示', async () => {
     let finish!: (result: { success: boolean; error: string }) => void
     vi.stubGlobal('window', { electronAPI: {

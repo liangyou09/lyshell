@@ -19,8 +19,10 @@ import * as exclusiveRuntime from '../dsh/exclusive-runtime'
 import { createDshWebLaunchResolver } from '../dsh/launch-resolve'
 import { readSystemPath } from '../env/refresh'
 import { resolveWorkspaceCwd } from '../harness/cwd'
+import { resolveAgentWorkspaceCwd } from '../harness/agent-workspace'
 import { listWorktreeKeys, resolveLaunchWorktree, validateWorktreeKey } from '../harness/worktree'
 import { requestCodeWorkspaces } from '../harness/code-workspaces'
+import { ensureManagedWorkspaces, listManagedLaunchers, requireManagedTarget } from '../harness/workspace-governance'
 import { formatCodeWorkspaceName } from '@shared/code-workspaces'
 import { validateCodeWorkspaceRequest } from './validation'
 import { launchResolveSerializer } from '../harness/task-serializer'
@@ -56,6 +58,7 @@ import {
   assertStringArray,
   assertStringRecord,
   assertWorkspaceId,
+  validateWorkspacePresetId,
   validationFailure,
   ValidationError
 } from './validation'
@@ -1982,7 +1985,7 @@ export function registerIPCHandlers(): void {
   // ========== AI Agent ==========
 
   ipcMain.handle('agent:list', async () => {
-    return agentRepository.getAll()
+    return listManagedLaunchers(() => agentRepository.getAll())
   })
 
   // 全局变量组库面板视角:组 + 全局启用指针 + 引用方(按名字列出,供引用计数与删除警示)。
@@ -2174,7 +2177,7 @@ export function registerIPCHandlers(): void {
         order: safeAgent.order === undefined ? 0 : assertNumber(safeAgent.order, 'agent.order', { min: 0, max: 10000, integer: true })
       }
       if (safeAgent.icon !== undefined) newAgent.icon = assertString(safeAgent.icon, 'agent.icon', { maxLength: 20 })
-      if (safeAgent.cwd !== undefined) newAgent.cwd = assertString(safeAgent.cwd, 'agent.cwd', { maxLength: 4096 })
+      Object.assign(newAgent, await requireManagedTarget(validateWorkspacePresetId(safeAgent.workspacePresetId)))
       if (safeAgent.env !== undefined) newAgent.env = assertStringRecord(safeAgent.env, 'agent.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
       // 绑定变量组：保存即拒悬空 id —— 通用 Agent 是新字段没有历史包袱，从严校验
       if (safeAgent.envProfileId !== undefined) {
@@ -2197,14 +2200,16 @@ export function registerIPCHandlers(): void {
   ipcMain.handle('agent:update', async (_event, agent) => {
     try {
       const safeAgent = assertObject(agent, 'agent')
+      const id = assertString(safeAgent.id, 'agent.id', { maxLength: 128 })
+      const existing = agentRepository.get(id)
       const updatedAgent: AgentConfig = {
-        id: assertString(safeAgent.id, 'agent.id', { maxLength: 128 }),
+        id,
         name: assertString(safeAgent.name, 'agent.name', { maxLength: 120 }),
         command: assertString(safeAgent.command, 'agent.command', { maxLength: 1000 }),
-        order: safeAgent.order === undefined ? 0 : assertNumber(safeAgent.order, 'agent.order', { min: 0, max: 10000, integer: true })
+        order: safeAgent.order === undefined ? existing?.order ?? 0 : assertNumber(safeAgent.order, 'agent.order', { min: 0, max: 10000, integer: true })
       }
       if (safeAgent.icon !== undefined) updatedAgent.icon = assertString(safeAgent.icon, 'agent.icon', { maxLength: 20 })
-      if (safeAgent.cwd !== undefined) updatedAgent.cwd = assertString(safeAgent.cwd, 'agent.cwd', { maxLength: 4096 })
+      Object.assign(updatedAgent, await requireManagedTarget(validateWorkspacePresetId(safeAgent.workspacePresetId)))
       if (safeAgent.env !== undefined) updatedAgent.env = assertStringRecord(safeAgent.env, 'agent.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
       // 绑定变量组用「键存在」判断：编辑时取消绑定（传 undefined）应生效，否则旧绑定残留；
       // 传 id 则保存即拒悬空（与 add 同一套从严校验）
@@ -2261,13 +2266,20 @@ export function registerIPCHandlers(): void {
   ipcMain.handle('agent:launch', async (_event, agentId: string) => {
     try {
       const safeAgentId = assertString(agentId, 'agentId', { maxLength: 128 })
-      const agent = agentRepository.get(safeAgentId)
-      if (!agent) return { success: false, error: 'Agent not found' }
+      await ensureManagedWorkspaces()
+      const snapshot = agentRepository.get(safeAgentId)
+      if (!snapshot) return { success: false, error: 'Agent not found' }
+      const agent = { ...snapshot, ...await requireManagedTarget(validateWorkspacePresetId(snapshot.workspacePresetId)) }
+
+      // 解析启动目录：worktree 隔离在专属 git worktree 中启动（幂等），shared 校验绝对存在目录，
+      // 失败在创建终端前拒绝（不产生瞬态会话）
+      const cwd = await resolveAgentWorkspaceCwd(agent)
+      if (!cwd.ok) return { success: false, error: cwd.error }
 
       // env 解析链（与 harness 的 resolveWorkspaceEnv 同构，命中即用不合并）：
       // 绑定的变量组 → 内联 env（legacy）→ undefined（系统环境变量）
       return await spawnLocalCommandSession(agent.name, agent.command, [`agent:${safeAgentId}`], {
-        cwd: agent.cwd,
+        cwd: cwd.cwd,
         env: resolveAgentLaunchEnv(agent, envProfileRepository)
       })
     } catch (error) {
@@ -2388,14 +2400,15 @@ export function registerIPCHandlers(): void {
     // 每个工作区 = 名称 + 工作目录，单击在对应目录启动对应 CLI（参照 agent:launch 的 cwd 语义）。
 
     ipcMain.handle(`${kind}:workspace:list`, async () => {
-      return runtime.repository.getAll()
+      return kind === 'dsh' ? runtime.repository.getAll() : listManagedLaunchers(() => runtime.repository.getAll())
     })
 
     ipcMain.handle(`${kind}:workspace:add`, async (_event, workspace) => {
       try {
         const safe = assertObject(workspace, 'workspace')
+        const managed = kind === 'dsh' ? undefined : await requireManagedTarget(validateWorkspacePresetId(safe.workspacePresetId))
         // 保存即校验 cwd：须为存在的绝对目录（含展开 ~），尽早反馈而非等到启动
-        const cwd = resolveWorkspaceCwd(assertString(safe.cwd, 'workspace.cwd', { maxLength: 4096 }))
+        const cwd = resolveWorkspaceCwd(managed?.cwd ?? assertString(safe.cwd, 'workspace.cwd', { maxLength: 4096 }))
         if (!cwd.ok) return { success: false, error: cwd.error }
         const newWorkspace: Omit<HarnessWorkspace, 'id' | 'order'> = {
           name: assertString(safe.name, 'workspace.name', { maxLength: 120 }),
@@ -2413,11 +2426,11 @@ export function registerIPCHandlers(): void {
           newWorkspace.envProfileId = profileId
         }
         // 目录隔离模式；缺省即 shared（现状语义）。git 仓库校验留到启动时做——「先开隔离、后 git init」是合法工作流
-        if (safe.isolation !== undefined) {
+        if (kind === 'dsh' && safe.isolation !== undefined) {
           newWorkspace.isolation = assertEnum(safe.isolation, 'workspace.isolation', ['shared', 'worktree'] as const)
         }
         // worktree 共享名；非法字符保存即拒（不做静默折叠，见 validateWorktreeKey）
-        if (safe.worktreeKey !== undefined) {
+        if (kind === 'dsh' && safe.worktreeKey !== undefined) {
           const key = validateWorktreeKey(assertString(safe.worktreeKey, 'workspace.worktreeKey', { maxLength: 128 }))
           if (!key.ok) return { success: false, error: key.error }
           newWorkspace.worktreeKey = key.value
@@ -2431,6 +2444,7 @@ export function registerIPCHandlers(): void {
           newWorkspace.codexPermissions = assertEnum(safe.codexPermissions, 'workspace.codexPermissions', CODEX_PERMISSION_PROFILES)
         }
         // env 是 legacy 字段，新建一律不写 —— 环境变量走变量组
+        if (managed) Object.assign(newWorkspace, managed)
         const added = runtime.repository.add(newWorkspace)
         if (!added) return { success: false, error: 'Failed to save workspace' }
         return { success: true, workspace: added }
@@ -2442,7 +2456,8 @@ export function registerIPCHandlers(): void {
     ipcMain.handle(`${kind}:workspace:update`, async (_event, workspace) => {
       try {
         const safe = assertObject(workspace, 'workspace')
-        const cwd = resolveWorkspaceCwd(assertString(safe.cwd, 'workspace.cwd', { maxLength: 4096 }))
+        const managed = kind === 'dsh' ? undefined : await requireManagedTarget(validateWorkspacePresetId(safe.workspacePresetId))
+        const cwd = resolveWorkspaceCwd(managed?.cwd ?? assertString(safe.cwd, 'workspace.cwd', { maxLength: 4096 }))
         if (!cwd.ok) return { success: false, error: cwd.error }
         const id = assertString(safe.id, 'workspace.id', { maxLength: 128 })
         const existing = runtime.repository.get(id)
@@ -2478,13 +2493,13 @@ export function registerIPCHandlers(): void {
         }
         // isolation 同 model/envProfileId 用「键存在」判断：编辑时切回共享目录（传 undefined）
         // 应生效，否则旧 worktree 隔离会残留（worktree 目录本身不动，仅下次启动回 shared cwd）。
-        if ('isolation' in safe) {
+        if (kind === 'dsh' && 'isolation' in safe) {
           updated.isolation = safe.isolation === undefined
             ? undefined
             : assertEnum(safe.isolation, 'workspace.isolation', ['shared', 'worktree'] as const)
         }
         // worktreeKey 同样用「键存在」判断：编辑时清空共享名（传 undefined）应回到私有 worktree。
-        if ('worktreeKey' in safe) {
+        if (kind === 'dsh' && 'worktreeKey' in safe) {
           if (safe.worktreeKey === undefined) {
             updated.worktreeKey = undefined
           } else {
@@ -2511,6 +2526,7 @@ export function registerIPCHandlers(): void {
         // 迁移成功的记录这里恒为 undefined；迁移失败还带着 env 的记录，不该因为用户改了个名字
         // 就把 API key 弄丢 —— 优先级上它本来就排在变量组之后（见 resolveWorkspaceEnv）。
         if (existing?.env !== undefined) updated.env = existing.env
+        if (managed) Object.assign(updated, managed)
         const success = runtime.repository.update(updated)
         return success ? { success: true } : { success: false, error: 'Workspace not found' }
       } catch (error) {
@@ -2531,8 +2547,10 @@ export function registerIPCHandlers(): void {
     ipcMain.handle(`${kind}:workspace:launch`, async (_event, workspaceId: string) => {
       try {
         const safeId = assertWorkspaceId(workspaceId)
-        const workspace = runtime.repository.get(safeId)
-        if (!workspace) return { success: false, error: 'Workspace not found' }
+        if (kind !== 'dsh') await ensureManagedWorkspaces()
+        const snapshot = runtime.repository.get(safeId)
+        if (!snapshot) return { success: false, error: 'Workspace not found' }
+        const workspace = kind === 'dsh' ? snapshot : { ...snapshot, ...await requireManagedTarget(validateWorkspacePresetId(snapshot.workspacePresetId)) }
 
         // 启动前复核依赖是否仍在 PATH 上（与 agent:launch 同层兜底，不依赖前端禁用态）
         const status = detectDependencies(runtime.dependencies, readSystemPath() ?? undefined)
@@ -2557,7 +2575,8 @@ export function registerIPCHandlers(): void {
             // 锁内重读记录：并发的前一次启动可能刚把生成的可读 key 持久化进仓库
             const fresh = runtime.repository.get(safeId)
             if (!fresh) return { ok: false as const, error: 'Workspace not found' }
-            return resolveLaunchWorktree(cwd.path, kind, fresh, (key) => runtime.repository.update({ ...fresh, worktreeKey: key }))
+            const current = kind === 'dsh' ? fresh : { ...fresh, ...await requireManagedTarget(validateWorkspacePresetId(fresh.workspacePresetId)) }
+            return resolveLaunchWorktree(cwd.path, kind, current, (key) => runtime.repository.update({ ...current, worktreeKey: key }))
           })
           if (!wt.ok) {
             return { success: false, error: wt.error }
@@ -2604,8 +2623,9 @@ export function registerIPCHandlers(): void {
         throw new ValidationError('Workspace presets require the main window')
       }
       const request = validateCodeWorkspaceRequest(raw)
-      const pwshPath = request.kind === 'launch' ? findPwshPath(readSystemPath() ?? undefined) : null
-      if (request.kind === 'launch' && !pwshPath) {
+      const launchingShell = request.kind === 'launch' || request.kind === 'launchDirectory'
+      const pwshPath = launchingShell ? findPwshPath(readSystemPath() ?? undefined) : null
+      if (launchingShell && !pwshPath) {
         return { success: false, error: 'PowerShell 7 (pwsh) was not found. Install PowerShell 7 and try again.' }
       }
       return await requestCodeWorkspaces(request, async (workspace, cwd) => {

@@ -1,16 +1,15 @@
 import { formatCodeWorkspaceName, type CodeWorkspacePreset, type CodeWorkspaceRequest, type CodeWorkspaceResult } from '@shared/code-workspaces'
-import { HarnessWorkspaceRepository, codexWorkspaceRepository, claudeWorkspaceRepository } from '../storage/harness-workspace-repository'
+import { codeWorkspacePresetRepository } from '../storage/harness-workspace-repository'
 import { getConfigDir } from '../storage/repository'
-import { join } from 'node:path'
-import { migrateCodeWorkspacePresets } from './migrate-code-workspaces'
+import { basename, isAbsolute, join, relative, sep } from 'node:path'
+import { ensureManagedWorkspaces, isWorkspaceReferenced } from './workspace-governance'
 import { resolveWorkspaceCwd } from './cwd'
 import { ensureWorktree } from './worktree'
 import { createTaskSerializer } from './task-serializer'
 import { codeWorkspaceTargetKey, normalizeCodeWorkspaces } from './normalize-code-workspaces'
 
-const repository = new HarnessWorkspaceRepository('code-workspace-presets.json')
+const repository = codeWorkspacePresetRepository
 const serialize = createTaskSerializer()
-let migrated = false
 
 export async function requestCodeWorkspaces(
   request: CodeWorkspaceRequest,
@@ -21,26 +20,28 @@ export async function requestCodeWorkspaces(
       const aliases = normalizeCodeWorkspaces(repository, join(getConfigDir(), 'code-workspace-presets-merge.json'))
       return { success: true, presets: repository.getAll(), ...(Object.keys(aliases).length ? { aliases } : {}) }
     }
-    if (!migrated) {
-      try {
-        await migrateCodeWorkspacePresets(repository, [
-          { kind: 'codex', repository: codexWorkspaceRepository },
-          { kind: 'claude', repository: claudeWorkspaceRepository }
-        ], join(getConfigDir(), 'code-workspace-presets-migration.json'))
-        migrated = true
-      } catch (error) {
-        return { success: false, error: `Could not import existing workspaces: ${error instanceof Error ? error.message : String(error)}` }
-      }
-    }
+    try { await ensureManagedWorkspaces() }
+    catch (error) { return { success: false, error: `Could not prepare managed workspaces: ${error instanceof Error ? error.message : String(error)}` } }
     // 也整理已经完成旧版导入的配置；后续新增/编辑仍按同一目标规则去重。
     const initial = result()
     if (request.kind === 'list') return initial
-    if (request.kind === 'launch') {
+    if (request.kind === 'launch' || request.kind === 'launchDirectory') {
       if (!launch) return { success: false, error: 'Workspace terminal launcher is unavailable' }
       const workspace = repository.get(initial.success && initial.aliases?.[request.id] || request.id)
       if (!workspace) return { success: false, error: 'Workspace preset not found' }
       const cwd = resolveWorkspaceCwd(workspace.cwd)
       if (!cwd.ok) return { success: false, error: cwd.error }
+      if (request.kind === 'launchDirectory') {
+        const directory = resolveWorkspaceCwd(request.cwd)
+        if (!directory.ok) return { success: false, error: directory.error }
+        // 目录树的启动入口只接受已保存路径本身或其祖先；不能借预设 ID 启动任意目录。
+        const child = relative(directory.path, cwd.path)
+        if (isAbsolute(child) || child === '..' || child.startsWith(`..${sep}`)) {
+          return { success: false, error: 'Launch directory must be the workspace directory or one of its parents' }
+        }
+        await launch({ ...workspace, name: basename(directory.path) || directory.path, isolation: 'shared', worktreeKey: undefined }, directory.path)
+        return result()
+      }
       let launchCwd = cwd.path
       if (workspace.isolation === 'worktree') {
         if (!workspace.worktreeKey) return { success: false, error: 'Worktree name is required' }
@@ -52,6 +53,7 @@ export async function requestCodeWorkspaces(
       return result()
     }
     if (request.kind === 'delete') {
+      if (isWorkspaceReferenced(request.id)) return { success: false, error: 'Workspace is used by launchers. Reassign or delete those launchers first.' }
       if (!repository.get(request.id) || !repository.delete(request.id)) return { success: false, error: 'Workspace preset could not be deleted' }
       // 删除配置不删除 worktree 或分支，保留其中的改动。
       return result()

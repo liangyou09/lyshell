@@ -39,6 +39,7 @@ interface PluginStore {
   loaded: boolean
   /** 最近一次写操作错误(供 UI 临时提示) */
   error: string | null
+  clearError: () => void
   load: () => Promise<void>
   pickFolder: () => Promise<PluginPickResult>
   installDev: (req: PluginInstallDevRequest) => Promise<InstallResult>
@@ -62,6 +63,7 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
   loading: false,
   loaded: false,
   error: null,
+  clearError: () => set({ error: null }),
   markResourcesReleased: (id) => {
     ++loadSeq
     set(state => ({ items: state.items.map(item => item.id === id ? { ...item, enabled: false, views: [] } : item), loading: false }))
@@ -143,9 +145,11 @@ export const usePluginStore = create<PluginStore>((set, get) => ({
   },
 
   enable: async (id) => {
+    set({ error: null })
     try {
       const res = (await window.electronAPI?.enablePlugin(id)) as SimpleResult | undefined
       if (res?.success) await get().load()
+      else set({ error: res?.error ?? null })
       return !!res?.success
     } catch (e) {
       set({ error: (e as Error).message })

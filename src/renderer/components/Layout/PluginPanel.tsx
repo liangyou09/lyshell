@@ -21,13 +21,14 @@ function manifestLifecycle(manifest: LyShellPluginManifest): PluginLifecycle {
  * 列表 / 三种安装来源(dev 文件夹 / 本地 .lyshell-plugin / URL 下载)/ 启用禁用 / 卸载 / 查看权限。
  * 详见 docs/plugin-system-design.md §8(生命周期)+ §8.3(安装流程)。
  *
- * 样式沿用 Settings 面板令牌(--bg-elev/--bg-slot/--rule/--amber/--text-rack*)与 [font-family:inherit] 12px 基线。
+ * 沿用侧栏主题令牌；名称与说明使用界面字体，标识符及权限名使用等宽字体。
  */
 const PluginPanel: React.FC = () => {
   const { t } = useTranslation()
   const items = usePluginStore((s) => s.items)
   const loading = usePluginStore((s) => s.loading)
   const error = usePluginStore((s) => s.error)
+  const clearError = usePluginStore((s) => s.clearError)
   const load = usePluginStore((s) => s.load)
   const pickFolder = usePluginStore((s) => s.pickFolder)
   const installDev = usePluginStore((s) => s.installDev)
@@ -56,6 +57,12 @@ const PluginPanel: React.FC = () => {
   const [showUrlInput, setShowUrlInput] = useState(false)
   const [urlInput, setUrlInput] = useState('')
 
+  const clearFeedback = (): void => {
+    setNotice(null)
+    clearError()
+  }
+  const cleanupUnconfirmed = !!error && /taskkill|process (?:tree )?cleanup/i.test(error)
+
   useEffect(() => {
     void load()
   }, [load])
@@ -68,7 +75,7 @@ const PluginPanel: React.FC = () => {
   }
 
   const handlePickDev = async (): Promise<void> => {
-    setNotice(null)
+    clearFeedback()
     const res = await pickFolder()
     if (res.success && res.manifest && res.path) {
       setPicked({ source: 'dev', manifest: res.manifest, path: res.path })
@@ -91,7 +98,7 @@ const PluginPanel: React.FC = () => {
   }, [createRequestId])
 
   const handlePickFile = async (): Promise<void> => {
-    setNotice(null)
+    clearFeedback()
     const res = await pickFile()
     if (res.success && res.manifest && res.path) {
       setPicked({ source: 'file', manifest: res.manifest, path: res.path })
@@ -102,7 +109,7 @@ const PluginPanel: React.FC = () => {
   }
 
   const handleFetchUrl = async (): Promise<void> => {
-    setNotice(null)
+    clearFeedback()
     const url = urlInput.trim()
     if (!url) return
     setBusy(true)
@@ -124,7 +131,7 @@ const PluginPanel: React.FC = () => {
   const handleInstall = async (): Promise<void> => {
     if (!picked) return
     setBusy(true)
-    setNotice(null)
+    clearFeedback()
     // 三种来源都按"用户即批准其声明的全部 capability"(服务端仍取 ∩ manifest.capabilities 兜底)
     const granted = picked.manifest.capabilities
     // oneshot 插件不通过 enable/disable 常驻，安装即视为可用，强制 enabled=true。
@@ -153,7 +160,7 @@ const PluginPanel: React.FC = () => {
     if (busy || togglingRef.current.has(id)) return
     togglingRef.current.add(id)
     setTogglingIds(new Set(togglingRef.current))
-    setNotice(null)
+    clearFeedback()
     try {
       const ok = nextEnabled ? await enable(id) : await disable(id)
       if (!ok) setNotice(t('plugin.toggleFail'))
@@ -166,7 +173,7 @@ const PluginPanel: React.FC = () => {
   }
 
   const handleRunOneshot = async (id: string): Promise<void> => {
-    setNotice(null)
+    clearFeedback()
     const res = await runOneshot(id)
     if (!res.success) {
       setNotice(res.error ?? t('plugin.runFail'))
@@ -177,7 +184,7 @@ const PluginPanel: React.FC = () => {
 
   const handleUninstall = async (id: string): Promise<void> => {
     setBusy(true)
-    setNotice(null)
+    clearFeedback()
     const res = await uninstall(id)
     setBusy(false)
     setConfirmUninstall(null)
@@ -190,7 +197,7 @@ const PluginPanel: React.FC = () => {
       void cancelDownload(picked.path)
     }
     setPicked(null)
-    setNotice(null)
+    clearFeedback()
   }
 
   const sourceLabel = (s: PickedSource): string =>
@@ -208,14 +215,14 @@ const PluginPanel: React.FC = () => {
       onMouseLeave={() => { if (confirmUninstall === p.id) setConfirmUninstall(null) }}
       aria-busy={togglingIds.has(p.id)}
       className={cn(
-        'plugin-card group relative rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)] transition-colors px-2 py-1 space-y-0.5 overflow-hidden focus-within:outline focus-within:outline-2 focus-within:outline-[var(--amber)] focus-within:outline-offset-[-2px]',
+        'plugin-card',
         busy || togglingIds.has(p.id) ? 'cursor-wait' : 'cursor-pointer'
       )}
     >
-      <div className="plugin-card-header flex items-center gap-2 pr-7">
+      <div className="plugin-card-header">
         <label
           title={p.enabled ? t('plugin.enabled') : t('plugin.disabled')}
-          className="plugin-card-toggle flex-1 min-w-0 min-h-[24px] flex items-center gap-2 px-1 cursor-[inherit]"
+          className="plugin-card-toggle"
         >
           <input
             type="checkbox"
@@ -224,44 +231,51 @@ const PluginPanel: React.FC = () => {
             disabled={busy}
             aria-disabled={busy || togglingIds.has(p.id)}
             onChange={(e) => handleToggle(p.id, e.target.checked)}
-            className="w-4 h-4 shrink-0 accent-[var(--amber)] cursor-[inherit] aria-disabled:opacity-50"
+            className="plugin-toggle-input"
           />
-          <span title={p.name} className="min-w-0 text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate">{p.name}</span>
+          <span title={p.name} className="plugin-card-name">{p.name}</span>
+          <span aria-hidden="true" className="plugin-toggle-track" />
         </label>
         {p.lifecycle === 'oneshot' && (
           <button
             onClick={() => void handleRunOneshot(p.id)}
             disabled={busy || togglingIds.has(p.id) || !p.enabled}
-            className="shrink-0 px-1.5 py-0.5 text-[10px] [font-family:inherit] rounded-[2px] bg-[var(--amber)] text-[var(--bg-base)] hover:brightness-110 disabled:opacity-50 cursor-pointer"
+            className="plugin-run"
           >
             {t('plugin.run')}
           </button>
         )}
-        <span aria-live="polite" className={cn('plugin-card-state text-[10.5px] [font-family:inherit] shrink-0', p.enabled ? 'text-[var(--text-rack)]' : 'text-[var(--text-rack-data)]')}>
-          {togglingIds.has(p.id) ? t('plugin.updating') : p.enabled ? t('plugin.enabled') : t('plugin.disabled')}
-        </span>
       </div>
       {p.description?.trim() && (
-        <p title={p.description} className="px-1 text-[11px] leading-4 [font-family:inherit] text-[var(--text-rack-data)] break-words line-clamp-2">
+        <p title={p.description} className="plugin-card-description">
           {p.description}
         </p>
       )}
       <details
         onToggle={(e) => { if (!e.currentTarget.open && confirmUninstall === p.id) setConfirmUninstall(null) }}
-        className="group/details !mt-0 cursor-default text-[10.5px] [font-family:inherit]"
+        className="plugin-details"
       >
-        <summary title={t('plugin.technicalDetails')} className="absolute right-2 top-1 flex items-center justify-center w-6 h-6 text-[var(--text-rack-data)] hover:text-[var(--text-rack)] cursor-pointer list-none [&::-webkit-details-marker]:hidden focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)] rounded-[2px]">
-          <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" className="shrink-0 group-open/details:rotate-90"><path d="m3.5 2 3 3-3 3" /></svg>
-          <span className="sr-only">{t('plugin.technicalDetails')}</span>
+        <summary title={t('plugin.technicalDetails')}>
+          <span className="plugin-card-meta">
+            <span aria-live="polite" className="plugin-card-state" data-enabled={p.enabled}>
+              {togglingIds.has(p.id) ? t('plugin.updating') : p.enabled ? t('plugin.enabled') : t('plugin.disabled')}
+            </span>
+            <span className="plugin-card-version">{p.version}</span>
+          </span>
+          <span className="plugin-details-label">
+            {t('plugin.technicalDetails')}
+            <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="m3.5 2 3 3-3 3" /></svg>
+          </span>
         </summary>
-        <div className="border-t border-[var(--rule)] pt-1.5 space-y-1">
-          <div className="flex items-center gap-1.5 text-[var(--text-rack-data)]">
+        <div className="plugin-details-body">
+          <div className="plugin-identity">
             <span className="min-w-0 break-all select-text">{p.id}</span>
-            <span className="text-[var(--text-rack-data)] shrink-0">{p.version}</span>
           </div>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[var(--text-rack-data)]">
+          <div className="plugin-runtime">
             <span>{p.runtime} · {t(`plugin.lifecycle${p.lifecycle === 'oneshot' ? 'Oneshot' : 'Persistent'}`)}</span>
             {p.dev && <span>dev</span>}
+          </div>
+          <div className="plugin-capabilities">
             {p.capabilities.map((c) => {
               const granted = p.grantedCapabilities.includes(c)
               return (
@@ -269,7 +283,7 @@ const PluginPanel: React.FC = () => {
                   key={c}
                   title={capTitle(c, granted)}
                   className={cn(
-                    'px-1.5 py-px text-[10px] [font-family:inherit] rounded-[2px] border border-[var(--rule)]',
+                    'plugin-capability',
                     !granted && 'line-through'
                   )}
                 >
@@ -277,6 +291,8 @@ const PluginPanel: React.FC = () => {
                 </span>
               )
             })}
+          </div>
+          <div className="plugin-details-actions">
             <button
               type="button"
               onClick={async (e) => {
@@ -299,7 +315,7 @@ const PluginPanel: React.FC = () => {
                 }
               }}
               className={cn(
-                'plugin-uninstall ml-auto',
+                'plugin-uninstall',
                 confirmUninstall === p.id && 'plugin-uninstall-confirm'
               )}
             >
@@ -316,8 +332,7 @@ const PluginPanel: React.FC = () => {
 
   return (
     <div
-      className="w-full h-full flex flex-col bg-[var(--bg-base)]"
-      style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
+      className="plugin-panel w-full h-full flex flex-col bg-[var(--bg-base)]"
     >
       <PanelHeader
         title={t('plugin.title')}
@@ -331,15 +346,12 @@ const PluginPanel: React.FC = () => {
         </>}
       />
 
-      {/* 内容笼：pt-3 + space-y-2 自根容器下移到这层，头条得以满幅贴顶；
-          整笼离缘 6（mx-1.5）—— 与会话栏器物两端同线，栏内器物一律离缘，
-          列表纸不再通铺到面板两缘；URL 行/提示行的旧 px-3 已撤（侧距统一
-          归笼，不叠两层），居中空态的 px-4 守边保留 */}
-      <div className="mx-1.5 flex-1 min-h-0 flex flex-col pt-3 space-y-2">
+      {/* 内容统一留白，安装流程与列表共用滚动区域，窄栏和矮窗口也能完成确认。 */}
+      <div className="plugin-panel-content rack-scroll">
 
       {/* URL 输入行 */}
       {showUrlInput && (
-        <div className="flex items-center gap-1">
+        <div className="plugin-url-row">
           <input
             type="text"
             value={urlInput}
@@ -348,6 +360,8 @@ const PluginPanel: React.FC = () => {
               if (e.key === 'Enter') void handleFetchUrl()
             }}
             placeholder={t('plugin.urlPlaceholder')}
+            aria-label={t('plugin.installFromUrl')}
+            disabled={busy}
             className="flex-1 min-w-0 px-1.5 py-0.5 text-[11px] [font-family:inherit] rounded-[2px] bg-[var(--bg-elev)] border border-[var(--rule)] text-[var(--text-rack)] placeholder:text-[var(--text-rack-mute)] focus:outline-none focus:border-[var(--amber)]"
           />
           <button
@@ -362,12 +376,12 @@ const PluginPanel: React.FC = () => {
 
       {/* 权限确认卡(选完文件夹/文件或 URL 下载完后展示 manifest,用户确认权限与是否即启用) */}
       {picked && (
-        <div className="mx-3 border border-[var(--amber)] rounded-[2px] p-2 space-y-1.5 bg-[var(--bg-slot)]">
+        <div className="plugin-install-preview border border-[var(--amber)] space-y-1.5 bg-[var(--bg-slot)]">
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-[12px] [font-family:inherit] font-semibold text-[var(--amber)] truncate">{picked.manifest.name}</span>
             <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] shrink-0">{picked.manifest.version}</span>
           </div>
-          <div className="flex items-center gap-1.5 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)]">
+          <div className="flex flex-wrap items-center gap-1.5 text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)]">
             <span className="truncate">{picked.manifest.id} · {picked.manifest.runtime}</span>
             <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{t(`plugin.lifecycle${manifestLifecycle(picked.manifest) === 'oneshot' ? 'Oneshot' : 'Persistent'}`)}</span>
             <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{sourceLabel(picked.source)}</span>
@@ -415,27 +429,42 @@ const PluginPanel: React.FC = () => {
         </div>
       )}
 
-      {notice && <div className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] break-all">{notice}</div>}
-      {error && <div className="text-[10.5px] [font-family:inherit] text-red-400 break-all">{error}</div>}
+      {/* 同一次失败只呈现一条反馈；底层命令保留在按需展开的诊断里。 */}
+      {(error || notice) && (
+        <div className={cn('plugin-panel-notice', error && 'plugin-panel-error')}>
+          <div className="plugin-notice-heading">
+            <span role={error ? 'alert' : 'status'}>
+              {error ? t(cleanupUnconfirmed ? 'plugin.cleanupUnconfirmed' : 'plugin.toggleFail') : notice}
+            </span>
+            <button type="button" className="plugin-notice-dismiss" onClick={clearFeedback} aria-label={t('plugin.dismissNotice')} title={t('plugin.dismissNotice')}>
+              <svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><path d="m4 4 8 8M12 4l-8 8" /></svg>
+            </button>
+          </div>
+          {error && <>
+            {cleanupUnconfirmed && <p className="plugin-notice-hint">{t('plugin.cleanupHint')}</p>}
+            <details className="plugin-error-details">
+              <summary>{t('plugin.errorDetails')}</summary>
+              <pre>{error}</pre>
+            </details>
+          </>}
+        </div>
+      )}
 
       {/* 列表 —— 加载/空态走机柜 ─ · ─ 分隔语法（与其余面板归一） */}
       {loading && items.length === 0 ? (
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 px-4 text-center">
           <span className="font-mono text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
-          <span className="text-[11.5px] [font-family:inherit] text-[var(--text-rack-mute)]">{t('plugin.loading')}</span>
+          <span className="text-[12px] [font-family:inherit] text-[var(--text-rack-data)]">{t('plugin.loading')}</span>
         </div>
       ) : items.length === 0 ? (
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 px-4 text-center">
           <span className="font-mono text-[16px] text-[var(--text-rack-dim)] tracking-[.1em]">─ · ─</span>
-          <span className="text-[11.5px] [font-family:inherit] text-[var(--text-rack-mute)]">{t('plugin.empty')}</span>
-          <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-faint)]">{t('plugin.emptyHint')}</span>
+          <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)]">{t('plugin.empty')}</span>
+          <span className="text-[12px] leading-5 [font-family:inherit] text-[var(--text-rack-data)]">{t('plugin.emptyHint')}</span>
         </div>
       ) : (
-        /* 插件卡没有可折叠分组，沿用纸面与卡片，不再绘制无操作的双辊。 */
-        <div className="flex-1 min-h-0 overflow-y-auto rack-scroll pb-3">
-          <div className="flat-paper-list px-2 py-2 space-y-1.5">
+        <div className="plugin-list">
             {items.map(renderPluginCard)}
-          </div>
         </div>
       )}
       </div>

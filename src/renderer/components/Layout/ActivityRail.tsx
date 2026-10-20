@@ -43,20 +43,12 @@ const IconSessions: React.FC = () => (
   </svg>
 )
 
-/** Agent = 四角定位框与星形内核，短线和主图形保持同一描边重量。 */
-const IconAgents: React.FC = () => (
-  <svg aria-hidden width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M3 8V4a1 1 0 0 1 1-1h4M16 3h4a1 1 0 0 1 1 1v4M21 16v4a1 1 0 0 1-1 1h-4M8 21H4a1 1 0 0 1-1-1v-4" opacity=".65" />
-    <path d="m12 6 1.8 4.2L18 12l-4.2 1.8L12 18l-1.8-4.2L6 12l4.2-1.8Z" />
-    <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
-  </svg>
-)
-
 /** codex/claude = 官方内置品牌标(assets/agent-icons/*.png),mask 取资产 alpha 作实心剪影、随主题着色。
  *  Filled 剪影保留品牌轮廓，走 bg-current + mask;
  *  激活色与 dsh 鲸鱼一致为 --text-rack(白/黑),不亮 amber。 */
 const codexIcon = new URL('../../assets/agent-icons/codex.png', import.meta.url).href
 const claudeIcon = new URL('../../assets/agent-icons/claude.png', import.meta.url).href
+const workLauncherIcon = new URL('../../assets/agent-icons/work-launcher-art-v1.png', import.meta.url).href
 
 /** 实心剪影图标:bg-current 跟随父级 currentColor,取资产 alpha 作 mask(与 rail 其余 currentColor 图标同色) */
 const BrandMaskIcon: React.FC<{ src: string }> = ({ src }) => (
@@ -81,6 +73,9 @@ const IconCodex: React.FC = () => <BrandMaskIcon src={codexIcon} />
 
 /** claude = Anthropic 太阳花(官方内置品牌标,mask 取 alpha 剪影、随主题着色) */
 const IconClaude: React.FC = () => <BrandMaskIcon src={claudeIcon} />
+
+/** Work Launcher = 工作夹与起飞纸飞机，透明剪影沿用侧栏的主题色和选中态。 */
+const IconWorkLauncher: React.FC = () => <BrandMaskIcon src={workLauncherIcon} />
 
 /** 变量组 = ENV 横牌；圆角外框和加重顶边呼应机柜上的铭牌。 */
 const IconEnv: React.FC = () => (
@@ -127,7 +122,7 @@ const IconSettings: React.FC = () => (
 
 const TAB_ICON: Record<FixedNavTab, React.FC> = {
   sessions: IconSessions,
-  agents: IconAgents,
+  agents: IconWorkLauncher,
   dsh: DeepSeekWhaleIcon,
   codex: IconCodex,
   claude: IconClaude,

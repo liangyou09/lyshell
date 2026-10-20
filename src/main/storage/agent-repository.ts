@@ -11,6 +11,8 @@ import { materializeProfileEnv } from '@shared/harness'
  */
 export interface AgentConfig {
   id: string
+  /** 统一设置工作区的稳定关联；cwd/isolation 仅为兼容快照。 */
+  workspacePresetId?: string
   name: string           // 显示名称，如 "Claude Code"
   command: string        // Shell 命令，如 "claude"
   icon?: string          // 图标（emoji），如 "🤖"
@@ -25,6 +27,10 @@ export interface AgentConfig {
    * 绑定的组只透传附加变量。
    */
   envKeyMap?: { baseUrl?: string; apiKey?: string }
+  /** 工作目录隔离模式（与 harness 工作区 / Codex·Claude 预设同语义）：'worktree' 在专属 git worktree 中启动 */
+  isolation?: 'shared' | 'worktree'
+  /** worktree 共享名：isolation = 'worktree' 时生效（取值约束见 @shared/worktree 的 validateWorktreeKey） */
+  worktreeKey?: string
   order: number
 }
 
@@ -51,13 +57,6 @@ export function resolveAgentLaunchEnv(
   return agent.env
 }
 
-const DEFAULT_AGENTS: AgentConfig[] = [
-  // Claude Code 省略 icon:走 bundledIconFor('claude') 显示内置品牌标(与 handleSave 落库的 undefined 形态统一)
-  { id: 'agent-claude-code', name: 'Claude Code', command: 'claude', order: 0 },
-  { id: 'agent-aider', name: 'Aider', command: 'aider', icon: '🤝', order: 1 },
-  { id: 'agent-copilot', name: 'Copilot CLI', command: 'gh copilot', icon: '🐙', order: 2 }
-]
-
 /**
  * AI Agent 配置存储
  */
@@ -77,10 +76,10 @@ export class AgentRepository {
     if (!this.filePath || this.loaded) return
 
     if (!existsSync(this.filePath)) {
-      // 首次加载，写入默认 Agent
-      this.agents = [...DEFAULT_AGENTS]
+      // 启动项只由用户添加；首次使用不预置任何命令。
+      this.agents = []
       this.save()
-      log.info(`Initialized ${this.agents.length} default agents`)
+      log.info('Initialized empty agent library')
       this.loaded = true
       return
     }
@@ -88,10 +87,10 @@ export class AgentRepository {
     try {
       const content = readFileSync(this.filePath, 'utf-8')
       const parsed = JSON.parse(content)
-      // 非数组按损坏处理（回落默认 Agent）
+      // 损坏配置保留原文件，内存回落空列表，不凭空恢复启动项。
       if (!Array.isArray(parsed)) {
-        log.warn('agents.json is not an array, falling back to defaults')
-        this.agents = [...DEFAULT_AGENTS]
+        log.warn('agents.json is not an array, using an empty agent library')
+        this.agents = []
         this.loaded = true
         return
       }
@@ -102,7 +101,7 @@ export class AgentRepository {
       this.loaded = true
     } catch (error) {
       log.error('Failed to load agents:', error)
-      this.agents = [...DEFAULT_AGENTS]
+      this.agents = []
       this.loaded = true
     }
   }

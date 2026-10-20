@@ -148,6 +148,7 @@ const IPC_CHANNELS = {
   HARNESS_WORKTREE_LIST: 'harness:worktree:list',
   CODE_WORKSPACE_REQUEST: 'code-workspace:request',
 
+  // Codex / Claude 新增及编辑同样要求 workspacePresetId，启动参数仍由各自配置保存。
   // Codex Harness
   CODEX_DETECT: 'codex:detect',
   CODEX_WORKSPACE_LIST: 'codex:workspace:list',
@@ -369,8 +370,10 @@ const electronAPI = {
   commandGroupDelete: (groupId: string) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_GROUP_DELETE, groupId),
   commandGroupReorder: (groupIds: string[]) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_GROUP_REORDER, groupIds),
 
-  // AI Agent
+  // AI Agent —— add/update 通过 workspacePresetId 选择设置工作区；
+  // 列表仅返回设置管辖的命令启动项，cwd / isolation / worktreeKey 为设置预设的当前值。
   listAgents: () => ipcRenderer.invoke(IPC_CHANNELS.AGENT_LIST),
+  // 新增/编辑启动项必须传 workspacePresetId，目录及 worktree 由主进程从设置解析。
   addAgent: (agent: unknown) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_ADD, agent),
   updateAgent: (agent: unknown) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_UPDATE, agent),
   deleteAgent: (agentId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_DELETE, agentId),
@@ -425,7 +428,7 @@ const electronAPI = {
   // 返回类型是 @shared/worktree 的 WorktreeListResult（success 判别联合，与主进程 handler 对齐）
   listHarnessWorktrees: (cwd: string): Promise<WorktreeListResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.HARNESS_WORKTREE_LIST, cwd),
-  // 工作区配置和 PS7 临时终端启动；启动只传已保存的工作区 ID。
+  // 工作区配置和 PS7 启动；目录入口传预设 ID + 路径，由主进程校验其祖先关系。
   codeWorkspaceRequest: (request: CodeWorkspaceRequest): Promise<CodeWorkspaceResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.CODE_WORKSPACE_REQUEST, request),
 

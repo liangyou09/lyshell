@@ -62,6 +62,8 @@ export const HARNESS_AGENT_KINDS: HarnessAgentKind[] = ['dsh', 'codex', 'claude'
 
 export interface HarnessWorkspace {
   id: string
+  /** 统一设置工作区的稳定关联；cwd/isolation 仅为兼容快照。 */
+  workspacePresetId?: string
   name: string           // 显示名称，如 "lyshell"；留空由渲染层兜底为「工作区-<时间戳>」（主进程校验仍要求非空）
   cwd: string            // 工作目录（启动 cwd）
   order: number

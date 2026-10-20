@@ -1,4 +1,5 @@
 .agents-workspace-main { padding-block: 3px; }
+.agents-workspace-main:disabled { opacity: .55; cursor: default; }
 .agents-workspace-copy { display: flex; flex: 1; flex-direction: column; min-width: 0; }
 .agents-workspace-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; line-height: 16px; }
 .agents-workspace-command { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-rack-data); font-size: 10px; line-height: 14px; }
@@ -6,12 +7,21 @@
 .agents-project-row:hover .agents-workspace-actions,
 .agents-project-row:focus-within .agents-workspace-actions { opacity: 1; pointer-events: auto; }
 @media (hover: none) { .agents-workspace-actions { opacity: 1; pointer-events: auto; } }
-
-/* 顶部 Work Launcher:设置工作区路径去重树 —— 复用 project-header 行壳,逐行自着色,
-   封顶高度内部滚动,不挤压下方 Agent 列表 */
-.agents-work-launcher { max-height: 40vh; }
-.agents-work-launcher .harness-project-body { padding: 4px 6px 8px; }
-.agents-work-launcher .harness-project-header {
-  --project-color: color-mix(in srgb, hsl(var(--project-hue) 48% 44%) 78%, var(--text-rack) 22%);
-}
-.agents-work-launcher .harness-project-header + .harness-project-header { margin-top: 2px; }
+.agents-launch-error { flex-shrink: 0; padding: 5px 10px; color: var(--error-rack); font-family: 'Segoe UI', sans-serif; font-size: 11px; overflow-wrap: anywhere; }
+.agents-workspace-target { margin: 6px 0 0; color: var(--text-rack-data); font-size: 11px; line-height: 17px; overflow-wrap: anywhere; }
+.agents-editor { min-width: 0; margin: 0; padding: 0; border: 0; }
+.agents-editor-advanced > summary { padding: 8px 10px; color: var(--text-rack-data); font-size: 12px; cursor: pointer; }
+.agents-editor:not(.agents-inline-editor) > .agents-editor-advanced > summary { display: none; }
+.agents-inline-editor { position: relative; margin: 2px 0 8px; background: var(--bg-rack); border-top: 1px solid var(--rule-soft); border-bottom: 1px solid var(--rule-soft); }
+.agents-inline-editor > div, .agents-inline-editor > details > div { padding: 8px; }
+.agents-inline-editor .flex.items-baseline { flex-wrap: wrap; gap: 4px; }
+.agents-inline-editor input, .agents-inline-editor select { min-width: 0; max-width: 100%; font-size: 12px; }
+.agents-inline-editor .grid-cols-2 { grid-template-columns: minmax(0, 1fr); }
+.agents-inline-editor .agents-editor-actions { flex-wrap: wrap; gap: 6px; padding: 8px 4px; }
+.agents-inline-editor .agents-editor-actions button { min-height: 30px; padding-inline: 6px; font-size: 12px; white-space: nowrap; }
+.agents-inline-editor .agents-editor-actions > div { margin-left: auto; gap: 4px; }
+.agents-editor-advanced > summary:focus-visible { outline: 1px solid var(--amber); outline-offset: -1px; }
+.agents-editor:disabled { opacity: .65; }
+.agents-inline-editor .agents-icon-anchor { position: static; }
+.agents-inline-editor .agents-icon-picker { inset-inline: 8px; top: auto; width: auto; }
+.agents-inline-editor .agents-icon-picker > div { grid-template-columns: repeat(auto-fit, 24px); }

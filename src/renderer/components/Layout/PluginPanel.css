@@ -1,19 +1,187 @@
-/* 窄侧栏先给插件名称一整行，避免运行按钮和状态把名称挤到不可见。 */
-.plugin-card { container: plugin-card / inline-size; }
+.plugin-panel {
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  color: var(--text-rack);
+}
+
+.plugin-panel-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 10px;
+}
+
+.plugin-panel-content > * { flex-shrink: 0; }
+.plugin-panel-content > .flex-1 { flex-grow: 1; }
+
+.plugin-list { display: flex; flex-direction: column; gap: 10px; }
+
+/* 名称、说明、状态分层；移除卡片外的第二层纸框，给窄栏让出阅读宽度。 */
+.plugin-card {
+  container: plugin-card / inline-size;
+  position: relative;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--bg-rack);
+  transition: border-color 120ms, background-color 120ms;
+}
+
+.plugin-card:hover {
+  border-color: color-mix(in srgb, var(--text-rack-data) 40%, var(--rule));
+  background: color-mix(in srgb, var(--bg-slot) 45%, var(--bg-rack));
+}
+
+.plugin-card-header { display: flex; align-items: center; gap: 10px; }
+.plugin-card-toggle {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 26px;
+  cursor: inherit;
+}
+
+.plugin-card-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 19px;
+}
+
+/* 原生 checkbox 保留语义、键盘和焦点；轨道只负责视觉呈现。 */
+.plugin-toggle-input {
+  position: absolute;
+  right: 0;
+  width: 30px;
+  height: 26px;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.plugin-toggle-track {
+  display: block;
+  flex-shrink: 0;
+  width: 30px;
+  height: 17px;
+  border: 1px solid var(--text-rack-data);
+  border-radius: 10px;
+  background: var(--bg-slot);
+}
+
+.plugin-toggle-track::after {
+  content: '';
+  display: block;
+  width: 11px;
+  height: 11px;
+  margin: 2px;
+  border-radius: 50%;
+  background: var(--text-rack-data);
+  transition: transform 120ms;
+}
+
+.plugin-toggle-input:checked ~ .plugin-toggle-track { background: var(--amber); border-color: var(--amber); }
+.plugin-toggle-input:checked ~ .plugin-toggle-track::after { background: var(--bg-base); transform: translateX(13px); }
+.plugin-toggle-input:focus-visible ~ .plugin-toggle-track { outline: 2px solid var(--amber); outline-offset: 3px; }
+.plugin-toggle-input[aria-disabled="true"] ~ .plugin-toggle-track { opacity: .5; }
+
+.plugin-card-description {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  margin: 6px 0 8px;
+  color: var(--text-rack-data);
+  font-size: 12px;
+  line-height: 19px;
+  overflow-wrap: anywhere;
+}
+
+.plugin-details { margin-top: 6px; font-size: 11px; cursor: default; }
+.plugin-details summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 26px;
+  border-radius: 3px;
+  color: var(--text-rack-data);
+  list-style: none;
+  cursor: pointer;
+}
+.plugin-details summary::-webkit-details-marker { display: none; }
+.plugin-details summary:hover .plugin-details-label { color: var(--text-rack); }
+.plugin-details summary:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.plugin-card-meta { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
+.plugin-card-state { display: inline-flex; align-items: center; gap: 5px; }
+.plugin-card-state::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--text-rack-data); }
+.plugin-card-state[data-enabled="true"]::before { background: var(--amber); }
+.plugin-card-version { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.plugin-details-label { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; }
+.plugin-details-label svg { transition: transform 120ms; }
+.plugin-details[open] .plugin-details-label svg { transform: rotate(90deg); }
+.plugin-details-body { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--rule); color: var(--text-rack-data); }
+.plugin-identity { overflow-wrap: anywhere; font-family: ui-monospace, Consolas, monospace; line-height: 17px; }
+.plugin-runtime { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.plugin-capabilities { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.plugin-capabilities:empty { display: none; }
+.plugin-capability { padding: 2px 6px; border-radius: 3px; background: var(--bg-slot); font-family: ui-monospace, Consolas, monospace; font-size: 10px; overflow-wrap: anywhere; min-width: 0; }
+.plugin-details-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
+
+.plugin-run {
+  flex-shrink: 0;
+  min-height: 26px;
+  padding: 2px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--bg-slot);
+  color: var(--text-rack);
+  font-size: 11px;
+  cursor: pointer;
+}
+.plugin-run:hover:not(:disabled) { border-color: var(--amber); color: var(--amber); }
+.plugin-run:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.plugin-run:disabled { opacity: .5; cursor: default; }
+
+.plugin-url-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.plugin-url-row input { min-height: 32px; }
+.plugin-url-row button { min-height: 32px; }
+.plugin-install-preview { padding: 12px; border-radius: 6px; }
+.plugin-panel-notice { padding: 8px 10px; border-radius: 4px; background: var(--bg-slot); color: var(--text-rack-data); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.plugin-panel-error { color: color-mix(in srgb, var(--error-rack) 30%, var(--text-rack)); }
+.plugin-notice-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.plugin-notice-heading > span { padding-top: 3px; }
+.plugin-notice-dismiss { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 24px; height: 24px; border-radius: 3px; color: var(--text-rack-data); cursor: pointer; }
+.plugin-notice-dismiss:hover { background: var(--bg-elev); color: var(--text-rack); }
+.plugin-notice-dismiss:focus-visible, .plugin-error-details summary:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.plugin-notice-hint { margin-top: 4px; color: var(--text-rack-data); }
+.plugin-error-details { margin-top: 8px; color: var(--text-rack-data); }
+.plugin-error-details summary { width: fit-content; border-radius: 2px; cursor: pointer; font-size: 11px; }
+.plugin-error-details pre { max-height: 120px; overflow: auto; margin-top: 8px; padding: 8px; border-radius: 3px; background: var(--bg-base); color: var(--text-rack-data); font: 10.5px/17px ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 
 @container plugin-card (max-width: 210px) {
-  .plugin-card .plugin-card-header {
-    flex-wrap: wrap;
-    gap: 4px 8px;
-    padding-right: 0;
-  }
+  .plugin-details summary { gap: 4px; }
+  .plugin-card-meta { gap: 6px; flex-wrap: nowrap; }
+}
 
-  .plugin-card .plugin-card-toggle {
-    flex: 0 0 calc(100% - 28px);
-    margin-right: 28px;
-  }
+@container plugin-card (max-width: 170px) {
+  .plugin-card-header { flex-wrap: wrap; gap: 6px; }
+  .plugin-card-toggle { flex-basis: 100%; }
+  .plugin-run { margin-left: auto; }
+  .plugin-details summary { flex-wrap: wrap; }
+  .plugin-card-meta { flex-wrap: wrap; }
+  .plugin-details-label { margin-left: auto; }
+}
 
-  .plugin-card-state { margin-left: auto; }
+@media (prefers-reduced-motion: reduce) {
+  .plugin-card, .plugin-toggle-track::after, .plugin-details-label svg { transition: none; }
 }
 
 /* 卸载保留危险操作的辨识度；文字混入主题前景，保证浅色主题同样清晰。 */

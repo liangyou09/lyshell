@@ -1127,7 +1127,10 @@ const MainWindow: React.FC = () => {
               />
             )}
             {(activeNav === 'agents' || retainedNav === 'agents') && <div className={cn('h-full', activeNav !== 'agents' && 'hidden')}>
-              <AgentsPanel visible={activeNav === 'agents'} onOpenEnvSettings={() => handleNavChange('env')} />
+              <AgentsPanel visible={activeNav === 'agents'} onOpenEnvSettings={() => handleNavChange('env')} onOpenWorkspaceSettings={() => {
+                setRequestedSettingsView(prev => ({ key: 'workspace', nonce: (prev?.nonce ?? 0) + 1, returnTo: 'agents' }))
+                handleNavChange('settings')
+              }} />
             </div>}
             <Suspense fallback={null}>
               {dshPanelAlive && <div className={cn('absolute inset-0', activeNav !== 'dsh' && 'hidden')}>

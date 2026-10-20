@@ -12,4 +12,5 @@ export type CodeWorkspaceRequest =
   | { kind: 'save'; preset: Omit<CodeWorkspacePreset, 'id' | 'order'> & { id?: string } }
   | { kind: 'delete'; id: string }
   | { kind: 'launch'; id: string }
+  | { kind: 'launchDirectory'; id: string; cwd: string }
 export type CodeWorkspaceResult = { success: true; presets: CodeWorkspacePreset[]; aliases?: Record<string, string> } | { success: false; error: string }

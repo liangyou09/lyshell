@@ -1,0 +1,17 @@
+Work Launcher icon art concept v1
+Generated using the built-in image_gen tool, 2026-10-20.
+Asset: work-launcher-art-v1.png
+Usage: ActivityRail Work Launcher entry (agents tab), rendered as a 22px theme-aware alpha mask.
+
+Generation prompt:
+Use case: logo-brand
+Asset type: a single production-ready navigation icon for Work Launcher, a workspace and CLI agent launcher inside a desktop terminal application.
+Primary request: create an original, carefully art-directed compact icon combining an open work folder with a folded paper airplane lifting diagonally toward the upper right. The folder is the quiet lower foundation; the paper airplane is the strong upper silhouette, conveying launching work. Integrate the two into one coherent emblem with deliberate, generous negative space. Recognizable at only 22 x 22 pixels.
+Style/medium: exceptionally clean flat vector-like logo design, solid warm white silhouette, transparent background. Confident simple contours with gently softened corners; one clear diagonal fold cutout inside the airplane. Optical balance and thick substantial shapes instead of hairlines. Subtle asymmetry gives forward movement. A professional tool icon, not a cartoon.
+Composition/framing: one icon only, large and centered on a square canvas with approximately 10% transparent margin around the design. Plane occupies upper-right region and folder occupies lower-left/lower portion; parts read together without thin connecting lines. Use a compact approximately square overall silhouette.
+Color palette: ONE opaque near-white ink (#F4F1E8) only; all interior separation is fully transparent negative space. No colored background. No gray fill. No background tile.
+Text: none.
+Constraints: actual transparent alpha background; no text, letters, W monogram, labels, presentation board, alternate versions, grids, mockups, outer container, border, gradients, textures, shadows, 3D, sparkles, stars, tiny details, or watermark. This is a finished icon asset, not a scene.
+
+Refinement prompt:
+Preserve the folder + northeast-flying paper airplane concept, proportions, position, and warm-white single-color design. Clean up the edges, surfaces, and transparency. Remove stray flecks, distressed grunge, scratches, noisy transparent patches, shadows, gradients, beige texture, thin dark outlines, and fringe artifacts. Use smooth solid #F4F1E8 silhouettes, clean transparent triangular airplane fold and uninterrupted folder gap, generous negative space, square canvas, no text or extra symbols.

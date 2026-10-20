@@ -64,8 +64,9 @@ export const PanelHeaderAction: React.FC<{
 /** 次操作共享外点与 ESC 收层栈，避免菜单干扰后续对话框。 */
 export const PanelHeaderMenu: React.FC<{
   title: string
+  icon?: React.ReactNode
   items: Array<{ label: string; onClick: () => void; disabled?: boolean }>
-}> = ({ title, items }) => {
+}> = ({ title, icon, items }) => {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -76,7 +77,7 @@ export const PanelHeaderMenu: React.FC<{
   useDismiss(open, close, [rootRef])
   return (
     <div ref={rootRef} className="panel-header-menu win-no-drag">
-      <button ref={triggerRef} type="button" className="panel-header-menu-trigger" title={title} aria-label={title} aria-expanded={open} onClick={() => setOpen(value => !value)}>···</button>
+      <button ref={triggerRef} type="button" className="panel-header-menu-trigger" title={title} aria-label={title} aria-expanded={open} onClick={() => setOpen(value => !value)}>{icon ?? '···'}</button>
       {open && <div className="panel-header-menu-items">
         {items.map(item => <button key={item.label} type="button" disabled={item.disabled} onClick={() => { close(); item.onClick() }}>{item.label}</button>)}
       </div>}

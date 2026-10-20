@@ -21,11 +21,15 @@ const api = {
   listAgents: vi.fn(async () => agents),
   listEnvProfiles: vi.fn(async () => ({ profiles: [], activeProfileId: null })),
   launchAgent: vi.fn(async (_id: string) => ({ success: true })),
-  deleteAgent: vi.fn(async (_id: string) => ({ success: true }))
+  deleteAgent: vi.fn(async (_id: string) => ({ success: true })),
+  addAgent: vi.fn(async (_agent: unknown) => ({ success: true })),
+  updateAgent: vi.fn(async (_agent: unknown) => ({ success: true }))
 }
 beforeEach(() => {
   vi.clearAllMocks()
-  api.codeWorkspaceRequest.mockReset().mockResolvedValue({ success: true, presets: [] })
+  api.updateAgent.mockReset().mockResolvedValue({ success: true })
+  api.codeWorkspaceRequest.mockReset().mockResolvedValue({ success: true, presets: [{ id: 'app', name: 'App', cwd: 'D:/projects/App', isolation: 'shared', order: 0 }] })
+  localStorage.removeItem('lyshell.codeWorkspacePreset.v1')
   useUiStore.setState({ createDialogRequests: {} })
   Object.defineProperty(window, 'electronAPI', { configurable: true, value: api })
 })
@@ -41,9 +45,10 @@ describe('Agents 项目树', () => {
     ]
     api.codeWorkspaceRequest.mockResolvedValue({ success: true, presets })
     const view = render(<AgentsPanel />)
-    const one = await view.findByTitle('D:/repo · one')
+    await view.findByTitle('D:/repo · one')
+    const one = view.getByTitle('D:/repo · one')
     expect(view.getByTitle('D:/repo · two')).toBeTruthy()
-    expect(view.container.querySelectorAll('.agents-work-launcher button')).toHaveLength(3)
+    expect(view.container.querySelectorAll('.workspace-launcher-launch')).toHaveLength(4)
     let finish!: (result: CodeWorkspaceResult) => void
     api.codeWorkspaceRequest.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
     fireEvent.click(one)
@@ -51,7 +56,7 @@ describe('Agents 项目树', () => {
     expect(api.codeWorkspaceRequest).toHaveBeenLastCalledWith({ kind: 'launch', id: 'one' })
     expect(api.codeWorkspaceRequest).toHaveBeenCalledTimes(2)
     await act(async () => finish({ success: false, error: 'PowerShell 7 was not found' }))
-    expect(view.getByText('PowerShell 7 was not found')).toBeTruthy()
+    expect(view.getByRole('alert').textContent).toContain('PowerShell 7 was not found')
     expect((one as HTMLButtonElement).disabled).toBe(false)
   })
 
@@ -64,17 +69,20 @@ describe('Agents 项目树', () => {
     await waitFor(() => expect(view.getByTitle('D:/new')).toBeTruthy())
   })
 
-  it('同目录归组、未指定目录置底，单组与全体收放不会启动 Agent', async () => {
+  it('只展示设置管辖的目标，单组与全体收放不会启动 Agent', async () => {
     const view = render(<AgentsPanel />)
     await view.findByRole('button', { name: 'Claude project' })
-    const headers = [...view.container.querySelectorAll('.harness-project-header')]
-    expect(headers.map(header => header.textContent)).toEqual(['App2', 'agents.groupNoDir1'])
+    expect(view.container.querySelectorAll('.group-list-actions')).toHaveLength(1)
+    expect(view.container.querySelectorAll('.workspace-launcher')).toHaveLength(1)
+    expect(view.queryByText('agents.cliAgents')).toBeNull()
+    expect(view.container.querySelectorAll('.workspace-launcher-label')).toHaveLength(3)
     expect(view.container.querySelector('.scroll-dual-seg')).toBeNull()
-    const header = view.getByTitle('D:/projects/App')
+    const header = view.getByTitle('D:/projects/App').previousElementSibling as HTMLElement
     fireEvent.click(header)
     expect(header.getAttribute('aria-expanded')).toBe('false')
     expect(view.queryByRole('button', { name: 'Claude project' })).toBeNull()
-    expect(view.getByRole('button', { name: 'Global agent' })).toBeTruthy()
+    expect(view.queryByRole('button', { name: 'Global agent' })).toBeNull()
+    expect(view.queryByText('agents.unassigned')).toBeNull()
     fireEvent.click(view.getByRole('button', { name: 'groupList.collapseAll' }))
     expect(view.queryByRole('button', { name: 'Global agent' })).toBeNull()
     fireEvent.click(view.getByRole('button', { name: 'groupList.expandAll' }))
@@ -94,5 +102,85 @@ describe('Agents 项目树', () => {
     fireEvent.click(within(row).getByTitle('sidebar.agentEditTitle'))
     expect(view.getByDisplayValue('Claude project')).toBeTruthy()
     expect(api.launchAgent).toHaveBeenCalledTimes(1)
+  })
+  it('箭头展开行内编辑，取消和 Esc 不保存，保存沿用设置工作区关联', async () => {
+    const view = render(<AgentsPanel />)
+    const launch = await view.findByRole('button', { name: 'Claude project' })
+    const toggle = within(launch.parentElement as HTMLElement).getByTitle('sidebar.agentEditTitle')
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(view.container.querySelector('.ly-dialog-backdrop')).toBeNull()
+    fireEvent.change(view.getByLabelText('agents.edit.command'), { target: { value: 'claude --resume' } })
+    fireEvent.click(view.getByRole('button', { name: 'sidebar.agentCancel' }))
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(toggle)
+    expect(api.updateAgent).not.toHaveBeenCalled()
+    fireEvent.click(toggle)
+    expect((view.getByLabelText('agents.edit.command') as HTMLInputElement).value).toBe('claude')
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(view.queryByLabelText('agents.edit.command')).toBeNull()
+    fireEvent.click(toggle)
+    fireEvent.change(view.getByLabelText('agents.edit.command'), { target: { value: 'claude --continue' } })
+    fireEvent.click(view.getByRole('button', { name: 'sidebar.agentSave' }))
+    await waitFor(() => expect(toggle.getAttribute('aria-expanded')).toBe('false'))
+    expect(api.updateAgent).toHaveBeenCalledWith(expect.objectContaining({ id: 'claude', command: 'claude --continue', workspacePresetId: 'app', cwd: 'D:/projects/App' }))
+    expect(api.launchAgent).not.toHaveBeenCalled()
+  })
+  it('保存期间阻止重复提交和收起，失败后保留草稿并能重试', async () => {
+    let finish!: (value: { success: boolean; error?: string }) => void
+    api.updateAgent.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const view = render(<AgentsPanel />)
+    const launch = await view.findByRole('button', { name: 'Claude project' })
+    const toggle = within(launch.parentElement as HTMLElement).getByTitle('sidebar.agentEditTitle')
+    fireEvent.click(toggle)
+    fireEvent.change(view.getByLabelText('agents.edit.command'), { target: { value: 'claude --resume' } })
+    fireEvent.click(view.getByRole('button', { name: 'sidebar.agentSave' }))
+    fireEvent.click(view.getByRole('button', { name: 'agents.edit.saving' }))
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(api.updateAgent).toHaveBeenCalledOnce()
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    await act(async () => finish({ success: false, error: 'Disk full' }))
+    expect(view.getByRole('alert').textContent).toBe('Disk full')
+    expect((view.getByLabelText('agents.edit.command') as HTMLInputElement).value).toBe('claude --resume')
+    fireEvent.click(view.getByRole('button', { name: 'sidebar.agentSave' }))
+    await waitFor(() => expect(toggle.getAttribute('aria-expanded')).toBe('false'))
+  })
+  it('新增 Agent 与 Harness 共用设置工作区选择，额外保存启动命令和所选 worktree', async () => {
+    api.codeWorkspaceRequest.mockResolvedValue({ success: true, presets: [
+      { id: 'app', name: 'App', cwd: 'D:/projects/App', isolation: 'shared', order: 0 },
+      { id: 'tree', name: 'Feature', cwd: 'D:/projects/App', isolation: 'worktree', worktreeKey: 'feature', order: 1 }
+    ] })
+    const view = render(<AgentsPanel />)
+    await view.findByRole('button', { name: 'Claude project' })
+    fireEvent.click(view.getByRole('button', { name: 'panelHeader.add' }))
+    fireEvent.click(view.getByRole('button', { name: 'sidebar.addAgent' }))
+    const select = await view.findByLabelText('settings.workspace')
+    fireEvent.change(select, { target: { value: 'tree' } })
+    fireEvent.change(view.getByPlaceholderText('claude'), { target: { value: 'custom-agent --serve' } })
+    expect(view.queryByPlaceholderText('~/projects/lyshell')).toBeNull()
+    fireEvent.click(view.getByRole('button', { name: 'sidebar.agentSave' }))
+    await waitFor(() => expect(api.addAgent).toHaveBeenCalledWith(expect.objectContaining({ command: 'custom-agent --serve', cwd: 'D:/projects/App', isolation: 'worktree', worktreeKey: 'feature' })))
+  })
+
+  it('没有设置工作区时无法新建独立目录启动项，统一管理菜单保留设置入口', async () => {
+    api.codeWorkspaceRequest.mockResolvedValue({ success: true, presets: [] })
+    const manage = vi.fn()
+    const view = render(<AgentsPanel onOpenWorkspaceSettings={manage} />)
+    await view.findByText('workspacePresets.empty')
+    fireEvent.click(view.getByRole('button', { name: 'panelHeader.add' }))
+    fireEvent.click(view.getByRole('button', { name: 'sidebar.addAgent' }))
+    fireEvent.change(view.getByPlaceholderText('claude'), { target: { value: 'custom-agent' } })
+    fireEvent.click(view.getByRole('button', { name: 'sidebar.agentSave' }))
+    expect(api.addAgent).not.toHaveBeenCalled()
+    fireEvent.click(view.getByRole('button', { name: 'workspacePresets.manage' }))
+    expect(manage).toHaveBeenCalledOnce()
+  })
+  it('Agent 启动错误可见，失败后允许重试', async () => {
+    api.launchAgent.mockRejectedValueOnce(new Error('Custom command was not found'))
+    const view = render(<AgentsPanel />)
+    const launch = await view.findByRole('button', { name: 'Claude project' })
+    fireEvent.click(launch)
+    expect((await view.findByRole('alert')).textContent).toContain('Custom command was not found')
+    expect((launch as HTMLButtonElement).disabled).toBe(false)
   })
 })

@@ -12,6 +12,10 @@ export function validateCodeWorkspaceRequest(raw: unknown): CodeWorkspaceRequest
   if (value.kind === 'list') return { kind: 'list' }
   if (value.kind === 'delete') return { kind: 'delete', id: assertString(value.id, 'id', { maxLength: 128 }) }
   if (value.kind === 'launch') return { kind: 'launch', id: assertString(value.id, 'id', { maxLength: 128 }) }
+  if (value.kind === 'launchDirectory') return {
+    kind: 'launchDirectory', id: assertString(value.id, 'id', { maxLength: 128 }),
+    cwd: assertString(value.cwd, 'cwd', { maxLength: 4096 })
+  }
   if (value.kind !== 'save') throw new ValidationError('Unknown workspace preset request')
   const preset = assertObject(value.preset, 'preset')
   const isolation = assertEnum(preset.isolation, 'isolation', ['shared', 'worktree'] as const)
@@ -25,6 +29,66 @@ export function validateCodeWorkspaceRequest(raw: unknown): CodeWorkspaceRequest
     cwd: assertString(preset.cwd, 'cwd', { maxLength: 4096 }),
     isolation, worktreeKey: key?.ok ? key.value : undefined
   } }
+}
+
+/**
+ * 校验通用 Agent 的工作区字段（cwd / isolation / worktreeKey），返回归一化后的三字段。
+ * add 不传 existing；update 传 existing —— 缺字段（键不存在）时沿用仓库现状，与
+ * envProfileId / envKeyMap 同一套「键存在」语义（旧客户端不传 isolation/worktreeKey 也不丢
+ * 已有隔离配置）。跨字段规则：
+ *   - isolation = 'worktree'：worktreeKey 必须合法非空，且 cwd 非空（缺 cwd 无法定位仓库根）；
+ *   - 其余（'shared' / 缺省）：显式清掉 worktreeKey（shared 目录不该残留 worktree 名）。
+ * 旧 payload 无这些字段 / 旧默认 Agent 无 cwd 继续支持（全缺省即 undefined，不抛错）。
+ */
+export function validateAgentWorkspaceFields(
+  raw: Record<string, unknown>,
+  existing?: { cwd?: string; isolation?: 'shared' | 'worktree'; worktreeKey?: string }
+): { cwd?: string; isolation?: 'shared' | 'worktree'; worktreeKey?: string } {
+  // cwd：「键存在」语义 —— undefined 显式清掉（回到默认目录），缺键沿用仓库现状
+  let cwd: string | undefined
+  if ('cwd' in raw) {
+    cwd = raw.cwd === undefined ? undefined : assertString(raw.cwd, 'agent.cwd', { maxLength: 4096 })
+  } else if (existing) {
+    cwd = existing.cwd
+  }
+
+  // isolation：同「键存在」语义 —— undefined 显式回到 shared 缺省，缺键沿用仓库现状
+  let isolation: 'shared' | 'worktree' | undefined
+  if ('isolation' in raw) {
+    isolation = raw.isolation === undefined
+      ? undefined
+      : assertEnum(raw.isolation, 'agent.isolation', ['shared', 'worktree'] as const)
+  } else if (existing) {
+    isolation = existing.isolation
+  }
+
+  // worktreeKey：同「键存在」语义 —— 显式 undefined 清掉，非法名保存即拒（不做静默折叠）
+  let worktreeKey: string | undefined
+  if ('worktreeKey' in raw) {
+    if (raw.worktreeKey === undefined) {
+      worktreeKey = undefined
+    } else {
+      const key = validateWorktreeKey(assertString(raw.worktreeKey, 'agent.worktreeKey', { maxLength: 64 }))
+      if (!key.ok) throw new ValidationError(key.error)
+      worktreeKey = key.value
+    }
+  } else if (existing) {
+    worktreeKey = existing.worktreeKey
+  }
+
+  // 跨字段规则：worktree 隔离必须同时有合法 key 与非空 cwd；shared/缺省显式清掉 key
+  if (isolation === 'worktree') {
+    if (!worktreeKey) throw new ValidationError('Worktree name is required')
+    if (!cwd || cwd.trim() === '') throw new ValidationError('agent.cwd is required for worktree isolation')
+  } else {
+    worktreeKey = undefined
+  }
+
+  return {
+    ...(cwd !== undefined ? { cwd } : {}),
+    ...(isolation !== undefined ? { isolation } : {}),
+    ...(worktreeKey !== undefined ? { worktreeKey } : {})
+  }
 }
 
 export function validateBrowserRequest(raw: unknown): BrowserRequest {
@@ -280,4 +344,9 @@ export function validateDshMarketAction(value: unknown): DshMarketAction {
 
 export function failureFromError(error: unknown): { success: false, error: string } {
   return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
+}
+
+/** 启动项目标必须由设置中的稳定 ID 指定，不接受独立 cwd。 */
+export function validateWorkspacePresetId(value: unknown): string {
+  return assertString(value, 'workspacePresetId', { maxLength: 128 })
 }
