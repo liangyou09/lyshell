@@ -1,11 +1,13 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type { WorktreeListResult } from '@shared/worktree'
+import type { CodeWorkspaceRequest, CodeWorkspaceResult } from '@shared/code-workspaces'
 import { DSH_MARKET_CHANNEL, type DshMarketAction, type DshMarketResult } from '@shared/dsh-market'
 import type { SessionConfig, TerminalEncoding, WebTabPopupRequest } from '@shared/types'
 import type { ExclusiveWorkbenchDetail } from '@shared/exclusive-control'
 import { isWebTabShortcutAction } from '@shared/webtab-shortcut'
 import type { BrowserRequest, BrowserResult } from '@shared/browser-settings'
+import { BROWSER_DOWNLOADS_EVENT, type BrowserDownloadsSnapshot } from '@shared/browser-downloads'
 import { BROWSER_DEVTOOLS_CHANNEL, BROWSER_DEVTOOLS_EVENT, type BrowserDevToolsRequest, type BrowserDevToolsEvent } from '@shared/browser-devtools'
 
 // IPC 通道定义
@@ -144,6 +146,7 @@ const IPC_CHANNELS = {
 
   // Harness worktree 检测（kind 无关：列出仓库已有 worktree 共享名，编辑对话框下拉用）
   HARNESS_WORKTREE_LIST: 'harness:worktree:list',
+  CODE_WORKSPACE_REQUEST: 'code-workspace:request',
 
   // Codex Harness
   CODEX_DETECT: 'codex:detect',
@@ -283,6 +286,11 @@ const electronAPI = {
   getConfig: (key: string) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET, key),
   // 证书确认也经此宿主通道；网页 guest 没有信任证书的 bridge。
   browserRequest: (request: BrowserRequest): Promise<BrowserResult> => ipcRenderer.invoke('browser:request', request),
+  onBrowserDownloadsChanged: (callback: (snapshot: BrowserDownloadsSnapshot) => void) => {
+    const listener = (_event: IpcRendererEvent, snapshot: BrowserDownloadsSnapshot) => callback(snapshot)
+    ipcRenderer.on(BROWSER_DOWNLOADS_EVENT, listener)
+    return () => ipcRenderer.removeListener(BROWSER_DOWNLOADS_EVENT, listener)
+  },
   setConfig: (key: string, value: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_SET, key, value),
   getMcpAddCommand: () => ipcRenderer.invoke(IPC_CHANNELS.MCP_GET_ADD_COMMAND),
   getMcpAudit: (filter?: unknown) => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_LIST, filter),
@@ -417,6 +425,9 @@ const electronAPI = {
   // 返回类型是 @shared/worktree 的 WorktreeListResult（success 判别联合，与主进程 handler 对齐）
   listHarnessWorktrees: (cwd: string): Promise<WorktreeListResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.HARNESS_WORKTREE_LIST, cwd),
+  // 工作区配置和 PS7 临时终端启动；启动只传已保存的工作区 ID。
+  codeWorkspaceRequest: (request: CodeWorkspaceRequest): Promise<CodeWorkspaceResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CODE_WORKSPACE_REQUEST, request),
 
   // Codex Harness
   detectCodex: () => ipcRenderer.invoke(IPC_CHANNELS.CODEX_DETECT),

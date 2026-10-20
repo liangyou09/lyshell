@@ -5,8 +5,7 @@
  *    非编辑态则跟随导航同步（Chrome omnibox 语义）；
  * 2) Ctrl+L 聚焦请求令牌：请求先于挂载到达（侧栏收起/别的页签时切过来的
  *    竞态）与挂载后实时到达两条路径都消费，消费后归零防二次进页签误聚焦；
- * 3) Enter 的 datalist 提交竞态：高亮项的补全是 Enter 的默认动作（晚于
- *    keydown），导航必须吃 DOM 已提交值而非 React state 里的输入前缀；
+ * 3) Enter 提交读取输入框当前值，候选选择与普通输入共用导航；组合输入期间不触发。
  * 4) 重新激活页签时补读 canGoBack/canGoForward（onNav 只在活动态同步读
  *    IPC，后台停驻的导航靠这一步校正）；
  * 5) 写轮眼小窗（栏底迷你浏览器）：合法地址开眼挂载/非法走 notice/did-navigate
@@ -16,15 +15,8 @@
  *    方法面在 guest 挂载前调用会抛错 —— 真机曾炸于此，门开前不得调 loadURL/getURL）/
  *    dom-ready 后把 webContentsId 登记给主进程（小窗与完整页签共用 webbar
  *    partition 共享登录态，主进程快捷键转发凭登记排除小窗）/存档与高度防毒
- *    （畸形存档落空态、离谱高度夹到绝对上限）/地址栏挂双开画轴（.scroll-search
- *    系列 CSS）：开合裁决 = 聚焦或有址 —— 闭眼空态收卷拴绳、有墨失焦仍展，
- *    与勾玉「闭眼/开眼」同一状态语言。
- * 7) 最近历史按域名分组立在会话墙同款的双开画轴墙上（scroll-dual-wall 几何 +
- *    scroll-dual-web 青蓝段身份）：组头 scroll-head 卷轴（题签域名 + 计数）点击
- *    开合（ScrollFold inert 挡 Tab 序）、组序/组内序吃历史最近优先序、非默认
- *    端口独立成组（hostKey = hostname + port）、上下辊行一键收/放全体分组
- *    （会话墙「全体」同语义：收 = 全卷起、放 = 全展开，与单组开合同管线 ——
- *    单组收起后一键收齐剩余、单独展开一组即脱离全体收起态）。
+ *    （畸形存档落空态、离谱高度夹到绝对上限）。主地址栏与小窗使用简洁输入框。
+ * 7) 最近访问保持全局最近顺序，不按域名重排；历史重排不混淆 favicon。
  * 6) 小窗关闭/恢复（保活）：合卷不卸载 webview —— 同一元素留树（guest 存活）、
  *    src 恒冻结、恢复零重挂零重载，恢复轨出现；关闭态经 config 存档；存档
  *    关闭态起渲染即关（写门：读档未成功不写，默认 false 不冲掉存档的 true
@@ -45,6 +37,7 @@ import { registerWebview, unregisterWebview } from './web-tab-controls'
 import type { OverlayPayload, WebTabNav } from '@shared/types'
 import { WEBBAR_PARTITION } from '@shared/constants'
 import WebPanel from './WebPanel'
+import { useBrowserDownloadsStore } from '../../stores/browser-downloads-store'
 import PaneTabBar from './PaneTabBar'
 import '../../i18n'
 
@@ -101,7 +94,7 @@ const makeWebview = (): {
   canGoForward: () => false
 })
 
-/** 地址栏元素：带 list 属性的 input 在可访问树中是 combobox 角色（非 textbox）。
+/** 地址栏元素：地址输入显式提供 combobox 角色与主题化候选列表。
  *  小窗工具条还有第二个 combobox —— DOM 序在前的是主地址栏，在后的是小窗地址 */
 const inputOf = (): HTMLInputElement => screen.getAllByRole('combobox')[0] as HTMLInputElement
 const miniInputOf = (): HTMLInputElement => screen.getAllByRole('combobox')[1] as HTMLInputElement
@@ -144,6 +137,7 @@ const fireDomReady = (): void => {
 }
 
 beforeEach(() => {
+  useBrowserDownloadsStore.setState({ downloads: [], downloadDirectory: '', loaded: false, error: false })
   useUiStore.setState({ webBarFocusRequest: 0 })
   useBrowserBookmarksStore.setState({ bookmarks: [] })
   localStorage.removeItem(BROWSER_BOOKMARKS_KEY)
@@ -159,6 +153,7 @@ beforeEach(() => {
   // 小窗高度对账/防抖打 getConfig/setConfig；dom-ready 后打 registerWebbarMini
   // （部分桩缺方法会让调用落地报错）
   window.electronAPI = {
+    browserRequest: vi.fn(async () => ({ success: true, downloadSnapshot: { downloads: [], downloadDirectory: 'D:/BrowserDownloads' } })),
     fetchFavicon: vi.fn(async () => ({ success: false })),
     getConfig: vi.fn(async () => undefined),
     setConfig: vi.fn(async () => true),
@@ -169,6 +164,22 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   unregisterWebview('web-1')
+})
+
+describe('浏览器下载入口', () => {
+  it('侧栏下载标签可用键盘进入，目录配置留在浏览器设置中', async () => {
+    setupBrowserMode()
+    render(<WebPanel />)
+    const downloadTab = screen.getByRole('tab', { name: /Downloads/ })
+    fireEvent.keyDown(screen.getByRole('tab', { selected: true }), { key: 'End' })
+    expect(downloadTab.getAttribute('aria-selected')).toBe('true')
+    expect(document.activeElement).toBe(downloadTab)
+    await waitFor(() => expect(window.electronAPI.browserRequest).toHaveBeenCalledWith({ kind: 'downloads' }))
+    expect(screen.queryByText('D:/BrowserDownloads')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Change folder' })).toBeNull()
+    fireEvent.keyDown(downloadTab, { key: 'ArrowRight' })
+    expect(screen.getByRole('tab', { selected: true }).id).toBe('web-list-tab-recent')
+  })
 })
 
 describe('网址收藏', () => {
@@ -367,27 +378,86 @@ describe('地址栏编辑守卫', () => {
   })
 })
 
-describe('主地址栏双开画轴（青蓝 web 段）', () => {
-  it('结构 = 纸幅×2/双辊×2/蝴蝶结×2（scroll-search-web 变体），常开不随聚焦收放', () => {
+describe('主地址栏前往按钮', () => {
+  it('空输入时禁用，点击按当前输入导航并支持主题化补全', () => {
     setupBrowserMode()
+    const page = makeWebview()
+    registerWebview('web-1', page as unknown as WebviewTag)
     render(<WebPanel />)
     const input = inputOf()
-    const label = input.closest('label')
-    // 机械全在 .scroll-search 系列 CSS;scroll-search-web = 青蓝
-    // 段身份(轴头/系绳/解绳辉光取 --web-group,与最近访问墙的组头同署名)
-    expect(label?.className).toContain('scroll-search')
-    expect(label?.className).toContain('scroll-search-web')
-    expect(label?.className).toContain('scroll-search-lg')    // 加高档:纸 20/辊 28
-    expect(label?.querySelectorAll('.scroll-search-paper')).toHaveLength(2)
-    expect(label?.querySelectorAll('.scroll-search-rod')).toHaveLength(2)
-    expect(label?.querySelectorAll('.scroll-search-tie')).toHaveLength(2)
-    // 常开(同会话搜索框:地址栏是常在的动作位,不随聚焦收放)
-    expect(label?.className).toContain('open')
-    // 清空 + 失焦仍是开卷:地址栏没有收卷态
-    fireEvent.change(input, { target: { value: '' } })
-    fireEvent.blur(input)
-    expect(label?.className).toContain('open')
-    expect(label?.className).not.toContain('rolled')
+    const go = screen.getByRole('button', { name: 'Go to address or search' }) as HTMLButtonElement
+    expect(input.getAttribute('aria-autocomplete')).toBe('list')
+    expect(input.hasAttribute('list')).toBe(false)
+    fireEvent.change(input, { target: { value: '   ' } })
+    expect(go.disabled).toBe(true)
+    fireEvent.change(input, { target: { value: 'https://edited.example/docs' } })
+    expect(go.disabled).toBe(false)
+    fireEvent.click(go)
+    expect(page.loadURL).toHaveBeenCalledWith('https://edited.example/docs')
+  })
+})
+
+describe('主题化网址候选列表', () => {
+  const dropdown = (): HTMLElement => screen.getAllByRole('button', { name: 'Recent pages and bookmarks' })[0]
+  it('合并最近访问和收藏并去重，键盘选择使用网址导航', () => {
+    setupBrowserMode()
+    const page = makeWebview()
+    registerWebview('web-1', page as unknown as WebviewTag)
+    const url = 'https://saved.example/guide'
+    usePaneStore.setState({ webTabHistory: [url, 'https://recent.example/'] })
+    useBrowserBookmarksStore.setState({ bookmarks: [{ url, title: 'Saved guide' }] })
+    render(<WebPanel />)
+    fireEvent.click(dropdown())
+    expect(screen.getAllByRole('option')).toHaveLength(2)
+    expect(screen.getByRole('listbox').parentElement?.parentElement).toBe(document.body)
+    fireEvent.keyDown(inputOf(), { key: 'ArrowDown' })
+    expect(inputOf().getAttribute('aria-activedescendant')).toBe(screen.getAllByRole('option')[0].id)
+    fireEvent.keyDown(inputOf(), { key: 'Enter' })
+    expect(page.loadURL).toHaveBeenCalledWith(url)
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(inputOf().value).toBe(url)
+  })
+
+  it('按收藏名称过滤，Esc 只关闭候选，第二次 Esc 才放弃输入', () => {
+    setupBrowserMode()
+    useBrowserBookmarksStore.setState({ bookmarks: [{ url: 'https://saved.example/guide', title: 'Saved guide' }] })
+    render(<WebPanel />)
+    fireEvent.change(inputOf(), { target: { value: 'Saved' } })
+    expect(screen.getAllByRole('option')).toHaveLength(1)
+    fireEvent.keyDown(inputOf(), { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(inputOf().value).toBe('Saved')
+    fireEvent.keyDown(inputOf(), { key: 'Escape' })
+    expect(inputOf().value).toBe('https://example.com/')
+  })
+
+  it('外点和面板隐藏关闭浮层，恢复后不自行打开', () => {
+    setupBrowserMode()
+    usePaneStore.setState({ webTabHistory: ['https://recent.example/'] })
+    const view = render(<WebPanel />)
+    fireEvent.click(dropdown())
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByRole('listbox')).toBeNull()
+    fireEvent.click(dropdown())
+    view.rerender(<WebPanel visible={false} />)
+    expect(screen.queryByRole('listbox')).toBeNull()
+    view.rerender(<WebPanel visible />)
+    expect(screen.queryByRole('listbox')).toBeNull()
+  })
+
+  it('从小窗候选选择只在小窗打开，中文输入期间回车不导航', async () => {
+    setupBrowserMode()
+    const url = 'https://mini.example/docs'
+    usePaneStore.setState({ webTabHistory: [url] })
+    render(<WebPanel />)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Recent pages and bookmarks' })[1])
+    fireEvent.keyDown(miniInputOf(), { key: 'ArrowDown' })
+    fireEvent.keyDown(miniInputOf(), { key: 'Enter', isComposing: true })
+    expect(document.querySelector('webview')).toBeNull()
+    fireEvent.click(screen.getByRole('option'))
+    await waitFor(() => expect(document.querySelector('webview')?.getAttribute('src')).toBe(url))
+    expect(Object.keys(usePaneStore.getState().overlayPayloads)).toEqual(['web-1'])
   })
 })
 
@@ -423,8 +493,8 @@ describe('Ctrl+L 聚焦请求令牌（ui-store）', () => {
   })
 })
 
-describe('Enter 提交（datalist 竞态）', () => {
-  it('导航吃 datalist 提交后的 DOM 值，而非 state 里的输入前缀', async () => {
+describe('Enter 提交', () => {
+  it('导航使用输入框当前值，而非尚未同步的输入前缀', async () => {
     setupBrowserMode()
     const el = makeWebview()
     registerWebview('web-1', el as unknown as WebviewTag)
@@ -435,8 +505,7 @@ describe('Enter 提交（datalist 竞态）', () => {
     const input = inputOf()
     // 输入前缀（React state 只知道这个）
     fireEvent.change(input, { target: { value: 'git' } })
-    // 模拟 datalist 高亮项作为 Enter 默认动作、在 keydown 之后提交到 DOM
-    // （不经 React onChange，state 仍是 'git'）
+    // 输入法或自动填充可能先更新 DOM，React state 尚未同步。
     input.value = 'https://github.com/'
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(el.loadURL).toHaveBeenCalledWith('https://github.com/'))
@@ -504,40 +573,17 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     expect((screen.getByTitle('Promote to web tab') as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('小窗地址 = 双开画轴（青蓝 web 段）：常开不随聚焦收放（同主地址栏/会话搜索框语义）', () => {
-    setupBrowserMode()
-    render(<WebPanel />)
-    const label = miniInputOf().closest('label')
-    expect(label).toBeTruthy()
-    // 结构：纸幅×2 + 双辊×2 + 蝴蝶结×2（机械全在 .scroll-search 系列 CSS）
-    expect(label?.className).toContain('scroll-search')
-    expect(label?.className).toContain('scroll-search-web')   // 青蓝段身份
-    expect(label?.className).toContain('h-[32px]')            // 几何保持原档(加高档只挂主地址栏)
-    expect(label?.querySelectorAll('.scroll-search-paper')).toHaveLength(2)
-    expect(label?.querySelectorAll('.scroll-search-rod')).toHaveLength(2)
-    expect(label?.querySelectorAll('.scroll-search-tie')).toHaveLength(2)
-    // 常开:纸恒铺,聚焦/失焦不改开合
-    expect(label?.className).toContain('open')
-    fireEvent.focus(miniInputOf())
-    expect(label?.className).toContain('open')
-    fireEvent.blur(miniInputOf())
-    expect(label?.className).toContain('open')
-    expect(label?.className).not.toContain('rolled')
-  })
-
-  it('小窗地址：Esc 放弃编辑复位为当前页地址（画轴常开,与编辑态无关）', () => {
+  it('小窗地址：Esc 放弃编辑复位为当前页地址', () => {
     setupBrowserMode()
     localStorage.setItem('lyshell.webbarMini.url.v1', 'https://restored.example.com/')
     render(<WebPanel />)
-    const label = miniInputOf().closest('label')
     expect(miniInputOf().value).toBe('https://restored.example.com/')
-    // 编辑中途失焦与 Esc 复位只动墨,画轴恒开
+    // 编辑中途失焦后，Esc 仍复位当前页面地址。
     fireEvent.focus(miniInputOf())
     fireEvent.change(miniInputOf(), { target: { value: 'https://editing.example.com/' } })
     fireEvent.blur(miniInputOf())
     fireEvent.keyDown(miniInputOf(), { key: 'Escape' })
     expect(miniInputOf().value).toBe('https://restored.example.com/')
-    expect(label?.className).toContain('open')
   })
 
   it('小窗输入合法地址 → 开眼挂 webview（与完整页签共用 webbar partition 共享登录态，首航冻结为 src）', async () => {
@@ -659,79 +705,33 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     expect(webs.length).toBe(1)  // 没开新页签
   })
 
-  it('最近历史按域名分组：同域并组（组头 = 域名题签 + 计数），组序/组内序吃最近序，非默认端口独立成组', () => {
+  it('最近访问保持全局最近顺序，同域网址不重排，重新访问后移到首行', () => {
     setupBrowserMode()
-    usePaneStore.setState({
-      webTabHistory: [
-        'https://a.example.com/two',       // a 组最近一条 = 全表最新 → a 组排最前
-        'https://b.example.org/only',
-        'https://a.example.com/one',
-        'https://a.example.com:8443/port'  // 非默认端口:独立组,不与 a 并
-      ]
-    })
-    const { container } = render(<WebPanel />)
-    const headOf = (prefix: string): HTMLElement =>
-      Array.from(container.querySelectorAll('div.scroll-head'))
-        .find(el => el.textContent?.replace(/^[▾▸]/, '').startsWith(prefix)) as HTMLElement
-    const headA = headOf('a.example.com2')   // 题签 + 计数同落卷面(textContent 顺读)
-    const headB = headOf('b.example.org1')
-    const headPort = headOf('a.example.com:84431')
-    expect(headA).toBeTruthy()
-    expect(headB).toBeTruthy()
-    expect(headPort).toBeTruthy()
-    // 段身份青蓝:轴头 inline 注入 --web-group(锁色契约,防回落中性)
-    expect(headA.querySelector('.rod-caps')).toBeTruthy()
-    // 长域名不挤走计数:题签可缩可截断(ellipsis),全名走 title
-    const slip = headA.querySelector('.scroll-slip') as HTMLElement
-    expect(slip.className).toContain('truncate')
-    expect(slip.className).not.toContain('flex-shrink-0')
-    expect(slip.getAttribute('title')).toBe('a.example.com')
-    // 组序 = 各组最近一条的落位:a(最新)→ b → a:8443
-    expect(headA.compareDocumentPosition(headB) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(headB.compareDocumentPosition(headPort) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    // 组内最近序:…/two 在 …/one 之前
-    const text = document.body.textContent ?? ''
-    expect(text.indexOf('https://a.example.com/two')).toBeGreaterThan(-1)
-    expect(text.indexOf('https://a.example.com/two')).toBeLessThan(text.indexOf('https://a.example.com/one'))
+    const history = ['https://a.example.com/two', 'https://b.example.org/only', 'https://a.example.com/one', 'https://a.example.com:8443/port']
+    usePaneStore.setState({ webTabHistory: history })
+    render(<WebPanel />)
+    const urls = (): string[] => Array.from(screen.getByRole('list', { name: 'Recent' }).querySelectorAll('li > button')).map(button => button.getAttribute('title')!)
+    expect(urls()).toEqual(history)
+    expect(screen.queryByRole('button', { name: 'Collapse all' })).toBeNull()
+    act(() => usePaneStore.getState().recordWebTabVisit(history[2]))
+    expect(urls()).toEqual([history[2], history[0], history[1], history[3]])
+    const oldest = screen.getByTitle(history[3]).closest('li')!
+    fireEvent.click(oldest.querySelector<HTMLButtonElement>('[title="Remove from recent"]')!)
+    expect(urls()).toEqual([history[2], history[0], history[1]])
   })
 
-  it('组头 favicon 跟随组内最新一条：url 变化先清旧图，回落猜测失败不残留上一条的图标', async () => {
+  it('历史重排后 favicon 仍属于各自网址，缺图时显示通用图标', async () => {
     setupBrowserMode()
-    // A 条有持久化图标(页签打开时捕获),组头先落 A 的图
-    usePaneStore.setState({
-      webTabHistory: ['https://a.example.com/a', 'https://a.example.com/b'],
-      webTabFavicons: { 'https://a.example.com/a': 'data:image/png;base64,AA==' }
-    })
-    const { container } = render(<WebPanel />)
-    await waitFor(() => expect(container.querySelector('.scroll-head img')).toBeTruthy())
-    // 同域 B 条成为组内最新(无持久化图标,origin 猜测在桩下失败)→ 组头清图。
-    // 修复前:src 不随 url 重置,A 的图长期张冠李戴地挂在组头上
-    act(() => {
-      usePaneStore.setState({ webTabHistory: ['https://a.example.com/b', 'https://a.example.com/a'] })
-    })
-    await waitFor(() => expect(container.querySelector('.scroll-head img')).toBeNull())
-  })
-
-  it('第一行单按钮同步单组状态：混合状态先收齐，再全部展开', () => {
-    setupBrowserMode()
-    usePaneStore.setState({ webTabHistory: ['https://a.example.com/one', 'https://b.example.org/one'] })
-    const { container } = render(<WebPanel />)
-    const heads = Array.from(container.querySelectorAll<HTMLElement>('.scroll-head'))
-    const toggle = container.querySelector('.panel-header .group-list-actions button') as HTMLButtonElement
-    expect(container.querySelectorAll('.group-list-actions button')).toHaveLength(1)
-    expect(toggle.getAttribute('aria-label')).toBe('Collapse all')
-    fireEvent.click(heads[0])
-    expect(heads[0].getAttribute('aria-expanded')).toBe('false')
-    expect(heads[1].getAttribute('aria-expanded')).toBe('true')
-    expect(toggle.getAttribute('aria-label')).toBe('Collapse all')
-    fireEvent.click(toggle)
-    expect(toggle.getAttribute('aria-label')).toBe('Expand all')
-    expect(toggle.getAttribute('aria-expanded')).toBe('false')
-    container.querySelectorAll('.scroll-fold').forEach(f => expect(f.hasAttribute('inert')).toBe(true))
-    fireEvent.click(toggle)
-    heads.forEach(h => expect(h.getAttribute('aria-expanded')).toBe('true'))
-    expect(toggle.getAttribute('aria-label')).toBe('Collapse all')
-    expect(container.querySelector('.group-list .scroll-dual-rod')).toBeNull()
+    const a = 'https://a.example.com/a', b = 'https://a.example.com/b'
+    usePaneStore.setState({ webTabHistory: [a, b], webTabFavicons: { [a]: 'data:image/png;base64,AA==' } })
+    render(<WebPanel />)
+    await waitFor(() => expect(screen.getByTitle(a).querySelector('img')).toBeTruthy())
+    expect(screen.getByTitle(b).querySelector('img')).toBeNull()
+    expect(screen.getByTitle(b).querySelector('svg')).toBeTruthy()
+    act(() => usePaneStore.setState({ webTabHistory: [b, a] }))
+    expect(screen.getByRole('list', { name: 'Recent' }).firstElementChild).toBe(screen.getByTitle(b).closest('li'))
+    expect(screen.getByTitle(b).querySelector('img')).toBeNull()
+    expect(screen.getByTitle(a).querySelector('img')).toBeTruthy()
   })
 
   it('清空只在更多菜单提供：打开或取消菜单不清历史，选中清空才执行', () => {
@@ -834,7 +834,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     expect(screen.queryByRole('menuitem')).toBeNull()
   })
 
-  it('窄栏收纳:分组操作/清空进入菜单，检查入口在窄栏菜单与宽栏均不出现', () => {
+  it('窄栏菜单移除分组操作，清空和键盘导航仍可用', () => {
     // jsdom 无 ResizeObserver:桩一个捕获回调的类,手动喂根宽
     let fire: ResizeObserverCallback = () => {}
     class ROStub {
@@ -858,31 +858,19 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
       expect(screen.queryByTitle('Reload (F5)')).toBeNull()
       expect(screen.getByTitle('Back (Alt+←)')).toBeTruthy()
       expect(screen.getByTitle('Forward (Alt+→)')).toBeTruthy()
-      // 开菜单:仅保留分组和清空，点清空真执行且菜单收起。
+      // 无分组操作；单个清空项也支持循环键盘导航和焦点归还。
       act(() => { usePaneStore.setState({ webTabHistory: ['https://a.example.com/one'] }) })
       fireEvent.click(screen.getByTitle('More actions'))
-      expect(screen.queryByText('Toggle DevTools (F12)')).toBeNull()
-      const groupAction = screen.getByRole('menuitem', { name: 'Collapse all' })
+      expect(screen.queryByRole('menuitem', { name: /Collapse|Expand/ })).toBeNull()
       const clearAction = screen.getByRole('menuitem', { name: 'Clear' })
-      expect(document.activeElement).toBe(groupAction)
-      fireEvent.keyDown(groupAction, { key: 'ArrowDown' })
       expect(document.activeElement).toBe(clearAction)
-      fireEvent.keyDown(clearAction, { key: 'ArrowDown' })
-      expect(document.activeElement).toBe(groupAction)
-      fireEvent.keyDown(groupAction, { key: 'End' })
-      expect(document.activeElement).toBe(clearAction)
-      fireEvent.keyDown(clearAction, { key: 'Home' })
-      expect(document.activeElement).toBe(groupAction)
-      fireEvent.keyDown(groupAction, { key: 'Tab' })
+      for (const key of ['ArrowDown', 'ArrowUp', 'Home', 'End']) {
+        fireEvent.keyDown(clearAction, { key })
+        expect(document.activeElement).toBe(clearAction)
+      }
+      fireEvent.keyDown(clearAction, { key: 'Tab' })
       expect(screen.queryByRole('menu')).toBeNull()
       expect(document.activeElement).toBe(screen.getByTitle('More actions'))
-      fireEvent.click(screen.getByTitle('More actions'))
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Collapse all' }))
-      expect(container.querySelector('.group-list .scroll-head')?.getAttribute('aria-expanded')).toBe('false')
-      expect(screen.queryByRole('menuitem')).toBeNull()
-      fireEvent.click(screen.getByTitle('More actions'))
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Expand all' }))
-      expect(container.querySelector('.group-list .scroll-head')?.getAttribute('aria-expanded')).toBe('true')
       fireEvent.click(screen.getByTitle('More actions'))
       fireEvent.click(screen.getByText('Clear'))
       expect(usePaneStore.getState().webTabHistory.length).toBe(0)

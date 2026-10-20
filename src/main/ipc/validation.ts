@@ -4,11 +4,34 @@ import type { BrowserDevToolsRequest } from '@shared/browser-devtools'
 import { extractErrorMessage } from '../terminal/session-manager'
 import { type BrowserRequest } from '@shared/browser-settings'
 import { validateBrowserSettings } from '../browser/validation'
+import type { CodeWorkspaceRequest } from '@shared/code-workspaces'
+import { validateWorktreeKey } from '@shared/worktree'
+
+export function validateCodeWorkspaceRequest(raw: unknown): CodeWorkspaceRequest {
+  const value = assertObject(raw, 'codeWorkspaceRequest')
+  if (value.kind === 'list') return { kind: 'list' }
+  if (value.kind === 'delete') return { kind: 'delete', id: assertString(value.id, 'id', { maxLength: 128 }) }
+  if (value.kind === 'launch') return { kind: 'launch', id: assertString(value.id, 'id', { maxLength: 128 }) }
+  if (value.kind !== 'save') throw new ValidationError('Unknown workspace preset request')
+  const preset = assertObject(value.preset, 'preset')
+  const isolation = assertEnum(preset.isolation, 'isolation', ['shared', 'worktree'] as const)
+  const key = isolation === 'worktree' ? validateWorktreeKey(assertString(preset.worktreeKey, 'worktreeKey', { maxLength: 64 })) : undefined
+  if (key && !key.ok) throw new ValidationError(key.error)
+  const name = assertString(preset.name, 'name', { maxLength: 120 }).trim()
+  if (!name) throw new ValidationError('name is required')
+  return { kind: 'save', preset: {
+    ...(preset.id === undefined ? {} : { id: assertString(preset.id, 'id', { maxLength: 128 }) }),
+    name,
+    cwd: assertString(preset.cwd, 'cwd', { maxLength: 4096 }),
+    isolation, worktreeKey: key?.ok ? key.value : undefined
+  } }
+}
 
 export function validateBrowserRequest(raw: unknown): BrowserRequest {
   const value = assertObject(raw, 'browserRequest')
   switch (value.kind) {
-    case 'get': case 'passwords': return { kind: value.kind }
+    case 'get': case 'passwords': case 'downloads': case 'openDownloadDirectory': return { kind: value.kind }
+    case 'downloadAction': return { kind: 'downloadAction', id: assertString(value.id, 'id', { maxLength: 128 }), action: assertEnum(value.action, 'action', ['cancel', 'reveal', 'open', 'remove'] as const) }
     case 'save': return { kind: 'save', settings: validateBrowserSettings(value.settings) }
     case 'clear': return { kind: 'clear', target: assertEnum(value.target, 'target', ['cache', 'siteData'] as const) }
     case 'deletePassword': return { kind: 'deletePassword', id: assertString(value.id, 'id', { maxLength: 128 }) }

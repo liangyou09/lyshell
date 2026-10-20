@@ -1,0 +1,119 @@
+/* 工作区和设置页共用下拉皮肤，保留原生选择、键盘导航与禁用语义。 */
+:root {
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 16 16' fill='none' stroke='%239AA3AB' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
+}
+[data-theme-mode="light"] {
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 16 16' fill='none' stroke='%23535B64' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
+}
+
+select.rack-select, select.settings-input {
+  appearance: none;
+  min-width: 0;
+  width: 100%;
+  height: 32px;
+  min-height: 32px;
+  padding: 5px 30px 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--text-rack) 18%, var(--bg-slot));
+  border-radius: 4px;
+  background-color: var(--bg-slot);
+  background-image: var(--select-chevron);
+  background-position: right 9px center;
+  background-repeat: no-repeat;
+  background-size: 12px 12px;
+  color: var(--text-rack);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: border-color 140ms ease-out, background-color 140ms ease-out;
+}
+
+select.rack-select:enabled:hover, select.settings-input:enabled:hover {
+  border-color: color-mix(in srgb, var(--text-rack) 36%, var(--bg-slot));
+  background-color: var(--bg-elev);
+}
+select.rack-select:focus, select.settings-input:focus {
+  outline: 1px solid var(--amber);
+  outline-offset: 1px;
+  border-color: var(--amber);
+}
+select.rack-select:open, select.settings-input:open { border-color: var(--amber); }
+select.rack-select:disabled, select.settings-input:disabled { cursor: default; opacity: .55; }
+select.rack-select option, select.settings-input option { background: var(--bg-rack); color: var(--text-rack); }
+select.rack-select option:disabled, select.settings-input option:disabled { color: var(--text-rack-data); }
+
+select.rack-select.danger-field {
+  border-color: color-mix(in srgb, var(--error-rack) 50%, var(--rule));
+  background-color: color-mix(in srgb, var(--error-rack) 7%, var(--bg-slot));
+  color: var(--error-rack);
+}
+select.rack-select.danger-field:enabled:hover { border-color: var(--error-rack); }
+select.rack-select.danger-field:focus { outline-color: var(--error-rack); border-color: var(--error-rack); box-shadow: none; }
+
+.rack-select-wrap { position: relative; display: block; min-width: 0; width: 100%; }
+.rack-select-wrap > select.rack-select { color: transparent; }
+.rack-select-value { position: absolute; inset-inline: 10px 30px; top: 50%; transform: translateY(-50%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-rack); font-size: 12px; font-weight: 400; line-height: 20px; pointer-events: none; }
+.rack-select-wrap:has(select.danger-field) > .rack-select-value { color: var(--error-rack); }
+.rack-select-wrap:has(select:disabled) > .rack-select-value { opacity: .55; }
+
+.rack-combobox { position: relative; width: 100%; min-width: 0; }
+.rack-combobox .rack-combobox-input { width: 100%; min-width: 0; height: 32px; padding: 5px 30px 5px 9px; border: 1px solid color-mix(in srgb, var(--text-rack) 18%, var(--bg-slot)); border-radius: 4px; background: var(--bg-slot); color: var(--text-rack); font-family: inherit; font-size: 12px; line-height: 20px; }
+.rack-combobox .rack-combobox-input:enabled:hover { border-color: color-mix(in srgb, var(--text-rack) 36%, var(--bg-slot)); }
+.rack-combobox .rack-combobox-input:focus { outline: 1px solid var(--amber); outline-offset: 1px; border-color: var(--amber); }
+.rack-combobox .rack-combobox-input::placeholder { color: var(--text-rack-data); }
+.rack-combobox-toggle { position: absolute; top: 1px; right: 1px; bottom: 1px; display: flex; align-items: center; justify-content: center; width: 28px; border: 0; border-radius: 0 3px 3px 0; background: var(--bg-slot); color: var(--text-rack-data); cursor: pointer; }
+.rack-combobox-toggle:enabled:hover { background: var(--bg-elev); color: var(--text-rack); }
+.rack-combobox-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+.rack-combobox-toggle:disabled { cursor: default; }
+.rack-options { position: fixed; z-index: 1000; overflow-y: auto; overscroll-behavior: contain; padding: 4px; border: 1px solid color-mix(in srgb, var(--text-rack) 20%, var(--bg-rack)); border-radius: 6px; background: var(--bg-rack); color: var(--text-rack); box-shadow: 0 8px 24px rgb(0 0 0 / .2); scrollbar-width: thin; scrollbar-color: var(--rule) var(--bg-rack); font-size: 12px; }
+.rack-option { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 30px; padding: 6px 8px; border: 0; border-radius: 3px; background: transparent; color: inherit; font: inherit; line-height: 18px; text-align: left; cursor: pointer; }
+.rack-option > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.rack-option.is-active, .rack-option:hover { background: var(--bg-elev); }
+.rack-option.is-selected { background: var(--amber-soft); }
+.rack-option-check { display: inline-flex; flex-shrink: 0; align-items: center; width: 12px; color: var(--amber); }
+.rack-option-empty { padding: 8px; color: var(--text-rack-data); line-height: 18px; }
+
+/* 新版 Chromium 的原生 picker 可随主题着色；旧版保留同款控件和系统菜单。 */
+@supports (appearance: base-select) {
+  select.rack-select, select.settings-input { appearance: base-select; display: block; }
+  select.rack-select::picker-icon, select.settings-input::picker-icon { display: none; }
+  select.rack-select::picker(select), select.settings-input::picker(select) {
+    appearance: base-select;
+    max-height: min(320px, 65dvh);
+    max-width: min(420px, calc(100vw - 16px));
+    padding: 4px;
+    margin-block: 5px;
+    border: 1px solid color-mix(in srgb, var(--text-rack) 20%, var(--bg-rack));
+    border-radius: 6px;
+    background: var(--bg-rack);
+    color: var(--text-rack);
+    box-shadow: 0 8px 24px rgb(0 0 0 / .2);
+    font: inherit;
+    scrollbar-width: thin;
+    scrollbar-color: var(--rule) var(--bg-rack);
+  }
+  select.rack-select option, select.settings-input option {
+    gap: 8px;
+    min-height: 30px;
+    padding: 6px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    line-height: 18px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  select.rack-select option:checked, select.settings-input option:checked { background: var(--amber-soft); }
+  select.rack-select option:enabled:hover, select.settings-input option:enabled:hover,
+  select.rack-select option:focus, select.settings-input option:focus { outline: none; background: var(--bg-elev); }
+  select.rack-select option:checked:hover, select.settings-input option:checked:hover,
+  select.rack-select option:checked:focus, select.settings-input option:checked:focus { background: var(--amber-soft); }
+  select.rack-select option::checkmark, select.settings-input option::checkmark { color: var(--amber); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  select.rack-select, select.settings-input { transition: none; }
+}

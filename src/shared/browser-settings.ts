@@ -1,3 +1,5 @@
+import type { BrowserDownloadAction, BrowserDownloadsSnapshot } from './browser-downloads'
+
 export const BROWSER_CHANNEL = 'browser:request'
 /** 内置新标签页标识，只由 renderer 绘制，不交给 webview 导航。 */
 export const BROWSER_NEW_TAB_URL = 'lyshell://new-tab'
@@ -37,6 +39,9 @@ export interface BrowserCertificateInfo {
 }
 export type BrowserRequest =
   | { kind: 'get' }
+  | { kind: 'downloads' }
+  | { kind: 'openDownloadDirectory' }
+  | { kind: 'downloadAction'; id: string; action: BrowserDownloadAction }
   | { kind: 'save'; settings: BrowserSettings }
   | { kind: 'clear'; target: 'cache' | 'siteData' }
   | { kind: 'passwords' }
@@ -52,6 +57,7 @@ export interface BrowserResult {
   encryptionAvailable?: boolean
   certificateTrusted?: boolean
   certificate?: BrowserCertificateInfo
+  downloadSnapshot?: BrowserDownloadsSnapshot
 }
 
 /** 地址栏才支持搜索；导航/弹窗的 URL 闸不接受搜索词。 */

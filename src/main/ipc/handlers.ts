@@ -20,6 +20,9 @@ import { createDshWebLaunchResolver } from '../dsh/launch-resolve'
 import { readSystemPath } from '../env/refresh'
 import { resolveWorkspaceCwd } from '../harness/cwd'
 import { listWorktreeKeys, resolveLaunchWorktree, validateWorktreeKey } from '../harness/worktree'
+import { requestCodeWorkspaces } from '../harness/code-workspaces'
+import { formatCodeWorkspaceName } from '@shared/code-workspaces'
+import { validateCodeWorkspaceRequest } from './validation'
 import { launchResolveSerializer } from '../harness/task-serializer'
 import { detectDependencies } from '../harness/detect'
 import { HARNESS_AGENTS, resolveWorkspaceEnv } from '../harness/config'
@@ -103,6 +106,7 @@ import { BROWSER_DEVTOOLS_CHANNEL } from '@shared/browser-devtools'
 import { browserDevToolsRequest } from '../browser/devtools'
 import { validateWebTabDevToolsRequest } from './validation'
 import { browserRequest } from '../browser/service'
+import { notifyBrowserDownloadDirectoryChanged } from '../browser/downloads'
 import { validateBrowserRequest } from './validation'
 
 /**
@@ -416,7 +420,7 @@ export function registerIPCHandlers(): void {
     } catch { return { success: false } }
   })
   ipcMain.handle(BROWSER_CHANNEL, async (event, raw: unknown) => {
-    // 普通网页/插件 guest 不能读取密码列表、改变代理或清理会话。
+    // 普通网页/插件 guest 不能读取密码/下载路径、操作下载、改变代理或清理会话。
     if (event.sender.getType() !== 'window' || !BrowserWindow.fromWebContents(event.sender) || event.senderFrame !== event.sender.mainFrame) return { success: false, error: 'browserAccessDenied' }
     try { return await browserRequest(validateBrowserRequest(raw), event.sender.id) }
     catch { return { success: false, error: 'browserInvalidSettings' } }
@@ -1940,6 +1944,7 @@ export function registerIPCHandlers(): void {
     log.debug('Set download config:', updates)
     try {
       await downloadHistory.updateConfig(updates)
+      notifyBrowserDownloadDirectoryChanged()
       return { success: true }
     } catch (error) {
       log.error('Set download config error:', error)
@@ -2278,9 +2283,9 @@ export function registerIPCHandlers(): void {
   // 进而因 liveKey 相同在 LIVE 栏中重复显示。
   async function spawnLocalCommandSession(
     name: string,
-    command: string,
+    command: string | undefined,
     tags: string[],
-    opts?: { cwd?: string; env?: Record<string, string> }
+    opts?: { cwd?: string; env?: Record<string, string>; shell?: string }
   ) {
     // 启动 shell：有 pwsh（PowerShell 7）用 pwsh 且带 -NoProfile —— 交互 profile 的
     // Set-Location 会静默改掉工作区/worktree cwd，agent 宿主要的是透明宿主而非用户
@@ -2290,7 +2295,7 @@ export function registerIPCHandlers(): void {
     // app 运行期装到「自定义位置」（PATH 快照未含）的 pwsh 要重启才能识别，期间
     // 回落 cmd —— 与「没有 ps7 按现状」同语义，普通本地终端的 readSystemPath 注入
     // 不适用于这里（shell 用完整路径 spawn，不做 PATH 查找）。
-    const pwshPath = findPwshPath()
+    const pwshPath = opts?.shell ?? findPwshPath()
     const config: SessionConfig = {
       id: '',
       name,
@@ -2332,7 +2337,7 @@ export function registerIPCHandlers(): void {
         encoding: 'utf-8'
       },
       tags,
-      startupCommands: [command],
+      startupCommands: command === undefined ? undefined : [command],
       createdAt: new Date(),
       updatedAt: new Date()
     }
@@ -2585,7 +2590,7 @@ export function registerIPCHandlers(): void {
         }
 
         // env 缺省时 opts.env 为 undefined，LocalConnector 以 {...process.env} 启动 —— 即系统环境变量
-        return await spawnLocalCommandSession(workspace.name, launch.command, [`${kind}:${safeId}`], { cwd: launchCwd, env: launchEnv })
+        return await spawnLocalCommandSession(kind === 'dsh' ? workspace.name : formatCodeWorkspaceName(workspace), launch.command, [`${kind}:${safeId}`], { cwd: launchCwd, env: launchEnv })
       } catch (error) {
         return validationFailure(error) || { success: false, error: (error as Error).message }
       }
@@ -2593,6 +2598,23 @@ export function registerIPCHandlers(): void {
   }
 
   // ========== Harness worktree 检测（kind 无关） ==========
+  ipcMain.handle('code-workspace:request', async (event, raw: unknown) => {
+    try {
+      if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) {
+        throw new ValidationError('Workspace presets require the main window')
+      }
+      const request = validateCodeWorkspaceRequest(raw)
+      const pwshPath = request.kind === 'launch' ? findPwshPath(readSystemPath() ?? undefined) : null
+      if (request.kind === 'launch' && !pwshPath) {
+        return { success: false, error: 'PowerShell 7 (pwsh) was not found. Install PowerShell 7 and try again.' }
+      }
+      return await requestCodeWorkspaces(request, async (workspace, cwd) => {
+        await spawnLocalCommandSession(`${formatCodeWorkspaceName(workspace)} · PS7`, undefined, [], { cwd, shell: pwshPath! })
+      })
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
   // 供工作区编辑对话框做「已有 worktree」下拉：列出 cwd 所属仓库 .lyshell-worktrees/ 下的共享名，
   // 并返回 worktree 根目录绝对路径（渲染层据此预览「选择 worktree 时自动生成的 key」的完整路径）。
   // cwd 先过 resolveWorkspaceCwd（展开 ~ + 须为存在的绝对目录），与启动路径同口径 ——

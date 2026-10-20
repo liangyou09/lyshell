@@ -53,9 +53,9 @@ export class BrowserPasswords {
     const items = this.read()
     atomicWriteFileSync(this.path(), JSON.stringify(items.filter(p => p.id !== id)))
   }
-  find(origin: string): { username: string; password: string } | null {
+  find(origin: string, id?: string): { username: string; password: string } | null {
     if (!this.available()) return null
-    const item = this.read().filter(p => p.origin === origin).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+    const item = this.read().filter(p => p.origin === origin && (id === undefined || p.id === id)).sort((a, b) => b.updatedAt - a.updatedAt)[0]
     return item ? { username: item.username, password: safeStorage.decryptString(Buffer.from(item.encrypted, 'base64')) } : null
   }
 }

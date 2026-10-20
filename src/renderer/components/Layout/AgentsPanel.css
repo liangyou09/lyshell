@@ -1,0 +1,17 @@
+.agents-workspace-main { padding-block: 3px; }
+.agents-workspace-copy { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.agents-workspace-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; line-height: 16px; }
+.agents-workspace-command { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-rack-data); font-size: 10px; line-height: 14px; }
+.agents-workspace-actions { display: flex; flex-shrink: 0; opacity: 0; pointer-events: none; }
+.agents-project-row:hover .agents-workspace-actions,
+.agents-project-row:focus-within .agents-workspace-actions { opacity: 1; pointer-events: auto; }
+@media (hover: none) { .agents-workspace-actions { opacity: 1; pointer-events: auto; } }
+
+/* 顶部 Work Launcher:设置工作区路径去重树 —— 复用 project-header 行壳,逐行自着色,
+   封顶高度内部滚动,不挤压下方 Agent 列表 */
+.agents-work-launcher { max-height: 40vh; }
+.agents-work-launcher .harness-project-body { padding: 4px 6px 8px; }
+.agents-work-launcher .harness-project-header {
+  --project-color: color-mix(in srgb, hsl(var(--project-hue) 48% 44%) 78%, var(--text-rack) 22%);
+}
+.agents-work-launcher .harness-project-header + .harness-project-header { margin-top: 2px; }

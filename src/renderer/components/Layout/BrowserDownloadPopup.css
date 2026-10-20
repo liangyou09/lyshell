@@ -1,0 +1,7 @@
+.browser-download-popup { position: fixed; right: 12px; z-index: 45; display: flex; flex-direction: column; width: 360px; max-width: calc(100vw - 24px); max-height: calc(100vh - 64px); overflow: hidden; border-radius: 12px; background: var(--bg-base); color: var(--text-rack); box-shadow: 0 8px 28px rgb(0 0 0 / 22%); font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+.browser-download-popup-header { display: flex; align-items: center; flex-shrink: 0; gap: 8px; min-height: 40px; padding: 6px 10px 6px 14px; border-bottom: 1px solid var(--rule-soft); }
+.browser-download-popup-header > svg { color: var(--text-rack-data); }
+.browser-download-popup-header h2 { flex: 1; margin: 0; font-size: 12px; font-weight: 500; }
+.browser-download-popup > .browser-downloads { flex: 0 1 auto; padding: 0 6px; }
+.browser-download-popup .browser-download-list { max-height: min(340px, calc(100vh - 112px)); }
+.browser-download-popup .browser-download-item:last-child { margin-bottom: 0; }

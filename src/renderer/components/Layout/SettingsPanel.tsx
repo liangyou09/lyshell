@@ -14,6 +14,7 @@ import { SettingsBackGlyph, SettingsNavigation } from './SettingsNavigation'
 import type { NavTab } from './ActivityRail'
 
 const EnvProfilePanel = lazy(() => import('./EnvProfilePanel'))
+const CodeWorkspaceSettings = lazy(() => import('./CodeWorkspaceSettings'))
 
 /**
  * 设置面板按用途导航，每次只展示当前分类，适配可调宽的左侧栏。
@@ -78,7 +79,7 @@ export interface SettingsViewRequest {
   returnTo?: NavTab
 }
 
-const BUILTIN_VIEWS = ['home', '', 'browser', 'env']
+const BUILTIN_VIEWS = ['home', '', 'browser', 'env', 'workspace']
 
 const normalizeScrollback = (value: number) => Number.isFinite(value)
   ? Math.max(1000, Math.min(100000, Math.trunc(value)))
@@ -110,7 +111,6 @@ const SettingsPanel: React.FC<{
     return saved ? snapTerminalFontSize(parseInt(saved)) : DEFAULT_TERMINAL_FONT_SIZE
   })
   const [cursorBlink, setCursorBlink] = useState(() => isCursorBlinkEnabled())
-  const [downloadDir, setDownloadDir] = useState('')
   // 主窗口尺寸(像素) -- 持久化到 preferences,启动恢复;输入框双向绑定,点应用/预设时调 IPC
   const [windowSize, setWindowSize] = useState<{ width: number; height: number }>({ width: 1200, height: 800 })
   const { themeId, setTheme, customColors, setCustomColors } = useThemeStore()
@@ -120,6 +120,7 @@ const SettingsPanel: React.FC<{
     { key: '', icon: 'terminal', label: t('settings.terminalSettings'), hint: t('settings.navigation.terminal') },
     { key: 'browser', icon: 'browser', label: t('browser.title'), hint: t('settings.navigation.browser') },
     { key: 'env', icon: 'env', label: t('env.title'), hint: t('settings.navigation.env') },
+    { key: 'workspace', icon: 'workspace', label: t('settings.workspace'), hint: t('settings.workspaceHint') },
     ...settingsViews.map(view => ({ key: makePluginViewKey(view.pluginId, view.id), icon: 'plugin', label: view.title }))
   ]
   const isHome = selectedView === 'home'
@@ -164,21 +165,6 @@ const SettingsPanel: React.FC<{
     return () => window.removeEventListener('terminalFontSizeChanged', handler as EventListener)
   }, [])
 
-  // 加载下载配置
-  useEffect(() => {
-    const loadDownloadConfig = async () => {
-      try {
-        const result = await window.electronAPI?.getDownloadConfig()
-        if (result?.success && result.data?.defaultDir) {
-          setDownloadDir(result.data.defaultDir)
-        }
-      } catch (e) {
-        console.warn('Failed to load download config:', e)
-      }
-    }
-    loadDownloadConfig()
-  }, [])
-
   // 加载已保存的窗口尺寸(回显输入框与预设高亮)
   useEffect(() => {
     if (!window.electronAPI) return
@@ -195,15 +181,6 @@ const SettingsPanel: React.FC<{
     }
     loadWindowSize()
   }, [])
-
-  // 选择下载目录（使用系统目录选择器）
-  const handleSelectDownloadDir = async () => {
-    const result = await window.electronAPI?.selectDirectory()
-    if (result) {
-      setDownloadDir(result)
-      await window.electronAPI?.setDownloadConfig({ defaultDir: result })
-    }
-  }
 
   // 当前窗口尺寸是否命中某个预设；命中则下拉回显该预设，否则显示"自定义"
   const activeWindowPreset = WINDOW_PRESETS.find(p => windowSize.width === p.width && windowSize.height === p.height)
@@ -244,6 +221,7 @@ const SettingsPanel: React.FC<{
           <PluginViewPanel key={selectedView} view={activeSettingsView} visible />
         </div>
       ) : !isHome && selectedView !== 'browser' && selectedView !== 'env' && <div className="settings-content" key={selectedView}>
+        {selectedView === 'workspace' && <Suspense fallback={null}><CodeWorkspaceSettings /></Suspense>}
         {selectedView === '' && <><SettingCard title={t('settings.sections.terminal')}>
           <div className="settings-field-row">
             <label htmlFor="settings-terminal-font">{t('settings.font')}</label>
@@ -440,32 +418,6 @@ const SettingsPanel: React.FC<{
           </div>
         </SettingCard>}
 
-        {selectedView === '' && <SettingCard title={t('settings.download')}>
-          <p className="settings-path-label">{t('settings.defaultSavePath')}</p>
-          <div className="settings-path settings-input">
-            <button
-              type="button"
-              onClick={() => downloadDir && window.electronAPI?.openFolder(downloadDir)}
-              disabled={!downloadDir}
-              className="settings-path-open"
-              title={t('settings.openFolder')}
-              aria-label={t('settings.openFolder')}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9H3V7Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              onClick={handleSelectDownloadDir}
-              className="settings-path-select"
-              title={downloadDir || t('settings.clickToSelect')}
-              aria-label={t('settings.clickToSelect')}
-            >
-              <span>{downloadDir || t('settings.clickToChoose')}</span>
-            </button>
-          </div>
-        </SettingCard>}
       </div>}
       </div>
     </div>

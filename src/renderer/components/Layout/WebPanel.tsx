@@ -1,4 +1,3 @@
-import { GroupListActions } from './GroupList'
 import { PanelHeader } from './PanelHeader'
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import cn from 'classnames'
@@ -15,7 +14,7 @@ import {
   activeWebTabGoBack, activeWebTabGoForward, getWebview,
   registerMiniWebview, unregisterMiniWebview
 } from './web-tab-controls'
-import ScrollFold, { ScrollTie } from './ScrollFold'
+import { ScrollTie } from './ScrollFold'
 import { IconBtn } from './IconBtn'
 import { useDismiss } from '../../hooks'
 import { WEBBAR_PARTITION } from '@shared/constants'
@@ -25,39 +24,18 @@ import { browserAddress, BROWSER_NEW_TAB_URL } from '@shared/browser-settings'
 import { useBrowserSettingsStore } from '../../stores/browser-settings-store'
 import { matchWebTabShortcut } from '@shared/webtab-shortcut'
 import { normalizeBookmarkUrl, useBrowserBookmarksStore } from '../../stores/browser-bookmarks-store'
+import { useBrowserDownloads } from '../../stores/browser-downloads-store'
+import BrowserDownloads from './BrowserDownloads'
+import BrowserAddressField from './BrowserAddressField'
+import './WebPanel.css'
 
-/** datalist 选项 label 用:取 hostname,取不到回落原样字符串(与页签 title 初始值同源);
-    历史行本身直接显示完整 URL,不再缩略为 hostname */
+/** 地址候选缺少收藏名称时使用主机名；历史行保留完整网址。 */
 function hostOf(url: string): string {
   try {
-    return new URL(url).hostname || url
+    return new URL(url).host || url
   } catch {
     return url
   }
-}
-
-/** 域名分组的组键:hostname + 非默认端口 —— localhost:3000 与 :8080 是两个
-    应用,不该并成一个组;裸端口默认值(80/443)不进键,常规站点组键即域名 */
-function hostKeyOf(url: string): string {
-  try {
-    const u = new URL(url)
-    return (u.hostname || url) + (u.port ? `:${u.port}` : '')
-  } catch {
-    return url
-  }
-}
-
-/** 最近历史按域名分组:Map 保序,组序 = 各组最近一条的落位(历史本身是
-    最近优先序,所以整墙「最近用过的域名在最上」),组内同吃最近序 */
-function groupHistoryByHost(history: string[]): Array<[string, string[]]> {
-  const groups = new Map<string, string[]>()
-  for (const url of history) {
-    const key = hostKeyOf(url)
-    const bucket = groups.get(key)
-    if (bucket) bucket.push(url)
-    else groups.set(key, [url])
-  }
-  return [...groups.entries()]
 }
 
 // 历史行 favicon 的回落猜测:多数站点在根路径放 /favicon.ico。按 origin 缓存 Promise
@@ -167,9 +145,8 @@ const NavButton: React.FC<{
   </button>
 )
 
-// 统一首行新增品牌、计数和分组按钮后，需要为全簇重新预留宽度。
-// 窄栏保留前后导航与加载时的停止钮，分组开合与清空一起收进更多菜单。
-const WEBBAR_NAMEPLATE_COMPACT_WIDTH = 340
+// 窄栏保留题名、前后导航与停止钮，设置和主页收进更多菜单。
+const WEBBAR_NAMEPLATE_COMPACT_WIDTH = 280
 
 // ===== 写轮眼小窗（栏底迷你浏览器）的持久化与几何常量 =====
 // 高度走 config（键名/防抖/夹取对齐会话面板 fileManagerHeight 的栏底语法）；上次
@@ -282,7 +259,7 @@ const TrashIcon: React.FC<{ size?: number }> = ({ size = 12 }) => (
   </Glyph>
 )
 
-/** 溢出菜单钮(lucide more-horizontal 线稿风格)—— 窄栏收纳的分组操作/清空住这里;
+/** 溢出菜单钮(lucide more-horizontal 线稿风格)—— 设置、主页与清空入口;
  *  三点走实心圆(1 半径描边在 14px 下只剩亚像素点,填色才读得出「省略号」) */
 const MoreIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
   <Glyph size={size}>
@@ -294,10 +271,8 @@ const MoreIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
 
 /**
  * 历史行 favicon:优先取持久化映射(打开网页页签时捕获的官方 favicon),
- * 没有再回落猜 origin/favicon.ico。两者都没有则不占位,行内只显示 URL。
- * url/favicon 变化先清旧 src:组件可被同位置复用(域名组头随组内最新一条
- * 换 url),不清的话,上一条 URL 的图标会在新条没有持久化图标、且回落猜测
- * 失败(按 origin 缓存 null)时长期残留 —— 展示成「张冠李戴」的旧图
+ * 没有再回落猜 origin/favicon.ico；两者都没有则显示通用网页图标。
+ * url/favicon 变化先清旧 src，避免复用组件时残留上一条 URL 的图标。
  */
 const RecentFavicon: React.FC<{ url: string; favicon?: string }> = ({ url, favicon }) => {
   const [src, setSrc] = useState<string | null>(favicon ?? null)
@@ -315,63 +290,9 @@ const RecentFavicon: React.FC<{ url: string; favicon?: string }> = ({ url, favic
       alive = false
     }
   }, [url, favicon])
-  if (!src) return null
+  if (!src) return <Glyph size={14}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a18 18 0 0 1 0 18 18 18 0 0 1 0-18" /></Glyph>
   return <WebTabFavicon src={src} />
 }
-
-const WebGroupHeader: React.FC<{
-  label: string
-  count: number
-  /** 组内最近一条(最近序首位)—— favicon 持久化映射的取值键与回落猜测源 */
-  recentUrl: string
-  favicon?: string
-  collapsed: boolean
-  onToggle: () => void
-}> = ({ label, count, recentUrl, favicon, collapsed, onToggle }) => (
-  <div
-    onClick={onToggle}
-    role="button"
-    tabIndex={0}
-    aria-expanded={!collapsed}
-    onKeyDown={(e: React.KeyboardEvent) => {
-      // 键盘开合:target 不在自己身上不接(行内嵌套钮聚焦时 Enter 不误触折叠)
-      if (e.target !== e.currentTarget) return
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() }
-    }}
-    className={cn(
-      'relative flex items-center gap-2.5 pl-3 pr-[20px] py-[3px] text-[10px] text-[var(--text-rack-mute)]',
-      'scroll-head tone-web group cursor-pointer',
-      collapsed && 'rolled'
-    )}
-  >
-    {/* 木轴与会话墙共用材质和开合形态；青蓝身份仅落在窄轴肩与系绳上。 */}
-    <span aria-hidden className="rod-caps" style={{ color: 'var(--web-group)' }}>
-      <span className="scroll-rod-collar scroll-rod-collar-l" />
-      <span className="scroll-rod-collar scroll-rod-collar-r" />
-    </span>
-    {/* 蝴蝶结:收起系上、展开随纸飘落淡出(槽位恒占防行首跳动);绳色随轴头
-        (inline 注入压过 hover 变色类,提亮只走 opacity 一档 —— 会话墙同款) */}
-    <span
-      aria-hidden
-      className="inline-flex transition opacity-80 group-hover:opacity-100"
-      style={{ color: 'var(--web-group)' }}
-    >
-      <ScrollTie group />
-    </span>
-    {/* 组 favicon —— 恒占 14px 座,迟到的猜测结果不推挤题签 */}
-    <span aria-hidden className="w-[14px] h-[14px] flex-shrink-0 flex items-center justify-center">
-      <RecentFavicon url={recentUrl} favicon={favicon} />
-    </span>
-    {/* 题签 —— 组键(hostname[:port]),金墨书体同会话分组;长域名可缩可截断
-        (flex-shrink-0 会把右缘计数挤出栏外 —— 发丝线 flex-1 先缩到 0,题签
-        随后 ellipsis),全名走 title(tooltip 看全量,行内 URL 同一约定) */}
-    <span title={label} className="min-w-0 truncate scroll-slip text-[13px]">
-      {label}
-    </span>
-    <span className="flex-1 h-px bg-[var(--rule)]" />
-    <span className="scroll-count [font-family:inherit] text-[11px] text-[var(--text-rack-data)] tracking-[.04em]">{count}</span>
-  </div>
-)
 
 /**
  * 网页访问面板(机柜左列 Web 页签)。
@@ -380,13 +301,9 @@ const WebGroupHeader: React.FC<{
  * 按钮住铭牌行(IconBtn,指令经 web-tab-controls 落到活动页签);否则是「启动器」
  * —— 顶部 URL 栏输入完整网址,以终端页签形式打开在活动分屏(多页签,类似 dsh
  * Web 页签),打开的网页一律走终端页签栏切换/关闭,面板不再列清单。
- * 下方是「最近访问」历史(localStorage 持久化,pane-store webTabHistory),
- * 立在会话墙同款的双开画轴墙上(scroll-dual-wall 几何 + scroll-dual-web 青蓝
- * 段身份:上/下辊行一键收/放全体域名分组 —— 会话墙「全体」同语义,组态与
- * 单组折叠同管线不存档;组头 = GroupHeader 同款卷轴,ScrollFold 纸幅,组序/
- * 组内序吃历史最近优先序;组键 = hostname + 非默认端口):点击重开、行上
- * 按钮在小窗打开、✕ 删除单条;清空整段历史的钮在铭牌行(IconBtn);输入框
- * 挂 datalist 原生补全。
+ * 下方是「最近访问」历史(localStorage 持久化,pane-store webTabHistory)，
+ * 按最近访问顺序平铺，不按域名重排。点击重开、Ctrl+点击或行上按钮在小窗
+ * 预览；支持收藏和删除单条，更多菜单清空历史，地址栏提供最近访问与收藏补全。
  * URL 归一化/校验在 pane-store 的 normalizeWebBarUrl;webview 的导航/弹窗由主进程
  * 按 persist:webbar partition 分流锁定(仅 http/https,见 main/index.ts)。
  *
@@ -417,34 +334,20 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
   const bookmarks = useBrowserBookmarksStore(s => s.bookmarks)
   const addBookmark = useBrowserBookmarksStore(s => s.addBookmark)
   const removeBookmark = useBrowserBookmarksStore(s => s.removeBookmark)
-  const [listView, setListView] = useState<'recent' | 'bookmarks'>('recent')
+  const [listView, setListView] = useState<'recent' | 'bookmarks' | 'downloads'>('recent')
+  const { downloads } = useBrowserDownloads()
+  const activeDownloads = downloads.filter(item => item.active).length
   const bookmarkUrls = useMemo(() => new Set(bookmarks.map(item => item.url)), [bookmarks])
+  const addressSuggestions = useMemo(() => {
+    const titles = new Map(bookmarks.map(item => [item.url, item.title]))
+    return Array.from(new Set([...webTabHistory, ...bookmarks.map(item => item.url)]))
+      .map(url => ({ url, title: titles.get(url) || hostOf(url) }))
+  }, [webTabHistory, bookmarks])
   const isBookmarked = (url: string): boolean => bookmarkUrls.has(normalizeBookmarkUrl(url) ?? '')
   const toggleBookmark = (url: string, title?: string): void => {
     const page = Object.values(usePaneStore.getState().overlayPayloads).find(item => item.kind === 'web' && normalizeBookmarkUrl(item.nav?.url ?? item.url) === normalizeBookmarkUrl(url))
     const result = isBookmarked(url) ? removeBookmark(url) : addBookmark(url, title || (page?.kind === 'web' ? page.title : undefined))
     setNotice(result.success ? null : t(`webBar.${result.error === 'storageFailed' ? 'bookmarkSaveFailed' : 'invalid'}`))
-  }
-  // 最近历史的域名分组视图(组序/组内序吃历史本身的最近优先序)与组开合态:
-  // host → 收起?。组件随机柜页签切换保活,开合态跨切页签留存;历史增删后
-  // 消失的组在表里留的陈旧键无害
-  const webGroups = useMemo(() => groupHistoryByHost(webTabHistory), [webTabHistory])
-  const [collapsedHosts, setCollapsedHosts] = useState<Record<string, boolean>>({})
-  const toggleHostCollapsed = (host: string): void =>
-    setCollapsedHosts(s => ({ ...s, [host]: !s[host] }))
-  // 一键收/放(会话墙 toggleAllGroups 同语义):收 = 把最近访问里展开着的
-  // 域名卷全卷起,放 = 全部展开 —— 组态与单组折叠同管线(直接改
-  // collapsedHosts,不另存档,保活下跨机柜页签留存);判据只看现存各组,
-  // 历史增删留下的陈旧键不掺和
-  const allGroupsCollapsed =
-    webGroups.length > 0 && webGroups.every(([host]) => !!collapsedHosts[host])
-  const allGroupsExpanded = webGroups.every(([host]) => !collapsedHosts[host])
-  const setAllGroupsCollapsed = (collapsed: boolean): void => {
-    setCollapsedHosts(prev => {
-      const next = { ...prev }
-      for (const [host] of webGroups) next[host] = collapsed
-      return next
-    })
   }
   const removeWebTabHistory = usePaneStore((s) => s.removeWebTabHistory)
   const clearWebTabHistory = usePaneStore((s) => s.clearWebTabHistory)
@@ -645,7 +548,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
   // 铭牌行收纳(阈值见常量注):根宽未量得(0)不收 —— RO 的初始通知在首次
   // 绘制前落,按全簇渲染不产生闪变;jsdom 无 RO 恒全簇(测试桩依赖)
   const navCompact = rootWidth > 0 && rootWidth < WEBBAR_NAMEPLATE_COMPACT_WIDTH + (onOpenSettings ? 32 : 0) + (browserSettings.homePage ? 32 : 0)
-  // 清空始终收进更多菜单，窄栏再收纳分组/设置；避免首行一次误点就清空历史。
+  // 清空始终收进更多菜单，窄栏再收纳设置和主页；避免首行误点清空历史。
   // 收层机械(useDismiss 外点/ESC,与状态栏编码菜单/图标选择器同一套)
   const [navMoreOpen, setNavMoreOpen] = useState(false)
   const navMoreRef = useRef<HTMLDivElement>(null)
@@ -843,12 +746,6 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
     setMiniUrl(norm)
     return true
   }
-  const handleMiniEnter = (): void => {
-    setNotice(null)
-    const raw = (miniInputRef.current?.value ?? '').trim()
-    if (!raw) return
-    loadMini(raw)
-  }
   // 升格:以小窗当前页开完整网页页签(小窗保留原页,两条浏览线互不打断)
   const handleMiniPromote = (): void => {
     if (miniUrl !== null) openWebTab(miniUrl)
@@ -922,7 +819,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
 
   // 输入完整 URL(无 scheme 自动补 https://)→ 浏览器模式就地导航,启动器模式
   // 以终端页签形式打开在活动分屏。非法输入走 notice 提示(对齐其他面板的错误
-  // 路径)。rawArg 供 Enter 的延迟路径传入 datalist 提交后的 DOM 值
+  // 路径)。rawArg 供候选选择和前往按钮传入当前输入值
   const handleOpenWebTab = (rawArg?: string): void => {
     setNotice(null)
     const input = (rawArg ?? webBarInput).trim()
@@ -952,13 +849,14 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
       // visible=false = 保活隐藏态(MainWindow 常挂载,见组件 docstring):display:none
       // 摘出布局但元素留树,webview guest 存活(Tailwind .hidden 在 display 组内后
       // 于 .flex 生成,恒压过 flex)
-      className={cn('w-full h-full flex flex-col bg-[var(--bg-base)]', !visible && 'hidden')}
+      className={cn('web-panel w-full h-full flex flex-col bg-[var(--bg-base)]', !visible && 'hidden')}
+      data-narrow={rootWidth > 0 && rootWidth < 300 || undefined}
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
       <PanelHeader
         title={t('webBar.title')}
-        count={navCompact ? undefined : listView === 'bookmarks' ? bookmarks.length : webTabHistory.length}
-        countHint={t(listView === 'bookmarks' ? 'webBar.bookmarks' : 'panelHeader.recentVisits')}
+        count={navCompact ? undefined : listView === 'downloads' ? downloads.length : listView === 'bookmarks' ? bookmarks.length : webTabHistory.length}
+        countHint={t(listView === 'downloads' ? 'browser.downloads' : listView === 'bookmarks' ? 'webBar.bookmarks' : 'panelHeader.recentVisits')}
         actions={<>
           {!navCompact && onOpenSettings && <IconBtn title={t('browser.title')} amber size="lg" bright onClick={onOpenSettings}>
             <Glyph size={18}><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1" /><circle cx="12" cy="12" r="5" /></Glyph>
@@ -966,12 +864,11 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
           {!navCompact && browserSettings.homePage && <IconBtn title={t('browser.openHome')} amber size="lg" bright onClick={() => handleOpenWebTab(browserSettings.homePage)}>
             <Glyph size={18}><path d="m3 10 9-7 9 7M5 9v12h5v-7h4v7h5V9" /></Glyph>
           </IconBtn>}
-          {!navCompact && listView === 'recent' && webGroups.length > 0 && <GroupListActions allCollapsed={allGroupsCollapsed} allExpanded={allGroupsExpanded} onChange={setAllGroupsCollapsed} />}
         {/* 导航簇 —— 落点 = 活动网页页签(web-tab-controls 控制层);可用性随
             活动页签:无页签前后禁用，前后随 nav 快照，加载时显示停止按钮。
             IconBtn lg + bright 档:按钮簇共用 28px 透明操作面、rack 前景和悬停浅底，
-            18px 图标的视觉描边为 1.5px，与分组双箭头一致。窄栏收纳
-            (WEBBAR_NAMEPLATE_COMPACT_WIDTH):副操作分组/清空离场让位题名,
+            18px 图标的视觉描边为 1.5px。窄栏收纳
+            (WEBBAR_NAMEPLATE_COMPACT_WIDTH):副操作设置/主页离场让位题名,
             前后导航恒在，刷新使用 F5 */}
         <IconBtn title={t('webBar.back')} amber size="lg" bright disabled={!activeNav?.canGoBack} onClick={activeWebTabGoBack}>
           <ChevronLeftIcon size={18} />
@@ -988,7 +885,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
         >
           <StopIcon size={18} />
         </IconBtn>}
-        {/* 清空仅在更多菜单中提供；窄栏额外收纳设置与分组操作。 */}
+        {/* 清空仅在更多菜单中提供；窄栏额外收纳设置与主页。 */}
         {(navCompact || listView === 'recent') && (
           <div ref={navMoreRef} className="relative flex-shrink-0">
             <IconBtn ref={navMoreTriggerRef} title={t('webBar.more')} aria-haspopup="menu" aria-expanded={navMoreOpen} aria-controls={navMoreOpen ? navMoreId : undefined} amber size="lg" bright onClick={() => setNavMoreOpen(o => !o)}>
@@ -1009,16 +906,6 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
                 className="win-no-drag absolute top-full right-0 mt-1 z-50 w-[168px] bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm p-1 shadow-xl [&_button:focus-visible]:outline [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-[var(--amber)]">
                 {navCompact && onOpenSettings && <button type="button" role="menuitem" onClick={() => { closeNavMore(); onOpenSettings() }} className="w-full px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)]">{t('browser.title')}</button>}
                 {navCompact && browserSettings.homePage && <button type="button" role="menuitem" onClick={() => { closeNavMore(); handleOpenWebTab(browserSettings.homePage) }} className="w-full px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)]">{t('browser.openHome')}</button>}
-                {navCompact && listView === 'recent' && webGroups.length > 0 && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => { closeNavMore(); setAllGroupsCollapsed(!allGroupsCollapsed) }}
-                    className="w-full px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)]"
-                  >
-                    {t(allGroupsCollapsed ? 'groupList.expandAll' : 'groupList.collapseAll')}
-                  </button>
-                )}
                 {listView === 'recent' && <button
                   type="button"
                   role="menuitem"
@@ -1041,58 +928,19 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
           fixed 弹窗/浮层与绝对定位的小窗不受影响 */}
       <div className="mx-1.5 flex-1 min-h-0 flex flex-col min-w-0">
 
-      {/* 输入动作位 —— 44px 输入行(36px 画轴居中悬浮,上下各 4px 呼吸),
-          底部一条随壳宽的分割线(侧距归内容壳,离缘 6 不连接面板左右边缘,
-          与会话栏过滤区底线同法)把动作区与历史区分开;导航键已迁铭牌行,
-          此行只留地址栏(旧行上 px-3 已撤 —— 侧距统一由内容壳出,不再叠两层) */}
-      <div className="flex-shrink-0 h-[44px] flex flex-col">
-        <div className="flex-1 flex items-center gap-1">
-          {/* 网页访问栏 —— 双开画轴(与小窗地址栏/会话搜索框同款挂轴化,机械全在
-              globals.css 的 .scroll-search 系列):两端各一竖辊,常开不随聚焦
-              收放(同会话搜索框「常在的动作位」语义)—— 地址作墨 mono 居中
-              落于纸面、横跨正中合缝。再挂 scroll-search-web 青蓝变体(轴头/
-              系绳/解绳辉光取 --web-group,与最近访问墙的组头署名同一件物),
-              合缝去痕读作整幅。启动器模式输入完整 URL 回车即开新页签(无
-              scheme 自动补 https://),datalist 挂最近历史做原生补全;label
-              承接点击(点纸即落墨,点辊也聚焦);IME/datalist/Esc 的键盘机械
-              原样 */}
-          <label className="scroll-search scroll-search-web scroll-search-lg open flex-1 min-w-0 h-[36px] relative flex items-center cursor-text">
-            {/* 纸幅 —— 两半:左半自左辊后向右铺、右半自右辊后向左铺,合缝在
-                容器正中;垫在辊与墨之下(纸自辊后引出),自由端带残余卷曲 */}
-            <span aria-hidden className="scroll-search-paper scroll-search-paper-l" />
-            <span aria-hidden className="scroll-search-paper scroll-search-paper-r" />
-            {/* 双辊 —— 两端竖轴:辊体(光辊)+ 裹辊纸带(收=满卷,开=纸下
-                辊)+ 上下青蓝轴头;几何「辊比纸长」(轴头探出纸外) */}
-            <span aria-hidden className="scroll-search-rod scroll-search-rod-l" />
-            <span aria-hidden className="scroll-search-rod scroll-search-rod-r" />
-            {/* 蝴蝶结 —— 收卷时双卷各拴一只(绳色随轴头,机械共用
-                .scroll-tie 的 :is 列表);开卷解绳飘走 */}
-            <span aria-hidden className="scroll-search-tie scroll-search-tie-l"><ScrollTie /></span>
-            <span aria-hidden className="scroll-search-tie scroll-search-tie-r"><ScrollTie /></span>
-            {/* 墨 —— 纸面输入:地址居中落合缝(mono 13 配 20px 纸幅),
-                占位=题签青蓝墨(web 段 .scroll-search-web 换墨,样式在
-                ::placeholder);左让位避开左辊区,
-                右让位收窄到 12 —— datalist 的原生下拉三角贴着纸右缘,
-                靠近右辊但留 5px 气不贴上 */}
-            <input
-              ref={inputRef}
-              type="text"
-              list="lyshell-webbar-history"
+      {/* 地址栏固定占 44px；沿用补全、IME 与 Esc 的导航行为。 */}
+      <div className="web-address-row">
+            <BrowserAddressField
+              inputRef={inputRef} visible={visible} suggestions={addressSuggestions}
+              renderIcon={url => <RecentFavicon url={url} favicon={webTabFavicons[url]} />}
+              onSubmit={url => { setWebBarInput(url); handleOpenWebTab(url) }}
               value={webBarInput}
               onChange={(e) => {
                 editingRef.current = true
                 setWebBarInput(e.target.value)
               }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  // IME 组合中的 Enter 是候选确认,不导航
-                  if (e.nativeEvent.isComposing) return
-                  // datalist 高亮项的提交是 Enter 的默认动作,晚于 keydown ——
-                  // 同步读 state 只拿到输入前缀(浏览器模式会拿前缀就地导航,
-                  // 毁掉当前页)。不 preventDefault(掐掉默认动作补全就丢了),
-                  // 延后一拍从 DOM 读已提交值
-                  setTimeout(() => handleOpenWebTab(inputRef.current?.value), 0)
-                } else if (e.key === 'Escape' && activeWebTabId !== null) {
+                if (e.key === 'Escape' && activeWebTabId !== null) {
                   // 浏览器模式 Esc:放弃编辑,复位为当前 URL
                   editingRef.current = false
                   setWebBarInput(displayUrl)
@@ -1104,19 +952,9 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
                 // 半选输入中间改一段的场景不强制全选
                 if (activeWebTabId !== null) e.target.select()
               }}
-              placeholder={t('webBar.placeholder')}
-              spellCheck={false}
-              className="scroll-search-input relative z-[2] flex-1 min-w-0 ml-[18px] mr-[12px] bg-transparent border-none outline-none font-mono text-[13px] text-center text-[var(--text-rack)] caret-[var(--amber)]"
+              aria-label={t('webBar.placeholder')}
+              placeholder={t(browserSettings.searchEngine === 'none' ? 'commandBar.welcome.urlPlaceholder' : 'commandBar.welcome.searchPlaceholder')}
             />
-            {/* 收藏与最近访问共用地址补全，按 URL 去重。 */}
-            <datalist id="lyshell-webbar-history">
-              {Array.from(new Set([...bookmarks.map(item => item.url), ...webTabHistory])).map(url => (
-                <option key={url} value={url}>{hostOf(url)}</option>
-              ))}
-            </datalist>
-          </label>
-        </div>
-        <div aria-hidden className="h-px bg-[var(--rule-soft)]" />
       </div>
 
       {/* 内容笼:space-y-2(与 PluginPanel 同构);侧距归内容壳(6),上下垫
@@ -1126,8 +964,8 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
 
         {notice && <div role="status" className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] break-all">{notice}</div>}
 
-        <div role="tablist" aria-label={t('webBar.websiteLists')} className="flex flex-shrink-0 gap-1 border-b border-[var(--rule-soft)]">
-          {(['recent', 'bookmarks'] as const).map(view => (
+        <div role="tablist" aria-label={t('webBar.websiteLists')} className="web-list-tabs">
+          {(['recent', 'bookmarks', 'downloads'] as const).map(view => (
             <button
               key={view}
               type="button"
@@ -1135,33 +973,37 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
               id={`web-list-tab-${view}`}
               aria-selected={listView === view}
               aria-controls="web-list-content"
+              title={t(view === 'downloads' ? 'browser.downloads' : `webBar.${view}`)}
               tabIndex={listView === view ? 0 : -1}
               onClick={() => setListView(view)}
               onKeyDown={e => {
                 if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return
                 e.preventDefault()
-                const next = e.key === 'Home' ? 'recent' : e.key === 'End' ? 'bookmarks' : view === 'recent' ? 'bookmarks' : 'recent'
+                const views = ['recent', 'bookmarks', 'downloads'] as const
+                const next = e.key === 'Home' ? 'recent' : e.key === 'End' ? 'downloads' : views[(views.indexOf(view) + (e.key === 'ArrowLeft' ? 2 : 1)) % views.length]
                 setListView(next)
                 document.getElementById(`web-list-tab-${next}`)?.focus()
               }}
-              className={cn('flex items-center gap-1.5 min-w-0 px-2 py-1.5 text-xs border-b-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)]', listView === view ? 'border-[var(--amber)] text-[var(--text-rack)]' : 'border-transparent text-[var(--text-rack-data)] hover:bg-[var(--bg-slot)]')}
+              className="web-list-tab"
             >
               {view === 'bookmarks' && <BookmarkIcon />}
-              <span>{t(`webBar.${view}`)}</span>
-              <span className="text-[var(--text-rack-data)]">{view === 'recent' ? webTabHistory.length : bookmarks.length}</span>
+              <span className="web-list-label">{t(view === 'downloads' ? 'browser.downloads' : `webBar.${view}`)}</span>
+              <span className="web-list-count">{view === 'downloads' ? activeDownloads || downloads.length : view === 'recent' ? webTabHistory.length : bookmarks.length}</span>
             </button>
           ))}
         </div>
 
         <div id="web-list-content" role="tabpanel" aria-labelledby={`web-list-tab-${listView}`} className="flex-1 min-h-0 flex flex-col">
+        {listView === 'downloads' && <BrowserDownloads />}
         {listView === 'bookmarks' && (
           <div className="rack-scroll flex-1 min-h-0 overflow-y-auto">
             {bookmarks.length === 0 ? (
               <p className="px-3 py-4 text-xs leading-relaxed text-[var(--text-rack-data)]">{t('webBar.bookmarksEmpty')}</p>
             ) : bookmarks.map(item => (
               <div key={item.url} className="flex items-center gap-1 px-2 py-1 border-b border-[var(--rule-soft)] hover:bg-[var(--bg-slot)]">
-                <button type="button" onClick={e => { if (e.ctrlKey || e.metaKey) loadMini(item.url); else openWebTab(item.url) }} title={item.url} className="flex-1 min-w-0 py-1 text-left text-xs text-[var(--text-rack)] hover:text-[var(--amber)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)]">
-                  <span className="block truncate">{item.title}</span>
+                <button type="button" onClick={e => { if (e.ctrlKey || e.metaKey) loadMini(item.url); else openWebTab(item.url) }} title={item.url} className="flex flex-1 min-w-0 items-center gap-2 py-1 text-left text-xs text-[var(--text-rack)] hover:text-[var(--amber)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)]">
+                  <span aria-hidden className="web-history-favicon"><RecentFavicon url={item.url} favicon={webTabFavicons[item.url]} /></span>
+                  <span className="min-w-0 truncate">{item.title}</span>
                 </button>
                 <button type="button" title={t('webBar.openMini')} onClick={() => loadMini(item.url)} className="w-6 h-6 flex-shrink-0 flex items-center justify-center text-[var(--text-rack)] hover:text-[var(--amber)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)]"><MiniOpenIcon size={14} /></button>
                 <button type="button" title={t('webBar.removeBookmark')} onClick={() => toggleBookmark(item.url)} className="w-6 h-6 flex-shrink-0 flex items-center justify-center text-[var(--amber)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)]"><BookmarkIcon filled /></button>
@@ -1170,76 +1012,35 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
           </div>
         )}
 
-        {/* 分组列表：单画轴独立开合，顶部按钮批量展开或收起。 */}
-        {listView === 'recent' && webGroups.length > 0 && (
-          <div className="group-list scroll-dual-web flex-1 min-h-0">
-            <div className="group-list-viewport rack-scroll">
-              <div className="group-list-body">
-                {webGroups.map(([host, urls]) => (
-                  <div key={host}>
-                    <WebGroupHeader
-                      label={host}
-                      count={urls.length}
-                      recentUrl={urls[0]}
-                      favicon={webTabFavicons[urls[0]]}
-                      collapsed={!!collapsedHosts[host]}
-                      onToggle={() => toggleHostCollapsed(host)}
-                    />
-                    <ScrollFold open={!collapsedHosts[host]}>
-                      <div className="paper-sheet mx-2">
-                        {urls.map(url => (
-                          <div
-                            key={url}
-                            className="flex items-center gap-1.5 px-2 h-[32px] border-b border-[var(--rule-soft)] hover:bg-[var(--bg-slot)] transition-colors"
-                          >
-                            <RecentFavicon url={url} favicon={webTabFavicons[url]} />
-                            <button
-                              onClick={(e) => {
-                                // Ctrl/Cmd+点击 = 小窗预览(应用内 Ctrl+点击是备选动作的通用
-                                // 语法,同终端 Ctrl+点击 URL 开页签);普通点击仍开完整页签
-                                if (e.ctrlKey || e.metaKey) loadMini(url)
-                                else openWebTab(url)
-                              }}
-                              title={url}
-                              className="flex-1 min-w-0 text-left text-xs [font-family:inherit] truncate text-[var(--text-rack)] hover:text-[var(--amber)] cursor-pointer transition-colors"
-                            >
-                              {url}
-                            </button>
-                            <button
-                              type="button"
-                              title={t(isBookmarked(url) ? 'webBar.removeBookmark' : 'webBar.addBookmark')}
-                              aria-pressed={isBookmarked(url)}
-                              disabled={!normalizeBookmarkUrl(url)}
-                              onClick={() => toggleBookmark(url)}
-                              className={cn('w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-sm hover:bg-[var(--bg-slot)] disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)]', isBookmarked(url) ? 'text-[var(--amber)]' : 'text-[var(--text-rack)]')}
-                            >
-                              <BookmarkIcon filled={isBookmarked(url)} />
-                            </button>
-                            {/* 在小窗打开 —— 显式按钮(此前只有 Ctrl+点击隐藏手势):与 Ctrl+点击
-                                同走 loadMini 入口,小窗收着时顺手重开(见 loadMini),同址 = 刷新 */}
-                            <button
-                              onClick={() => loadMini(url)}
-                              title={t('webBar.openMini')}
-                              className="w-[14px] h-[14px] flex-shrink-0 flex items-center justify-center text-[var(--text-rack-mute)] hover:text-[var(--amber)] hover:bg-[var(--bg-slot)] rounded-[2px] transition-colors cursor-pointer"
-                            >
-                              <MiniOpenIcon />
-                            </button>
-                            <button
-                              onClick={() => removeWebTabHistory(url)}
-                              title={t('webBar.removeRecent')}
-                              className="w-[14px] h-[14px] flex-shrink-0 flex items-center justify-center text-xs text-[var(--text-rack-mute)] hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors cursor-pointer"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </ScrollFold>
-                  </div>
+        {listView === 'recent' && (
+          <div className="web-history rack-scroll">
+            {webTabHistory.length === 0 ? (
+              <p className="web-history-empty">{t('webBar.recentEmpty')}</p>
+            ) : (
+              <ol aria-label={t('webBar.recent')} className="web-history-list">
+                {webTabHistory.map(url => (
+                  <li key={url} className="web-history-row">
+                    <button type="button" title={url} className="web-history-open"
+                      onClick={e => { if (e.ctrlKey || e.metaKey) loadMini(url); else openWebTab(url) }}>
+                      <span aria-hidden className="web-history-favicon"><RecentFavicon url={url} favicon={webTabFavicons[url]} /></span>
+                      <span className="web-history-address">{url}</span>
+                    </button>
+                    <div className="web-history-actions">
+                      <button type="button"
+                        title={t(isBookmarked(url) ? 'webBar.removeBookmark' : 'webBar.addBookmark')}
+                        aria-pressed={isBookmarked(url)} disabled={!normalizeBookmarkUrl(url)}
+                        onClick={() => toggleBookmark(url)}>
+                        <BookmarkIcon filled={isBookmarked(url)} />
+                      </button>
+                      <button type="button" title={t('webBar.openMini')} onClick={() => loadMini(url)}><MiniOpenIcon size={14} /></button>
+                      <button type="button" className="web-history-remove" title={t('webBar.removeRecent')} onClick={() => removeWebTabHistory(url)}>
+                        <Glyph size={14}><path d="m6 6 12 12M18 6 6 18" /></Glyph>
+                      </button>
+                    </div>
+                  </li>
                 ))}
-              </div>
-            </div>
-
+              </ol>
+            )}
           </div>
         )}
         </div>
@@ -1346,10 +1147,9 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
           <div className="scroll-dual-body">
             {miniContentMounted && (
               <div className="flex flex-col h-full">
-                {/* 迷你工具条:勾玉开眼指示 + 后退/前进/加载时停止 + 小窗地址(datalist
-                    复用主地址栏的全量历史)+ 升格 + 关页。刷新由 F5 处理，
+                {/* 迷你工具条:勾玉开眼指示 + 后退/前进/加载时停止 + 小窗地址(与主地址栏共用最近访问和收藏候选)+ 升格 + 关页。刷新由 F5 处理，
                     guest 内的按键由主进程直接刷新小窗，不转发到完整页签。
-                    条高 32px = 双开画轴地址栏的满高(辊 24px 上下各留 4px 气) */}
+                    工具条保持 32px 高，地址框 24px，预留上下各 4px */}
                 <div className="flex items-center gap-[3px] px-2 h-[32px] flex-shrink-0 bg-[var(--bg-rack)] border-b border-[var(--rule)]">
                   <MiniEyeGlyph lit={miniUrl !== null} label={t('webBar.mini')} />
                   <NavButton title={t('webBar.miniBack')} disabled={!miniNav.canGoBack} onClick={() => settleWebview(() => miniEl?.goBack())}>
@@ -1365,45 +1165,24 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
                   >
                     <StopIcon />
                   </NavButton>}
-                  {/* 小窗地址 —— 双开画轴(与会话搜索框同款挂轴化,机械全在 globals.css 的
-                      .scroll-search 系列):两端各一竖辊,常开不随聚焦收放(同主地址栏/
-                      会话搜索框「常在动作位」语义)—— 地址作墨 mono 居中落于纸面、
-                      横跨正中合缝。再挂 scroll-search-web 青蓝变体(轴头/系绳/解绳辉光
-                      取 --web-group,与主地址栏/最近访问墙的组头署名同一件物;几何保持
-                      16/24 原档不加高,加高档 scroll-search-lg 只挂主地址栏)。
-                      label 承接点击(点纸即落墨,点辊也聚焦);IME/datalist/Esc 的键盘
-                      机械原样 */}
-                  <label className="scroll-search scroll-search-web open flex-1 min-w-0 h-[32px] relative flex items-center cursor-text">
-                    <span aria-hidden className="scroll-search-paper scroll-search-paper-l" />
-                    <span aria-hidden className="scroll-search-paper scroll-search-paper-r" />
-                    <span aria-hidden className="scroll-search-rod scroll-search-rod-l" />
-                    <span aria-hidden className="scroll-search-rod scroll-search-rod-r" />
-                    <span aria-hidden className="scroll-search-tie scroll-search-tie-l"><ScrollTie /></span>
-                    <span aria-hidden className="scroll-search-tie scroll-search-tie-r"><ScrollTie /></span>
-                    <input
-                      ref={miniInputRef}
-                      type="text"
-                      list="lyshell-webbar-history"
+                  {/* 小窗沿用同款输入框，24px 高度适配紧凑工具条。 */}
+                    <BrowserAddressField
+                      inputRef={miniInputRef} mini visible={visible} suggestions={addressSuggestions}
+                      renderIcon={url => <RecentFavicon url={url} favicon={webTabFavicons[url]} />}
+                      onSubmit={url => { setMiniInput(url); setNotice(null); loadMini(url) }}
                       value={miniInput}
                       onChange={(e) => setMiniInput(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          // IME 组合中的 Enter 是候选确认,不导航(同主地址栏)
-                          if (e.nativeEvent.isComposing) return
-                          // datalist 高亮项的提交晚于 keydown(同主地址栏竞态),延后一拍读 DOM
-                          setTimeout(handleMiniEnter, 0)
-                        } else if (e.key === 'Escape' && miniUrl !== null) {
+                        if (e.key === 'Escape' && miniUrl !== null) {
                           // Esc 放弃编辑,复位为当前页地址(同主地址栏语法)
                           setMiniInput(miniUrl)
                           miniInputRef.current?.blur()
                         }
                       }}
                       onFocus={(e) => e.target.select()}
+                      aria-label={t('webBar.miniPlaceholder')}
                       placeholder={t('webBar.miniPlaceholder')}
-                      spellCheck={false}
-                      className="scroll-search-input relative z-[2] flex-1 min-w-0 mx-[18px] bg-transparent border-none outline-none font-mono text-[11px] text-center text-[var(--text-rack)] caret-[var(--amber)]"
                     />
-                  </label>
                   <NavButton title={t(isBookmarked(miniUrl ?? '') ? 'webBar.removeBookmark' : 'webBar.addBookmark')} disabled={!normalizeBookmarkUrl(miniUrl ?? '')} onClick={() => toggleBookmark(miniUrl ?? '', miniTitleRef.current)}>
                     <BookmarkIcon filled={isBookmarked(miniUrl ?? '')} size={12} />
                   </NavButton>

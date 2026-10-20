@@ -23,6 +23,7 @@ beforeEach(() => {
     listAgents: async () => [],
     listCodexWorkspaces: async () => [],
     listClaudeWorkspaces: async () => [],
+    codeWorkspaceRequest: async () => ({ success: true, presets: [{ id: 'preset', name: 'Project', cwd: 'D:/project', isolation: 'shared', order: 0 }] }),
     listEnvProfiles: listProfiles
   } as unknown as typeof window.electronAPI
 })
@@ -59,7 +60,7 @@ describe('从引用页进入环境变量设置', () => {
       const view = render(panel(true))
       await act(async () => {})
       act(() => useUiStore.getState().requestCreateDialog(source))
-      const placeholder = source === 'agents' ? 'agents.edit.namePh' : `${source}.wsNamePh`
+      const placeholder = source === 'agents' ? 'agents.edit.namePh' : `${source}.wsModelPh`
       const input = view.getByPlaceholderText(placeholder) as HTMLInputElement
       fireEvent.change(input, { target: { value: '未保存的工作' } })
       const manageButtons = view.getAllByRole('button', { name: 'env.manage' })

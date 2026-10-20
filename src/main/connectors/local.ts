@@ -100,6 +100,9 @@ export class LocalConnector extends BaseConnector {
       cwd: this.getSpawnCwd() ?? undefined,
       env: {
         ...process.env,
+        // PowerShell 7.6.6 的本地化更新通知可能向 PadRight 传入负数并终止进程。
+        // 在启动前默认禁用通知（包含从 cmd/bash 再启动的 pwsh），显式环境配置仍可覆盖。
+        POWERSHELL_UPDATECHECK: process.env.POWERSHELL_UPDATECHECK ?? 'Off',
         ...(systemPath ? { PATH: systemPath } : {}),
         ...this.config.env,
         ...this.extraEnv

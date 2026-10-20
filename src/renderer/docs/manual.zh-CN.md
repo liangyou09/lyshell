@@ -119,7 +119,7 @@
 
 左侧 **网页** 面板是轻量内置浏览器，看监控大盘和文档再合适不过。输入网址（无 scheme 自动补 `https://`）回车，即以普通页签打开在当前活动分屏 —— 拖拽拆分、页签语义与终端完全一致，大盘可以和喂数据的终端同框。
 
-- **最近访问** —— 成功加载过的 URL 自动记住（去重、封顶 30 条），输入框原生补全；点击重开、✕ 删除单条
+- **最近访问** —— 成功加载过的 URL 自动记住（去重、封顶 30 条），地址栏提供最近访问与收藏候选；点击重开、✕ 删除单条
 - **刷新** —— 普通网页页签按 `F5` 刷新，`Shift + F5` 忽略缓存强制刷新。
 - **开发者工具** —— 普通网页页签按 `F12`，在网页下方打开/关闭；拖动分隔条调整高度。
 - **安全** —— 仅放行 `http` / `https`；webview 导航与弹窗由主进程走专属 partition 分流锁定
@@ -139,6 +139,8 @@ Codex、Claude 继续提供各自的工作区列表和依赖检测。
 ### 工作区
 
 一个工作区 = 一个目录 + 一份配置。可设模型（启动时以 `--model` 传入）、备注，并可绑定变量组或跟随全局启用的变量组。Claude 工作区另有「跳过权限确认」开关（启动时附加 `--dangerously-skip-permissions`）。
+
+Codex、Claude 共用「设置 → 工作区」中的目录预设。在设置列表中点击工作区，可在该条目下方展开编辑名称、目录和 worktree；新建预设在列表顶部展开。Codex、Claude 面板按目录显示紧凑项目树，项目组可单独折叠或全部收放；同名项目显示父目录提示，悬停组头可查看完整路径。点击工作区名称展开启动配置，通过预设选择决定名称、目录和隔离方式，再配置模型、环境变量与权限。保存后收起，取消放弃本次修改；悬停或键盘聚焦工作区时，右侧显示独立的启动按钮，用于打开终端。
 
 ### worktree 目录隔离
 
@@ -260,7 +262,7 @@ DELETE http://127.0.0.1:${LYSHELL_MCP_PORT}/api/plugins/${LYSHELL_PLUGIN_ID}/vie
 |------|---------|
 | 展示、`bootstrap()`、`onEvent()` | 无（未授权 `uiControl` 时页面仍可显示） |
 | `callApi(tool, args?)` | 走 MCP HTTP 路由既有能力闸（如 `lyshell_list_sessions` 需 `read`） |
-| `openWebTab(url)` | `uiControl`（仅 http / https） |
+| `openWebTab(url, {reuseExisting?: boolean})` | `uiControl`（仅 http / https）；显式复用本插件同地址页签，fragment 快捷导航不额外创建页签 |
 | `openDialog({viewId, title?, width?, height?})` | `uiControl`（目标限本插件另一视图） |
 | `openTerminal(sessionId)` | `uiControl` + `sessionControl` |
 | `openDoc(path)` | `uiControl` + `read` |

@@ -1,5 +1,4 @@
 import DialogClose from '@/components/Layout/DialogClose'
-import ScrollFold from './ScrollFold'
 import { GroupListActions } from './GroupList'
 import { PanelHeader, PanelHeaderAction } from './PanelHeader'
 import { IconBtn } from './IconBtn'
@@ -7,8 +6,10 @@ import { SettingsGlyph } from './SettingsNavigation'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
-import { GroupHeader } from './SessionsPanel'
 import { normDirKey, wsDirDetail, wsDirLabel } from './ws-dir'
+import { workspaceProjectHue } from './workspace-project-color'
+import './HarnessPanel.css'
+import './AgentsPanel.css'
 import { generateWorktreeStamp } from '@shared/worktree'
 import EnvRowsEditor from '../EnvRowsEditor'
 import { useUiStore } from '../../stores/ui-store'
@@ -20,10 +21,8 @@ const codexIcon = new URL('../../assets/agent-icons/codex.png', import.meta.url)
 /**
  * Agent 面板(机柜左列 Agents 页签内容)。
  *
- * 从原 Sidebar 的 AGENTS 横条升级为独立面板:每个 agent 一张机柜槽位卡,
- * 显示 名称 / 命令 / 工作目录,单击启动、右键编辑、hover 出编辑/删除。
- * 卡列表按工作目录(cwd)分组立在会话墙同款的双开画轴墙上(段身份青紫,
- * Claude/codex/dsh 的三色在 HarnessPanel) —— 分组模型与 Web 栏「最近访问墙」同构。
+ * 按工作目录(cwd)展示紧凑项目树，与 Claude / Codex 共用分组样式和项目色。
+ * 显示名称 / 命令，单击启动、右键编辑、hover 出编辑/删除。
  * 状态、CRUD handler 与编辑对话框整体从 Sidebar 迁出,沿用 sidebar.agent* 文案键。
  *
  * 编辑对话框按"插槽规格表"组织:面板(图标+名称)/ 命令 / 工作目录 / 环境变量 / 实时预览,
@@ -101,12 +100,6 @@ function bundledIconFor(command: string): BundledIconEntry | null {
   const t = command.trim().split(/\s+/)[0]?.replace(/^["']|["']$/g, '').toLowerCase()
   return (t && BUNDLED_ICON_BY_COMMAND[t]) || null
 }
-
-// 目录组段身份 —— agent 卡按工作目录分组立在双开画轴墙上,Agents 页签整墙一色青紫
-// (claude 青橙 / codex 青白 / dsh 青花在 HarnessPanel 的 WS_TONE,四面互斥不同屏)。
-// tone 给纸里目录组头的轴头/系绳(GroupHeader),token 给墙辊/解绳辉光/题签墨
-// (inline --seg-tone 注入,机械在 globals.css 的 .scroll-dual-seg)
-const WS_TONE = { tone: 'seg-violet' as const, token: 'var(--seg-violet)' }
 
 /** 渲染内置品牌图标:mask 模式取资产 alpha 作剪影、按 --text-rack 着色(明暗自适应);
  *  img 模式直接显示原色品牌标。 */
@@ -186,6 +179,11 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
   // 图标选择器浮层开合 + 外部点击关闭用 ref
   const [iconPickerOpen, setIconPickerOpen] = useState(false)
   const iconPickerRef = useRef<HTMLDivElement>(null)
+  // ── 顶部 Work Launcher ──
+  // 按目录和 worktree 身份去重，同仓库的不同树必须保留独立启动入口。
+  const [workspaceDirs, setWorkspaceDirs] = useState<Array<{ dir: string; id: string; worktreeKey?: string }>>([])
+  const [launchingWorkspaceId, setLaunchingWorkspaceId] = useState<string | null>(null)
+  const launchingWorkspaceRef = useRef(false)
 
   const loadAgents = async () => {
     try {
@@ -198,6 +196,27 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
   useEffect(() => {
     void loadAgents()
   }, [])
+  // 拉取设置 → 工作区 的预设列表,去重成顶部 Work Launcher 目录树
+  useEffect(() => {
+    if (!visible) return
+    let cancelled = false
+    void window.electronAPI?.codeWorkspaceRequest({ kind: 'list' }).then((res) => {
+      if (cancelled) return
+      if (!res?.success) { setActionError(res?.error || t('workspacePresets.failed')); return }
+      const seen = new Map<string, { dir: string; id: string; worktreeKey?: string }>()
+      for (const p of res.presets) {
+        const base = normDirKey(p.cwd)
+        const directory = window.electronAPI?.platform === 'win32' ? base.replace(/\\/g, '/').toLowerCase() : base
+        const worktreeKey = p.isolation === 'worktree' ? p.worktreeKey : undefined
+        const key = JSON.stringify([directory, worktreeKey ?? null])
+        if (!seen.has(key)) seen.set(key, { dir: p.cwd, id: p.id, worktreeKey })
+      }
+      setWorkspaceDirs([...seen.values()].sort((a, b) => a.dir.localeCompare(b.dir)))
+    }).catch((err) => { if (!cancelled) setActionError(err instanceof Error ? err.message : t('workspacePresets.failed')) })
+    return () => { cancelled = true }
+    // 仅进入面板时刷新，语言变化不覆盖当前请求。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible])
   useEffect(() => {
     if (!visible) return
     let cancelled = false
@@ -267,6 +286,20 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
 
   const handleLaunch = async (agentId: string) => {
     await window.electronAPI?.launchAgent(agentId)
+  }
+
+  // 顶部 Work Launcher 点击:按预设 id 在该目录启动 PS7 —— worktree 预设由主进程
+  // resolveWorkspaceCwd 落到 worktree 目录,而非原始仓库根
+  const handleLaunchWorkspace = async (id: string) => {
+    if (launchingWorkspaceRef.current) return
+    launchingWorkspaceRef.current = true
+    setLaunchingWorkspaceId(id)
+    setActionError(null)
+    try {
+      const result = await window.electronAPI?.codeWorkspaceRequest({ kind: 'launch', id })
+      if (!result?.success) setActionError(result?.error || t('workspacePresets.failed'))
+    } catch (error) { setActionError(error instanceof Error ? error.message : t('workspacePresets.failed')) }
+    finally { launchingWorkspaceRef.current = false; setLaunchingWorkspaceId(null) }
   }
 
   const handleAdd = () => {
@@ -426,71 +459,69 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
   // 编辑中 command 对应的内置图标(emoji 为空时在选择器按钮上预览)
   const previewIcon = bundledIconFor(agentCommand)
 
-  // agent 卡 —— 槽位面卡原样（点击启动/右键编辑/悬停操作簇全不动），只是从连排
-  // 暗沟改成立在目录组卷的纸幅上（paper-sheet）；组内顺序照旧吃仓库自有顺序
+  // 子项沿用项目树行边界，命令保留在名称下方；启动与编辑/删除按钮互不嵌套。
   const renderAgentCard = (agent: AgentConfig) => (
-    <div
-      key={agent.id}
-      onClick={() => handleLaunch(agent.id)}
-      onContextMenu={(e) => handleContextMenu(agent, e)}
-      onMouseLeave={() => { if (deleteConfirmId === agent.id) setDeleteConfirmId(null) }}
-      title={`${agent.name}: ${agent.command}`}
-      // 44px 独立卡 —— 四边 rule 框 + 2px 圆角,卡间 6px 暗沟由容器 space-y-1.5 出;
-      // 槽位阶梯与 Harness 工作区卡归一(slot 面 / 悬停 elev);纸幅 px-1.5 已收侧距,
-      // 行内 px-2 让图标落在 20px 左沿
-      className="group relative flex items-center gap-2.5 px-2 h-[44px] cursor-pointer transition-colors rounded-[2px] border border-[var(--rule)] bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)] overflow-hidden"
-    >
-      {/* 图标槽:emoji > 内置品牌图标 > 默认机器人头 —— 20px 槽与工作区卡图标同列 */}
-      <span className="flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center text-[15px] leading-none text-[var(--text-rack-mute)] group-hover:text-[var(--amber)] transition-colors">
-        <AgentSlotIcon agent={agent} />
-      </span>
-      <span className="flex flex-col min-w-0 flex-1">
-        <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">{agent.name}</span>
-        <span className="text-[11px] [font-family:inherit] text-[var(--text-rack-data)] truncate leading-tight">
-          {agent.command}
-        </span>
-      </span>
-      {/* 悬停操作簇遮罩颜色跟悬停面色(elev);focus-within 同步显形,键盘可达 */}
-      <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-elev)] from-[24%] to-transparent">
-        <button
-          onClick={(e) => handleContextMenu(agent, e)}
-          title={t('sidebar.agentEditTitle')}
-          className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
-        >
-          <IconEdit />
+    <div key={agent.id} className="harness-workspace-item">
+      <div
+        onContextMenu={(e) => handleContextMenu(agent, e)}
+        onMouseLeave={() => { if (deleteConfirmId === agent.id) setDeleteConfirmId(null) }}
+        className="group relative harness-project-row agents-project-row"
+      >
+        <button type="button" className="harness-workspace-main agents-workspace-main" aria-label={agent.name}
+          title={`${agent.name}: ${agent.command}`} onClick={() => handleLaunch(agent.id)}>
+          {/* 图标槽:emoji > 内置品牌图标 > 默认机器人头 */}
+          <span className="harness-workspace-symbol" aria-hidden="true">
+            <AgentSlotIcon agent={agent} />
+          </span>
+          <span className="agents-workspace-copy">
+            <span className="agents-workspace-name">{agent.name}</span>
+            <span className="agents-workspace-command">
+              {agent.command}
+            </span>
+          </span>
         </button>
-        <button
-          onClick={async (e) => {
-            e.stopPropagation()
-            // 两步确认:首次点击切到确认态,再次点击才真正删除(与工作区/变量组卡一致)
-            if (deleteConfirmId !== agent.id) {
-              setDeleteConfirmId(agent.id)
-              return
-            }
-            setDeleteConfirmId(null)
-            // 失败(落盘失败/agent 已不存在)不静默:卡片在下方 loadAgents()
-            // 后"复活"前给出原因 —— 与拨分接开关/变量组卡片删除同族错误位
-            try {
-              const res = await window.electronAPI?.deleteAgent(agent.id)
-              if (res && res.success === false) {
-                setActionError(typeof res.error === 'string' ? res.error : t('agents.edit.deleteFailed'))
+        {/* 悬停或键盘焦点进入行后显示操作，保留独立按钮位置 */}
+        <div className="agents-workspace-actions">
+          <button
+            onClick={(e) => handleContextMenu(agent, e)}
+            title={t('sidebar.agentEditTitle')}
+            className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
+          >
+            <IconEdit />
+          </button>
+          <button
+            onClick={async (e) => {
+              e.stopPropagation()
+              // 两步确认:首次点击切到确认态,再次点击才真正删除(与工作区/变量组卡一致)
+              if (deleteConfirmId !== agent.id) {
+                setDeleteConfirmId(agent.id)
+                return
               }
-            } catch (err) {
-              setActionError(err instanceof Error && err.message ? err.message : t('agents.edit.deleteFailed'))
-            } finally {
-              await loadAgents()
-            }
-          }}
-          title={deleteConfirmId === agent.id ? t('agents.edit.confirmDelete') : t('sidebar.agentDelete')}
-          className={cn(
-            'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
-            deleteConfirmId === agent.id
-              ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
-              : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]'
-          )}
-        >
-          <IconX />
-        </button>
+              setDeleteConfirmId(null)
+              // 失败(落盘失败/agent 已不存在)不静默:卡片在下方 loadAgents()
+              // 后"复活"前给出原因 —— 与拨分接开关/变量组卡片删除同族错误位
+              try {
+                const res = await window.electronAPI?.deleteAgent(agent.id)
+                if (res && res.success === false) {
+                  setActionError(typeof res.error === 'string' ? res.error : t('agents.edit.deleteFailed'))
+                }
+              } catch (err) {
+                setActionError(err instanceof Error && err.message ? err.message : t('agents.edit.deleteFailed'))
+              } finally {
+                await loadAgents()
+              }
+            }}
+            title={deleteConfirmId === agent.id ? t('agents.edit.confirmDelete') : t('sidebar.agentDelete')}
+            className={cn(
+              'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
+              deleteConfirmId === agent.id
+                ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
+                : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]'
+            )}
+          >
+            <IconX />
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -501,7 +532,7 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
       style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
       <PanelHeader
-        title={t('agents.title')}
+        title={t('agents.workLauncher')}
         count={agents.length}
         actions={<>
           {agentGroups.length > 0 && <GroupListActions allCollapsed={allDirsCollapsed} allExpanded={allDirsExpanded} onChange={setAllDirsCollapsed} />}
@@ -510,43 +541,74 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void 
         </>}
       />
 
-      {/* ===== 内容壳 ===== 头行以下整列离缘 6(mx-1.5) —— 与会话栏器物两端同线
-          (栏内器物一律离缘,墙纸不再通铺到面板两缘);段内既有垫距保留;壳不
-          定位,fixed 弹窗与绝对定位浮层不受影响 */}
-      <div className="mx-1.5 pt-2 flex-1 min-h-0 flex flex-col min-w-0">
+      {/* 顶部 Work Launcher:设置 → 工作区 的工作路径去重树,点击在对应目录启动 PS7 */}
+      {workspaceDirs.length > 0 && (
+        <section className="mx-1.5 mt-1 flex-shrink-0 min-h-0" aria-label={t('agents.workLauncher')}>
+          <div className="harness-project-tree agents-work-launcher">
+            <div className="harness-project-viewport rack-scroll">
+              <div className="harness-project-body">
+                {workspaceDirs.map(({ dir, id, worktreeKey }) => {
+                  const detail = wsDirDetail(dir, workspaceDirs.map(d => d.dir))
+                  const label = wsDirLabel(dir) + (worktreeKey ? ` · ${worktreeKey}` : '')
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      className="harness-project-header"
+                      title={dir + (worktreeKey ? ` · ${worktreeKey}` : '')}
+                      aria-label={`${t('workspacePresets.launchPs7For', { name: label })} · ${dir}${worktreeKey ? ` · ${worktreeKey}` : ''}`}
+                      aria-busy={launchingWorkspaceId === id}
+                      disabled={launchingWorkspaceId !== null}
+                      style={{ '--project-hue': workspaceProjectHue(dir) } as React.CSSProperties}
+                      onClick={() => void handleLaunchWorkspace(id)}
+                    >
+                      <span className="harness-project-symbol" aria-hidden="true"><IconFolder /></span>
+                      <span className="harness-project-heading">
+                        <span className="harness-project-label">{label}</span>
+                        {detail.detailMarker && <span className="harness-project-parent">{detail.detail}</span>}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      <div className="mx-1.5 pt-1 flex-1 min-h-0 flex flex-col min-w-0">
 
       {/* 列表级操作错误(卡片删除落盘失败等)—— 对齐 EnvProfilePanel 的 actionError 位 */}
       {actionError && (
         <div className="text-[10.5px] text-[var(--error-rack)] break-words pt-2">{actionError}</div>
       )}
 
-      {/* 分组列表：单画轴独立开合，顶部按钮批量展开或收起。 */}
+      {/* 目录项目树：单组独立开合，顶部按钮批量展开或收起。 */}
       {agentGroups.length > 0 ? (
-        <div
-          className="group-list scroll-dual-seg tone-violet flex-1 min-h-0"
-          style={{ '--seg-tone': WS_TONE.token } as React.CSSProperties}
-        >
-          <div className="group-list-viewport rack-scroll">
-            <div className="group-list-body">
-              {agentGroups.map(([dir, list]) => (
-                <div key={dir}>
-                  <GroupHeader
-                    tone={WS_TONE.tone}
-                    label={dir ? wsDirLabel(dir) : t('agents.groupNoDir')}
-                    labelTitle={dir || undefined}
-                    {...(dir ? wsDirDetail(dir, agentGroups.map(([key]) => key)) : {})}
-                    count={list.length}
-                    truncateLabel
-                    collapsed={collapsedDirs.has(dir)}
-                    onToggle={() => toggleDirCollapsed(dir)}
-                  />
-                  <ScrollFold open={!collapsedDirs.has(dir)}>
-                    <div className="paper-sheet mx-2 px-1.5 py-1.5 space-y-1.5">
-                      {list.map(renderAgentCard)}
-                    </div>
-                  </ScrollFold>
+        <div className="harness-project-tree agents-project-tree">
+          <div className="harness-project-viewport rack-scroll">
+            <div className="harness-project-body">
+              {agentGroups.map(([dir, list], index) => {
+                const label = dir ? wsDirLabel(dir) : t('agents.groupNoDir')
+                const detail = dir ? wsDirDetail(dir, agentGroups.map(([key]) => key)) : undefined
+                const groupId = `agents-project-group-${index}`
+                return <div key={dir} className="harness-project-group"
+                  style={{ '--project-hue': workspaceProjectHue(dir) } as React.CSSProperties}>
+                  <button type="button" className="harness-project-header" title={dir || label}
+                    aria-expanded={!collapsedDirs.has(dir)} aria-controls={groupId} onClick={() => toggleDirCollapsed(dir)}>
+                    <span className="harness-project-symbol" aria-hidden="true"><IconFolder /></span>
+                    <span className="harness-project-heading">
+                      <span className="harness-project-label">{label}</span>
+                      {detail?.detailMarker && <span className="harness-project-parent">{detail.detail}</span>}
+                    </span>
+                    <span className="harness-project-count">{list.length}</span>
+                    <svg className={cn('harness-project-chevron', !collapsedDirs.has(dir) && 'is-open')} width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>
+                  </button>
+                  <div id={groupId} className="harness-project-items" hidden={collapsedDirs.has(dir)} role="group" aria-label={dir || label}>
+                    {list.map(renderAgentCard)}
+                  </div>
                 </div>
-              ))}
+              })}
             </div>
           </div>
 

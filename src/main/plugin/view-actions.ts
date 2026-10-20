@@ -100,6 +100,9 @@ export function sanitizeActionParams(
     }
     case 'openWebTab': {
       const url = p.url
+      if (p.reuseExisting !== undefined && typeof p.reuseExisting !== 'boolean') {
+        return { ok: false, error: 'openWebTab reuseExisting must be a boolean' }
+      }
       if (typeof url !== 'string' || url.length === 0 || url.length > 4096) {
         return { ok: false, error: 'openWebTab requires url (1-4096 chars)' }
       }
@@ -112,7 +115,7 @@ export function sanitizeActionParams(
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
         return { ok: false, error: 'openWebTab only accepts http/https URLs' }
       }
-      return { ok: true, params: { url: parsed.toString() } }
+      return { ok: true, params: { url: parsed.toString(), ...(p.reuseExisting !== undefined ? { reuseExisting: p.reuseExisting } : {}) } }
     }
     case 'openDoc': {
       const docPath = p.path

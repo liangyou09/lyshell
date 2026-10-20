@@ -78,10 +78,10 @@ const api = {
   },
 
   /** 打开网页页签（需 uiControl；仅 http/https） */
-  openWebTab(url: string): Promise<LyshellViewActionResult> {
+  openWebTab(url: string, opts?: { reuseExisting?: boolean }): Promise<LyshellViewActionResult> {
     return ipcRenderer.invoke(CHANNELS.PLUGIN_VIEW_ACTION_INVOKE, {
       action: 'openWebTab',
-      params: { url }
+      params: { url, ...(opts?.reuseExisting !== undefined ? { reuseExisting: opts.reuseExisting } : {}) }
     })
   },
 

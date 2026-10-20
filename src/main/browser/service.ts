@@ -9,6 +9,7 @@ import { validateBrowserSettings } from './validation'
 import { BrowserPasswords } from './passwords'
 import { confirmBrowserCertificate, getBrowserCertificate, invalidateBrowserCertificatePrompts, setupBrowserCertificates } from './certificates'
 import { initializeBrowserPrompts, requestBrowserPrompt } from './prompts'
+import { browserDownloadAction, getBrowserDownloads, initializeBrowserDownloads, openBrowserDownloadDirectory } from './downloads'
 
 const passwords = new BrowserPasswords()
 let settings: BrowserSettings | null = null
@@ -64,6 +65,7 @@ function permissionKeys(permission: string, mediaTypes?: string[]): BrowserPermi
 
 export async function initializeBrowser(): Promise<void> {
   initializeBrowserPrompts()
+  initializeBrowserDownloads()
   await applyProxy(getBrowserSettings())
   const ses = browserSession()
   ses.setPermissionCheckHandler((guest, permission, origin, details) => {
@@ -93,10 +95,16 @@ export async function initializeBrowser(): Promise<void> {
   })
 
   // 仅专用隔离 preload 可发起；密码不经过宿主 renderer 或日志。
-  ipcMain.handle(BROWSER_FILL_CHANNEL, (event) => {
+  ipcMain.handle(BROWSER_FILL_CHANNEL, (event, raw: unknown) => {
     const origin = guestOrigin(event)
-    if (!origin || !getBrowserSettings().savePasswords) return null
-    try { return passwords.find(origin) } catch { return null }
+    if (!origin || !getBrowserSettings().savePasswords || !passwords.available() || !raw || typeof raw !== 'object') return null
+    const request = raw as Record<string, unknown>
+    try {
+      // 候选阶段只返回当前站点的账号元数据；用户选定后才解密对应密码。
+      if (request.kind === 'suggestions') return passwords.list().filter(item => item.origin === origin).sort((a, b) => b.updatedAt - a.updatedAt).map(({ id, username }) => ({ id, username }))
+      if (request.kind === 'fill' && typeof request.id === 'string' && request.id.length > 0 && request.id.length <= 128) return passwords.find(origin, request.id)
+      return null
+    } catch { return null }
   })
   ipcMain.on(BROWSER_CAPTURE_CHANNEL, (event, raw: unknown) => {
     const origin = guestOrigin(event)
@@ -120,6 +128,12 @@ export async function initializeBrowser(): Promise<void> {
 
 /** 由已验证的宿主 IPC 调用。写入串行，代理应用失败不会保存半份配置。 */
 export function browserRequest(request: BrowserRequest, ownerId?: number): Promise<BrowserResult> {
+  if (request.kind === 'downloads') return Promise.resolve({ success: true, downloadSnapshot: getBrowserDownloads() })
+  if (request.kind === 'openDownloadDirectory') return openBrowserDownloadDirectory().then(success => ({ success })).catch(() => ({ success: false, error: 'browserDownloadFailed' }))
+  if (request.kind === 'downloadAction') {
+    try { return Promise.resolve(browserDownloadAction(request.id, request.action)).then(success => ({ success })).catch(() => ({ success: false, error: 'browserDownloadFailed' })) }
+    catch { return Promise.resolve({ success: false, error: 'browserDownloadFailed' }) }
+  }
   if (request.kind === 'certificateInfo') return Promise.resolve(getBrowserCertificate(ownerId ?? -1, request.guestId, request.url))
   if (request.kind === 'trustCertificate') return confirmBrowserCertificate(ownerId ?? -1, request.guestId, request.url, request.certificateId)
   const result = operations.then(async (): Promise<BrowserResult> => {

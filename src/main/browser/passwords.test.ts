@@ -73,4 +73,18 @@ describe('系统加密密码库', () => {
     vault.delete('0')
     expect(vault.list()).toHaveLength(998)
   })
+  it('按 ID 精确查找选定账号，跨源或已删除 ID 返回空，未传 ID 仍取最近账号', () => {
+    const vault = new BrowserPasswords()
+    vault.save('https://example.com', 'alice', 'alice-secret')
+    vault.save('https://example.com', 'bob', 'bob-secret')
+    const aliceId = vault.list().find(v => v.username === 'alice')!.id
+    const bobId = vault.list().find(v => v.username === 'bob')!.id
+    expect(vault.find('https://example.com', aliceId)).toEqual({ username: 'alice', password: 'alice-secret' })
+    expect(vault.find('https://example.com', bobId)).toEqual({ username: 'bob', password: 'bob-secret' })
+    expect(vault.find('https://other.example', aliceId)).toBeNull()
+    expect(vault.find('https://example.com', 'does-not-exist')).toBeNull()
+    vault.delete(bobId)
+    expect(vault.find('https://example.com', bobId)).toBeNull()
+    expect(vault.find('https://example.com')).toEqual({ username: 'alice', password: 'alice-secret' })
+  })
 })

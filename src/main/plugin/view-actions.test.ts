@@ -165,6 +165,8 @@ describe('sanitizeActionParams（纯函数）', () => {
     const r = sanitizeActionParams('openWebTab', { url: 'HTTPS://Example.COM/a?b=1' })
     expect(r.ok).toBe(true)
     if (r.ok) expect((r.params.url as string).toLowerCase()).toBe('https://example.com/a?b=1')
+    expect(sanitizeActionParams('openWebTab', { url: 'https://example.com', reuseExisting: 'true' }).ok).toBe(false)
+    expect(sanitizeActionParams('openWebTab', { url: 'https://example.com', reuseExisting: true })).toMatchObject({ ok: true, params: { reuseExisting: true } })
   })
 
   it('openDoc：拒绝 NUL / 查询串 / fragment', () => {

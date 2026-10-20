@@ -5,10 +5,11 @@ import { useBrowserSettingsStore, requestBrowser } from '../../stores/browser-se
 import { usePaneStore } from '../../stores/pane-store'
 import { SettingsBackGlyph, SettingsNavigation } from './SettingsNavigation'
 import './BrowserSettingsPanel.css'
+import BrowserDownloads from './BrowserDownloads'
 
 const Card: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => <section className="settings-card" aria-label={title}>{children}</section>
 
-const CATEGORIES = ['general', 'network', 'privacy', 'sitePermissions', 'passwords'] as const
+const CATEGORIES = ['general', 'downloads', 'network', 'privacy', 'sitePermissions', 'passwords'] as const
 export type BrowserSettingsCategory = typeof CATEGORIES[number]
 
 const BrowserSettingsPanel: React.FC<{
@@ -85,6 +86,7 @@ const BrowserSettingsPanel: React.FC<{
         <p className="browser-scope">{t('browser.scope')}</p>
       </>}
       <fieldset disabled={busy || !loaded} className="browser-fields">
+        {category === 'downloads' && <Card title={t('browser.downloads')}><BrowserDownloads showDirectorySettings /></Card>}
         {category === 'general' && <Card title={t('browser.general')}>
           <label className="browser-field"><span>{t('browser.homePage')}</span><input type="url" className="settings-input" placeholder="https://example.com" value={draft.homePage} maxLength={4096} onChange={e => patch('homePage', e.target.value)} /></label>
           <p className="browser-hint">{t('browser.homeHint')}</p>

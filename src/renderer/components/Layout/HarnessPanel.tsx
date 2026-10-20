@@ -14,6 +14,11 @@ import { normDirKey, wsDirDetail, wsDirLabel } from './ws-dir'
 import { ensureDetected, getCachedDetect, redetectHarness } from './harness-detect'
 import { useUiStore } from '../../stores/ui-store'
 import { useEscDismiss } from '../../hooks'
+import { formatCodeWorkspaceName, type CodeWorkspacePreset } from '@shared/code-workspaces'
+import './HarnessPanel.css'
+import { workspaceProjectHue } from './workspace-project-color'
+import RackSelect from './RackSelect'
+import RackCombobox from './RackCombobox'
 
 /**
  * AI Harness 面板 —— dsh / codex / claude 三份第一等终端 Agent 的通用外壳。
@@ -23,11 +28,9 @@ import { useEscDismiss } from '../../hooks'
  * 渲染层只关心「检测 → 工作区列表 → 增删改/启动」这套通用交互。
  *
  * 缺失依赖时只提示 + 给出安装命令与仓库链接（不自动安装）。就绪后管理多个「工作区」：
- * 每个工作区 = 名称 + 工作目录，单击在对应目录内启动对应 CLI（参照 Agent 面板交互）。
- * 工作区列表按工作目录分组，立在会话墙同款的双开画轴墙上（ScrollFold 垂卷 + 上/下
- * 辊行一键收放；题签取目录 basename，全路径走 tooltip；组色随 kind：claude 青橙 /
- * codex 青白 / dsh 青花，agents 青紫在
- * AgentsPanel —— WS_TONE 一表四处取值，机械在 globals.css 的 .scroll-dual-seg）。
+ * Codex / Claude 点击名称展开配置，使用独立按钮启动；DeepSeek 保留单击启动。
+ * Codex / Claude 按目录展示紧凑项目树，组头可折叠、完整路径走 tooltip；
+ * DeepSeek 保留卷轴分组。工作区配置及启动行为由各 kind 的适配器保持。
  * 环境变量的增删改与启用切换都在左侧「环境变量」面板；这里仅为工作区对话框的绑定
  * 下拉与模型建议拉一份只读变量组列表 + 该 kind 的启用指针。
  * 样式沿用机柜令牌（--bg-base/--bg-slot/--rule/--amber/--text-rack*）与 12px 等宽基线。
@@ -135,12 +138,13 @@ const BusLed: React.FC<{ on: boolean }> = ({ on }) => (
   </>
 )
 
-const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpenEnvSettings?: () => void; onOpenWeb?: (target: { workspaceId?: string; cwd?: string }, name?: string) => Promise<{ success: boolean; error?: string }> }> = ({ agent, visible = true, onOpenEnvSettings, onOpenWeb }) => {
+const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpenWorkspaceSettings?: () => void; onOpenEnvSettings?: () => void; onOpenWeb?: (target: { workspaceId?: string; cwd?: string }, name?: string) => Promise<{ success: boolean; error?: string }> }> = ({ agent, visible = true, onOpenWorkspaceSettings, onOpenEnvSettings, onOpenWeb }) => {
   const { t } = useTranslation()
   const view = HARNESS_AGENT_VIEWS[agent]
   const prefix = view.i18nPrefix
   const api = HARNESS_API[agent]
   const deps = view.dependencies
+  const compactTree = agent !== 'dsh'
 
   const [status, setStatus] = useState<Record<string, boolean> | null>(null)
   const [detecting, setDetecting] = useState(false)
@@ -154,9 +158,24 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
   const [webOpening, setWebOpening] = useState(false)
   // 列表级操作错误横幅：启动失败统一在此展示具体原因
   const [actionError, setActionError] = useState<string | null>(null)
-  // 新增/编辑对话框
+  // DeepSeek 使用对话框；Codex / Claude 使用行内编辑区。
   const [showDialog, setShowDialog] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const savingRef = React.useRef(false)
+  const closeEditor = () => {
+    if (savingRef.current) return
+    setShowDialog(false)
+    setSaveError(null)
+    if (agent !== 'dsh') requestAnimationFrame(() => document.getElementById(`${agent}-workspace-${editWorkspace?.id ?? 'add'}`)?.focus())
+  }
   const [editWorkspace, setEditWorkspace] = useState<HarnessWorkspace | undefined>(undefined)
+  const [presets, setPresets] = useState<CodeWorkspacePreset[]>([])
+  const [presetId, setPresetId] = useState('')
+  // 刷新候选只更新列表，表单目标独立保存，避免暂离设置或复制时重置草稿。
+  const presetTargetRef = React.useRef<CodeWorkspacePreset | HarnessWorkspace | null>(null)
+  const selectedPreset = presets.find(preset => preset.id === presetId)
+  const usePreset = agent !== 'dsh'
+  const WorkspaceSelect = usePreset ? RackSelect : 'select'
   const [wsName, setWsName] = useState('')
   const [wsCwd, setWsCwd] = useState('')
   const [wsNote, setWsNote] = useState('')
@@ -189,6 +208,50 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
   const [triedSubmit, setTriedSubmit] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const selectPreset = (preset: CodeWorkspacePreset) => {
+    presetTargetRef.current = preset
+    setSaveError(null); setTriedSubmit(false)
+    setPresetId(preset.id)
+    setWsName(preset.name); setWsCwd(preset.cwd)
+    setWsIsolation(preset.isolation === 'worktree' ? 'worktree' : 'shared')
+    setWsWorktreeKey(preset.worktreeKey || ''); setWsKeyAuto(false)
+    try { localStorage.setItem('lyshell.codeWorkspacePreset.v1', preset.id) } catch { /* 本次选择继续生效 */ }
+  }
+  useEffect(() => {
+    if (!visible || agent === 'dsh') return
+    let cancelled = false
+    void window.electronAPI.codeWorkspaceRequest({ kind: 'list' }).then(result => {
+      if (cancelled) return
+      if (!result.success) { setSaveError(result.error); return }
+      setPresets(result.presets)
+      const draftTarget = presetTargetRef.current
+      if (showDialog && draftTarget) {
+        // 旧启动项按目标匹配预设；没有对应预设时保留当前目标，防止误换目录或 worktree。
+        const directoryKey = (cwd: string) => {
+          const path = normDirKey(cwd)
+          return /^[a-z]:[\\/]|^\\\\/i.test(path) ? path.replace(/\\/g, '/').toLowerCase() : path
+        }
+        const selected = result.presets.find(preset => directoryKey(preset.cwd) === directoryKey(draftTarget.cwd)
+          && (preset.isolation === 'worktree') === (draftTarget.isolation === 'worktree')
+          && (preset.isolation !== 'worktree' || preset.worktreeKey === draftTarget.worktreeKey))
+        const current = selected ?? { ...draftTarget, id: draftTarget.id.startsWith('current-') ? draftTarget.id : `current-${draftTarget.id}` }
+        if (!selected) setPresets([...result.presets, current])
+        setPresetId(current.id)
+        setWsName(draftTarget.name); setWsCwd(current.cwd)
+        setWsIsolation(current.isolation === 'worktree' ? 'worktree' : 'shared')
+        setWsWorktreeKey(current.worktreeKey || '')
+      } else if (showDialog) {
+        let previous = ''
+        try { previous = localStorage.getItem('lyshell.codeWorkspacePreset.v1') || '' } catch { /* 使用首个预设 */ }
+        const selected = result.presets.find(preset => preset.id === previous || preset.id === result.aliases?.[previous]) ?? result.presets[0]
+        if (selected) selectPreset(selected)
+        else { setPresetId(''); setWsName(''); setWsCwd('') }
+      }
+    }).catch(error => { if (!cancelled) setSaveError(error instanceof Error ? error.message : t('workspacePresets.failed')) })
+    return () => { cancelled = true }
+    // 仅在进入面板/新建表单时刷新，手动选择不触发重置。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent, visible, showDialog, editWorkspace])
   // 列表行内删除的两步确认：记录待确认的工作区 id（null = 无待确认）
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
@@ -355,7 +418,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
       setConfirmDelete(false)
       return
     }
-    setShowDialog(false)
+    closeEditor()
   })
 
   // worktree 模式下检测当前目录所属仓库的已有共享名与 worktree 根路径（防抖 300ms，供下拉与路径预览）。
@@ -409,11 +472,13 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
     }
   }
   const handleAdd = () => {
+    if (savingRef.current) return
+    presetTargetRef.current = null
     setEditWorkspace(undefined)
     // 新建默认选中「已启用的变量组」（显式绑定）—— 用户在左侧面板拨的那根指针就是当下
     // 想用的密钥；无启用指针时回落「跟随」（运行时同样落到系统环境变量）。变量组列表
     // 未拉到的极端竞态下 activeProfileId 还是 null，同样回落跟随，不阻塞开对话框
-    setWsName(''); setWsCwd(''); setWsNote(''); setWsModel(''); setWsModelAuto(false); setWsClaudePermissions(DEFAULT_CLAUDE_PERMISSION_MODE); setWsCodexPermissions(DEFAULT_CODEX_PERMISSION_PROFILE); setWsEnvProfileId(activeProfileId ?? undefined); setWsIsolation('shared'); setWsWorktreeKey('')
+    setWsName(''); setWsCwd(''); setPresetId(''); setWsNote(''); setWsModel(''); setWsModelAuto(false); setWsClaudePermissions(DEFAULT_CLAUDE_PERMISSION_MODE); setWsCodexPermissions(DEFAULT_CODEX_PERMISSION_PROFILE); setWsEnvProfileId(activeProfileId ?? undefined); setWsIsolation('shared'); setWsWorktreeKey('')
     setWsKeyAuto(false); setWsKeyCode(generateWorktreeCode())
     setTriedSubmit(false); setConfirmDelete(false); setSaveError(null)
     setShowDialog(true)
@@ -448,7 +513,10 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openItem, workspaces, wsLoaded])
   const handleEdit = (ws: HarnessWorkspace) => {
+    if (savingRef.current) return
+    presetTargetRef.current = { ...ws, worktreeKey: ws.isolation === 'worktree' ? ws.worktreeKey || `${agent}-${ws.id}` : undefined }
     setEditWorkspace(ws)
+    setPresetId('')
     setWsName(ws.name); setWsCwd(ws.cwd); setWsNote(ws.note || ''); setWsModel(ws.model || ''); setWsModelAuto(false)
     // 老工作区可能没存过档位（字段后加）—— 按表单默认呈现，保存即落盘；
     // legacy skipPermissions=true 已在主进程归一化折叠成 bypassPermissions
@@ -477,6 +545,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
    * envProfileId 归一化与 handleEdit 同一条规则 —— 别把源工作区的悬空绑定原样带进副本。
    */
   const handleDuplicateWorkspace = (ws: HarnessWorkspace) => {
+    if (savingRef.current) return
     setEditWorkspace(undefined)
     setWsName(`${ws.name}${t(`${prefix}.copySuffix`)}`)
     setWsCwd(ws.cwd); setWsNote(ws.note || ''); setWsModel(ws.model || ''); setWsModelAuto(false)
@@ -490,8 +559,12 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
     const dupCode = generateWorktreeCode()
     setWsKeyAuto(ws.isolation === 'worktree' && !(ws.worktreeKey || '').trim())
     setWsKeyCode(dupCode)
+    const duplicateKey = ws.isolation === 'worktree' && !(ws.worktreeKey || '').trim()
+      ? generateWorktreeKey(agent, `${ws.name}${t(`${prefix}.copySuffix`)}`, dupCode)
+      : ws.worktreeKey
+    presetTargetRef.current = { ...ws, name: `${ws.name}${t(`${prefix}.copySuffix`)}`, worktreeKey: duplicateKey }
     if (ws.isolation === 'worktree' && !(ws.worktreeKey || '').trim()) {
-      setWsWorktreeKey(generateWorktreeKey(agent, `${ws.name}${t(`${prefix}.copySuffix`)}`, dupCode))
+      setWsWorktreeKey(duplicateKey || '')
     }
     setWsEnvProfileId(
       !envProfilesLoaded || (ws.envProfileId && envProfiles.some((p) => p.id === ws.envProfileId))
@@ -520,7 +593,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
       }
     }
   }
-  const valid = wsCwd.trim().length > 0
+  const valid = wsCwd.trim().length > 0 && (!usePreset || !!presetId)
   // worktree 生效 key 与路径预览派生值：显式 key 优先；空 key 的既有工作区预览回落私有
   // kind-<id>（迁移前的旧形态 —— 实际启动时 resolveLaunchWorktree 会生成可读 key 并把旧
   // worktree 原地改名迁移，启动时刻的时间戳无法预知，故预览只能显示旧路径）；新工作区空 key 则
@@ -533,6 +606,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
     ? joinWorktreePath(wtRoot, effectiveWorktreeKey)
     : null
   const handleSave = async () => {
+    if (savingRef.current) return
     if (!valid) { setTriedSubmit(true); return }
     setSaveError(null)
     // 名称留空 → 默认名「工作区-<时间戳>」（本地时间分钟级 YYYYMMDD-HHmm；worktree key 的
@@ -558,23 +632,44 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
     // envProfileId 传 undefined 即「跟随已启用的变量组」；主进程按「键存在」判断，故必须显式带上这个键
     // worktreeKey 同理：空串 trim 后传 undefined = 私有 worktree（键必须显式存在才能清掉旧共享名）
     const worktreeKeyPayload = wsWorktreeKey.trim().length > 0 ? wsWorktreeKey.trim() : undefined
-    const res = editWorkspace
-      ? await api.update({ ...editWorkspace, name, cwd, note, model: modelPayload, envProfileId: wsEnvProfileId, isolation: wsIsolation, worktreeKey: worktreeKeyPayload, ...claudePermissionsPayload, ...codexPermissionsPayload })
-      : await api.add({ name, cwd, note, model: modelPayload, envProfileId: wsEnvProfileId, isolation: wsIsolation, worktreeKey: worktreeKeyPayload, ...claudePermissionsPayload, ...codexPermissionsPayload })
-    // 保存失败（校验未通过 / 落盘失败）：保留表单，展示具体错误，不关闭对话框
-    if (res && res.success === false) {
-      setSaveError(typeof res.error === 'string' ? res.error : t(`${prefix}.wsSaveFailed`))
-      return
-    }
-    await loadWorkspaces()
-    setShowDialog(false)
-  }
-  const handleDelete = async () => {
-    if (!confirmDelete) { setConfirmDelete(true); return }
-    if (editWorkspace) {
-      await api.delete(editWorkspace.id)
+    savingRef.current = true
+    setSaving(true)
+    try {
+      const res = editWorkspace
+        ? await api.update({ ...editWorkspace, name, cwd, note, model: modelPayload, envProfileId: wsEnvProfileId, isolation: wsIsolation, worktreeKey: worktreeKeyPayload, ...claudePermissionsPayload, ...codexPermissionsPayload })
+        : await api.add({ name, cwd, note, model: modelPayload, envProfileId: wsEnvProfileId, isolation: wsIsolation, worktreeKey: worktreeKeyPayload, ...claudePermissionsPayload, ...codexPermissionsPayload })
+      // 保存失败（校验未通过 / 落盘失败）：保留表单，展示具体错误，不关闭对话框
+      if (res && res.success === false) {
+        setSaveError(typeof res.error === 'string' ? res.error : t(`${prefix}.wsSaveFailed`))
+        return
+      }
       await loadWorkspaces()
       setShowDialog(false)
+      if (agent !== 'dsh') requestAnimationFrame(() => document.getElementById(`${agent}-workspace-${editWorkspace?.id ?? 'add'}`)?.focus())
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : t(`${prefix}.wsSaveFailed`))
+    } finally {
+      savingRef.current = false
+      setSaving(false)
+    }
+  }
+  const handleDelete = async () => {
+    if (savingRef.current) return
+    if (!confirmDelete) { setConfirmDelete(true); return }
+    if (editWorkspace) {
+      savingRef.current = true
+      setSaving(true)
+      try {
+        const result = await api.delete(editWorkspace.id)
+        if (result && result.success === false) {
+          setSaveError(typeof result.error === 'string' ? result.error : t(`${prefix}.wsDeleteFailed`))
+          return
+        }
+        await loadWorkspaces()
+        setShowDialog(false)
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : t(`${prefix}.wsDeleteFailed`))
+      } finally { savingRef.current = false; setSaving(false) }
     }
   }
 
@@ -630,8 +725,355 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
     })()
   }
 
-  // 工作区卡 —— 槽位面卡原样（点击启动/右键编辑/悬停操作簇/角标全不动），只是从
-  // 连排暗沟改成立在目录组卷的纸幅上（paper-sheet）；组内顺序照旧吃仓库自有顺序
+  const renderWorkspaceEditor = (inline: boolean) => (
+    <div className={cn('min-w-0 bg-[var(--bg-rack)]', inline && 'harness-inline-editor')}>
+      <fieldset disabled={saving} className="min-w-0 border-0 p-0 m-0">
+            {!inline && <DialogClose onClose={closeEditor} />}
+            {inline ? <div className="harness-editor-heading">
+              <span>{editWorkspace ? t(`${prefix}.wsEditTitle`) : t(`${prefix}.wsAddTitle`)}</span>
+              {editWorkspace && <button type="button" title={t(`${prefix}.copy`)} aria-label={t(`${prefix}.copy`)}
+                className="harness-editor-icon" onClick={() => handleDuplicateWorkspace(editWorkspace)}><IconCopy /></button>}
+            </div> :
+            <div className="flex items-center h-10 px-4 border-b border-[var(--rule)] gap-2.5">
+              <span
+                className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                style={{ background: 'var(--amber)', boxShadow: '0 0 5px var(--amber)' }}
+              />
+              <span className="text-[13px] [font-family:inherit] font-medium tracking-[0.04em] text-[var(--text-rack)]">
+                {editWorkspace ? t(`${prefix}.wsEditTitle`) : t(`${prefix}.wsAddTitle`)}
+              </span>
+              <span className="flex-1" />
+              <span className="text-[10.5px] [font-family:inherit] tracking-[0.08em] px-1.5 py-px rounded-sm bg-[var(--bg-base)] border border-[var(--rule)] text-[var(--text-rack-mute)]">
+                {agent.toUpperCase()}
+              </span>
+            </div>}
+
+            {usePreset ? <div className="harness-editor-preset">
+              <div className="harness-editor-label">
+                <label htmlFor={`${agent}-preset-select`}>{t('settings.workspace')}</label>
+                {onOpenWorkspaceSettings && <button type="button" onClick={onOpenWorkspaceSettings}>{t('workspacePresets.manage')}</button>}
+              </div>
+              <WorkspaceSelect id={`${agent}-preset-select`} autoFocus className="rack-select" title={selectedPreset ? formatCodeWorkspaceName(selectedPreset) : undefined} value={presetId} onChange={event => { const preset = presets.find(item => item.id === event.target.value); if (preset) selectPreset(preset) }}>
+                {!presetId && <option value="">{t('workspacePresets.choose')}</option>}
+                {presets.map(preset => <option key={preset.id} value={preset.id}>{formatCodeWorkspaceName(preset)}</option>)}
+              </WorkspaceSelect>
+              {presetId && <div className="harness-editor-location">
+                <p title={wsCwd}>{wsCwd}</p>
+                <span title={t(wsIsolation === 'worktree' ? `${prefix}.wsIsolationWorktree` : `${prefix}.wsIsolationShared`)}>
+                  <IconFolder />
+                  {t(wsIsolation === 'worktree' ? 'workspacePresets.dedicatedWorktree' : 'workspacePresets.sharedDirectory')}
+                </span>
+              </div>}
+              {!presets.length && <p className="harness-editor-hint">{t('workspacePresets.empty')}</p>}
+            </div> : <>
+            {/* 名称 —— label 与输入框同行（label 定宽，与下方模型行对齐） */}
+            <div className="py-3.5 px-4 border-b border-[var(--rule)] flex items-center gap-3">
+              <span className="flex-shrink-0 w-[3.5rem] text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsName`)}</span>
+              <input
+                type="text"
+                aria-label={t(`${prefix}.wsName`)}
+                value={wsName}
+                onChange={(e) => updateWsName(e.target.value)}
+                placeholder={t(`${prefix}.wsNamePh`)}
+                autoFocus
+                className="flex-1 min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
+              />
+            </div>
+
+            {/* 工作目录 */}
+            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+              <div className="flex items-baseline gap-2 mb-2">
+                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsCwd`)}</span>
+              </div>
+              <div className="flex items-stretch gap-1.5">
+                <input
+                  type="text"
+                  aria-label={t(`${prefix}.wsCwd`)}
+                  value={wsCwd}
+                  onChange={(e) => { setWsCwd(e.target.value); if (triedSubmit) setTriedSubmit(false) }}
+                  placeholder={t(`${prefix}.wsCwdPh`)}
+                  className="flex-1 min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handlePickCwd()}
+                  title={t(`${prefix}.browse`)}
+                  className="flex-shrink-0 w-[34px] inline-flex items-center justify-center bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[var(--text-rack-mute)] hover:text-[var(--amber)] hover:border-[var(--amber)] transition-colors cursor-pointer"
+                >
+                  <IconFolder />
+                </button>
+              </div>
+            </div>
+
+            {/* 目录隔离 —— 直接在 cwd 启动，或仓库根下的专属 git worktree（多 agent 同仓互不踩踏） */}
+            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+              <div className="mb-2">
+                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsIsolation`)}</span>
+              </div>
+              <div role="radiogroup" aria-label={t(`${prefix}.wsIsolation`)} className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm overflow-hidden">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={wsIsolation === 'shared'}
+                  onClick={() => selectIsolation('shared')}
+                  className="relative w-full text-left flex items-center gap-2 px-2.5 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0 bg-transparent cursor-pointer hover:bg-[var(--bg-slot)] transition-colors"
+                >
+                  <BusLed on={wsIsolation === 'shared'} />
+                  <span className="flex-1 min-w-0 text-[12px] [font-family:inherit] text-[var(--text-rack)] truncate">
+                    {t(`${prefix}.wsIsolationShared`)}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={wsIsolation === 'worktree'}
+                  onClick={() => selectIsolation('worktree')}
+                  className="relative w-full text-left flex items-center gap-2 px-2.5 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0 bg-transparent cursor-pointer hover:bg-[var(--bg-slot)] transition-colors"
+                >
+                  <BusLed on={wsIsolation === 'worktree'} />
+                  <span className="flex-1 min-w-0 text-[12px] [font-family:inherit] text-[var(--text-rack)] truncate">
+                    {t(`${prefix}.wsIsolationWorktree`)}
+                  </span>
+                </button>
+              </div>
+              {/* 共享名：仅 worktree 模式有意义。切到 worktree 时自动生成 <kind>-<名称>-<时间戳> 预填（可改可清空，
+                  空则私有各用各的树）；datalist 下拉列出该仓库已有的共享名 —— 选中即加入既有 worktree，也可自由输入 */}
+              {wsIsolation === 'worktree' && (
+                <>
+                  <input
+                    type="text"
+                    list={`${agent}-worktree-keys`}
+                    value={wsWorktreeKey}
+                    onChange={(e) => { setWsKeyAuto(false); setWsWorktreeKey(e.target.value) }}
+                    placeholder={t(`${prefix}.wsWorktreeKeyPh`)}
+                    className="mt-2 w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
+                  />
+                  <datalist id={`${agent}-worktree-keys`}>
+                    {wtKeys.map((k) => (
+                      <option key={k} value={k} />
+                    ))}
+                  </datalist>
+                  {/* 路径预览：选定 worktree 即可见完整路径与分支（实际目录点击启动时才创建） */}
+                  <div className="mt-1.5 px-0.5 text-[11px] leading-[1.6] [font-family:inherit] text-[var(--text-rack-data)] select-text break-all">
+                    {effectiveWorktreeKey ? (
+                      <>
+                        <div title={effectiveWorktreePath ?? undefined}>
+                          {t(`${prefix}.wsWorktreePath`)}{' '}
+                          {effectiveWorktreePath ?? t(`${prefix}.wsWorktreeNoRepo`)}
+                        </div>
+                        <div>
+                          {t(`${prefix}.wsWorktreeBranch`)} {`${BRANCH_PREFIX}/${effectiveWorktreeKey}`}
+                          <span className="mx-1.5 opacity-60">·</span>
+                          {t(`${prefix}.wsWorktreeLaunchNote`)}
+                        </div>
+                        {wsKeyAuto && <div>{t(`${prefix}.wsWorktreeAutoHint`)}</div>}
+                      </>
+                    ) : (
+                      <div>{t(`${prefix}.wsWorktreePrivateHint`)}</div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            </>}
+            {/* 备注（可选，仅用于记录）—— 仅 dsh 保留（hasWorkspaceNote）；codex/claude 表单更紧凑，备注退场 */}
+            {view.hasWorkspaceNote && (
+              <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--text-rack)]">{t(`${prefix}.wsNote`)}</span>
+                </div>
+                <textarea
+                  value={wsNote}
+                  onChange={(e) => setWsNote(e.target.value)}
+                  placeholder={t(`${prefix}.wsNotePh`)}
+                  rows={2}
+                  className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)] resize-none"
+                />
+              </div>
+            )}
+
+            <details className={cn('harness-advanced-options', (inline || agent === 'dsh') && '[&>summary]:hidden')} open={inline || agent === 'dsh' ? true : undefined}>
+              <summary className="px-4 py-3 cursor-pointer text-[12px] text-[var(--text-rack-data)]">{t('workspacePresets.advanced')}</summary>
+            {/* 模型 —— dsh 走补丁、codex/claude 走 --model；留空则用各 CLI 默认。
+                label 与输入框同行（label 定宽，与上方名称行对齐） */}
+            <div className="py-3.5 px-4 border-b border-[var(--rule)] flex items-center gap-3">
+              <span className="flex-shrink-0 w-[3.5rem] text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsModel`)}</span>
+              {inline ? <RackCombobox value={wsModel} options={modelSuggestions} label={t(`${prefix}.wsModel`)}
+                optionsLabel={t('workspacePresets.modelSuggestions')} emptyText={t('workspacePresets.customModel')}
+                placeholder={t(`${prefix}.wsModelPh`)} disabled={saving}
+                onChange={value => { setWsModel(value); setWsModelAuto(false) }} /> : <><input
+                type="text"
+                list={`${agent}-model-suggestions`}
+                aria-label={t(`${prefix}.wsModel`)}
+                value={wsModel}
+                onChange={(e) => { setWsModel(e.target.value); setWsModelAuto(false) }}
+                placeholder={t(`${prefix}.wsModelPh`)}
+                className="flex-1 min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
+              />
+              <datalist id={`${agent}-model-suggestions`}>
+                {modelSuggestions.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+              </>}
+            </div>
+
+            {/* 环境变量 —— 选一组预配置变量；不选则跟随已启用的那组（三级链在这里就地摊开）。
+                原生 select（与权限档位下拉同款机柜样式，选项名后缀变量数）；「跟随」档位的
+                解析结果摊开在下沿提示行，免得用户还要切页签才知道实际会用哪份 */}
+            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+              <div className="flex flex-wrap items-baseline gap-2 mb-2">
+                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsEnvProfile`)}</span>
+                {onOpenEnvSettings && <button type="button" className="ml-auto text-[12px] text-[var(--text-rack-data)] hover:text-[var(--amber)] underline underline-offset-2" onClick={onOpenEnvSettings}>{t('env.manage')}</button>}
+              </div>
+              <WorkspaceSelect
+                value={wsEnvProfileId ?? ''}
+                onChange={(e) => selectEnvProfile(e.target.value || undefined)}
+                aria-label={t(`${prefix}.wsEnvProfile`)}
+                className={inline ? 'rack-select' : 'w-full px-2 py-1.5 border rounded-[2px] text-[12px] [font-family:inherit] cursor-pointer focus:outline-none focus:border-[var(--amber)] transition-colors bg-[var(--bg-base)] border-[var(--rule)] text-[var(--text-rack)]'}
+              >
+                {/* 空值 = 「跟随」：主进程按 envProfileId 缺省回落全局启用指针 */}
+                <option value="">{t(`${prefix}.wsEnvFollow`)}</option>
+                {envProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} · {t(`${prefix}.envVars`, { count: Object.keys(p.env).length })}
+                  </option>
+                ))}
+              </WorkspaceSelect>
+              {/* 跟随档位选中时才显示：显式绑定自明，不占行。一个组都没有时直接摊开空态说明 */}
+              {wsEnvProfileId === undefined && (
+                <div className="harness-editor-hint mt-1.5 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-snug">
+                  {envProfiles.length === 0
+                    ? t(`${prefix}.wsEnvNone`)
+                    : t(`${prefix}.wsEnvFollowNow`, { name: activeProfile ? activeProfile.name : t(`${prefix}.envSystem`) })}
+                </div>
+              )}
+            </div>
+
+            {/* 权限模式（仅 claude）—— bypassPermissions 档启动追加 --dangerously-skip-permissions
+                （直连 flag，等价 --permission-mode bypassPermissions 但后者需额外设置），
+                acceptEdits/plan 档追加 --permission-mode <mode>，default 不追加。
+                原生 select（与 codex 权限档位下拉同款机柜样式）；选中 bypassPermissions 时
+                换 .danger-field 危险态皮肤（红染底 + 左沿条纹导轨 + 红字）+ 附警示行
+                —— 完全放开是用户显式选的危险形态 */}
+            {view.hasClaudePermissions && (
+              <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+                <div className="mb-2">
+                  <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsPermissions`)}</span>
+                </div>
+                <WorkspaceSelect
+                  value={wsClaudePermissions}
+                  onChange={(e) => setWsClaudePermissions(e.target.value as ClaudePermissionMode)}
+                  aria-label={t(`${prefix}.wsPermissions`)}
+                  className={cn(
+                    inline ? 'rack-select' : 'w-full px-2 py-1.5 border rounded-[2px] text-[12px] [font-family:inherit] cursor-pointer focus:outline-none focus:border-[var(--amber)] transition-colors',
+                    wsClaudePermissions === 'bypassPermissions'
+                      ? 'danger-field'
+                      : !inline && 'bg-[var(--bg-base)] border-[var(--rule)] text-[var(--text-rack)]'
+                  )}
+                >
+                  <option value="default">{t(`${prefix}.wsPermDefault`)}</option>
+                  <option value="acceptEdits">{t(`${prefix}.wsPermAcceptEdits`)}</option>
+                  <option value="plan">{t(`${prefix}.wsPermPlan`)}</option>
+                  <option value="bypassPermissions">{t(`${prefix}.wsPermBypass`)}</option>
+                </WorkspaceSelect>
+                {wsClaudePermissions === 'bypassPermissions' && (
+                  <div className="mt-1.5 text-[10.5px] [font-family:inherit] text-[var(--error-rack)] leading-snug">
+                    {t(`${prefix}.wsPermBypassDangerHint`)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 权限档位（仅 codex）—— 启动追加 -c default_permissions=<档位>。
+                原生 select（沿用设置面板下拉的机柜样式）；选中 :danger-full-access 时
+                换 .danger-field 危险态皮肤（红染底 + 左沿条纹导轨 + 红字）+ 附警示行
+                —— 完全放开是用户显式选的危险形态 */}
+            {view.hasCodexPermissions && (
+              <div className="py-3.5 px-4 border-b border-[var(--rule)]">
+                <div className="mb-2">
+                  <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsPermissions`)}</span>
+                </div>
+                <WorkspaceSelect
+                  value={wsCodexPermissions}
+                  onChange={(e) => setWsCodexPermissions(e.target.value as CodexPermissionProfile)}
+                  aria-label={t(`${prefix}.wsPermissions`)}
+                  className={cn(
+                    inline ? 'rack-select' : 'w-full px-2 py-1.5 border rounded-[2px] text-[12px] [font-family:inherit] cursor-pointer focus:outline-none focus:border-[var(--amber)] transition-colors',
+                    wsCodexPermissions === ':danger-full-access'
+                      ? 'danger-field'
+                      : !inline && 'bg-[var(--bg-base)] border-[var(--rule)] text-[var(--text-rack)]'
+                  )}
+                >
+                  <option value=":read-only">{t(`${prefix}.wsPermReadOnly`)}</option>
+                  <option value=":workspace">{t(`${prefix}.wsPermWorkspace`)}</option>
+                  <option value=":danger-full-access">{t(`${prefix}.wsPermDanger`)}</option>
+                </WorkspaceSelect>
+                {wsCodexPermissions === ':danger-full-access' && (
+                  <div className="mt-1.5 text-[10.5px] [font-family:inherit] text-[var(--error-rack)] leading-snug">
+                    {t(`${prefix}.wsPermDangerHint`)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            </details>
+            {/* 校验提示（仅尝试提交后显示） */}
+            {triedSubmit && !valid && (
+              <div role="alert" className="px-4 py-2 text-[11px] [font-family:inherit] text-[var(--error-rack)] border-b border-[var(--rule)]">
+                {t(`${prefix}.wsRequired`)}
+              </div>
+            )}
+
+            {/* 保存失败提示（校验未通过 / 落盘失败，保留表单） */}
+            {saveError && (
+              <div role="alert" className="px-4 py-2 text-[11px] [font-family:inherit] text-[var(--error-rack)] border-b border-[var(--rule)] break-all">
+                {saveError}
+              </div>
+            )}
+
+            {/* footer：删除（两步确认）/ 取消 / 保存 */}
+            <div className="harness-editor-actions flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+              {editWorkspace ? (
+                <button
+                  onClick={() => void handleDelete()}
+                  className={
+                    confirmDelete
+                      ? 'px-2.5 py-1 text-[12px] [font-family:inherit] rounded-sm bg-[var(--error-rack)] text-[var(--bg-base)] font-medium transition-colors'
+                      : 'px-2.5 py-1 text-[12px] [font-family:inherit] text-[var(--error-rack)] hover:bg-[var(--bg-slot)] rounded-sm transition-colors'
+                  }
+                >
+                  {confirmDelete ? t(`${prefix}.wsConfirmDelete`) : t(`${prefix}.wsDelete`)}
+                </button>
+              ) : (
+                <span />
+              )}
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <button
+                  onClick={closeEditor}
+                  className="harness-editor-cancel px-3 py-1 text-[13px] [font-family:inherit] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] transition-colors"
+                >
+                  {t(`${prefix}.wsCancel`)}
+                </button>
+                <button
+                  disabled={saving}
+                  onClick={() => void handleSave()}
+                  className={`px-4 py-1 text-[13px] [font-family:inherit] rounded-sm font-medium transition-opacity ${
+                    valid
+                      ? 'bg-[var(--amber)] text-[var(--bg-base)] hover:opacity-90'
+                      : 'bg-[var(--bg-slot)] text-[var(--text-rack-dim)] opacity-70'
+                  }`}
+                >
+                  {saving ? t('workspacePresets.saving') : t(`${prefix}.wsSave`)}
+                </button>
+              </div>
+            </div>
+      </fieldset>
+    </div>
+  )
+
+  // Codex / Claude 的名称行展开预设与启动配置，独立按钮启动；组内顺序沿用仓库顺序。
   const renderWorkspaceCard = (ws: HarnessWorkspace) => {
     const launching = launchingId === ws.id
     // 显式绑定的变量组（悬空绑定不显示 —— 主进程会回落已启用组，标出来反而误导）
@@ -643,139 +1085,201 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
     // 这是个绕过审批跑的工作区
     const dangerPerm =
       ws.codexPermissions === ':danger-full-access' || ws.claudePermissions === 'bypassPermissions'
+    // Codex / Claude 点击名称展开行内配置，目录与分支图标区分目标类型。
+    // DeepSeek 保留完整信息卡和单击启动。
+    const folded = agent !== 'dsh'
+    const detailOpen = folded && showDialog && editWorkspace?.id === ws.id
+    const toggleEditor = () => { if (detailOpen) closeEditor(); else handleEdit(ws) }
+    const detailId = `harness-ws-detail-${ws.id}`
+    if (folded) {
+      const fullName = formatCodeWorkspaceName(ws)
+      const isWorktree = ws.isolation === 'worktree'
+      const worktreeName = isWorktree ? ws.worktreeKey : undefined
+      const suffix = worktreeName ? ` · ${worktreeName}` : ''
+      const baseName = suffix && ws.name.endsWith(suffix) ? ws.name.slice(0, -suffix.length) : ws.name
+      return <div key={ws.id} className="harness-workspace-item">
+        <div className={cn('harness-project-row', { 'is-expanded': detailOpen, 'is-danger': dangerPerm, 'is-launching': launching })}
+          onContextMenu={event => { event.preventDefault(); event.stopPropagation(); handleEdit(ws) }}>
+          <button type="button" id={`${agent}-workspace-${ws.id}`} className="harness-workspace-main"
+            aria-label={fullName} aria-expanded={detailOpen} aria-controls={detailId}
+            title={fullName} disabled={saving} onClick={toggleEditor}>
+            <span className="harness-workspace-symbol" aria-hidden="true">
+              {isWorktree ? <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="6" cy="4" r="2" /><circle cx="6" cy="16" r="2" /><circle cx="15" cy="5" r="2" /><path d="M6 6v8m0-3c6 0 9-1 9-4" />
+              </svg> : <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="14" height="12" rx="2" /><path d="M3 8h14M7 4v12" />
+              </svg>}
+            </span>
+            <span className="harness-workspace-name">
+              {worktreeName && baseName ? <>
+                <span className="harness-workspace-prefix">{baseName}</span>
+                <span className="harness-workspace-separator"> · </span>
+                <span className="harness-workspace-branch">{worktreeName}</span>
+              </> : <span className="harness-workspace-branch">{fullName}</span>}
+            </span>
+            {launching && <span className="harness-workspace-status">{t(`${prefix}.launching`)}</span>}
+          </button>
+          <button type="button" className="harness-project-launch" disabled={!!launchingId || saving}
+            aria-label={`${t(`${prefix}.launch`)} · ${fullName}`} title={`${t(`${prefix}.launch`)} · ${fullName}`}
+            onClick={() => void handleLaunch(ws)}>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden="true"><path d="m5 3 8 5-8 5Z" /></svg>
+          </button>
+        </div>
+        <div id={detailId} hidden={!detailOpen} className="harness-workspace-editor">
+          {detailOpen && visible && renderWorkspaceEditor(true)}
+        </div>
+      </div>
+    }
     return (
+      <div key={ws.id} className="min-w-0">
       <div
-        key={ws.id}
         onClick={() => void handleLaunch(ws)}
         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); handleEdit(ws) }}
         onMouseLeave={() => { if (deleteConfirmId === ws.id) setDeleteConfirmId(null) }}
         title={t(`${prefix}.launch`)}
         className={cn(
-          'group relative flex items-center gap-2.5 px-2 py-1.5 rounded-[2px] cursor-pointer border transition-colors overflow-hidden',
+          'group relative flex items-start gap-2.5 px-2 py-1.5 rounded-[2px] cursor-pointer border transition-colors overflow-hidden',
           // 常规面 = 槽位色 bg-slot（比面板底高两档，与 bg-base 沟拉开卡界），
           // 悬停 elev 再提一档；危险态染底配方见 .danger-card（同走 slot 基）
-          dangerPerm
-            ? 'danger-card'
-            : 'border-[var(--rule)] bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)]',
+          dangerPerm ? 'danger-card' : 'border-[var(--rule)] bg-[var(--bg-slot)] hover:bg-[var(--bg-elev)]',
           launching && 'opacity-60 cursor-wait'
         )}
       >
         <span className={cn(
-          'flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center transition-colors',
+          '-mt-0.5 flex-shrink-0 w-[20px] h-[20px] inline-flex items-center justify-center transition-colors',
           dangerPerm ? 'text-[var(--error-rack)]' : 'text-[var(--text-rack-mute)] group-hover:text-[var(--amber)]'
         )}>
           <IconFolder />
         </span>
         <span className="flex flex-col min-w-0 flex-1">
-          <span className="text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight">
-            {ws.name}
-            {launching && <span className="ml-1.5 text-[10.5px] [font-family:inherit] text-[var(--amber)]">{t(`${prefix}.launching`)}</span>}
+          {/* 名称行 —— 卡面唯一的常显行(行首下拉 + 目录图标 + 名称 + 启动中)。
+              悬停操作簇以这一行为定位容器(而不是整张卡):详情展开后卡会变高,
+              按钮不能跟着沉到详情区去盖住标注 */}
+          <span className="relative flex min-w-0 items-center">
+            <button type="button" id={`${agent}-workspace-${ws.id}`} disabled={saving}
+              onClick={e => { e.stopPropagation(); void handleLaunch(ws) }}
+              title={ws.name} className="flex-1 min-w-0 text-left text-[13px] [font-family:inherit] font-medium text-[var(--text-rack)] truncate leading-tight focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--amber)]">
+              {ws.name}
+              {launching && <span className="ml-1.5 text-[10.5px] [font-family:inherit] text-[var(--amber)]">{t(`${prefix}.launching`)}</span>}
+            </button>
+            {/* 悬停操作簇遮罩颜色跟悬停面色(elev)—— 用面色的不透明渐变盖住按钮底下的字；
+                focus-within 同步显形，键盘 Tab 聚到按钮时不必悬停也能操作 */}
+            <div className="absolute -right-0.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-elev)] from-[24%] to-transparent">
+              <button
+                disabled={saving}
+                onClick={(e) => { e.stopPropagation(); handleDuplicateWorkspace(ws) }}
+                title={t(`${prefix}.copy`)}
+                className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
+              >
+                <IconCopy />
+              </button>
+              <button
+                disabled={saving}
+                onClick={(e) => { e.stopPropagation(); handleEdit(ws) }}
+                title={t(`${prefix}.wsEditTitle`)}
+                className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
+              >
+                <IconEdit />
+              </button>
+              <button
+                disabled={saving}
+                onClick={async (e) => {
+                  e.stopPropagation()
+                  if (savingRef.current) return
+                  // 两步确认：首次点击切到确认态，再次点击才真正删除（与对话框一致）
+                  if (deleteConfirmId !== ws.id) {
+                    setDeleteConfirmId(ws.id)
+                    return
+                  }
+                  setDeleteConfirmId(null)
+                  // 失败(落盘失败/工作区已不存在)不静默:卡片在下方 loadWorkspaces()
+                  // "复活"前给出原因 —— 与 Agent/变量组卡同一族错误位
+                  savingRef.current = true
+                  setSaving(true)
+                  try {
+                    const res = await api.delete(ws.id)
+                    if (res && res.success === false) {
+                      setActionError(typeof res.error === 'string' ? res.error : t(`${prefix}.wsDeleteFailed`))
+                    }
+                  } catch (err) {
+                    setActionError(err instanceof Error ? err.message : t(`${prefix}.wsDeleteFailed`))
+                  } finally {
+                    await loadWorkspaces()
+                    savingRef.current = false
+                    setSaving(false)
+                  }
+                }}
+                title={deleteConfirmId === ws.id ? t(`${prefix}.wsConfirmDelete`) : t(`${prefix}.wsDelete`)}
+                className={cn(
+                  'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
+                  deleteConfirmId === ws.id
+                    ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
+                    : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]'
+                )}
+              >
+                <IconX />
+              </button>
+            </div>
           </span>
-          {/* 绑定了变量组时标出来 —— 点这行即刻启动，用哪份密钥必须点之前就看得见 */}
-          {boundProfile && (
-            <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0">
-              <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--amber)] flex-shrink-0" />
-              <span className="truncate">{boundProfile.name}</span>
-            </span>
-          )}
-          {/* worktree 隔离标出来（悬停见分支名；共享名随行显示）—— 在哪个树里跑是看得见的承诺 */}
-          {ws.isolation === 'worktree' && (
-            <span
-              className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0"
-              title={`lyshell/${ws.worktreeKey || `${agent}-${ws.id}`}`}
-            >
-              <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--text-rack-mute)] flex-shrink-0" />
-              <span className="truncate">
-                {ws.worktreeKey
-                  ? `${t(`${prefix}.wsIsolationBadge`)} · ${ws.worktreeKey}`
-                  : t(`${prefix}.wsIsolationBadge`)}
+          <>
+            {/* 绑定了变量组时标出来 —— 点这行即刻启动，用哪份密钥必须点之前就看得见 */}
+            {boundProfile && (
+              <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0">
+                <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--amber)] flex-shrink-0" />
+                <span className="truncate">{boundProfile.name}</span>
               </span>
-            </span>
-          )}
-          {/* claude 权限模式标出来 —— 行文即启动实际追加的参数（红=带电警示，
-              危险态与卡片红染底同源；acceptEdits/plan 灰置，与 codex read-only
-              角标同族），点之前就看得见；default 即 CLI 默认形态，不标 */}
-          {ws.claudePermissions === 'bypassPermissions' && (
-            <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--error-rack)] leading-tight min-w-0">
-              <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--error-rack)] flex-shrink-0" />
-              <span className="truncate">--dangerously-skip-permissions</span>
-            </span>
-          )}
-          {(ws.claudePermissions === 'acceptEdits' || ws.claudePermissions === 'plan') && (
-            <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0">
-              <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--text-rack-mute)] flex-shrink-0" />
-              <span className="truncate">--permission-mode {ws.claudePermissions}</span>
-            </span>
-          )}
-          {/* 权限档位标出来 —— danger 红（错误令牌，与卡片危险态皮肤同源）；
-              read-only 灰置（worktree 角标同族：在哪个权限下跑是看得见的承诺）；
-              workspace/缺省即 Codex 默认形态，不标 */}
-          {ws.codexPermissions === ':danger-full-access' && (
-            <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--error-rack)] leading-tight min-w-0">
-              <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--error-rack)] flex-shrink-0" />
-              <span className="truncate">:danger-full-access</span>
-            </span>
-          )}
-          {ws.codexPermissions === ':read-only' && (
-            <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0">
-              <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--text-rack-mute)] flex-shrink-0" />
-              <span className="truncate">:read-only</span>
-            </span>
-          )}
-          {view.hasWorkspaceNote && ws.note && (
-            <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] truncate leading-tight">{ws.note}</span>
-          )}
-        </span>
-        {/* 悬停操作簇遮罩颜色跟悬停面色(elev)—— 用面色的不透明渐变盖住按钮底下的字；
-            focus-within 同步显形，键盘 Tab 聚到按钮时不必悬停也能操作 */}
-        <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-0 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto pl-6 bg-gradient-to-l from-[var(--bg-elev)] from-[24%] to-transparent">
-          <button
-            onClick={(e) => { e.stopPropagation(); handleDuplicateWorkspace(ws) }}
-            title={t(`${prefix}.copy`)}
-            className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
-          >
-            <IconCopy />
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); handleEdit(ws) }}
-            title={t(`${prefix}.wsEditTitle`)}
-            className="w-[22px] h-[22px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer rounded-[2px] transition-colors text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--text-rack)]"
-          >
-            <IconEdit />
-          </button>
-          <button
-            onClick={async (e) => {
-              e.stopPropagation()
-              // 两步确认：首次点击切到确认态，再次点击才真正删除（与对话框一致）
-              if (deleteConfirmId !== ws.id) {
-                setDeleteConfirmId(ws.id)
-                return
-              }
-              setDeleteConfirmId(null)
-              // 失败(落盘失败/工作区已不存在)不静默:卡片在下方 loadWorkspaces()
-              // "复活"前给出原因 —— 与 Agent/变量组卡同一族错误位
-              try {
-                const res = await api.delete(ws.id)
-                if (res && res.success === false) {
-                  setActionError(typeof res.error === 'string' ? res.error : t(`${prefix}.wsDeleteFailed`))
-                }
-              } catch (err) {
-                setActionError(err instanceof Error ? err.message : t(`${prefix}.wsDeleteFailed`))
-              } finally {
-                await loadWorkspaces()
-              }
-            }}
-            title={deleteConfirmId === ws.id ? t(`${prefix}.wsConfirmDelete`) : t(`${prefix}.wsDelete`)}
-            className={cn(
-              'w-[22px] h-[22px] inline-flex items-center justify-center border-none cursor-pointer rounded-[2px] transition-colors',
-              deleteConfirmId === ws.id
-                ? 'bg-[var(--error-rack)] text-[var(--bg-base)]'
-                : 'bg-transparent text-[var(--text-rack-mute)] hover:bg-[var(--bg-elev)] hover:text-[var(--error-rack)]'
             )}
-          >
-            <IconX />
-          </button>
-        </div>
+            {/* worktree 隔离标出来（悬停见分支名；共享名随行显示）—— 在哪个树里跑是看得见的承诺 */}
+            {agent === 'dsh' && ws.isolation === 'worktree' && (
+              <span
+                className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0"
+                title={`lyshell/${ws.worktreeKey || `${agent}-${ws.id}`}`}
+              >
+                <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--text-rack-mute)] flex-shrink-0" />
+                <span className="truncate">
+                  {ws.worktreeKey
+                    ? `${t(`${prefix}.wsIsolationBadge`)} · ${ws.worktreeKey}`
+                    : t(`${prefix}.wsIsolationBadge`)}
+                </span>
+              </span>
+            )}
+            {/* claude 权限模式标出来 —— 行文即启动实际追加的参数（红=带电警示，
+                危险态与卡片红染底同源；acceptEdits/plan 灰置，与 codex read-only
+                角标同族），点之前就看得见；default 即 CLI 默认形态，不标 */}
+            {ws.claudePermissions === 'bypassPermissions' && (
+              <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--error-rack)] leading-tight min-w-0">
+                <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--error-rack)] flex-shrink-0" />
+                <span className="truncate">--dangerously-skip-permissions</span>
+              </span>
+            )}
+            {(ws.claudePermissions === 'acceptEdits' || ws.claudePermissions === 'plan') && (
+              <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0">
+                <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--text-rack-mute)] flex-shrink-0" />
+                <span className="truncate">--permission-mode {ws.claudePermissions}</span>
+              </span>
+            )}
+            {/* 权限档位标出来 —— danger 红（错误令牌，与卡片危险态皮肤同源）；
+                read-only 灰置（worktree 角标同族：在哪个权限下跑是看得见的承诺）；
+                workspace/缺省即 Codex 默认形态，不标 */}
+            {ws.codexPermissions === ':danger-full-access' && (
+              <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--error-rack)] leading-tight min-w-0">
+                <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--error-rack)] flex-shrink-0" />
+                <span className="truncate">:danger-full-access</span>
+              </span>
+            )}
+            {ws.codexPermissions === ':read-only' && (
+              <span className="flex items-center gap-1 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-tight min-w-0">
+                <span aria-hidden className="w-[4px] h-[4px] rounded-full bg-[var(--text-rack-mute)] flex-shrink-0" />
+                <span className="truncate">:read-only</span>
+              </span>
+            )}
+            {view.hasWorkspaceNote && ws.note && (
+              <span className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] truncate leading-tight">{ws.note}</span>
+            )}
+          </>
+        </span>
+
+      </div>
       </div>
     )
   }
@@ -796,7 +1300,8 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
         actions={<>
           {listReady && wsGroups.length > 0 && <GroupListActions allCollapsed={allDirsCollapsed} allExpanded={allDirsExpanded} onChange={setAllDirsCollapsed} />}
           {onOpenEnvSettings && <IconBtn title={t('env.manage')} onClick={onOpenEnvSettings}><SettingsGlyph name="env" /></IconBtn>}
-          {listReady && <PanelHeaderAction label={t('panelHeader.create')} title={t(`${prefix}.wsAddTitle`)} onClick={handleAdd} />}
+          {agent !== 'dsh' && onOpenWorkspaceSettings && <IconBtn title={t('workspacePresets.manage')} onClick={onOpenWorkspaceSettings}><SettingsGlyph name="workspace" /></IconBtn>}
+          {listReady && <span id={`${agent}-workspace-add`} tabIndex={-1}><PanelHeaderAction label={t('panelHeader.create')} title={t(`${prefix}.wsAddTitle`)} onClick={handleAdd} /></span>}
           {!launchReady && (
             <button
               type="button"
@@ -940,34 +1445,54 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
             <div className="text-[10.5px] [font-family:inherit] text-[var(--error-rack)] break-words pt-3">{actionError}</div>
           )}
 
-          {/* 墙体/空态二选一：有工作区立墙（下辊贴纸尾随最底下的分组卷走），没有
-              时空态占整段（与 Web 栏「历史空则不立墙」同口径） */}
-          {wsGroups.length > 0 ? (
+          {/* 项目组与空态：Codex / Claude 使用紧凑列表，DeepSeek 沿用卷轴。 */}
+          {wsGroups.length > 0 || (agent !== 'dsh' && showDialog) ? (
             <div
-              className={cn('group-list scroll-dual-seg flex-1 min-h-0', WS_TONE[agent].segCls)}
-              style={{ '--seg-tone': WS_TONE[agent].token } as React.CSSProperties}
+              className={compactTree ? 'harness-project-tree' : cn('group-list scroll-dual-seg flex-1 min-h-0', WS_TONE[agent].segCls)}
+              style={compactTree ? undefined : { '--seg-tone': WS_TONE[agent].token } as React.CSSProperties}
             >
-              <div className="group-list-viewport rack-scroll">
-                <div className="group-list-body">
-                  {wsGroups.map(([dir, list]) => (
-                    <div key={dir}>
-                      <GroupHeader
-                        tone={WS_TONE[agent].tone}
-                        label={wsDirLabel(dir)}
-                        labelTitle={dir}
-                        {...wsDirDetail(dir, wsGroups.map(([key]) => key))}
-                        count={list.length}
-                        truncateLabel
-                        collapsed={!!collapsedDirs[dir]}
-                        onToggle={() => toggleDirCollapsed(dir)}
-                      />
-                      <ScrollFold open={!collapsedDirs[dir]}>
-                        <div className="paper-sheet mx-2 px-1.5 py-1.5 space-y-1.5">
+              <div className={compactTree ? 'harness-project-viewport rack-scroll' : 'group-list-viewport rack-scroll'}>
+                <div className={compactTree ? 'harness-project-body' : 'group-list-body'}>
+                  {agent !== 'dsh' && showDialog && !editWorkspace && visible && renderWorkspaceEditor(true)}
+                  {wsGroups.map(([dir, list], index) => {
+                    const detail = wsDirDetail(dir, wsGroups.map(([key]) => key))
+                    const groupId = `${agent}-project-group-${index}`
+                    return <div key={dir} className={compactTree ? 'harness-project-group' : undefined}
+                      style={compactTree ? { '--project-hue': workspaceProjectHue(dir) } as React.CSSProperties : undefined}>
+                      {compactTree ? <>
+                        <button type="button" className="harness-project-header" title={dir}
+                          aria-expanded={!collapsedDirs[dir]} aria-controls={groupId}
+                          onClick={() => toggleDirCollapsed(dir)}>
+                          <span className="harness-project-symbol" aria-hidden="true"><IconFolder /></span>
+                          <span className="harness-project-heading">
+                            <span className="harness-project-label">{wsDirLabel(dir)}</span>
+                            {detail.detailMarker && <span className="harness-project-parent">{detail.detail}</span>}
+                          </span>
+                          <span className="harness-project-count">{list.length}</span>
+                          <svg className={cn('harness-project-chevron', !collapsedDirs[dir] && 'is-open')} width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>
+                        </button>
+                        <div id={groupId} className="harness-project-items" hidden={!!collapsedDirs[dir]} role="group" aria-label={dir}>
                           {list.map(renderWorkspaceCard)}
                         </div>
-                      </ScrollFold>
+                      </> : <>
+                        <GroupHeader
+                          tone={WS_TONE[agent].tone}
+                          label={wsDirLabel(dir)}
+                          labelTitle={dir}
+                          {...detail}
+                          count={list.length}
+                          truncateLabel
+                          collapsed={!!collapsedDirs[dir]}
+                          onToggle={() => toggleDirCollapsed(dir)}
+                        />
+                        <ScrollFold open={!collapsedDirs[dir]}>
+                          <div className="paper-sheet mx-2 px-1.5 py-1.5 space-y-1.5">
+                            {list.map(renderWorkspaceCard)}
+                          </div>
+                        </ScrollFold>
+                      </>}
                     </div>
-                  ))}
+                  })}
                 </div>
               </div>
 
@@ -982,316 +1507,11 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
         </div>
       )}
 
-      {/* 工作区新增/编辑对话框 —— 机柜"插槽规格表"同壳（参照 Agent 对话框） */}
-      {showDialog && visible && (
+      {/* DeepSeek 保留对话框；Claude / Codex 在列表内展开配置。 */}
+      {showDialog && visible && agent === 'dsh' && (
         <div className="ly-dialog-backdrop fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="ly-dialog-surface bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm w-[448px] max-h-[88vh] overflow-y-auto rack-scroll shadow-xl">
-            <DialogClose onClose={() => setShowDialog(false)} />
-            <div className="flex items-center h-10 px-4 border-b border-[var(--rule)] gap-2.5">
-              <span
-                className="inline-block w-2 h-2 rounded-full flex-shrink-0"
-                style={{ background: 'var(--amber)', boxShadow: '0 0 5px var(--amber)' }}
-              />
-              <span className="text-[13px] [font-family:inherit] font-medium tracking-[0.04em] text-[var(--text-rack)]">
-                {editWorkspace ? t(`${prefix}.wsEditTitle`) : t(`${prefix}.wsAddTitle`)}
-              </span>
-              <span className="flex-1" />
-              <span className="text-[10.5px] [font-family:inherit] tracking-[0.08em] px-1.5 py-px rounded-sm bg-[var(--bg-base)] border border-[var(--rule)] text-[var(--text-rack-mute)]">
-                {agent.toUpperCase()}
-              </span>
-            </div>
-
-            {/* 名称 —— label 与输入框同行（label 定宽，与下方模型行对齐） */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)] flex items-center gap-3">
-              <span className="flex-shrink-0 w-[3.5rem] text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsName`)}</span>
-              <input
-                type="text"
-                value={wsName}
-                onChange={(e) => updateWsName(e.target.value)}
-                placeholder={t(`${prefix}.wsNamePh`)}
-                autoFocus
-                className="flex-1 min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
-              />
-            </div>
-
-            {/* 工作目录 */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsCwd`)}</span>
-              </div>
-              <div className="flex items-stretch gap-1.5">
-                <input
-                  type="text"
-                  value={wsCwd}
-                  onChange={(e) => { setWsCwd(e.target.value); if (triedSubmit) setTriedSubmit(false) }}
-                  placeholder={t(`${prefix}.wsCwdPh`)}
-                  className="flex-1 min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
-                />
-                <button
-                  type="button"
-                  onClick={() => void handlePickCwd()}
-                  title={t(`${prefix}.browse`)}
-                  className="flex-shrink-0 w-[34px] inline-flex items-center justify-center bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[var(--text-rack-mute)] hover:text-[var(--amber)] hover:border-[var(--amber)] transition-colors cursor-pointer"
-                >
-                  <IconFolder />
-                </button>
-              </div>
-            </div>
-
-            {/* 目录隔离 —— 直接在 cwd 启动，或仓库根下的专属 git worktree（多 agent 同仓互不踩踏） */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="mb-2">
-                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsIsolation`)}</span>
-              </div>
-              <div role="radiogroup" aria-label={t(`${prefix}.wsIsolation`)} className="bg-[var(--bg-base)] border border-[var(--rule)] rounded-sm overflow-hidden">
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={wsIsolation === 'shared'}
-                  onClick={() => selectIsolation('shared')}
-                  className="relative w-full text-left flex items-center gap-2 px-2.5 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0 bg-transparent cursor-pointer hover:bg-[var(--bg-slot)] transition-colors"
-                >
-                  <BusLed on={wsIsolation === 'shared'} />
-                  <span className="flex-1 min-w-0 text-[12px] [font-family:inherit] text-[var(--text-rack)] truncate">
-                    {t(`${prefix}.wsIsolationShared`)}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={wsIsolation === 'worktree'}
-                  onClick={() => selectIsolation('worktree')}
-                  className="relative w-full text-left flex items-center gap-2 px-2.5 py-1.5 border-b border-[var(--rule-soft)] last:border-b-0 bg-transparent cursor-pointer hover:bg-[var(--bg-slot)] transition-colors"
-                >
-                  <BusLed on={wsIsolation === 'worktree'} />
-                  <span className="flex-1 min-w-0 text-[12px] [font-family:inherit] text-[var(--text-rack)] truncate">
-                    {t(`${prefix}.wsIsolationWorktree`)}
-                  </span>
-                </button>
-              </div>
-              {/* 共享名：仅 worktree 模式有意义。切到 worktree 时自动生成 <kind>-<名称>-<时间戳> 预填（可改可清空，
-                  空则私有各用各的树）；datalist 下拉列出该仓库已有的共享名 —— 选中即加入既有 worktree，也可自由输入 */}
-              {wsIsolation === 'worktree' && (
-                <>
-                  <input
-                    type="text"
-                    list={`${agent}-worktree-keys`}
-                    value={wsWorktreeKey}
-                    onChange={(e) => { setWsKeyAuto(false); setWsWorktreeKey(e.target.value) }}
-                    placeholder={t(`${prefix}.wsWorktreeKeyPh`)}
-                    className="mt-2 w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
-                  />
-                  <datalist id={`${agent}-worktree-keys`}>
-                    {wtKeys.map((k) => (
-                      <option key={k} value={k} />
-                    ))}
-                  </datalist>
-                  {/* 路径预览：选定 worktree 即可见完整路径与分支（实际目录点击启动时才创建） */}
-                  <div className="mt-1.5 px-0.5 text-[11px] leading-[1.6] [font-family:inherit] text-[var(--text-rack-data)] select-text break-all">
-                    {effectiveWorktreeKey ? (
-                      <>
-                        <div title={effectiveWorktreePath ?? undefined}>
-                          {t(`${prefix}.wsWorktreePath`)}{' '}
-                          {effectiveWorktreePath ?? t(`${prefix}.wsWorktreeNoRepo`)}
-                        </div>
-                        <div>
-                          {t(`${prefix}.wsWorktreeBranch`)} {`${BRANCH_PREFIX}/${effectiveWorktreeKey}`}
-                          <span className="mx-1.5 opacity-60">·</span>
-                          {t(`${prefix}.wsWorktreeLaunchNote`)}
-                        </div>
-                        {wsKeyAuto && <div>{t(`${prefix}.wsWorktreeAutoHint`)}</div>}
-                      </>
-                    ) : (
-                      <div>{t(`${prefix}.wsWorktreePrivateHint`)}</div>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* 备注（可选，仅用于记录）—— 仅 dsh 保留（hasWorkspaceNote）；codex/claude 表单更紧凑，备注退场 */}
-            {view.hasWorkspaceNote && (
-              <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-                <div className="flex items-baseline gap-2 mb-2">
-                  <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--text-rack)]">{t(`${prefix}.wsNote`)}</span>
-                </div>
-                <textarea
-                  value={wsNote}
-                  onChange={(e) => setWsNote(e.target.value)}
-                  placeholder={t(`${prefix}.wsNotePh`)}
-                  rows={2}
-                  className="w-full bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)] resize-none"
-                />
-              </div>
-            )}
-
-            {/* 模型 —— dsh 走补丁、codex/claude 走 --model；留空则用各 CLI 默认。
-                label 与输入框同行（label 定宽，与上方名称行对齐） */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)] flex items-center gap-3">
-              <span className="flex-shrink-0 w-[3.5rem] text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsModel`)}</span>
-              <input
-                type="text"
-                list={`${agent}-model-suggestions`}
-                value={wsModel}
-                onChange={(e) => { setWsModel(e.target.value); setWsModelAuto(false) }}
-                placeholder={t(`${prefix}.wsModelPh`)}
-                className="flex-1 min-w-0 bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[13px] [font-family:inherit] text-[var(--text-rack)] placeholder:text-[var(--text-rack-data)] py-1.5 px-2.5 focus:outline-none focus:border-[var(--amber)]"
-              />
-              <datalist id={`${agent}-model-suggestions`}>
-                {modelSuggestions.map((m) => (
-                  <option key={m} value={m} />
-                ))}
-              </datalist>
-            </div>
-
-            {/* 环境变量 —— 选一组预配置变量；不选则跟随已启用的那组（三级链在这里就地摊开）。
-                原生 select（与权限档位下拉同款机柜样式，选项名后缀变量数）；「跟随」档位的
-                解析结果摊开在下沿提示行，免得用户还要切页签才知道实际会用哪份 */}
-            <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-              <div className="flex flex-wrap items-baseline gap-2 mb-2">
-                <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsEnvProfile`)}</span>
-                {onOpenEnvSettings && <button type="button" className="ml-auto text-[12px] text-[var(--text-rack-data)] hover:text-[var(--amber)] underline underline-offset-2" onClick={onOpenEnvSettings}>{t('env.manage')}</button>}
-              </div>
-              <select
-                value={wsEnvProfileId ?? ''}
-                onChange={(e) => selectEnvProfile(e.target.value || undefined)}
-                aria-label={t(`${prefix}.wsEnvProfile`)}
-                className="w-full px-2 py-1.5 border rounded-[2px] text-[12px] [font-family:inherit] cursor-pointer focus:outline-none focus:border-[var(--amber)] transition-colors bg-[var(--bg-base)] border-[var(--rule)] text-[var(--text-rack)]"
-              >
-                {/* 空值 = 「跟随」：主进程按 envProfileId 缺省回落全局启用指针 */}
-                <option value="">{t(`${prefix}.wsEnvFollow`)}</option>
-                {envProfiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} · {t(`${prefix}.envVars`, { count: Object.keys(p.env).length })}
-                  </option>
-                ))}
-              </select>
-              {/* 跟随档位选中时才显示：显式绑定自明，不占行。一个组都没有时直接摊开空态说明 */}
-              {wsEnvProfileId === undefined && (
-                <div className="mt-1.5 text-[10.5px] [font-family:inherit] text-[var(--text-rack-mute)] leading-snug">
-                  {envProfiles.length === 0
-                    ? t(`${prefix}.wsEnvNone`)
-                    : t(`${prefix}.wsEnvFollowNow`, { name: activeProfile ? activeProfile.name : t(`${prefix}.envSystem`) })}
-                </div>
-              )}
-            </div>
-
-            {/* 权限模式（仅 claude）—— bypassPermissions 档启动追加 --dangerously-skip-permissions
-                （直连 flag，等价 --permission-mode bypassPermissions 但后者需额外设置），
-                acceptEdits/plan 档追加 --permission-mode <mode>，default 不追加。
-                原生 select（与 codex 权限档位下拉同款机柜样式）；选中 bypassPermissions 时
-                换 .danger-field 危险态皮肤（红染底 + 左沿条纹导轨 + 红字）+ 附警示行
-                —— 完全放开是用户显式选的危险形态 */}
-            {view.hasClaudePermissions && (
-              <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-                <div className="mb-2">
-                  <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsPermissions`)}</span>
-                </div>
-                <select
-                  value={wsClaudePermissions}
-                  onChange={(e) => setWsClaudePermissions(e.target.value as ClaudePermissionMode)}
-                  aria-label={t(`${prefix}.wsPermissions`)}
-                  className={cn(
-                    'w-full px-2 py-1.5 border rounded-[2px] text-[12px] [font-family:inherit] cursor-pointer focus:outline-none focus:border-[var(--amber)] transition-colors',
-                    wsClaudePermissions === 'bypassPermissions'
-                      ? 'danger-field'
-                      : 'bg-[var(--bg-base)] border-[var(--rule)] text-[var(--text-rack)]'
-                  )}
-                >
-                  <option value="default">{t(`${prefix}.wsPermDefault`)}</option>
-                  <option value="acceptEdits">{t(`${prefix}.wsPermAcceptEdits`)}</option>
-                  <option value="plan">{t(`${prefix}.wsPermPlan`)}</option>
-                  <option value="bypassPermissions">{t(`${prefix}.wsPermBypass`)}</option>
-                </select>
-                {wsClaudePermissions === 'bypassPermissions' && (
-                  <div className="mt-1.5 text-[10.5px] [font-family:inherit] text-[var(--error-rack)] leading-snug">
-                    {t(`${prefix}.wsPermBypassDangerHint`)}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 权限档位（仅 codex）—— 启动追加 -c default_permissions=<档位>。
-                原生 select（沿用设置面板下拉的机柜样式）；选中 :danger-full-access 时
-                换 .danger-field 危险态皮肤（红染底 + 左沿条纹导轨 + 红字）+ 附警示行
-                —— 完全放开是用户显式选的危险形态 */}
-            {view.hasCodexPermissions && (
-              <div className="py-3.5 px-4 border-b border-[var(--rule)]">
-                <div className="mb-2">
-                  <span className="text-[12px] [font-family:inherit] tracking-[0.06em] text-[var(--amber)]">{t(`${prefix}.wsPermissions`)}</span>
-                </div>
-                <select
-                  value={wsCodexPermissions}
-                  onChange={(e) => setWsCodexPermissions(e.target.value as CodexPermissionProfile)}
-                  aria-label={t(`${prefix}.wsPermissions`)}
-                  className={cn(
-                    'w-full px-2 py-1.5 border rounded-[2px] text-[12px] [font-family:inherit] cursor-pointer focus:outline-none focus:border-[var(--amber)] transition-colors',
-                    wsCodexPermissions === ':danger-full-access'
-                      ? 'danger-field'
-                      : 'bg-[var(--bg-base)] border-[var(--rule)] text-[var(--text-rack)]'
-                  )}
-                >
-                  <option value=":read-only">{t(`${prefix}.wsPermReadOnly`)}</option>
-                  <option value=":workspace">{t(`${prefix}.wsPermWorkspace`)}</option>
-                  <option value=":danger-full-access">{t(`${prefix}.wsPermDanger`)}</option>
-                </select>
-                {wsCodexPermissions === ':danger-full-access' && (
-                  <div className="mt-1.5 text-[10.5px] [font-family:inherit] text-[var(--error-rack)] leading-snug">
-                    {t(`${prefix}.wsPermDangerHint`)}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 校验提示（仅尝试提交后显示） */}
-            {triedSubmit && !valid && (
-              <div className="px-4 py-2 text-[11px] [font-family:inherit] text-[var(--error-rack)] border-b border-[var(--rule)]">
-                {t(`${prefix}.wsRequired`)}
-              </div>
-            )}
-
-            {/* 保存失败提示（校验未通过 / 落盘失败，保留表单） */}
-            {saveError && (
-              <div className="px-4 py-2 text-[11px] [font-family:inherit] text-[var(--error-rack)] border-b border-[var(--rule)] break-all">
-                {saveError}
-              </div>
-            )}
-
-            {/* footer：删除（两步确认）/ 取消 / 保存 */}
-            <div className="flex items-center justify-between px-4 py-3">
-              {editWorkspace ? (
-                <button
-                  onClick={() => void handleDelete()}
-                  className={
-                    confirmDelete
-                      ? 'px-2.5 py-1 text-[12px] [font-family:inherit] rounded-sm bg-[var(--error-rack)] text-[var(--bg-base)] font-medium transition-colors'
-                      : 'px-2.5 py-1 text-[12px] [font-family:inherit] text-[var(--error-rack)] hover:bg-[var(--bg-slot)] rounded-sm transition-colors'
-                  }
-                >
-                  {confirmDelete ? t(`${prefix}.wsConfirmDelete`) : t(`${prefix}.wsDelete`)}
-                </button>
-              ) : (
-                <span />
-              )}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setShowDialog(false)}
-                  className="px-3 py-1 text-[13px] [font-family:inherit] text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] transition-colors"
-                >
-                  {t(`${prefix}.wsCancel`)}
-                </button>
-                <button
-                  onClick={() => void handleSave()}
-                  className={`px-4 py-1 text-[13px] [font-family:inherit] rounded-sm font-medium transition-opacity ${
-                    valid
-                      ? 'bg-[var(--amber)] text-[var(--bg-base)] hover:opacity-90'
-                      : 'bg-[var(--bg-slot)] text-[var(--text-rack-dim)] opacity-70'
-                  }`}
-                >
-                  {t(`${prefix}.wsSave`)}
-                </button>
-              </div>
-            </div>
+            {renderWorkspaceEditor(false)}
           </div>
         </div>
       )}

@@ -55,6 +55,11 @@ function escStackHandler(
     // IME 组合中的 ESC 是取消候选词（组合期按键带 isComposing / keyCode 229），
     // 不当收层键 —— 面板/对话框里输中文按 ESC 收候选时不应把整个层收掉
     if (ev.isComposing || ev.keyCode === 229) return
+    // 可主题化的原生 select 在 DOM 中派发 ESC，先让浏览器收 picker，避免连同草稿一起关闭。
+    const select = ev.target instanceof Element ? ev.target.closest('select') : null
+    try {
+      if (select?.matches(':open')) return
+    } catch { /* 旧版 Chromium 不支持 :open，系统菜单自行消费 ESC。 */ }
     const token = tokenRef.current
     // 非栈顶（上方还有别的层）不消费也不截停，让栈顶自己的监听去收
     if (token === null || !isTopmostDismiss(token)) return

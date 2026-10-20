@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_BROWSER_SETTINGS } from '@shared/browser-settings'
 import { useBrowserSettingsStore } from '@/stores/browser-settings-store'
@@ -17,12 +17,29 @@ beforeEach(() => {
     getDownloadConfig: async () => ({ success: true, data: { defaultDir: 'D:/Downloads' } }),
     getConfig: async () => ({ width: 1200, height: 800 }),
     listEnvProfiles: async () => ({ profiles: [], activeProfileId: null, usage: {} }),
-    browserRequest: async () => ({ success: true, settings: structuredClone(DEFAULT_BROWSER_SETTINGS), passwords: [], encryptionAvailable: true })
+    browserRequest: async () => ({ success: true, settings: structuredClone(DEFAULT_BROWSER_SETTINGS), passwords: [], encryptionAvailable: true, downloadSnapshot: { downloads: [], downloadDirectory: 'D:/Downloads' } })
   } })
 })
 afterEach(cleanup)
 
 describe('设置分类导航', () => {
+  it('共享工作区设置可以保存目录和 worktree 并返回分类', async () => {
+    const request = vi.fn(async (value: { kind: string }) => ({ success: true, presets: value.kind === 'save' ? [{ id: 'preset', name: 'Project', cwd: 'D:/shared-project', isolation: 'worktree', worktreeKey: 'feature' }] : [] }))
+    Object.assign(window.electronAPI, { codeWorkspaceRequest: request, listHarnessWorktrees: async () => ({ success: true, keys: [], worktreeRoot: 'D:/shared-project/.lyshell-worktrees' }) })
+    const view = render(<SettingsPanel />)
+    fireEvent.click(view.getByRole('button', { name: 'settings.workspace' }))
+    fireEvent.click(await view.findByRole('button', { name: 'workspacePresets.add' }))
+    fireEvent.change(view.getByLabelText('workspacePresets.name'), { target: { value: 'Project' } })
+    fireEvent.change(view.getByLabelText('settings.workspaceDefaultCwd'), { target: { value: 'D:/shared-project' } })
+    fireEvent.change(view.getByLabelText('workspacePresets.directoryIsolation'), { target: { value: 'worktree' } })
+    fireEvent.change(view.getByLabelText('workspacePresets.worktreeName'), { target: { value: 'feature' } })
+    fireEvent.click(view.getByRole('button', { name: 'workspacePresets.save' }))
+    await waitFor(() => expect(request).toHaveBeenCalledWith({ kind: 'save', preset: { name: 'Project', cwd: 'D:/shared-project', isolation: 'worktree', worktreeKey: 'feature' } }))
+    expect(await view.findByText('Project · feature')).toBeTruthy()
+    fireEvent.click(view.getByRole('button', { name: 'settings.backToCategories' }))
+    expect(view.getByRole('navigation', { name: 'settings.section' })).toBeTruthy()
+  })
+
   it('环境配置在栏内编辑，列表与编辑共用一条返回栏', async () => {
     const view = render(<SettingsPanel requestedView={{ key: 'env', nonce: 1 }} />)
     fireEvent.click(await view.findByRole('button', { name: 'env.addTitle' }))
@@ -63,7 +80,7 @@ describe('设置分类导航', () => {
     expect(view.getByRole('group', { name: 'settings.theme' })).toBeTruthy()
     expect(view.getByRole('group', { name: 'settings.language' })).toBeTruthy()
     expect(view.getByLabelText('settings.windowSize')).toBeTruthy()
-    expect(view.getByText('D:/Downloads')).toBeTruthy()
+    expect(view.queryByText('D:/Downloads')).toBeNull()
     expect(view.queryByRole('navigation', { name: 'settings.section' })).toBeNull()
     fireEvent.click(view.getByRole('button', { name: 'settings.backToCategories' }))
     fireEvent.click(view.getByRole('button', { name: 'browser.title' }))
@@ -71,6 +88,9 @@ describe('设置分类导航', () => {
     expect(view.queryByLabelText('settings.font')).toBeNull()
     expect(view.queryByRole('group', { name: 'settings.theme' })).toBeNull()
     expect(view.queryByRole('button', { name: 'settings.returnBrowser' })).toBeNull()
+    fireEvent.click(view.getByRole('button', { name: 'browser.downloads' }))
+    expect(await view.findByText('D:/Downloads')).toBeTruthy()
+    expect(view.getByRole('button', { name: 'browser.chooseDownloadDirectory' })).toBeTruthy()
   })
 
   it('浏览器入口显示返回操作，切换主分类保留浏览器草稿', async () => {

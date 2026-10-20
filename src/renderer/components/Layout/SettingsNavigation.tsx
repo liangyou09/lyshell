@@ -1,6 +1,7 @@
 import React from 'react'
 
 const paths: Record<string, React.ReactNode> = {
+  workspace: <path d="M3 7V5h7l2 3h9v12H3V7Z" />,
   appearance: <><circle cx="12" cy="12" r="8" /><path d="M12 4a8 8 0 0 0 0 16Z" fill="currentColor" stroke="none" /></>,
   terminal: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m7 9 3 3-3 3m6 0h4" /></>,
   window: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M7 6.5h.01m3 0h.01" /></>,

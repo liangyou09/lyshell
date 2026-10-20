@@ -401,6 +401,9 @@
 }
 
 .settings-input:focus { outline: none; border-color: var(--amber); }
+.settings-workspace-path { display: grid; grid-template-columns: minmax(0, 1fr) 34px; gap: 6px; }
+.settings-workspace-path button { display: flex; align-items: center; justify-content: center; }
+.settings-workspace-hint { margin-top: 10px; color: var(--text-rack-data); overflow-wrap: anywhere; }
 .settings-preset { margin-bottom: 7px; cursor: pointer; }
 .settings-window-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; gap: 5px; align-items: end; }
 .settings-window-grid label { display: flex; min-width: 0; flex-direction: column; align-items: stretch; gap: 4px; }
@@ -433,8 +436,7 @@
 .settings-path:focus-within { border-color: var(--amber); }
 
 .settings-panel button:focus-visible,
-.settings-panel input:focus-visible,
-.settings-panel select:focus-visible {
+.settings-panel input:focus-visible {
   outline: 2px solid var(--amber);
   outline-offset: 2px;
 }

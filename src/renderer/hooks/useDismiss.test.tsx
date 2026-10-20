@@ -67,6 +67,29 @@ describe('ESC 回退栈顺序', () => {
 })
 
 describe('ESC 截停与放行', () => {
+  it('原生 select 展开时只让浏览器收菜单，关闭后 ESC 才收编辑层', () => {
+    const close = vi.fn()
+    const view = render(<><EscProbe onClose={close} /><select aria-label="Picker"><option>One</option></select></>)
+    const select = view.getByLabelText('Picker')
+    const matches = vi.spyOn(select, 'matches').mockReturnValue(true)
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    select.dispatchEvent(event)
+    expect(close).not.toHaveBeenCalled()
+    expect(event.defaultPrevented).toBe(false)
+    matches.mockReturnValue(false)
+    fireEvent.keyDown(select, { key: 'Escape' })
+    expect(close).toHaveBeenCalledOnce()
+  })
+
+  it('旧版不支持 :open 时继续沿用编辑层的 ESC 行为', () => {
+    const close = vi.fn()
+    const view = render(<><EscProbe onClose={close} /><select aria-label="Picker"><option>One</option></select></>)
+    const select = view.getByLabelText('Picker')
+    vi.spyOn(select, 'matches').mockImplementation(() => { throw new DOMException('Unsupported selector', 'SyntaxError') })
+    fireEvent.keyDown(select, { key: 'Escape' })
+    expect(close).toHaveBeenCalledOnce()
+  })
+
   it('栈顶消费时 stopPropagation,window 级冒泡监听收不到', () => {
     const windowSpy = vi.fn()
     window.addEventListener('keydown', windowSpy)

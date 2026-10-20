@@ -19,6 +19,7 @@ import './SidebarResizeHandle.css'
 import { startAllHarnessDetects } from './harness-detect'
 import PluginPanel from './PluginPanel'
 import WebPanel from './WebPanel'
+import BrowserDownloadPopup from './BrowserDownloadPopup'
 import PluginViewPanel from './PluginViewPanel'
 import PluginViewDialog, { type PluginViewDialogSpec } from './PluginViewDialog'
 import SettingsPanel, { type SettingsViewRequest } from './SettingsPanel'
@@ -48,6 +49,7 @@ import {
 } from './web-tab-controls'
 import { openWebTabPopup } from './web-tab-popup'
 import { openPluginChatTab } from './plugin-chat-tab'
+import { openPluginWebTab } from './plugin-web-tab'
 
 // 工作区和环境编辑器按需加载，避免占用默认会话面板的启动入口 chunk。
 const HarnessPanel = lazy(() => import('./HarnessPanel'))
@@ -277,7 +279,7 @@ const MainWindow: React.FC = () => {
             break
           }
           case 'openWebTab': {
-            const r = usePaneStore.getState().openWebTab(typeof params.url === 'string' ? params.url : '', undefined, { ownerPluginId: request.pluginId })
+            const r = openPluginWebTab(request.pluginId, typeof params.url === 'string' ? params.url : '', params.reuseExisting === true)
             reply(r.ok, r.ok ? undefined : r.error)
             break
           }
@@ -1132,10 +1134,16 @@ const MainWindow: React.FC = () => {
                 <DshMarketPanel onOpenWeb={handleOpenWeb} onOpenEnvSettings={() => handleNavChange('env')} />
               </div>}
               {(activeNav === 'codex' || retainedNav === 'codex') && <div className={cn('h-full', activeNav !== 'codex' && 'hidden')}>
-                <HarnessPanel agent="codex" visible={activeNav === 'codex'} onOpenEnvSettings={() => handleNavChange('env')} />
+                <HarnessPanel agent="codex" visible={activeNav === 'codex'} onOpenEnvSettings={() => handleNavChange('env')} onOpenWorkspaceSettings={() => {
+                  setRequestedSettingsView(prev => ({ key: 'workspace', nonce: (prev?.nonce ?? 0) + 1, returnTo: 'codex' }))
+                  handleNavChange('settings')
+                }} />
               </div>}
               {(activeNav === 'claude' || retainedNav === 'claude') && <div className={cn('h-full', activeNav !== 'claude' && 'hidden')}>
-                <HarnessPanel agent="claude" visible={activeNav === 'claude'} onOpenEnvSettings={() => handleNavChange('env')} />
+                <HarnessPanel agent="claude" visible={activeNav === 'claude'} onOpenEnvSettings={() => handleNavChange('env')} onOpenWorkspaceSettings={() => {
+                  setRequestedSettingsView(prev => ({ key: 'workspace', nonce: (prev?.nonce ?? 0) + 1, returnTo: 'claude' }))
+                  handleNavChange('settings')
+                }} />
               </div>}
             </Suspense>
             {activeNav === 'plugins' && <PluginPanel />}
@@ -1265,6 +1273,8 @@ const MainWindow: React.FC = () => {
               onToggleFloat={() => setFloatVisible(!floatVisible)}
             />
           </div>
+
+          <BrowserDownloadPopup />
 
           {/* 右上角会话浮窗 -- 锚在第一行页签条正下方(top 与第一行高度强绑定,引用常量防错位) */}
           {floatVisible && (

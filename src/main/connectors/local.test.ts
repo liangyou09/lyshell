@@ -130,6 +130,50 @@ describe('LocalConnector.connect (shellArgs 透传)', () => {
   })
 })
 
+describe('LocalConnector.connect (PowerShell 更新通知)', () => {
+  const originalUpdateCheck = process.env.POWERSHELL_UPDATECHECK
+
+  beforeEach(() => {
+    vi.mocked(spawn).mockReturnValue(fakePty())
+    vi.mocked(spawn).mockClear()
+    delete process.env.POWERSHELL_UPDATECHECK
+  })
+
+  afterEach(() => {
+    if (originalUpdateCheck === undefined) delete process.env.POWERSHELL_UPDATECHECK
+    else process.env.POWERSHELL_UPDATECHECK = originalUpdateCheck
+  })
+
+  it.each(['pwsh', 'cmd.exe', '/bin/bash'])('默认禁用 %s 及其子进程的更新通知，不修改父进程环境', async (shell) => {
+    await new LocalConnector('update-default', { shell }).connect()
+
+    expect(vi.mocked(spawn).mock.calls[0][2]?.env?.POWERSHELL_UPDATECHECK).toBe('Off')
+    expect(process.env.POWERSHELL_UPDATECHECK).toBeUndefined()
+  })
+
+  it('保留父进程显式设置', async () => {
+    process.env.POWERSHELL_UPDATECHECK = 'LTS'
+    await new LocalConnector('update-inherited', {}).connect()
+
+    expect(vi.mocked(spawn).mock.calls[0][2]?.env?.POWERSHELL_UPDATECHECK).toBe('LTS')
+  })
+
+  it('会话配置可以覆盖默认值和父进程设置', async () => {
+    process.env.POWERSHELL_UPDATECHECK = 'Off'
+    await new LocalConnector('update-config', { env: { POWERSHELL_UPDATECHECK: 'Default' } }).connect()
+
+    expect(vi.mocked(spawn).mock.calls[0][2]?.env?.POWERSHELL_UPDATECHECK).toBe('Default')
+  })
+
+  it('运行时环境变量保持最高优先级', async () => {
+    await new LocalConnector('update-runtime', { env: { POWERSHELL_UPDATECHECK: 'Default' } }, {
+      POWERSHELL_UPDATECHECK: 'Off'
+    }).connect()
+
+    expect(vi.mocked(spawn).mock.calls[0][2]?.env?.POWERSHELL_UPDATECHECK).toBe('Off')
+  })
+})
+
 // getSpawnCwd 是 cwd 报告种子（OscCwdTracker）的取值链路：config 优先、
 // 缺省回落用户主目录环境变量、全缺省 null（不预设工作目录）。
 // 最后一条锁定「连接后才读得到本次连接的 cwd」—— connect(config) 会整体

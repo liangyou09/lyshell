@@ -5,9 +5,11 @@ import { DEFAULT_BROWSER_SETTINGS } from '@shared/browser-settings'
 const mocks = vi.hoisted(() => ({
   setProxy: vi.fn(), close: vi.fn(), clearCache: vi.fn(), clearData: vi.fn(), write: vi.fn(),
   check: vi.fn(), request: vi.fn(), dialog: vi.fn(), find: vi.fn(), savePassword: vi.fn(),
+  available: vi.fn(), list: vi.fn(),
   handlers: new Map<string, (...args: unknown[]) => unknown>(), listeners: new Map<string, (...args: unknown[]) => unknown>()
 }))
 const ses = vi.hoisted(() => ({
+  on: vi.fn(),
   setProxy: mocks.setProxy, closeAllConnections: mocks.close, clearCache: mocks.clearCache,
   clearStorageData: mocks.clearData, setPermissionCheckHandler: mocks.check, setPermissionRequestHandler: mocks.request
 }))
@@ -20,10 +22,10 @@ vi.mock('electron', () => ({
 vi.mock('fs', () => ({ existsSync: () => false, readFileSync: vi.fn() }))
 vi.mock('../storage/repository', () => ({ getConfigDir: () => 'D:/fixture', atomicWriteFileSync: mocks.write, preferencesRepository: { get: () => 'en' } }))
 vi.mock('./passwords', () => ({ BrowserPasswords: class {
-  available = () => true
+  available = mocks.available
   find = mocks.find
   save = mocks.savePassword
-  list = () => []
+  list = mocks.list
   delete = vi.fn()
 } }))
 vi.mock('./prompts', () => ({ initializeBrowserPrompts: vi.fn(), requestBrowserPrompt: async (_guest: unknown, content: unknown, options: { current: () => boolean; confirm: () => void }) => {
@@ -41,6 +43,7 @@ beforeEach(() => {
   mocks.setProxy.mockResolvedValue(undefined); mocks.close.mockResolvedValue(undefined)
   mocks.clearCache.mockResolvedValue(undefined); mocks.clearData.mockResolvedValue(undefined)
   mocks.dialog.mockResolvedValue({ response: 0 }); mocks.find.mockReturnValue(null)
+  mocks.available.mockReturnValue(true); mocks.list.mockReturnValue([])
 })
 
 describe('浏览器主进程会话隔离', () => {
@@ -66,18 +69,75 @@ describe('浏览器主进程会话隔离', () => {
     await service.browserRequest({ kind: 'clear', target: 'siteData' })
     expect(mocks.clearData).toHaveBeenCalledOnce()
   })
-  it('密码只交付给浏览器顶层 guest，其他会话与子框架不能读取', async () => {
+  it('密码只交付给浏览器顶层 guest，按选定 ID 精确填充，其他会话与子框架不能读取', async () => {
     const service = await import('./service')
     await service.initializeBrowser()
     const fill = mocks.handlers.get('browser:password-fill')!
     const wc = guest()
+    const id = 'account-1'
     mocks.find.mockReturnValue({ username: 'a', password: 'fixture' })
-    expect(fill({ sender: wc, senderFrame: wc.mainFrame })).toEqual({ username: 'a', password: 'fixture' })
-    expect(mocks.find).toHaveBeenCalledWith('https://example.com')
-    expect(fill({ sender: wc, senderFrame: { url: wc.mainFrame.url } })).toBeNull()
-    expect(fill({ sender: { ...wc, session: {} }, senderFrame: wc.mainFrame })).toBeNull()
+    expect(fill({ sender: wc, senderFrame: wc.mainFrame }, { kind: 'fill', id })).toEqual({ username: 'a', password: 'fixture' })
+    expect(mocks.find).toHaveBeenCalledWith('https://example.com', id)
+    expect(fill({ sender: wc, senderFrame: { url: wc.mainFrame.url } }, { kind: 'fill', id })).toBeNull()
+    expect(fill({ sender: { ...wc, session: {} }, senderFrame: wc.mainFrame }, { kind: 'fill', id })).toBeNull()
     await service.browserRequest({ kind: 'save', settings: { ...DEFAULT_BROWSER_SETTINGS, savePasswords: false } })
-    expect(fill({ sender: wc, senderFrame: wc.mainFrame })).toBeNull()
+    expect(fill({ sender: wc, senderFrame: wc.mainFrame }, { kind: 'fill', id })).toBeNull()
+  })
+  it('候选阶段只返回当前站点账号元数据，按最近使用排序，不触发解密', async () => {
+    const service = await import('./service')
+    await service.initializeBrowser()
+    const fill = mocks.handlers.get('browser:password-fill')!
+    const wc = guest()
+    const now = Date.now()
+    mocks.list.mockReturnValue([
+      { id: 'old', origin: 'https://example.com', username: 'alice', updatedAt: now - 2000 },
+      { id: 'foreign', origin: 'https://other.example', username: 'mallory', updatedAt: now },
+      { id: 'recent', origin: 'https://example.com', username: 'bob', updatedAt: now - 1000 }
+    ])
+    expect(fill({ sender: wc, senderFrame: wc.mainFrame }, { kind: 'suggestions' })).toEqual([
+      { id: 'recent', username: 'bob' },
+      { id: 'old', username: 'alice' }
+    ])
+    expect(mocks.find).not.toHaveBeenCalled()
+  })
+  it('缺少或非法请求、非法 ID 一律拒绝且不解密', async () => {
+    const service = await import('./service')
+    await service.initializeBrowser()
+    const fill = mocks.handlers.get('browser:password-fill')!
+    const wc = guest()
+    const ev = { sender: wc, senderFrame: wc.mainFrame }
+    expect(fill(ev)).toBeNull()
+    expect(fill(ev, null)).toBeNull()
+    expect(fill(ev, 'nope')).toBeNull()
+    expect(fill(ev, {})).toBeNull()
+    expect(fill(ev, { kind: 'fill' })).toBeNull()
+    expect(fill(ev, { kind: 'fill', id: '' })).toBeNull()
+    expect(fill(ev, { kind: 'fill', id: 123 })).toBeNull()
+    expect(fill(ev, { kind: 'fill', id: 'x'.repeat(129) })).toBeNull()
+    expect(mocks.find).not.toHaveBeenCalled()
+  })
+  it('选定账号被删除或不存在时返回空', async () => {
+    const service = await import('./service')
+    await service.initializeBrowser()
+    const fill = mocks.handlers.get('browser:password-fill')!
+    const wc = guest()
+    const ev = { sender: wc, senderFrame: wc.mainFrame }
+    expect(fill(ev, { kind: 'fill', id: 'deleted' })).toBeNull()
+    expect(mocks.find).toHaveBeenCalledWith('https://example.com', 'deleted')
+  })
+  it('关闭保存或系统加密不可用时候选与填充均不返回', async () => {
+    const service = await import('./service')
+    await service.initializeBrowser()
+    const fill = mocks.handlers.get('browser:password-fill')!
+    const wc = guest()
+    const ev = { sender: wc, senderFrame: wc.mainFrame }
+    await service.browserRequest({ kind: 'save', settings: { ...DEFAULT_BROWSER_SETTINGS, savePasswords: false } })
+    expect(fill(ev, { kind: 'suggestions' })).toBeNull()
+    expect(fill(ev, { kind: 'fill', id: 'x' })).toBeNull()
+    await service.browserRequest({ kind: 'save', settings: { ...DEFAULT_BROWSER_SETTINGS, savePasswords: true } })
+    mocks.available.mockReturnValue(false)
+    expect(fill(ev, { kind: 'suggestions' })).toBeNull()
+    expect(fill(ev, { kind: 'fill', id: 'x' })).toBeNull()
   })
   it('跨站权限请求直接拒绝，禁止项不弹确认框', async () => {
     const service = await import('./service')

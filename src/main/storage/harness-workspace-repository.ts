@@ -143,6 +143,16 @@ export class HarnessWorkspaceRepository {
     return this.workspaces.find((w) => w.id === id)
   }
 
+  /** 内部批量迁移：整库原子保存，失败恢复原内存，避免合并到一半留下部分结果。 */
+  replaceAll(workspaces: HarnessWorkspace[]): boolean {
+    this.ensureInitialized()
+    const previous = this.workspaces
+    this.workspaces = workspaces.map((workspace, order) => ({ ...workspace, order }))
+    if (this.save()) return true
+    this.workspaces = previous
+    return false
+  }
+
   add(workspace: Omit<HarnessWorkspace, 'id' | 'order'>): HarnessWorkspace | null {
     this.ensureInitialized()
     const newWorkspace: HarnessWorkspace = {
