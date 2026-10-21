@@ -111,6 +111,9 @@ export default defineConfig({
           manualChunks: {
             'xterm': ['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-search'],
             'react': ['react', 'react-dom'],
+            // 目录提取与文档渲染共用的 Markdown 解析器独立打包，避免进入主入口。
+            // 保留同步解析和 MarkdownDoc 的 lazy 边界，不改变目录/文档加载时序。
+            'markdown-parser': ['unified', 'remark-parse', 'remark-gfm'],
             // 大段静态更新日志独立打包，设置面板仍同步挂载以保持插件打开回执时序。
             'release-notes': [resolve(__dirname, 'CHANGELOG.md') + '?raw'],
             'vendor': ['zustand', 'lodash-es', 'dayjs', 'classnames']

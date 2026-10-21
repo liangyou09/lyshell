@@ -20,52 +20,84 @@
 .dsh-market-frame.is-launch { background: var(--bg-base); }
 .dsh-panel-body { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .dsh-panel-body[hidden] { display: none; }
-/* 空态大鲸鱼按面板高度的 1/4 落位（视觉重心在上四分之一，下方留给工作区列表），
-   所以用绝对定位：百分比 top 对容器高度生效，flex 留白只能对剩余空间按比例分配。 */
-.dsh-launch-content { position: relative; display: flex; flex: 1; min-height: 0; flex-direction: column; align-items: center; }
-.dsh-launch-whale {
-  /* 端点色：启动完成后由琥珀改成主题两端的最大对比色，浅色纯黑、深色亮白。 */
-  --dsh-whale-ink: #000;
-  position: absolute; top: 25%; left: 50%; transform: translate(-50%, -50%);
-  padding: 20px; border-radius: 6px; color: var(--text-tab-idle); transition: color 160ms ease;
+/* 展示字体只用于鲸鱼下方的启动语，使用中英文状态文案子集，离线加载。 */
+@font-face {
+  font-family: 'Dsh Launch';
+  src: url('../../fonts/ZCOOLKuaiLe-Launcher.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
 }
-[data-theme-mode="dark"] .dsh-launch-whale { --dsh-whale-ink: #fff; }
-.dsh-launch-content .dsh-launch-error { margin-top: auto; }
-/* 未启动保持静息灰；工作台已开（启动完成）才换成端点色。 */
-.dsh-launch-whale.is-open { color: var(--dsh-whale-ink); }
-.dsh-launch-whale:hover:not(:disabled):not(.is-open) { color: var(--amber); }
-/* 状态语挂在鲸鱼正下方 6px，绝对定位是为了不打乱鲸鱼本身的 1/4 落位；
-   宽度按最窄面板收敛，英文长句换行而不是横穿整列。 */
-.dsh-launch-hint {
-  position: absolute;
-  top: calc(25% + 64px);
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: min(184px, calc(100% - 32px));
-  color: color-mix(in srgb, var(--text-rack) 90%, var(--bg-rack));
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 500;
-  text-align: center;
+/* 英文连笔花体单独打包，保留连字与字距特性。 */
+@font-face {
+  font-family: 'Dsh Launch Script';
+  src: url('../../fonts/GreatVibes-Launcher.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+/* 启动区使用剩余空间，底部统计区始终保留；矮窗口允许整区滚动，避免覆盖。 */
+.dsh-launch-content { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow-y: auto; }
+.dsh-launch-stage { display: flex; flex: 1 0 250px; align-items: center; justify-content: center; }
+.dsh-launch-whale {
+  /* 扫描与完成态使用主题端点色，启动前也保持足够的对比度。 */
+  --dsh-whale-ink: #000;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  width: min(232px, calc(100% - 24px)); margin: 24px 0; padding: 16px 12px;
+  border-radius: 6px; color: color-mix(in srgb, var(--text-rack) 78%, var(--bg-base));
   transition: color 160ms ease;
 }
+[data-theme-mode="dark"] .dsh-launch-whale { --dsh-whale-ink: #fff; }
+.dsh-launch-whale.is-open { color: var(--dsh-whale-ink); }
+.dsh-launch-whale:hover:not(:disabled):not(.is-open) { color: var(--amber); }
+.dsh-launch-hint {
+  position: relative;
+  max-width: 100%;
+  font-family: 'Dsh Launch', 'KaiTi', 'STKaiti', cursive;
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 400;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+/* 英文单独使用连笔花体，中文保持原展示字形。 */
+.dsh-launch-hint:lang(en) {
+  font-family: 'Dsh Launch Script', 'Dsh Launch', cursive;
+  font-size: 28px;
+  line-height: 36px;
+}
+.dsh-launch-hint-base { display: block; transition: opacity 160ms ease; }
+.dsh-launch-hint-fill { position: absolute; inset: 0; color: var(--dsh-whale-ink); clip-path: inset(0 100% 0 0); }
+.dsh-launch-hint-fill::before { content: attr(data-hint); }
 .dsh-launch-whale:disabled { cursor: wait; }
 .dsh-launch-whale:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
 /* 启动进度：同一只鲸鱼叠两层，上层用 clip-path 从左往右揭开，读起来就是进度条。
    启动耗时不可预知，所以定长 2s 铺满后会停在满格并轻微呼吸，直到 onLaunch 返回。 */
-.dsh-whale-stack { position: relative; display: block; width: 112px; height: 112px; }
-.dsh-whale-base { display: block; width: 100%; height: 100%; transition: opacity 160ms ease; }
+.dsh-whale-stack { position: relative; display: block; width: 144px; max-width: 100%; aspect-ratio: 50 / 38; }
+.dsh-whale-base { position: absolute; inset: 0; display: block; width: 100%; height: 100%; transition: opacity 160ms ease; }
 .dsh-whale-base > svg,
 .dsh-whale-fill > svg { display: block; width: 100%; height: 100%; }
 .dsh-whale-fill { position: absolute; inset: 0; color: var(--dsh-whale-ink); clip-path: inset(0 100% 0 0); }
-.dsh-launch-whale.is-busy .dsh-whale-base { opacity: .5; }
-.dsh-launch-whale.is-busy .dsh-whale-fill {
+.dsh-launch-whale.is-busy .dsh-whale-base { opacity: .35; }
+.dsh-launch-whale.is-busy .dsh-whale-fill,
+.dsh-launch-whale.is-busy .dsh-launch-hint-fill {
   animation: dsh-whale-fill 2000ms cubic-bezier(.25, .1, .25, 1) forwards,
              dsh-whale-breathe 1600ms ease-in-out 2000ms infinite;
 }
 @keyframes dsh-whale-fill { to { clip-path: inset(0 0 0 0); } }
 @keyframes dsh-whale-breathe { 50% { opacity: .55; } }
+
+.dsh-launch-usage { flex: 0 0 auto; min-height: 132px; padding: 12px 14px 14px; border-top: 1px solid var(--rule-soft); }
+.dsh-launch-usage-scopes { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; line-height: 20px; }
+.dsh-launch-usage-scopes button { padding: 2px 0; color: color-mix(in srgb, var(--text-rack) 72%, var(--bg-base)); border-bottom: 2px solid transparent; }
+.dsh-launch-usage-scopes button[aria-pressed="true"] { color: var(--text-rack); border-bottom-color: var(--amber); }
+.dsh-launch-usage-scopes button:hover { color: var(--text-rack); }
+.dsh-launch-usage-scopes button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.dsh-launch-usage-values { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0 8px; }
+.dsh-launch-usage-values dt, .dsh-launch-usage-note { color: color-mix(in srgb, var(--text-rack) 72%, var(--bg-base)); font-size: 11px; line-height: 16px; }
+.dsh-launch-usage-values dd { margin: 2px 0 0; color: var(--text-rack); font-size: 16px; line-height: 20px; font-variant-numeric: tabular-nums; }
 
 .dsh-market-section-bar {
   --dsh-market-canvas: var(--dsh-market-surface, var(--terminal-bg));
@@ -102,9 +134,10 @@
 .dsh-launch-tab:focus-visible { outline: 2px solid var(--amber); outline-offset: -3px; }
 .dsh-launch-tab:disabled { opacity: .6; cursor: wait; }
 @media (prefers-reduced-motion: reduce) {
-  .dsh-launch-tab, .dsh-launch-whale, .dsh-whale-base { transition: none; }
+  .dsh-launch-tab, .dsh-launch-whale, .dsh-whale-base, .dsh-launch-hint-base { transition: none; }
   /* 减少动效时不做扫光与呼吸，直接用整只主题端点色（浅色纯黑/深色亮白）表示「启动中」。 */
-  .dsh-launch-whale.is-busy .dsh-whale-fill { animation: none; clip-path: none; opacity: .8; }
+  .dsh-launch-whale.is-busy .dsh-whale-fill,
+  .dsh-launch-whale.is-busy .dsh-launch-hint-fill { animation: none; clip-path: none; opacity: .8; }
 }
 
 .dsh-market-section-name {

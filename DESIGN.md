@@ -28,6 +28,16 @@ typography:
     fontSize: "12px"
   permission:
     fontSize: "10px"
+  dsh-launch-label:
+    fontFamily: "'Dsh Launch', 'KaiTi', 'STKaiti', cursive"
+    fontSize: "20px"
+    fontWeight: 400
+    lineHeight: "28px"
+  dsh-launch-script:
+    fontFamily: "'Dsh Launch Script', 'Dsh Launch', cursive"
+    fontSize: "28px"
+    fontWeight: 400
+    lineHeight: "36px"
 rounded:
   sm: "3px"
   md: "4px"
@@ -107,3 +117,13 @@ components:
 - **Don't** 引入树线、深缩进或卡片外框/图标底座。
 - **Don't** 用脱离主题的固定面板色。
 - **Don't** 把这些规则套用到 DeepSeek 面板或其他页面——本设计仅约束 Codex / Claude 两个面板。
+
+## DeepSeek Launcher 局部补充
+
+此节仅定义用户指定的鲸鱼启动区，不将上面的 Codex / Claude 项目索引布局扩展到 DeepSeek。
+
+- 鲸鱼宽 144px，窄栏随按钮可用宽度收缩；默认使用主题主文字混色（78%），启动完成使用浅色黑 / 深色白。按钮沿用原有 6px 圆角。
+- 大鲸鱼使用 `0 6 50 38` 紧边界视区去掉方形图标内置的上下空白，和正下方启动语保持 12px 布局间距；图文组合居中落在统计区上方的剩余空间中。侧栏等小图标继续使用原方形视区。
+- 中文启动状态语使用本地 `Dsh Launch` 字体（ZCOOL KuaiLe 子集），20px / 28px / 400；英文使用 `Dsh Launch Script`（Great Vibes 连笔花体子集），28px / 36px / 400。两者仅用于鲸鱼下方的文字；统计和导航沿用现有系统字体。字体来源及许可见 `src/renderer/fonts/README-ZCOOLKuaiLe.md`。
+- 鲸鱼与状态语同步以 2 秒从左向右揭开端点色，填满后轻微呼吸直至启动返回。这是等待动效，不对应实际进度；减少动画偏好下直接显示完整变色层。
+- 启动区居中占用剩余空间，下方统计区至少 132px，支持「本次会话 / 今日累计」切换；未接入的 Token 与费用显示「—」并说明未接入。矮窗口整体纵向滚动，区域互不覆盖。

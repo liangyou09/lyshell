@@ -311,6 +311,9 @@ export function harnessKindFromTags(tags: string[] | undefined | null): HarnessA
   return null
 }
 
+/** 官方 Web 工作台只需要 dsh；终端工作区还需要单独安装 dsh-tui。 */
+export const DSH_WEB_INSTALL_COMMAND = 'npm install -g @deepseek-ai/dsh'
+
 export const HARNESS_AGENT_VIEWS: Record<HarnessAgentKind, HarnessAgentView> = {
   dsh: {
     kind: 'dsh',
@@ -321,7 +324,7 @@ export const HARNESS_AGENT_VIEWS: Record<HarnessAgentKind, HarnessAgentView> = {
       { key: 'DEEPSEEK_BASE_URL', value: 'https://api.deepseek.com' }
     ],
     modelSuggestions: ['deepseek-v4-flash', 'deepseek-v4-pro'],
-    installCommand: 'npm install -g @deepseek-ai/dsh @deepseek-harness-tui/dsh-tui',
+    installCommand: `${DSH_WEB_INSTALL_COMMAND} @deepseek-harness-tui/dsh-tui`,
     repos: [
       { dep: 'dsh', url: 'https://github.com/deepseek-ai/deepseek-harness' },
       { dep: 'dsh-tui', url: 'https://github.com/ccch1mneyyy/dsh-TUI' }
