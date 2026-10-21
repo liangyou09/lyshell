@@ -7,6 +7,10 @@ import { validateBrowserSettings } from '../browser/validation'
 import type { CodeWorkspaceRequest } from '@shared/code-workspaces'
 import { validateWorktreeKey } from '@shared/worktree'
 
+export function validateBuiltinTransferMethod(value: unknown): 'sftp' {
+  return assertEnum(value, 'transfer method', ['sftp'] as const)
+}
+
 export function validateCodeWorkspaceRequest(raw: unknown): CodeWorkspaceRequest {
   const value = assertObject(raw, 'codeWorkspaceRequest')
   if (value.kind === 'list') return { kind: 'list' }

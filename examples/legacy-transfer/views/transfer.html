@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>传统文件传输</title>
+  <link rel="stylesheet" href="transfer.css">
+</head>
+<body>
+  <main>
+    <h1>传统文件传输</h1>
+    <p class="intro">为未启用 SFTP 的 POSIX 服务器提供独立传输。每次明确选择方式，不自动切换。</p>
+    <section class="status" aria-label="任务状态">
+      <div class="status-heading"><h2>当前任务</h2><button id="cancel" type="button" hidden>取消传输</button></div>
+      <p id="state" role="status" aria-live="polite">正在连接插件服务…</p>
+      <progress id="progress" max="100" value="0" hidden aria-label="文件传输进度"></progress>
+      <p id="bytes" class="hint"></p>
+      <button id="refresh" type="button" hidden>刷新状态</button>
+    </section>
+    <form id="transfer-form">
+      <fieldset id="fields" disabled>
+        <legend>连接</legend>
+        <div class="row">
+          <label class="grow">SSH 主机<input id="host" name="host" required autocomplete="off" placeholder="服务器地址"></label>
+          <label class="port">端口<input id="port" name="port" type="number" min="1" max="65535" value="22" required></label>
+        </div>
+        <label>用户名<input id="username" name="username" required autocomplete="off"></label>
+        <label>已核实的主机指纹<input id="fingerprint" name="fingerprint" required placeholder="SHA256:…" autocomplete="off" spellcheck="false" aria-describedby="fingerprint-help"></label>
+        <p id="fingerprint-help" class="hint">从服务器管理员获取 SHA256 SSH 主机指纹。指纹不匹配时拒绝连接。</p>
+        <label>密码<input id="password" name="password" type="password" autocomplete="off"></label>
+        <details>
+          <summary>使用私钥登录</summary>
+          <p class="hint">密码留空，填写本机私钥文件的绝对路径。</p>
+          <label>私钥文件<input id="privateKeyPath" name="privateKeyPath" autocomplete="off" spellcheck="false"></label>
+          <label>私钥口令<input id="passphrase" name="passphrase" type="password" autocomplete="off"></label>
+        </details>
+        <div class="section">
+          <h2>传输</h2>
+          <div class="row">
+            <label class="grow">方向<select id="direction" name="direction"><option value="upload">上传到服务器</option><option value="download">下载到本机</option></select></label>
+            <label class="grow">方式<select id="method" name="method"><option value="tcp">Python TCP · SSH 隧道</option><option value="python">Python 流 · SSH exec</option><option value="base64">Base64 · SSH exec</option></select></label>
+          </div>
+          <p id="method-help" class="hint">远端需要 Python 3 或 Python，且允许 SSH 端口转发。</p>
+          <label>本地文件绝对路径<input id="localPath" name="localPath" required autocomplete="off" spellcheck="false" aria-describedby="path-help"></label>
+          <p id="path-help" class="hint"></p>
+          <label>远端文件绝对路径<input id="remotePath" name="remotePath" required placeholder="/home/user/report.bin" autocomplete="off" spellcheck="false"></label>
+          <details>
+            <summary>进入命令（仅 Python TCP）</summary>
+            <label>每行一条命令<textarea id="shellEnterCommands" name="shellEnterCommands" rows="3" spellcheck="false"></textarea></label>
+            <p class="hint">例如进入容器。使用该方式时须在实际执行环境中安装 Python，并允许到该环境的 SSH 隧道。</p>
+          </details>
+          <p class="hint">上传会覆盖指定远端文件；下载要求新文件名。失败或取消后的部分文件会保留，请核对后清理。</p>
+          <button id="submit" type="submit">开始上传</button>
+        </div>
+      </fieldset>
+    </form>
+  </main>
+  <script src="connection.js"></script>
+  <script src="transfer.js"></script>
+</body>
+</html>

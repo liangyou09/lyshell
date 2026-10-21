@@ -1,6 +1,5 @@
 export { BaseFileConnector } from './base'
 export { SFTPFileConnector } from './sftp'
-export { ExecFileConnector } from './exec'
 export { SSHFileClient } from './ssh-file-client'
 export { assertSafeLocalPath } from './path-safety'
 export type { LocalPathOpts } from './path-safety'

@@ -41,9 +41,8 @@ import { matchHttpUrls } from './urlLink'
 import { openLocalDoc, openRemoteDoc } from './readDoc'
 
 /**
- * filePwd：文件连接器（会话配置 SSH 用户的独立连接）上 execRaw('pwd') 的结果
- * —— 登录用户的 home（SFTP 连接器每次新开 exec 通道；Exec 连接器持久 shell
- * 会重放 shellEnterCommands，enter 命令换过环境则是进入后的目录）。它是
+ * filePwd：文件连接器（会话配置 SSH 用户的独立连接）上 SFTP realpath('.') 的结果，
+ * 即 SFTP 登录环境的 home，不重放 shellEnterCommands。它是
  * 「登录环境」的 cwd，不是交互终端 cd 后的 cwd。每次点击实时查询不缓存 ——
  * 会话换用户重连后登录 home 随之改变，缓存会把旧用户的 home 拼进新会话。
  */

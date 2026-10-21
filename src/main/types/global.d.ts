@@ -49,6 +49,7 @@ export interface SFTPStats {
 }
 
 export interface SFTPWrapper extends EventEmitter {
+  realpath(path: string, callback: (err: Error | undefined, resolved: string) => void): void
   readdir(path: string, callback: (err: Error | undefined, list: Array<{ filename: string; longname: string; attrs: SFTPStats }>) => void): void
   stat(path: string, callback: (err: Error | undefined, stats: SFTPStats) => void): void
   fastPut(localPath: string, remotePath: string, callback: (err: Error | undefined) => void): void

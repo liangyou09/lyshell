@@ -11,9 +11,8 @@ import * as path from 'path'
 // 因此用源码扫描锁定。
 
 const readSource = (file: string) => fs.readFileSync(path.join(process.cwd(), file), 'utf-8').replace(/\r\n/g, '\n')
-const DL = readSource('src/main/file/download-worker.ts')
-const UL = readSource('src/main/file/upload-worker.ts')
-const SFTP = readSource('src/main/file/sftp.ts')
+const DL = readSource('examples/legacy-transfer/src/download-tcp.ts')
+const UL = readSource('examples/legacy-transfer/src/upload-tcp.ts')
 const DL_MANAGER = readSource('src/main/file/download-worker-manager.ts')
 const UL_MANAGER = readSource('src/main/file/upload-worker-manager.ts')
 
@@ -112,10 +111,7 @@ describe('exec/Python-TCP 传输安全不变量', () => {
   it('log() 经 redactSecrets 闸口脱敏，一次性握手 token 不进日志', () => {
     // worker 把原始 shell/exec stdout 行打日志（如 `Shell: ${line}`），其中含
     // ===LYSHELL_TOKEN:<hex>===；log() 必须经 redactSecrets 脱敏，防 electron-log 落盘。
-    for (const src of [DL, UL]) {
-      expect(src).toContain("import { redactSecrets } from './redact'")
-      expect(src).toMatch(/message:\s*redactSecrets\(message\)/)
-    }
+    expect(readSource('examples/legacy-transfer/src/worker.ts')).toContain('redactSecrets(message)')
   })
 
   it('upload-worker 成功/失败会清理整体超时 timer，timer 不单独保持线程存活', () => {
@@ -124,17 +120,7 @@ describe('exec/Python-TCP 传输安全不变量', () => {
     expect(UL).toContain('const timeoutTimer = setTimeout(')
   })
 
-  it('upload-worker 顶层入口成功/失败均 process.exit（与下载侧一致，防异常后 Worker 不退出）', () => {
-    // 缺 process.exit 时，顶层异常或资源未自然关闭会让 Worker 线程残留；管理器靠 exit 事件回收，
-    // 不退出 = 永久挂起。下载侧已有 exit(0/1)，上传须一致。
-    const entry = UL.slice(UL.indexOf('// Worker 入口'))
-    expect(entry).toContain('process.exit(0)')
-    expect(entry).toContain('process.exit(1)')
-    // catch 不重发 error：各失败路径已在 reject 前发唯一终态消息，catch 只日志+退出，
-    // 避免 manager 收到两条 error 把同一失败报两次给渲染进程。
-    const catchBody = entry.slice(entry.indexOf('.catch('))
-    expect(catchBody).not.toContain("type: 'error'")
-  })
+
 
   it('upload-worker shell 脚本写入异常路径发终态 error 再 reject（catch 不兜底重发）', () => {
     // 该 catch 原先直接 reject 未发 error，是唯一无终态消息的 reject 路径；
@@ -146,14 +132,7 @@ describe('exec/Python-TCP 传输安全不变量', () => {
     expect(writeCatch).toContain('reject(error as Error)')
   })
 
-  it('upload-worker 本地文件缺失发 error 后 throw（走 catch exit(1)，不走成功 return）', () => {
-    // 原 return 会让入口 .then exit(0)：错误却以成功码退出，且 manager 日志误报 completed。
-    const start = UL.indexOf('if (!fs.existsSync(localPath))')
-    expect(start).toBeGreaterThan(-1)
-    const block = UL.slice(start, UL.indexOf('// 建立 SSH 连接', start))
-    expect(block).toContain("throw new Error('Local file not found')")
-    expect(block).not.toMatch(/^\s*return\s*$/m)
-  })
+
 
   it('shell 延迟写 timer 在终态清理，写入前检查完成态并监听 stream error', () => {
     for (const src of [DL, UL]) {
@@ -177,12 +156,7 @@ describe('exec/Python-TCP 传输安全不变量', () => {
   })
 
   // 目录检查的运行时回归覆盖在 sftp-mkdir.test.ts，这里只确认两个上传入口共用实现。
-  it('SFTP 上传入口共用目录检查，避免 worker 与 connector 行为不一致', () => {
-    for (const src of [SFTP, UL]) {
-      expect(src).toContain("import { sftpMkdirP } from './sftp-mkdir'")
-      expect(src).toContain('await sftpMkdirP(sftp, path.posix.dirname(remotePath))')
-    }
-  })
+
 
   it('worker 无终态消息退出时无论 code 是否为 0 都 reject', () => {
     expect(DL_MANAGER).toContain('Download worker exited without a terminal message')

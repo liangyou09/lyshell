@@ -73,8 +73,15 @@ export interface TransferProgress {
  * 文件连接器类型
  */
 export enum FileConnectorType {
-  SFTP = 'sftp',
-  EXEC = 'exec'
+  SFTP = 'sftp'
+}
+
+/** 内置传输固定为 SFTP，插件传输不进入此 IPC 契约。 */
+export interface FileTransferStartResult {
+  success: boolean
+  started?: boolean
+  method?: 'sftp'
+  error?: string
 }
 
 /**

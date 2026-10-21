@@ -48,6 +48,7 @@ import { fileManager, startDownloadWorker, registerTaskMeta, startUploadWorker, 
 import type { SessionConfig, TerminalEncoding } from '@shared/types'
 import {
   assertEnum,
+  validateBuiltinTransferMethod,
   assertExplorerLaunchConsumer,
   assertConnectionCloneSourceId,
   assertPluginActionRequestId,
@@ -1458,30 +1459,8 @@ export function registerIPCHandlers(): void {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       log.debug('File pwd:', sessionId)
-      // 通过获取 connector 来执行 pwd 命令
       const connector = await fileManager.getConnector(sessionId)
-      if (connector && connector.execRaw) {
-        const pwdRaw = await connector.execRaw('pwd')
-        // 清理输出：只保留最后一行以 / 开头的路径
-        const lines = pwdRaw.split('\n')
-        let pwd = ''
-        for (let i = lines.length - 1; i >= 0; i--) {
-          const line = lines[i].trim()
-          if (line.startsWith('/')) {
-            pwd = line
-            break
-          }
-        }
-        // 如果没找到，尝试匹配路径格式
-        if (!pwd) {
-          const pathMatch = pwdRaw.match(/\/[\w._/-]+/)
-          if (pathMatch) {
-            pwd = pathMatch[0].trim()
-          }
-        }
-        return { success: true, data: pwd || pwdRaw.trim() }
-      }
-      return { success: false, error: 'Cannot execute command' }
+      return { success: true, data: await connector.realPath('.') }
     } catch (error) {
       log.error('File pwd error:', error)
       return validationFailure(error) || { success: false, error: (error as Error).message }
@@ -1507,17 +1486,13 @@ export function registerIPCHandlers(): void {
       if (info.isDir) {
         return { success: false, error: 'Path is a directory' }
       }
-      // exec 连接器走 base64 shell 通道，读大文件慢且易触超时 —— 单独限 512KB
-      const maxSize = connector.getType() === 'exec'
-        ? Math.min(DOC_MAX_REMOTE_BYTES, 512 * 1024)
-        : DOC_MAX_REMOTE_BYTES
+      const maxSize = DOC_MAX_REMOTE_BYTES
       if (info.size > maxSize) {
         return { success: false, error: `File too large (${info.size} bytes > ${maxSize} limit)` }
       }
       const session = sessionManager.getSession(sessionId)
       const encoding = session?.config.terminal?.encoding ?? 'utf-8'
-      // encoding 传给读取层：exec 连接无 base64 时，非 UTF-8 编码直接报错而非有损 cat
-      const buf = await connector.readFileBytes(docPath, maxSize, encoding)
+      const buf = await connector.readFileBytes(docPath, maxSize)
       const result: DocReadResult = {
         content: iconv.decode(buf, encoding),
         size: info.size,
@@ -1578,8 +1553,9 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_UPLOAD, async (_event, _sessionId: string, localPath: string, remotePath: string, _taskId: string) => {
+  ipcMain.handle(IPC_CHANNELS.FILE_UPLOAD, async (_event, _sessionId: string, localPath: string, remotePath: string, _taskId: string, method: unknown = 'sftp') => {
     try {
+      validateBuiltinTransferMethod(method)
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       let safeLocalPath = assertString(localPath, 'localPath', { maxLength: 4096 })
       const safeRemotePath = assertString(remotePath, 'remotePath', { maxLength: 4096 })
@@ -1661,7 +1637,7 @@ export function registerIPCHandlers(): void {
       await startUploadWorker({
         taskId: taskId,
         sessionId: sessionId,
-        method: connectorType === 'sftp' ? 'sftp' : 'exec',
+        method: 'sftp',
         sshConfig: {
           host: sshConfig.host,
           port: sshConfig.port,
@@ -1671,8 +1647,6 @@ export function registerIPCHandlers(): void {
           passphrase: sshConfig.passphrase,
           readyTimeout: sshConfig.readyTimeout,
           keepaliveInterval: sshConfig.keepaliveInterval,
-          shellEnterCommands: sshConfig.shellEnterCommands,
-          shellEnterWait: sshConfig.shellEnterWait
         },
         localPath: safeLocalPath,
         remotePath: safeRemotePath,
@@ -1687,8 +1661,9 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_DOWNLOAD, async (_event, _sessionId: string, remotePath: string, localPath: string, _taskId: string, fileName: string, fileSize: number) => {
+  ipcMain.handle(IPC_CHANNELS.FILE_DOWNLOAD, async (_event, _sessionId: string, remotePath: string, localPath: string, _taskId: string, fileName: string, fileSize: number, method: unknown = 'sftp') => {
     try {
+      validateBuiltinTransferMethod(method)
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       const safeRemotePath = assertString(remotePath, 'remotePath', { maxLength: 4096 })
       let safeLocalPath = assertString(localPath, 'localPath', { maxLength: 4096 })
@@ -1737,7 +1712,7 @@ export function registerIPCHandlers(): void {
       await startDownloadWorker({
         taskId: taskId,
         sessionId: sessionId,
-        method: connectorType === 'sftp' ? 'sftp' : 'exec',
+        method: 'sftp',
         sshConfig: {
           host: sshConfig.host,
           port: sshConfig.port,
@@ -1747,8 +1722,6 @@ export function registerIPCHandlers(): void {
           passphrase: sshConfig.passphrase,
           readyTimeout: sshConfig.readyTimeout,
           keepaliveInterval: sshConfig.keepaliveInterval,
-          shellEnterCommands: sshConfig.shellEnterCommands,
-          shellEnterWait: sshConfig.shellEnterWait
         },
         remotePath: safeRemotePath,
         localPath: safeLocalPath,

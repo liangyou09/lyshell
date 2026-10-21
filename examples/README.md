@@ -3,6 +3,8 @@
 一组最小可跑的插件 demo，演示两种 runtime（Python / Node.js）的典型用法。
 *A set of minimal, runnable plugin demos covering the two runtimes (Python / Node.js).*
 
+可安装的完整传输插件见 [legacy-transfer](./legacy-transfer/README.md)：从内置文件管理器提取的 Python TCP、Python 流和 Base64 传输，包含构建 ZIP、权限说明、进度、取消及验证。内置文件管理器仅使用 SFTP。
+
 ### 入门模板 · Starter Templates
 
 | demo | runtime | 生命周期 lifecycle | 看点 highlights |

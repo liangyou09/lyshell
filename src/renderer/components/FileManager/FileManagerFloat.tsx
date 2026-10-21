@@ -96,7 +96,8 @@ const FileManagerFloat: React.FC<FileManagerFloatProps> = ({ visible, onClose, s
     const taskId = crypto.randomUUID()
 
     // 调用下载
-    window.electronAPI.fileDownload(selectedSessionId, file.path, localPath, taskId, file.name, file.size)
+    const result = await window.electronAPI.fileDownload(selectedSessionId, file.path, localPath, taskId, file.name, file.size)
+    if (!result.success) alert(result.error || t('fileManager.transferFailed'))
   }
 
   // 通配符匹配函数

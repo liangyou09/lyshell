@@ -1,0 +1,11 @@
+{
+  "id": "legacy-transfer",
+  "name": "传统文件传输 (EXEC / Python / Base64)",
+  "version": "1.0.0",
+  "engines": { "lyshell": ">=2.0.2" },
+  "runtime": "node",
+  "lifecycle": "persistent",
+  "main": "main.js",
+  "activationEvents": ["onStartup"],
+  "capabilities": ["read", "execute", "fileWrite", "localExecute", "uiControl"]
+}

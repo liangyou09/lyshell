@@ -96,8 +96,14 @@ const FilePanel: React.FC<FilePanelProps> = ({ sessionId }) => {
       const remotePath = `${uploadDir}/${fileName}`
       const taskId = crypto.randomUUID()
 
-      // 直接调用上传，不追踪进度
-      window.electronAPI.fileUpload(sessionId, localPath, remotePath, taskId)
+      const startResult = await window.electronAPI.fileUpload(sessionId, localPath, remotePath, taskId)
+      if (!startResult.success) {
+        await window.electronAPI.showMessageBox({
+          type: 'error',
+          message: startResult.error || t('fileManager.transferFailed')
+        })
+        return
+      }
     }
 
     // 提示用户

@@ -14,7 +14,7 @@ import { createSerialChain } from './serial-chain'
 interface DownloadTaskData {
   taskId: string
   sessionId: string
-  method: 'sftp' | 'exec'
+  method: 'sftp'
   sshConfig: {
     host: string
     port: number
@@ -24,8 +24,6 @@ interface DownloadTaskData {
     passphrase?: string
     readyTimeout?: number
     keepaliveInterval?: number
-    shellEnterCommands?: string
-    shellEnterWait?: number
   }
   remotePath: string
   localPath: string

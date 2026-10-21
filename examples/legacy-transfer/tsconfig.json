@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.node.json",
+  "include": ["src/**/*.ts", "../../src/main/types/global.d.ts"],
+  "exclude": ["dist"],
+  "compilerOptions": { "composite": false }
+}

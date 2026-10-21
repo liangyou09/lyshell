@@ -2,7 +2,8 @@ import { EventEmitter } from 'events'
 import log from 'electron-log'
 import { BaseFileConnector } from './base'
 import { SFTPFileConnector } from './sftp'
-import { ExecFileConnector } from './exec'
+import { SSHCommandExecutor } from './ssh-command-executor'
+import { SSHCommandShell } from './ssh-command-shell'
 import { SSHFileClient } from './ssh-file-client'
 import type { FileInfo, TransferProgress, SSHConfig } from '@shared/types'
 import { FileConnectorType } from '@shared/types'
@@ -21,7 +22,8 @@ export type GetSSHConfigFn = (sessionId: string) => Promise<SSHConfig | null> | 
 export class FileManager extends EventEmitter {
   private connectors: Map<string, BaseFileConnector> = new Map()
   private sshClients: Map<string, SSHFileClient> = new Map()  // 独立的 SSH 文件传输连接
-  private testedSessions: Map<string, boolean> = new Map()  // 记录已测试 SFTP 的 session
+  private commandConnectors = new Map<string, SSHCommandExecutor | SSHCommandShell>()
+  private generations = new Map<string, number>()
   private getSSHConfigFn: GetSSHConfigFn | null = null
 
   /**
@@ -35,9 +37,10 @@ export class FileManager extends EventEmitter {
    * 获取或创建 SSH 文件传输客户端
    */
   private async getSSHClient(sessionId: string): Promise<SSHFileClient> {
+    const generation = this.generations.get(sessionId) ?? 0
     // 检查是否已有客户端
     const existing = this.sshClients.get(sessionId)
-    if (existing && existing.isConnected()) {
+    if (existing) {
       log.debug(`Using existing SSHFileClient for session: ${sessionId}`)
       return existing
     }
@@ -48,9 +51,13 @@ export class FileManager extends EventEmitter {
     }
 
     const sshConfig = await this.getSSHConfigFn(sessionId)
+    if ((this.generations.get(sessionId) ?? 0) !== generation) throw new Error('File session disconnected')
     if (!sshConfig) {
       throw new Error(`SSH config not available for session: ${sessionId}`)
     }
+    // 配置读取可能异步；并发请求复用期间已创建的客户端。
+    const concurrent = this.sshClients.get(sessionId)
+    if (concurrent) return concurrent
 
     // 创建新的 SSHFileClient
     log.info(`Creating new SSHFileClient for session: ${sessionId}`)
@@ -64,7 +71,11 @@ export class FileManager extends EventEmitter {
     sshClient.on('close', () => {
       log.info(`SSHFileClient closed for ${sessionId}`)
       // 移除客户端，下次使用时会重新创建
-      this.sshClients.delete(sessionId)
+      if (this.sshClients.get(sessionId) === sshClient) {
+        this.sshClients.delete(sessionId)
+        this.connectors.delete(sessionId)
+        this.commandConnectors.delete(sessionId)
+      }
     })
 
     this.sshClients.set(sessionId, sshClient)
@@ -78,16 +89,17 @@ export class FileManager extends EventEmitter {
     const sshClient = this.sshClients.get(sessionId)
     if (sshClient) {
       await sshClient.disconnect()
-      this.sshClients.delete(sessionId)
+      if (this.sshClients.get(sessionId) === sshClient) this.sshClients.delete(sessionId)
       log.info(`SSHFileClient disconnected for session: ${sessionId}`)
     }
   }
 
   /**
    * 获取或创建文件连接器
-   * 使用独立的 SSH 连接，自动检测并选择合适的连接方式（SFTP 或 Exec）
+   * 使用独立的 SSH 连接，仅请求 SFTP 子系统
    */
   async getConnector(sessionId: string): Promise<BaseFileConnector> {
+    const generation = this.generations.get(sessionId) ?? 0
     // 检查是否已有连接器
     const existing = this.connectors.get(sessionId)
     if (existing) {
@@ -98,71 +110,37 @@ export class FileManager extends EventEmitter {
     // 获取独立的 SSH 文件传输客户端
     const sshClient = await this.getSSHClient(sessionId)
 
-    // 检查是否已测试过 SFTP（避免重复测试）
-    const alreadyTested = this.testedSessions.get(sessionId)
-    if (alreadyTested !== undefined) {
-      if (alreadyTested) {
-        // 已测试 SFTP 可用，直接创建 SFTP connector
-        log.info(`Using cached result: SFTP for session: ${sessionId}`)
-        const sftpConnector = new SFTPFileConnector(sessionId, sshClient)
-        this.connectors.set(sessionId, sftpConnector)
-        this.emit('connector:created', { sessionId, type: FileConnectorType.SFTP })
-        return sftpConnector
-      } else {
-        // 已测试 SFTP 不可用，直接使用 Exec
-        log.info(`Using cached result: Exec for session: ${sessionId}`)
-        const sshConfig = await this.getSSHConfigFn!(sessionId)
-        const execConnector = new ExecFileConnector(
-          sessionId,
-          sshClient,
-          sshConfig?.shellEnterCommands,
-          sshConfig?.shellEnterWait
-        )
-        this.connectors.set(sessionId, execConnector)
-        this.emit('connector:created', { sessionId, type: FileConnectorType.EXEC })
-        return execConnector
-      }
-    }
-
-    // 标记为已测试（开始测试）
-    this.testedSessions.set(sessionId, false)
-
-    // 尝试 SFTP
-    log.info(`Testing SFTP for session: ${sessionId}`)
-    const sftpConnector = new SFTPFileConnector(sessionId, sshClient)
-
+    const connector = new SFTPFileConnector(sessionId, sshClient)
     try {
-      const sftpAvailable = await sftpConnector.testConnection()
-
-      if (sftpAvailable) {
-        log.info(`Using SFTP for session: ${sessionId}`)
-        this.testedSessions.set(sessionId, true)
-        this.connectors.set(sessionId, sftpConnector)
-        this.emit('connector:created', { sessionId, type: FileConnectorType.SFTP })
-        return sftpConnector
-      }
+      await sshClient.getSFTP()
     } catch (error) {
-      log.warn(`SFTP test failed: ${error}`)
+      throw new Error(`SFTP 不可用：${(error as Error).message}。内置文件管理器仅支持 SFTP，请启用服务器 SFTP 子系统，或使用独立传输插件。`)
     }
+    if ((this.generations.get(sessionId) ?? 0) !== generation) throw new Error('File session disconnected')
+    if (this.sshClients.get(sessionId) !== sshClient) throw new Error('File session disconnected')
+    const concurrent = this.connectors.get(sessionId)
+    if (concurrent) return concurrent
+    this.connectors.set(sessionId, connector)
+    this.emit('connector:created', { sessionId, type: FileConnectorType.SFTP })
+    return connector
+  }
 
-    // 回退到 Exec
-    log.info(`SFTP not available, using Exec for session: ${sessionId}`)
-    const sshConfig = await this.getSSHConfigFn!(sessionId)
-    const execConnector = new ExecFileConnector(
-      sessionId,
-      sshClient,
-      sshConfig?.shellEnterCommands,
-      sshConfig?.shellEnterWait
-    )
-
-    // 预启动 Python agent（后台运行，不阻塞）
-    execConnector.preStartAgent().catch(err => {
-      log.warn(`Failed to pre-start agent: ${err.message}`)
-    })
-
-    this.connectors.set(sessionId, execConnector)
-    this.emit('connector:created', { sessionId, type: FileConnectorType.EXEC })
-    return execConnector
+  /** 普通命令执行不探测 SFTP，不受文件管理器连接失败影响。 */
+  async getCommandConnector(sessionId: string): Promise<SSHCommandExecutor | SSHCommandShell> {
+    const generation = this.generations.get(sessionId) ?? 0
+    const existing = this.commandConnectors.get(sessionId)
+    if (existing) return existing
+    const client = await this.getSSHClient(sessionId)
+    const config = await this.getSSHConfigFn!(sessionId)
+    if ((this.generations.get(sessionId) ?? 0) !== generation) throw new Error('File session disconnected')
+    if (this.sshClients.get(sessionId) !== client) throw new Error('File session disconnected')
+    const concurrent = this.commandConnectors.get(sessionId)
+    if (concurrent) return concurrent
+    const connector = config?.shellEnterCommands?.trim()
+      ? new SSHCommandShell(client, config.shellEnterCommands)
+      : new SSHCommandExecutor(client)
+    this.commandConnectors.set(sessionId, connector)
+    return connector
   }
 
   /**
@@ -182,15 +160,14 @@ export class FileManager extends EventEmitter {
 
   /**
    * 移除连接器
-   * 在会话断开时调用，清理远程 agent 进程和 SSH 连接
+   * 在会话断开时调用，清理普通命令通道和 SSH 连接
    */
   async removeConnector(sessionId: string): Promise<void> {
-    const connector = this.connectors.get(sessionId)
-    if (connector && typeof (connector as any).cleanup === 'function') {
-      await (connector as any).cleanup()
-    }
+    this.generations.set(sessionId, (this.generations.get(sessionId) ?? 0) + 1)
+    const command = this.commandConnectors.get(sessionId)
+    this.commandConnectors.delete(sessionId)
     this.connectors.delete(sessionId)
-    this.testedSessions.delete(sessionId)
+    if (command instanceof SSHCommandShell) await command.cleanup()
 
     // 断开独立的 SSH 文件传输连接
     await this.disconnectSSHClient(sessionId)
@@ -311,7 +288,7 @@ export class FileManager extends EventEmitter {
    * 计算远程文件 MD5（通过 exec 命令）
    */
   async calculateRemoteMD5(sessionId: string, filePath: string): Promise<string> {
-    const connector = await this.getConnector(sessionId)
+    const connector = await this.getCommandConnector(sessionId)
 
     if (!connector.execRaw) {
       throw new Error('This connector does not support shell commands')
@@ -388,7 +365,7 @@ export const fileManager = new FileManager()
 
 /**
  * POSIX 单引号安全引用：单引号内 shell 不做任何展开，
- * 内部单引号用 '"'"' 转义（与 exec.ts quotePath / http-server.ts quotePosixPath 一致）。
+ * 内部单引号转义，避免 shell 展开路径内的命令字符。
  * 用于把用户可控的 remotePath 安全拼进远程 shell 命令（如 md5sum）。
  */
 function quotePosixPath(filePath: string): string {

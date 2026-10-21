@@ -109,7 +109,7 @@ Plugins ship a manifest (`@shared/plugin-types`, API surface in `@shared/plugin-
 
 ### File transfers
 
-`src/main/file/` has a queue (`download-queue.ts`) and Worker pools (`download-worker-manager.ts`, `upload-worker-manager.ts`) that fan out to the worker bundles built from `download-worker.ts` / `upload-worker.ts`. Workers use `ssh-file-client.ts` (SFTP via `ssh2`) with an `exec.ts` fallback. The main window reference is set on startup so workers can post progress events back to the renderer; `cleanupAllWorkers` / `cleanupAllUploadWorkers` are called on app quit.
+`src/main/file/` uses serial transfer chains and Worker managers (`download-worker-manager.ts`, `upload-worker-manager.ts`) that run the bundles built from `download-worker.ts` / `upload-worker.ts`. Built-in file operations and both transfer Workers use SFTP only, with no EXEC/Python/Base64 fallback. Other transfer methods live in the installable `examples/legacy-transfer` plugin. Ordinary SSH commands use independent `ssh-command-executor.ts` / `ssh-command-shell.ts` channels without probing SFTP. The main window reference is set on startup so workers can post progress events back to the renderer; `cleanupAllWorkers` / `cleanupAllUploadWorkers` are called on app quit.
 
 ### Storage
 

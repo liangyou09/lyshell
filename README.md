@@ -311,7 +311,7 @@ Click a session → `Ctrl+Shift+V` to split vertically → click another session
 - **Download** — double-click remote file or right-click → Download
 - **Progress** — real-time speed + ETA, auto MD5 on completion
 - **History** — file, size, path, MD5 recorded; supports re-download
-- **Security** — independent SSH connection (never blocks terminal), SFTP or TCP-over-SSH tunnel; no plaintext fallback even when `AllowTcpForwarding` is disabled
+- **Security** — independent SSH connection (never blocks terminal), SFTP-only built-in transfers with explicit errors when SFTP is unavailable. Optional EXEC/Python/Base64 transfers are provided by the separately installed [legacy-transfer plugin](examples/legacy-transfer/README.md), with no automatic fallback in the file manager.
 - **Download directory** — default `~/Downloads/LyShell/`, optional auto-create server subdirectory for archiving
 
 ### Quick Commands

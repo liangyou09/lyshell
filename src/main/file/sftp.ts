@@ -23,133 +23,22 @@ export class SFTPFileConnector extends BaseFileConnector {
   }
 
   /**
-   * 执行 shell 命令并返回原始输出（用于 MD5 计算）
+   * 通过 SFTP 定位登录目录，不执行 shell 命令
    */
-  async execRaw(command: string, timeout = 30000): Promise<string> {
-    const client = await this.sshFileClient.getClient()
-
+  async realPath(path: string): Promise<string> {
+    const sftp = await this.initSFTP()
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(new Error(`Command timeout after ${timeout}ms`))
-      }, timeout)
-
-      client.exec(command, (err, stream) => {
-        if (err) {
-          clearTimeout(timer)
-          reject(err)
-          return
-        }
-
-        let output = ''
-
-        stream.on('data', (data: Buffer) => {
-          output += data.toString()
-        })
-
-        stream.on('close', () => {
-          clearTimeout(timer)
-          // 只去掉控制字符
-          const cleaned = output
-            // eslint-disable-next-line no-control-regex
-            .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
-            // eslint-disable-next-line no-control-regex
-            .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
-            .trim()
-          resolve(cleaned)
-        })
-
-        stream.on('error', (err) => {
-          clearTimeout(timer)
-          reject(err)
-        })
-      })
+      sftp.realpath(path, (error, resolved) => error ? reject(error) : resolve(resolved))
     })
   }
 
-  /**
-   * 流式执行命令：stdout/stderr 增量推送给 onData，最终返回 { output, exitCode }。
-   * output 含 stdout+stderr（与 execRaw 仅 stdout 不同——流式面向 agent，stderr 同样重要）。
-   * signal abort 时销毁 stream 以中止执行。
-   */
-  async execStream(
-    command: string,
-    timeout: number,
-    onData: (chunk: string) => void,
-    signal?: AbortSignal
-  ): Promise<{ output: string; exitCode: number }> {
-    const client = await this.sshFileClient.getClient()
-
-    return new Promise((resolve, reject) => {
-      let channel: { destroy: () => void } | null = null
-      let exitCode = 0
-
-      const timer = setTimeout(() => {
-        channel?.destroy()
-        reject(new Error(`Command timeout after ${timeout}ms`))
-      }, timeout)
-
-      const onAbort = () => {
-        channel?.destroy()
-        reject(new Error('Command aborted'))
-      }
-      if (signal) {
-        if (signal.aborted) { onAbort(); return }
-        signal.addEventListener('abort', onAbort, { once: true })
-      }
-
-      client.exec(command, (err, stream) => {
-        if (err) {
-          clearTimeout(timer)
-          reject(err)
-          return
-        }
-        channel = stream
-
-        let output = ''
-        stream.on('data', (data: Buffer) => {
-          const c = data.toString()
-          output += c
-          onData(c)
-        })
-        stream.stderr?.on('data', (data: Buffer) => {
-          const c = data.toString()
-          output += c
-          onData(c)
-        })
-        stream.on('exit', (code: number | null) => {
-          if (typeof code === 'number') exitCode = code
-        })
-        stream.on('close', () => {
-          clearTimeout(timer)
-          if (signal) signal.removeEventListener('abort', onAbort)
-          // 只去掉控制字符（与 execRaw 一致）
-          const cleaned = output
-            // eslint-disable-next-line no-control-regex
-            .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
-            // eslint-disable-next-line no-control-regex
-            .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
-            .trim()
-          resolve({ output: cleaned, exitCode })
-        })
-        stream.on('error', (e: Error) => {
-          clearTimeout(timer)
-          if (signal) signal.removeEventListener('abort', onAbort)
-          reject(e)
-        })
-      })
-    })
-  }
-
-  /**
-   * 初始化 SFTP 会话
-   */
   private async initSFTP(): Promise<SFTPWrapper> {
     return this.sshFileClient.getSFTP()
   }
 
   /**
    * 读取文件原始字节（文档预览用）—— open/read 按块循环读到 EOF，超限抛错（不截断）。
-   * 返回未解码 Buffer，由调用方按会话编码 iconv.decode（execRaw 的 utf-8 解码对 GBK 有损）。
+   * 返回未解码 Buffer，由调用方按会话编码 iconv.decode。
    */
   async readFileBytes(filePath: string, maxSize: number): Promise<Buffer> {
     const sftp = await this.initSFTP()

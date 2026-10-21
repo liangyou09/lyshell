@@ -312,7 +312,8 @@ const FileManagerPanel: React.FC = () => {
     const localPath = `${dirResult.data}/${file.name}`
     const taskId = crypto.randomUUID()
     registerDownloadFileName(taskId, file.name, localPath)
-    window.electronAPI.fileDownload(currentSessionId, file.path, localPath, taskId, file.name, file.size)
+    const result = await window.electronAPI.fileDownload(currentSessionId, file.path, localPath, taskId, file.name, file.size)
+    if (!result.success) setError(result.error || t('fileManager.transferFailed'))
   }
 
   // 上传文件（拖放）
@@ -331,7 +332,7 @@ const FileManagerPanel: React.FC = () => {
           loadFiles(currentServerKey, currentSessionId, displayPath)
         }
       }, 2000)
-    }
+    } else setError(result.error || t('fileManager.transferFailed'))
   }
 
   // 通配符匹配函数

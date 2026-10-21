@@ -507,9 +507,9 @@ const electronAPI = {
   fileList: (sessionId: string, path: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST, sessionId, path),
   fileStat: (sessionId: string, path: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_STAT, sessionId, path),
   fileUpload: (sessionId: string, localPath: string, remotePath: string, taskId: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.FILE_UPLOAD, sessionId, localPath, remotePath, taskId),
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_UPLOAD, sessionId, localPath, remotePath, taskId, 'sftp') as Promise<import('@shared/types').FileTransferStartResult>,
   fileDownload: (sessionId: string, remotePath: string, localPath: string, taskId: string, fileName: string, fileSize: number) =>
-    ipcRenderer.invoke(IPC_CHANNELS.FILE_DOWNLOAD, sessionId, remotePath, localPath, taskId, fileName, fileSize),
+    ipcRenderer.invoke(IPC_CHANNELS.FILE_DOWNLOAD, sessionId, remotePath, localPath, taskId, fileName, fileSize, 'sftp') as Promise<import('@shared/types').FileTransferStartResult>,
   fileCancel: (taskId: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_CANCEL, taskId),
   fileDelete: (sessionId: string, path: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_DELETE, sessionId, path),
   fileRename: (sessionId: string, oldPath: string, newPath: string) =>

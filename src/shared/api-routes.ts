@@ -955,7 +955,7 @@ export const API_ROUTES: ApiRouteMeta[] = [
       'localPath may be a relative name/subpath (resolved into the session download dir) ' +
       'or an absolute path within it; the resolved localPath is returned. ' +
       'Returns the MD5 hash of the downloaded file if available. ' +
-      'Supports SFTP or exec-based transfer (auto-detected).',
+      'Uses SFTP only. If the server has no SFTP subsystem, the request fails; other transfer methods are available through a separate plugin.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -989,7 +989,7 @@ export const API_ROUTES: ApiRouteMeta[] = [
     title: '上传文件到远程',
     description:
       'Upload a local file to a remote path. SSH sessions only. ' +
-      'Supports SFTP or exec-based transfer (auto-detected).',
+      'Uses SFTP only. If the server has no SFTP subsystem, the request fails; other transfer methods are available through a separate plugin.',
     inputSchema: {
       type: 'object' as const,
       properties: {

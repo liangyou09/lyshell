@@ -39,13 +39,10 @@ const FileToolbar: React.FC<FileToolbarProps> = ({
           'px-2 py-0.5 rounded text-xs',
           connectorType === FileConnectorType.SFTP
             ? 'bg-green-900/50 text-green-400'
-            : connectorType === FileConnectorType.EXEC
-              ? 'bg-blue-900/50 text-blue-400'
-              : 'bg-gray-700/50 text-gray-400'
+            : 'bg-gray-700/50 text-gray-400'
         )}
       >
-        {connectorType === FileConnectorType.SFTP ? 'SFTP' :
-         connectorType === FileConnectorType.EXEC ? 'EXEC' : 'N/A'}
+        {connectorType === FileConnectorType.SFTP ? 'SFTP' : 'N/A'}
       </div>
 
       {/* 分隔线 */}

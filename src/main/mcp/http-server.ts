@@ -1078,7 +1078,7 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
 
     if (session.config.type === ConnectionType.SSH) {
       // SSH 会话：使用 fileManager 的 connector（独立 SSH exec 通道）
-      const connector = await fileManager.getConnector(resolvedSessionId)
+      const connector = await fileManager.getCommandConnector(resolvedSessionId)
       if (!connector.execRaw) {
         sendJson(res, 500, { success: false, error: 'Connector does not support command execution' })
         return
@@ -1170,8 +1170,8 @@ async function handleExecuteCommandStream(data: ExecuteRequest, res: http.Server
     try {
       let result: { output: string; exitCode: number }
       if (session.config.type === ConnectionType.SSH) {
-        const connector = await fileManager.getConnector(resolvedSessionId)
-        if (!connector.execStream) {
+        const connector = await fileManager.getCommandConnector(resolvedSessionId)
+        if (!('execStream' in connector)) {
           writeEvent({ type: 'error', error: 'Connector does not support streaming execution' })
           res.end()
           return
@@ -2282,13 +2282,7 @@ async function handleReadFile(data: ReadFileRequest, res: http.ServerResponse, b
       return
     }
 
-    // 使用 execRaw 执行 cat 读取文件
-    if (!connector.execRaw) {
-      sendJson(res, 500, { success: false, error: 'Connector does not support command execution' })
-      return
-    }
-
-    const content = await connector.execRaw(`cat -- ${quotePosixPath(filePath)}`)
+    const content = (await connector.readFileBytes(filePath, safeMaxSize)).toString('utf-8')
 
     const result: ReadFileResponse = { content, size: stat.size }
     sendJson(res, 200, { success: true, data: result })
@@ -2379,7 +2373,7 @@ async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerRes
     const fileStat = await fileManager.stat(resolvedSessionId, remotePath)
     const fileSize = fileStat.size
 
-    const connectorType = await fileManager.getConnectorType(resolvedSessionId)
+    await fileManager.getConnectorType(resolvedSessionId)
     const taskId = uuidv4()
 
     // 最后一个 await 之后、入队前再校验连接状态：早期 CONNECTED 检查与入队之间存在 await 窗口，
@@ -2392,7 +2386,7 @@ async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerRes
     await runDownloadWorkerAndWait({
       taskId,
       sessionId: resolvedSessionId,
-      method: connectorType === 'sftp' ? 'sftp' : 'exec',
+      method: 'sftp',
       sshConfig: {
         host: sshConfig.host,
         port: sshConfig.port,
@@ -2402,8 +2396,6 @@ async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerRes
         passphrase: sshConfig.passphrase,
         readyTimeout: sshConfig.readyTimeout,
         keepaliveInterval: sshConfig.keepaliveInterval,
-        shellEnterCommands: sshConfig.shellEnterCommands,
-        shellEnterWait: sshConfig.shellEnterWait
       },
       remotePath,
       localPath: safeLocalPath,
@@ -2477,7 +2469,7 @@ async function handleUploadFile(data: UploadFileRequest, res: http.ServerRespons
       return
     }
 
-    const connectorType = await fileManager.getConnectorType(resolvedSessionId)
+    await fileManager.getConnectorType(resolvedSessionId)
     const taskId = uuidv4()
 
     // 最后一个 await 之后、入队前再校验连接状态：早期 CONNECTED 检查与入队之间存在 await 窗口，
@@ -2490,7 +2482,7 @@ async function handleUploadFile(data: UploadFileRequest, res: http.ServerRespons
     await runUploadWorkerAndWait({
       taskId,
       sessionId: resolvedSessionId,
-      method: connectorType === 'sftp' ? 'sftp' : 'exec',
+      method: 'sftp',
       sshConfig: {
         host: sshConfig.host,
         port: sshConfig.port,
@@ -2500,8 +2492,6 @@ async function handleUploadFile(data: UploadFileRequest, res: http.ServerRespons
         passphrase: sshConfig.passphrase,
         readyTimeout: sshConfig.readyTimeout,
         keepaliveInterval: sshConfig.keepaliveInterval,
-        shellEnterCommands: sshConfig.shellEnterCommands,
-        shellEnterWait: sshConfig.shellEnterWait
       },
       localPath: safeLocalPath,
       remotePath,
@@ -2570,10 +2560,6 @@ function auditMcpOperation(event: McpAuditEvent): void {
 function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
   return Math.max(min, Math.min(max, Math.trunc(value)))
-}
-
-function quotePosixPath(filePath: string): string {
-  return `'${filePath.replace(/'/g, `'\\''`)}'`
 }
 
 /**
@@ -3071,7 +3057,7 @@ async function handleRunOnSessions(
 
       try {
         if (session.config.type === ConnectionType.SSH) {
-          const connector = await fileManager.getConnector(sid)
+          const connector = await fileManager.getCommandConnector(sid)
           if (!connector.execRaw) {
             return { sessionId: sid, error: 'Connector does not support execution' }
           }
