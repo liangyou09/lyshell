@@ -14,6 +14,7 @@ import {
 import EnvRowsEditor, { type EnvRow } from '../EnvRowsEditor'
 import { useUiStore } from '../../stores/ui-store'
 import { SettingsBackGlyph } from './SettingsNavigation'
+import { parseEnvProfileJson } from '../../utils/env-profile-json'
 import './EnvProfilePanel.css'
 
 /**
@@ -154,6 +155,12 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
   const [triedSubmit, setTriedSubmit] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [copyResult, setCopyResult] = useState<{ text: string; success: boolean } | null>(null)
+  const [copying, setCopying] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importText, setImportText] = useState('')
+  const [importError, setImportError] = useState<string | null>(null)
+  const [imported, setImported] = useState(false)
 
   const fieldId = useId()
 
@@ -263,6 +270,29 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
     setTriedSubmit(false)
     setConfirmDelete(false)
     setSaveError(null)
+    setCopyResult(null)
+    setCopying(false)
+    setImportOpen(false)
+    setImportText('')
+    setImportError(null)
+    setImported(false)
+  }
+
+  const handleImportConfig = () => {
+    const result = parseEnvProfileJson(importText)
+    if (!result.success) {
+      setImportError(t(result.error === 'invalidJson' ? 'env.importInvalidJson' : 'env.importInvalidConfig'))
+      return
+    }
+    const profile = result.profile
+    setProfileName(profile.name)
+    setProfileNote(profile.note ?? '')
+    setProfileBaseUrl(profile.baseUrl ?? '')
+    setProfileApiKey(profile.apiKey ?? '')
+    setProfileEnv(Object.entries(profile.env).map(([key, value]) => ({ key, value })))
+    setProfileModels(profile.models ?? [])
+    resetEditor()
+    setImported(true)
   }
 
   const handleAdd = () => {
@@ -351,6 +381,31 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
   const profilePayloadEnv = collapseEnv(profileEnv)
   const profileBaseUrlTrimmed = profileBaseUrl.trim()
   const profileApiKeyTrimmed = profileApiKey.trim()
+  // 复制当前草稿的完整配置；不携带本地记录 id、排序或启用状态。
+  const profileConfigText = JSON.stringify({
+    name: profileName.trim(),
+    note: profileNote.trim() || undefined,
+    baseUrl: profileBaseUrlTrimmed || undefined,
+    apiKey: profileApiKeyTrimmed || undefined,
+    env: profilePayloadEnv,
+    models: [...new Set(profileModels.map(model => model.trim()).filter(Boolean))]
+  }, null, 2)
+  const currentCopyResult = copyResult?.text === profileConfigText ? copyResult : null
+
+  const handleCopyConfig = async () => {
+    if (copying) return
+    const revision = editorRevision.current
+    setCopying(true)
+    setCopyResult(null)
+    try {
+      await navigator.clipboard.writeText(profileConfigText)
+      if (revision === editorRevision.current) setCopyResult({ text: profileConfigText, success: true })
+    } catch {
+      if (revision === editorRevision.current) setCopyResult({ text: profileConfigText, success: false })
+    } finally {
+      if (revision === editorRevision.current) setCopying(false)
+    }
+  }
   // baseUrl 非空时必须是可解析的 http(s) URL(与主进程 assertProfileCredential 同一份判定)
   const profileBaseUrlValid = profileBaseUrlTrimmed.length === 0 || isValidHttpBaseUrl(profileBaseUrlTrimmed)
   // 有效 = 名称非空 + baseUrl 格式合法 + 三者至少其一(上游地址 / 凭据 / 附加变量)
@@ -361,6 +416,8 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
 
   const handleSave = async () => {
     if (!profileValid) { setTriedSubmit(true); return }
+    // 导入或切换配置会开启新草稿；旧保存结果不能关闭新编辑器或写入错误。
+    const revision = editorRevision.current
     setSaveError(null)
     const name = profileName.trim()
     // note/models 传 undefined 即清空（主进程 `if (safe.x !== undefined)` 不写这个键，
@@ -379,15 +436,15 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
         ? await window.electronAPI?.updateEnvProfile({ ...editProfile, name, note, baseUrl: baseUrlPayload, apiKey: apiKeyPayload, env: profilePayloadEnv, models: modelsPayload })
         : await window.electronAPI?.addEnvProfile({ name, note, baseUrl: baseUrlPayload, apiKey: apiKeyPayload, env: profilePayloadEnv, models: modelsPayload })
       if (res && res.success === false) {
-        setSaveError(typeof res.error === 'string' ? res.error : t('env.saveFailed'))
+        if (revision === editorRevision.current) setSaveError(typeof res.error === 'string' ? res.error : t('env.saveFailed'))
         return
       }
     } catch (err) {
-      setSaveError(err instanceof Error && err.message ? err.message : t('env.saveFailed'))
+      if (revision === editorRevision.current) setSaveError(err instanceof Error && err.message ? err.message : t('env.saveFailed'))
       return
     }
     await load()
-    setEditing(false)
+    if (revision === editorRevision.current) setEditing(false)
   }
 
   const prepareDeletion = async (id: string, editor: boolean) => {
@@ -585,6 +642,26 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
           <span className="settings-category-title">{editProfile ? t('env.editTitle') : t('env.addTitle')}</span>
         </button>
         <div className="env-editor-scroll rack-scroll">
+          <div className="env-editor-section env-editor-copy">
+            <div className="env-editor-config-actions">
+              {!editProfile && <button type="button" aria-expanded={importOpen} aria-controls={`${fieldId}-import`} onClick={() => setImportOpen(value => !value)}>{t('env.importConfig')}</button>}
+              <button type="button" disabled={copying} onClick={() => void handleCopyConfig()}>
+                <IconCopy />{t('env.copyConfig')}
+              </button>
+            </div>
+            {!editProfile && importOpen && <div className="env-editor-import" id={`${fieldId}-import`}>
+              <label htmlFor={`${fieldId}-json`}>{t('env.importJson')}</label>
+              <p className="env-editor-hint">{t('env.importConfigHint')}</p>
+              <textarea id={`${fieldId}-json`} value={importText} onChange={event => { setImportText(event.target.value); setImportError(null) }} placeholder={'{\n  "name": "",\n  "baseUrl": "",\n  "apiKey": "",\n  "env": {}\n}'} spellCheck={false} autoComplete="off" aria-invalid={Boolean(importError)} aria-describedby={importError ? `${fieldId}-import-error` : undefined} />
+              {importError && <p className="env-editor-error" role="alert" id={`${fieldId}-import-error`}>{importError}</p>}
+              <button type="button" disabled={!importText.trim()} onClick={handleImportConfig}>{t('env.applyImport')}</button>
+            </div>}
+            {!editProfile && imported && <p className="env-editor-hint" role="status">{t('env.configImported')}</p>}
+            <p className="env-editor-hint">{t('env.copyConfigHint')}</p>
+            {currentCopyResult && <p className={currentCopyResult.success ? 'env-editor-hint' : 'env-editor-error'} role={currentCopyResult.success ? 'status' : 'alert'}>
+              {t(currentCopyResult.success ? 'env.configCopied' : 'env.copyConfigFailed')}
+            </p>}
+          </div>
           <div className="env-editor-section">
             <div className="env-editor-field">
               <label htmlFor={`${fieldId}-name`}>{t('env.name')}</label>
@@ -602,7 +679,7 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
             </div>
             <div className="env-editor-field">
               <label htmlFor={`${fieldId}-key`}>{t('env.apiKey')}</label>
-              <SecretInput id={`${fieldId}-key`} value={profileApiKey} onChange={value => { setProfileApiKey(value); resetTriedSubmit() }} placeholder={t('env.apiKeyPh')} showTitle={t('env.showValue')} hideTitle={t('env.hideValue')} />
+              <SecretInput key={editorRevision.current} id={`${fieldId}-key`} value={profileApiKey} onChange={value => { setProfileApiKey(value); resetTriedSubmit() }} placeholder={t('env.apiKeyPh')} showTitle={t('env.showValue')} hideTitle={t('env.hideValue')} />
             </div>
             <details className="env-editor-help"><summary>{t('env.mappingHelp')}</summary><p>{t('env.baseUrlHint')}</p><p>{t('env.apiKeyHint')}</p></details>
           </div>
@@ -615,7 +692,7 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
                 return missing.length > 0 && <button type="button" key={kind} onClick={() => fillFromDefaults(kind)} title={`${t('env.envFillTitle', { kind })}: ${missing.map(item => item.key).join(', ')}`}>+ {kind}</button>
               })}
             </div>
-            <EnvRowsEditor stacked value={profileEnv} onChange={setProfileEnv} texts={envRowsTexts} onKeyChange={resetTriedSubmit} />
+            <EnvRowsEditor key={editorRevision.current} stacked value={profileEnv} onChange={setProfileEnv} texts={envRowsTexts} onKeyChange={resetTriedSubmit} />
             {profileEnv.some(row => CORE_ENV_KEYS.has(row.key.trim())) && <p className="env-editor-warning">{t('env.coreKeyInExtras')}</p>}
           </div>
           <div className="env-editor-section">
