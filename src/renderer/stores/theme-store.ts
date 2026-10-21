@@ -99,7 +99,7 @@ export const AVAILABLE_THEMES: ThemeMeta[] = [
   }
 ]
 
-export const DEFAULT_THEME_ID = 'rack-graphite'
+export const DEFAULT_THEME_ID = 'rack-paper'
 export const CUSTOM_THEME_ID = 'rack-custom'
 const STORAGE_KEY = 'lyshell.theme'
 const CUSTOM_STORAGE_KEY = 'lyshell.theme.custom'
