@@ -13,4 +13,8 @@ export type CodeWorkspaceRequest =
   | { kind: 'delete'; id: string }
   | { kind: 'launch'; id: string }
   | { kind: 'launchDirectory'; id: string; cwd: string }
-export type CodeWorkspaceResult = { success: true; presets: CodeWorkspacePreset[]; aliases?: Record<string, string> } | { success: false; error: string }
+/** 引用计数按「设置项 id」统计（合并别名已折算到仍存在的 id）；无启动器引用时为 0。 */
+export type CodeWorkspaceUsage = Record<string, number>
+export type CodeWorkspaceResult =
+  | { success: true; presets: CodeWorkspacePreset[]; aliases?: Record<string, string>; usage?: CodeWorkspaceUsage }
+  | { success: false; error: string }

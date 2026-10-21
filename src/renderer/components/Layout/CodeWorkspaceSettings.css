@@ -41,4 +41,7 @@
 .code-workspace-path { grid-column: 1 / -1; min-width: 0; padding-left: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; line-height: 16px; color: var(--text-rack-data); }
 .code-workspace-remove { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 26px; padding: 0 5px; border: 0; border-radius: 4px; background: transparent; color: var(--text-rack-data); cursor: pointer; }
 .code-workspace-remove:hover:not(:disabled), .code-workspace-remove.is-confirming { background: var(--bg-slot); color: var(--error-rack); }
+.code-workspace-delete-notice { display: flex; align-items: start; gap: 12px; padding: 0 0 12px; color: var(--text-rack); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.code-workspace-delete-notice p { flex: 1; min-width: 0; margin: 0; }
+.code-workspace-delete-notice button { flex-shrink: 0; color: var(--text-rack-data); text-decoration: underline; text-underline-offset: 3px; }
 @media (prefers-reduced-motion: reduce) { .code-workspace-title svg, .code-workspace-launch { transition: none; } }

@@ -23,6 +23,8 @@ button.workspace-launcher-disclosure:hover { background: var(--bg-elev); color: 
 .workspace-launcher-chevron { transition: transform 150ms ease-out; }
 .workspace-launcher-chevron.is-open { transform: rotate(90deg); }
 .workspace-launcher-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 20px; }
+.workspace-launcher-unassigned { display: flex; align-items: center; flex: 1; gap: 7px; min-width: 0; padding: 0 7px 0 2px; color: var(--text-rack); }
+.workspace-launcher-unassigned > svg { flex-shrink: 0; }
 .workspace-launcher-launch { display: flex; align-items: center; flex: 1; gap: 7px; min-width: 0; padding: 0 7px 0 2px; border: 0; border-radius: 3px; background: transparent; color: var(--text-rack); text-align: left; font-family: inherit; cursor: pointer; }
 .workspace-launcher-launch > svg { flex-shrink: 0; color: color-mix(in srgb, var(--project-color) 65%, var(--text-rack)); }
 .is-workspace .workspace-launcher-label { font-weight: 400; font-size: 12px; }

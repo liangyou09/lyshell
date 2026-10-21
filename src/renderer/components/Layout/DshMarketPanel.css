@@ -4,6 +4,7 @@
 }
 
 .dsh-market-frame {
+  container-type: inline-size;
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -16,18 +17,94 @@
   background: var(--dsh-market-surface, var(--terminal-bg));
 }
 
+.dsh-market-frame.is-launch { background: var(--bg-base); }
+.dsh-panel-body { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.dsh-panel-body[hidden] { display: none; }
+/* 空态大鲸鱼按面板高度的 1/4 落位（视觉重心在上四分之一，下方留给工作区列表），
+   所以用绝对定位：百分比 top 对容器高度生效，flex 留白只能对剩余空间按比例分配。 */
+.dsh-launch-content { position: relative; display: flex; flex: 1; min-height: 0; flex-direction: column; align-items: center; }
+.dsh-launch-whale {
+  /* 端点色：启动完成后由琥珀改成主题两端的最大对比色，浅色纯黑、深色亮白。 */
+  --dsh-whale-ink: #000;
+  position: absolute; top: 25%; left: 50%; transform: translate(-50%, -50%);
+  padding: 20px; border-radius: 6px; color: var(--text-tab-idle); transition: color 160ms ease;
+}
+[data-theme-mode="dark"] .dsh-launch-whale { --dsh-whale-ink: #fff; }
+.dsh-launch-content .dsh-launch-error { margin-top: auto; }
+/* 未启动保持静息灰；工作台已开（启动完成）才换成端点色。 */
+.dsh-launch-whale.is-open { color: var(--dsh-whale-ink); }
+.dsh-launch-whale:hover:not(:disabled):not(.is-open) { color: var(--amber); }
+/* 状态语挂在鲸鱼正下方 6px，绝对定位是为了不打乱鲸鱼本身的 1/4 落位；
+   宽度按最窄面板收敛，英文长句换行而不是横穿整列。 */
+.dsh-launch-hint {
+  position: absolute;
+  top: calc(25% + 64px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(184px, calc(100% - 32px));
+  color: color-mix(in srgb, var(--text-rack) 90%, var(--bg-rack));
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  text-align: center;
+  transition: color 160ms ease;
+}
+.dsh-launch-whale:disabled { cursor: wait; }
+.dsh-launch-whale:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+/* 启动进度：同一只鲸鱼叠两层，上层用 clip-path 从左往右揭开，读起来就是进度条。
+   启动耗时不可预知，所以定长 2s 铺满后会停在满格并轻微呼吸，直到 onLaunch 返回。 */
+.dsh-whale-stack { position: relative; display: block; width: 112px; height: 112px; }
+.dsh-whale-base { display: block; width: 100%; height: 100%; transition: opacity 160ms ease; }
+.dsh-whale-base > svg,
+.dsh-whale-fill > svg { display: block; width: 100%; height: 100%; }
+.dsh-whale-fill { position: absolute; inset: 0; color: var(--dsh-whale-ink); clip-path: inset(0 100% 0 0); }
+.dsh-launch-whale.is-busy .dsh-whale-base { opacity: .5; }
+.dsh-launch-whale.is-busy .dsh-whale-fill {
+  animation: dsh-whale-fill 2000ms cubic-bezier(.25, .1, .25, 1) forwards,
+             dsh-whale-breathe 1600ms ease-in-out 2000ms infinite;
+}
+@keyframes dsh-whale-fill { to { clip-path: inset(0 0 0 0); } }
+@keyframes dsh-whale-breathe { 50% { opacity: .55; } }
+
 .dsh-market-section-bar {
   --dsh-market-canvas: var(--dsh-market-surface, var(--terminal-bg));
   --dsh-market-label: var(--dsh-market-ink, var(--text-rack));
   display: flex;
   align-items: center;
-  justify-content: space-between;
   flex-shrink: 0;
-  gap: 8px;
   min-width: 0;
   padding: 0 12px 0 0;
   border-bottom: 1px solid var(--rule);
   background: var(--bg-rack);
+}
+
+.dsh-launch-tab {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex-shrink: 0;
+  gap: 5px;
+  margin-bottom: -1px;
+  padding: 0 9px;
+  border-right: 1px solid var(--rule);
+  border-bottom: 2px solid transparent;
+  color: var(--text-tab-idle);
+  font-size: 12px;
+  transition: color 160ms ease, background-color 160ms ease;
+}
+
+/* 鲸鱼标与右侧「插件市场」页签的 14px 方块标同高量级：实心剪影略放大到 18px 才够清晰。 */
+.dsh-launch-tab-icon { display: grid; place-items: center; flex-shrink: 0; width: 18px; height: 18px; }
+.dsh-launch-tab-icon > svg { width: 100%; height: 100%; }
+.dsh-launch-tab[aria-selected="true"] { color: var(--text-rack); border-bottom-color: var(--amber); background: var(--bg-base); }
+.dsh-launch-tab:hover:not(:disabled) { color: var(--amber); background: var(--bg-slot); }
+.dsh-launch-tab:focus-visible { outline: 2px solid var(--amber); outline-offset: -3px; }
+.dsh-launch-tab:disabled { opacity: .6; cursor: wait; }
+@media (prefers-reduced-motion: reduce) {
+  .dsh-launch-tab, .dsh-launch-whale, .dsh-whale-base { transition: none; }
+  /* 减少动效时不做扫光与呼吸，直接用整只主题端点色（浅色纯黑/深色亮白）表示「启动中」。 */
+  .dsh-launch-whale.is-busy .dsh-whale-fill { animation: none; clip-path: none; opacity: .8; }
 }
 
 .dsh-market-section-name {
@@ -39,18 +116,26 @@
   margin-bottom: -1px;
   padding: 0 8px;
   border-right: 1px solid var(--rule);
-  border-bottom: 2px solid var(--amber);
-  background: var(--dsh-market-canvas);
+  border-bottom: 2px solid transparent;
+  background: transparent;
 }
 
+.dsh-market-section-name[aria-selected="true"] { border-bottom-color: var(--amber); background: var(--dsh-market-canvas); }
+.dsh-market-section-name:hover { background: var(--bg-slot); }
+.dsh-market-section-name:focus-visible { outline: 2px solid var(--amber); outline-offset: -3px; }
+
 .dsh-market-section-icon {
+  /* 与大鲸鱼同一条规则：浅色主题纯黑、深色主题亮白，朱砂那一格作为官方标识保留。 */
+  --dsh-market-mark: #000;
   display: grid;
   place-items: center;
   flex-shrink: 0;
   width: 14px;
   height: 14px;
-  color: var(--seg-qinghua);
+  color: var(--dsh-market-mark);
 }
+
+[data-theme-mode="dark"] .dsh-market-section-icon { --dsh-market-mark: #fff; }
 
 .dsh-market-section-title {
   overflow: hidden;
@@ -69,9 +154,15 @@
   align-items: center;
   flex-shrink: 0;
   padding: 3px 0;
+  margin-left: auto;
+  padding-left: 8px;
   color: color-mix(in srgb, var(--text-rack) 65%, var(--bg-rack));
   font-size: 11px;
   font-weight: 400;
   line-height: 14px;
   white-space: nowrap;
+}
+
+@container (max-width: 280px) {
+  .dsh-market-source { display: none; }
 }

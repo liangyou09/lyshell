@@ -1,0 +1,38 @@
+/* 可见细线与拖拽热区分离，沿用侧栏分隔线的主题色。 */
+.split-divider {
+  position: relative;
+  flex-shrink: 0;
+  background: transparent;
+  touch-action: none;
+  user-select: none;
+}
+
+.split-divider--horizontal { width: 4px; cursor: col-resize; }
+.split-divider--vertical { height: 4px; cursor: row-resize; }
+
+.split-divider::before {
+  content: '';
+  position: absolute;
+  background: var(--rule-soft);
+  pointer-events: none;
+  transition: background-color 140ms ease-out;
+}
+
+.split-divider--horizontal::before {
+  inset: 0 auto 0 1px;
+  width: 1px;
+}
+
+.split-divider--vertical::before {
+  inset: 1px 0 auto;
+  height: 1px;
+}
+
+.split-divider:hover::before,
+.split-divider.is-dragging::before {
+  background: color-mix(in srgb, var(--amber) 35%, var(--rule-soft));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .split-divider::before { transition: none; }
+}

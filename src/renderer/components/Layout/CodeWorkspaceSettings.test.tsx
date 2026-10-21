@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CodeWorkspacePreset, CodeWorkspaceRequest, CodeWorkspaceResult } from '@shared/code-workspaces'
 import CodeWorkspaceSettings from './CodeWorkspaceSettings'
 
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string, values?: { count?: number }) => values?.count !== undefined ? `${key}:${values.count}` : key }) }))
 const presets: CodeWorkspacePreset[] = [
   { id: 'one', order: 0, name: 'First', cwd: 'D:/first' },
   { id: 'two', order: 1, name: 'Second', cwd: 'D:/second', isolation: 'worktree', worktreeKey: 'feature' }
@@ -20,6 +20,33 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('工作区设置行内配置', () => {
+  it('无法刷新引用数时不允许确认删除，展示错误并保留原工作区', async () => {
+    const view = render(<CodeWorkspaceSettings />)
+    await view.findByRole('button', { name: /First.*D:\/first/ })
+    request.mockResolvedValueOnce({ success: false, error: 'Usage unavailable' })
+    fireEvent.click(view.getAllByRole('button', { name: 'workspacePresets.delete' })[0])
+    expect((await view.findByRole('alert')).textContent).toContain('Usage unavailable')
+    expect(view.queryByRole('button', { name: 'workspacePresets.confirmDelete' })).toBeNull()
+    expect(request).not.toHaveBeenCalledWith({ kind: 'delete', id: 'one' })
+    expect(view.getByRole('button', { name: /First.*D:\/first/ })).toBeTruthy()
+  })
+  it('删除前刷新并显示引用数，取消不删除，确认后清除列表项', async () => {
+    const view = render(<CodeWorkspaceSettings />)
+    await view.findByRole('button', { name: /First.*D:\/first/ })
+    request.mockResolvedValueOnce({ success: true, presets, usage: { one: 3 } })
+    fireEvent.click(view.getAllByRole('button', { name: 'workspacePresets.delete' })[0])
+    expect(await view.findByText('workspacePresets.deleteReferences:3')).toBeTruthy()
+    expect(request).not.toHaveBeenCalledWith({ kind: 'delete', id: 'one' })
+    fireEvent.click(view.getByRole('button', { name: 'workspacePresets.cancel' }))
+    expect(view.queryByText('workspacePresets.deleteReferences:3')).toBeNull()
+    request.mockResolvedValueOnce({ success: true, presets, usage: { one: 4 } })
+    fireEvent.click(view.getAllByRole('button', { name: 'workspacePresets.delete' })[0])
+    await view.findByText('workspacePresets.deleteReferences:4')
+    request.mockResolvedValueOnce({ success: true, presets: [presets[1]] })
+    fireEvent.click(view.getByRole('button', { name: 'workspacePresets.confirmDelete' }))
+    await waitFor(() => expect(view.queryByRole('button', { name: /First.*D:\/first/ })).toBeNull())
+    expect(request).toHaveBeenLastCalledWith({ kind: 'delete', id: 'one' })
+  })
   it('目录隔离与 worktree 候选采用统一选择器，保留必填、长度约束及保存参数', async () => {
     const view = render(<CodeWorkspaceSettings />)
     fireEvent.click(await view.findByRole('button', { name: /First.*D:\/first/ }))

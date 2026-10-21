@@ -60,7 +60,7 @@ describe('环境配置页返回与 Esc', () => {
     fireEvent.click(screen.getByRole('button', { name: 'env.editTitle' }))
     const dialog = screen.getByRole('region', { name: 'env.editTitle' })
     fireEvent.click(within(dialog).getByRole('button', { name: 'env.delete' }))
-    expect(within(dialog).getByRole('button', { name: 'env.confirmDelete' })).toBeTruthy()
+    expect(await within(dialog).findByRole('button', { name: 'env.confirmDelete' })).toBeTruthy()
     fireEvent.keyDown(within(dialog).getByRole('button', { name: 'env.confirmDelete' }), { key: 'Escape' })
     expect(within(dialog).getByRole('button', { name: 'env.delete' })).toBeTruthy()
     fireEvent.keyDown(within(dialog).getByRole('button', { name: 'env.delete' }), { key: 'Escape' })

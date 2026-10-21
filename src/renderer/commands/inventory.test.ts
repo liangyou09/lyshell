@@ -186,12 +186,12 @@ describe('buildInventoryMarkdown', () => {
 
   it('工作区节:名称为启动链接;worktree 隔离标记;空表显示占位;null 显示读取失败', () => {
     const md = buildInventoryMarkdown(base)
-    expect(md).toContain('## DeepSeek Harness · Workspaces · 1')
+    expect(md).toContain('## DeepSeek Harness Launcher · Workspaces · 1')
     // 反斜杠按转义契约双写(D:\repo → D:\\repo,渲染回显仍是一个 \)
     expect(md).toContain('| [lyshell](lyshell-action://open-dsh?id=w1) | D:\\\\repo | — | worktree isolation |')
-    expect(md).toContain('## Codex · Workspaces · 0')
+    expect(md).toContain('## Codex Launcher · Workspaces · 0')
     expect(md).toContain('*(none)*')
-    expect(md).toContain('## Claude · Workspaces · 0')
+    expect(md).toContain('## Claude Launcher · Workspaces · 0')
     expect(md).toContain('*(failed to load)*')
   })
 
@@ -236,7 +236,7 @@ describe('buildInventoryMarkdown:section 子清单', () => {
   it('/ls claude:读取失败的节保持失败标记(不静默当空表),也只此一节', () => {
     const md = buildInventoryMarkdown(base, 'claude')
     expect(md).toContain('# LyShell inventory · Claude')
-    expect(md).toContain('## Claude · Workspaces · 0')
+    expect(md).toContain('## Claude Launcher · Workspaces · 0')
     expect(md).toContain('*(failed to load)*')
     expect(md).not.toContain('## Sessions')
   })

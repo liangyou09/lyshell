@@ -1,5 +1,5 @@
 import { PanelHeader, PanelHeaderAction } from './PanelHeader'
-import React, { useState, useEffect, useCallback, useId } from 'react'
+import React, { useState, useEffect, useCallback, useId, useRef } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import {
@@ -134,6 +134,9 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
   const [search, setSearch] = useState('')
   // 操作栏删除的两步确认：记录待确认的组 id（null = 无待确认）
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const deletingRef = useRef(false)
+  const editorRevision = useRef(0)
+  const [deleting, setDeleting] = useState(false)
   // 各 kind 的推荐变量（配置页里的一键补全模板）
   const [defaultsByKind, setDefaultsByKind] = useState<Partial<Record<HarnessAgentKind, HarnessEnvDefault[]>>>({})
 
@@ -162,10 +165,12 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
         setActiveProfileId(typeof result.activeProfileId === 'string' ? result.activeProfileId : null)
         setUsage(result.usage ?? {})
         setLoaded(true)
+        return result
       }
     } catch (err) {
       console.error('Failed to load env profiles:', err)
     }
+    return undefined
   }, [])
 
   // 推荐变量只在挂载时拉一次（主进程按已安装的 CLI 解析，会话内不变）
@@ -206,7 +211,7 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
 
   /** 点击条目只启用；独立开关允许停用并回落系统环境变量，全应用至多启用一组。 */
   const toggleActive = async (profileId: string, deactivateIfActive = true) => {
-    if (switching || (!deactivateIfActive && activeProfileId === profileId)) return
+    if (switching || deletingRef.current || (!deactivateIfActive && activeProfileId === profileId)) return
     setSwitching(true)
     setActionError(null)
     try {
@@ -254,6 +259,7 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
   }
 
   const resetEditor = () => {
+    editorRevision.current += 1
     setTriedSubmit(false)
     setConfirmDelete(false)
     setSaveError(null)
@@ -384,10 +390,29 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
     setEditing(false)
   }
 
+  const prepareDeletion = async (id: string, editor: boolean) => {
+    const revision = editorRevision.current
+    deletingRef.current = true; setDeleting(true)
+    try {
+      const library = await load()
+      // 刷新期间可能已打开其它变量组；旧请求不能替新编辑器确认删除。
+      if (revision !== editorRevision.current) return
+      if (!library || !library.profiles.some(profile => profile.id === id)) {
+        if (editor) setSaveError(t('env.deleteFailed'))
+        else setActionError(t('env.deleteFailed'))
+        return
+      }
+      if (editor) setConfirmDelete(true)
+      else setDeleteConfirmId(id)
+    } finally { deletingRef.current = false; setDeleting(false) }
+  }
+
   const handleEditorDelete = async () => {
-    if (!confirmDelete) { setConfirmDelete(true); return }
+    if (deletingRef.current) return
+    if (!confirmDelete && editProfile) { await prepareDeletion(editProfile.id, true); return }
     if (editProfile) {
-      // 组是 Agent/工作区绑定的目标，删除后绑定方回落下一级 —— 重新拉取让引用计数归零。
+      deletingRef.current = true; setDeleting(true)
+      // 删除组时清空所有显式绑定；重新拉取引用数量与全局启用状态。
       // 失败(落盘失败/组已不存在)保留配置页并展示原因,不静默吞掉
       try {
         const res = await window.electronAPI?.deleteEnvProfile(editProfile.id)
@@ -398,13 +423,13 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
             : t('env.deleteFailed'))
           return
         }
+        await load()
+        setEditing(false)
       } catch (err) {
         setConfirmDelete(false)
         setSaveError(err instanceof Error && err.message ? err.message : t('env.deleteFailed'))
         return
-      }
-      await load()
-      setEditing(false)
+      } finally { deletingRef.current = false; setDeleting(false) }
     }
   }
 
@@ -424,12 +449,14 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
     .some(value => value?.toLocaleLowerCase().includes(query)))
 
   const handleCardDelete = async (profile: HarnessEnvProfile) => {
+    if (deletingRef.current) return
     if (deleteConfirmId !== profile.id) {
-      setDeleteConfirmId(profile.id)
+      await prepareDeletion(profile.id, false)
       return
     }
     setDeleteConfirmId(null)
     setActionError(null)
+    deletingRef.current = true; setDeleting(true)
     try {
       const result = await window.electronAPI?.deleteEnvProfile(profile.id)
       if (result && (result as { success?: boolean }).success === false) {
@@ -440,6 +467,7 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
       setActionError(error instanceof Error && error.message ? error.message : t('env.deleteFailed'))
     } finally {
       await load()
+      deletingRef.current = false; setDeleting(false)
     }
   }
 
@@ -448,10 +476,9 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
     const active = activeProfileId === profile.id
     const description = profile.baseUrl ? baseUrlHost(profile.baseUrl)
       : profile.apiKey ? t('env.keyPresent') : t('env.vars', { count: Object.keys(profile.env).length })
-    return <div key={profile.id} className="env-profile-row" data-active={active}
-      onMouseLeave={() => { if (deleteConfirmId === profile.id) setDeleteConfirmId(null) }}
+    return <div key={profile.id} className="env-profile-row" data-active={active} data-confirming={deleteConfirmId === profile.id}
       onContextMenu={event => { event.preventDefault(); handleEdit(profile) }}>
-      <button type="button" aria-pressed={active} disabled={switching} aria-label={profile.name}
+      <button type="button" aria-pressed={active} disabled={switching || deleting} aria-label={profile.name}
         className="env-profile-main" onClick={() => { setDeleteConfirmId(null); void toggleActive(profile.id, false) }}>
         <span className="env-profile-heading">
           <span className="env-profile-name" title={profile.name}>{profile.name}</span>
@@ -467,7 +494,7 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
         {profile.note && <span className="env-profile-note" title={profile.note}>{profile.note}</span>}
       </button>
       <button type="button" role="switch" aria-checked={active} aria-label={profile.name}
-        disabled={switching} title={active ? t('env.deactivateTitle') : t('env.activateTitle')}
+        disabled={switching || deleting} title={active ? t('env.deactivateTitle') : t('env.activateTitle')}
         className="env-profile-toggle" onClick={() => { setDeleteConfirmId(null); void toggleActive(profile.id) }}><span /></button>
       {renderProfileActions(profile)}
     </div>
@@ -475,10 +502,11 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
 
   const renderProfileActions = (profile: HarnessEnvProfile) => {
     const total = usageCount(profile.id)
-    return <div className="env-profile-actions" role="group" aria-label={profile.name} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDeleteConfirmId(null) }} onKeyDown={event => { if (event.key === 'Escape') setDeleteConfirmId(null) }}>
+    return <div className="env-profile-actions" role="group" aria-label={profile.name} onKeyDown={event => { if (event.key === 'Escape') setDeleteConfirmId(null) }}>
         <button type="button" className="env-profile-action" title={`${t('env.editTitle')}: ${profile.name}`} aria-label={t('env.editTitle')} onClick={() => handleEdit(profile)}><IconEdit /><span>{t('env.editAction')}</span></button>
         <button type="button" className="env-profile-action" title={`${t('env.copy')}: ${profile.name}`} aria-label={t('env.copy')} onClick={() => handleDuplicate(profile)}><IconCopy /><span>{t('env.copyAction')}</span></button>
         <button type="button" className={cn('env-profile-action env-profile-delete', deleteConfirmId === profile.id && 'is-confirming')}
+          disabled={deleting}
           title={deleteConfirmId === profile.id ? (total > 0 ? t('env.confirmDeleteRefs', { count: total }) : t('env.confirmDelete')) : `${t('env.delete')}: ${profile.name}`}
           aria-label={deleteConfirmId === profile.id ? (total > 0 ? t('env.confirmDeleteRefs', { count: total }) : t('env.confirmDelete')) : t('env.delete')}
           onClick={() => void handleCardDelete(profile)}><IconDelete confirming={deleteConfirmId === profile.id} /><span>{deleteConfirmId === profile.id ? t('env.confirmDeleteAction') : t('env.delete')}</span></button>
@@ -519,6 +547,10 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
       {actionError && (
         <div role="alert" className="env-profile-error">{actionError}</div>
       )}
+      {deleteConfirmId && <div className="env-profile-delete-notice" role="status">
+        <p>{t('env.deleteReferences', { count: usageCount(deleteConfirmId) })}{activeProfileId === deleteConfirmId && ` ${t('env.deleteActiveHint')}`}</p>
+        <button type="button" disabled={deleting} onClick={() => setDeleteConfirmId(null)}>{t('env.cancel')}</button>
+      </div>}
 
       {loaded && visibleProfiles.length > 0 ? (
         <div className="env-profile-scroll rack-scroll">
@@ -600,7 +632,10 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
           {triedSubmit && !profileBaseUrlValid && <p role="alert" className="env-editor-error">{t('env.baseUrlInvalid')}</p>}
           {triedSubmit && profileBaseUrlValid && !profileValid && <p role="alert" className="env-editor-error">{t('env.required')}</p>}
           {saveError && <p role="alert" className="env-editor-error">{saveError}</p>}
-          {editProfile && <div className="env-editor-danger"><button type="button" onClick={() => void handleEditorDelete()}>{confirmDelete ? t('env.confirmDelete') : t('env.delete')}</button></div>}
+          {editProfile && <div className="env-editor-danger">
+            {confirmDelete && <p className="env-editor-warning" role="status">{t('env.deleteReferences', { count: usageCount(editProfile.id) })}{activeProfileId === editProfile.id && ` ${t('env.deleteActiveHint')}`}</p>}
+            <button type="button" disabled={deleting} onClick={() => void handleEditorDelete()}>{confirmDelete ? t('env.confirmDelete') : t('env.delete')}</button>
+          </div>}
         </div>
         <footer className="env-editor-footer">
           <button type="button" onClick={() => setEditing(false)}>{t('env.cancel')}</button>

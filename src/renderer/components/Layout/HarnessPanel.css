@@ -1,200 +1,110 @@
-.harness-project-tree {
-  container: harness-projects / inline-size;
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
+/* 项目索引：章节色标、全宽工作区与常显启动列。 */
+.harness-launcher {
+  --launcher-ground: var(--bg-base);
+  --launcher-surface: var(--bg-rack);
+  --launcher-hover: var(--bg-slot);
+  --launcher-ink: var(--text-rack);
+  --launcher-secondary: color-mix(in srgb, var(--text-rack) 76%, var(--launcher-ground));
+  --launcher-accent: var(--amber);
+  background: var(--launcher-ground);
+  color: var(--launcher-ink);
   font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei', sans-serif;
 }
-
-.harness-project-viewport { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
-.harness-project-body { padding: 4px 6px 16px; }
-.harness-project-group {
-  --project-color: color-mix(in srgb, hsl(var(--project-hue) 48% 44%) 78%, var(--text-rack) 22%);
-  min-width: 0;
+.harness-launcher ::selection { background: var(--launcher-accent); color: var(--launcher-ground); }
+.harness-launcher-content {
+  margin: 8px 6px 6px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--scroll-silk) 35%, transparent);
+  border-radius: 3px;
 }
-.harness-project-group + .harness-project-group { margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--rule-soft); }
-
-.harness-project-header {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  min-width: 0;
-  min-height: 32px;
-  padding: 2px 4px;
-  border: 0;
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--project-color) 12%, var(--bg-rack));
-  color: var(--text-rack);
-  text-align: left;
-  cursor: pointer;
-}
-
-.harness-project-symbol {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 24px;
-  height: 24px;
-  border: 1px solid color-mix(in srgb, var(--project-color) 42%, var(--rule-soft));
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--project-color) 24%, var(--bg-rack));
-  color: color-mix(in srgb, var(--project-color) 85%, var(--text-rack));
-}
-
-.harness-project-heading { display: flex; flex: 1; flex-direction: column; gap: 1px; min-width: 0; }
-.harness-project-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 700; line-height: 20px; }
-.harness-project-parent { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; line-height: 15px; color: var(--text-rack-data); }
-.harness-project-count { flex-shrink: 0; min-width: 18px; text-align: center; color: var(--text-rack); font-size: 12px; font-weight: 600; line-height: 20px; font-variant-numeric: tabular-nums; }
-.harness-project-chevron { flex-shrink: 0; color: var(--text-rack-data); transition: transform 150ms ease-out; }
+.harness-launcher-list { background: transparent; }
+.harness-project-tree { container: harness-projects / inline-size; display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
+.harness-project-viewport { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-color: var(--text-rack-dim) var(--launcher-ground); }
+.harness-project-body { padding: 12px 8px 24px; }
+.harness-project-group { --project-color: color-mix(in srgb, hsl(var(--project-hue) 36% 56%) 65%, var(--launcher-ink)); min-width: 0; border-top: 2px solid var(--project-color); }
+[data-theme-mode='light'] .harness-project-group { --project-color: color-mix(in srgb, hsl(var(--project-hue) 30% 36%) 75%, var(--launcher-ink)); }
+.harness-project-group + .harness-project-group { margin-top: 16px; }
+.harness-project-header { display: flex; align-items: center; gap: 9px; width: 100%; min-width: 0; min-height: 52px; padding: 6px 8px; border: 0; border-radius: 0; background: var(--launcher-surface); color: var(--launcher-ink); text-align: left; cursor: pointer; }
+.harness-project-symbol { display: none; }
+.harness-project-symbol svg { width: 17px; height: 17px; }
+.harness-project-heading { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
+.harness-project-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 700; line-height: 20px; }
+.harness-project-parent { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; line-height: 16px; color: var(--launcher-secondary); }
+.harness-project-count { flex-shrink: 0; min-width: 18px; text-align: center; color: var(--launcher-secondary); font-size: 11px; line-height: 20px; font-variant-numeric: tabular-nums; }
+.harness-project-chevron { flex-shrink: 0; color: var(--launcher-secondary); transition: transform 150ms ease-out; }
 .harness-project-chevron.is-open { transform: rotate(90deg); }
-.harness-project-header:hover { background: color-mix(in srgb, var(--project-color) 20%, var(--bg-rack)); }
-.harness-project-items {
-  --tree-branch-offset: 24px;
-  --tree-line: color-mix(in srgb, var(--project-color) 28%, var(--rule));
-  margin: 1px 0 0 40px;
-  padding-top: 2px;
-  border-top: 1px solid var(--rule-soft);
-}
+.harness-project-header:hover .harness-project-label { color: var(--project-color); }
+.harness-project-items { margin: 4px 0 0; }
 .harness-project-items[hidden], .harness-workspace-editor[hidden] { display: none; }
-.harness-workspace-item { position: relative; min-width: 0; }
-.harness-workspace-item::before {
-  content: '';
-  position: absolute;
-  top: -2px;
-  bottom: -2px;
-  left: calc(-1 * var(--tree-branch-offset));
-  border-left: 1px solid var(--tree-line);
-  pointer-events: none;
-}
-.harness-workspace-item:last-child::before { bottom: auto; height: 20px; }
-.harness-workspace-item::after {
-  content: '';
-  position: absolute;
-  top: 18px;
-  left: calc(-1 * var(--tree-branch-offset));
-  width: calc(var(--tree-branch-offset) - 6px);
-  border-top: 1px solid var(--tree-line);
-  pointer-events: none;
-}
-.harness-workspace-item + .harness-workspace-item { margin-top: 2px; }
-
-.harness-project-row {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  min-height: 36px;
-  min-width: 0;
-  padding: 0 4px 0 0;
-  border: 0;
-  border-bottom: 1px solid var(--rule-soft);
-  border-radius: 0;
-  background: transparent;
-  color: var(--text-rack);
-}
+.harness-workspace-item { min-width: 0; }
+.harness-project-row { display: flex; align-items: center; gap: 8px; height: 52px; min-width: 0; padding: 0 4px; border-bottom: 1px solid color-mix(in srgb, var(--launcher-ink) 12%, var(--launcher-ground)); background: transparent; color: var(--launcher-ink); }
 .harness-workspace-item:last-child > .harness-project-row { border-bottom-color: transparent; }
-
-.harness-workspace-main {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  flex: 1;
-  min-width: 0;
-  min-height: 36px;
-  padding: 7px 6px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.harness-workspace-symbol { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 18px; height: 18px; color: var(--project-color); }
-.harness-workspace-name { display: flex; flex: 1; align-items: baseline; min-width: 0; font-size: 12px; line-height: 20px; }
-.harness-workspace-prefix { flex: 0 1 auto; max-width: 38%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-rack-data); }
-.harness-workspace-separator { flex-shrink: 0; padding: 0 4px; color: var(--text-rack-data); }
-.harness-workspace-branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
-.harness-workspace-status { flex-shrink: 0; color: var(--amber); font-size: 10px; }
-
-.harness-project-row:hover, .harness-project-row:focus-within { background: var(--bg-slot); }
-.harness-project-row.is-expanded { border-bottom-color: color-mix(in srgb, var(--project-color) 50%, var(--rule)); background: color-mix(in srgb, var(--project-color) 12%, var(--bg-rack)); }
+.harness-workspace-main { display: flex; align-items: flex-start; gap: 9px; flex: 1; min-width: 0; height: 50px; padding: 5px 0; border: 0; border-radius: 3px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.harness-workspace-symbol { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 18px; height: 20px; color: var(--launcher-secondary); }
+.harness-workspace-content { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.harness-workspace-name { display: flex; align-items: baseline; min-width: 0; font-size: 13px; line-height: 20px; }
+.harness-workspace-prefix { flex: 0 1 auto; max-width: 38%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--launcher-secondary); }
+.harness-workspace-separator { flex-shrink: 0; padding: 0 4px; color: var(--launcher-secondary); }
+.harness-workspace-branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
+.harness-workspace-summary { display: flex; align-items: baseline; gap: 6px; min-width: 0; height: 16px; overflow: hidden; font-size: 11px; line-height: 16px; color: var(--launcher-secondary); white-space: nowrap; }
+.harness-workspace-summary > span { flex-shrink: 0; }
+.harness-workspace-summary .harness-workspace-model, .harness-workspace-summary .harness-workspace-environment { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.harness-workspace-permission { max-width: 48%; overflow: hidden; text-overflow: ellipsis; margin-left: auto; font-size: 10px; line-height: 16px; color: var(--launcher-secondary); }
+.harness-workspace-permission.is-danger { color: color-mix(in srgb, var(--error-rack) 58%, var(--launcher-ink)); }
+.harness-project-row:hover, .harness-project-row:focus-within { background: var(--launcher-hover); }
+.harness-project-row.is-expanded { background: color-mix(in srgb, var(--launcher-accent) 12%, var(--launcher-ground)); border-bottom-color: var(--rule); }
 .harness-project-row.is-expanded .harness-workspace-symbol { color: var(--project-color); }
-.harness-project-row.is-expanded .harness-workspace-branch { font-weight: 600; }
-.harness-project-row.is-danger { background: color-mix(in srgb, var(--error-rack) 7%, var(--bg-rack)); }
-.harness-project-row.is-danger .harness-workspace-symbol, .harness-project-row.is-danger .harness-workspace-branch { color: var(--error-rack); }
-.harness-project-row.is-launching { opacity: .65; }
-
-.harness-project-launch {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-rack-data);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 120ms ease-out, background-color 120ms ease-out, color 120ms ease-out;
-}
-
-.harness-project-row:hover .harness-project-launch,
-.harness-project-row:focus-within .harness-project-launch,
-.harness-project-row.is-expanded .harness-project-launch { opacity: 1; }
-.harness-project-launch:hover { background: var(--bg-elev); color: var(--project-color); }
-.harness-project-launch:disabled { cursor: default; color: var(--text-rack-data); }
+.harness-project-row.is-expanded .harness-workspace-branch { font-weight: 650; }
+.harness-project-row.is-danger .harness-workspace-symbol { color: color-mix(in srgb, var(--error-rack) 58%, var(--launcher-ink)); }
+.harness-project-row.is-launching .harness-workspace-main { opacity: .65; }
+.harness-project-launch { display: inline-flex; align-items: center; justify-content: center; gap: 5px; flex-shrink: 0; min-width: 60px; height: 30px; padding: 5px 8px; border: 1px solid var(--rule); border-radius: 5px; background: var(--launcher-surface); color: var(--launcher-ink); font-family: inherit; font-size: 11px; line-height: 18px; font-weight: 600; cursor: pointer; transition: background-color 150ms ease-out, color 150ms ease-out; }
+.harness-project-launch:hover { background: var(--launcher-hover); color: color-mix(in srgb, var(--launcher-accent) 45%, var(--launcher-ink)); border-color: var(--launcher-accent); }
+.harness-project-launch:disabled { cursor: default; opacity: .45; }
 .harness-workspace-main:disabled { cursor: default; }
-.harness-project-header:focus-visible, .harness-workspace-main:focus-visible, .harness-project-launch:focus-visible { outline: 1px solid var(--project-color); outline-offset: -2px; }
-.harness-project-tree .harness-inline-editor { position: relative; margin: 0 0 10px; border: 0; border-radius: 0; }
-.harness-workspace-editor > .harness-inline-editor { margin-left: -28px; }
-.harness-inline-editor fieldset { padding: 8px 10px 0; }
-.harness-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: var(--text-rack); }
-.harness-editor-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 28px; border-radius: 4px; color: var(--text-rack-data); }
-.harness-editor-icon:hover { background: var(--bg-slot); color: var(--amber); }
-.harness-editor-label { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 8px; margin-bottom: 6px; color: var(--text-rack); font-size: 12px; }
-.harness-editor-label button { color: var(--text-rack-data); font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }
-.harness-editor-label button:hover { color: var(--amber); }
-.harness-editor-preset { padding-bottom: 12px; border-bottom: 1px solid var(--rule-soft); }
-.harness-editor-location { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; color: var(--text-rack-data); font-size: 11px; line-height: 16px; }
+.harness-project-header:focus-visible, .harness-workspace-main:focus-visible, .harness-project-launch:focus-visible { outline: 2px solid var(--launcher-accent); outline-offset: 2px; }
+/* 成员行保留选中态，配置在独立标题栏下展开。 */
+.harness-project-tree .harness-inline-editor { position: relative; margin: 0 0 12px; border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; background: var(--bg-rack); }
+.harness-inline-editor fieldset { padding: 0 12px; }
+.harness-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 38px; margin: 0 -12px 12px; padding: 5px 12px; border-bottom: 1px solid var(--rule-soft); background: var(--bg-slot); font-size: 12px; font-weight: 600; color: var(--launcher-ink); }
+.harness-editor-heading h3 { margin: 0; font: inherit; }
+.harness-editor-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 28px; height: 28px; border-radius: 4px; color: var(--launcher-secondary); }
+.harness-editor-icon:hover { background: var(--launcher-hover); color: var(--launcher-accent); }
+.harness-editor-label { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 8px; margin-bottom: 7px; color: var(--launcher-ink); font-size: 12px; }
+.harness-editor-label button { color: var(--launcher-secondary); font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }
+.harness-editor-label button:hover { color: var(--launcher-accent); }
+.harness-editor-preset { padding-bottom: 14px; border-bottom: 1px solid var(--rule-soft); }
+.harness-editor-location { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; color: var(--launcher-secondary); font-size: 11px; line-height: 17px; }
 .harness-editor-location p { overflow-wrap: anywhere; user-select: text; }
 .harness-editor-location > span { display: flex; align-items: center; gap: 5px; }
 .harness-editor-location svg { flex-shrink: 0; width: 12px; height: 12px; }
-.harness-inline-editor .harness-editor-hint { margin-top: 6px; font-size: 11px; line-height: 16px; color: var(--text-rack-data); }
-.harness-inline-editor .harness-advanced-options { display: block; padding: 12px 0; }
+.harness-inline-editor .harness-editor-hint { margin-top: 7px; font-size: 11px; line-height: 17px; color: var(--launcher-secondary); }
+.harness-inline-editor .harness-advanced-options { display: block; padding: 16px 0; }
 .harness-inline-editor .harness-advanced-options > div { padding: 0; border: 0; }
-.harness-inline-editor .harness-advanced-options > div + div { margin-top: 12px; }
-.harness-inline-editor .harness-advanced-options > div:first-of-type { flex-direction: column; align-items: stretch; gap: 6px; }
+.harness-inline-editor .harness-advanced-options > div + div { margin-top: 16px; }
+.harness-inline-editor .harness-advanced-options > div:first-of-type { flex-direction: column; align-items: stretch; gap: 7px; }
 .harness-inline-editor .harness-advanced-options > div:first-of-type > span { width: auto; }
-.harness-inline-editor .harness-advanced-options > div > span,
-.harness-inline-editor .harness-advanced-options > div > div > span { color: var(--text-rack); letter-spacing: normal; }
-.harness-inline-editor .harness-advanced-options > div > div:first-child { margin-bottom: 6px; }
-.harness-inline-editor input { min-width: 0; width: 100%; height: 32px; padding: 5px 8px; border: 1px solid var(--rule); border-radius: 4px; background-color: var(--bg-slot); color: var(--text-rack); font-family: inherit; font-size: 12px; line-height: 20px; }
-.harness-inline-editor input:focus-visible { outline: 1px solid var(--amber); outline-offset: 1px; border-color: var(--amber); }
-.harness-inline-editor input::placeholder { color: var(--text-rack-data); }
-.harness-inline-editor .harness-editor-actions { padding: 10px 0; gap: 6px; border-top: 1px solid var(--rule-soft); }
+.harness-inline-editor .harness-advanced-options > div > span, .harness-inline-editor .harness-advanced-options > div > div > span { color: var(--launcher-ink); letter-spacing: normal; }
+.harness-inline-editor .harness-advanced-options > div > div:first-child { margin-bottom: 7px; }
+.harness-inline-editor input { min-width: 0; width: 100%; height: 34px; padding: 6px 9px; border: 1px solid var(--rule); border-radius: 5px; background-color: var(--bg-slot); color: var(--launcher-ink); font-family: inherit; font-size: 12px; line-height: 20px; caret-color: var(--launcher-accent); }
+.harness-inline-editor input:focus-visible { outline: 2px solid var(--launcher-accent); outline-offset: 1px; }
+.harness-inline-editor input::placeholder { color: var(--launcher-secondary); }
+.harness-inline-editor .harness-editor-actions { padding: 12px 0; gap: 6px; border-top: 1px solid var(--rule-soft); }
 .harness-inline-editor .harness-editor-actions > button { padding-inline: 6px; }
 .harness-inline-editor .harness-editor-actions > div { gap: 4px; }
-.harness-inline-editor .harness-editor-cancel { color: var(--text-rack-data); }
-.harness-inline-editor .harness-editor-cancel:hover { color: var(--text-rack); }
-.harness-inline-editor .harness-editor-actions button { min-height: 30px; font-size: 12px; white-space: nowrap; }
-.harness-inline-editor button:focus-visible { outline: 1px solid var(--amber); outline-offset: 2px; }
+.harness-inline-editor .harness-editor-cancel { color: var(--launcher-secondary); }
+.harness-inline-editor .harness-editor-cancel:hover { color: var(--launcher-ink); }
+.harness-inline-editor .harness-editor-actions button { min-height: 32px; font-size: 12px; white-space: nowrap; }
+.harness-inline-editor button:focus-visible { outline: 2px solid var(--launcher-accent); outline-offset: 2px; }
 .harness-inline-editor fieldset:disabled { opacity: .65; }
 .harness-inline-editor button:disabled { cursor: default; }
-
-@container harness-projects (max-width: 240px) {
-  .harness-project-body { padding-inline: 2px; }
-  .harness-project-items { --tree-branch-offset: 16px; margin-left: 32px; }
+@container harness-projects (max-width: 260px) {
+  .harness-project-body { padding: 10px 6px 20px; }
+  .harness-project-header { gap: 6px; padding-inline: 8px; }
   .harness-workspace-main { gap: 6px; }
   .harness-workspace-prefix { max-width: 30%; }
-  .harness-workspace-editor > .harness-inline-editor { margin-left: -32px; }
+  .harness-project-launch { width: 30px; min-width: 30px; padding: 0; }
+  .harness-project-launch > span { display: none; }
+  .harness-inline-editor fieldset { padding-inline: 9px; }
+  .harness-editor-heading { margin-inline: -9px; padding-inline: 9px; }
 }
-
-@media (hover: none) { .harness-project-launch { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .harness-project-chevron, .harness-project-launch { transition: none; } }

@@ -148,7 +148,7 @@ const IPC_CHANNELS = {
   HARNESS_WORKTREE_LIST: 'harness:worktree:list',
   CODE_WORKSPACE_REQUEST: 'code-workspace:request',
 
-  // Codex / Claude 新增及编辑同样要求 workspacePresetId，启动参数仍由各自配置保存。
+  // Codex / Claude 可通过 workspacePresetId 引用目录，清空后在用户主目录启动。
   // Codex Harness
   CODEX_DETECT: 'codex:detect',
   CODEX_WORKSPACE_LIST: 'codex:workspace:list',
@@ -371,9 +371,9 @@ const electronAPI = {
   commandGroupReorder: (groupIds: string[]) => ipcRenderer.invoke(IPC_CHANNELS.COMMAND_GROUP_REORDER, groupIds),
 
   // AI Agent —— add/update 通过 workspacePresetId 选择设置工作区；
-  // 列表仅返回设置管辖的命令启动项，cwd / isolation / worktreeKey 为设置预设的当前值。
+  // 列表包含未引用目录的启动项；绑定项的 cwd / isolation / worktreeKey 跟随设置预设。
   listAgents: () => ipcRenderer.invoke(IPC_CHANNELS.AGENT_LIST),
-  // 新增/编辑启动项必须传 workspacePresetId，目录及 worktree 由主进程从设置解析。
+  // workspacePresetId 可省略，表示不引用工作目录；指定时由主进程从设置解析目录及 worktree。
   addAgent: (agent: unknown) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_ADD, agent),
   updateAgent: (agent: unknown) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_UPDATE, agent),
   deleteAgent: (agentId: string) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_DELETE, agentId),

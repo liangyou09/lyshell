@@ -1,5 +1,16 @@
 {
+  "harnessLauncher": {
+    "launchSettings": "启动配置",
+    "defaultModel": "默认模型",
+    "fullAccess": "完全访问",
+    "fullAccessHint": "完全访问 · 跳过审批",
+    "launching": "启动中",
+    "readOnly": "只读"
+  },
   "workspacePresets": {
+    "unassigned": "未引用工作目录",
+    "unassignedHint": "未引用工作目录，启动时使用用户主目录。",
+    "deleteReferences": "当前有 {{count}} 个启动器引用此工作目录。确认删除后将清空这些引用，启动器保留并移入“未引用工作目录”。磁盘目录、worktree 和分支均保留。",
     "launch": "启动",
     "launchPs7": "启动 PS7",
     "launchPs7For": "在 {{name}} 启动 PowerShell 7",
@@ -233,13 +244,21 @@
   "nav": {
     "sessions": "会话",
     "agents": "Agent",
-    "dsh": "DeepSeek Harness",
-    "codex": "Codex",
-    "claude": "Claude",
+    "dsh": "DeepSeek Harness Launcher",
+    "codex": "Codex Launcher",
+    "claude": "Claude Launcher",
     "env": "环境变量",
     "plugins": "插件",
     "web": "浏览器",
     "settings": "设置"
+  },
+  "dshLaunch": {
+    "hint": "点击启动",
+    "opening": "启动中…",
+    "running": "已启动，点击切回",
+    "failed": "启动失败，可重试",
+    "retry": "重新启动",
+    "dismiss": "关闭提示"
   },
   "webCertificate": {
     "title": "您的连接不是私密连接",
@@ -378,6 +397,8 @@
     }
   },
   "env": {
+    "deleteReferences": "当前有 {{count}} 处显式引用此环境变量组。确认删除后将清空这些绑定，保留启动器，并按各自默认环境规则启动。",
+    "deleteActiveHint": "此组当前已全局启用，删除后也会停用全局变量组。",
     "backToList": "返回变量组列表",
     "mappingHelp": "查看变量映射说明",
     "copyAction": "复制",
@@ -452,7 +473,7 @@
     "failed": "插件市场加载失败，请重新连接。"
   },
   "dsh": {
-    "title": "DeepSeek Harness",
+    "title": "DeepSeek Harness Launcher",
     "detecting": "检测中…",
     "redetect": "重新检测",
     "installed": "已安装",
@@ -511,7 +532,7 @@
     "wsEnvNone": "还没有变量组 · 启动将使用系统环境变量"
   },
   "codex": {
-    "title": "Codex",
+    "title": "Codex Launcher",
     "detecting": "检测中…",
     "redetect": "重新检测",
     "installed": "已安装",
@@ -573,7 +594,7 @@
     "wsEnvNone": "还没有变量组 · 启动将使用系统环境变量"
   },
   "claude": {
-    "title": "Claude",
+    "title": "Claude Launcher",
     "detecting": "检测中…",
     "redetect": "重新检测",
     "installed": "已安装",
@@ -787,9 +808,9 @@
       "local": "快速打开本地终端",
       "sessions": "切换到会话列表",
       "agents": "切换到 Agent 面板",
-      "dsh": "切换到 dsh 面板",
-      "codex": "切换到 codex 面板",
-      "claude": "切换到 claude 面板",
+      "dsh": "切换到 DeepSeek Harness Launcher 面板",
+      "codex": "切换到 Codex Launcher 面板",
+      "claude": "切换到 Claude Launcher 面板",
       "env": "打开设置中的环境变量",
       "plugins": "切换到插件面板",
       "web": "切换到网页面板",

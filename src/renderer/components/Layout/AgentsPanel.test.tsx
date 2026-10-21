@@ -36,6 +36,23 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('Agents 项目树', () => {
+  it('新建时主动清空目录，候选刷新后仍保持未引用', async () => {
+    const view = render(<AgentsPanel />)
+    await view.findByRole('button', { name: 'Claude project' })
+    fireEvent.click(view.getByRole('button', { name: 'panelHeader.add' }))
+    fireEvent.click(view.getByRole('button', { name: 'sidebar.addAgent' }))
+    await waitFor(() => expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('app'))
+    fireEvent.change(view.getByLabelText('settings.workspace'), { target: { value: '' } })
+    fireEvent.change(view.getByPlaceholderText('claude'), { target: { value: 'custom-agent' } })
+    view.rerender(<AgentsPanel visible={false} />)
+    api.codeWorkspaceRequest.mockResolvedValue({ success: true, presets: [{ id: 'app', name: 'App', cwd: 'D:/projects/App', isolation: 'shared', order: 0 }] })
+    view.rerender(<AgentsPanel />)
+    await act(async () => {})
+    expect((view.getByLabelText('settings.workspace') as HTMLSelectElement).value).toBe('')
+    fireEvent.click(view.getByRole('button', { name: 'sidebar.agentSave' }))
+    await waitFor(() => expect(api.addAgent).toHaveBeenCalledWith(expect.objectContaining({ command: 'custom-agent', workspacePresetId: undefined, cwd: undefined, isolation: 'shared', worktreeKey: undefined })))
+  })
+
   it('同仓库的不同 worktree 保留独立入口，启动失败可见且阻止重复启动', async () => {
     const presets = [
       { id: 'plain', name: 'Project', cwd: 'D:/repo', order: 0 },
@@ -75,13 +92,13 @@ describe('Agents 项目树', () => {
     expect(view.container.querySelectorAll('.group-list-actions')).toHaveLength(1)
     expect(view.container.querySelectorAll('.workspace-launcher')).toHaveLength(1)
     expect(view.queryByText('agents.cliAgents')).toBeNull()
-    expect(view.container.querySelectorAll('.workspace-launcher-label')).toHaveLength(3)
+    expect(view.container.querySelectorAll('.workspace-launcher-label')).toHaveLength(4)
     expect(view.container.querySelector('.scroll-dual-seg')).toBeNull()
     const header = view.getByTitle('D:/projects/App').previousElementSibling as HTMLElement
     fireEvent.click(header)
     expect(header.getAttribute('aria-expanded')).toBe('false')
     expect(view.queryByRole('button', { name: 'Claude project' })).toBeNull()
-    expect(view.queryByRole('button', { name: 'Global agent' })).toBeNull()
+    expect(view.getByRole('button', { name: 'Global agent' })).toBeTruthy()
     expect(view.queryByText('agents.unassigned')).toBeNull()
     fireEvent.click(view.getByRole('button', { name: 'groupList.collapseAll' }))
     expect(view.queryByRole('button', { name: 'Global agent' })).toBeNull()
@@ -162,16 +179,18 @@ describe('Agents 项目树', () => {
     await waitFor(() => expect(api.addAgent).toHaveBeenCalledWith(expect.objectContaining({ command: 'custom-agent --serve', cwd: 'D:/projects/App', isolation: 'worktree', worktreeKey: 'feature' })))
   })
 
-  it('没有设置工作区时无法新建独立目录启动项，统一管理菜单保留设置入口', async () => {
+  it('没有设置工作区时仍能新建未引用目录的启动器，保留设置入口', async () => {
     api.codeWorkspaceRequest.mockResolvedValue({ success: true, presets: [] })
     const manage = vi.fn()
     const view = render(<AgentsPanel onOpenWorkspaceSettings={manage} />)
-    await view.findByText('workspacePresets.empty')
+    await view.findByRole('button', { name: 'Global agent' })
     fireEvent.click(view.getByRole('button', { name: 'panelHeader.add' }))
     fireEvent.click(view.getByRole('button', { name: 'sidebar.addAgent' }))
     fireEvent.change(view.getByPlaceholderText('claude'), { target: { value: 'custom-agent' } })
     fireEvent.click(view.getByRole('button', { name: 'sidebar.agentSave' }))
-    expect(api.addAgent).not.toHaveBeenCalled()
+    await waitFor(() => expect(api.addAgent).toHaveBeenCalledWith(expect.objectContaining({ command: 'custom-agent', workspacePresetId: undefined, cwd: undefined })))
+    fireEvent.click(view.getByRole('button', { name: 'panelHeader.add' }))
+    fireEvent.click(view.getByRole('button', { name: 'sidebar.addAgent' }))
     fireEvent.click(view.getByRole('button', { name: 'workspacePresets.manage' }))
     expect(manage).toHaveBeenCalledOnce()
   })

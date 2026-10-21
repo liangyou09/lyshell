@@ -46,7 +46,7 @@
 .env-profile-refs { padding-inline-start: 7px; border-inline-start: 1px solid var(--env-border); }
 .env-profile-note { width: 100%; padding-inline-end: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--env-secondary); font-size: 11px; line-height: 1.5; }
 .env-profile-actions { position: absolute; right: 6px; bottom: 3px; display: flex; gap: 0; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 120ms ease; }
-.env-profile-row:hover .env-profile-actions, .env-profile-row:has(:focus-visible) .env-profile-actions { opacity: 1; visibility: visible; pointer-events: auto; }
+.env-profile-row:hover .env-profile-actions, .env-profile-row:has(:focus-visible) .env-profile-actions, .env-profile-row[data-confirming="true"] .env-profile-actions { opacity: 1; visibility: visible; pointer-events: auto; }
 .env-profile-action { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 26px; width: 26px; height: 24px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--env-secondary); cursor: pointer; }
 .env-profile-action svg { flex-shrink: 0; width: 14px; height: 14px; }
 .env-profile-action > span { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -95,6 +95,9 @@
 .env-editor-error, .env-editor-warning { margin: 0; padding: 8px 10px; color: var(--error-rack); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .env-editor-warning { padding: 0; color: var(--env-secondary); }
 .env-editor-danger { padding: 10px; }
+.env-profile-delete-notice { display: flex; align-items: start; gap: 10px; padding: 10px; color: var(--text-rack); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.env-profile-delete-notice p { flex: 1; min-width: 0; margin: 0; }
+.env-profile-delete-notice button { flex-shrink: 0; color: var(--text-rack-data); text-decoration: underline; text-underline-offset: 3px; }
 .env-editor-danger button { max-width: 100%; padding: 5px 0; border: 0; border-radius: 3px; background: transparent; color: var(--error-rack); font-size: 12px; text-align: start; cursor: pointer; overflow-wrap: anywhere; }
 .env-editor-footer { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); flex-shrink: 0; gap: 8px; padding: 9px 10px; border-top: 1px solid var(--env-border); background: var(--bg-base); }
 .env-editor-footer button { min-width: 0; min-height: 31px; padding: 5px 8px; border: 1px solid var(--env-border); border-radius: 4px; background: var(--env-surface); color: var(--text-rack); font-size: 12px; cursor: pointer; }

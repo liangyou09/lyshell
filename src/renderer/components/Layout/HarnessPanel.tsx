@@ -30,11 +30,11 @@ import RackCombobox from './RackCombobox'
  *
  * 缺失依赖时只提示 + 给出安装命令与仓库链接（不自动安装）。就绪后管理多个「工作区」：
  * Codex / Claude 点击名称展开配置，使用独立按钮启动；DeepSeek 保留单击启动。
- * Codex / Claude 按目录展示紧凑项目树，组头可折叠、完整路径走 tooltip；
+ * Codex / Claude 按目录展示项目索引，组头可折叠，工作区名称与启动摘要分层；
  * DeepSeek 保留卷轴分组。工作区配置及启动行为由各 kind 的适配器保持。
  * 环境变量的增删改与启用切换都在左侧「环境变量」面板；这里仅为工作区对话框的绑定
  * 下拉与模型建议拉一份只读变量组列表 + 该 kind 的启用指针。
- * 样式沿用机柜令牌（--bg-base/--bg-slot/--rule/--amber/--text-rack*）与 12px 等宽基线。
+ * Codex / Claude 沿用全局主题面色与系统字体；DeepSeek 保留机柜样式。
  * Web 入口挂标题（仅 hasWeb 时可按，目前只有 dsh），落在 deepseek-harness 自己的默认工作区。
  */
 
@@ -314,8 +314,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
     const map = new Map<string, HarnessWorkspace[]>()
     for (const snapshot of workspaces) {
       const preset = usePreset ? findManagedWorkspace(snapshot, presets, window.electronAPI.platform) : undefined
-      if (usePreset && !preset) continue
-      const ws = preset ? { ...snapshot, workspacePresetId: preset.id, cwd: preset.cwd, isolation: preset.isolation, worktreeKey: preset.worktreeKey } : snapshot
+      const ws = preset ? { ...snapshot, workspacePresetId: preset.id, cwd: preset.cwd, isolation: preset.isolation, worktreeKey: preset.worktreeKey } : usePreset ? { ...snapshot, workspacePresetId: undefined, cwd: '', isolation: undefined, worktreeKey: undefined } : snapshot
       const key = normDirKey(ws.cwd)
       const list = map.get(key)
       if (list) list.push(ws)
@@ -589,7 +588,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
       }
     }
   }
-  const valid = wsCwd.trim().length > 0 && (!usePreset || presets.some(preset => preset.id === presetId))
+  const valid = usePreset ? !presetId || presets.some(preset => preset.id === presetId) : wsCwd.trim().length > 0
   // worktree 生效 key 与路径预览派生值：显式 key 优先；空 key 的既有工作区预览回落私有
   // kind-<id>（迁移前的旧形态 —— 实际启动时 resolveLaunchWorktree 会生成可读 key 并把旧
   // worktree 原地改名迁移，启动时刻的时间戳无法预知，故预览只能显示旧路径）；新工作区空 key 则
@@ -628,7 +627,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
     // envProfileId 传 undefined 即「跟随已启用的变量组」；主进程按「键存在」判断，故必须显式带上这个键
     // worktreeKey 同理：空串 trim 后传 undefined = 私有 worktree（键必须显式存在才能清掉旧共享名）
     const worktreeKeyPayload = wsWorktreeKey.trim().length > 0 ? wsWorktreeKey.trim() : undefined
-    const managedTarget = usePreset ? { workspacePresetId: presetId } : {}
+    const managedTarget = usePreset ? { workspacePresetId: presetId || undefined } : {}
     savingRef.current = true
     setSaving(true)
     try {
@@ -727,7 +726,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
       <fieldset disabled={saving} className="min-w-0 border-0 p-0 m-0">
             {!inline && <DialogClose onClose={closeEditor} />}
             {inline ? <div className="harness-editor-heading">
-              <span>{editWorkspace ? t(`${prefix}.wsEditTitle`) : t(`${prefix}.wsAddTitle`)}</span>
+              <h3>{editWorkspace ? t('harnessLauncher.launchSettings') : t(`${prefix}.wsAddTitle`)}</h3>
               {editWorkspace && <button type="button" title={t(`${prefix}.copy`)} aria-label={t(`${prefix}.copy`)}
                 className="harness-editor-icon" onClick={() => handleDuplicateWorkspace(editWorkspace)}><IconCopy /></button>}
             </div> :
@@ -750,8 +749,8 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
                 <label htmlFor={`${agent}-preset-select`}>{t('settings.workspace')}</label>
                 {onOpenWorkspaceSettings && <button type="button" onClick={onOpenWorkspaceSettings}>{t('workspacePresets.manage')}</button>}
               </div>
-              <WorkspaceSelect id={`${agent}-preset-select`} autoFocus className="rack-select" title={selectedPreset ? formatCodeWorkspaceName(selectedPreset) : undefined} value={presetId} onChange={event => { const preset = presets.find(item => item.id === event.target.value); if (preset) selectPreset(preset) }}>
-                {!presetId && <option value="">{t('workspacePresets.choose')}</option>}
+              <WorkspaceSelect id={`${agent}-preset-select`} autoFocus className="rack-select" title={selectedPreset ? formatCodeWorkspaceName(selectedPreset) : undefined} value={presetId} onChange={event => { const preset = presets.find(item => item.id === event.target.value); if (preset) selectPreset(preset); else { presetTargetRef.current = { id: '', name: wsName, cwd: '', order: 0 }; setPresetId(''); setWsCwd(''); setWsIsolation('shared'); setWsWorktreeKey('') } }}>
+                <option value="">{t('workspacePresets.unassigned')}</option>
                 {presets.map(preset => <option key={preset.id} value={preset.id}>{formatCodeWorkspaceName(preset)}</option>)}
               </WorkspaceSelect>
               {presetId && <div className="harness-editor-location">
@@ -761,7 +760,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
                   {t(wsIsolation === 'worktree' ? 'workspacePresets.dedicatedWorktree' : 'workspacePresets.sharedDirectory')}
                 </span>
               </div>}
-              {!presets.length && <p className="harness-editor-hint">{t('workspacePresets.empty')}</p>}
+              {!presetId && <p className="harness-editor-hint">{t('workspacePresets.unassignedHint')}</p>}
             </div> : <>
             {/* 名称 —— label 与输入框同行（label 定宽，与下方模型行对齐） */}
             <div className="py-3.5 px-4 border-b border-[var(--rule)] flex items-center gap-3">
@@ -1094,6 +1093,17 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
       const worktreeName = isWorktree ? ws.worktreeKey : undefined
       const suffix = worktreeName ? ` · ${worktreeName}` : ''
       const baseName = suffix && ws.name.endsWith(suffix) ? ws.name.slice(0, -suffix.length) : ws.name
+      const modelLabel = ws.model || t('harnessLauncher.defaultModel')
+      const environmentLabel = boundProfile?.name || activeProfile?.name || t(`${prefix}.envSystem`)
+      const permissionLabel = dangerPerm
+        ? t('harnessLauncher.fullAccess')
+        : ws.codexPermissions === ':read-only'
+          ? t('harnessLauncher.readOnly')
+          : agent === 'claude' && ws.claudePermissions === 'plan'
+            ? t(`${prefix}.wsPermPlan`)
+            : agent === 'claude' && ws.claudePermissions === 'acceptEdits'
+              ? t(`${prefix}.wsPermAcceptEdits`)
+              : undefined
       return <div key={ws.id} className="harness-workspace-item">
         <div className={cn('harness-project-row', { 'is-expanded': detailOpen, 'is-danger': dangerPerm, 'is-launching': launching })}
           onContextMenu={event => { event.preventDefault(); event.stopPropagation(); handleEdit(ws) }}>
@@ -1107,6 +1117,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
                 <rect x="3" y="4" width="14" height="12" rx="2" /><path d="M3 8h14M7 4v12" />
               </svg>}
             </span>
+            <span className="harness-workspace-content">
             <span className="harness-workspace-name">
               {worktreeName && baseName ? <>
                 <span className="harness-workspace-prefix">{baseName}</span>
@@ -1114,12 +1125,20 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
                 <span className="harness-workspace-branch">{worktreeName}</span>
               </> : <span className="harness-workspace-branch">{fullName}</span>}
             </span>
-            {launching && <span className="harness-workspace-status">{t(`${prefix}.launching`)}</span>}
+            <span className="harness-workspace-summary" title={`${modelLabel} · ${environmentLabel}`}>
+              <span className="harness-workspace-model">{modelLabel}</span>
+              <span aria-hidden="true">·</span>
+              <span className="harness-workspace-environment">{environmentLabel}</span>
+              {permissionLabel && <span className={cn('harness-workspace-permission', dangerPerm && 'is-danger')} title={dangerPerm ? t('harnessLauncher.fullAccessHint') : permissionLabel}>{permissionLabel}</span>}
+            </span>
+            </span>
           </button>
           <button type="button" className="harness-project-launch" disabled={!!launchingId || saving}
+            aria-busy={launching}
             aria-label={`${t(`${prefix}.launch`)} · ${fullName}`} title={`${t(`${prefix}.launch`)} · ${fullName}`}
             onClick={() => void handleLaunch(ws)}>
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden="true"><path d="m5 3 8 5-8 5Z" /></svg>
+            <span>{launching ? t('harnessLauncher.launching') : t('workspacePresets.launch')}</span>
           </button>
         </div>
         <div id={detailId} hidden={!detailOpen} className="harness-workspace-editor">
@@ -1283,8 +1302,8 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
 
   return (
     <div
-      className="w-full h-full flex flex-col bg-[var(--bg-base)]"
-      style={{ fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
+      className={cn('w-full h-full flex flex-col', compactTree ? 'harness-launcher' : 'bg-[var(--bg-base)]')}
+      style={compactTree ? undefined : { fontFamily: 'ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace' }}
     >
       {/* DeepSeek 铭牌继续打开默认 Web UI；列表就绪后才提供新建工作区。 */}
       <PanelHeader
@@ -1315,7 +1334,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
       {/* ===== 内容壳 ===== 头行以下整列离缘 6(mx-1.5) —— 与会话栏器物两端同线
           (栏内器物一律离缘,墙纸不再通铺到面板两缘);段内既有垫距保留;壳不
           定位,fixed 弹窗与绝对定位浮层不受影响 */}
-      <div className="mx-1.5 pt-2 flex-1 min-h-0 flex flex-col min-w-0">
+      <div className={cn('flex-1 min-h-0 flex flex-col min-w-0', compactTree ? 'harness-launcher-content' : 'mx-1.5 pt-2')}>
 
       {/* 未就绪内容笼：依赖状态行 + 安装提示卡 —— 顶距统一由内容壳提供，
           侧距归内容壳（旧 px-3 已撤，不叠两层），头条满幅贴顶
@@ -1428,7 +1447,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
 
       {/* 工作区按目录分组，标题行控制单组开合，顶部按钮批量操作。 */}
       {listReady && (
-        <div className="flex-1 min-h-0 flex flex-col bg-[var(--bg-rack)]">
+        <div className={cn('flex-1 min-h-0 flex flex-col', compactTree ? 'harness-launcher-list' : 'bg-[var(--bg-rack)]')}>
           {/* 横幅位（仅异常时占行，随卡片区域走）：其余依赖未装时启动禁用
               （dsh 仅装了 dsh 缺 dsh-tui 时出现） */}
           {!launchReady && (
@@ -1462,19 +1481,19 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
                           onClick={() => toggleDirCollapsed(dir)}>
                           <span className="harness-project-symbol" aria-hidden="true"><IconFolder /></span>
                           <span className="harness-project-heading">
-                            <span className="harness-project-label">{wsDirLabel(dir)}</span>
-                            {detail.detailMarker && <span className="harness-project-parent">{detail.detail}</span>}
+                            <span className="harness-project-label">{dir ? wsDirLabel(dir) : t('workspacePresets.unassigned')}</span>
+                            <span className="harness-project-parent">{detail.detailMarker ? detail.detail : dir}</span>
                           </span>
                           <span className="harness-project-count">{list.length}</span>
                           <svg className={cn('harness-project-chevron', !collapsedDirs[dir] && 'is-open')} width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>
                         </button>
-                        <div id={groupId} className="harness-project-items" hidden={!!collapsedDirs[dir]} role="group" aria-label={dir}>
+                        <div id={groupId} className="harness-project-items" hidden={!!collapsedDirs[dir]} role="group" aria-label={dir || t('workspacePresets.unassigned')}>
                           {list.map(renderWorkspaceCard)}
                         </div>
                       </> : <>
                         <GroupHeader
                           tone={WS_TONE[agent].tone}
-                          label={wsDirLabel(dir)}
+                          label={dir ? wsDirLabel(dir) : t('workspacePresets.unassigned')}
                           labelTitle={dir}
                           {...detail}
                           count={list.length}

@@ -10,6 +10,7 @@ import './CodeWorkspaceSettings.css'
 const CodeWorkspaceSettings: React.FC = () => {
   const { t } = useTranslation()
   const [presets, setPresets] = useState<CodeWorkspacePreset[]>([])
+  const [usage, setUsage] = useState<Record<string, number>>({})
   const [draft, setDraft] = useState<Extract<CodeWorkspaceRequest, { kind: 'save' }> | null>(null)
   const [busy, setBusy] = useState(false)
   const [launchingId, setLaunchingId] = useState<string | null>(null)
@@ -36,10 +37,23 @@ const CodeWorkspaceSettings: React.FC = () => {
       const result = await window.electronAPI.codeWorkspaceRequest(request)
       if (!result.success) { setError(result.error); return }
       setPresets(result.presets)
+      setUsage(result.usage ?? {})
       if (request.kind === 'save' || (request.kind === 'delete' && request.id === draft?.preset.id)) { setDraft(null); restoreFocus() }
       setConfirmId(null)
     } catch (error) { setError(error instanceof Error ? error.message : t('workspacePresets.failed')) }
     finally { busyRef.current = false; setBusy(false); setLaunchingId(null) }
+  }
+  const prepareDelete = async (id: string) => {
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(true); setError(''); setConfirmId(null)
+    try {
+      const result = await window.electronAPI.codeWorkspaceRequest({ kind: 'list' })
+      if (!result.success) { setError(result.error); return }
+      setPresets(result.presets); setUsage(result.usage ?? {})
+      if (result.presets.some(preset => preset.id === id)) setConfirmId(id)
+    } catch (error) { setError(error instanceof Error ? error.message : t('workspacePresets.failed')) }
+    finally { busyRef.current = false; setBusy(false) }
   }
   useEffect(() => { void run({ kind: 'list' }) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const cwd = draft?.preset.cwd
@@ -110,11 +124,15 @@ const CodeWorkspaceSettings: React.FC = () => {
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" aria-hidden="true"><path d="m5 3 8 5-8 5Z" /></svg>
             <span aria-hidden="true">PS7</span>
           </button>
-          <button type="button" className={`code-workspace-remove${confirmId === preset.id ? ' is-confirming' : ''}`} disabled={busy} title={t(confirmId === preset.id ? 'workspacePresets.confirmDelete' : 'workspacePresets.delete', { name: formatCodeWorkspaceName(preset) })} aria-label={t(confirmId === preset.id ? 'workspacePresets.confirmDelete' : 'workspacePresets.delete', { name: formatCodeWorkspaceName(preset) })} onClick={() => confirmId === preset.id ? void run({ kind: 'delete', id: preset.id }) : setConfirmId(preset.id)}>
+          <button type="button" className={`code-workspace-remove${confirmId === preset.id ? ' is-confirming' : ''}`} disabled={busy} title={t(confirmId === preset.id ? 'workspacePresets.confirmDelete' : 'workspacePresets.delete', { name: formatCodeWorkspaceName(preset) })} aria-label={t(confirmId === preset.id ? 'workspacePresets.confirmDelete' : 'workspacePresets.delete', { name: formatCodeWorkspaceName(preset) })} aria-describedby={confirmId === preset.id ? `workspace-delete-${preset.id}` : undefined} onClick={() => confirmId === preset.id ? void run({ kind: 'delete', id: preset.id }) : void prepareDelete(preset.id)}>
             {confirmId === preset.id ? t('workspacePresets.confirm') : <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 4.5h10M6 4.5V2.5h4v2M4.5 4.5l.5 9h6l.5-9M6.5 7v4M9.5 7v4" /></svg>}
           </button>
           <span className="code-workspace-path" title={preset.cwd}>{preset.cwd}</span>
         </div>
+        {confirmId === preset.id && <div id={`workspace-delete-${preset.id}`} className="code-workspace-delete-notice" role="status">
+          <p>{t('workspacePresets.deleteReferences', { count: usage[preset.id] ?? 0 })}</p>
+          <button type="button" disabled={busy} onClick={() => setConfirmId(null)}>{t('workspacePresets.cancel')}</button>
+        </div>}
         {expanded && renderEditor()}
       </div>
     })}

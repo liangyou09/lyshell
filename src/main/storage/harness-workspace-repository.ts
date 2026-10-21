@@ -31,13 +31,20 @@ export function normalizeEnv(raw: unknown): Record<string, string> | undefined {
   return Object.keys(result).length > 0 ? result : undefined
 }
 
-/** 归一化单条 JSON 记录：非法记录返回 null（由 load 过滤），合法记录补齐 note 默认值。 */
-function normalizeWorkspace(raw: unknown): HarnessWorkspace | null {
+/**
+ * 归一化单条 JSON 记录：非法记录返回 null（由 load 过滤），合法记录补齐 note 默认值。
+ *
+ * allowEmptyCwd：codex/claude 的启动器可以停留在「未引用工作目录」状态 —— 删除设置项后记录
+ * 被清成 cwd=''，下次加载必须还能读回来（否则启动器会"丢"，再被一次性迁移重新导入设置项）。
+ * dsh 工作区与设置项目录本身仍要求非空 cwd（独立目录模式语义不变）。
+ */
+function normalizeWorkspace(raw: unknown, allowEmptyCwd = false): HarnessWorkspace | null {
   if (typeof raw !== 'object' || raw === null) return null
   const w = raw as Record<string, unknown>
   if (typeof w.id !== 'string' || w.id.length === 0) return null
   if (typeof w.name !== 'string' || w.name.length === 0) return null
-  if (typeof w.cwd !== 'string' || w.cwd.length === 0) return null
+  if (typeof w.cwd !== 'string') return null
+  if (!allowEmptyCwd && w.cwd.length === 0) return null
   if (typeof w.order !== 'number' || !Number.isFinite(w.order)) return null
   // note 非字符串时按缺失处理（不因备注脏数据丢整条记录）
   const note = typeof w.note === 'string' && w.note.length > 0 ? w.note : undefined
@@ -72,12 +79,15 @@ function normalizeWorkspace(raw: unknown): HarnessWorkspace | null {
  */
 export class HarnessWorkspaceRepository {
   private readonly fileName: string
+  /** 是否允许 cwd 为空串（未引用工作目录的 codex/claude 启动器）；dsh 与设置项恒为 false */
+  private readonly allowEmptyCwd: boolean
   private filePath: string | null = null
   private workspaces: HarnessWorkspace[] = []
   private loaded = false
 
-  constructor(fileName: string) {
+  constructor(fileName: string, options?: { allowEmptyCwd?: boolean }) {
     this.fileName = fileName
+    this.allowEmptyCwd = options?.allowEmptyCwd === true
   }
 
   private ensureInitialized(): void {
@@ -103,7 +113,7 @@ export class HarnessWorkspaceRepository {
       // 过滤非法记录 → 按首个有效 id 去重 → 按 order 稳定排序 → reindex 为 0..n-1 连续值
       const seen = new Set<string>()
       this.workspaces = rawList
-        .map(normalizeWorkspace)
+        .map((raw) => normalizeWorkspace(raw, this.allowEmptyCwd))
         .filter((w): w is HarnessWorkspace => w !== null)
         .filter((w) => {
           if (seen.has(w.id)) return false
@@ -145,10 +155,10 @@ export class HarnessWorkspaceRepository {
   }
 
   /** 内部批量迁移：整库原子保存，失败恢复原内存，避免合并到一半留下部分结果。 */
-  replaceAll(workspaces: HarnessWorkspace[]): boolean {
+  replaceAll(workspaces: HarnessWorkspace[], options: { preserveOrder?: boolean } = {}): boolean {
     this.ensureInitialized()
     const previous = this.workspaces
-    this.workspaces = workspaces.map((workspace, order) => ({ ...workspace, order }))
+    this.workspaces = workspaces.map((workspace, order) => ({ ...workspace, order: options.preserveOrder ? workspace.order : order }))
     if (this.save()) return true
     this.workspaces = previous
     return false
@@ -202,7 +212,8 @@ export class HarnessWorkspaceRepository {
 }
 
 export const dshWorkspaceRepository = new HarnessWorkspaceRepository('dsh-workspaces.json')
-export const codexWorkspaceRepository = new HarnessWorkspaceRepository('codex-workspaces.json')
-export const claudeWorkspaceRepository = new HarnessWorkspaceRepository('claude-workspaces.json')
+// codex/claude 允许 cwd='' —— 删除设置项后启动器保留为「未引用工作目录」项，不能因为加载即丢。
+export const codexWorkspaceRepository = new HarnessWorkspaceRepository('codex-workspaces.json', { allowEmptyCwd: true })
+export const claudeWorkspaceRepository = new HarnessWorkspaceRepository('claude-workspaces.json', { allowEmptyCwd: true })
 
 export const codeWorkspacePresetRepository = new HarnessWorkspaceRepository('code-workspace-presets.json')

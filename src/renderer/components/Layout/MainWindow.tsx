@@ -4,6 +4,7 @@ import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import SessionsPanel from './SessionsPanel'
 import ActivityRail, { type NavTab, RAIL_WIDTH, isFixedNavTab } from './ActivityRail'
+import type { DshLaunchAction } from './DshLaunchTab'
 import SidebarToggle from './SidebarToggle'
 import AgentsPanel from './AgentsPanel'
 import SplitPaneContainer from './SplitPaneContainer'
@@ -82,7 +83,7 @@ const MainWindow: React.FC = () => {
       if (saved === 'env') return 'settings'
       if (saved && (isFixedNavTab(saved) || isPluginViewKey(saved))) return saved
     } catch { /* localStorage 不可用,回退默认 */ }
-    return 'sessions'
+    return 'dsh'
   })
   const activeNavRef = useRef(activeNav)
   activeNavRef.current = activeNav
@@ -977,6 +978,21 @@ const MainWindow: React.FC = () => {
     }
   }, [])
 
+  // Launch 槽复用已开的官方工作台，保留当前会话与导航，不重复申请后台。
+  const dshLaunchInFlight = useRef<ReturnType<DshLaunchAction> | null>(null)
+  const handleLaunchDsh = useCallback<DshLaunchAction>(() => {
+    if (dshLaunchInFlight.current) return dshLaunchInFlight.current
+    const state = usePaneStore.getState()
+    const existing = state.getOverlayByKind('dshWeb')
+    if (existing?.payload.kind === 'dshWeb') {
+      state.openDshWebInPane(state.layout.activePaneId, existing.payload)
+      return Promise.resolve({ success: true })
+    }
+    const pending = handleOpenWeb({}).finally(() => { dshLaunchInFlight.current = null })
+    dshLaunchInFlight.current = pending
+    return pending
+  }, [handleOpenWeb])
+
   // ===== 共享工作台详情（Pet 绑定期间） =====
   // 详情经**现有 dshWeb 单例 overlay** 打开**同一后台**官方 Web（acquire 复用，不 restart）。
   // 身份记账（已应用 / 已关闭 / 在飞 / 代际）全在 stores/workbench-detail：
@@ -1134,7 +1150,7 @@ const MainWindow: React.FC = () => {
             </div>}
             <Suspense fallback={null}>
               {dshPanelAlive && <div className={cn('absolute inset-0', activeNav !== 'dsh' && 'hidden')}>
-                <DshMarketPanel onOpenWeb={handleOpenWeb} onOpenEnvSettings={() => handleNavChange('env')} />
+                <DshMarketPanel onLaunch={handleLaunchDsh} onOpenEnvSettings={() => handleNavChange('env')} />
               </div>}
               {(activeNav === 'codex' || retainedNav === 'codex') && <div className={cn('h-full', activeNav !== 'codex' && 'hidden')}>
                 <HarnessPanel agent="codex" visible={activeNav === 'codex'} onOpenEnvSettings={() => handleNavChange('env')} onOpenWorkspaceSettings={() => {

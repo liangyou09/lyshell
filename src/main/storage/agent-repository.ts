@@ -171,6 +171,19 @@ export class AgentRepository {
     }
     return true
   }
+
+  /**
+   * 内部批量改写：整库原子保存，失败恢复原内存 —— 删除变量组/设置项时统一解除引用，
+   * 避免写到一半留下部分清空的启动器。order 原样保留（调用方按 getAll() 顺序传入）。
+   */
+  replaceAll(agents: AgentConfig[]): boolean {
+    this.ensureInitialized()
+    const previous = this.agents
+    this.agents = agents.map(agent => ({ ...agent }))
+    if (this.save()) return true
+    this.agents = previous
+    return false
+  }
 }
 
 export const agentRepository = new AgentRepository()

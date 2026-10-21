@@ -246,4 +246,27 @@ describe('HarnessWorkspaceRepository', () => {
     const all = repo.getAll()
     expect(all.find((w) => w.id === 'a')?.claudePermissions).toBe('default')
   })
+
+  it('允许空 cwd 的库（codex/claude）保留无目录启动器，严格库（dsh/预设）仍然丢弃', () => {
+    seed(JSON.stringify([
+      { id: 'a', name: 'kept', cwd: '', order: 0 },
+      { id: 'b', name: 'normal', cwd: '/b', order: 1 }
+    ]))
+    // 删除工作区预设后启动器 cwd 被清成空串：这份记录必须能读回，否则启动器看起来丢了
+    const lenient = new HarnessWorkspaceRepository('codex-workspaces.json', { allowEmptyCwd: true })
+    expect(lenient.getAll().map((w) => w.id)).toEqual(['a', 'b'])
+    // dsh 是独立目录模式、预设本身必须有目录，仍按损坏记录过滤
+    const strict = new HarnessWorkspaceRepository('codex-workspaces.json')
+    expect(strict.getAll().map((w) => w.id)).toEqual(['b'])
+  })
+
+  it('空 cwd 记录可落盘并被新实例读回，不丢记录', () => {
+    const repo = new HarnessWorkspaceRepository('codex-workspaces.json', { allowEmptyCwd: true })
+    const kept = repo.add({ name: 'kept', cwd: '' })!
+    expect(kept.cwd).toBe('')
+    expect(repo.getAll().map((w) => w.id)).toEqual([kept.id])
+    const reopened = new HarnessWorkspaceRepository('codex-workspaces.json', { allowEmptyCwd: true })
+    expect(reopened.get(kept.id)?.cwd).toBe('')
+    expect(reopened.get(kept.id)?.name).toBe('kept')
+  })
 })

@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-21T01:40:28Z",
+  "title": "Design System: LyShell — Codex / Claude 工作区面板",
+  "extensions": {
+    "colorMeta": {
+      "launcher-ground": {
+        "role": "neutral",
+        "displayName": "主题面板底",
+        "canonical": "var(--bg-base)"
+      },
+      "launcher-surface": {
+        "role": "neutral",
+        "displayName": "主题编辑面",
+        "canonical": "var(--bg-rack)"
+      },
+      "launcher-hover": {
+        "role": "neutral",
+        "displayName": "主题悬停层",
+        "canonical": "var(--bg-slot)"
+      },
+      "launcher-ink": {
+        "role": "neutral",
+        "displayName": "主文字",
+        "canonical": "var(--text-rack)"
+      },
+      "launcher-secondary": {
+        "role": "neutral",
+        "displayName": "辅助文字",
+        "canonical": "color-mix(in srgb, var(--text-rack) 76%, var(--launcher-ground))"
+      },
+      "launcher-accent": {
+        "role": "primary",
+        "displayName": "启动强调",
+        "canonical": "var(--amber)"
+      },
+      "project-color": {
+        "role": "tertiary",
+        "displayName": "项目色标",
+        "canonical": "color-mix(in srgb, hsl(var(--project-hue) 36% 56%) 65%, var(--launcher-ink))"
+      },
+      "project-color-light": {
+        "role": "tertiary",
+        "displayName": "项目色标（亮色）",
+        "canonical": "color-mix(in srgb, hsl(var(--project-hue) 30% 36%) 75%, var(--launcher-ink))"
+      }
+    },
+    "typographyMeta": {
+      "system": {
+        "displayName": "系统无衬线",
+        "purpose": "面板全文字体，沿用操作系统界面字体。"
+      },
+      "project-label": {
+        "displayName": "项目标题",
+        "purpose": "分组一级标题，16px/700。"
+      },
+      "workspace-name": {
+        "displayName": "工作区名称",
+        "purpose": "条目主文字，13px，展开态 650。"
+      },
+      "workspace-summary": {
+        "displayName": "辅助摘要",
+        "purpose": "模型、变量组、权限、目录，11px 辅助色。"
+      }
+    },
+    "motion": [
+      {
+        "name": "state-change",
+        "value": "150ms ease-out",
+        "purpose": "折叠箭头旋转、启动按钮底色/文字过渡。"
+      },
+      {
+        "name": "reduced-motion",
+        "value": "prefers-reduced-motion: reduce → transition: none",
+        "purpose": "系统偏好减少动画时关闭过渡。"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "harness-projects-narrow",
+        "value": "260px",
+        "purpose": "容器查询：窄于此值收窄内边距与启动按钮。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "项目章节头",
+      "kind": "custom",
+      "description": "项目章节头：顶部 2px 项目色标，项目名 + 父目录 + 计数 + 折叠箭头。",
+      "html": "<div class='ds-project-group'><div class='ds-project-header'><span class='ds-project-symbol'><svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><path d=\"M2 4.5h4l1.5 2H14v6H2z\"/></svg></span><span class='ds-project-heading'><span class='ds-project-label'>my-project</span><span class='ds-project-parent'>D:\\workspace\\my-project</span></span><span class='ds-project-count'>3</span><span class='ds-project-chevron'><svg width=\"12\" height=\"12\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"m6 4 4 4-4 4\"/></svg></span></div></div>",
+      "css": ".ds-project-group { --ds-project-color: color-mix(in srgb, hsl(200 36% 56%) 65%, var(--text-rack)); border-top: 2px solid var(--ds-project-color); font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei', sans-serif; } .ds-project-header { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 52px; padding: 6px 8px; background: var(--bg-rack); color: var(--text-rack); text-align: left; cursor: pointer; } .ds-project-symbol { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 20px; flex-shrink: 0; color: var(--ds-project-color); } .ds-project-heading { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; } .ds-project-label { font-size: 16px; font-weight: 700; line-height: 20px; } .ds-project-parent { font-size: 11px; line-height: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: color-mix(in srgb, var(--text-rack) 76%, var(--bg-base)); } .ds-project-count { flex-shrink: 0; min-width: 18px; text-align: center; font-size: 11px; line-height: 20px; color: color-mix(in srgb, var(--text-rack) 76%, var(--bg-base)); font-variant-numeric: tabular-nums; } .ds-project-chevron { flex-shrink: 0; color: color-mix(in srgb, var(--text-rack) 76%, var(--bg-base)); transition: transform 150ms ease-out; } .ds-project-header:hover .ds-project-label { color: var(--ds-project-color); } .ds-project-symbol { display: none; }"
+    },
+    {
+      "name": "工作区行",
+      "kind": "custom",
+      "refersTo": "workspace-row",
+      "description": "全宽 52px 工作区行：左侧名称/摘要，右侧常显启动按钮。",
+      "html": "<div class='ds-workspace-row'><button class='ds-workspace-main'><span class='ds-workspace-symbol'><svg width=\"16\" height=\"16\" viewBox=\"0 0 20 20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\"><rect x=\"3\" y=\"4\" width=\"14\" height=\"12\" rx=\"2\"/><path d=\"M3 8h14M7 4v12\"/></svg></span><span class='ds-workspace-content'><span class='ds-workspace-name'><span class='ds-workspace-prefix'>feat/</span><span class='ds-workspace-separator'>·</span><span class='ds-workspace-branch'>workspace-name</span></span><span class='ds-workspace-summary'>gpt-5 · 默认变量组</span></span></button><button class='ds-launch-btn'>启动</button></div>",
+      "css": ".ds-workspace-row { display: flex; align-items: center; gap: 8px; height: 52px; padding: 0 4px; border-bottom: 1px solid color-mix(in srgb, var(--text-rack) 12%, var(--bg-base)); background: transparent; font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei', sans-serif; } .ds-workspace-row:hover { background: var(--bg-slot); } .ds-workspace-main { display: flex; align-items: flex-start; gap: 9px; flex: 1; min-width: 0; height: 50px; padding: 5px 0; border: 0; border-radius: 3px; background: transparent; color: var(--text-rack); text-align: left; cursor: pointer; } .ds-workspace-symbol { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 20px; flex-shrink: 0; color: color-mix(in srgb, var(--text-rack) 76%, var(--bg-base)); } .ds-workspace-content { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; } .ds-workspace-name { display: flex; align-items: baseline; font-size: 13px; line-height: 20px; } .ds-workspace-prefix { flex: 0 1 auto; max-width: 38%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: color-mix(in srgb, var(--text-rack) 76%, var(--bg-base)); } .ds-workspace-separator { flex-shrink: 0; padding: 0 4px; color: color-mix(in srgb, var(--text-rack) 76%, var(--bg-base)); } .ds-workspace-branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; } .ds-workspace-summary { font-size: 11px; line-height: 16px; color: color-mix(in srgb, var(--text-rack) 76%, var(--bg-base)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .ds-launch-btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; flex-shrink: 0; min-width: 60px; height: 30px; padding: 5px 8px; border: 1px solid var(--rule); border-radius: 5px; background: var(--bg-rack); color: var(--text-rack); font-family: inherit; font-size: 11px; line-height: 18px; font-weight: 600; cursor: pointer; transition: background-color 150ms ease-out, color 150ms ease-out; } .ds-launch-btn:hover { background: var(--bg-slot); color: color-mix(in srgb, var(--amber) 45%, var(--text-rack)); border-color: var(--amber); } .ds-launch-btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }"
+    },
+    {
+      "name": "启动按钮",
+      "kind": "button",
+      "refersTo": "launch-button",
+      "description": "工作区行右侧常显启动按钮：强调色 45% 描边，hover 底/字互换。",
+      "html": "<button class='ds-launch-btn'>启动</button>",
+      "css": ".ds-launch-btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; flex-shrink: 0; min-width: 60px; height: 30px; padding: 5px 8px; border: 1px solid var(--rule); border-radius: 5px; background: var(--bg-rack); color: var(--text-rack); font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei', sans-serif; font-size: 11px; line-height: 18px; font-weight: 600; cursor: pointer; transition: background-color 150ms ease-out, color 150ms ease-out; } .ds-launch-btn:hover { background: var(--bg-slot); color: color-mix(in srgb, var(--amber) 45%, var(--text-rack)); border-color: var(--amber); } .ds-launch-btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; } .ds-launch-btn:disabled { cursor: default; opacity: .45; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "项目索引（The Project Index）",
+    "overview": "项目是一级索引：先识别项目，再读工作区名称与模型、变量组，点击始终可见的启动按钮。工作区是可直接启动的全宽条目，取消树线与深缩进。本设计仅适用于 Codex 与 Claude 两个工作区面板，不替代 DeepSeek 面板或其他页面的设计规范。",
+    "keyCharacteristics": [
+      "全宽工作区与项目章节色标",
+      "面板底色和焦点色沿用全局主题",
+      "52px 统一行高，配置独立分层"
+    ],
+    "rules": [],
+    "dos": [
+      "Do 使用全局主题面色和操作强调色。",
+      "Do 仅在分组色标与权限状态保留语义色。"
+    ],
+    "donts": [
+      "Don't 引入树线、深缩进或卡片外框/图标底座。",
+      "Don't 用脱离主题的固定面板色。",
+      "Don't 把这些规则套用到 DeepSeek 面板或其他页面——本设计仅约束 Codex / Claude 两个面板。"
+    ]
+  }
+}

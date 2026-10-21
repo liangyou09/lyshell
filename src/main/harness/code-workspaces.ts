@@ -2,7 +2,7 @@ import { formatCodeWorkspaceName, type CodeWorkspacePreset, type CodeWorkspaceRe
 import { codeWorkspacePresetRepository } from '../storage/harness-workspace-repository'
 import { getConfigDir } from '../storage/repository'
 import { basename, isAbsolute, join, relative, sep } from 'node:path'
-import { ensureManagedWorkspaces, isWorkspaceReferenced } from './workspace-governance'
+import { ensureManagedWorkspaces, countWorkspaceUsage, deleteManagedWorkspace } from './workspace-governance'
 import { resolveWorkspaceCwd } from './cwd'
 import { ensureWorktree } from './worktree'
 import { createTaskSerializer } from './task-serializer'
@@ -17,8 +17,18 @@ export async function requestCodeWorkspaces(
 ): Promise<CodeWorkspaceResult> {
   return serialize('presets', async () => {
     const result = (): CodeWorkspaceResult => {
-      const aliases = normalizeCodeWorkspaces(repository, join(getConfigDir(), 'code-workspace-presets-merge.json'))
-      return { success: true, presets: repository.getAll(), ...(Object.keys(aliases).length ? { aliases } : {}) }
+      const merged = normalizeCodeWorkspaces(repository, join(getConfigDir(), 'code-workspace-presets-merge.json'))
+      const presets = repository.getAll()
+      // 只回传仍能重定向到现存设置项的别名：指向已删设置项的旧别名不应让调用方以为目标还在。
+      const aliases = Object.fromEntries(Object.entries(merged).filter(([, target]) => repository.get(target)))
+      return {
+        success: true,
+        presets,
+        // 引用数：每个设置项被多少 agent/codex/claude 启动器引用（合并别名已折算）。
+        // 空列表保持旧响应形状，不额外冒出新字段。
+        ...(presets.length ? { usage: countWorkspaceUsage() } : {}),
+        ...(Object.keys(aliases).length ? { aliases } : {})
+      }
     }
     try { await ensureManagedWorkspaces() }
     catch (error) { return { success: false, error: `Could not prepare managed workspaces: ${error instanceof Error ? error.message : String(error)}` } }
@@ -53,9 +63,11 @@ export async function requestCodeWorkspaces(
       return result()
     }
     if (request.kind === 'delete') {
-      if (isWorkspaceReferenced(request.id)) return { success: false, error: 'Workspace is used by launchers. Reassign or delete those launchers first.' }
-      if (!repository.get(request.id) || !repository.delete(request.id)) return { success: false, error: 'Workspace preset could not be deleted' }
-      // 删除配置不删除 worktree 或分支，保留其中的改动。
+      // 删除不再因引用被拒绝：先解除引用（启动器保留为「未引用工作目录」项），再删设置项。
+      // 任一步落盘失败都整体回滚并报错，不报告成功。
+      const deleted = await deleteManagedWorkspace(request.id)
+      if (!deleted.ok) return { success: false, error: deleted.error }
+      // 删除配置不删除磁盘目录、worktree 或分支，保留其中的改动。
       return result()
     }
     const { id, ...preset } = request.preset

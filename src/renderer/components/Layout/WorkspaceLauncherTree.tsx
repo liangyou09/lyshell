@@ -63,6 +63,7 @@ const WorkspaceLauncherTree = <T extends WorkLauncherAgent,>({ visible, onManage
   }, [visible, reload, refreshKey])
 
   const projects = useMemo(() => buildWorkLauncherProjects(presets, window.electronAPI?.platform ?? ''), [presets])
+  const unassigned = useMemo(() => agents.filter(agent => !findManagedWorkspace(agent, presets, window.electronAPI?.platform ?? '')), [agents, presets])
   const directories = useMemo(() => buildWorkLauncherDirectories(projects, window.electronAPI?.platform ?? ''), [projects])
   const byTarget = useMemo(() => {
     const platform = window.electronAPI?.platform ?? ''
@@ -88,8 +89,9 @@ const WorkspaceLauncherTree = <T extends WorkLauncherAgent,>({ visible, onManage
       visit(node.children)
     })
     visit(directories)
+    if (unassigned.length) keys.push('unassigned')
     return keys
-  }, [directories, byTarget])
+  }, [directories, byTarget, unassigned.length])
   const toggle = (key: string): void => setCollapsed(current => {
     const next = new Set(current)
     if (!next.delete(key)) next.add(key)
@@ -163,9 +165,15 @@ const WorkspaceLauncherTree = <T extends WorkLauncherAgent,>({ visible, onManage
   return <>{renderHeader ? renderHeader(controls) : controls}<section className="workspace-launcher" aria-label={t('agents.workLauncher')}>
     {loading && presets.length === 0 && <div className="workspace-launcher-message" role="status">{t('workspacePresets.loading')}</div>}
     {loadError && <div className="workspace-launcher-error" role="alert"><span>{loadError}</span><button type="button" disabled={loading} onClick={() => setReload(value => value + 1)}>{t('workspacePresets.retry')}</button></div>}
-    {!loading && !loadError && projects.length === 0 && <div className="workspace-launcher-message"><p>{t('workspacePresets.empty')}</p>{onManage && <button type="button" onClick={onManage}>{t('workspacePresets.add')}</button>}</div>}
-    {(!loading || presets.length > 0) && projects.length > 0 && <div className="workspace-launcher-viewport rack-scroll" aria-busy={loading}><ul className="workspace-launcher-roots" aria-label={t('agents.workspacePaths')}>{directories.map(renderDirectory)}
-
+    {!loading && !loadError && projects.length === 0 && unassigned.length === 0 && <div className="workspace-launcher-message"><p>{t('workspacePresets.empty')}</p>{onManage && <button type="button" onClick={onManage}>{t('workspacePresets.add')}</button>}</div>}
+    {(!loading || presets.length > 0) && (projects.length > 0 || unassigned.length > 0) && <div className="workspace-launcher-viewport rack-scroll" aria-busy={loading}><ul className="workspace-launcher-roots" aria-label={t('agents.workspacePaths')}>{directories.map(renderDirectory)}
+      {unassigned.length > 0 && <li>
+        <div className="workspace-launcher-row">
+          <button type="button" className="workspace-launcher-disclosure" aria-label={t('agents.toggleDirectory', { name: t('workspacePresets.unassigned') })} aria-expanded={!collapsed.has('unassigned')} aria-controls={`${treeId}-unassigned`} onClick={() => toggle('unassigned')}><Chevron open={!collapsed.has('unassigned')}/></button>
+          <span className="workspace-launcher-unassigned"><Folder/><span className="workspace-launcher-label">{t('workspacePresets.unassigned')} ({unassigned.length})</span></span>
+        </div>
+        <ul id={`${treeId}-unassigned`} hidden={collapsed.has('unassigned')}>{unassigned.map(renderAgentItem)}</ul>
+      </li>}
     </ul></div>}
     {launchError && <div className="workspace-launcher-error" role="alert"><span>{launchError.target.name}: {launchError.message}</span><button type="button" disabled={launchingId !== null} onClick={() => void launch(launchError.target)}>{t('workspacePresets.retry')}</button></div>}
     <div className="workspace-launcher-status" role="status" aria-live="polite">{announcement}</div>

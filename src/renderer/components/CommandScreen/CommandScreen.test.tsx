@@ -185,10 +185,10 @@ describe('CommandScreen:参数目录', () => {
     keyDown(input, 'Enter')
     expect(input.value).toBe('')
     expect(docOf()?.path).toBe(`${BUILTIN_INVENTORY_PATH}/claude`)
-    expect(docOf()?.title).toBe('Inventory · Claude')
+    expect(docOf()?.title).toBe('Inventory · Claude Launcher')
     // 异步聚合落地:子清单只有 Claude 一节
     await vi.waitFor(() => {
-      expect(docOf()?.content).toContain('## Claude · Workspaces · 0')
+      expect(docOf()?.content).toContain('## Claude Launcher · Workspaces · 0')
     })
     expect(docOf()?.content).not.toContain('## Sessions')
   })

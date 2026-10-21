@@ -146,6 +146,8 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void;
   const [agentWorktreeKey, setAgentWorktreeKey] = useState('')
   const [workspacePresets, setWorkspacePresets] = useState<CodeWorkspacePreset[]>([])
   const [agentPresetId, setAgentPresetId] = useState('')
+  // 空目录也可以是用户主动选择；候选刷新时不能再用默认预设覆盖它。
+  const agentTargetChosen = useRef(false)
   const agentsRequestSeq = useRef(0)
   // 环境变量:以行数组编辑,保存时折叠为 Record<string,string>(空 key 行丢弃)
   const [agentEnv, setAgentEnv] = useState<{ key: string; value: string }[]>([])
@@ -192,6 +194,7 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void;
     if (visible) void loadAgents()
   }, [visible])
   const selectAgentPreset = (preset: CodeWorkspacePreset) => {
+    agentTargetChosen.current = true
     setAgentPresetId(preset.id); setAgentCwd(preset.cwd)
     setAgentIsolation(preset.isolation === 'worktree' ? 'worktree' : 'shared')
     setAgentWorktreeKey(preset.worktreeKey ?? '')
@@ -211,7 +214,7 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void;
       }
       return
     }
-    if (!editAgent) {
+    if (!editAgent && !agentTargetChosen.current) {
       let remembered = ''
       try { remembered = localStorage.getItem('lyshell.codeWorkspacePreset.v1') || '' } catch { /* 使用首项 */ }
       const selected = workspacePresets.find(preset => preset.id === remembered) ?? workspacePresets[0]
@@ -255,6 +258,7 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void;
 
   const handleAdd = () => {
     if (savingRef.current) return
+    agentTargetChosen.current = false
     editorTriggerRef.current = null
     setEditAgent(undefined)
     setAgentName(''); setAgentCommand(''); setAgentIcon(''); setAgentCwd('')
@@ -278,6 +282,7 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void;
   }, [createRequestId])
   const handleEdit = (agent: AgentConfig) => {
     if (savingRef.current) return
+    agentTargetChosen.current = true
     setEditAgent(agent)
     setAgentName(agent.name); setAgentCommand(agent.command)
     setAgentIcon(agent.icon || ''); setAgentCwd(agent.cwd || '')
@@ -303,7 +308,7 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void;
   }
   const handleSave = async () => {
     if (savingRef.current) return
-    if (!agentCommand.trim() || (!workspacePresets.some(preset => preset.id === agentPresetId))) {
+    if (!agentCommand.trim() || (agentPresetId && !workspacePresets.some(preset => preset.id === agentPresetId))) {
       setTriedSubmit(true)
       return
     }
@@ -338,7 +343,7 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void;
             name,
             command: agentCommand.trim(),
             icon: agentIcon || undefined,
-            workspacePresetId: agentPresetId,
+            workspacePresetId: agentPresetId || undefined,
             cwd: agentCwd || undefined,
             isolation: agentIsolation,
             worktreeKey: agentIsolation === 'worktree' ? agentWorktreeKey : undefined,
@@ -350,7 +355,7 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void;
             name,
             command: agentCommand.trim(),
             icon: agentIcon || undefined,
-            workspacePresetId: agentPresetId,
+            workspacePresetId: agentPresetId || undefined,
             cwd: agentCwd || undefined,
             isolation: agentIsolation,
             worktreeKey: agentIsolation === 'worktree' ? agentWorktreeKey : undefined,
@@ -409,7 +414,7 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void;
   }
 
   // 名称可留空(保存时默认「工作区-<时间戳>」),命令必填 —— 它才是 Agent 的身份
-  const valid = agentCommand.trim().length > 0 && (workspacePresets.some(preset => preset.id === agentPresetId))
+  const valid = agentCommand.trim().length > 0 && (!agentPresetId || workspacePresets.some(preset => preset.id === agentPresetId))
   const envKeys = agentEnv.map(r => r.key.trim()).filter(Boolean)
   // 编辑中 command 对应的内置图标(emoji 为空时在选择器按钮上预览)
   const previewIcon = bundledIconFor(agentCommand)
@@ -424,11 +429,11 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void;
         {onOpenWorkspaceSettings && <button type="button" className="ml-auto text-[12px] text-[var(--text-rack-data)] underline underline-offset-2" onClick={onOpenWorkspaceSettings}>{t('workspacePresets.manage')}</button>}
       </div>
       <RackSelect id="agent-workspace" value={agentPresetId} className="rack-select"
-        onChange={event => { const preset = workspacePresets.find(item => item.id === event.target.value); if (preset) selectAgentPreset(preset) }}>
-        <option value="" disabled>{t('workspacePresets.choose')}</option>
+        onChange={event => { const preset = workspacePresets.find(item => item.id === event.target.value); if (preset) selectAgentPreset(preset); else { agentTargetChosen.current = true; setAgentPresetId(''); setAgentCwd(''); setAgentIsolation('shared'); setAgentWorktreeKey('') } }}>
+        <option value="">{t('workspacePresets.unassigned')}</option>
         {workspacePresets.map(preset => <option key={preset.id} value={preset.id}>{formatCodeWorkspaceName(preset)}</option>)}
       </RackSelect>
-      <p className="agents-workspace-target">{agentCwd || t('workspacePresets.empty')}{agentIsolation === 'worktree' && agentWorktreeKey ? ` · ${agentWorktreeKey}` : ''}</p>
+      <p className="agents-workspace-target">{agentCwd || t('workspacePresets.unassignedHint')}{agentIsolation === 'worktree' && agentWorktreeKey ? ` · ${agentWorktreeKey}` : ''}</p>
     </div>
 
     {/* 面板:图标 + 名称(插槽丝印) */}
@@ -658,7 +663,7 @@ const AgentsPanel: React.FC<{ visible?: boolean; onOpenEnvSettings?: () => void;
             if (showDialog && editAgent?.id === agent.id) closeEditor()
             else handleEdit(agent)
           }}>
-          <svg className={cn('workspace-launcher-chevron', { 'is-open': showDialog && editAgent?.id === agent.id })} width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="m4.5 2.5 3.5 3.5-3.5 3.5" /></svg>
+          <svg className={cn('workspace-launcher-chevron', { 'is-open': showDialog && editAgent?.id === agent.id })} width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
         </button>
         <button type="button" className="harness-workspace-main agents-workspace-main" aria-label={agent.name}
           disabled={launchingAgentId !== null || saving} aria-busy={launchingAgentId === agent.id}

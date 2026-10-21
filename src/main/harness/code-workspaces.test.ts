@@ -24,6 +24,27 @@ afterEach(() => {
 })
 
 describe('共享工作区预设', () => {
+  it('未绑定启动器保存前完成迁移，重载仍未绑定；同步保存目标拒绝已删除的 ID', async () => {
+    const { requestCodeWorkspaces } = await import('./code-workspaces')
+    const { preparedManagedTarget, ensureManagedWorkspaces } = await import('./workspace-governance')
+    await ensureManagedWorkspaces()
+    const target = preparedManagedTarget()
+    expect(target).toEqual({ workspacePresetId: undefined, cwd: '', isolation: 'shared', worktreeKey: undefined })
+    const { agentRepository } = await import('../storage/agent-repository')
+    const item = agentRepository.add({ name: 'Unbound', command: 'tool', order: 0, ...target })!
+    const saved = await requestCodeWorkspaces({ kind: 'save', preset: { name: 'App', cwd: repo } })
+    if (!saved.success) throw new Error(saved.error)
+    const id = saved.presets[0].id
+    expect(preparedManagedTarget(id).cwd).toBe(repo)
+    await requestCodeWorkspaces({ kind: 'delete', id })
+    expect(() => preparedManagedTarget(id)).toThrow('Workspace preset not found')
+    vi.resetModules()
+    const reloaded = await import('./code-workspaces')
+    expect(await reloaded.requestCodeWorkspaces({ kind: 'list' })).toEqual({ success: true, presets: [] })
+    const { agentRepository: reopened } = await import('../storage/agent-repository')
+    expect(reopened.get(item.id)?.cwd).toBe('')
+    expect(reopened.get(item.id)?.workspacePresetId).toBeUndefined()
+  })
   it('无目录的旧命令保留主目录，不被绑定到列表首个 worktree', async () => {
     const { codeWorkspacePresetRepository: presets } = await import('../storage/harness-workspace-repository')
     const first = presets.add({ name: 'Other project', cwd: repo, isolation: 'worktree', worktreeKey: 'other' })!
@@ -77,7 +98,7 @@ describe('共享工作区预设', () => {
     expect(await reloaded.requestCodeWorkspaces({ kind: 'list' })).toEqual(result)
   })
 
-  it('设置改目录后启动项按 ID 跟随；悬空引用不允许使用旧快照启动', async () => {
+  it('设置改目录后启动项按 ID 跟随；悬空引用按未引用工作目录列出，不借用旧快照目录', async () => {
     const { requestCodeWorkspaces } = await import('./code-workspaces')
     const saved = await requestCodeWorkspaces({ kind: 'save', preset: { name: 'App', cwd: repo } })
     if (!saved.success) throw new Error(saved.error)
@@ -92,7 +113,20 @@ describe('共享工作区预设', () => {
     expect((await listManagedLaunchers(() => agentRepository.getAll()))[0]).toEqual(expect.objectContaining({ id: item.id, command: 'tool', cwd: next }))
     agentRepository.update({ ...item, workspacePresetId: 'deleted' })
     await expect(requireManagedTarget('deleted')).rejects.toThrow('Workspace preset not found')
-    expect(await listManagedLaunchers(() => agentRepository.getAll())).toHaveLength(0)
+    // 悬空引用不再被过滤：照常列出为「未引用工作目录」，cwd 投影为空串，
+    // 启动时走用户主目录，绝不借用预设删除前的旧快照目录。
+    const unbound = await listManagedLaunchers(() => agentRepository.getAll())
+    expect(unbound).toHaveLength(1)
+    expect(unbound[0]).toEqual(expect.objectContaining({
+      id: item.id,
+      command: 'tool',
+      cwd: '',
+      isolation: 'shared',
+      worktreeKey: undefined,
+      workspacePresetId: undefined
+    }))
+    // 投影只影响返回值，不改写存储
+    expect(agentRepository.get(item.id)?.cwd).toBe('stale-invalid-path')
   })
 
   it('关联落盘失败不写完成标记，重试复用已导入的设置项', async () => {
@@ -109,15 +143,25 @@ describe('共享工作区预设', () => {
     expect(existsSync(join(state.profile, 'config', 'workspace-governance-v2.json'))).toBe(true)
   })
 
-  it('没有设置目标时不暴露无目录默认命令，迁移完成后也不会重建独立目录', async () => {
+  it('没有设置目标的启动项照常列出为未引用工作目录，且不会重建独立目录', async () => {
     const { listManagedLaunchers, ensureManagedWorkspaces } = await import('./workspace-governance')
     const { agentRepository } = await import('../storage/agent-repository')
     await ensureManagedWorkspaces()
     expect(await listManagedLaunchers(() => agentRepository.getAll())).toHaveLength(0)
-    agentRepository.add({ name: 'Unmanaged', command: 'tool', cwd: repo, order: 3 })
+    const unmanaged = agentRepository.add({ name: 'Unmanaged', command: 'tool', cwd: repo, order: 3 })!
     const { requestCodeWorkspaces } = await import('./code-workspaces')
     expect(await requestCodeWorkspaces({ kind: 'list' })).toEqual({ success: true, presets: [] })
-    expect(await listManagedLaunchers(() => agentRepository.getAll())).toHaveLength(0)
+    // 迁移已完成，不再把无预设的启动项导入成新目录；启动项以「未引用工作目录」形态列出
+    const listed = await listManagedLaunchers(() => agentRepository.getAll())
+    expect(listed).toEqual([expect.objectContaining({
+      id: unmanaged.id,
+      name: 'Unmanaged',
+      command: 'tool',
+      cwd: '',
+      isolation: 'shared',
+      workspacePresetId: undefined
+    })])
+    expect(agentRepository.get(unmanaged.id)?.cwd).toBe(repo)
   })
   it('保存时实际创建 worktree，重读复用，删除配置保留未提交文件', async () => {
     const { requestCodeWorkspaces } = await import('./code-workspaces')
@@ -167,24 +211,45 @@ describe('共享工作区预设', () => {
     if (!result.success) throw new Error(result.error)
     expect(result.presets.map(item => item.name)).toEqual(['Project', 'Project (2)'])
     expect(result.presets[1].cwd).toBe(other)
+    // 引用数：同一目录的 codex/claude 记录都归到其预设 ID 上
+    expect(result.usage).toEqual({ [result.presets[0].id]: 3, [result.presets[1].id]: 1 })
     expect(result.presets.every(item => !('model' in item) && !('envProfileId' in item) && !('claudePermissions' in item) && !('codexPermissions' in item))).toBe(true)
     const parameters = (text: string) => (JSON.parse(text) as Array<Record<string, unknown>>).map(({ cwd: _cwd, isolation: _isolation, worktreeKey: _key, workspacePresetId: _preset, ...item }) => item)
     expect(sourceFiles.map(file => parameters(readFileSync(file, 'utf8')))).toEqual(before.map(parameters))
     expect(codex.getAll().every(item => result.presets.some(preset => preset.id === item.workspacePresetId))).toBe(true)
 
-    // 引用中的预设拒绝删除；移除启动项后才允许删除，重启不重新导入。
-    expect((await requestCodeWorkspaces({ kind: 'delete', id: result.presets[0].id })).success).toBe(false)
-    const { agentRepository } = await import('../storage/agent-repository')
-    for (const item of agentRepository.getAll()) agentRepository.delete(item.id)
-    for (const item of codex.getAll()) codex.delete(item.id)
-    for (const item of claude.getAll()) claude.delete(item.id)
-    await requestCodeWorkspaces({ kind: 'delete', id: result.presets[0].id })
+    // 删除被引用的预设不再拒绝：先跨库清空引用再删预设，启动项全部保留（explicit clear），
+    // 磁盘目录/分支从不删除，重载后也不会重新导入成新预设。
+    const removed = await requestCodeWorkspaces({ kind: 'delete', id: result.presets[0].id })
+    expect(removed.success).toBe(true)
+    if (!removed.success) throw new Error(removed.error)
+    expect(removed.presets.map(item => item.name)).toEqual(['Project (2)'])
+    // 引用数按剩余预设统计（alias 折叠后），删除后立即返回最新值
+    expect(removed.usage).toEqual({ [result.presets[1].id]: 1 })
+    // 启动项不丢失，只清 workspacePresetId / cwd / 隔离参数，其它属性原样保留
+    expect(codex.getAll()).toHaveLength(2)
+    expect(claude.getAll()).toHaveLength(2)
+    expect(codex.getAll().every(item => item.workspacePresetId === undefined)).toBe(true)
+    expect(codex.getAll().every(item => item.cwd === '' && item.isolation === 'shared' && item.worktreeKey === undefined)).toBe(true)
+    expect(codex.getAll().map(item => item.model)).toEqual(['codex-model', undefined])
+    expect(codex.getAll()[0].envProfileId).toBe('codex-profile')
+    expect(codex.getAll()[0].codexPermissions).toBe(':read-only')
+    // 不误伤无关项：指向另一个目录的 claude 记录原样跟随剩余预设
+    const untouched = claude.getAll().find(item => item.cwd === other)
+    expect(untouched?.workspacePresetId).toBe(result.presets[1].id)
+    expect(untouched?.claudePermissions).toBeUndefined()
+    expect(claude.getAll().find(item => item.model === 'claude-model')?.claudePermissions).toBe('plan')
+    // 磁盘目录仍在
+    expect(existsSync(repo)).toBe(true)
     vi.resetModules()
     const reloaded = await import('./code-workspaces')
     const next = await reloaded.requestCodeWorkspaces({ kind: 'list' })
     expect(next.success && next.presets).toHaveLength(1)
-    expect(codex.getAll()).toHaveLength(0)
-    expect(claude.getAll()).toHaveLength(0)
+    // 重载后启动项仍是 2 条（cwd='' 可正常加载），没有被重新导入成预设
+    const { codexWorkspaceRepository: codex2, claudeWorkspaceRepository: claude2 } = await import('../storage/harness-workspace-repository')
+    expect(codex2.getAll()).toHaveLength(2)
+    expect(claude2.getAll()).toHaveLength(2)
+    expect(codex2.getAll().every(item => item.workspacePresetId === undefined)).toBe(true)
   })
 
   it('无显式 key 的旧 worktree 保持原目录、分支与未提交文件', async () => {
@@ -271,6 +336,77 @@ describe('共享工作区预设', () => {
     expect(merged.success && merged.presets).toHaveLength(2)
     expect(merged.success && merged.aliases?.[one.id]).toBe(plain.presets[0].id)
   }, 15000)
+
+  it('合并别名上的引用计入保留项，按别名 ID 删除同样清空跨库引用', async () => {
+    const { codeWorkspacePresetRepository: presets, codexWorkspaceRepository: codex } = await import('../storage/harness-workspace-repository')
+    const { requestCodeWorkspaces } = await import('./code-workspaces')
+    const saved = await requestCodeWorkspaces({ kind: 'save', preset: { name: 'Project', cwd: repo, isolation: 'shared' } })
+    if (!saved.success) throw new Error(saved.error)
+    // 手工写入重复目标的第二条预设（模拟旧版本遗留），走合并后成为别名
+    const duplicate = presets.add({ name: 'Legacy duplicate', cwd: repo, isolation: 'shared' })!
+    const bound = codex.add({ name: 'Bound to duplicate', cwd: repo, workspacePresetId: duplicate.id, model: 'keep-model' })!
+    const listed = await requestCodeWorkspaces({ kind: 'list' })
+    if (!listed.success) throw new Error(listed.error)
+    expect(listed.aliases?.[duplicate.id]).toBe(saved.presets[0].id)
+    // 别名引用折算到仍存在的预设 ID 上
+    expect(listed.usage).toEqual({ [saved.presets[0].id]: 1 })
+    const removed = await requestCodeWorkspaces({ kind: 'delete', id: duplicate.id })
+    expect(removed).toEqual({ success: true, presets: [] })
+    // 启动项保留且引用已清空，其它属性不变
+    expect(codex.get(bound.id)).toEqual(expect.objectContaining({
+      id: bound.id,
+      name: 'Bound to duplicate',
+      cwd: '',
+      model: 'keep-model',
+      isolation: 'shared',
+      workspacePresetId: undefined
+    }))
+  })
+
+  it('删除预设落盘失败时回滚引用并明确报错，不留悬空绑定', async () => {
+    const { codeWorkspacePresetRepository: presets, codexWorkspaceRepository: codex, dshWorkspaceRepository: dsh, claudeWorkspaceRepository: claude } = await import('../storage/harness-workspace-repository')
+    const { requestCodeWorkspaces } = await import('./code-workspaces')
+    const saved = await requestCodeWorkspaces({ kind: 'save', preset: { name: 'Project', cwd: repo, isolation: 'shared' } })
+    if (!saved.success) throw new Error(saved.error)
+    const bound = codex.add({ name: 'Project', cwd: repo, workspacePresetId: saved.presets[0].id, model: 'keep-model' })!
+    const remove = vi.spyOn(presets, 'delete').mockReturnValueOnce(false)
+    const writeDsh = vi.spyOn(dsh, 'replaceAll')
+    const writeClaude = vi.spyOn(claude, 'replaceAll')
+    const failed = await requestCodeWorkspaces({ kind: 'delete', id: saved.presets[0].id })
+    expect(failed.success).toBe(false)
+    if (failed.success) throw new Error('unreachable')
+    expect(failed.error).toContain('could not be deleted')
+    remove.mockRestore()
+    // 引用回滚到删除前：预设仍在，启动器仍指向它且 cwd 未被清空
+    expect(presets.get(saved.presets[0].id)).toBeTruthy()
+    expect(codex.get(bound.id)?.workspacePresetId).toBe(saved.presets[0].id)
+    expect(codex.get(bound.id)?.cwd).toBe(repo)
+    expect(codex.get(bound.id)?.model).toBe('keep-model')
+    expect(writeDsh).not.toHaveBeenCalled()
+    expect(writeClaude).not.toHaveBeenCalled()
+    // 重试即可成功删除
+    expect((await requestCodeWorkspaces({ kind: 'delete', id: saved.presets[0].id })).success).toBe(true)
+  })
+
+  it('清除引用落盘失败时中止删除并回滚，设置项与绑定都在', async () => {
+    const { codeWorkspacePresetRepository: presets, codexWorkspaceRepository: codex } = await import('../storage/harness-workspace-repository')
+    const { requestCodeWorkspaces } = await import('./code-workspaces')
+    const saved = await requestCodeWorkspaces({ kind: 'save', preset: { name: 'Project', cwd: repo, isolation: 'shared' } })
+    if (!saved.success) throw new Error(saved.error)
+    const id = saved.presets[0].id
+    const bound = codex.add({ name: 'Project', cwd: repo, workspacePresetId: id })!
+    const fail = vi.spyOn(codex, 'replaceAll').mockReturnValueOnce(false)
+    const failed = await requestCodeWorkspaces({ kind: 'delete', id })
+    expect(failed.success).toBe(false)
+    if (failed.success) throw new Error('unreachable')
+    expect(failed.error).toContain('Could not clear launcher references')
+    fail.mockRestore()
+    // 设置项没有被删，引用已回滚
+    expect(presets.get(id)).toBeTruthy()
+    expect(codex.get(bound.id)?.workspacePresetId).toBe(id)
+    expect(codex.get(bound.id)?.cwd).toBe(repo)
+    expect((await requestCodeWorkspaces({ kind: 'list' })).success).toBe(true)
+  })
 })
 
 describe('启动工作区预设', () => {

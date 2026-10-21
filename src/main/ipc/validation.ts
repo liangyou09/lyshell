@@ -354,3 +354,13 @@ export function failureFromError(error: unknown): { success: false, error: strin
 export function validateWorkspacePresetId(value: unknown): string {
   return assertString(value, 'workspacePresetId', { maxLength: 128 })
 }
+
+/**
+ * 可省略的启动项目标：缺省 / null / 空串都表示「不引用工作目录」（启动器落在用户主目录），
+ * 非空值仍走同一套 ID 校验。删除设置项后编辑启动器会以这种方式清空旧绑定。
+ */
+export function validateOptionalWorkspacePresetId(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined
+  if (typeof value === 'string' && value.trim().length === 0) return undefined
+  return validateWorkspacePresetId(value)
+}

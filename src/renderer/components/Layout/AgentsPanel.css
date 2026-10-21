@@ -1,4 +1,10 @@
-.agents-workspace-main { padding-block: 3px; }
+/* Work Launcher 保持紧凑树行，不继承 Codex / Claude 面板的固定行高与顶对齐。 */
+.agents-project-row { height: auto; min-height: 36px; gap: 0; padding: 0 4px 0 0; color: var(--text-rack); }
+.agents-project-row:hover, .agents-project-row:focus-within { background: var(--bg-slot); }
+.agents-project-row .agents-workspace-main { height: auto; min-height: 36px; align-items: center; padding-block: 3px; }
+.agents-project-row .harness-workspace-symbol { height: 18px; color: var(--text-rack-data); }
+.agents-project-row .agents-workspace-main:focus-visible { outline: 1px solid var(--amber); outline-offset: -1px; }
+.agents-editor-toggle { width: 28px; min-height: 28px; align-self: stretch; }
 .agents-workspace-main:disabled { opacity: .55; cursor: default; }
 .agents-workspace-copy { display: flex; flex: 1; flex-direction: column; min-width: 0; }
 .agents-workspace-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; line-height: 16px; }

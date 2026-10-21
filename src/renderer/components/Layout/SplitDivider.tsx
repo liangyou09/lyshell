@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { usePaneStore } from '../../stores/pane-store'
 import type { SplitDirection } from '@shared/types'
+import './SplitDivider.css'
 
 interface SplitDividerProps {
   paneId: string
@@ -45,9 +46,6 @@ const SplitDivider: React.FC<SplitDividerProps> = ({ paneId, direction }) => {
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isDragging) return
 
-    const parentPane = usePaneStore.getState().getParentPane(paneId)
-    if (!parentPane) return
-
     const containerSize = containerSizeRef.current
     if (containerSize <= 0) return
 
@@ -70,11 +68,7 @@ const SplitDivider: React.FC<SplitDividerProps> = ({ paneId, direction }) => {
       onPointerUp={endDragging}
       onPointerCancel={endDragging}
       onLostPointerCapture={endDragging}
-      className={`
-        ${direction === 'horizontal' ? 'w-[4px] cursor-col-resize' : 'h-[4px] cursor-row-resize'}
-        ${isDragging ? 'bg-[#0078D4]' : 'bg-[#3C3C3C] hover:bg-[#0078D4]'}
-        flex-shrink-0 transition-colors
-      `}
+      className={`split-divider split-divider--${direction}${isDragging ? ' is-dragging' : ''}`}
       title={t('pane.dragToResize')}
     />
   )

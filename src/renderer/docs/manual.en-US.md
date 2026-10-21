@@ -10,7 +10,7 @@ This manual covers everything LyShell can do. Use the outline rail on the left t
 | Area | Contents |
 |------|-----------|
 | Left column · rail | The icon column — nine panels (`Alt + 1…9`), sessions slot shows a live LED count |
-| Left column · panel | Sessions / Agents / DeepSeek Harness / Codex / Claude / Env / Plugins / Web / Settings |
+| Left column · panel | Sessions / Agents / DeepSeek Harness Launcher / Codex Launcher / Claude Launcher / Env / Plugins / Web / Settings |
 | Terminal column · tab bar | Browser-style tab bar lifted to the window's first row; doubles as the window drag area |
 | Terminal column · panes | Recursive split tree, horizontal / vertical |
 | Session panel bottom | LIVE-row terminal readouts (charset, cols × rows, buffer lines) + quick-command groups |
@@ -130,9 +130,9 @@ The agent launcher is agent-agnostic — no lock-in. Any CLI tool can be registe
 
 An agent can bind to an env profile (next section) so credentials stay centralized.
 
-## DeepSeek Harness plugin market and workbench
+## DeepSeek Harness Launcher plugin market and workbench
 
-The DeepSeek Harness sidebar embeds dsh-market for searching, installing and managing DSH plugins. On first use, choose **Install dsh-market**. If pnpm is missing, the installer puts it in LyShell's own tools directory without changing the system PATH. Finish DSH tasks and close its backend before installing; an active shared backend is never restarted automatically. Switching sidebar tabs preserves the market and its search state. Click the DeepSeek Harness heading to open the full workbench.
+The DeepSeek Harness Launcher sidebar opens on the **Launcher** tab. Click the whale to open or return to the full workbench. The **Plugin market** tab embeds dsh-market for searching, installing and managing DSH plugins. On first use, choose **Install dsh-market**. If pnpm is missing, the installer puts it in LyShell's own tools directory without changing the system PATH. Finish DSH tasks and close its backend before installing; an active shared backend is never restarted automatically. Switching tabs preserves the market and its search state.
 
 Codex and Claude retain their workspace lists and dependency detection.
 

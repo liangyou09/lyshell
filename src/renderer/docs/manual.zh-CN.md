@@ -10,7 +10,7 @@
 | 区域 | 内容 |
 |------|------|
 | 左列 · 机柜轨 | 最左的图标列，切换九个面板（`Alt + 1…9`），会话槽位带在线 LED 读数 |
-| 左列 · 面板 | 会话 / Agent / DeepSeek Harness / Codex / Claude / 环境变量 / 插件 / 网页 / 设置 |
+| 左列 · 面板 | 会话 / Agent / DeepSeek Harness Launcher / Codex Launcher / Claude Launcher / 环境变量 / 插件 / 网页 / 设置 |
 | 终端列 · 页签条 | 浏览器式页签条提顶为窗口第一行，同时是窗口拖拽区 |
 | 终端列 · 分屏 | 递归分屏树，可水平 / 垂直任意切分 |
 | 会话面板底部 | LIVE 行终端读数（编码、列 × 行、缓冲行数）+ 快捷命令组 |
@@ -130,9 +130,9 @@ Agent 启动栏与 Agent 无关 —— 不绑定任何 AI 工具。任意 CLI �
 
 Agent 可绑定一个环境变量组（见下节），凭据集中管理。
 
-## DeepSeek Harness 插件市场与工作台
+## DeepSeek Harness Launcher 插件市场与工作台
 
-DeepSeek Harness 左侧页签直接展示 dsh-market，可搜索、安装和管理 DSH 插件。首次使用点击「安装 dsh-market」，安装器会在需要时把 pnpm 放到 LyShell 专属工具目录，不改系统 PATH。安装前须结束 DSH 任务并关闭后台；运行中的共享后台不会被自动重启。切换左侧页签保留市场页面及搜索状态，点击顶部 DeepSeek Harness 标题可打开完整工作台。
+DeepSeek Harness Launcher 左侧面板默认展示「Launcher」页签，点击鲸鱼按钮可打开或切回完整工作台。「插件市场」页签内嵌 dsh-market，可搜索、安装和管理 DSH 插件。首次使用点击「安装 dsh-market」，安装器会在需要时把 pnpm 放到 LyShell 专属工具目录，不改系统 PATH。安装前须结束 DSH 任务并关闭后台；运行中的共享后台不会被自动重启。切换页签保留市场页面及搜索状态。
 
 Codex、Claude 继续提供各自的工作区列表和依赖检测。
 

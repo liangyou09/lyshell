@@ -161,6 +161,17 @@ danger-red-prototype.html
 icon-ballot.html
 prototypes/
 
+# 本地界面探索、截图和交互会话状态；设计规范与 surface brief 继续入库
+/.impeccable/mocks/
+/.impeccable/questions/
+/.impeccable/review/
+/.impeccable/direction-options.json
+/.impeccable/harness-baseline.md
+/.impeccable/harness-final-validation.md
+/.impeccable/harness-preview.html
+/.impeccable/harness-preview.tsx
+/.impeccable/vite-preview.config.mjs
+
 # 根目录临时截图（设计对照/调试用，不入库）
 .rail-shot*.png
 

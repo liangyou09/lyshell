@@ -1,5 +1,16 @@
 {
+  "harnessLauncher": {
+    "launchSettings": "Launch settings",
+    "defaultModel": "Default model",
+    "fullAccess": "Full access",
+    "fullAccessHint": "Full access · approvals bypassed",
+    "launching": "Starting",
+    "readOnly": "Read only"
+  },
   "workspacePresets": {
+    "unassigned": "No workspace assigned",
+    "unassignedHint": "No workspace assigned. Launches in your home directory.",
+    "deleteReferences": "{{count}} launchers reference this workspace. Deleting clears their workspace assignments and moves them to “No workspace assigned”. Launchers, directories, worktrees and branches are kept.",
     "launch": "Launch",
     "launchPs7": "Launch PS7",
     "launchPs7For": "Launch PowerShell 7 in {{name}}",
@@ -231,13 +242,21 @@
   "nav": {
     "sessions": "Sessions",
     "agents": "Agents",
-    "dsh": "DeepSeek Harness",
-    "codex": "Codex",
-    "claude": "Claude",
+    "dsh": "DeepSeek Harness Launcher",
+    "codex": "Codex Launcher",
+    "claude": "Claude Launcher",
     "env": "Env",
     "plugins": "Plugins",
     "web": "Browser",
     "settings": "Settings"
+  },
+  "dshLaunch": {
+    "hint": "Click to launch",
+    "opening": "Launching…",
+    "running": "Running · click to return",
+    "failed": "Launch failed · retry",
+    "retry": "Retry launch",
+    "dismiss": "Dismiss"
   },
   "webCertificate": {
     "title": "Your connection is not private",
@@ -376,6 +395,8 @@
     }
   },
   "env": {
+    "deleteReferences": "This environment profile has {{count}} explicit references. Deleting clears those bindings and keeps the launchers, which will use their default environment settings.",
+    "deleteActiveHint": "This profile is globally active. Deleting it also deactivates the global profile.",
     "backToList": "Back to variable sets",
     "mappingHelp": "Variable mapping details",
     "copyAction": "Copy",
@@ -451,7 +472,7 @@
     "failed": "The plugin market could not load. Please reconnect."
   },
   "dsh": {
-    "title": "DeepSeek Harness",
+    "title": "DeepSeek Harness Launcher",
     "detecting": "Detecting…",
     "redetect": "Re-detect",
     "installed": "Installed",
@@ -510,7 +531,7 @@
     "wsEnvNone": "No variable sets yet · launches use the system environment"
   },
   "codex": {
-    "title": "Codex",
+    "title": "Codex Launcher",
     "detecting": "Detecting…",
     "redetect": "Re-detect",
     "installed": "Installed",
@@ -572,7 +593,7 @@
     "wsEnvNone": "No variable sets yet · launches use the system environment"
   },
   "claude": {
-    "title": "Claude",
+    "title": "Claude Launcher",
     "detecting": "Detecting…",
     "redetect": "Re-detect",
     "installed": "Installed",
@@ -786,9 +807,9 @@
       "local": "Quick-open a local terminal",
       "sessions": "Switch to the sessions panel",
       "agents": "Switch to the Agents panel",
-      "dsh": "Switch to the dsh panel",
-      "codex": "Switch to the codex panel",
-      "claude": "Switch to the claude panel",
+      "dsh": "Switch to the DeepSeek Harness Launcher panel",
+      "codex": "Switch to the Codex Launcher panel",
+      "claude": "Switch to the Claude Launcher panel",
       "env": "Open environment variables in settings",
       "plugins": "Switch to the plugins panel",
       "web": "Switch to the web panel",

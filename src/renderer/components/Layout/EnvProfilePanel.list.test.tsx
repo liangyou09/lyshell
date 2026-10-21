@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import EnvProfilePanel from './EnvProfilePanel'
 
 vi.mock('react-i18next', async importOriginal => ({
   ...await importOriginal<typeof import('react-i18next')>(),
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({ t: (key: string, values?: { count?: number }) => key === 'env.deleteReferences' ? `${key}:${values?.count}` : key })
 }))
 
 const profiles = [
@@ -27,6 +27,35 @@ beforeEach(() => {
 afterEach(() => { cleanup(); window.electronAPI = previousApi })
 
 describe('环境变量列表', () => {
+  it('旧变量组的引用刷新不能把另一个编辑器直接切到确认删除', async () => {
+    const view = render(<EnvProfilePanel embedded />)
+    const first = await view.findByRole('group', { name: 'DeepSeek' })
+    fireEvent.click(within(first).getByRole('button', { name: 'env.editTitle' }))
+    let finish!: (result: { profiles: typeof profiles; activeProfileId: string | null; usage: Record<string, never> }) => void
+    window.electronAPI.listEnvProfiles = vi.fn(() => new Promise(resolve => { finish = resolve }))
+    fireEvent.click(within(view.container.querySelector('.env-editor-danger') as HTMLElement).getByRole('button', { name: 'env.delete' }))
+    fireEvent.click(view.getByRole('button', { name: 'env.backToList' }))
+    fireEvent.click(within(view.getByRole('group', { name: 'GLM' })).getByRole('button', { name: 'env.editTitle' }))
+    await act(async () => { finish({ profiles, activeProfileId: 'a', usage: {} }) })
+    const danger = view.container.querySelector('.env-editor-danger') as HTMLElement
+    expect(within(danger).queryByRole('button', { name: 'env.confirmDelete' })).toBeNull()
+    expect(within(danger).getByRole('button', { name: 'env.delete' })).toBeTruthy()
+    expect(window.electronAPI.deleteEnvProfile).not.toHaveBeenCalled()
+  })
+
+  it('列表与编辑器删除确认都显示引用数及全局启用影响，首次点击不删除', async () => {
+    window.electronAPI.listEnvProfiles = vi.fn(async () => ({ profiles, activeProfileId: 'a', usage: { a: { agents: ['Tool'], workspaces: [{ kind: 'codex' as const, name: 'Project' }] } } }))
+    const view = render(<EnvProfilePanel embedded />)
+    const actions = await view.findByRole('group', { name: 'DeepSeek' })
+    fireEvent.click(within(actions).getByRole('button', { name: 'env.delete' }))
+    expect((await view.findByText('env.deleteReferences:2', { exact: false })).textContent).toContain('env.deleteActiveHint')
+    expect(window.electronAPI.deleteEnvProfile).not.toHaveBeenCalled()
+    fireEvent.click(view.getByRole('button', { name: 'env.cancel' }))
+    fireEvent.click(within(actions).getByRole('button', { name: 'env.editTitle' }))
+    fireEvent.click(within(view.container.querySelector('.env-editor-danger') as HTMLElement).getByRole('button', { name: 'env.delete' }))
+    expect((await view.findByText('env.deleteReferences:2', { exact: false })).textContent).toContain('env.deleteActiveHint')
+    expect(window.electronAPI.deleteEnvProfile).not.toHaveBeenCalled()
+  })
   it('仅配置密钥的变量组显示凭据状态，实际凭据保持隐藏', async () => {
     window.electronAPI.listEnvProfiles = vi.fn(async () => ({ profiles: [{ id: 'key-only', name: 'Key only', apiKey: 'private-key-only', env: {}, order: 0 }], activeProfileId: null, usage: {} }))
     const view = render(<EnvProfilePanel embedded />)
@@ -109,11 +138,11 @@ describe('环境变量列表', () => {
     expect(view.getAllByRole('button', { name: 'env.delete' })).toHaveLength(2)
     expect(view.queryByRole('menu')).toBeNull()
     fireEvent.click(view.getAllByRole('button', { name: 'env.delete' })[0])
-    fireEvent.keyDown(view.getByRole('button', { name: 'env.confirmDelete' }), { key: 'Escape' })
+    fireEvent.keyDown(await view.findByRole('button', { name: 'env.confirmDelete' }), { key: 'Escape' })
     expect(view.queryByRole('button', { name: 'env.confirmDelete' })).toBeNull()
     fireEvent.click(view.getAllByRole('button', { name: 'env.delete' })[0])
     expect(window.electronAPI.deleteEnvProfile).not.toHaveBeenCalled()
-    fireEvent.click(view.getByRole('button', { name: 'env.confirmDelete' }))
+    fireEvent.click(await view.findByRole('button', { name: 'env.confirmDelete' }))
     await waitFor(() => expect(window.electronAPI.deleteEnvProfile).toHaveBeenCalledWith('a'))
     expect(view.queryByRole('menu')).toBeNull()
     expect(setActive).not.toHaveBeenCalled()

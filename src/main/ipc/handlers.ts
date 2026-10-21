@@ -22,7 +22,7 @@ import { resolveWorkspaceCwd } from '../harness/cwd'
 import { resolveAgentWorkspaceCwd } from '../harness/agent-workspace'
 import { listWorktreeKeys, resolveLaunchWorktree, validateWorktreeKey } from '../harness/worktree'
 import { requestCodeWorkspaces } from '../harness/code-workspaces'
-import { ensureManagedWorkspaces, listManagedLaunchers, requireManagedTarget } from '../harness/workspace-governance'
+import { ensureManagedWorkspaces, defaultLaunchCwd, listManagedLaunchers, managedTargetOf, preparedManagedTarget } from '../harness/workspace-governance'
 import { formatCodeWorkspaceName } from '@shared/code-workspaces'
 import { validateCodeWorkspaceRequest } from './validation'
 import { launchResolveSerializer } from '../harness/task-serializer'
@@ -31,6 +31,7 @@ import { HARNESS_AGENTS, resolveWorkspaceEnv } from '../harness/config'
 import { migrateInlineEnvToProfiles } from '../harness/migrate-env'
 import { migrateKindEnvProfilesToGlobal, migrateProfilesToStructured } from '../harness/migrate-profiles'
 import { resolveAgentLaunchEnv } from '../storage/agent-repository'
+import { releaseEnvProfileReferences } from '../storage/launcher-references'
 import { envProfileRepository } from '../storage/env-profile-repository'
 import { CLAUDE_PERMISSION_MODES, CODEX_PERMISSION_PROFILES, isValidHttpBaseUrl, type EnvProfileLibraryResult, type EnvProfileUsage, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
 import type { WorktreeListResult } from '@shared/worktree'
@@ -59,7 +60,7 @@ import {
   assertStringArray,
   assertStringRecord,
   assertWorkspaceId,
-  validateWorkspacePresetId,
+  validateOptionalWorkspacePresetId,
   validationFailure,
   ValidationError
 } from './validation'
@@ -2090,12 +2091,22 @@ export function registerIPCHandlers(): void {
   ipcMain.handle('env-profile:delete', async (_event, profileId: string) => {
     try {
       const safeId = assertString(profileId, 'profileId', { maxLength: 128 })
+      if (!envProfileRepository.get(safeId)) {
+        return { success: false, error: 'Env profile not found' }
+      }
+      // 先解除所有启动器（Agent + dsh/codex/claude 工作区）对该变量组的显式绑定：
+      // 删除组不该因为「还有引用」被拒绝，也不该留下悬空绑定。只清 envProfileId，
+      // 其它属性与其它变量组一律不动；解除后的启动语义回到既有默认链（跟随全局启用/系统环境）。
+      const released = releaseEnvProfileReferences(safeId)
+      if (!released.ok) return { success: false, error: released.error }
       const success = envProfileRepository.delete(safeId)
       if (!success) {
-        // 两类失败分开报：目标不存在或落盘失败（仓库已回滚内存）
-        return envProfileRepository.get(safeId)
-          ? { success: false, error: 'Failed to save env profile' }
-          : { success: false, error: 'Env profile not found' }
+        // 删库失败（落盘）→ 回滚引用，绝不留下「组还在、启动器已解绑」的半成品
+        const rollback = released.restore()
+        return {
+          success: false,
+          error: rollback ? `Failed to save env profile; ${rollback}` : 'Failed to save env profile'
+        }
       }
       return { success: true }
     } catch (error) {
@@ -2150,7 +2161,11 @@ export function registerIPCHandlers(): void {
         order: safeAgent.order === undefined ? 0 : assertNumber(safeAgent.order, 'agent.order', { min: 0, max: 10000, integer: true })
       }
       if (safeAgent.icon !== undefined) newAgent.icon = assertString(safeAgent.icon, 'agent.icon', { maxLength: 20 })
-      Object.assign(newAgent, await requireManagedTarget(validateWorkspacePresetId(safeAgent.workspacePresetId)))
+      // 允许不选工作目录（缺省/空串）：启动器落在用户主目录，不自动绑定其它设置项。
+      // 显式给了不存在的 ID 仍然保存即拒 —— 与「悬空引用」不同，那是删除设置项后的合法存量状态。
+      const presetId = validateOptionalWorkspacePresetId(safeAgent.workspacePresetId)
+      await ensureManagedWorkspaces()
+      Object.assign(newAgent, preparedManagedTarget(presetId))
       if (safeAgent.env !== undefined) newAgent.env = assertStringRecord(safeAgent.env, 'agent.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
       // 绑定变量组：保存即拒悬空 id —— 通用 Agent 是新字段没有历史包袱，从严校验
       if (safeAgent.envProfileId !== undefined) {
@@ -2182,7 +2197,10 @@ export function registerIPCHandlers(): void {
         order: safeAgent.order === undefined ? existing?.order ?? 0 : assertNumber(safeAgent.order, 'agent.order', { min: 0, max: 10000, integer: true })
       }
       if (safeAgent.icon !== undefined) updatedAgent.icon = assertString(safeAgent.icon, 'agent.icon', { maxLength: 20 })
-      Object.assign(updatedAgent, await requireManagedTarget(validateWorkspacePresetId(safeAgent.workspacePresetId)))
+      // 同 add：缺省即「不引用工作目录」，并清掉旧 cwd/隔离参数；显式悬空 ID 仍拒绝。
+      const presetId = validateOptionalWorkspacePresetId(safeAgent.workspacePresetId)
+      await ensureManagedWorkspaces()
+      Object.assign(updatedAgent, preparedManagedTarget(presetId))
       if (safeAgent.env !== undefined) updatedAgent.env = assertStringRecord(safeAgent.env, 'agent.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
       // 绑定变量组用「键存在」判断：编辑时取消绑定（传 undefined）应生效，否则旧绑定残留；
       // 传 id 则保存即拒悬空（与 add 同一套从严校验）
@@ -2242,17 +2260,18 @@ export function registerIPCHandlers(): void {
       await ensureManagedWorkspaces()
       const snapshot = agentRepository.get(safeAgentId)
       if (!snapshot) return { success: false, error: 'Agent not found' }
-      const agent = { ...snapshot, ...await requireManagedTarget(validateWorkspacePresetId(snapshot.workspacePresetId)) }
+      // 绑定项跟随设置项；未绑定（含设置项已删）按「未引用工作目录」启动，不阻止也不复用旧 cwd
+      const agent = { ...snapshot, ...managedTargetOf(snapshot.workspacePresetId) }
 
       // 解析启动目录：worktree 隔离在专属 git worktree 中启动（幂等），shared 校验绝对存在目录，
-      // 失败在创建终端前拒绝（不产生瞬态会话）
+      // 失败在创建终端前拒绝（不产生瞬态会话）。未引用工作目录时落到用户主目录。
       const cwd = await resolveAgentWorkspaceCwd(agent)
       if (!cwd.ok) return { success: false, error: cwd.error }
 
       // env 解析链（与 harness 的 resolveWorkspaceEnv 同构，命中即用不合并）：
       // 绑定的变量组 → 内联 env（legacy）→ undefined（系统环境变量）
       return await spawnLocalCommandSession(agent.name, agent.command, [`agent:${safeAgentId}`], {
-        cwd: cwd.cwd,
+        cwd: cwd.cwd ?? defaultLaunchCwd(),
         env: resolveAgentLaunchEnv(agent, envProfileRepository)
       })
     } catch (error) {
@@ -2379,13 +2398,19 @@ export function registerIPCHandlers(): void {
     ipcMain.handle(`${kind}:workspace:add`, async (_event, workspace) => {
       try {
         const safe = assertObject(workspace, 'workspace')
-        const managed = kind === 'dsh' ? undefined : await requireManagedTarget(validateWorkspacePresetId(safe.workspacePresetId))
-        // 保存即校验 cwd：须为存在的绝对目录（含展开 ~），尽早反馈而非等到启动
-        const cwd = resolveWorkspaceCwd(managed?.cwd ?? assertString(safe.cwd, 'workspace.cwd', { maxLength: 4096 }))
-        if (!cwd.ok) return { success: false, error: cwd.error }
+        // dsh 是独立目录模式（cwd 必填，不参与设置项）；codex/claude 允许不引用工作目录：
+        // 缺省/空串即「未引用」，启动器保留、启动落到用户主目录，不自动绑定其它设置项。
+        const presetId = kind === 'dsh' ? undefined : validateOptionalWorkspacePresetId(safe.workspacePresetId)
+        if (kind !== 'dsh') await ensureManagedWorkspaces()
+        const managed = kind === 'dsh' ? undefined : preparedManagedTarget(presetId)
+        // 保存即校验 cwd：绑定项来自设置项；未引用工作目录（非 dsh）不存目录、存空串、不校验；
+        // dsh 是独立目录模式，仍按原样要求 cwd 必填且为存在的绝对目录（含展开 ~）。
+        const requestedCwd = managed ? managed.cwd : assertString(safe.cwd, 'workspace.cwd', { maxLength: 4096 })
+        const cwd = kind !== 'dsh' && managed?.cwd === '' ? undefined : resolveWorkspaceCwd(requestedCwd)
+        if (cwd && !cwd.ok) return { success: false, error: cwd.error }
         const newWorkspace: Omit<HarnessWorkspace, 'id' | 'order'> = {
           name: assertString(safe.name, 'workspace.name', { maxLength: 120 }),
-          cwd: cwd.path
+          cwd: cwd ? cwd.path : ''
         }
         if (safe.note !== undefined) newWorkspace.note = assertString(safe.note, 'workspace.note', { maxLength: 2000 })
         if (safe.model !== undefined) newWorkspace.model = assertString(safe.model, 'workspace.model', { maxLength: 256 })
@@ -2429,15 +2454,21 @@ export function registerIPCHandlers(): void {
     ipcMain.handle(`${kind}:workspace:update`, async (_event, workspace) => {
       try {
         const safe = assertObject(workspace, 'workspace')
-        const managed = kind === 'dsh' ? undefined : await requireManagedTarget(validateWorkspacePresetId(safe.workspacePresetId))
-        const cwd = resolveWorkspaceCwd(managed?.cwd ?? assertString(safe.cwd, 'workspace.cwd', { maxLength: 4096 }))
-        if (!cwd.ok) return { success: false, error: cwd.error }
+        // 同 add：缺省/空串的 workspacePresetId 表示「不引用工作目录」，并清掉旧 cwd/隔离参数；
+        // 显式给了不存在的 ID 仍拒绝。
+        const presetId = kind === 'dsh' ? undefined : validateOptionalWorkspacePresetId(safe.workspacePresetId)
+        if (kind !== 'dsh') await ensureManagedWorkspaces()
+        const managed = kind === 'dsh' ? undefined : preparedManagedTarget(presetId)
+        // 同 add：未引用工作目录（非 dsh）存空串且不校验目录；dsh 仍要求 cwd 必填且存在。
+        const requestedCwd = managed ? managed.cwd : assertString(safe.cwd, 'workspace.cwd', { maxLength: 4096 })
+        const cwd = kind !== 'dsh' && managed?.cwd === '' ? undefined : resolveWorkspaceCwd(requestedCwd)
+        if (cwd && !cwd.ok) return { success: false, error: cwd.error }
         const id = assertString(safe.id, 'workspace.id', { maxLength: 128 })
         const existing = runtime.repository.get(id)
         const updated: HarnessWorkspace = {
           id,
           name: assertString(safe.name, 'workspace.name', { maxLength: 120 }),
-          cwd: cwd.path,
+          cwd: cwd ? cwd.path : '',
           // 同 env:update：缺省沿用仓库现状，避免不带 order 的调用方把记录撞到序号 0
           order: safe.order === undefined
             ? (existing?.order ?? 0)
@@ -2523,7 +2554,8 @@ export function registerIPCHandlers(): void {
         if (kind !== 'dsh') await ensureManagedWorkspaces()
         const snapshot = runtime.repository.get(safeId)
         if (!snapshot) return { success: false, error: 'Workspace not found' }
-        const workspace = kind === 'dsh' ? snapshot : { ...snapshot, ...await requireManagedTarget(validateWorkspacePresetId(snapshot.workspacePresetId)) }
+        // 绑定项跟随设置项；未绑定（含设置项已删）按「未引用工作目录」启动，不阻止启动
+        const workspace = kind === 'dsh' ? snapshot : { ...snapshot, ...managedTargetOf(snapshot.workspacePresetId) }
 
         // 启动前复核依赖是否仍在 PATH 上（与 agent:launch 同层兜底，不依赖前端禁用态）
         const status = detectDependencies(runtime.dependencies, readSystemPath() ?? undefined)
@@ -2532,8 +2564,9 @@ export function registerIPCHandlers(): void {
           return { success: false, error: `${missing.join(' and ')} not installed` }
         }
 
-        // 启动前校验 cwd：展开 ~ 且须为存在的绝对目录，避免无效目录创建瞬态会话
-        const cwd = resolveWorkspaceCwd(workspace.cwd)
+        // 启动前校验 cwd：展开 ~ 且须为存在的绝对目录，避免无效目录创建瞬态会话。
+        // 未引用工作目录（cwd 为空串）落到用户主目录，不自动绑定其它设置项。
+        const cwd = resolveWorkspaceCwd(kind === 'dsh' || workspace.cwd.trim() ? workspace.cwd : defaultLaunchCwd())
         if (!cwd.ok) {
           return { success: false, error: cwd.error }
         }
@@ -2548,7 +2581,7 @@ export function registerIPCHandlers(): void {
             // 锁内重读记录：并发的前一次启动可能刚把生成的可读 key 持久化进仓库
             const fresh = runtime.repository.get(safeId)
             if (!fresh) return { ok: false as const, error: 'Workspace not found' }
-            const current = kind === 'dsh' ? fresh : { ...fresh, ...await requireManagedTarget(validateWorkspacePresetId(fresh.workspacePresetId)) }
+            const current = kind === 'dsh' ? fresh : { ...fresh, ...managedTargetOf(fresh.workspacePresetId) }
             return resolveLaunchWorktree(cwd.path, kind, current, (key) => runtime.repository.update({ ...current, worktreeKey: key }))
           })
           if (!wt.ok) {
