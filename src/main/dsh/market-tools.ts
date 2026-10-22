@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { existsSync } from 'fs'
 import { delimiter, join } from 'path'
-import { readSystemPath } from '../env/refresh'
+import { getCachedSystemPath } from '../env/refresh'
 
 /** pnpm 只装在 LyShell 自己的目录，不改全局 npm、系统 PATH 或用户 DSH 配置。 */
 export function marketToolsDirectory(): string {
@@ -21,6 +21,6 @@ export function withMarketToolPath(env: Record<string, string>, bin: string): Re
 export function withInstalledMarketTools(env: Record<string, string> | undefined): Record<string, string> | undefined {
   const bin = join(marketToolsDirectory(), 'node_modules', '.bin')
   if (!existsSync(join(bin, process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'))) return env
-  const basePath = readSystemPath() || process.env.PATH || ''
+  const basePath = getCachedSystemPath() || process.env.PATH || ''
   return withMarketToolPath({ PATH: basePath, ...env }, bin)
 }

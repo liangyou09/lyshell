@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { Terminal } from '@xterm/xterm'
 import type { FitAddon } from '@xterm/addon-fit'
 import type { SearchAddon } from '@xterm/addon-search'
+import { bindTerminalOutput } from '../components/Terminal/terminal-output'
 
 /**
  * 终端实例信息
@@ -15,6 +16,7 @@ interface TerminalInstance {
   searchAddon: SearchAddon
   cols: number
   rows: number
+  outputCleanup?: () => void
 }
 
 /**
@@ -46,13 +48,17 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   // 注册终端
   registerTerminal: (sessionId, terminal, fitAddon, searchAddon) => {
     const terminals = new Map(get().terminals)
+    const existing = terminals.get(sessionId)
+    existing?.outputCleanup?.()
+    if (existing && existing.terminal !== terminal) existing.terminal.dispose()
     terminals.set(sessionId, {
       sessionId,
       terminal,
       fitAddon,
       searchAddon,
       cols: terminal.cols,
-      rows: terminal.rows
+      rows: terminal.rows,
+      outputCleanup: bindTerminalOutput(sessionId, terminal, window.electronAPI)
     })
     set({ terminals })
   },
@@ -62,6 +68,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
     const terminals = new Map(get().terminals)
     const instance = terminals.get(sessionId)
     if (instance) {
+      instance.outputCleanup?.()
       instance.terminal.dispose()
     }
     terminals.delete(sessionId)

@@ -1,6 +1,7 @@
 import type { ClientChannel } from 'ssh2'
 import { StringDecoder } from 'string_decoder'
 import { SSHFileClient } from './ssh-file-client'
+import { appendCommandOutput } from './command-output'
 
 export function cleanCommandOutput(output: string): string {
   return output
@@ -53,8 +54,7 @@ export class SSHCommandExecutor {
           const stderr = new StringDecoder('utf8')
           const append = (chunk: string) => {
             if (settled || !chunk) return
-            output += chunk
-            try { onData?.(chunk) } catch (error) { finish(error as Error) }
+            try { output = appendCommandOutput(output, chunk); onData?.(chunk) } catch (error) { finish(error as Error) }
           }
           stream.on('data', (data: Buffer) => append(stdout.write(data)))
           // 仅收集 stdout 时也排空 stderr，避免远端因窗口耗尽阻塞。

@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto'
 import { StringDecoder } from 'string_decoder'
 import { SSHFileClient } from './ssh-file-client'
 import { cleanCommandOutput } from './ssh-command-executor'
+import { ShellCommandOutput } from './shell-command-output'
 
 type CommandResult = { output: string; exitCode: number }
 type PendingCommand = {
@@ -17,8 +18,7 @@ export class SSHCommandShell {
   private generation = 0
   private queue: PendingCommand[] = []
   private active: PendingCommand | undefined
-  private marker: string | undefined
-  private output = ''
+  private output: ShellCommandOutput | undefined
 
   constructor(private sshFileClient: SSHFileClient, private shellEnterCommands: string) {}
 
@@ -66,9 +66,8 @@ export class SSHCommandShell {
     const generation = this.generation
     void this.openChannel().then(channel => {
       if (generation !== this.generation || this.active !== item) return
-      this.output = ''
       const marker = `___END_MARKER_UUID_${randomUUID()}___`
-      this.marker = marker
+      this.output = new ShellCommandOutput(marker, item.onData)
       // 独立换行避免命令末尾的注释吞掉完成标记，同时保留实际退出码。
       channel.write(`${item.command}\nprintf '\\n${marker}:%s\\n' "$?"\n`)
     }).catch(error => { if (generation === this.generation) this.reset(error) })
@@ -88,18 +87,13 @@ export class SSHCommandShell {
         const stderr = new StringDecoder('utf8')
         stream.on('data', (data: Buffer) => {
           if (this.channel !== stream || !this.active) return
-          const chunk = stdout.write(data)
-          this.output += chunk
-          try { this.active.onData?.(chunk) } catch (error) { this.reset(error as Error); return }
-          if (!this.marker) return
-          const match = new RegExp(`(?:^|\\n)${this.marker}:(\\d+)\\r?\\n`).exec(this.output)
-          if (!match) return
           const item = this.active
-          const result = { output: cleanCommandOutput(this.output.slice(0, match.index)), exitCode: Number(match[1]) }
+          let result: CommandResult | undefined
+          try { result = this.output?.stdout(stdout.write(data)) } catch (error) { this.reset(error as Error); return }
+          if (!result || this.active !== item || this.channel !== stream) return
           this.active = undefined
-          this.marker = undefined
-          this.output = ''
-          item.finish(undefined, result)
+          this.output = undefined
+          item.finish(undefined, { ...result, output: cleanCommandOutput(result.output) })
           this.next()
         })
         stream.on('error', (error: Error) => { if (this.channel === stream) this.reset(error) })
@@ -107,9 +101,7 @@ export class SSHCommandShell {
         // SSH shell 默认没有 PTY，stderr 仍可能使用扩展数据通道。
         stream.stderr.on('data', (data: Buffer) => {
           if (this.channel !== stream || !this.active) return
-          const chunk = stderr.write(data)
-          this.output += chunk
-          try { this.active.onData?.(chunk) } catch (error) { this.reset(error as Error) }
+          try { this.output?.stderr(stderr.write(data)) } catch (error) { this.reset(error as Error) }
         })
         try {
           for (const command of this.shellEnterCommands.split('\n').filter(line => line.trim())) stream.write(`${command}\n`)
@@ -126,8 +118,7 @@ export class SSHCommandShell {
     const pending = this.active ? [this.active, ...this.queue] : this.queue
     this.active = undefined
     this.queue = []
-    this.marker = undefined
-    this.output = ''
+    this.output = undefined
     for (const item of pending) item.finish(error)
     channel?.destroy()
   }

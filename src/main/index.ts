@@ -1129,7 +1129,8 @@ app.on('will-quit', (event) => {
     // 插件 Windows taskkill 有 5s 预算，POSIX 整组强杀有 2.5s grace；均需等待完成。
     waitForQuitCleanup([
       dshWebManager.closeForQuit(Date.now() + QUIT_DSH_CLOSE_BUDGET_MS),
-      pluginHostManager.waitForProcessCleanup()
+      pluginHostManager.waitForProcessCleanup(),
+      downloadHistory.flush()
     ], Math.max(6000, QUIT_DSH_CLOSE_BUDGET_MS + QUIT_DSH_EXIT_GRACE_MS),
       err => log.warn('Application cleanup on quit failed:', err)
     ).then(() => app.exit(0))

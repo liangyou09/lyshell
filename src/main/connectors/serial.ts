@@ -26,6 +26,7 @@ export class SerialConnector extends BaseConnector {
   private disconnectPromise: Promise<void> | null = null
   private closeError: Error | null = null
   private cancelled = false
+  private outputPaused = false
 
   constructor(sessionId: string, config: SerialConfig) {
     super(sessionId, config.encoding)
@@ -54,6 +55,7 @@ export class SerialConnector extends BaseConnector {
       autoOpen: false
     })
     this.port = port
+    if (this.outputPaused) port.pause()
 
     const opening = new Promise<void>((resolve, reject) => {
       port.open((err) => {
@@ -162,6 +164,12 @@ export class SerialConnector extends BaseConnector {
     }
 
     this.port.write(this.encodeOut(data))
+  }
+
+  setOutputPaused(paused: boolean): void {
+    this.outputPaused = paused
+    if (paused) this.port?.pause()
+    else this.port?.resume()
   }
 
   /**

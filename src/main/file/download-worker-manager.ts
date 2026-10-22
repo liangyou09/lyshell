@@ -9,6 +9,13 @@ import type { BrowserWindow } from 'electron'
 import { downloadHistory, DownloadRecord } from '../storage'
 import { v4 as uuidv4 } from 'uuid'
 import { createSerialChain } from './serial-chain'
+import {
+  transferScheduler,
+  transferEndpointKey,
+  type TransferLease,
+  TransferCancelledError,
+  TransferQueueFullError
+} from './transfer-scheduler'
 
 // Worker 任务数据
 interface DownloadTaskData {
@@ -54,6 +61,12 @@ interface ActiveWorker {
 // 全局 Worker 映射
 const activeWorkers: Map<string, ActiveWorker> = new Map()
 
+// 已取消但 Worker 尚未 exit 的任务：用于抑制取消后迟到的 progress/complete 消息，
+// 避免取消后仍写下载历史或把已移除的进度条重新点亮。
+const cancelledTaskIds: Set<string> = new Set()
+// 在首个 await 前登记，覆盖 acquire 已发放额度、调用方尚未恢复的取消窗口。
+const admissions = new Map<string, { sessionId: string; cancelled: boolean }>()
+
 // 同规范化本地路径的下载串行化：两个并发下载写同一本地文件会让
 // `fs.openSync(localPath, 'w')` 互相 truncate + 交错写入，导致本地文件损坏且双方都不报错。
 // 后到的同路径下载排队在前一个完成/失败/取消之后执行。
@@ -91,22 +104,54 @@ export function registerTaskMeta(taskId: string, meta: TaskMeta) {
  */
 export function startDownloadWorker(task: DownloadTaskData): Promise<void> {
   // 复用阻塞等待路径，仅忽略其 Promise 结果；进度/错误仍通过 message 事件推送
-  runDownloadWorkerAndWait(task).catch(() => {})
+  runDownloadWorkerAndWait(task).catch((error) => {
+    // 排队容量满必须给 UI 一个明确失败回执，否则进度条会永远停在“等待中”
+    if (error instanceof TransferQueueFullError) {
+      log.warn(`Download task ${task.taskId} rejected: ${error.message}`)
+      sendProgressToRenderer({
+        taskId: task.taskId,
+        sessionId: task.sessionId,
+        failed: true,
+        error: '下载队列已满，请稍后重试',
+        progress: 0,
+        transferredSize: 0,
+        fileSize: task.fileSize,
+        speed: 0
+      })
+    }
+    // 取消回执由 cancelDownload / cancelDownloadsBySession 负责；Worker 侧失败已有回执
+  })
   return Promise.resolve()
 }
 
 /**
  * 启动下载 Worker 并阻塞等待完成（MCP 同步路径用）
  *
- * 同规范化本地路径的下载会串行排队，避免并发写同一本地文件导致损坏。
+ * 同规范化本地路径的下载会串行排队，避免并发写同一本地文件导致损坏；
+ * 不同路径的下载还会受全局 Worker 调度器限制（全局 4、每 endpoint 2）。
  */
-export function runDownloadWorkerAndWait(task: DownloadTaskData): Promise<void> {
-  const key = downloadChainKey(task.localPath)
-  return downloadChain.run(key, () => runDownloadWorkerInternal(task), {
-    id: task.taskId,
-    group: task.sessionId,
-    onCancel: () => taskMetaStore.delete(task.taskId)
-  })
+export async function runDownloadWorkerAndWait(task: DownloadTaskData): Promise<void> {
+  if (admissions.has(task.taskId)) throw new Error('Transfer task already exists')
+  const admission = { sessionId: task.sessionId, cancelled: false }
+  admissions.set(task.taskId, admission)
+  let lease: TransferLease | undefined
+  try {
+    lease = await transferScheduler.acquire({
+      taskId: task.taskId,
+      sessionId: task.sessionId,
+      endpoint: transferEndpointKey(task.sshConfig.host, task.sshConfig.port)
+    })
+    if (admission.cancelled) throw new TransferCancelledError()
+    const key = downloadChainKey(task.localPath)
+    return await downloadChain.run(key, () => runDownloadWorkerInternal(task), {
+      id: task.taskId,
+      group: task.sessionId
+    })
+  } finally {
+    admissions.delete(task.taskId)
+    taskMetaStore.delete(task.taskId)
+    lease?.release()
+  }
 }
 
 /**
@@ -125,10 +170,28 @@ function runDownloadWorkerInternal(task: DownloadTaskData): Promise<void> {
 
   log.debug(`Worker path: ${workerPath}, __dirname: ${__dirname}`)
 
-  // 创建 Worker
-  const worker = new Worker(workerPath, {
-    workerData: task
-  })
+  // 创建 Worker；同步构造失败时不会有线程需要等待 exit，直接失败
+  let worker: Worker
+  try {
+    worker = new Worker(workerPath, {
+      workerData: task
+    })
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    log.error(`Failed to create download worker for task ${taskId}: ${err.message}`)
+    taskMetaStore.delete(taskId)
+    sendProgressToRenderer({
+      taskId,
+      sessionId,
+      failed: true,
+      error: err.message,
+      progress: 0,
+      transferredSize: 0,
+      fileSize: task.fileSize,
+      speed: 0
+    })
+    return Promise.reject(err)
+  }
 
   // 记录活动 Worker
   activeWorkers.set(taskId, {
@@ -147,58 +210,78 @@ function runDownloadWorkerInternal(task: DownloadTaskData): Promise<void> {
   })
 
   return new Promise<void>((resolve, reject) => {
+    // 协议终态先记录，真正 settle 等 Worker exit，避免 complete 后线程未退出的窗口期提前释放额度
     let settled = false
+    let terminalOk = false
+    let terminalError: Error | undefined
 
     // 监听 Worker 消息
     worker.on('message', (msg: any) => {
-      handleWorkerMessage(msg, task)
-      if (settled) return
-      if (msg.type === 'complete') {
+      // 取消后迟到的消息一律丢弃，不能再写历史或产生完成回执
+      if (cancelledTaskIds.has(taskId)) return
+
+      if (msg.type === 'complete' || msg.type === 'error') {
+        if (settled) return
         settled = true
-        resolve()
-      } else if (msg.type === 'error') {
-        settled = true
-        reject(new Error(msg.error || 'Download failed'))
+        terminalOk = msg.type === 'complete'
+        terminalError = msg.type === 'complete'
+          ? undefined
+          : new Error(msg.error || 'Download failed')
+        handleWorkerMessage(msg, task)
+        return
       }
+
+      handleWorkerMessage(msg, task)
     })
 
-    // 监听 Worker 错误
+    // 监听 Worker 错误：只记录终态与失败回执，不释放额度、不提前 settle
     worker.on('error', (err) => {
       log.error(`Worker error for task ${taskId}:`, err.message)
-      sendProgressToRenderer({
-        taskId,
-        sessionId,
-        failed: true,
-        error: err.message,
-        progress: 0,
-        transferredSize: 0,
-        fileSize: task.fileSize,
-        speed: 0
-      })
-      activeWorkers.delete(taskId)
-      taskMetaStore.delete(taskId)
       if (!settled) {
         settled = true
-        reject(err)
+        terminalOk = false
+        terminalError = err
+        if (!cancelledTaskIds.has(taskId)) {
+          sendProgressToRenderer({
+            taskId,
+            sessionId,
+            failed: true,
+            error: err.message,
+            progress: 0,
+            transferredSize: 0,
+            fileSize: task.fileSize,
+            speed: 0
+          })
+        }
       }
     })
 
-    // 监听 Worker 退出
+    // 监听 Worker 退出：线程真正结束后才 settle 并释放额度
     worker.on('exit', (code) => {
       activeWorkers.delete(taskId)
       taskMetaStore.delete(taskId)
-      if (!settled) {
-        settled = true
-        const error = code === 0
+
+      let error: Error | null = null
+      if (cancelledTaskIds.delete(taskId)) {
+        log.info(`Worker for task ${taskId} exited after cancellation`)
+        error = new TransferCancelledError('Download cancelled')
+      } else if (terminalOk) {
+        log.info(`Worker for task ${taskId} completed successfully`)
+        error = null
+      } else if (settled) {
+        error = terminalError ?? new Error('Download failed')
+      } else {
+        error = code === 0
           ? new Error('Download worker exited without a terminal message')
           : new Error(`Download worker exited with code ${code}`)
         log.warn(`Worker for task ${taskId} exited before protocol settlement (code ${code})`)
-        reject(error)
-      } else if (code === 0) {
-        log.info(`Worker for task ${taskId} completed successfully`)
-      } else {
-        log.warn(`Worker for task ${taskId} exited with code ${code} after settlement`)
       }
+
+      if (error) {
+        reject(error)
+        return
+      }
+      resolve()
     })
   })
 }
@@ -346,11 +429,14 @@ function sendProgressToRenderer(data: any) {
  * 取消下载任务
  */
 export function cancelDownload(taskId: string): boolean {
+  const pending = admissions.get(taskId)
+  if (pending) pending.cancelled = true
   const active = activeWorkers.get(taskId)
   if (active) {
     log.info(`Cancelling download task ${taskId}`)
+    // 先标记再 terminate：exit 前迟到的 complete/progress 消息会被丢弃
+    cancelledTaskIds.add(taskId)
     active.worker.terminate()
-    activeWorkers.delete(taskId)
     taskMetaStore.delete(taskId)
     return true
   }
@@ -358,25 +444,37 @@ export function cancelDownload(taskId: string): boolean {
     log.info(`Cancelling queued download task ${taskId}`)
     return true
   }
-  return false
+  if (transferScheduler.cancelId(taskId)) {
+    log.info(`Cancelling globally queued download task ${taskId}`)
+    return true
+  }
+  return Boolean(pending)
 }
 
 /**
  * 取消某会话的所有活跃下载任务（会话断开时调用）
- * 返回已取消的任务数；每个被终止的 worker 都补发一个 cancelled 事件以更新 UI
+ * 返回已取消的任务数；每个被取消的任务都补发一个 cancelled 事件以更新 UI
  */
 export function cancelDownloadsBySession(sessionId: string): number {
-  const queuedTaskIds = downloadChain.cancelGroup(sessionId)
+  const pendingIds = [...admissions].filter(([, task]) => task.sessionId === sessionId && !task.cancelled).map(([id, task]) => { task.cancelled = true; return id })
+  const selected = new Set(pendingIds)
+  // 路径串行队列（已拿到额度、等待同路径前序任务）
+  const queuedChainIds = downloadChain.cancelGroup(sessionId)
+  // 全局调度队列（尚未拿到 Worker 额度，从未创建 Worker）
+  const queuedSchedulerIds = pendingIds.filter(taskId => transferScheduler.cancelId(taskId))
+  const queuedTaskIds = [...new Set([...queuedChainIds, ...queuedSchedulerIds, ...pendingIds.filter(taskId => !activeWorkers.has(taskId))])]
   for (const taskId of queuedTaskIds) {
     log.info(`Cancelling queued download task ${taskId} (session ${sessionId} disconnected)`)
+    taskMetaStore.delete(taskId)
     sendProgressToRenderer({ taskId, cancelled: true })
   }
+
   let count = queuedTaskIds.length
   for (const [taskId, active] of activeWorkers) {
-    if (active.sessionId === sessionId) {
+    if (active.sessionId === sessionId && selected.has(taskId)) {
       log.info(`Cancelling download task ${taskId} (session ${sessionId} disconnected)`)
+      cancelledTaskIds.add(taskId)
       active.worker.terminate()
-      activeWorkers.delete(taskId)
       taskMetaStore.delete(taskId)
       sendProgressToRenderer({ taskId, cancelled: true })
       count++
@@ -403,9 +501,12 @@ export function getActiveTasks(): string[] {
  * 清理所有 Worker
  */
 export function cleanupAllWorkers() {
+  for (const task of admissions.values()) task.cancelled = true
   downloadChain.cancelAll()
+  for (const taskId of admissions.keys()) transferScheduler.cancelId(taskId)
   for (const [taskId, active] of activeWorkers) {
     log.info(`Terminating worker for task ${taskId}`)
+    cancelledTaskIds.add(taskId)
     active.worker.terminate()
   }
   activeWorkers.clear()

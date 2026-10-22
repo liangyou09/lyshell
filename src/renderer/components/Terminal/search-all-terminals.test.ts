@@ -13,6 +13,7 @@ function register(id: string, rows: number[], row: number | null) {
   let selected = row
   const terminal = {
     cols: 80, rows: 24,
+    dispose: vi.fn(),
     getSelectionPosition: () => selected === null ? undefined : { start: { x: 0, y: selected }, end: { x: 3, y: selected } },
     clearSelection: () => { selected = null }
   }

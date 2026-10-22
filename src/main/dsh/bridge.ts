@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID, timingSafeEqual } from 'crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, readdirSync, rmdirSync, lstatSync } from 'fs'
 import http from 'http'
 import { join, resolve } from 'path'
 import { pathToFileURL } from 'url'
@@ -28,6 +28,12 @@ export const BRIDGE_PACKAGE_NAME = 'lyshell-harness-bridge'
 export const BRIDGE_PATCH_FILE_NAME = 'lyshell-harness.patch.yml'
 /** 宿主 owned 运行目录名（userData 下；底下每次启动一个 `run-*` 子目录，绝不写进 DSH_HOME / 工作区） */
 export const BRIDGE_RUNTIME_DIR_NAME = 'dsh-bridge-runtime'
+/**
+ * run 目录的归属标记文件名。内容只有 `{ version, pid, owner }`：
+ * pid 用于启动时判断「这一代进程是否还活着」，owner 是本代独有 UUID（不是凭据、不可派生自凭据）。
+ * 没有这份标记的旧版 run 目录一律视为归属不明，**不自动回收**。
+ */
+export const BRIDGE_RUN_OWNER_FILE_NAME = '.lyshell-run-owner.json'
 /** 握手路由（host 半在 dsh 进程内注册；必须与 resources/dsh-bridge/index.mjs 一致） */
 export const BRIDGE_HANDSHAKE_PATH = '/__lyshell/harness/handshake'
 /** host-only 凭据的请求头名（不经 query，不进 URL） */
@@ -343,6 +349,7 @@ export interface PrepareBridgeOptions {
   /** 宿主 owned 运行目录（userData 下；调用方提供，便于测试与打包态区分） */
   runtimeDir: string
   location: BridgePackageLocation
+  /** 必须独占创建新的 run 目录，已存在时抛错。 */
   mkdir?: (dir: string) => void
   writeFile?: (file: string, data: string) => void
   /** 默认实现必须「文件不存在即成功」；自定义实现同样要容忍 ENOENT（cleanup 幂等） */
@@ -350,6 +357,32 @@ export interface PrepareBridgeOptions {
   randomKey?: () => string
   /** 本次 run 的隔离标识（默认独立随机；**绝不**派生自 host key，见 prepareBridgeRuntime） */
   randomRunId?: () => string
+}
+
+const RUN_OWNER_FILE = BRIDGE_RUN_OWNER_FILE_NAME
+
+/** 只回收有本模块标记、拥有者已确认退出且没有外来文件的目录。PID 仍在则保守保留。 */
+function reclaimExpiredRuns(runtimeDir: string): void {
+  let names: string[]
+  try { names = readdirSync(runtimeDir).slice(0, 256) } catch { return }
+  for (const name of names) {
+    if (!/^run-[\w-]+$/.test(name)) continue
+    const dir = join(runtimeDir, name)
+    try {
+      if (!lstatSync(dir).isDirectory() || lstatSync(dir).isSymbolicLink()) continue
+      const ownerFile = join(dir, RUN_OWNER_FILE)
+      const owner = JSON.parse(readFileSync(ownerFile, 'utf8'))
+      if (owner.version !== 1 || !Number.isInteger(owner.pid) || owner.pid <= 0 || typeof owner.owner !== 'string') continue
+      try { process.kill(owner.pid, 0); continue } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') continue }
+      if (readdirSync(dir).some(file => file !== RUN_OWNER_FILE && file !== BRIDGE_PATCH_FILE_NAME)) continue
+      const patch = join(dir, BRIDGE_PATCH_FILE_NAME)
+      reclaimPatchFile(patch)
+      // patch 被外部改写时保留整个目录，避免误判归属。
+      if (existsSync(patch)) continue
+      rmSync(ownerFile)
+      rmdirSync(dir)
+    } catch { /* 归属或权限不明确时保留 */ }
+  }
 }
 
 /**
@@ -380,6 +413,57 @@ export function reclaimPatchFile(patchFile: string, opts: { readFile?: (file: st
 }
 
 /**
+ * 回滚一次**未返回 plan** 的 prepare 已经写下的部分资源（F3：mkdir 成功后 owner/patch 写盘失败，
+ * 调用方拿不到 plan，也就永远没人调用 cleanup —— 孤儿 run 目录会一直留着）。
+ *
+ * 归属证明：run 目录由**本次调用独占新建**（已存在的同名目录在写盘前就被拒绝，见 prepareBridgeRuntime），
+ * 即便独占创建目录，写入期间也可能被外部接管，因此先核对 owner，再逐项核对内容：
+ * 只有「本次内容的前缀」（空文件 / 截断的部分内容 / 完整内容）才认定归属并删除；
+ * 内容被改成别的什么，就保留文件、保留目录 —— 宁可留一个可诊断的残留，也不删归属不确定的资源。
+ * 目录只用**非递归** rmdir：里面还有任何别的东西就保留（rmdir 会失败，绝不递归删除）。
+ */
+function rollbackAbortedRun(params: {
+  dir: string
+  ownerFile: string
+  owner: string
+  ownerWritten: boolean
+  /** 本次调用尝试写入的文件与应写内容（顺序只是尽力而为，先 patch 后 owner，与 cleanup 一致） */
+  writes: ReadonlyArray<readonly [file: string, content: string]>
+  removeFile: (file: string) => void
+}): void {
+  const removable: string[] = []
+  for (const [file, expected] of params.writes) {
+    let actual: string
+    try {
+      const stat = lstatSync(file)
+      if (!stat.isFile() || stat.isSymbolicLink()) return
+      actual = readFileSync(file, 'utf8')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return
+      // owner 已完整落盘后又消失，不能再证明目录仍属本代。
+      if (file === params.ownerFile && params.ownerWritten) return
+      continue
+    }
+    if (file === params.ownerFile && params.ownerWritten && actual !== params.owner) return
+    // 允许当前失败写入留下的部分内容；任意文件归属不明则保留整个 run。
+    if (!expected.startsWith(actual)) return
+    removable.push(file)
+  }
+  for (const file of removable.reverse()) {
+    try {
+      params.removeFile(file)
+    } catch {
+      return // patch 删不掉时也保留 owner，避免丢失归属证据。
+    }
+  }
+  try {
+    rmdirSync(params.dir)
+  } catch {
+    /* 非空/权限不足：保留目录，绝不递归删除 */
+  }
+}
+
+/**
  * 准备一次桥启动所需的**隔离运行资源**：本次独有的运行目录 + 确定性文件名的 patch + 随机 key。
  * patch 内容只引用随包发布的桥包绝对路径，不写 DSH_HOME、不写工作区、不含任何凭据。
  *
@@ -387,19 +471,50 @@ export function reclaimPatchFile(patchFile: string, opts: { readFile?: (file: st
  * patch 之后，它也碰不到新一代的文件。
  * run id 与 host-only key **必须相互独立**：run 目录名会落盘、会出现在命令行与进程表里，
  * 绝不能由凭据派生（哪怕只取前缀）—— 否则凭据的一部分就被写进了路径。
+ *
+ * 失败路径：写 owner/patch 任一步失败都先回滚本次新建的部分资源再**原样抛出原错误**
+ * （见 rollbackAbortedRun）；run 目录若已存在则直接拒绝，绝不覆盖/删除别人的运行资源。
  */
 export function prepareBridgeRuntime(opts: PrepareBridgeOptions): BridgeRuntimePlan {
-  const mkdir = opts.mkdir ?? ((dir: string) => mkdirSync(dir, { recursive: true }))
-  const writeFile = opts.writeFile ?? ((file: string, data: string) => writeFileSync(file, data, 'utf8'))
+  const mkdir = opts.mkdir ?? ((dir: string) => {
+    mkdirSync(opts.runtimeDir, { recursive: true })
+    mkdirSync(dir) // 原子地拒绝已存在的目录，不能用 recursive 复用另一代目录。
+  })
+  const writeFile = opts.writeFile ?? ((file: string, data: string) => writeFileSync(file, data, { encoding: 'utf8', flag: 'wx' }))
   const removeFile = opts.removeFile ?? ((file: string) => rmSync(file, { force: true }))
   const randomKey = opts.randomKey ?? (() => randomBytes(32).toString('hex'))
   const randomRunId = opts.randomRunId ?? (() => randomBytes(8).toString('hex'))
 
   const key = randomKey()
-  const dir = join(opts.runtimeDir, `${BRIDGE_RUN_DIR_PREFIX}${randomRunId()}`)
-  mkdir(dir)
+  reclaimExpiredRuns(opts.runtimeDir)
+  const runId = randomRunId()
+  if (!/^[\w-]+$/.test(runId)) throw new Error('Invalid bridge run id')
+  const dir = join(opts.runtimeDir, `${BRIDGE_RUN_DIR_PREFIX}${runId}`)
+  // 本代目录必须由这次调用独占新建：它一旦已经存在，里面可能是另一代（或用户）的资源。
+  // 这时既不写入（不覆盖别人的 owner/patch），也不删除 —— 明确失败，由调用方按「无桥」处理。
+  // （默认 run id 是 8 字节随机，正常路径不可能撞；这个判据只在注入固定 id 或极端巧合时生效。）
+  if (existsSync(dir)) throw new Error(`bridge run directory already exists: ${dir}`)
+  const ownerFile = join(dir, RUN_OWNER_FILE)
+  const owner = JSON.stringify({ version: 1, pid: process.pid, owner: randomUUID() })
   const patchFile = join(dir, BRIDGE_PATCH_FILE_NAME)
-  writeFile(patchFile, buildBridgePatchFile(opts.location.entry))
+  const patch = buildBridgePatchFile(opts.location.entry)
+  mkdir(dir)
+  let ownerWritten = false
+  try {
+    writeFile(ownerFile, owner)
+    ownerWritten = true
+    writeFile(patchFile, patch)
+  } catch (error) {
+    // wx 遇到外来同名文件时不拥有它；保留整个目录供诊断。
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+      rollbackAbortedRun({
+        dir, ownerFile, owner, ownerWritten,
+        writes: ownerWritten ? [[ownerFile, owner], [patchFile, patch]] : [[ownerFile, owner]],
+        removeFile
+      })
+    }
+    throw error // 原错误原样上抛：调用方的降级/报错判据不因回滚而改变
+  }
   return {
     key,
     runtimeDir: dir,
@@ -407,7 +522,10 @@ export function prepareBridgeRuntime(opts: PrepareBridgeOptions): BridgeRuntimeP
     bridgeDir: opts.location.dir,
     childEnv: () => ({ [BRIDGE_KEY_ENV]: key }),
     cleanup: () => {
+      try { if (readFileSync(ownerFile, 'utf8') !== owner) return } catch { return }
       reclaimPatchFile(patchFile, { removeFile })
+      if (existsSync(patchFile)) return
+      try { removeFile(ownerFile); rmdirSync(dir) } catch { /* 非空目录不递归删除 */ }
     }
   }
 }

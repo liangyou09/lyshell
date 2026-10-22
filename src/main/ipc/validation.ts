@@ -1,4 +1,18 @@
 import log from 'electron-log'
+import type { TerminalOutputControl } from '@shared/terminal-output'
+
+export function validateTerminalOutputControl(raw: unknown): TerminalOutputControl {
+  const value = assertObject(raw, 'terminalOutput')
+  const sessionId = assertString(value.sessionId, 'sessionId', { maxLength: 128 })
+  if (value.kind === 'subscribe') return { kind: 'subscribe', sessionId }
+  const subscriptionId = assertString(value.subscriptionId, 'subscriptionId', { maxLength: 128 })
+  if (value.kind === 'unsubscribe') return { kind: 'unsubscribe', sessionId, subscriptionId }
+  if (value.kind === 'ack') return {
+    kind: 'ack', sessionId, subscriptionId,
+    sequence: assertNumber(value.sequence, 'sequence', { min: 1, max: Number.MAX_SAFE_INTEGER, integer: true })
+  }
+  throw new ValidationError('Unknown terminal output control')
+}
 import { DSH_MARKET_ACTIONS, type DshMarketAction } from '@shared/dsh-market'
 import type { BrowserDevToolsRequest } from '@shared/browser-devtools'
 import { extractErrorMessage } from '../terminal/session-manager'
@@ -363,4 +377,11 @@ export function validateOptionalWorkspacePresetId(value: unknown): string | unde
   if (value === undefined || value === null) return undefined
   if (typeof value === 'string' && value.trim().length === 0) return undefined
   return validateWorkspacePresetId(value)
+}
+
+
+export function validateDownloadHistoryPage(sessionId: unknown, offset: unknown): { sessionId?: string; offset: number } {
+  const safeSessionId = sessionId === undefined ? undefined : assertString(sessionId, 'sessionId', { maxLength: 128 })
+  if (offset !== undefined && (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0)) throw new ValidationError('Invalid history offset')
+  return { sessionId: safeSessionId, offset: offset === undefined ? 0 : offset as number }
 }

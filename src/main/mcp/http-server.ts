@@ -8,7 +8,7 @@ import * as http from 'http'
 import * as net from 'net'
 import * as fs from 'fs'
 import * as path from 'path'
-import { exec, execSync, spawn } from 'child_process'
+import { exec, execSync } from 'child_process'
 import { app, dialog } from 'electron'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
@@ -22,7 +22,6 @@ import { preferencesRepository, quickCommandsRepository, sessionRepository } fro
 import { agentRepository } from '../storage/agent-repository'
 import { mcpAuditRepository } from '../storage/mcp-audit-repository'
 import { ConnectionType, ConnectionStatus, SessionConfig } from '@shared/types'
-import type { FileInfo } from '@shared/types'
 import { DEFAULT_THEME_DARK, TERMINAL_ENCODINGS } from '@shared/constants'
 import { API_ROUTES, type McpCapability } from '@shared/api-routes'
 import { EXCLUSIVE_CONTROL_BASE } from '@shared/exclusive-control'
@@ -31,11 +30,14 @@ import { parseHarnessWorkRequest } from '@shared/harness-work'
 import { harnessWorkOwner, runHarnessWork } from '../dsh/work'
 import { captureTerminalScreenshot } from './terminal-screenshot'
 import { streamTerminal, closeTerminalStreams } from './terminal-stream'
+import { CommandStreamWriter } from './command-stream'
+import { executeLocalCommandStream } from './local-command-stream'
 import * as mcpAuth from './auth'
 import { setMcpHttpPort } from './http-port'
 import type { TokenBinding, TokenKind } from './auth'
 import { scanDestructiveCommand } from './destructive-check'
-import { compileGlob, relPath } from './glob'
+import { listFilesBounded } from './list-files'
+import { GLOB_PATTERN_MAX_LENGTH, globPatternTooLongMessage } from './glob'
 import { getPluginViewRegistry, ViewRegistrationError } from '../plugin/view-registry'
 import { ensurePluginUiToken, maybeRevokePluginUiToken } from '../plugin/view-tokens'
 import { installPluginViewProtocolHandler } from '../plugin/view-protocol'
@@ -1105,7 +1107,7 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
  *
  * 鉴权与破坏性确认通过后才切换到 text/event-stream：
  *   data: {"type":"chunk","chunk":"..."}            —— 增量输出（stdout+stderr）
- *   data: {"type":"done","exitCode":0,"output":"..."} —— 完成（output 为完整输出）
+ *   data: {"type":"done","exitCode":0,"output":"..."} —— 完成（output 最大 1 Mi 字符；超限发送 error 并取消命令）
  *   data: {"type":"error","error":"..."}            —— 出错
  * 客户端断开时通过 AbortSignal 中止底层执行（best-effort）。
  */
@@ -1158,28 +1160,22 @@ async function handleExecuteCommandStream(data: ExecuteRequest, res: http.Server
       'X-Accel-Buffering': 'no'
     })
 
-    const writeEvent = (obj: Record<string, unknown>): void => {
-      if (!res.writableEnded) res.write(`data: ${JSON.stringify(obj)}\n\n`)
-    }
-
     const abortController = new AbortController()
-    res.on('close', () => {
-      if (!res.writableEnded) abortController.abort()
-    })
+    const writer = new CommandStreamWriter(res, abortController)
 
     try {
       let result: { output: string; exitCode: number }
       if (session.config.type === ConnectionType.SSH) {
         const connector = await fileManager.getCommandConnector(resolvedSessionId)
         if (!('execStream' in connector)) {
-          writeEvent({ type: 'error', error: 'Connector does not support streaming execution' })
+          await writer.finish({ type: 'error', error: 'Connector does not support streaming execution' })
           res.end()
           return
         }
         result = await connector.execStream(
           command,
           safeTimeout,
-          (chunk) => writeEvent({ type: 'chunk', chunk }),
+          (chunk) => writer.chunk(chunk),
           abortController.signal
         )
       } else if (session.config.type === ConnectionType.LOCAL) {
@@ -1188,17 +1184,17 @@ async function handleExecuteCommandStream(data: ExecuteRequest, res: http.Server
           session.config.local?.cwd,
           session.config.local?.env,
           safeTimeout,
-          (chunk) => writeEvent({ type: 'chunk', chunk }),
+          (chunk) => writer.chunk(chunk),
           abortController.signal
         )
       } else {
-        writeEvent({ type: 'error', error: `Command execution not supported for session type: ${session.config.type}` })
+        await writer.finish({ type: 'error', error: `Command execution not supported for session type: ${session.config.type}` })
         res.end()
         return
       }
-      writeEvent({ type: 'done', exitCode: result.exitCode, output: result.output })
+      await writer.finish({ type: 'done', exitCode: result.exitCode, output: result.output })
     } catch (err: any) {
-      writeEvent({ type: 'error', error: err.message || 'Execution failed' })
+      if (!res.destroyed) await writer.finish({ type: 'error', error: err.message || 'Execution failed' })
     }
     if (!res.writableEnded) res.end()
   } catch (err: any) {
@@ -2185,7 +2181,8 @@ async function handleCreateSession(
 /**
  * POST /api/files/list — 列出目录内容（A5：支持 recursive / glob / maxEntries）
  *
- * 非递归且无 glob 时走原路径单次 listDir；否则广度优先遍历子目录（symlink 不跟随），
+ * 非递归单次 listDir，递归广度优先遍历子目录（symlink 不跟随）；根目录错误向调用方报错，
+ * 子目录错误跳过并标记结果不完整。
  * 对每个条目的相对路径（及文件名）做 glob 匹配，maxEntries 截断防巨目录打爆响应。
  */
 async function handleListFiles(data: FileOperationRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
@@ -2202,49 +2199,26 @@ async function handleListFiles(data: FileOperationRequest, res: http.ServerRespo
       return
     }
 
-    const recursive = data.recursive === true
-    const glob = typeof data.glob === 'string' && data.glob.trim() ? data.glob.trim() : undefined
-    const maxEntries = clampNumber(data.maxEntries, 1, 50000, 5000)
-
-    // 快速路径：单目录、无过滤
-    if (!recursive && !glob) {
-      const files = await fileManager.listDir(resolvedSessionId, dirPath)
-      sendJson(res, 200, { success: true, data: { entries: files, truncated: false } })
+    if (res.destroyed || res.writableEnded) return
+    // C2：在创建控制器/编译 glob 之前做入口长度校验。超限是输入错误（400），
+    // 不是 500，也不回显模式本身；其他错误仍走下面的 500 分支。
+    const rawGlob = typeof data.glob === 'string' ? data.glob : undefined
+    if (rawGlob !== undefined && rawGlob.length > GLOB_PATTERN_MAX_LENGTH) {
+      sendJson(res, 400, { success: false, error: globPatternTooLongMessage(rawGlob.length) })
       return
     }
-
-    // 递归 / glob 遍历
-    const matcher = glob ? compileGlob(glob) : undefined
-    const root = dirPath.replace(/\/+$/, '') || '/'
-    const out: FileInfo[] = []
-    let truncated = false
-    const queue: string[] = [root]
-    const seen = new Set<string>()
-    while (queue.length > 0) {
-      const dir = queue.shift()!
-      if (seen.has(dir)) continue
-      seen.add(dir)
-      let entries: FileInfo[]
-      try {
-        entries = await fileManager.listDir(resolvedSessionId, dir)
-      } catch {
-        // 无权限/不存在的子目录跳过，继续遍历兄弟节点
-        continue
-      }
-      for (const e of entries) {
-        if (out.length >= maxEntries) { truncated = true; break }
-        const rel = relPath(root, e.path)
-        if (!matcher || matcher(rel) || matcher(e.name)) {
-          out.push(e)
-        }
-        if (recursive && e.isDir) {
-          queue.push(e.path)
-        }
-      }
-      if (truncated) break
-    }
-    // 包成 { entries, truncated } —— MCP structuredContent 必须是对象，裸数组会触发客户端 schema 校验错误。
-    sendJson(res, 200, { success: true, data: { entries: out, truncated } })
+    const controller = new AbortController()
+    const onClose = () => controller.abort()
+    res.once('close', onClose)
+    try {
+      const result = await listFilesBounded(dirPath, dir => fileManager.listDir(resolvedSessionId, dir), {
+        recursive: data.recursive === true,
+        glob: rawGlob && rawGlob.trim() ? rawGlob.trim() : undefined,
+        maxEntries: clampNumber(data.maxEntries, 1, 5000, 5000),
+        signal: controller.signal
+      })
+      if (!controller.signal.aborted) sendJson(res, 200, { success: true, data: result })
+    } finally { res.removeListener('close', onClose) }
   } catch (err: any) {
     sendJson(res, 500, { success: false, error: err.message })
   }
@@ -3195,52 +3169,6 @@ function executeLocalCommand(
         exitCode: error ? (error as any).code || 1 : 0
       })
     })
-  })
-}
-
-/**
- * 本地命令流式执行（spawn），与 executeLocalCommand 的 cwd/env 处理一致，
- * 但 stdout/stderr 增量推送且捕获真实 exitCode。
- *
- * 超时与 SSH execStream 对齐：超时 kill 子进程后 reject('Command timeout')，
- * 由 SSE 层发 error 事件（部分输出已通过增量 chunk 实时推给客户端，agent 不会丢）。
- * abort（客户端断开 SSE）kill 后仍 resolve——响应已关闭，结果被丢弃，无需报错。
- */
-function executeLocalCommandStream(
-  command: string,
-  cwd: string | undefined,
-  env: Record<string, string> | undefined,
-  timeout: number,
-  onData: (chunk: string) => void,
-  signal?: AbortSignal
-): Promise<{ output: string; exitCode: number }> {
-  return new Promise((resolve, reject) => {
-    const execEnv = { ...process.env, ...env } as Record<string, string>
-    const execCwd = cwd || process.env.USERPROFILE || process.env.HOME || ''
-
-    log.info(`[MCP] Executing local command (stream): ${command} (cwd: ${execCwd})`)
-
-    const child = spawn(command, { cwd: execCwd, env: execEnv, shell: true, windowsHide: true })
-    let output = ''
-    let settled = false
-    let timedOut = false  // 区分超时 kill 与正常 close，超时需 reject 以发 SSE error
-
-    const finish = (fn: () => void) => { if (!settled) { settled = true; clearTimeout(timer); if (signal) signal.removeEventListener('abort', onAbort); fn() } }
-
-    const timer = setTimeout(() => { timedOut = true; child.kill('SIGTERM') }, timeout)
-    const onAbort = () => { child.kill('SIGTERM') }  // abort 不置 timedOut：客户端断开，结果丢弃，不报错
-    if (signal) {
-      if (signal.aborted) child.kill('SIGTERM')
-      else signal.addEventListener('abort', onAbort, { once: true })
-    }
-
-    child.stdout?.on('data', (d: Buffer) => { const c = d.toString(); output += c; onData(c) })
-    child.stderr?.on('data', (d: Buffer) => { const c = d.toString(); output += c; onData(c) })
-    child.on('error', (e) => finish(() => reject(e)))
-    child.on('close', (code: number | null) => finish(() => {
-      if (timedOut) reject(new Error('Command timeout'))
-      else resolve({ output, exitCode: code ?? 0 })
-    }))
   })
 }
 

@@ -122,3 +122,99 @@ describe('SSH 命令执行生命周期', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 })
+
+
+describe('命令输出资源上限', () => {
+  it.each([1, 20, 58])('完成标记在第 %i 字符分片且穿插 stderr，最终结果与增量均不泄露标记', async split => {
+    const { file, stream } = fixture()
+    const shell = new SSHCommandShell(file, '')
+    const chunks: string[] = []
+    const pending = shell.execStream('fixture', 1000, chunk => chunks.push(chunk))
+    await vi.waitFor(() => expect(stream.write).toHaveBeenCalled())
+    const marker = String(vi.mocked(stream.write).mock.calls[0][0]).match(/(___END_MARKER_UUID_[\w-]+___):%s/)![1]
+    const ending = `${marker}:7\r\n`
+    stream.emit('data', Buffer.from('hello\n' + ending.slice(0, split)))
+    stream.stderr.emit('data', Buffer.from('warning\n'))
+    stream.emit('data', Buffer.from(ending.slice(split)))
+    expect(await pending).toEqual({ output: 'hello\nwarning', exitCode: 7 })
+    expect(chunks.join('')).toBe('hello\nwarning\n')
+    await shell.cleanup()
+  })
+
+  it('多段 stderr 与单字符标记交错，原始顺序保留且下一条命令可继续', async () => {
+    const { file, stream } = fixture()
+    const shell = new SSHCommandShell(file, '')
+    const chunks: string[] = []
+    const pending = shell.execStream('fixture', 1000, chunk => chunks.push(chunk))
+    await vi.waitFor(() => expect(stream.write).toHaveBeenCalled())
+    const marker = String(vi.mocked(stream.write).mock.calls[0][0]).match(/(___END_MARKER_UUID_[\w-]+___):%s/)![1]
+    stream.emit('data', Buffer.from('hello\n'))
+    const ending = `${marker}:0\n`
+    for (const char of ending.slice(0, -1)) {
+      stream.emit('data', Buffer.from(char))
+      stream.stderr.emit('data', Buffer.from('e'))
+    }
+    stream.emit('data', Buffer.from('\n'))
+    const expected = 'hello\n' + 'e'.repeat(ending.length - 1)
+    expect(await pending).toEqual({ output: expected, exitCode: 0 })
+    expect(chunks.join('')).toBe(expected)
+    const next = shell.execRaw('second', 1000)
+    await vi.waitFor(() => expect(stream.write).toHaveBeenCalledTimes(2))
+    finishShell(stream, 3)
+    expect(await next).toBe('result')
+    await shell.cleanup()
+  })
+
+  it('不是行首的相同文本不被当成完成标记，普通输出即时转发', async () => {
+    const { file, stream } = fixture()
+    const shell = new SSHCommandShell(file, '')
+    const chunks: string[] = []
+    const pending = shell.execStream('fixture', 1000, chunk => chunks.push(chunk))
+    await vi.waitFor(() => expect(stream.write).toHaveBeenCalled())
+    const marker = String(vi.mocked(stream.write).mock.calls[0][0]).match(/(___END_MARKER_UUID_[\w-]+___):%s/)![1]
+    stream.emit('data', Buffer.from('prefix'))
+    expect(chunks.join('')).toBe('prefix')
+    stream.emit('data', Buffer.from(`${marker}:0\n`))
+    stream.stderr.emit('data', Buffer.from('warning\n'))
+    stream.emit('data', Buffer.from(`${marker}:4\n`))
+    expect(await pending).toEqual({ output: `prefix${marker}:0\nwarning`, exitCode: 4 })
+    expect(chunks.join('')).toBe(`prefix${marker}:0\nwarning\n`)
+    await shell.cleanup()
+  })
+
+  it('32 MiB 输入在 1 Mi 字符处终止 exec，不继续推送', async () => {
+    const { file, stream, client } = fixture()
+    let emitted = 0
+    const pending = new SSHCommandExecutor(file).execStream('fixture', 1000, c => { emitted += c.length })
+    const rejection = expect(pending).rejects.toThrow('output limit')
+    await vi.waitFor(() => expect(client.exec).toHaveBeenCalled())
+    for (let i = 0; i < 512; i++) stream.emit('data', Buffer.alloc(65536, 120))
+    await rejection
+    expect(emitted).toBe(1024 * 1024)
+    expect(stream.destroy).toHaveBeenCalledOnce()
+  })
+
+  it('持久 shell 超限销毁通道并拒绝排队命令', async () => {
+    const { file, stream } = fixture()
+    const shell = new SSHCommandShell(file, '')
+    const a = shell.execRaw('fixture', 1000)
+    const b = shell.execRaw('queued', 1000)
+    const checks = [expect(a).rejects.toThrow('output limit'), expect(b).rejects.toThrow('output limit')]
+    await vi.waitFor(() => expect(stream.write).toHaveBeenCalled())
+    for (let i = 0; i < 512; i++) stream.emit('data', Buffer.alloc(65536, 120))
+    await Promise.all(checks)
+    expect(stream.destroy).toHaveBeenCalledOnce()
+  })
+
+  it('完成标记分片时仍保留真实退出码', async () => {
+    const { file, stream } = fixture()
+    const shell = new SSHCommandShell(file, '')
+    const pending = shell.execRaw('fixture', 1000)
+    await vi.waitFor(() => expect(stream.write).toHaveBeenCalled())
+    const marker = String(vi.mocked(stream.write).mock.calls[0][0]).match(/(___END_MARKER_UUID_[\w-]+___):%s/)![1]
+    stream.emit('data', Buffer.from('x'.repeat(900000) + '\n' + marker.slice(0, 20)))
+    stream.emit('data', Buffer.from(marker.slice(20) + ':7\n'))
+    expect(await pending).toHaveLength(900000)
+    await shell.cleanup()
+  })
+})

@@ -25,6 +25,9 @@ import typescript from 'highlight.js/lib/languages/typescript'
 import xml from 'highlight.js/lib/languages/xml'
 import yaml from 'highlight.js/lib/languages/yaml'
 
+export const MAX_HIGHLIGHT_CHARS = 16 * 1024
+export const MAX_HIGHLIGHT_NODES = 2048
+
 const LANGUAGES: Record<string, LanguageFn> = {
   bash,
   c,
@@ -55,9 +58,10 @@ export function normalizeLang(raw: string | undefined): string | null {
 }
 
 /** DOM 节点列表 → React 子节点数组（文本节点直出，元素节点递归重建） */
-function domToReact(nodes: NodeList, keyPrefix: string): React.ReactNode[] {
+function domToReact(nodes: NodeList, keyPrefix: string, budget: { remaining: number }, depth = 0): React.ReactNode[] {
   const out: React.ReactNode[] = []
   nodes.forEach((n, i) => {
+    if (--budget.remaining < 0 || depth > 32) throw new Error('Highlight node budget exceeded')
     const key = `${keyPrefix}-${i}`
     if (n.nodeType === 3) {
       out.push(n.textContent)
@@ -67,7 +71,7 @@ function domToReact(nodes: NodeList, keyPrefix: string): React.ReactNode[] {
       out.push(React.createElement(
         el.tagName.toLowerCase(),
         { key, className: cls },
-        domToReact(el.childNodes, key)
+        domToReact(el.childNodes, key, budget, depth + 1)
       ))
     }
   })
@@ -78,11 +82,12 @@ function domToReact(nodes: NodeList, keyPrefix: string): React.ReactNode[] {
  * 高亮代码 → React 节点。未知语言或高亮异常时回退纯文本（ok=false）。
  */
 export function hljsToReact(code: string, lang: string | null): { nodes: React.ReactNode[]; ok: boolean } {
-  if (!lang) return { nodes: [code], ok: false }
+  if (!lang || code.length > MAX_HIGHLIGHT_CHARS || code.split('\n', 401).length > 400) return { nodes: [code], ok: false }
   try {
     const { value } = hljs.highlight(code, { language: lang, ignoreIllegals: true })
+    if (value.length > 256 * 1024) return { nodes: [code], ok: false }
     const doc = new DOMParser().parseFromString(value, 'text/html')
-    return { nodes: domToReact(doc.body.childNodes, 'hl'), ok: true }
+    return { nodes: domToReact(doc.body.childNodes, 'hl', { remaining: MAX_HIGHLIGHT_NODES }), ok: true }
   } catch {
     return { nodes: [code], ok: false }
   }

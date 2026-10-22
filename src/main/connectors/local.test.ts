@@ -12,17 +12,18 @@ vi.mock('node-pty', () => ({
   spawn: vi.fn()
 }))
 vi.mock('../env/refresh', () => ({
-  readSystemPath: () => null
+  readSystemPath: vi.fn(async () => null)
 }))
 vi.mock('electron-log', () => ({
   default: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
 }))
 
+import { readSystemPath } from '../env/refresh'
 import { findPwshPath, findExplorerShell, LocalConnector } from './local'
 
 /** spawn 桩的返回值:connect 只挂监听/置位,有这几个方法就够 */
 const fakePty = () =>
-  ({ onData: vi.fn(), onExit: vi.fn(), write: vi.fn(), resize: vi.fn(), kill: vi.fn() }) as unknown as IPty
+  ({ onData: vi.fn(), onExit: vi.fn(), write: vi.fn(), resize: vi.fn(), kill: vi.fn(), pause: vi.fn(), resume: vi.fn() }) as unknown as IPty
 
 // findPwshPath 的常规安装位置兜底读 process.env.ProgramFiles / LOCALAPPDATA，
 // 测试里补丁到临时目录并还原，避免结果依赖开发机是否真的装了 pwsh。
@@ -113,6 +114,21 @@ describe('findExplorerShell', () => {
 // shellArgs 透传：agent 宿主 pwsh 的 -NoProfile 依赖这条链路（handlers 构造 →
 // LocalConnector spawn 参数），断言落在 spawn 桩的入参上。
 describe('LocalConnector.connect (shellArgs 透传)', () => {
+  it('创建前的背压传给 PTY，消费恢复后才 resume，同值暂停不会重复调用', async () => {
+    const pty = fakePty()
+    vi.mocked(spawn).mockReturnValue(pty)
+    const connector = new LocalConnector('flow', { shell: 'cmd.exe' })
+    connector.setOutputPaused(true)
+    await connector.connect()
+    expect(pty.pause).toHaveBeenCalledTimes(1)
+    connector.setOutputPaused(true)
+    expect(pty.pause).toHaveBeenCalledTimes(1)
+    connector.setOutputPaused(false)
+    expect(pty.resume).toHaveBeenCalledTimes(1)
+    await connector.disconnect()
+    expect(pty.kill).toHaveBeenCalledTimes(1)
+  })
+
   it('config.shellArgs 原样传给 spawn', async () => {
     vi.mocked(spawn).mockReturnValue(fakePty())
     vi.mocked(spawn).mockClear()
@@ -212,4 +228,17 @@ describe('LocalConnector.getSpawnCwd', () => {
     expect(connector.getSpawnCwd()).toBe('D:\\after-connect')
     expect(spawn).toHaveBeenCalledWith(expect.any(String), [], expect.objectContaining({ cwd: 'D:\\after-connect' }))
   })
+})
+
+
+it('异步 PATH 查询期间断开不会创建迟到的 PTY', async () => {
+  let ready!: (path: null) => void
+  vi.mocked(readSystemPath).mockReturnValueOnce(new Promise(resolve => { ready = resolve }))
+  vi.mocked(spawn).mockClear()
+  const connector = new LocalConnector('fixture', { shell: 'cmd.exe' })
+  const pending = connector.connect()
+  await connector.disconnect()
+  ready(null)
+  await expect(pending).rejects.toThrow('cancelled')
+  expect(spawn).not.toHaveBeenCalled()
 })

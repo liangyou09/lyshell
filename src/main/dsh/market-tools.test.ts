@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { delimiter } from 'path'
 vi.mock('electron', () => ({ app: { getPath: () => 'test-data' } }))
-vi.mock('../env/refresh', () => ({ readSystemPath: () => 'system-bin' }))
+vi.mock('../env/refresh', () => ({ getCachedSystemPath: () => 'system-bin' }))
 import { withMarketToolPath } from './market-tools'
 
 describe('市场工具 PATH', () => {

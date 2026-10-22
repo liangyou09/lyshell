@@ -19,6 +19,12 @@ export interface TelnetConfig {
 export class TelnetConnector extends BaseConnector {
   private config: TelnetConfig
   private socket: Socket | null = null
+  private outputPaused = false
+  /** 连接尝试代次 —— socket 回调按代次校验，旧 socket 的迟到事件不得污染新一次连接 */
+  private attempt = 0
+  /** 当前尝试的收尾函数 —— disconnect 据此落定悬挂的 connect Promise */
+  private cancelPending: ((error: Error) => void) | null = null
+  private socketCleanup = new WeakMap<Socket, () => void>()
 
   constructor(sessionId: string, config: TelnetConfig) {
     super(sessionId, config.encoding)
@@ -27,6 +33,10 @@ export class TelnetConnector extends BaseConnector {
 
   /**
    * 连接到 Telnet 服务器
+   *
+   * 连接期（connect 事件之前）的超时/错误/关闭都必须让本次 Promise 恰好落定一次，
+   * 并销毁本次 socket、结束解码流。只 reject 不销毁会让服务器侧留下一条半开连接，
+   * 且之后迟到的 connect 事件还能把 connected 改成 true —— 连接明明失败却在报成功。
    */
   async connect(config?: TelnetConfig): Promise<void> {
     if (config) {
@@ -34,48 +44,150 @@ export class TelnetConnector extends BaseConnector {
       this.encoding = config.encoding || 'utf-8'
     }
 
+    // 新一次尝试立刻取代旧尝试：旧 socket 先解绑再销毁，其迟到事件不再影响连接器；
+    // 悬挂的旧 Promise 也必须落定，否则调用方永远等不到结果。
+    const previous = this.socket
+    this.socket = null
+    this.attempt++
+    const supersede = this.cancelPending
+    this.cancelPending = null
+    supersede?.(new Error('Connection superseded by a new attempt'))
+    if (previous) this.releaseSocket(previous)
+    this.connected = false
+
+    const attempt = this.attempt
+    const socket = new Socket()
+    this.socket = socket
+    this.replaceDecoder()
+    if (this.outputPaused) socket.pause()
+
     log.info(`Telnet connecting to ${this.config.host}:${this.config.port}`)
 
-    this.socket = new Socket()
-    this.replaceDecoder()
+    return new Promise<void>((resolve, reject) => {
+      let settled = false
+      let established = false
+      const isCurrent = (): boolean => this.attempt === attempt && this.socket === socket
 
-    this.socket.on('connect', () => {
-      log.info('Telnet connected')
-      this.connected = true
-      this.emit('connected')
-    })
-
-    this.socket.on('data', (data: Buffer) => {
-      // 过滤Telnet IAC控制字符
-      const filteredData = this.filterIAC(data)
-      if (filteredData.length > 0) {
-        this.decoder?.write(filteredData)
+      /** 落定本次连接（幂等）；返回是否由本次调用落定 */
+      const settle = (error?: Error): boolean => {
+        if (settled) return false
+        settled = true
+        this.cancelPending = null
+        if (error) reject(error)
+        else resolve()
+        return true
       }
-    })
 
-    this.socket.on('error', (err) => {
-      log.error('Telnet error:', err)
-      this.connected = false
-      this.emitError(err)
-    })
+      /**
+       * 连接失败收尾：先落定再销毁 —— destroy 触发的 close/error 不得再次 reject。
+       * 连接已落定（已连接后的运行期错误）时无操作，交由 close 收尾。
+       */
+      const fail = (error: Error): void => {
+        if (!settle(error)) return
+        this.releaseSocket(socket)
+        this.releaseDecoder()
+      }
 
-    this.socket.on('close', () => {
-      log.info('Telnet connection closed')
-      this.connected = false
-      this.emitClose()
-    })
+      const onConnect = (): void => {
+        if (!isCurrent() || settled) return
+        log.info('Telnet connected')
+        established = true
+        this.connected = true
+        // setTimeout 是空闲计时器：连接成功后必须撤销，否则登录后长时间无输出的
+        // 会话会被当成连接超时掐断。连接期 deadline 只覆盖握手。
+        socket.setTimeout(0)
+        socket.removeListener('timeout', onTimeout)
+        settle()
+        this.emit('connected')
+      }
 
-    return new Promise((resolve, reject) => {
-      this.socket!.setTimeout(this.config.timeout || 10000)
-      this.socket!.connect({
-        host: this.config.host,
-        port: this.config.port
+      const onData = (data: Buffer): void => {
+        if (!isCurrent()) return
+        // 过滤Telnet IAC控制字符
+        const filteredData = this.filterIAC(data)
+        if (filteredData.length > 0) {
+          this.decoder?.write(filteredData)
+        }
+      }
+
+      const onError = (err: Error): void => {
+        if (!isCurrent()) return
+        log.error('Telnet error:', err)
+        this.connected = false
+        // 连接期：落定 + 释放；已连接后：fail 无操作，等随后的 close 收尾。
+        fail(err)
+        this.emitError(err)
+      }
+
+      const onTimeout = (): void => {
+        // 连接成功时已撤销计时器并移除本监听；能走到这里只可能是握手超时
+        if (!isCurrent() || settled) return
+        log.warn(`Telnet connect timeout after ${this.config.timeout || 10000}ms`)
+        fail(new Error('Connection timeout'))
+      }
+
+      const onClose = (): void => {
+        if (!isCurrent()) return
+        log.info('Telnet connection closed')
+        const wasEstablished = established
+        this.connected = false
+        // 握手期关闭同样要落定，否则 connect Promise 永久悬挂
+        settle(wasEstablished ? undefined : new Error('Connection closed'))
+        this.releaseSocket(socket)
+        this.releaseDecoder()
+        // 未建立起来的连接不广播 close：上层只该把它当成一次失败，而不是已建立
+        // 会话的自然断开（后者才需要走会话清理）。
+        if (wasEstablished) this.emitClose()
+      }
+
+      // 允许 disconnect 取消悬挂的 connect
+      this.cancelPending = (error: Error): void => {
+        settle(error)
+      }
+
+      socket.on('connect', onConnect)
+      socket.on('data', onData)
+      socket.on('error', onError)
+      socket.on('close', onClose)
+      socket.on('timeout', onTimeout)
+      this.socketCleanup.set(socket, () => {
+        socket.off('connect', onConnect)
+        socket.off('data', onData)
+        socket.off('error', onError)
+        socket.off('close', onClose)
+        socket.off('timeout', onTimeout)
       })
 
-      this.socket!.on('connect', () => resolve())
-      this.socket!.on('error', (err) => reject(err))
-      this.socket!.on('timeout', () => reject(new Error('Connection timeout')))
+      try {
+        socket.setTimeout(this.config.timeout || 10000)
+        socket.connect({
+          host: this.config.host,
+          port: this.config.port
+        })
+      } catch (error) {
+        fail(error instanceof Error ? error : new Error(String(error)))
+      }
     })
+  }
+
+  /** 解绑并销毁 socket：不再依赖它自己的事件收尾，也不会残留可达的监听器 */
+  private releaseSocket(socket: Socket): void {
+    // 仅解绑自己注册的回调，保留 net.Socket 自身的流生命周期监听。
+    this.socketCleanup.get(socket)?.()
+    this.socketCleanup.delete(socket)
+    // 已销毁的 socket 仍可能异步抛出写/连接错误；保留空监听避免 uncaughtException
+    socket.on('error', () => { /* 已释放 */ })
+    try { socket.setTimeout(0) } catch { /* ignore */ }
+    try { socket.destroy() } catch { /* 已销毁 */ }
+    if (this.socket === socket) this.socket = null
+  }
+
+  /** 结束解码流并丢弃引用（半截多字节以替换字符吐出，流不悬挂） */
+  private releaseDecoder(): void {
+    if (this.decoder) {
+      try { this.decoder.end() } catch { /* ignore */ }
+      this.decoder = null
+    }
   }
 
   /**
@@ -169,14 +281,17 @@ export class TelnetConnector extends BaseConnector {
   async disconnect(): Promise<void> {
     log.info('Telnet disconnecting')
 
-    if (this.socket) {
-      this.socket.destroy()
-      this.socket = null
-    }
-    if (this.decoder) {
-      try { this.decoder.end() } catch { /* ignore */ }
-      this.decoder = null
-    }
+    // 先取消悬挂的连接：socket 尚未连通时 error/close 都不可靠，只能由这里落定，
+    // 否则 connect Promise 永久悬挂。destroy 后的 close 由 releaseSocket 解绑吞掉。
+    this.attempt++
+    const cancel = this.cancelPending
+    this.cancelPending = null
+    cancel?.(new Error('Connection cancelled by user'))
+
+    const socket = this.socket
+    this.socket = null
+    if (socket) this.releaseSocket(socket)
+    this.releaseDecoder()
 
     this.connected = false
   }
@@ -198,5 +313,11 @@ export class TelnetConnector extends BaseConnector {
    */
   resize(_cols: number, _rows: number): void {
     // Telnet 协议默认不支持终端尺寸调整，静默处理
+  }
+
+  setOutputPaused(paused: boolean): void {
+    this.outputPaused = paused
+    if (paused) this.socket?.pause()
+    else this.socket?.resume()
   }
 }

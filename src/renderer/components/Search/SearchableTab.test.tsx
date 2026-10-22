@@ -21,21 +21,21 @@ describe('当前非终端页签查找', () => {
     const { rerender } = render(<SearchableTab id="doc"><article>hello hello</article></SearchableTab>)
     const input = open()
     fireEvent.change(input, { target: { value: 'hello' } })
-    expect(screen.getByRole('status').textContent).toBe('1 / 2')
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('1 / 2'))
     rerender(<SearchableTab id="doc"><article>hello updated</article></SearchableTab>)
     await waitFor(() => expect(screen.getByRole('status').textContent).toBe('1 / 1'))
   })
-  it('只有活动页签打开，支持计数、前后循环、无效正则和 ESC 清理', () => {
+  it('只有活动页签打开，支持计数、前后循环、无效正则和 ESC 清理', async () => {
     render(<><SearchableTab id="doc"><article>shell Shell shells</article></SearchableTab><SearchableTab id="web"><p>inactive</p></SearchableTab></>)
     const input = open()
     expect(screen.getAllByRole('search')).toHaveLength(1)
     expect(screen.queryByRole('radiogroup')).toBeNull()
     fireEvent.change(input, { target: { value: 'shell' } })
-    expect(screen.getByRole('status').textContent).toBe('1 / 3')
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('1 / 3'))
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
     expect(screen.getByRole('status').textContent).toBe('3 / 3')
     fireEvent.click(screen.getByRole('checkbox', { name: 'Whole word' }))
-    expect(screen.getByRole('status').textContent).toBe('1 / 2')
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('1 / 2'))
     fireEvent.click(screen.getByRole('checkbox', { name: 'Regular expression' }))
     fireEvent.change(input, { target: { value: '[' } })
     expect(screen.getByRole('status').textContent).toBe('Invalid regular expression')
@@ -44,7 +44,7 @@ describe('当前非终端页签查找', () => {
     expect(screen.queryByRole('search')).toBeNull()
     expect(document.head.querySelector('style')).toBeNull()
   })
-  it('接入同源 HTML iframe 内的 Ctrl+F', () => {
+  it('接入同源 HTML iframe 内的 Ctrl+F', async () => {
     const { container } = render(<SearchableTab id="doc"><iframe title="html" /></SearchableTab>)
     const frame = container.querySelector('iframe')!
     vi.spyOn(frame.contentDocument!, 'getSelection').mockReturnValue(null)
@@ -52,7 +52,7 @@ describe('当前非终端页签查找', () => {
     fireEvent.load(frame)
     fireEvent.keyDown(frame.contentWindow!, { key: 'f', ctrlKey: true })
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'hello' } })
-    expect(screen.getByRole('status').textContent).toBe('1 / 2')
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('1 / 2'))
   })
   it('网页隐藏不支持的选项，过滤旧请求回报，切走后清理', () => {
     // web 参数代表搜索引擎，测试沿用活动 doc 身份以隔离 store 的页签操作。

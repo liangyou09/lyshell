@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import http from 'http'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
@@ -17,6 +17,8 @@ import {
   BRIDGE_PATCH_FILE_NAME,
   BRIDGE_PACKAGE_NAME,
   BRIDGE_PROTOCOL_VERSION,
+  BRIDGE_RUN_DIR_PREFIX,
+  BRIDGE_RUN_OWNER_FILE_NAME,
   bridgeKeyMatches,
   bridgePackageSpecifier,
   buildBridgePatchFile,
@@ -144,7 +146,7 @@ describe('patch 文件与运行期资源', () => {
     expect(content).not.toMatch(/token|key|secret|password/i)
   })
 
-  it('prepareBridgeRuntime：宿主 owned 目录 + 确定性文件名 + 运行期随机 key，cleanup 只删 patch', () => {
+  it('prepareBridgeRuntime：宿主 owned 目录 + 确定性文件名 + 运行期随机 key，cleanup 回收本代 patch 和空目录', () => {
     const root = tempDir('lyshell-runtime-')
     const pkg = makeBridgePackage(join(root, 'pkg'))
     const runtimeDir = join(root, 'runtime')
@@ -162,6 +164,7 @@ describe('patch 文件与运行期资源', () => {
     expect(readFileSync(plan.patchFile, 'utf8')).not.toContain(plan.key)
     plan.cleanup()
     expect(existsSync(plan.patchFile)).toBe(false)
+    expect(existsSync(plan.runtimeDir)).toBe(false)
     plan.cleanup()  // 幂等：重复清理不抛
   })
 
@@ -180,6 +183,34 @@ describe('patch 文件与运行期资源', () => {
     expect(b.patchFile.endsWith(BRIDGE_PATCH_FILE_NAME)).toBe(true)
     expect(BRIDGE_PATCH_FILE_NAME).not.toMatch(/\d{6,}/)
     expect(newBridgeRunId()).not.toBe(newBridgeRunId())
+  })
+
+  it('cleanup 保留外来文件，启动仅回收确认死亡且有归属标记的旧目录', () => {
+    const root = tempDir('lyshell-owned-runtime-')
+    const pkg = makeBridgePackage(join(root, 'pkg'))
+    const location = { dir: pkg, entry: join(pkg, 'index.mjs'), client: join(pkg, 'client.js'), manifest: join(pkg, 'package.json') }
+    const runtimeDir = join(root, 'runtime')
+    const foreign = prepareBridgeRuntime({ runtimeDir, location })
+    writeFileSync(join(foreign.runtimeDir, 'keep.txt'), 'user data')
+    foreign.cleanup()
+    expect(readFileSync(join(foreign.runtimeDir, 'keep.txt'), 'utf8')).toBe('user data')
+    const stale = prepareBridgeRuntime({ runtimeDir, location })
+    const active = prepareBridgeRuntime({ runtimeDir, location })
+    // 注入一个本测试专用的「已确认不存在」PID，其他 PID 查询仍原样执行。
+    const deadPid = 2147483000
+    writeFileSync(join(stale.runtimeDir, '.lyshell-run-owner.json'), JSON.stringify({ version: 1, pid: deadPid, owner: 'fixture' }))
+    const original = process.kill
+    const kill = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (pid === deadPid) throw Object.assign(new Error('not running'), { code: 'ESRCH' })
+      return original(pid, signal)
+    })
+    try {
+      const next = prepareBridgeRuntime({ runtimeDir, location })
+      expect(existsSync(stale.runtimeDir)).toBe(false)
+      expect(existsSync(active.patchFile)).toBe(true)
+      expect(existsSync(join(foreign.runtimeDir, 'keep.txt'))).toBe(true)
+      next.cleanup(); active.cleanup()
+    } finally { kill.mockRestore() }
   })
 
   it('落盘路径不得含凭据任何片段：run 目录名与 host key 完全独立', () => {
@@ -213,25 +244,272 @@ describe('patch 文件与运行期资源', () => {
     // 目录隔离：每次启动一个独有 run 目录，旧代即便迟到也碰不到新一代的文件
     expect(oldRun.patchFile).not.toBe(newRun.patchFile)
     expect(existsSync(newRun.patchFile)).toBe(true)
-
-    // 最强情形：两代共用**同一路径**（同时固定 key 与 run id），新一代覆盖写之后旧代才迟到 cleanup
-    const forced = { randomKey: () => 'f'.repeat(64), randomRunId: () => 'same-run' }
-    const stale = prepareBridgeRuntime({ runtimeDir, location, ...forced })
-    const fresh = prepareBridgeRuntime({ runtimeDir, location, ...forced })
-    expect(stale.patchFile).toBe(fresh.patchFile)
-    expect(existsSync(fresh.patchFile)).toBe(true)
-    stale.cleanup() // 迟到：盘上那份是新一代刚写的，仍必须被删（内容就是本模块的 patch）
-    expect(existsSync(fresh.patchFile)).toBe(false)
-
-    // 同路径上出现**别人写的**内容 ⇒ 一律不动手（宁可留文件，也不删不确定归属的资源）
-    writeFileSync(fresh.patchFile, 'other-generation: not ours\n', 'utf8')
-    stale.cleanup()
-    expect(existsSync(fresh.patchFile)).toBe(true)
-
-    newRun.cleanup()
-    expect(existsSync(newRun.patchFile)).toBe(false)
+    // 旧代迟到（新一代已写好）⇒ 只回收旧代自己的资源
     oldRun.cleanup()
     expect(existsSync(oldRun.patchFile)).toBe(false)
+    expect(existsSync(oldRun.runtimeDir)).toBe(false)
+    expect(existsSync(newRun.patchFile)).toBe(true)
+    expect(existsSync(newRun.runtimeDir)).toBe(true)
+    newRun.cleanup()
+    expect(existsSync(newRun.patchFile)).toBe(false)
+    expect(existsSync(newRun.runtimeDir)).toBe(false)
+  })
+
+  // 说明（F3 之后的行为调整）：prepare 现在拒绝与**已存在**的 run 目录碰撞，所以「两代共用同一路径」
+  // 不能再靠两次 prepare（同 randomRunId）构造。这里直接构造等价的最强情形：路径已被另一代接管
+  // （owner 被重写）——旧 plan 的 cleanup 必须按「拥有者已变化」放手，而不是删掉路径上的资源。
+  it('同一 run 路径被接管 / patch 被改写：旧 plan 的 cleanup 一律放手', () => {
+    const root = tempDir('lyshell-takeover-')
+    const pkg = makeBridgePackage(join(root, 'pkg'))
+    const runtimeDir = join(root, 'runtime')
+    const location = { dir: pkg, entry: join(pkg, 'index.mjs'), client: join(pkg, 'client.js'), manifest: join(pkg, 'package.json') }
+
+    const stale = prepareBridgeRuntime({ runtimeDir, location })
+    // 新代在同一路径重写了 owner（等价于旧代的 run 目录被接管）
+    writeFileSync(
+      join(stale.runtimeDir, BRIDGE_RUN_OWNER_FILE_NAME),
+      JSON.stringify({ version: 1, pid: process.pid, owner: 'taken-over-generation' })
+    )
+    stale.cleanup()
+    expect(existsSync(stale.patchFile)).toBe(true)
+    expect(existsSync(stale.runtimeDir)).toBe(true)
+
+    // patch 被**别人改写** ⇒ 不删文件、不删非空目录（宁可留，也不删归属不确定的资源）
+    const rewritten = prepareBridgeRuntime({ runtimeDir, location })
+    writeFileSync(rewritten.patchFile, 'other-generation: not ours\n', 'utf8')
+    rewritten.cleanup()
+    expect(readFileSync(rewritten.patchFile, 'utf8')).toBe('other-generation: not ours\n')
+    expect(existsSync(rewritten.runtimeDir)).toBe(true)
+  })
+})
+
+describe('prepare 中途写盘失败的回滚（F3：不留孤儿 run 目录）', () => {
+  const locationOf = (pkg: string) => ({
+    dir: pkg,
+    entry: join(pkg, 'index.mjs'),
+    client: join(pkg, 'client.js'),
+    manifest: join(pkg, 'package.json')
+  })
+
+  /** 只数本夹具 runtimeDir 下的 run-* 目录（第一次 mkdir 之前父目录可能还不存在） */
+  function runDirNames(runtimeDir: string): string[] {
+    return existsSync(runtimeDir)
+      ? readdirSync(runtimeDir).filter((name) => name.startsWith(BRIDGE_RUN_DIR_PREFIX)).sort()
+      : []
+  }
+
+  type WriteFault = 'before-write' | 'after-write' | 'truncated-write' | 'foreign-write'
+
+  /**
+   * 在 owner/patch 的写入点注入确定性 EIO（真实 mkdir、真实文件系统，只替换 writeFile）：
+   *   - before-write   ：文件根本没被创建（F3 里「5 个空目录」的成因）
+   *   - after-write    ：内容已完整落盘后才报错（F3 里「5 个仅含 marker 的目录」的成因）
+   *   - truncated-write：只写了一半内容才报错（模拟部分写入）
+   *   - foreign-write  ：路径上的内容不是我们写的（归属不可证明）
+   */
+  function faultyWriter(target: 'owner' | 'patch', fault: WriteFault): {
+    writeFile: (file: string, data: string) => void
+    failure: Error
+    disarm: () => void
+    writes: string[]
+  } {
+    const failure = Object.assign(new Error(`injected EIO at ${target} write`), { code: 'EIO' })
+    const writes: string[] = []
+    let armed = true
+    const writeFile = (file: string, data: string): void => {
+      writes.push(file)
+      const hit =
+        armed && (target === 'owner' ? file.endsWith(BRIDGE_RUN_OWNER_FILE_NAME) : file.endsWith(BRIDGE_PATCH_FILE_NAME))
+      if (!hit) {
+        writeFileSync(file, data, 'utf8')
+        return
+      }
+      if (fault === 'after-write') writeFileSync(file, data, 'utf8')
+      if (fault === 'truncated-write') writeFileSync(file, data.slice(0, Math.ceil(data.length / 2)), 'utf8')
+      if (fault === 'foreign-write') writeFileSync(file, 'other-generation: not ours\n', 'utf8')
+      throw failure
+    }
+    return { writeFile, failure, disarm: () => { armed = false }, writes }
+  }
+
+  it('owner 写入点 EIO 连续 5 次：每次回滚本次新建的 run 目录，之后正常 prepare/cleanup 仍剩 0 个目录', () => {
+    const root = tempDir('lyshell-f3-owner-eio-')
+    const pkg = makeBridgePackage(join(root, 'pkg'))
+    const runtimeDir = join(root, 'runtime')
+    const location = locationOf(pkg)
+    const faulty = faultyWriter('owner', 'before-write')
+    for (let i = 0; i < 5; i++) {
+      let caught: unknown
+      try {
+        prepareBridgeRuntime({ runtimeDir, location, writeFile: faulty.writeFile })
+      } catch (error) {
+        caught = error
+      }
+      // 原错误原样上抛（不被回滚包装/替换），调用方的「无桥」判据不变
+      expect(caught).toBe(faulty.failure)
+    }
+    // F3 反证：修复前这里会剩 5 个缺少 marker 的空 run 目录，且没有任何回收路径能删它们
+    expect(runDirNames(runtimeDir)).toEqual([])
+
+    faulty.disarm()
+    const plan = prepareBridgeRuntime({ runtimeDir, location, writeFile: faulty.writeFile })
+    expect(existsSync(plan.patchFile)).toBe(true)
+    expect(runDirNames(runtimeDir)).toEqual([dirname(plan.patchFile).split(/[\\/]/).pop()!])
+    plan.cleanup()
+    expect(runDirNames(runtimeDir)).toEqual([])
+  })
+
+  it('patch 写入点 EIO 连续 5 次：回滚 owner marker + 目录，之后正常 prepare/cleanup 仍剩 0 个目录', () => {
+    const root = tempDir('lyshell-f3-patch-eio-')
+    const pkg = makeBridgePackage(join(root, 'pkg'))
+    const runtimeDir = join(root, 'runtime')
+    const location = locationOf(pkg)
+    // 先留一个**正常在用的**代：回滚不得碰别的 run 目录
+    const survivor = prepareBridgeRuntime({ runtimeDir, location })
+    const faulty = faultyWriter('patch', 'before-write')
+    for (let i = 0; i < 5; i++) {
+      let caught: unknown
+      try {
+        prepareBridgeRuntime({ runtimeDir, location, writeFile: faulty.writeFile })
+      } catch (error) {
+        caught = error
+      }
+      expect(caught).toBe(faulty.failure)
+    }
+    // F3 反证：修复前这里会剩 5 个只含 owner marker 的目录（同进程 PID 还活着，启动扫描也不会收）
+    expect(runDirNames(runtimeDir)).toEqual([dirname(survivor.patchFile).split(/[\\/]/).pop()!])
+    expect(existsSync(survivor.patchFile)).toBe(true)
+
+    faulty.disarm()
+    const plan = prepareBridgeRuntime({ runtimeDir, location, writeFile: faulty.writeFile })
+    plan.cleanup()
+    survivor.cleanup()
+    expect(runDirNames(runtimeDir)).toEqual([])
+  })
+
+  it('内容已完整落盘后才报错：按完整内容证明归属并回滚（owner / patch 两个写入点）', () => {
+    for (const target of ['owner', 'patch'] as const) {
+      const root = tempDir(`lyshell-f3-after-${target}-`)
+      const pkg = makeBridgePackage(join(root, 'pkg'))
+      const runtimeDir = join(root, 'runtime')
+      const faulty = faultyWriter(target, 'after-write')
+      expect(() => prepareBridgeRuntime({ runtimeDir, location: locationOf(pkg), writeFile: faulty.writeFile })).toThrow(
+        faulty.failure
+      )
+      expect(runDirNames(runtimeDir)).toEqual([])
+    }
+  })
+
+  it('只写了部分内容才报错：按前缀证明归属并回滚，不留半个文件/空目录', () => {
+    for (const target of ['owner', 'patch'] as const) {
+      const root = tempDir(`lyshell-f3-partial-${target}-`)
+      const pkg = makeBridgePackage(join(root, 'pkg'))
+      const runtimeDir = join(root, 'runtime')
+      const faulty = faultyWriter(target, 'truncated-write')
+      expect(() => prepareBridgeRuntime({ runtimeDir, location: locationOf(pkg), writeFile: faulty.writeFile })).toThrow(
+        faulty.failure
+      )
+      expect(runDirNames(runtimeDir)).toEqual([])
+    }
+  })
+
+  it('归属无法证明（路径上是别人的内容）：保留文件与目录，绝不递归删除，也不误删后续代', () => {
+    const root = tempDir('lyshell-f3-foreign-')
+    const pkg = makeBridgePackage(join(root, 'pkg'))
+    const runtimeDir = join(root, 'runtime')
+    const location = locationOf(pkg)
+    const faulty = faultyWriter('patch', 'foreign-write')
+    expect(() => prepareBridgeRuntime({ runtimeDir, location, writeFile: faulty.writeFile })).toThrow(faulty.failure)
+
+    const names = runDirNames(runtimeDir)
+    expect(names.length).toBe(1)
+    const dir = join(runtimeDir, names[0])
+    // 别人的 patch 内容原样保留；目录因非空而保留（rmdir 失败，绝不递归删除）。
+    // 任一文件归属不明时保留整个 run，包括 owner，供后续诊断。
+    expect(readFileSync(join(dir, BRIDGE_PATCH_FILE_NAME), 'utf8')).toBe('other-generation: not ours\n')
+    expect(existsSync(join(dir, BRIDGE_RUN_OWNER_FILE_NAME))).toBe(true)
+
+    // 归属不明的残留不得妨碍后续正常代
+    const plan = prepareBridgeRuntime({ runtimeDir, location })
+    plan.cleanup()
+    expect(existsSync(dir)).toBe(true)
+  })
+
+  it('run 目录已存在（碰撞）：拒绝且不写、不覆盖、不删除已有资源', () => {
+    const root = tempDir('lyshell-f3-collision-')
+    const pkg = makeBridgePackage(join(root, 'pkg'))
+    const runtimeDir = join(root, 'runtime')
+    const location = locationOf(pkg)
+    const collisionDir = join(runtimeDir, `${BRIDGE_RUN_DIR_PREFIX}fixed`)
+    mkdirSync(collisionDir, { recursive: true })
+    const foreignPatch = join(collisionDir, BRIDGE_PATCH_FILE_NAME)
+    const foreignOwner = join(collisionDir, BRIDGE_RUN_OWNER_FILE_NAME)
+    writeFileSync(join(collisionDir, 'keep.txt'), 'user data', 'utf8')
+    writeFileSync(foreignPatch, '{ "owned": "by someone else" }', 'utf8')
+    writeFileSync(foreignOwner, JSON.stringify({ version: 1, pid: 1, owner: 'preexisting' }), 'utf8')
+
+    const writes: string[] = []
+    const writeFile = (file: string, data: string): void => {
+      writes.push(file)
+      writeFileSync(file, data, 'utf8')
+    }
+    expect(() => prepareBridgeRuntime({ runtimeDir, location, randomRunId: () => 'fixed', writeFile })).toThrow(
+      /already exists/
+    )
+    // 一个字节都没写进别人的目录
+    expect(writes).toEqual([])
+    expect(readFileSync(join(collisionDir, 'keep.txt'), 'utf8')).toBe('user data')
+    expect(readFileSync(foreignPatch, 'utf8')).toBe('{ "owned": "by someone else" }')
+    expect(JSON.parse(readFileSync(foreignOwner, 'utf8'))).toEqual({ version: 1, pid: 1, owner: 'preexisting' })
+  })
+
+  it('patch 写入报错期间 owner 被另一代接管：回滚不得删除该目录的任何资源', () => {
+    const root = tempDir('lyshell-f3-takeover-')
+    const pkg = makeBridgePackage(join(root, 'pkg'))
+    const runtimeDir = join(root, 'runtime')
+    let runDir = ''
+    const replacement = JSON.stringify({ version: 1, pid: process.pid, owner: 'new-generation' })
+    const failure = Object.assign(new Error('EIO after takeover'), { code: 'EIO' })
+    expect(() => prepareBridgeRuntime({ runtimeDir, location: locationOf(pkg), writeFile: (file, content) => {
+      runDir = dirname(file)
+      writeFileSync(file, content, 'utf8')
+      if (file.endsWith(BRIDGE_PATCH_FILE_NAME)) {
+        writeFileSync(join(runDir, BRIDGE_RUN_OWNER_FILE_NAME), replacement, 'utf8')
+        throw failure
+      }
+    } })).toThrow(failure)
+    expect(readFileSync(join(runDir, BRIDGE_RUN_OWNER_FILE_NAME), 'utf8')).toBe(replacement)
+    expect(readFileSync(join(runDir, BRIDGE_PATCH_FILE_NAME), 'utf8')).toBe(buildBridgePatchFile(join(pkg, 'index.mjs')))
+  })
+
+  it('mkdir 期间发生同名目录碰撞时不写入或清理碰撞目录', () => {
+    const root = tempDir('lyshell-f3-mkdir-race-')
+    const pkg = makeBridgePackage(join(root, 'pkg'))
+    const runtimeDir = join(root, 'runtime')
+    const writeFile = vi.fn()
+    let collisionDir = ''
+    expect(() => prepareBridgeRuntime({ runtimeDir, location: locationOf(pkg), writeFile, mkdir: dir => {
+      collisionDir = dir
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'keep.txt'), 'other process')
+      mkdirSync(dir) // 模拟独占 mkdir 发现刚出现的同名目录。
+    } })).toThrow()
+    expect(writeFile).not.toHaveBeenCalled()
+    expect(readFileSync(join(collisionDir, 'keep.txt'), 'utf8')).toBe('other process')
+  })
+
+  it('旧版无归属标记的 run 目录不会被回滚/启动回收顺手删掉', () => {
+    const root = tempDir('lyshell-f3-unmarked-')
+    const pkg = makeBridgePackage(join(root, 'pkg'))
+    const runtimeDir = join(root, 'runtime')
+    const location = locationOf(pkg)
+    const legacy = join(runtimeDir, `${BRIDGE_RUN_DIR_PREFIX}legacy`)
+    mkdirSync(legacy, { recursive: true })
+    writeFileSync(join(legacy, BRIDGE_PATCH_FILE_NAME), buildBridgePatchFile(join(pkg, 'index.mjs')), 'utf8')
+    const plan = prepareBridgeRuntime({ runtimeDir, location })
+    expect(existsSync(legacy)).toBe(true)
+    plan.cleanup()
+    expect(existsSync(legacy)).toBe(true)
   })
 })
 

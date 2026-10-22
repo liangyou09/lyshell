@@ -48,6 +48,7 @@ interface TerminalSearchPanelProps {
   useRegex: boolean
   wholeWord: boolean
   invalidRegex: boolean
+  searchError?: boolean
   matchInfo: { idx: number; total: number }
   onDragStart: React.MouseEventHandler<HTMLDivElement>
   onSearchChange: (text: string) => void
@@ -117,7 +118,7 @@ const TerminalSearchPanel: React.FC<TerminalSearchPanelProps> = (props) => {
 
           <div className="terminal-search-results">
             <span id={statusId} className={`terminal-search-count${props.invalidRegex ? ' terminal-search-error' : ''}`} role="status" aria-live="polite">
-              {props.invalidRegex
+              {props.searchError ? t('terminal.search.budgetExceeded') : props.invalidRegex
                 ? t('terminal.search.invalidRegex')
                 : searchScope === 'all'
                 ? props.allTabsNoMatches ? t('terminal.search.noMatches') : <span title={t('terminal.search.allTabsNoCount')}>—</span>

@@ -1022,45 +1022,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId }) => {
     return () => window.removeEventListener('terminal-tab-switched', handleTabSwitch)
   }, [sessionId, getTerminal])
 
-  // 监听终端数据（带缓冲，防止 xterm 未就绪时丢失数据）
-  useEffect(() => {
-    if (!window.electronAPI) return
-
-    let pendingData: string = ''
-    let flushTimer: ReturnType<typeof setTimeout> | null = null
-
-    const flushPending = () => {
-      flushTimer = null
-      const instance = getTerminal(sessionId)
-      if (instance && pendingData) {
-        instance.terminal.write(pendingData)
-        pendingData = ''
-      } else if (pendingData) {
-        // terminal 还没创建，等下一次 flush
-        flushTimer = setTimeout(flushPending, 50)
-      }
-    }
-
-    const cleanup = window.electronAPI.onTerminalData((id, data) => {
-      if (id === sessionId) {
-        const instance = getTerminal(sessionId)
-        if (instance) {
-          instance.terminal.write(data)
-        } else {
-          // terminal 未就绪，缓冲数据
-          pendingData += data
-          if (!flushTimer) {
-            flushTimer = setTimeout(flushPending, 50)
-          }
-        }
-      }
-    })
-
-    return () => {
-      if (flushTimer) clearTimeout(flushTimer)
-      cleanup()
-    }
-  }, [sessionId, getTerminal])
+  // 输出订阅由 terminal-store 管理，按 xterm.write 完成回调确认消费。
 
   // 监听连接状态变化（显示连接错误信息 + 连接成功后 resize）
   useEffect(() => {

@@ -1,3 +1,4 @@
+import { StringDecoder } from 'string_decoder'
 /**
  * LyShell HTTP API 客户端
  * MCP Server 进程通过此客户端调用 LyShell 主进程的 HTTP API
@@ -286,6 +287,8 @@ export class LyShellHttpClient {
         }
 
         let buffer = ''
+        const decoder = new StringDecoder('utf8')
+        const maxFrameChars = 7 * 1024 * 1024
         let resolved = false
 
         const handleEvent = (raw: string) => {
@@ -307,7 +310,10 @@ export class LyShellHttpClient {
         }
 
         res.on('data', (chunk: Buffer) => {
-          buffer += chunk.toString().replace(/\r\n/g, '\n')
+          buffer += decoder.write(chunk).replace(/\r\n/g, '\n')
+          if (buffer.length > maxFrameChars) {
+            resolved = true; reject(new Error('Command stream frame too large')); res.destroy(); return
+          }
           let idx: number
           while ((idx = buffer.indexOf('\n\n')) !== -1) {
             const raw = buffer.slice(0, idx)

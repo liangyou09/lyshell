@@ -57,6 +57,43 @@ afterEach(async () => {
 })
 
 describe('插件 SSH 克隆渠道回收', () => {
+  it('shell 创建期间已绑定数据和错误监听，首包保留且错误不能逃出 EventEmitter', async () => {
+    const { manager, session } = await source()
+    let finish!: () => void
+    vi.spyOn(SSHConnector.prototype, 'startShellOnly').mockImplementation(() => new Promise<void>(resolve => { finish = resolve }))
+    const output = vi.fn()
+    manager.on('terminal:data', output)
+    const cloning = manager.cloneChannel(session.id)
+    const clone = manager.getAllSessions().find(s => s.id !== session.id)!
+    clone.connector!.emit('data', 'early banner\r\n')
+    const raw = clone.outputBuffer?.getOutputSince(0, false).text
+    let escaped: unknown
+    try { clone.connector!.emit('error', new Error('connection lost while opening')) } catch (error) { escaped = error }
+    finish()
+    const result = await cloning
+    expect(raw).toBe('early banner\r\n')
+    expect(output).toHaveBeenCalledWith({ sessionId: clone.id, data: 'early banner\r\n' })
+    expect(escaped).toBeUndefined()
+    expect(result).toBeNull()
+    expect(manager.getSession(clone.id)).toBeUndefined()
+    expect(manager.getSession(session.id)).toBe(session)
+  })
+
+  it('shell 创建期间关闭后不能再发布 connected 或保留僵尸克隆', async () => {
+    const { manager, session } = await source()
+    let finish!: () => void
+    vi.spyOn(SSHConnector.prototype, 'startShellOnly').mockImplementation(() => new Promise<void>(resolve => { finish = resolve }))
+    const status = vi.fn()
+    manager.on('session:status', status)
+    const cloning = manager.cloneChannel(session.id)
+    const clone = manager.getAllSessions().find(s => s.id !== session.id)!
+    clone.connector!.emit('close')
+    finish()
+    expect(await cloning).toBeNull()
+    expect(status.mock.calls.some(([event]) => event.id === clone.id && event.status === ConnectionStatus.CONNECTED)).toBe(false)
+    expect(manager.getSession(clone.id)).toBeUndefined()
+  })
+
   it('异步断开尚未完成时就标记来源正在删除，完成后清除标记', async () => {
     const { manager, session } = await source()
     let finish!: () => void

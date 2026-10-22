@@ -152,13 +152,13 @@ export interface DshWebLaunchResolveDeps {
   ) => Record<string, string> | undefined
   resolveActiveProfileEnv: (runtime: HarnessAgentRuntime) => Record<string, string> | undefined
   normalizeEnv: (env?: Record<string, string>) => NormalizedEnvResult
-  isDshInstalled: () => boolean
+  isDshInstalled: () => boolean | Promise<boolean>
   resolveDshHome: (raw?: string) => string
   /**
    * 即时读系统 PATH（与 spawn 侧 readSystemPath 同一来源）。
    * 解析时读一次并**冻结进快照**，spawn 不再读第二次。
    */
-  readSystemPath: () => string | null
+  readSystemPath: () => string | null | Promise<string | null>
   /** 父进程环境快照（生产 = process.env 的复制） */
   parentEnv: () => Record<string, string | undefined>
   /** 确保默认目录存在（$DSH_HOME/web） */
@@ -198,7 +198,7 @@ export function defaultDshWebResolveDeps(): DshWebLaunchResolveDeps {
     resolveWorkspaceEnv,
     resolveActiveProfileEnv,
     normalizeEnv: normalizeDshHomeEnv,
-    isDshInstalled: () => detectDependencies(['dsh'], readSystemPath() ?? undefined).dsh,
+    isDshInstalled: async () => detectDependencies(['dsh'], (await readSystemPath()) ?? undefined).dsh,
     resolveDshHome,
     readSystemPath: () => readSystemPath(),
     parentEnv: () => ({ ...process.env }),
@@ -238,7 +238,7 @@ export function createDshWebLaunchResolver(
     }
 
     // 启动前复核 dsh 是否仍在 PATH 上（仅 dsh，不依赖 dsh-tui，故只扫 dsh 一个二进制）
-    if (!deps.isDshInstalled()) {
+    if (!await deps.isDshInstalled()) {
       return { ok: false, code: 'dsh-missing', error: 'dsh not installed' }
     }
 
@@ -296,7 +296,7 @@ export function createDshWebLaunchResolver(
     // process.env / 系统 PATH（用户中途改环境变量就漂移成两个不同实例）。
     const launchEnv = materializeLaunchEnv({
       base: deps.parentEnv(),
-      systemPath: deps.readSystemPath(),
+      systemPath: await deps.readSystemPath(),
       overrides: env
     })
     return {

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
+import type { TerminalOutputControl, TerminalOutputReceipt } from '@shared/terminal-output'
 import type { WorktreeListResult } from '@shared/worktree'
 import type { CodeWorkspaceRequest, CodeWorkspaceResult } from '@shared/code-workspaces'
 import { DSH_MARKET_CHANNEL, type DshMarketAction, type DshMarketResult } from '@shared/dsh-market'
@@ -42,6 +43,7 @@ const IPC_CHANNELS = {
   TERMINAL_WRITE: 'terminal:write',
   TERMINAL_RESIZE: 'terminal:resize',
   TERMINAL_DATA: 'terminal:data',
+  TERMINAL_OUTPUT_CONTROL: 'terminal:output-control',
   TERMINAL_OPEN_SESSIONS_SYNC: 'terminal:open-sessions-sync',
   MCP_SESSION_LOCKED: 'mcp:session-locked',
   MCP_SESSION_UNLOCKED: 'mcp:session-unlocked',
@@ -264,8 +266,10 @@ const electronAPI = {
     ipcRenderer.send(IPC_CHANNELS.TERMINAL_WRITE, sessionId, data),
   terminalResize: (sessionId: string, cols: number, rows: number) =>
     ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESIZE, sessionId, cols, rows),
-  onTerminalData: (callback: (sessionId: string, data: string) => void) => {
-    const listener = (_event: IpcRendererEvent, sessionId: string, data: string) => callback(sessionId, data)
+  terminalOutputControl: (request: TerminalOutputControl): Promise<{ subscriptionId?: string; success: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_OUTPUT_CONTROL, request),
+  onTerminalData: (callback: (sessionId: string, data: string, receipt?: TerminalOutputReceipt) => void) => {
+    const listener = (_event: IpcRendererEvent, sessionId: string, data: string, receipt?: TerminalOutputReceipt) => callback(sessionId, data, receipt)
     ipcRenderer.on(IPC_CHANNELS.TERMINAL_DATA, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_DATA, listener)
   },
@@ -528,7 +532,7 @@ const electronAPI = {
   },
 
   // 下载记录
-  getDownloadHistory: (sessionId?: string) => ipcRenderer.invoke(IPC_CHANNELS.DOWNLOAD_HISTORY_LIST, sessionId),
+  getDownloadHistory: (sessionId?: string, offset?: number) => ipcRenderer.invoke(IPC_CHANNELS.DOWNLOAD_HISTORY_LIST, sessionId, offset),
   clearDownloadHistory: () => ipcRenderer.invoke(IPC_CHANNELS.DOWNLOAD_HISTORY_CLEAR),
   deleteDownloadRecord: (recordId: string) => ipcRenderer.invoke(IPC_CHANNELS.DOWNLOAD_HISTORY_DELETE, recordId),
   getDownloadConfig: () => ipcRenderer.invoke(IPC_CHANNELS.DOWNLOAD_CONFIG_GET),

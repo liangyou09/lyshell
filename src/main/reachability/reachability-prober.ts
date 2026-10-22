@@ -36,7 +36,10 @@ export class ReachabilityProber extends EventEmitter {
   private targets: Map<string, ReachabilityTarget> = new Map()
   private timer: NodeJS.Timeout | null = null
   private running: boolean = false
-  private inflight: Set<string> = new Set()
+  private generation = 0
+  private round: Promise<void> | null = null
+  private initialTimer: NodeJS.Timeout | null = null
+  private cancels = new Set<() => void>()
 
   constructor(
     /** 探测周期，毫秒 */
@@ -58,6 +61,7 @@ export class ReachabilityProber extends EventEmitter {
       if (!t.host || !t.port) continue
       next.set(t.key, t)
     }
+    this.invalidate()
     this.targets = next
   }
 
@@ -68,7 +72,7 @@ export class ReachabilityProber extends EventEmitter {
     if (this.running) return
     this.running = true
     // 启动延迟 2s，避开应用启动高峰
-    setTimeout(() => {
+    this.initialTimer = setTimeout(() => {
       if (this.running) this.probeAll().catch(err => log.warn('reachability initial probe failed:', err))
     }, 2_000)
     this.timer = setInterval(() => {
@@ -78,6 +82,8 @@ export class ReachabilityProber extends EventEmitter {
 
   stop(): void {
     this.running = false
+    this.invalidate()
+    if (this.initialTimer) { clearTimeout(this.initialTimer); this.initialTimer = null }
     if (this.timer) {
       clearInterval(this.timer)
       this.timer = null
@@ -94,30 +100,27 @@ export class ReachabilityProber extends EventEmitter {
   /**
    * 探测一组目标，按 concurrency 分批
    */
-  private async probeAll(): Promise<void> {
-    const all = Array.from(this.targets.values())
-    if (all.length === 0) return
+  private invalidate(): void {
+    this.generation++
+    for (const cancel of [...this.cancels]) cancel()
+  }
 
-    // 简单的滑动窗口并发
+  private probeAll(): Promise<void> {
+    if (this.round) return this.round
+    const generation = this.generation
+    const all = Array.from(this.targets.values())
     let idx = 0
-    const workers: Promise<void>[] = []
     const next = async () => {
-      while (idx < all.length) {
+      while (generation === this.generation && idx < all.length) {
         const target = all[idx++]
-        if (this.inflight.has(target.key)) continue
-        this.inflight.add(target.key)
-        try {
-          const result = await this.probeOne(target)
-          this.emit('result', result)
-        } finally {
-          this.inflight.delete(target.key)
-        }
+        const result = await this.probeOne(target)
+        if (generation === this.generation) this.emit('result', result)
       }
     }
-    for (let i = 0; i < Math.min(this.concurrency, all.length); i++) {
-      workers.push(next())
-    }
-    await Promise.all(workers)
+    const workers = Array.from({ length: Math.min(Math.max(1, this.concurrency), all.length) }, next)
+    const round = Promise.all(workers).then(() => {}).finally(() => { if (this.round === round) this.round = null })
+    this.round = round
+    return round
   }
 
   /**
@@ -128,7 +131,16 @@ export class ReachabilityProber extends EventEmitter {
       let settled = false
       const socket = new net.Socket()
 
+      const cancel = () => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        cleanup()
+        resolve({ key: target.key, reachable: false, reason: 'cancelled' })
+      }
+      this.cancels.add(cancel)
       const cleanup = () => {
+        this.cancels.delete(cancel)
         socket.removeAllListeners()
         try { socket.destroy() } catch { /* ignore */ }
       }

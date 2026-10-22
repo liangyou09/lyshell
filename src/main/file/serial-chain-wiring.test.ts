@@ -88,7 +88,7 @@ describe('worker manager 串行队列取消配线', () => {
       SESSION_MANAGER.indexOf("connector.on('error'")
     )
     expect(closeHandler).toContain('if (!isCurrentAttempt()) return')
-    expect(closeHandler).toContain('this.cleanupDisconnectedSession(id, generation, connector)')
+    expect(closeHandler).toContain('this.disconnectSession(id)')
     expect(SESSION_MANAGER).toContain('this.disconnectingSessions.get(session) ?? session.disconnectCleanup')
     expect(SESSION_MANAGER).toContain('if (disconnect) await disconnect')
     expect(cleanupBody).toContain('if (session.disconnectCleanup) return session.disconnectCleanup')

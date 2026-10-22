@@ -20,7 +20,7 @@ vi.mock('electron', () => ({
   session: { fromPartition: () => ({ cookies: { set: async () => {} } }) }
 }))
 
-vi.mock('../env/refresh', () => ({ readSystemPath: () => null }))
+vi.mock('../env/refresh', () => ({ readSystemPath: async () => null, getCachedSystemPath: () => null }))
 
 const mocks = vi.hoisted(() => ({
   spawn: vi.fn(),

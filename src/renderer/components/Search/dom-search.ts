@@ -1,3 +1,5 @@
+import { searchText } from './text-search'
+import { runBoundedRegex } from './regex-search-client'
 export interface TextSearchOptions {
   caseSensitive: boolean
   regex: boolean
@@ -7,8 +9,9 @@ export interface TextSearchOptions {
 export const DOM_MATCH_LIMIT = 1000
 
 /** 查找阅读文本，保留跨 inline 节点的匹配，不改写 React 管理的 DOM。 */
-export function findTextRanges(root: HTMLElement, query: string, options: TextSearchOptions): { ranges: Range[]; truncated: boolean } {
+export async function findTextRanges(root: HTMLElement, query: string, options: TextSearchOptions, signal?: AbortSignal): Promise<{ ranges: Range[]; truncated: boolean }> {
   if (!query) return { ranges: [], truncated: false }
+  if (query.length > 4096) throw new Error('Search query limit exceeded')
   const doc = root.ownerDocument
   const win = doc.defaultView!
   const walker = doc.createTreeWalker(root, 5) // SHOW_ELEMENT | SHOW_TEXT
@@ -16,7 +19,17 @@ export function findTextRanges(root: HTMLElement, query: string, options: TextSe
   let text = ''
   let lastBlock: Element | null = null
   let truncated = false
+  let yieldAt = performance.now() + 8
+  let visitedNodes = 0
   while (walker.nextNode()) {
+    if (signal?.aborted) throw new Error('Search cancelled')
+    if (++visitedNodes > 20000 || text.length > 2 * 1024 * 1024) throw new Error('Search content limit exceeded')
+    // DOM 收集按片让出 UI；慢机器上的合法小文档不因冷启动耗时被误判为超限。
+    if (performance.now() >= yieldAt) {
+      await new Promise<void>(resolve => setTimeout(resolve, 0))
+      if (signal?.aborted) throw new Error('Search cancelled')
+      yieldAt = performance.now() + 8
+    }
     if (walker.currentNode.nodeType === 1) {
       if (walker.currentNode.nodeName === 'BR') text += '\n'
       continue
@@ -35,28 +48,21 @@ export function findTextRanges(root: HTMLElement, query: string, options: TextSe
       element = element.parentElement
     }
     if (hidden) continue
+    if (node.data.length > 2 * 1024 * 1024 - text.length) throw new Error('Search content limit exceeded')
     if (segments.length && block !== lastBlock) text += '\n'
     lastBlock = block
     const start = text.length
     text += node.data
     segments.push({ node, start, end: text.length })
   }
-  const source = options.regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const pattern = new RegExp(source, options.caseSensitive ? 'gu' : 'giu')
-  const word = /[\p{L}\p{N}_]/u
+  const result = options.regex
+    ? await runBoundedRegex(text, query, options, signal)
+    : searchText(text, query, options)
+  if (signal?.aborted) throw new Error('Search cancelled')
+  truncated = result.truncated
   const ranges: Range[] = []
-  let match: RegExpExecArray | null
   let cursor = 0
-  while ((match = pattern.exec(text))) {
-    if (!match[0].length) {
-      // 零宽正则不产生可定位结果；按 Unicode 码点推进以免死循环。
-      pattern.lastIndex += (text.codePointAt(pattern.lastIndex) ?? 0) > 0xffff ? 2 : 1
-      continue
-    }
-    const start = match.index
-    const end = start + match[0].length
-    if (options.wholeWord && ((start > 0 && word.test(Array.from(text.slice(Math.max(0, start - 2), start)).pop()!)) || (end < text.length && word.test(String.fromCodePoint(text.codePointAt(end)!))))) continue
-    if (ranges.length === DOM_MATCH_LIMIT) { truncated = true; break }
+  for (const [start, end] of result.matches) {
     while (cursor < segments.length && segments[cursor].end <= start) cursor++
     const first = segments[cursor]
     let lastIndex = cursor

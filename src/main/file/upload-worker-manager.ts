@@ -7,6 +7,13 @@ import * as path from 'path'
 import log from 'electron-log'
 import type { BrowserWindow } from 'electron'
 import { createSerialChain } from './serial-chain'
+import {
+  transferScheduler,
+  transferEndpointKey,
+  type TransferLease,
+  TransferCancelledError,
+  TransferQueueFullError
+} from './transfer-scheduler'
 
 // Worker 任务数据
 interface UploadTaskData {
@@ -39,6 +46,11 @@ interface ActiveWorker {
 // 全局 Worker 映射
 const activeWorkers: Map<string, ActiveWorker> = new Map()
 
+// 已取消但 Worker 尚未 exit 的任务：用于抑制取消后迟到的 progress/complete/error 消息
+const cancelledTaskIds: Set<string> = new Set()
+// 在首个 await 前登记，覆盖 acquire 已发放额度、调用方尚未恢复的取消窗口。
+const admissions = new Map<string, { sessionId: string; cancelled: boolean }>()
+
 // 同 SSH endpoint + 规范化远程路径的上传串行化：两个并发上传写同一远端文件会让
 // Python `open(path, "wb")` 互相 truncate + 交错写入，导致远端文件损坏且双方都不报错。
 // 后到的同路径上传排队在前一个完成/失败/取消之后执行。
@@ -66,21 +78,54 @@ export function setMainWindowForUpload(window: BrowserWindow | null) {
  */
 export function startUploadWorker(task: UploadTaskData): Promise<void> {
   // 复用阻塞等待路径，仅忽略其 Promise 结果；进度/错误仍通过 message 事件推送
-  runUploadWorkerAndWait(task).catch(() => {})
+  runUploadWorkerAndWait(task).catch((error) => {
+    // 排队容量满必须给 UI 一个明确失败回执，否则进度条会永远停在“等待中”
+    if (error instanceof TransferQueueFullError) {
+      log.warn(`Upload task ${task.taskId} rejected: ${error.message}`)
+      sendProgressToRenderer({
+        taskId: task.taskId,
+        sessionId: task.sessionId,
+        failed: true,
+        error: '上传队列已满，请稍后重试',
+        progress: 0,
+        transferredSize: 0,
+        fileSize: task.fileSize,
+        speed: 0,
+        direction: 'upload'
+      })
+    }
+    // 取消回执由 cancelUpload / cancelUploadsBySession 负责；Worker 侧失败已有回执
+  })
   return Promise.resolve()
 }
 
 /**
  * 启动上传 Worker 并阻塞等待完成（MCP 同步路径用）
  *
- * 同 SSH endpoint + 规范化远程路径的上传会串行排队，避免并发写同一远端文件导致损坏。
+ * 同 SSH endpoint + 规范化远程路径的上传会串行排队，避免并发写同一远端文件导致损坏；
+ * 不同路径的上传还会受全局 Worker 调度器限制（全局 4、每 endpoint 2）。
  */
-export function runUploadWorkerAndWait(task: UploadTaskData): Promise<void> {
-  const key = uploadChainKey(task.sshConfig, task.remotePath)
-  return uploadChain.run(key, () => runUploadWorkerInternal(task), {
-    id: task.taskId,
-    group: task.sessionId
-  })
+export async function runUploadWorkerAndWait(task: UploadTaskData): Promise<void> {
+  if (admissions.has(task.taskId)) throw new Error('Transfer task already exists')
+  const admission = { sessionId: task.sessionId, cancelled: false }
+  admissions.set(task.taskId, admission)
+  let lease: TransferLease | undefined
+  try {
+    lease = await transferScheduler.acquire({
+      taskId: task.taskId,
+      sessionId: task.sessionId,
+      endpoint: transferEndpointKey(task.sshConfig.host, task.sshConfig.port)
+    })
+    if (admission.cancelled) throw new TransferCancelledError()
+    const key = uploadChainKey(task.sshConfig, task.remotePath)
+    return await uploadChain.run(key, () => runUploadWorkerInternal(task), {
+      id: task.taskId,
+      group: task.sessionId
+    })
+  } finally {
+    admissions.delete(task.taskId)
+    lease?.release()
+  }
 }
 
 /**
@@ -96,10 +141,28 @@ function runUploadWorkerInternal(task: UploadTaskData): Promise<void> {
 
   log.debug(`Upload worker path: ${workerPath}`)
 
-  // 创建 Worker
-  const worker = new Worker(workerPath, {
-    workerData: task
-  })
+  // 创建 Worker；同步构造失败时不会有线程需要等待 exit，直接失败
+  let worker: Worker
+  try {
+    worker = new Worker(workerPath, {
+      workerData: task
+    })
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    log.error(`Failed to create upload worker for task ${taskId}: ${err.message}`)
+    sendProgressToRenderer({
+      taskId,
+      sessionId,
+      failed: true,
+      error: err.message,
+      progress: 0,
+      transferredSize: 0,
+      fileSize: task.fileSize,
+      speed: 0,
+      direction: 'upload'
+    })
+    return Promise.reject(err)
+  }
 
   // 记录活动 Worker
   activeWorkers.set(taskId, {
@@ -110,57 +173,79 @@ function runUploadWorkerInternal(task: UploadTaskData): Promise<void> {
   })
 
   return new Promise<void>((resolve, reject) => {
+    // 协议终态（complete/error 消息或 error 事件）先记录，真正 settle 等 Worker exit，
+    // 这样 complete 之后线程尚未退出的窗口期不会提前释放并发额度。
     let settled = false
+    let terminalOk = false
+    let terminalError: Error | undefined
 
     // 监听 Worker 消息
     worker.on('message', (msg: any) => {
-      handleWorkerMessage(msg, task)
-      if (settled) return
-      if (msg.type === 'complete') {
+      // 取消后迟到的消息一律丢弃，不能再产生进度/完成回执
+      if (cancelledTaskIds.has(taskId)) return
+
+      if (msg.type === 'complete' || msg.type === 'error') {
+        if (settled) return
         settled = true
-        resolve()
-      } else if (msg.type === 'error') {
-        settled = true
-        reject(new Error(msg.error || 'Upload failed'))
+        terminalOk = msg.type === 'complete'
+        terminalError = msg.type === 'complete'
+          ? undefined
+          : new Error(msg.error || 'Upload failed')
+        handleWorkerMessage(msg, task)
+        return
       }
+
+      handleWorkerMessage(msg, task)
     })
 
-    // 监听 Worker 错误
+    // 监听 Worker 错误：只记录终态与失败回执，不释放额度、不提前 settle
     worker.on('error', (err) => {
       log.error(`Upload worker error for task ${taskId}:`, err.message)
-      sendProgressToRenderer({
-        taskId,
-        sessionId,
-        failed: true,
-        error: err.message,
-        progress: 0,
-        transferredSize: 0,
-        fileSize: task.fileSize,
-        speed: 0,
-        direction: 'upload'
-      })
-      activeWorkers.delete(taskId)
       if (!settled) {
         settled = true
-        reject(err)
+        terminalOk = false
+        terminalError = err
+        if (!cancelledTaskIds.has(taskId)) {
+          sendProgressToRenderer({
+            taskId,
+            sessionId,
+            failed: true,
+            error: err.message,
+            progress: 0,
+            transferredSize: 0,
+            fileSize: task.fileSize,
+            speed: 0,
+            direction: 'upload'
+          })
+        }
       }
     })
 
-    // 监听 Worker 退出
+    // 监听 Worker 退出：线程真正结束后才 settle 并释放额度
     worker.on('exit', (code) => {
       activeWorkers.delete(taskId)
-      if (!settled) {
-        settled = true
-        const error = code === 0
+
+      let error: Error | null = null
+      if (cancelledTaskIds.delete(taskId)) {
+        log.info(`Upload worker for task ${taskId} exited after cancellation`)
+        error = new TransferCancelledError('Upload cancelled')
+      } else if (terminalOk) {
+        log.info(`Upload worker for task ${taskId} completed successfully`)
+        error = null
+      } else if (settled) {
+        error = terminalError ?? new Error('Upload failed')
+      } else {
+        error = code === 0
           ? new Error('Upload worker exited without a terminal message')
           : new Error(`Upload worker exited with code ${code}`)
         log.warn(`Upload worker for task ${taskId} exited before protocol settlement (code ${code})`)
-        reject(error)
-      } else if (code === 0) {
-        log.info(`Upload worker for task ${taskId} completed successfully`)
-      } else {
-        log.warn(`Upload worker for task ${taskId} exited with code ${code} after settlement`)
       }
+
+      if (error) {
+        reject(error)
+        return
+      }
+      resolve()
     })
   })
 }
@@ -246,36 +331,50 @@ function sendProgressToRenderer(data: any) {
  * 取消上传任务
  */
 export function cancelUpload(taskId: string): boolean {
+  const pending = admissions.get(taskId)
+  if (pending) pending.cancelled = true
   const active = activeWorkers.get(taskId)
   if (active) {
     log.info(`Cancelling upload task ${taskId}`)
+    // 先标记再 terminate：exit 前迟到的 complete/progress 消息会被丢弃
+    cancelledTaskIds.add(taskId)
     active.worker.terminate()
-    activeWorkers.delete(taskId)
     return true
   }
   if (uploadChain.cancelId(taskId)) {
     log.info(`Cancelling queued upload task ${taskId}`)
     return true
   }
-  return false
+  if (transferScheduler.cancelId(taskId)) {
+    log.info(`Cancelling globally queued upload task ${taskId}`)
+    return true
+  }
+  return Boolean(pending)
 }
 
 /**
  * 取消某会话的所有活跃上传任务（会话断开时调用）
- * 返回已取消的任务数；每个被终止的 worker 都补发一个 cancelled 事件以更新 UI
+ * 返回已取消的任务数；每个被取消的任务都补发一个 cancelled 事件以更新 UI
  */
 export function cancelUploadsBySession(sessionId: string): number {
-  const queuedTaskIds = uploadChain.cancelGroup(sessionId)
+  const pendingIds = [...admissions].filter(([, task]) => task.sessionId === sessionId && !task.cancelled).map(([id, task]) => { task.cancelled = true; return id })
+  const selected = new Set(pendingIds)
+  // 路径串行队列（已拿到额度、等待同路径前序任务）
+  const queuedChainIds = uploadChain.cancelGroup(sessionId)
+  // 全局调度队列（尚未拿到 Worker 额度，从未创建 Worker）
+  const queuedSchedulerIds = pendingIds.filter(taskId => transferScheduler.cancelId(taskId))
+  const queuedTaskIds = [...new Set([...queuedChainIds, ...queuedSchedulerIds, ...pendingIds.filter(taskId => !activeWorkers.has(taskId))])]
   for (const taskId of queuedTaskIds) {
     log.info(`Cancelling queued upload task ${taskId} (session ${sessionId} disconnected)`)
     sendProgressToRenderer({ taskId, cancelled: true })
   }
+
   let count = queuedTaskIds.length
   for (const [taskId, active] of activeWorkers) {
-    if (active.sessionId === sessionId) {
+    if (active.sessionId === sessionId && selected.has(taskId)) {
       log.info(`Cancelling upload task ${taskId} (session ${sessionId} disconnected)`)
+      cancelledTaskIds.add(taskId)
       active.worker.terminate()
-      activeWorkers.delete(taskId)
       sendProgressToRenderer({ taskId, cancelled: true })
       count++
     }
@@ -294,9 +393,12 @@ export function getActiveUploadCount(): number {
  * 清理所有上传 Worker
  */
 export function cleanupAllUploadWorkers() {
+  for (const task of admissions.values()) task.cancelled = true
   uploadChain.cancelAll()
+  for (const taskId of admissions.keys()) transferScheduler.cancelId(taskId)
   for (const [taskId, active] of activeWorkers) {
     log.info(`Terminating upload worker for task ${taskId}`)
+    cancelledTaskIds.add(taskId)
     active.worker.terminate()
   }
   activeWorkers.clear()

@@ -41,6 +41,9 @@ export abstract class BaseConnector extends EventEmitter {
    */
   abstract resize(cols: number, rows: number): void
 
+  /** 图形消费者积压时暂停输入源；无原生流的测试/扩展连接器默认无操作。 */
+  setOutputPaused(_paused: boolean): void {}
+
   /**
    * 重建解码流（连接建流与运行时切档共用）：旧流先 end() 收尾 —— 半截多字节序列
    * 以替换字符吐出（而非随旧对象静默丢弃），流也不悬挂；再按当前 encoding 建新流。

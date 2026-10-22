@@ -23,6 +23,7 @@ export const IPC_CHANNELS = {
   TERMINAL_WRITE: 'terminal:write',
   TERMINAL_RESIZE: 'terminal:resize',
   TERMINAL_DATA: 'terminal:data',
+  TERMINAL_OUTPUT_CONTROL: 'terminal:output-control',
   TERMINAL_EXIT: 'terminal:exit',
 
   // Python 执行

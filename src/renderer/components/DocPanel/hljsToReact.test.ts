@@ -28,6 +28,18 @@ describe('normalizeLang：语言归一化', () => {
 })
 
 describe('hljsToReact：高亮 → React 节点', () => {
+  it('960 KiB 与 10 MiB 代码块直接回退单一文本节点', () => {
+    for (const code of ['const x = 123;\n'.repeat(65536), 'x'.repeat(10 * 1024 * 1024)]) {
+      const result = hljsToReact(code, 'javascript')
+      expect(result.ok).toBe(false)
+      expect(result.nodes).toEqual([code])
+    }
+  })
+
+  it('大小门限内节点过多时也回退纯文本', () => {
+    const code = 'const x=1;'.repeat(1200)
+    expect(hljsToReact(code, 'javascript')).toEqual({ nodes: [code], ok: false })
+  })
   it('已知语言：产出带 hljs-* class 的元素树（零 dangerouslySetInnerHTML）', () => {
     const { nodes, ok } = hljsToReact('const x = "hi" // note', 'javascript')
     expect(ok).toBe(true)

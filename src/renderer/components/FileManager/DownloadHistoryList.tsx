@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import i18n from '../../i18n'
@@ -46,26 +46,36 @@ interface DownloadHistoryListProps {
  */
 const DownloadHistoryList: React.FC<DownloadHistoryListProps> = ({ sessionId }) => {
   const [records, setRecords] = useState<DownloadRecord[]>([])
+  const [offset, setOffset] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const requestVersion = useRef(0)
   const [loading, setLoading] = useState(true)
   const [expandedMd5, setExpandedMd5] = useState<Record<string, boolean>>({})
   const { t } = useTranslation()
 
   useEffect(() => {
-    loadRecords()
+    setOffset(0)
+    void loadRecords(0)
+    return () => { requestVersion.current++ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId])
 
-  const loadRecords = async () => {
+  const loadRecords = async (pageOffset = offset) => {
+    const version = ++requestVersion.current
     setLoading(true)
     try {
-      const result = await window.electronAPI.getDownloadHistory(sessionId || undefined)
+      const result = await window.electronAPI.getDownloadHistory(sessionId || undefined, pageOffset)
+      if (version !== requestVersion.current) return
       if (result.success) {
         setRecords(result.data || [])
+        setExpandedMd5({})
+        setOffset(pageOffset)
+        setHasMore(Boolean(result.hasMore))
       }
     } catch (err) {
       console.error('Failed to load history:', err)
     }
-    setLoading(false)
+    if (version === requestVersion.current) setLoading(false)
   }
 
   const handleReveal = (localPath: string) => {
@@ -97,7 +107,7 @@ const DownloadHistoryList: React.FC<DownloadHistoryListProps> = ({ sessionId }) 
           <span className="ml-1">{t('fileManager.recordsCount')}</span>
         </span>
         <button
-          onClick={loadRecords}
+          onClick={() => { void loadRecords() }}
           title={t('common.refresh')}
           className="w-[20px] h-[20px] inline-flex items-center justify-center bg-transparent border-none rounded-[2px] cursor-pointer text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)] transition-colors"
         >
@@ -105,6 +115,11 @@ const DownloadHistoryList: React.FC<DownloadHistoryListProps> = ({ sessionId }) 
         </button>
       </div>
 
+      <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-[var(--rule-soft)] text-xs">
+        <button disabled={loading || offset === 0} onClick={() => { void loadRecords(Math.max(0, offset - 100)) }}>{t('fileManager.previousPage')}</button>
+        <span>{offset + (records.length ? 1 : 0)}–{offset + records.length}</span>
+        <button disabled={loading || !hasMore} onClick={() => { void loadRecords(offset + 100) }}>{t('fileManager.nextPage')}</button>
+      </div>
       {/* === 列表 === */}
       <div className="flex-1 overflow-auto rack-scroll">
         {loading ? (

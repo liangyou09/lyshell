@@ -21,6 +21,7 @@ export default function SearchableTab({ id, children, className = 'relative w-fu
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [searchError, setSearchError] = useState(false)
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [regex, setRegex] = useState(false)
   const [wholeWord, setWholeWord] = useState(false)
@@ -39,7 +40,8 @@ export default function SearchableTab({ id, children, className = 'relative w-fu
   })
   let invalidRegex = false
   if (!web && regex && query) {
-    try { new RegExp(query, caseSensitive ? 'gu' : 'giu') } catch { invalidRegex = true }
+    if (query.length > 4096) invalidRegex = true
+    else try { new RegExp(query, caseSensitive ? 'gu' : 'giu') } catch { invalidRegex = true }
   }
   const guest = useCallback(() => rootRef.current?.querySelector<WebviewTag>('webview') ?? null, [])
   const clear = useCallback(() => {
@@ -135,6 +137,7 @@ export default function SearchableTab({ id, children, className = 'relative w-fu
   useEffect(() => {
     clear()
     setMatchInfo({ idx: -1, total: 0 })
+    setSearchError(false)
     if (!open || !active || !query || invalidRegex) return
     const root = rootRef.current!
     if (web) {
@@ -164,8 +167,15 @@ export default function SearchableTab({ id, children, className = 'relative w-fu
     }
     let timer: ReturnType<typeof setTimeout> | undefined
     let frameObserver: MutationObserver | undefined
-    const run = () => {
+    let controller: AbortController | undefined
+    let disposed = false
+    const run = async () => {
+      controller?.abort()
+      const current = new AbortController()
+      controller = current
       cleanHighlights.current()
+      rangesRef.current = []
+      indexRef.current = -1
       frameObserver?.disconnect()
       const frame = root.querySelector('iframe')
       let target = root.querySelector<HTMLElement>('[data-tab-search-content] .doc-content, [data-tab-search-content].doc-content')
@@ -173,7 +183,12 @@ export default function SearchableTab({ id, children, className = 'relative w-fu
       try { if (frame?.contentDocument?.body) target = frame.contentDocument.body } catch { /* 不读跨源 frame */ }
       const doc = target.ownerDocument
       const win = doc.defaultView as HighlightWindow
-      const { ranges, truncated } = findTextRanges(target, query, { caseSensitive, regex, wholeWord })
+      let result: Awaited<ReturnType<typeof findTextRanges>>
+      try { result = await findTextRanges(target, query, { caseSensitive, regex, wholeWord }, current.signal) }
+      catch { if (!disposed && !current.signal.aborted) setSearchError(true); return }
+      if (disposed || current.signal.aborted) return
+      setSearchError(false)
+      const { ranges, truncated } = result
       rangesRef.current = ranges
       indexRef.current = -1
       const name = highlightId
@@ -196,14 +211,14 @@ export default function SearchableTab({ id, children, className = 'relative w-fu
         frameObserver.observe(target, { subtree: true, childList: true, characterData: true })
       }
     }
-    const schedule = () => { clearTimeout(timer); timer = setTimeout(run, 120) }
+    const schedule = () => { controller?.abort(); clearTimeout(timer); timer = setTimeout(() => { void run() }, 120) }
     const observer = new MutationObserver(records => {
       if (records.some(record => !(record.target instanceof Element ? record.target : record.target.parentElement)?.closest('[data-search-panel]'))) schedule()
     })
     observer.observe(root, { subtree: true, childList: true, characterData: true })
     root.addEventListener('load', schedule, true)
     run()
-    return () => { clearTimeout(timer); observer.disconnect(); frameObserver?.disconnect(); root.removeEventListener('load', schedule, true); clear() }
+    return () => { disposed = true; controller?.abort(); clearTimeout(timer); observer.disconnect(); frameObserver?.disconnect(); root.removeEventListener('load', schedule, true); clear() }
   }, [open, active, query, caseSensitive, regex, wholeWord, invalidRegex, web, guest, clear, selectRange, highlightId])
 
   useEffect(() => {
@@ -229,7 +244,7 @@ export default function SearchableTab({ id, children, className = 'relative w-fu
     {children}
     {open && active && <TerminalSearchPanel inputRef={inputRef} position={position} isDragging={dragging}
       searchText={query} searchScope="current" caseSensitive={caseSensitive} useRegex={regex} wholeWord={wholeWord}
-      invalidRegex={invalidRegex} matchInfo={matchInfo} showScope={false} showAdvanced={!web}
+      invalidRegex={invalidRegex} searchError={searchError} matchInfo={matchInfo} showScope={false} showAdvanced={!web}
       onDragStart={event => {
         if (event.button !== 0) return
         event.preventDefault()

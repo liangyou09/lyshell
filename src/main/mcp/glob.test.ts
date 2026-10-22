@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { compileGlob, relPath } from './glob'
+import { compileGlob, relPath, GLOB_PATTERN_MAX_LENGTH, GlobPatternTooLongError } from './glob'
 
 describe('compileGlob', () => {
   it('matches a simple extension pattern', () => {
@@ -64,6 +64,60 @@ describe('compileGlob', () => {
     const m = compileGlob('*.LOG')
     expect(m('a.LOG')).toBe(true)
     expect(m('a.log')).toBe(false)
+  })
+
+  it('preserves separator, line terminator and UTF-16 semantics', () => {
+    expect(compileGlob('*')('a\nb')).toBe(true)
+    expect(compileGlob('**')('a\nb')).toBe(false)
+    expect(compileGlob('**')('a/b')).toBe(true)
+    expect(compileGlob('**/b')('ab')).toBe(true)
+    expect(compileGlob('?')('😀')).toBe(false)
+    expect(compileGlob('??')('😀')).toBe(true)
+    expect(compileGlob('[!a]')('\n')).toBe(true)
+    expect(compileGlob('[]')('a')).toBe(false)
+    expect(compileGlob('[!]')('a')).toBe(true)
+    expect(() => compileGlob('[z-a]')).toThrow(SyntaxError)
+  })
+
+  it('cooperative matcher agrees with the synchronous matcher', async () => {
+    const matcher = compileGlob('src/**/[!a-c]?.ts')
+    for (const value of ['src/zx.ts', 'src/a/zx.ts', 'src/ab.ts', 'other/zx.ts']) {
+      expect(await matcher.matchAsync(value, () => false)).toBe(matcher(value))
+    }
+    expect(await matcher.matchAsync('src/zx.ts', () => true)).toBeUndefined()
+  })
+})
+
+describe('compileGlob pattern length budget', () => {
+  it('accepts a pattern of exactly the limit and can still match', () => {
+    expect(GLOB_PATTERN_MAX_LENGTH).toBe(4096)
+    const matcher = compileGlob('a'.repeat(GLOB_PATTERN_MAX_LENGTH))
+    expect(matcher('')).toBe(false)
+    expect(compileGlob('*'.repeat(GLOB_PATTERN_MAX_LENGTH))('')).toBe(true)
+  })
+
+  it.each([GLOB_PATTERN_MAX_LENGTH + 1, 1_000_000])('rejects %i chars before allocating tokens', length => {
+    const pattern = 'a'.repeat(length)
+    let caught: unknown
+    try { compileGlob(pattern) } catch (error) { caught = error }
+    expect(caught).toBeInstanceOf(GlobPatternTooLongError)
+    expect((caught as GlobPatternTooLongError).length).toBe(length)
+  })
+
+  it('rejects an oversized character class before compiling it', () => {
+    // 旧实现会先 slice/转义并构造 RegExp；长度预算必须在这些分配之前生效。
+    const oversizedClass = '[' + 'a'.repeat(1_000_000) + ']'
+    expect(() => compileGlob(oversizedClass)).toThrow(GlobPatternTooLongError)
+  })
+
+  it('does not echo the rejected pattern in the error message', () => {
+    const pattern = 'secret-pattern-'.repeat(100_000)
+    let caught: Error | undefined
+    try { compileGlob(pattern) } catch (error) { caught = error as Error }
+    expect(caught).toBeInstanceOf(GlobPatternTooLongError)
+    expect(caught!.message).toContain(String(pattern.length))
+    expect(caught!.message.length).toBeLessThan(200)
+    expect(caught!.message).not.toContain(pattern.slice(0, 32))
   })
 })
 

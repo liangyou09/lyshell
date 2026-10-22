@@ -8,6 +8,8 @@ import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypt
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 import { sessionManager, extractErrorMessage } from '../terminal/session-manager'
+import { TerminalOutputDispatcher } from '../terminal/output-dispatcher'
+import { validateTerminalOutputControl, validateDownloadHistoryPage } from './validation'
 import { sessionRepository, preferencesRepository, quickCommandsRepository } from '../storage/repository'
 import { agentRepository } from '../storage/agent-repository'
 import type { AgentConfig } from '../storage/agent-repository'
@@ -174,6 +176,7 @@ export const IPC_CHANNELS = {
   TERMINAL_WRITE: 'terminal:write',
   TERMINAL_RESIZE: 'terminal:resize',
   TERMINAL_DATA: 'terminal:data',
+  TERMINAL_OUTPUT_CONTROL: 'terminal:output-control',
   TERMINAL_EXIT: 'terminal:exit',
   TERMINAL_OPEN_SESSIONS_SYNC: 'terminal:open-sessions-sync',  // 渲染层同步当前打开的会话列表
   MCP_SESSION_LOCKED: 'mcp:session-locked',  // MCP 占用共享 PTY，渲染层应阻塞用户输入
@@ -456,12 +459,12 @@ export function registerIPCHandlers(): void {
 
   // ========== 连接管理 ==========
 
-  ipcMain.handle(IPC_CHANNELS.EXPLORER_LAUNCH_TAKE, event => {
+  ipcMain.handle(IPC_CHANNELS.EXPLORER_LAUNCH_TAKE, async event => {
     assertExplorerLaunchConsumer(event.sender.id, explorerLaunchQueue.consumerId)
     const directories = explorerLaunchQueue.takeAll()
       .map(validateExplorerDirectory).filter((directory): directory is string => directory !== null)
     if (!directories.length) return []
-    const shell = findExplorerShell(readSystemPath() ?? undefined)
+    const shell = findExplorerShell((await readSystemPath()) ?? undefined)
     return directories.map((cwd): SessionConfig => ({
       id: '',
       name: path.basename(cwd) || cwd,
@@ -762,22 +765,36 @@ export function registerIPCHandlers(): void {
     return { success: true }
   })
 
-  // 监听终端数据，批量发送到所有窗口（减少 IPC 频率）
-  const dataBuffers = new Map<string, string>()
-  let dataFlushTimer: ReturnType<typeof setTimeout> | null = null
-
-  sessionManager.on('terminal:data', (data) => {
-    const existing = dataBuffers.get(data.sessionId) || ''
-    dataBuffers.set(data.sessionId, existing + data.data)
-
-    if (!dataFlushTimer) {
-      dataFlushTimer = setTimeout(() => {
-        for (const [sessionId, bufferedData] of dataBuffers) {
-          sendToAllWindows(IPC_CHANNELS.TERMINAL_DATA, sessionId, bufferedData)
+  const terminalOutput = new TerminalOutputDispatcher((id, paused) => sessionManager.setOutputPaused(id, paused))
+  const outputWindows = new Set<number>()
+  sessionManager.on('terminal:data', ({ sessionId, data }: { sessionId: string; data: string }) => terminalOutput.append(sessionId, data))
+  sessionManager.on('session:deleted', (id: string) => terminalOutput.removeSession(id))
+  sessionManager.on('session:status', ({ id, status }: { id: string; status: string }) => {
+    if (status === ConnectionStatus.CONNECTED) terminalOutput.refreshPause(id)
+  })
+  ipcMain.handle(IPC_CHANNELS.TERMINAL_OUTPUT_CONTROL, (event, raw: unknown) => {
+    try {
+      const request = validateTerminalOutputControl(raw)
+      const sender = event.sender
+      // 输出流只能归属主窗口，webview/插件 guest 不能占住输入源。
+      if (!BrowserWindow.fromWebContents(sender)) throw new ValidationError('Terminal output requires an application window')
+      if (request.kind === 'subscribe') {
+        if (!outputWindows.has(sender.id)) {
+          outputWindows.add(sender.id)
+          sender.once('destroyed', () => { outputWindows.delete(sender.id); terminalOutput.removeWindow(sender.id) })
+          sender.on('render-process-gone', () => terminalOutput.removeWindow(sender.id))
+          sender.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) terminalOutput.removeWindow(sender.id) })
         }
-        dataBuffers.clear()
-        dataFlushTimer = null
-      }, 16)
+        const subscriptionId = terminalOutput.subscribe(sender.id, request.sessionId,
+          (data, receipt) => sender.send(IPC_CHANNELS.TERMINAL_DATA, request.sessionId, data, receipt),
+          sessionManager.getSession(request.sessionId)?.outputBuffer?.getOutputSince(0, false).text ?? '')
+        return { success: true, subscriptionId }
+      }
+      if (request.kind === 'ack') terminalOutput.acknowledge(sender.id, request.sessionId, request.subscriptionId, request.sequence)
+      else terminalOutput.remove(sender.id, request.sessionId, request.subscriptionId)
+      return { success: true }
+    } catch (error) {
+      return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
     }
   })
 
@@ -1871,13 +1888,12 @@ export function registerIPCHandlers(): void {
 
   // ========== 下载记录 ==========
 
-  ipcMain.handle(IPC_CHANNELS.DOWNLOAD_HISTORY_LIST, async (_event, sessionId?: string) => {
+  ipcMain.handle(IPC_CHANNELS.DOWNLOAD_HISTORY_LIST, async (_event, sessionId?: string, offset?: number) => {
     log.debug('Get download history:', sessionId)
     try {
-      const records = sessionId
-        ? downloadHistory.getRecordsByServer(sessionId)
-        : downloadHistory.getAllRecords()
-      return { success: true, data: records }
+      const safe = validateDownloadHistoryPage(sessionId, offset)
+      const page = await downloadHistory.getPage(safe.sessionId, safe.offset)
+      return { success: true, data: page.records, hasMore: page.hasMore }
     } catch (error) {
       log.error('Get download history error:', error)
       return { success: false, error: (error as Error).message }
@@ -2374,7 +2390,7 @@ export function registerIPCHandlers(): void {
     // 检测依赖是否已安装。先即时读取系统 PATH（用户改环境变量后无需重启 app），
     // 再据此做纯文件系统扫描；readSystemPath 失败时回落 process.env.PATH。
     ipcMain.handle(`${kind}:detect`, async () => {
-      return detectDependencies(runtime.dependencies, readSystemPath() ?? undefined)
+      return detectDependencies(runtime.dependencies, (await readSystemPath(true)) ?? undefined)
     })
 
     // ========== <kind> 环境变量组（kind 专属的仅此一个入口） ==========
@@ -2558,7 +2574,7 @@ export function registerIPCHandlers(): void {
         const workspace = kind === 'dsh' ? snapshot : { ...snapshot, ...managedTargetOf(snapshot.workspacePresetId) }
 
         // 启动前复核依赖是否仍在 PATH 上（与 agent:launch 同层兜底，不依赖前端禁用态）
-        const status = detectDependencies(runtime.dependencies, readSystemPath() ?? undefined)
+        const status = detectDependencies(runtime.dependencies, (await readSystemPath()) ?? undefined)
         const missing = runtime.dependencies.filter((d) => !status[d])
         if (missing.length > 0) {
           return { success: false, error: `${missing.join(' and ')} not installed` }
@@ -2630,7 +2646,7 @@ export function registerIPCHandlers(): void {
       }
       const request = validateCodeWorkspaceRequest(raw)
       const launchingShell = request.kind === 'launch' || request.kind === 'launchDirectory'
-      const pwshPath = launchingShell ? findPwshPath(readSystemPath() ?? undefined) : null
+      const pwshPath = launchingShell ? findPwshPath((await readSystemPath()) ?? undefined) : null
       if (launchingShell && !pwshPath) {
         return { success: false, error: 'PowerShell 7 (pwsh) was not found. Install PowerShell 7 and try again.' }
       }

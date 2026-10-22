@@ -23,6 +23,8 @@ export interface SSHConfig {
  * SSH 连接器
  */
 export class SSHConnector extends BaseConnector {
+  /** transport 由所有存活 channel 共同持有，最后一个释放时关闭。 */
+  private static clientOwners = new WeakMap<Client, Set<SSHConnector>>()
   private config: SSHConfig
   private client: Client | null = null
   private channel: ClientChannel | null = null
@@ -31,6 +33,8 @@ export class SSHConnector extends BaseConnector {
   private _connectReject: ((error: Error) => void) | null = null  // 连接 Promise 的 reject 函数
   private _cols: number = 80  // 终端列数
   private _rows: number = 24  // 终端行数
+  private outputPaused = false
+  private clientListenerCleanup: Array<() => void> = []
 
   constructor(sessionId: string, config: SSHConfig) {
     super(sessionId, config.encoding)
@@ -42,8 +46,67 @@ export class SSHConnector extends BaseConnector {
    */
   setSharedClient(client: Client): void {
     this.sharedClient = client
-    this.client = client
+    this.retainClient(client)
     this.connected = true
+  }
+
+  private retainClient(client: Client): void {
+    this.client = client
+    let owners = SSHConnector.clientOwners.get(client)
+    if (!owners) {
+      SSHConnector.clientOwners.set(client, owners = new Set())
+      // 最后一个 channel 释放后直到 TCP 完全关闭的窗口也要有 error 监听。
+      const teardownError = (error: Error) => {
+        log.debug('SSH transport error:', error.message)
+        for (const owner of SSHConnector.clientOwners.get(client) ?? []) {
+          if (owner.sharedClient === client) owner.emitError(error)
+        }
+      }
+      client.on('error', teardownError)
+      client.once('close', () => {
+        for (const owner of [...(SSHConnector.clientOwners.get(client) ?? [])]) owner.handleTransportClose(client)
+        client.off('error', teardownError)
+      })
+    }
+    owners.add(this)
+  }
+
+  private releaseClient(): void {
+    const client = this.client
+    this.client = null
+    this.sharedClient = null
+    for (const cleanup of this.clientListenerCleanup.splice(0)) cleanup()
+    if (!client) return
+    const owners = SSHConnector.clientOwners.get(client)
+    owners?.delete(this)
+    if (!owners?.size) {
+      SSHConnector.clientOwners.delete(client)
+      client.end()
+    }
+  }
+
+  private handleTransportClose(client: Client): void {
+    if (this.client !== client) return
+    const reject = this._connectReject
+    this._connectReject = null
+    this._connecting = false
+    reject?.(new Error('Connection closed'))
+    void this.disconnect()
+    this.emitClose()
+  }
+
+  private handleShellClose(channel: ClientChannel): void {
+    if (this.channel !== channel) return
+    this.channel = null
+    // 普通和克隆渠道都进入同一回收路径；共享 transport 的其他渠道不受影响。
+    void this.disconnect()
+    this.emitClose()
+  }
+
+  setOutputPaused(paused: boolean): void {
+    this.outputPaused = paused
+    if (paused) this.channel?.pause()
+    else this.channel?.resume()
   }
 
   /**
@@ -75,7 +138,14 @@ export class SSHConnector extends BaseConnector {
           return
         }
 
+        if (this.client !== client) {
+          channel.close()
+          reject(new Error('SSH shell creation cancelled'))
+          return
+        }
+
         this.channel = channel
+        if (this.outputPaused) channel.pause()
 
         // 空窗期补偿(同 startShell):await startShellOnly() 期间到达的 resize
         // 只改写了 _cols/_rows 而没发 setWindow,这里按最新存储值补发。
@@ -96,12 +166,7 @@ export class SSHConnector extends BaseConnector {
         // Shell 关闭
         channel.on('close', () => {
           log.info('SSH shell closed')
-          this.channel = null
-          // 共享 client 时，只关闭 channel，不关闭整个连接
-          if (!this.sharedClient) {
-            this.connected = false
-            this.emitClose()
-          }
+          this.handleShellClose(channel)
         })
 
         log.info('SSH shell started (clone channel)')
@@ -121,10 +186,12 @@ export class SSHConnector extends BaseConnector {
 
     log.info(`SSH connecting to ${this.config.host}:${this.config.port}`)
 
-    this.client = new Client()
+    const client = new Client()
+    this.retainClient(client)
     this._connecting = true
 
-    this.client.on('ready', () => {
+    const onReady = () => {
+      if (this.client !== client) return
       log.info('SSH connection ready')
       this._connecting = false
       this._connectReject = null
@@ -136,24 +203,31 @@ export class SSHConnector extends BaseConnector {
 
       // 启动 shell
       this.startShell()
-    })
+    }
 
-    this.client.on('error', (err) => {
+    const onError = (err: Error) => {
+      if (this.client !== client) return
       // 提取关键错误信息（去掉堆栈）
       const errMsg = err.message?.split('\n')[0]?.replace(/^Error:\s*/, '') || err.toString()
       log.error(`SSH connection error: ${errMsg}`)
+      this._connectReject?.(err)
       this._connecting = false
       this._connectReject = null
       this.connected = false
       this.emitError(err)
-    })
+    }
 
-    this.client.on('close', () => {
+    const onClose = () => {
       log.info('SSH connection closed')
-      this._connecting = false
-      this._connectReject = null
-      this.connected = false
-      this.emitClose()
+      this.handleTransportClose(client)
+    }
+    client.on('ready', onReady)
+    client.on('error', onError)
+    client.on('close', onClose)
+    this.clientListenerCleanup.push(() => {
+      client.off('ready', onReady)
+      client.off('error', onError)
+      client.off('close', onClose)
     })
 
     // 连接配置
@@ -177,30 +251,15 @@ export class SSHConnector extends BaseConnector {
     }
 
     return new Promise((resolve, reject) => {
-      this._connectReject = reject  // 保存 reject 函数，以便 disconnect 时调用
-
-      // 使用 once 确保只触发一次，避免重复 reject
-      this.client!.once('ready', () => {
-        this._connecting = false
+      const ready = () => {
+        client.off('ready', ready)
         this._connectReject = null
         resolve()
-      })
-      this.client!.once('error', (err) => {
-        if (this._connecting) {
-          this._connecting = false
-          this._connectReject = null
-          reject(err)
-        }
-      })
-      this.client!.once('close', () => {
-        if (this._connecting) {
-          this._connecting = false
-          this._connectReject = null
-          reject(new Error('Connection closed'))
-        }
-      })
-
-      this.client!.connect(connectionConfig)
+      }
+      this._connectReject = error => { client.off('ready', ready); reject(error) }
+      this.clientListenerCleanup.push(() => client.off('ready', ready))
+      client.once('ready', ready)
+      client.connect(connectionConfig)
     })
   }
 
@@ -209,6 +268,7 @@ export class SSHConnector extends BaseConnector {
    */
   private startShell(): void {
     if (!this.client) return
+    const client = this.client
 
     // 传入终端窗口尺寸，避免默认 80x24。
     // 记下请求时的几何:shell 请求发出到 channel 回来隔一个网络往返,期间落进来的
@@ -217,14 +277,19 @@ export class SSHConnector extends BaseConnector {
     const reqRows = this._rows || 24
     const windowOpts = { rows: reqRows, cols: reqCols }
 
-    this.client.shell({ term: 'xterm-256color', ...windowOpts }, (err, channel) => {
+    client.shell({ term: 'xterm-256color', ...windowOpts }, (err, channel) => {
       if (err) {
         log.error('SSH shell error:', err)
         this.emitError(err)
+        void this.disconnect()
+        this.emitClose()
         return
       }
 
+      if (this.client !== client) { channel.close(); return }
+
       this.channel = channel
+      if (this.outputPaused) channel.pause()
 
       // 空窗期补偿:channel 以请求时的 windowOpts 开启,而「connect 已 resolve、
       // channel 未就绪」期间到达的 resize 已改写 _cols/_rows。按最新存储值补发
@@ -244,8 +309,7 @@ export class SSHConnector extends BaseConnector {
       // Shell 关闭
       channel.on('close', () => {
         log.info('SSH shell closed')
-        this.channel = null
-        this.emitClose()
+        this.handleShellClose(channel)
       })
 
       log.info('SSH shell started')
@@ -266,15 +330,12 @@ export class SSHConnector extends BaseConnector {
     }
 
     if (this.channel) {
-      this.channel.close()
+      const channel = this.channel
       this.channel = null
+      channel.close()
     }
 
-    // 共享 client 时，不关闭整个连接
-    if (!this.sharedClient && this.client) {
-      this.client.end()
-      this.client = null
-    }
+    this.releaseClient()
 
     if (this.decoder) {
       try { this.decoder.end() } catch { /* ignore */ }

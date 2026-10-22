@@ -5,7 +5,7 @@ import https from 'https'
 import { join } from 'path'
 import log from 'electron-log'
 import { DSH_WEB_PARTITION } from '@shared/constants'
-import { readSystemPath } from '../env/refresh'
+import { readSystemPath, getCachedSystemPath } from '../env/refresh'
 import { resolveDshHome } from './env'
 import { attachDshProcessJob, type DshProcessJob } from './windows-job'
 import {
@@ -314,7 +314,7 @@ export function comSpecFromEnv(env: Record<string, string | undefined>): string 
 function synthesizeLaunch(cwd: string, env?: Record<string, string>): ResolvedDshWebLaunch {
   const launchEnv = materializeLaunchEnv({
     base: { ...process.env },
-    systemPath: readSystemPath(),
+    systemPath: getCachedSystemPath(),
     overrides: env
   })
   const dshHome = resolveDshHome(env?.DSH_HOME ?? process.env.DSH_HOME)
@@ -636,6 +636,8 @@ export class DshWebManager {
 
     // 启动键：同键 = 同一实例配置（workspaceId/cwd/DSH_HOME/有效启动配置摘要）。
     // 没有解析结果时按 cwd+env 现算一个等价键 —— 显式 open 也能被 acquire 正确判「同键/异键」。
+    if (!opts.launch) await readSystemPath()
+    if (generation !== this.generation) { plan?.cleanup(); return { ok: false, error: 'dsh web open was superseded', code: 'superseded' } }
     const launch: ResolvedDshWebLaunch = opts.launch ?? synthesizeLaunch(opts.cwd, opts.env)
     const launchKey = launchInstanceKey(launch)
     // 期望的 DSH_HOME：调用方给了已解析目标就以它为准（与解析服务同一份决定），
@@ -682,7 +684,7 @@ export class DshWebManager {
       // 不再二次读 process.env / 系统 PATH —— 否则摘要里的配置与实际启动环境会漂移。
       const launchEnv = launch.launchEnv ?? materializeLaunchEnv({
         base: { ...process.env },
-        systemPath: readSystemPath(),
+        systemPath: getCachedSystemPath(),
         overrides: opts.env
       })
       const childEnvBase = buildChildEnv(launchEnv, resolveDshHome)

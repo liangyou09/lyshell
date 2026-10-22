@@ -121,6 +121,7 @@ export interface Session {
   pendingCols?: number  // 等待应用的终端宽度
   pendingRows?: number  // 等待应用的终端高度
   outputBuffer?: OutputBuffer  // 终端输出缓冲区（用于 MCP 读取输出）
+  outputPaused?: boolean  // 图形输出背压，重建 connector 时沿用
   pendingWaitLock?: boolean  // send_and_wait 并发锁
   lockedByMcp?: boolean  // MCP 是否正在占用该会话 PTY（共享 PTY 模式时阻塞用户输入）
   mcpLockCount?: number  // MCP PTY 锁引用计数：并发 send_input/send_and_wait 各持一份，归零才真正解锁
@@ -190,6 +191,13 @@ export class SessionManager extends EventEmitter {
    */
   getAllSessions(): Session[] {
     return Array.from(this.sessions.values())
+  }
+
+  setOutputPaused(id: string, paused: boolean): void {
+    const session = this.sessions.get(id)
+    if (!session) return
+    session.outputPaused = paused
+    session.connector?.setOutputPaused?.(paused)
   }
 
   /**
@@ -397,6 +405,9 @@ export class SessionManager extends EventEmitter {
     if (this.isSessionDeleting(id)) throw new Error(`Session is being deleted: ${id}`)
     if (this.failedDisconnects.has(session)) throw new Error(`Previous disconnect failed: ${id}`)
 
+    // 自然关闭/连接失败后的旧 connector 也必须回收后才能替换。
+    if (session.connector && !disconnect) await this.disconnectSession(id)
+    if (this.sessions.get(id) !== session || this.isSessionDeleting(id)) throw new Error(`Session replaced or deleting: ${id}`)
     session.disconnectCleanup = undefined
     const generation = (session.connectorGeneration ?? 0) + 1
     session.connectorGeneration = generation
@@ -466,6 +477,7 @@ export class SessionManager extends EventEmitter {
       // generation + Session/connector 身份校验，防旧 attempt 的迟到事件污染新连接。
       connector = session.connector
       if (!connector || !isCurrentAttempt()) throw new Error(`Connection superseded: ${id}`)
+      connector.setOutputPaused?.(session.outputPaused ?? false)
 
       session.outputBuffer = new OutputBuffer()
       // local 会话挂工作目录解析器:输出流里的 OSC 报告(9;9 / 7)实时刷新,
@@ -487,7 +499,7 @@ export class SessionManager extends EventEmitter {
       })
       connector.on('close', () => {
         if (!isCurrentAttempt()) return
-        void this.cleanupDisconnectedSession(id, generation, connector).catch((err) => {
+        void this.disconnectSession(id).catch((err) => {
           log.warn(`Natural disconnect cleanup failed for ${id}:`, err)
         })
       })
@@ -549,9 +561,17 @@ export class SessionManager extends EventEmitter {
 
     } catch (error) {
       if (isCurrentAttempt()) {
-        session.status = ConnectionStatus.ERROR
         const errorMsg = extractErrorMessage(error as Error)
-        this.emit('session:status', { id, status: ConnectionStatus.ERROR, error: errorMsg })
+        // 失败也必须撤销 token、取消文件任务并释放原生句柄；前端 error 状态关闭会短路 IPC。
+        try {
+          await this.disconnectSession(id)
+        } catch (cleanupError) {
+          log.warn(`Failed connection cleanup could not be confirmed for ${id}:`, cleanupError)
+        }
+        if (this.sessions.get(id) === session && session.connectorGeneration === generation && !this.isSessionDeleting(id)) {
+          session.status = ConnectionStatus.ERROR
+          this.emit('session:status', { id, status: ConnectionStatus.ERROR, error: errorMsg })
+        }
       }
       throw error
     }
@@ -599,7 +619,8 @@ export class SessionManager extends EventEmitter {
       const bufferToClean = session.outputBuffer
       if (bufferToClean) {
         session.outputBuffer = undefined
-        setTimeout(() => bufferToClean.clear(), 30000)
+        // sendAndWait 已持有自己的 buffer 引用，回合结束即可 GC；无需用 30s 定时器额外保活。
+        if (!session.pendingWaitLock) bufferToClean.clear()
       }
     })()
     return session.disconnectCleanup
@@ -789,6 +810,28 @@ export class SessionManager extends EventEmitter {
 
     newSession.connector = newConnector
 
+    // 在首个异步 shell 请求前完成缓冲和监听绑定，否则首包/关闭/错误会落进空窗。
+    newSession.outputBuffer = new OutputBuffer()
+    let openingError: Error | undefined
+    const isCurrentClone = (): boolean =>
+      this.sessions.get(newId) === newSession && newSession.connector === newConnector &&
+      !newSession.disconnectCleanup && !this.isSessionDeleting(newId)
+    newConnector.on('data', (data: string) => {
+      if (!isCurrentClone()) return
+      this.emit('terminal:data', { sessionId: newId, data })
+      newSession.outputBuffer?.append(data)
+    })
+    newConnector.on('close', () => {
+      if (!isCurrentClone()) return
+      void this.disconnectSession(newId).catch(err => log.warn(`Clone disconnect cleanup failed for ${newId}:`, err))
+    })
+    newConnector.on('error', (error: Error) => {
+      if (!isCurrentClone()) return
+      openingError = error
+      newSession.status = ConnectionStatus.ERROR
+      this.emit('session:status', { id: newId, status: ConnectionStatus.ERROR, error: extractErrorMessage(error) })
+    })
+
     // 首个 await 前登记，禁用可连同正在开启的 shell channel 一并回收。
     if (owner && !pluginResources.track(owner, newId, resourceGeneration)) {
       await this.deleteSession(newId)
@@ -811,32 +854,13 @@ export class SessionManager extends EventEmitter {
       }
       await opening
 
+      if (openingError) throw openingError
+
       if (this.sessions.get(newId) !== newSession || this.sessions.get(sourceSessionId) !== sourceSession
         || sourceSession.status !== ConnectionStatus.CONNECTED || newSession.disconnectCleanup
         || (owner && !pluginResources.isCurrent(owner, resourceGeneration))) {
         throw new Error('Cloned channel was cancelled while opening')
       }
-
-      // 创建输出缓冲区
-      newSession.outputBuffer = new OutputBuffer()
-
-      // 监听数据
-      newConnector.on('data', (data: string) => {
-        this.emit('terminal:data', { sessionId: newId, data })
-        newSession.outputBuffer?.append(data)
-      })
-
-      // 监听关闭
-      newConnector.on('close', () => {
-        newSession.status = ConnectionStatus.DISCONNECTED
-        this.emit('session:status', { id: newId, status: ConnectionStatus.DISCONNECTED })
-      })
-
-      // 监听错误
-      newConnector.on('error', (error: Error) => {
-        newSession.status = ConnectionStatus.ERROR
-        this.emit('session:status', { id: newId, status: ConnectionStatus.ERROR, error: error.message })
-      })
 
       newSession.status = ConnectionStatus.CONNECTED
       newSession.lastActiveAt = new Date()

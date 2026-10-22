@@ -63,6 +63,8 @@ export class LocalConnector extends BaseConnector {
   private ptyProcess: IPty | null = null
   private _cols: number = 80
   private _rows: number = 24
+  private outputPaused = false
+  private connectGeneration = 0
 
   constructor(sessionId: string, config: LocalConfig, extraEnv: Record<string, string> = {}) {
     super(sessionId)
@@ -82,6 +84,7 @@ export class LocalConnector extends BaseConnector {
    * 连接（启动本地 PTY 进程）
    */
   async connect(config?: LocalConfig): Promise<void> {
+    const generation = ++this.connectGeneration
     if (config) {
       this.config = config
     }
@@ -91,7 +94,8 @@ export class LocalConnector extends BaseConnector {
 
     // 即时读取系统 PATH 注入子进程（用户改环境变量后无需重启 app 生效）。
     // 优先级：即时系统 PATH < config.env < extraEnv（工作区/env 显式覆盖仍生效）。
-    const systemPath = readSystemPath()
+    const systemPath = await readSystemPath()
+    if (generation !== this.connectGeneration) throw new Error('Local connection cancelled')
 
     this.ptyProcess = spawn(shell, this.config.shellArgs ?? [], {
       name: 'xterm-256color',
@@ -112,6 +116,7 @@ export class LocalConnector extends BaseConnector {
     this.ptyProcess.onData((data: string) => {
       this.emitData(data)
     })
+    if (this.outputPaused) this.ptyProcess.pause()
 
     this.ptyProcess.onExit(({ exitCode }) => {
       log.info(`Local terminal exited: code ${exitCode}`)
@@ -141,6 +146,7 @@ export class LocalConnector extends BaseConnector {
    * 断开连接（杀死 PTY 进程）
    */
   async disconnect(): Promise<void> {
+    this.connectGeneration++
     const pty = this.ptyProcess
     if (pty) {
       this.ptyProcess = null
@@ -165,6 +171,13 @@ export class LocalConnector extends BaseConnector {
       return
     }
     this.ptyProcess.write(typeof data === 'string' ? data : data.toString())
+  }
+
+  setOutputPaused(paused: boolean): void {
+    if (this.outputPaused === paused) return
+    this.outputPaused = paused
+    if (paused) this.ptyProcess?.pause()
+    else this.ptyProcess?.resume()
   }
 
   /**
