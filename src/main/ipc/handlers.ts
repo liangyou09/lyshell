@@ -19,6 +19,10 @@ import { DSH_MARKET_CHANNEL } from '@shared/dsh-market'
 import { validateDshMarketAction } from './validation'
 import * as exclusiveRuntime from '../dsh/exclusive-runtime'
 import { createDshWebLaunchResolver } from '../dsh/launch-resolve'
+import { resolveDshHome } from '../dsh/env'
+import { buildDshUsageSnapshot, collectSnapshotRoutes } from '../dsh/usage-service'
+import { ensureDshPricingTemplate } from '../dsh/pricing'
+import { DSH_USAGE_PRICING_FILE } from '@shared/dsh-usage'
 import { readSystemPath } from '../env/refresh'
 import { resolveWorkspaceCwd } from '../harness/cwd'
 import { resolveAgentWorkspaceCwd } from '../harness/agent-workspace'
@@ -2744,6 +2748,68 @@ export function registerIPCHandlers(): void {
       return { success: true, url: result.url, cwd: resolved.launch.cwd, reused: false, readOnly: false }
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
+    }
+  })
+
+  // ---- dsh 用量（token / 费用）：读会话日志，不问接口 ----
+  // 数据源是 dsh 自己写的 `$DSH_HOME/sessions/**/session.v4.jsonl.zstd`（多 frame 拼接，见 dsh/zstd-frames.ts），
+  // 折叠语义与 dsh-token-meter 的 usage 投影一致（见 dsh/usage-fold.ts）。外壳只读取与折算，
+  // 不改 dsh 的账 —— 因此「读不到」必须如实上报，绝不填 0。
+  const dshPricingFile = path.join(app.getPath('userData'), DSH_USAGE_PRICING_FILE)
+
+  // 启动目标解析要读工作区/变量组仓库，面板 15s 一轮没必要每次都解析：短暂缓存。
+  let cachedUsageTarget: { at: number; dshHome: string; cwd: string | null } | null = null
+  const resolveUsageTarget = async (): Promise<{ dshHome: string; cwd: string | null }> => {
+    // 运行中的实例是权威：它就是当前 Web 页签连着的那个后台
+    const running = dshWebManager.currentLaunch
+    if (running) return { dshHome: running.dshHome, cwd: running.cwd }
+    if (cachedUsageTarget && Date.now() - cachedUsageTarget.at < 30_000) {
+      return { dshHome: cachedUsageTarget.dshHome, cwd: cachedUsageTarget.cwd }
+    }
+    const resolved = await dshLaunchResolver.resolve({})
+    // 解析失败时仍给出 DSH_HOME（会话目录仍可读），但 cwd 未知 ⇒ 会话口径明确报「无目标」
+    const target = resolved.ok
+      ? { dshHome: resolved.launch.dshHome, cwd: resolved.launch.cwd }
+      : { dshHome: resolveDshHome(process.env.DSH_HOME), cwd: null }
+    cachedUsageTarget = { at: Date.now(), ...target }
+    return target
+  }
+
+  ipcMain.handle('dsh:usage:get', async () => {
+    try {
+      const target = await resolveUsageTarget()
+      const snapshot = await buildDshUsageSnapshot({
+        dshHome: target.dshHome,
+        cwd: target.cwd,
+        pricingFile: dshPricingFile
+      })
+      return { success: true, snapshot }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  // 打开价目表：不存在就先落一份模板（路由取自日志里真实出现过的模型，单价留 null），再交系统打开。
+  ipcMain.handle('dsh:usage:open-pricing', async () => {
+    try {
+      const target = await resolveUsageTarget()
+      let routes: string[] = []
+      try {
+        const snapshot = await buildDshUsageSnapshot({
+          dshHome: target.dshHome,
+          cwd: target.cwd,
+          pricingFile: dshPricingFile
+        })
+        routes = collectSnapshotRoutes(snapshot)
+      } catch {
+        // 读数失败不该挡住「打开价目表」：先给一个空壳模板，用户自己填
+      }
+      const { created } = await ensureDshPricingTemplate(dshPricingFile, routes)
+      const openError = await shell.openPath(dshPricingFile)
+      if (openError) return { success: false, created, path: dshPricingFile, error: openError }
+      return { success: true, created, path: dshPricingFile }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
     }
   })
 

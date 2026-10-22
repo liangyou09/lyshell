@@ -4,6 +4,7 @@ import type { TerminalOutputControl, TerminalOutputReceipt } from '@shared/termi
 import type { WorktreeListResult } from '@shared/worktree'
 import type { CodeWorkspaceRequest, CodeWorkspaceResult } from '@shared/code-workspaces'
 import { DSH_MARKET_CHANNEL, type DshMarketAction, type DshMarketResult } from '@shared/dsh-market'
+import type { DshUsagePricingOpenResult, DshUsageResult } from '@shared/dsh-usage'
 import type { SessionConfig, TerminalEncoding, WebTabPopupRequest } from '@shared/types'
 import type { ExclusiveWorkbenchDetail } from '@shared/exclusive-control'
 import { isWebTabShortcutAction } from '@shared/webtab-shortcut'
@@ -138,6 +139,9 @@ const IPC_CHANNELS = {
   DSH_WEB_CLOSE: 'dsh:web:close',
   EXCLUSIVE_SNAPSHOT: 'exclusive:snapshot',  // S4：独占只读快照（无凭据）
   DSH_WEB_DETAIL_CHANGED: 'dsh:web:detail-changed',  // S4：详情面身份变化推送（无凭据）
+  // dsh 用量读数（token / 费用）：主进程扫 $DSH_HOME/sessions 下的会话日志，不是问接口
+  DSH_USAGE_GET: 'dsh:usage:get',
+  DSH_USAGE_OPEN_PRICING: 'dsh:usage:open-pricing',  // 打开价目表（不存在则先落模板）
 
   // 网页访问栏（通用网页页签）
   WEBBAR_FETCH_FAVICON: 'webbar:fetch-favicon',
@@ -400,6 +404,11 @@ const electronAPI = {
   launchDshWorkspace: (workspaceId: string) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WORKSPACE_LAUNCH, workspaceId),
   getDshEnvDefaults: () => ipcRenderer.invoke(IPC_CHANNELS.DSH_ENV_DEFAULTS),
   openDshWeb: (target: { workspaceId?: string; cwd?: string }) => ipcRenderer.invoke(IPC_CHANNELS.DSH_WEB_OPEN, target),
+  // dsh 用量：读当前实例（或默认目标）目录下的会话日志，回「本次会话 / 今日累计」的 token 与费用。
+  // 失败形状是 { success:false, error }，渲染层必须显示「读不到」而不是 0。
+  getDshUsage: (): Promise<DshUsageResult> => ipcRenderer.invoke(IPC_CHANNELS.DSH_USAGE_GET),
+  // 打开用户价目表（每 1M token 单价）；文件不存在时主进程先落模板再打开
+  openDshUsagePricing: (): Promise<DshUsagePricingOpenResult> => ipcRenderer.invoke(IPC_CHANNELS.DSH_USAGE_OPEN_PRICING),
   // S4 共享工作台：详情经现有 dshWeb 单例 overlay 打开同一后台官方 Web（acquire 复用，不重启）。
   // sessionId 是 Pet 正在控制的会话 —— 会冻结成一次 viewer 导航请求（ack 由官方 UI 实际当前会话证明）。
   openDshWebDetail: (target: { sessionId?: string; name?: string }) =>

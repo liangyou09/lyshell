@@ -39,7 +39,7 @@
 
 /* 启动区使用剩余空间，底部统计区始终保留；矮窗口允许整区滚动，避免覆盖。 */
 .dsh-launch-content { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow-y: auto; }
-.dsh-launch-stage { display: flex; flex: 1 0 250px; align-items: center; justify-content: center; }
+.dsh-launch-stage { display: flex; flex: 1 0 210px; align-items: center; justify-content: center; }
 .dsh-launch-whale {
   /* 扫描与完成态使用主题端点色，启动前也保持足够的对比度。 */
   --dsh-whale-ink: #000;
@@ -89,15 +89,114 @@
 @keyframes dsh-whale-fill { to { clip-path: inset(0 0 0 0); } }
 @keyframes dsh-whale-breathe { 50% { opacity: .55; } }
 
-.dsh-launch-usage { flex: 0 0 auto; min-height: 132px; padding: 12px 14px 14px; border-top: 1px solid var(--rule-soft); }
-.dsh-launch-usage-scopes { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; line-height: 20px; }
-.dsh-launch-usage-scopes button { padding: 2px 0; color: color-mix(in srgb, var(--text-rack) 72%, var(--bg-base)); border-bottom: 2px solid transparent; }
-.dsh-launch-usage-scopes button[aria-pressed="true"] { color: var(--text-rack); border-bottom-color: var(--amber); }
-.dsh-launch-usage-scopes button:hover { color: var(--text-rack); }
-.dsh-launch-usage-scopes button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
-.dsh-launch-usage-values { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0 8px; }
-.dsh-launch-usage-values dt, .dsh-launch-usage-note { color: color-mix(in srgb, var(--text-rack) 72%, var(--bg-base)); font-size: 11px; line-height: 16px; }
-.dsh-launch-usage-values dd { margin: 2px 0 0; color: var(--text-rack); font-size: 16px; line-height: 20px; font-variant-numeric: tabular-nums; }
+/* 用量账页：范围、读数、明细分层；沿用主题色与系统字体。 */
+.dsh-launch-usage {
+  --dsh-usage-muted: color-mix(in srgb, var(--text-rack) 75%, var(--bg-base));
+  --dsh-usage-height: 550px;
+  flex: 0 0 var(--dsh-usage-height); height: var(--dsh-usage-height); min-width: 0; padding: 16px 16px 10px;
+  overflow-y: auto; scrollbar-gutter: stable;
+  border-top: 1px solid var(--rule-soft); color: var(--text-rack);
+  font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.dsh-launch-usage-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.dsh-launch-usage-head h3 { margin: 0; font-size: 12px; line-height: 20px; font-weight: 650; }
+.dsh-launch-usage-pricing { flex-shrink: 0; padding: 3px 0 3px 4px; color: var(--dsh-usage-muted); font-size: 11px; line-height: 18px; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; }
+.dsh-launch-usage-pricing:hover { color: var(--text-rack); text-decoration-color: currentColor; }
+.dsh-launch-usage-pricing:disabled { opacity: .55; cursor: wait; }
+.dsh-launch-usage-scopes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 3px; gap: 2px; border-radius: 5px; background: var(--bg-rack); }
+.dsh-launch-usage-scopes button { min-width: 0; padding: 5px 2px; border-radius: 3px; color: var(--dsh-usage-muted); font-size: 11px; line-height: 18px; white-space: nowrap; transition: background 150ms ease, color 150ms ease; }
+.dsh-launch-usage-scopes button:hover { color: var(--text-rack); background: var(--bg-slot); }
+.dsh-launch-usage-scopes button[aria-pressed="true"] { color: var(--text-rack); background: var(--bg-base); box-shadow: inset 0 -2px var(--amber); font-weight: 650; }
+.dsh-launch-usage button:focus-visible, .dsh-usage-details summary:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.dsh-usage-context { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 9px 0 14px; color: var(--dsh-usage-muted); font-size: 11px; line-height: 16px; }
+.dsh-launch-usage-values { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: end; gap: 12px; margin: 0 0 15px; }
+.dsh-launch-usage-values dt { color: var(--dsh-usage-muted); font-size: 11px; line-height: 16px; }
+.dsh-launch-usage-values dd { margin: 4px 0 0; overflow-wrap: anywhere; font-size: 23px; line-height: 30px; letter-spacing: -.025em; font-weight: 550; }
+.dsh-launch-usage-values .dsh-usage-cost dd { font-size: 28px; line-height: 32px; font-weight: 650; }
+.dsh-usage-cache { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 11px; line-height: 16px; }
+.dsh-usage-cache span { color: var(--dsh-usage-muted); }
+.dsh-usage-cache strong { font-size: 12px; font-weight: 650; }
+.dsh-launch-usage-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 16px; margin: 0; padding: 0; list-style: none; font-size: 11px; line-height: 16px; }
+.dsh-launch-usage-metrics li { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.dsh-launch-usage-metrics span { color: var(--dsh-usage-muted); }
+.dsh-launch-usage-metrics b { font-weight: 550; }
+.dsh-usage-activity { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 10px 0 12px; color: var(--dsh-usage-muted); font-size: 11px; line-height: 16px; }
+.dsh-usage-trend { margin: 14px 0 12px; }
+.dsh-usage-trend-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; color: var(--dsh-usage-muted); font-size: 11px; line-height: 16px; }
+.dsh-usage-trend-reading { font-variant-numeric: tabular-nums; }
+.dsh-usage-trend-reading strong { margin-left: 5px; color: var(--text-rack); font-weight: 600; }
+.dsh-usage-bars { display: flex; align-items: stretch; height: 60px; gap: 3px; margin-top: 8px; border-bottom: 1px solid var(--rule-soft); }
+.dsh-usage-day { display: flex; flex: 1; min-width: 0; height: 100%; align-items: end; padding: 0 1px; border-radius: 2px 2px 0 0; }
+.dsh-usage-day span { display: block; width: 100%; min-height: 2px; max-height: 100%; background: color-mix(in srgb, var(--text-rack) 25%, var(--bg-base)); border-radius: 2px 2px 0 0; transition: background 150ms ease; }
+.dsh-usage-day:hover span, .dsh-usage-day.is-selected span { background: var(--amber); }
+.dsh-usage-day.is-unknown span { min-height: 0; height: 4px !important; border: 1px solid var(--dsh-usage-muted); background: transparent; }
+.dsh-usage-chart-axis { display: flex; justify-content: space-between; margin-top: 4px; color: var(--dsh-usage-muted); font-size: 10px; line-height: 14px; }
+.dsh-usage-details { border-top: 1px solid var(--rule-soft); font-size: 11px; line-height: 16px; }
+.dsh-usage-details summary { display: flex; align-items: center; gap: 6px; padding: 10px 0; cursor: pointer; list-style: none; }
+.dsh-usage-details summary::-webkit-details-marker { display: none; }
+.dsh-usage-details summary::before { content: ''; width: 5px; height: 5px; flex: 0 0 5px; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; transform: rotate(-45deg); transition: transform 150ms ease; }
+.dsh-usage-details[open] summary::before { transform: rotate(45deg); }
+.dsh-usage-source { margin-left: auto; color: var(--dsh-usage-muted); text-align: right; }
+.dsh-usage-detail-body { padding: 0 0 12px; }
+.dsh-launch-usage-note { margin: 0; color: var(--dsh-usage-muted); font-size: 11px; line-height: 17px; overflow-wrap: anywhere; }
+.dsh-launch-usage-note + .dsh-launch-usage-note { margin-top: 5px; }
+.dsh-usage-empty { margin: 0 0 14px; }
+.dsh-usage-warnings { margin: 10px 0; padding: 8px 10px; border-radius: 3px; background: var(--bg-rack); color: var(--text-rack); font-size: 11px; line-height: 17px; overflow-wrap: anywhere; }
+.dsh-usage-warnings p + p { margin-top: 5px; }
+.dsh-usage-route { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-top: 10px; }
+.dsh-usage-route > span { min-width: 0; overflow-wrap: anywhere; }
+.dsh-usage-route small { display: block; color: var(--dsh-usage-muted); font-size: 10px; }
+.dsh-usage-route b { font-weight: 550; white-space: nowrap; }
+.dsh-usage-tariffs table { width: 100%; margin: 0 0 10px; border-collapse: collapse; font-size: 11px; line-height: 18px; }
+.dsh-usage-tariffs th { color: var(--dsh-usage-muted); font-weight: 400; text-align: left; }
+.dsh-usage-tariffs td, .dsh-usage-tariffs thead th:not(:first-child) { text-align: right; }
+.dsh-usage-tariffs thead th { padding: 0 0 7px; color: var(--text-rack); font-weight: 600; }
+.dsh-usage-tariffs tbody th, .dsh-usage-tariffs td { padding: 3px 0; }
+.dsh-usage-tariff-total th, .dsh-usage-tariff-total td { border-top: 1px solid var(--rule-soft); }
+.dsh-usage-tariff-cost td { font-size: 13px; font-weight: 650; }
+/* 英文笔画更细，标签与明细提高一档；不改变统计区的固定高度。 */
+.dsh-launch-usage:lang(en) .dsh-launch-usage-head h3 { font-size: 13px; }
+.dsh-launch-usage:lang(en) .dsh-launch-usage-pricing,
+.dsh-launch-usage:lang(en) .dsh-launch-usage-scopes button,
+.dsh-launch-usage:lang(en) .dsh-usage-context,
+.dsh-launch-usage:lang(en) .dsh-launch-usage-values dt,
+.dsh-launch-usage:lang(en) .dsh-usage-cache,
+.dsh-launch-usage:lang(en) .dsh-launch-usage-metrics,
+.dsh-launch-usage:lang(en) .dsh-usage-activity,
+.dsh-launch-usage:lang(en) .dsh-usage-trend-heading,
+.dsh-launch-usage:lang(en) .dsh-usage-details,
+.dsh-launch-usage:lang(en) .dsh-launch-usage-note,
+.dsh-launch-usage:lang(en) .dsh-usage-warnings,
+.dsh-launch-usage:lang(en) .dsh-usage-tariffs table { font-size: 12px; line-height: 19px; }
+.dsh-launch-usage:lang(en) .dsh-launch-usage-values dd { font-size: 24px; }
+.dsh-launch-usage:lang(en) .dsh-launch-usage-values .dsh-usage-cost dd { font-size: 30px; }
+.dsh-launch-usage:lang(en) .dsh-usage-cache strong { font-size: 13px; }
+@container (max-width: 280px) {
+  .dsh-launch-usage { padding-right: 12px; padding-left: 12px; }
+  .dsh-launch-usage-metrics { gap: 5px 10px; }
+  .dsh-launch-usage-metrics li { display: block; }
+  .dsh-launch-usage-metrics b { display: block; margin-top: 1px; font-size: 12px; }
+  .dsh-launch-usage-values dd { font-size: 21px; }
+  .dsh-launch-usage-values .dsh-usage-cost dd { font-size: 25px; }
+  .dsh-launch-usage-values { grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 8px; }
+  .dsh-launch-usage:lang(en) .dsh-launch-usage-values dd { font-size: 23px; }
+  .dsh-launch-usage:lang(en) .dsh-launch-usage-values .dsh-usage-cost dd { font-size: 28px; }
+}
+@container (max-width: 250px) {
+  .dsh-launch-usage { --dsh-usage-height: 600px; }
+}
+@container (max-width: 210px) {
+  .dsh-launch-usage { --dsh-usage-height: 780px; }
+  .dsh-launch-usage-scopes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dsh-launch-usage-head { flex-wrap: wrap; }
+  .dsh-launch-usage-values { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .dsh-usage-source { display: none; }
+  .dsh-usage-bars { gap: 1px; }
+  .dsh-usage-day { padding: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dsh-launch-usage-scopes button, .dsh-usage-day span, .dsh-usage-details summary::before { transition: none; }
+}
 
 .dsh-market-section-bar {
   --dsh-market-canvas: var(--dsh-market-surface, var(--terminal-bg));

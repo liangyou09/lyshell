@@ -5,6 +5,7 @@ import { DSH_WEB_INSTALL_COMMAND } from '@shared/harness'
 import { usePaneStore } from '../../stores/pane-store'
 import { DSH_WEB_OVERLAY_ID } from '../../stores/overlay-kinds'
 import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
+import { DshUsagePanel } from './DshUsagePanel'
 
 export type DshLaunchAction = () => Promise<{ success: boolean; error?: string }>
 
@@ -17,10 +18,8 @@ export function DshLaunchTab({ onLaunch }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
-  const [usageScope, setUsageScope] = useState<'session' | 'today'>('session')
   const inFlight = useRef(false)
   const mounted = useRef(false)
-
   const launch = useCallback(async () => {
     if (inFlight.current) return
     inFlight.current = true
@@ -58,6 +57,7 @@ export function DshLaunchTab({ onLaunch }: {
     : busy ? t('dshLaunch.opening')
       : open ? t('dshLaunch.running')
         : t('dshLaunch.hint')
+
   return <div className="dsh-launch-content">
     <div className="dsh-launch-stage">
       <button type="button" onClick={() => void launch()} disabled={busy}
@@ -94,19 +94,6 @@ export function DshLaunchTab({ onLaunch }: {
         <button type="button" className="underline" onClick={() => setError(null)}>{t('dshLaunch.dismiss')}</button>
       </div>
     </div>}
-    {/* 先固定统计区布局；未采集的用量用破折号，不能当成零消费。 */}
-    <section className="dsh-launch-usage" aria-label={t('dshLaunch.usage')}>
-      <div className="dsh-launch-usage-scopes" role="group" aria-label={t('dshLaunch.usageScope')}>
-        {(['session', 'today'] as const).map(scope => <button key={scope} type="button"
-          aria-pressed={usageScope === scope} onClick={() => setUsageScope(scope)}>
-          {t(`dshLaunch.${scope}`)}
-        </button>)}
-      </div>
-      <dl className="dsh-launch-usage-values">
-        <div><dt>Token</dt><dd>—</dd></div>
-        <div><dt>{t('dshLaunch.cost')}</dt><dd>—</dd></div>
-      </dl>
-      <p className="dsh-launch-usage-note">{t('dshLaunch.usagePending')}</p>
-    </section>
+    <DshUsagePanel />
   </div>
 }

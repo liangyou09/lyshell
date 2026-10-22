@@ -498,6 +498,17 @@ export class DshWebManager {
   }
 
   /**
+   * 当前实例的启动配置（cwd / DSH_HOME），未运行返回 null。
+   *
+   * 用量读数需要用它把「哪个目录的会话」定位到 `$DSH_HOME/sessions` 下的日志：
+   * 先取就绪实例的 launch，启动中/无桥实例退到 runningLaunch —— 都是真实启动过的目标，
+   * 没有运行时就交给调用方按默认目标解析，绝不在这里猜路径。
+   */
+  get currentLaunch(): ResolvedDshWebLaunch | null {
+    return this.readyInstance?.launch ?? this.runningLaunch?.launch ?? null
+  }
+
+  /**
    * 桥的Pet 托管控制端点（回环端口 + host-only key，**只内存**）。
    * 未就绪/旧版桥（没报 controlPort）返回 null ⇒ Pet 托管控制明确报 bridge/unavailable，不降级。
    */
