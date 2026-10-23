@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto'
 // 必须是首个本地 import：dev userData 分离要在任何 getPath('userData') 之前生效，
 // 挪后静默失效。播种本身不在 import 期跑，见下方 seedDevConfigFromProd 调用点
 import { seedDevConfigFromProd } from './dev-user-data'
+import './logging'
 import { startDemoStage } from './demo-stage'
 import { setTerminalCaptureWindow } from './mcp/terminal-screenshot'
 import { startMcpHttpServer, stopMcpHttpServer } from './mcp/http-server'
@@ -52,10 +53,6 @@ import { PendingWebbarPostStore, webbarPostLoadOptions, webbarPostRawBytesWithin
 import { initializeBrowser, setupBrowserGuest } from './browser/service'
 import { setupBrowserContextMenu } from './browser/context-menu'
 import { BROWSER_DEVTOOLS_EVENT } from '@shared/browser-devtools'
-
-// 日志配置
-log.transports.file.level = 'info'
-log.transports.console.level = 'debug'
 
 // 插件视图 lyshell-plugin:// 的 privileged scheme 登记 —— 必须在 app ready 之前
 // （standard/secure/supportFetchAPI/stream 特权仅 ready 前注册生效）

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import cn from 'classnames'
 import { useDismiss, useEscDismiss } from '../../hooks'
+import { DEFAULT_MCP_AUDIT_RETENTION, MCP_AUDIT_RETENTION_OPTIONS, isMcpAuditRetentionLimit, type McpAuditRetentionLimit } from '@shared/mcp-audit'
 
 interface McpAuditRecord {
   id: string
@@ -195,6 +196,11 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
   const [records, setRecords] = useState<McpAuditRecord[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [retentionLimit, setRetentionLimit] = useState<McpAuditRetentionLimit>(DEFAULT_MCP_AUDIT_RETENTION)
+  const [retentionReady, setRetentionReady] = useState(false)
+  const [retentionSaving, setRetentionSaving] = useState(false)
+  const [retentionError, setRetentionError] = useState<'load' | 'save' | null>(null)
+  const retentionSavingRef = useRef(false)
   // 下拉选项：打开面板/刷新时从后端拉取去重后的操作名与会话
   const [operations, setOperations] = useState<string[]>([])
   const [sessions, setSessions] = useState<{ sessionId: string; sessionName?: string; sessionType?: string }[]>([])
@@ -216,10 +222,13 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
   const sessionRef = useRef('')
   const fromRef = useRef('')
   const toRef = useRef('')
+  const listRequestRef = useRef(0)
+  const facetsRequestRef = useRef(0)
 
   // targetPage 显式传入：翻页=目标页，过滤变化=1，刷新=当前页。
   // load 自身不依赖 page state（空 deps 稳定），page 由调用方决定并在成功后同步进 state。
   const load = useCallback(async (targetPage: number) => {
+    const request = ++listRequestRef.current
     setLoading(true)
     try {
       const filter: Record<string, unknown> = {
@@ -237,7 +246,7 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
       if (fromRef.current) filter.since = `${fromRef.current}T00:00:00.000`
       if (toRef.current) filter.until = `${toRef.current}T23:59:59.999`
       const result = await window.electronAPI?.getMcpAudit(filter) as McpAuditResult | undefined
-      if (result) {
+      if (result && request === listRequestRef.current) {
         setRecords(result.records)
         setTotal(result.total)
         setPage(targetPage)
@@ -245,17 +254,18 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
     } catch (err) {
       console.warn('Failed to load MCP audit:', err)
     } finally {
-      setLoading(false)
+      if (request === listRequestRef.current) setLoading(false)
     }
   }, [])
 
   // 拉取下拉选项（去重操作名/会话）。打开、刷新、清空后调用。
   const loadFacets = useCallback(async () => {
+    const request = ++facetsRequestRef.current
     try {
       const f = await window.electronAPI?.getMcpAuditFacets() as
         | { operations: string[]; sessions: { sessionId: string; sessionName?: string; sessionType?: string }[] }
         | undefined
-      if (f) {
+      if (f && request === facetsRequestRef.current) {
         setOperations(f.operations)
         setSessions(f.sessions)
       }
@@ -264,10 +274,49 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
     }
   }, [])
 
+  const loadRetention = useCallback(async () => {
+    setRetentionReady(false)
+    setRetentionError(null)
+    try {
+      const limit = await window.electronAPI.getMcpAuditRetention()
+      if (!isMcpAuditRetentionLimit(limit)) throw new Error('Invalid audit retention setting')
+      setRetentionLimit(limit)
+      setRetentionReady(true)
+    } catch {
+      setRetentionError('load')
+    }
+  }, [])
+
+  const changeRetention = async (limit: number) => {
+    if (!retentionReady || retentionSavingRef.current || !isMcpAuditRetentionLimit(limit)) return
+    retentionSavingRef.current = true
+    setRetentionSaving(true)
+    setRetentionError(null)
+    try {
+      const result = await window.electronAPI.setMcpAuditRetention(limit)
+      if (!result.success || result.limit !== limit) throw new Error('Could not save audit retention')
+      setRetentionLimit(limit)
+      // 缩小上限可能移除旧页和筛选选项，统一回到第一页刷新。
+      await Promise.all([load(1), loadFacets()])
+    } catch {
+      setRetentionError('save')
+    } finally {
+      retentionSavingRef.current = false
+      setRetentionSaving(false)
+    }
+  }
+
+  const invalidateRequests = useCallback(() => {
+    // 过滤、分页和保留上限都可触发新查询，旧响应不得覆盖最新结果。
+    listRequestRef.current++
+    facetsRequestRef.current++
+  }, [])
+
   // 每次挂载(面板打开)回到第 1 页并刷新下拉选项
   useEffect(() => {
-    load(1); loadFacets()
-  }, [load, loadFacets])
+    load(1); loadFacets(); loadRetention()
+    return invalidateRequests
+  }, [load, loadFacets, loadRetention, invalidateRequests])
 
   // ESC 关闭面板 —— 入 ESC 回退栈(栈顶优先、逐层回退,IME 组合期不触发),不自留
   // window 冒泡监听:栈顶成员在捕获层截停后自留监听收不到,第一下 ESC 表现为死键。
@@ -489,35 +538,59 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
         </div>
 
         {/* 分页栏 */}
-        <div className="flex items-center justify-between px-3 py-2 bg-[var(--bg-slot)] border-t border-[var(--rule)] text-[12px] [font-family:inherit] text-[var(--text-rack-data)]">
-          <span className="tabular-nums">
-            {total > 0 ? `${rangeStart}–${rangeEnd} / ${total}` : '– / –'}
-          </span>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => gotoPage(page - 1)}
-              disabled={page <= 1}
-              className={cn(
-                'w-[24px] h-[20px] flex items-center justify-center rounded-[2px] border transition-colors',
-                page <= 1
-                  ? 'border-[var(--rule)] text-[var(--text-rack-mute)] cursor-not-allowed'
-                  : 'border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
-              )}
-            >‹</button>
-            <span className="tabular-nums text-[var(--text-rack)] min-w-[48px] text-center">{page} / {totalPages}</span>
-            <button
-              type="button"
-              onClick={() => gotoPage(page + 1)}
-              disabled={page >= totalPages}
-              className={cn(
-                'w-[24px] h-[20px] flex items-center justify-center rounded-[2px] border transition-colors',
-                page >= totalPages
-                  ? 'border-[var(--rule)] text-[var(--text-rack-mute)] cursor-not-allowed'
-                  : 'border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
-              )}
-            >›</button>
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-[var(--bg-slot)] border-t border-[var(--rule)] text-[12px] [font-family:inherit] text-[var(--text-rack-data)]">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="inline-flex items-center gap-2">
+              {t('mcpAudit.retentionLabel')}
+              <select
+                value={retentionLimit}
+                disabled={!retentionReady || retentionSaving}
+                aria-describedby="mcp-audit-retention-hint"
+                onChange={e => { void changeRetention(Number(e.target.value)) }}
+                className="px-2 py-1 bg-[var(--terminal-bg)] border border-[var(--rule)] rounded-[2px] text-[var(--text-rack)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)] disabled:opacity-50"
+              >
+                {MCP_AUDIT_RETENTION_OPTIONS.map(limit => <option key={limit} value={limit}>{limit.toLocaleString()}</option>)}
+              </select>
+            </label>
+            <span id="mcp-audit-retention-hint">{t('mcpAudit.retentionHint')}</span>
+            {retentionSaving && <span role="status">{t('mcpAudit.retentionSaving')}</span>}
           </div>
+          <div className="flex items-center gap-3">
+            <span className="tabular-nums">
+              {total > 0 ? `${rangeStart}–${rangeEnd} / ${total}` : '– / –'}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => gotoPage(page - 1)}
+                disabled={page <= 1}
+                className={cn(
+                  'w-[24px] h-[20px] flex items-center justify-center rounded-[2px] border transition-colors',
+                  page <= 1
+                    ? 'border-[var(--rule)] text-[var(--text-rack-mute)] cursor-not-allowed'
+                    : 'border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
+                )}
+              >‹</button>
+              <span className="tabular-nums text-[var(--text-rack)] min-w-[48px] text-center">{page} / {totalPages}</span>
+              <button
+                type="button"
+                onClick={() => gotoPage(page + 1)}
+                disabled={page >= totalPages}
+                className={cn(
+                  'w-[24px] h-[20px] flex items-center justify-center rounded-[2px] border transition-colors',
+                  page >= totalPages
+                    ? 'border-[var(--rule)] text-[var(--text-rack-mute)] cursor-not-allowed'
+                    : 'border-[var(--rule)] text-[var(--text-rack)] hover:border-[var(--amber)] hover:text-[var(--amber)]'
+                )}
+              >›</button>
+            </div>
+          </div>
+          {retentionError && (
+            <div role="alert" className="w-full flex flex-wrap items-center gap-2 text-[var(--error-rack)]">
+              {t(retentionError === 'load' ? 'mcpAudit.retentionLoadFailed' : 'mcpAudit.retentionSaveFailed')}
+              {retentionError === 'load' && <button type="button" onClick={() => { void loadRetention() }} className="underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)]">{t('mcpAudit.retentionRetry')}</button>}
+            </div>
+          )}
         </div>
       </div>
 

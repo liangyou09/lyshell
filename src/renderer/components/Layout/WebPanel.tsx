@@ -336,7 +336,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
   const bookmarks = useBrowserBookmarksStore(s => s.bookmarks)
   const addBookmark = useBrowserBookmarksStore(s => s.addBookmark)
   const removeBookmark = useBrowserBookmarksStore(s => s.removeBookmark)
-  const [listView, setListView] = useState<'recent' | 'bookmarks' | 'downloads'>('recent')
+  const [listView, setListView] = useState<'recent' | 'bookmarks' | 'downloads'>('bookmarks')
   const { downloads } = useBrowserDownloads()
   const activeDownloads = downloads.filter(item => item.active).length
   const bookmarkUrls = useMemo(() => new Set(bookmarks.map(item => item.url)), [bookmarks])

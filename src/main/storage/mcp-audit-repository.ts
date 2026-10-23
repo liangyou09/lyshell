@@ -5,15 +5,16 @@
  * 供设置页"MCP 活动"面板查询。用户能回看 agent 这段时间做了什么——
  * 对一个能在生产服务器上跑命令的工具，可见性即信任。
  *
- * 实现：内存环形缓冲（上限 MAX_RECORDS）+ 防抖落盘（2s），避免每次 append 都写盘。
+ * 实现：内存有界缓冲（用户可设置保留上限）+ 防抖落盘（2s），避免每次 append 都写盘。
  * 退出前由 main/index.ts 的 will-quit 调 flushSync() 同步落盘，防丢最近事件。
  * 查询走内存，倒序返回（最新在前）。
  */
 import { app } from 'electron'
-import { join } from 'path'
-import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'fs'
+import { dirname, join } from 'path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'fs'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
+import { DEFAULT_MCP_AUDIT_RETENTION, isMcpAuditRetentionLimit, type McpAuditRetentionLimit } from '@shared/mcp-audit'
 
 export interface McpAuditRecord {
   id: string
@@ -53,23 +54,66 @@ export interface McpAuditFacets {
   sessions: { sessionId: string; sessionName?: string; sessionType?: string }[]
 }
 
-const MAX_RECORDS = 5000
 const SAVE_DEBOUNCE_MS = 2000
 
-class McpAuditRepository {
+export class McpAuditRepository {
   private filePath: string | null = null
   private records: McpAuditRecord[] = []
   private loaded = false
   private saveTimer: NodeJS.Timeout | null = null
+  private retentionLimit: McpAuditRetentionLimit = DEFAULT_MCP_AUDIT_RETENTION
 
   private ensureInitialized(): void {
     if (this.loaded) return
-    this.filePath = join(app.getPath('userData'), 'mcp-audit.json')
-    this.load()
+    this.loadRetention()
+    this.filePath = join(app.getPath('logs'), 'mcp-audit.json')
+    this.load(join(app.getPath('userData'), 'mcp-audit.json'))
     this.loaded = true
   }
 
-  private load(): void {
+  private get settingsPath(): string {
+    return join(app.getPath('userData'), 'config', 'mcp-audit-settings.json')
+  }
+
+  private loadRetention(): void {
+    if (!existsSync(this.settingsPath)) return
+    try {
+      const settings: unknown = JSON.parse(readFileSync(this.settingsPath, 'utf-8'))
+      if (settings && typeof settings === 'object' && 'retentionLimit' in settings
+          && isMcpAuditRetentionLimit(settings.retentionLimit)) {
+        this.retentionLimit = settings.retentionLimit
+      }
+    } catch (error) {
+      log.warn('[MCP] Failed to load audit retention settings, using default:', error)
+    }
+  }
+
+  getRetentionLimit(): McpAuditRetentionLimit {
+    this.ensureInitialized()
+    return this.retentionLimit
+  }
+
+  setRetentionLimit(limit: McpAuditRetentionLimit): void {
+    if (!isMcpAuditRetentionLimit(limit)) throw new Error('Invalid MCP audit retention limit')
+    this.ensureInitialized()
+    const tmp = `${this.settingsPath}.tmp`
+    // 先确认设置已保存，再裁剪记录；保存失败时不改当前上限和记录。
+    try {
+      mkdirSync(dirname(this.settingsPath), { recursive: true })
+      writeFileSync(tmp, JSON.stringify({ retentionLimit: limit }, null, 2), 'utf-8')
+      renameSync(tmp, this.settingsPath)
+    } catch (error) {
+      try { unlinkSync(tmp) } catch { /* 保留原设置，临时文件不参与读取 */ }
+      throw error
+    }
+    this.retentionLimit = limit
+    if (this.records.length > limit) {
+      this.records = this.records.slice(-limit)
+      this.scheduleSave()
+    }
+  }
+
+  private load(legacyPath: string): void {
     if (!this.filePath) return
     // 清理上次崩溃可能残留的 .tmp(saveNow 先写 .tmp 再 rename,中途崩溃会留下)。
     // 不读取它——内容可能不完整,下次 saveNow 会重写;这里只删遗留。
@@ -77,12 +121,22 @@ class McpAuditRepository {
     if (existsSync(tmp)) {
       try { unlinkSync(tmp) } catch { /* 被占用等:忽略,下次再清 */ }
     }
-    if (!existsSync(this.filePath)) return
+    // 新目录已有记录时以它为准，避免清空后又导入旧记录。
+    const sourcePath = existsSync(this.filePath) ? this.filePath : legacyPath
+    if (!existsSync(sourcePath)) return
     try {
-      const content = readFileSync(this.filePath, 'utf-8')
+      const content = readFileSync(sourcePath, 'utf-8')
       const data = JSON.parse(content)
-      if (Array.isArray(data)) this.records = data as McpAuditRecord[]
+      if (!Array.isArray(data)) return
+      this.records = (data as McpAuditRecord[]).slice(-this.retentionLimit)
+      if (data.length > this.retentionLimit) this.scheduleSave()
       log.info(`[MCP] Loaded ${this.records.length} audit records`)
+      // 先在 logs 中成功落盘，再删除旧文件；跨盘安装、便携目录也可迁移。
+      if (sourcePath !== this.filePath && this.saveNow()) {
+        try { unlinkSync(legacyPath) } catch (e) {
+          log.warn('[MCP] Failed to remove migrated audit log:', e)
+        }
+      }
     } catch (e) {
       log.error('[MCP] Failed to load audit log:', e)
     }
@@ -96,29 +150,27 @@ class McpAuditRepository {
     }, SAVE_DEBOUNCE_MS)
   }
 
-  private saveNow(): void {
-    if (!this.filePath) return
-    // 原子落盘：先写临时文件再 rename，避免写盘中途崩溃损坏整份审计日志。
-    // rename 在同分区上是原子的；Windows 上若目标文件被占用会抛错，此时回退到直写。
+  private saveNow(): boolean {
+    if (!this.filePath) return false
+    // 原子落盘：先写临时文件再 rename。替换失败时保留原文件，不能直写覆盖，
+    // 否则磁盘写满或进程退出可能留下半份日志，旧记录迁移也会失去可靠的目标。
     const tmp = `${this.filePath}.tmp`
     try {
+      mkdirSync(dirname(this.filePath), { recursive: true })
       writeFileSync(tmp, JSON.stringify(this.records, null, 2), 'utf-8')
-      try {
-        renameSync(tmp, this.filePath)
-      } catch (e) {
-        log.warn('[MCP] Atomic rename failed, falling back to direct write:', e)
-        writeFileSync(this.filePath, JSON.stringify(this.records, null, 2), 'utf-8')
-      }
+      renameSync(tmp, this.filePath)
+      return true
     } catch (e) {
       log.error('[MCP] Failed to save audit log:', e)
+      return false
     }
   }
 
   append(record: Omit<McpAuditRecord, 'id' | 'timestamp'>): void {
     this.ensureInitialized()
     this.records.push({ id: uuidv4(), timestamp: new Date().toISOString(), ...record })
-    if (this.records.length > MAX_RECORDS) {
-      this.records = this.records.slice(-MAX_RECORDS)
+    if (this.records.length > this.retentionLimit) {
+      this.records = this.records.slice(-this.retentionLimit)
     }
     this.scheduleSave()
   }

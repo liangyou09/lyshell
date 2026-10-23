@@ -9,6 +9,7 @@ import type { SessionConfig, TerminalEncoding, WebTabPopupRequest } from '@share
 import type { ExclusiveWorkbenchDetail } from '@shared/exclusive-control'
 import { isWebTabShortcutAction } from '@shared/webtab-shortcut'
 import type { BrowserRequest, BrowserResult } from '@shared/browser-settings'
+import type { McpAuditRetentionLimit } from '@shared/mcp-audit'
 import { BROWSER_DOWNLOADS_EVENT, type BrowserDownloadsSnapshot } from '@shared/browser-downloads'
 import { BROWSER_DEVTOOLS_CHANNEL, BROWSER_DEVTOOLS_EVENT, type BrowserDevToolsRequest, type BrowserDevToolsEvent } from '@shared/browser-devtools'
 
@@ -60,6 +61,8 @@ const IPC_CHANNELS = {
   MCP_AUDIT_LIST: 'mcp-audit:list',
   MCP_AUDIT_FACETS: 'mcp-audit:facets',
   MCP_AUDIT_CLEAR: 'mcp-audit:clear',
+  MCP_AUDIT_RETENTION_GET: 'mcp-audit:retention-get',
+  MCP_AUDIT_RETENTION_SET: 'mcp-audit:retention-set',
 
   // MCP 触发渲染层打开"新建连接"对话框（C4：凭据交还用户）
   MCP_OPEN_CONNECTION_DIALOG: 'mcp:open-connection-dialog',
@@ -305,6 +308,8 @@ const electronAPI = {
   getMcpAudit: (filter?: unknown) => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_LIST, filter),
   getMcpAuditFacets: () => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_FACETS),
   clearMcpAudit: () => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_CLEAR),
+  getMcpAuditRetention: (): Promise<McpAuditRetentionLimit> => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_RETENTION_GET),
+  setMcpAuditRetention: (limit: McpAuditRetentionLimit): Promise<{ success: boolean; limit?: McpAuditRetentionLimit; error?: string }> => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_RETENTION_SET, limit),
 
   // MCP 打开"新建连接"对话框（C4）—— 供 agent 把凭据填写交还给用户
   onMcpOpenConnectionDialog: (callback: () => void) => {

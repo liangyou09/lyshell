@@ -62,6 +62,7 @@ import type { SessionConfig, TerminalEncoding } from '@shared/types'
 import {
   assertEnum,
   validateBuiltinTransferMethod,
+  validateMcpAuditRetentionLimit,
   assertExplorerLaunchConsumer,
   assertConnectionCloneSourceId,
   assertPluginActionRequestId,
@@ -215,6 +216,8 @@ export const IPC_CHANNELS = {
   MCP_AUDIT_LIST: 'mcp-audit:list',
   MCP_AUDIT_FACETS: 'mcp-audit:facets',
   MCP_AUDIT_CLEAR: 'mcp-audit:clear',
+  MCP_AUDIT_RETENTION_GET: 'mcp-audit:retention-get',
+  MCP_AUDIT_RETENTION_SET: 'mcp-audit:retention-set',
 
   // MCP 触发渲染层打开"新建连接"对话框（C4：凭据交还用户）
   MCP_OPEN_CONNECTION_DIALOG: 'mcp:open-connection-dialog',
@@ -1171,6 +1174,23 @@ export function registerIPCHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.MCP_AUDIT_CLEAR, async () => {
     mcpAuditRepository.clear()
     return { success: true }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.MCP_AUDIT_RETENTION_GET, async () => {
+    return mcpAuditRepository.getRetentionLimit()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.MCP_AUDIT_RETENTION_SET, async (_event, raw: unknown) => {
+    try {
+      const limit = validateMcpAuditRetentionLimit(raw)
+      mcpAuditRepository.setRetentionLimit(limit)
+      return { success: true, limit }
+    } catch (error) {
+      const invalid = validationFailure(error)
+      if (invalid) return invalid
+      log.error('[MCP] Failed to save audit retention settings:', error)
+      return { success: false, error: 'Failed to save MCP audit retention settings' }
+    }
   })
 
   // ========== 窗口操作 ==========

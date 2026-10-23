@@ -394,11 +394,17 @@ Python 路径自动检测系统 PATH，可在设置中配置自定义解释器�
 
 | 位置 | 内容 |
 |------|------|
-| `config/` | `sessions.json`、`preferences.json`、`quickCommands.json`、`agents.json`、`env-profiles.json`、`dsh-workspaces.json`、`codex-workspaces.json`、`claude-workspaces.json` |
+| `config/` | `sessions.json`、`preferences.json`、`quickCommands.json`、`agents.json`、`env-profiles.json`、`dsh-workspaces.json`、`codex-workspaces.json`、`claude-workspaces.json`、`mcp-audit-settings.json` |
 | `data/` | `download-history.json`、`download-config.json` |
-| 用户数据根目录 | `mcp-server.json`（运行时连接信息）、`mcp-audit.json` |
+| 用户数据根目录 | `mcp-server.json`（运行时连接信息） |
 
 开发实例使用独立的 `%APPDATA%\lyshell-dev\` 目录。
+
+Windows 应用日志保存到安装目录下的 `logs/main.log`。便携版使用原始便携 EXE 所在目录，解压版使用 `LyShell.exe` 所在目录。目录不可写时回退到默认用户数据日志目录。开发实例及非 Windows 版本保留默认日志位置，已有 `main.log` 不迁移。
+
+MCP 活动记录保存为同一日志目录下的 `mcp-audit.json`。新位置没有文件时，会自动迁移用户数据目录中的旧记录；新文件成功保存后才删除旧文件。
+
+MCP 活动面板底部分页栏提供「保留条数」下拉框，共四档：1000 / 5000 / 10000 / 20000，默认 5000。选择后立即保存到用户数据目录下的 `config/mcp-audit-settings.json`，并即时生效：调低上限会删除最旧记录，只保留最新 N 条；此后新增记录同样遵守该上限。保存失败时保留条数与已有记录均保持不变。
 
 支持 AES-256-CBC 加密导出/导入会话与快捷命令。
 

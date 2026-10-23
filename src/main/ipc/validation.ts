@@ -35,6 +35,12 @@ import { type BrowserRequest } from '@shared/browser-settings'
 import { validateBrowserSettings } from '../browser/validation'
 import type { CodeWorkspaceRequest } from '@shared/code-workspaces'
 import { validateWorktreeKey } from '@shared/worktree'
+import { isMcpAuditRetentionLimit, type McpAuditRetentionLimit } from '@shared/mcp-audit'
+
+export function validateMcpAuditRetentionLimit(value: unknown): McpAuditRetentionLimit {
+  if (!isMcpAuditRetentionLimit(value)) throw new ValidationError('Invalid MCP audit retention limit')
+  return value
+}
 
 export function validateBuiltinTransferMethod(value: unknown): 'sftp' {
   return assertEnum(value, 'transfer method', ['sftp'] as const)

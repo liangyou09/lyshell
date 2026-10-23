@@ -394,11 +394,17 @@ Installed and portable builds store user data in `%APPDATA%\lyshell\`:
 
 | Location | Contents |
 |----------|----------|
-| `config/` | `sessions.json`, `preferences.json`, `quickCommands.json`, `agents.json`, `env-profiles.json`, `dsh-workspaces.json`, `codex-workspaces.json`, `claude-workspaces.json` |
+| `config/` | `sessions.json`, `preferences.json`, `quickCommands.json`, `agents.json`, `env-profiles.json`, `dsh-workspaces.json`, `codex-workspaces.json`, `claude-workspaces.json`, `mcp-audit-settings.json` |
 | `data/` | `download-history.json`, `download-config.json` |
-| User-data root | `mcp-server.json` (runtime connection information), `mcp-audit.json` |
+| User-data root | `mcp-server.json` (runtime connection information) |
 
 Development instances use a separate `%APPDATA%\lyshell-dev\` directory.
+
+Windows application logs are saved to `logs/main.log` in the installation directory. Portable builds use the directory containing the original portable EXE, and unpacked builds use the directory containing `LyShell.exe`. If that location is not writable, logging falls back to the default user-data log directory. Development and non-Windows builds retain their default log location. Existing `main.log` files are not moved.
+
+MCP Activity records are saved alongside application logs as `mcp-audit.json`. When no file exists in the log directory, records from the old user-data location are migrated automatically; the old file is removed only after the new file is successfully saved.
+
+The bottom pager of the MCP Activity panel has a **Keep records** dropdown with four options: 1,000 / 5,000 / 10,000 / 20,000 (default 5,000). A selection is saved immediately to `config/mcp-audit-settings.json` in the user-data directory. The new limit applies at once: lowering it deletes the oldest records so that only the newest N remain, and newly added records are trimmed to the same limit. If saving fails, both the limit and the existing records stay unchanged.
 
 AES-256-CBC encrypted export/import for sessions and quick commands.
 

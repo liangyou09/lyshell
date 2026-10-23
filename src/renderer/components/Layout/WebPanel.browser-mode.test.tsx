@@ -171,6 +171,7 @@ describe('浏览器下载入口', () => {
     setupBrowserMode()
     render(<WebPanel />)
     const downloadTab = screen.getByRole('tab', { name: /Downloads/ })
+    expect(screen.getByRole('tab', { selected: true }).id).toBe('web-list-tab-bookmarks')
     fireEvent.keyDown(screen.getByRole('tab', { selected: true }), { key: 'End' })
     expect(downloadTab.getAttribute('aria-selected')).toBe('true')
     expect(document.activeElement).toBe(downloadTab)
@@ -236,6 +237,7 @@ describe('网址收藏', () => {
     const url = 'https://saved.example/guide'
     usePaneStore.setState({ webTabHistory: [url] })
     render(<WebPanel />)
+    fireEvent.click(screen.getByRole('tab', { name: /Recent/ }))
     const historyRow = screen.getByRole('button', { name: url }).parentElement!
     fireEvent.click(historyRow.querySelector<HTMLButtonElement>('[title="Bookmark this URL"]')!)
     fireEvent.click(screen.getByTitle('More actions'))
@@ -718,6 +720,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     setupBrowserMode()
     usePaneStore.setState({ webTabHistory: ['https://preview.example.org/'] })
     render(<WebPanel />)
+    fireEvent.click(screen.getByRole('tab', { name: /Recent/ }))
     fireEvent.click(screen.getByText('https://preview.example.org/'), { ctrlKey: true })
     await waitFor(() => expect(document.querySelector('webview')).toBeTruthy())
     fireDomReady()
@@ -730,6 +733,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     setupBrowserMode()
     usePaneStore.setState({ webTabHistory: ['https://button.example.org/'] })
     render(<WebPanel />)
+    fireEvent.click(screen.getByRole('tab', { name: /Recent/ }))
     // 显式入口:点行上的小窗按钮(此前只有 Ctrl+点击隐藏手势)
     fireEvent.click(screen.getByTitle('Open in mini browser'))
     await waitFor(() => expect(document.querySelector('webview')).toBeTruthy())
@@ -744,6 +748,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     const history = ['https://a.example.com/two', 'https://b.example.org/only', 'https://a.example.com/one', 'https://a.example.com:8443/port']
     usePaneStore.setState({ webTabHistory: history })
     render(<WebPanel />)
+    fireEvent.click(screen.getByRole('tab', { name: /Recent/ }))
     const urls = (): string[] => Array.from(screen.getByRole('list', { name: 'Recent' }).querySelectorAll('li > button')).map(button => button.getAttribute('title')!)
     expect(urls()).toEqual(history)
     expect(screen.queryByRole('button', { name: 'Collapse all' })).toBeNull()
@@ -759,6 +764,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     const a = 'https://a.example.com/a', b = 'https://a.example.com/b'
     usePaneStore.setState({ webTabHistory: [a, b], webTabFavicons: { [a]: 'data:image/png;base64,AA==' } })
     render(<WebPanel />)
+    fireEvent.click(screen.getByRole('tab', { name: /Recent/ }))
     await waitFor(() => expect(screen.getByTitle(a).querySelector('img')).toBeTruthy())
     expect(screen.getByTitle(b).querySelector('img')).toBeNull()
     expect(screen.getByTitle(b).querySelector('svg')).toBeTruthy()
@@ -771,6 +777,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
   it('清空只在更多菜单提供：打开或取消菜单不清历史，选中清空才执行', () => {
     setupBrowserMode()
     render(<WebPanel />)
+    fireEvent.click(screen.getByRole('tab', { name: /Recent/ }))
     expect(screen.queryByTitle('Clear')).toBeNull()
     const more = screen.getByTitle('More actions') as HTMLButtonElement
     expect(more.className).toContain('win-no-drag')
@@ -823,6 +830,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     setupBrowserMode()
     usePaneStore.setState({ webTabHistory: ['https://focus.example/'] })
     render(<WebPanel />)
+    fireEvent.click(screen.getByRole('tab', { name: /Recent/ }))
     const more = screen.getByRole('button', { name: 'More actions' })
     more.focus()
     fireEvent.click(more)
@@ -842,6 +850,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
   it('更多菜单随面板隐藏关闭，隐藏期间 Esc 不被消费，恢复后不自行重开', () => {
     setupBrowserMode()
     const view = render(<WebPanel visible />)
+    fireEvent.click(screen.getByRole('tab', { name: /Recent/ }))
     fireEvent.click(screen.getByTitle('More actions'))
     expect(screen.getByRole('menuitem', { name: 'Clear' })).toBeTruthy()
     view.rerender(<WebPanel visible={false} />)
@@ -861,6 +870,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
   it('切换到收藏列表后关闭最近访问菜单', () => {
     setupBrowserMode()
     render(<WebPanel />)
+    fireEvent.click(screen.getByRole('tab', { name: /Recent/ }))
     fireEvent.click(screen.getByTitle('More actions'))
     fireEvent.click(screen.getByRole('tab', { name: /Bookmarks/ }))
     expect(screen.queryByRole('menuitem')).toBeNull()
@@ -880,6 +890,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     vi.stubGlobal('ResizeObserver', ROStub)
     try {
       const { container } = render(<WebPanel />)
+      fireEvent.click(screen.getByRole('tab', { name: /Recent/ }))
       const root = container.firstElementChild as HTMLElement
       const rect = { width: 240, height: 800, top: 0, left: 0, bottom: 800, right: 240, x: 0, y: 0, toJSON: () => ({}) } as DOMRect
       vi.spyOn(root, 'getBoundingClientRect').mockReturnValue(rect)
@@ -1014,6 +1025,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     )
     usePaneStore.setState({ webTabHistory: ['https://preview.example.org/'] })
     render(<WebPanel />)
+    fireEvent.click(screen.getByRole('tab', { name: /Recent/ }))
     await waitFor(() => expect(screen.getByTitle('Restore mini browser')).toBeTruthy())
     // 关闭态点历史行(修复前:URL 只落 state、webview 摘着树,点击像没点)
     fireEvent.click(screen.getByText('https://preview.example.org/'), { ctrlKey: true })
