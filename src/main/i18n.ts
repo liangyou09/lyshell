@@ -16,6 +16,14 @@ type Locale = 'zh' | 'en'
 
 const MESSAGES: Record<Locale, Record<string, string>> = {
   zh: {
+    'mcp.dialog.externalClient': '外部 MCP 客户端',
+    'mcp.risk.rm-rf-root': '删除根目录或用户主目录',
+    'mcp.risk.dd-to-block-device': '写入块设备，可能覆盖磁盘数据',
+    'mcp.risk.mkfs': '格式化文件系统',
+    'mcp.risk.write-to-block-device': '重定向写入块设备，可能覆盖磁盘数据',
+    'mcp.risk.fork-bomb': '耗尽系统进程资源',
+    'mcp.risk.shutdown-reboot': '关闭或重启系统',
+    'mcp.risk.chmod-root': '修改根目录权限',
     'mcp.dialog.reject': '拒绝',
     'mcp.dialog.allowOnce': '允许一次',
     'mcp.dialog.highRiskTitle': 'MCP 高风险操作确认',
@@ -31,6 +39,14 @@ const MESSAGES: Record<Locale, Record<string, string>> = {
     'mcp.dialog.firstNotesMessage': '允许 MCP 首次为该会话写入摘要/说明/标签？'
   },
   en: {
+    'mcp.dialog.externalClient': 'External MCP client',
+    'mcp.risk.rm-rf-root': 'Delete the root or home directory',
+    'mcp.risk.dd-to-block-device': 'Write to a block device, potentially overwriting disk data',
+    'mcp.risk.mkfs': 'Format a filesystem',
+    'mcp.risk.write-to-block-device': 'Redirect output to a block device, potentially overwriting disk data',
+    'mcp.risk.fork-bomb': 'Exhaust system process resources',
+    'mcp.risk.shutdown-reboot': 'Shut down or restart the system',
+    'mcp.risk.chmod-root': 'Change root directory permissions',
     'mcp.dialog.reject': 'Reject',
     'mcp.dialog.allowOnce': 'Allow once',
     'mcp.dialog.highRiskTitle': 'MCP High-Risk Operation',

@@ -21,11 +21,18 @@
 }
 .web-panel .web-list-tab:hover { background: var(--bg-slot); }
 .web-panel .web-list-tab[aria-selected="true"] {
-  border-bottom-color: var(--amber);
   color: var(--text-rack);
   font-weight: 600;
 }
-.web-panel .web-list-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.web-panel .web-list-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-bottom: 4px;
+  margin-bottom: -6px;
+  border-bottom: 2px solid transparent;
+}
+.web-panel .web-list-tab[aria-selected="true"] .web-list-label { border-bottom-color: var(--amber); }
 .web-panel .web-list-count {
   flex-shrink: 0;
   min-width: 17px;

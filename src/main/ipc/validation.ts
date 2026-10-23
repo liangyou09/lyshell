@@ -1,4 +1,10 @@
 import log from 'electron-log'
+import type { McpConfirmationRequest } from '@shared/mcp-confirmation'
+
+export function validateMcpConfirmationRequest(raw: unknown): McpConfirmationRequest {
+  const value = assertObject(raw, 'mcpConfirmation')
+  return { kind: assertEnum(value.kind, 'kind', ['get', 'ready', 'reject', 'allow', 'copy'] as const) }
+}
 import { isBrowserMenuAction, type BrowserMenuRequest } from '@shared/browser-context-menu'
 
 export function validateBrowserMenuRequest(raw: unknown): BrowserMenuRequest {

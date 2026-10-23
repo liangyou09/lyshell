@@ -244,7 +244,7 @@ describe('PaneTabBar 顶排页签条(渲染断言)', () => {
       // 等分收缩挂点:flex-1(basis 0)+ min-w-0(无地板,任何数量只缩不滚)+ max 封顶
       expect(tab.className).toContain('flex-1')
       expect(tab.className).toContain('min-w-0')
-      expect(tab.className).toContain('max-w-[220px]')
+      expect(tab.className).toContain('max-w-[240px]')
     }
     // 非激活页签的关闭钮挂窄页签隐藏规则;激活页签不挂(任何宽度保留)
     expect(activeTab.querySelector('button')!.className).not.toContain('pane-tab-close-idle')

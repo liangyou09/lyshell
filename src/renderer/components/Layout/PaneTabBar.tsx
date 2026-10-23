@@ -147,7 +147,7 @@ type OverlayTabContent = React.FC<{ payload: OverlayPayload }>
 const DshWebTabContent: OverlayTabContent = ({ payload }) =>
   payload.kind === 'dshWeb'
     ? (
-      <span className="text-xs truncate flex-1 min-w-0">
+      <span className="text-[13px] leading-4 truncate flex-1 min-w-0">
         {payload.held ? (
           // 共享中：页签名顶替原先那条状态条的信号。petlink 用 amber 点色
           // （与状态条 title 同源主题令牌），dsh 沿用页签字色。
@@ -165,7 +165,7 @@ const WebTabContent: OverlayTabContent = ({ payload }) => {
   return (
     <>
       {payload.favicon && <WebTabFavicon key={payload.favicon} src={payload.favicon} />}
-      <span className="text-xs truncate flex-1 min-w-0">{payload.url === BROWSER_NEW_TAB_URL ? t('pane.startTab') : payload.title}</span>
+      <span className="text-[13px] leading-4 truncate flex-1 min-w-0">{payload.url === BROWSER_NEW_TAB_URL ? t('pane.startTab') : payload.title}</span>
       {payload.url !== BROWSER_NEW_TAB_URL && <WebTabBookmarkButton payload={payload} />}
     </>
   )
@@ -220,14 +220,14 @@ const DocTabContent: OverlayTabContent = ({ payload }) => {
             : 'bg-[var(--reachable)]'
         )}
       />
-      <span className="text-xs truncate flex-1 min-w-0">{payload.title}</span>
+      <span className="text-[13px] leading-4 truncate flex-1 min-w-0">{payload.title}</span>
     </>
   )
 }
 
 const McpTabContent: OverlayTabContent = () => {
   const { t } = useTranslation()
-  return <span className="text-xs truncate flex-1 min-w-0">{t('pane.mcpTab')}</span>
+  return <span className="text-[13px] leading-4 truncate flex-1 min-w-0">{t('pane.mcpTab')}</span>
 }
 
 /**
@@ -339,11 +339,11 @@ const OverlayTab: React.FC<{
         setDragOverIndex(null)
       }}
       className={cn(
-        'win-no-drag pane-tab flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-1 min-w-0 max-w-[220px]',
+        'win-no-drag pane-tab flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-1 min-w-0 max-w-[240px]',
         overlay.active
-          ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
+          ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--terminal-bg)]'
           // 静息字档 --text-tab-idle(明暗分叉复合档,见 globals.css):悬停提一档到 rack,
-          // 与激活字同亮 —— 窗口底(terminal-bg)与 amber 底线仍在区分激活
+          // 与激活字同亮 —— 激活页签以窗口底(terminal-bg)衔接下方内容，底线同色
           : 'bg-[var(--bg-rack)] text-[var(--text-tab-idle)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)]',
         // 排序落点指示 —— 与会话页签的 amber border-l 同语言（仅会话拖拽悬停时亮）
         dragOverOverlayId === overlay.id && draggingSessionId && 'border-l-2 border-l-[var(--amber)]'
@@ -965,9 +965,9 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
               onMouseEnter={(e) => showHoverCard(item.session.id, e.currentTarget)}
               onMouseLeave={hideHoverCard}
               className={cn(
-                'win-no-drag pane-tab flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-1 min-w-0 max-w-[220px]',
+                'win-no-drag pane-tab flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-1 min-w-0 max-w-[240px]',
                 isSessionTabActive(item.session.id)
-                  ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
+                  ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--terminal-bg)]'
                   : item.session.hasActivity
                     ? 'bg-[var(--reachable)]/25 text-[var(--text-rack)] hover:bg-[var(--reachable)]/35 shadow-[inset_2px_0_0_var(--reachable)]' // 有未读输出:reachable 青调底 + 左侧 stripe
                     // 静息字档 --text-tab-idle(见 globals.css;同 OverlayTab 悬停语言)
@@ -982,7 +982,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
             >
               {/* harness 启动来源标识 —— tags 带 <kind>:<id> 的瞬态会话在名称左侧亮品牌小标 */}
               <HarnessKindMark kind={harnessKindFromTags(item.session.config.tags)} />
-              <span className="text-xs truncate flex-1 min-w-0">{getNameWithIndex(item.session)}</span>
+              <span className="text-[13px] leading-4 truncate flex-1 min-w-0">{getNameWithIndex(item.session)}</span>
               {item.session.lockedByMcp && (
                 <span
                   title={t('pane.lockedByMcp')}

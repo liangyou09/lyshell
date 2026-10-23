@@ -1,4 +1,7 @@
 import { ipcMain, BrowserWindow, dialog, shell, app, net } from 'electron'
+import { MCP_CONFIRMATION_CHANNEL } from '@shared/mcp-confirmation'
+import { mcpConfirmationRequest, updateMcpConfirmationTheme } from '../mcp/confirmation-window'
+import { validateMcpConfirmationRequest } from './validation'
 import { BROWSER_MENU_CHANNEL } from '@shared/browser-context-menu'
 import { browserMenuRequest } from '../browser/context-menu-window'
 import { validateBrowserMenuRequest } from './validation'
@@ -431,6 +434,13 @@ export function registerIPCHandlers(): void {
   ipcMain.handle(BROWSER_MENU_CHANNEL, (event, raw: unknown) => {
     try { return browserMenuRequest(event, validateBrowserMenuRequest(raw)) }
     catch { return null }
+  })
+  ipcMain.handle(MCP_CONFIRMATION_CHANNEL, (event, raw: unknown) => {
+    try { return mcpConfirmationRequest(event, validateMcpConfirmationRequest(raw)) }
+    catch { return null }
+  })
+  ipcMain.on('ui:theme-mode', (event, theme: unknown) => {
+    if (event.senderFrame === event.sender.mainFrame && event.sender.id === explorerLaunchQueue.consumerId) updateMcpConfirmationTheme(theme)
   })
   ipcMain.handle(BROWSER_DEVTOOLS_CHANNEL, (event, raw: unknown) => {
     if (event.sender.getType() !== 'window' || !BrowserWindow.fromWebContents(event.sender) || event.senderFrame !== event.sender.mainFrame) return { success: false }

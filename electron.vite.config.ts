@@ -55,7 +55,8 @@ export default defineConfig({
           pluginView: resolve(__dirname, 'src/preload/plugin-view.ts'),
           browserLogin: resolve(__dirname, 'src/preload/browser-login.ts'),
           browserPrompt: resolve(__dirname, 'src/preload/browser-prompt.ts'),
-          browserMenu: resolve(__dirname, 'src/preload/browser-menu.ts')
+          browserMenu: resolve(__dirname, 'src/preload/browser-menu.ts'),
+          mcpConfirmation: resolve(__dirname, 'src/preload/mcp-confirmation.ts')
         },
         output: {
           format: 'cjs',
@@ -103,7 +104,8 @@ export default defineConfig({
           index: resolve(__dirname, 'src/renderer/index.html'),
           scrollArtPreview: resolve(__dirname, 'src/renderer/scroll-art-preview.html'),
           browserPrompt: resolve(__dirname, 'src/renderer/browser-prompt.html'),
-          browserMenu: resolve(__dirname, 'src/renderer/browser-menu.html')
+          browserMenu: resolve(__dirname, 'src/renderer/browser-menu.html'),
+          mcpConfirmation: resolve(__dirname, 'src/renderer/mcp-confirmation.html')
         },
         output: {
           format: 'esm',

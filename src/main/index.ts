@@ -21,6 +21,7 @@ import { downloadHistory } from './storage'
 import { preferencesRepository } from './storage/repository'
 import { sessionManager } from './terminal/session-manager'
 import { setMainWindow, setMainWindowForUpload, cleanupAllWorkers, cleanupAllUploadWorkers } from './file'
+import { setMcpConfirmationWindow } from './mcp/confirmation-window'
 import { reachabilityProber } from './reachability/reachability-prober'
 import { mcpAuditRepository } from './storage/mcp-audit-repository'
 import { pluginHostManager } from './plugin/host-mgr'
@@ -447,6 +448,7 @@ function createMainWindow(): void {
   explorerLaunchQueue.consumerId = mainWindow.webContents.id
   setMainWindow(mainWindow)
   setMainWindowForUpload(mainWindow)
+  setMcpConfirmationWindow(mainWindow)
   setPluginHostUiOpener(async (request, viewId) => {
     const win = mainWindow
     if (!win || win.isDestroyed()) return { ok: false, error: 'main window is unavailable' }
@@ -498,6 +500,7 @@ function createMainWindow(): void {
     clearTimeout(resizePersistTimer)
     setMainWindow(null)  // 清除窗口引用
     setMainWindowForUpload(null)
+    setMcpConfirmationWindow(null)
     // 插件视图联动：该窗口的 guest 登记/在途动作/弹窗全部清理（面板 webview 已随窗口销毁）
     if (mainWindow) {
       handlePluginViewWindowClosed(mainWindow.id)

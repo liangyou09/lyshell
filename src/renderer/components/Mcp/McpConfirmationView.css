@@ -1,0 +1,63 @@
+.mcp-confirmation-page { margin: 0; width: 100vw; height: 100vh; overflow: hidden; }
+.mcp-confirmation-page #root { height: 100%; }
+.mcp-confirmation {
+  --mcp-paper: #fff; --mcp-ink: #24292f; --mcp-muted: #626a73; --mcp-rule: #e0e4e8;
+  --mcp-field: #f6f7f8; --mcp-hover: #edf0f2; --mcp-accent: #91621b; --mcp-warn-bg: #fff7e8;
+  --mcp-button: #353e46; --mcp-button-hover: #222a31; --mcp-focus: #91621b;
+  box-sizing: border-box; height: 100%; display: flex; flex-direction: column;
+  color: var(--mcp-ink); background: var(--mcp-paper); border: 1px solid var(--mcp-rule);
+  font: 13px/1.55 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei', sans-serif; color-scheme: light;
+}
+[data-theme-mode="dark"] .mcp-confirmation {
+  --mcp-paper: #20252b; --mcp-ink: #e4e8ec; --mcp-muted: #a7b0ba; --mcp-rule: #3b444e;
+  --mcp-field: #171c21; --mcp-hover: #303841; --mcp-accent: #e2b86e; --mcp-warn-bg: #302b22;
+  --mcp-button: #d7dfe5; --mcp-button-hover: #fff; --mcp-focus: #e2b86e; color-scheme: dark;
+}
+.mcp-confirmation button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--mcp-rule); border-radius: 5px; font: inherit; color: var(--mcp-ink); background: var(--mcp-paper); cursor: pointer; }
+.mcp-confirmation button:hover { background: var(--mcp-hover); }
+.mcp-confirmation :focus-visible { outline: 2px solid var(--mcp-focus); outline-offset: 2px; }
+.mcp-confirmation button:disabled { opacity: .5; cursor: not-allowed; }
+.mcp-confirmation ::selection { color: var(--mcp-ink); background: color-mix(in srgb, var(--mcp-accent) 24%, var(--mcp-paper)); }
+.mcp-confirm-heading { position: relative; display: flex; align-items: center; gap: 11px; padding: 20px 60px 8px 24px; flex-shrink: 0; -webkit-app-region: drag; }
+.mcp-confirm-heading > svg { color: var(--mcp-accent); flex-shrink: 0; }
+.mcp-confirm-heading h1 { margin: 0; font-size: 18px; font-weight: 600; line-height: 26px; overflow-wrap: anywhere; }
+.mcp-confirm-heading .mcp-confirm-close { position: absolute; top: 14px; right: 16px; width: 30px; height: 30px; padding: 0; border: 0; background: transparent; color: var(--mcp-muted); -webkit-app-region: no-drag; }
+.mcp-confirm-body { display: flex; flex: 1; flex-direction: column; min-height: 0; padding: 0 24px 18px; overflow-y: auto; scrollbar-color: var(--mcp-muted) var(--mcp-paper); scrollbar-width: thin; }
+.mcp-confirm-description { margin: 0 0 18px; color: var(--mcp-muted); }
+.mcp-confirm-context { display: grid; gap: 6px; margin: 0 0 18px; }
+.mcp-confirm-context > div { display: grid; grid-template-columns: 94px minmax(0, 1fr); gap: 12px; }
+.mcp-confirm-context dt { color: var(--mcp-muted); }
+.mcp-confirm-context dd { margin: 0; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mcp-confirm-target { display: flex; align-items: baseline; gap: 8px; }
+.mcp-confirm-target bdi { font-weight: 600; }
+.mcp-confirm-protocol { color: var(--mcp-muted); font-size: 11px; }
+.mcp-confirm-risks { margin-bottom: 18px; padding: 10px 12px; background: var(--mcp-warn-bg); border-radius: 5px; flex-shrink: 0; }
+.mcp-confirmation h2 { margin: 0; font-size: 12px; line-height: 20px; font-weight: 600; }
+.mcp-confirm-risks h2 { color: var(--mcp-accent); margin-bottom: 5px; }
+.mcp-confirm-risks ul { margin: 0; padding: 0; list-style: none; }
+.mcp-confirm-risks li + li { border-top: 1px solid var(--mcp-rule); padding-top: 7px; margin-top: 7px; }
+.mcp-confirm-risk-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 3px 12px; }
+.mcp-confirm-risk-heading strong { font-weight: 500; }
+.mcp-confirm-risk-heading code { font-size: 11px; color: var(--mcp-muted); }
+.mcp-confirm-risks pre { margin: 3px 0 0; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mcp-confirm-command { flex: 1; display: flex; flex-direction: column; min-height: 120px; }
+.mcp-confirm-command-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.mcp-confirm-count { color: var(--mcp-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.mcp-confirm-command-heading button { margin-left: auto; padding: 3px 8px; font-size: 12px; }
+.mcp-confirm-code { flex: 1; min-height: 80px; max-height: 50vh; overflow: auto; margin: 0; padding: 12px 14px; border: 1px solid var(--mcp-rule); border-radius: 5px; background: var(--mcp-field); white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; scrollbar-color: var(--mcp-muted) var(--mcp-field); scrollbar-width: thin; }
+.mcp-confirm-code, .mcp-confirm-code code, .mcp-confirm-risks pre, .mcp-confirm-risk-heading code { font-family: 'Cascadia Code', Consolas, 'Microsoft YaHei', monospace; line-height: 1.65; unicode-bidi: plaintext; }
+.mcp-confirm-status:empty { display: none; }
+.mcp-confirm-status { font-size: 12px; color: var(--mcp-muted); margin-top: 6px; }
+.mcp-confirm-error { color: var(--mcp-accent); margin: 8px 0 0; }
+.mcp-confirm-actions { display: flex; align-items: center; gap: 8px; padding: 14px 24px; border-top: 1px solid var(--mcp-rule); flex-shrink: 0; }
+.mcp-confirm-actions > span { margin-right: auto; color: var(--mcp-muted); font-size: 12px; }
+.mcp-confirm-actions button { min-width: 88px; min-height: 34px; }
+.mcp-confirm-actions .mcp-confirm-allow { color: var(--mcp-paper); background: var(--mcp-button); border-color: transparent; }
+.mcp-confirm-actions .mcp-confirm-allow:hover { background: var(--mcp-button-hover); }
+@media (max-width: 560px) {
+  .mcp-confirm-heading { padding-left: 16px; }
+  .mcp-confirm-body { padding-left: 16px; padding-right: 16px; }
+  .mcp-confirm-actions { padding: 12px 16px; flex-wrap: wrap; }
+  .mcp-confirm-actions > span { flex-basis: 100%; }
+  .mcp-confirm-actions button:first-of-type { margin-left: auto; }
+}

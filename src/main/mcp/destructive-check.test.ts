@@ -106,7 +106,104 @@ describe('scanDestructiveCommand', () => {
     })
   })
 
+  describe('只读排查的文字参数放行', () => {
+    it('复现用例：crontab 检查里的 grep reboot 不误报', () => {
+      // 原始误报：把 grep 的搜索词当成了重启命令
+      const cmd = "crontab -l 2>/dev/null | grep -iE 'compose|docker|reboot' || echo 'root crontab 无相关'"
+      expect(isDestructive(cmd)).toBe(false)
+    })
+    it('grep / rg 搜索重启相关文字不误报', () => {
+      expect(isDestructive("grep -rn 'reboot' src/")).toBe(false)
+      expect(isDestructive('grep -rn reboot /var/log/messages')).toBe(false)
+      expect(isDestructive("rg -n 'shutdown|halt|poweroff' docs/")).toBe(false)
+      expect(isDestructive("grep 'init 0' notes.txt")).toBe(false)
+    })
+    it('echo / printf 输出重启提示文字不误报', () => {
+      expect(isDestructive("echo '系统需要 reboot 才能生效'")).toBe(false)
+      expect(isDestructive("echo reboot")).toBe(false)
+      expect(isDestructive("printf '%s\\n' reboot")).toBe(false)
+    })
+    it('grep / echo 里的 mkfs 字样不误报', () => {
+      expect(isDestructive("grep -rn 'mkfs.ext4' docs/")).toBe(false)
+      expect(isDestructive("echo 'mkfs.ext4 /dev/sda1'")).toBe(false)
+      expect(isDestructive('grep -n mkfs /etc/fstab')).toBe(false)
+    })
+    it('sudo 前缀下的只读排查同样放行', () => {
+      expect(isDestructive("sudo grep -rn 'reboot' /var/log")).toBe(false)
+      expect(isDestructive('sudo -u root grep reboot /var/log/messages')).toBe(false)
+    })
+  })
+
+  describe('文字参数放行不放过真实执行', () => {
+    it('直接 / sudo / systemctl 重启仍命中', () => {
+      expect(matchedNames('reboot')).toContain('shutdown-reboot')
+      expect(matchedNames('sudo reboot')).toContain('shutdown-reboot')
+      expect(matchedNames('systemctl reboot')).toContain('shutdown-reboot')
+    })
+    it('分号 / && / 管道之后的真实 reboot 仍命中', () => {
+      expect(matchedNames('echo hi; reboot')).toContain('shutdown-reboot')
+      expect(matchedNames("grep -rn 'reboot' src/ && reboot")).toContain('shutdown-reboot')
+      expect(matchedNames('echo hi | reboot')).toContain('shutdown-reboot')
+    })
+    it('sh/batch -c 与 eval 里的 reboot 仍命中', () => {
+      expect(matchedNames("sh -c 'reboot'")).toContain('shutdown-reboot')
+      expect(matchedNames('bash -c "reboot"')).toContain('shutdown-reboot')
+      expect(matchedNames("eval 'reboot'")).toContain('shutdown-reboot')
+    })
+    it('命令替换 / 反引号里的 reboot 仍命中', () => {
+      expect(matchedNames('echo "$(reboot)"')).toContain('shutdown-reboot')
+      expect(matchedNames('echo `reboot`')).toContain('shutdown-reboot')
+    })
+    it('管道末端是解释器时 grep 参数不放行', () => {
+      // echo reboot | sh 真的会执行 reboot
+      expect(matchedNames('echo reboot | sh')).toContain('shutdown-reboot')
+    })
+    it('echo reboot > /dev/sda 仍命中写块设备（重定向目标不放行）', () => {
+      expect(matchedNames('echo reboot > /dev/sda')).toContain('write-to-block-device')
+    })
+    it('未知命令的参数仍保守命中', () => {
+      expect(matchedNames('foo reboot')).toContain('shutdown-reboot')
+      expect(matchedNames("custom-tool 'reboot'")).toContain('shutdown-reboot')
+      expect(matchedNames("awk '/reboot/' /var/log/syslog")).toContain('shutdown-reboot')
+    })
+    it('rm / dd / 重定向 / fork / chmod 的结构命中不受文字放行影响', () => {
+      // 结构性规则完全不参与文字放行，引号内也照旧按原文命中
+      expect(matchedNames("echo 'rm -rf / ; whoami'")).toContain('rm-rf-root')
+      expect(matchedNames("echo 'dd if=/dev/zero of=/dev/sda'")).toContain('dd-to-block-device')
+      expect(matchedNames("echo 'chmod -R 777 / ; whoami'")).toContain('chmod-root')
+      expect(matchedNames("echo ':(){ :|:& };'")).toContain('fork-bomb')
+      expect(matchedNames("grep -rn '> /dev/sda' docs/")).toContain('write-to-block-device')
+    })
+    it('真实 mkfs 仍命中', () => {
+      expect(matchedNames('mkfs.ext4 /dev/sda1')).toContain('mkfs')
+      expect(matchedNames('mkfs -t xfs /dev/sdb')).toContain('mkfs')
+    })
+  })
+
   describe('整体行为', () => {
+    it('rg 执行外部程序的选项不能作为普通搜索参数放行', () => {
+      for (const text of ['rg --pre reboot pattern file', 'rg --pre=mkfs.ext4 pattern file', "rg '--pre' 'reboot' pattern file", 'rg --hostname-bin reboot pattern file']) {
+        expect(isDestructive(text)).toBe(true)
+      }
+      expect(isDestructive('rg --pre-glob reboot pattern file')).toBe(false)
+    })
+    it('接近输入上限的大量文字参数仍能找到末尾真正执行的命令', () => {
+      const literals = 'echo ' + 'reboot '.repeat(100000)
+      expect(isDestructive(literals)).toBe(false)
+      expect(matchedNames(literals + '; reboot')).toContain('shutdown-reboot')
+    })
+    it('未知管道下游和多行替换保留保守检测', () => {
+      for (const text of ['echo reboot | busybox sh', 'echo reboot | custom-runner', 'eval $(\necho reboot\n)', 'eval `\necho reboot\n`', 'printf -v cmd reboot; $cmd', 'echo reboot > /tmp/script; sh /tmp/script']) {
+        expect(matchedNames(text)).toContain('shutdown-reboot')
+      }
+      expect(isDestructive('grep reboot /var/log/syslog | head -20')).toBe(false)
+    })
+    it('注释引号不隐藏下一行执行，未知路径和进程替换保持检测', () => {
+      for (const text of ["echo hi # '\nreboot\n'", 'echo =(reboot)', 'echo (reboot)', '/tmp/grep reboot']) {
+        expect(matchedNames(text)).toContain('shutdown-reboot')
+      }
+      expect(isDestructive('/usr/bin/grep reboot /var/log/messages')).toBe(false)
+    })
     it('安全命令零命中', () => {
       expect(isDestructive('echo hello')).toBe(false)
       expect(isDestructive('ls -la /tmp')).toBe(false)

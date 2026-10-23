@@ -9,7 +9,7 @@ import * as net from 'net'
 import * as fs from 'fs'
 import * as path from 'path'
 import { exec, execSync } from 'child_process'
-import { app, dialog } from 'electron'
+import { app } from 'electron'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -50,6 +50,7 @@ import { pluginResources } from '../plugin/resource-registry'
 import { createTrackedSession, resolveSessionResourceOwner, trackSessionConnectionResource, trackSessionResource } from './session-resources'
 import { validateManifest, normalizeLifecycle } from '@shared/plugin-types'
 import { t } from '../i18n'
+import { requestMcpConfirmation } from './confirmation-window'
 import type {
   ApiResponse,
   SessionInfo,
@@ -85,6 +86,8 @@ const PORT_FILE_NAME = 'mcp-server.json'
 const MAX_COMMAND_TIMEOUT_MS = 120000
 const MAX_READ_FILE_BYTES = 1048576
 const MAX_TEXT_LENGTH = 1024 * 1024
+// 仅在 main 内保存请求凭据的存活检查，确认页不能提交或替换凭据。
+const confirmationCredentials = new WeakMap<TokenBinding, () => boolean>()
 
 interface McpSecuritySettings {
   enabled?: boolean
@@ -461,6 +464,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       sendJson(res, 401, { success: false, error: 'Unauthorized' })
       return
     }
+    confirmationCredentials.set(binding, () => mcpAuth.resolveToken(token) !== null)
   }
 
   // 路由分发
@@ -1057,7 +1061,7 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
 
     const safeTimeout = clampNumber(timeout, 1, MAX_COMMAND_TIMEOUT_MS, 30000)
     const capability: McpCapability = targetSession.config.type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
-    const auth = await authorizeMcpOperation('execute_command', capability, resolvedSessionId, summarizeText(command), binding)
+    const auth = await authorizeMcpOperation('execute_command', capability, resolvedSessionId, summarizeText(command), binding, command)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -1133,7 +1137,7 @@ async function handleExecuteCommandStream(data: ExecuteRequest, res: http.Server
 
     const safeTimeout = clampNumber(timeout, 1, MAX_COMMAND_TIMEOUT_MS, 30000)
     const capability: McpCapability = targetSession.config.type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
-    const auth = await authorizeMcpOperation('execute_command', capability, resolvedSessionId, summarizeText(command), binding)
+    const auth = await authorizeMcpOperation('execute_command', capability, resolvedSessionId, summarizeText(command), binding, command)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
@@ -1232,14 +1236,16 @@ async function handleSendInput(data: SendInputRequest, res: http.ServerResponse,
       return
     }
 
-    const auth = await authorizeMcpOperation('send_input', 'interactiveWrite', resolvedSessionId, `${text.length} chars · ${summarizeText(text, 512)}`, binding)
+    // 必须扫描真正发送的字节；字面 \\n / \\xHH 解析后可能成为命令分隔符。
+    const enter = process.platform === 'win32' && targetSession.config.type === ConnectionType.LOCAL ? '\r' : '\n'
+    const processedText = appendAutoNewline(processInputEscapeSequences(text), data.autoNewline !== false, enter)
+    const auth = await authorizeMcpOperation('send_input', 'interactiveWrite', resolvedSessionId, `${text.length} chars · ${summarizeText(text, 512)}`, binding, processedText)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
 
-    // 内容级破坏性确认：在 escape 处理之前扫描原始 text，破坏性子串此时已存在
-    const destructive = await confirmDestructiveIfNeeded('send_input', text, resolvedSessionId, binding)
+    const destructive = await confirmDestructiveIfNeeded('send_input', processedText, resolvedSessionId, binding)
     if (!destructive.allowed) {
       sendJson(res, 403, { success: false, error: destructive.reason })
       return
@@ -1250,12 +1256,6 @@ async function handleSendInput(data: SendInputRequest, res: http.ServerResponse,
       sendJson(res, 400, { success: false, error: `Session not connected (status: ${session?.status ?? 'unknown'})` })
       return
     }
-
-    // 解析转义字符（\n -> 换行, \r -> 回车, \x03 -> Ctrl+C 等），并按 autoNewline 决定是否补末尾换行：
-    // 末尾是普通可见字符时自动补一个 \n，避免命令只回显不执行；末尾已是 \n/\r 或控制序列时不补。
-    // MCP 边界层默认 true（data.autoNewline !== false）。
-    const enter = process.platform === 'win32' && session.config.type === ConnectionType.LOCAL ? '\r' : '\n'
-    const processedText = appendAutoNewline(processInputEscapeSequences(text), data.autoNewline !== false, enter)
 
     // 临时锁定 PTY，避免用户输入与 MCP 输入冲突
     sessionManager.lockSessionForMcp(resolvedSessionId)
@@ -1383,13 +1383,16 @@ async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerRespo
       return
     }
 
-    const auth = await authorizeMcpOperation('send_and_wait', 'interactiveWrite', resolvedSessionId, `${text.length} chars · ${summarizeText(text, 512)}`, binding)
+    // 与 sessionManager.sendAndWait 内的转义和自动回车规则保持一致。
+    const enter = process.platform === 'win32' && targetSession.config.type === ConnectionType.LOCAL ? '\r' : '\n'
+    const confirmationText = appendAutoNewline(processInputEscapeSequences(text), data.autoNewline !== false, enter)
+    const auth = await authorizeMcpOperation('send_and_wait', 'interactiveWrite', resolvedSessionId, `${text.length} chars · ${summarizeText(text, 512)}`, binding, confirmationText)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
 
-    const destructive = await confirmDestructiveIfNeeded('send_and_wait', text, resolvedSessionId, binding)
+    const destructive = await confirmDestructiveIfNeeded('send_and_wait', confirmationText, resolvedSessionId, binding)
     if (!destructive.allowed) {
       sendJson(res, 403, { success: false, error: destructive.reason })
       return
@@ -1708,7 +1711,8 @@ async function handleWriteSessionNotes(
       'sessionMetadataWrite',
       sessionId,
       summarizeText(auditParts.join(', ') || 'no changes', 200),
-      binding
+      binding,
+      JSON.stringify({ summary, usageNotes, tags: normalizedTags ?? undefined }, null, 2)
     )
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
@@ -1736,19 +1740,14 @@ async function handleWriteSessionNotes(
         (summary !== undefined && summary.trim() !== '') ||
         (usageNotes !== undefined && usageNotes.trim() !== '')
       if (currentlyEmpty && writingContent) {
-        const result = await dialog.showMessageBox({
-          type: 'warning',
-          buttons: [t('mcp.dialog.reject'), t('mcp.dialog.allowOnce')],
-          defaultId: 0,
-          cancelId: 0,
+        const allowed = await requestMcpConfirmation({
           title: t('mcp.dialog.firstNotesTitle'),
           message: t('mcp.dialog.firstNotesMessage'),
-          detail: [
-            `${t('mcp.dialog.session')}: ${config.name} (${config.type})`,
-            `${t('mcp.dialog.content')}: ${summarizeText(auditParts.join(', ') || 'no changes', 200)}`
-          ].filter(Boolean).join('\n')
-        })
-        if (result.response !== 1) {
+          operation: 'write_session_notes', source: mcpRequestSource(binding),
+          targets: [{ name: config.name, type: config.type }], contentKind: 'content',
+          content: JSON.stringify({ summary, usageNotes, tags: normalizedTags ?? undefined }, null, 2)
+        }, () => isMcpConfirmationAuthorized(binding, 'sessionMetadataWrite') && isSessionAllowedForMcp(sessionId) && sessionRepository.get(sessionId) === config)
+        if (!allowed) {
           const c6AuditBase: Omit<McpAuditEvent, 'allowed'> = {
             operation: 'write_session_notes',
             capability: 'sessionMetadataWrite',
@@ -2589,12 +2588,42 @@ async function handleHarnessWork(req: http.IncomingMessage, res: http.ServerResp
     ...(reply.body.ok !== true ? { error: typeof reply.body.error === 'string' ? reply.body.error : 'Harness work request failed' } : {}) })
 }
 
+function isCommandOperation(operation: string): boolean {
+  return ['execute_command', 'send_input', 'send_and_wait', 'run_on_sessions'].includes(operation)
+}
+
+function mcpRequestSource(binding: TokenBinding): string {
+  if (binding.kind === 'plugin') return `Plugin · ${binding.pluginId ?? 'unknown'}`
+  if (binding.kind === 'session') {
+    const origin = binding.originSessionId ? sessionManager.getSession(binding.originSessionId) : undefined
+    return `LyShell · ${origin?.config.name ?? binding.originSessionId ?? 'Agent'}`
+  }
+  return t('mcp.dialog.externalClient')
+}
+
+function isMcpConfirmationAuthorized(binding: TokenBinding, capability: McpCapability): boolean {
+  if (!confirmationCredentials.get(binding)?.()) return false
+  const settings = getMcpSecuritySettings()
+  if (!settings.enabled) return false
+  if (binding.kind === 'session') return true
+  if (binding.kind === 'plugin') return binding.capabilities?.includes(capability) === true
+  if (binding.kind !== 'global' || !settings.allowExternalMcpClients) return false
+  return capability === 'read' ? settings.allowRead :
+    capability === 'interactiveWrite' ? settings.allowInteractiveInput :
+      capability === 'execute' ? settings.allowSshExecute :
+        capability === 'localExecute' ? settings.allowLocalExecute :
+          capability === 'fileWrite' ? settings.allowFileWrite :
+            capability === 'sessionControl' ? settings.allowSessionControl === true :
+              capability === 'sessionMetadataWrite' ? settings.allowSessionMetadataWrite === true : false
+}
+
 async function authorizeMcpOperation(
   operation: string,
   capability: McpCapability,
   sessionId: string | undefined,
   summary: string | undefined,
-  binding: TokenBinding
+  binding: TokenBinding,
+  confirmationContent?: string
 ): Promise<{ allowed: boolean; reason?: string }> {
   const settings = getMcpSecuritySettings()
   // 把 saved id 解析为 runtime id，使 MCP 工具既可以用保存项 ID 也可以用 live session ID 调用。
@@ -2704,19 +2733,16 @@ async function authorizeMcpOperation(
   }
 
   if (settings.requireConfirmation && capability !== 'read') {
-    const result = await dialog.showMessageBox({
-      type: 'warning',
-      buttons: [t('mcp.dialog.reject'), t('mcp.dialog.allowOnce')],
-      defaultId: 0,
-      cancelId: 0,
+    const allowed = await requestMcpConfirmation({
       title: t('mcp.dialog.highRiskTitle'),
       message: t('mcp.dialog.highRiskMessage', { operation }),
-      detail: [
-        session ? `${t('mcp.dialog.session')}: ${session.config.name} (${session.config.type})` : undefined,
-        summary ? `${t('mcp.dialog.content')}: ${summarizeText(summary)}` : undefined
-      ].filter(Boolean).join('\n')
+      operation, source: mcpRequestSource(binding), targets: session ? [{ name: session.config.name, type: session.config.type }] : [],
+      content: confirmationContent ?? summary ?? '', contentKind: isCommandOperation(operation) ? 'command' : 'content'
+    }, () => {
+      return isMcpConfirmationAuthorized(binding, capability) && isSessionAllowedForMcp(sessionId ?? '') &&
+        (!resolvedSessionId || sessionManager.getSession(resolvedSessionId) === session)
     })
-    if (result.response !== 1) return deny('User denied MCP operation')
+    if (!allowed) return deny('User denied MCP operation')
   }
 
   auditMcpOperation({ ...auditBase, allowed: true })
@@ -2739,7 +2765,8 @@ async function confirmDestructiveIfNeeded(
   operation: string,
   content: string,
   sessionId: string | undefined,
-  binding: TokenBinding
+  binding: TokenBinding,
+  targetIds: string[] = sessionId ? [sessionId] : []
 ): Promise<{ allowed: boolean; reason?: string }> {
   const settings = getMcpSecuritySettings()
   // 默认 true；仅在用户显式关闭时跳过
@@ -2758,24 +2785,20 @@ async function confirmDestructiveIfNeeded(
     originSessionId: binding.originSessionId
   }
 
-  const result = await dialog.showMessageBox({
-    type: 'warning',
-    buttons: [t('mcp.dialog.reject'), t('mcp.dialog.allowOnce')],
-    defaultId: 0,
-    cancelId: 0,
+  const targets = targetIds.map(id => ({ id: resolveRuntimeSessionId(id), session: sessionManager.getSession(resolveRuntimeSessionId(id)) }))
+  const allowed = await requestMcpConfirmation({
     title: t('mcp.dialog.destructiveTitle'),
     message: t('mcp.dialog.destructiveMessage'),
-    detail: [
-      sessionSummary.sessionName
-        ? `${t('mcp.dialog.session')}: ${sessionSummary.sessionName} (${sessionSummary.sessionType})`
-        : undefined,
-      `${t('mcp.dialog.matchedRules')}: ${matches.map(m => m.name).join(', ')}`,
-      `${t('mcp.dialog.explanation')}: ${matches.map(m => m.description).join('; ')}`,
-      `${t('mcp.dialog.commandPreview')}: ${summarizeText(content, 300)}`
-    ].filter(Boolean).join('\n')
-  })
+    operation, source: mcpRequestSource(binding), content, contentKind: 'command',
+    targets: targets.map(({ id, session }) => ({ name: session?.config.name ?? id, type: session?.config.type })),
+    rules: matches.map(match => ({ ...match, description: t(`mcp.risk.${match.name}`) }))
+  }, () => targets.every(({ id, session }) => {
+    const capability = operation === 'send_input' || operation === 'send_and_wait' ? 'interactiveWrite'
+      : session?.config.type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
+    return isMcpConfirmationAuthorized(binding, capability) && isSessionAllowedForMcp(id) && sessionManager.getSession(id) === session
+  }))
 
-  if (result.response !== 1) {
+  if (!allowed) {
     auditMcpOperation({ ...auditBase, allowed: false, reason: 'user denied destructive command' })
     return { allowed: false, reason: 'User denied destructive command' }
   }
@@ -3012,7 +3035,7 @@ async function handleRunOnSessions(
     const safeTimeout = clampNumber(timeout, 100, MAX_COMMAND_TIMEOUT_MS, 30000)
 
     // 命令对所有目标会话相同，破坏性确认只做一次；拒绝则整单 403，避免 50 次弹窗
-    const destructive = await confirmDestructiveIfNeeded('run_on_sessions', command, undefined, binding)
+    const destructive = await confirmDestructiveIfNeeded('run_on_sessions', command, undefined, binding, sessionIds)
     if (!destructive.allowed) {
       sendJson(res, 403, { success: false, error: destructive.reason })
       return
@@ -3026,7 +3049,7 @@ async function handleRunOnSessions(
         return { sessionId: sid, error: `Session not connected (status: ${session.status})` }
       }
       const cap: McpCapability = session.config.type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
-      const auth = await authorizeMcpOperation('run_on_sessions', cap, sid, summarizeText(command), binding)
+      const auth = await authorizeMcpOperation('run_on_sessions', cap, sid, summarizeText(command), binding, command)
       if (!auth.allowed) return { sessionId: sid, error: auth.reason }
 
       try {
