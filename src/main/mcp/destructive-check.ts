@@ -272,7 +272,10 @@ function commandWordIndex(segment: ShellSegment, text: string): number {
  */
 function collectLiteralTextRanges(text: string): Array<[number, number]> {
   // Ctrl+C、退格等会改变 PTY 正在编辑的命令，不能按纯 shell 参数推断。
-  if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(text)) return []
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i)
+    if ((code < 32 && code !== 9 && code !== 10 && code !== 13) || code === 127) return []
+  }
   const segments = splitShellSegments(text)
   const ranges: Array<[number, number]> = []
   // 替换内的输出可再次交给 eval / sh 执行，不能只检查当前段。无法完整解析时回退原规则。
