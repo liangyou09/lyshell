@@ -49,6 +49,8 @@ import { createLogTap } from '@shared/log-throttle'
 import { decideWebviewFrameNavigation, gateWebviewSubframeNavigation } from './webview-frame-navigation'
 import { PendingWebbarPostStore, webbarPostLoadOptions, webbarPostRawBytesWithinLimit } from './webbar-post'
 import { initializeBrowser, setupBrowserGuest } from './browser/service'
+import { setupBrowserContextMenu } from './browser/context-menu'
+import { BROWSER_DEVTOOLS_EVENT } from '@shared/browser-devtools'
 
 // 日志配置
 log.transports.file.level = 'info'
@@ -623,7 +625,14 @@ function createMainWindow(): void {
     // 返回同 partition 的 session 单例，webview 挂载的 session 与之身份相等即
     // 网页访问栏。
     const isWebbar = webContents.session === session.fromPartition(WEBBAR_PARTITION)
-    if (isWebbar) setupBrowserGuest(webContents)
+    if (isWebbar) {
+      setupBrowserGuest(webContents)
+      setupBrowserContextMenu(webContents, (x, y) => {
+        // 完整页签先建立现有内嵌工具，再定位元素；小窗沿用 Electron 检查窗口。
+        if (webContents.id === webbarMiniWebContentsId || webContents.isDevToolsOpened()) webContents.inspectElement(x, y)
+        else webContents.hostWebContents?.send(BROWSER_DEVTOOLS_EVENT, { kind: 'inspect', pageId: webContents.id, x, y })
+      })
+    }
     const isDsh = webContents.session === session.fromPartition(DSH_WEB_PARTITION)
     webContents.setWindowOpenHandler(({ url, disposition, postBody, referrer }) => {
       // webview 一律不开新窗口/弹窗（deny，也不交系统浏览器避免泄 URL）。网页访问栏

@@ -5,8 +5,8 @@ import type { BrowserDevToolsBounds } from '@shared/browser-devtools'
 import { usePaneStore } from '../../stores/pane-store'
 
 /** 页签内的 DevTools 承载区：仅主进程能将它绑定到同一宿主的网页 guest。 */
-export default function WebTabDevTools({ id, pageRef, onClose }: {
-  id: string; pageRef: React.RefObject<WebviewTag>; onClose: () => void
+export default function WebTabDevTools({ id, pageRef, onClose, inspectPoint }: {
+  id: string; pageRef: React.RefObject<WebviewTag>; onClose: () => void; inspectPoint?: { x: number; y: number }
 }): JSX.Element {
   const { t } = useTranslation()
   const surfaceRef = useRef<HTMLDivElement>(null)
@@ -71,7 +71,7 @@ export default function WebTabDevTools({ id, pageRef, onClose }: {
       if (paneId && state.layout.activePaneId !== paneId) state.setActivePane(paneId)
     }
     const unsubscribe = window.electronAPI.onWebTabDevToolsEvent(event => {
-      if (event.pageId !== pageId || event.inspectorId !== inspectorId) return
+      if (event.kind === 'inspect' || event.pageId !== pageId || event.inspectorId !== inspectorId) return
       if (event.kind === 'focus') activate()
       else onClose()
     })
@@ -90,6 +90,7 @@ export default function WebTabDevTools({ id, pageRef, onClose }: {
         }
         opened = result.success
         setFailed(!result.success)
+        if (result.success && inspectPoint) page.inspectElement(inspectPoint.x, inspectPoint.y)
         sync()
       }).catch(() => { if (!disposed) setFailed(true) })
     return () => {
@@ -101,7 +102,7 @@ export default function WebTabDevTools({ id, pageRef, onClose }: {
       if (frame !== undefined) cancelAnimationFrame(frame)
       if (inspectorId !== undefined) void window.electronAPI.webTabDevTools({ kind: 'close', pageId, inspectorId }).catch(() => {})
     }
-  }, [id, pageRef, onClose])
+  }, [id, pageRef, onClose, inspectPoint])
 
   const resize = useCallback((clientY: number): void => {
     const rect = rootRef.current?.parentElement?.getBoundingClientRect()

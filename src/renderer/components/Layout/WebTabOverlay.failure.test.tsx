@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { WebTabOverlay } from './WebTabLayer'
+import { usePaneStore } from '../../stores/pane-store'
 import { webLoadFailureFromEvent, webLoadFailureReason } from './web-load-error'
 import '../../i18n'
 
@@ -46,9 +47,81 @@ describe('网页失败页', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reload page' }))
     expect(loadURL).toHaveBeenCalledWith(failedUrl)
     act(() => { el.dispatchEvent(new Event('did-start-loading')) })
-    expect(screen.queryByRole('button', { name: 'Reload page' })).toBeNull()
+    // 重试期间保留失败画面，不先揭开尚未渲染的 guest。
+    expect(screen.queryByRole('button', { name: 'Reload page' })).toBeTruthy()
     act(() => { el.dispatchEvent(new Event('dom-ready')) })
     expect(screen.queryByText('Loading…')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Reload page' })).toBeNull()
+  })
+
+  it('子资源加载不反复遮住已经显示的页面', () => {
+    render(<WebTabOverlay id="steady-page" url="https://first.example/" />)
+    const el = document.querySelector('webview')!
+    act(() => { el.dispatchEvent(new Event('dom-ready')) })
+    act(() => { el.dispatchEvent(new Event('did-start-loading')) })
+    expect(screen.queryByText('Loading…')).toBeNull()
+    act(() => { el.dispatchEvent(new Event('did-stop-loading')) })
+    expect(screen.queryByText('Loading…')).toBeNull()
+  })
+
+  it('文档完成事件能补收初始占位，但失败文档完成不能撤掉错误页', () => {
+    render(<WebTabOverlay id="finished-document" url="https://first.example/" />)
+    const el = document.querySelector('webview')!
+    act(() => { el.dispatchEvent(new Event('did-finish-load')) })
+    expect(screen.queryByText('Loading…')).toBeNull()
+    fail(el, { errorCode: -102, isMainFrame: true })
+    act(() => { el.dispatchEvent(new Event('did-finish-load')) })
+    expect(screen.getByRole('status')).toBeTruthy()
+  })
+
+  it('失败文档和崩溃后的完成事件不写访问历史，恢复后只记录成功页面', () => {
+    const record = vi.spyOn(usePaneStore.getState(), 'recordWebTabVisit').mockImplementation(() => undefined)
+    try {
+      render(<WebTabOverlay id="failed-history" url="https://failed.example/" />)
+      const el = document.querySelector('webview')!
+      fail(el, { errorCode: -102, isMainFrame: true })
+      act(() => { el.dispatchEvent(new Event('did-finish-load')) })
+      expect(record).not.toHaveBeenCalled()
+      act(() => {
+        el.dispatchEvent(new Event('render-process-gone'))
+        el.dispatchEvent(new Event('did-finish-load'))
+      })
+      expect(record).not.toHaveBeenCalled()
+      act(() => {
+        el.dispatchEvent(Object.assign(new Event('did-start-navigation'), { isMainFrame: true, isInPlace: false }))
+        el.dispatchEvent(Object.assign(new Event('did-navigate'), { url: 'https://recovered.example/', isMainFrame: true }))
+        el.dispatchEvent(new Event('did-finish-load'))
+      })
+      expect(record).toHaveBeenCalledOnce()
+      expect(record).toHaveBeenCalledWith('https://recovered.example/')
+    } finally { record.mockRestore() }
+  })
+
+  it('加载停止但文档未就绪时保留占位，失败页dom-ready不揭开错误页', () => {
+    render(<WebTabOverlay id="never-ready" url="https://first.example/" />)
+    const el = document.querySelector<HTMLElement>('webview')!
+    act(() => { el.dispatchEvent(new Event('did-stop-loading')) })
+    expect(screen.getByText('Loading…')).toBeTruthy()
+    fail(el, { errorCode: -102, isMainFrame: true })
+    act(() => { el.dispatchEvent(new Event('dom-ready')); el.dispatchEvent(new Event('did-start-loading')); el.dispatchEvent(new Event('did-stop-loading')) })
+    expect(screen.getByRole('status')).toBeTruthy()
+    expect(el.style.visibility).toBe('hidden')
+  })
+
+  it('渲染器崩溃后保持静止错误页，真实新导航成功后恢复', () => {
+    render(<WebTabOverlay id="crashed-page" url="https://first.example/" />)
+    const el = document.querySelector<HTMLElement>('webview')!
+    act(() => { el.dispatchEvent(new Event('dom-ready')); el.dispatchEvent(new Event('render-process-gone')) })
+    expect(screen.getByRole('status').textContent).toContain('renderer has stopped')
+    expect(el.style.visibility).toBe('hidden')
+    act(() => { el.dispatchEvent(new Event('did-start-loading')); el.dispatchEvent(new Event('dom-ready')) })
+    expect(screen.getByRole('status')).toBeTruthy()
+    act(() => {
+      el.dispatchEvent(Object.assign(new Event('did-start-navigation'), { isMainFrame: true, isInPlace: false }))
+      el.dispatchEvent(new Event('dom-ready'))
+    })
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(el.style.visibility).toBe('')
   })
 
   it('忽略子框架失败与取消导航，兼容 detail 事件参数', () => {

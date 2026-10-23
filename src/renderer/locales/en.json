@@ -383,8 +383,11 @@
       "refused": "The site refused the connection. Make sure the service is running and check the address and port.",
       "timeout": "The site took too long to respond. Try again later, or check your connection and proxy settings.",
       "certificate": "The site's security certificate could not be verified. Check your system clock or contact the site administrator.",
+      "render": "The page renderer has stopped. Reload the page to try again.",
       "generic": "This page could not be opened. Check the address and your connection, then try again."
     },
+    "searchEngineTooltip": "Search engine: {{engine}}",
+    "baiduEngine": "Baidu",
     "mini": "Mini pane",
     "miniPlaceholder": "Mini address, Enter to browse",
     "miniBack": "Back",

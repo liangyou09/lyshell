@@ -2,6 +2,9 @@ appId: com.lyshell.app
 productName: LyShell
 copyright: Copyright © 2026 liangyou (MIT License)
 
+# 优先复用已安装且匹配目标的 Electron；缺失或交叉打包时使用下载缓存。
+extends: ./scripts/electron-builder-cache.cjs
+
 # npm install / npm run rebuild 在当前 Electron 中验证官方 Node-API 预编译模块，
 # 必要时使用 @electron/rebuild 重建；打包复用已验证的产物，避免二次重建。
 npmRebuild: false

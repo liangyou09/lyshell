@@ -967,7 +967,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
         {notice && <div role="status" className="text-[10.5px] [font-family:inherit] text-[var(--text-rack-data)] break-all">{notice}</div>}
 
         <div role="tablist" aria-label={t('webBar.websiteLists')} className="web-list-tabs">
-          {(['recent', 'bookmarks', 'downloads'] as const).map(view => (
+          {(['bookmarks', 'recent', 'downloads'] as const).map(view => (
             <button
               key={view}
               type="button"
@@ -981,8 +981,8 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
               onKeyDown={e => {
                 if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return
                 e.preventDefault()
-                const views = ['recent', 'bookmarks', 'downloads'] as const
-                const next = e.key === 'Home' ? 'recent' : e.key === 'End' ? 'downloads' : views[(views.indexOf(view) + (e.key === 'ArrowLeft' ? 2 : 1)) % views.length]
+                const views = ['bookmarks', 'recent', 'downloads'] as const
+                const next = e.key === 'Home' ? 'bookmarks' : e.key === 'End' ? 'downloads' : views[(views.indexOf(view) + (e.key === 'ArrowLeft' ? 2 : 1)) % views.length]
                 setListView(next)
                 document.getElementById(`web-list-tab-${next}`)?.focus()
               }}

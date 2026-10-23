@@ -70,6 +70,8 @@ export const useLocaleStore = create<LocaleStore>((set) => ({
     try { saved = localStorage.getItem(STORAGE_KEY) } catch { /* 静默 */ }
     const valid = saved && AVAILABLE_LOCALES.some(l => l.id === saved) ? saved : DEFAULT_LOCALE_ID
     applyLocale(valid)
+    // 启动时也同步：旧档案的主进程偏好可能仍是默认语言。
+    try { void window.electronAPI?.setConfig('locale', valid).catch(() => undefined) } catch { /* 接口尚未就绪。 */ }
     set({ localeId: valid })
   }
 }))

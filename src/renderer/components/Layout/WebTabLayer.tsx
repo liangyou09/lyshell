@@ -91,8 +91,10 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
   const { t } = useTranslation()
   const ref = useRef<WebviewTag | null>(null)
   const [devToolsOpen, setDevToolsOpen] = useState(false)
+  const [inspectPoint, setInspectPoint] = useState<{ x: number; y: number }>()
   const closeDevTools = useCallback(() => {
     setDevToolsOpen(false)
+    setInspectPoint(undefined)
     try { ref.current?.focus() } catch { /* guest 已销毁。 */ }
   }, [])
   useLayoutEffect(() => {
@@ -100,9 +102,18 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
     return registerWebTabDevTools(id, () => {
       if (!page) return
       try { page.getWebContentsId() } catch { return /* dom-ready 前不打开。 */ }
+      setInspectPoint(undefined)
       setDevToolsOpen(value => !value)
     })
   }, [id])
+  useLayoutEffect(() => window.electronAPI?.onWebTabDevToolsEvent?.(event => {
+    if (event.kind !== 'inspect') return
+    try {
+      if (ref.current?.getWebContentsId() !== event.pageId) return
+      setInspectPoint({ x: event.x, y: event.y })
+      setDevToolsOpen(true)
+    } catch { /* guest 尚未就绪或已销毁。 */ }
+  }), [])
   const postRequestedRef = useRef(false)
   // 最近一次主框架导航的落点 URL：历史记录与地址栏数据都吃它而非打开时的 url ——
   // redirect 链的每一跳都会触发 did-navigate，落点才是用户真正到达的地址
@@ -111,6 +122,7 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
   // 区分）。loading 铺轻提示挡白闪，failed 提供原因、重试与可展开的诊断详情
   const [loadState, setLoadState] = useState<'loading' | 'done' | 'failed'>('loading')
   const [loadError, setLoadError] = useState<WebLoadFailure | null>(null)
+  const navigationFailedRef = useRef(false)
   // src 按实例快照：POST 页签首航落定后 settleWebTabPost 会把 payload.url 改写为
   // 落点 —— 若 src 直读 prop，存活 webview 的 src 属性变化会再触发一次 GET 导航
   // 把刚登录的页面顶掉。普通页签 url 恒定，快照与原行为等价。
@@ -178,6 +190,10 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
       // 落点 URL 记历史（含 redirect 后的最终地址；地址栏导航同样走这里）。
       // 页内刷新/锚点跳转也会触发 did-finish-load，重复记录靠 store 去重
       if (postToken && !lastUrlRef.current) return // about:blank 引导页并非一次访问
+      // Chromium 的错误文档同样可能完成加载，不能记成成功访问。
+      if (navigationFailedRef.current) return
+      setLoadError(null)
+      setLoadState('done')
       recordWebTabVisit(lastUrlRef.current || url)
     }
     // 导航态回写：地址栏显示与导航按钮可用性的数据源。did-navigate（顶层跳转）
@@ -226,10 +242,12 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
         // 此处即终局 —— 摘除死令牌，防异常重挂再撞一次拒（重挂改按打开 URL
         // GET 回落；终局长相不变：本实例仍铺失败浮层）
         settleWebTabPost(id)
+        navigationFailedRef.current = true
         setLoadError({ url, description: 'POST navigation rejected' })
         setLoadState('failed')
       }).catch(err => {
         settleWebTabPost(id)
+        navigationFailedRef.current = true
         setLoadError({ url, description: String(err) })
         setLoadState('failed')
       })
@@ -237,25 +255,39 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
     const onDomReady = (): void => {
       // about:blank 只是 POST 页签的引导页；首航交给主进程，不把空白页当作加载完成。
       if (postToken && !postRequestedRef.current) { startPost(); return }
-      setLoadState(prev => (prev === 'loading' ? 'done' : prev))
+      // Chromium 自带失败页也会发 dom-ready；该回合失败后不能因此揭开错误遮盖。
+      if (navigationFailedRef.current) return
+      setLoadError(null)
+      setLoadState('done')
     }
     const onStartLoading = (): void => {
-      setLoadState('loading')
-      setLoadError(null)
+      // iframe/子资源也会触发该事件，不能反复遮住已经显示的网页或撤掉失败页。
       setWebTabNav(id, { loading: true })
     }
-    // did-stop-loading 在成功/失败后都会到；失败浮层由 did-fail-load 先铺，
-    // 这里收尾时保住 failed 不被冲掉
     const onStopLoading = (): void => {
-      setLoadState(prev => (prev === 'failed' ? 'failed' : 'done'))
+      // 停止网络加载不等于文档能显示；未就绪时保留稳定占位。
       setWebTabNav(id, { loading: false })
+    }
+    const onStartNavigation = (event: Event): void => {
+      const evt = event as Event & { isMainFrame?: boolean; isInPlace?: boolean; detail?: { isMainFrame?: boolean; isInPlace?: boolean } }
+      if ((evt.isMainFrame ?? evt.detail?.isMainFrame) === true && !(evt.isInPlace ?? evt.detail?.isInPlace)) navigationFailedRef.current = false
     }
     const onLoadFail = (e: Event): void => {
       // 子框架资源失败不铺满屏浮层；ERR_ABORTED(-3) 是重定向/中途取消的常态噪音
       const failure = webLoadFailureFromEvent(e, lastUrlRef.current || url)
       if (!failure) return
+      navigationFailedRef.current = true
       setLoadError(failure)
       setLoadState('failed')
+      setWebTabNav(id, { loading: false })
+    }
+    const onRenderGone = (): void => {
+      navigationFailedRef.current = true
+      setLoadError({ url: lastUrlRef.current || url, description: 'ERR_RENDER_PROCESS_GONE' })
+      setLoadState('failed')
+      setWebTabNav(id, { loading: false })
+      setDevToolsOpen(false)
+      setInspectPoint(undefined)
     }
     el.addEventListener('page-title-updated', onTitle)
     el.addEventListener('page-favicon-updated', onFavicon)
@@ -264,8 +296,10 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
     el.addEventListener('did-navigate', onNav)
     el.addEventListener('did-navigate-in-page', onNav)
     el.addEventListener('did-start-loading', onStartLoading)
+    el.addEventListener('did-start-navigation', onStartNavigation)
     el.addEventListener('did-stop-loading', onStopLoading)
     el.addEventListener('did-fail-load', onLoadFail)
+    el.addEventListener('render-process-gone', onRenderGone)
     // about:blank 很快完成时，dom-ready 可能早于监听器；方法面已就绪则补认领。
     startPost()
     return () => {
@@ -276,13 +310,15 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
       el.removeEventListener('did-navigate', onNav)
       el.removeEventListener('did-navigate-in-page', onNav)
       el.removeEventListener('did-start-loading', onStartLoading)
+      el.removeEventListener('did-start-navigation', onStartNavigation)
       el.removeEventListener('did-stop-loading', onStopLoading)
       el.removeEventListener('did-fail-load', onLoadFail)
+      el.removeEventListener('render-process-gone', onRenderGone)
     }
   }, [id, url, postToken, setWebTabTitle, setWebTabFavicon, setWebTabNav, recordWebTabVisit, settleWebTabPost])
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden">
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-[var(--terminal-bg)]">
       <SearchableTab id={id} web className="relative min-h-0 w-full flex-1">
         {/* Electron webview 专属属性，React 的通用 DOM 规则不认识。 */}
         {/* eslint-disable react/no-unknown-property */}
@@ -292,6 +328,7 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
           src={initialSrc}
           allowpopups=""
           className="w-full h-full"
+          style={{ visibility: loadState === 'failed' ? 'hidden' : undefined }}
         />
         {/* eslint-enable react/no-unknown-property */}
         {loadState === 'loading' && (
@@ -306,12 +343,13 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
           }} onRetry={() => {
             const el = ref.current
             if (!el) return
+            navigationFailedRef.current = false
             // 按实际失败地址重试，避免 reload 回到先前成功的页面；不重放 POST 正文。
             try { void el.loadURL(loadError.url).catch(() => { /* did-fail-load 呈现详情 */ }) } catch { return }
           }} />
         )}
       </SearchableTab>
-      {devToolsOpen && <WebTabDevTools id={id} pageRef={ref} onClose={closeDevTools} />}
+      {devToolsOpen && <WebTabDevTools id={id} pageRef={ref} onClose={closeDevTools} inspectPoint={inspectPoint} />}
     </div>
   )
 }
@@ -405,12 +443,20 @@ const WebTabLayer: React.FC = () => {
     const container = containerRef.current
     if (!container) return
     const base = container.getBoundingClientRect()
+    const placeholders = [...document.querySelectorAll<HTMLElement>(`[${WEB_TAB_PLACEHOLDER_ATTR}]`)]
     for (const entry of entriesRef.current) {
-      const wrapper = document.querySelector<HTMLElement>(`[${WEB_TAB_WRAPPER_ATTR}="${entry.id}"]`)
-      const placeholder = document.querySelector<HTMLElement>(`[${WEB_TAB_PLACEHOLDER_ATTR}="${entry.id}"]`)
-      if (!wrapper || !placeholder) continue
-      const r = placeholder.getBoundingClientRect()
-      const rect = webTabWrapperRect(base, { left: r.left, top: r.top, width: r.width, height: r.height })
+      const wrapper = [...container.querySelectorAll<HTMLElement>(`[${WEB_TAB_WRAPPER_ATTR}]`)].find(node => node.getAttribute(WEB_TAB_WRAPPER_ATTR) === entry.id)
+      if (!wrapper) continue
+      const placeholder = placeholders.find(node => node.getAttribute(WEB_TAB_PLACEHOLDER_ATTR) === entry.id && node.closest('[data-pane-id]')?.getAttribute('data-pane-id') === entry.paneId)
+      const r = placeholder?.getBoundingClientRect()
+      const rect = r ? webTabWrapperRect(base, r) : null
+      // 占位尚未挂好、移到别的 pane 或尺寸无效时，不沿用旧位置展示网页。
+      const positioned = rect !== null && Object.values(rect).every(Number.isFinite) && base.width > 0 && base.height > 0 &&
+        rect.width > 0 && rect.height > 0 && rect.left >= -1 && rect.top >= -1 &&
+        rect.left + rect.width <= base.width + 1 && rect.top + rect.height <= base.height + 1
+      wrapper.style.visibility = entry.active && positioned ? 'visible' : 'hidden'
+      wrapper.style.pointerEvents = entry.active && positioned ? 'auto' : 'none'
+      if (!positioned || !rect) continue
       wrapper.style.left = `${rect.left}px`
       wrapper.style.top = `${rect.top}px`
       wrapper.style.width = `${rect.width}px`
@@ -419,7 +465,7 @@ const WebTabLayer: React.FC = () => {
   }, [])
 
   // 布局树任何编辑（含等尺寸换位、active 切换引发的挂载点变动）都重测一次
-  useLayoutEffect(() => { sync() }, [sync, layout])
+  useLayoutEffect(() => { sync() }, [sync, layout, overlayPayloads])
 
   useLayoutEffect(() => {
     sync()
@@ -441,10 +487,11 @@ const WebTabLayer: React.FC = () => {
           key={entry.id}
           data-webtab-wrapper={entry.id}
           onMouseDownCapture={() => usePaneStore.getState().setActivePane(entry.paneId)}
-          className="absolute"
+          className="absolute overflow-hidden bg-[var(--terminal-bg)]"
           style={{
-            visibility: entry.active ? 'visible' : 'hidden',
-            pointerEvents: entry.active ? 'auto' : 'none'
+            // 显隐由绘制前的测位同步控制，禁止首帧先在默认/旧矩形显示。
+            visibility: 'hidden',
+            pointerEvents: 'none'
           }}
         >
           {entry.url === BROWSER_NEW_TAB_URL

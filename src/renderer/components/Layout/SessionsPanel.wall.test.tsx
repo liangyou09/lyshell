@@ -60,7 +60,12 @@ beforeEach(() => {
     getConfig: vi.fn(async (key: string) => (key === 'fileManagerClosed' ? false : undefined)),
     setConfig: vi.fn(async () => true),
     getQuickCommands: vi.fn(async () => []),
-    commandGroupList: vi.fn(async () => [])
+    commandGroupList: vi.fn(async () => []),
+    createSession: vi.fn(async (config: SessionConfig) => config),
+    updateSession: vi.fn(async (config: SessionConfig) => {
+      if (![pinnedSession.id, subnetSession.id].includes(config.id)) throw new Error('Session no longer exists')
+      return config
+    })
   } as unknown as typeof window.electronAPI
 })
 
@@ -71,6 +76,43 @@ const expandAll = () => screen.getByRole('button', { name: 'Expand all' }) as HT
 const collapseAll = () => screen.getByRole('button', { name: 'Collapse all' }) as HTMLButtonElement
 
 describe('会话分组列表', () => {
+  it('复制会话保存为新记录，保留连接配置且不修改或连接原会话', async () => {
+    const onConnect = vi.fn()
+    const original = structuredClone(subnetSession)
+    render(<SessionsPanel onConnect={onConnect} />)
+    const row = screen.getByText('subnet-one').closest('[data-proto]') as HTMLElement
+    fireEvent.click(row.querySelector('[title="Copy session"]')!)
+    expect(screen.getByDisplayValue('subnet-one Copy')).toBeTruthy()
+    fireEvent.submit(document.querySelector('.lyshell-session-dialog form')!)
+    await waitFor(() => expect(window.electronAPI.createSession).toHaveBeenCalledOnce())
+    expect(window.electronAPI.createSession).toHaveBeenCalledWith(expect.objectContaining({
+      id: expect.any(String),
+      name: 'subnet-one Copy',
+      ssh: expect.objectContaining(subnetSession.ssh!),
+      tags: subnetSession.tags
+    }))
+    const created = vi.mocked(window.electronAPI.createSession).mock.calls[0][0]
+    expect(created.id).not.toBe(subnetSession.id)
+    expect(window.electronAPI.updateSession).not.toHaveBeenCalled()
+    expect(onConnect).not.toHaveBeenCalled()
+    expect(subnetSession).toEqual(original)
+    await waitFor(() => expect(screen.queryByDisplayValue('subnet-one Copy')).toBeNull())
+  })
+
+  it('编辑已有会话仍更新原记录', async () => {
+    render(<SessionsPanel />)
+    const row = screen.getByText('subnet-one').closest('[data-proto]') as HTMLElement
+    fireEvent.click(row.querySelector('[title="Edit session"]')!)
+    const name = screen.getByDisplayValue('subnet-one')
+    fireEvent.change(name, { target: { value: 'renamed-session' } })
+    fireEvent.submit(document.querySelector('.lyshell-session-dialog form')!)
+    await waitFor(() => expect(window.electronAPI.updateSession).toHaveBeenCalledWith(expect.objectContaining({
+      id: subnetSession.id,
+      name: 'renamed-session'
+    })))
+    expect(window.electronAPI.createSession).not.toHaveBeenCalled()
+  })
+
   it('外层无双轴，内部单画轴保留，第一行单按钮随分组状态切换', () => {
     const { container } = render(<SessionsPanel />)
     expect(container.querySelector('.group-list .scroll-head .rod-caps')).toBeTruthy()

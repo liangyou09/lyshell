@@ -23,6 +23,7 @@ export function webLoadFailureFromEvent(event: Event, fallbackUrl: string): WebL
 }
 
 export function webLoadFailureReason({ code, description }: WebLoadFailure): string {
+  if (description === 'ERR_RENDER_PROCESS_GONE') return 'render'
   if (code === -106 || description === 'ERR_INTERNET_DISCONNECTED') return 'offline'
   if (code === -105 || code === -137 || description === 'ERR_NAME_NOT_RESOLVED') return 'dns'
   if (code === -102 || description === 'ERR_CONNECTION_REFUSED') return 'refused'

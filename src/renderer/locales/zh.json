@@ -385,8 +385,11 @@
       "refused": "网站拒绝了连接。请确认服务已启动，并检查地址和端口。",
       "timeout": "网站响应超时。请稍后重试，或检查网络与代理设置。",
       "certificate": "无法验证网站的安全证书。请检查系统时间，或联系网站管理员。",
+      "render": "网页渲染进程已停止。请点击重新加载页面。",
       "generic": "暂时无法打开这个页面。请检查网址和网络连接后重试。"
     },
+    "searchEngineTooltip": "搜索引擎：{{engine}}",
+    "baiduEngine": "百度",
     "mini": "小窗",
     "miniPlaceholder": "小窗地址，回车浏览",
     "miniBack": "后退",

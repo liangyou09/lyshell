@@ -346,7 +346,10 @@ const electronAPI = {
     ipcRenderer.invoke(BROWSER_DEVTOOLS_CHANNEL, request),
   onWebTabDevToolsEvent: (callback: (event: BrowserDevToolsEvent) => void) => {
     const listener = (_event: IpcRendererEvent, value: BrowserDevToolsEvent): void => {
-      if (value && (value.kind === 'focus' || value.kind === 'closed') && Number.isSafeInteger(value.pageId) && value.pageId > 0 && Number.isSafeInteger(value.inspectorId) && value.inspectorId > 0) callback(value)
+      if (!value || !Number.isSafeInteger(value.pageId) || value.pageId <= 0) return
+      if (value.kind === 'inspect') {
+        if (Number.isFinite(value.x) && Number.isFinite(value.y)) callback(value)
+      } else if ((value.kind === 'focus' || value.kind === 'closed') && Number.isSafeInteger(value.inspectorId) && value.inspectorId > 0) callback(value)
     }
     ipcRenderer.on(BROWSER_DEVTOOLS_EVENT, listener)
     return () => ipcRenderer.removeListener(BROWSER_DEVTOOLS_EVENT, listener)

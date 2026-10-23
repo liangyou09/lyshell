@@ -58,7 +58,7 @@
 [data-theme-mode="light"] .web-panel .web-address-field { background: var(--terminal-bg); }
 .web-panel .web-address-field:hover { border-color: var(--text-rack-mute); }
 .web-panel .web-address-field:focus-within { border-color: var(--amber); }
-.web-panel .web-address-symbol { display: flex; align-items: center; flex-shrink: 0; margin-right: 7px; color: var(--text-rack-data); cursor: text; }
+.web-panel .web-address-symbol { display: flex; align-items: center; flex-shrink: 0; margin-right: 7px; color: var(--text-rack-data); cursor: pointer; }
 .web-panel .web-address-input {
   flex: 1;
   min-width: 0;
@@ -115,6 +115,7 @@
 .web-mini-button:disabled { opacity: .4; cursor: default; }
 .web-mini-button:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
 .web-mini-menu { position: fixed; z-index: 1000; overflow-y: auto; padding: 4px; border-radius: 6px; background: var(--bg-elev); color: var(--text-rack); box-shadow: 0 6px 20px #0004; font: 12px/1.4 'Segoe UI', system-ui, 'Microsoft YaHei', sans-serif; }
+.web-mini-menu[data-theme-mode="light"] { background: #fff; }
 .web-mini-menu button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; padding: 6px 8px; text-align: left; border-radius: 3px; cursor: pointer; }
 .web-mini-menu button svg { flex-shrink: 0; }
 .web-mini-menu button:hover:enabled { background: var(--bg-slot); }

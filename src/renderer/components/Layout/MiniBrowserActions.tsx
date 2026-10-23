@@ -8,13 +8,18 @@ interface Action {
   icon: ReactNode
   disabled: boolean
   onClick: () => void
+  checked?: boolean
 }
 
 /** 小窗低频操作收进菜单；浮层挂到 body，避免被画轴纸窗裁切。 */
-export default function MiniBrowserActions({ label, visible, actions }: {
+export default function MiniBrowserActions({ label, visible, actions, triggerIcon, triggerClassName, disabled, onOpen }: {
   label: string
   visible: boolean
   actions: Action[]
+  triggerIcon?: ReactNode
+  triggerClassName?: string
+  disabled?: boolean
+  onOpen?: () => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -53,12 +58,12 @@ export default function MiniBrowserActions({ label, visible, actions }: {
   }, [expanded])
 
   return <>
-    <button ref={triggerRef} type="button" className="web-mini-button" title={label} aria-label={label}
+    <button ref={triggerRef} type="button" className={`web-mini-button${triggerClassName ? ` ${triggerClassName}` : ''}`} title={label} aria-label={label} disabled={disabled}
       aria-haspopup="menu" aria-expanded={expanded} aria-controls={expanded ? id : undefined}
-      onClick={() => setOpen(value => !value)}>
-      <svg aria-hidden width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+      onClick={() => { if (!expanded) onOpen?.(); setOpen(value => !value) }}>
+      {triggerIcon ?? <svg aria-hidden width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
         <circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" />
-      </svg>
+      </svg>}
     </button>
     {expanded && createPortal(<div ref={menuRef} id={id} role="menu" aria-label={label}
       className="web-mini-menu" data-theme={position.theme || undefined} data-theme-mode={position.mode || undefined}
@@ -73,7 +78,7 @@ export default function MiniBrowserActions({ label, visible, actions }: {
           : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
         items[next]?.focus()
       }}>
-      {actions.map(action => <button key={action.label} type="button" role="menuitem" title={action.label}
+      {actions.map(action => <button key={action.label} type="button" role={action.checked === undefined ? 'menuitem' : 'menuitemradio'} aria-checked={action.checked} title={action.label}
         disabled={action.disabled} onClick={() => { close(); action.onClick() }}>
         {action.icon}<span>{action.label}</span>
       </button>)}

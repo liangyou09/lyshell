@@ -8,4 +8,6 @@ export type BrowserDevToolsRequest =
   | { kind: 'open'; pageId: number; bounds: BrowserDevToolsBounds }
   | { kind: 'layout'; pageId: number; inspectorId: number; bounds: BrowserDevToolsBounds | null }
   | { kind: 'close'; pageId: number; inspectorId: number }
-export interface BrowserDevToolsEvent { kind: 'focus' | 'closed'; pageId: number; inspectorId: number }
+export type BrowserDevToolsEvent =
+  | { kind: 'focus' | 'closed'; pageId: number; inspectorId: number }
+  | { kind: 'inspect'; pageId: number; x: number; y: number }

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef,
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useDismiss } from '../../hooks'
+import BrowserSearchEngineButton from './BrowserSearchEngineButton'
 
 export interface BrowserAddressSuggestion { url: string; title: string }
 
@@ -66,9 +67,7 @@ export default function BrowserAddressField({ inputRef, value, placeholder, sugg
   const select = (url: string): void => { close(); onSubmit(url) }
   return <>
     <div ref={fieldRef} className={`web-address-field${mini ? ' web-address-field-mini' : ''}`}>
-      {!mini && <label htmlFor={id} className="web-address-symbol" aria-hidden>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a18 18 0 0 1 0 18 18 18 0 0 1 0-18" /></svg>
-      </label>}
+      {!mini && <BrowserSearchEngineButton visible={visible} onOpen={close} />}
       <input ref={inputRef} id={id} type="text" role="combobox" aria-label={props['aria-label']} aria-autocomplete="list"
         aria-expanded={expanded} aria-controls={expanded ? `${id}-list` : undefined}
         aria-activedescendant={expanded && active >= 0 && items[active] ? `${id}-option-${active}` : undefined}

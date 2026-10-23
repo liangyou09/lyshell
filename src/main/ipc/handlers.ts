@@ -1,4 +1,7 @@
 import { ipcMain, BrowserWindow, dialog, shell, app, net } from 'electron'
+import { BROWSER_MENU_CHANNEL } from '@shared/browser-context-menu'
+import { browserMenuRequest } from '../browser/context-menu-window'
+import { validateBrowserMenuRequest } from './validation'
 import type { MessageBoxOptions, OpenDialogOptions, SaveDialogOptions } from 'electron'
 import { writeFile, readFile } from 'fs/promises'
 import { lookup as dnsLookup } from 'dns/promises'
@@ -425,6 +428,10 @@ function sanitizeMessageBoxOptions(options: unknown): MessageBoxOptions {
  * 注册所有 IPC 处理器
  */
 export function registerIPCHandlers(): void {
+  ipcMain.handle(BROWSER_MENU_CHANNEL, (event, raw: unknown) => {
+    try { return browserMenuRequest(event, validateBrowserMenuRequest(raw)) }
+    catch { return null }
+  })
   ipcMain.handle(BROWSER_DEVTOOLS_CHANNEL, (event, raw: unknown) => {
     if (event.sender.getType() !== 'window' || !BrowserWindow.fromWebContents(event.sender) || event.senderFrame !== event.sender.mainFrame) return { success: false }
     try {

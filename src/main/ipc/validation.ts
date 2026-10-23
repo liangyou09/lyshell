@@ -1,4 +1,13 @@
 import log from 'electron-log'
+import { isBrowserMenuAction, type BrowserMenuRequest } from '@shared/browser-context-menu'
+
+export function validateBrowserMenuRequest(raw: unknown): BrowserMenuRequest {
+  const value = assertObject(raw, 'browserMenu')
+  const kind = assertEnum(value.kind, 'kind', ['get', 'ready', 'dismiss', 'action'] as const)
+  if (kind !== 'action') return { kind }
+  if (!isBrowserMenuAction(value.id)) throw new ValidationError('Invalid browser menu action')
+  return { kind, id: value.id }
+}
 import type { TerminalOutputControl } from '@shared/terminal-output'
 
 export function validateTerminalOutputControl(raw: unknown): TerminalOutputControl {

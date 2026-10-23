@@ -68,9 +68,13 @@ DshWebOverlay.displayName = 'DshWebOverlay'
 
 // 网页页签在 pane 内只留占位测位：<webview> 实体挂 WebTabLayer 常驻层（拖动
 // 不销毁，见 WebTabLayer.tsx）。占位仅承担几何 —— 常驻层按它的矩形定位
-// webview（隐藏态也参与测位，visibility 不影响布局）。
+// webview（隐藏态也参与测位，visibility 不影响布局）。底色必须不透明：实体
+// 跨树绘制、加载中或崩溃未画出时，占位本身就是内容区的遮盖，不能透出下层终端
 const WebOverlay = React.memo<OverlayContentProps>(({ overlay }) => (
-  <div {...{ [WEB_TAB_PLACEHOLDER_ATTR]: overlay.id }} className="w-full h-full" />
+  <div
+    {...{ [WEB_TAB_PLACEHOLDER_ATTR]: overlay.id }}
+    className="w-full h-full bg-[var(--terminal-bg)]"
+  />
 ))
 WebOverlay.displayName = 'WebOverlay'
 
@@ -509,6 +513,12 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
     }
     const dropZoneView = dropZone ? getDropZoneView(dropZone, dropAction) : null
 
+    // 活覆盖层（web / dsh web / MCP 审计）激活即盖住内容区。终端只 CSS 隐藏、
+    // 不卸载 —— 连接与输出照旧；网页实体在跨树常驻层里，测位占位尚未被真正
+    // 画出来（加载中 / guest 崩溃）时也不会露底露出下面的终端。文档页签不算
+    // （内联进命令屏，见 inlineDoc），与 CommandScreen 的 covered 同一判据
+    const liveOverlayActive = node.overlays.some(r => r.active && r.kind !== 'doc')
+
     return (
       <div
         data-pane-id={node.id}
@@ -531,8 +541,10 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
           {node.sessions.length > 0 ? (
             <>
               {node.sessions.map(sessionId => {
-                // 被隐藏的页签:终端仍挂载(保留连接与输出),但不可见;活跃且未隐藏才显示
-                const isVisible = sessionId === node.activeSessionId && !hiddenTabSessions[sessionId]
+                // 被隐藏的页签:终端仍挂载(保留连接与输出),但不可见;活跃且未隐藏
+                // 才显示。活覆盖层盖屏时同样只藏不卸(见 liveOverlayActive)
+                const isVisible = sessionId === node.activeSessionId &&
+                  !hiddenTabSessions[sessionId] && !liveOverlayActive
                 return (
                   <div
                     key={sessionId}
@@ -570,7 +582,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
               mode="embedded"
               paneId={node.id}
               paneActive={isActive}
-              covered={node.overlays.some(r => r.active && r.kind !== 'doc')}
+              covered={liveOverlayActive}
               inlineDoc={inlineDocRef && inlineDocPayload
                 ? { id: inlineDocRef.id, paneId: node.id, payload: inlineDocPayload }
                 : undefined}

@@ -178,7 +178,7 @@ describe('浏览器下载入口', () => {
     expect(screen.queryByText('D:/BrowserDownloads')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Change folder' })).toBeNull()
     fireEvent.keyDown(downloadTab, { key: 'ArrowRight' })
-    expect(screen.getByRole('tab', { selected: true }).id).toBe('web-list-tab-recent')
+    expect(screen.getByRole('tab', { selected: true }).id).toBe('web-list-tab-bookmarks')
   })
 })
 
@@ -261,7 +261,7 @@ describe('网址收藏', () => {
     expect((screen.getByRole('menuitem', { name: 'Bookmark this URL' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.keyDown(document, { key: 'Escape' })
     const recent = screen.getByRole('tab', { name: /Recent/ })
-    fireEvent.keyDown(recent, { key: 'ArrowRight' })
+    fireEvent.keyDown(recent, { key: 'ArrowLeft' })
     const bookmarks = screen.getByRole('tab', { name: /Bookmarks/ })
     expect(document.activeElement).toBe(bookmarks)
     expect(bookmarks.getAttribute('aria-selected')).toBe('true')

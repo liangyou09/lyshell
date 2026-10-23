@@ -54,7 +54,8 @@ export default defineConfig({
           // 只经 contextBridge 暴露 window.lyshellView（bootstrap/callApi/动作/弹窗）
           pluginView: resolve(__dirname, 'src/preload/plugin-view.ts'),
           browserLogin: resolve(__dirname, 'src/preload/browser-login.ts'),
-          browserPrompt: resolve(__dirname, 'src/preload/browser-prompt.ts')
+          browserPrompt: resolve(__dirname, 'src/preload/browser-prompt.ts'),
+          browserMenu: resolve(__dirname, 'src/preload/browser-menu.ts')
         },
         output: {
           format: 'cjs',
@@ -101,7 +102,8 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/renderer/index.html'),
           scrollArtPreview: resolve(__dirname, 'src/renderer/scroll-art-preview.html'),
-          browserPrompt: resolve(__dirname, 'src/renderer/browser-prompt.html')
+          browserPrompt: resolve(__dirname, 'src/renderer/browser-prompt.html'),
+          browserMenu: resolve(__dirname, 'src/renderer/browser-menu.html')
         },
         output: {
           format: 'esm',

@@ -1794,7 +1794,12 @@ const SessionsPanel: React.FC<SessionsPanelProps> = ({ onConnect, onExecuteComma
         initialConfig={editConfig}
         onSubmit={async (config) => {
           if (editConfig) {
-            await window.electronAPI?.updateSession(config)
+            // 复制项有预填配置但没有原 ID，必须新建；保存副本不自动连接。
+            if (editConfig.id) {
+              await window.electronAPI?.updateSession(config)
+            } else {
+              await window.electronAPI?.createSession(config)
+            }
             refreshSavedSessions()
             return config.id
           }

@@ -13,6 +13,34 @@ vi.mock('../Search/SearchableTab', () => ({ default: ({ children }: { children: 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 describe('网页页签内嵌开发者工具', () => {
+  it('右键检查定位到来源页签，等待内嵌工具建立后检查元素', async () => {
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    vi.stubGlobal('requestAnimationFrame', () => 1)
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    const listeners = new Set<(event: BrowserDevToolsEvent) => void>()
+    let finish!: (value: { success: boolean; inspectorId: number }) => void
+    const request = vi.fn(() => new Promise<{ success: boolean; inspectorId: number }>(resolve => { finish = resolve }))
+    const oldApi = window.electronAPI
+    window.electronAPI = { ...oldApi, webTabDevTools: request, onWebTabDevToolsEvent: callback => {
+      listeners.add(callback)
+      return () => { listeners.delete(callback) }
+    } }
+    try {
+      render(<WebTabOverlay id="context-inspect" url="https://example.com" />)
+      const page = document.querySelector('webview')!
+      const inspect = vi.fn()
+      Object.assign(page, { getWebContentsId: () => 21, inspectElement: inspect })
+      act(() => { for (const listener of listeners) listener({ kind: 'inspect', pageId: 99, x: 42, y: 70 }) })
+      expect(screen.queryByRole('separator')).toBeNull()
+      act(() => { for (const listener of [...listeners]) listener({ kind: 'inspect', pageId: 21, x: 42, y: 70 }) })
+      expect(screen.getByRole('separator')).toBeTruthy()
+      expect(inspect).not.toHaveBeenCalled()
+      await act(async () => { finish({ success: true, inspectorId: 22 }) })
+      expect(inspect).toHaveBeenCalledWith(42, 70)
+      expect(document.querySelector('webview')).toBe(page)
+    } finally { cleanup(); window.electronAPI = oldApi }
+  })
+
   it('guest 在布局 effect 前销毁时呈现失败提示', () => {
     const page = { getWebContentsId: () => { throw new Error('destroyed') } } as unknown as WebviewTag
     render(<WebTabDevTools id="destroyed-page" pageRef={{ current: page }} onClose={vi.fn()} />)
