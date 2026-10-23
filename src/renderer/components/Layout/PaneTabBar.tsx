@@ -341,9 +341,9 @@ const OverlayTab: React.FC<{
       className={cn(
         'win-no-drag pane-tab flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-1 min-w-0 max-w-[240px]',
         overlay.active
-          ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--terminal-bg)]'
+          ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
           // 静息字档 --text-tab-idle(明暗分叉复合档,见 globals.css):悬停提一档到 rack,
-          // 与激活字同亮 —— 激活页签以窗口底(terminal-bg)衔接下方内容，底线同色
+          // 与激活字同亮 —— 窗口底(terminal-bg)与 amber 底线仍在区分激活
           : 'bg-[var(--bg-rack)] text-[var(--text-tab-idle)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)]',
         // 排序落点指示 —— 与会话页签的 amber border-l 同语言（仅会话拖拽悬停时亮）
         dragOverOverlayId === overlay.id && draggingSessionId && 'border-l-2 border-l-[var(--amber)]'
@@ -967,7 +967,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
               className={cn(
                 'win-no-drag pane-tab flex items-center gap-1 px-2 h-full border-r border-[var(--rule)] cursor-pointer transition-colors flex-1 min-w-0 max-w-[240px]',
                 isSessionTabActive(item.session.id)
-                  ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--terminal-bg)]'
+                  ? 'bg-[var(--terminal-bg)] text-[var(--text-rack)] border-b-2 border-b-[var(--amber)]'
                   : item.session.hasActivity
                     ? 'bg-[var(--reachable)]/25 text-[var(--text-rack)] hover:bg-[var(--reachable)]/35 shadow-[inset_2px_0_0_var(--reachable)]' // 有未读输出:reachable 青调底 + 左侧 stripe
                     // 静息字档 --text-tab-idle(见 globals.css;同 OverlayTab 悬停语言)

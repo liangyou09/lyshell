@@ -988,9 +988,11 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
               }}
               className="web-list-tab"
             >
-              {view === 'bookmarks' && <BookmarkIcon />}
-              <span className="web-list-label">{t(view === 'downloads' ? 'browser.downloads' : `webBar.${view}`)}</span>
-              <span className="web-list-count">{view === 'downloads' ? activeDownloads || downloads.length : view === 'recent' ? webTabHistory.length : bookmarks.length}</span>
+              <span className="web-list-tab-content">
+                {view === 'bookmarks' && <BookmarkIcon />}
+                <span className="web-list-label">{t(view === 'downloads' ? 'browser.downloads' : `webBar.${view}`)}</span>
+                <span className="web-list-count">{view === 'downloads' ? activeDownloads || downloads.length : view === 'recent' ? webTabHistory.length : bookmarks.length}</span>
+              </span>
             </button>
           ))}
         </div>
