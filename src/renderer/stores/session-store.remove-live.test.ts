@@ -34,6 +34,7 @@ beforeEach(() => {
     reachability: {},
     pendingRuntimeEncoding: {},
     pendingSessionCwd: {},
+    pendingSessionStatus: {},
     activeSessionId: null
   })
 })
@@ -44,7 +45,8 @@ describe('removeLiveSession', () => {
       sessions: [sessionState('s-live'), sessionState('s-other')],
       activeSessionId: 's-live',
       pendingRuntimeEncoding: { 's-live': 'gbk' },
-      pendingSessionCwd: { 's-live': 'D:\\work' }
+      pendingSessionCwd: { 's-live': 'D:\\work' },
+      pendingSessionStatus: { 's-live': { status: ConnectionStatus.ERROR, lastError: 'exited' } }
     })
 
     useSessionStore.getState().removeLiveSession('s-live')
@@ -54,13 +56,15 @@ describe('removeLiveSession', () => {
     expect(s.activeSessionId).toBeNull()
     expect(s.pendingRuntimeEncoding).not.toHaveProperty('s-live')
     expect(s.pendingSessionCwd).not.toHaveProperty('s-live')
+    expect(s.pendingSessionStatus).not.toHaveProperty('s-live')
   })
 
   it('entry 不存在但 pending 暂存仍在时：暂存被清掉，不留孤儿数据', () => {
     useSessionStore.setState({
       sessions: [sessionState('s-other')],
       pendingRuntimeEncoding: { 's-ghost': 'gbk' },
-      pendingSessionCwd: { 's-ghost': 'D:\\ghost' }
+      pendingSessionCwd: { 's-ghost': 'D:\\ghost' },
+      pendingSessionStatus: { 's-ghost': { status: ConnectionStatus.DISCONNECTED } }
     })
 
     useSessionStore.getState().removeLiveSession('s-ghost')
@@ -69,5 +73,6 @@ describe('removeLiveSession', () => {
     expect(s.sessions.map(x => x.id)).toEqual(['s-other'])
     expect(s.pendingRuntimeEncoding).toEqual({})
     expect(s.pendingSessionCwd).toEqual({})
+    expect(s.pendingSessionStatus).toEqual({})
   })
 })

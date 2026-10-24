@@ -8,6 +8,7 @@ import PaneTabBar from './PaneTabBar'
 import { McpAuditPanel } from './McpAuditPanel'
 import { useWorkbenchSnapshot } from './useWorkbenchSnapshot'
 import DocTabOverlay from '../DocPanel/DocTabOverlay'
+import { ProjectEntry } from './ProjectEntry'
 import SplitDivider from './SplitDivider'
 import { resolveOverlayDragId } from './overlay-drag'
 import { WEB_TAB_PLACEHOLDER_ATTR } from './WebTabLayer'
@@ -87,6 +88,7 @@ DocOverlay.displayName = 'DocOverlay'
 
 
 const overlayContentRenderers: Record<OverlayKind, React.FC<OverlayContentProps>> = {
+  projectEntry: ({ payload, overlay }) => payload.kind === 'projectEntry' ? <ProjectEntry payload={payload} id={overlay.id} /> : null,
   mcpAudit: McpAuditOverlay,
   dshWeb: DshWebOverlay,
   web: WebOverlay,

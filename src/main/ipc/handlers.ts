@@ -1,4 +1,7 @@
 import { ipcMain, BrowserWindow, dialog, shell, app, net } from 'electron'
+import { validateProjectSceneRequest } from './validation'
+import { requestProjectScene } from '../harness/project-scene'
+import { createSceneLauncher } from '../harness/project-scene-launcher'
 import { MCP_CONFIRMATION_CHANNEL } from '@shared/mcp-confirmation'
 import { mcpConfirmationRequest, updateMcpConfirmationTheme } from '../mcp/confirmation-window'
 import { validateMcpConfirmationRequest } from './validation'
@@ -2680,6 +2683,12 @@ export function registerIPCHandlers(): void {
   }
 
   // ========== Harness worktree 检测（kind 无关） ==========
+  ipcMain.handle('project-scene:request', async (event, raw: unknown) => {
+    try {
+      if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Project scenes require the main window')
+      return await requestProjectScene(validateProjectSceneRequest(raw), createSceneLauncher(spawnLocalCommandSession))
+    } catch (error) { return { success: false, error: (error as Error).message } }
+  })
   ipcMain.handle('code-workspace:request', async (event, raw: unknown) => {
     try {
       if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) {

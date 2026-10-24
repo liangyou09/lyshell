@@ -1,4 +1,16 @@
 import log from 'electron-log'
+import { parseSceneEntry, parseSceneNode, parseSceneTarget, type ProjectSceneRequest } from '@shared/project-scene'
+
+export function validateProjectSceneRequest(raw: unknown): ProjectSceneRequest {
+  const value = assertObject(raw, 'projectScene')
+  if (value.kind === 'list') return { kind: 'list' }
+  if (value.kind === 'inspect') return { kind: 'inspect', target: parseSceneTarget(value.target) }
+  if (value.kind === 'describe') return { kind: 'describe', target: parseSceneTarget(value.target), entry: parseSceneEntry(value.entry) }
+  if (value.kind === 'restore') return { kind: 'restore', id: assertString(value.id, 'scene.id', { maxLength: 128 }) }
+  if (value.kind === 'save') return { kind: 'save', target: parseSceneTarget(value.target), root: parseSceneNode(value.root), activeLeaf: assertNumber(value.activeLeaf, 'activeLeaf', { min: 0, max: 31, integer: true }) }
+  if (value.kind === 'launch') return { kind: 'launch', target: parseSceneTarget(value.target), entry: parseSceneEntry(value.entry), resume: assertBoolean(value.resume, 'resume') }
+  throw new ValidationError('Unknown project scene request')
+}
 import type { McpConfirmationRequest } from '@shared/mcp-confirmation'
 
 export function validateMcpConfirmationRequest(raw: unknown): McpConfirmationRequest {

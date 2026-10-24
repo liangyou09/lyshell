@@ -53,6 +53,9 @@ interface SessionStore {
   // addTemporarySession 建立时带上，deleteSession 时清掉
   pendingSessionCwd: Record<string, string>
 
+  // 配置读取期间先到的状态必须保留，避免快速退出的项目终端被补成 connecting。
+  pendingSessionStatus: Record<string, Pick<SessionState, 'status' | 'lastError'>>
+
   // 可达性映射：key = saved session.id（与 main/ipc/handlers.ts 中 syncReachabilityTargets 对齐）
   reachability: Record<string, { reachable: boolean; at: number }>
 
@@ -126,6 +129,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   reachability: {},
   pendingRuntimeEncoding: {},
   pendingSessionCwd: {},
+  pendingSessionStatus: {},
   activeSessionId: null,
   loading: false,
 
@@ -270,12 +274,15 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       delete pendingRuntimeEncoding[id]
       const pendingSessionCwd = { ...state.pendingSessionCwd }
       delete pendingSessionCwd[id]
+      const pendingSessionStatus = { ...state.pendingSessionStatus }
+      delete pendingSessionStatus[id]
       return {
         savedSessions: state.savedSessions.filter(s => s.id !== id),
         sessions: state.sessions.filter(s => s.id !== id),
         activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
         pendingRuntimeEncoding,
-        pendingSessionCwd
+        pendingSessionCwd,
+        pendingSessionStatus
       }
     })
   },
@@ -301,13 +308,20 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       }
       let withRuntime = runtimeEncoding !== undefined ? { ...state, runtimeEncoding } : state
       if (cwd !== undefined) withRuntime = { ...withRuntime, cwd }
+      const status = s.pendingSessionStatus[state.id]
+      let pendingSessionStatus = s.pendingSessionStatus
+      if (status) {
+        withRuntime = { ...withRuntime, ...status }
+        pendingSessionStatus = { ...pendingSessionStatus }
+        delete pendingSessionStatus[state.id]
+      }
       const idx = s.sessions.findIndex(x => x.id === state.id)
       if (idx >= 0) {
         const next = [...s.sessions]
         next[idx] = { ...next[idx], ...withRuntime, isTemporary: next[idx].isTemporary || withRuntime.isTemporary }
-        return { sessions: next, pendingRuntimeEncoding, pendingSessionCwd }
+        return { sessions: next, pendingRuntimeEncoding, pendingSessionCwd, pendingSessionStatus }
       }
-      return { sessions: [...s.sessions, { ...withRuntime, isTemporary: true }], pendingRuntimeEncoding, pendingSessionCwd }
+      return { sessions: [...s.sessions, { ...withRuntime, isTemporary: true }], pendingRuntimeEncoding, pendingSessionCwd, pendingSessionStatus }
     })
   },
 
@@ -385,11 +399,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       delete pendingRuntimeEncoding[id]
       const pendingSessionCwd = { ...state.pendingSessionCwd }
       delete pendingSessionCwd[id]
+      const pendingSessionStatus = { ...state.pendingSessionStatus }
+      delete pendingSessionStatus[id]
       return {
         sessions: state.sessions.filter(s => s.id !== id),
         activeSessionId: state.activeSessionId === id ? null : state.activeSessionId,
         pendingRuntimeEncoding,
-        pendingSessionCwd
+        pendingSessionCwd,
+        pendingSessionStatus
       }
     })
   },
@@ -453,11 +470,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   // 更新状态
   updateSessionStatus: (id, status, error) => {
-    set(state => ({
-      sessions: state.sessions.map(s =>
-        s.id === id ? { ...s, status, lastError: error } : s
-      )
-    }))
+    set(state => {
+      if (!state.sessions.some(session => session.id === id)) {
+        return { pendingSessionStatus: { ...state.pendingSessionStatus, [id]: { status, lastError: error } } }
+      }
+      return { sessions: state.sessions.map(s => s.id === id ? { ...s, status, lastError: error } : s) }
+    })
   },
 
   // 更新可达性

@@ -57,6 +57,7 @@
 .harness-project-row.is-expanded .harness-workspace-branch { font-weight: 650; }
 .harness-project-row.is-danger .harness-workspace-symbol { color: color-mix(in srgb, var(--error-rack) 58%, var(--launcher-ink)); }
 .harness-project-row.is-launching .harness-workspace-main { opacity: .65; }
+.harness-project-row:has(.project-scene-inline) { gap: 2px; }
 .harness-project-launch { display: inline-flex; align-items: center; justify-content: center; gap: 5px; flex-shrink: 0; min-width: 60px; height: 30px; padding: 5px 8px; border: 1px solid var(--rule); border-radius: 5px; background: var(--launcher-surface); color: var(--launcher-ink); font-family: inherit; font-size: 11px; line-height: 18px; font-weight: 600; cursor: pointer; transition: background-color 150ms ease-out, color 150ms ease-out; }
 .harness-project-launch:hover { background: var(--launcher-hover); color: color-mix(in srgb, var(--launcher-accent) 45%, var(--launcher-ink)); border-color: var(--launcher-accent); }
 .harness-project-launch:disabled { cursor: default; opacity: .45; }
@@ -104,6 +105,9 @@
   .harness-workspace-prefix { max-width: 30%; }
   .harness-project-launch { width: 30px; min-width: 30px; padding: 0; }
   .harness-project-launch > span { display: none; }
+  .harness-project-row:has(.project-scene-inline) { flex-wrap: wrap; height: auto; padding-block: 4px; row-gap: 0; }
+  .harness-project-row:has(.project-scene-inline) > .harness-workspace-main { flex-basis: 100%; height: auto; min-height: 44px; }
+  .harness-project-row > .project-scene-inline { margin-left: auto; }
   .harness-inline-editor fieldset { padding-inline: 9px; }
   .harness-editor-heading { margin-inline: -9px; padding-inline: 9px; }
 }

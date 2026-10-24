@@ -5,6 +5,8 @@ import { GroupListActions } from './GroupList'
 import { buildWorkLauncherProjects, findManagedWorkspace, workLauncherTargetKey, type WorkLauncherAgent } from './work-launcher-tree'
 import { buildWorkLauncherDirectories, type WorkLauncherDirectory } from './work-launcher-paths'
 import { workspaceProjectHue } from './workspace-project-color'
+import { ProjectSceneProjectActions } from './ProjectSceneBar'
+import { presetSceneTarget, useProjectSceneUI } from '../../stores/project-scene-ui'
 import './WorkspaceLauncherTree.css'
 
 const Folder = () => <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="M2 4h4l2 2h6v7H2z" /></svg>
@@ -100,6 +102,8 @@ const WorkspaceLauncherTree = <T extends WorkLauncherAgent,>({ visible, onManage
   const launch = async (target: LaunchTarget): Promise<void> => {
     if (launching.current) return
     launching.current = true
+    const preset = presets.find(item => target.request.kind === 'launch' && item.id === target.request.id)
+    if (preset) useProjectSceneUI.getState().select(presetSceneTarget(preset))
     setLaunchingId(target.key)
     setLaunchError(null)
     setAnnouncement(t('workspacePresets.launching'))
@@ -114,13 +118,18 @@ const WorkspaceLauncherTree = <T extends WorkLauncherAgent,>({ visible, onManage
       setAnnouncement('')
     } finally { launching.current = false; setLaunchingId(null) }
   }
-  const launchButton = (target: LaunchTarget, label: string, worktree = false) => <button type="button" className="workspace-launcher-launch"
-    aria-label={`${t('workspacePresets.launchPs7For', { name: target.name })} · ${target.cwd}`}
-    title={target.cwd + (worktree ? ` · ${label}` : '')}
-    disabled={launchingId !== null} aria-busy={launchingId === target.key} onClick={() => void launch(target)}>
-    {worktree ? <Branch/> : <Folder/>}<span className="workspace-launcher-label">{label}</span>
-    <span className="workspace-launcher-affordance" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="m3 4 4 4-4 4M9 12h4"/></svg><span>PS7</span></span>
-  </button>
+  const launchButton = (target: LaunchTarget, label: string, worktree = false, preset?: CodeWorkspacePreset) => <>
+    <button type="button" className="workspace-launcher-launch"
+      title={target.cwd + (worktree ? ` · ${label}` : '')}
+      disabled={launchingId !== null} aria-busy={launchingId === target.key} onClick={() => void launch(target)}>
+      {worktree ? <Branch/> : <Folder/>}<span className="workspace-launcher-label">{label}</span>
+    </button>
+    {preset && <ProjectSceneProjectActions preset={preset} />}
+    <button type="button" className="workspace-launcher-ps7"
+      aria-label={`${t('workspacePresets.launchPs7For', { name: target.name })} · ${target.cwd}`}
+      title={`${t('workspacePresets.launchPs7For', { name: target.name })} · ${target.cwd}`}
+      disabled={launchingId !== null} aria-busy={launchingId === target.key} onClick={() => void launch(target)}>PS7</button>
+  </>
 
   const renderDirectory = (node: WorkLauncherDirectory): React.ReactNode => {
     const worktrees = node.project?.entries.filter(entry => entry.isolation === 'worktree') ?? []
@@ -137,7 +146,7 @@ const WorkspaceLauncherTree = <T extends WorkLauncherAgent,>({ visible, onManage
       <div className={`workspace-launcher-row${node.project ? ' is-workspace' : ' is-parent'}`}>
         {expandable ? <button type="button" className="workspace-launcher-disclosure" aria-label={t('agents.toggleDirectory', { name: node.path })} aria-expanded={open} aria-controls={childrenId} onClick={() => toggle(node.key)}><Chevron open={open}/></button>
           : <span className="workspace-launcher-disclosure"/>}
-        {launchButton(target, node.label)}
+        {launchButton(target, node.label, false, shared)}
       </div>
       {expandable && <ul id={childrenId} hidden={!open}>
         {node.children.map(renderDirectory)}
@@ -149,7 +158,7 @@ const WorkspaceLauncherTree = <T extends WorkLauncherAgent,>({ visible, onManage
           return <li key={preset.id}>
           <div className="workspace-launcher-row is-worktree">
             {items.length ? <button type="button" className="workspace-launcher-disclosure" aria-label={t('agents.toggleDirectory', { name: formatCodeWorkspaceName(preset) })} aria-expanded={open} aria-controls={groupId} onClick={() => toggle(key)}><Chevron open={open}/></button> : <span className="workspace-launcher-disclosure"/>}
-            {launchButton(presetTarget(preset), preset.worktreeKey ?? preset.name, true)}
+            {launchButton(presetTarget(preset), preset.worktreeKey ?? preset.name, true, preset)}
           </div>
           {items.length > 0 && <ul id={groupId} hidden={!open}>{items.map(renderAgentItem)}</ul>}
         </li>})}

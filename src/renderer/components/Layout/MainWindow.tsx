@@ -1,5 +1,6 @@
 import React, { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import cn from 'classnames'
+import { ProjectSceneBar } from './ProjectSceneBar'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import SessionsPanel from './SessionsPanel'
@@ -45,6 +46,7 @@ import { isPluginViewKey, parsePluginViewKey, makePluginViewKey } from '@shared/
 import { uniquePluginWebOrigins } from '@shared/plugin-web-resources'
 import type { SessionConfig, QuickCommand } from '@shared/types'
 import { matchWebTabShortcut, isWebTabShortcutAction, type WebTabShortcutAction } from '@shared/webtab-shortcut'
+import { isSidebarShortcutAction, matchSidebarShortcutAction, type SidebarShortcutAction } from '@shared/sidebar-shortcut'
 import {
   activeWebTabId, reloadActiveWebTab, activeWebTabGoBack, activeWebTabGoForward, openActiveWebTabDevTools
 } from './web-tab-controls'
@@ -456,6 +458,7 @@ const MainWindow: React.FC = () => {
       // 如果会话不在 store 中，检查状态
       const existingSession = store.sessions.find(s => s.id === data.id)
       if (!existingSession) {
+        store.updateSessionStatus(data.id, data.status, data.error)
         // 对于断开或错误状态的会话，不要重新添加（可能是用户关闭后被移除的临时会话）
         if (data.status === 'disconnected' || data.status === 'error') {
           return
@@ -468,6 +471,12 @@ const MainWindow: React.FC = () => {
           if (pendingSessionFetches.current.get(data.id) !== fetchId) return
           pendingSessionFetches.current.delete(data.id)
           if (config) {
+            const nowKnown = useSessionStore.getState().sessions.find(session => session.id === data.id)
+            if (nowKnown) {
+              // 项目入口已按原分屏落位；迟到的 fetch 只补 connected，不再移动页签。
+              if (nowKnown.status === 'connecting' && data.status === 'connected') store.updateSessionStatus(data.id, data.status, data.error)
+              return
+            }
             store.addTemporarySession({
               id: data.id,
               config,
@@ -649,31 +658,43 @@ const MainWindow: React.FC = () => {
   }
   const endSidebarResize = () => setIsResizingSidebar(false)
 
-  // Alt+1..9 切换左列页签(实现 footer 既有 "alt + 1…n" 提示;capture 抢在 xterm 前)
+  // 两条输入路径共用导航：原生事件覆盖宿主及 webview，DOM capture 兼容宿主合成事件。
+  const routeSidebarShortcut = useCallback((action: SidebarShortcutAction) => {
+    if (action === 'toggle') {
+      const moveFocus = !!document.activeElement?.closest('#workspace-sidebar, .sidebar-toggle')
+      setSidebarCollapsed(previous => !previous)
+      if (moveFocus) requestAnimationFrame(() => {
+        const collapsed = document.getElementById('workspace-sidebar')?.getAttribute('aria-hidden') === 'true'
+        document.querySelector<HTMLButtonElement>(`.sidebar-toggle[data-collapsed="${collapsed}"]`)?.focus()
+      })
+      return
+    }
+    handleNavChange(action)
+    setSidebarCollapsed(false)
+  }, [handleNavChange])
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (!e.altKey) return
-      // 文本输入中不拦截(避免劫持 PluginPanel/WebPanel URL 输入等)
-      const el = e.target as HTMLElement | null
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
-      let tab: NavTab | null = null
-      if (e.key === '1') tab = 'sessions'
-      else if (e.key === '2') tab = 'agents'
-      else if (e.key === '3') tab = 'dsh'
-      else if (e.key === '4') tab = 'codex'
-      else if (e.key === '5') tab = 'claude'
-      else if (e.key === '6') tab = 'env'
-      else if (e.key === '7') tab = 'plugins'
-      else if (e.key === '8') tab = 'web'
-      else if (e.key === '9') tab = 'settings'
-      if (!tab) return
+      const action = matchSidebarShortcutAction({
+        type: 'keyDown', key: e.key, code: e.code, alt: e.altKey,
+        control: e.ctrlKey, meta: e.metaKey, shift: e.shiftKey,
+        isAutoRepeat: e.repeat, isComposing: e.isComposing
+      })
+      if (!action) return
       e.preventDefault()
       e.stopPropagation()
-      handleNavChange(tab)
+      routeSidebarShortcut(action)
     }
     window.addEventListener('keydown', handler, true)
     return () => window.removeEventListener('keydown', handler, true)
-  }, [handleNavChange])
+  }, [routeSidebarShortcut])
+
+  useEffect(() => {
+    if (!window.electronAPI?.onSidebarShortcut) return
+    return window.electronAPI.onSidebarShortcut(action => {
+      if (isSidebarShortcutAction(action)) routeSidebarShortcut(action)
+    })
+  }, [routeSidebarShortcut])
 
   // 监听浮窗显示/隐藏快捷键
   useEffect(() => {
@@ -820,7 +841,7 @@ const MainWindow: React.FC = () => {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (activeWebTabId() === null) return
-      // 焦点落点守卫(对齐 Alt+1..9 的输入豁免 + Ctrl+方向的终端归属校验):
+      // 浏览器操作保留输入焦点豁免，并校验 Ctrl+方向键是否属于终端。
       // - 真输入框(非 xterm):模态/表单里打字时不劫持 —— Ctrl+L 会切走面板,
       //   未保存的表单状态直接销毁
       // - xterm 终端:焦点所在 pane 是活动 pane 才拦。Ctrl+方向切 pane 只移
@@ -1314,6 +1335,7 @@ const MainWindow: React.FC = () => {
             </div>
           )}
         </div>
+        <ProjectSceneBar showBar={!hasVisibleTabs && !paletteOpen} />
       </div>
 
       {/* MCP 活动面板以页签形式挂在各分屏 PaneView 内，由布局树里的 mcpAudit 覆盖层引用驱动 */}

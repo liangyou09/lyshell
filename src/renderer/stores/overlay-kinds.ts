@@ -50,6 +50,15 @@ export interface OverlayKindDef {
 }
 
 export const OVERLAY_KINDS: Record<OverlayKind, OverlayKindDef> = {
+  projectEntry: {
+    singleton: false,
+    fallbackToLastInPane: true,
+    activateOnLastTerminalClose: true,
+    activatePriority: 4,
+    unmountWhenInactive: false,
+    dropAccent: { bg: 'var(--amber-glow)', border: 'var(--amber)' },
+    dropLabelKey: 'pane.moveDocHere'
+  },
   dshWeb: {
     singleton: true,
     singletonId: DSH_WEB_OVERLAY_ID,

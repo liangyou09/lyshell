@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * 覆盖层归一化契约套件 —— 对全部四种 OverlayKind 跑同一套契约。
+ * 覆盖层归一化契约套件 —— 对全部 OverlayKind 跑同一套契约。
  *
  * 这是「新增一种覆盖层」的必过门槛：历史上一系列坑（空条早退漏算某种类、
  * close 漏空 pane 回并、splitPane 覆盖层不随迁变僵尸、插槽随会话关闭漂移、
@@ -56,6 +56,7 @@ interface ContractCase {
 }
 
 const CASES: ContractCase[] = [
+  { kind: 'projectEntry', singleton: false, fallback: true, autoActivate: true, payload: { kind: 'projectEntry', target: { presetId: 'project', cwd: '/tmp' }, entry: { kind: 'directory' } } },
   { kind: 'web', singleton: false, fallback: true, autoActivate: true, payload: { kind: 'web', url: 'https://example.com/', title: 'example.com' } },
   { kind: 'doc', singleton: false, fallback: true, autoActivate: false, payload: { kind: 'doc', ...DOC_INFO } },
   { kind: 'dshWeb', singleton: true, fallback: false, autoActivate: true, payload: { kind: 'dshWeb', url: 'http://127.0.0.1:3080', name: 'dsh web' } },
@@ -68,6 +69,8 @@ const CASES: ContractCase[] = [
 const open = (c: ContractCase, paneId: string, variant = 0): string => {
   const st = usePaneStore.getState()
   switch (c.kind) {
+    case 'projectEntry':
+      return st.mountOverlay(paneId, c.payload)!
     case 'web':
       return st.mountOverlay(paneId, c.payload)!
     case 'doc':
@@ -420,7 +423,7 @@ describe.each(CASES)('$kind：归一化覆盖层契约', (c) => {
 
     const st = usePaneStore.getState()
     // doc 走 openDocTab 同路径复用；web 需显式传 id 复用（门面无复用入口）；单例走门面重开
-    const reopened = c.kind === 'web'
+    const reopened = c.kind === 'web' || c.kind === 'projectEntry'
       ? st.mountOverlay('pane-1', c.payload, { id })
       : open(c, 'pane-1')
     expect(reopened).toBe(id) // 原位：同 id、不新增页签
@@ -462,14 +465,14 @@ describe.each(CASES)('$kind：归一化覆盖层契约', (c) => {
   })
 })
 
-describe('跨种类契约（四种覆盖层同 pane 共存）', () => {
+describe('跨种类契约（所有覆盖层同 pane 共存）', () => {
   beforeEach(() => reset())
 
   it('依次挂载同 pane：仅最后激活，页签序 = 打开序', () => {
     const ids = CASES.map(c => open(c, 'pane-1'))
     const st = usePaneStore.getState()
     const host = st.getPaneById('pane-1') as PaneLeaf
-    expect(host.overlays).toHaveLength(4)
+    expect(host.overlays).toHaveLength(CASES.length)
     expect(host.overlays.map(r => r.id)).toEqual(ids)
     ids.forEach((id, i) => expect(st.isOverlayActive(id)).toBe(i === ids.length - 1))
   })

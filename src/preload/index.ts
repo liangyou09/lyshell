@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import type { ProjectSceneRequest, ProjectSceneResult } from '@shared/project-scene'
 import type { IpcRendererEvent } from 'electron'
 import type { TerminalOutputControl, TerminalOutputReceipt } from '@shared/terminal-output'
 import type { WorktreeListResult } from '@shared/worktree'
@@ -8,6 +9,7 @@ import type { DshUsagePricingOpenResult, DshUsageResult } from '@shared/dsh-usag
 import type { SessionConfig, TerminalEncoding, WebTabPopupRequest } from '@shared/types'
 import type { ExclusiveWorkbenchDetail } from '@shared/exclusive-control'
 import { isWebTabShortcutAction } from '@shared/webtab-shortcut'
+import { isSidebarShortcutAction, type SidebarShortcutAction } from '@shared/sidebar-shortcut'
 import type { BrowserRequest, BrowserResult } from '@shared/browser-settings'
 import type { McpAuditRetentionLimit } from '@shared/mcp-audit'
 import { BROWSER_DOWNLOADS_EVENT, type BrowserDownloadsSnapshot } from '@shared/browser-downloads'
@@ -150,6 +152,7 @@ const IPC_CHANNELS = {
   WEBBAR_FETCH_FAVICON: 'webbar:fetch-favicon',
   WEBBAR_REGISTER_MINI: 'webbar:register-mini',  // renderer→main：写轮眼小窗 dom-ready 后自报 webContentsId
   WEB_TAB_SHORTCUT: 'web-tab:shortcut',  // main→renderer：webview 焦点内的浏览器快捷键转发
+  SIDEBAR_SHORTCUT: 'sidebar:shortcut',
   WEB_TAB_POPUP: 'web-tab:popup',  // main→renderer：webview 弹窗跳转地址转发（deny + 转页签；小窗普通点击原地跳，不走此通道）
   WEB_TAB_POST_LOAD: 'web-tab:post-load',  // renderer→main：POST 页签 dom-ready 后认领一次性正文
 
@@ -325,8 +328,16 @@ const electronAPI = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.FLOAT_TOGGLE, listener)
   },
 
+  // 应用内侧栏快捷键：宿主输入框、终端和 webview 共用主进程转发。
+  onSidebarShortcut: (callback: (action: SidebarShortcutAction) => void) => {
+    const listener = (_event: IpcRendererEvent, action: unknown) => {
+      if (isSidebarShortcutAction(action)) callback(action)
+    }
+    ipcRenderer.on(IPC_CHANNELS.SIDEBAR_SHORTCUT, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.SIDEBAR_SHORTCUT, listener)
+  },
   // 网页页签快捷键（main→renderer）：焦点在 webview 内时宿主收不到 keydown，
-  // 主进程 before-input-event 拦截后经此转发，渲染层路由到活动网页页签
+  // 主进程 before-input-event 拦截后经此转发，渲染层路由到活动网页页签。
   onWebTabShortcut: (callback: (action: string) => void) => {
     const listener = (_e: IpcRendererEvent, action: unknown): void => {
       if (isWebTabShortcutAction(action)) callback(action)
@@ -449,6 +460,8 @@ const electronAPI = {
   // 返回类型是 @shared/worktree 的 WorktreeListResult（success 判别联合，与主进程 handler 对齐）
   listHarnessWorktrees: (cwd: string): Promise<WorktreeListResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.HARNESS_WORKTREE_LIST, cwd),
+  // 项目现场及可读名称查询；显式启动只返回运行期会话 ID，不复制环境变量到现场。
+  projectSceneRequest: (request: ProjectSceneRequest): Promise<ProjectSceneResult> => ipcRenderer.invoke('project-scene:request', request),
   // 工作区配置和 PS7 启动；目录入口传预设 ID + 路径，由主进程校验其祖先关系。
   codeWorkspaceRequest: (request: CodeWorkspaceRequest): Promise<CodeWorkspaceResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.CODE_WORKSPACE_REQUEST, request),

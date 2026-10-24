@@ -1,4 +1,5 @@
 import type { DocOverlayPayload } from './doc'
+import type { SceneEntry, SceneTarget } from '../project-scene'
 
 /**
  * 分屏方向
@@ -10,7 +11,7 @@ export type SplitDirection = 'horizontal' | 'vertical'
  * 挂载点（OverlayRef）进 pane 树叶子，payload 进 pane-store 的字典；
  * 新增种类 = payload 变体 + overlay-kinds 注册表条目 + 渲染器，机制层自动覆盖。
  */
-export type OverlayKind = 'web' | 'doc' | 'dshWeb' | 'mcpAudit'
+export type OverlayKind = 'web' | 'doc' | 'dshWeb' | 'mcpAudit' | 'projectEntry'
 
 /**
  * 覆盖层引用（挂在叶子上）—— id/active/slot 是挂载态，与 payload 解耦。
@@ -91,9 +92,12 @@ export interface WebTabPopupRequest {
 
 /**
  * 覆盖层 payload（判别联合）—— 内容数据，按 id 存于 pane-store 的 overlayPayloads 字典。
- * 瞬态：与挂载点一样不持久化，重启即回收。
+ * 全局布局不持久化 payload；项目现场另存经过白名单校验的安全入口，绝不直接序列化 payload。
  */
-export type OverlayPayload = { ownerPluginId?: string } & (
+// projectSceneKey / projectSceneId 是**运行期**归属：只标记该覆盖层属于哪个项目的哪个保存点，
+// 用于「继续」时定位界面上已有的实例；不参与持久化，也不承载命令/进程/凭据。
+export type OverlayPayload = { ownerPluginId?: string; projectSceneKey?: string; projectSceneId?: string; projectSceneEntry?: SceneEntry } & (
+  | { kind: 'projectEntry'; target: SceneTarget; entry: SceneEntry; launch?: { status: 'pending' | 'unknown' } | { status: 'accepted'; sessionId: string } }
   | { kind: 'web'; url: string; title: string; favicon?: string; nav?: WebTabNav; postToken?: string }
   | { kind: 'doc' } & DocOverlayPayload
   | {

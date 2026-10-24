@@ -50,6 +50,8 @@ export const IPC_CHANNELS = {
   // 网页页签快捷键（main → renderer 单向推送：焦点在 webview 内时宿主收不到
   // keydown，由主进程 before-input-event 拦截后经此通道转发渲染层路由）
   WEB_TAB_SHORTCUT: 'web-tab:shortcut',
+  // 窗口及其内嵌网页的侧栏快捷键（main → renderer）。
+  SIDEBAR_SHORTCUT: 'sidebar:shortcut',
 
   // 网页页签弹窗跳转（main → renderer 单向推送：webview 内 target=_blank /
   // window.open 的开窗请求在主进程一律 deny，http/https 地址经此通道转发渲染层

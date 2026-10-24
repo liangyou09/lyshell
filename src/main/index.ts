@@ -47,6 +47,7 @@ import { dshWebManager } from './dsh/web'
 import { KILL_STEP_TIMEOUT_FLOOR_MS, sweepOrphanDshWeb } from './dsh/proc'
 import { IPC_CHANNELS, WEBBAR_DEEPLINK_SCHEMES, WEBBAR_PARTITION, DSH_WEB_PARTITION } from '@shared/constants'
 import { handleBrowserShortcut } from './browser/shortcuts'
+import { registerSidebarShortcuts } from './sidebar-shortcut'
 import { createLogTap } from '@shared/log-throttle'
 import { decideWebviewFrameNavigation, gateWebviewSubframeNavigation } from './webview-frame-navigation'
 import { PendingWebbarPostStore, webbarPostLoadOptions, webbarPostRawBytesWithinLimit } from './webbar-post'
@@ -792,6 +793,8 @@ function createMainWindow(): void {
     })
   })
 
+  registerWindowShortcuts(mainWindow)
+
   // 每次建窗都初始化演示服务，覆盖 macOS 关窗后的 activate 重建路径。
   startDemoStage(mainWindow)
 
@@ -806,14 +809,14 @@ function createMainWindow(): void {
 // 注册窗口级快捷键 —— 走 before-input-event,只在 LyShell 获得焦点时拦截,失焦不劫持系统其他 app
 // 之前用 globalShortcut.register('CommandOrControl+Alt+F') 是错的:那是 OS 级别拦截,LyShell 在后台时
 // 用户在别的 app 按 Ctrl+Alt+F 也会被吞掉
-function registerWindowShortcuts(): void {
-  if (!mainWindow) return
-  mainWindow.webContents.on('before-input-event', (_event, input) => {
+function registerWindowShortcuts(window: BrowserWindow): void {
+  registerSidebarShortcuts(window)
+  window.webContents.on('before-input-event', (_event, input) => {
     // Ctrl+`(backquote)切换浮窗。键码用 `Backquote` 比 input.key 更稳:不同键盘布局上 `` ` `` 的 key 值可能不同
     const isCtrl = input.control || input.meta  // mac 上 Cmd 等价
     if (input.type === 'keyDown' && isCtrl && !input.shift && !input.alt && input.code === 'Backquote') {
       log.info('Float toggle shortcut triggered (Ctrl+`)')
-      mainWindow?.webContents.send('float:toggle')
+      window.webContents.send('float:toggle')
       _event.preventDefault()
     }
   })
@@ -969,9 +972,6 @@ app.whenReady().then(async () => {
       log.warn(`Failed to register deep-link scheme handler (${scheme}):`, err)
     }
   }
-
-  // 注册窗口级快捷键(必须在 createMainWindow 之后,因为依赖 mainWindow.webContents)
-  registerWindowShortcuts()
 
   // 注册窗口相关 IPC 处理器
   ipcMain.handle('window:get-bounds', async () => {

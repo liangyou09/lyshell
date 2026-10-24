@@ -5,6 +5,7 @@ import type { HarnessWorkspace } from '@shared/harness'
 import { useUiStore } from '@/stores/ui-store'
 import type { CodeWorkspacePreset, CodeWorkspaceResult } from '@shared/code-workspaces'
 import HarnessPanel from './HarnessPanel'
+import { useProjectSceneUI, presetSceneTarget } from '../../stores/project-scene-ui'
 
 vi.mock('react-i18next', async importOriginal => ({
   ...await importOriginal<typeof import('react-i18next')>(),
@@ -42,6 +43,28 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('共享工作区预选', () => {
+  it.each(['codex', 'claude'] as const)('%s 的实际项目列表提供共享目录及 worktree 各自的现场入口', async agent => {
+    const items = [
+      { ...existing, id: 'shared-agent', workspacePresetId: 'shared', cwd: 'D:/shared' },
+      { ...existing, id: 'tree-agent', workspacePresetId: 'tree', cwd: 'D:/shared', isolation: 'worktree' as const, worktreeKey: 'feature' }
+    ]
+    const list = agent === 'codex' ? api.listCodexWorkspaces : api.listClaudeWorkspaces
+    list.mockResolvedValue(items)
+    Object.assign(api, { projectSceneRequest: vi.fn() })
+    useProjectSceneUI.setState({ loaded: true, busy: false, presets, selected: null, menu: null, scenes: presets.slice(0, 2).map(preset => ({ version: 1, id: `scene-${preset.id}`, savedAt: 1, target: presetSceneTarget(preset), directory: preset.cwd, root: { type: 'leaf', entries: [{ kind: 'directory' }], active: 0 }, activeLeaf: 0 })) })
+    const view = render(<HarnessPanel agent={agent} />)
+    await waitFor(() => expect(view.container.querySelectorAll('.project-scene-inline')).toHaveLength(2))
+    const worktree = view.getByLabelText('Project feature · feature 的项目现场')
+    const row = worktree.closest('.harness-project-row')
+    expect(row).not.toBeNull()
+    expect(worktree.nextElementSibling?.classList.contains('harness-project-launch')).toBe(true)
+    expect(view.container.querySelectorAll('.harness-project-items > .project-scene-inline')).toHaveLength(0)
+    expect(within(worktree).getByRole('button', { name: '继续上次工作' })).toBeTruthy()
+    fireEvent.click(within(worktree).getByRole('button', { name: '历史' }))
+    expect(useProjectSceneUI.getState().selected?.presetId).toBe('tree')
+    expect(useProjectSceneUI.getState().selected?.worktreeKey).toBe('feature')
+  })
+
   it.each(['codex', 'claude'] as const)('%s 新建时主动清空目录，暂离设置后仍保持未引用与名称草稿', async agent => {
     const view = render(<HarnessPanel agent={agent} />)
     fireEvent.click(await view.findByTitle(agent + '.wsAddTitle'))

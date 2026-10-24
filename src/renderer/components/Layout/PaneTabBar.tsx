@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
+import { useSceneEntryLabel } from './useSceneEntryLabel'
 import { useSessionStore, type SessionState } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import { BROWSER_NEW_TAB_URL } from '@shared/browser-settings'
@@ -245,7 +246,21 @@ interface OverlayTabSpec {
   toggleCloseOnActive?: boolean
 }
 
+const ProjectEntryTabLabel: React.FC<{ payload: Extract<OverlayPayload, { kind: 'projectEntry' }> }> = ({ payload }) => {
+  const { i18n } = useTranslation()
+  const label = useSceneEntryLabel(payload)
+  const chinese = !i18n?.language?.startsWith('en')
+  const fallback = payload.entry.kind === 'agent' ? payload.entry.agentKind === 'codex' ? 'Codex' : payload.entry.agentKind === 'claude' ? 'Claude' : payload.entry.agentKind === 'dsh' ? 'DeepSeek' : 'Agent' : chinese ? '项目终端' : 'Project terminal'
+  const name = payload.entry.kind === 'agent' ? label.entryName || fallback : fallback
+  return <span className="text-[13px] truncate" title={name}>{name} · {chinese ? '待启动' : 'Ready'}</span>
+}
+
 const OVERLAY_TAB_SPECS: Record<OverlayKind, OverlayTabSpec> = {
+  projectEntry: {
+    Content: ({ payload }) => payload.kind === 'projectEntry' ? <ProjectEntryTabLabel payload={payload}/> : null,
+    tabTitle: p => p.kind === 'projectEntry' ? p.target.cwd : '',
+    closeTitle: t => t('doc.close')
+  },
   dshWeb: {
     Content: DshWebTabContent,
     tabTitle: (p, t) => (p.kind === 'dshWeb' && p.cwd) || t('dsh.webTitle'),

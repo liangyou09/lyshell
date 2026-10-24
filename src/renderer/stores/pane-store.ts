@@ -25,7 +25,7 @@ export type DshWebOverlayInfo = Extract<OverlayPayload, { kind: 'dshWeb' }>
  * 种类行为（单例 / 关闭回落 / 自动激活优先级 / 关闭副作用）查 overlay-kinds 注册表。
  * 新增一种覆盖层不再需要逐触点手工枚举 —— 树函数与通用操作按 refs 数组统一迭代。
  *
- * 覆盖层全部瞬态：持久化只存剥离 overlays 的布局树，重启即回收。
+ * 全局布局中的覆盖层全部瞬态；用户手动保存的项目现场由 project-scene 单独保存安全入口。
  */
 
 // 布局持久化 key

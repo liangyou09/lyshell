@@ -242,8 +242,8 @@
     "retry": "重试"
   },
   "nav": {
-    "sessions": "会话",
-    "agents": "Agent",
+    "sessions": "Session Launcher",
+    "agents": "Project Launcher",
     "dsh": "DeepSeek Harness Launcher",
     "codex": "Codex Launcher",
     "claude": "Claude Launcher",
@@ -405,7 +405,7 @@
   },
   "agents": {
     "title": "Agent",
-    "workLauncher": "Work Launcher",
+    "workLauncher": "Project Launcher",
     "launcherManage": "管理启动器",
     "launchFailed": "启动失败，请重试。",
     "workspaces": "工作路径",
@@ -874,8 +874,8 @@
       "new": "新建连接(打开会话对话框)",
       "ls": "清点会话 · Agent · 工作区 · 插件(/ls env 只看一类)",
       "local": "快速打开本地终端",
-      "sessions": "切换到会话列表",
-      "agents": "切换到 Agent 面板",
+      "sessions": "切换到 Session Launcher 面板",
+      "agents": "切换到 Project Launcher 面板",
       "dsh": "切换到 DeepSeek Harness Launcher 面板",
       "codex": "切换到 Codex Launcher 面板",
       "claude": "切换到 Claude Launcher 面板",

@@ -34,8 +34,9 @@ const SidebarToggle: React.FC<SidebarToggleProps> = ({ collapsed, onClick, tabIn
         }
       }}
       tabIndex={tabIndex}
-      title={label}
+      title={label + ' (Alt+`)'}
       aria-label={label}
+      aria-keyshortcuts="Alt+`"
       aria-expanded={!collapsed}
       aria-controls="workspace-sidebar"
       data-collapsed={collapsed}

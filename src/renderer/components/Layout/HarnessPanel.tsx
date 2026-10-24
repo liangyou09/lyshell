@@ -20,6 +20,7 @@ import './HarnessPanel.css'
 import { workspaceProjectHue } from './workspace-project-color'
 import RackSelect from './RackSelect'
 import RackCombobox from './RackCombobox'
+import { ProjectSceneProjectActions } from './ProjectSceneBar'
 
 /**
  * AI Harness 面板 —— dsh / codex / claude 三份第一等终端 Agent 的通用外壳。
@@ -1088,6 +1089,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
     const toggleEditor = () => { if (detailOpen) closeEditor(); else handleEdit(ws) }
     const detailId = `harness-ws-detail-${ws.id}`
     if (folded) {
+      const scenePreset = findManagedWorkspace(ws, presets, window.electronAPI.platform)
       const fullName = formatCodeWorkspaceName(ws)
       const isWorktree = ws.isolation === 'worktree'
       const worktreeName = isWorktree ? ws.worktreeKey : undefined
@@ -1133,6 +1135,7 @@ const HarnessPanel: React.FC<{ agent: HarnessAgentKind; visible?: boolean; onOpe
             </span>
             </span>
           </button>
+          {scenePreset && <ProjectSceneProjectActions preset={scenePreset} />}
           <button type="button" className="harness-project-launch" disabled={!!launchingId || saving}
             aria-busy={launching}
             aria-label={`${t(`${prefix}.launch`)} · ${fullName}`} title={`${t(`${prefix}.launch`)} · ${fullName}`}

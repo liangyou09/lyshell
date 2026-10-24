@@ -64,7 +64,7 @@ describe('buildInventoryMarkdown', () => {
   it('会话节:saved 行名称是打开链接、临时行保持纯文本;目标摘要、运行态聚合(克隆已连接 → saved 行显示已连接)', () => {
     const md = buildInventoryMarkdown(base)
     // 1 saved + 1 未关联 saved 的临时行
-    expect(md).toContain('## Sessions · 2')
+    expect(md).toContain('## Session Launcher · 2')
     expect(md).toContain('| [prod](lyshell-action://open-session?id=saved-1) | ssh | 10.0.0.1:22 | ● connected |')
     expect(md).toContain('| scratch (temporary) | local | D:\\\\tmp | ● connected |')
   })
@@ -171,7 +171,7 @@ describe('buildInventoryMarkdown', () => {
 
   it('Agent 节:按 order 排序,名称为启动链接,命令与工作目录成表', () => {
     const md = buildInventoryMarkdown(base)
-    expect(md).toContain('## Agents · 2')
+    expect(md).toContain('## Project Launcher · 2')
     const dshRow = '| [dsh](lyshell-action://open-agent?id=a0) | dsh-tui | — |'
     expect(md.indexOf(dshRow)).toBeGreaterThan(0)
     expect(md.indexOf('| [Claude Code](lyshell-action://open-agent?id=a1) | claude | D:\\\\ws |')).toBeGreaterThan(md.indexOf(dshRow))
@@ -228,7 +228,7 @@ describe('buildInventoryMarkdown:section 子清单', () => {
     expect(md).toContain('| [prod keys](lyshell-action://open-env?id=p1)')
     expect(md).toContain('lyshell-action://new-env')
     expect(md).toContain('/ls env')
-    for (const absent of ['## Sessions', '## Agents', '## DeepSeek Harness', '## Codex', '## Claude', '## Plugins']) {
+    for (const absent of ['## Session Launcher', '## Project Launcher', '## DeepSeek Harness', '## Codex', '## Claude', '## Plugins']) {
       expect(md).not.toContain(absent)
     }
   })
@@ -238,6 +238,6 @@ describe('buildInventoryMarkdown:section 子清单', () => {
     expect(md).toContain('# LyShell inventory · Claude')
     expect(md).toContain('## Claude Launcher · Workspaces · 0')
     expect(md).toContain('*(failed to load)*')
-    expect(md).not.toContain('## Sessions')
+    expect(md).not.toContain('## Session Launcher')
   })
 })

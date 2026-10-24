@@ -240,8 +240,8 @@
     "retry": "Retry"
   },
   "nav": {
-    "sessions": "Sessions",
-    "agents": "Agents",
+    "sessions": "Session Launcher",
+    "agents": "Project Launcher",
     "dsh": "DeepSeek Harness Launcher",
     "codex": "Codex Launcher",
     "claude": "Claude Launcher",
@@ -403,7 +403,7 @@
   },
   "agents": {
     "title": "Agents",
-    "workLauncher": "Work Launcher",
+    "workLauncher": "Project Launcher",
     "launcherManage": "Manage launcher",
     "launchFailed": "Launch failed. Try again.",
     "workspaces": "Working directories",
@@ -873,8 +873,8 @@
       "new": "New connection (opens the session dialog)",
       "ls": "Inventory of sessions · agents · workspaces · plugins (/ls env scopes to one kind)",
       "local": "Quick-open a local terminal",
-      "sessions": "Switch to the sessions panel",
-      "agents": "Switch to the Agents panel",
+      "sessions": "Switch to the Session Launcher panel",
+      "agents": "Switch to the Project Launcher panel",
       "dsh": "Switch to the DeepSeek Harness Launcher panel",
       "codex": "Switch to the Codex Launcher panel",
       "claude": "Switch to the Claude Launcher panel",

@@ -326,7 +326,7 @@ describe('命令执行:副作用路由与回显', () => {
     await vi.waitFor(() => {
       expect(docOf()?.content).toContain('## Env · 0')
     })
-    expect(docOf()?.content).not.toContain('## Sessions')
+    expect(docOf()?.content).not.toContain('## Session Launcher')
     expect(docOf()?.content).not.toContain('## Plugins')
     // 回显行点明清点的是哪一类(而非含糊的「全部对象」)
     expect(out).toContain('Env')

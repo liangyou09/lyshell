@@ -9,7 +9,7 @@ This manual covers everything LyShell can do. Use the outline rail on the left t
 
 | Area | Contents |
 |------|-----------|
-| Left column · rail | The icon column — nine panels (`Alt + 1…9`), sessions slot shows a live LED count |
+| Left column · rail | The icon column — eight panels (`Alt + 1…8`), sessions slot shows a live LED count |
 | Left column · panel | Sessions / Agents / DeepSeek Harness Launcher / Codex Launcher / Claude Launcher / Env / Plugins / Web / Settings |
 | Terminal column · tab bar | Browser-style tab bar lifted to the window's first row; doubles as the window drag area |
 | Terminal column · panes | Recursive split tree, horizontal / vertical |
@@ -306,7 +306,8 @@ Instant switching, no restart.
 | `Ctrl + Shift + H` / `V` | Horizontal / vertical split |
 | `Ctrl + Shift + P` | Fullscreen command palette |
 | `Ctrl + Shift + O` | Open a local document |
-| `Alt + 1…9` | Switch left panels |
+| `Alt + 1…8` | Switch to Project Launcher, Session Launcher, DeepSeek, Codex, Claude, Plugins, Web, Settings in order; works in inputs, terminals and embedded pages, and expands a collapsed sidebar |
+| Alt + &#96; (backquote) | Expand/collapse the left sidebar; works in inputs, terminals and embedded pages |
 | Right-click | Paste |
 | Middle-click | Terminal search |
 

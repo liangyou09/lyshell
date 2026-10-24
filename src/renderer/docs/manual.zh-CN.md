@@ -9,7 +9,7 @@
 
 | 区域 | 内容 |
 |------|------|
-| 左列 · 机柜轨 | 最左的图标列，切换九个面板（`Alt + 1…9`），会话槽位带在线 LED 读数 |
+| 左列 · 机柜轨 | 最左的图标列，切换八个面板（`Alt + 1…8`），会话槽位带在线 LED 读数 |
 | 左列 · 面板 | 会话 / Agent / DeepSeek Harness Launcher / Codex Launcher / Claude Launcher / 环境变量 / 插件 / 网页 / 设置 |
 | 终端列 · 页签条 | 浏览器式页签条提顶为窗口第一行，同时是窗口拖拽区 |
 | 终端列 · 分屏 | 递归分屏树，可水平 / 垂直任意切分 |
@@ -308,7 +308,8 @@ DELETE http://127.0.0.1:${LYSHELL_MCP_PORT}/api/plugins/${LYSHELL_PLUGIN_ID}/vie
 | `Ctrl + Shift + H` / `V` | 水平 / 垂直分屏 |
 | `Ctrl + Shift + P` | 全屏命令面板 |
 | `Ctrl + Shift + O` | 打开本地文档 |
-| `Alt + 1…9` | 切换左侧面板 |
+| `Alt + 1…8` | 依次切换 Project Launcher、Session Launcher、DeepSeek、Codex、Claude、插件、网页、设置；在输入框、终端和内嵌网页中均可用，侧栏收起时自动展开 |
+| Alt + &#96;（反引号） | 展开／收起左侧栏；在输入框、终端和内嵌网页中均可用 |
 | 右键 | 粘贴 |
 | 鼠标中键 | 终端搜索 |
 

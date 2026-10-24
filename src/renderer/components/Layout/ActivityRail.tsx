@@ -8,10 +8,11 @@ import { TOPBAR_HEIGHT } from './topbar-metrics'
 import SidebarToggle from './SidebarToggle'
 import { makePluginViewKey, parsePluginViewKey } from '@shared/plugin-types'
 import type { PluginViewMeta } from '@shared/plugin-types'
+import { SIDEBAR_NAV_TABS } from '@shared/sidebar-shortcut'
 
 /** 左侧机柜导航：保留分槽与连片选中态，图标采用统一光学尺寸和轻量托座。 */
 /** 固定页签白名单（内容页签 + 轨底设置槽）—— localStorage 恢复校验与类型收窄共用 */
-export const FIXED_NAV_TABS = ['sessions', 'agents', 'dsh', 'codex', 'claude', 'env', 'plugins', 'web', 'settings'] as const
+export const FIXED_NAV_TABS = [...SIDEBAR_NAV_TABS, 'env'] as const
 export type FixedNavTab = (typeof FIXED_NAV_TABS)[number]
 
 /** 插件视图复合键由 @shared 的 makePluginViewKey 构造、parsePluginViewKey 解析。 */
@@ -23,9 +24,8 @@ export function isFixedNavTab(tab: string): tab is FixedNavTab {
   return (FIXED_NAV_TABS as readonly string[]).includes(tab)
 }
 
-// 环境变量归入设置；env 导航键仍接受旧快捷键、命令和文档链接。
-const ALL_TABS: FixedNavTab[] = ['sessions', 'agents', 'dsh', 'codex', 'claude', 'plugins', 'web']
-const TABS: FixedNavTab[] = ALL_TABS
+// 环境变量归入设置；env 仍兼容旧导航状态、命令和文档链接，不占数字快捷键。
+const TABS = SIDEBAR_NAV_TABS.filter(tab => tab !== 'settings')
 
 /** 轨宽(px) -- 单一真相源:本组件容器宽与 MainWindow 宽度拖拽算式共用,防两处漂移 */
 export const RAIL_WIDTH = 44
@@ -74,7 +74,7 @@ const IconCodex: React.FC = () => <BrandMaskIcon src={codexIcon} />
 /** claude = Anthropic 太阳花(官方内置品牌标,mask 取 alpha 剪影、随主题着色) */
 const IconClaude: React.FC = () => <BrandMaskIcon src={claudeIcon} />
 
-/** Work Launcher = 工作夹与起飞纸飞机，透明剪影沿用侧栏的主题色和选中态。 */
+/** Project Launcher = 工作夹与起飞纸飞机，透明剪影沿用侧栏的主题色和选中态。 */
 const IconWorkLauncher: React.FC = () => <BrandMaskIcon src={workLauncherIcon} />
 
 /** 变量组 = ENV 横牌；圆角外框和加重顶边呼应机柜上的铭牌。 */

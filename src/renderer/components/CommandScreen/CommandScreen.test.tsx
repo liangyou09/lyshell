@@ -165,7 +165,7 @@ describe('CommandScreen:参数目录', () => {
     // 回车执行选中候选(= sessions),落到独立子清单身份,而非报错行
     expect(docOf()?.path).toBe(`${BUILTIN_INVENTORY_PATH}/sessions`)
     await vi.waitFor(() => {
-      expect(docOf()?.content).toContain('## Sessions · 0')
+      expect(docOf()?.content).toContain('## Session Launcher · 0')
     })
     expect(docOf()?.content).not.toContain('## Env ·')
     expect(screen.queryByText(/Unknown section/)).toBeNull()
@@ -190,7 +190,7 @@ describe('CommandScreen:参数目录', () => {
     await vi.waitFor(() => {
       expect(docOf()?.content).toContain('## Claude Launcher · Workspaces · 0')
     })
-    expect(docOf()?.content).not.toContain('## Sessions')
+    expect(docOf()?.content).not.toContain('## Session Launcher')
   })
 
   it('Enter:空参按原文执行(= 全量清单),无命中参数按原文执行(命令报错、不开页签)', () => {
