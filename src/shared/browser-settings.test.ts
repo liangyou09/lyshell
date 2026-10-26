@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { browserAddress, browserOrigin } from './browser-settings'
+import { browserAddress, browserOrigin, browserSearchQuery } from './browser-settings'
 
 describe('浏览器地址栏', () => {
+  it('只为普通搜索词请求联想，不发送网址、路径、账号或控制字符', () => {
+    expect(browserSearchQuery('  中文搜索  ', 'bing')).toBe('中文搜索')
+    for (const value of ['https://example.com/?token=secret', 'example.com', 'localhost:3000', 'user@example.com', 'D:\\work', '/etc/passwd', '../project', 'line\nbreak', 'x', 'x'.repeat(201)]) {
+      expect(browserSearchQuery(value, 'bing')).toBeNull()
+    }
+    expect(browserSearchQuery('中文搜索', 'none')).toBeNull()
+  })
   it.each([
     ['example.com/path', 'https://example.com/path'],
     ['localhost:3000/login', 'https://localhost:3000/login'],

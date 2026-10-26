@@ -170,12 +170,17 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
+    let pageTitle = ''
     const onTitle = (e: Event): void => {
       // Electron 28 实测：webview 事件参数挂在事件自身属性上（e.title），detail 为
       // undefined —— 原来只读 detail 的写法一直取不到，两者兼容
       const evt = e as CustomEvent<{ title?: string }> & { title?: string }
       const title = evt.title ?? evt.detail?.title
-      if (title) setWebTabTitle(id, title)
+      if (title) {
+        pageTitle = title
+        setWebTabTitle(id, title)
+        if (!navigationFailedRef.current) usePaneStore.getState().updateWebTabHistoryTitle(lastUrlRef.current || url, title)
+      }
     }
     const onFavicon = (e: Event): void => {
       // 取首个 favicon，代取失败静默回落纯文字页签（下次事件自动重试）
@@ -194,7 +199,7 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
       if (navigationFailedRef.current) return
       setLoadError(null)
       setLoadState('done')
-      recordWebTabVisit(lastUrlRef.current || url)
+      recordWebTabVisit(lastUrlRef.current || url, pageTitle)
     }
     // 导航态回写：地址栏显示与导航按钮可用性的数据源。did-navigate（顶层跳转）
     // 与 did-navigate-in-page（SPA pushState / 锚点）都跟 —— 子框架的页内事件
@@ -215,6 +220,7 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
       // 认领即销毁、正文不重放（重放已提交的 POST 有二次提交风险，见
       // PendingWebbarPostStore 注）
       if (postToken) settleWebTabPost(id, url)
+      if (e.type !== 'did-navigate-in-page') pageTitle = ''
       lastUrlRef.current = url
       if (activeWebTabId() === id) {
         setWebTabNav(id, { url, canGoBack: el.canGoBack(), canGoForward: el.canGoForward() })

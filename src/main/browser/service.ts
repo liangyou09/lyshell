@@ -10,6 +10,7 @@ import { BrowserPasswords } from './passwords'
 import { confirmBrowserCertificate, getBrowserCertificate, invalidateBrowserCertificatePrompts, setupBrowserCertificates } from './certificates'
 import { initializeBrowserPrompts, requestBrowserPrompt } from './prompts'
 import { browserDownloadAction, getBrowserDownloads, initializeBrowserDownloads, openBrowserDownloadDirectory } from './downloads'
+import { browserSearchSuggestions, clearBrowserSearchSuggestions } from './search-suggestions'
 
 const passwords = new BrowserPasswords()
 let settings: BrowserSettings | null = null
@@ -128,6 +129,11 @@ export async function initializeBrowser(): Promise<void> {
 
 /** 由已验证的宿主 IPC 调用。写入串行，代理应用失败不会保存半份配置。 */
 export function browserRequest(request: BrowserRequest, ownerId?: number): Promise<BrowserResult> {
+  if (request.kind === 'searchSuggestions') {
+    const searchEngine = getBrowserSettings().searchEngine
+    return browserSearchSuggestions(browserSession(), request.query, searchEngine)
+      .then(searchSuggestions => ({ success: true, searchSuggestions, searchEngine }))
+  }
   if (request.kind === 'downloads') return Promise.resolve({ success: true, downloadSnapshot: getBrowserDownloads() })
   if (request.kind === 'openDownloadDirectory') return openBrowserDownloadDirectory().then(success => ({ success })).catch(() => ({ success: false, error: 'browserDownloadFailed' }))
   if (request.kind === 'downloadAction') {
@@ -151,11 +157,13 @@ export function browserRequest(request: BrowserRequest, ownerId?: number): Promi
           try { atomicWriteFileSync(settingsPath(), JSON.stringify(next, null, 2)) }
           catch (error) { if (proxyChanged) await applyProxy(previous); throw error }
           settings = next
+          clearBrowserSearchSuggestions()
           grants.clear()
           for (const wc of webContents.getAllWebContents()) if (!wc.isDestroyed() && wc.session === browserSession()) wc.setZoomFactor(next.zoomFactor)
           return { success: true, settings: next }
         }
         case 'clear':
+          clearBrowserSearchSuggestions()
           if (request.target === 'cache') await browserSession().clearCache()
           else { invalidateBrowserCertificatePrompts(); await browserSession().clearStorageData(); await browserSession().closeAllConnections(); grants.clear() }
           return { success: true }

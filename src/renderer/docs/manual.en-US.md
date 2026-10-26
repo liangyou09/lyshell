@@ -120,6 +120,7 @@ Read documents as tabs inside terminal panes, side by side with terminals.
 The left-rail **Web** panel is a light built-in browser, perfect for dashboards and docs. Type a URL (no scheme → `https://` is prepended), press Enter, and it opens as a regular tab in the active split pane — same drag-to-split and tab semantics as terminals, so a dashboard can sit next to the terminal that feeds it.
 
 - **Recent** — successfully loaded URLs are remembered (deduplicated, 30 most recent) and offered as native autocomplete; click to reopen, ✕ to delete one
+- **Search suggestions** — with Bing selected, type at least two characters in either address bar to request query suggestions. Use ↑↓ to choose and Enter to search; Esc closes suggestions first. Queries are sent to Bing; URLs, file paths and email addresses are excluded. Requests pause during IME composition, and Enter still searches if suggestions are unavailable.
 - **Reload** — in a regular web tab, press `F5` to reload or `Shift + F5` to reload without cache.
 - **Developer tools** — in a regular web tab, press `F12` to toggle DevTools below the page. Drag the divider to adjust its height.
 - **Safety** — only `http` / `https` pass; webview navigation and popups route through a dedicated partition in the main process

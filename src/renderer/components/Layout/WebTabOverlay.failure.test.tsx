@@ -14,6 +14,29 @@ function fail(element: Element, fields: object): void {
 }
 
 describe('网页失败页', () => {
+  it('标题关联导航后的地址，动态更新不重记访问，新导航不沿用旧标题', () => {
+    const record = vi.spyOn(usePaneStore.getState(), 'recordWebTabVisit').mockImplementation(() => undefined)
+    const update = vi.spyOn(usePaneStore.getState(), 'updateWebTabHistoryTitle').mockImplementation(() => undefined)
+    try {
+      render(<WebTabOverlay id="title-history" url="https://first.example/" />)
+      const el = document.querySelector('webview')!
+      act(() => {
+        el.dispatchEvent(Object.assign(new Event('did-navigate'), { url: 'https://redirect.example/docs', isMainFrame: true }))
+        el.dispatchEvent(Object.assign(new Event('page-title-updated'), { title: '网页使用文档' }))
+        el.dispatchEvent(new Event('did-finish-load'))
+      })
+      expect(record).toHaveBeenLastCalledWith('https://redirect.example/docs', '网页使用文档')
+      act(() => { el.dispatchEvent(new CustomEvent('page-title-updated', { detail: { title: '动态标题' } })) })
+      expect(update).toHaveBeenLastCalledWith('https://redirect.example/docs', '动态标题')
+      expect(record).toHaveBeenCalledOnce()
+      act(() => {
+        el.dispatchEvent(Object.assign(new Event('did-navigate'), { url: 'https://next.example/', isMainFrame: true }))
+        el.dispatchEvent(new Event('did-finish-load'))
+      })
+      expect(record).toHaveBeenLastCalledWith('https://next.example/', '')
+    } finally { record.mockRestore(); update.mockRestore() }
+  })
+
   it('完整页签以实际 guest 和失败 URL 确认证书，获准后重试', async () => {
     const request = vi.fn().mockImplementation(async raw => raw.kind === 'certificateInfo' ? { success: true, certificate: { certificateId: 'actual-failure', subject: '', issuer: '', validFrom: '', validTo: '', fingerprint: '' } } : { success: true, certificateTrusted: true })
     const oldApi = window.electronAPI
@@ -93,7 +116,7 @@ describe('网页失败页', () => {
         el.dispatchEvent(new Event('did-finish-load'))
       })
       expect(record).toHaveBeenCalledOnce()
-      expect(record).toHaveBeenCalledWith('https://recovered.example/')
+      expect(record).toHaveBeenCalledWith('https://recovered.example/', '')
     } finally { record.mockRestore() }
   })
 

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorkbenchActivitySnapshot } from '@shared/workbench-activity'
-import { activityDirectoryKey, activityFresh, collectActivityNotices, useWorkbenchActivity } from './workbench-activity'
+import { activityDirectoryKey, activityFresh, collectActivityNotices, collectTuiNotices, acceptTuiActivity, useWorkbenchActivity } from './workbench-activity'
+import type { TuiActivitySnapshot } from '@shared/tui-activity'
 
 function snapshot(state: 'running' | 'completed' | 'failed' = 'running'): WorkbenchActivitySnapshot {
   return { observedAt: Date.now(), identity: { instanceId: 'backend-a', instanceEpoch: 1 }, connection: 'connected', sessions: [{ key: 'row-a', sessionId: 'session-a', workspace: 'C:/project', taskId: 'task-a', taskState: state, source: 'native-harness', updatedAt: Date.now(), stale: false, approvals: [] }] }
@@ -11,6 +12,28 @@ beforeEach(() => {
   Object.defineProperty(window, 'electronAPI', { configurable: true, value: { platform: 'win32', workbenchActivityRequest: vi.fn() } })
 })
 describe('可信状态与提醒', () => {
+  it('TUI 事件独立于原生后台，重复回合结束不重播，退出不推断成功', () => {
+    const initial: TuiActivitySnapshot = { observedAt: Date.now(), sessions: [{ terminalId: 'tui-a', launchId: 'launch-a', source: 'codex', workspace: 'C:/tui', cliSessionId: 'cli-a', turnId: 'turn-a', state: 'running', updatedAt: Date.now(), event: 'UserPromptSubmit', active: true }], events: [] }
+    const current: TuiActivitySnapshot = { ...initial, sessions: [{ ...initial.sessions[0], state: 'turn-ended' }], events: [{ id: 'end-a', terminalId: 'tui-a', launchId: 'launch-a', source: 'codex', workspace: 'C:/tui', turnId: 'turn-a', kind: 'turn-ended', at: Date.now() }] }
+    const seen = new Set<string>()
+    expect(collectActivityNotices({ observedAt: Date.now(), connection: 'offline', identity: null, sessions: [], tui: current }, { ...snapshot(), tui: initial }, seen)[0]).toMatchObject({ source: 'codex', kind: 'turn-ended', sessionId: 'tui-a' })
+    expect(collectTuiNotices(current, initial, seen)).toEqual([])
+    expect(collectTuiNotices(current, undefined, new Set())).toEqual([])
+    expect(collectTuiNotices({ ...current, events: [], sessions: [{ ...initial.sessions[0], active: false, state: 'unknown' }] }, initial, new Set())).toEqual([])
+  })
+  it('只保留当前 TUI 审批，不接受旧启动审批或过期快照', () => {
+    const current: TuiActivitySnapshot = { observedAt: Date.now(), sessions: [{ terminalId: 'tui-a', launchId: 'launch-a', source: 'claude', workspace: 'C:/tui', cliSessionId: 'cli-a', turnId: 'turn-a', state: 'waiting-approval', updatedAt: Date.now(), event: 'PermissionRequest', active: true }], events: [{ id: 'approval-a', terminalId: 'tui-a', launchId: 'launch-a', source: 'claude', workspace: 'C:/tui', turnId: 'turn-a', kind: 'approval', at: Date.now() }] }
+    expect(collectTuiNotices(current, undefined, new Set())).toHaveLength(1)
+    expect(collectTuiNotices({ ...current, observedAt: Date.now() - 14000 }, undefined, new Set())).toEqual([])
+    expect(collectTuiNotices({ ...current, sessions: [{ ...current.sessions[0], launchId: 'replacement' }] }, undefined, new Set())).toEqual([])
+    acceptTuiActivity(current)
+    acceptTuiActivity({ ...current, observedAt: current.observedAt - 1, events: [], sessions: [] })
+    expect(useWorkbenchActivity.getState().snapshot?.tui?.sessions).toHaveLength(1)
+    expect(useWorkbenchActivity.getState().notices[0].source).toBe('claude')
+    acceptTuiActivity({ ...current, revision: 10 })
+    acceptTuiActivity({ ...current, revision: 9, observedAt: current.observedAt + 1, events: [], sessions: [] })
+    expect(useWorkbenchActivity.getState().snapshot?.tui?.sessions).toHaveLength(1)
+  })
   it('按平台匹配完整目录，不把 worktree 或子目录归入主项目', () => {
     expect(activityDirectoryKey('C:\\Project\\', 'win32')).toBe(activityDirectoryKey('c:/project', 'win32'))
     expect(activityDirectoryKey('C:/project/.lyshell-worktrees/a', 'win32')).not.toBe(activityDirectoryKey('C:/project', 'win32'))

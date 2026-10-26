@@ -22,6 +22,21 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.useRealTimers() })
 describe('右上角任务通知', () => {
+  it('TUI 回合结束不显示任务完成，审批独立于原生后台并只引导回终端', () => {
+    snapshot = { ...snapshot, identity: null, connection: 'offline', sessions: [], tui: { observedAt: Date.now(), sessions: [{ terminalId: 'session-a', launchId: 'launch-a', source: 'codex', workspace: 'C:/projects/LyShell', cliSessionId: 'cli-a', turnId: 'task-a', state: 'waiting-approval', event: 'PermissionRequest', updatedAt: Date.now(), active: true, approvalEventId: 'tui-approval' }], events: [] } }
+    useWorkbenchActivity.setState({ snapshot })
+    const view = render(<ActivityNotifications />)
+    deliver({ ...notice('turn-ended'), source: 'codex', launchId: 'launch-a' })
+    expect(view.getByText('Codex · 本轮结束', { selector: 'strong' })).toBeTruthy()
+    expect(view.queryByText('任务已完成', { selector: 'strong' })).toBeNull()
+    act(() => vi.advanceTimersByTime(8000))
+    expect(view.queryByRole('article')).toBeNull()
+    deliver({ ...notice('approval'), source: 'codex', launchId: 'launch-a', tuiEventId: 'tui-approval' })
+    expect(view.getByText('Codex · 需要你的审批', { selector: 'strong' })).toBeTruthy()
+    expect(view.queryByRole('button', { name: /允许/ })).toBeNull()
+    act(() => useWorkbenchActivity.setState({ snapshot: { ...snapshot, tui: { ...snapshot.tui!, sessions: [{ ...snapshot.tui!.sessions[0], state: 'running', approvalEventId: undefined }] } } }))
+    expect(view.queryByRole('article')).toBeNull()
+  })
   it('worktree 同时显示项目名与分支目录，完整路径保留在悬停提示中', () => {
     expect(activityProjectName('D:\\projects\\LyShell\\.lyshell-worktrees\\feature')).toBe('LyShell / feature')
     expect(activityProjectName('/projects/LyShell/.lyshell-worktrees/feature')).toBe('LyShell / feature')

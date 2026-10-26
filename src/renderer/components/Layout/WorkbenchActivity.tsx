@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { WorkbenchActivitySession } from '@shared/workbench-activity'
-import { useWorkbenchActivity, activityDirectoryKey, activityFresh, startActivityPolling } from '../../stores/workbench-activity'
+import { useWorkbenchActivity, activityDirectoryKey, activityFresh, tuiActivityFresh, startActivityPolling } from '../../stores/workbench-activity'
 import { useSessionStore, type SessionState } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
-import { ActivityNotifications, ActivityNoticeIcon, activityProjectName } from './ActivityNotifications'
+import { ActivityNotifications, ActivityNoticeIcon, activityProjectName, activityNoticeTitle } from './ActivityNotifications'
 import './WorkbenchActivity.css'
 
 export function ActivityIcon() {
@@ -53,7 +53,20 @@ export function WorkbenchActivity() {
     completed: text('已完成', 'Completed'), failed: text('失败', 'Failed'), cancelled: text('已取消', 'Cancelled'),
     unconfirmed: text('结果未知 · 请核对', 'Outcome unconfirmed'), unknown: text('未知', 'Unknown')
   }[row.taskState])
-  const noticeLabel = (kind: string) => kind === 'approval' ? text('等待审批', 'Approval needed') : kind === 'completed' ? text('任务已完成', 'Task completed') : text('任务失败', 'Task failed')
+  const tui = state.snapshot?.tui
+  const tuiFresh = tuiActivityFresh(tui, Math.max(now, Date.now()))
+  const cliConnection = tui?.sessions.length ? !tuiFresh ? text('CLI 状态已过期', 'CLI state stale')
+    : tui.sessions.some(row => row.event) ? text('CLI 通知已接入 · 审批在终端处理', 'CLI notifications connected · approve in terminal')
+      : text('等待 CLI 通知 · 检查 /hooks 提示', 'Awaiting CLI notifications · check /hooks') : null
+  const tuiLabel = (terminalId: string): string => {
+    const row = tui?.sessions.find(item => item.terminalId === terminalId)
+    if (!row) return text('未知 · CLI 未提供可靠状态', 'Unknown · CLI has no reliable adapter')
+    if (!tuiFresh) return text('未知 · 状态已过期', 'Unknown · stale state')
+    if (!row.active && row.state === 'unknown') return text('未知 · 终端已断开', 'Unknown · terminal disconnected')
+    return ({ unknown: text('等待 CLI 事件 · 检查 /hooks 提示', 'Awaiting CLI event · check /hooks'), idle: text('等待输入', 'Awaiting input'), running: text('本轮运行中', 'Turn running'),
+      'waiting-approval': text('等待审批 · 请在终端处理', 'Awaiting approval · answer in terminal'), 'turn-ended': text('本轮结束 · 不代表整个目标完成', 'Turn ended · goal completion unverified'),
+      failed: text('本轮异常停止', 'Turn failed'), interrupted: text('本轮已中断', 'Turn interrupted'), 'session-ended': text('CLI 会话已结束', 'CLI session ended') })[row.state]
+  }
 
   function focusTerminal(row: SessionState) {
     const pane = usePaneStore.getState()
@@ -93,7 +106,7 @@ export function WorkbenchActivity() {
   return createPortal(<>
     <ActivityNotifications />
     {state.open && <div ref={panel} id="workbench-activity-panel" role="dialog" aria-label={text('项目会话与任务', 'Project sessions and tasks')} className="workbench-activity-panel win-no-drag">
-      <header><div><h2>{text('会话与任务', 'Sessions & tasks')}</h2><span className="workbench-activity-connection">{state.snapshot ? fresh ? text('原生 Harness 已连接', 'Native Harness connected') : state.snapshot.connection === 'offline' ? text('Harness 未连接', 'Harness offline') : state.snapshot.connection === 'connected' && !state.snapshot.identity ? text('暂无已接入的 Harness 任务', 'No observed Harness tasks') : text('Harness 状态已过期', 'Harness state stale') : text('正在读取状态…', 'Reading state…')}</span></div><button onClick={() => { state.close(); document.querySelector<HTMLButtonElement>('[data-workbench-activity-trigger]')?.focus() }}>{text('关闭', 'Close')}</button></header>
+      <header><div><h2>{text('会话与任务', 'Sessions & tasks')}</h2><span className="workbench-activity-connection">{cliConnection ?? (state.snapshot ? fresh ? text('原生 Harness 已连接', 'Native Harness connected') : state.snapshot.connection === 'offline' ? text('Harness 未连接', 'Harness offline') : state.snapshot.connection === 'connected' && !state.snapshot.identity ? text('暂无已接入的 Harness 任务', 'No observed Harness tasks') : text('Harness 状态已过期', 'Harness state stale') : text('正在读取状态…', 'Reading state…'))}</span></div><button onClick={() => { state.close(); document.querySelector<HTMLButtonElement>('[data-workbench-activity-trigger]')?.focus() }}>{text('关闭', 'Close')}</button></header>
       <div className="workbench-activity-tabs" role="tablist" aria-label={text('工作状态视图', 'Work status views')} onKeyDown={event => {
         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
         event.preventDefault(); event.stopPropagation()
@@ -115,7 +128,7 @@ export function WorkbenchActivity() {
         {state.panelView === 'notices' ? <>
           {state.notices.length > 0 && <div className="workbench-activity-notice-actions"><span>{text('最近的工作动态', 'Recent work activity')}</span><button onClick={() => state.markRead()} disabled={!state.unreadNoticeIds.length}>{text('全部已读', 'Mark all read')}</button><button onClick={state.dismiss}>{text('清空', 'Clear')}</button></div>}
           {visibleNotices.map(notice => <button key={notice.id} className={`workbench-notice-row${state.unreadNoticeIds.includes(notice.id) ? ' is-unread' : ''}`} onClick={() => { state.markRead(notice.id); state.show(notice.workspace, notice.sessionId) }}>
-            <ActivityNoticeIcon kind={notice.kind}/><span><strong>{activityProjectName(notice.workspace)}</strong><span>{noticeLabel(notice.kind)}</span><small title={notice.workspace}>{notice.workspace} · {notice.sessionId.slice(-8)}</small></span><time dateTime={new Date(notice.at).toISOString()}>{new Date(notice.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</time>
+            <ActivityNoticeIcon kind={notice.kind}/><span><strong>{activityProjectName(notice.workspace)}</strong><span>{activityNoticeTitle(notice, i18n.language.startsWith('en'))}</span><small title={notice.workspace}>{notice.workspace} · {notice.sessionId.slice(-8)}</small></span><time dateTime={new Date(notice.at).toISOString()}>{new Date(notice.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</time>
           </button>)}
           {!visibleNotices.length && <div className="workbench-activity-empty"><ActivityIcon/><strong>{text('暂时没有新提醒', 'All quiet for now')}</strong><p>{text('任务完成、失败或需要审批时，会在右上角提醒你。', 'A notification will appear here when a task completes, fails, or needs approval.')}</p></div>}
         </> : <>
@@ -133,13 +146,13 @@ export function WorkbenchActivity() {
         {visibleTerminals.map(row => <article key={row.id} tabIndex={-1} data-session-id={row.id} className={`workbench-activity-row${row.id === state.selectedSessionId ? ' is-selected' : ''}`}>
           <div className="workbench-activity-row-title"><strong>{row.config.name}</strong><button onClick={() => focusTerminal(row)}>{text('定位终端', 'Go to terminal')}</button></div>
           <p className="workbench-activity-path">{row.config.local!.cwd}</p>
-          <dl><div><dt>{text('进程', 'Process')}</dt><dd>{row.status === 'connected' ? text('存活', 'Alive') : row.status === 'disconnected' || row.status === 'error' ? text('已退出 / 未运行', 'Exited / stopped') : text('未知', 'Unknown')}</dd></div><div><dt>{text('任务', 'Task')}</dt><dd>{text('未知 · CLI 未提供可靠状态', 'Unknown · CLI has no reliable adapter')}</dd></div><div><dt>{text('连接', 'Connection')}</dt><dd>{row.status}</dd></div></dl>
-          <p className="workbench-activity-evidence">{text('来源：终端连接事件 · 不推断任务结果', 'Source: terminal connection events · task outcome unavailable')}</p>
+          <dl><div><dt>{text('进程', 'Process')}</dt><dd>{row.status === 'connected' ? text('存活', 'Alive') : row.status === 'disconnected' || row.status === 'error' ? text('已退出 / 未运行', 'Exited / stopped') : text('未知', 'Unknown')}</dd></div><div><dt>{text('任务', 'Task')}</dt><dd>{tuiLabel(row.id)}</dd></div><div><dt>{text('连接', 'Connection')}</dt><dd>{row.status}</dd></div></dl>
+          <p className="workbench-activity-evidence">{tui?.sessions.some(item => item.terminalId === row.id) ? text('来源：CLI 官方生命周期事件 · 仅通知，审批请定位终端', 'Source: official CLI lifecycle events · notifications only, approve in terminal') : text('来源：终端连接事件 · 不推断任务结果', 'Source: terminal connection events · task outcome unavailable')}</p>
         </article>)}
         {!visibleNative.length && !visibleTerminals.length && <p className="workbench-activity-message">{text('此目录暂无已打开会话。启动 Agent 或终端后可在这里定位。', 'No open sessions in this directory. Launch an Agent or terminal to find it here.')}</p>}
         </>}
       </div>
-      <footer>{state.snapshot && <div>{text('最近检查：', 'Last checked: ')}<time dateTime={new Date(state.snapshot.observedAt).toISOString()}>{new Date(state.snapshot.observedAt).toLocaleTimeString()}</time></div>}{text('每 4 秒读取一次。过期状态不代表完成；不会重发任务。仅原生 Harness 提供任务与审批状态，其他 CLI 不从终端文字猜测。', 'Polls every 4 seconds. Stale state does not mean completion; tasks are never resent. Task and approval evidence is available only for native Harness.')}</footer>
+      <footer>{state.snapshot && <div>{text('最近检查：', 'Last checked: ')}<time dateTime={new Date(state.snapshot.observedAt).toISOString()}>{new Date(state.snapshot.observedAt).toLocaleTimeString()}</time></div>}{text('CLI 事件即时提醒，每 4 秒校准状态。回合结束不等于整个目标完成，过期或退出不推断成功。TUI 审批在原终端处理。', 'CLI events notify immediately; state refreshes every 4 seconds. A turn ending does not verify goal completion. Approve TUI requests in the original terminal.')}</footer>
     </div>}
   </>, document.body)
 }

@@ -6,6 +6,8 @@ import { navigateWorkbenchActivity } from '../dsh/activity-navigation'
 import { validateProjectSceneRequest } from './validation'
 import { requestProjectScene } from '../harness/project-scene'
 import { createSceneLauncher } from '../harness/project-scene-launcher'
+import { tuiActivity } from '../harness/tui-activity'
+import { prepareTuiLaunch, releaseTuiLaunchFiles } from '../harness/tui-launch'
 import { MCP_CONFIRMATION_CHANNEL } from '@shared/mcp-confirmation'
 import { mcpConfirmationRequest, updateMcpConfirmationTheme } from '../mcp/confirmation-window'
 import { validateMcpConfirmationRequest } from './validation'
@@ -133,6 +135,7 @@ import { validateWebTabDevToolsRequest } from './validation'
 import { browserRequest } from '../browser/service'
 import { notifyBrowserDownloadDirectoryChanged } from '../browser/downloads'
 import { validateBrowserRequest } from './validation'
+const tuiFilesByTerminal = new Map<string, string[]>()
 
 /**
  * 任务元信息（用于保存下载记录）
@@ -459,6 +462,7 @@ export function registerIPCHandlers(): void {
     } catch { return { success: false } }
   })
   ipcMain.handle(BROWSER_CHANNEL, async (event, raw: unknown) => {
+    // 搜索联想也只能由宿主地址栏请求；固定服务地址由 main 决定。
     // 普通网页/插件 guest 不能读取密码/下载路径、操作下载、改变代理或清理会话。
     if (event.sender.getType() !== 'window' || !BrowserWindow.fromWebContents(event.sender) || event.senderFrame !== event.sender.mainFrame) return { success: false, error: 'browserAccessDenied' }
     try { return await browserRequest(validateBrowserRequest(raw), event.sender.id) }
@@ -716,11 +720,16 @@ export function registerIPCHandlers(): void {
 
   // 监听会话状态变化，发送到所有窗口
   sessionManager.on('session:deleted', (sessionId: string) => {
+    tuiActivity.remove(sessionId)
+    const files = tuiFilesByTerminal.get(sessionId)
+    tuiFilesByTerminal.delete(sessionId)
+    if (files) void releaseTuiLaunchFiles(files).catch(() => {})
     pluginResources.forgetLiveSession(sessionId)
     sendToAllWindows(IPC_CHANNELS.SESSION_DELETED, sessionId)
   })
 
   sessionManager.on('session:status', (data) => {
+    if (data.status === 'disconnected' || data.status === 'error') tuiActivity.deactivate(data.id)
     sendToAllWindows(IPC_CHANNELS.CONNECTION_STATUS, data)
 
     // 当会话连接成功时，立即预初始化文件传输连接
@@ -2364,8 +2373,21 @@ export function registerIPCHandlers(): void {
     // 回落 cmd —— 与「没有 ps7 按现状」同语义，普通本地终端的 readSystemPath 注入
     // 不适用于这里（shell 用完整路径 spawn，不做 PATH 查找）。
     const pwshPath = opts?.shell ?? findPwshPath()
+    const id = uuidv4()
+    const source = command && (tags.some(tag => tag.startsWith('codex:')) ? 'codex' : tags.some(tag => tag.startsWith('claude:')) ? 'claude' : null)
+    let tuiFiles: string[] = []
+    if (source) {
+      await tuiActivity.start()
+      const prepared = await prepareTuiLaunch({ source, terminalId: id, command: command!, dataDir: app.getPath('userData'),
+        helperPath: app.isPackaged ? path.join(process.resourcesPath, 'tui-activity', 'notify.cjs') : path.join(app.getAppPath(), 'resources/tui-activity/notify.cjs'),
+        executable: process.execPath, platform: process.platform, shell: pwshPath ?? undefined })
+      command = prepared.command
+      tuiFiles = [prepared.settingsPath, prepared.launchPath].filter((file): file is string => !!file)
+      try { tuiActivity.register(id, source, opts?.cwd ?? defaultLaunchCwd()) }
+      catch (error) { await releaseTuiLaunchFiles(tuiFiles); throw error }
+    }
     const config: SessionConfig = {
-      id: '',
+      id,
       name,
       type: ConnectionType.LOCAL,
       local: {
@@ -2410,7 +2432,14 @@ export function registerIPCHandlers(): void {
       updatedAt: new Date()
     }
 
-    const session = await sessionManager.createSession(config)
+    let session
+    try { session = await sessionManager.createSession(config) }
+    catch (error) {
+      tuiActivity.remove(id)
+      await releaseTuiLaunchFiles(tuiFiles).catch(() => {})
+      throw error
+    }
+    if (tuiFiles.length) tuiFilesByTerminal.set(id, tuiFiles)
     // 延迟连接，给前端时间创建 xterm 实例
     setTimeout(() => {
       sessionManager.connectSession(session.id).catch(err => {
@@ -2696,8 +2725,10 @@ export function registerIPCHandlers(): void {
   ipcMain.handle('workbench-activity:request', async (event, raw: unknown) => {
     if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Workbench activity requires the main window')
     const request = validateWorkbenchActivityRequest(raw)
-    return request.kind === 'snapshot' ? readWorkbenchActivity() : approveWorkbenchActivity(request)
+    const snapshot = await (request.kind === 'snapshot' ? readWorkbenchActivity() : approveWorkbenchActivity(request))
+    return { ...snapshot, tui: tuiActivity.snapshot() }
   })
+  tuiActivity.onChange(snapshot => sendToAllWindows('workbench-activity:tui-changed', snapshot))
   ipcMain.handle('workbench-activity:navigate', async (event, raw: unknown) => {
     if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Workbench navigation requires the main window')
     return navigateWorkbenchActivity(validateActivityNavigationRequest(raw))

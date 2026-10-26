@@ -34,6 +34,26 @@ const LAYOUT_STORAGE_KEY = 'lyshell_pane_layout'
 // 网页访问栏历史持久化 key + 封顶条数（去重后按最近优先，超量截尾）
 const WEB_TAB_HISTORY_KEY = 'lyshell.webTabHistory.v1'
 const WEB_TAB_HISTORY_MAX = 30
+const WEB_TAB_TITLES_KEY = 'lyshell.webTabTitles.v1'
+
+/** 标题与历史 URL 关联；兼容只有网址的旧历史，并丢弃损坏或孤立数据。 */
+export function loadWebTabTitles(): Record<string, string> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(WEB_TAB_TITLES_KEY) ?? '{}')
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const titles: Record<string, string> = {}
+    for (const url of loadWebTabHistory()) {
+      const title: unknown = parsed[url]
+      if (typeof title === 'string' && title.trim()) titles[url] = title.trim().slice(0, 2048)
+    }
+    return titles
+  } catch { return {} }
+}
+
+function persistWebTabTitles(titles: Record<string, string>): void {
+  try { localStorage.setItem(WEB_TAB_TITLES_KEY, JSON.stringify(titles)) }
+  catch { /* 隐私模式/存储满时只保留内存态 */ }
+}
 
 // 「最近访问」各 URL 的 favicon data URI 映射（key=URL）。随历史同生命周期：保存时
 // 裁剪到当前历史键，删除/清空历史同步移除，不会无限增长。
@@ -238,8 +258,10 @@ interface PaneStore {
   // did-finish-load 回调（recordWebTabVisit），而非 openWebTab —— 打开但没加载出来
   // （DNS 失败/超时）的 URL 不算「访问过」。
   webTabHistory: string[]
+  webTabTitles: Record<string, string>
   webTabFavicons: Record<string, string>  // 历史 URL → favicon data URI（随历史同生命周期）
-  recordWebTabVisit: (url: string) => void
+  recordWebTabVisit: (url: string, title?: string) => void
+  updateWebTabHistoryTitle: (url: string, title: string) => void
   removeWebTabHistory: (url: string) => void
   clearWebTabHistory: () => void
 
@@ -747,6 +769,7 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
 
   // 网页访问栏的持久化伴生数据（与挂载无关，保留原顶层形态）
   webTabHistory: loadWebTabHistory(),
+  webTabTitles: loadWebTabTitles(),
   webTabFavicons: loadWebTabFavicons(),
 
   setDraggingOverlay: (id) => {
@@ -1247,13 +1270,36 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
   closeDocTab: (id) => get().closeOverlay(id),
 
   // ===== 网页访问栏历史 =====
-  recordWebTabVisit: (url) => {
+  updateWebTabHistoryTitle: (url, title) => {
     const browser = useBrowserSettingsStore.getState()
     if (!browser.loaded || browser.error || !browser.settings.rememberHistory) return
     const st = get()
-    // 已在顶部（重复 did-finish-load，如页内锚点刷新）直接跳过，少一次 setState
-    if (st.webTabHistory[0] === url) return
+    const cleanTitle = title.trim().slice(0, 2048)
+    // 迟到的标题事件不能重新创建已删除/清空的历史，也不改变访问顺序。
+    if (!cleanTitle || !st.webTabHistory.includes(url) || st.webTabTitles[url] === cleanTitle) return
+    const titles = { ...st.webTabTitles, [url]: cleanTitle }
+    persistWebTabTitles(titles)
+    set({ webTabTitles: titles })
+  },
+  recordWebTabVisit: (url, title) => {
+    const browser = useBrowserSettingsStore.getState()
+    if (!browser.loaded || browser.error || !browser.settings.rememberHistory) return
+    const st = get()
+    const titles: Record<string, string> = {}
     const history = recordWebTabUrlToHistory(st.webTabHistory, url)
+    for (const u of history) {
+      if (st.webTabTitles[u]) titles[u] = st.webTabTitles[u]
+    }
+    const cleanTitle = title?.trim().slice(0, 2048)
+    if (cleanTitle) titles[url] = cleanTitle
+    const titlesChanged = Object.keys(titles).length !== Object.keys(st.webTabTitles).length
+      || titles[url] !== st.webTabTitles[url]
+    if (titlesChanged) persistWebTabTitles(titles)
+    // 已在顶部（重复 did-finish-load，如页内锚点刷新）直接跳过，少一次 setState
+    if (st.webTabHistory[0] === url) {
+      if (titlesChanged) set({ webTabTitles: titles })
+      return
+    }
     try {
       localStorage.setItem(WEB_TAB_HISTORY_KEY, JSON.stringify(history))
     } catch { /* 隐私模式/存储满时静默降级为仅内存态 */ }
@@ -1266,15 +1312,18 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     // 裁剪只会删键：长度相等即无变化，免一次无谓的 setState/落盘
     if (Object.keys(favicons).length !== Object.keys(st.webTabFavicons).length) {
       persistWebTabFavicons(favicons)
-      set({ webTabHistory: history, webTabFavicons: favicons })
+      set({ webTabHistory: history, webTabFavicons: favicons, webTabTitles: titles })
     } else {
-      set({ webTabHistory: history })
+      set({ webTabHistory: history, webTabTitles: titles })
     }
   },
   removeWebTabHistory: (url) => {
     const st = get()
     if (!st.webTabHistory.includes(url)) return
     const history = st.webTabHistory.filter(u => u !== url)
+    const titles = { ...st.webTabTitles }
+    delete titles[url]
+    persistWebTabTitles(titles)
     try {
       localStorage.setItem(WEB_TAB_HISTORY_KEY, JSON.stringify(history))
     } catch { /* 同上：持久化失败仅内存态 */ }
@@ -1283,17 +1332,18 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
       const favicons = { ...st.webTabFavicons }
       delete favicons[url]
       persistWebTabFavicons(favicons)
-      set({ webTabHistory: history, webTabFavicons: favicons })
+      set({ webTabHistory: history, webTabFavicons: favicons, webTabTitles: titles })
     } else {
-      set({ webTabHistory: history })
+      set({ webTabHistory: history, webTabTitles: titles })
     }
   },
   clearWebTabHistory: () => {
     try {
       localStorage.removeItem(WEB_TAB_HISTORY_KEY)
       localStorage.removeItem(WEB_TAB_FAVICON_KEY)
+      localStorage.removeItem(WEB_TAB_TITLES_KEY)
     } catch { /* 同上 */ }
-    set({ webTabHistory: [], webTabFavicons: {} })
+    set({ webTabHistory: [], webTabFavicons: {}, webTabTitles: {} })
   },
 
   // ===== 分屏操作 =====

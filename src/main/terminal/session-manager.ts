@@ -11,6 +11,7 @@ import { fileManager, cancelDownloadsBySession, cancelUploadsBySession } from '@
 import { pluginResources } from '@main/plugin/resource-registry'
 import { getMcpHttpPort } from '@main/mcp/http-port'
 import * as mcpAuth from '@main/mcp/auth'
+import { tuiActivity } from '../harness/tui-activity'
 
 const SHELL_OPEN_CLEANUP_TIMEOUT_MS = 5000
 
@@ -440,7 +441,7 @@ export class SessionManager extends EventEmitter {
           session.connector = new SerialConnector(id, withRuntimeEncoding(session.config.serial as SerialConfig, session))
           break
         case ConnectionType.LOCAL: {
-          const extraEnv: Record<string, string> = {}
+          const extraEnv: Record<string, string> = tuiActivity.connectEnv(id)
           // 为本地 PTY 生成 per-session MCP token，注入到 PTY env。
           // PTY 内孵化的 Claude Code / MCP Server 子进程将自动继承，
           // 外部进程拿不到 -> 实现"MCP 仅对 LyShell 内部终端开放"。

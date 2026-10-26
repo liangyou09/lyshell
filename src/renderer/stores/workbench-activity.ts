@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { WorkbenchActivityApproval, WorkbenchActivitySession, WorkbenchActivitySnapshot } from '@shared/workbench-activity'
 import type { SceneTarget } from '@shared/project-scene'
+import type { TuiActivitySnapshot } from '@shared/tui-activity'
 
 export const ACTIVITY_FRESH_MS = 12000
 export function activityDirectoryKey(path: string, platform = window.electronAPI?.platform ?? ''): string {
@@ -14,17 +15,44 @@ export interface ActivityNotice {
   workspace: string
   sessionId: string
   taskId: string
-  kind: 'approval' | 'completed' | 'failed'
+  kind: 'approval' | 'completed' | 'failed' | 'turn-ended' | 'interrupted'
+  source?: 'codex' | 'claude'
+  launchId?: string
+  tuiEventId?: string
   at: number
 }
 export function activityFresh(snapshot: WorkbenchActivitySnapshot | null, now = Date.now()): boolean {
   return !!snapshot && snapshot.connection === 'connected' && !!snapshot.identity && now - snapshot.observedAt < ACTIVITY_FRESH_MS && now >= snapshot.observedAt
 }
+export function tuiActivityFresh(snapshot: TuiActivitySnapshot | undefined, now = Date.now()): boolean {
+  return !!snapshot && now >= snapshot.observedAt && now - snapshot.observedAt < ACTIVITY_FRESH_MS
+}
+function tuiNewer(previous: TuiActivitySnapshot, incoming: TuiActivitySnapshot): boolean {
+  if (previous.revision !== undefined && incoming.revision !== undefined && previous.revision !== incoming.revision) return previous.revision > incoming.revision
+  return previous.observedAt > incoming.observedAt
+}
+
+export function collectTuiNotices(current: TuiActivitySnapshot | undefined, previous: TuiActivitySnapshot | undefined, seen: Set<string>): ActivityNotice[] {
+  if (!current || !tuiActivityFresh(current)) return []
+  const notices: ActivityNotice[] = []
+  for (const event of current.events) {
+    const id = JSON.stringify(['tui', event.launchId, event.id])
+    if (seen.has(id)) continue
+    seen.add(id)
+    const session = current.sessions.find(row => row.launchId === event.launchId && row.terminalId === event.terminalId)
+    if (!session || event.kind === 'approval' && (!session.active || session.state !== 'waiting-approval' || session.turnId !== event.turnId || session.approvalEventId && session.approvalEventId !== event.id)) continue
+    // 初次挂载只显示当前审批，防止重播应用内已有的回合历史。
+    if (!previous && event.kind !== 'approval') continue
+    notices.push({ id, workspace: event.workspace, sessionId: event.terminalId, taskId: event.turnId,
+      kind: event.kind, source: event.source, launchId: event.launchId, tuiEventId: event.id, at: event.at })
+  }
+  return notices
+}
 
 /** 提醒身份包含后台代际、会话、任务和审批，重复轮询不会重复提醒。 */
 export function collectActivityNotices(snapshot: WorkbenchActivitySnapshot, previous: WorkbenchActivitySnapshot | null, seen: Set<string>): ActivityNotice[] {
-  if (!activityFresh(snapshot)) return []
-  const notices: ActivityNotice[] = []
+  const notices: ActivityNotice[] = collectTuiNotices(snapshot.tui, previous?.tui, seen)
+  if (!activityFresh(snapshot)) return notices
   for (const row of snapshot.sessions) {
     if (row.stale || !row.taskId) continue
     const events: Array<{ kind: ActivityNotice['kind']; suffix: string }> = row.approvals.map(approval => ({ kind: 'approval', suffix: approval.id }))
@@ -76,10 +104,15 @@ let inFlight: Promise<void> | null = null
 const seen = new Set<string>()
 function accept(snapshot: WorkbenchActivitySnapshot): void {
   const state = useWorkbenchActivity.getState()
+  if (state.snapshot?.tui && (!snapshot.tui || tuiNewer(state.snapshot.tui, snapshot.tui))) snapshot = { ...snapshot, tui: state.snapshot.tui }
   const notices = collectActivityNotices(snapshot, state.snapshot, seen).filter(item => !state.muted.includes(activityDirectoryKey(item.workspace)))
   const currentTasks = new Set(snapshot.sessions.map(row => JSON.stringify([snapshot.identity, row.sessionId, row.taskId])))
   for (const id of seen) {
     const event = JSON.parse(id) as unknown[]
+    if (event[0] === 'tui') {
+      if (!snapshot.tui?.events.some(item => JSON.stringify(['tui', item.launchId, item.id]) === id)) seen.delete(id)
+      continue
+    }
     if (!currentTasks.has(JSON.stringify(event.slice(0, 3)))) seen.delete(id)
   }
   // 只保留本次运行的有界提醒；项目切换不会改变其归属。
@@ -87,6 +120,11 @@ function accept(snapshot: WorkbenchActivitySnapshot): void {
   const retainedIds = new Set(retained.map(notice => notice.id))
   const unreadNoticeIds = [...new Set([...notices.map(notice => notice.id), ...state.unreadNoticeIds])].filter(id => retainedIds.has(id))
   useWorkbenchActivity.setState({ snapshot, notices: retained, unreadNoticeIds, error: snapshot.error ?? null })
+}
+export function acceptTuiActivity(tui: TuiActivitySnapshot): void {
+  const previous = useWorkbenchActivity.getState().snapshot
+  if (previous?.tui && tuiNewer(previous.tui, tui)) return
+  accept({ ...(previous ?? { observedAt: 0, connection: 'offline', identity: null, sessions: [] }), tui })
 }
 export const useWorkbenchActivity = create<ActivityStore>((set, get) => ({
   snapshot: null, notices: [], unreadNoticeIds: [], muted: readMuted(), open: false, panelView: 'sessions', workspace: null, selectedSessionId: null, error: null, actionError: null, busy: false,
@@ -139,10 +177,11 @@ export const useWorkbenchActivity = create<ActivityStore>((set, get) => ({
 export function startActivityPolling(): () => void {
   let stopped = false
   let timer: ReturnType<typeof setTimeout>
+  const unsubscribe = window.electronAPI?.onTuiActivityChanged?.(acceptTuiActivity)
   const poll = async () => {
     await useWorkbenchActivity.getState().refresh()
     if (!stopped) timer = setTimeout(() => { void poll() }, 4000)
   }
   void poll()
-  return () => { stopped = true; clearTimeout(timer) }
+  return () => { stopped = true; clearTimeout(timer); unsubscribe?.() }
 }

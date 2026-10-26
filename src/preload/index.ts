@@ -301,7 +301,7 @@ const electronAPI = {
 
   // 配置管理
   getConfig: (key: string) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET, key),
-  // 证书确认也经此宿主通道；网页 guest 没有信任证书的 bridge。
+  // 搜索联想、证书确认均经宿主通道；网页 guest 没有此 bridge。
   browserRequest: (request: BrowserRequest): Promise<BrowserResult> => ipcRenderer.invoke('browser:request', request),
   onBrowserDownloadsChanged: (callback: (snapshot: BrowserDownloadsSnapshot) => void) => {
     const listener = (_event: IpcRendererEvent, snapshot: BrowserDownloadsSnapshot) => callback(snapshot)
@@ -465,6 +465,11 @@ const electronAPI = {
   // 项目现场及可读名称查询；显式启动只返回运行期会话 ID，不复制环境变量到现场。
   projectSceneRequest: (request: ProjectSceneRequest): Promise<ProjectSceneResult> => ipcRenderer.invoke('project-scene:request', request),
   workbenchActivityRequest: (request: WorkbenchActivityRequest): Promise<WorkbenchActivitySnapshot> => ipcRenderer.invoke('workbench-activity:request', request),
+  onTuiActivityChanged: (callback: (snapshot: import('@shared/tui-activity').TuiActivitySnapshot) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, snapshot: import('@shared/tui-activity').TuiActivitySnapshot) => callback(snapshot)
+    ipcRenderer.on('workbench-activity:tui-changed', listener)
+    return () => ipcRenderer.removeListener('workbench-activity:tui-changed', listener)
+  },
   workbenchActivityNavigate: (request: ActivityNavigationRequest): Promise<ActivityNavigationResult> => ipcRenderer.invoke('workbench-activity:navigate', request),
   // 工作区配置和 PS7 启动；目录入口传预设 ID + 路径，由主进程校验其祖先关系。
   codeWorkspaceRequest: (request: CodeWorkspaceRequest): Promise<CodeWorkspaceResult> =>

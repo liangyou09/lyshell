@@ -12,6 +12,8 @@ import { startDemoStage } from './demo-stage'
 import { setTerminalCaptureWindow } from './mcp/terminal-screenshot'
 import { startMcpHttpServer, stopMcpHttpServer } from './mcp/http-server'
 import { wireExclusiveControl } from './dsh/exclusive-runtime'
+import { tuiActivity } from './harness/tui-activity'
+import { cleanupTuiLaunchFiles } from './harness/tui-launch'
 import { explorerLaunchQueue, parseExplorerDirectory, validateExplorerDirectory } from './explorer-launch'
 import { readActiveExplorerDirectory } from './explorer-directory'
 
@@ -669,8 +671,8 @@ function createMainWindow(): void {
       // 纯 deny 的旧版同样不通。现代 OAuth 走整页重定向（provider 302 回跳 callback），
       // 经导航闸放行（webbar 只拦非 http/https，见 onNavGate 注），不依赖 opener，
       // 小窗/页签里都可用。
-      // 转发地址经渲染层 openWebTab 的 normalizeWebBarUrl 再校验；转发闸（同键去重 +
-      // 短窗频控）防「无限开新页签」的资源型刷屏 —— 原地跳不需要闸：页面本就有权
+      // 转发地址经渲染层 openWebTab 的 normalizeWebBarUrl 再校验；转发闸的
+      // 短窗频控防「无限开新页签」的资源型刷屏 —— 原地跳不需要闸：页面本就有权
       // 导航自己（location.href），弹窗原地跳不比这更糟。小窗身份凭
       // webbarMiniWebContentsId 登记（同快捷键转发的排除机制，见其注释）；登记未到
       // （竞态窗）按完整页签转发，无害。dsh web 维持纯 deny（origin 锁定无浏览语义）。
@@ -1137,6 +1139,8 @@ app.on('will-quit', (event) => {
     const QUIT_DSH_EXIT_GRACE_MS = KILL_STEP_TIMEOUT_FLOOR_MS + 500
     // 插件 Windows taskkill 有 5s 预算，POSIX 整组强杀有 2.5s grace；均需等待完成。
     waitForQuitCleanup([
+      tuiActivity.close(),
+      cleanupTuiLaunchFiles(),
       dshWebManager.closeForQuit(Date.now() + QUIT_DSH_CLOSE_BUDGET_MS),
       pluginHostManager.waitForProcessCleanup(),
       downloadHistory.flush()

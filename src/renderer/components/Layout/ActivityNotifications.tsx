@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { activityDirectoryKey, activityFresh, useWorkbenchActivity, type ActivityNotice } from '../../stores/workbench-activity'
+import { activityDirectoryKey, activityFresh, tuiActivityFresh, useWorkbenchActivity, type ActivityNotice } from '../../stores/workbench-activity'
 import { activityToastTimeout, createActivityToastTracker, mergeActivityToasts } from '../../stores/activity-toast'
 
 export function activityProjectName(workspace: string): string {
@@ -13,8 +13,13 @@ export function activityProjectName(workspace: string): string {
 export function ActivityNoticeIcon({ kind }: { kind: ActivityNotice['kind'] }) {
   return <svg className={`activity-notice-icon is-${kind}`} width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <circle cx="12" cy="12" r="9"/>
-    {kind === 'completed' ? <path d="m8 12 2.7 2.7L16.5 9"/> : kind === 'approval' ? <><path d="M12 7v5l3 2"/></> : <><path d="M12 7v6M12 16v.2"/></>}
+    {kind === 'completed' || kind === 'turn-ended' ? <path d="m8 12 2.7 2.7L16.5 9"/> : kind === 'approval' ? <><path d="M12 7v5l3 2"/></> : kind === 'interrupted' ? <path d="M9 8v8M15 8v8"/> : <><path d="M12 7v6M12 16v.2"/></>}
   </svg>
+}
+export function activityNoticeTitle(notice: ActivityNotice, english: boolean): string {
+  const title = english ? { completed: 'Task completed', failed: notice.source ? 'Turn failed' : 'Task failed', approval: 'Approval needed', 'turn-ended': 'Turn ended', interrupted: 'Turn interrupted' }[notice.kind]
+    : { completed: '任务已完成', failed: notice.source ? '本轮异常停止' : '任务失败', approval: '需要你的审批', 'turn-ended': '本轮结束', interrupted: '本轮已中断' }[notice.kind]
+  return notice.source ? `${notice.source === 'codex' ? 'Codex' : 'Claude'} · ${title}` : title
 }
 
 function ActivityToast({ notice, suspended, onExpire, onDismiss, onOpen }: {
@@ -36,7 +41,7 @@ function ActivityToast({ notice, suspended, onExpire, onDismiss, onOpen }: {
     const timer = setTimeout(() => onExpire(notice.id), remaining.current)
     return () => { clearTimeout(timer); remaining.current = Math.max(0, (remaining.current ?? 0) - (Date.now() - startedAt)) }
   }, [notice.id, paused, onExpire])
-  const title = english ? { completed: 'Task completed', failed: 'Task failed', approval: 'Approval needed' }[notice.kind] : { completed: '任务已完成', failed: '任务失败', approval: '需要你的审批' }[notice.kind]
+  const title = activityNoticeTitle(notice, english)
   const action = english ? notice.kind === 'approval' ? 'Review request' : 'View session' : notice.kind === 'approval' ? '查看请求' : '查看会话'
   return <article className={`activity-toast is-${notice.kind}`} aria-label={`${activityProjectName(notice.workspace)} · ${title}`}
     onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
@@ -60,11 +65,13 @@ export function ActivityNotifications() {
   const [toasts, setToasts] = useState<ActivityNotice[]>([])
   const [announcement, setAnnouncement] = useState('')
   const fresh = activityFresh(snapshot)
+  const tuiFresh = tuiActivityFresh(snapshot?.tui)
   useEffect(() => {
     const incoming = tracker.take(notices)
     const eligible = (notice: ActivityNotice) => {
       if (!notices.some(item => item.id === notice.id) || !unreadNoticeIds.includes(notice.id) || muted.includes(activityDirectoryKey(notice.workspace))) return false
       if (notice.kind !== 'approval') return true
+      if (notice.source) return tuiFresh && !!snapshot?.tui?.sessions.some(row => row.terminalId === notice.sessionId && row.launchId === notice.launchId && row.turnId === notice.taskId && row.active && row.state === 'waiting-approval' && (!row.approvalEventId || row.approvalEventId === notice.tuiEventId))
       if (!fresh || !snapshot?.identity) return false
       // 审批卡片只在原后台、会话、任务及实际审批仍有效时保留。
       try {
@@ -76,10 +83,9 @@ export function ActivityNotifications() {
     setToasts(current => mergeActivityToasts(current.filter(eligible), incoming.filter(eligible)))
     if (incoming.some(eligible)) {
       const english = i18n.language.startsWith('en')
-      const labels = english ? { approval: 'Approval needed', completed: 'Task completed', failed: 'Task failed' } : { approval: '需要审批', completed: '任务已完成', failed: '任务失败' }
-      setAnnouncement(incoming.filter(eligible).map(notice => `${activityProjectName(notice.workspace)} · ${labels[notice.kind]} · ${english ? 'Task' : '任务'} ${notice.taskId.slice(-8)}`).join('；'))
+      setAnnouncement(incoming.filter(eligible).map(notice => `${activityProjectName(notice.workspace)} · ${activityNoticeTitle(notice, english)} · ${english ? 'Task' : '任务'} ${notice.taskId.slice(-8)}`).join('；'))
     }
-  }, [notices, unreadNoticeIds, muted, snapshot, fresh, tracker, i18n.language])
+  }, [notices, unreadNoticeIds, muted, snapshot, fresh, tuiFresh, tracker, i18n.language])
   const expire = useCallback((id: string) => setToasts(current => current.filter(notice => notice.id !== id)), [])
   const dismiss = useCallback((id: string) => { markRead(id); expire(id) }, [markRead, expire])
   const openNotice = useCallback((notice: ActivityNotice) => { markRead(notice.id); expire(notice.id); show(notice.workspace, notice.sessionId) }, [markRead, expire, show])

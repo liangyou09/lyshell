@@ -30,13 +30,22 @@ import BrowserAddressField from './BrowserAddressField'
 import MiniBrowserActions from './MiniBrowserActions'
 import './WebPanel.css'
 
-/** 地址候选缺少收藏名称时使用主机名；历史行保留完整网址。 */
+/** 地址候选缺少标题时使用主机名。 */
 function hostOf(url: string): string {
   try {
     return new URL(url).host || url
   } catch {
     return url
   }
+}
+
+/** 只用于显示；导航、收藏、去重始终使用原始 URL。 */
+function readableUrl(url: string): string {
+  try {
+    const decoded = decodeURI(url)
+    // 不把编码的控制字符和双向文本控制符变成不可见显示指令。
+    return /[\p{Cc}\p{Cf}]/u.test(decoded) ? url : decoded
+  } catch { return url }
 }
 
 // 历史行 favicon 的回落猜测:多数站点在根路径放 /favicon.ico。按 origin 缓存 Promise
@@ -332,6 +341,8 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
   const browserError = useBrowserSettingsStore(s => s.error)
   const openWebTab = usePaneStore((s) => s.openWebTab)
   const webTabHistory = usePaneStore((s) => s.webTabHistory)
+  const webTabTitles = usePaneStore((s) => s.webTabTitles)
+  const updateWebTabHistoryTitle = usePaneStore((s) => s.updateWebTabHistoryTitle)
   const webTabFavicons = usePaneStore((s) => s.webTabFavicons)
   const bookmarks = useBrowserBookmarksStore(s => s.bookmarks)
   const addBookmark = useBrowserBookmarksStore(s => s.addBookmark)
@@ -343,12 +354,12 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
   const addressSuggestions = useMemo(() => {
     const titles = new Map(bookmarks.map(item => [item.url, item.title]))
     return Array.from(new Set([...webTabHistory, ...bookmarks.map(item => item.url)]))
-      .map(url => ({ url, title: titles.get(url) || hostOf(url) }))
-  }, [webTabHistory, bookmarks])
+      .map(url => ({ url, title: titles.get(url) || webTabTitles[url] || hostOf(url) }))
+  }, [webTabHistory, bookmarks, webTabTitles])
   const isBookmarked = (url: string): boolean => bookmarkUrls.has(normalizeBookmarkUrl(url) ?? '')
   const toggleBookmark = (url: string, title?: string): void => {
     const page = Object.values(usePaneStore.getState().overlayPayloads).find(item => item.kind === 'web' && normalizeBookmarkUrl(item.nav?.url ?? item.url) === normalizeBookmarkUrl(url))
-    const result = isBookmarked(url) ? removeBookmark(url) : addBookmark(url, title || (page?.kind === 'web' ? page.title : undefined))
+    const result = isBookmarked(url) ? removeBookmark(url) : addBookmark(url, title || webTabTitles[url] || (page?.kind === 'web' ? page.title : undefined))
     setNotice(result.success ? null : t(`webBar.${result.error === 'storageFailed' ? 'bookmarkSaveFailed' : 'invalid'}`))
   }
   const removeWebTabHistory = usePaneStore((s) => s.removeWebTabHistory)
@@ -660,6 +671,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
       return
     }
     registerMiniWebview(miniEl)
+    let navigationFailed = false
     // 新元素一律先判未就绪(元素级重建仅存于极端路径),防上一元素的陈旧 true
     setMiniReady(false)
     const onDomReady = (): void => {
@@ -681,7 +693,10 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
       const url = evt.url ?? evt.detail?.url
       const isMainFrame = evt.isMainFrame ?? evt.detail?.isMainFrame
       if (isMainFrame === false || !url) return
-      if (miniLastUrlRef.current !== url && e.type !== 'did-navigate-in-page') miniTitleRef.current = ''
+      if (e.type !== 'did-navigate-in-page') {
+        miniTitleRef.current = ''
+        navigationFailed = false
+      }
       miniLastUrlRef.current = url
       setMiniUrl(url)
       setMiniNav({ canGoBack: miniEl.canGoBack(), canGoForward: miniEl.canGoForward() })
@@ -690,16 +705,19 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
     const onTitle = (e: Event): void => {
       const event = e as CustomEvent<{ title?: string }> & { title?: string }
       miniTitleRef.current = event.title ?? event.detail?.title ?? ''
+      if (!navigationFailed) updateWebTabHistoryTitle(miniLastUrlRef.current, miniTitleRef.current)
     }
     // stop-loading 收遮罩是 dom-ready 的兜底:异常路径(不触发 dom-ready 的失败)防遮罩滞留
     const onStopLoading = (): void => { setMiniLoading(false); setMiniCovering(false) }
     const onFail = (e: Event): void => {
       const failure = webLoadFailureFromEvent(e, miniLastUrlRef.current)
-      if (failure) setMiniFailed(failure)
+      if (failure) { navigationFailed = true; setMiniFailed(failure) }
     }
     // 记历史吃 miniLastUrlRef（导航落点，初始化即挂载目标）而非 getURL()：
     // 事件回调不碰方法面，did-finish-load 理论晚于 dom-ready 但不赌时序
-    const onLoadFinish = (): void => recordWebTabVisit(miniLastUrlRef.current)
+    const onLoadFinish = (): void => {
+      if (!navigationFailed) recordWebTabVisit(miniLastUrlRef.current, miniTitleRef.current)
+    }
     miniEl.addEventListener('dom-ready', onDomReady)
     miniEl.addEventListener('did-navigate', onNav)
     miniEl.addEventListener('did-navigate-in-page', onNav)
@@ -719,7 +737,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
       miniEl.removeEventListener('did-finish-load', onLoadFinish)
       miniEl.removeEventListener('page-title-updated', onTitle)
     }
-  }, [miniEl, recordWebTabVisit])
+  }, [miniEl, recordWebTabVisit, updateWebTabHistoryTitle])
 
   // 小窗导航统一入口:同址重进 = 刷新(omnibox 惯例,dom-ready 后才有方法面);
   // 否则落 miniUrl 交给导航 effect 起航,首航同时冻结挂载 src。非法地址走面板
@@ -991,17 +1009,22 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
         <div id="web-list-content" role="tabpanel" aria-labelledby={`web-list-tab-${listView}`} className="flex-1 min-h-0 flex flex-col">
         {listView === 'downloads' && <BrowserDownloads />}
         {listView === 'bookmarks' && (
-          <div className="rack-scroll flex-1 min-h-0 overflow-y-auto">
+          <div className="web-history rack-scroll">
             {bookmarks.length === 0 ? (
               <p className="px-3 py-4 text-xs leading-relaxed text-[var(--text-rack-data)]">{t('webBar.bookmarksEmpty')}</p>
             ) : bookmarks.map(item => (
-              <div key={item.url} className="flex items-center gap-1 px-2 py-1 border-b border-[var(--rule-soft)] hover:bg-[var(--bg-slot)]">
-                <button type="button" onClick={e => { if (e.ctrlKey || e.metaKey) loadMini(item.url); else openWebTab(item.url) }} title={item.url} className="flex flex-1 min-w-0 items-center gap-2 py-1 text-left text-xs text-[var(--text-rack)] hover:text-[var(--amber)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)]">
+              <div key={item.url} className="web-history-row">
+                <button type="button" onClick={e => { if (e.ctrlKey || e.metaKey) loadMini(item.url); else openWebTab(item.url) }} title={item.url} className="web-history-open">
                   <span aria-hidden className="web-history-favicon"><RecentFavicon url={item.url} favicon={webTabFavicons[item.url]} /></span>
-                  <span className="min-w-0 truncate">{item.title}</span>
+                  <span className="web-history-copy">
+                    <span className="web-history-title" dir="auto">{item.title || readableUrl(item.url)}</span>
+                    {item.title && <span className="web-history-address" dir="auto">{readableUrl(item.url)}</span>}
+                  </span>
                 </button>
-                <button type="button" title={t('webBar.openMini')} onClick={() => loadMini(item.url)} className="w-6 h-6 flex-shrink-0 flex items-center justify-center text-[var(--text-rack)] hover:text-[var(--amber)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)]"><MiniOpenIcon size={14} /></button>
-                <button type="button" title={t('webBar.removeBookmark')} onClick={() => toggleBookmark(item.url)} className="w-6 h-6 flex-shrink-0 flex items-center justify-center text-[var(--amber)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)]"><BookmarkIcon filled /></button>
+                <div className="web-history-actions">
+                  <button type="button" title={t('webBar.openMini')} onClick={() => loadMini(item.url)}><MiniOpenIcon size={14} /></button>
+                  <button type="button" title={t('webBar.removeBookmark')} aria-pressed="true" onClick={() => toggleBookmark(item.url)}><BookmarkIcon filled /></button>
+                </div>
               </div>
             ))}
           </div>
@@ -1018,7 +1041,10 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
                     <button type="button" title={url} className="web-history-open"
                       onClick={e => { if (e.ctrlKey || e.metaKey) loadMini(url); else openWebTab(url) }}>
                       <span aria-hidden className="web-history-favicon"><RecentFavicon url={url} favicon={webTabFavicons[url]} /></span>
-                      <span className="web-history-address">{url}</span>
+                      <span className="web-history-copy">
+                        <span className="web-history-title" dir="auto">{webTabTitles[url] || readableUrl(url)}</span>
+                        {webTabTitles[url] && <span className="web-history-address" dir="auto">{readableUrl(url)}</span>}
+                      </span>
                     </button>
                     <div className="web-history-actions">
                       <button type="button"

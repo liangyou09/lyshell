@@ -196,6 +196,42 @@ describe('弹窗页签落位（紧邻来源右侧、留在来源所在 pane）',
   })
 })
 
+describe('搜索结果连续打开', () => {
+  it.each([false, true])('同一链接重复点击会创建不同页签，后台打开=%s', background => {
+    const freshIds: string[] = []
+    for (let i = 0; i < 3; i++) {
+      expect(openWebTabPopup({ ...popup, background })).toBe(true)
+      const tabId = addedTabId([id, ...freshIds])
+      freshIds.push(tabId)
+      expect(overlayUrl(tabId)).toBe(popup.url)
+    }
+    expect(new Set(freshIds).size).toBe(3)
+    expect(rootLeaf().overlays).toHaveLength(4)
+  })
+
+  it('同一路径不同目标的 Bing 跳转链接可连续打开，首个结果无需关闭', () => {
+    const search = 'https://www.bing.com/search?q=lyshell'
+    const first = 'https://www.bing.com/ck/a?p=shared&u=a1first&ntb=1'
+    const second = 'https://www.bing.com/ck/a?p=shared&u=a1second&ntb=1'
+    const st = usePaneStore.getState()
+    st.setWebTabNav(id, { url: search })
+    expect(openWebTabPopup({ ...popup, sourceUrl: search, url: first })).toBe(true)
+    const firstId = addedTabId([id])
+    // 模拟首个搜索结果已跳到目标网站，原始跳转 URL 仍留在页签 payload 中。
+    st.setWebTabNav(firstId, { url: 'https://first.example/article' })
+    st.activateOverlay(id)
+    expect(openWebTabPopup({ ...popup, sourceUrl: search, url: second })).toBe(true)
+    const secondId = addedTabId([id, firstId])
+    expect(overlayUrl(firstId)).toBe(first)
+    expect(overlayUrl(secondId)).toBe(second)
+    expect(rootLeaf().overlays).toHaveLength(3)
+    // 同一结果也可再次打开，无需关闭前一次的页签。
+    expect(openWebTabPopup({ ...popup, sourceUrl: search, url: second })).toBe(true)
+    const repeatId = addedTabId([id, firstId, secondId])
+    expect(overlayUrl(repeatId)).toBe(second)
+  })
+})
+
 describe('弹出页签来源生命周期', () => {
   it('存活的插件来源保持归属，禁用连同弹窗回收', () => {
     expect(openWebTabPopup(popup)).toBe(true)

@@ -21,6 +21,19 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.useRealTimers() })
 describe('项目会话与任务面板', () => {
+  it('TUI 官方事件显示回合语义，审批只提供原终端定位', async () => {
+    snapshot = { ...snapshot, identity: null, connection: 'offline', sessions: [], tui: { observedAt: Date.now(), events: [], sessions: [{ terminalId: 'local-a', launchId: 'launch-a', source: 'codex', workspace: 'C:/project', cliSessionId: 'cli-a', turnId: 'turn-a', state: 'turn-ended', event: 'Stop', updatedAt: Date.now(), active: true }] } }
+    request.mockResolvedValue(snapshot)
+    useWorkbenchActivity.setState({ snapshot })
+    const view = render(<WorkbenchActivity />)
+    await act(async () => {})
+    expect(view.getByText('本轮结束 · 不代表整个目标完成')).toBeTruthy()
+    expect(view.queryByText('已完成', { exact: true })).toBeNull()
+    act(() => useWorkbenchActivity.setState({ snapshot: { ...snapshot, tui: { ...snapshot.tui!, sessions: [{ ...snapshot.tui!.sessions[0], state: 'waiting-approval' }] } } }))
+    expect(view.getByText('等待审批 · 请在终端处理')).toBeTruthy()
+    expect(view.getByRole('button', { name: '定位终端' })).toBeTruthy()
+    expect(view.queryByRole('button', { name: '仅允许一次' })).toBeNull()
+  })
   it('存活终端不显示任务执行中；原生任务使用权威审批状态', async () => {
     const view = render(<WorkbenchActivity />)
     await act(async () => {})

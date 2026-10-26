@@ -1,4 +1,4 @@
-/* 最近访问按时间平铺：一行一个网址，操作始终可见，窄栏只截断地址。 */
+/* 最近访问按时间平铺：标题优先、网址辅助，窄栏截断文字并保留操作。 */
 .web-panel .web-list-tabs {
   display: flex;
   flex-shrink: 0;
@@ -166,7 +166,10 @@
 }
 .web-panel .web-history-open:hover { color: var(--amber); }
 .web-panel .web-history-favicon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 14px; height: 14px; color: var(--text-rack-data); }
-.web-panel .web-history-address { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.web-panel .web-history-copy { display: flex; flex: 1; flex-direction: column; min-width: 0; padding: 5px 0; }
+.web-panel .web-history-title, .web-panel .web-history-address { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: start; }
+.web-panel .web-history-title { font-size: 12px; line-height: 18px; }
+.web-panel .web-history-address { color: var(--text-rack-data); font-size: 11px; line-height: 15px; }
 .web-panel .web-history-actions { display: flex; align-items: center; flex-shrink: 0; gap: 1px; }
 .web-panel .web-history-actions button {
   display: flex;

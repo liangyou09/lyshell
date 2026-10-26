@@ -16,6 +16,7 @@ export function validateActivityNavigationRequest(raw: unknown): ActivityNavigat
 }
 
 export function validateWorkbenchActivityRequest(raw: unknown): WorkbenchActivityRequest {
+  // TUI 事件只从独立的只通知回环端点进入；渲染进程没有伪造 CLI 状态或代答 TUI 审批的请求种类。
   const value = assertObject(raw, 'workbenchActivity')
   if (value.kind === 'snapshot' && Object.keys(value).length === 1) return { kind: 'snapshot' }
   if (value.kind !== 'approve' || Object.keys(value).some(key => !['kind', 'identity', 'sessionId', 'taskId', 'approvalId', 'optionId'].includes(key))) throw new ValidationError('Invalid workbench activity request')
@@ -177,6 +178,7 @@ export function validateBrowserRequest(raw: unknown): BrowserRequest {
   const value = assertObject(raw, 'browserRequest')
   switch (value.kind) {
     case 'get': case 'passwords': case 'downloads': case 'openDownloadDirectory': return { kind: value.kind }
+    case 'searchSuggestions': return { kind: 'searchSuggestions', query: assertString(value.query, 'query', { maxLength: 200 }) }
     case 'downloadAction': return { kind: 'downloadAction', id: assertString(value.id, 'id', { maxLength: 128 }), action: assertEnum(value.action, 'action', ['cancel', 'reveal', 'open', 'remove'] as const) }
     case 'save': return { kind: 'save', settings: validateBrowserSettings(value.settings) }
     case 'clear': return { kind: 'clear', target: assertEnum(value.target, 'target', ['cache', 'siteData'] as const) }

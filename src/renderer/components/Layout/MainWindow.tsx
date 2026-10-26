@@ -888,7 +888,7 @@ const MainWindow: React.FC = () => {
   // background = 修饰键语义(中键/Ctrl+点击,主进程按 disposition=background-tab 标记):
   // 后台页签 —— openWebTab 挂载不激活,用户不被拽走;前台弹窗照常激活落活动 pane。
   // 闸(gateWebTabPopup):转发请求没有手势信号可用(见闸内注释),抖音等站的无手势
-  // 刷屏弹窗靠同键去重 + 短窗频控压住。url 经 IPC 边界即不可信输入,openWebTab
+  // 刷屏弹窗靠短窗频控压住，相同链接允许多次打开。url 经 IPC 边界即不可信输入,openWebTab
   // 内 normalizeWebBarUrl 校验通过才挂载,畸形地址静默丢弃;登记(recordWebTabPopup)
   // 只在挂载成功后执行 —— 没开成的弹窗不占频控额度、不进键册
   useEffect(() => {

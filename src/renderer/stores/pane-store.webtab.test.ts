@@ -13,9 +13,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   usePaneStore, normalizeWebBarUrl, loadWebTabHistory, recordWebTabUrlToHistory,
-  loadWebTabFavicons, findOverlayRef
+  loadWebTabFavicons, loadWebTabTitles, findOverlayRef
 } from './pane-store'
 import { DSH_WEB_OVERLAY_ID, MCP_AUDIT_OVERLAY_ID } from './overlay-kinds'
+import { useBrowserSettingsStore } from './browser-settings-store'
 import type { OverlayPayload, OverlayRef, PaneLeaf, PaneLayout, PaneNode, WebTabNav } from '@shared/types'
 
 const leaf = (id: string, sessions: string[], overlays: OverlayRef[] = []): PaneLeaf => ({
@@ -388,6 +389,7 @@ const setupWeb = (
 ) => {
   localStorage.removeItem('lyshell.webTabHistory.v1')
   localStorage.removeItem('lyshell.webTabFavicons.v1')
+  localStorage.removeItem('lyshell.webTabTitles.v1')
   const payloads: Record<string, OverlayPayload> = {}
   for (const r of refs) {
     if (r.id === DSH_WEB_OVERLAY_ID) payloads[r.id] = WEB_INFO
@@ -399,6 +401,7 @@ const setupWeb = (
     draggingOverlayId: null,
     hiddenTabSessions: {},
     webTabHistory: [],
+    webTabTitles: {},
     webTabFavicons: {},
     ...extra
   })
@@ -855,6 +858,63 @@ describe('removeWebTabHistory / clearWebTabHistory：历史删改', () => {
     usePaneStore.getState().clearWebTabHistory()
     expect(usePaneStore.getState().webTabHistory).toEqual([])
     expect(localStorage.getItem('lyshell.webTabHistory.v1')).toBeNull()
+  })
+})
+
+describe('最近访问标题', () => {
+  it('标题持久化、同址更新不重排，关闭页签后仍保留', () => {
+    setupWeb()
+    const st = usePaneStore.getState()
+    st.recordWebTabVisit('https://a.example/', '中文文档')
+    st.recordWebTabVisit('https://b.example/', '另一个页面')
+    st.updateWebTabHistoryTitle('https://a.example/', '新标题')
+    expect(usePaneStore.getState().webTabHistory).toEqual(['https://b.example/', 'https://a.example/'])
+    expect(loadWebTabTitles()).toEqual({ 'https://a.example/': '新标题', 'https://b.example/': '另一个页面' })
+    st.recordWebTabVisit('https://b.example/', '顶部新标题')
+    expect(loadWebTabTitles()['https://b.example/']).toBe('顶部新标题')
+    const id = st.openWebTab('https://a.example/')
+    if (id.ok) {
+      const webId = webTabIds()[0]
+      st.closeOverlay(webId)
+    }
+    expect(usePaneStore.getState().webTabTitles['https://a.example/']).toBe('新标题')
+  })
+
+  it('封顶、删除、清空同步清理标题，迟到事件不能复活记录', () => {
+    setupWeb()
+    const st = usePaneStore.getState()
+    for (let i = 0; i < 31; i++) st.recordWebTabVisit(`https://example.com/${i}`, `页面 ${i}`)
+    expect(Object.keys(loadWebTabTitles())).toHaveLength(30)
+    expect(loadWebTabTitles()['https://example.com/0']).toBeUndefined()
+    st.removeWebTabHistory('https://example.com/1')
+    st.updateWebTabHistoryTitle('https://example.com/1', '迟到标题')
+    expect(loadWebTabTitles()['https://example.com/1']).toBeUndefined()
+    st.clearWebTabHistory()
+    st.updateWebTabHistoryTitle('https://example.com/30', '迟到标题')
+    expect(usePaneStore.getState().webTabTitles).toEqual({})
+    expect(localStorage.getItem('lyshell.webTabTitles.v1')).toBeNull()
+  })
+
+  it('兼容旧记录，损坏的标题与非历史键不会进入显示', () => {
+    setupWeb()
+    localStorage.setItem('lyshell.webTabHistory.v1', JSON.stringify(['https://a.example/', 'https://b.example/']))
+    expect(loadWebTabTitles()).toEqual({})
+    localStorage.setItem('lyshell.webTabTitles.v1', JSON.stringify({ 'https://a.example/': ' 标题 ', 'https://b.example/': 12, 'https://orphan.example/': '孤立' }))
+    expect(loadWebTabTitles()).toEqual({ 'https://a.example/': '标题' })
+    localStorage.setItem('lyshell.webTabTitles.v1', 'broken')
+    expect(loadWebTabTitles()).toEqual({})
+  })
+
+  it('关闭历史记录后不写入或更新标题', () => {
+    setupWeb()
+    const browser = useBrowserSettingsStore.getState()
+    try {
+      usePaneStore.getState().recordWebTabVisit('https://a.example/', '原标题')
+      useBrowserSettingsStore.setState({ settings: { ...browser.settings, rememberHistory: false } })
+      usePaneStore.getState().updateWebTabHistoryTitle('https://a.example/', '不应保存')
+      usePaneStore.getState().recordWebTabVisit('https://b.example/', '不应保存')
+      expect(loadWebTabTitles()).toEqual({ 'https://a.example/': '原标题' })
+    } finally { useBrowserSettingsStore.setState(browser) }
   })
 })
 

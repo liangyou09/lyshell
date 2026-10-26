@@ -1,5 +1,5 @@
 /**
- * 工作台活动快照：渲染进程只读取聚合后的原生 Harness 权威状态。
+ * 工作台活动快照：原生 Harness 权威状态与独立的 TUI 官方事件来源分开记录。
  *
  * 这里刻意不包含 owner、凭据或桥内 key：main 只按 session/task/approval 路由，
  * 渲染进程拿到的任何字段都可用于跳转和展示，但不能凭它操控别的凭据。
@@ -54,6 +54,8 @@ export interface WorkbenchActivitySnapshot {
   identity: WorkbenchBackendIdentity | null
   sessions: WorkbenchActivitySession[]
   error?: string
+  /** 独立 CLI 事件源；原生后台离线不影响它。 */
+  tui?: import('./tui-activity').TuiActivitySnapshot
 }
 
 export type WorkbenchActivityRequest =

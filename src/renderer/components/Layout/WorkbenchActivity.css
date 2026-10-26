@@ -56,8 +56,8 @@ button.workbench-notice-row { display: flex; align-items: flex-start; width: 100
 .activity-toast-open { display: flex; align-items: center; width: 100%; min-height: 82px; gap: 12px; padding: 15px 16px; text-align: left; border: 0; border-radius: inherit; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .activity-toast-open:hover { background: color-mix(in srgb, var(--text-rack) 4%, transparent); }
 .activity-notice-icon { flex-shrink: 0; margin-top: 2px; color: var(--text-rack-data); }
-.activity-notice-icon.is-completed { color: var(--activity-success, var(--live)); }
-.activity-notice-icon.is-approval { color: var(--amber); }
+.activity-notice-icon.is-completed, .activity-notice-icon.is-turn-ended { color: var(--activity-success, var(--live)); }
+.activity-notice-icon.is-approval, .activity-notice-icon.is-interrupted { color: var(--amber); }
 .activity-notice-icon.is-failed { color: var(--activity-danger, var(--error-rack, var(--error))); }
 .activity-toast-copy { flex: 1; min-width: 0; display: grid; gap: 5px; }
 .activity-toast-heading { display: flex; align-items: baseline; gap: 12px; padding-right: 19px; }

@@ -28,7 +28,7 @@
  * favicon 代取（用例自带历史时走 electronAPI 桩）。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, cleanup, screen, act, fireEvent, waitFor } from '@testing-library/react'
+import { render, cleanup, screen, act, fireEvent, waitFor, within } from '@testing-library/react'
 import type { WebviewTag } from 'electron'
 import { usePaneStore } from '../../stores/pane-store'
 import { useUiStore } from '../../stores/ui-store'
@@ -66,6 +66,7 @@ const setupBrowserMode = (nav: WebTabNav = navOf({})): void => {
       'web-1': { kind: 'web', url: 'https://example.com/', title: 'example', nav }
     } as Record<string, OverlayPayload>,
     webTabHistory: [],
+    webTabTitles: {},
     webTabFavicons: {},
     draggingOverlayId: null,
     draggingSessionId: null,
@@ -246,9 +247,10 @@ describe('网址收藏', () => {
     expect(useBrowserBookmarksStore.getState().bookmarks).toEqual([{ url: 'https://redirect.example/docs#intro', title: 'example' }])
     expect(screen.getAllByRole('button', { name: 'Remove bookmark' })[0].getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(screen.getByRole('tab', { name: /Bookmarks/ }))
-    const bookmark = screen.getByRole('button', { name: 'example' })
+    const bookmark = within(screen.getByRole('tabpanel')).getByTitle('https://redirect.example/docs#intro')
     expect(bookmark.title).toBe('https://redirect.example/docs#intro')
-    expect(bookmark.textContent).toBe('example')
+    expect(bookmark.querySelector('.web-history-title')?.textContent).toBe('example')
+    expect(bookmark.querySelector('.web-history-address')?.textContent).toBe('https://redirect.example/docs#intro')
     fireEvent.click(screen.getAllByRole('button', { name: 'Remove bookmark' })[1])
     expect(useBrowserBookmarksStore.getState().bookmarks).toEqual([])
     expect(screen.getByText(/Click the star on a web tab/)).toBeTruthy()
@@ -266,7 +268,7 @@ describe('网址收藏', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Clear' }))
     expect(usePaneStore.getState().webTabHistory).toEqual([])
     fireEvent.click(screen.getByRole('tab', { name: /Bookmarks/ }))
-    const saved = screen.getByRole('button', { name: 'saved.example' })
+    const saved = screen.getByTitle(url)
     expect(saved.title).toBe(url)
     fireEvent.click(saved, { ctrlKey: true })
     expect(miniInputOf().value).toBe(url)
@@ -403,6 +405,8 @@ describe('地址栏编辑守卫', () => {
     const input = inputOf()
     fireEvent.change(input, { target: { value: 'git' } })
     fireEvent.keyDown(input, { key: 'Escape' })
+    expect(input.value).toBe('git')
+    fireEvent.keyDown(input, { key: 'Escape' })
     expect(input.value).toBe('https://example.com/')
     expect(document.activeElement).not.toBe(input)
   })
@@ -517,7 +521,7 @@ describe('主地址栏提交一律新开网页页签', () => {
 })
 
 describe('主题化网址候选列表', () => {
-  const dropdown = (): HTMLElement => screen.getAllByRole('button', { name: 'Recent pages and bookmarks' })[0]
+  const dropdown = (): HTMLElement => screen.getAllByRole('button', { name: 'Search suggestions, recent pages and bookmarks' })[0]
   it('合并最近访问和收藏并去重，键盘选择新开页签', () => {
     setupBrowserMode()
     const page = makeWebview()
@@ -547,7 +551,7 @@ describe('主题化网址候选列表', () => {
     useBrowserBookmarksStore.setState({ bookmarks: [{ url: 'https://saved.example/guide', title: 'Saved guide' }] })
     render(<WebPanel />)
     fireEvent.change(inputOf(), { target: { value: 'Saved' } })
-    expect(screen.getAllByRole('option')).toHaveLength(1)
+    expect(screen.getAllByRole('option')).toHaveLength(2)
     fireEvent.keyDown(inputOf(), { key: 'Escape' })
     expect(screen.queryByRole('listbox')).toBeNull()
     expect(inputOf().value).toBe('Saved')
@@ -575,7 +579,7 @@ describe('主题化网址候选列表', () => {
     const url = 'https://mini.example/docs'
     usePaneStore.setState({ webTabHistory: [url] })
     render(<WebPanel />)
-    fireEvent.click(screen.getAllByRole('button', { name: 'Recent pages and bookmarks' })[1])
+    fireEvent.click(screen.getAllByRole('button', { name: 'Search suggestions, recent pages and bookmarks' })[1])
     fireEvent.keyDown(miniInputOf(), { key: 'ArrowDown' })
     fireEvent.keyDown(miniInputOf(), { key: 'Enter', isComposing: true })
     expect(document.querySelector('webview')).toBeNull()
@@ -797,6 +801,8 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     await waitFor(() => expect(miniInputOf().value).toBe('https://example.com/final'))
     fireEvent.change(miniInputOf(), { target: { value: 'git' } })
     fireEvent.keyDown(miniInputOf(), { key: 'Escape' })
+    expect(miniInputOf().value).toBe('git')
+    fireEvent.keyDown(miniInputOf(), { key: 'Escape' })
     expect(miniInputOf().value).toBe('https://example.com/final')
   })
 
@@ -876,6 +882,35 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     const oldest = screen.getByTitle(history[3]).closest('li')!
     fireEvent.click(oldest.querySelector<HTMLButtonElement>('[title="Remove from recent"]')!)
     expect(urls()).toEqual([history[2], history[0], history[1]])
+  })
+
+  it('最近访问优先显示标题和辅助网址，旧记录显示可读字符，点击使用原始 URL', () => {
+    setupBrowserMode()
+    const titled = 'https://example.com/%E6%96%87%E6%A1%A3'
+    const legacy = 'https://example.org/%E4%B8%AD%E6%96%87'
+    usePaneStore.setState({ webTabHistory: [titled, legacy], webTabTitles: { [titled]: '项目使用指南' } })
+    render(<WebPanel />)
+    fireEvent.click(screen.getByRole('tab', { name: /Recent/ }))
+    expect(screen.getByTitle(titled).querySelector('.web-history-title')?.textContent).toBe('项目使用指南')
+    expect(screen.getByTitle(titled).querySelector('.web-history-address')?.textContent).toBe('https://example.com/文档')
+    expect(screen.getByTitle(legacy).textContent).toBe('https://example.org/中文')
+    fireEvent.click(screen.getByText('项目使用指南'))
+    expect(Object.values(usePaneStore.getState().overlayPayloads).some(p => p.kind === 'web' && p.url === titled)).toBe(true)
+  })
+
+  it('小窗记录加载标题，并接收加载完成后的标题更新', async () => {
+    setupBrowserMode()
+    const url = 'https://mini.example/title'
+    localStorage.setItem('lyshell.webbarMini.url.v1', url)
+    render(<WebPanel />)
+    await waitFor(() => expect(wvOf()).toBeTruthy())
+    act(() => {
+      wvOf().dispatchEvent(Object.assign(new Event('page-title-updated'), { title: '小窗标题' }))
+      wvOf().dispatchEvent(new Event('did-finish-load'))
+    })
+    expect(usePaneStore.getState().webTabTitles[url]).toBe('小窗标题')
+    act(() => { wvOf().dispatchEvent(Object.assign(new Event('page-title-updated'), { title: '动态新标题' })) })
+    expect(usePaneStore.getState().webTabTitles[url]).toBe('动态新标题')
   })
 
   it('历史重排后 favicon 仍属于各自网址，缺图时显示通用图标', async () => {

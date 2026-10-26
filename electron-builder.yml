@@ -34,6 +34,10 @@ extraResources:
   # 也不修改已安装 dsh —— 运行期只写一个宿主 owned 的 patch 文件指向这里。
   - from: resources/dsh-bridge
     to: dsh-bridge
+  - from: resources/tui-activity
+    to: tui-activity
+    filter:
+      - notify.cjs
 
 win:
   target:
