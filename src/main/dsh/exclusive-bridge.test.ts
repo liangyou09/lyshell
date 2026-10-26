@@ -83,6 +83,47 @@ describe('原生 Harness 工作通道与 Pet 共存', () => {
   const b = 'b'.repeat(64)
   const native = (h: BridgeHarness, owner: string, request: Record<string, unknown>) => h.post({ cmd: 'native-work', owner, request })
 
+  it('原生导航过期后拒绝迟到 ack，并允许用户再次打开工作台', async () => {
+    const h = await makeHarness()
+    const clock = vi.spyOn(Date, 'now')
+    try {
+      const created = (await native(h, a, { kind: 'new' })).body
+      const sessionId = String(created.sessionId)
+      const identity = created.identity
+      const cookie = await h.viewerCookie()
+      const pending = await h.post({ cmd: 'native-viewer-nav', identity, sessionId, requestId: 'nav-timeout' })
+      const viewer = pending.body.viewer as { request: { revision: number; requestedAt: number } }
+      clock.mockReturnValue(viewer.request.requestedAt + 16000)
+      const late = await h.viewerCall('/__lyshell/harness/viewer/ack', { requestId: 'nav-timeout', sessionId, currentSessionId: sessionId, revision: viewer.request.revision, status: 'navigated' }, { cookie })
+      expect(late.status).toBe(409)
+      expect((await h.post({ cmd: 'native-viewer-nav', identity, sessionId, requestId: 'nav-retry' })).status).toBe(200)
+      expect(h.calls.prompt).toEqual([])
+    } finally { clock.mockRestore(); h.dispose() }
+  })
+
+  it('原生任务导航核对后台与会话，等待官方 viewer 回执且不提交任务', async () => {
+    const h = await makeHarness({ agents: ['unowned'] })
+    try {
+      const created = (await native(h, a, { kind: 'new' })).body
+      const sessionId = String(created.sessionId)
+      const identity = created.identity
+      expect((await h.post({ cmd: 'native-viewer-nav', identity: { instanceId: 'old', instanceEpoch: 1 }, sessionId, requestId: 'nav-old' })).status).toBe(409)
+      expect((await h.post({ cmd: 'native-viewer-nav', identity, sessionId: 'unowned', requestId: 'nav-other' })).status).toBe(409)
+      const result = await h.post({ cmd: 'native-viewer-nav', identity, sessionId, requestId: 'nav-native' })
+      expect(result.status).toBe(200)
+      expect(result.body.holding).toBe(false)
+      expect(result.body.viewer).toMatchObject({ request: { requestId: 'nav-native', sessionId }, lastAck: null })
+      expect((await h.post({ cmd: 'native-viewer-nav', identity, sessionId, requestId: 'nav-duplicate' })).status).toBe(409)
+      const cookie = await h.viewerCookie()
+      const claim = await h.viewerCall('/__lyshell/harness/viewer/status', null, { method: 'GET', cookie })
+      const viewer = claim.body.viewer as { request: { revision: number } }
+      const ack = await h.viewerCall('/__lyshell/harness/viewer/ack', { requestId: 'nav-native', sessionId, currentSessionId: sessionId, revision: viewer.request.revision, status: 'navigated' }, { cookie })
+      expect(ack.status).toBe(200)
+      expect(ack.body.viewer).toMatchObject({ currentSessionId: sessionId, request: null, lastAck: { requestId: 'nav-native', status: 'navigated' } })
+      expect(h.calls.prompt).toEqual([])
+    } finally { h.dispose() }
+  })
+
   it('提交抛错保留未确认任务，重复 requestId 不重发且不谎报接受', async () => {
     const h = await makeHarness({ promptError: true })
     try {

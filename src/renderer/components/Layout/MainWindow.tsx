@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import cn from 'classnames'
 import { ProjectSceneBar } from './ProjectSceneBar'
+import { WorkbenchActivity } from './WorkbenchActivity'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import SessionsPanel from './SessionsPanel'
@@ -1336,6 +1337,7 @@ const MainWindow: React.FC = () => {
           )}
         </div>
         <ProjectSceneBar showBar={!hasVisibleTabs && !paletteOpen} />
+        <WorkbenchActivity />
       </div>
 
       {/* MCP 活动面板以页签形式挂在各分屏 PaneView 内，由布局树里的 mcpAudit 覆盖层引用驱动 */}

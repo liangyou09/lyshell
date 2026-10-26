@@ -6,6 +6,9 @@ import type { HarnessWorkRequest } from '@shared/harness-work'
 import { BRIDGE_KEY_HEADER } from './bridge'
 import { dshWebManager } from './web'
 import { createDshWebLaunchResolver } from './launch-resolve'
+import {
+  configureWorkbenchActivity, recordWorkbenchActivityReply, registerWorkbenchActivityOwner
+} from './activity'
 import { HARNESS_AGENTS } from '../harness/config'
 
 export interface WorkReply { status: number; body: Record<string, unknown> }
@@ -18,8 +21,17 @@ export function harnessWorkOwner(token: string): string {
   return createHash('sha256').update('lyshell-native-work\0').update(token).digest('hex')
 }
 
+// 工作台活动面板只复用这里的读端点与转发函数：不 acquire、不启动后台、不重发任务。
+// 注入而非 import，避免 activity ↔ work 的循环依赖；owner 始终留在 main 内。
+configureWorkbenchActivity({
+  readEndpoint: () => dshWebManager.bridgeControlEndpoint,
+  readBridge: (endpoint, owner, request, options) =>
+    requestNativeWorkBridge(endpoint, owner, request, options.timeoutMs)
+})
+
 export async function requestNativeWorkBridge(
-  endpoint: { port: number; key: string }, owner: string, request: HarnessWorkRequest
+  endpoint: { port: number; key: string }, owner: string, request: HarnessWorkRequest,
+  timeoutMs = 30000
 ): Promise<WorkReply> {
   const body = JSON.stringify({ cmd: 'native-work', owner, request })
   return new Promise(resolve => {
@@ -27,7 +39,7 @@ export async function requestNativeWorkBridge(
     const done = (reply: WorkReply): void => { if (!settled) { settled = true; resolve(reply) } }
     const req = http.request({ hostname: '127.0.0.1', port: endpoint.port, path: '/', method: 'POST',
       headers: { [BRIDGE_KEY_HEADER]: endpoint.key, 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) },
-      timeout: 30000
+      timeout: Math.min(Math.max(500, timeoutMs), 30000)
     }, res => {
       const chunks: Buffer[] = []
       let size = 0
@@ -60,6 +72,15 @@ export async function requestNativeWorkBridge(
 export async function runHarnessWork(
   owner: string, request: HarnessWorkRequest, stillAuthorized: () => boolean
 ): Promise<WorkReply> {
+  const reply = await dispatchHarnessWork(owner, request, stillAuthorized)
+  // 把权威快照留在 main 内（owner 不外传），供工作台活动面板聚合；失败回执不会被当成状态。
+  recordWorkbenchActivityReply(owner, reply)
+  return reply
+}
+
+async function dispatchHarnessWork(
+  owner: string, request: HarnessWorkRequest, stillAuthorized: () => boolean
+): Promise<WorkReply> {
   if (['state', 'targets', 'approve'].includes(request.kind)) return executeHarnessWork(owner, request, stillAuthorized)
   const previous = mutationLanes.get(owner) ?? Promise.resolve()
   const result = previous.then(() => executeHarnessWork(owner, request, stillAuthorized))
@@ -76,6 +97,8 @@ async function executeHarnessWork(
 ): Promise<WorkReply> {
   const holder = `native-work:${owner}`
   if (!stillAuthorized()) return { status: 403, body: { ok: false, error: 'Work credential revoked' } }
+  // 一旦该凭据发起过原生工作，就纳入活动面板观察；之后的失败只会让条目标为过期。
+  registerWorkbenchActivityOwner(owner)
   if (request.kind === 'new' && request.workspace !== undefined) {
     let valid = false
     try { valid = isAbsolute(request.workspace) && statSync(request.workspace).isDirectory() } catch { /* 无效目录 */ }

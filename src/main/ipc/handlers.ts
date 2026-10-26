@@ -1,4 +1,8 @@
 import { ipcMain, BrowserWindow, dialog, shell, app, net } from 'electron'
+import { readWorkbenchActivity, approveWorkbenchActivity } from '../dsh/activity'
+import { validateWorkbenchActivityRequest } from './validation'
+import { validateActivityNavigationRequest } from './validation'
+import { navigateWorkbenchActivity } from '../dsh/activity-navigation'
 import { validateProjectSceneRequest } from './validation'
 import { requestProjectScene } from '../harness/project-scene'
 import { createSceneLauncher } from '../harness/project-scene-launcher'
@@ -2688,6 +2692,15 @@ export function registerIPCHandlers(): void {
       if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Project scenes require the main window')
       return await requestProjectScene(validateProjectSceneRequest(raw), createSceneLauncher(spawnLocalCommandSession))
     } catch (error) { return { success: false, error: (error as Error).message } }
+  })
+  ipcMain.handle('workbench-activity:request', async (event, raw: unknown) => {
+    if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Workbench activity requires the main window')
+    const request = validateWorkbenchActivityRequest(raw)
+    return request.kind === 'snapshot' ? readWorkbenchActivity() : approveWorkbenchActivity(request)
+  })
+  ipcMain.handle('workbench-activity:navigate', async (event, raw: unknown) => {
+    if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Workbench navigation requires the main window')
+    return navigateWorkbenchActivity(validateActivityNavigationRequest(raw))
   })
   ipcMain.handle('code-workspace:request', async (event, raw: unknown) => {
     try {

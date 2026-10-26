@@ -1,4 +1,35 @@
 import log from 'electron-log'
+import type { WorkbenchActivityRequest } from '@shared/workbench-activity'
+import type { ActivityNavigationRequest } from '@shared/activity-navigation'
+
+export function validateActivityNavigationRequest(raw: unknown): ActivityNavigationRequest {
+  const value = assertObject(raw, 'activityNavigation')
+  const kind = assertEnum(value.kind, 'kind', ['open', 'navigation'] as const)
+  if (Object.keys(value).some(key => !['kind', 'identity', 'sessionId', ...(kind === 'navigation' ? ['requestId'] : [])].includes(key))) throw new ValidationError('Invalid navigation request')
+  const identity = assertObject(value.identity, 'identity')
+  if (Object.keys(identity).some(key => !['instanceId', 'instanceEpoch'].includes(key))) throw new ValidationError('Invalid backend identity')
+  const common = {
+    identity: { instanceId: assertString(identity.instanceId, 'instanceId', { maxLength: 128 }), instanceEpoch: assertNumber(identity.instanceEpoch, 'instanceEpoch', { min: 1, max: Number.MAX_SAFE_INTEGER, integer: true }) },
+    sessionId: assertString(value.sessionId, 'sessionId', { maxLength: 128 })
+  }
+  return kind === 'open' ? { kind, ...common } : { kind, ...common, requestId: assertString(value.requestId, 'requestId', { maxLength: 128 }) }
+}
+
+export function validateWorkbenchActivityRequest(raw: unknown): WorkbenchActivityRequest {
+  const value = assertObject(raw, 'workbenchActivity')
+  if (value.kind === 'snapshot' && Object.keys(value).length === 1) return { kind: 'snapshot' }
+  if (value.kind !== 'approve' || Object.keys(value).some(key => !['kind', 'identity', 'sessionId', 'taskId', 'approvalId', 'optionId'].includes(key))) throw new ValidationError('Invalid workbench activity request')
+  const identity = assertObject(value.identity, 'identity')
+  if (Object.keys(identity).some(key => !['instanceId', 'instanceEpoch'].includes(key))) throw new ValidationError('Invalid backend identity')
+  return {
+    kind: 'approve',
+    identity: { instanceId: assertString(identity.instanceId, 'instanceId', { maxLength: 128 }), instanceEpoch: assertNumber(identity.instanceEpoch, 'instanceEpoch', { min: 1, max: Number.MAX_SAFE_INTEGER, integer: true }) },
+    sessionId: assertString(value.sessionId, 'sessionId', { maxLength: 128 }),
+    taskId: assertString(value.taskId, 'taskId', { maxLength: 128 }),
+    approvalId: assertString(value.approvalId, 'approvalId', { maxLength: 128 }),
+    optionId: assertEnum(value.optionId, 'optionId', ['allowed-once', 'rejected', 'cancelled'] as const)
+  }
+}
 import { parseSceneEntry, parseSceneNode, parseSceneTarget, type ProjectSceneRequest } from '@shared/project-scene'
 
 export function validateProjectSceneRequest(raw: unknown): ProjectSceneRequest {

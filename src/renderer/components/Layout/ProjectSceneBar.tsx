@@ -5,6 +5,7 @@ import type { CodeWorkspacePreset } from '@shared/code-workspaces'
 import type { ProjectScene, SceneTarget } from '@shared/project-scene'
 import { presetSceneTarget, sameSceneProject, sceneProjectName, sceneResourceCount, shortSceneDirectory, useProjectSceneUI, sceneTargetKey } from '../../stores/project-scene-ui'
 import './ProjectScene.css'
+import { useWorkbenchActivity } from '../../stores/workbench-activity'
 
 function useSceneText() {
   const { i18n } = useTranslation()
@@ -38,6 +39,9 @@ export function ProjectSceneProjectActions({ preset, showName = false }: { prese
     <button className="project-scene-save" disabled={busy} aria-label={saveLabel} title={saveLabel} onClick={() => void save(target)}>
       <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M13.5 13.5h-11v-11h7.5l3.5 3.5z"/><path d="M5.6 2.5v3.5h4.2v-3.5"/><path d="M5.6 13.5v-4h5.2v4"/></svg>
     </button>
+    {window.electronAPI?.workbenchActivityRequest && <button className="project-scene-activity" aria-label={text('查看项目会话与任务', 'View project sessions and tasks')} title={text('查看项目会话与任务', 'View project sessions and tasks')} onClick={() => void useWorkbenchActivity.getState().showProject(target)}>
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="M2 3.5h12v9H2zM5 6h6M5 9h4"/></svg>
+    </button>}
   </div>
 }
 

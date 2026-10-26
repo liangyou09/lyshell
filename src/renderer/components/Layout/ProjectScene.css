@@ -20,6 +20,8 @@ button.project-scene-primary { border-color: color-mix(in srgb, var(--amber) 48%
 .project-scene-inline .project-scene-primary { grid-column: 1; }
 .project-scene-inline .project-scene-history { grid-column: 2; }
 .project-scene-inline .project-scene-save { grid-column: 3; }
+.project-scene-inline:has(.project-scene-activity) { grid-template-columns: repeat(4, 28px); }
+.project-scene-inline .project-scene-activity { grid-column: 4; }
 .project-scene-inline button:is(:hover, :focus-visible) { border-color: transparent; background: var(--bg-elev); color: var(--amber); }
 .project-scene-inline button > svg { flex-shrink: 0; }
 .project-scene-inline-name { grid-column: 1 / -1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 600; }

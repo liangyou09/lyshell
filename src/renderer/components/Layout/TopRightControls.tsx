@@ -3,6 +3,7 @@ import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import './TopRightControls.css'
+import { WorkbenchActivityButton } from './WorkbenchActivityButton'
 
 export interface TopRightControlsProps {
   isMaximized: boolean
@@ -15,8 +16,8 @@ export interface TopRightControlsProps {
 }
 
 /**
- * 窗口第一行右侧控制簇 -- 浮窗与系统窗口操作用细分隔线分开。
- * 四键统一为透明底工具按钮，静息字面与同行页签同档，浮窗开启时标记琥珀色。
+ * 窗口第一行右侧控制簇 -- 任务通知、浮窗与系统窗口操作用细分隔线分开。
+ * 工具键统一为透明底按钮，静息字面与同行页签同档，浮窗开启时标记琥珀色。
  * (MCP 活动状态片曾在此,现移至左侧 ActivityRail 轨底设置槽上方 -- McpActivityRailSlot)
  *
  * 页签条提顶后本簇悬浮在第一行最右上 pane 的页签条上方(absolute,带 bg-rack 底色
@@ -58,6 +59,7 @@ const TopRightControls: React.FC<TopRightControlsProps> = ({
     >
       {/* 应用控制簇 */}
       <div className="window-control-group">
+        <WorkbenchActivityButton />
         {/* 浮窗按钮 — 两矩形错位，PIP/分窗形态 */}
         <button
           type="button"

@@ -38,10 +38,26 @@ typography:
     fontSize: "28px"
     fontWeight: 400
     lineHeight: "36px"
+  notification-heading:
+    fontSize: "18px"
+    fontWeight: 650
+  notification-project:
+    fontSize: "14px"
+    fontWeight: 650
+  notification-status:
+    fontSize: "15px"
+    lineHeight: "20px"
+    fontWeight: 650
+  notification-badge:
+    fontSize: "9px"
+    fontWeight: 600
 rounded:
   sm: "3px"
   md: "4px"
   lg: "5px"
+  notification: "16px"
+  notification-control: "6px"
+  notification-badge: "7px"
 components:
   workspace-row:
     height: "52px"
@@ -68,6 +84,14 @@ components:
 仅无可见页签的首页底部显示紧凑项目栏：可读项目名、保存时间、继续上次工作、保存、历史与短状态。有终端、文档、网页或待启动入口时隐藏，全部关闭后重现；全局命令面板打开时也隐藏。项目名打开可搜索的浮层，历史默认按项目 / worktree 隔离；完整路径、范围说明及逐项提示按需展开。Agent / Codex / Claude 的实际项目列表同步提供继续、保存与历史入口；同一目录内的共享项目和 worktree 分别标明名称。底栏隐藏不影响项目旁的历史浮层。
 
 沿用 rack / slot / rule / amber 主题令牌、系统字体与焦点样式；宽窗口底栏 43px，窄容器隐藏次要时间信息并允许状态换行，浮层限制在窗口内。恢复后的目录 / Agent 为可读名称的待启动页签，启动按钮固定于顶部，说明正文独立滚动。普通启动和 CLI 历史选择器明确分开；显式启动后实际终端替换原入口。具体行为见 `docs/project-scene.md`。
+
+## 会话与任务局部补充（P0-B）
+
+按用户指定的 macOS 通知方向，取消底部常驻状态栏；标题栏窗口控制前保留一个 28px 铃铛，未读角标不改变按钮宽度，实测控制簇宽度继续为页签预留空间。右上角通知距页签行底部 12px、距窗口右侧 14px，宽 360px（窄窗口限制在视口内），最小高 82px，16px 圆角、柔和下投影和轻透材质；继续使用 rack / slot / rule / amber 及系统字体，不改其他侧栏。只保留两行：第一行突出完成／失败／需要审批的结果及时间；第二行显示项目名与查看入口。worktree 标签同时带项目名，完整目录及会话／任务身份放在悬停提示与详情中。最多三条可见，审批优先。完成与失败停留 8 秒，悬停、键盘焦点或查看详情时暂停；审批保持到处理、关闭或可靠状态失效。自动提醒不抢输入焦点，关闭卡片与超时均保留历史。
+
+铃铛展开右上角非模态通知中心，使用“提醒／会话”页签，支持键盘切换、项目筛选、静音、已读与清空。提醒点击定位对应项目和会话；会话详情仍分别展示进程、任务、连接、来源与最近检查，审批参数单独滚动。审批卡片只提供查看请求，实际操作与后端选项在详情中由用户确认。项目现场旁的会话图标入口继续可用。具体能力边界见 `docs/workbench-activity.md`。
+
+配色收尾：浅色通知与通知中心使用 90% 白色混入 10% 当前主题 base 的柔白面，控件使用更浅的主题灰，投影从 20% 黑减为约 13%。深色继续使用石墨面。完成图标复用 live 绿色、失败图标复用 error 红色；浅色下与主题正文混色收深，保证图标对比度，审批沿用主题琥珀。颜色仅辅助已有图标与文字，不铺大面积状态色，不改全应用主题。
 
 ## Overview
 

@@ -80,6 +80,7 @@ const VIEWER_BROWSE_PATH = '/__lyshell/harness/viewer/browse'
 const VIEWER_COOKIE = 'lyshell_harness_viewer'
 /** 浏览器半离线判定：超过它没往返即 connected=false（只读状态里如实上报） */
 const VIEWER_STALE_MS = 15_000
+const NATIVE_VIEWER_TIMEOUT_MS = 12_000
 /** viewer cookie 有效期（秒）：过期必须重新通过官方鉴权换签，旧 cookie 不能长期当凭据 */
 const VIEWER_COOKIE_TTL_SECONDS = 12 * 60 * 60
 /** 单条 ack/browse 正文上限（防止把页面内容灌进来） */
@@ -247,22 +248,34 @@ export function apply(ctx) {
     seenAt: 0
   }
   const viewerConnected = () => viewer.seenAt > 0 && Date.now() - viewer.seenAt <= VIEWER_STALE_MS
+  // 原生界面仅等待 12 秒；过期请求不得在用户离开后跳转，也不能永久阻塞下一次显式打开。
+  const expireNativeViewerRequest = () => {
+    const pending = viewer.request
+    if (pending?.source !== 'native' || Date.now() - pending.requestedAt < NATIVE_VIEWER_TIMEOUT_MS) return
+    viewer.lastAck = { requestId: pending.requestId, revision: pending.revision,
+      sessionId: pending.sessionId, currentSessionId: viewer.currentSessionId,
+      status: 'failed', at: Date.now(), reason: 'navigation-timeout' }
+    viewer.request = null
+  }
   const petSession = () => (activeTask && !terminal(activeTask) ? activeTask.sessionId : null)
   /** 只读状态（浏览器可消费；不含任何凭据、不含 viewer 身份本身）。 */
-  const viewerPublic = () => ({
-    revision: viewer.revision,
-    appliedRevision: viewer.appliedRevision,
-    currentSessionId: viewer.currentSessionId,
-    petSessionId: petSession(),
-    // request 只出「请求本身」的公开字段：owner（哪个浏览器）是内部身份，绝不外带
-    request: viewer.request
-      ? { requestId: viewer.request.requestId, sessionId: viewer.request.sessionId,
-          revision: viewer.request.revision, epoch: viewer.request.epoch, requestedAt: viewer.request.requestedAt }
-      : null,
-    lastAck: viewer.lastAck ? { ...viewer.lastAck } : null,
-    connected: viewerConnected(),
-    updatedAt: Date.now()
-  })
+  const viewerPublic = () => {
+    expireNativeViewerRequest()
+    return {
+      revision: viewer.revision,
+      appliedRevision: viewer.appliedRevision,
+      currentSessionId: viewer.currentSessionId,
+      petSessionId: petSession(),
+      // request 只出「请求本身」的公开字段：owner（哪个浏览器）是内部身份，绝不外带
+      request: viewer.request
+        ? { requestId: viewer.request.requestId, sessionId: viewer.request.sessionId,
+            revision: viewer.request.revision, epoch: viewer.request.epoch, requestedAt: viewer.request.requestedAt }
+        : null,
+      lastAck: viewer.lastAck ? { ...viewer.lastAck } : null,
+      connected: viewerConnected(),
+      updatedAt: Date.now()
+    }
+  }
   const viewerMarkSeen = () => {
     viewer.seenAt = Date.now()
   }
@@ -600,6 +613,16 @@ export function apply(ctx) {
   async function runCommand(payload) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new BridgeError('bad-request', 'invalid command')
     if (payload.cmd === 'native-work') return nativeWork.request(payload.owner, payload.request)
+    if (payload.cmd === 'native-viewer-nav') {
+      // 仅宿主控制端点接受；原生会话导航不借用或改变 Pet 的控制 epoch。
+      if (payload.identity?.instanceId !== instanceId || payload.identity?.instanceEpoch !== instanceEpoch) throw new BridgeError('task/stale-epoch', 'backend changed')
+      if (!isBoundedId(payload.sessionId) || !isBoundedId(payload.requestId) || !nativeWork.owns(payload.sessionId)) throw new BridgeError('task/not-found', 'native session unavailable')
+      expireNativeViewerRequest()
+      if (viewer.request) throw new BridgeError('viewer/stale', 'another navigation is pending')
+      const revision = viewerBump()
+      viewer.request = { requestId: payload.requestId, sessionId: payload.sessionId, revision, epoch: heldEpoch, requestedAt: Date.now(), source: 'native' }
+      return snapshot()
+    }
     if (payload.cmd === 'snapshot' || payload.cmd === 'poll') return { ...snapshot(), webBusy: anyRunning() }
     if (payload.cmd === 'approve') {
       requireEpoch(payload)
@@ -679,6 +702,7 @@ export function apply(ctx) {
       json(res, 401, { ok: false, code: 'auth/invalid-token', error: 'viewer credential required (reload the page to receive it)' })
       return
     }
+    expireNativeViewerRequest()
     viewerMarkSeen()
     if (route === VIEWER_STATUS_PATH) {
       if (req.method !== 'GET' && req.method !== 'POST') {
@@ -700,6 +724,7 @@ export function apply(ctx) {
         return
       }
       if (route === VIEWER_ACK_PATH) {
+        expireNativeViewerRequest()
         const pending = viewer.request
         const requestId = typeof body.requestId === 'string' ? body.requestId : ''
         const sessionId = typeof body.sessionId === 'string' ? body.sessionId : ''

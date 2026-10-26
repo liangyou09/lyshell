@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { ProjectSceneRequest, ProjectSceneResult } from '@shared/project-scene'
+import type { WorkbenchActivityRequest, WorkbenchActivitySnapshot } from '@shared/workbench-activity'
+import type { ActivityNavigationRequest, ActivityNavigationResult } from '@shared/activity-navigation'
 import type { IpcRendererEvent } from 'electron'
 import type { TerminalOutputControl, TerminalOutputReceipt } from '@shared/terminal-output'
 import type { WorktreeListResult } from '@shared/worktree'
@@ -462,6 +464,8 @@ const electronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.HARNESS_WORKTREE_LIST, cwd),
   // 项目现场及可读名称查询；显式启动只返回运行期会话 ID，不复制环境变量到现场。
   projectSceneRequest: (request: ProjectSceneRequest): Promise<ProjectSceneResult> => ipcRenderer.invoke('project-scene:request', request),
+  workbenchActivityRequest: (request: WorkbenchActivityRequest): Promise<WorkbenchActivitySnapshot> => ipcRenderer.invoke('workbench-activity:request', request),
+  workbenchActivityNavigate: (request: ActivityNavigationRequest): Promise<ActivityNavigationResult> => ipcRenderer.invoke('workbench-activity:navigate', request),
   // 工作区配置和 PS7 启动；目录入口传预设 ID + 路径，由主进程校验其祖先关系。
   codeWorkspaceRequest: (request: CodeWorkspaceRequest): Promise<CodeWorkspaceResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.CODE_WORKSPACE_REQUEST, request),

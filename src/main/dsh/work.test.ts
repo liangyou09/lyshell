@@ -11,9 +11,33 @@ vi.mock('./web', () => ({ dshWebManager: {
 vi.mock('./launch-resolve', () => ({ createDshWebLaunchResolver: () => ({ resolve: vi.fn() }) }))
 vi.mock('../harness/config', () => ({ HARNESS_AGENTS: { dsh: {} } }))
 import { harnessWorkOwner, runHarnessWork, requestNativeWorkBridge } from './work'
+import { readWorkbenchActivity, resetWorkbenchActivityState } from './activity'
+
+/** 与 resources/dsh-bridge 的 snapshot 形状一致的在线回执。 */
+function liveState(): Record<string, unknown> {
+  return {
+    ok: true,
+    identity: { instanceId: 'inst-live', instanceEpoch: 3 },
+    status: 'running',
+    sessionId: 's-live',
+    workspace: 'D:/ws/live',
+    taskId: 'task-live',
+    taskState: 'running',
+    task: { taskId: 'task-live', sessionId: 's-live', requestId: 'req-live', state: 'running' },
+    sessions: [{ sessionId: 's-live', workspace: 'D:/ws/live' }],
+    approvals: [],
+    transcript: [],
+    transcriptTruncated: false
+  }
+}
 
 let server: http.Server | null = null
-beforeEach(() => { vi.clearAllMocks(); deps.endpoint = null; deps.acquire.mockResolvedValue({ ok: true }) })
+beforeEach(() => {
+  vi.clearAllMocks()
+  deps.endpoint = null
+  deps.acquire.mockResolvedValue({ ok: true })
+  resetWorkbenchActivityState()
+})
 afterEach(async () => { if (server) { await new Promise<void>(resolve => server!.close(() => resolve())); server = null } })
 describe('Harness 原生宿主边界', () => {
   it('无后台的读状态不启动进程，变更明确失败', async () => {
@@ -64,5 +88,35 @@ describe('Harness 原生宿主边界', () => {
     expect((await requestNativeWorkBridge(endpoint, harnessWorkOwner('token'), { kind: 'state' })).body).toEqual(payload)
     body = JSON.stringify({ ok: true, text: 'x'.repeat(4 * 1024 * 1024) })
     expect((await requestNativeWorkBridge(endpoint, harnessWorkOwner('token'), { kind: 'state' })).status).toBe(503)
+  })
+  it('工作台活动复用同一 owner 只读授权状态，不启动后台、不外泄 owner', async () => {
+    const owner = harnessWorkOwner('token-a')
+    server = http.createServer((_req, res) => {
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify(liveState()))
+    })
+    await new Promise<void>(resolve => server!.listen(0, '127.0.0.1', resolve))
+    deps.endpoint = { port: (server.address() as { port: number }).port, key: 'key' }
+    expect((await runHarnessWork(owner, { kind: 'state' }, () => true)).status).toBe(200)
+
+    const snapshot = await readWorkbenchActivity()
+    expect(snapshot.connection).toBe('connected')
+    expect(snapshot.identity).toEqual({ instanceId: 'inst-live', instanceEpoch: 3 })
+    expect(snapshot.sessions).toHaveLength(1)
+    expect(snapshot.sessions[0]).toMatchObject({
+      key: '["inst-live",3,"s-live","task-live"]', taskState: 'running', source: 'native-harness'
+    })
+    expect(JSON.stringify(snapshot)).not.toContain(owner)
+    expect(deps.acquire).not.toHaveBeenCalled()
+    expect(deps.retain).not.toHaveBeenCalled()
+  })
+  it('活动读请求带自己的超时，不会按 30 秒挂住界面', async () => {
+    server = http.createServer(() => { /* 永不回执 */ })
+    await new Promise<void>(resolve => server!.listen(0, '127.0.0.1', resolve))
+    const endpoint = { port: (server.address() as { port: number }).port, key: 'key' }
+    const startedAt = Date.now()
+    const reply = await requestNativeWorkBridge(endpoint, harnessWorkOwner('token'), { kind: 'state' }, 100)
+    expect(reply.status).toBe(503)
+    expect(Date.now() - startedAt).toBeLessThan(5000)
   })
 })
