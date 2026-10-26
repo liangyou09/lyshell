@@ -16,7 +16,10 @@ export function openWebTabPopup({ url, background, postToken, sourceWebContentsI
     usePluginStore.getState().items.filter(p => p.enabled).flatMap(p => p.views))
   const isPost = !!postToken
   if (!gateWebTabPopup(url, isPost)) return false
-  if (!panes.openWebTab(url, undefined, { background, postToken, ownerPluginId }).ok) return false
+  if (!panes.openWebTab(url, undefined, {
+    background, postToken, ownerPluginId,
+    ...(source.kind === 'tab' ? { afterTabId: source.id } : {})
+  }).ok) return false
   recordWebTabPopup(url, isPost)
   return true
 }

@@ -1,12 +1,19 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createElement } from 'react'
+import { cleanup, render } from '@testing-library/react'
 import type { WebviewTag } from 'electron'
 import type { PluginListItem } from '@shared/plugin-types'
+import type { PaneLeaf, PaneNode, SessionConfig } from '@shared/types'
+import { ConnectionStatus } from '@shared/types'
+import PaneTabBar from './PaneTabBar'
 import { usePaneStore } from '../../stores/pane-store'
 import { usePluginStore } from '../../stores/plugin-store'
+import { useSessionStore } from '../../stores/session-store'
 import { registerWebview, unregisterWebview, registerMiniWebview, unregisterMiniWebview } from './web-tab-controls'
 import { resetWebTabPopupGateForTest } from './web-tab-popup-gate'
 import { openWebTabPopup } from './web-tab-popup'
+import '../../i18n'
 
 const mini = { getWebContentsId: () => 8 } as WebviewTag
 let id: string
@@ -24,7 +31,170 @@ beforeEach(() => {
   id = Object.keys(usePaneStore.getState().overlayPayloads)[0]
   registerWebview(id, { getWebContentsId: () => 7 } as WebviewTag)
 })
-afterEach(() => { unregisterWebview(id); unregisterMiniWebview(mini) })
+afterEach(() => { cleanup(); unregisterWebview(id); unregisterMiniWebview(mini) })
+
+// ===== 落位断言工具 =====
+const leafById = (node: PaneNode, paneId: string): PaneLeaf | null => {
+  if (node.type === 'leaf') return node.id === paneId ? node : null
+  return leafById(node.firstChild, paneId) ?? leafById(node.secondChild, paneId)
+}
+const rootLeaf = (): PaneLeaf => {
+  const root = usePaneStore.getState().layout.root
+  if (root.type !== 'leaf') throw new Error('Expected one pane')
+  return root
+}
+/** overlays 数组序 = 页签条可见序（同槽按数组序） */
+const overlayIds = (pane: PaneLeaf): string[] => pane.overlays.map(ref => ref.id)
+const activeOverlayId = (pane: PaneLeaf): string | null => pane.overlays.find(ref => ref.active)?.id ?? null
+/** 本次弹窗新增的页签 id（overlayPayloads 的键差集） */
+const addedTabId = (before: Iterable<string>): string => {
+  const known = new Set(before)
+  const fresh = Object.keys(usePaneStore.getState().overlayPayloads).filter(key => !known.has(key))
+  expect(fresh).toHaveLength(1)
+  return fresh[0]
+}
+const overlayUrl = (tabId: string): string | undefined => {
+  const payload = usePaneStore.getState().overlayPayloads[tabId]
+  return payload?.kind === 'web' ? payload.url : undefined
+}
+const makeSession = (sessionId: string) => ({
+  id: sessionId,
+  config: { id: sessionId, name: sessionId, type: 'ssh' } as unknown as SessionConfig,
+  status: ConnectionStatus.CONNECTED
+})
+/** 二分屏：活动分屏 pane-active 在左、来源页签所在的非活动分屏 pane-source 在右 */
+const setupSplitPanes = (): void => {
+  const source = usePaneStore.getState().overlayPayloads[id]!
+  usePaneStore.setState({
+    layout: {
+      root: {
+        id: 'split',
+        type: 'split',
+        direction: 'horizontal',
+        splitRatio: 0.5,
+        firstChild: {
+          id: 'pane-active', type: 'leaf', sessions: [], activeSessionId: null,
+          overlays: [{ id: 'web-active', kind: 'web', active: true, slot: null }]
+        },
+        secondChild: {
+          id: 'pane-source', type: 'leaf', sessions: [], activeSessionId: null,
+          overlays: [{ id, kind: 'web', active: true, slot: null }]
+        }
+      },
+      activePaneId: 'pane-active'
+    },
+    overlayPayloads: {
+      'web-active': { kind: 'web', url: 'https://active.example/', title: 'active' },
+      [id]: source
+    }
+  })
+}
+
+describe('弹窗页签落位（紧邻来源右侧、留在来源所在 pane）', () => {
+  it('来源不在 pane 末尾：前台弹窗紧贴来源右侧，原来源仍存活且让位激活', () => {
+    // 先追加一个后台页签，把来源挤到数组中间（来源仍是活动页签）
+    usePaneStore.getState().openWebTab('https://after.example/', undefined, { background: true })
+    const before = overlayIds(rootLeaf())
+    expect(before).toEqual([id, expect.any(String)])
+    expect(activeOverlayId(rootLeaf())).toBe(id)
+
+    expect(openWebTabPopup(popup)).toBe(true)
+
+    const added = addedTabId(before)
+    const pane = rootLeaf()
+    // 紧邻：插在来源与原本的后继页签之间，而不是追加到末尾
+    expect(overlayIds(pane)).toEqual([id, added, before[1]])
+    expect(overlayUrl(added)).toBe(popup.url)
+    // 原来源页签仍存活、内容未变
+    expect(overlayUrl(id)).toBe(popup.sourceUrl)
+    // 前台弹窗接管本 pane 激活；活动 pane 不变
+    expect(activeOverlayId(pane)).toBe(added)
+    expect(usePaneStore.getState().layout.activePaneId).toBe('pane')
+  })
+
+  it('来源不在 pane 末尾：后台弹窗紧贴来源右侧，但不抢页签激活', () => {
+    usePaneStore.getState().openWebTab('https://after.example/', undefined, { background: true })
+    const before = overlayIds(rootLeaf())
+    expect(activeOverlayId(rootLeaf())).toBe(id)
+
+    expect(openWebTabPopup({ ...popup, background: true })).toBe(true)
+
+    const added = addedTabId(before)
+    const pane = rootLeaf()
+    expect(overlayIds(pane)).toEqual([id, added, before[1]])
+    expect(overlayUrl(added)).toBe(popup.url)
+    // 焦点留在来源页签：新页签挂在来源右侧但不激活
+    expect(activeOverlayId(pane)).toBe(id)
+    expect(pane.overlays.find(ref => ref.id === added)?.active).toBe(false)
+    expect(usePaneStore.getState().layout.activePaneId).toBe('pane')
+    expect(overlayUrl(id)).toBe(popup.sourceUrl)
+  })
+
+  it('来源在非活动分屏：后台弹窗进来源 pane，不抢活动 pane 与页签', () => {
+    setupSplitPanes()
+    const beforeIds = leafById(usePaneStore.getState().layout.root, 'pane-source')!.overlays.map(ref => ref.id)
+    expect(openWebTabPopup({ ...popup, background: true })).toBe(true)
+
+    const layout = usePaneStore.getState().layout
+    // 后台语义：活动 pane 原地不动，活动分屏内容一个字节都没变
+    expect(layout.activePaneId).toBe('pane-active')
+    const sourcePane = leafById(layout.root, 'pane-source')!
+    const activePane = leafById(layout.root, 'pane-active')!
+    const added = addedTabId(['web-active', ...beforeIds])
+    // 新页签落在来源所在 pane（紧邻来源），不落到活动分屏
+    expect(overlayIds(sourcePane)).toEqual([id, added])
+    expect(overlayIds(activePane)).toEqual(['web-active'])
+    expect(overlayUrl(added)).toBe(popup.url)
+    // 来源仍是来源 pane 的活动页
+    expect(activeOverlayId(sourcePane)).toBe(id)
+    expect(activeOverlayId(activePane)).toBe('web-active')
+    expect(overlayUrl(id)).toBe(popup.sourceUrl)
+  })
+
+  it('来源在非活动分屏：前台弹窗同样落在来源分屏，活动分屏内容不受损', () => {
+    setupSplitPanes()
+    expect(openWebTabPopup(popup)).toBe(true)
+
+    const layout = usePaneStore.getState().layout
+    const sourcePane = leafById(layout.root, 'pane-source')!
+    const activePane = leafById(layout.root, 'pane-active')!
+    const added = addedTabId(['web-active', id])
+    expect(overlayIds(sourcePane)).toEqual([id, added])
+    expect(overlayIds(activePane)).toEqual(['web-active'])
+    // 前台弹窗把活动 pane 切到来源分屏（弹窗焦点跟随新页签）
+    expect(layout.activePaneId).toBe('pane-source')
+    expect(activeOverlayId(sourcePane)).toBe(added)
+    expect(activeOverlayId(activePane)).toBe('web-active')
+  })
+
+  it('来源页签夹在终端页签中间（带 slot）时，新页签排在来源右侧且不隔开终端', () => {
+    useSessionStore.setState({ sessions: [makeSession('s0'), makeSession('s1'), makeSession('s2')] })
+    const source = usePaneStore.getState().overlayPayloads[id]!
+    usePaneStore.setState({
+      layout: {
+        root: {
+          id: 'pane', type: 'leaf', sessions: ['s0', 's1', 's2'], activeSessionId: 's0',
+          overlays: [{ id, kind: 'web', active: true, slot: 2 }]
+        },
+        activePaneId: 'pane'
+      },
+      overlayPayloads: { [id]: source }
+    })
+    expect(openWebTabPopup({ ...popup, background: true })).toBe(true)
+
+    const added = addedTabId([id])
+    const pane = rootLeaf()
+    expect(overlayIds(pane)).toEqual([id, added])
+    const { container, unmount } = render(createElement(PaneTabBar, { pane, isTop: true }))
+    // 页签条实际可见序：来源 slot=2 → 落在 s1 与 s2 之间；新页签必须紧贴其右
+    const order = Array.from(container.querySelectorAll('[data-tab-id]'))
+      .map(el => el.getAttribute('data-tab-id'))
+    expect(order).toEqual(['s0', 's1', id, added, 's2'])
+    // 来源页签元素仍在（未被新页替换）
+    expect(container.querySelector(`[data-tab-id="${id}"]`)).toBeTruthy()
+    unmount()
+  })
+})
 
 describe('弹出页签来源生命周期', () => {
   it('存活的插件来源保持归属，禁用连同弹窗回收', () => {

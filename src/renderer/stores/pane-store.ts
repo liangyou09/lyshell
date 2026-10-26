@@ -189,7 +189,7 @@ interface PaneStore {
   draggingSessionId: string | null
   setDraggingSession: (id: string | null) => void
   // 通用核心操作 —— 所有种类共用；种类差异全部由 overlay-kinds 注册表驱动
-  mountOverlay: (paneId: string | undefined, payload: OverlayPayload, opts?: { id?: string; background?: boolean }) => string | null  // 挂载并激活（background=true 只挂载不激活、不动 activePaneId），返回实例 id（无可用 pane 返回 null）
+  mountOverlay: (paneId: string | undefined, payload: OverlayPayload, opts?: { id?: string; background?: boolean; afterId?: string }) => string | null  // 挂载并激活（background=true 只挂载不激活、不动 activePaneId），返回实例 id（无可用 pane 返回 null）
   activateOverlay: (id: string) => void       // 激活（叶子内跨种类 radio + activePaneId 切换）
   deactivateOverlay: (id: string) => void     // 仅隐藏（页签保留）
   closeOverlay: (id: string) => void          // 真正关闭（回落/副作用/纯覆盖层 pane 回并）
@@ -216,7 +216,7 @@ interface PaneStore {
   // opts.background：弹窗修饰键转发（中键/Ctrl+点击）的后台页签语义 —— 挂载不激活，
   // 不抢焦点；用户留在原 pane 原页签
   openStartTab: (paneId?: string) => string | null
-  openWebTab: (rawUrl: string, paneId?: string, opts?: { background?: boolean; postToken?: string; ownerPluginId?: string; replaceStartTabId?: string }) => { ok: true } | { ok: false; error: string }
+  openWebTab: (rawUrl: string, paneId?: string, opts?: { background?: boolean; postToken?: string; ownerPluginId?: string; replaceStartTabId?: string; afterTabId?: string }) => { ok: true } | { ok: false; error: string }
   // POST 首航落定（WebTabOverlay 在 did-navigate / 认领失败时调）：主进程令牌
   // take 即销毁，认领后必须从 payload 摘除 —— 否则重挂（拖分屏/拆分）拿死令牌
   // 再认领必拒。落点已知时把 url 一并改写为落点：页签身份从「POST 目标」变成
@@ -805,13 +805,15 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
       // 顺序保证目标 pane 在 prune 前已持有新 ref，不会被误清；radio 同样保持
       // 未激活引用的身份（原已是 active:false 的不必新建对象）
       root = removeRefFromTree(st.layout.root, id)
-      root = editLeaf(root, target, leaf => ({
-        ...leaf,
-        overlays: background
-          // 后台：纯追加，同伴激活态原样不动（radio 掉活动页签就是把焦点交出去）
-          ? [...leaf.overlays, { id, kind: payload.kind, active: false, slot: null }]
-          : [...leaf.overlays.map(r => r.active ? { ...r, active: false } : r), { id, kind: payload.kind, active: true, slot: null }]
-      }))
+      root = editLeaf(root, target, leaf => {
+        // 同插槽按 overlays 数组序显示；继承来源插槽并紧邻插入，也适用于夹在终端之间的网页。
+        const sourceIndex = opts?.afterId ? leaf.overlays.findIndex(r => r.id === opts.afterId) : -1
+        const slot = sourceIndex >= 0 ? leaf.overlays[sourceIndex].slot : null
+        // 后台打开保留同伴激活态；前台打开只在当前叶子内 radio。
+        const overlays = background ? [...leaf.overlays] : leaf.overlays.map(r => r.active ? { ...r, active: false } : r)
+        overlays.splice(sourceIndex >= 0 ? sourceIndex + 1 : overlays.length, 0, { id, kind: payload.kind, active: !background, slot })
+        return { ...leaf, overlays }
+      })
       root = removeEmptyPanes(root)
     }
     set({
@@ -1096,6 +1098,7 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     const url = normalizeWebBarUrl(rawUrl)
     if (!url) return { ok: false, error: 'invalid URL' }
     const replacing = opts?.replaceStartTabId ? findOverlayRef(get().layout.root, opts.replaceStartTabId) : undefined
+    const after = opts?.afterTabId ? findOverlayRef(get().layout.root, opts.afterTabId) : undefined
     if (opts?.replaceStartTabId) {
       const payload = get().overlayPayloads[opts.replaceStartTabId]
       if (!replacing || payload?.kind !== 'web' || payload.url !== BROWSER_NEW_TAB_URL) return { ok: false, error: 'start tab is no longer available' }
@@ -1108,13 +1111,17 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     }
     // 历史不在这里记 —— 等 WebTabOverlay 的 did-finish-load 再记（recordWebTabVisit），
     // 打开但加载失败的 URL 不进「最近访问」。
-    // paneId：终端 Ctrl+点击的落点（点击终端所在 pane）；未指定回落活动 pane（URL 栏语义）。
+    // afterTabId：来源网页的同分屏右邻；否则 paneId 为指定落点，未指定回落活动 pane。
     // opts.background：弹窗修饰键转发 —— 后台页签，见 mountOverlay 的 background 注
-    const id = get().mountOverlay(replacing?.leaf.id ?? paneId, {
+    const id = get().mountOverlay(replacing?.leaf.id ?? after?.leaf.id ?? paneId, {
       kind: 'web', url, title: new URL(url).hostname,
       ...(opts?.postToken ? { postToken: opts.postToken } : {}),
       ...(ownerPluginId ? { ownerPluginId } : {})
-    }, { ...(opts?.background ? { background: true } : {}), ...(opts?.replaceStartTabId ? { id: opts.replaceStartTabId } : {}) })
+    }, {
+      ...(opts?.background ? { background: true } : {}),
+      ...(opts?.replaceStartTabId ? { id: opts.replaceStartTabId } : {}),
+      ...(opts?.afterTabId ? { afterId: opts.afterTabId } : {})
+    })
     return id ? { ok: true } : { ok: false, error: 'no pane available' }
   },
   settleWebTabPost: (id, landedUrl) => {

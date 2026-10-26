@@ -136,6 +136,28 @@ const fireDomReady = (): void => {
   act(() => { wvOf().dispatchEvent(new Event('dom-ready')) })
 }
 
+/** 当前 pane 的网页页签快照（overlays 数组序即页签条可见序）—— 断言「提交
+ *  新地址 = 新开页签」而非就地替换，以及新页紧贴来源右侧 */
+const webTabs = (): { ids: string[]; urls: string[]; activeId: string | null } => {
+  const root = usePaneStore.getState().layout.root
+  if (root.type !== 'leaf') throw new Error('Expected one pane')
+  const payloads = usePaneStore.getState().overlayPayloads
+  return {
+    ids: root.overlays.map(o => o.id),
+    urls: root.overlays.flatMap(o => {
+      const payload = payloads[o.id]
+      return payload?.kind === 'web' ? [payload.url] : []
+    }),
+    activeId: root.overlays.find(o => o.active)?.id ?? null
+  }
+}
+
+/** 某个覆盖层的 payload URL（非 web 或已回收返回 undefined）—— 原页内容未变的判据 */
+const webUrlOf = (id: string): string | undefined => {
+  const payload = usePaneStore.getState().overlayPayloads[id]
+  return payload?.kind === 'web' ? payload.url : undefined
+}
+
 beforeEach(() => {
   useBrowserDownloadsStore.setState({ downloads: [], downloadDirectory: '', loaded: false, error: false })
   useUiStore.setState({ webBarFocusRequest: 0 })
@@ -387,7 +409,7 @@ describe('地址栏编辑守卫', () => {
 })
 
 describe('主地址栏前往按钮', () => {
-  it('空输入时禁用，点击按当前输入导航并支持主题化补全', () => {
+  it('空输入时禁用，点击按当前输入新开页签且不替换当前页', () => {
     setupBrowserMode()
     const page = makeWebview()
     registerWebview('web-1', page as unknown as WebviewTag)
@@ -401,13 +423,102 @@ describe('主地址栏前往按钮', () => {
     fireEvent.change(input, { target: { value: 'https://edited.example/docs' } })
     expect(go.disabled).toBe(false)
     fireEvent.click(go)
-    expect(page.loadURL).toHaveBeenCalledWith('https://edited.example/docs')
+    // 原页签不就地导航：guest 未被调用、payload URL 原样
+    expect(page.loadURL).not.toHaveBeenCalled()
+    expect(webUrlOf('web-1')).toBe('https://example.com/')
+    // 新页签追加在原页签右侧，接管激活，地址栏跟随新页
+    const tabs = webTabs()
+    expect(tabs.urls).toEqual(['https://example.com/', 'https://edited.example/docs'])
+    expect(tabs.ids[0]).toBe('web-1')
+    expect(tabs.activeId).toBe(tabs.ids[1])
+    expect(tabs.activeId).not.toBe('web-1')
+    expect(input.value).toBe('https://edited.example/docs')
+  })
+})
+
+describe('主地址栏提交一律新开网页页签', () => {
+  it('没有活动网页时提交：在活动 pane 直接建页签，不报非法', () => {
+    setupBrowserMode()
+    usePaneStore.setState({
+      layout: {
+        root: { id: 'pane-1', type: 'leaf', sessions: [], activeSessionId: null, overlays: [] },
+        activePaneId: 'pane-1'
+      },
+      overlayPayloads: {}
+    })
+    render(<WebPanel />)
+    fireEvent.change(inputOf(), { target: { value: 'fresh.example/' } })
+    fireEvent.keyDown(inputOf(), { key: 'Enter' })
+    // 无 scheme 裸词走归一化补 https://（与浏览器地址栏同一入口）
+    expect(webTabs().urls).toEqual(['https://fresh.example/'])
+    expect(webTabs().activeId).toBe(webTabs().ids[0])
+    expect(screen.queryByText('Invalid URL (http/https only)')).toBeNull()
+  })
+
+  it('活动页签不在末尾时，新页签紧贴活动页签右侧、其余页签顺序不变', () => {
+    setupBrowserMode()
+    const page = makeWebview()
+    registerWebview('web-1', page as unknown as WebviewTag)
+    const payloads = usePaneStore.getState().overlayPayloads
+    usePaneStore.setState({
+      layout: {
+        root: {
+          id: 'pane-1', type: 'leaf', sessions: [], activeSessionId: null,
+          overlays: [
+            { id: 'web-1', kind: 'web', active: true, slot: null },
+            { id: 'web-2', kind: 'web', active: false, slot: null },
+            { id: 'web-3', kind: 'web', active: false, slot: null }
+          ]
+        },
+        activePaneId: 'pane-1'
+      },
+      overlayPayloads: {
+        ...payloads,
+        'web-2': { kind: 'web', url: 'https://two.example/', title: 'two.example' },
+        'web-3': { kind: 'web', url: 'https://three.example/', title: 'three.example' }
+      }
+    })
+    render(<WebPanel />)
+    fireEvent.change(inputOf(), { target: { value: 'https://new.example/' } })
+    fireEvent.keyDown(inputOf(), { key: 'Enter' })
+    const tabs = webTabs()
+    // 插在活动页签 web-1 之后，而不是追加到末尾
+    expect(tabs.urls).toEqual([
+      'https://example.com/', 'https://new.example/', 'https://two.example/', 'https://three.example/'
+    ])
+    expect(tabs.activeId).toBe(tabs.ids[1])
+    expect(page.loadURL).not.toHaveBeenCalled()
+  })
+
+  it('非法地址只出 notice：既有页签不动、也不新开', () => {
+    setupBrowserMode()
+    const page = makeWebview()
+    registerWebview('web-1', page as unknown as WebviewTag)
+    render(<WebPanel />)
+    // 'https://' 空 host 是真非法（裸词会被归一化成合法地址）
+    fireEvent.change(inputOf(), { target: { value: 'https://' } })
+    fireEvent.keyDown(inputOf(), { key: 'Enter' })
+    expect(screen.getByText('Invalid URL (http/https only)')).toBeTruthy()
+    expect(webTabs().ids).toEqual(['web-1'])
+    expect(webUrlOf('web-1')).toBe('https://example.com/')
+    expect(page.loadURL).not.toHaveBeenCalled()
+  })
+
+  it('组合输入（IME）期间回车不提交，不新开页签', () => {
+    setupBrowserMode()
+    const page = makeWebview()
+    registerWebview('web-1', page as unknown as WebviewTag)
+    render(<WebPanel />)
+    fireEvent.change(inputOf(), { target: { value: 'https://ime.example/' } })
+    fireEvent.keyDown(inputOf(), { key: 'Enter', isComposing: true })
+    expect(webTabs().ids).toEqual(['web-1'])
+    expect(page.loadURL).not.toHaveBeenCalled()
   })
 })
 
 describe('主题化网址候选列表', () => {
   const dropdown = (): HTMLElement => screen.getAllByRole('button', { name: 'Recent pages and bookmarks' })[0]
-  it('合并最近访问和收藏并去重，键盘选择使用网址导航', () => {
+  it('合并最近访问和收藏并去重，键盘选择新开页签', () => {
     setupBrowserMode()
     const page = makeWebview()
     registerWebview('web-1', page as unknown as WebviewTag)
@@ -421,7 +532,12 @@ describe('主题化网址候选列表', () => {
     fireEvent.keyDown(inputOf(), { key: 'ArrowDown' })
     expect(inputOf().getAttribute('aria-activedescendant')).toBe(screen.getAllByRole('option')[0].id)
     fireEvent.keyDown(inputOf(), { key: 'Enter' })
-    expect(page.loadURL).toHaveBeenCalledWith(url)
+    // 候选选择同样新开：原页签 guest 不动，新页签带候选 URL
+    expect(page.loadURL).not.toHaveBeenCalled()
+    expect(webUrlOf('web-1')).toBe('https://example.com/')
+    const tabs = webTabs()
+    expect(tabs.urls).toEqual(['https://example.com/', url])
+    expect(tabs.activeId).toBe(tabs.ids[1])
     expect(screen.queryByRole('listbox')).toBeNull()
     expect(inputOf().value).toBe(url)
   })
@@ -502,7 +618,7 @@ describe('Ctrl+L 聚焦请求令牌（ui-store）', () => {
 })
 
 describe('Enter 提交', () => {
-  it('导航使用输入框当前值，而非尚未同步的输入前缀', async () => {
+  it('新页签使用输入框当前值，而非尚未同步的输入前缀', async () => {
     setupBrowserMode()
     const el = makeWebview()
     registerWebview('web-1', el as unknown as WebviewTag)
@@ -516,8 +632,11 @@ describe('Enter 提交', () => {
     // 输入法或自动填充可能先更新 DOM，React state 尚未同步。
     input.value = 'https://github.com/'
     fireEvent.keyDown(input, { key: 'Enter' })
-    await waitFor(() => expect(el.loadURL).toHaveBeenCalledWith('https://github.com/'))
-    expect(el.loadURL).not.toHaveBeenCalledWith('https://git/')
+    await waitFor(() => expect(webTabs().urls).toContain('https://github.com/'))
+    expect(webTabs().urls).not.toContain('https://git/')
+    // 原页签仍停在原地址，guest 未被导航
+    expect(el.loadURL).not.toHaveBeenCalled()
+    expect(webUrlOf('web-1')).toBe('https://example.com/')
   })
 })
 

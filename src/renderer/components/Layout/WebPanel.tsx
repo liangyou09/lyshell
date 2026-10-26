@@ -10,7 +10,7 @@ import { matchesPluginWebOrigin, uniquePluginWebOrigins } from '@shared/plugin-w
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { WebTabFavicon } from './PaneTabBar'
 import {
-  selectActiveWebTabId, navigateActiveWebTab, stopActiveWebTab,
+  selectActiveWebTabId, stopActiveWebTab,
   activeWebTabGoBack, activeWebTabGoForward, getWebview,
   registerMiniWebview, unregisterMiniWebview
 } from './web-tab-controls'
@@ -299,7 +299,7 @@ const RecentFavicon: React.FC<{ url: string; favicon?: string }> = ({ url, favic
 /**
  * 网页访问面板(机柜左列 Web 页签)。
  * 双模式:活动分屏正显示网页页签时是「浏览器 chrome」—— 地址栏同步当前 URL
- * (payload.nav,did-navigate 回写)、Enter 就地导航、后退/前进/停止
+ * (payload.nav,did-navigate 回写)、Enter 在当前网页右侧新开页签、后退/前进/停止
  * 按钮住铭牌行(IconBtn,指令经 web-tab-controls 落到活动页签);否则是「启动器」
  * —— 顶部 URL 栏输入完整网址,以终端页签形式打开在活动分屏(多页签,类似 dsh
  * Web 页签),打开的网页一律走终端页签栏切换/关闭,面板不再列清单。
@@ -819,29 +819,20 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
   }
   const endMiniResize = (): void => setMiniResizing(false)
 
-  // 输入完整 URL(无 scheme 自动补 https://)→ 浏览器模式就地导航,启动器模式
-  // 以终端页签形式打开在活动分屏。非法输入走 notice 提示(对齐其他面板的错误
-  // 路径)。rawArg 供候选选择和前往按钮传入当前输入值
+  // 主 URL 栏统一新开网页页签；有活动网页时放在其右侧，保留原页内容。
+  // 非法输入走 notice 提示。rawArg 供候选选择和前往按钮传入当前输入值。
   const handleOpenWebTab = (rawArg?: string): void => {
     setNotice(null)
     const input = (rawArg ?? webBarInput).trim()
     if (!input) return
     const raw = browserAddress(input, browserSettings.searchEngine)
     if (!raw) { setNotice(t('webBar.invalid')); return }
-    if (activeWebTabId !== null) {
-      if (!navigateActiveWebTab(raw)) {
-        setNotice(t('webBar.invalid'))
-        return
-      }
-      editingRef.current = false  // 已提交:放开跟随,导航落地后地址栏同步新 URL
+    const res = openWebTab(raw, undefined, { afterTabId: activeWebTabId ?? undefined })
+    if (res.ok) {
+      editingRef.current = false
+      setWebBarInput('')
     } else {
-      const res = openWebTab(raw)
-      if (res.ok) {
-        editingRef.current = false
-        setWebBarInput('')
-      } else {
-        setNotice(t('webBar.invalid'))
-      }
+      setNotice(t('webBar.invalid'))
     }
   }
 
