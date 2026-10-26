@@ -40,6 +40,37 @@ beforeEach(() => {
 })
 afterEach(async () => { if (server) { await new Promise<void>(resolve => server!.close(() => resolve())); server = null } })
 describe('Harness 原生宿主边界', () => {
+  it.each(['submit', 'approve'] as const)('慢 %s 不阻塞同凭据另一会话或取消；在途变更阻止释放整个凭据租约', async kind => {
+    let releaseFirst!: () => void
+    let entered!: () => void
+    const started = new Promise<void>(resolve => { entered = resolve })
+    const blocked = new Promise<void>(resolve => { releaseFirst = resolve })
+    const received: Array<Record<string, unknown>> = []
+    server = http.createServer(async (req, res) => {
+      let text = ''; for await (const chunk of req) text += chunk
+      const { request } = JSON.parse(text) as { request: Record<string, unknown> }
+      received.push(request)
+      if (request.kind === kind && request.sessionId === 's1') { entered(); await blocked }
+      res.end(JSON.stringify({ ok: true, sessionId: request.sessionId, taskId: request.taskId }))
+    })
+    await new Promise<void>(resolve => server!.listen(0, '127.0.0.1', resolve))
+    deps.endpoint = { port: (server.address() as { port: number }).port, key: 'fixture' }
+    const owner = harnessWorkOwner('token')
+    const first = runHarnessWork(owner, kind === 'submit'
+      ? { kind, sessionId: 's1', requestId: 'r1', text: 'one' }
+      : { kind, sessionId: 's1', id: 'approval', optionId: 'rejected' }, () => true)
+    await started
+    try {
+      expect((await runHarnessWork(owner, { kind: 'submit', sessionId: 's2', requestId: 'r2', text: 'two' }, () => true)).status).toBe(200)
+      expect((await runHarnessWork(owner, { kind: 'state', taskId: 'task-1' }, () => true)).status).toBe(200)
+      expect((await runHarnessWork(owner, { kind: 'cancel', taskId: 'task-1' }, () => true)).status).toBe(200)
+      expect((await runHarnessWork(owner, { kind: 'disconnect' }, () => true)).body.code).toBe('task/busy')
+      expect(received.some(request => request.kind === 'disconnect')).toBe(false)
+      expect(deps.release).not.toHaveBeenCalled()
+    } finally { releaseFirst(); await first }
+    expect((await runHarnessWork(owner, { kind: 'disconnect' }, () => true)).status).toBe(200)
+    expect(deps.release).toHaveBeenCalledWith(`native-work:${owner}`)
+  })
   it('无后台的读状态不启动进程，变更明确失败', async () => {
     const result = await runHarnessWork('a'.repeat(64), { kind: 'state' }, () => true)
     expect(result.body.status).toBe('offline')
@@ -77,16 +108,17 @@ describe('Harness 原生宿主边界', () => {
     expect(owner).toMatch(/^[a-f0-9]{64}$/)
   })
   it('接收含大量审批及转义输出的合法状态，仍拒绝超限响应', async () => {
-    const payload = { ok: true, status: 'approval',
-      approvals: Array.from({ length: 128 }, (_, id) => ({ id: String(id), reason: '中'.repeat(2000) })),
+    const view = { status: 'approval',
+      approvals: Array.from({ length: 128 }, (_, id) => ({ id: String(id), reason: '\u0001'.repeat(2000) })),
       transcript: Array.from({ length: 256 }, () => ({ text: '\u0001'.repeat(512) })) }
+    const payload = { ok: true, ...view, sessions: [view] }
     let body = JSON.stringify(payload)
-    expect(Buffer.byteLength(body)).toBeGreaterThan(1024 * 1024)
+    expect(Buffer.byteLength(body)).toBeGreaterThan(4 * 1024 * 1024)
     server = http.createServer((_req, res) => { res.end(body) })
     await new Promise<void>(resolve => server!.listen(0, '127.0.0.1', resolve))
     const endpoint = { port: (server.address() as { port: number }).port, key: 'key' }
     expect((await requestNativeWorkBridge(endpoint, harnessWorkOwner('token'), { kind: 'state' })).body).toEqual(payload)
-    body = JSON.stringify({ ok: true, text: 'x'.repeat(4 * 1024 * 1024) })
+    body = JSON.stringify({ ok: true, text: 'x'.repeat(8 * 1024 * 1024) })
     expect((await requestNativeWorkBridge(endpoint, harnessWorkOwner('token'), { kind: 'state' })).status).toBe(503)
   })
   it('工作台活动复用同一 owner 只读授权状态，不启动后台、不外泄 owner', async () => {

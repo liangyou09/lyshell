@@ -21,6 +21,24 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.useRealTimers() })
 describe('项目会话与任务面板', () => {
+  it('内置聊天支持目录筛选并提供工作台入口，不出现代答审批按钮', async () => {
+    snapshot = { ...snapshot, identity: null, connection: 'offline', sessions: [], web: { observedAt: Date.now(), identity: { instanceId: 'web-backend', instanceEpoch: 2 }, connection: 'connected', revision: 1, events: [], sessions: [{ sessionId: 'web-a', workspace: 'D:/web', turnId: 'web-turn', state: 'waiting-approval', updatedAt: Date.now(), approvalIds: ['approval-a'] }] } }
+    request.mockResolvedValue(snapshot)
+    useWorkbenchActivity.setState({ snapshot })
+    const navigate = vi.fn().mockResolvedValue({ success: false, error: '导航测试到此为止' })
+    Object.assign(window.electronAPI, { workbenchActivityNavigate: navigate })
+    const view = render(<WorkbenchActivity />)
+    await act(async () => {})
+    fireEvent.change(view.getByRole('combobox'), { target: { value: 'd:/web' } })
+    expect(view.getByText('等待审批 · 请在工作台处理')).toBeTruthy()
+    expect(view.queryByText('Codex terminal')).toBeNull()
+    expect(view.queryByRole('button', { name: '仅允许一次' })).toBeNull()
+    fireEvent.click(view.getByRole('button', { name: '打开工作台' }))
+    await act(async () => {})
+    expect(navigate).toHaveBeenCalledWith({ kind: 'open', identity: snapshot.web!.identity, sessionId: 'web-a' })
+    act(() => useWorkbenchActivity.setState({ snapshot: { ...snapshot, web: { ...snapshot.web!, connection: 'stale' } } }))
+    expect(view.getByRole('button', { name: '打开工作台' }).hasAttribute('disabled')).toBe(true)
+  })
   it('TUI 官方事件显示回合语义，审批只提供原终端定位', async () => {
     snapshot = { ...snapshot, identity: null, connection: 'offline', sessions: [], tui: { observedAt: Date.now(), events: [], sessions: [{ terminalId: 'local-a', launchId: 'launch-a', source: 'codex', workspace: 'C:/project', cliSessionId: 'cli-a', turnId: 'turn-a', state: 'turn-ended', event: 'Stop', updatedAt: Date.now(), active: true }] } }
     request.mockResolvedValue(snapshot)

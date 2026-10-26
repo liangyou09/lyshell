@@ -5,6 +5,7 @@ import { BRIDGE_KEY_HEADER } from './bridge'
 import { dshWebManager } from './web'
 import { acquireWorkbenchDetail } from './exclusive-runtime'
 import { readWorkbenchActivity } from './activity'
+import { readHarnessWebActivity } from './web-activity'
 
 const sameIdentity = (a: ActivityBackendIdentity | null, b: ActivityBackendIdentity) => a?.instanceId === b.instanceId && a?.instanceEpoch === b.instanceEpoch
 async function bridge(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -43,14 +44,15 @@ export async function navigateWorkbenchActivity(request: ActivityNavigationReque
   try {
     if (!sameIdentity(dshWebManager.instanceIdentity, request.identity)) throw new Error('Harness backend changed; refresh sessions')
     if (request.kind === 'open') {
-      const snapshot = await readWorkbenchActivity()
+      const [snapshot, web] = await Promise.all([readWorkbenchActivity(), readHarnessWebActivity()])
       const session = snapshot.sessions.find(row => row.sessionId === request.sessionId && !row.stale)
-      if (snapshot.connection !== 'connected' || !sameIdentity(snapshot.identity, request.identity) || !session) throw new Error('Session state is stale; refresh sessions')
+      const webSession = web.connection === 'connected' && sameIdentity(web.identity, request.identity) ? web.sessions.find(row => row.sessionId === request.sessionId) : undefined
+      if ((!session || snapshot.connection !== 'connected' || !sameIdentity(snapshot.identity, request.identity)) && !webSession) throw new Error('Session state is stale; refresh sessions')
       const detail = await acquireWorkbenchDetail()
       if (!detail.ok || !sameIdentity(detail, request.identity)) throw new Error('Harness workbench unavailable or backend changed')
       const requestId = randomUUID()
       await bridge({ cmd: 'native-viewer-nav', identity: request.identity, sessionId: request.sessionId, requestId })
-      return { success: true, requestId, navigation: 'pending', url: detail.url, cwd: session.workspace }
+      return { success: true, requestId, navigation: 'pending', url: detail.url, cwd: webSession?.workspace || session?.workspace || undefined }
     }
     const result = await bridge({ cmd: 'snapshot' })
     if (!sameIdentity(result.identity as ActivityBackendIdentity | null, request.identity)) throw new Error('Harness backend changed')

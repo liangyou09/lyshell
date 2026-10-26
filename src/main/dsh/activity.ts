@@ -123,6 +123,7 @@ interface OwnerRecord {
   sessions: Map<string, SessionRecord>
   touchedAt: number
   revision: number
+  bridgeRevision: number | null
 }
 
 /** owner → 该凭据已调用过的原生任务状态。 */
@@ -149,6 +150,9 @@ interface ParsedTranscriptEntry {
 }
 
 interface ParsedState {
+  bridgeRevision: number | null
+  /** 新版桥同时提供各会话最新任务；旧版仅有顶层默认视图。 */
+  sessionStates?: ParsedState[]
   offline: boolean
   identity: WorkbenchBackendIdentity | null
   /** 该凭据当前选择的会话；disconnect 后为 null。 */
@@ -174,7 +178,7 @@ export function registerWorkbenchActivityOwner(owner: string): void {
   }
   if (owners.size >= MAX_OWNERS) evictOldestOwner()
   owners.set(owner, {
-    owner, identity: null, connection: 'stale', sessions: new Map(), touchedAt: now, revision: 0
+    owner, identity: null, connection: 'stale', sessions: new Map(), touchedAt: now, revision: 0, bridgeRevision: null
   })
 }
 
@@ -273,7 +277,7 @@ async function approveLocked(
   const { record, owner } = route
   const revision = record.revision
   // 1) 发送前 fresh read：只有同一后台身份、同一会话、同一任务、同一审批且选项合法才继续。
-  const fresh = await readOwnerState(endpoint, owner)
+  const fresh = await readOwnerState(endpoint, owner, request.sessionId, request.taskId)
   if (record.revision !== revision || !sameEndpoint(endpoint, readEndpoint())) {
     return buildSnapshot(deps.now(), 'stale', 'Harness state changed during approval verification; the approval was not sent.')
   }
@@ -314,7 +318,8 @@ async function approveLocked(
   let reply: WorkbenchActivityBridgeReply | null = null
   try {
     reply = await deps.readBridge(endpoint, owner,
-      { kind: 'approve', id: approval.id, optionId: request.optionId }, { timeoutMs: APPROVE_TIMEOUT_MS })
+      { kind: 'approve', id: approval.id, optionId: request.optionId,
+        sessionId: request.sessionId, taskId: request.taskId }, { timeoutMs: APPROVE_TIMEOUT_MS })
   } catch {
     reply = null
   }
@@ -339,11 +344,12 @@ async function approveLocked(
 
 /** 解析 owner 的 state 回执；畸形、不一致或身份不明一律返回 null（不应用）。 */
 async function readOwnerState(
-  endpoint: WorkbenchActivityEndpoint, owner: string
+  endpoint: WorkbenchActivityEndpoint, owner: string, sessionId?: string, taskId?: string
 ): Promise<ParsedState | null> {
   let reply: WorkbenchActivityBridgeReply
   try {
-    reply = await deps.readBridge(endpoint, owner, { kind: 'state' }, { timeoutMs: READ_TIMEOUT_MS })
+    reply = await deps.readBridge(endpoint, owner, { kind: 'state',
+      ...(sessionId ? { sessionId } : {}), ...(taskId ? { taskId } : {}) }, { timeoutMs: READ_TIMEOUT_MS })
   } catch {
     return null
   }
@@ -406,10 +412,9 @@ function applyParsedState(record: OwnerRecord, parsed: ParsedState, now: number)
     resetRetained()
     backendIdentity = parsed.identity
   }
-  // 外部并行读取的旧回执可能迟于新任务到达；官方 acceptedAt 是任务的创建证据。
-  if (parsed.taskAcceptedAt !== null && [...record.sessions.values()].some(session =>
-    session.taskAcceptedAt !== null && session.taskAcceptedAt > parsed.taskAcceptedAt!
-  )) return
+  // 并行 HTTP 回执会乱序；比较整份快照，避免旧目录删除新会话或清空新审批。
+  if (record.bridgeRevision !== null && parsed.bridgeRevision !== null && parsed.bridgeRevision < record.bridgeRevision) return
+  record.bridgeRevision = parsed.bridgeRevision ?? record.bridgeRevision
   record.identity = parsed.identity
   record.connection = 'connected'
   record.error = undefined
@@ -420,6 +425,7 @@ function applyParsedState(record: OwnerRecord, parsed: ParsedState, now: number)
     if (!present.has(key)) record.sessions.delete(key)
   }
   for (const entry of parsed.sessions) {
+    const current = parsed.sessionStates?.find(view => view.sessionId === entry.sessionId) ?? parsed
     let session = record.sessions.get(entry.sessionId)
     if (!session) {
       session = {
@@ -431,25 +437,27 @@ function applyParsedState(record: OwnerRecord, parsed: ParsedState, now: number)
       session.workspace = entry.workspace
       session.updatedAt = now
     }
-    if (entry.sessionId === parsed.taskSessionId && parsed.taskId !== null) {
-      if (session.taskId === parsed.taskId && (
-        TERMINAL_STATES.includes(session.taskState) && session.taskState !== parsed.taskState ||
-        session.taskState === 'running' && parsed.taskState === 'accepted'
+    if (entry.sessionId === current.taskSessionId && current.taskId !== null) {
+      // acceptedAt 只能比较同一会话的任务；并行会话之间没有先后覆盖关系。
+      if (current.taskAcceptedAt !== null && session.taskAcceptedAt !== null && session.taskAcceptedAt > current.taskAcceptedAt) continue
+      if (session.taskId === current.taskId && (
+        TERMINAL_STATES.includes(session.taskState) && session.taskState !== current.taskState ||
+        session.taskState === 'running' && current.taskState === 'accepted'
       )) continue
       // 本次快照明确描述了该会话的当前任务：可信更新。
-      if (session.taskId !== parsed.taskId) {
-        session.taskId = parsed.taskId
-        session.taskAcceptedAt = parsed.taskAcceptedAt
+      if (session.taskId !== current.taskId) {
+        session.taskId = current.taskId
+        session.taskAcceptedAt = current.taskAcceptedAt
         session.updatedAt = now
       }
-      if (session.taskState !== parsed.taskState) {
-        session.taskState = parsed.taskState
+      if (session.taskState !== current.taskState) {
+        session.taskState = current.taskState
         session.updatedAt = now
       }
       session.stale = false
       const approvals = new Map<string, ApprovalRecord>()
-      for (const approval of parsed.approvals) {
-        const record_ = toApprovalRecord(approval, parsed)
+      for (const approval of current.approvals) {
+        const record_ = toApprovalRecord(approval, current)
         approvals.set(record_.id, record_)
       }
       session.approvals = approvals
@@ -523,6 +531,7 @@ function resetRetained(): void {
   for (const record of owners.values()) {
     record.sessions.clear()
     record.identity = null
+    record.bridgeRevision = null
     record.connection = 'stale'
     record.error = 'Native Harness backend identity changed'
     record.touchedAt = now
@@ -701,8 +710,10 @@ function parseTaskState(value: unknown): WorkbenchTaskState | null {
  * 严格校验原生 state 回执。任何前后不一致（任务/会话/审批/输出归属对不上）
  * 都整份拒绝，避免把错误归属的终态或审批显示给用户。
  */
-function parseStateBody(body: Record<string, unknown>): ParsedState | null {
+function parseStateBody(body: Record<string, unknown>, nested = false): ParsedState | null {
   if (body.ok !== true) return null
+  if (body.revision !== undefined && !isSafeTimestamp(body.revision)) return null
+  const bridgeRevision = typeof body.revision === 'number' ? body.revision : null
   const status = body.status
   // 只把 offline 当断线语义；无法识别的状态名不影响 taskState 的权威性。
   if (typeof status !== 'string' || status.length === 0 || status.length > 32) return null
@@ -806,9 +817,20 @@ function parseStateBody(body: Record<string, unknown>): ParsedState | null {
   if (typeof truncated !== 'boolean') return null
 
   if (terminalStateOf(approvals, taskState) === null) return null
+  let sessionStates: ParsedState[] | undefined
+  if (!nested && body.sessions.some(raw => isRecord(raw) && Object.hasOwn(raw, 'taskId'))) {
+    sessionStates = []
+    for (const raw of body.sessions) {
+      // 新版是完整快照；不接受完整视图与旧式目录混杂的部分数据。
+      if (!isRecord(raw) || !Object.hasOwn(raw, 'taskId')) return null
+      const parsed = parseStateBody({ ...raw, ok: true, identity, sessions }, true)
+      if (!parsed || parsed.taskSessionId !== raw.sessionId) return null
+      sessionStates.push(parsed)
+    }
+  }
   return {
-    offline, identity, sessionId, taskSessionId, taskId, taskAcceptedAt, taskState,
-    sessions, approvals, transcript, transcriptTruncated: truncated
+    bridgeRevision, offline, identity, sessionId, taskSessionId, taskId, taskAcceptedAt, taskState,
+    sessions, approvals, transcript, transcriptTruncated: truncated, ...(sessionStates ? { sessionStates } : {})
   }
 }
 

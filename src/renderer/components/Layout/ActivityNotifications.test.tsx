@@ -22,6 +22,23 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.useRealTimers() })
 describe('右上角任务通知', () => {
+  it('内置聊天显示独立来源，审批只在同后台同回合有效，结束提示8秒后收起', () => {
+    const identity = { instanceId: 'web-backend', instanceEpoch: 2 }
+    snapshot = { ...snapshot, identity: null, connection: 'offline', sessions: [], web: { observedAt: Date.now(), connection: 'connected', identity, revision: 1, events: [], sessions: [{ sessionId: 'web-a', workspace: 'C:/projects/LyShell', turnId: 'web-turn', state: 'waiting-approval', updatedAt: Date.now(), approvalIds: ['web-approval'] }] } }
+    useWorkbenchActivity.setState({ snapshot })
+    const view = render(<ActivityNotifications />)
+    const event: ActivityNotice = { id: JSON.stringify(['harness-web', identity, 'web-approval']), source: 'harness-web', webEventId: 'web-approval', workspace: 'C:/projects/LyShell', sessionId: 'web-a', taskId: 'web-turn', kind: 'approval', at: Date.now() }
+    deliver(event)
+    act(() => vi.advanceTimersByTime(9000))
+    expect(view.getByText('Harness · 需要你的审批', { selector: 'strong' })).toBeTruthy()
+    expect(view.queryByRole('button', { name: /允许/ })).toBeNull()
+    act(() => useWorkbenchActivity.setState({ snapshot: { ...snapshot, web: { ...snapshot.web!, identity: { instanceId: 'other', instanceEpoch: 3 } } } }))
+    expect(view.queryByRole('article')).toBeNull()
+    deliver({ ...event, id: 'web-ended', kind: 'turn-ended' })
+    expect(view.getByText('Harness · 本轮结束', { selector: 'strong' })).toBeTruthy()
+    act(() => vi.advanceTimersByTime(8000))
+    expect(view.queryByRole('article')).toBeNull()
+  })
   it('TUI 回合结束不显示任务完成，审批独立于原生后台并只引导回终端', () => {
     snapshot = { ...snapshot, identity: null, connection: 'offline', sessions: [], tui: { observedAt: Date.now(), sessions: [{ terminalId: 'session-a', launchId: 'launch-a', source: 'codex', workspace: 'C:/projects/LyShell', cliSessionId: 'cli-a', turnId: 'task-a', state: 'waiting-approval', event: 'PermissionRequest', updatedAt: Date.now(), active: true, approvalEventId: 'tui-approval' }], events: [] } }
     useWorkbenchActivity.setState({ snapshot })

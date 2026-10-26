@@ -83,6 +83,38 @@ describe('原生 Harness 工作通道与 Pet 共存', () => {
   const b = 'b'.repeat(64)
   const native = (h: BridgeHarness, owner: string, request: Record<string, unknown>) => h.post({ cmd: 'native-work', owner, request })
 
+  it('Web只读快照仅宿主可读，原生任务结束后的手动续聊也会被观察', async () => {
+    const h = await makeHarness({ agents: ['web-a'] })
+    try {
+      expect((await h.post({ cmd: 'web-activity' }, 'wrong')).status).toBe(401)
+      h.turnStart('web-a', 0)
+      h.sessionEvent('web-a', 'approval/asked', { id: 'official-approval' })
+      expect((await h.post({ cmd: 'web-activity' })).body).toMatchObject({ sessions: [{ sessionId: 'web-a', state: 'waiting-approval', approvalIds: ['official-approval'] }] })
+      h.sessionEvent('web-a', 'approval/decided', { id: 'official-approval', outcome: 'rejected' })
+      h.turnEnd('web-a', 0, 'completed')
+      expect((await h.post({ cmd: 'native-viewer-nav', identity: (await h.post({ cmd: 'web-activity' })).body.identity, sessionId: 'web-a', requestId: 'web-nav' })).status).toBe(200)
+      const created = (await native(h, a, { kind: 'new' })).body
+      const id = String(created.sessionId)
+      await native(h, a, { kind: 'submit', sessionId: id, requestId: 'native-start', text: 'native fixture' })
+      h.turnStart(id, 0)
+      h.turnEnd(id, 0, 'completed')
+      const before = (await h.post({ cmd: 'web-activity' })).body as { sessions: Array<{ sessionId: string }> }
+      expect(before.sessions.some(row => row.sessionId === id)).toBe(false)
+      h.turnStart(id, 1)
+      h.turnEnd(id, 1, 'completed')
+      const after = (await h.post({ cmd: 'web-activity' })).body as { sessions: Array<{ sessionId: string; state: string }> }
+      expect(after.sessions.find(row => row.sessionId === id)?.state).toBe('turn-ended')
+      expect(h.calls.prompt).toHaveLength(1)
+      // 手动续聊后再次自动运行；即使中间没有轮询也不能遗留旧 Web 条目。
+      await native(h, a, { kind: 'submit', sessionId: id, requestId: 'native-next', text: 'next fixture' })
+      h.turnStart(id, 2)
+      h.turnEnd(id, 2, 'completed')
+      const resumed = (await h.post({ cmd: 'web-activity' })).body as { sessions: Array<{ sessionId: string }> }
+      expect(resumed.sessions.some(row => row.sessionId === id)).toBe(false)
+      expect((await native(h, a, { kind: 'state', sessionId: id })).body.taskState).toBe('completed')
+    } finally { h.dispose() }
+  })
+
   it('原生导航过期后拒绝迟到 ack，并允许用户再次打开工作台', async () => {
     const h = await makeHarness()
     const clock = vi.spyOn(Date, 'now')

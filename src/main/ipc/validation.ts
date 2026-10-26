@@ -16,7 +16,7 @@ export function validateActivityNavigationRequest(raw: unknown): ActivityNavigat
 }
 
 export function validateWorkbenchActivityRequest(raw: unknown): WorkbenchActivityRequest {
-  // TUI 事件只从独立的只通知回环端点进入；渲染进程没有伪造 CLI 状态或代答 TUI 审批的请求种类。
+  // TUI 和内置聊天均为只读事件来源；这里的 approve 只允许既有 native work 审批路由，不能代答 Web/TUI。
   const value = assertObject(raw, 'workbenchActivity')
   if (value.kind === 'snapshot' && Object.keys(value).length === 1) return { kind: 'snapshot' }
   if (value.kind !== 'approve' || Object.keys(value).some(key => !['kind', 'identity', 'sessionId', 'taskId', 'approvalId', 'optionId'].includes(key))) throw new ValidationError('Invalid workbench activity request')

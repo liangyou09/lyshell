@@ -2562,6 +2562,16 @@ async function handleHarnessWork(req: http.IncomingMessage, res: http.ServerResp
     return sendJson(res, 403, { success: false, error: 'Native Harness work requires a LyShell client credential; plugin credentials cannot control it' })
   }
   let value: unknown = { kind: 'state' }
+  if (req.method === 'GET') {
+    const selectors: Record<string, string> = {}
+    for (const [key, value] of url.searchParams) {
+      if (!['sessionId', 'taskId'].includes(key) || Object.hasOwn(selectors, key)) {
+        return sendJson(res, 400, { success: false, error: 'Invalid Harness state selector' })
+      }
+      selectors[key] = value
+    }
+    value = { kind: 'state', ...selectors }
+  }
   if (req.method === 'POST') {
     // 32000 字符经 JSON 转义最多占 192000 字节，不能按普通 UTF-8 文本估算。
     try { value = JSON.parse(await readBody(req, 256 * 1024)) }

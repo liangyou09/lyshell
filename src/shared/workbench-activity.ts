@@ -56,6 +56,8 @@ export interface WorkbenchActivitySnapshot {
   error?: string
   /** 独立 CLI 事件源；原生后台离线不影响它。 */
   tui?: import('./tui-activity').TuiActivitySnapshot
+  /** 官方内置聊天的回合观察；审批仍在官方工作台处理。 */
+  web?: import('./harness-web-activity').HarnessWebActivitySnapshot
 }
 
 export type WorkbenchActivityRequest =

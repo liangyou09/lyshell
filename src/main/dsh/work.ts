@@ -45,8 +45,8 @@ export async function requestNativeWorkBridge(
       let size = 0
       res.on('data', (chunk: Buffer) => {
         size += chunk.length
-        // 状态同时包含 64 个目录、128 个审批及 128K 字符输出；转义后可超过 1MiB。
-        if (size > 4 * 1024 * 1024) { req.destroy(); done(unavailable()); return }
+        // 默认任务视图与 sessions 行可能重复同一审批/输出；全转义后也须容纳合法总预算。
+        if (size > 8 * 1024 * 1024) { req.destroy(); done(unavailable()); return }
         chunks.push(chunk)
       })
       res.on('error', () => done(unavailable()))
@@ -81,16 +81,25 @@ export async function runHarnessWork(
 async function dispatchHarnessWork(
   owner: string, request: HarnessWorkRequest, stillAuthorized: () => boolean
 ): Promise<WorkReply> {
-  if (['state', 'targets', 'approve'].includes(request.kind)) return executeHarnessWork(owner, request, stillAuthorized)
-  const previous = mutationLanes.get(owner) ?? Promise.resolve()
-  const result = previous.then(() => executeHarnessWork(owner, request, stillAuthorized))
-  const tail = result.then(() => {}, () => {})
-  mutationLanes.set(owner, tail)
-  void tail.then(() => { if (mutationLanes.get(owner) === tail) mutationLanes.delete(owner) })
-  return result
+  if (request.kind === 'state' || request.kind === 'targets') return executeHarnessWork(owner, request, stillAuthorized)
+  // 会话串行性由权威桥保证。宿主不能把慢 submit 排在整个 owner 的队首，
+  // 但租约释放必须与所有在途变更互斥，避免 disconnect 与 acquire 交错。
+  const lane = mutations.get(owner) ?? { pending: 0, disconnecting: false }
+  if (lane.disconnecting || request.kind === 'disconnect' && lane.pending > 0) {
+    return { status: 409, body: { ok: false, code: 'task/busy', error: 'Harness work mutation in progress' } }
+  }
+  mutations.set(owner, lane)
+  lane.pending++
+  if (request.kind === 'disconnect') lane.disconnecting = true
+  try { return await executeHarnessWork(owner, request, stillAuthorized) }
+  finally {
+    lane.pending--
+    if (request.kind === 'disconnect') lane.disconnecting = false
+    if (!lane.pending) mutations.delete(owner)
+  }
 }
 
-const mutationLanes = new Map<string, Promise<void>>()
+const mutations = new Map<string, { pending: number; disconnecting: boolean }>()
 
 async function executeHarnessWork(
   owner: string, request: HarnessWorkRequest, stillAuthorized: () => boolean

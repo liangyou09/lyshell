@@ -229,6 +229,9 @@ export function apply(ctx) {
   const taskWaiters = new Set()
   // 原生外部工作通道独立持有会话、任务与审批，不占用 Pet 的 heldEpoch。
   const nativeWork = createNativeWorkController(ctx, () => ({ instanceId, instanceEpoch }))
+  // 只观察未由 native/Pet 控制的官方回合，绝不取得会话控制权。
+  const webActivity = createWebActivityObserver(ctx, () => ({ instanceId, instanceEpoch }), sessionId =>
+    nativeWork.isActive(sessionId) || activeTask?.sessionId === sessionId && !['completed', 'failed', 'cancelled'].includes(activeTask.state))
 
   // ===== 工作台查看器（S4）：官方页面的当前会话、未落地导航请求、最近一次真实 ack =====
   // 全部状态只在内存；不含凭据、不含页面内容。
@@ -613,10 +616,11 @@ export function apply(ctx) {
   async function runCommand(payload) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new BridgeError('bad-request', 'invalid command')
     if (payload.cmd === 'native-work') return nativeWork.request(payload.owner, payload.request)
+    if (payload.cmd === 'web-activity') return webActivity.snapshot()
     if (payload.cmd === 'native-viewer-nav') {
       // 仅宿主控制端点接受；原生会话导航不借用或改变 Pet 的控制 epoch。
       if (payload.identity?.instanceId !== instanceId || payload.identity?.instanceEpoch !== instanceEpoch) throw new BridgeError('task/stale-epoch', 'backend changed')
-      if (!isBoundedId(payload.sessionId) || !isBoundedId(payload.requestId) || !nativeWork.owns(payload.sessionId)) throw new BridgeError('task/not-found', 'native session unavailable')
+      if (!isBoundedId(payload.sessionId) || !isBoundedId(payload.requestId) || (!nativeWork.owns(payload.sessionId) && !webActivity.has(payload.sessionId))) throw new BridgeError('task/not-found', 'observed session unavailable')
       expireNativeViewerRequest()
       if (viewer.request) throw new BridgeError('viewer/stale', 'another navigation is pending')
       const revision = viewerBump()
@@ -863,144 +867,227 @@ export function apply(ctx) {
   process.stdout.write(`lyshell-harness-bridge: host half applied (protocol ${HARNESS_PROTOCOL_VERSION})\n`)
 }
 
+/**
+ * 内置聊天只读观察器。只消费官方 live session/event；不订阅/接管审批 waterfall。
+ * approval/asked 与 approval/decided 是官方审计事件，取消也由 decided 撤销提醒。
+ * 无正文、工具参数或凭据；当前回合和事件日志均有界，重载历史不会伪造完成。
+ */
+export function createWebActivityObserver(ctx, identity, excluded = () => false) {
+  const sessions = new Map()
+  const events = []
+  let revision = 0
+  const validId = value => typeof value === 'string' && value.length > 0 && value.length <= 128 && !/[\x00-\x1f\x7f]/u.test(value)
+  const ended = row => ['turn-ended', 'failed', 'interrupted'].includes(row.state)
+  const push = (row, kind, id = randomUUID()) => {
+    events.push({ id, sessionId: row.sessionId, workspace: row.workspace, turnId: row.turnId, kind, at: Date.now() })
+    if (events.length > 100) events.splice(0, events.length - 100)
+  }
+  const pruneExcluded = () => {
+    for (const sessionId of sessions.keys()) if (excluded(sessionId)) { sessions.delete(sessionId); revision++ }
+    for (let index = events.length - 1; index >= 0; index--) if (excluded(events[index].sessionId)) { events.splice(index, 1); revision++ }
+  }
+  ctx.effect(() => ctx.on('session/event', (session, event) => {
+    // 自动任务可能在两次快照间完整运行，事件到达时就撤销旧手动回合证据。
+    if (validId(session?.id) && excluded(session.id)) { pruneExcluded(); return }
+    if (!validId(session?.id) || session.header?.origin === 'subagent' ||
+      !Number.isSafeInteger(event?.seq) || event.seq < 0 || event.seq < (session.firstLiveSeq ?? 0)) return
+    let row = sessions.get(session.id)
+    if (row && event.seq <= row.seq) return
+    if (event.type === 'turn/start') {
+      if (!Number.isSafeInteger(event.data?.turn) || event.data.turn < 0 || row && event.data.turn <= row.turn) return
+      if (!row && sessions.size >= 128) {
+        const victim = [...sessions.values()].find(ended) ?? sessions.values().next().value
+        if (victim) sessions.delete(victim.sessionId)
+      }
+      const cwd = session.header?.cwd
+      row = { sessionId: session.id, workspace: typeof cwd === 'string' && cwd.length <= 2048 && isAbsolute(cwd) && !/[\x00-\x1f\x7f]/u.test(cwd) ? cwd : '',
+        turn: event.data.turn, turnId: `${event.data.turn}:${event.seq}`, seq: event.seq, state: 'running', updatedAt: Date.now(), approvalIds: [] }
+      sessions.set(session.id, row)
+      revision++
+      return
+    }
+    if (!row || ended(row)) return
+    row.seq = event.seq
+    if (event.type === 'turn/end') {
+      if (event.data?.turn !== row.turn) return
+      const reason = event.data.reason?.kind
+      row.state = reason === 'completed' ? 'turn-ended' : ['aborted', 'interrupted', 'forked'].includes(reason) ? 'interrupted' : 'failed'
+      row.approvalIds = []
+      push(row, row.state)
+    } else if (event.type === 'approval/asked') {
+      if (!validId(event.data?.id) || row.approvalIds.includes(event.data.id) || row.approvalIds.length >= 128) return
+      row.approvalIds.push(event.data.id)
+      row.state = 'waiting-approval'
+      push(row, 'approval', event.data.id)
+    } else if (event.type === 'approval/decided') {
+      if (!row.approvalIds.includes(event.data?.id)) return
+      row.approvalIds = row.approvalIds.filter(id => id !== event.data.id)
+      row.state = row.approvalIds.length ? 'waiting-approval' : 'running'
+    } else return
+    row.updatedAt = Date.now()
+    revision++
+  }), 'lyshell workbench: read-only Web turn notifications')
+  return {
+    has(sessionId) { pruneExcluded(); return sessions.has(sessionId) },
+    snapshot() {
+      pruneExcluded()
+      return { ok: true, identity: identity(), revision,
+        sessions: [...sessions.values()].map(({ sessionId, workspace, turnId, state, updatedAt, approvalIds }) => ({ sessionId, workspace, turnId, state, updatedAt, approvalIds: [...approvalIds] })),
+        events: events.map(event => ({ ...event })) }
+    }
+  }
+}
+
 /** 原生工作通道：仅接受宿主转发，绝不接管现有 Web/Pet 会话。 */
 export function createNativeWorkController(ctx, identity) {
   const owners = new Map()
   const ownedSessions = new Set()
+  const activeTasks = new Map()
   const service = name => typeof ctx.get === 'function' ? ctx.get(name) : ctx[name]
   const controller = () => service('sessionController')
-  const terminal = task => task && ['completed', 'failed', 'cancelled'].includes(task.state)
+  const terminal = record => record && ['completed', 'failed', 'cancelled'].includes(record.task.state)
   const fail = (code = 'bad-request') => { throw new BridgeError(code, 'native work request refused') }
   const stateOf = owner => {
     if (typeof owner !== 'string' || !/^[a-f0-9]{64}$/.test(owner)) fail()
     let state = owners.get(owner)
     if (!state) {
       if (owners.size >= 64) fail('task/busy')
-      state = { sessionId: null, sessions: new Map(), task: null, turn: null, floor: 0,
-        transcript: [], seq: 0, truncated: false, approvals: new Map(), requests: new Map(), tail: Promise.resolve() }
+      state = { sessionId: null, lastTask: null, sessions: new Map(), tasks: new Map(), requests: new Map(),
+        submissions: new Map(), approvals: new Map(), output: [], pending: 0, disconnecting: false, viewRevision: 0, tail: Promise.resolve() }
       owners.set(owner, state)
     }
     return state
   }
-  const snapshot = state => ({ ok: true, identity: identity(),
-    status: state.approvals.size ? 'approval' : state.task?.state === 'unconfirmed' ? 'error' : state.task && !terminal(state.task) ? 'running' : 'idle',
-    sessionId: state.sessionId, taskId: state.task?.taskId ?? null,
-    taskState: state.task?.state ?? null, task: state.task ? { ...state.task } : null,
-    workspace: state.sessions.get(state.sessionId)?.workspace ?? null,
-    sessions: [...state.sessions.values()].map(row => ({ ...row })),
-    approvals: [...state.approvals.values()].map(entry => ({ ...entry.view })),
-    transcript: state.transcript.map(entry => ({ ...entry })),
-    transcriptTruncated: state.truncated || state.seq > state.transcript.length })
-  const clearApprovals = state => { for (const entry of [...state.approvals.values()]) entry.finish('cancelled') }
-  const active = sessionId => [...owners.values()].find(state => state.task?.sessionId === sessionId && !terminal(state.task))
-  const push = (state, kind, text, extra = {}) => {
+  const view = (sessionId, row, record) => ({
+    sessionId, workspace: row?.workspace ?? null,
+    status: record?.approvals.size ? 'approval' : record?.task.state === 'unconfirmed' ? 'error' : record && !terminal(record) ? 'running' : 'idle',
+    taskId: record?.task.taskId ?? null, taskState: record?.task.state ?? null, task: record ? { ...record.task } : null,
+    approvals: record ? [...record.approvals.values()].map(entry => ({ ...entry.view, options: [...entry.view.options] })) : [],
+    transcript: record ? record.transcript.map(entry => ({ ...entry })) : [],
+    transcriptTruncated: record ? record.truncated || record.seq > record.transcript.length : false
+  })
+  const snapshot = (state, row = state.sessions.get(state.sessionId), record = row?.current ?? (state.sessionId === null ? state.lastTask : null)) => ({
+    ok: true, identity: identity(), revision: ++state.viewRevision, selectedSessionId: state.sessionId,
+    ...view(row?.sessionId ?? null, row, record),
+    // 每行都是该会话最新任务的视图；输出/审批总预算按 owner 限制，避免 64 倍放大。
+    sessions: [...state.sessions.values()].map(row => view(row.sessionId, row, row.current)),
+    activeTaskIds: [...state.tasks.values()].filter(record => !terminal(record)).map(record => record.task.taskId)
+  })
+  const locate = (state, request) => {
+    const row = request.sessionId === undefined ? undefined : state.sessions.get(request.sessionId)
+    if (request.sessionId !== undefined && !row) fail('task/not-found')
+    const record = request.taskId === undefined ? row?.current : state.tasks.get(request.taskId)
+    if (request.taskId !== undefined && (!record || row && record.task.sessionId !== row.sessionId)) fail('task/not-found')
+    return request.taskId !== undefined ? { row: state.sessions.get(record.task.sessionId), record }
+      : request.sessionId !== undefined ? { row, record: row.current } : null
+  }
+  const clearApprovals = record => { for (const entry of [...record.approvals.values()]) entry.finish('cancelled') }
+  const active = sessionId => activeTasks.get(sessionId)
+  const push = (record, kind, text, extra = {}) => {
     if (typeof text !== 'string') return
-    // 先截取再分块，避免巨大工具结果产生无界临时分配。
     const bounded = text.slice(-128 * 1024)
-    if (bounded.length < text.length) state.truncated = true
+    if (bounded.length < text.length) record.truncated = true
     for (let offset = 0; offset < bounded.length; offset += 512) {
-      state.transcript.push({ seq: ++state.seq, kind, text: bounded.slice(offset, offset + 512),
-        at: Date.now(), taskId: state.task.taskId, sessionId: state.task.sessionId, ...extra })
+      const entry = { seq: ++record.seq, kind, text: bounded.slice(offset, offset + 512),
+        at: Date.now(), taskId: record.task.taskId, sessionId: record.task.sessionId, ...extra }
+      record.transcript.push(entry)
+      record.owner.output.push({ record, entry })
+      if (record.owner.output.length > 256) {
+        const oldest = record.owner.output.shift()
+        oldest.record.transcript.shift()
+      }
     }
-    if (state.transcript.length > 256) state.transcript.splice(0, state.transcript.length - 256)
   }
   const textOf = message => (message?.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n')
   ctx.effect(() => ctx.on('session/event', (session, event) => {
-    const state = active(session?.id)
-    if (!state || event.seq < state.floor) return
+    const record = active(session?.id)
+    if (!record || !Number.isSafeInteger(event.seq) || event.seq < record.floor || event.seq <= record.eventSeq) return
+    record.eventSeq = event.seq
     if (event.type === 'turn/start') {
-      state.turn = event.data.turn
-      state.task.state = 'running'
-      const receipt = state.requests.get(state.task.requestId)
-      if (receipt) receipt.accepted = true
-    } else if (event.type === 'turn/end' && state.turn !== null && event.data.turn === state.turn) {
+      // 一个已跟踪回合不能被另一个 start 偷换；只用自己的 end 作终态证据。
+      if (record.turn !== null || !Number.isSafeInteger(event.data?.turn)) return
+      record.turn = event.data.turn
+      record.task.state = 'running'
+      record.accepted = true
+    } else if (event.type === 'turn/end' && record.turn !== null && event.data.turn === record.turn) {
       const reason = event.data.reason?.kind
-      state.task.state = reason === 'completed' ? 'completed' : ['aborted', 'interrupted', 'forked'].includes(reason) ? 'cancelled' : 'failed'
-      state.task.endedAt = Date.now()
-      state.task.endReason = reason || 'unknown'
-      clearApprovals(state)
-    } else if (event.type === 'user/message') push(state, 'user', textOf(event.data))
-    else if (event.type === 'assistant/message') push(state, 'assistant', textOf(event.data.message))
-    else if (event.type === 'tool/call') push(state, 'tool-call', event.data.arguments, { toolName: event.data.name, callId: event.data.callId })
-    else if (event.type === 'tool/result') push(state, 'tool-result', textOf(event.data.message), { callId: event.data.message.toolCallId, failed: event.data.message.isError === true })
+      record.task.state = reason === 'completed' ? 'completed' : ['aborted', 'interrupted', 'forked'].includes(reason) ? 'cancelled' : 'failed'
+      record.task.endedAt = Date.now()
+      record.task.endReason = reason || 'unknown'
+      activeTasks.delete(record.task.sessionId)
+      clearApprovals(record)
+    } else if (event.type === 'user/message') push(record, 'user', textOf(event.data))
+    else if (event.type === 'assistant/message') push(record, 'assistant', textOf(event.data.message))
+    else if (event.type === 'tool/call') push(record, 'tool-call', event.data.arguments, { toolName: event.data.name, callId: event.data.callId })
+    else if (event.type === 'tool/result') push(record, 'tool-result', textOf(event.data.message), { callId: event.data.message.toolCallId, failed: event.data.message.isError === true })
   }), 'lyshell native work: turn evidence')
   ctx.effect(() => ctx.on('agent/error', ({ agent, error }) => {
-    const state = active(agent?.id)
-    if (state) state.task.diagnostic = workDiagnostic(error)
+    const record = active(agent?.id)
+    if (record) record.task.diagnostic = workDiagnostic(error)
   }), 'lyshell native work: error evidence')
   ctx.effect(() => ctx.on('approval/request', (request, next) => {
-    const state = active(request.agent?.session?.id)
-    if (!state) return next()
-    if (state.approvals.size >= 128) return 'cancelled'
-    if (request.signal?.aborted) return 'cancelled'
+    const record = active(request.agent?.session?.id)
+    if (!record) return next()
+    const state = record.owner
+    if (state.approvals.size >= 128 || request.signal?.aborted) return 'cancelled'
     const id = randomUUID()
-    const view = { id, taskId: state.task.taskId, sessionId: state.task.sessionId,
+    const approvalView = { id, taskId: record.task.taskId, sessionId: record.task.sessionId,
       toolName: request.toolName, callId: request.callId, reason: typeof request.reason === 'string' ? request.reason.slice(0, 2000) : '',
       options: ['allowed-once', 'rejected', 'cancelled'], askedAt: Date.now() }
     return new Promise(resolvePromise => {
       const finish = value => {
-        if (!state.approvals.delete(id)) return
+        if (!record.approvals.delete(id)) return
+        state.approvals.delete(id)
         clearTimeout(timer)
         request.signal?.removeEventListener('abort', abort)
         resolvePromise(value)
       }
       const abort = () => finish('cancelled')
       const timer = setTimeout(abort, APPROVAL_WAIT_MS)
-      state.approvals.set(id, { view, finish })
+      const entry = { view: approvalView, record, finish }
+      state.approvals.set(id, entry)
+      record.approvals.set(id, entry)
       request.signal?.addEventListener('abort', abort, { once: true })
       if (request.signal?.aborted) abort()
     })
   }, { prepend: true }), 'lyshell native work: isolated approvals')
-  ctx.effect(() => () => { for (const state of owners.values()) clearApprovals(state) }, 'lyshell native work: cleanup')
+  ctx.effect(() => () => { for (const state of owners.values()) for (const entry of [...state.approvals.values()]) entry.finish('cancelled') }, 'lyshell native work: cleanup')
 
-  async function mutate(state, request) {
-    const busy = state.task && !terminal(state.task)
-    if (request.kind === 'submit') {
-      if (request.sessionId !== state.sessionId) fail('task/not-found')
-      const previous = state.requests.get(request.requestId)
-      const digest = createHash('sha256').update(request.text).digest('hex')
-      if (previous) {
-        if (previous.digest !== digest || previous.sessionId !== state.sessionId) fail()
-        return { ...snapshot(state), accepted: previous.accepted, duplicate: true, acceptedTaskId: previous.taskId }
-      }
-      if (busy) fail('task/busy')
-      if (!state.sessionId || !state.sessions.has(state.sessionId)) fail('task/not-found')
-      const result = await controller().resolveAgent(state.sessionId)
-      const agent = result?.agent
-      if (!agent || result.error || !Number.isSafeInteger(agent.session.seq)) fail('task/not-found')
-      // 用户可能在官方工作台运行该会话。拒绝排队混入其它回合。
-      if (agent.status === 'running') fail('task/busy')
-      const taskId = randomUUID()
-      state.floor = agent.session.seq
-      state.turn = null
-      state.transcript = []
-      state.seq = 0
-      state.truncated = false
-      state.task = { taskId, sessionId: state.sessionId, state: 'accepted', acceptedAt: Date.now(), requestId: request.requestId }
-      // 在 prompt 往返之前记账：超时/抛错不能触发重复提交。
-      const receipt = { taskId, sessionId: state.sessionId, digest, accepted: false }
-      state.requests.set(request.requestId, receipt)
-      if (state.requests.size > 256) state.requests.delete(state.requests.keys().next().value)
-      try {
-        await controller().prompt({ sessionId: state.sessionId, requestId: taskId, mode: 'queue',
-          content: [{ type: 'text', text: request.text }] }, new AbortController().signal)
-        receipt.accepted = true
-      } catch {
-        if (state.task.state === 'accepted') state.task.state = 'unconfirmed'
-        fail('bridge/unavailable')
-      }
-      return { ...snapshot(state), accepted: true, acceptedTaskId: taskId }
+  async function submit(state, row, request, digest) {
+    const result = await controller().resolveAgent(row.sessionId)
+    const agent = result?.agent
+    if (!agent || result.error || !Number.isSafeInteger(agent.session.seq)) fail('task/not-found')
+    if (agent.status === 'running') fail('task/busy')
+    // 只淘汰终态请求；未知结果和在途提交不可因缓存淘汰而再次执行。
+    if (state.requests.size >= 256) {
+      const victim = [...state.requests].find(([, record]) => terminal(record))
+      if (!victim) fail('task/busy')
+      state.requests.delete(victim[0])
+      if (state.sessions.get(victim[1].task.sessionId)?.current !== victim[1]) state.tasks.delete(victim[1].task.taskId)
     }
-    if (request.kind === 'cancel') {
-      if (!busy || state.task.taskId !== request.taskId) fail('task/not-found')
-      // 已接受但尚未进入回合时，不谎报取消成功；调用方稍后读状态再停止。
-      if (state.task.state !== 'running') fail('task/busy')
-      clearApprovals(state)
-      await controller().cancel({ sessionId: state.task.sessionId })
-      return snapshot(state)
+    const taskId = randomUUID()
+    const record = { owner: state, task: { taskId, sessionId: row.sessionId, state: 'accepted', acceptedAt: Date.now(), requestId: request.requestId },
+      digest, accepted: false, floor: agent.session.seq, eventSeq: agent.session.seq - 1, turn: null,
+      transcript: [], seq: 0, truncated: false, approvals: new Map() }
+    if (row.current && state.requests.get(row.current.task.requestId) !== row.current) state.tasks.delete(row.current.task.taskId)
+    row.current = record
+    state.lastTask = record
+    state.requests.set(request.requestId, record)
+    state.tasks.set(taskId, record)
+    activeTasks.set(row.sessionId, record)
+    try {
+      await controller().prompt({ sessionId: row.sessionId, requestId: taskId, mode: 'queue',
+        content: [{ type: 'text', text: request.text }] }, new AbortController().signal)
+      record.accepted = true
+    } catch {
+      if (record.task.state === 'accepted') record.task.state = 'unconfirmed'
+      fail('bridge/unavailable')
     }
-    if (busy) fail('task/busy')
+    return { ...snapshot(state, row, record), accepted: true, acceptedTaskId: taskId }
+  }
+  async function control(state, request) {
     if (request.kind === 'disconnect') {
+      if (state.pending > 1 || [...state.tasks.values()].some(record => !terminal(record))) fail('task/busy')
       state.sessionId = null
       return snapshot(state)
     }
@@ -1009,36 +1096,84 @@ export function createNativeWorkController(ctx, identity) {
       const cwd = request.workspace ?? process.cwd()
       if (typeof cwd !== 'string' || !isAbsolute(cwd)) fail()
       const created = await controller().create({ cwd })
-      if (!isBoundedId(created?.sessionId)) fail('bridge/unavailable')
+      if (!isBoundedId(created?.sessionId) || ownedSessions.has(created.sessionId)) fail('bridge/unavailable')
       ownedSessions.add(created.sessionId)
-      state.sessions.set(created.sessionId, { sessionId: created.sessionId, workspace: cwd })
+      state.sessions.set(created.sessionId, { sessionId: created.sessionId, workspace: cwd, current: null, pending: false })
       state.sessionId = created.sessionId
     } else if (request.kind === 'select') {
       if (!state.sessions.has(request.sessionId)) fail('task/not-found')
       state.sessionId = request.sessionId
     } else fail()
-    state.task = null
-    state.transcript = []
-    state.seq = 0
-    state.truncated = false
     return snapshot(state)
   }
   return {
     owns: sessionId => ownedSessions.has(sessionId),
+    isActive: sessionId => !!active(sessionId),
     async request(owner, request) {
       const state = stateOf(owner)
-      if (!request || typeof request !== 'object') fail()
-      if (request.kind === 'state' || request.kind === 'targets') return snapshot(state)
+      if (!request || typeof request !== 'object' || Array.isArray(request)) fail()
+      if (['state', 'cancel', 'approve'].includes(request.kind) &&
+        (request.sessionId !== undefined && !isBoundedId(request.sessionId) || request.taskId !== undefined && !isBoundedId(request.taskId))) fail()
+      if (request.kind === 'state' || request.kind === 'targets') {
+        const target = request.kind === 'state' ? locate(state, request) : null
+        return target ? snapshot(state, target.row, target.record) : snapshot(state)
+      }
       if (request.kind === 'approve') {
         const entry = state.approvals.get(request.id)
-        if (!entry || entry.view.taskId !== state.task?.taskId || terminal(state.task)) fail('approval/not-pending')
+        if (!entry || terminal(entry.record) || request.sessionId !== undefined && request.sessionId !== entry.view.sessionId ||
+          request.taskId !== undefined && request.taskId !== entry.view.taskId) fail('approval/not-pending')
         if (!entry.view.options.includes(request.optionId)) fail()
         entry.finish(request.optionId)
-        return snapshot(state)
+        return snapshot(state, state.sessions.get(entry.view.sessionId), entry.record)
       }
-      if (request.kind === 'submit' && (!isBoundedId(request.requestId) || typeof request.text !== 'string' ||
-        !request.text.trim() || request.text.length > 32000)) fail()
-      const result = state.tail.then(() => mutate(state, request))
+      if (state.disconnecting) fail('task/busy')
+      if (request.kind === 'submit') {
+        if (!isBoundedId(request.sessionId) || !isBoundedId(request.requestId) || typeof request.text !== 'string' ||
+          !request.text.trim() || request.text.length > 32000) fail()
+        const row = state.sessions.get(request.sessionId)
+        if (!row) fail('task/not-found')
+        const digest = createHash('sha256').update(request.text).digest('hex')
+        const previous = state.requests.get(request.requestId)
+        if (previous) {
+          if (previous.digest !== digest || previous.task.sessionId !== row.sessionId) fail()
+          return { ...snapshot(state, row, previous), accepted: previous.accepted, duplicate: true, acceptedTaskId: previous.task.taskId }
+        }
+        const pending = state.submissions.get(request.requestId)
+        if (pending) {
+          if (pending.digest !== digest || pending.sessionId !== row.sessionId) fail()
+          return { ...await pending.promise, duplicate: true }
+        }
+        if (row.pending || row.cancelling || row.current && !terminal(row.current)) fail('task/busy')
+        row.pending = true
+        state.pending++
+        const promise = Promise.resolve().then(() => submit(state, row, request, digest)).finally(() => {
+          row.pending = false
+          state.pending--
+          state.submissions.delete(request.requestId)
+        })
+        state.submissions.set(request.requestId, { digest, sessionId: row.sessionId, promise })
+        return promise
+      }
+      if (request.kind === 'cancel') {
+        const record = state.tasks.get(request.taskId)
+        if (!record || terminal(record) || request.sessionId !== undefined && request.sessionId !== record.task.sessionId) fail('task/not-found')
+        const row = state.sessions.get(record.task.sessionId)
+        if (row.cancelling || record.task.state !== 'running') fail('task/busy')
+        row.cancelling = true
+        state.pending++
+        try {
+          clearApprovals(record)
+          await controller().cancel({ sessionId: record.task.sessionId })
+          return snapshot(state, row, record)
+        } finally { row.cancelling = false; state.pending-- }
+      }
+      if (!['new', 'select', 'disconnect'].includes(request.kind)) fail()
+      if (request.kind === 'disconnect') state.disconnecting = true
+      state.pending++
+      const result = state.tail.then(() => control(state, request)).finally(() => {
+        state.pending--
+        if (request.kind === 'disconnect') state.disconnecting = false
+      })
       state.tail = result.catch(() => {})
       return result
     }

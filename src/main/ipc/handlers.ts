@@ -7,6 +7,7 @@ import { validateProjectSceneRequest } from './validation'
 import { requestProjectScene } from '../harness/project-scene'
 import { createSceneLauncher } from '../harness/project-scene-launcher'
 import { tuiActivity } from '../harness/tui-activity'
+import { readHarnessWebActivity } from '../dsh/web-activity'
 import { prepareTuiLaunch, releaseTuiLaunchFiles } from '../harness/tui-launch'
 import { MCP_CONFIRMATION_CHANNEL } from '@shared/mcp-confirmation'
 import { mcpConfirmationRequest, updateMcpConfirmationTheme } from '../mcp/confirmation-window'
@@ -2725,8 +2726,11 @@ export function registerIPCHandlers(): void {
   ipcMain.handle('workbench-activity:request', async (event, raw: unknown) => {
     if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Workbench activity requires the main window')
     const request = validateWorkbenchActivityRequest(raw)
-    const snapshot = await (request.kind === 'snapshot' ? readWorkbenchActivity() : approveWorkbenchActivity(request))
-    return { ...snapshot, tui: tuiActivity.snapshot() }
+    const [snapshot, web] = await Promise.all([
+      request.kind === 'snapshot' ? readWorkbenchActivity() : approveWorkbenchActivity(request),
+      readHarnessWebActivity()
+    ])
+    return { ...snapshot, web, tui: tuiActivity.snapshot() }
   })
   tuiActivity.onChange(snapshot => sendToAllWindows('workbench-activity:tui-changed', snapshot))
   ipcMain.handle('workbench-activity:navigate', async (event, raw: unknown) => {

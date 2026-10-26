@@ -156,6 +156,53 @@ beforeEach(() => {
 })
 
 describe('工作台活动：快照读取', () => {
+  it('较早快照的迟到回执不能删除新会话、清空审批或回退同毫秒的新任务', async () => {
+    const current = approvalBody({ revision: 3, task: { taskId: 'task-a', sessionId: 's1', state: 'running', acceptedAt: 100 } })
+    const b = runningBody({ sessionId: 's2', workspace: 'D:/ws/two', taskId: 'task-b',
+      task: { taskId: 'task-b', sessionId: 's2', state: 'running', acceptedAt: 100 } })
+    const views = [current, b].map(({ sessions: _sessions, identity: _identity, ...view }) => view)
+    recordWorkbenchActivityReply(OWNER_A, ok({ ...current, sessions: views }))
+    recordWorkbenchActivityReply(OWNER_A, ok(idleBody({ revision: 1 })))
+    rig.replies.fn = () => ok(completedBody({ revision: 2, taskId: 'task-old',
+      task: { taskId: 'task-old', sessionId: 's1', state: 'completed', acceptedAt: 100 } }))
+    const snapshot = await readWorkbenchActivity()
+    expect(snapshot.sessions).toHaveLength(2)
+    expect(snapshot.sessions.find(row => row.sessionId === 's1')).toMatchObject({ taskId: 'task-a', taskState: 'running', stale: false, approvals: [{ id: 'appr-1' }] })
+    expect(snapshot.sessions.find(row => row.sessionId === 's2')).toMatchObject({ taskId: 'task-b', taskState: 'running', stale: false })
+  })
+  it('同一凭据的不同会话保留各自运行/终态和审批，默认选择不影响聚合', async () => {
+    const a = approvalBody({ task: { taskId: 'task-a', sessionId: 's1', state: 'running', acceptedAt: 100 } })
+    const b = runningBody({ sessionId: 's2', workspace: 'D:/ws/two', taskId: 'task-b',
+      task: { taskId: 'task-b', sessionId: 's2', state: 'running', acceptedAt: 200 } })
+    const views = [a, b].map(({ sessions: _sessions, identity: _identity, ...view }) => view)
+    const all = { ...b, sessions: views }
+    rig.replies.fn = (_owner, request) => {
+      if (request.kind === 'state' && request.taskId === 'task-a') return ok({ ...a, sessions: views })
+      return ok(all)
+    }
+    registerWorkbenchActivityOwner(OWNER_A)
+    const snapshot = await readWorkbenchActivity()
+    expect(snapshot.sessions.map(session => session.taskState)).toEqual(['running', 'running'])
+    expect(snapshot.sessions.find(session => session.sessionId === 's1')?.approvals[0]).toMatchObject({ id: 'appr-1' })
+    // 默认为 s2，但 s1 的 fresh read 与审批仍精确定位，不依赖全局选择。
+    await approveWorkbenchActivity(approveRequest({ optionId: 'rejected' }))
+    expect(rig.calls.some(call => call.request.kind === 'state' && call.request.sessionId === 's1' && call.request.taskId === 'task-a')).toBe(true)
+    expect(rig.calls.find(call => call.request.kind === 'approve')?.request).toMatchObject({
+      id: 'appr-1', sessionId: 's1', taskId: 'task-a', optionId: 'rejected'
+    })
+  })
+
+  it('多会话视图中混入错误审批归属时整份拒绝，不展示别的任务操作', async () => {
+    const a = approvalBody()
+    const view = { ...a }
+    delete view.sessions
+    delete view.identity
+    rig.replies.fn = () => ok({ ...a, sessions: [{ ...view, approvals: [{
+      ...(a.approvals as Array<Record<string, unknown>>)[0], sessionId: 'other'
+    }] }] })
+    registerWorkbenchActivityOwner(OWNER_A)
+    expect((await readWorkbenchActivity()).sessions).toEqual([])
+  })
   it('迟到的轮询不能覆盖期间已收到的完成回执', async () => {
     recordWorkbenchActivityReply(OWNER_A, ok(runningBody()))
     let release!: (value: WorkbenchActivityBridgeReply) => void

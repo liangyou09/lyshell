@@ -464,6 +464,7 @@ const electronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.HARNESS_WORKTREE_LIST, cwd),
   // 项目现场及可读名称查询；显式启动只返回运行期会话 ID，不复制环境变量到现场。
   projectSceneRequest: (request: ProjectSceneRequest): Promise<ProjectSceneResult> => ipcRenderer.invoke('project-scene:request', request),
+  // 快照包含只读 Web 回合；Web 审批由官方工作台原有链路处理。
   workbenchActivityRequest: (request: WorkbenchActivityRequest): Promise<WorkbenchActivitySnapshot> => ipcRenderer.invoke('workbench-activity:request', request),
   onTuiActivityChanged: (callback: (snapshot: import('@shared/tui-activity').TuiActivitySnapshot) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, snapshot: import('@shared/tui-activity').TuiActivitySnapshot) => callback(snapshot)

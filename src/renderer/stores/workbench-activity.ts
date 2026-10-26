@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { WorkbenchActivityApproval, WorkbenchActivitySession, WorkbenchActivitySnapshot } from '@shared/workbench-activity'
 import type { SceneTarget } from '@shared/project-scene'
 import type { TuiActivitySnapshot } from '@shared/tui-activity'
+import type { HarnessWebActivitySnapshot } from '@shared/harness-web-activity'
 
 export const ACTIVITY_FRESH_MS = 12000
 export function activityDirectoryKey(path: string, platform = window.electronAPI?.platform ?? ''): string {
@@ -16,9 +17,10 @@ export interface ActivityNotice {
   sessionId: string
   taskId: string
   kind: 'approval' | 'completed' | 'failed' | 'turn-ended' | 'interrupted'
-  source?: 'codex' | 'claude'
+  source?: 'codex' | 'claude' | 'harness-web'
   launchId?: string
   tuiEventId?: string
+  webEventId?: string
   at: number
 }
 export function activityFresh(snapshot: WorkbenchActivitySnapshot | null, now = Date.now()): boolean {
@@ -26,6 +28,22 @@ export function activityFresh(snapshot: WorkbenchActivitySnapshot | null, now = 
 }
 export function tuiActivityFresh(snapshot: TuiActivitySnapshot | undefined, now = Date.now()): boolean {
   return !!snapshot && now >= snapshot.observedAt && now - snapshot.observedAt < ACTIVITY_FRESH_MS
+}
+export function webActivityFresh(snapshot: HarnessWebActivitySnapshot | undefined, now = Date.now()): boolean {
+  return !!snapshot?.identity && snapshot.connection === 'connected' && now >= snapshot.observedAt && now - snapshot.observedAt < ACTIVITY_FRESH_MS
+}
+export function collectWebNotices(current: HarnessWebActivitySnapshot | undefined, previous: HarnessWebActivitySnapshot | undefined, seen: Set<string>): ActivityNotice[] {
+  if (!current || !webActivityFresh(current)) return []
+  const sameBackend = !!previous?.identity && JSON.stringify(previous.identity) === JSON.stringify(current.identity)
+  return current.events.flatMap(event => {
+    const id = JSON.stringify(['harness-web', current.identity, event.id])
+    if (seen.has(id)) return []
+    seen.add(id)
+    // 首次读取/后台换代建立基线，不重播旧终态；新会话的短回合仍能从事件日志提醒。
+    if (event.kind !== 'approval' && !sameBackend) return []
+    if (event.kind === 'approval' && !current.sessions.some(row => row.sessionId === event.sessionId && row.turnId === event.turnId && row.approvalIds.includes(event.id))) return []
+    return [{ id, source: 'harness-web' as const, webEventId: event.id, workspace: event.workspace, sessionId: event.sessionId, taskId: event.turnId, kind: event.kind, at: event.at }]
+  })
 }
 function tuiNewer(previous: TuiActivitySnapshot, incoming: TuiActivitySnapshot): boolean {
   if (previous.revision !== undefined && incoming.revision !== undefined && previous.revision !== incoming.revision) return previous.revision > incoming.revision
@@ -51,7 +69,7 @@ export function collectTuiNotices(current: TuiActivitySnapshot | undefined, prev
 
 /** 提醒身份包含后台代际、会话、任务和审批，重复轮询不会重复提醒。 */
 export function collectActivityNotices(snapshot: WorkbenchActivitySnapshot, previous: WorkbenchActivitySnapshot | null, seen: Set<string>): ActivityNotice[] {
-  const notices: ActivityNotice[] = collectTuiNotices(snapshot.tui, previous?.tui, seen)
+  const notices: ActivityNotice[] = [...collectTuiNotices(snapshot.tui, previous?.tui, seen), ...collectWebNotices(snapshot.web, previous?.web, seen)]
   if (!activityFresh(snapshot)) return notices
   for (const row of snapshot.sessions) {
     if (row.stale || !row.taskId) continue
@@ -105,10 +123,17 @@ const seen = new Set<string>()
 function accept(snapshot: WorkbenchActivitySnapshot): void {
   const state = useWorkbenchActivity.getState()
   if (state.snapshot?.tui && (!snapshot.tui || tuiNewer(state.snapshot.tui, snapshot.tui))) snapshot = { ...snapshot, tui: state.snapshot.tui }
+  const oldWeb = state.snapshot?.web
+  if (oldWeb && (!snapshot.web || snapshot.web.observedAt < oldWeb.observedAt ||
+    JSON.stringify(oldWeb.identity) === JSON.stringify(snapshot.web.identity) && oldWeb.revision > snapshot.web.revision)) snapshot = { ...snapshot, web: oldWeb }
   const notices = collectActivityNotices(snapshot, state.snapshot, seen).filter(item => !state.muted.includes(activityDirectoryKey(item.workspace)))
   const currentTasks = new Set(snapshot.sessions.map(row => JSON.stringify([snapshot.identity, row.sessionId, row.taskId])))
   for (const id of seen) {
     const event = JSON.parse(id) as unknown[]
+    if (event[0] === 'harness-web') {
+      if (JSON.stringify(event[1]) !== JSON.stringify(snapshot.web?.identity) || !snapshot.web?.events.some(item => item.id === event[2])) seen.delete(id)
+      continue
+    }
     if (event[0] === 'tui') {
       if (!snapshot.tui?.events.some(item => JSON.stringify(['tui', item.launchId, item.id]) === id)) seen.delete(id)
       continue

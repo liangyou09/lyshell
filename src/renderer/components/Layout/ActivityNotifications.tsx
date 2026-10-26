@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { activityDirectoryKey, activityFresh, tuiActivityFresh, useWorkbenchActivity, type ActivityNotice } from '../../stores/workbench-activity'
+import { activityDirectoryKey, activityFresh, tuiActivityFresh, webActivityFresh, useWorkbenchActivity, type ActivityNotice } from '../../stores/workbench-activity'
 import { activityToastTimeout, createActivityToastTracker, mergeActivityToasts } from '../../stores/activity-toast'
 
 export function activityProjectName(workspace: string): string {
   const parts = workspace.replace(/[\\/]+$/, '').split(/[\\/]/)
   const worktree = parts.lastIndexOf('.lyshell-worktrees')
   if (worktree > 0 && worktree < parts.length - 1) return `${parts[worktree - 1]} / ${parts.slice(worktree + 1).join('/')}`
-  return parts.pop() || workspace
+  return parts.pop() || workspace || 'Harness'
 }
 
 export function ActivityNoticeIcon({ kind }: { kind: ActivityNotice['kind'] }) {
@@ -19,7 +19,7 @@ export function ActivityNoticeIcon({ kind }: { kind: ActivityNotice['kind'] }) {
 export function activityNoticeTitle(notice: ActivityNotice, english: boolean): string {
   const title = english ? { completed: 'Task completed', failed: notice.source ? 'Turn failed' : 'Task failed', approval: 'Approval needed', 'turn-ended': 'Turn ended', interrupted: 'Turn interrupted' }[notice.kind]
     : { completed: '任务已完成', failed: notice.source ? '本轮异常停止' : '任务失败', approval: '需要你的审批', 'turn-ended': '本轮结束', interrupted: '本轮已中断' }[notice.kind]
-  return notice.source ? `${notice.source === 'codex' ? 'Codex' : 'Claude'} · ${title}` : title
+  return notice.source ? `${{ codex: 'Codex', claude: 'Claude', 'harness-web': 'Harness' }[notice.source]} · ${title}` : title
 }
 
 function ActivityToast({ notice, suspended, onExpire, onDismiss, onOpen }: {
@@ -66,11 +66,16 @@ export function ActivityNotifications() {
   const [announcement, setAnnouncement] = useState('')
   const fresh = activityFresh(snapshot)
   const tuiFresh = tuiActivityFresh(snapshot?.tui)
+  const webFresh = webActivityFresh(snapshot?.web)
   useEffect(() => {
     const incoming = tracker.take(notices)
     const eligible = (notice: ActivityNotice) => {
       if (!notices.some(item => item.id === notice.id) || !unreadNoticeIds.includes(notice.id) || muted.includes(activityDirectoryKey(notice.workspace))) return false
       if (notice.kind !== 'approval') return true
+      if (notice.source === 'harness-web') {
+        return webFresh && !!snapshot?.web?.sessions.some(row => row.sessionId === notice.sessionId && row.turnId === notice.taskId && row.approvalIds.includes(notice.webEventId ?? '')) &&
+          notice.id === JSON.stringify(['harness-web', snapshot.web.identity, notice.webEventId])
+      }
       if (notice.source) return tuiFresh && !!snapshot?.tui?.sessions.some(row => row.terminalId === notice.sessionId && row.launchId === notice.launchId && row.turnId === notice.taskId && row.active && row.state === 'waiting-approval' && (!row.approvalEventId || row.approvalEventId === notice.tuiEventId))
       if (!fresh || !snapshot?.identity) return false
       // 审批卡片只在原后台、会话、任务及实际审批仍有效时保留。
@@ -85,7 +90,7 @@ export function ActivityNotifications() {
       const english = i18n.language.startsWith('en')
       setAnnouncement(incoming.filter(eligible).map(notice => `${activityProjectName(notice.workspace)} · ${activityNoticeTitle(notice, english)} · ${english ? 'Task' : '任务'} ${notice.taskId.slice(-8)}`).join('；'))
     }
-  }, [notices, unreadNoticeIds, muted, snapshot, fresh, tuiFresh, tracker, i18n.language])
+  }, [notices, unreadNoticeIds, muted, snapshot, fresh, tuiFresh, webFresh, tracker, i18n.language])
   const expire = useCallback((id: string) => setToasts(current => current.filter(notice => notice.id !== id)), [])
   const dismiss = useCallback((id: string) => { markRead(id); expire(id) }, [markRead, expire])
   const openNotice = useCallback((notice: ActivityNotice) => { markRead(notice.id); expire(notice.id); show(notice.workspace, notice.sessionId) }, [markRead, expire, show])

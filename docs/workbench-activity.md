@@ -11,15 +11,25 @@
 - 通知保留目录、会话和任务归属，点击会筛选项目并定位对应条目。自动弹出不移动当前输入焦点；关闭卡片标记已读，超时仅收起卡片，二者均保留历史。可以在通知中心标记全部已读、静音当前项目或清空提醒。静音不隐藏会话详情的待审批状态，也不回答审批。
 - 审批展示后端工具名、原因、实际操作以及后端提供的选项。仅在身份、会话、任务、审批及选项重新核对通过后发送用户选择；完整操作无法核对时禁用“仅允许一次”，仍可明确拒绝、取消或打开官方工作台查看。
 
-## 三种状态与来源
+## 状态与来源
 
 | 来源 | 进程状态 | 任务状态 | 连接状态 |
 | --- | --- | --- | --- |
 | 普通本地终端、DeepSeek TUI、自定义 CLI | 来自终端连接事件的终端进程存活／退出信息；不等同于 CLI 子进程或模型任务状态 | 未接入任务适配器，显示未知 | 终端连接状态 |
 | LyShell 启动的 Codex／Claude TUI | 同上，独立于回合状态 | 官方 hooks 的开始、回复结束、审批；Codex 另有中断、Claude 另有异常停止 | 独立通知通道；不依赖原生 Harness 后台 |
+| Harness 内置聊天中手动输入的回合 | 由官方后台托管 | 官方 live `session/event` 的开始、结束、异常、中断和审批审计事件；结束显示“本轮结束” | 只读现有后台，每轮快照读取；不启动或接管会话 |
 | 原生 Harness work API 创建的会话 | 后台托管；不伪造独立终端进程证据 | 来自官方回合与原生工作接口的 accepted、running、completed、failed、cancelled、unconfirmed | 原生桥读取成功、离线或过期 |
 
-原生范围限于当前 LyShell 主进程已观察到的原生 work API 凭据及其会话。官方 Web 自行创建的会话、PetLink 会话不因此获得任务适配能力。Codex／Claude 的 TUI 接入、版本与信任要求见 [TUI 通知接入](tui-activity.md)。TUI 的“本轮结束”只表示官方停止回复事件，不验证整个目标完成；审批只提示用户定位原终端处理。
+原生 work API 的控制范围仍限于当前主进程已观察到的凭据及其会话。内置聊天新增独立的只读回合观察，不授予 native work 控制权；work API/Pet 当前自动任务期间不重复观察，同一会话在自动任务结束后的手动续聊可以提醒。Codex／Claude 的 TUI 接入、版本与信任要求见 [TUI 通知接入](tui-activity.md)。内置聊天和 TUI 的“本轮结束”都不验证整个目标完成；审批分别引导到原工作台或原终端处理。
+
+### 内置聊天提醒
+
+- 更新后的 LyShell 与新启动的 Harness 后台会自动加载只读观察器，无需修改官方 profile 或开启额外权限。已运行的旧后台需要正常关闭并重新打开后才能加载新桥；不会为更新功能自动重启共享后台。
+- 官方 `turn/start` 建立当前回合，匹配同一 turn 的 `turn/end` 才通知结束／异常／中断。只读取运行期事件，不扫描历史正文；初次快照和后台换代不重播历史终态，之后两次轮询间快速结束的新会话仍能通过有界事件日志提醒。
+- 待审批来自官方 `approval/asked`，决定、拒绝或取消后的 `approval/decided` 撤销待办；并行审批按实际 ID 分别记录。观察器不注册 `approval/request` 处理器，不代答、不改变官方审批链。点击通知可在会话列表打开对应工作台。
+- 快照只包含后台身份、会话／回合／事件 ID、状态、时间和官方 `session.header.cwd`，不转发提示词、模型回复或工具参数；缺少目录时显示“目录未提供”，不猜测项目归属。子代理会话不单独弹窗。
+- 桥端保留最多 128 个会话的最近回合及 100 条事件，不跨重启保存。读取失败或状态过期即撤销当前审批依据，不推测完成。当前通过已安装官方 dsh `0.2.1-rc.2` 的真实 SessionStore/ApprovalService 验证了事件形状；旧版缺少审批审计事件时不能提供这类审批提醒。
+- 自动任务的事件会立即撤销该会话的旧手动回合证据，即使任务在两次轮询之间完整结束，也不会遗留旧审批或遮住原生状态。采集传输上限为 16MiB，容纳上述有界会话、目录、审批 ID 和事件的 JSON 转义；字段数量与长度仍逐项校验。
 
 每次状态快照包含读取时间，条目另记录最后状态变更时间。Renderer 每次读取结束后约 4 秒再次读取；快照超过 12 秒、连接异常或条目标为过期时，不再作为当前状态或审批依据。读操作不启动后台、不取得执行租约、不重发任务。
 
@@ -37,7 +47,7 @@
 ## 实现与验证入口
 
 - 共享类型：`src/shared/workbench-activity.ts`、`src/shared/activity-navigation.ts`。
-- 主进程：`src/main/dsh/activity.ts`、`activity-navigation.ts`；原生工作回执在 `work.ts` 登记。
+- 主进程：`src/main/dsh/activity.ts`、`web-activity.ts`、`activity-navigation.ts`；原生工作回执在 `work.ts` 登记，内置聊天观察器在 `resources/dsh-bridge/index.mjs`。
 - IPC：`workbench-activity:request` 与 `workbench-activity:navigate`，同步覆盖 handler、validator、preload 及 Renderer 消费端。仅应用窗口主 frame 可访问；外部 work API 的凭据隔离保持原有约定。
 - 界面：`WorkbenchActivity.tsx`、`ActivityNotifications.tsx`、标题栏的 `WorkbenchActivityButton.tsx`；`stores/activity-toast.ts` 负责提醒去重与优先级，项目入口复用 `ProjectSceneProjectActions`。
 
