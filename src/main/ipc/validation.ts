@@ -74,6 +74,7 @@ export function validateTerminalOutputControl(raw: unknown): TerminalOutputContr
 }
 import { DSH_MARKET_ACTIONS, type DshMarketAction } from '@shared/dsh-market'
 import type { BrowserDevToolsRequest } from '@shared/browser-devtools'
+export { parseWebTerminalRequest as validateWebTerminalRequest } from '@shared/web-terminal'
 import { extractErrorMessage } from '../terminal/session-manager'
 import { type BrowserRequest } from '@shared/browser-settings'
 import { validateBrowserSettings } from '../browser/validation'

@@ -1,0 +1,12 @@
+{
+  "id": "web-ssh",
+  "name": "本地 Web SSH",
+  "version": "0.1.0",
+  "description": "在本机浏览器中连接 SSH，支持密码、私钥和断线后的终端输出恢复。",
+  "engines": { "lyshell": "^2.0" },
+  "runtime": "node",
+  "lifecycle": "persistent",
+  "main": "main.js",
+  "activationEvents": ["onStartup"],
+  "capabilities": ["uiControl"]
+}

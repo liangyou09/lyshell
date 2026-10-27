@@ -41,6 +41,7 @@ import { NAV_EVENT } from '../../commands/command-registry'
 import { PALETTE_EVENT, dispatchPaletteClosed } from '../../commands/palette'
 import { connectSession } from '../../commands/launch'
 import { dispatchCommand } from '../../utils/dispatch-command'
+import { stageWebTerminalCommand, stageWebTerminalShortcut } from './web-terminal-command'
 import { openLocalDoc } from '../DocPanel/readDoc'
 import { isDocPath } from '@shared/types'
 import { isPluginViewKey, parsePluginViewKey, makePluginViewKey } from '@shared/plugin-types'
@@ -743,7 +744,7 @@ const MainWindow: React.FC = () => {
   // Ctrl + F1-F12 快捷键执行快速命令（从 StatusBar 迁移，常驻 MainWindow）
   useEffect(() => {
     const handleShortcut = (e: KeyboardEvent) => {
-      if (!e.ctrlKey) return
+      if (!e.ctrlKey || e.altKey || e.shiftKey || e.repeat || e.isComposing) return
 
       // F1-F12 对应快捷键索引 0-11
       const fKeyMatch = e.key.match(/^F([1-9]|1[0-2])$/)
@@ -754,9 +755,9 @@ const MainWindow: React.FC = () => {
       e.preventDefault()
       e.stopPropagation()
 
-      // 任何覆盖层（web / 文档 / dsh web / MCP）接管活动分屏时不发：盖住终端时命令发进去
-      // 不可见（对齐原"dsh web 激活时快捷命令不可用"语义；归一前漏算 docTabs / MCP，在此修正）
+      // 网页快捷命令载入网页草稿；其他覆盖层接管时，不写入被盖住的终端。
       const paneSt = usePaneStore.getState()
+      if (activeWebTabId()) { stageWebTerminalShortcut(parseInt(fKeyMatch[1]) - 1); return }
       if (paneSt.activeOverlayInPane(paneSt.layout.activePaneId)) return
 
       // 发送到活动分屏的活动会话（同 handleExecuteCommand,内联避免 use-before-define）
@@ -816,6 +817,7 @@ const MainWindow: React.FC = () => {
   // 网页页签浏览器快捷键 —— 路由到活动网页页签(web-tab-controls 控制层)。
   // 宿主 keydown 与主进程 before-input-event 转发(IPC)两路手势共用本路由
   const routeWebTabAction = useCallback((action: WebTabShortcutAction): void => {
+    if (action.startsWith('quick-command-')) { stageWebTerminalShortcut(Number(action.slice(14)) - 1); return }
     switch (action) {
       case 'reload': reloadActiveWebTab(false); break
       case 'reload-hard': reloadActiveWebTab(true); break
@@ -1096,23 +1098,28 @@ const MainWindow: React.FC = () => {
     await connectSession(config)
   }
 
-  // 执行快速命令 - 派发到活动分屏的活动会话（拆行/转义/结尾符统一在 dispatchCommand）
+  // 网页载入草稿；终端继续使用统一的 PTY 派发规则。
   const handleExecuteCommand = (cmd: QuickCommand) => {
+    if (stageWebTerminalCommand(cmd)) return
     const st = usePaneStore.getState()
+    if (st.activeOverlayInPane(st.layout.activePaneId)) return
     const activePane = st.getAllLeafPanes().find(p => p.id === st.layout.activePaneId)
     if (activePane?.activeSessionId) {
       dispatchCommand(cmd, activePane.activeSessionId)
     }
   }
 
-  // 快捷命令键帽置灰条件：任何覆盖层（web / 文档 / dsh web / MCP）激活在当前活动分屏
-  // （webview/面板盖住终端，命令发进去不可见）。树与 activePaneId 都从 selector 的
+  // 普通网页允许载入草稿；新标签欢迎页及其余覆盖层禁用。树与 activePaneId 从 selector 的
   // 快照 s 读取（不经过 activeOverlayInPane 这类内部走 get() 的方法 —— 那会撕裂
   // 快照与活 store，React 18 并发渲染下出错位中间态）。
   // 即便覆盖层挂在别的分屏上，活动分屏是终端时快捷命令仍应指向该终端。
   const overlayActiveHere = usePaneStore(s => {
     const pane = findPane(s.layout.root, s.layout.activePaneId)
-    return pane?.type === 'leaf' ? pane.overlays.some(r => r.active) : false
+    return pane?.type === 'leaf' ? pane.overlays.some(r => {
+      if (!r.active) return false
+      const payload = s.overlayPayloads[r.id]
+      return r.kind !== 'web' || payload?.kind !== 'web' || !/^https?:\/\//.test(payload.url)
+    }) : false
   })
   // 在线会话数 -- ActivityRail 的 sessions 槽位 LED 读数
   const liveCount = sessions.filter(s => s.status === 'connected').length

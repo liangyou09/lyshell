@@ -1,0 +1,23 @@
+{
+  "name": "lyshell-plugin-web-ssh",
+  "version": "0.1.0",
+  "private": true,
+  "description": "IPv4 Web SSH server for the LyShell web-ssh plugin",
+  "license": "MIT",
+  "scripts": {
+    "test": "vitest run server.test.ts",
+    "test:watch": "vitest server.test.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "ssh2": "^1.17.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ssh2": "^1.15.5",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.3",
+    "vitest": "^1.6.1"
+  }
+}

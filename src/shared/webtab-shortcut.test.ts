@@ -24,7 +24,7 @@ describe('matchWebTabShortcut：命中矩阵', () => {
   })
 
   it.each([
-    { control: true }, { meta: true }, { alt: true }, { shift: true },
+    { meta: true }, { alt: true }, { shift: true },
     { type: 'keyUp' }, { isAutoRepeat: true }, { isComposing: true }
   ])('F12 让位修饰键/重复/输入法：%j', patch => {
     expect(matchWebTabShortcut(key({ key: 'F12', ...patch }))).toBeNull()
@@ -53,7 +53,7 @@ describe('matchWebTabShortcut：命中矩阵', () => {
     expect(matchWebTabShortcut(key({ control: true, shift: true, key: 'L' }))).toBeNull()
   })
 
-  it.each([{ control: true }, { meta: true }, { alt: true }, { isAutoRepeat: true }, { isComposing: true }, { type: 'keyUp' }])('F5 让位其他修饰键/重复/输入法：%j', patch => {
+  it.each([{ meta: true }, { alt: true }, { isAutoRepeat: true }, { isComposing: true }, { type: 'keyUp' }])('F5 让位其他修饰键/重复/输入法：%j', patch => {
     expect(matchWebTabShortcut(key({ key: 'F5', ...patch }))).toBeNull()
   })
 })
@@ -108,6 +108,17 @@ describe('matchWebTabShortcut：让位规则', () => {
 })
 
 describe('isWebTabShortcutAction：IPC 边界白名单', () => {
+  it('Ctrl+F1-F12 载入网页终端草稿，修饰键与重复按键不命中', () => {
+    for (let index = 1; index <= 12; index++) {
+      expect(matchWebTabShortcut(key({ control: true, key: `F${index}` }))).toBe(`quick-command-${index}`)
+      expect(isWebTabShortcutAction(`quick-command-${index}`)).toBe(true)
+      expect(matchWebTabShortcut(key({ control: true, shift: true, key: `F${index}` }))).toBeNull()
+      expect(matchWebTabShortcut(key({ control: true, isAutoRepeat: true, key: `F${index}` }))).toBeNull()
+    }
+    expect(isWebTabShortcutAction('quick-command-0')).toBe(false)
+    expect(isWebTabShortcutAction('quick-command-13')).toBe(false)
+    expect(isWebTabShortcutAction('quick-command-01')).toBe(false)
+  })
   it('七个合法 action 收窄通过', () => {
     for (const a of ['reload', 'reload-hard', 'back', 'forward', 'focus-address-bar', 'find', 'toggle-devtools']) {
       expect(isWebTabShortcutAction(a)).toBe(true)

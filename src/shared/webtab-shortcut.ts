@@ -8,6 +8,7 @@
  * - Ctrl/Cmd+L 聚焦地址栏（渲染层切到 Web 面板并聚焦 URL 输入框）
  * - Ctrl/Cmd+F 当前页签内容查找（dsh Web 只接入这一项）
  * - F12 开关普通网页页签的内嵌开发者工具（不带修饰键）
+ * - Ctrl+F1-F12 载入当前分组快捷命令到网页终端草稿，不自动执行
  *
  * 拦截范围约束（两侧路由层各自把守，匹配函数本身不判断焦点）：
  * - 渲染层宿主 keydown：仅当活动分屏正显示网页页签时拦。xterm 只对「无 Shift 的
@@ -27,6 +28,7 @@ export type WebTabShortcutAction =
   | 'focus-address-bar'
   | 'find'
   | 'toggle-devtools'
+  | `quick-command-${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12}`
 
 /** IPC 转发后的 action 白名单（preload 边界值校验用） */
 const WEB_TAB_ACTIONS: ReadonlySet<string> = new Set<WebTabShortcutAction>([
@@ -35,7 +37,7 @@ const WEB_TAB_ACTIONS: ReadonlySet<string> = new Set<WebTabShortcutAction>([
 
 /** preload 边界到达的 action 不可信：白名单收窄后才路由（防 IPC 复用/注入） */
 export function isWebTabShortcutAction(v: unknown): v is WebTabShortcutAction {
-  return typeof v === 'string' && WEB_TAB_ACTIONS.has(v)
+  return typeof v === 'string' && (WEB_TAB_ACTIONS.has(v) || /^quick-command-([1-9]|1[0-2])$/.test(v))
 }
 
 /** before-input-event 的 input 形状（Electron Input；type: 'keyDown' | 'keyUp' | 'rawKeyDown' …） */
@@ -64,6 +66,9 @@ export function matchWebTabShortcut(input: ShortcutInputShape): WebTabShortcutAc
   if (input.isComposing) return null
   const ctrl = input.control || (input.meta ?? false)
   const key = input.key.toLowerCase()
+  if (input.control && !input.meta && !input.alt && !input.shift && /^f([1-9]|1[0-2])$/.test(key)) {
+    return `quick-command-${Number(key.slice(1))}` as WebTabShortcutAction
+  }
 
   if (key === 'f12' && !ctrl && !input.alt && !input.shift) return 'toggle-devtools'
   if (key === 'f5' && !ctrl && !input.alt) return input.shift ? 'reload-hard' : 'reload'

@@ -11,6 +11,7 @@ import type { DshUsagePricingOpenResult, DshUsageResult } from '@shared/dsh-usag
 import type { SessionConfig, TerminalEncoding, WebTabPopupRequest } from '@shared/types'
 import type { ExclusiveWorkbenchDetail } from '@shared/exclusive-control'
 import { isWebTabShortcutAction } from '@shared/webtab-shortcut'
+import { WEB_TERMINAL_CHANNEL, type WebTerminalRequest, type WebTerminalResult } from '@shared/web-terminal'
 import { isSidebarShortcutAction, type SidebarShortcutAction } from '@shared/sidebar-shortcut'
 import type { BrowserRequest, BrowserResult } from '@shared/browser-settings'
 import type { McpAuditRetentionLimit } from '@shared/mcp-audit'
@@ -360,6 +361,8 @@ const electronAPI = {
   loadWebTabPost: (token: string, webContentsId: number): Promise<{ success: boolean }> =>
     ipcRenderer.invoke(IPC_CHANNELS.WEB_TAB_POST_LOAD, token, webContentsId),
 
+  webTerminal: (request: WebTerminalRequest): Promise<WebTerminalResult> =>
+    ipcRenderer.invoke(WEB_TERMINAL_CHANNEL, request),
   webTabDevTools: (request: BrowserDevToolsRequest): Promise<{ success: boolean; inspectorId?: number }> =>
     ipcRenderer.invoke(BROWSER_DEVTOOLS_CHANNEL, request),
   onWebTabDevToolsEvent: (callback: (event: BrowserDevToolsEvent) => void) => {

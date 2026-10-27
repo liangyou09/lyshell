@@ -131,6 +131,9 @@ import type {
 import type { McpCapability } from '@shared/api-routes'
 import { BROWSER_CHANNEL } from '@shared/browser-settings'
 import { BROWSER_DEVTOOLS_CHANNEL } from '@shared/browser-devtools'
+import { WEB_TERMINAL_CHANNEL } from '@shared/web-terminal'
+import { webTerminalRequest } from '../browser/web-terminal'
+import { validateWebTerminalRequest } from './validation'
 import { browserDevToolsRequest } from '../browser/devtools'
 import { validateWebTabDevToolsRequest } from './validation'
 import { browserRequest } from '../browser/service'
@@ -445,6 +448,13 @@ function sanitizeMessageBoxOptions(options: unknown): MessageBoxOptions {
  * 注册所有 IPC 处理器
  */
 export function registerIPCHandlers(): void {
+  ipcMain.handle(WEB_TERMINAL_CHANNEL, async (event, raw: unknown) => {
+    if (event.sender.getType() !== 'window' || !BrowserWindow.fromWebContents(event.sender) || event.senderFrame !== event.sender.mainFrame) return { success: false, error: 'denied' }
+    const request = validateWebTerminalRequest(raw)
+    if (!request) return { success: false, error: 'invalid' }
+    try { return await webTerminalRequest(event.sender, request) }
+    catch { return { success: false, error: 'uncertain' } }
+  })
   ipcMain.handle(BROWSER_MENU_CHANNEL, (event, raw: unknown) => {
     try { return browserMenuRequest(event, validateBrowserMenuRequest(raw)) }
     catch { return null }

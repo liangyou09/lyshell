@@ -4,6 +4,7 @@ import type { WebviewTag } from 'electron'
 import { usePaneStore } from '../../stores/pane-store'
 import { registerWebview, unregisterWebview, activeWebTabId, registerWebTabDevTools } from './web-tab-controls'
 import WebTabDevTools from './WebTabDevTools'
+import WebTerminalTools from './WebTerminalTools'
 import type { OverlayPayload, PaneNode } from '@shared/types'
 import { WEBBAR_PARTITION } from '@shared/constants'
 import SearchableTab from '../Search/SearchableTab'
@@ -355,6 +356,7 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
           }} />
         )}
       </SearchableTab>
+      <WebTerminalTools id={id} pageRef={ref} />
       {devToolsOpen && <WebTabDevTools id={id} pageRef={ref} onClose={closeDevTools} inspectPoint={inspectPoint} />}
     </div>
   )

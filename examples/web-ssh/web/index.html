@@ -1,0 +1,15 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>本地 Web SSH</title><link rel="stylesheet" href="/xterm.css"><link rel="stylesheet" href="/terminal.css"></head><body>
+<header><h1>Web SSH</h1><span id="target">本机网关</span><span id="status" role="status">未连接</span><button id="disconnect" type="button" disabled>断开</button></header>
+<main>
+<section id="connection" aria-labelledby="connect-title"><h2 id="connect-title">连接服务器</h2><form id="connect-form">
+<label>主机<input name="host" id="host" required maxlength="255" placeholder="服务器地址或 IP" autocomplete="off"></label>
+<div class="fields"><label>端口<input id="port" name="port" type="number" min="1" max="65535" value="22" required></label><label>用户名<input id="username" name="username" required maxlength="128" autocomplete="username"></label></div>
+<label>认证方式<select id="auth"><option value="password">密码</option><option value="key">私钥文件</option></select></label>
+<label id="password-field">密码<input id="password" name="password" type="password" maxlength="4096" autocomplete="off"></label>
+<div id="key-fields" hidden><label>私钥文件<input id="key-file" type="file"></label><label>私钥口令（可选）<input id="passphrase" type="password" maxlength="4096" autocomplete="off"></label></div>
+<button id="connect" class="primary" type="submit">连接 SSH</button><p class="hint">认证信息不写入磁盘。服务器指纹需要逐次确认。</p></form>
+<section id="trust" aria-labelledby="trust-title" hidden><h2 id="trust-title">核对服务器指纹</h2><p>请与服务器管理员或可信渠道提供的指纹比对，确认一致后继续。</p><p id="key-host"></p><code id="fingerprint"></code><div class="actions"><button id="trust-yes" type="button">一致，继续连接</button><button id="trust-no" type="button">拒绝</button></div></section>
+</section>
+<section id="terminal-panel" aria-label="SSH 终端"><div id="terminal"></div><p id="notice" role="status">连接成功后在此输入命令。断线时不重发输入。</p>
+<details id="script-panel"><summary>命令 / 脚本输入</summary><label class="sr-only" for="script">命令或脚本</label><textarea id="script" spellcheck="false" maxlength="65536" placeholder="保留原有缩进，逐行输入并回车…"></textarea><div class="actions"><label>行间隔 <input id="delay" type="number" min="50" max="3000" value="150"> ms</label><button id="run-script" type="button" disabled>逐行执行</button><button id="stop-script" type="button" disabled>停止后续行</button><span id="script-status" role="status"></span></div></details>
+</section></main><script src="/terminal.js"></script></body></html>
