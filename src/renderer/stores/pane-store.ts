@@ -279,7 +279,7 @@ interface PaneStore {
   // 批量切换隐藏态;hidden=true 时还会把受影响 pane 的 active 从被隐藏 session 切走
   toggleLiveSessionTabs: (sessionIds: string[], hidden: boolean) => void
   setSplitRatio: (paneId: string, ratio: number) => void
-  addSessionToPane: (paneId: string, sessionId: string) => void
+  addSessionToPane: (paneId: string, sessionId: string, opts?: { background?: boolean }) => void
   removeSessionFromPane: (paneId: string, sessionId: string) => void
   removeSessionFromAllPanes: (sessionId: string) => void
   setActiveSessionInPane: (paneId: string, sessionId: string | null) => void
@@ -1691,7 +1691,7 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
   },
 
   // 添加会话到分屏
-  addSessionToPane: (paneId, sessionId) => {
+  addSessionToPane: (paneId, sessionId, opts) => {
     const layout = get().layout
     const pane = findPane(layout.root, paneId) as PaneLeaf | undefined
 
@@ -1728,6 +1728,7 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     // active 会以更高 zIndex 盖住刚连上的终端（对齐 handleTabClick 的去活语义）。
     // 字段实际不变的引用原样返回（OverlayRef 引用身份是渲染层 React.memo 的跳过依据）
     const overlays = targetPane.overlays.map(r => {
+      if (opts?.background) return r
       if (r.slot != null && r.slot >= targetPane.sessions.length) {
         const slot = newSessions.length
         return slot === r.slot && !r.active ? r : { ...r, slot, active: false }
@@ -1738,14 +1739,15 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     const leafWithSession: PaneLeaf = {
       ...targetPane,
       sessions: newSessions,
-      activeSessionId: sessionId,  // 自动激活新会话
+      activeSessionId: opts?.background ? targetPane.activeSessionId : sessionId,
       overlays
     }
 
     set({
+      ...(opts?.background ? { hiddenTabSessions: { ...get().hiddenTabSessions, [sessionId]: true }, retainedSessionIds: { ...get().retainedSessionIds, [sessionId]: true } } : {}),
       layout: {
         root: replacePane(newRoot, targetPane.id, leafWithSession),
-        activePaneId: targetPane.id
+        activePaneId: opts?.background ? layout.activePaneId : targetPane.id
       }
     })
   },

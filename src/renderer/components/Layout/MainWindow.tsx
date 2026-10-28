@@ -14,7 +14,6 @@ import TaskShelf from './TaskShelf'
 import { useFrameCommit } from '../../hooks/useFrameCommit'
 import { useTaskShelf } from '../../stores/task-shelf'
 import { FIND_IN_TAB_EVENT } from '../Search/SearchableTab'
-import FloatWindow from '../FloatWindow/FloatWindow'
 import CommandScreen from '../CommandScreen/CommandScreen'
 import TopRightControls from './TopRightControls'
 import { TOPBAR_HEIGHT, TOP_LEFT_RESERVE, TOP_LEFT_ICON_RESERVE, SIDEBAR_DIVIDER_WIDTH, SIDEBAR_PILL_HEIGHT } from './topbar-metrics'
@@ -124,7 +123,6 @@ const MainWindow: React.FC = () => {
   // 拖宽起点处的偏好宽 -- 拖到收起的路径回滚到它(收起不该顺带销毁宽度偏好)
   const sidebarDragStartWidth = useRef(0)
   const sidebarDraggingRef = useRef(false)
-  const [floatVisible, setFloatVisible] = useState(false) // 浮窗默认隐藏
   // 全局命令面板开合落 ui-store(TerminalView 的自动聚焦守卫要跨组件读它,见
   // ui-store 注释);本组件只订阅渲染,写经 getState
   const paletteOpen = useUiStore(s => s.paletteOpen)
@@ -140,6 +138,8 @@ const MainWindow: React.FC = () => {
   const { t } = useTranslation()
   const terminalWrapperRef = useRef<HTMLDivElement>(null)
   const taskShelfReserve = useTaskShelf(s => s.reservedWidth)
+  const taskShelfHeight = useTaskShelf(s => s.reservedHeight)
+  const taskShelfEdge = useTaskShelf(s => s.reservedEdge)
 
   // 切换左列页签 -- 持久化到 localStorage(Alt+1/2/3 与页签轨点击共用)
   const handleNavChange = useCallback((tab: NavTab) => {
@@ -714,14 +714,6 @@ const MainWindow: React.FC = () => {
     })
   }, [routeSidebarShortcut])
 
-  // 监听浮窗显示/隐藏快捷键
-  useEffect(() => {
-    if (!window.electronAPI) return
-    const cleanup = window.electronAPI.onFloatToggle(() => {
-      setFloatVisible(prev => !prev)
-    })
-    return cleanup
-  }, [])
 
   // 页签 HTML5 拖拽进行中(文档级监听) -- 左缘感应条临时穿透+隐身,不挡最左 pane 的
   // 左缘分屏落点。只认页签类拖拽源(data-tab-id,会话/MCP/dsh web 页签):文件面板等
@@ -1276,7 +1268,15 @@ const MainWindow: React.FC = () => {
               终端内容上方;画布缩量由 pane-resize ResizeObserver 感知,xterm 随之重新 fit。
               槽宽读 --edge-frame-width,与 .edge-frame 边框 / .edge-hit 命中条同源 */}
           {/* 内容树为停靠区让宽；首行最右页签条读同一变量延伸回窗口边缘。 */}
-          <div className={cn('h-full', sidebarCollapsed && 'pl-[var(--edge-frame-width)] pb-[var(--edge-frame-width)]')} style={{ paddingRight: taskShelfReserve, '--task-shelf-reserve': `${taskShelfReserve}px` } as React.CSSProperties}>
+          <div className={cn('h-full', sidebarCollapsed && 'pl-[var(--edge-frame-width)] pb-[var(--edge-frame-width)]')} style={{
+            paddingRight: taskShelfEdge === 'right' ? taskShelfReserve : 0,
+            paddingLeft: taskShelfEdge === 'left' ? `calc(${taskShelfReserve}px + ${sidebarCollapsed ? 'var(--edge-frame-width)' : '0px'})` : undefined,
+            paddingTop: taskShelfEdge === 'top' ? taskShelfHeight : 0,
+            paddingBottom: taskShelfEdge === 'bottom' ? `calc(${taskShelfHeight}px + ${sidebarCollapsed ? 'var(--edge-frame-width)' : '0px'})` : undefined,
+            '--task-shelf-reserve': `${taskShelfEdge === 'right' ? taskShelfReserve : 0}px`,
+            '--task-shelf-left-reserve': `${taskShelfEdge === 'left' ? taskShelfReserve : 0}px`,
+            '--task-shelf-top-reserve': `${taskShelfEdge === 'top' ? taskShelfHeight : 0}px`
+          } as React.CSSProperties}>
             <SplitPaneContainer />
           </div>
 
@@ -1333,7 +1333,7 @@ const MainWindow: React.FC = () => {
             </>
           )}
 
-          {/* 右上控制簇 -- MCP 状态片 + 浮窗键 │ 窗口控制,悬浮于第一行页签条右端
+          {/* 右上控制簇 -- 任务通知 │ 窗口控制,悬浮于第一行页签条右端
               (留白见 TopRightControls 实测发布的 --top-right-reserve) */}
           <div className="absolute top-0 right-0 z-40">
             <TopRightControls
@@ -1341,22 +1341,11 @@ const MainWindow: React.FC = () => {
               onMinimize={handleMinimize}
               onMaximize={handleMaximize}
               onClose={handleClose}
-              floatVisible={floatVisible}
-              onToggleFloat={() => setFloatVisible(!floatVisible)}
             />
           </div>
 
           <BrowserDownloadPopup />
 
-          {/* 右上角会话浮窗 -- 锚在第一行页签条正下方(top 与第一行高度强绑定,引用常量防错位) */}
-          {floatVisible && (
-            <div
-              className="absolute right-[12px] z-50 w-[300px] h-[400px] bg-[var(--bg-slot)] border border-[var(--rule)] overflow-hidden shadow-lg"
-              style={{ top: TOPBAR_HEIGHT }}
-            >
-              <FloatWindow onConnect={handleConnect} />
-            </div>
-          )}
 
           {/* 全局命令面板(Ctrl+Shift+P) -- 整屏 TUI 接管终端区(含页签行),与空状态
               共用 CommandScreen/命令集;Esc 或 /local 这类 closeOverlay 命令经 onClose 退出

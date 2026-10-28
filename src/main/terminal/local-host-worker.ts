@@ -9,7 +9,7 @@
  *   1. 读 bootstrap（超时即退出，避免孤儿）
  *   2. 在随机 named pipe / profile 目录 Unix socket 上监听（不监听公网）
  *   3. 监听成功后再启动 PTY，然后回 ready，并主动断开父进程 IPC
- *   4. 无客户端时按宽限期终止（未收纳）或长期保留（retained）
+ *   4. 无客户端时按宽限期终止，收纳任务也不跨应用退出保活
  *   5. PTY 退出后保留状态一段时间，再释放描述文件 / socket 并退出
  *
  * 本文件不依赖 Electron app API，只加载 Node 内置模块 + 原生 node-pty（延迟加载，
@@ -295,12 +295,12 @@ export async function startHostServer(options: StartHostServerOptions): Promise<
     }, tuning.exitRetentionMs)
   }
 
-  /** 未收纳且没有客户端：宽限期后终止 PTY（不是「detach = terminate」，只有这里才真杀）。 */
+  /** 没有客户端时宽限期后终止 PTY；短暂重连可保留现场，收纳标记不延长应用生命周期。 */
   const scheduleGrace = (): void => {
-    if (finished || graceTimer || retained || !running) return
+    if (finished || graceTimer || !running) return
     graceTimer = setTimeout(() => {
       graceTimer = null
-      if (finished || retained || !running || active) return
+      if (finished || !running || active) return
       killPty()
     }, tuning.graceMs)
   }
@@ -362,7 +362,7 @@ export async function startHostServer(options: StartHostServerOptions): Promise<
       scheduleExitRetention()
       return
     }
-    if (!retained) scheduleGrace()
+    scheduleGrace()
   }
 
   // ── PTY 事件 ────────────────────────────────────────────────────────────
@@ -500,11 +500,6 @@ export async function startHostServer(options: StartHostServerOptions): Promise<
       case 'retain': {
         if (!requestCache.accept(frame.reqId)) return
         retained = frame.value
-        if (retained) {
-          clearGrace()
-        } else if (!active && !finished && running) {
-          scheduleGrace()
-        }
         // 先落地再 ack：客户端拿到 ack 后才认为 retained 生效
         ackOk(conn, frame.reqId, { status: statusSnapshot() })
         return
@@ -833,8 +828,8 @@ export async function runBootstrapWorker(options: RunBootstrapWorkerOptions = {}
     return
   }
 
-  // 父进程退出是预期行为：宿主继续持有 PTY，不跟随退出。
-  // 只有真实 process IPC 才需要挂这个监听（注入通道的生命周期由调用方管理）。
+  // bootstrap IPC 的断开只代表启动握手结束；宿主生存期由已鉴权客户端管道约束。
+  // 全部客户端丢失后按宽限期结束 PTY，收纳标记不允许跨应用退出保活。
   if (!options.channel) process.on('disconnect', () => undefined)
 
   let handle: LocalHostServerHandle
@@ -866,7 +861,7 @@ export async function runBootstrapWorker(options: RunBootstrapWorkerOptions = {}
     return
   }
 
-  // 断开父 IPC：宿主从此独立于 Electron 主进程
+  // 断开启动握手 IPC，后续通过客户端管道维护本次应用的终端。
   channel.disconnect()
 }
 

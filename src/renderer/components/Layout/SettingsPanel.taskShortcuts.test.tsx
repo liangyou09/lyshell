@@ -30,7 +30,7 @@ describe('终端设置里的任务保存区快捷键', () => {
   it('回显已保存的绑定，保存成功后采用后端回执并提示已保存', async () => {
     const view = render(<SettingsPanel />)
     openTerminalSettings(view)
-    expect((view.getByLabelText('Toggle the task panel') as HTMLInputElement).value).toBe('Ctrl+Shift+J')
+    expect((view.getByLabelText('Toggle the task panel') as HTMLInputElement).value).toBe('Ctrl+`')
     expect((view.getByLabelText('Collect the current tab') as HTMLInputElement).value).toBe('Ctrl+Shift+S')
     fireEvent.change(view.getByLabelText('Toggle the task panel'), { target: { value: 'Ctrl+Shift+K' } })
     await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Save shortcuts' })) })
@@ -38,6 +38,15 @@ describe('终端设置里的任务保存区快捷键', () => {
     expect(useTaskShelf.getState().preferences).toEqual({ toggleShortcut: 'Ctrl+Shift+K', collectShortcut: 'Ctrl+Shift+S' })
     expect(view.getByRole('status').textContent).toContain('Shortcuts saved')
     expect((view.getByLabelText('Toggle the task panel') as HTMLInputElement).value).toBe('Ctrl+Shift+K')
+  })
+
+  it('恢复默认立即保存新的展开快捷键和收纳默认值', async () => {
+    useTaskShelf.setState({ preferences: { toggleShortcut: 'Ctrl+Shift+K', collectShortcut: '' } })
+    const view = render(<SettingsPanel />)
+    openTerminalSettings(view)
+    await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Restore defaults' })) })
+    expect(request).toHaveBeenCalledWith({ kind: 'preferences', preferences: { toggleShortcut: 'Ctrl+`', collectShortcut: 'Ctrl+Shift+S' } })
+    expect((view.getByLabelText('Toggle the task panel') as HTMLInputElement).value).toBe('Ctrl+`')
   })
 
   it('保存失败保留草稿与旧配置，并就地提示原因', async () => {

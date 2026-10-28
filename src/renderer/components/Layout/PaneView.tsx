@@ -616,7 +616,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
         style={{
           [node.direction === 'horizontal' ? 'width' : 'height']: `${node.splitRatio * 100}%`
         }}
-        className={`flex-shrink-0 min-w-0 min-h-0 ${isTop && isTopRight && node.direction === 'vertical' ? 'overflow-visible' : 'overflow-hidden'}`}
+        className={`flex-shrink-0 min-w-0 min-h-0 ${isTop ? 'overflow-visible' : 'overflow-hidden'}`}
       >
         <PaneView node={node.firstChild} isTop={isTop} isTopLeft={isTopLeft}
           isTopRight={node.direction === 'horizontal' ? false : isTopRight} />
@@ -624,7 +624,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
 
       <SplitDivider paneId={node.id} direction={node.direction} />
 
-      <div className={`flex-1 min-w-0 min-h-0 ${isTop && isTopRight && node.direction === 'horizontal' ? 'overflow-visible' : 'overflow-hidden'}`}>
+      <div className={`flex-1 min-w-0 min-h-0 ${isTop && node.direction === 'horizontal' ? 'overflow-visible' : 'overflow-hidden'}`}>
         {/* secondChild 恒非最左;vertical 时它整列位于下方,三个 flag 全 false */}
         <PaneView node={node.secondChild}
           isTop={node.direction === 'horizontal' ? isTop : false}

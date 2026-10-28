@@ -68,7 +68,6 @@ export class LocalConnector extends BaseConnector {
   private outputPaused = false
   private connectGeneration = 0
   private host: LocalHostClient | null = null
-  private hostRetained = false
   private hostExited = false
   private hostDisconnecting: Promise<void> | null = null
 
@@ -82,16 +81,14 @@ export class LocalConnector extends BaseConnector {
   /** 只有真实 exit/terminate 证据才允许后续普通重连新建 shell；失联保持未知。 */
   get localHostHasExited(): boolean { return this.hostExited }
   async retainForShelf(retained: boolean): Promise<void> {
-    if (!this.host) { if (retained) throw new Error('这个终端未由独立宿主持有，无法在退出后保活。请在新版中新建终端。'); return }
+    if (!this.host) { if (retained) throw new Error('这个终端未由独立宿主持有，无法保留后台终端。请在新版中新建终端。'); return }
     await this.host.retain(retained)
-    this.hostRetained = retained
   }
-  async detachForQuit(): Promise<void> {
-    if (!this.host || !this.hostRetained) return this.disconnect()
-    this.connectGeneration++
-    const host = this.host; this.host = null
-    await host.detach()
-    this.connected = false
+  /** 应用退出时结束原进程，收纳标记不再允许终端跨退出保活。 */
+  async disconnectForQuit(): Promise<void> {
+    const released = this.host?.retain(false).catch(error => log.warn(`Failed to release local host retention for ${this.sessionId}:`, error))
+    // 两帧按管道顺序发送；撤销保活迟迟没有回执，也不能阻止发送终止。
+    await Promise.all([released, this.disconnect()])
   }
 
   /**
@@ -145,7 +142,6 @@ export class LocalConnector extends BaseConnector {
         await host.detach()
         throw new Error('Local connection cancelled')
       }
-      this.hostRetained = status.retained
       if (!status.running) { this.hostExited = true; await host.detach(); this.host = null; throw new Error('原本地终端进程已经结束') }
       // bootstrap / attach 是异步的，期间 resize 只能更新本地字段，须补到真实 PTY。
       // 附着时原宿主尺寸未知，交由宿主按实际尺寸去重，避免同尺寸重排整屏。

@@ -29,9 +29,6 @@
 .window-control:hover { background: var(--bg-slot); color: var(--text-rack); }
 .window-control:active { background: var(--bg-elev); }
 .window-control:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
-.window-control-float.is-active { background: var(--amber-soft); color: var(--amber); }
-.window-control-float:hover { color: var(--amber); }
-.window-control-float.is-active:hover { background: color-mix(in srgb, var(--amber) 18%, var(--bg-rack)); }
 .window-control-close:hover { background: color-mix(in srgb, var(--error-rack) 72%, #000); color: #fff; }
 .window-control-close:active { background: color-mix(in srgb, var(--error-rack) 60%, #000); }
 

@@ -43,6 +43,8 @@ export interface ShelfHarnessRuntime {
 
 export interface TaskShelfDeps {
   repository: TaskShelfRepository
+  /** 生产首次读取重试启动补归档，失败时保留待重试状态，不向界面返回过期 Tasks。 */
+  archiveOnStart?: boolean
   session: (id: string) => ShelfSessionView | undefined
   createSession: (config: SessionConfig) => Promise<{ id: string }>
   connectSession: (id: string) => Promise<void>
@@ -108,6 +110,7 @@ function agentFromTags(tags: string[] | undefined): { kind: 'codex' | 'claude' |
  */
 export function createTaskShelfService(deps: TaskShelfDeps): TaskShelfService {
   const now = deps.now ?? Date.now
+  let startupArchivePending = deps.archiveOnStart === true
   /** 同一记录的恢复串行化：并发点击共享同一个在途结果，绝不重复启动。 */
   const inflight = new Map<string, Promise<TaskShelfResult>>()
   /** entryId → 上一次恢复成功创建的 terminal id，用于「恢复后再次点击」直接复用原实例。 */
@@ -358,13 +361,15 @@ export function createTaskShelfService(deps: TaskShelfDeps): TaskShelfService {
         reused.set(entry.id, restored.id)
         return { kind: 'terminal', sessionId: restored.id }
       }
-      if (recovery.cliObservationLost || !deps.session(recovery.sessionId) && (recovery.agentKind === 'codex' || recovery.agentKind === 'claude')) {
-        throw new Error('原本地进程已结束，应用关闭期间的 CLI 会话变化无法核实；请在启动器中手动选择历史。保存的 ID 仅代表最后已知会话。')
+      if (recovery.type === ConnectionType.LOCAL) {
+        // 已确认旧宿主结束：新建普通 shell，只恢复目录，不重放历史或启动命令。
+        reused.delete(entry.id)
+        return restoreDirectory(entry, recovery)
       }
-      if (entry.capability === 'local-live' || entry.capability === 'live-only') throw new Error('原本地终端进程已结束，未创建替代进程')
     }
 
     if (recovery.type === ConnectionType.SSH && deps.session(reused.get(entry.id) ?? recovery.sessionId)) return restoreSaved(entry, recovery)
+    if (recovery.type === ConnectionType.LOCAL && entry.capability !== 'cli-resume') return restoreDirectory(entry, recovery)
     switch (entry.capability) {
       case 'cli-resume':
         return restoreCli(entry, recovery)
@@ -410,6 +415,10 @@ export function createTaskShelfService(deps: TaskShelfDeps): TaskShelfService {
   return {
     request: async request => {
       try {
+        if (startupArchivePending) {
+          deps.repository.archiveAll(now())
+          startupArchivePending = false
+        }
         switch (request.kind) {
           case 'list':
             return { success: true, entries: list(), preferences: deps.repository.getPreferences() }
@@ -419,6 +428,9 @@ export function createTaskShelfService(deps: TaskShelfDeps): TaskShelfService {
             const entry = deps.repository.archive(request.id, request.archived, now())
             return { success: true, entries: list(), entry }
           }
+          case 'unarchiveAll':
+            // 只改列表归属：整批移回归档记录，绝不调用 restore/spawn/connect/retain。
+            return { success: true, entries: deps.repository.unarchiveAll(now()) }
           case 'capture': {
             const input = describeCapture(request.resource, request.entryId)
             if (request.resource.kind === 'harness') {

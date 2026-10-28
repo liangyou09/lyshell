@@ -42,10 +42,6 @@ export const IPC_CHANNELS = {
   CONFIG_SET: 'config:set',
   CONFIG_RESET: 'config:reset',
 
-  // 浮窗
-  FLOAT_SHOW: 'float:show',
-  FLOAT_HIDE: 'float:hide',
-  FLOAT_TOGGLE: 'float:toggle',
 
   // 网页页签快捷键（main → renderer 单向推送：焦点在 webview 内时宿主收不到
   // keydown，由主进程 before-input-event 拦截后经此通道转发渲染层路由）

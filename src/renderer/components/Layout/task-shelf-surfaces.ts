@@ -23,7 +23,10 @@ export const SHELF_SURFACE_ENTER = 'task-shelf:surface-enter'
 export const SHELF_SURFACE_LEAVE = 'task-shelf:surface-leave'
 let activeKey: string | null = null
 let frame = 0
-let animateUntil = 0
+/** 只有侧栏根元素上的 transform/width 会改变原生小窗几何，其余过渡不参与跟随。 */
+const FOLLOWED_TRANSITIONS = ['transform', 'width']
+/** 进行中的过渡按元素和属性名分别记录：重叠过渡各自结束，最后一个结束时才停止刷新循环。 */
+const transitions = new Map<Element, Set<string>>()
 
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }
 let revision = 0
@@ -96,12 +99,33 @@ function refresh() {
   }
   if (activeKey && !records.get(activeKey)?.snapshot.interactive) { activeKey = null; changed = true }
   if (changed) publish()
-  if (records.size && performance.now() < animateUntil) frame = requestAnimationFrame(refresh)
+  // 过渡集合为空说明侧栏已停在终点，不再空转；脱离文档的元素收不到结束事件，先剔除。
+  pruneTransitions()
+  if (records.size && transitions.size) frame = requestAnimationFrame(refresh)
 }
 function schedule() { if (!frame && records.size) frame = requestAnimationFrame(refresh) }
-function transition(event: TransitionEvent) {
-  if (!(event.target instanceof Element) || !event.target.matches('.task-shelf') || !['transform', 'width'].includes(event.propertyName)) return
-  animateUntil = performance.now() + 220; schedule()
+function followedTarget(event: TransitionEvent): Element | null {
+  const target = event.target
+  if (!(target instanceof Element) || !target.matches('.task-shelf')) return null
+  return FOLLOWED_TRANSITIONS.includes(event.propertyName) ? target : null
+}
+function startTransition(event: TransitionEvent) {
+  const target = followedTarget(event)
+  if (!target) return
+  let properties = transitions.get(target)
+  if (!properties) { properties = new Set(); transitions.set(target, properties) }
+  properties.add(event.propertyName)
+  schedule()
+}
+function finishTransition(event: TransitionEvent) {
+  const target = followedTarget(event)
+  if (!target) return
+  const properties = transitions.get(target)
+  if (properties && properties.delete(event.propertyName) && !properties.size) transitions.delete(target)
+  schedule()
+}
+function pruneTransitions() {
+  for (const element of transitions.keys()) if (!element.isConnected) transitions.delete(element)
 }
 function releaseFocus(event: FocusEvent) {
   if (activeKey && event.target instanceof Element && !event.target.closest('[data-shelf-native]')) {
@@ -114,17 +138,19 @@ function watch() {
   document.addEventListener('focusin', releaseFocus)
   window.addEventListener('scroll', schedule, true)
   window.addEventListener('resize', schedule)
-  window.addEventListener('transitionrun', transition, true)
-  window.addEventListener('transitionend', schedule, true)
+  window.addEventListener('transitionrun', startTransition, true)
+  window.addEventListener('transitionend', finishTransition, true)
+  window.addEventListener('transitioncancel', finishTransition, true)
 }
 function unwatch() {
   document.removeEventListener('focusin', releaseFocus)
   window.removeEventListener('scroll', schedule, true)
   window.removeEventListener('resize', schedule)
-  window.removeEventListener('transitionrun', transition, true)
-  window.removeEventListener('transitionend', schedule, true)
+  window.removeEventListener('transitionrun', startTransition, true)
+  window.removeEventListener('transitionend', finishTransition, true)
+  window.removeEventListener('transitioncancel', finishTransition, true)
   if (frame) cancelAnimationFrame(frame)
-  frame = 0; animateUntil = 0
+  frame = 0; transitions.clear()
 }
 
 export function registerShelfSurface(kind: ShelfSurfaceKind, id: string, target: HTMLElement, interactive: boolean): () => void {

@@ -23,12 +23,12 @@ const terminalConfig = (cwd: string): SessionConfig => ({
 })
 beforeEach(() => {
   vi.useFakeTimers(); records = []
-  useTaskShelf.setState({ entries: [], bindings: {}, loaded: false, busy: {}, error: null, saveErrors: {}, preferences: { ...DEFAULT_TASK_SHELF_PREFERENCES } })
+  useTaskShelf.setState({ entries: [], bindings: {}, loaded: false, busy: {}, restoringArchived: false, error: null, saveErrors: {}, restoreFailures: {}, preferences: { ...DEFAULT_TASK_SHELF_PREFERENCES } })
   useSessionStore.setState({ sessions: [] })
   usePaneStore.setState({ layout: { root: { type: 'leaf', id: 'pane', sessions: [], activeSessionId: null, overlays: [{ kind: 'web', id: 'web-1', active: true, slot: null }] }, activePaneId: 'pane' }, overlayPayloads: { 'web-1': { kind: 'web', url: 'https://example.org/', title: 'Original' } }, hiddenTabSessions: {}, retainedSessionIds: {} })
   api.mockReset(); api.mockImplementation(async request => {
     if (request.kind === 'capture') {
-      const id = recordIdFor(request.resource)
+      const id = request.entryId || recordIdFor(request.resource)
       const previous = records.find(item => item.id === id)
       const saved: TaskShelfEntry = {
         ...entry,
@@ -38,9 +38,10 @@ beforeEach(() => {
         revision: (previous?.revision ?? 0) + 1,
         ...(previous?.archivedAt ? { archivedAt: previous.archivedAt } : {})
       }
-      records = [saved]
+      records = [...records.filter(item => item.id !== id), saved]
       return { success: true, entries: records, entry: saved }
     }
+    if (request.kind === 'restore') return { success: true, entries: records, entry: records.find(item => item.id === request.id), restored: { kind: 'web', url: 'https://example.org/' } }
     if (request.kind === 'remove') { records = records.filter(item => item.id !== request.id); return { success: true, entries: records } }
     if (request.kind === 'archive') {
       records = records.map(item => {
@@ -53,6 +54,10 @@ beforeEach(() => {
       return { success: true, entries: records }
     }
     if (request.kind === 'preferences') return { success: true, entries: records, preferences: request.preferences }
+    if (request.kind === 'unarchiveAll') {
+      records = records.map(item => { const next = { ...item }; delete next.archivedAt; return next })
+      return { success: true, entries: records }
+    }
     return { success: true, entries: records }
   })
   Object.defineProperty(window, 'electronAPI', { configurable: true, value: { taskShelfRequest: api, syncTerminalOpenSessions: vi.fn().mockResolvedValue(undefined) } })
@@ -60,6 +65,81 @@ beforeEach(() => {
 afterEach(async () => { await vi.runOnlyPendingTimersAsync(); vi.useRealTimers() })
 
 describe('任务保存区现场与持续保存', () => {
+  it('归档终端直接恢复到 Tasks，不经过主区激活或切换当前网页', async () => {
+    records = [{ ...entry, archivedAt: 10 }]
+    useTaskShelf.setState({ entries: records })
+    Object.assign(window.electronAPI, { getSession: vi.fn().mockResolvedValue(terminalConfig('/work')) })
+    api.mockResolvedValueOnce({ success: true, entries: records, entry: records[0], restored: { kind: 'terminal', sessionId: 'term-1' } })
+    const activated: string[] = []
+    const off = usePaneStore.subscribe(state => {
+      for (const pane of state.getAllLeafPanes()) if (pane.activeSessionId) activated.push(pane.activeSessionId)
+    })
+    expect(await useTaskShelf.getState().archive(entry.id, false)).toBe(true)
+    off()
+    expect(activated).not.toContain('term-1')
+    expect(useTaskShelf.getState().bindings[entry.id]).toEqual({ kind: 'terminal', id: 'term-1' })
+    expect(usePaneStore.getState().hiddenTabSessions['term-1']).toBe(true)
+    expect(usePaneStore.getState().getAllLeafPanes()[0].overlays[0]).toMatchObject({ id: 'web-1', active: true })
+    expect(useSessionStore.getState().sessions.some(session => session.id === 'term-1')).toBe(true)
+  })
+  it('批量移回恢复实例并留在 Tasks 小窗，已有绑定复用，活动条目不受影响', async () => {
+    records = [{ ...entry, archivedAt: 10 }, { ...entry, id: 'second', resourceKey: 'web:second', archivedAt: 20 }, { ...entry, id: 'active', resourceKey: 'web:active' }]
+    useTaskShelf.setState({ entries: records, bindings: { [entry.id]: { kind: 'web', id: 'web-1' } }, loaded: true })
+    expect(await useTaskShelf.getState().restoreArchived()).toBe(true)
+    expect(api.mock.calls.filter(([r]) => r.kind === 'restore').map(([r]) => r)).toEqual([{ kind: 'restore', id: 'second' }])
+    expect(useTaskShelf.getState().entries.every(item => !item.archivedAt)).toBe(true)
+    expect(useTaskShelf.getState().bindings[entry.id].id).toBe('web-1')
+    expect(useTaskShelf.getState().bindings.second.kind).toBe('web')
+    const refs = usePaneStore.getState().getAllLeafPanes().flatMap(pane => pane.overlays)
+    expect(refs).toHaveLength(2)
+    expect(refs.every(ref => ref.shelved)).toBe(true)
+    expect(useTaskShelf.getState().restoringArchived).toBe(false)
+  })
+  it('单条恢复失败仍在归档，批量继续恢复其他项并保留错误', async () => {
+    records = [{ ...entry, archivedAt: 10 }, { ...entry, id: 'second', resourceKey: 'web:second', archivedAt: 20 }]
+    useTaskShelf.setState({ entries: records, loaded: true })
+    api.mockResolvedValueOnce({ success: false, error: 'missing directory' })
+    expect(await useTaskShelf.getState().restoreArchived()).toBe(false)
+    expect(useTaskShelf.getState().entries.find(item => item.id === entry.id)?.archivedAt).toBe(10)
+    expect(useTaskShelf.getState().entries.find(item => item.id === 'second')?.archivedAt).toBeUndefined()
+    expect(useTaskShelf.getState().error).toBe('missing directory')
+  })
+  it('批量移回失败保留归档记录，解除忙碌状态并提示重试', async () => {
+    records = [{ ...entry, archivedAt: 10 }]
+    useTaskShelf.setState({ entries: records })
+    api.mockResolvedValueOnce({ success: false, error: 'disk full' })
+    expect(await useTaskShelf.getState().restoreArchived()).toBe(false)
+    expect(useTaskShelf.getState().entries).toEqual(records)
+    expect(useTaskShelf.getState().restoringArchived).toBe(false)
+    expect(useTaskShelf.getState().error).toBe('disk full')
+  })
+  it('重试按钮重新恢复失败的归档项，成功后移到 Tasks', async () => {
+    records = [{ ...entry, archivedAt: 10 }]
+    useTaskShelf.setState({ entries: records })
+    api.mockResolvedValueOnce({ success: false, error: 'host unavailable' })
+    expect(await useTaskShelf.getState().archive(entry.id, false)).toBe(false)
+    expect(useTaskShelf.getState().restoreFailures[entry.id]).toBe(true)
+    await useTaskShelf.getState().retry()
+    expect(useTaskShelf.getState().entries[0].archivedAt).toBeUndefined()
+    expect(useTaskShelf.getState().restoreFailures).toEqual({})
+    expect(useTaskShelf.getState().error).toBeNull()
+    expect(api.mock.calls.filter(([r]) => r.kind === 'restore')).toHaveLength(2)
+  })
+  it('批量移回等待回执期间拒绝重复提交', async () => {
+    let finish!: (result: TaskShelfResult) => void
+    api.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    records = [{ ...entry, archivedAt: 10 }]
+    useTaskShelf.setState({ entries: records })
+    const first = useTaskShelf.getState().restoreArchived()
+    const wasBusy = useTaskShelf.getState().restoringArchived
+    const duplicate = await useTaskShelf.getState().restoreArchived()
+    finish({ success: false, error: 'restore failed' })
+    expect(await first).toBe(false)
+    expect(wasBusy).toBe(true)
+    expect(duplicate).toBe(false)
+    expect(api).toHaveBeenCalledOnce()
+    expect(useTaskShelf.getState().restoringArchived).toBe(false)
+  })
   it('保存成功后只收起引用，网页 payload 与原实例 ID 均保持', async () => {
     const payload = usePaneStore.getState().overlayPayloads['web-1']
     expect(await useTaskShelf.getState().collect({ kind: 'web', id: 'web-1', url: 'https://example.org/', title: 'Original' })).toBe(true)

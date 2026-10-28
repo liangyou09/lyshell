@@ -483,7 +483,7 @@ describe('存活策略', () => {
     expect(handle.status().running).toBe(false)
   })
 
-  it('retained 后断开：宽限期到期也不终止；取消收纳后重新计时', async () => {
+  it('收纳任务在应用连接期间保持运行，连接释放后宽限期内结束', async () => {
     const { handle, config, pty } = await openHost({ tuning: { graceMs: 60 } })
     const client = await RawHostClient.connect(handle.pipe)
     client.hello({ hostId: handle.id, token: config.token, cursor: 0 })
@@ -492,21 +492,25 @@ describe('存活策略', () => {
     client.send({ type: 'retain', reqId: 'r1', value: true })
     const ack = await client.waitForAck('r1')
     expect(ack).toMatchObject({ ok: true, status: { retained: true, running: true } })
-    client.send({ type: 'detach', reqId: 'd1' })
-    await client.waitForAck('d1')
-
     await delay(200)
     expect(pty.killed).toBe(false)
     expect(handle.status()).toMatchObject({ running: true, retained: true })
-
-    const again = await RawHostClient.connect(handle.pipe)
-    again.hello({ hostId: handle.id, token: config.token, cursor: 0 })
-    await again.waitForType('welcome')
-    again.send({ type: 'retain', reqId: 'r2', value: false })
-    expect(await again.waitForAck('r2')).toMatchObject({ ok: true, status: { retained: false } })
-    again.send({ type: 'detach', reqId: 'd2' })
-    await again.waitForAck('d2')
+    client.send({ type: 'detach', reqId: 'd1' })
+    await client.waitForAck('d1')
     await waitUntil(() => pty.killed, 1000)
+    expect(handle.status().running).toBe(false)
+  })
+
+  it('应用异常断链时，收纳标记也不能让 PTY 无限存活', async () => {
+    const { handle, config, pty } = await openHost({ tuning: { graceMs: 60 } })
+    const client = await RawHostClient.connect(handle.pipe)
+    client.hello({ hostId: handle.id, token: config.token, cursor: 0 })
+    await client.waitForType('welcome')
+    client.send({ type: 'retain', reqId: 'r1', value: true })
+    await client.waitForAck('r1')
+    client.socket.destroy()
+    await waitUntil(() => pty.killed, 1000)
+    expect(handle.status().running).toBe(false)
   })
 
   it('terminate 只在拿到真实退出证据后才 ack 成功', async () => {

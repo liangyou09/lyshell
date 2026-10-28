@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { shelfWebUrl, DEFAULT_TASK_SHELF_PREFERENCES, parseShelfPreferences, type TaskShelfPreferences, type ShelfRecovery, type TaskShelfEntry } from '@shared/task-shelf'
+import { shelfWebUrl, DEFAULT_TASK_SHELF_PREFERENCES, LEGACY_TASK_SHELF_TOGGLE_SHORTCUT, parseShelfPreferences, type TaskShelfPreferences, type ShelfRecovery, type TaskShelfEntry } from '@shared/task-shelf'
 import { ConnectionType } from '@shared/types/session'
 import { atomicWriteFileSync, getConfigDir } from './repository'
 import { captureSshContext, SSH_CONTEXT_LIMIT } from '../terminal/shelf-ssh-context'
@@ -132,6 +132,16 @@ function parseRecovery(raw: unknown): ShelfRecovery {
   return recovery
 }
 
+/**
+ * 旧版默认展开键（Ctrl+Shift+J）迁移成新默认（Ctrl+`）。
+ * 只认没有版本标记的旧归档里的这一个历史默认值：其余自定义组合和空字符串
+ * （禁用）都原样保留；新归档带 preferencesVersion，用户显式存下的任何值不再迁移。
+ */
+function migrateShelfPreferences(preferences: TaskShelfPreferences): TaskShelfPreferences {
+  if (preferences.toggleShortcut !== LEGACY_TASK_SHELF_TOGGLE_SHORTCUT) return preferences
+  return { ...preferences, toggleShortcut: DEFAULT_TASK_SHELF_PREFERENCES.toggleShortcut }
+}
+
 /** 只重建白名单字段：旧版本遗留或手工塞入的 command/env/password/cookie 一律丢弃。 */
 function parseEntry(raw: unknown): TaskShelfEntry {
   const value = asRecord(raw)
@@ -259,6 +269,47 @@ export class TaskShelfRepository {
     return clone(next)
   }
 
+  /**
+   * 批量归档：退出或启动补归档时一次收起全部未归档记录。
+   * 每条与单项 archive 语义一致（archivedAt=now、revision+1、updatedAt 只前进），
+   * 整批一次 commit 原子落盘；没有待归档项时不写盘；写失败整体回滚内存。
+   * 生命周期调用（何时退出/补归档）由上层负责，这里不隐式执行。
+   */
+  archiveAll(now = Date.now()): TaskShelfEntry[] {
+    this.ensureLoaded()
+    let pending = false
+    const next = this.entries.map(entry => {
+      if (entry.archivedAt !== undefined) return entry
+      pending = true
+      return { ...entry, archivedAt: now, revision: entry.revision + 1, updatedAt: Math.max(now, entry.updatedAt + 1) }
+    })
+    if (!pending) return this.entries.map(clone)
+    this.commit(next)
+    return this.entries.map(clone)
+  }
+
+  /**
+   * 归档区「全部移回 Tasks」：只摘掉已归档记录的 archivedAt，改的是列表归属，不是运行态。
+   * 每条与单项 archive(id, false) 语义一致（revision+1、updatedAt 只前进），
+   * 恢复元数据、工作区、SSH 上下文与偏好全部原样保留；整批一次 commit 原子落盘，
+   * 没有可移回项时不写盘，写失败整体回滚内存并保留上次有效文件。
+   * 恢复/启动由上层显式指令负责，这里绝不触发任何运行资源行为。
+   */
+  unarchiveAll(now = Date.now()): TaskShelfEntry[] {
+    this.ensureLoaded()
+    let pending = false
+    const next = this.entries.map(entry => {
+      if (entry.archivedAt === undefined) return entry
+      pending = true
+      const unarchived: TaskShelfEntry = { ...entry, revision: entry.revision + 1, updatedAt: Math.max(now, entry.updatedAt + 1) }
+      delete unarchived.archivedAt
+      return unarchived
+    })
+    if (!pending) return this.entries.map(clone)
+    this.commit(next)
+    return this.entries.map(clone)
+  }
+
   capture(input: ShelfCaptureInput, now = Date.now()): ShelfCaptureResult {
     this.ensureLoaded()
     const title = requiredText(input.title, MAX_TITLE)
@@ -338,7 +389,7 @@ export class TaskShelfRepository {
     const previous = this.entries
     this.entries = next
     try {
-      atomicWriteFileSync(this.file, JSON.stringify({ version: 1, entries: next, preferences: this.preferences }, null, 2))
+      atomicWriteFileSync(this.file, JSON.stringify({ version: 1, preferencesVersion: 2, entries: next, preferences: this.preferences }, null, 2))
     } catch (error) {
       this.entries = previous
       throw new Error(`保存区写入失败，保留上次有效文件：${(error as Error).message}`)
@@ -357,7 +408,13 @@ export class TaskShelfRepository {
         damaged()
       }
       if (archive.version !== 1 || !Array.isArray(archive.entries)) damaged()
-      if (archive.preferences !== undefined) { try { preferences = parseShelfPreferences(archive.preferences) } catch { damaged() } }
+      if (archive.preferences !== undefined) {
+        try {
+          const saved = parseShelfPreferences(archive.preferences)
+          // 旧归档没有版本标记：只在这时把历史默认展开键换成新默认。
+          preferences = archive.preferencesVersion === 2 ? saved : migrateShelfPreferences(saved)
+        } catch { damaged() }
+      }
       if (archive.entries.length > TASK_SHELF_LIMIT) damaged()
       for (const item of archive.entries) entries.push(parseEntry(item))
       const ids = new Set<string>()

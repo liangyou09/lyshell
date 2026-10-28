@@ -11,9 +11,13 @@ interface ShelfStore {
   bindings: Record<string, Binding>
   loaded: boolean
   busy: Record<string, boolean>
+  restoringArchived: boolean
   error: string | null
   saveErrors: Record<string, string>
+  restoreFailures: Record<string, boolean>
   reservedWidth: number
+  reservedHeight: number
+  reservedEdge: 'left' | 'right' | 'top' | 'bottom'
   panelVisible: boolean
   viewRequest: { revision: number; open: boolean; entryId?: string; notices?: boolean } | null
   showPanel: (entryId?: string, notices?: boolean) => void
@@ -21,11 +25,12 @@ interface ShelfStore {
   preferences: TaskShelfPreferences
   load: () => Promise<void>
   collect: (resource: ShelfResource) => Promise<boolean>
-  open: (id: string, paneId?: string) => Promise<boolean>
+  open: (id: string, paneId?: string, background?: boolean) => Promise<boolean>
   remove: (id: string) => Promise<void>
   hide: (id: string) => void
   retry: () => Promise<void>
   archive: (id: string, archived: boolean) => Promise<boolean>
+  restoreArchived: () => Promise<boolean>
   setPreferences: (preferences: TaskShelfPreferences) => Promise<boolean>
 }
 
@@ -85,7 +90,7 @@ export function shelfEntryVisible(id: string): boolean {
   return !!leaf?.overlays.some(r => r.id === binding.id && !r.shelved)
 }
 
-async function reveal(binding: Binding, paneId?: string): Promise<boolean> {
+async function reveal(binding: Binding, paneId?: string, background = false): Promise<boolean> {
   const pane = usePaneStore.getState()
   if (binding.kind === 'terminal') {
     if (!useSessionStore.getState().sessions.some(s => s.id === binding.id)) {
@@ -95,7 +100,8 @@ async function reveal(binding: Binding, paneId?: string): Promise<boolean> {
     }
     const target = paneId || pane.getPaneBySessionId(binding.id)?.id || pane.layout.activePaneId || pane.getAllLeafPanes()[0]?.id
     if (!target) return false
-    if (paneId || !pane.getPaneBySessionId(binding.id)) pane.addSessionToPane(target, binding.id)
+    if (paneId || !pane.getPaneBySessionId(binding.id)) pane.addSessionToPane(target, binding.id, { background })
+    if (background) { hideBinding(binding); return true }
     pane.toggleLiveSessionTabs([binding.id], false)
     pane.deactivateOverlaysInPane(target)
     pane.setActiveSessionInPane(target, binding.id)
@@ -104,6 +110,7 @@ async function reveal(binding: Binding, paneId?: string): Promise<boolean> {
     return true
   }
   if (!pane.overlayPayloads[binding.id] || !pane.getOverlayPaneId(binding.id)) return false
+  if (background) { hideBinding(binding); return true }
   if (paneId) pane.moveOverlayToPane(binding.id, paneId)
   pane.activateOverlay(binding.id)
   return true
@@ -145,7 +152,7 @@ function schedule(id: string): void {
 }
 
 export const useTaskShelf = create<ShelfStore>((set, get) => ({
-  entries: [], bindings: {}, loaded: false, busy: {}, error: null, saveErrors: {}, reservedWidth: 0, panelVisible: false, viewRequest: null, preferences: { ...DEFAULT_TASK_SHELF_PREFERENCES },
+  entries: [], bindings: {}, loaded: false, busy: {}, restoringArchived: false, error: null, saveErrors: {}, restoreFailures: {}, reservedWidth: 0, reservedHeight: 0, reservedEdge: 'right', panelVisible: false, viewRequest: null, preferences: { ...DEFAULT_TASK_SHELF_PREFERENCES },
   showPanel: (entryId, notices = false) => set(state => ({ viewRequest: { revision: (state.viewRequest?.revision ?? 0) + 1, open: true, entryId, notices } })),
   togglePanel: () => set(state => ({ viewRequest: { revision: (state.viewRequest?.revision ?? 0) + 1, open: !state.panelVisible } })),
   load: async () => {
@@ -167,20 +174,21 @@ export const useTaskShelf = create<ShelfStore>((set, get) => ({
     return job
   },
   hide: id => { const binding = get().bindings[id]; if (binding) { hideBinding(binding); schedule(id) } },
-  open: async (id, paneId) => {
+  open: async (id, paneId, background = false) => {
     if (get().busy[id]) return false
+    set(state => { const restoreFailures = { ...state.restoreFailures }; delete restoreFailures[id]; return { restoreFailures } })
     set(state => ({ busy: { ...state.busy, [id]: true }, error: null }))
     try {
       let binding = get().bindings[id]
       const stillLive = binding && (binding.kind !== 'terminal' || useSessionStore.getState().sessions.some(s => s.id === binding.id && ['connected', 'connecting'].includes(s.status)))
-      if (binding && stillLive && await reveal(binding, paneId)) return true
+      if (binding && stillLive && await reveal(binding, paneId, background)) return true
       const result = await invoke({ kind: 'restore', id })
       const restored = result.restored
       if (!restored) throw new Error('当前任务需要在原界面手动恢复。')
       if (restored.kind === 'terminal') binding = { kind: 'terminal', id: restored.sessionId }
       else if (restored.kind === 'web') {
         const pane = usePaneStore.getState()
-        const overlayId = pane.mountOverlay(paneId, { kind: 'web', url: restored.url, title: result.entry?.title || restored.url })
+        const overlayId = pane.mountOverlay(paneId, { kind: 'web', url: restored.url, title: result.entry?.title || restored.url }, { background })
         if (!overlayId) throw new Error('无法打开任务页签。')
         binding = { kind: 'web', id: overlayId }
       } else {
@@ -190,7 +198,7 @@ export const useTaskShelf = create<ShelfStore>((set, get) => ({
         const response = navigation?.success ? navigation : await window.electronAPI.openDshWeb({})
         if (!response.success || !response.url) throw new Error(response.error || '无法打开 DeepSeek 工作台。')
         const pane = usePaneStore.getState()
-        const overlayId = pane.mountOverlay(paneId, { kind: 'dshWeb', url: response.url, name: 'DeepSeek Harness' })
+        const overlayId = pane.mountOverlay(paneId, { kind: 'dshWeb', url: response.url, name: 'DeepSeek Harness' }, { background })
         if (!overlayId) throw new Error('无法打开工作台页签。')
         if (navigation?.success && restored.identity && restored.sessionId) {
           const deadline = Date.now() + 12000
@@ -206,11 +214,11 @@ export const useTaskShelf = create<ShelfStore>((set, get) => ({
         binding = { kind: 'harness', id: overlayId }
       }
       set(state => ({ bindings: { ...state.bindings, [id]: binding } }))
-      if (!await reveal(binding, paneId)) throw new Error('任务已恢复，定位页签失败，请重试定位。')
+      if (!await reveal(binding, paneId, background)) throw new Error('任务已恢复，定位页签失败，请重试定位。')
       const resource = shelfResource(binding.kind, binding.id)
       if (resource) await capture(resource, id)
       return true
-    } catch (error) { set({ error: (error as Error).message }); return false }
+    } catch (error) { set(state => ({ error: (error as Error).message, restoreFailures: { ...state.restoreFailures, [id]: false } })); return false }
     finally { set(state => { const busy = { ...state.busy }; delete busy[id]; return { busy } }) }
   },
   remove: async id => {
@@ -226,18 +234,53 @@ export const useTaskShelf = create<ShelfStore>((set, get) => ({
       set(state => {
         const bindings = { ...state.bindings }; delete bindings[id]
         const saveErrors = { ...state.saveErrors }; delete saveErrors[id]
-        return { bindings, saveErrors, error: null }
+        const restoreFailures = { ...state.restoreFailures }; delete restoreFailures[id]
+        return { bindings, saveErrors, restoreFailures, error: null }
       })
     } catch (error) { set({ error: (error as Error).message }) }
   },
-  retry: async () => { for (const id of Object.keys(get().bindings)) dirty.add(id); await flush(); if (!get().loaded) await get().load() },
+  retry: async () => {
+    const failures = Object.entries(get().restoreFailures)
+    if (failures.length) {
+      const errors: string[] = []
+      for (const [id, archived] of failures) {
+        if (!await (archived ? get().archive(id, false) : get().open(id))) errors.push(get().error || '恢复失败，请重试。')
+      }
+      set({ error: errors.length ? [...new Set(errors)].join('\n') : null })
+      return
+    }
+    for (const id of Object.keys(get().bindings)) dirty.add(id)
+    await flush()
+    if (!get().loaded) await get().load()
+  },
   archive: async (id, archived) => {
     if (get().busy[id]) return false
     try {
+      // 移回 Tasks 代表恢复可用实例；启动失败时仍留在归档，便于重试。
+      if (!archived && !await get().open(id, undefined, true)) {
+        set(state => ({ restoreFailures: { ...state.restoreFailures, [id]: true } }))
+        return false
+      }
       await invoke({ kind: 'archive', id, archived })
-      if (archived) get().hide(id)
+      get().hide(id)
       return true
-    } catch (error) { set({ error: (error as Error).message }); return false }
+    } catch (error) { set(state => ({ error: (error as Error).message, ...(!archived ? { restoreFailures: { ...state.restoreFailures, [id]: true } } : {}) })); return false }
+  },
+  restoreArchived: async () => {
+    if (get().restoringArchived) return false
+    set({ restoringArchived: true })
+    try {
+      const ids = get().entries.filter(entry => !!entry.archivedAt).map(entry => entry.id)
+      const errors: string[] = []
+      for (const id of ids) {
+        if (!await get().archive(id, false)) errors.push(get().error || '任务正在恢复，请稍后重试。')
+      }
+      set({ error: errors.length ? [...new Set(errors)].join('\n') : null })
+      return !errors.length
+    } catch (error) {
+      set({ error: (error as Error).message })
+      return false
+    } finally { set({ restoringArchived: false }) }
   },
   setPreferences: async preferences => {
     try { await invoke({ kind: 'preferences', preferences }); set({ error: null }); return true }

@@ -467,10 +467,12 @@ export function validateDownloadHistoryPage(sessionId: unknown, offset: unknown)
  */
 export function validateTaskShelfRequest(raw: unknown): TaskShelfRequest {
   const value = assertObject(raw, 'taskShelfRequest')
-  const fields: Record<string, string[]> = { list: ['kind'], capture: ['kind', 'resource', 'entryId'], remove: ['kind', 'id'], restore: ['kind', 'id'], rename: ['kind', 'id', 'title'], archive: ['kind', 'id', 'archived'], preferences: ['kind', 'preferences'] }
+  const fields: Record<string, string[]> = { list: ['kind'], unarchiveAll: ['kind'], capture: ['kind', 'resource', 'entryId'], remove: ['kind', 'id'], restore: ['kind', 'id'], rename: ['kind', 'id', 'title'], archive: ['kind', 'id', 'archived'], preferences: ['kind', 'preferences'] }
   const allowed = typeof value.kind === 'string' ? fields[value.kind] : undefined
   if (!allowed || Object.keys(value).some(key => !allowed.includes(key))) throw new ValidationError('Unknown task shelf request field')
   if (value.kind === 'list') return { kind: 'list' }
+  // 全部移回是精确无参数请求：只认 kind，任何附加字段都按未知字段拒绝。
+  if (value.kind === 'unarchiveAll') return { kind: 'unarchiveAll' }
   if (value.kind === 'preferences') return { kind: 'preferences', preferences: parseShelfPreferences(value.preferences) }
   if (value.kind === 'archive') return { kind: 'archive', id: assertString(value.id, 'id', { maxLength: 128 }), archived: assertBoolean(value.archived, 'archived') }
   if (value.kind === 'capture') {

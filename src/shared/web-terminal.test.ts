@@ -13,12 +13,25 @@ describe('网页终端共享契约', () => {
     expect(WEB_TERMINAL_MAX_TEXT).toBe(16384)
   })
 
-  it('接受三种合法请求并只保留白名单字段', () => {
+  it('接受四种合法请求并只保留白名单字段', () => {
     expect(parseWebTerminalRequest({ kind: 'bind', pageId: 7 })).toEqual({ kind: 'bind', pageId: 7 })
+    expect(parseWebTerminalRequest({ kind: 'discover', pageId: 7 })).toEqual({ kind: 'discover', pageId: 7 })
     expect(parseWebTerminalRequest({ kind: 'send', pageId: 7, bindingId: BINDING, text: 'ls -la\r\nexit\n', enter: true }))
       .toEqual({ kind: 'send', pageId: 7, bindingId: BINDING, text: 'ls -la\r\nexit\n', enter: true })
     expect(parseWebTerminalRequest({ kind: 'release', pageId: 7, bindingId: BINDING }))
       .toEqual({ kind: 'release', pageId: 7, bindingId: BINDING })
+  })
+
+  it('discover 只接受 kind/pageId 两个字段', () => {
+    const discover = (raw: unknown) => parseWebTerminalRequest(raw)
+    expect(discover({ kind: 'discover', pageId: 1 })).toEqual({ kind: 'discover', pageId: 1 })
+    expect(discover({ kind: 'discover', pageId: 1, bindingId: BINDING })).toBeNull()
+    expect(discover({ kind: 'discover', pageId: 1, text: 'ls' })).toBeNull()
+    expect(discover({ kind: 'discover', pageId: 1, enter: true })).toBeNull()
+    expect(discover({ kind: 'discover' })).toBeNull()
+    for (const pageId of [0, -1, 1.5, Number.NaN, '1', null, undefined]) {
+      expect(discover({ kind: 'discover', pageId }), String(pageId)).toBeNull()
+    }
   })
 
   it('归一化结果与输入解耦，且二次解析保持稳定', () => {

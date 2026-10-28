@@ -2,14 +2,14 @@
  * 窗口第一行(顶置页签条)与左列共享度量 -- 单一真相源,对齐 ActivityRail.tsx 的 RAIL_WIDTH 模式。
  *
  * 终端页签条提顶后,窗口第一行 = 最顶排 pane 的 PaneTabBar + 左上侧栏开关 pill +
- * 右上控制簇(浮窗键/窗口控制;MCP 状态片已移至 ActivityRail 轨底)。pill 与控制簇
+ * 右上控制簇(任务通知/窗口控制;MCP 状态片已移至 ActivityRail 轨底)。pill 与控制簇
  * 是 absolute 浮层,对应 pane 的页签条做 padding 留白防页签滚入浮层下方:左端 pill 宽固定,
  * 浮层挂载宽读 TOP_LEFT_RESERVE 常量,页签条留白读 MainWindow 按侧栏收起态发布的
  * CSS 变量 --top-left-reserve(收起 = pill 宽 / 展开 = 0,页签紧贴左列);右端控制簇宽由
  * TopRightControls 实测发布,不走常量(见下方 --top-right-reserve 说明)。
  */
 
-/** 第一行高度 -- 页签条(含空态条)/pill/控制簇浮层/会话浮窗挂载点共用 */
+/** 第一行高度 -- 页签条(含空态条)/pill/控制簇浮层共用 */
 export const TOPBAR_HEIGHT = 36
 
 /** 面板内二级横带高度 -- PanelTabs 页签条 / FileManager 标题条共用。

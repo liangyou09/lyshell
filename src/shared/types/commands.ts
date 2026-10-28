@@ -1,38 +1,4 @@
 /**
- * 浮窗状态
- */
-export interface FloatWindowState {
-  // 显示状态
-  isVisible: boolean
-  activeTab: FloatTabType
-
-  // 尺寸与位置
-  size: {
-    width: number
-    height: number
-  }
-  position: {
-    x: number
-    y: number
-  }
-
-  // 搜索状态
-  searchQuery: string
-
-  // 列表选择
-  selectedItemId: string | null
-}
-
-/**
- * 浮窗页签类型
- */
-export enum FloatTabType {
-  SESSIONS = 'sessions',
-  COMMANDS = 'commands',
-  HISTORY = 'history'
-}
-
-/**
  * 快速命令分组（存储结构）
  */
 export interface QuickCommandGroup {
@@ -56,18 +22,6 @@ export interface QuickCommand {
   isFavorite?: boolean
   order?: number    // 显示顺序（用于快捷键绑定）
   escapeSequences?: boolean  // 发送时解析转义字符（\n \r \t \xHH）
-}
-
-/**
- * 命令分组显示结构（用于浮窗 UI）
- */
-export interface CommandGroupDisplay {
-  id: string
-  name: string
-  icon: string
-  commands: QuickCommand[]
-  isCollapsed: boolean
-  order: number
 }
 
 /**

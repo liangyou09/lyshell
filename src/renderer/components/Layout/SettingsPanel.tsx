@@ -12,6 +12,7 @@ import PluginViewPanel from './PluginViewPanel'
 import BrowserSettingsPanel, { type BrowserSettingsCategory } from './BrowserSettingsPanel'
 import { SettingsBackGlyph, SettingsNavigation } from './SettingsNavigation'
 import { useTaskShelf } from '../../stores/task-shelf'
+import { DEFAULT_TASK_SHELF_PREFERENCES } from '@shared/task-shelf'
 import type { NavTab } from './ActivityRail'
 
 const EnvProfilePanel = lazy(() => import('./EnvProfilePanel'))
@@ -325,7 +326,7 @@ const SettingsPanel: React.FC<{
                 className="settings-input settings-shortcut-input"
                 aria-label={t('settings.shelfToggleShortcut')}
                 value={shortcutDraft.toggleShortcut}
-                placeholder="Ctrl+Shift+J"
+                placeholder={DEFAULT_TASK_SHELF_PREFERENCES.toggleShortcut}
                 spellCheck={false}
                 autoComplete="off"
                 onChange={event => {
@@ -355,6 +356,14 @@ const SettingsPanel: React.FC<{
               {shortcutStatus && (shortcutStatus.kind === 'error'
                 ? <span className="settings-shortcut-error" role="alert">{shortcutStatus.text}</span>
                 : <span className="settings-shortcut-status" role="status">{shortcutStatus.text}</span>)}
+              <button type="button" className="settings-apply" onClick={() => {
+                setShortcutDraft({ ...DEFAULT_TASK_SHELF_PREFERENCES })
+                void useTaskShelf.getState().setPreferences({ ...DEFAULT_TASK_SHELF_PREFERENCES }).then(saved => {
+                  setShortcutStatus(saved
+                    ? { kind: 'saved', text: t('settings.shelfShortcutsSaved') }
+                    : { kind: 'error', text: useTaskShelf.getState().error || t('settings.shelfShortcutsFailed') })
+                })
+              }}>{t('settings.restoreShelfDefaults')}</button>
               <button type="submit" className="settings-apply">{t('settings.saveShortcuts')}</button>
             </div>
           </form>

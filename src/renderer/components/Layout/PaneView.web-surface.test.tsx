@@ -164,7 +164,7 @@ describe('常驻任务区上方的首行保持全宽', () => {
       }
       expect(rightmost.children[1].classList.contains('overflow-hidden')).toBe(true)
       const other = view.container.querySelector<HTMLElement>('[data-pane-id="c"]')!
-      expect((other.firstElementChild as HTMLElement).style.width).toBe('')
+      expect((other.firstElementChild as HTMLElement).style.width).toBe(direction === 'horizontal' ? 'calc(100% + var(--task-shelf-left-reserve, 0px))' : '')
       const terminals = [...view.container.querySelectorAll('[data-testid="terminal-view"]')]
       view.rerender(<div style={{ paddingRight: 0, '--task-shelf-reserve': '0px' } as React.CSSProperties}><SplitPaneContainer /></div>)
       expect([...view.container.querySelectorAll('[data-testid="terminal-view"]')]).toEqual(terminals)

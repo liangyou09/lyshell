@@ -14,6 +14,7 @@ import { useTaskShelf, shelfEntryFor, shelfResource } from '../../stores/task-sh
 import { showShelfContextMenu } from './TaskShelfContextMenu'
 import type { PaneLeaf, OverlayKind, OverlayPayload, OverlayRef } from '@shared/types'
 import { TOPBAR_HEIGHT, TOPBAR_GRIP_WIDTH } from './topbar-metrics'
+import WebTerminalButton from './WebTerminalButton'
 
 // codex/claude 品牌标资产 —— 与 ActivityRail 左轨同源（assets/agent-icons/*.png），
 // mask 取资产 alpha 作剪影、bg-current 随页签文字色着色（空闲静息档 / 激活亮）
@@ -371,6 +372,7 @@ const OverlayTab: React.FC<{
       )}
     >
       <Content payload={payload} />
+      {overlay.kind === 'web' && overlay.active && <WebTerminalButton id={overlay.id} onActivate={() => activateOverlay(overlay.id)} />}
       {(overlay.kind === 'web' || overlay.kind === 'dshWeb') && !payload.ownerPluginId && <button
         className="win-no-drag pane-tab-close w-[16px] h-[16px] flex-shrink-0 flex items-center justify-center hover:text-[var(--amber)]"
         title={t('taskShelf.collect')} aria-label={t('taskShelf.collect')}
@@ -965,7 +967,9 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
       style={{
         height: TOPBAR_HEIGHT,
         // 停靠任务区只占内容层；第一行继续延伸到窗口右侧控制簇。
-        width: isTop && isTopRight ? 'calc(100% + var(--task-shelf-reserve, 0px))' : undefined,
+        width: isTop && (isTopLeft || isTopRight) ? `calc(100%${isTopRight ? ' + var(--task-shelf-reserve, 0px)' : ''}${isTopLeft ? ' + var(--task-shelf-left-reserve, 0px)' : ''})` : undefined,
+        marginLeft: isTop && isTopLeft ? 'calc(0px - var(--task-shelf-left-reserve, 0px))' : undefined,
+        transform: isTop ? 'translateY(calc(0px - var(--task-shelf-top-reserve, 0px)))' : undefined,
         paddingLeft: isTop && isTopLeft ? 'var(--top-left-reserve)' : undefined,
         paddingRight: isTop && isTopRight ? 'var(--top-right-reserve)' : undefined
       }}

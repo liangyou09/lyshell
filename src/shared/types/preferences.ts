@@ -5,9 +5,6 @@ export interface UserPreferences {
   // 外观
   appearance: AppearanceSettings
 
-  // 浮窗
-  floatWindow: FloatWindowSettings
-
   // 主窗口尺寸(像素) -- 持久化到 preferences.json 的 'window' 键,启动时由主进程读取恢复
   window?: WindowSettings
 
@@ -32,37 +29,6 @@ export interface AppearanceSettings {
   accentColor: string
   fontSize: number
   fontFamily: string
-}
-
-/**
- * 浮窗设置
- */
-export interface FloatWindowSettings {
-  enabled: boolean
-  position: FloatWindowPosition
-  opacity: number
-  sizeStrategy: 'auto' | 'fixed'
-  fixedSize?: { width: number; height: number }
-  hotkey: string
-  showOnStartup: boolean
-  autoCloseOnExecute: boolean
-  autoCloseOnConnect: boolean
-  autoCloseOnBlur: boolean
-  blurDelay: number
-  defaultTab: 'sessions' | 'commands' | 'history'
-  hoverTrigger: boolean
-  hoverDelay: number
-}
-
-/**
- * 浮窗位置
- */
-export enum FloatWindowPosition {
-  TOP_RIGHT = 'top-right',
-  TOP_LEFT = 'top-left',
-  BOTTOM_RIGHT = 'bottom-right',
-  BOTTOM_LEFT = 'bottom-left',
-  CUSTOM = 'custom'
 }
 
 /**

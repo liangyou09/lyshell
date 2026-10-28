@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ConnectionType } from '@shared/types/session'
+import type { TaskShelfEntry } from '@shared/task-shelf'
 import { TASK_SHELF_LIMIT, TaskShelfRepository, type ShelfCaptureInput } from './task-shelf-repository'
 
 /** 写盘行为可控：用一次失败验证「回滚内存 + 保留上次有效文件」。 */
@@ -72,7 +73,7 @@ describe('归档与偏好持久化', () => {
     writeFileSync(file, JSON.stringify({ version: 1, preferences: { toggleShortcut: 'Ctrl+Shift+K', collectShortcut: '' }, entries: [{}] }))
     expect(() => repository.list()).toThrow(/damaged/)
     writeFileSync(file, JSON.stringify({ version: 1, entries: [] }))
-    expect(repository.getPreferences()).toEqual({ toggleShortcut: 'Ctrl+Shift+J', collectShortcut: 'Ctrl+Shift+S' })
+    expect(repository.getPreferences()).toEqual({ toggleShortcut: 'Ctrl+`', collectShortcut: 'Ctrl+Shift+S' })
   })
   it('归档不删除恢复引用，动态捕获保留归档标记，重新实例化可移回', () => {
     const repository = new TaskShelfRepository(file)
@@ -91,6 +92,32 @@ describe('归档与偏好持久化', () => {
     expect(() => repository.setPreferences({ toggleShortcut: '', collectShortcut: '' })).toThrow()
     expect(repository.getPreferences().toggleShortcut).toBe('Ctrl+Shift+U')
     expect(new TaskShelfRepository(file).getPreferences().collectShortcut).toBe('Ctrl+Shift+I')
+  })
+  it('加载旧默认 Ctrl+Shift+J 迁移为 Ctrl+`，自定义与禁用值原样保留', () => {
+    writeFileSync(file, JSON.stringify({ version: 1, preferences: { toggleShortcut: 'Ctrl+Shift+J', collectShortcut: 'Ctrl+Shift+S' }, entries: [] }))
+    expect(new TaskShelfRepository(file).getPreferences()).toEqual({ toggleShortcut: 'Ctrl+`', collectShortcut: 'Ctrl+Shift+S' })
+
+    for (const kept of [
+      { toggleShortcut: 'Ctrl+Shift+K', collectShortcut: 'Ctrl+Shift+S' },
+      { toggleShortcut: 'Meta+`', collectShortcut: '' },
+      { toggleShortcut: '', collectShortcut: 'Ctrl+Shift+J' }
+    ]) {
+      writeFileSync(file, JSON.stringify({ version: 1, preferences: kept, entries: [] }))
+      expect(new TaskShelfRepository(file).getPreferences()).toEqual(kept)
+    }
+  })
+  it('迁移后的新默认随下一次写盘固化，旧默认不再写回文件', () => {
+    writeFileSync(file, JSON.stringify({ version: 1, preferences: { toggleShortcut: 'Ctrl+Shift+J', collectShortcut: '' }, entries: [] }))
+    const repository = new TaskShelfRepository(file)
+    repository.capture(captureInput(), 1000)
+    expect((JSON.parse(readFileSync(file, 'utf8')) as { preferences: unknown }).preferences).toEqual({ toggleShortcut: 'Ctrl+`', collectShortcut: '' })
+    expect(new TaskShelfRepository(file).getPreferences()).toEqual({ toggleShortcut: 'Ctrl+`', collectShortcut: '' })
+  })
+  it('用户显式保存 Ctrl+Shift+J 时按自定义值写回，不被加载迁移改写', () => {
+    const repository = new TaskShelfRepository(file)
+    expect(repository.setPreferences({ toggleShortcut: 'Ctrl+Shift+J', collectShortcut: '' })).toEqual({ toggleShortcut: 'Ctrl+Shift+J', collectShortcut: '' })
+    expect(repository.getPreferences().toggleShortcut).toBe('Ctrl+Shift+J')
+    expect(new TaskShelfRepository(file).getPreferences().toggleShortcut).toBe('Ctrl+Shift+J')
   })
 })
 
@@ -286,5 +313,355 @@ describe('TaskShelfRepository', () => {
     )
     expect(liveOnly.entry.recovery).toEqual({ kind: 'web' })
     expect(readFileSync(file, 'utf8')).not.toContain('localhost')
+  })
+})
+
+/** 退出/启动补归档：整批原子写一次，只收起未归档记录。 */
+describe('TaskShelfRepository.archiveAll', () => {
+  function webInput(overrides: Partial<ShelfCaptureInput> = {}): ShelfCaptureInput {
+    return {
+      resourceKey: 'web:w1',
+      title: '文档',
+      workspace: undefined,
+      recovery: { kind: 'web', url: 'https://example.com/docs/guide' },
+      capability: 'web',
+      ...overrides
+    }
+  }
+
+  function harnessInput(overrides: Partial<ShelfCaptureInput> = {}): ShelfCaptureInput {
+    return {
+      resourceKey: 'harness:h1',
+      title: '助手任务',
+      workspace: 'D:/work/harness',
+      recovery: { kind: 'harness', sessionId: 's1', taskId: 'task-1', identity: { instanceId: 'inst-1', instanceEpoch: 2 }, lastState: 'idle' },
+      capability: 'harness-history',
+      ...overrides
+    }
+  }
+
+  it('混合资源一次归档：整批只写一次盘，恢复元数据、SSH 上下文与偏好全部保留', () => {
+    const repository = new TaskShelfRepository(file)
+    const ssh = repository.capture(captureInput({ context: { text: 'previous output\n/home/work', capturedAt: 900 } }), 1000).entry
+    const web = repository.capture(webInput(), 1010).entry
+    const harness = repository.capture(harnessInput(), 1020).entry
+    const preferences = repository.setPreferences({ toggleShortcut: 'Ctrl+Shift+Y', collectShortcut: '' })
+    const writes = disk.writes
+    const before = repository.list()
+
+    const archived = repository.archiveAll(2000)
+
+    // 整批一次 commit：不是每条记录写一次盘。
+    expect(disk.writes).toBe(writes + 1)
+    expect(archived.map(item => item.id)).toEqual([ssh.id, web.id, harness.id])
+    for (const item of archived) {
+      const previous = before.find(candidate => candidate.id === item.id)!
+      expect(item.archivedAt).toBe(2000)
+      expect(item.revision).toBe(previous.revision + 1)
+      expect(item.updatedAt).toBe(Math.max(2000, previous.updatedAt + 1))
+      // 归档只加时间戳：恢复引用、工作区与 SSH 上下文都原样保留。
+      expect(item.recovery).toEqual(previous.recovery)
+      expect(item.workspace).toEqual(previous.workspace)
+      expect(item.context).toEqual(previous.context)
+    }
+    expect(archived.find(item => item.id === ssh.id)?.context).toEqual({ text: 'previous output\n/home/work', capturedAt: 900 })
+
+    const reopened = new TaskShelfRepository(file)
+    expect(reopened.list()).toEqual(archived)
+    expect(reopened.getPreferences()).toEqual(preferences)
+    expect(readArchive().entries.map(item => item.archivedAt)).toEqual([2000, 2000, 2000])
+    expect(readArchive().entries).toHaveLength(3)
+  })
+
+  it('已有归档记录的时间与版本原样保留，只有未归档记录被收起', () => {
+    const repository = new TaskShelfRepository(file)
+    const first = repository.capture(captureInput({ resourceKey: 'terminal:t1' }), 1000).entry
+    const second = repository.capture(webInput({ resourceKey: 'web:w2' }), 2000).entry
+    repository.archive(first.id, true, 3000)
+    const frozen = repository.get(first.id)!
+    const writes = disk.writes
+
+    const archived = repository.archiveAll(4000)
+
+    expect(disk.writes).toBe(writes + 1)
+    // 已归档记录连 revision/updatedAt 都不动。
+    expect(archived.find(item => item.id === first.id)).toEqual(frozen)
+    expect(readArchive().entries.find(item => item.id === first.id)).toMatchObject({
+      archivedAt: frozen.archivedAt,
+      revision: frozen.revision,
+      updatedAt: frozen.updatedAt
+    })
+    expect(archived.find(item => item.id === second.id)).toMatchObject({ archivedAt: 4000, revision: 2, updatedAt: 4000 })
+    // 重建仓储后归档标记仍在，且已有归档记录没有被重写时间。
+    const reopened = new TaskShelfRepository(file)
+    expect(reopened.get(first.id)).toEqual(frozen)
+    expect(reopened.get(second.id)?.archivedAt).toBe(4000)
+  })
+
+  it('空保存区与重复调用都不写盘', () => {
+    const empty = new TaskShelfRepository(file)
+    expect(empty.archiveAll(1000)).toEqual([])
+    expect(disk.writes).toBe(0)
+    expect(existsSync(file)).toBe(false)
+
+    const repository = new TaskShelfRepository(file)
+    repository.capture(captureInput(), 1000)
+    repository.capture(webInput(), 2000)
+    const archived = repository.archiveAll(3000)
+    const writes = disk.writes
+
+    // 再归档一次：没有待归档项，返回完整列表但一个字节都不写。
+    expect(repository.archiveAll(4000)).toEqual(archived)
+    expect(repository.archiveAll(5000)).toEqual(archived)
+    expect(disk.writes).toBe(writes)
+  })
+
+  it('整批写入失败时回滚全部内存与磁盘，恢复后仍可整体归档', () => {
+    const repository = new TaskShelfRepository(file)
+    repository.capture(captureInput(), 1000)
+    repository.capture(webInput(), 2000)
+    repository.capture(harnessInput(), 3000)
+    const before = readFileSync(file, 'utf8')
+    const memoryBefore = repository.list()
+    const writes = disk.writes
+
+    disk.failWrite = true
+    expect(() => repository.archiveAll(4000)).toThrow(/保存区写入失败/)
+    // 一条都没归档：内存、磁盘与写盘次数都停在失败前。
+    expect(disk.writes).toBe(writes)
+    expect(readFileSync(file, 'utf8')).toBe(before)
+    expect(repository.list()).toEqual(memoryBefore)
+    expect(repository.list().map(item => item.archivedAt)).toEqual([undefined, undefined, undefined])
+    expect(new TaskShelfRepository(file).list()).toEqual(memoryBefore)
+
+    disk.failWrite = false
+    const archived = repository.archiveAll(5000)
+    expect(archived.map(item => item.archivedAt)).toEqual([5000, 5000, 5000])
+    expect(archived.map(item => item.revision)).toEqual([2, 2, 2])
+    expect(new TaskShelfRepository(file).list()).toEqual(archived)
+  })
+
+  it('返回值是深拷贝：改返回值不影响仓储内存与磁盘', () => {
+    const repository = new TaskShelfRepository(file)
+    const saved = repository.capture(captureInput({ context: { text: 'previous output', capturedAt: 900 } }), 1000).entry
+    const archived = repository.archiveAll(2000)
+    // 归档之后的写盘次数：改返回值不应再触发一次写盘。
+    const writes = disk.writes
+
+    archived[0].title = '被改坏'
+    archived[0].archivedAt = 1
+    archived[0].revision = 99
+    archived[0].context!.text = 'rewritten'
+    archived[0].context!.capturedAt = 2
+    const recovery = archived[0].recovery
+    if (recovery.kind === 'terminal') {
+      recovery.cwd = 'C:/rewritten'
+      recovery.sessionId = 'rewritten'
+    }
+
+    expect(disk.writes).toBe(writes)
+    expect(repository.get(saved.id)).toMatchObject({ title: '终端 1', archivedAt: 2000, revision: 2 })
+    expect(repository.get(saved.id)?.recovery).toEqual(saved.recovery)
+    expect(repository.get(saved.id)?.context).toEqual(saved.context)
+    expect(new TaskShelfRepository(file).get(saved.id)?.title).toBe('终端 1')
+  })
+
+  it('时间回退时 archivedAt 用传入的 now，updatedAt 仍严格前进', () => {
+    const repository = new TaskShelfRepository(file)
+    const late = repository.capture(captureInput(), 5000).entry
+
+    const [archived] = repository.archiveAll(1000)
+
+    expect(archived.archivedAt).toBe(1000)
+    expect(archived.updatedAt).toBe(5001)
+    expect(archived.updatedAt).toBeGreaterThan(late.updatedAt)
+    expect(archived.revision).toBe(late.revision + 1)
+    expect(new TaskShelfRepository(file).get(late.id)?.updatedAt).toBe(5001)
+  })
+
+  it('与逐条 archive 得到相同记录（单项归档语义未变）', () => {
+    const secondFile = join(dir, 'task-shelf-second.json')
+    const batch = new TaskShelfRepository(file)
+    const single = new TaskShelfRepository(secondFile)
+    const seeds: ShelfCaptureInput[] = [captureInput({ resourceKey: 'terminal:t1' }), webInput({ resourceKey: 'web:w3' }), harnessInput({ resourceKey: 'harness:h3' })]
+    const singleResults: TaskShelfEntry[] = []
+    seeds.forEach((seed, index) => {
+      batch.capture(seed, 1000 + index)
+      singleResults.push(single.capture(seed, 1000 + index).entry)
+    })
+
+    const archived = batch.archiveAll(9000)
+    const expected = singleResults.map(entry => single.archive(entry.id, true, 9000))
+    const project = (entries: TaskShelfEntry[]) => entries.map(({ id: _id, ...rest }) => rest)
+    expect(project(archived)).toEqual(project(expected))
+  })
+})
+
+/** 归档区「全部移回 Tasks」：只摘 archivedAt，不动恢复元数据，也不启动任何实例。 */
+describe('TaskShelfRepository.unarchiveAll', () => {
+  function webInput(overrides: Partial<ShelfCaptureInput> = {}): ShelfCaptureInput {
+    return {
+      resourceKey: 'web:w1',
+      title: '文档',
+      workspace: undefined,
+      recovery: { kind: 'web', url: 'https://example.com/docs/guide' },
+      capability: 'web',
+      ...overrides
+    }
+  }
+
+  it('混合归档与活动记录：只移回归档项，活动项与偏好原样保留，整批只写一次盘', () => {
+    const repository = new TaskShelfRepository(file)
+    const active = repository.capture(
+      captureInput({ resourceKey: 'terminal:active', title: '活动终端', recovery: { kind: 'terminal', sessionId: 'active', type: ConnectionType.LOCAL, cwd: 'C:/work/active' }, capability: 'directory' }),
+      1000
+    ).entry
+    const ssh = repository.capture(captureInput({ context: { text: 'previous output', capturedAt: 900 } }), 1010).entry
+    const web = repository.capture(webInput(), 1020).entry
+    repository.archive(ssh.id, true, 1500)
+    repository.archive(web.id, true, 1600)
+    const preferences = repository.setPreferences({ toggleShortcut: 'Ctrl+Shift+Y', collectShortcut: '' })
+    const before = repository.list()
+    const writes = disk.writes
+
+    const moved = repository.unarchiveAll(2000)
+
+    // 整批一次 commit：不是每条记录写一次盘。
+    expect(disk.writes).toBe(writes + 1)
+    expect(moved.map(item => item.id)).toEqual([active.id, ssh.id, web.id])
+    for (const item of moved) expect(item.archivedAt).toBeUndefined()
+    // 本来就活动的记录一个字段都不动。
+    expect(moved.find(item => item.id === active.id)).toEqual(before.find(item => item.id === active.id))
+    // 归档记录：revision 前进、updatedAt 严格单调，恢复元数据/工作区/上下文原样保留。
+    for (const id of [ssh.id, web.id]) {
+      const previous = before.find(item => item.id === id)!
+      const current = moved.find(item => item.id === id)!
+      expect(current.revision).toBe(previous.revision + 1)
+      expect(current.updatedAt).toBe(Math.max(2000, previous.updatedAt + 1))
+      expect(current.recovery).toEqual(previous.recovery)
+      expect(current.workspace).toEqual(previous.workspace)
+      expect(current.context).toEqual(previous.context)
+    }
+    expect(moved.find(item => item.id === ssh.id)?.context).toEqual({ text: 'previous output', capturedAt: 900 })
+    expect(repository.getPreferences()).toEqual(preferences)
+    expect(readArchive().entries.map(item => item.archivedAt)).toEqual([undefined, undefined, undefined])
+
+    const reopened = new TaskShelfRepository(file)
+    expect(reopened.list()).toEqual(moved)
+    expect(reopened.getPreferences()).toEqual(preferences)
+  })
+
+  it('跨实例重建后整批移回，revision 接着递增且磁盘上不再有归档标记', () => {
+    const first = new TaskShelfRepository(file)
+    const saved = first.capture(captureInput(), 1000).entry
+    first.archive(saved.id, true, 1100)
+    expect(readArchive().entries[0]).toMatchObject({ archivedAt: 1100, revision: 2 })
+
+    const [moved] = new TaskShelfRepository(file).unarchiveAll(5000)
+
+    expect(moved).toMatchObject({ revision: 3, updatedAt: 5000 })
+    expect(moved.archivedAt).toBeUndefined()
+    expect(readArchive().entries[0]).not.toHaveProperty('archivedAt')
+    expect(readArchive().entries[0]).toMatchObject({ revision: 3, updatedAt: 5000 })
+    expect(new TaskShelfRepository(file).get(saved.id)).toEqual(moved)
+  })
+
+  it('空保存区与重复调用都不写盘，返回完整列表', () => {
+    const empty = new TaskShelfRepository(file)
+    expect(empty.unarchiveAll(1000)).toEqual([])
+    expect(disk.writes).toBe(0)
+    expect(existsSync(file)).toBe(false)
+
+    const repository = new TaskShelfRepository(file)
+    const saved = repository.capture(captureInput(), 1000).entry
+    // 没有已归档记录：原样返回，不涨 revision、不写盘。
+    expect(repository.unarchiveAll(2000)).toEqual([saved])
+    const writes = disk.writes
+    expect(repository.unarchiveAll(3000)).toEqual([saved])
+    expect(disk.writes).toBe(writes)
+    expect(repository.get(saved.id)).toEqual(saved)
+  })
+
+  it('整批写入失败时完整回滚内存与磁盘，恢复后仍可整批移回', () => {
+    const repository = new TaskShelfRepository(file)
+    const one = repository.capture(captureInput(), 1000).entry
+    repository.capture(webInput(), 2000)
+    repository.archive(one.id, true, 2500)
+    const before = readFileSync(file, 'utf8')
+    const memoryBefore = repository.list()
+    const writes = disk.writes
+
+    disk.failWrite = true
+    expect(() => repository.unarchiveAll(3000)).toThrow(/保存区写入失败/)
+    expect(disk.writes).toBe(writes)
+    expect(readFileSync(file, 'utf8')).toBe(before)
+    expect(repository.list()).toEqual(memoryBefore)
+    expect(repository.list().find(item => item.id === one.id)?.archivedAt).toBe(2500)
+    expect(new TaskShelfRepository(file).list()).toEqual(memoryBefore)
+
+    disk.failWrite = false
+    const moved = repository.unarchiveAll(4000)
+    expect(moved.map(item => item.archivedAt)).toEqual([undefined, undefined])
+    expect(moved.map(item => item.revision)).toEqual([3, 1])
+    expect(new TaskShelfRepository(file).list()).toEqual(moved)
+  })
+
+  it('返回值是深拷贝：改返回值不影响仓储内存与磁盘', () => {
+    const repository = new TaskShelfRepository(file)
+    const saved = repository.capture(captureInput({ context: { text: 'previous output', capturedAt: 900 } }), 1000).entry
+    repository.archive(saved.id, true, 1500)
+    const moved = repository.unarchiveAll(2000)
+    const writes = disk.writes
+
+    moved[0].title = '被改坏'
+    moved[0].revision = 99
+    moved[0].context!.text = 'rewritten'
+    moved[0].context!.capturedAt = 2
+    const recovery = moved[0].recovery
+    if (recovery.kind === 'terminal') {
+      recovery.cwd = 'C:/rewritten'
+      recovery.sessionId = 'rewritten'
+    }
+
+    expect(disk.writes).toBe(writes)
+    expect(repository.get(saved.id)).toMatchObject({ title: '终端 1', revision: 3, updatedAt: 2000 })
+    expect(repository.get(saved.id)?.archivedAt).toBeUndefined()
+    expect(repository.get(saved.id)?.recovery).toEqual(saved.recovery)
+    expect(repository.get(saved.id)?.context).toEqual(saved.context)
+    expect(new TaskShelfRepository(file).get(saved.id)?.title).toBe('终端 1')
+  })
+
+  it('时间回退时 updatedAt 仍严格前进，归档标记被摘掉', () => {
+    const repository = new TaskShelfRepository(file)
+    const late = repository.capture(captureInput(), 5000).entry
+    repository.archive(late.id, true, 6000)
+
+    const [moved] = repository.unarchiveAll(1000)
+
+    expect(moved.archivedAt).toBeUndefined()
+    expect(moved.updatedAt).toBe(6001)
+    expect(moved.updatedAt).toBeGreaterThan(6000)
+    expect(moved.revision).toBe(late.revision + 2)
+    expect(new TaskShelfRepository(file).get(late.id)?.updatedAt).toBe(6001)
+  })
+
+  it('与逐条 archive(false) 得到相同记录（单项解除归档语义未变）', () => {
+    const secondFile = join(dir, 'task-shelf-second.json')
+    const batch = new TaskShelfRepository(file)
+    const single = new TaskShelfRepository(secondFile)
+    const seeds: ShelfCaptureInput[] = [captureInput({ resourceKey: 'terminal:t1' }), webInput({ resourceKey: 'web:w3' })]
+    const singleResults: TaskShelfEntry[] = []
+    seeds.forEach((seed, index) => {
+      batch.capture(seed, 1000 + index)
+      singleResults.push(single.capture(seed, 1000 + index).entry)
+    })
+    // 先让两条都处于归档态，再分别整批 / 逐条移回。
+    batch.archiveAll(1500)
+    singleResults.forEach(entry => single.archive(entry.id, true, 1500))
+
+    const moved = batch.unarchiveAll(9000)
+    const expected = singleResults.map(entry => single.archive(entry.id, false, 9000))
+    const project = (entries: TaskShelfEntry[]) => entries.map(({ id: _id, ...rest }) => rest)
+    expect(project(moved)).toEqual(project(expected))
   })
 })

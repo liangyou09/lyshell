@@ -22,6 +22,14 @@ describe('保存区 IPC 白名单', () => {
     expect(() => validateTaskShelfRequest({ kind: 'capture', resource: { kind: 'web', id: 'w', url: 'x'.repeat(4097), title: '' } })).toThrow()
     expect(() => validateTaskShelfRequest({ kind: 'remove', id: 'x'.repeat(129) })).toThrow()
   })
+  it('全部移回是精确无参数请求，附加字段一律拒绝', () => {
+    expect(validateTaskShelfRequest({ kind: 'unarchiveAll' })).toEqual({ kind: 'unarchiveAll' })
+    // 只认 kind：不能借这次批量操作夹带 id / archived / 资源列表。
+    expect(() => validateTaskShelfRequest({ kind: 'unarchiveAll', id: 't1' })).toThrow()
+    expect(() => validateTaskShelfRequest({ kind: 'unarchiveAll', archived: false })).toThrow()
+    expect(() => validateTaskShelfRequest({ kind: 'unarchiveAll', ids: ['t1'] })).toThrow()
+    expect(() => validateTaskShelfRequest({ kind: 'unarchiveAll', preferences: { toggleShortcut: '', collectShortcut: '' } })).toThrow()
+  })
   it('仅合法、明确的 tmux 引用可进入运行期，普通保存会剥离它', () => {
     const config = { type: ConnectionType.SSH, ssh: { host: 'example', username: 'user', port: 22, keepSessionAlive: true, resumeSessionName: 'lyshell-unique' } } as SessionConfig
     validateSshPersistence(config)

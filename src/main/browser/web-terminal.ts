@@ -7,13 +7,14 @@ import type { WebTerminalError, WebTerminalRequest, WebTerminalResult } from '@s
 import { webTerminalInputScript, webTerminalClearScript } from './web-terminal-input'
 
 /**
- * 网页终端输入后端：把主窗口的文本发送到用户在堡垒机页面里点选的 xterm.js 终端。
+ * 网页终端输入后端：把主窗口的文本发送到堡垒机页面里的 xterm.js 终端。
  *
  * 设计要点：
  * - 只操作本窗口托管、webbar 分区的 webview，构建时不扩大任何 webPreferences。
  * - 页面侧采用固定函数模板；命令只经 JSON 序列化作为数据参数，不能执行为代码。
  * - 绑定由「随机 token + 文档/元素标记」定位，导航、frame 重载、终端元素被替换
- *   或 guest 销毁后立即失效，等待用户重新绑定。
+ *   或 guest 销毁后立即失效，等待用户重新绑定或下一次 discover 重新附着。
+ * - discover 只发现/建立绑定：所有扫描脚本只读，自动附着时也不聚焦、不派发输入事件。
  */
 
 /** 单帧脚本的等待上限；超时即视为该帧不可用，后续不会再发送任何内容。 */
@@ -125,7 +126,7 @@ export const WEB_TERMINAL_STAMP_SCRIPT = `(() => {
 
 /**
  * 校验模板：确认文档 token 与输入面 token 一致（同一文档、同一终端元素），
- * 确认终端仍可见、仍是原元素，并把它聚焦。
+ * 确认终端仍可见、仍是原元素；聚焦由真正发送输入的脚本负责。
  */
 export const WEB_TERMINAL_CHECK_SCRIPT = `(() => {
   const MARK = ${JSON.stringify(MARK_ATTR)}
@@ -148,9 +149,9 @@ export const WEB_TERMINAL_CHECK_SCRIPT = `(() => {
   if (!state || state.token !== docToken || state.target.deref() !== target || state.root.deref() !== target.closest('.' + ROOT)) return {ok:false}
   const elementToken = target.getAttribute(MARK) || ''
   const root = target.closest('.' + ROOT)
-  if (!root || !shown(root)) return { ok: false, docToken: docToken, elementToken: elementToken, href: location.href }
+  if (!root || !shown(root) || target.disabled || target.readOnly) return { ok: false, docToken: docToken, elementToken: elementToken, href: location.href }
   return {
-    ok: document.activeElement === target,
+    ok: true,
     docToken: docToken,
     elementToken: elementToken,
     href: location.href
@@ -158,6 +159,147 @@ export const WEB_TERMINAL_CHECK_SCRIPT = `(() => {
 })()`
 
 type LooseListener = (...args: never[]) => void
+
+/**
+ * 扫描模板：只读，不修改 DOM、不移动焦点。返回本帧可见 xterm 输入面的数量，
+ * 以及 activeElement 是否落在其中一个终端上，供 discover 判断「用户最后点选了谁」。
+ */
+export const WEB_TERMINAL_SCAN_SCRIPT = `(() => {
+  const ROOT = 'xterm'
+  const INPUT = 'xterm-helper-textarea'
+  const shown = (node) => {
+    if (!node || !node.isConnected) return false
+    if (typeof node.checkVisibility === 'function') {
+      if (!node.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false
+    }
+    const rect = node.getBoundingClientRect()
+    return rect.width > 1 && rect.height > 1
+  }
+  const inputs = []
+  for (const root of Array.from(document.querySelectorAll('.' + ROOT))) {
+    if (!shown(root)) continue
+    for (const input of Array.from(root.querySelectorAll('textarea.' + INPUT))) {
+      if (!input.disabled && !input.readOnly) inputs.push(input)
+    }
+  }
+  const active = document.activeElement
+  let focused = false
+  if (active) {
+    for (const input of inputs) if (input === active) focused = true
+    if (!focused) {
+      // 与手动探测相同的判定：焦点在根节点内其它节点时，只有唯一输入框才可确定
+      for (const input of inputs) {
+        const root = input.closest('.' + ROOT)
+        if (root && root.contains(active) && root.querySelectorAll('.' + INPUT).length === 1) {
+          focused = true
+          break
+        }
+      }
+    }
+  }
+  return { terminalCount: inputs.length, focused: focused, href: location.href }
+})()`
+
+/**
+ * 校验模板：只读，不移动焦点。确认文档/元素标记与页面内弱引用仍是同一个终端，
+ * 且元素仍连接、根节点仍可见。`focused` 只表示用户当前是否停在该终端上，
+ * 不作为绑定有效的前提——工具面板会抢走焦点，旧绑定仍需保持可用。
+ */
+export const WEB_TERMINAL_VALIDATE_SCRIPT = `(() => {
+  const MARK = ${JSON.stringify(MARK_ATTR)}
+  const ROOT = 'xterm'
+  const INPUT = 'xterm-helper-textarea'
+  const shown = (node) => {
+    if (!node || !node.isConnected) return false
+    if (typeof node.checkVisibility === 'function') {
+      if (!node.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false
+    }
+    const rect = node.getBoundingClientRect()
+    return rect.width > 1 && rect.height > 1
+  }
+  const docToken = document.documentElement.getAttribute(MARK) || ''
+  if (!docToken) return { ok: false, focused: false, href: location.href, docToken: '', elementToken: '' }
+  const target = Array.from(document.querySelectorAll('.' + INPUT + '[' + MARK + ']'))
+    .find((node) => node.getAttribute(MARK) === docToken) || null
+  if (!target) return { ok: false, focused: false, href: location.href, docToken: docToken, elementToken: '' }
+  const elementToken = target.getAttribute(MARK) || ''
+  const state = globalThis[Symbol.for('lyshell.web-terminal.v1')]
+  const root = target.closest('.' + ROOT)
+  if (!state || state.token !== docToken || state.target.deref() !== target || state.root.deref() !== root) {
+    return { ok: false, focused: false, href: location.href, docToken: docToken, elementToken: elementToken }
+  }
+  if (!target.isConnected || target.disabled || target.readOnly || !root || !shown(root)) {
+    return { ok: false, focused: false, href: location.href, docToken: docToken, elementToken: elementToken }
+  }
+  return {
+    ok: true,
+    focused: document.activeElement === target || !!(document.activeElement && root.contains(document.activeElement) && root.querySelectorAll('.' + INPUT).length === 1),
+    href: location.href,
+    docToken: docToken,
+    elementToken: elementToken
+  }
+})()`
+
+/**
+ * 自动附着模板：与手动标记一样写入随机 token 与弱引用，但绝不调用 focus()、
+ * 也不派发任何输入事件。目标优先取 activeElement；其次取 activeElement 所在且
+ * 只有一个输入面的根节点；最后仅当整帧只有一个可见终端时直接采用它。
+ */
+export const WEB_TERMINAL_ATTACH_SCRIPT = `(() => {
+  const MARK = ${JSON.stringify(MARK_ATTR)}
+  const ROOT = 'xterm'
+  const INPUT = 'xterm-helper-textarea'
+  const shown = (node) => {
+    if (!node || !node.isConnected) return false
+    if (typeof node.checkVisibility === 'function') {
+      if (!node.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false
+    }
+    const rect = node.getBoundingClientRect()
+    return rect.width > 1 && rect.height > 1
+  }
+  const randomToken = () => {
+    const bytes = new Uint8Array(16)
+    crypto.getRandomValues(bytes)
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  }
+  const active = document.activeElement
+  const candidates = []
+  for (const root of Array.from(document.querySelectorAll('.' + ROOT))) {
+    if (!shown(root)) continue
+    for (const input of Array.from(root.querySelectorAll('textarea.' + INPUT))) {
+      if (!input.disabled && !input.readOnly) candidates.push(input)
+    }
+  }
+  let target = null
+  for (const input of candidates) if (input === active) target = input
+  if (!target && active) {
+    for (const input of candidates) {
+      const root = input.closest('.' + ROOT)
+      if (root && root.contains(active) && root.querySelectorAll('.' + INPUT).length === 1) {
+        target = input
+        break
+      }
+    }
+  }
+  if (!target && candidates.length === 1) target = candidates[0]
+  if (!target) return { ok: false, href: location.href, terminals: candidates.length, focused: false }
+  // 清掉上一次绑定留下的标记，避免旧元素被误认为当前目标
+  for (const node of Array.from(document.querySelectorAll('[' + MARK + ']'))) node.removeAttribute(MARK)
+  document.documentElement.removeAttribute(MARK)
+  const token = randomToken()
+  document.documentElement.setAttribute(MARK, token)
+  const root = target.closest('.' + ROOT)
+  if (root) root.setAttribute(MARK, token)
+  target.setAttribute(MARK, token)
+  globalThis[Symbol.for('lyshell.web-terminal.v1')] = {token, target: new WeakRef(target), root: new WeakRef(root)}
+  return {
+    ok: true,
+    token: token,
+    href: location.href,
+    terminals: candidates.length,
+    focused: document.activeElement === target || !!(document.activeElement && root && root.contains(document.activeElement) && root.querySelectorAll('.' + INPUT).length === 1)
+  }
+})()`
 
 type FrameProbe = { frame: WebFrameMain; href: string; terminal: boolean }
 
@@ -218,11 +360,11 @@ function frameAlive(frame: WebFrameMain | null | undefined): frame is WebFrameMa
 /**
  * 执行模板，超时/异常返回 undefined；输入模板另带绝对截止时间，禁止迟到输入。
  */
-function runScript(frame: WebFrameMain, script: string, timeoutMs = SCRIPT_TIMEOUT_MS): Promise<unknown> {
+function runScript(frame: WebFrameMain, script: string, timeoutMs = SCRIPT_TIMEOUT_MS, userGesture = false): Promise<unknown> {
   if (!frameAlive(frame)) return Promise.resolve(undefined)
   let pending: Promise<unknown>
   try {
-    pending = frame.executeJavaScript(script, true)
+    pending = frame.executeJavaScript(script, userGesture)
   } catch {
     return Promise.resolve(undefined)
   }
@@ -300,15 +442,23 @@ function attach(binding: Binding): void {
   listen(binding, owner, 'destroyed', (): void => { drop(binding) })
 }
 
-/** 探测顺序：先看用户最后聚焦的 frame，再按 framesInSubtree 顺序，总数有上限。 */
-function candidateFrames(page: WebContents): WebFrameMain[] {
+/**
+ * 探测顺序：先看用户最后聚焦的 frame，再按 framesInSubtree 顺序，总数有上限。
+ * `truncated` 表示仍有未扫描的存活 frame；discover 不能把剩余候选当成全页唯一。
+ */
+function candidateFrames(page: WebContents): { frames: WebFrameMain[]; truncated: boolean } {
   const ordered: WebFrameMain[] = []
   const seen = new Set<string>()
+  let truncated = false
   const push = (frame: WebFrameMain | null | undefined): void => {
-    if (!frame || ordered.length >= WEB_TERMINAL_MAX_FRAMES || !frameAlive(frame)) return
+    if (!frame || !frameAlive(frame)) return
     const key = frameKey(frame)
     if (seen.has(key)) return
     seen.add(key)
+    if (ordered.length >= WEB_TERMINAL_MAX_FRAMES) {
+      truncated = true
+      return
+    }
     ordered.push(frame)
   }
   push(page.focusedFrame)
@@ -319,7 +469,7 @@ function candidateFrames(page: WebContents): WebFrameMain[] {
     frames = []
   }
   for (const frame of frames) push(frame)
-  return ordered
+  return { frames: ordered, truncated }
 }
 
 async function probeFrame(frame: WebFrameMain): Promise<FrameProbe | null> {
@@ -330,6 +480,71 @@ async function probeFrame(frame: WebFrameMain): Promise<FrameProbe | null> {
     href: typeof value.href === 'string' ? value.href : frame.url,
     terminal: value.terminal === true
   }
+}
+
+type FrameScan = { frame: WebFrameMain; href: string; terminalCount: number; focused: boolean }
+
+function parseScan(value: unknown): { terminalCount: number; focused: boolean; href: string } | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const { terminalCount, href } = record
+  if (typeof href !== 'string') return null
+  if (typeof terminalCount !== 'number' || !Number.isSafeInteger(terminalCount) || terminalCount < 0) return null
+  return { terminalCount, focused: record.focused === true, href }
+}
+
+/** 扫描单帧；超时或结果不完整返回 null，由调用方按「未知」处理，不可猜成唯一。 */
+async function scanFrame(frame: WebFrameMain): Promise<FrameScan | null> {
+  const scan = parseScan(await runScript(frame, WEB_TERMINAL_SCAN_SCRIPT))
+  return scan ? { frame, ...scan } : null
+}
+
+type ValidateResult = { ok: boolean; focused: boolean; href: string; docToken: string; elementToken: string }
+
+function parseValidate(value: unknown): ValidateResult | null {
+  const record = asRecord(value)
+  if (!record || typeof record.href !== 'string') return null
+  return {
+    ok: record.ok === true,
+    focused: record.focused === true,
+    href: record.href,
+    docToken: typeof record.docToken === 'string' ? record.docToken : '',
+    elementToken: typeof record.elementToken === 'string' ? record.elementToken : ''
+  }
+}
+
+function frameUrl(frame: WebFrameMain | null): string | null {
+  try {
+    return frameAlive(frame) ? frame.url : null
+  } catch {
+    return null
+  }
+}
+
+type BindingState = { state: 'ok' | 'invalid' | 'unknown'; focused: boolean }
+
+/**
+ * 校验旧绑定是否仍指向同一个可见终端。这里刻意不要求焦点：工具面板获得焦点后
+ * 旧绑定仍必须可用。脚本超时返回 unknown，不能据此作废旧绑定。
+ */
+async function bindingState(binding: Binding): Promise<BindingState> {
+  if (binding.dropped) return { state: 'invalid', focused: false }
+  const { page, frame } = binding
+  if (!frame || page.isDestroyed() || binding.owner.isDestroyed()) return { state: 'invalid', focused: false }
+  if (page.getURL() !== binding.url) return { state: 'invalid', focused: false }
+  if (frameUrl(frame) !== binding.frameUrl) return { state: 'invalid', focused: false }
+  const value = parseValidate(await runScript(frame, WEB_TERMINAL_VALIDATE_SCRIPT))
+  // 等待期间可能已导航/销毁：此时绑定已由事件作废，必须按失效处理
+  if (binding.dropped || page.isDestroyed()) return { state: 'invalid', focused: false }
+  if (!value) return { state: 'unknown', focused: false }
+  if (page.getURL() !== binding.url || frameUrl(frame) !== binding.frameUrl) {
+    return { state: 'invalid', focused: false }
+  }
+  if (value.href !== binding.frameUrl) return { state: 'invalid', focused: false }
+  if (!value.ok || value.docToken !== binding.token || value.elementToken !== binding.token) {
+    return { state: 'invalid', focused: false }
+  }
+  return { state: 'ok', focused: value.focused }
 }
 
 async function bind(owner: WebContents, pageId: number): Promise<WebTerminalResult> {
@@ -355,7 +570,7 @@ async function bind(owner: WebContents, pageId: number): Promise<WebTerminalResu
   bindings.set(pageId, binding)
   attach(binding)
   try {
-    const frames = candidateFrames(page)
+    const { frames } = candidateFrames(page)
     if (frames.length === 0) return dropWith(binding, 'unsupported')
     const probes = (await Promise.all(frames.map(frame => probeFrame(frame)))).filter(
       (probe): probe is FrameProbe => probe !== null && probe.terminal
@@ -404,6 +619,160 @@ function dropWith(binding: Binding, error: WebTerminalError): WebTerminalResult 
   return fail(error)
 }
 
+type StampOutcome = { binding: Binding } | { error: WebTerminalError }
+
+/**
+ * 自动附着：写入新的绑定标记并登记监听。页面侧脚本不聚焦、不派发输入事件；
+ * 失败时立即释放，返回错误供 discover 决定是保守返回数量还是报告失效。
+ */
+async function stampFound(
+  owner: WebContents,
+  page: WebContents,
+  pageId: number,
+  scan: FrameScan,
+  requireFocused = false
+): Promise<StampOutcome> {
+  const binding: Binding = {
+    id: randomUUID(),
+    owner,
+    page,
+    pageId,
+    frame: scan.frame,
+    frameUrl: scan.href,
+    url: page.getURL(),
+    token: '',
+    dropped: false,
+    listeners: []
+  }
+  bindings.set(pageId, binding)
+  attach(binding)
+  const value = asRecord(await runScript(scan.frame, WEB_TERMINAL_ATTACH_SCRIPT))
+  if (binding.dropped) {
+    drop(binding)
+    return { error: 'stale' }
+  }
+  const token = value && value.ok === true && typeof value.token === 'string' && TOKEN_PATTERN.test(value.token)
+    ? value.token
+    : null
+  if (token === null) {
+    drop(binding)
+    return { error: 'unsupported' }
+  }
+  // 先登记 token，后续任何失败都能由 drop 顺手清掉页面标记
+  binding.token = token
+  // 扫描后用户可能已切换 frame 或点到表单，不能将过时的定向选择当成唯一终端。
+  if (requireFocused && (value?.focused !== true || !sameFrame(page.focusedFrame, scan.frame))) {
+    drop(binding)
+    return { error: 'unsupported' }
+  }
+  if (page.isDestroyed()) {
+    drop(binding)
+    return { error: 'unavailable' }
+  }
+  if (page.getURL() !== binding.url) {
+    drop(binding)
+    return { error: 'stale' }
+  }
+  if (frameUrl(scan.frame) !== scan.href) {
+    drop(binding)
+    return { error: 'stale' }
+  }
+  if (typeof value?.href !== 'string' || value.href !== scan.href) {
+    drop(binding)
+    return { error: 'stale' }
+  }
+  return { binding }
+}
+
+/** 只有用户最后聚焦的 frame 里确实存在终端时才允许定向附着/切换。 */
+function focusedScan(page: WebContents, scans: readonly FrameScan[]): FrameScan | null {
+  let focused: WebFrameMain | null = null
+  try {
+    focused = page.focusedFrame ?? null
+  } catch {
+    focused = null
+  }
+  if (!frameAlive(focused)) return null
+  const scan = scans.find(item => sameFrame(item.frame, focused))
+  if (!scan || !scan.focused || scan.terminalCount === 0) return null
+  return scan
+}
+
+/**
+ * 自动发现 / 附着。只建立绑定，不发送文本或按键，也不改变页面焦点。
+ * - 唯一可见终端（且没有超时帧）自动绑定，无需先聚焦；
+ * - 多个终端时仅在 focusedFrame 的 activeElement 是终端时才切换；
+ * - 旧绑定仍有效则复用，避免每轮探测导致 token / bindingId 抖动。
+ */
+async function discover(owner: WebContents, pageId: number): Promise<WebTerminalResult> {
+  if (inflight.has(pageId)) return fail('busy')
+  const resolved = resolveOwnedPage(owner, pageId)
+  if (!('page' in resolved)) return fail(resolved.error)
+  const page = resolved.page
+  let previous = bindings.get(pageId)
+  if (previous && previous.owner !== owner) return fail('denied')
+  inflight.add(pageId)
+  try {
+    const pageUrl = page.getURL()
+    const { frames, truncated } = candidateFrames(page)
+    const [scans, check] = await Promise.all([
+      Promise.all(frames.map(frame => scanFrame(frame))),
+      previous ? bindingState(previous) : Promise.resolve(null)
+    ])
+    if (page.isDestroyed()) {
+      if (previous) drop(previous)
+      return fail('unavailable')
+    }
+    if (page.getURL() !== pageUrl) {
+      if (previous) drop(previous)
+      return fail('stale')
+    }
+    if (previous && check && check.state === 'invalid') {
+      drop(previous)
+      previous = undefined
+    }
+    const known = scans.filter((scan): scan is FrameScan => scan !== null)
+    const terminalCount = known.reduce((total, scan) => total + scan.terminalCount, 0)
+    // 未返回的帧与超出上限的帧都按未知处理：不能把剩下这一个当成全页唯一
+    const unknown = frames.length - known.length + (truncated ? 1 : 0)
+    const directed = focusedScan(page, known)
+    const sameFrameDirected = !!(previous && directed && sameFrame(directed.frame, previous.frame))
+    // 同一 frame 内有多个终端且焦点已离开旧终端时也允许切换；验证超时则保持旧绑定
+    const switchDirected = !!directed && (
+      !previous ||
+      !sameFrameDirected ||
+      (check !== null && check.state === 'ok' && !check.focused && directed.terminalCount > 1)
+    )
+    if (previous && !switchDirected) {
+      return { success: true, terminalCount, bindingId: previous.id, url: page.getURL() }
+    }
+    if (switchDirected && directed) {
+      if (previous) drop(previous)
+      const outcome = await stampFound(owner, page, pageId, directed, true)
+      if ('binding' in outcome) {
+        return { success: true, terminalCount, bindingId: outcome.binding.id, url: outcome.binding.url }
+      }
+      if (outcome.error === 'stale' || outcome.error === 'unavailable') return fail(outcome.error)
+      return { success: true, terminalCount, url: page.getURL() }
+    }
+    // 没有任何可信的选择依据时，只在「恰好一个可见终端且无未知帧」时自动附着
+    if (terminalCount === 1 && unknown === 0) {
+      // 唯一终端可能位于任意子 frame，必须按计数定位，不能用第一个已扫描帧
+      const only = known.find(scan => scan.terminalCount > 0)
+      const outcome = only
+        ? await stampFound(owner, page, pageId, only)
+        : ({ error: 'unsupported' } as StampOutcome)
+      if ('binding' in outcome) {
+        return { success: true, terminalCount, bindingId: outcome.binding.id, url: outcome.binding.url }
+      }
+      if (outcome.error === 'stale' || outcome.error === 'unavailable') return fail(outcome.error)
+    }
+    return { success: true, terminalCount, url: page.getURL() }
+  } finally {
+    inflight.delete(pageId)
+  }
+}
+
 type CheckResult = { ok: boolean; docToken: string; elementToken: string }
 
 function parseCheck(value: unknown): CheckResult | null {
@@ -446,7 +815,7 @@ async function send(
     const outcome = asRecord(await runScript(frame, webTerminalInputScript({
       text: request.text, enter: request.enter, token: binding.token,
       href: binding.frameUrl, expires: Date.now() + SCRIPT_TIMEOUT_MS
-    })))
+    }), SCRIPT_TIMEOUT_MS, true))
     if (!outcome || outcome.ok !== true) return dropWith(binding, outcome?.partial === false ? 'stale' : 'uncertain')
     if (binding.dropped || page.getURL() !== binding.url || !frameAlive(frame)) return dropWith(binding, 'uncertain')
     return { success: true, bindingId: binding.id, url: page.getURL() }
@@ -464,8 +833,9 @@ function release(owner: WebContents, request: Extract<WebTerminalRequest, { kind
 }
 
 /**
- * 主进程入口：bind / send / release 三个动作都先做严格校验与归属检查。
- * 任何失败都以 `WebTerminalResult.error` 返回，不抛出异常。
+ * 主进程入口：bind / discover / send / release 四个动作都先做严格校验与归属检查。
+ * discover 只发现/建立绑定，永不发送文本或按键。任何失败都以
+ * `WebTerminalResult.error` 返回，不抛出异常。
  */
 export async function webTerminalRequest(owner: WebContents, request: WebTerminalRequest): Promise<WebTerminalResult> {
   const parsed = parseWebTerminalRequest(request)
@@ -474,6 +844,8 @@ export async function webTerminalRequest(owner: WebContents, request: WebTermina
   switch (parsed.kind) {
     case 'bind':
       return bind(owner, parsed.pageId)
+    case 'discover':
+      return discover(owner, parsed.pageId)
     case 'send':
       return send(owner, parsed)
     case 'release':

@@ -14,11 +14,31 @@ function target(left = 500, top = 180) {
   aside.append(list); list.append(slot); document.body.append(aside)
   return { aside, slot }
 }
+// 可控时钟与帧队列：模块内的刷新循环只能靠手工推帧推进，便于断言循环是否继续。
+let clock = 0
+let pendingFrames = new Map<number, FrameRequestCallback>()
+let nextFrameId = 1
+function scheduleFrame(callback: FrameRequestCallback): number {
+  const id = nextFrameId++
+  pendingFrames.set(id, callback)
+  return id
+}
+function flushFrames(): void {
+  const batch = [...pendingFrames]
+  pendingFrames.clear()
+  for (const [, callback] of batch) callback(clock)
+}
+const transitionEvent = (type: 'transitionrun' | 'transitionend' | 'transitioncancel', propertyName: string): Event =>
+  Object.assign(new Event(type, { bubbles: true }), { propertyName })
+
 beforeEach(() => {
+  clock = 0; pendingFrames = new Map(); nextFrameId = 1
+  vi.spyOn(performance, 'now').mockImplementation(() => clock)
+  vi.stubGlobal('requestAnimationFrame', scheduleFrame)
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => { pendingFrames.delete(id) })
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
-  vi.stubGlobal('requestAnimationFrame', () => 1); vi.stubGlobal('cancelAnimationFrame', () => {})
 })
-afterEach(() => { cleanup(); releases.splice(0).forEach(release => release()); document.body.replaceChildren(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); releases.splice(0).forEach(release => release()); document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 describe('原生小窗口位置和输入归属', () => {
   it('原生面隐藏或失去交互权限后释放键盘，不依赖另一次 focusin', () => {
@@ -79,8 +99,7 @@ describe('原生小窗口位置和输入归属', () => {
     expect(listRead).toHaveBeenCalledTimes(1)
     const raf = vi.fn(() => 2)
     vi.stubGlobal('requestAnimationFrame', raf)
-    const transition = Object.assign(new Event('transitionrun', { bubbles: true }), { propertyName: 'background-color' })
-    slot.dispatchEvent(transition)
+    slot.dispatchEvent(transitionEvent('transitionrun', 'background-color'))
     expect(raf).not.toHaveBeenCalled()
   })
   it('权限变化保留登记和几何，立即撤销输入归属', () => {
@@ -92,5 +111,94 @@ describe('原生小窗口位置和输入归属', () => {
     expect(getShelfSurface('terminal', 't')).toMatchObject({ rect: before, visible: true, active: false, interactive: false })
     updateShelfSurfaceInteraction('terminal', 't', true)
     expect(getShelfSurface('terminal', 't')).toMatchObject({ rect: before, visible: true, active: false, interactive: true })
+  })
+})
+
+describe('原生小窗跟随侧栏的几何过渡', () => {
+  it('超过旧 220ms 上限后仍随未结束的过渡更新几何', () => {
+    const { aside, slot } = target()
+    releases.push(registerShelfSurface('terminal', 't', slot, true))
+    flushFrames()
+    slot.getBoundingClientRect = () => rect(540, 180, 420, 260)
+    aside.dispatchEvent(transitionEvent('transitionrun', 'transform'))
+    flushFrames()
+    expect(getShelfSurface('terminal', 't')?.rect).toMatchObject({ left: 540, width: 420 })
+    expect(pendingFrames.size).toBe(1)
+    // 340ms 收起时长已走过 220ms 以上的后半程，仍然必须继续跟随。
+    clock = 400
+    slot.getBoundingClientRect = () => rect(600, 180, 380, 260)
+    flushFrames()
+    expect(getShelfSurface('terminal', 't')?.rect).toMatchObject({ left: 600, width: 380 })
+    clock = 900
+    slot.getBoundingClientRect = () => rect(640, 180, 340, 260)
+    flushFrames()
+    expect(getShelfSurface('terminal', 't')?.rect).toMatchObject({ left: 640, width: 340 })
+    expect(pendingFrames.size).toBe(1)
+  })
+  it('transitionend 与 transitioncancel 都只结束对应过渡的刷新循环', () => {
+    const ended = target()
+    releases.push(registerShelfSurface('terminal', 't', ended.slot, true))
+    flushFrames()
+    ended.aside.dispatchEvent(transitionEvent('transitionrun', 'width'))
+    flushFrames()
+    expect(pendingFrames.size).toBe(1)
+    ended.aside.dispatchEvent(transitionEvent('transitionend', 'width'))
+    flushFrames()
+    expect(pendingFrames.size).toBe(0)
+
+    const cancelled = target(500, 400)
+    releases.push(registerShelfSurface('web', 'w', cancelled.slot, true))
+    flushFrames()
+    cancelled.aside.dispatchEvent(transitionEvent('transitionrun', 'width'))
+    flushFrames()
+    expect(pendingFrames.size).toBe(1)
+    cancelled.aside.dispatchEvent(transitionEvent('transitioncancel', 'width'))
+    flushFrames()
+    expect(pendingFrames.size).toBe(0)
+  })
+  it('重叠的 transform 与 width 分别结束，最后一个结束前不停止循环', () => {
+    const { aside, slot } = target()
+    releases.push(registerShelfSurface('terminal', 't', slot, true))
+    flushFrames()
+    aside.dispatchEvent(transitionEvent('transitionrun', 'transform'))
+    aside.dispatchEvent(transitionEvent('transitionrun', 'width'))
+    flushFrames()
+    expect(pendingFrames.size).toBe(1)
+    aside.dispatchEvent(transitionEvent('transitionend', 'width'))
+    flushFrames()
+    expect(pendingFrames.size).toBe(1)
+    slot.getBoundingClientRect = () => rect(560, 180, 400, 260)
+    flushFrames()
+    expect(getShelfSurface('terminal', 't')?.rect).toMatchObject({ left: 560, width: 400 })
+    expect(pendingFrames.size).toBe(1)
+    aside.dispatchEvent(transitionEvent('transitionend', 'transform'))
+    flushFrames()
+    expect(pendingFrames.size).toBe(0)
+  })
+  it('注销最后一个端面清理过渡集与监听，无关过渡和子元素过渡不空转', () => {
+    const { aside, slot } = target()
+    const release = registerShelfSurface('terminal', 't', slot, true)
+    flushFrames()
+    const raf = vi.fn(() => 9)
+    vi.stubGlobal('requestAnimationFrame', raf)
+    aside.dispatchEvent(transitionEvent('transitionrun', 'background-color'))
+    slot.dispatchEvent(transitionEvent('transitionrun', 'transform'))
+    slot.parentElement!.dispatchEvent(transitionEvent('transitionrun', 'width'))
+    expect(raf).not.toHaveBeenCalled()
+
+    vi.stubGlobal('requestAnimationFrame', scheduleFrame)
+    aside.dispatchEvent(transitionEvent('transitionrun', 'transform'))
+    flushFrames()
+    expect(pendingFrames.size).toBe(1)
+    release()
+    expect(pendingFrames.size).toBe(0)
+
+    // 重新登记后不能因为残留的过渡集合继续空转；隐藏后同样不空转。
+    releases.push(registerShelfSurface('terminal', 't', slot, true))
+    flushFrames()
+    expect(pendingFrames.size).toBe(0)
+    aside.setAttribute('aria-hidden', 'true')
+    refreshShelfSurfaces()
+    expect(pendingFrames.size).toBe(0)
   })
 })

@@ -54,6 +54,8 @@ import { IPC_CHANNELS, WEBBAR_DEEPLINK_SCHEMES, WEBBAR_PARTITION, DSH_WEB_PARTIT
 import { handleBrowserShortcut } from './browser/shortcuts'
 import { registerSidebarShortcuts } from './sidebar-shortcut'
 import { registerTaskShelfShortcuts } from './task-shelf-shortcut'
+import { taskShelfRepository } from './storage/task-shelf-repository'
+import { stopRecordedLocalHosts } from './terminal/local-host-lifecycle'
 import { createLogTap } from '@shared/log-throttle'
 import { decideWebviewFrameNavigation, gateWebviewSubframeNavigation } from './webview-frame-navigation'
 import { PendingWebbarPostStore, webbarPostLoadOptions, webbarPostRawBytesWithinLimit } from './webbar-post'
@@ -820,15 +822,6 @@ function createMainWindow(): void {
 function registerWindowShortcuts(window: BrowserWindow): void {
   registerSidebarShortcuts(window)
   registerTaskShelfShortcuts(window)
-  window.webContents.on('before-input-event', (_event, input) => {
-    // Ctrl+`(backquote)切换浮窗。键码用 `Backquote` 比 input.key 更稳:不同键盘布局上 `` ` `` 的 key 值可能不同
-    const isCtrl = input.control || input.meta  // mac 上 Cmd 等价
-    if (input.type === 'keyDown' && isCtrl && !input.shift && !input.alt && input.code === 'Backquote') {
-      log.info('Float toggle shortcut triggered (Ctrl+`)')
-      window.webContents.send('float:toggle')
-      _event.preventDefault()
-    }
-  })
 }
 
 // 单实例锁 —— 同一 userData 同时跑两个实例会互抢 partition 的 LevelDB 存储：
@@ -893,6 +886,10 @@ app.whenReady().then(async () => {
   // 单实例竞争失败方：quit 已排队，ready 在部分版本仍会触发，这里不再往下引导
   // （锁的持有方才有资格创建窗口/起服务器）
   if (!gotSingleInstanceLock) return
+  // 上次崩溃、强杀或写盘失败留下的 Tasks 先补归档；窗口和 IPC 尚未启动，不会误归档本次任务。
+  try { taskShelfRepository.archiveAll() }
+  catch (error) { log.warn('Task shelf startup archive failed:', error) }
+  await stopRecordedLocalHosts(app.getPath('userData'), (id, error) => log.warn('Previous local host cleanup failed:', id, error))
   // 设置应用ID
   app.setAppUserModelId('com.lyshell.app')
 
@@ -1118,6 +1115,7 @@ app.whenReady().then(async () => {
 // 应用退出前清理资源 —— 窗口级快捷键随 webContents 一起销毁,不用单独 unregister
 let quitting = false
 app.on('will-quit', (event) => {
+  if (!gotSingleInstanceLock) return
   // dsh web 子进程必须等树杀真正完成再退出。此前 dshWebManager.close() 里 fire-and-forget
   // 的 spawn('taskkill') 会被 app 退出截断：实测只杀掉 shell 包裹层（cmd.exe）、漏掉真正的
   // node 孙进程，孤儿占着 DSH 会话写锁（不过期），下次开 dsh 报「当前会话已被占用」。
@@ -1126,6 +1124,9 @@ app.on('will-quit', (event) => {
   event.preventDefault()
   if (quitting) return
   quitting = true
+  // 在任何异步退出清理前落盘归档；失败保留原始记录，下一次启动补做。
+  try { taskShelfRepository.archiveAll() }
+  catch (error) { log.warn('Task shelf quit archive failed:', error) }
   // PetLink 的 async deactivate 需要仍有效的 host token 与 HTTP/共享后台释放任务。
   void pluginHostManager.prepareShutdown().catch(error => log.warn('Plugin graceful shutdown failed:', error)).then(() => {
 
@@ -1140,12 +1141,12 @@ app.on('will-quit', (event) => {
     cleanupDownloadsDir(getPluginsDir())  // 清理 URL 安装临时下载(.downloads/),防累积
     mcpAuditRepository.flushSync()  // 同步落盘 MCP 审计日志，防丢最近事件
     reachabilityProber.stop()  // 停止可达性探测定时器
-    // 已收纳的本地终端只脱离宿主；普通终端仍明确终止。
+    // 收纳只在本次应用运行期间保留现场，退出时所有本地终端都明确终止。
     const localQuitTasks: Promise<void>[] = []
     for (const session of sessionManager.getAllSessions()) {
-      if (session.connector && session.status === 'connected') {
-        if (session.connector instanceof LocalConnector) localQuitTasks.push(session.connector.detachForQuit())
-        else session.connector.disconnect().catch(() => {})
+      if (session.connector) {
+        if (session.connector instanceof LocalConnector) localQuitTasks.push(session.connector.disconnectForQuit())
+        else localQuitTasks.push(session.connector.disconnect())
       }
     }
 
@@ -1161,14 +1162,20 @@ app.on('will-quit', (event) => {
     const QUIT_DSH_CLOSE_BUDGET_MS = 2500
     const QUIT_DSH_EXIT_GRACE_MS = KILL_STEP_TIMEOUT_FLOOR_MS + 500
     // 插件 Windows taskkill 有 5s 预算，POSIX 整组强杀有 2.5s grace；均需等待完成。
+    const terminalCleanup = Promise.allSettled(localQuitTasks).then(async results => {
+      for (const result of results) if (result.status === 'rejected') log.warn('Terminal quit cleanup failed:', result.reason)
+      await stopRecordedLocalHosts(app.getPath('userData'), (id, error) => log.warn('Local host quit cleanup failed:', id, error))
+      // 退出期间迟到的捕获也再归档一次；下一次启动仍有同样的兜底。
+      taskShelfRepository.archiveAll()
+    })
     waitForQuitCleanup([
-      ...localQuitTasks,
+      terminalCleanup,
       tuiActivity.close(),
       cleanupTuiLaunchFiles(),
       dshWebManager.closeForQuit(Date.now() + QUIT_DSH_CLOSE_BUDGET_MS),
       pluginHostManager.waitForProcessCleanup(),
       downloadHistory.flush()
-    ], Math.max(6000, QUIT_DSH_CLOSE_BUDGET_MS + QUIT_DSH_EXIT_GRACE_MS),
+    ], Math.max(8000, QUIT_DSH_CLOSE_BUDGET_MS + QUIT_DSH_EXIT_GRACE_MS),
       err => log.warn('Application cleanup on quit failed:', err)
     ).then(() => app.exit(0))
   })

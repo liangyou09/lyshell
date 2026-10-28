@@ -557,7 +557,7 @@ describe('生命周期', () => {
     await waitUntil(() => harness.pty().killed, 1000)
   })
 
-  it('收纳后 detach：宽限期到期也保留 PTY', async () => {
+  it('收纳后 detach：应用连接释放后也在宽限期内结束 PTY', async () => {
     const harness = setup({ tune: { graceMs: 80 } })
     const client = await LocalHostClient.create(harness.dir, spawnOptions())
     track(harness.launcher)
@@ -566,9 +566,8 @@ describe('生命周期', () => {
     expect(await client.status()).toMatchObject({ retained: true })
     await client.detach()
 
-    await delay(250)
-    expect(harness.pty().killed).toBe(false)
-    expect(await LocalHostClient.probe(harness.dir, client.id)).toMatchObject({ running: true, retained: true })
+    await waitUntil(() => harness.pty().killed, 1000)
+    expect((await LocalHostClient.probe(harness.dir, client.id))?.running).not.toBe(true)
   })
 
   it('terminate 拿到真实退出码才成功，并清掉描述文件', async () => {

@@ -17,6 +17,7 @@ const BINDING_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]
 
 export type WebTerminalRequest =
   | { kind: 'bind'; pageId: number }
+  | { kind: 'discover'; pageId: number }
   | { kind: 'send'; pageId: number; bindingId: string; text: string; enter: boolean }
   | { kind: 'release'; pageId: number; bindingId: string }
 
@@ -32,11 +33,14 @@ export type WebTerminalError =
 export interface WebTerminalResult {
   success: boolean
   bindingId?: string
+  /** discover 扫描到的可见 xterm 终端数量；其他请求不返回。 */
+  terminalCount?: number
   url?: string
   error?: WebTerminalError
 }
 
 const BIND_KEYS = ['kind', 'pageId'] as const
+const DISCOVER_KEYS = ['kind', 'pageId'] as const
 const SEND_KEYS = ['kind', 'pageId', 'bindingId', 'text', 'enter'] as const
 const RELEASE_KEYS = ['kind', 'pageId', 'bindingId'] as const
 
@@ -91,6 +95,10 @@ export function parseWebTerminalRequest(raw: unknown): WebTerminalRequest | null
     case 'bind': {
       if (!hasExactKeys(raw, BIND_KEYS)) return null
       return isPageId(raw.pageId) ? { kind: 'bind', pageId: raw.pageId } : null
+    }
+    case 'discover': {
+      if (!hasExactKeys(raw, DISCOVER_KEYS)) return null
+      return isPageId(raw.pageId) ? { kind: 'discover', pageId: raw.pageId } : null
     }
     case 'send': {
       if (!hasExactKeys(raw, SEND_KEYS)) return null

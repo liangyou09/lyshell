@@ -1,5 +1,5 @@
 export * from './session'
-export * from './float-window'
+export * from './commands'
 export * from './preferences'
 export * from './pane'
 export * from './file'

@@ -350,6 +350,7 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-[var(--terminal-bg)]">
+      <WebTerminalTools id={id} pageRef={ref} />
       <SearchableTab id={id} web className="relative min-h-0 w-full flex-1">
         {/* Electron webview 专属属性，React 的通用 DOM 规则不认识。 */}
         {/* eslint-disable react/no-unknown-property */}
@@ -380,7 +381,6 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
           }} />
         )}
       </SearchableTab>
-      <WebTerminalTools id={id} pageRef={ref} />
       {devToolsOpen && <WebTabDevTools id={id} pageRef={ref} onClose={closeDevTools} inspectPoint={inspectPoint} />}
     </div>
   )

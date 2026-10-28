@@ -75,7 +75,6 @@ const IPC_CHANNELS = {
   MCP_OPEN_CONNECTION_DIALOG: 'mcp:open-connection-dialog',
 
   // 浮窗
-  FLOAT_TOGGLE: 'float:toggle',
 
   // 数据导出导入
   EXPORT_DATA: 'data:export',
@@ -332,12 +331,6 @@ const electronAPI = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.MCP_OPEN_CONNECTION_DIALOG, listener)
   },
 
-  // 浮窗
-  onFloatToggle: (callback: () => void) => {
-    const listener = () => callback()
-    ipcRenderer.on(IPC_CHANNELS.FLOAT_TOGGLE, listener)
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.FLOAT_TOGGLE, listener)
-  },
 
   // 应用内侧栏快捷键：宿主输入框、终端和 webview 共用主进程转发。
   onSidebarShortcut: (callback: (action: SidebarShortcutAction) => void) => {
@@ -475,7 +468,7 @@ const electronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.HARNESS_WORKTREE_LIST, cwd),
   // 项目现场及可读名称查询；显式启动只返回运行期会话 ID，不复制环境变量到现场。
   projectSceneRequest: (request: ProjectSceneRequest): Promise<ProjectSceneResult> => ipcRenderer.invoke('project-scene:request', request),
-  // 任务保存区：收纳只落恢复引用，恢复才显式启动；清单来自主进程单文件归档。
+  // 任务保存区：批量移回只改列表；restore 才显式启动，全部请求由主进程白名单校验。
   taskShelfRequest: (request: TaskShelfRequest): Promise<TaskShelfResult> => ipcRenderer.invoke('task-shelf:request', request),
   onTaskShelfShortcut: (callback: (action: 'toggle' | 'collect') => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, action: unknown): void => { if (action === 'toggle' || action === 'collect') callback(action) }

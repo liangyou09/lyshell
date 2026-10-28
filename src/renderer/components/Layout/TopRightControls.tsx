@@ -1,5 +1,4 @@
 import React, { useEffect, useRef } from 'react'
-import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import './TopRightControls.css'
@@ -10,14 +9,11 @@ export interface TopRightControlsProps {
   onMinimize: () => void
   onMaximize: () => void
   onClose: () => void
-  /** 浮窗是否可见 -- 浮窗按钮的激活态 */
-  floatVisible: boolean
-  onToggleFloat: () => void
 }
 
 /**
- * 窗口第一行右侧控制簇 -- 任务通知、浮窗与系统窗口操作用细分隔线分开。
- * 工具键统一为透明底按钮，静息字面与同行页签同档，浮窗开启时标记琥珀色。
+ * 窗口第一行右侧控制簇 -- 任务通知与系统窗口操作用细分隔线分开。
+ * 工具键统一为透明底按钮，静息字面与同行页签同档。
  * (MCP 活动状态片曾在此,现移至左侧 ActivityRail 轨底设置槽上方 -- McpActivityRailSlot)
  *
  * 页签条提顶后本簇悬浮在第一行最右上 pane 的页签条上方(absolute,带 bg-rack 底色
@@ -28,9 +24,7 @@ const TopRightControls: React.FC<TopRightControlsProps> = ({
   isMaximized,
   onMinimize,
   onMaximize,
-  onClose,
-  floatVisible,
-  onToggleFloat
+  onClose
 }) => {
   const { t } = useTranslation()
   const rootRef = useRef<HTMLDivElement>(null)
@@ -60,23 +54,6 @@ const TopRightControls: React.FC<TopRightControlsProps> = ({
       {/* 应用控制簇 */}
       <div className="window-control-group">
         <WorkbenchActivityButton />
-        {/* 浮窗按钮 — 两矩形错位，PIP/分窗形态 */}
-        <button
-          type="button"
-          onClick={onToggleFloat}
-          className={cn(
-            'window-control window-control-float',
-            floatVisible && 'is-active'
-          )}
-          title={t('settings.floatWindow')}
-          aria-label={t('settings.floatWindow')}
-          aria-pressed={floatVisible}
-        >
-          <svg aria-hidden width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <rect x="1" y="2.5" width="9" height="7" stroke="currentColor" strokeWidth="1.3" />
-            <rect x="5.5" y="6" width="7.5" height="6" fill="var(--bg-rack)" stroke="currentColor" strokeWidth="1.3" />
-          </svg>
-        </button>
       </div>
 
       {/* 簇分隔 hairline */}

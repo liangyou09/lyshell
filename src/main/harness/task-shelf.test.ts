@@ -10,6 +10,26 @@ import type { TaskShelfEntry, TaskShelfResult } from '@shared/task-shelf'
 import { createTaskShelfService, type ShelfAgentKind, type ShelfSessionView, type ShelfSpawnResult, type TaskShelfDeps, type TaskShelfService } from './task-shelf'
 
 describe('Codex 集成边界', () => {
+  it('首次请求先补归档上次 Tasks，本次新收纳的任务不受后续读取影响', async () => {
+    const { service, repository, state } = setup({ archiveOnStart: true })
+    const previous = repository.capture({ resourceKey: 'web:old', title: 'Previous task', capability: 'web', recovery: { kind: 'web', url: 'https://example.org/' } }, 10).entry
+    const listed = await service.request({ kind: 'list' })
+    expect(listed).toMatchObject({ success: true, entries: [{ id: previous.id, archivedAt: 1000 }] })
+    const current = entryOf(await service.request({ kind: 'capture', resource: { kind: 'web', id: 'current', title: 'New task', url: 'https://example.com/' } }))
+    await service.request({ kind: 'list' })
+    expect(repository.get(current.id)?.archivedAt).toBeUndefined()
+    expect(state.spawns).toHaveLength(0)
+    expect(state.connects).toHaveLength(0)
+  })
+  it('启动补归档写盘失败不返回旧 Tasks，恢复写入后下次请求继续补做', async () => {
+    const { service, repository } = setup({ archiveOnStart: true })
+    const previous = repository.capture({ resourceKey: 'web:old', title: 'Previous task', capability: 'web', recovery: { kind: 'web', url: 'https://example.org/' } }, 10).entry
+    disk.failWrite = true
+    expect(await service.request({ kind: 'list' })).toMatchObject({ success: false, error: expect.stringContaining('写入失败') })
+    expect(repository.get(previous.id)?.archivedAt).toBeUndefined()
+    disk.failWrite = false
+    expect(await service.request({ kind: 'list' })).toMatchObject({ success: true, entries: [{ id: previous.id, archivedAt: 1000 }] })
+  })
   it.each([true, false])('SSH 恢复先准备历史，重复打开不再注入；原运行记录存在=%s', async sameRuntime => {
     const order: string[] = []
     const f = setup({
@@ -153,15 +173,27 @@ describe('本地独立宿主集成', () => {
     expect(await service.request({ kind: 'restore', id: saved.id })).toMatchObject({ success: false, error: 'unreachable' })
     expect(state.spawns).toEqual([])
   })
-  it('宿主结束时明确失败，不用空目录终端冒充原进程', async () => {
+  it('普通本地宿主结束后在保存目录新建 shell', async () => {
     const restore = vi.fn()
     const { service, state } = setup({ localHost: { probe: async () => null, restore } })
     state.sessions.set('t1', { alive: true, config: localConfig() })
     const saved = entryOf(await service.request({ kind: 'capture', resource: { kind: 'terminal', id: 't1' } }))
     state.sessions.clear()
-    expect(await service.request({ kind: 'restore', id: saved.id })).toMatchObject({ success: false, error: expect.stringContaining('已结束') })
+    expect(await service.request({ kind: 'restore', id: saved.id })).toMatchObject({ success: true, restored: { kind: 'terminal', sessionId: 'spawned-1' } })
     expect(restore).not.toHaveBeenCalled()
-    expect(state.spawns).toEqual([])
+    expect(state.spawns).toEqual([{ name: saved.title, command: undefined, tags: [], opts: { cwd: dir, awaitConnection: true } }])
+    state.sessions.set('spawned-1', { alive: true, config: { ...localConfig(), id: 'spawned-1' } })
+    expect(await service.request({ kind: 'restore', id: saved.id })).toMatchObject({ success: true })
+    expect(state.spawns).toHaveLength(1)
+  })
+  it.each(['dsh', 'claude', 'codex'] as const)('Agent 本地宿主结束后新建 shell，%s 不重跑旧任务', async kind => {
+    const { service, state } = setup({ localHost: { probe: async () => ({ running: false }), restore: vi.fn() } })
+    state.sessions.set('t1', { alive: true, config: { ...localConfig(), tags: [kind + ':a1'] } })
+    const saved = entryOf(await service.request({ kind: 'capture', resource: { kind: 'terminal', id: 't1' } }))
+    state.sessions.clear()
+    expect(await service.request({ kind: 'restore', id: saved.id })).toMatchObject({ success: true })
+    expect(state.spawns).toEqual([{ name: saved.title, command: undefined, tags: [], opts: { cwd: dir, awaitConnection: true } }])
+    expect(state.launches).toEqual([])
   })
   it('CLI 原进程重接后保留身份，并将旧 hook 观察标记为最后已知信息', async () => {
     const { service, state, repository } = setup({ localHost: { probe: async () => ({ running: true }), restore: async () => ({ success: true, id: 'restored' }) } })
@@ -303,7 +335,7 @@ function entryIdOf(result: TaskShelfResult): string {
   return entryOf(result).id
 }
 
-function setup(options: { commands?: Partial<Record<ShelfAgentKind, string>>; env?: Record<string, string>; harnessView?: TaskShelfDeps['harnessView']; localHost?: TaskShelfDeps['localHost']; retainSession?: TaskShelfDeps['retainSession']; spawn?: TaskShelfDeps['spawn']; connectSession?: TaskShelfDeps['connectSession'] } = {}): ShelfTestHarness {
+function setup(options: { archiveOnStart?: boolean; commands?: Partial<Record<ShelfAgentKind, string>>; env?: Record<string, string>; harnessView?: TaskShelfDeps['harnessView']; localHost?: TaskShelfDeps['localHost']; retainSession?: TaskShelfDeps['retainSession']; spawn?: TaskShelfDeps['spawn']; connectSession?: TaskShelfDeps['connectSession'] } = {}): ShelfTestHarness {
   const repository = new TaskShelfRepository(join(dir, 'task-shelf.json'))
   const state: ShelfTestState = {
     sessions: new Map<string, ShelfSessionView>(),
@@ -322,6 +354,7 @@ function setup(options: { commands?: Partial<Record<ShelfAgentKind, string>>; en
 
   const deps: TaskShelfDeps = {
     repository,
+    archiveOnStart: options.archiveOnStart,
     session: id => state.sessions.get(id),
     createSession: async config => {
       state.created.push(config)
@@ -612,7 +645,7 @@ describe('任务保存区 restore', () => {
     expect(harness.state.spawns).toHaveLength(0)
   })
 
-  it('没有可信 CLI 会话 ID 时拒绝续接而不是猜历史', async () => {
+  it('没有可信 CLI 会话 ID 时打开普通 shell，不猜历史或重跑 Agent', async () => {
     const harness = setup()
     harness.state.sessions.set('t1', { alive: true, config: sessionConfig({ type: ConnectionType.LOCAL, local: { cwd: dir }, tags: ['claude:ws1'] }) })
     harness.state.tuiRows.push(tuiRow({ terminalId: 't1', source: 'claude', cliSessionId: null }))
@@ -620,21 +653,20 @@ describe('任务保存区 restore', () => {
     harness.state.sessions.delete('t1')
 
     const restored = await harness.service.request({ kind: 'restore', id: entryIdOf(captured) })
-    expect(restored.success).toBe(false)
-    if (!restored.success) expect(restored.error).toMatch(/手动选择历史记录/)
-    expect(harness.state.spawns).toHaveLength(0)
+    expect(restored.success).toBe(true)
+    expect(harness.state.spawns).toEqual([{ name: expect.any(String), command: undefined, tags: [], opts: { cwd: dir, awaitConnection: true } }])
     expect(harness.state.launches).toHaveLength(0)
   })
 
-  it('live-only 且实例已结束时明确拒绝', async () => {
+  it('带启动命令的普通终端结束后只新建 shell，不重放命令', async () => {
     const harness = setup()
     harness.state.sessions.set('t1', { alive: true, config: sessionConfig({ type: ConnectionType.LOCAL, local: { cwd: dir }, startupCommands: ['npm run dev'] }) })
     const captured = await harness.service.request({ kind: 'capture', resource: { kind: 'terminal', id: 't1' } })
     harness.state.sessions.delete('t1')
 
     const restored = await harness.service.request({ kind: 'restore', id: entryIdOf(captured) })
-    expect(restored.success).toBe(false)
-    if (!restored.success) expect(restored.error).toMatch(/没有可重放的启动信息/)
+    expect(restored.success).toBe(true)
+    expect(harness.state.spawns).toEqual([{ name: expect.any(String), command: undefined, tags: [], opts: { cwd: dir, awaitConnection: true } }])
   })
 
   it('POST 网页恢复时明确拒绝重放', async () => {
@@ -662,7 +694,7 @@ describe('任务保存区 restore', () => {
 describe('任务保存区维护', () => {
   it('list / rename / remove', async () => {
     const harness = setup()
-    expect(await harness.service.request({ kind: 'list' })).toMatchObject({ success: true, entries: [], preferences: { toggleShortcut: 'Ctrl+Shift+J' } })
+    expect(await harness.service.request({ kind: 'list' })).toMatchObject({ success: true, entries: [], preferences: { toggleShortcut: 'Ctrl+`' } })
     harness.state.sessions.set('t1', { alive: true, config: sessionConfig({ type: ConnectionType.LOCAL, local: { cwd: dir } }) })
     const captured = await harness.service.request({ kind: 'capture', resource: { kind: 'terminal', id: 't1' } })
     const id = entryIdOf(captured)
@@ -716,5 +748,104 @@ describe('任务保存区维护', () => {
     const harness = setup()
     const result = await harness.service.request({ kind: 'nope' } as unknown as Parameters<TaskShelfService['request']>[0])
     expect(result.success).toBe(false)
+  })
+})
+
+/** 归档区「全部移回 Tasks」：只改列表归属，绝不恢复/启动任何实例。 */
+describe('任务保存区 unarchiveAll', () => {
+  it('只改列表归属：整批移回不触发恢复、启动、连接或保活', async () => {
+    const retain = vi.fn().mockResolvedValue(undefined)
+    const harness = setup({ retainSession: retain })
+    harness.state.sessions.set('t1', { alive: true, config: sessionConfig({ type: ConnectionType.LOCAL, local: { cwd: dir } }) })
+    const active = await harness.service.request({ kind: 'capture', resource: { kind: 'terminal', id: 't1' } })
+    const web = await harness.service.request({ kind: 'capture', resource: { kind: 'web', id: 'w1', url: 'https://example.com/docs/guide', title: '文档' } })
+    await harness.service.request({ kind: 'archive', id: entryIdOf(web), archived: true })
+    const before = { spawns: harness.state.spawns.length, created: harness.state.created.length, connects: harness.state.connects.length, launches: harness.state.launches.length, retains: retain.mock.calls.length }
+
+    const result = await harness.service.request({ kind: 'unarchiveAll' })
+
+    expect(result.success).toBe(true)
+    if (!result.success) return
+    expect(result.entries.map(item => item.id)).toEqual([entryIdOf(active), entryIdOf(web)])
+    expect(result.entries.map(item => item.archivedAt)).toEqual([undefined, undefined])
+    expect(result.entries.find(item => item.id === entryIdOf(web))).toMatchObject({ revision: 3 })
+    expect(result.entries.find(item => item.id === entryIdOf(web))!.updatedAt).toBeGreaterThan(1001)
+    // 一条运行资源行为都不能发生：不 spawn、不建会话、不连接、不跑续接、不改保留标记。
+    expect(harness.state.spawns).toHaveLength(before.spawns)
+    expect(harness.state.created).toHaveLength(before.created)
+    expect(harness.state.connects).toHaveLength(before.connects)
+    expect(harness.state.launches).toHaveLength(before.launches)
+    expect(retain.mock.calls).toHaveLength(before.retains)
+    expect(harness.state.sessions.get('t1')?.alive).toBe(true)
+    // 返回的是列表，不是恢复结果：界面不能借这次调用导航到任何实例。
+    expect(result).not.toHaveProperty('restored')
+  })
+
+  it('无归档项时幂等，重建仓储后保持移回结果，之后仍可再次归档与移回', async () => {
+    const harness = setup()
+    const web = await harness.service.request({ kind: 'capture', resource: { kind: 'web', id: 'w1', url: 'https://example.com/docs/guide', title: '文档' } })
+    await harness.service.request({ kind: 'archive', id: entryIdOf(web), archived: true })
+
+    const first = await harness.service.request({ kind: 'unarchiveAll' })
+    const second = await harness.service.request({ kind: 'unarchiveAll' })
+    expect(first.success && second.success).toBe(true)
+    if (!first.success || !second.success) return
+    expect(first.entries.map(item => item.archivedAt)).toEqual([undefined])
+    expect(second.entries).toEqual(first.entries)
+    expect(new TaskShelfRepository(join(dir, 'task-shelf.json')).list()).toEqual(first.entries)
+
+    expect(await harness.service.request({ kind: 'archive', id: entryIdOf(web), archived: true })).toMatchObject({ success: true, entry: { archivedAt: 1000 } })
+    const again = await harness.service.request({ kind: 'unarchiveAll' })
+    expect(again.success && again.entries.map(item => item.archivedAt)).toEqual([undefined])
+  })
+
+  it('写盘失败返回失败并保留归档状态，恢复后可重试', async () => {
+    const harness = setup()
+    const one = await harness.service.request({ kind: 'capture', resource: { kind: 'web', id: 'w1', url: 'https://example.com/docs/guide', title: '文档' } })
+    const two = await harness.service.request({ kind: 'capture', resource: { kind: 'web', id: 'w2', url: 'https://example.com/docs/api', title: '接口' } })
+    await harness.service.request({ kind: 'archive', id: entryIdOf(one), archived: true })
+    await harness.service.request({ kind: 'archive', id: entryIdOf(two), archived: true })
+    const diskBefore = readFileSync(join(dir, 'task-shelf.json'), 'utf8')
+
+    disk.failWrite = true
+    const failed = await harness.service.request({ kind: 'unarchiveAll' })
+    expect(failed.success).toBe(false)
+    if (!failed.success) expect(failed.error).toMatch(/保存区写入失败/)
+    expect(readFileSync(join(dir, 'task-shelf.json'), 'utf8')).toBe(diskBefore)
+    const listed = await harness.service.request({ kind: 'list' })
+    expect(listed.success && listed.entries.every(entry => entry.archivedAt === 1000)).toBe(true)
+
+    disk.failWrite = false
+    const moved = await harness.service.request({ kind: 'unarchiveAll' })
+    expect(moved.success).toBe(true)
+    if (!moved.success) return
+    expect(moved.entries.map(entry => entry.archivedAt)).toEqual([undefined, undefined])
+    expect(new TaskShelfRepository(join(dir, 'task-shelf.json')).list()).toEqual(moved.entries)
+  })
+
+  it('指向已结束本地宿主的归档记录只移回列表，不探测、不附着、不新建', async () => {
+    const hostId = 'a93bb4f0-0d44-44f8-8418-d7f479251728'
+    const probe = vi.fn().mockResolvedValue({ running: true })
+    const restoreHost = vi.fn().mockResolvedValue({ success: true, id: 'restored' })
+    const retain = vi.fn().mockResolvedValue(undefined)
+    const harness = setup({ localHost: { probe, restore: restoreHost }, retainSession: retain })
+    harness.state.sessions.set('t1', { alive: true, config: sessionConfig({ type: ConnectionType.LOCAL, local: { cwd: dir, terminalHostId: hostId } }) })
+    const saved = await harness.service.request({ kind: 'capture', resource: { kind: 'terminal', id: 't1' } })
+    expect(entryOf(saved).capability).toBe('local-live')
+    await harness.service.request({ kind: 'archive', id: entryIdOf(saved), archived: true })
+    harness.state.sessions.clear()
+    retain.mockClear()
+
+    const result = await harness.service.request({ kind: 'unarchiveAll' })
+
+    expect(result.success).toBe(true)
+    if (!result.success) return
+    expect(result.entries[0].archivedAt).toBeUndefined()
+    expect(probe).not.toHaveBeenCalled()
+    expect(restoreHost).not.toHaveBeenCalled()
+    expect(retain).not.toHaveBeenCalled()
+    expect(harness.state.spawns).toHaveLength(0)
+    expect(harness.state.created).toHaveLength(0)
+    expect(harness.state.sessions.size).toBe(0)
   })
 })

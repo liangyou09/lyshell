@@ -268,10 +268,6 @@ export const IPC_CHANNELS = {
   COMMAND_GROUP_DELETE: 'command-group:delete',
   COMMAND_GROUP_REORDER: 'command-group:reorder',
 
-  // 浮窗
-  FLOAT_SHOW: 'float:show',
-  FLOAT_HIDE: 'float:hide',
-  FLOAT_TOGGLE: 'float:toggle',
 
   // 数据导出导入
   DATA_EXPORT: 'data:export',
@@ -2770,6 +2766,7 @@ export function registerIPCHandlers(): void {
   // ========== 任务保存区（拖入才落盘；capture 只记录恢复引用，restore 才显式启动） ==========
   const taskShelf = createTaskShelfService({
     repository: taskShelfRepository,
+    archiveOnStart: true,
     // alive 用连接器枚举算好，服务侧不关心两套 ConnectionStatus 的差异。
     session: id => {
       if (sessionManager.isSessionDeleting(id)) return undefined
@@ -2834,7 +2831,9 @@ export function registerIPCHandlers(): void {
   ipcMain.handle('task-shelf:request', async (event, raw: unknown) => {
     try {
       if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Task shelf requires the main window')
-      return await taskShelf.request(validateTaskShelfRequest(raw))
+      // 批量移回与单项操作共用严格白名单，只向服务层传递校验后的请求。
+      const request = validateTaskShelfRequest(raw)
+      return await taskShelf.request(request)
     } catch (error) { return { success: false, error: (error as Error).message } }
   })
 

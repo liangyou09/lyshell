@@ -1,13 +1,46 @@
 import { describe, expect, it } from 'vitest'
-import { shelfDocked, shelfPanelWidth, shelfGridLayout } from './task-shelf-layout'
+import { shelfDocked, shelfPanelWidth, shelfGridLayout, shelfHorizontalLayout, shelfDropEdge, shelfEdge, shelfPanelHeight } from './task-shelf-layout'
 
 describe('任务区按实际窗口空间适配', () => {
-  it('大任务格随宽度从两列排到五列，末行和空面板保留空白格', () => {
-    expect(shelfGridLayout(240, 1)).toEqual({ columns: 2, slots: 2 })
-    expect(shelfGridLayout(304, 3)).toEqual({ columns: 2, slots: 4 })
-    expect(shelfGridLayout(400, 4)).toEqual({ columns: 3, slots: 6 })
-    expect(shelfGridLayout(640, 7)).toEqual({ columns: 5, slots: 10 })
-    expect(shelfGridLayout(400, 0)).toEqual({ columns: 3, slots: 3 })
+  it('横向任务栏先填满每列，再向右扩展；高度不足时只显示方块', () => {
+    const tall = shelfHorizontalLayout(1400, 440, 7)
+    expect(tall).toMatchObject({ rows: 3, columns: 3, gridWidth: 420, showPreviews: true })
+    expect(tall.previewWidth).toBeCloseTo((440 - 70) * 16 / 9)
+    const short = shelfHorizontalLayout(1400, 160, 7)
+    expect(short).toMatchObject({ rows: 1, columns: 7, showPreviews: false })
+    expect(shelfHorizontalLayout(552, 350, 2)).toMatchObject({ rows: 2, columns: 1, previewWidth: 376, previewCardWidth: 378, showPreviews: true })
+    expect(shelfHorizontalLayout(552, 220, 2).showPreviews).toBe(false)
+    expect(shelfHorizontalLayout(552, 300, 4)).toMatchObject({ rows: 2, columns: 2, gridWidth: 284, showPreviews: false })
+    expect(shelfHorizontalLayout(400, 440, 7).showPreviews).toBe(false)
+    expect(shelfHorizontalLayout(1400, 0, 0)).toMatchObject({ rows: 1, showPreviews: false })
+  })
+  it('窗口宽度随横栏可用高度变化，保持 16:9；不足最小可读尺寸时只显示方块', () => {
+    const requiredHeight = 70 + 280 * 9 / 16
+    expect(shelfHorizontalLayout(1400, requiredHeight, 2).showPreviews).toBe(true)
+    expect(shelfHorizontalLayout(1400, requiredHeight - 1, 2).showPreviews).toBe(false)
+    expect(shelfHorizontalLayout(1400, 400, 2).previewWidth).toBeGreaterThan(shelfHorizontalLayout(1400, 300, 2).previewWidth)
+    expect(shelfHorizontalLayout(552, 400, 2).previewWidth).toBe(376)
+  })
+  it('仅吸附到有效内容区四边，中央或窗口外不换边', () => {
+    const rect = { left: 100, top: 36, width: 1000, height: 700 }
+    expect(shelfDropEdge(101, 350, rect)).toBe('left')
+    expect(shelfDropEdge(1090, 350, rect)).toBe('right')
+    expect(shelfDropEdge(500, 40, rect)).toBe('top')
+    expect(shelfDropEdge(500, 730, rect)).toBe('bottom')
+    expect(shelfDropEdge(500, 350, rect)).toBeNull()
+    expect(shelfDropEdge(500, 20, rect)).toBeNull()
+    expect(shelfDropEdge(500, 800, rect)).toBeNull()
+    expect(shelfEdge('unknown')).toBe('right')
+    expect(shelfPanelHeight(1000, 700)).toBe(455)
+    expect(shelfPanelHeight(300, 100)).toBe(65)
+  })
+  it('任务卡随栏宽适配，宽栏保留可读宽度并限制五列', () => {
+    expect(shelfGridLayout(200)).toEqual({ columns: 1 })
+    expect(shelfGridLayout(240)).toEqual({ columns: 2 })
+    expect(shelfGridLayout(304)).toEqual({ columns: 2 })
+    expect(shelfGridLayout(400)).toEqual({ columns: 2 })
+    expect(shelfGridLayout(640)).toEqual({ columns: 4 })
+    expect(shelfGridLayout(800)).toEqual({ columns: 5 })
   })
   it('带鱼屏大窗口常驻，半屏和大侧栏占用回退悬停', () => {
     expect(shelfDocked('auto', 2400, 2000, 320, false)).toBe(true)
