@@ -12,6 +12,7 @@ import { pluginResources } from '@main/plugin/resource-registry'
 import { getMcpHttpPort } from '@main/mcp/http-port'
 import * as mcpAuth from '@main/mcp/auth'
 import { tuiActivity } from '../harness/tui-activity'
+import { captureSshContext, formatSshHistoryForTerminal, normalizeSshDirectory } from './shelf-ssh-context'
 
 const SHELL_OPEN_CLEANUP_TIMEOUT_MS = 5000
 
@@ -122,6 +123,8 @@ export interface Session {
   pendingCols?: number  // 等待应用的终端宽度
   pendingRows?: number  // 等待应用的终端高度
   outputBuffer?: OutputBuffer  // 终端输出缓冲区（用于 MCP 读取输出）
+  shelfOutputBuffer?: OutputBuffer // 仅收纳的 SSH 持有，断开后仍可保存最后输出
+  pendingShelfHistory?: string // SSH 恢复时一次性注入本机显示流，绝不写入连接器
   outputPaused?: boolean  // 图形输出背压，重建 connector 时沿用
   pendingWaitLock?: boolean  // send_and_wait 并发锁
   lockedByMcp?: boolean  // MCP 是否正在占用该会话 PTY（共享 PTY 模式时阻塞用户输入）
@@ -136,6 +139,18 @@ export interface Session {
  * 管理所有连接会话
  */
 export class SessionManager extends EventEmitter {
+  retainSshContext(id: string, retained: boolean, history?: string): void {
+    const session = this.sessions.get(id)
+    if (!session || session.config.type !== ConnectionType.SSH) return
+    if (!retained) { session.shelfOutputBuffer = undefined; session.pendingShelfHistory = undefined; return }
+    const historyText = history ? captureSshContext(history) : undefined
+    if (historyText) session.pendingShelfHistory = formatSshHistoryForTerminal(historyText)
+    if (session.shelfOutputBuffer) return
+    const buffer = new OutputBuffer(64 * 1024)
+    if (historyText) buffer.append(historyText)
+    buffer.append(session.outputBuffer?.getOutputSince(0, false).text ?? '')
+    session.shelfOutputBuffer = buffer
+  }
   private sessions: Map<string, Session> = new Map()
   private deletingSessions = new WeakMap<Session, Promise<boolean>>()
   private pendingSessionDeletions = new WeakSet<Session>()
@@ -432,7 +447,8 @@ export class SessionManager extends EventEmitter {
       // 根据类型创建连接器
       switch (session.config.type) {
         case ConnectionType.SSH:
-          session.connector = new SSHConnector(id, withRuntimeEncoding(session.config.ssh as SSHConfig, session))
+          // 保存区只在本机保留上下文；历史配置中的 tmux 开关不再改变连接方式。
+          session.connector = new SSHConnector(id, withRuntimeEncoding({ ...session.config.ssh as SSHConfig, keepSessionAlive: false, resumeSessionName: undefined }, session))
           break
         case ConnectionType.TELNET:
           session.connector = new TelnetConnector(id, withRuntimeEncoding(session.config.telnet as TelnetConfig, session))
@@ -467,7 +483,7 @@ export class SessionManager extends EventEmitter {
           // connector 走各自默认值（shell/cwd/env 全可选）。曾在此透传 terminal
           // 的 encoding，但 LocalConnector 从不读它 —— 真正的编码处理在
           // OutputBuffer/渲染层，死管道随 LocalConfig 统一（见 connectors/local.ts）一并移除。
-          session.connector = new LocalConnector(id, { ...session.config.local }, extraEnv)
+          session.connector = new LocalConnector(id, { ...session.config.local }, extraEnv, { userDataDir: typeof app.getPath === 'function' ? app.getPath('userData') : undefined })
           break
         }
         default:
@@ -481,18 +497,29 @@ export class SessionManager extends EventEmitter {
       connector.setOutputPaused?.(session.outputPaused ?? false)
 
       session.outputBuffer = new OutputBuffer()
+      if (session.config.type === ConnectionType.SSH && session.pendingShelfHistory) {
+        const history = session.pendingShelfHistory
+        session.pendingShelfHistory = undefined
+        // 同时进入当前输出流和订阅初始缓冲，兼容 xterm 在连接前或连接后才建立订阅。
+        session.outputBuffer.append(history)
+        session.shelfOutputBuffer?.append('\n\n[LyShell: 以下为重新连接后的输出]\n')
+        this.emit('terminal:data', { sessionId: id, data: history })
+      }
       // local 会话挂工作目录解析器:输出流里的 OSC 报告(9;9 / 7)实时刷新,
       // 推 session:cwd-changed 给页签悬停详情卡。种子(spawn 目录)延到 connect()
       // 之后才取 —— getSpawnCwd 读 this.config 实时值,connect(config) 传新配置
       // 会整体替换,连接前读到的还是构造时的旧配置(当前调用链不传 config,防
       // 后续复用时种子与实际 spawn 目录分叉)。cmd 不发目录序列,停留在种子值
       // (pwsh/PSReadLine 2.1+ 每次 prompt 都会发)
-      const cwdTracker = connector instanceof LocalConnector ? new OscCwdTracker() : null
+      const remoteCwd = session.config.type === ConnectionType.SSH
+      const cwdTracker = connector instanceof LocalConnector || remoteCwd ? new OscCwdTracker() : null
       connector.on('data', (data: string) => {
         if (!isCurrentAttempt()) return
         this.emit('terminal:data', { sessionId: id, data })
         session.outputBuffer?.append(data)
-        const nextCwd = cwdTracker?.push(data)
+        session.shelfOutputBuffer?.append(data)
+        const reported = cwdTracker?.push(data)
+        const nextCwd = remoteCwd ? normalizeSshDirectory(reported) : reported
         if (nextCwd) {
           session.cwd = nextCwd
           this.emit('session:cwd-changed', { sessionId: id, cwd: nextCwd })
@@ -510,6 +537,8 @@ export class SessionManager extends EventEmitter {
         this.emit('session:status', { id, status: ConnectionStatus.ERROR, error: extractErrorMessage(error) })
       })
 
+      // 在 connect 前记录恢复意图，不能被连接器回填的新 hostId 误判为旧进程附着。
+      const resumedLocal = session.config.type === ConnectionType.LOCAL && !!session.config.local?.terminalHostId
       // 连接
       await connector.connect()
       if (!isCurrentAttempt()) throw new Error(`Connection superseded: ${id}`)
@@ -539,15 +568,19 @@ export class SessionManager extends EventEmitter {
       // 必是本次连接实际使用的 config(见上方 tracker 创建处的说明)
       if (cwdTracker) {
         const spawnCwd = connector instanceof LocalConnector ? connector.getSpawnCwd() : null
-        const cwd = cwdTracker.getCwd() ?? spawnCwd
-        if (cwd !== null) {
+        const reported = cwdTracker.getCwd()
+        const cwd = remoteCwd ? normalizeSshDirectory(reported) : reported ?? spawnCwd
+        if (cwd != null) {
           session.cwd = cwd
           this.emit('session:cwd-changed', { sessionId: id, cwd })
         }
       }
 
+      if (session.connector instanceof LocalConnector && session.connector.localHostId) {
+        session.config.local = { ...session.config.local, terminalHostId: session.connector.localHostId }
+      }
       // 发送启动命令（如果有）
-      if (session.config.startupCommands && session.config.startupCommands.length > 0) {
+      if (!resumedLocal && session.config.startupCommands && session.config.startupCommands.length > 0) {
         // 本地终端启动快，200ms；远程连接需等待 shell 就绪，500ms
         const delay = session.config.type === ConnectionType.LOCAL ? 200 : 500
         setTimeout(() => {
@@ -658,6 +691,13 @@ export class SessionManager extends EventEmitter {
           await waitForShellOpeningForCleanup(opening)
         }
         if (connector) await connector.disconnect()
+        if (connector instanceof LocalConnector && connector.localHostHasExited && session.config.local?.terminalHostId === connector.localHostId) {
+          // 普通显式重连在确认旧进程结束后可新建 shell；保存区自己的旧宿主引用仍保留，
+          // 其 restore 路径会探测旧宿主并拒绝用新进程冒充原任务。
+          const local = { ...session.config.local }
+          delete local.terminalHostId
+          session.config.local = local
+        }
       } finally {
         // 即使原生关闭失败也完成文件任务取消与撤权，但不得吞掉关闭错误。
         await cleanup
@@ -806,7 +846,7 @@ export class SessionManager extends EventEmitter {
 
     // 创建新的 SSH connector，共享 client。encoding 随源会话运行时值派生
     // （唯一派生点 withRuntimeEncoding，口径同 connectSessionAttempt 的三分支）
-    const newConnector = new SSHConnector(newId, withRuntimeEncoding(sourceSession.config.ssh as SSHConfig, sourceSession))
+    const newConnector = new SSHConnector(newId, withRuntimeEncoding({ ...sourceSession.config.ssh as SSHConfig, keepSessionAlive: false, resumeSessionName: undefined, resumeDirectory: undefined }, sourceSession))
     newConnector.setSharedClient(sshClient)  // 共享 SSH client
 
     newSession.connector = newConnector
@@ -817,10 +857,14 @@ export class SessionManager extends EventEmitter {
     const isCurrentClone = (): boolean =>
       this.sessions.get(newId) === newSession && newSession.connector === newConnector &&
       !newSession.disconnectCleanup && !this.isSessionDeleting(newId)
+    const cloneCwdTracker = new OscCwdTracker()
     newConnector.on('data', (data: string) => {
       if (!isCurrentClone()) return
       this.emit('terminal:data', { sessionId: newId, data })
       newSession.outputBuffer?.append(data)
+      newSession.shelfOutputBuffer?.append(data)
+      const cwd = normalizeSshDirectory(cloneCwdTracker.push(data))
+      if (cwd) { newSession.cwd = cwd; this.emit('session:cwd-changed', { sessionId: newId, cwd }) }
     })
     newConnector.on('close', () => {
       if (!isCurrentClone()) return

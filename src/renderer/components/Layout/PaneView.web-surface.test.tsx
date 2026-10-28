@@ -22,9 +22,12 @@ import { usePaneStore } from '../../stores/pane-store'
 import { useSessionStore } from '../../stores/session-store'
 import { useTerminalStore } from '../../stores/terminal-store'
 import { ConnectionType, ConnectionStatus } from '@shared/types'
-import type { DocOverlayPayload, SessionConfig } from '@shared/types'
+import type { DocOverlayPayload, PaneLeaf, PaneNode, SessionConfig, SplitDirection } from '@shared/types'
 import PaneView from './PaneView'
+import SplitPaneContainer from './SplitPaneContainer'
 import { WEB_TAB_PLACEHOLDER_ATTR } from './WebTabLayer'
+import { registerShelfSurface } from './task-shelf-surfaces'
+import { registerShelfWebPreview } from './task-shelf-preview-sources'
 import '../../i18n'
 
 // 终端替身的挂载/卸载计数：跨覆盖层开关保持 1/0 才证明「只隐藏、没卸载」
@@ -138,6 +141,39 @@ afterEach(() => {
   useTerminalStore.getState().unregisterTerminal(SESSION_ID)
 })
 
+describe('常驻任务区上方的首行保持全宽', () => {
+  it.each(['horizontal', 'vertical'] as const)('嵌套 %s 分屏仅放开首行最右路径，内容继续裁切且不重挂终端', direction => {
+    const leaf = (id: string): PaneLeaf => ({ id, type: 'leaf', sessions: [id], activeSessionId: id, overlays: [] })
+    const opposite: SplitDirection = direction === 'horizontal' ? 'vertical' : 'horizontal'
+    const nested: PaneNode = { id: 'nested', type: 'split', direction: opposite, splitRatio: .5, firstChild: leaf('a'), secondChild: leaf('b') }
+    const root: PaneNode = { id: 'root', type: 'split', direction, splitRatio: .5,
+      firstChild: direction === 'vertical' ? nested : leaf('c'), secondChild: direction === 'horizontal' ? nested : leaf('c') }
+    usePaneStore.setState({ layout: { root, activePaneId: 'a' } })
+    useSessionStore.setState({ sessions: ['a', 'b', 'c'].map(id => ({ id, config: { ...sessionConfig, id }, status: ConnectionStatus.CONNECTED })) })
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    try {
+      const view = render(<div style={{ paddingRight: 320, '--task-shelf-reserve': '320px' } as React.CSSProperties}><SplitPaneContainer /></div>)
+      const rightmostId = direction === 'horizontal' ? 'a' : 'b'
+      const rightmost = view.container.querySelector<HTMLElement>(`[data-pane-id="${rightmostId}"]`)!
+      const bar = rightmost.firstElementChild as HTMLElement
+      expect(bar.style.width).toBe('calc(100% + var(--task-shelf-reserve, 0px))')
+      expect(bar.style.paddingRight).toBe('var(--top-right-reserve)')
+      // 沿祖先直到窗口内容层均不裁掉延伸部分；终端自己的内容层仍裁切。
+      for (let ancestor = rightmost.parentElement; ancestor && ancestor !== view.container; ancestor = ancestor.parentElement) {
+        expect(ancestor.classList.contains('overflow-hidden')).toBe(false)
+      }
+      expect(rightmost.children[1].classList.contains('overflow-hidden')).toBe(true)
+      const other = view.container.querySelector<HTMLElement>('[data-pane-id="c"]')!
+      expect((other.firstElementChild as HTMLElement).style.width).toBe('')
+      const terminals = [...view.container.querySelectorAll('[data-testid="terminal-view"]')]
+      view.rerender(<div style={{ paddingRight: 0, '--task-shelf-reserve': '0px' } as React.CSSProperties}><SplitPaneContainer /></div>)
+      expect([...view.container.querySelectorAll('[data-testid="terminal-view"]')]).toEqual(terminals)
+      expect(terminalLifecycle.mounts).toBe(3)
+      expect(terminalLifecycle.unmounts).toBe(0)
+    } finally { vi.unstubAllGlobals() }
+  })
+})
+
 describe('PaneView 网页面：覆盖层盖屏时终端只隐藏不卸载', () => {
   it('网页页签激活 → 终端 CSS 隐藏但仍挂载；去活 → 原样恢复', () => {
     resetLayout({ withSession: true })
@@ -242,5 +278,37 @@ describe('PaneView 网页面：既有呈现不被改变', () => {
     // 内联文档不产生网页测位占位，也不挂终端
     expect(webPlaceholder()).toBeNull()
     expect(screen.queryByTestId('terminal-view')).toBeNull()
+  })
+})
+
+
+describe('Harness 原生小窗口', () => {
+  it('复用原 guest 并优先于透明缩略图，收起后隐藏，召回仍是原节点', () => {
+    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+    vi.stubGlobal('requestAnimationFrame', () => 1); vi.stubGlobal('cancelAnimationFrame', () => {})
+    const slot = document.createElement('div'); document.body.append(slot)
+    slot.getBoundingClientRect = () => new DOMRect(500, 200, 400, 240)
+    let release: (() => void) | undefined, releasePreview: (() => void) | undefined
+    try {
+      render(<Harness />)
+      let id = ''
+      act(() => { id = pane().mountOverlay('pane-1', { kind: 'dshWeb', url: 'https://harness.test/', name: 'Harness' })! })
+      const guest = document.querySelector('webview')!
+      act(() => { pane().deactivateOverlay(id); releasePreview = registerShelfWebPreview(id); release = registerShelfSurface('harness', id, slot, true) })
+      const native = guest.closest<HTMLElement>('[data-shelf-native]')!
+      expect(native.style.position).toBe('fixed')
+      expect(native.style.left).toBe('500px')
+      expect(native.style.visibility).toBe('visible')
+      expect((guest as HTMLElement).style.opacity).toBe('')
+      expect(document.querySelector('webview')).toBe(guest)
+      act(() => release?.())
+      expect(native.style.visibility).toBe('hidden')
+      expect(native.style.width).toBe('400px')
+      expect(native.hasAttribute('inert')).toBe(true)
+      act(() => pane().activateOverlay(id))
+      expect(native.style.visibility).toBe('visible')
+      expect(native.hasAttribute('data-shelf-native')).toBe(false)
+      expect(document.querySelector('webview')).toBe(guest)
+    } finally { act(() => { release?.(); releasePreview?.() }); slot.remove(); vi.unstubAllGlobals() }
   })
 })

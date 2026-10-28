@@ -49,6 +49,13 @@ import { formatCodeWorkspaceName } from '@shared/code-workspaces'
 import { validateCodeWorkspaceRequest } from './validation'
 import { launchResolveSerializer } from '../harness/task-serializer'
 import { detectDependencies } from '../harness/detect'
+import { createTaskShelfService } from '../harness/task-shelf'
+import { SSHConnector } from '../connectors/ssh'
+import { LocalConnector } from '../connectors/local'
+import { LocalHostClient } from '../terminal/local-host-client'
+import { taskShelfRepository } from '../storage/task-shelf-repository'
+import { validateTaskShelfRequest } from './validation'
+import { validateSshPersistence } from './validation'
 import { HARNESS_AGENTS, resolveWorkspaceEnv } from '../harness/config'
 import { migrateInlineEnvToProfiles } from '../harness/migrate-env'
 import { migrateKindEnvProfilesToGlobal, migrateProfilesToStructured } from '../harness/migrate-profiles'
@@ -61,6 +68,10 @@ import { downloadHistory, DownloadRecord } from '../storage'
 import { ConnectionStatus } from '../connectors'
 import { findPwshPath, findExplorerShell } from '../connectors/local'
 import { explorerLaunchQueue, validateExplorerDirectory } from '../explorer-launch'
+import { browserLaunchQueue } from '../browser/launch'
+import { BROWSER_LAUNCH_TAKE } from '@shared/browser-launch'
+import { getDefaultBrowserStatus, requestDefaultBrowser } from '../browser/default-browser'
+import { assertBrowserLaunchConsumer } from './validation'
 import { reachabilityProber, type ReachabilityTarget } from '../reachability/reachability-prober'
 import { ConnectionType, isDocPath, DOC_MAX_REMOTE_BYTES, DOC_MAX_LOCAL_BYTES } from '@shared/types'
 import type { ExclusiveWorkbenchDetail } from '@shared/exclusive-control'
@@ -476,8 +487,22 @@ export function registerIPCHandlers(): void {
     // 搜索联想也只能由宿主地址栏请求；固定服务地址由 main 决定。
     // 普通网页/插件 guest 不能读取密码/下载路径、操作下载、改变代理或清理会话。
     if (event.sender.getType() !== 'window' || !BrowserWindow.fromWebContents(event.sender) || event.senderFrame !== event.sender.mainFrame) return { success: false, error: 'browserAccessDenied' }
-    try { return await browserRequest(validateBrowserRequest(raw), event.sender.id) }
+    try {
+      const request = validateBrowserRequest(raw)
+      if (request.kind === 'defaultBrowserStatus' || request.kind === 'requestDefaultBrowser') {
+        assertBrowserLaunchConsumer(event.sender.id, browserLaunchQueue.consumerId, event.senderFrame === event.sender.mainFrame)
+        try {
+          if (request.kind === 'requestDefaultBrowser') await requestDefaultBrowser()
+          return { success: true, defaultBrowserStatus: await getDefaultBrowserStatus() }
+        } catch { return { success: false, error: 'defaultBrowserFailed' } }
+      }
+      return await browserRequest(request, event.sender.id)
+    }
     catch { return { success: false, error: 'browserInvalidSettings' } }
+  })
+  ipcMain.handle(BROWSER_LAUNCH_TAKE, event => {
+    assertBrowserLaunchConsumer(event.sender.id, browserLaunchQueue.consumerId, event.senderFrame === event.sender.mainFrame)
+    return browserLaunchQueue.takeAll()
   })
   log.info('Registering IPC handlers...')
 
@@ -537,6 +562,7 @@ export function registerIPCHandlers(): void {
       assertString(config.type, 'config.type', { maxLength: 32 })
       if (config.originSavedSessionId !== undefined) assertString(config.originSavedSessionId, 'config.originSavedSessionId', { maxLength: 128 })
       sanitizeSessionEncoding(config)
+      validateSshPersistence(config)
       const requestId = assertPluginActionRequestId(rawPluginActionRequestId)
       const sourceSessionId = assertConnectionCloneSourceId(rawSourceSessionId)
       const pluginId = requestId === undefined ? undefined : pluginActionDispatcher.terminalRequestPlugin(
@@ -858,6 +884,7 @@ export function registerIPCHandlers(): void {
       assertString(config.type, 'config.type', { maxLength: 32 })
       sanitizeSessionEncoding(config)
       log.debug('Create session:', config.name)
+      validateSshPersistence(config, true)
       delete config.ownerPluginId // 普通 renderer 新建项不能声明插件归属。
       const saved = sessionRepository.saveSession(config)
       syncReachabilityTargets()
@@ -875,6 +902,7 @@ export function registerIPCHandlers(): void {
       assertString(config.type, 'config.type', { maxLength: 32 })
       sanitizeSessionEncoding(config)
       log.debug('Update session:', config.id)
+      validateSshPersistence(config, true)
       // connectCount 是单调统计(每次连接只增),入参来自渲染层镜像 —— MCP 写回聚合值
       // (write_session_notes)后镜像刷新落地前存在窄窗口(如编辑对话框开着时收到),
       // 整包保存会把旧值盖回去。写前钳到与仓库现值的较大者,只增不减
@@ -2373,7 +2401,7 @@ export function registerIPCHandlers(): void {
     name: string,
     command: string | undefined,
     tags: string[],
-    opts?: { cwd?: string; env?: Record<string, string>; shell?: string }
+    opts?: { cwd?: string; env?: Record<string, string>; shell?: string; terminalHostId?: string; awaitConnection?: boolean }
   ) {
     // 启动 shell：有 pwsh（PowerShell 7）用 pwsh 且带 -NoProfile —— 交互 profile 的
     // Set-Location 会静默改掉工作区/worktree cwd，agent 宿主要的是透明宿主而非用户
@@ -2402,6 +2430,7 @@ export function registerIPCHandlers(): void {
       name,
       type: ConnectionType.LOCAL,
       local: {
+        ...(opts?.terminalHostId ? { terminalHostId: opts.terminalHostId } : {}),
         shell: pwshPath ?? undefined,
         shellArgs: pwshPath ? ['-NoProfile'] : undefined,
         cwd: opts?.cwd,
@@ -2451,7 +2480,12 @@ export function registerIPCHandlers(): void {
       throw error
     }
     if (tuiFiles.length) tuiFilesByTerminal.set(id, tuiFiles)
-    // 延迟连接，给前端时间创建 xterm 实例
+    // 保存区恢复必须等原宿主附着/启动结果，不能把排队成功当作恢复成功。
+    if (opts?.terminalHostId || opts?.awaitConnection) {
+      await sessionManager.connectSession(session.id)
+      return { success: true, id: session.id, status: ConnectionStatus.CONNECTED, config: session.config }
+    }
+    // 普通启动延迟连接，给前端时间创建 xterm 实例。
     setTimeout(() => {
       sessionManager.connectSession(session.id).catch(err => {
         log.error(`Local command session launch failed (${name}):`, extractErrorMessage(err))
@@ -2733,6 +2767,77 @@ export function registerIPCHandlers(): void {
       return await requestProjectScene(validateProjectSceneRequest(raw), createSceneLauncher(spawnLocalCommandSession))
     } catch (error) { return { success: false, error: (error as Error).message } }
   })
+  // ========== 任务保存区（拖入才落盘；capture 只记录恢复引用，restore 才显式启动） ==========
+  const taskShelf = createTaskShelfService({
+    repository: taskShelfRepository,
+    // alive 用连接器枚举算好，服务侧不关心两套 ConnectionStatus 的差异。
+    session: id => {
+      if (sessionManager.isSessionDeleting(id)) return undefined
+      const session = sessionManager.getSession(id)
+      if (!session) return undefined
+      const alive =
+        session.status === ConnectionStatus.CONNECTED ||
+        session.status === ConnectionStatus.CONNECTING ||
+        session.status === ConnectionStatus.RECONNECTING
+      return { alive, config: session.config, cwd: session.cwd, localHostId: session.connector instanceof LocalConnector ? session.connector.localHostId : session.config.local?.terminalHostId,
+        output: session.config.type === ConnectionType.SSH ? (session.shelfOutputBuffer ?? session.outputBuffer)?.getOutputSince(0, false).text : undefined }
+    },
+    createSession: config => sessionManager.createSession(config),
+    connectSession: async id => {
+      await sessionManager.connectSession(id)
+    },
+    savedSession: id => sessionRepository.get(id),
+    retainSession: async (id, retained, history) => {
+      sessionManager.retainSshContext(id, retained, history)
+      const connector = sessionManager.getSession(id)?.connector
+      if (connector instanceof SSHConnector) connector.setSessionRetained(retained)
+      if (connector instanceof LocalConnector && connector.localHostId) await connector.retainForShelf(retained)
+    },
+    localHost: {
+      probe: id => LocalHostClient.probe(app.getPath('userData'), id),
+      restore: (id, name, cwd) => spawnLocalCommandSession(name, undefined, [], { cwd, terminalHostId: id })
+    },
+    harnessView: async () => {
+      const identity = dshWebManager.instanceIdentity
+      if (!identity) return undefined
+      const snapshot = await exclusiveRuntime.runExclusiveBridge({ cmd: 'snapshot' })
+      const current = snapshot.viewer?.currentSessionId
+      if (typeof current !== 'string' || !current || current.length > 128) return undefined
+      const [native, web] = await Promise.all([readWorkbenchActivity(), readHarnessWebActivity()])
+      const nativeRow = native.sessions.find(row => row.sessionId === current && !row.stale)
+      const webRow = web.sessions.find(row => row.sessionId === current)
+      if (JSON.stringify(identity) !== JSON.stringify(dshWebManager.instanceIdentity)) return undefined
+      return { recovery: { kind: 'harness', sessionId: current, identity,
+        ...(nativeRow?.taskId || webRow?.turnId ? { taskId: nativeRow?.taskId || webRow?.turnId } : {}),
+        ...(nativeRow?.taskState || webRow?.state ? { lastState: nativeRow?.taskState || webRow?.state } : {}) }, workspace: nativeRow?.workspace || webRow?.workspace }
+    },
+    tui: () => tuiActivity.snapshot(),
+    spawn: spawnLocalCommandSession,
+    harness: {
+      // 与 harness workspace:launch 同一口径：绑定项跟随设置项目录，未绑定项 cwd 为空（恢复时拒绝）。
+      workspace: (kind, id) => {
+        const record = HARNESS_AGENTS[kind].repository.get(id)
+        if (!record) return undefined
+        return kind === 'dsh' ? record : { ...record, ...managedTargetOf(record.workspacePresetId) }
+      },
+      async launch(kind, workspace) {
+        const runtime = HARNESS_AGENTS[kind]
+        const env = runtime.normalizeEnv(resolveWorkspaceEnv(runtime, workspace))
+        if (!env.ok) return { ok: false, error: env.error }
+        const prepared = runtime.prepareModel(workspace, env.env)
+        if (!prepared.ok) return { ok: false, error: prepared.error }
+        const launch = runtime.buildLaunchCommand(workspace)
+        return launch.ok ? { ok: true, command: launch.command, env: env.env } : { ok: false, error: launch.error }
+      }
+    }
+  })
+  ipcMain.handle('task-shelf:request', async (event, raw: unknown) => {
+    try {
+      if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Task shelf requires the main window')
+      return await taskShelf.request(validateTaskShelfRequest(raw))
+    } catch (error) { return { success: false, error: (error as Error).message } }
+  })
+
   ipcMain.handle('workbench-activity:request', async (event, raw: unknown) => {
     if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Workbench activity requires the main window')
     const request = validateWorkbenchActivityRequest(raw)

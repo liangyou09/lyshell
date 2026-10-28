@@ -4,6 +4,8 @@ import { existsSync } from 'fs'
 import { delimiter, join } from 'path'
 import { BaseConnector } from './base'
 import { readSystemPath } from '../env/refresh'
+import { safeStorage } from 'electron'
+import { LocalHostClient } from '../terminal/local-host-client'
 import type { LocalConfig, TerminalEncoding } from '@shared/types'
 
 /**
@@ -65,11 +67,31 @@ export class LocalConnector extends BaseConnector {
   private _rows: number = 24
   private outputPaused = false
   private connectGeneration = 0
+  private host: LocalHostClient | null = null
+  private hostRetained = false
+  private hostExited = false
+  private hostDisconnecting: Promise<void> | null = null
 
-  constructor(sessionId: string, config: LocalConfig, extraEnv: Record<string, string> = {}) {
+  constructor(sessionId: string, config: LocalConfig, extraEnv: Record<string, string> = {}, private readonly runtime: { userDataDir?: string } = {}) {
     super(sessionId)
-    this.config = config
+    this.config = { ...config }
     this.extraEnv = extraEnv
+  }
+
+  get localHostId(): string | undefined { return this.host?.id ?? this.config.terminalHostId }
+  /** 只有真实 exit/terminate 证据才允许后续普通重连新建 shell；失联保持未知。 */
+  get localHostHasExited(): boolean { return this.hostExited }
+  async retainForShelf(retained: boolean): Promise<void> {
+    if (!this.host) { if (retained) throw new Error('这个终端未由独立宿主持有，无法在退出后保活。请在新版中新建终端。'); return }
+    await this.host.retain(retained)
+    this.hostRetained = retained
+  }
+  async detachForQuit(): Promise<void> {
+    if (!this.host || !this.hostRetained) return this.disconnect()
+    this.connectGeneration++
+    const host = this.host; this.host = null
+    await host.detach()
+    this.connected = false
   }
 
   /**
@@ -86,7 +108,7 @@ export class LocalConnector extends BaseConnector {
   async connect(config?: LocalConfig): Promise<void> {
     const generation = ++this.connectGeneration
     if (config) {
-      this.config = config
+      this.config = { ...config }
     }
 
     const shell = this.resolveShell(this.config.shell || this.getDefaultShell())
@@ -96,6 +118,42 @@ export class LocalConnector extends BaseConnector {
     // 优先级：即时系统 PATH < config.env < extraEnv（工作区/env 显式覆盖仍生效）。
     const systemPath = await readSystemPath()
     if (generation !== this.connectGeneration) throw new Error('Local connection cancelled')
+
+    if (this.runtime.userDataDir && (this.config.terminalHostId || safeStorage?.isEncryptionAvailable?.())) {
+      const options = { shell, args: this.config.shellArgs ?? [], cwd: this.getSpawnCwd() ?? undefined, cols: this._cols, rows: this._rows,
+        env: { ...process.env, POWERSHELL_UPDATECHECK: process.env.POWERSHELL_UPDATECHECK ?? 'Off', ...(systemPath ? { PATH: systemPath } : {}), ...this.config.env, ...this.extraEnv } as Record<string, string> }
+      const attaching = !!this.config.terminalHostId
+      const host = attaching ? await LocalHostClient.attach(this.runtime.userDataDir, this.config.terminalHostId!) : await LocalHostClient.create(this.runtime.userDataDir, options)
+      if (generation !== this.connectGeneration) {
+        // 恢复取消只解除本次附着，不能终止已经收纳的原进程。
+        if (attaching) await host.detach()
+        else await host.terminate()
+        throw new Error('Local connection cancelled')
+      }
+      this.host = host
+      this.hostExited = false
+      this.config.terminalHostId = host.id
+      host.on('data', (data: string) => { if (this.host === host) this.emitData(data) })
+      host.on('gap', () => { if (this.host === host) this.emitData('\r\n[LyShell: 较早输出已超出保留范围，以下为最近输出。]\r\n') })
+      host.on('exit', () => { if (this.host !== host) return; this.hostExited = true; this.connected = false; this.emitClose() })
+      host.on('error', (error: Error) => { if (this.host === host && this.listenerCount('error')) this.emitError(error) })
+      host.on('disconnect', () => { if (this.host !== host) return; this.host = null; this.connected = false; this.emitClose() })
+      let status
+      try { status = await host.status() }
+      catch (error) { this.host = null; await host.detach(); throw error }
+      if (generation !== this.connectGeneration || this.host !== host) {
+        await host.detach()
+        throw new Error('Local connection cancelled')
+      }
+      this.hostRetained = status.retained
+      if (!status.running) { this.hostExited = true; await host.detach(); this.host = null; throw new Error('原本地终端进程已经结束') }
+      // bootstrap / attach 是异步的，期间 resize 只能更新本地字段，须补到真实 PTY。
+      // 附着时原宿主尺寸未知，交由宿主按实际尺寸去重，避免同尺寸重排整屏。
+      if (attaching || options.cols !== this._cols || options.rows !== this._rows) host.resize(this._cols, this._rows)
+      if (this.outputPaused) host.pause()
+      this.connected = true
+      return
+    }
 
     this.ptyProcess = spawn(shell, this.config.shellArgs ?? [], {
       name: 'xterm-256color',
@@ -146,7 +204,14 @@ export class LocalConnector extends BaseConnector {
    * 断开连接（杀死 PTY 进程）
    */
   async disconnect(): Promise<void> {
+    if (this.hostDisconnecting) return this.hostDisconnecting
     this.connectGeneration++
+    if (this.host) {
+      const host = this.host
+      const pending = host.terminate().then(() => { this.hostExited = true; if (this.host === host) this.host = null; this.connected = false }).finally(() => { this.hostDisconnecting = null })
+      this.hostDisconnecting = pending
+      return pending
+    }
     const pty = this.ptyProcess
     if (pty) {
       this.ptyProcess = null
@@ -166,6 +231,7 @@ export class LocalConnector extends BaseConnector {
    * 写入数据
    */
   write(data: string | Buffer): void {
+    if (this.host) { this.host.write(typeof data === 'string' ? data : data.toString()); return }
     if (!this.ptyProcess) {
       log.warn('Local PTY not available')
       return
@@ -176,6 +242,7 @@ export class LocalConnector extends BaseConnector {
   setOutputPaused(paused: boolean): void {
     if (this.outputPaused === paused) return
     this.outputPaused = paused
+    if (this.host) { if (paused) this.host.pause(); else this.host.resume(); return }
     if (paused) this.ptyProcess?.pause()
     else this.ptyProcess?.resume()
   }
@@ -192,6 +259,7 @@ export class LocalConnector extends BaseConnector {
     }
     this._cols = cols
     this._rows = rows
+    if (this.host) { this.host.resize(cols, rows); return }
     if (this.ptyProcess) {
       this.ptyProcess.resize(cols, rows)
     }

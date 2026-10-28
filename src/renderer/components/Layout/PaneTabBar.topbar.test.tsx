@@ -113,6 +113,22 @@ describe('PaneTabBar 顶排页签条(渲染断言)', () => {
     expect(container.innerHTML).toBe('')
   })
 
+  it('仅首行最右页签条延伸过常驻任务区，控制簇留白保持在窗口右端', () => {
+    const pane = makePane(['s1'])
+    useSessionStore.setState({ sessions: [makeSession('s1', 'alpha')] })
+    const view = render(<PaneTabBar pane={pane} isTop isTopRight />)
+    const bar = view.container.firstElementChild as HTMLElement
+    const tab = view.container.querySelector('[data-tab-id="s1"]')
+    expect(bar.style.width).toBe('calc(100% + var(--task-shelf-reserve, 0px))')
+    expect(bar.style.paddingRight).toBe('var(--top-right-reserve)')
+    view.rerender(<PaneTabBar pane={pane} isTop />)
+    expect(bar.style.width).toBe('')
+    expect(bar.style.paddingRight).toBe('')
+    expect(view.container.querySelector('[data-tab-id="s1"]')).toBe(tab)
+    view.rerender(<PaneTabBar pane={pane} isTopRight />)
+    expect(bar.style.width).toBe('')
+  })
+
   it('有会话时:根容器可拖窗,页签脱离拖拽区', () => {
     useSessionStore.setState({ sessions: [makeSession('s1', 'alpha')] })
     const { container } = render(<PaneTabBar pane={makePane(['s1'])} isTop />)
@@ -247,10 +263,10 @@ describe('PaneTabBar 顶排页签条(渲染断言)', () => {
       expect(tab.className).toContain('max-w-[240px]')
     }
     // 非激活页签的关闭钮挂窄页签隐藏规则;激活页签不挂(任何宽度保留)
-    expect(activeTab.querySelector('button')!.className).not.toContain('pane-tab-close-idle')
-    expect(idleTab.querySelector('button')!.className).toContain('pane-tab-close-idle')
-    // 滚轮取代常驻左右滚动钮(40px 还给页签):全条只剩两个页签关闭钮 + 「+」新建钮
-    expect(container.querySelectorAll('button')).toHaveLength(3)
+    expect(activeTab.querySelector('button[title="Close connection"]')!.className).not.toContain('pane-tab-close-idle')
+    expect(idleTab.querySelector('button[title="Close connection"]')!.className).toContain('pane-tab-close-idle')
+    // 每个页签有收纳与关闭按钮，另有一个新建入口；不再占用左右滚动钮。
+    expect(container.querySelectorAll('button')).toHaveLength(5)
     // 「+」新建钮:跟随最后一个页签 —— 在滚动区内、末签之后(不钉条尾右缘,页签
     // 增删它随行进退);flex-shrink-0 常驻占位,页签只缩不滚也挤不掉它的 28px
     const plus = container.querySelector('.pane-tab-newtab') as HTMLElement

@@ -5,6 +5,8 @@ import WebTabLayer from './WebTabLayer'
 import { usePaneStore } from '../../stores/pane-store'
 import type { PaneLayout } from '@shared/types'
 import '../../i18n'
+import { registerShelfSurface } from './task-shelf-surfaces'
+import { isShelfWebPreviewing, registerShelfWebPreview } from './task-shelf-preview-sources'
 
 vi.mock('../Search/SearchableTab', () => ({ default: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }))
 let resize!: () => void
@@ -77,6 +79,56 @@ describe('网页覆盖层定位与显示原子性', () => {
     expect(getComputedStyle(guest!).visibility).toBe('hidden')
     act(() => usePaneStore.setState({ layout: pane('pane-a', true) }))
     expect(wrapper.style.visibility).toBe('visible')
+    expect(wrapper.querySelector('webview')).toBe(guest)
+  })
+  it('原网页进小窗口后同一 guest 可直接交互，收起保留尺寸且召回回到主位置', () => {
+    placeholder('pane-a')
+    const { container } = render(<WebTabLayer />)
+    const wrapper = container.querySelector<HTMLElement>('[data-webtab-wrapper]')!
+    const guest = wrapper.querySelector('webview')
+    const slot = document.createElement('div'); document.body.append(slot)
+    slot.getBoundingClientRect = () => rectangle(500, 200, 300, 240)
+    act(() => usePaneStore.setState({ layout: pane('pane-a', false) }))
+    let release!: () => void
+    act(() => { release = registerShelfSurface('web', 'web-geometry', slot, true) })
+    expect(wrapper.style.position).toBe('fixed')
+    expect(wrapper.style.left).toBe('500px')
+    expect(wrapper.style.opacity).toBe('1')
+    expect(wrapper.style.pointerEvents).toBe('auto')
+    expect(wrapper.hasAttribute('inert')).toBe(false)
+    expect(wrapper.querySelector('webview')).toBe(guest)
+    act(() => release())
+    expect(wrapper.style.visibility).toBe('hidden')
+    expect(wrapper.style.width).toBe('300px')
+    expect(wrapper.hasAttribute('inert')).toBe(true)
+    act(() => usePaneStore.setState({ layout: pane('pane-a', true) }))
+    expect(wrapper.style.position).toBe('absolute')
+    expect(wrapper.style.left).toBe('100px')
+    expect(wrapper.style.visibility).toBe('visible')
+    expect(wrapper.querySelector('webview')).toBe(guest)
+    slot.remove()
+  })
+  it('可见缩略图让后台网页透明绘制，主画布不接收输入且原实例不重挂', () => {
+    placeholder('pane-a')
+    const { container } = render(<WebTabLayer />)
+    const wrapper = container.querySelector<HTMLElement>('[data-webtab-wrapper]')!
+    const guest = wrapper.querySelector('webview')
+    act(() => usePaneStore.setState({ layout: pane('pane-a', false) }))
+    let release!: () => void
+    act(() => { release = registerShelfWebPreview('web-geometry') })
+    expect(wrapper.style.visibility).toBe('visible')
+    expect(wrapper.style.opacity).toBe('0')
+    expect(wrapper.style.pointerEvents).toBe('none')
+    expect(wrapper.hasAttribute('inert')).toBe(true)
+    expect(wrapper.querySelector('webview')).toBe(guest)
+    act(() => usePaneStore.setState({ layout: pane('pane-a', true) }))
+    expect(wrapper.style.opacity).toBe('1')
+    expect(wrapper.style.pointerEvents).toBe('auto')
+    expect(wrapper.hasAttribute('inert')).toBe(false)
+    act(() => usePaneStore.setState({ layout: pane('pane-a', false) }))
+    act(() => release())
+    expect(wrapper.style.visibility).toBe('hidden')
+    expect(isShelfWebPreviewing('web-geometry')).toBe(false)
     expect(wrapper.querySelector('webview')).toBe(guest)
   })
 })

@@ -12,6 +12,8 @@ import AgentsPanel from './AgentsPanel'
 import SplitPaneContainer from './SplitPaneContainer'
 import { isWebTabShortcutTarget } from './keyboard-target'
 import WebTabLayer from './WebTabLayer'
+import TaskShelf from './TaskShelf'
+import { useTaskShelf } from '../../stores/task-shelf'
 import { FIND_IN_TAB_EVENT } from '../Search/SearchableTab'
 import FloatWindow from '../FloatWindow/FloatWindow'
 import CommandScreen from '../CommandScreen/CommandScreen'
@@ -37,6 +39,7 @@ import { useQuickCommandsStore } from '../../stores/quick-commands-store'
 import { useUiStore } from '../../stores/ui-store'
 import { usePluginStore } from '../../stores/plugin-store'
 import { initializeBrowserSession } from '../../stores/browser-session'
+import { initializeBrowserLaunches } from '../../stores/browser-launch'
 import { NAV_EVENT } from '../../commands/command-registry'
 import { PALETTE_EVENT, dispatchPaletteClosed } from '../../commands/palette'
 import { connectSession } from '../../commands/launch'
@@ -103,7 +106,7 @@ const MainWindow: React.FC = () => {
   }, [activeNav])
   // 左列宽度(三栏共享) -- localStorage 同步懒读定首帧(同 sidebarCollapsed),config 异步对账;
   // ActivityRail 固定 RAIL_WIDTH 在其左,面板填剩余宽。这里存的是「偏好宽」:上限不在此
-  // 钳死,由下方 sidebarMax(主窗口宽的 1/2)在拖动与渲染两处钳制 -- 钳制不回写本值,
+  // 钳死,由下方 sidebarMax(整列最多占主窗口宽的 1/3)在拖动与渲染两处钳制 -- 钳制不回写本值,
   // 窗口临时缩小偏好不被侵蚀,窗口复原侧栏即回宽;此处只兜下限 180 与非数垃圾
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
@@ -111,10 +114,10 @@ const MainWindow: React.FC = () => {
       return Number.isFinite(w) && w > 0 ? Math.max(SIDEBAR_MIN_WIDTH, w) : 240
     } catch { return 240 }
   })
-  // 主窗口宽(无边框窗口即视口宽) -- 侧栏上限「窗口宽的 1/2」随 resize 重算;
-  // 下限兜底 180 防极小窗口时上限低于下限(minWidth 800 下 1/2=400 恒不触发,纯守卫)
+  // 主窗口宽(无边框窗口即视口宽) -- 整个左列上限「窗口宽的 1/3」随 resize 重算;
+  // 面板额度扣除固定轨道和分隔条,下限兜底 180(主窗口最小宽 800 下不会触发)
   const [windowWidth, setWindowWidth] = useState(() => window.innerWidth)
-  const sidebarMax = Math.max(SIDEBAR_MIN_WIDTH, Math.floor(windowWidth / 2))
+  const sidebarMax = Math.max(SIDEBAR_MIN_WIDTH, Math.floor(windowWidth / 3) - RAIL_WIDTH - SIDEBAR_DIVIDER_WIDTH)
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
   // 拖宽起点处的偏好宽 -- 拖到收起的路径回滚到它(收起不该顺带销毁宽度偏好)
   const sidebarDragStartWidth = useRef(0)
@@ -133,6 +136,7 @@ const MainWindow: React.FC = () => {
   const { initFromStorage: initLocaleFromStorage } = useLocaleStore()
   const { t } = useTranslation()
   const terminalWrapperRef = useRef<HTMLDivElement>(null)
+  const taskShelfReserve = useTaskShelf(s => s.reservedWidth)
 
   // 切换左列页签 -- 持久化到 localStorage(Alt+1/2/3 与页签轨点击共用)
   const handleNavChange = useCallback((tab: NavTab) => {
@@ -358,6 +362,7 @@ const MainWindow: React.FC = () => {
 
   // 先加载浏览器隐私配置，再恢复地址与订阅持久化。
   useEffect(() => initializeBrowserSession(), [])
+  useEffect(() => initializeBrowserLaunches(), [])
 
   // 加载主题（index.html 已早期应用，这里仅同步 store 状态）
   useEffect(() => {
@@ -1253,7 +1258,8 @@ const MainWindow: React.FC = () => {
           {/* 侧栏收起时,终端画布向内让出框线宽的槽位给内框线 -- 框线画在槽里而不是浮在
               终端内容上方;画布缩量由 pane-resize ResizeObserver 感知,xterm 随之重新 fit。
               槽宽读 --edge-frame-width,与 .edge-frame 边框 / .edge-hit 命中条同源 */}
-          <div className={cn('h-full', sidebarCollapsed && 'pl-[var(--edge-frame-width)] pb-[var(--edge-frame-width)]')}>
+          {/* 内容树为停靠区让宽；首行最右页签条读同一变量延伸回窗口边缘。 */}
+          <div className={cn('h-full', sidebarCollapsed && 'pl-[var(--edge-frame-width)] pb-[var(--edge-frame-width)]')} style={{ paddingRight: taskShelfReserve, '--task-shelf-reserve': `${taskShelfReserve}px` } as React.CSSProperties}>
             <SplitPaneContainer />
           </div>
 
@@ -1262,6 +1268,7 @@ const MainWindow: React.FC = () => {
               z-15 低于 pane 内拖拽盾（z-20，拖动中拦回 webview 吞掉的事件）与落区指示器
               （z-30），高于普通覆盖层；层级纪律见 WebTabLayer.tsx 头注。 */}
           <WebTabLayer />
+          <TaskShelf />
 
           {/* 有页签时只保留图标；空态显示名称与版本，浮层与页签始终共用相同预留宽。 */}
           <div

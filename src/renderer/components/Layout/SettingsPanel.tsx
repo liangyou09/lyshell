@@ -11,6 +11,7 @@ import { makePluginViewKey } from '@shared/plugin-types'
 import PluginViewPanel from './PluginViewPanel'
 import BrowserSettingsPanel, { type BrowserSettingsCategory } from './BrowserSettingsPanel'
 import { SettingsBackGlyph, SettingsNavigation } from './SettingsNavigation'
+import { useTaskShelf } from '../../stores/task-shelf'
 import type { NavTab } from './ActivityRail'
 
 const EnvProfilePanel = lazy(() => import('./EnvProfilePanel'))
@@ -111,6 +112,10 @@ const SettingsPanel: React.FC<{
     return saved ? snapTerminalFontSize(parseInt(saved)) : DEFAULT_TERMINAL_FONT_SIZE
   })
   const [cursorBlink, setCursorBlink] = useState(() => isCursorBlinkEnabled())
+  // 任务保存区快捷键：保存区面板只消费绑定，修改入口统一收在终端设置里。
+  const shelfShortcuts = useTaskShelf(state => state.preferences)
+  const [shortcutDraft, setShortcutDraft] = useState(shelfShortcuts)
+  const [shortcutStatus, setShortcutStatus] = useState<{ kind: 'saved' | 'error'; text: string } | null>(null)
   // 主窗口尺寸(像素) -- 持久化到 preferences,启动恢复;输入框双向绑定,点应用/预设时调 IPC
   const [windowSize, setWindowSize] = useState<{ width: number; height: number }>({ width: 1200, height: 800 })
   const { themeId, setTheme, customColors, setCustomColors } = useThemeStore()
@@ -143,6 +148,19 @@ const SettingsPanel: React.FC<{
     const next = normalizeScrollback(value)
     setScrollbackInput(String(next))
     localStorage.setItem('terminalScrollback', String(next))
+  }
+
+  // 持久化值变化（含后端规范化后的回执）时回填草稿；保存失败不覆盖用户输入。
+  useEffect(() => { setShortcutDraft(shelfShortcuts) }, [shelfShortcuts])
+
+  // 后端校验通过才采用新绑定，失败保留草稿并就地提示原因。
+  const saveShelfShortcuts = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const draft = shortcutDraft
+    const saved = await useTaskShelf.getState().setPreferences(draft)
+    setShortcutStatus(saved
+      ? { kind: 'saved', text: t('settings.shelfShortcutsSaved') }
+      : { kind: 'error', text: useTaskShelf.getState().error || t('settings.shelfShortcutsFailed') })
   }
 
   const applyWindowSize = async (w: number, h: number) => {
@@ -297,6 +315,50 @@ const SettingsPanel: React.FC<{
           </div>
           <p className="settings-note">{t('settings.applyHint')}</p>
         </SettingCard></>}
+
+        {selectedView === '' && <SettingCard title={t('settings.shelfShortcuts')}>
+          <form onSubmit={event => { void saveShelfShortcuts(event) }}>
+            <div className="settings-field-row">
+              <label htmlFor="settings-shelf-toggle">{t('settings.shelfToggleShortcut')}</label>
+              <input
+                id="settings-shelf-toggle"
+                className="settings-input settings-shortcut-input"
+                aria-label={t('settings.shelfToggleShortcut')}
+                value={shortcutDraft.toggleShortcut}
+                placeholder="Ctrl+Shift+J"
+                spellCheck={false}
+                autoComplete="off"
+                onChange={event => {
+                  setShortcutDraft(draft => ({ ...draft, toggleShortcut: event.target.value }))
+                  setShortcutStatus(null)
+                }}
+              />
+            </div>
+            <div className="settings-field-row">
+              <label htmlFor="settings-shelf-collect">{t('settings.shelfCollectShortcut')}</label>
+              <input
+                id="settings-shelf-collect"
+                className="settings-input settings-shortcut-input"
+                aria-label={t('settings.shelfCollectShortcut')}
+                value={shortcutDraft.collectShortcut}
+                placeholder="Ctrl+Shift+S"
+                spellCheck={false}
+                autoComplete="off"
+                onChange={event => {
+                  setShortcutDraft(draft => ({ ...draft, collectShortcut: event.target.value }))
+                  setShortcutStatus(null)
+                }}
+              />
+            </div>
+            <p className="settings-note">{t('settings.shelfShortcutHint')}</p>
+            <div className="settings-shortcut-actions">
+              {shortcutStatus && (shortcutStatus.kind === 'error'
+                ? <span className="settings-shortcut-error" role="alert">{shortcutStatus.text}</span>
+                : <span className="settings-shortcut-status" role="status">{shortcutStatus.text}</span>)}
+              <button type="submit" className="settings-apply">{t('settings.saveShortcuts')}</button>
+            </div>
+          </form>
+        </SettingCard>}
 
         {selectedView === '' && <><SettingCard
           title={t('settings.theme')}

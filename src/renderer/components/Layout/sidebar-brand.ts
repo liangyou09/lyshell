@@ -12,5 +12,5 @@ export function hasVisiblePaneTabs(
       || hasVisiblePaneTabs(node.secondChild, sessions, hidden, payloads)
   }
   return node.sessions.some(id => !hidden[id] && sessions.some(session => session.id === id))
-    || node.overlays.some(overlay => !!payloads[overlay.id])
+    || node.overlays.some(overlay => !overlay.shelved && !!payloads[overlay.id])
 }

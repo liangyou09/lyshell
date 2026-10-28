@@ -128,7 +128,7 @@ export async function initializeBrowser(): Promise<void> {
 }
 
 /** 由已验证的宿主 IPC 调用。写入串行，代理应用失败不会保存半份配置。 */
-export function browserRequest(request: BrowserRequest, ownerId?: number): Promise<BrowserResult> {
+export function browserRequest(request: Exclude<BrowserRequest, { kind: 'defaultBrowserStatus' | 'requestDefaultBrowser' }>, ownerId?: number): Promise<BrowserResult> {
   if (request.kind === 'searchSuggestions') {
     const searchEngine = getBrowserSettings().searchEngine
     return browserSearchSuggestions(browserSession(), request.query, searchEngine)

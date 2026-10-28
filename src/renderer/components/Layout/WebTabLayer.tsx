@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { WebviewTag } from 'electron'
 import { usePaneStore } from '../../stores/pane-store'
@@ -12,6 +12,9 @@ import WebLoadError from './WebLoadError'
 import { webLoadFailureFromEvent, type WebLoadFailure } from './web-load-error'
 import { BROWSER_NEW_TAB_URL } from '@shared/browser-settings'
 import CommandScreen from '../CommandScreen/CommandScreen'
+import { isShelfWebPreviewing, shelfWebPreviewRevision, subscribeShelfWebPreviews } from './task-shelf-preview-sources'
+
+import { getShelfSurface, subscribeShelfSurfaces, shelfSurfacesRevision, shelfSurfaceStyle, focusShelfSurface, leaveShelfSurface, SHELF_SURFACE_ENTER } from './task-shelf-surfaces'
 
 // 占位（PaneView 内）与实体（本层内）互认的 DOM 锚点；值本身写入字面量属性
 export const WEB_TAB_PLACEHOLDER_ATTR = 'data-webtab-placeholder'
@@ -151,6 +154,7 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
     const el = ref.current
     if (!el) return
     const activate = (): void => {
+      if (el.closest('[data-shelf-native]')) { focusShelfSurface('web', id); return }
       const st = usePaneStore.getState()
       const paneId = st.getOverlayPaneId(id)
       if (paneId && st.layout.activePaneId !== paneId) st.setActivePane(paneId)
@@ -223,7 +227,7 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
       if (postToken) settleWebTabPost(id, url)
       if (e.type !== 'did-navigate-in-page') pageTitle = ''
       lastUrlRef.current = url
-      if (activeWebTabId() === id) {
+      if (activeWebTabId() === id || getShelfSurface('web', id)?.visible) {
         setWebTabNav(id, { url, canGoBack: el.canGoBack(), canGoForward: el.canGoForward() })
       } else {
         setWebTabNav(id, { url })
@@ -422,7 +426,7 @@ export function webTabWrapperRect(base: WebTabRect, placeholder: WebTabRect): We
  * 打开时 URL。页签关闭时清单移除、实体随之卸载（真正的销毁点）。
  *
  * 层级纪律（z 阶梯，改动前先读）：
- * - 本层 z-[15]：盖过 pane 内容（终端 1 / 覆盖层 10），被 pane 内拖拽盾（z-20）
+ * - 主网页实体 z15：盖过 pane 内容（终端 1 / 覆盖层 10），被 pane 内拖拽盾（z20）
  *   压住 —— webview 是独立浏览上下文会吞宿主 dragover/drop，拖拽期间全 pane 的
  *   盾必须始终压住本层，事件才能冒泡给 pane 落区判定；落区指示器相应提到 z-30。
  * - 之上是既有窗口级 UI：边框/命中条 z-40、模态 z-50、悬浮提示 z-[300]。
@@ -438,6 +442,11 @@ const WebTabLayer: React.FC = () => {
   const layout = usePaneStore(s => s.layout)
   const overlayPayloads = usePaneStore(s => s.overlayPayloads)
   const containerRef = useRef<HTMLDivElement>(null)
+  const surfaceRevision = useSyncExternalStore(subscribeShelfSurfaces, shelfSurfacesRevision)
+  const dragging = usePaneStore(s => !!s.draggingSessionId || !!s.draggingOverlayId)
+  const draggingRef = useRef(dragging); draggingRef.current = dragging
+  const miniRects = useRef(new Map<string, ReturnType<typeof getShelfSurface>>())
+  const previewRevision = useSyncExternalStore(subscribeShelfWebPreviews, shelfWebPreviewRevision)
   const entries = useMemo(() => collectWebTabEntries(layout.root, overlayPayloads), [layout, overlayPayloads])
   // 同步回调经 ref 读最新清单：payload 高频回写（标题/导航态/favicon）只重渲染
   // 实体 props，不重建 ResizeObserver
@@ -452,6 +461,7 @@ const WebTabLayer: React.FC = () => {
     if (!container) return
     const base = container.getBoundingClientRect()
     const placeholders = [...document.querySelectorAll<HTMLElement>(`[${WEB_TAB_PLACEHOLDER_ATTR}]`)]
+    for (const id of miniRects.current.keys()) if (!entriesRef.current.some(entry => entry.id === id)) miniRects.current.delete(id)
     for (const entry of entriesRef.current) {
       const wrapper = [...container.querySelectorAll<HTMLElement>(`[${WEB_TAB_WRAPPER_ATTR}]`)].find(node => node.getAttribute(WEB_TAB_WRAPPER_ATTR) === entry.id)
       if (!wrapper) continue
@@ -462,8 +472,24 @@ const WebTabLayer: React.FC = () => {
       const positioned = rect !== null && Object.values(rect).every(Number.isFinite) && base.width > 0 && base.height > 0 &&
         rect.width > 0 && rect.height > 0 && rect.left >= -1 && rect.top >= -1 &&
         rect.left + rect.width <= base.width + 1 && rect.top + rect.height <= base.height + 1
-      wrapper.style.visibility = entry.active && positioned ? 'visible' : 'hidden'
-      wrapper.style.pointerEvents = entry.active && positioned ? 'auto' : 'none'
+      const main = entry.active && positioned
+      const surface = main ? null : getShelfSurface('web', entry.id)
+      if (main) miniRects.current.delete(entry.id)
+      if (surface?.rect) miniRects.current.set(entry.id, surface)
+      const mini = surface ?? (!main ? miniRects.current.get(entry.id) : null)
+      if (mini?.rect) {
+        const current = surface ?? { ...mini, visible: false, interactive: false }
+        const interactive = current.visible && current.interactive && !draggingRef.current
+        const style = shelfSurfaceStyle({ ...current, interactive })
+        Object.assign(wrapper.style, style, { left: `${current.rect!.left}px`, top: `${current.rect!.top}px`, width: `${current.rect!.width}px`, height: `${current.rect!.height}px`, zIndex: '46', opacity: '1' })
+        wrapper.toggleAttribute('inert', !interactive)
+        wrapper.toggleAttribute('data-shelf-native', current.visible)
+        continue
+      }
+      wrapper.removeAttribute('data-shelf-native')
+      const previewing = isShelfWebPreviewing(entry.id)
+      Object.assign(wrapper.style, { position: 'absolute', inset: 'auto', zIndex: '15', clipPath: '', visibility: main || previewing ? 'visible' : 'hidden', opacity: previewing && !main ? '0' : '1', pointerEvents: main ? 'auto' : 'none' })
+      wrapper.toggleAttribute('inert', !main)
       if (!positioned || !rect) continue
       wrapper.style.left = `${rect.left}px`
       wrapper.style.top = `${rect.top}px`
@@ -473,7 +499,7 @@ const WebTabLayer: React.FC = () => {
   }, [])
 
   // 布局树任何编辑（含等尺寸换位、active 切换引发的挂载点变动）都重测一次
-  useLayoutEffect(() => { sync() }, [sync, layout, overlayPayloads])
+  useLayoutEffect(() => { sync() }, [sync, layout, overlayPayloads, previewRevision, surfaceRevision, dragging])
 
   useLayoutEffect(() => {
     sync()
@@ -489,12 +515,14 @@ const WebTabLayer: React.FC = () => {
   }, [sync, entryIdsKey])
 
   return (
-    <div ref={containerRef} className="absolute inset-0 z-[15] pointer-events-none">
+    <div ref={containerRef} className="absolute inset-0 pointer-events-none">
       {entries.map(entry => (
         <div
           key={entry.id}
           data-webtab-wrapper={entry.id}
-          onMouseDownCapture={() => usePaneStore.getState().setActivePane(entry.paneId)}
+          onMouseDownCapture={event => { if (event.currentTarget.hasAttribute('data-shelf-native')) focusShelfSurface('web', entry.id); else usePaneStore.getState().setActivePane(entry.paneId) }}
+          onMouseEnter={event => { if (event.currentTarget.hasAttribute('data-shelf-native')) window.dispatchEvent(new Event(SHELF_SURFACE_ENTER)) }}
+          onMouseLeave={leaveShelfSurface}
           className="absolute overflow-hidden bg-[var(--terminal-bg)]"
           style={{
             // 显隐由绘制前的测位同步控制，禁止首帧先在默认/旧矩形显示。

@@ -1,5 +1,7 @@
 .browser-settings { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
 .browser-fields { min-width: 0; border: 0; padding: 0; margin: 0; }
+.browser-default-control { margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid var(--rule); }
+.browser-default-control > .browser-action-row > span { color: var(--text-rack); font-size: var(--settings-text-size, 12px); }
 .browser-scope { margin: 16px 8px 12px; color: var(--text-rack-data); font-size: var(--settings-text-size, 12px); line-height: 1.5; }
 .browser-field { display: flex; flex-direction: column; gap: 7px; margin: 0 0 16px; }
 .browser-field > span { color: var(--text-rack-data); font-size: var(--settings-text-size, 12px); }

@@ -51,7 +51,7 @@ export function useWorkbenchSnapshot(overlayId: string): void {
           const store = usePaneStore.getState()
           const current = store.getOverlayPayload(overlayId)
           if (!current || current.kind !== 'dshWeb') return
-          store.updateDshWebInPane(overlayId, { readOnly: false, petSessionId, held })
+          store.updateDshWebInPane(overlayId, { readOnly: false, petSessionId, held, currentSessionId: snap.viewer?.currentSessionId ?? null })
           const lane = workbenchDetailLane()
           if (!lane) return
           lane.noteKey(current.workbenchKey ?? null)

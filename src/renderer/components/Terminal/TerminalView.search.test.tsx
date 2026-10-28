@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { Terminal } from '@xterm/xterm'
 import type { FitAddon } from '@xterm/addon-fit'
 import type { SearchAddon, ISearchOptions, ISearchResultChangeEvent } from '@xterm/addon-search'
@@ -9,6 +9,7 @@ import { useTerminalStore } from '@/stores/terminal-store'
 import i18n from '@/i18n'
 import TerminalView from './TerminalView'
 import ErrorBoundary from '../ErrorBoundary'
+import { registerShelfSurface, focusShelfSurface } from '../Layout/task-shelf-surfaces'
 
 // jsdom 不绘制终端；保留真实 TerminalView、搜索选项和结果订阅回路。
 vi.mock('@xterm/xterm', () => ({ Terminal: class {} }))
@@ -79,6 +80,22 @@ function openSearch(): HTMLTextAreaElement {
 }
 
 describe('TerminalView 实时搜索', () => {
+  it('键盘焦点在原生小窗口时主终端不抢 Ctrl+F，离开后恢复', () => {
+    render(<ErrorBoundary><TerminalView sessionId="search-test" /></ErrorBoundary>)
+    const slot = document.createElement('div'); document.body.append(slot)
+    slot.getBoundingClientRect = () => new DOMRect(100, 100, 300, 200)
+    let release!: () => void
+    try {
+      act(() => { release = registerShelfSurface('web', 'mini-search', slot, true); focusShelfSurface('web', 'mini-search') })
+      fireEvent.keyDown(window, { key: 'f', ctrlKey: true })
+      expect(screen.queryByRole('textbox', { name: 'search…' })).toBeNull()
+      const input = document.createElement('input'); document.body.append(input)
+      act(() => input.focus())
+      fireEvent.keyDown(window, { key: 'f', ctrlKey: true })
+      expect(screen.getByRole('textbox', { name: 'search…' })).toBeTruthy()
+      input.remove()
+    } finally { act(() => release?.()); slot.remove() }
+  })
   it('搜索框打开时鼠标划选仍复制，搜索导航不覆盖剪贴板', async () => {
     const writeText = vi.fn(() => Promise.resolve())
     vi.stubGlobal('navigator', { platform: 'Win32', clipboard: { writeText } })

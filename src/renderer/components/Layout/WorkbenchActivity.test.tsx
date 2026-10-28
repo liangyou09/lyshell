@@ -5,6 +5,7 @@ import { WorkbenchActivity } from './WorkbenchActivity'
 import { WorkbenchActivityButton } from './WorkbenchActivityButton'
 import { useWorkbenchActivity } from '../../stores/workbench-activity'
 import { useSessionStore } from '../../stores/session-store'
+import { useTaskShelf } from '../../stores/task-shelf'
 import type { WorkbenchActivitySnapshot } from '@shared/workbench-activity'
 import { ConnectionStatus, ConnectionType, type SessionConfig } from '@shared/types'
 
@@ -13,6 +14,7 @@ const request = vi.fn()
 let snapshot: WorkbenchActivitySnapshot
 beforeEach(() => {
   request.mockReset()
+  useTaskShelf.setState({ entries: [], bindings: {}, panelVisible: false, viewRequest: null })
   snapshot = { observedAt: Date.now(), connection: 'connected', identity: { instanceId: 'backend-a', instanceEpoch: 1 }, sessions: [{ key: 'key-a', workspace: 'C:/project/.lyshell-worktrees/feature', sessionId: 'native-a', taskId: 'task-a', taskState: 'running', source: 'native-harness', updatedAt: Date.now(), stale: false, approvals: [{ id: 'approval-a', reason: '执行命令', toolName: 'shell', options: ['allowed-once', 'rejected'], askedAt: Date.now() }] }] }
   request.mockResolvedValue(snapshot)
   Object.defineProperty(window, 'electronAPI', { configurable: true, value: { platform: 'win32', workbenchActivityRequest: request } })
@@ -21,6 +23,19 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.useRealTimers() })
 describe('项目会话与任务面板', () => {
+  it('已有未读任务时铃铛收回并定位同一小窗口，面板已展开也不会先关闭', async () => {
+    const hidden = vi.spyOn(useTaskShelf.getState(), 'hide').mockImplementation(() => {})
+    try {
+      useTaskShelf.setState({ panelVisible: true, entries: [{ id: 'saved-terminal', resourceKey: 'terminal:local-a', title: 'Codex', createdAt: 1, updatedAt: 1, revision: 1, capability: 'local-live', recovery: { kind: 'terminal', sessionId: 'local-a', type: ConnectionType.LOCAL } }], bindings: { 'saved-terminal': { kind: 'terminal', id: 'local-a' } } })
+      useWorkbenchActivity.setState({ open: false, notices: [{ id: 'cli-notice', source: 'codex', workspace: 'C:/project', sessionId: 'local-a', taskId: 'turn-a', kind: 'approval', at: Date.now() }], unreadNoticeIds: ['cli-notice'] })
+      const view = render(<WorkbenchActivityButton />)
+      fireEvent.click(view.getByRole('button', { name: '会话与任务 · 1 条未读提醒' }))
+      expect(hidden).toHaveBeenCalledWith('saved-terminal')
+      expect(useTaskShelf.getState().viewRequest).toMatchObject({ open: true, entryId: 'saved-terminal' })
+      expect(useWorkbenchActivity.getState().unreadNoticeIds).toEqual([])
+      await act(async () => {})
+    } finally { hidden.mockRestore() }
+  })
   it('内置聊天支持目录筛选并提供工作台入口，不出现代答审批按钮', async () => {
     snapshot = { ...snapshot, identity: null, connection: 'offline', sessions: [], web: { observedAt: Date.now(), identity: { instanceId: 'web-backend', instanceEpoch: 2 }, connection: 'connected', revision: 1, events: [], sessions: [{ sessionId: 'web-a', workspace: 'D:/web', turnId: 'web-turn', state: 'waiting-approval', updatedAt: Date.now(), approvalIds: ['approval-a'] }] } }
     request.mockResolvedValue(snapshot)
@@ -92,13 +107,16 @@ describe('项目会话与任务面板', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(view.queryByRole('dialog')).toBeNull()
   })
-  it('标题栏铃铛打开通知中心，移除底部横带并支持键盘切换', async () => {
+  it('标题栏铃铛直接请求打开右侧小窗口提醒，详细面板继续可键盘访问', async () => {
     useWorkbenchActivity.setState({ open: false, unreadNoticeIds: ['unread-a'], notices: [{ id: 'unread-a', workspace: 'C:/other', sessionId: 'other-s', taskId: 'other-t', kind: 'completed', at: Date.now() }] })
     const view = render(<><WorkbenchActivityButton/><WorkbenchActivity/></>)
     await act(async () => {})
     expect(document.querySelector('.workbench-activity-bar')).toBeNull()
     const trigger = view.getByRole('button', { name: '会话与任务 · 1 条未读提醒' })
     fireEvent.click(trigger)
+    expect(useTaskShelf.getState().viewRequest).toMatchObject({ open: true, notices: true })
+    expect(useWorkbenchActivity.getState().open).toBe(false)
+    act(() => useWorkbenchActivity.getState().showNotifications())
     const notifications = view.getByRole('tab', { name: /提醒/ })
     expect(notifications.getAttribute('aria-selected')).toBe('true')
     notifications.focus()

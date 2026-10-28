@@ -10,6 +10,8 @@ import { normalizeBookmarkUrl, useBrowserBookmarksStore } from '../../stores/bro
 import { OVERLAY_DRAG_MARKER, parseOverlayDragMarker, resolveOverlayDragId } from './overlay-drag'
 import { harnessKindFromTags, type HarnessAgentKind } from '@shared/harness'
 import DeepSeekWhaleIcon from './DeepSeekWhaleIcon'
+import { useTaskShelf, shelfEntryFor, shelfResource } from '../../stores/task-shelf'
+import { showShelfContextMenu } from './TaskShelfContextMenu'
 import type { PaneLeaf, OverlayKind, OverlayPayload, OverlayRef } from '@shared/types'
 import { TOPBAR_HEIGHT, TOPBAR_GRIP_WIDTH } from './topbar-metrics'
 
@@ -307,12 +309,16 @@ const OverlayTab: React.FC<{
   // payload 订阅按实例收敛（favicon/标题回写只重渲染所属页签，不再整字典联动
   // 所有页签条）；引用无 payload 的异常中间态不渲染，与旧序列构建口径一致
   const payload = usePaneStore(s => s.overlayPayloads[overlay.id])
+  const shelvedBindings = useTaskShelf(s => s.bindings)
+  const shelfKind = overlay.kind === 'dshWeb' ? 'harness' : 'web'
+  const savedId = Object.keys(shelvedBindings).find(id => shelvedBindings[id].kind === shelfKind && shelvedBindings[id].id === overlay.id)
   if (!payload) return null
   const { Content } = spec
 
   return (
     <div
       data-tab-id={overlay.id}
+      onContextMenu={event => { if ((overlay.kind === 'web' || overlay.kind === 'dshWeb') && !payload.ownerPluginId) showShelfContextMenu(event, shelfKind, overlay.id) }}
       onClick={() => {
         // 激活态下再点 = 关闭（MCP toggle 原语义），其余种类为幂等激活
         if (overlay.active && spec.toggleCloseOnActive) closeOverlay(overlay.id)
@@ -365,12 +371,18 @@ const OverlayTab: React.FC<{
       )}
     >
       <Content payload={payload} />
+      {(overlay.kind === 'web' || overlay.kind === 'dshWeb') && !payload.ownerPluginId && <button
+        className="win-no-drag pane-tab-close w-[16px] h-[16px] flex-shrink-0 flex items-center justify-center hover:text-[var(--amber)]"
+        title={t('taskShelf.collect')} aria-label={t('taskShelf.collect')}
+        onMouseDown={e => e.preventDefault()} onClick={e => { e.stopPropagation(); const resource = shelfResource(shelfKind, overlay.id); if (resource) void useTaskShelf.getState().collect(resource) }}>
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true"><path d="M2 9v4h12V9M8 2v7m-3-3 3 3 3-3" /></svg>
+      </button>}
       <button
-        onClick={(e) => { e.stopPropagation(); closeOverlay(overlay.id) }}
+        onClick={(e) => { e.stopPropagation(); if (savedId) useTaskShelf.getState().hide(savedId); else closeOverlay(overlay.id) }}
         // 点击即关闭、按钮随之卸载:拦下 mousedown 的默认焦点搬迁,键盘留在原地
         // (空态命令屏的 prompt / 终端),不给"关完页签焦点落到 body"留缝
         onMouseDown={(e) => e.preventDefault()}
-        title={spec.closeTitle(t)}
+        title={savedId ? t('taskShelf.hide') : spec.closeTitle(t)}
         className={cn(
           'win-no-drag pane-tab-close w-[14px] h-[14px] flex items-center justify-center text-xs hover:bg-[var(--error-rack)] hover:text-white rounded-[2px] transition-colors',
           // 窄页签上非激活态隐藏关闭钮(悬停恢复),激活页签任何宽度保留 —— Edge 式渐进披露;
@@ -602,6 +614,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
   const { t } = useTranslation()
   // 被隐藏的页签(Sidebar LIVE 段会话标签点击 toggle)——不渲染对应页签,但终端实例保留
   const hiddenTabSessions = usePaneStore(s => s.hiddenTabSessions)
+  const visibleOverlays = pane.overlays.filter(ref => !ref.shelved)
 
   // 防止重复双击
   const isCloning = useRef(false)
@@ -619,7 +632,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
   )
 
   // 本 pane 是否有激活中的覆盖层（终端页签激活态高亮据此互斥）
-  const overlayActiveHere = pane.overlays.some(r => r.active)
+  const overlayActiveHere = visibleOverlays.some(r => r.active)
 
   // 终端页签激活态判定（高亮与关闭钮窄页签显隐共用）：
   // 有覆盖层激活时终端页签一律视为非激活 —— 关闭钮也随非激活规则让位
@@ -630,7 +643,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
   // 替代原常驻左右滚动钮（按钮占的 40px 还给页签）。须非被动监听才能拦掉垂直滚动链。
   // 依赖条是否渲染：空 pane 走下方早退分支不渲染条容器，首个页签出现后条容器才挂载，
   // mount-once 的空依赖会漏掉"先空后有页签"的条
-  const stripRendered = paneSessions.length > 0 || pane.overlays.length > 0
+  const stripRendered = paneSessions.length > 0 || visibleOverlays.length > 0
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -881,7 +894,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
 
   // 无会话且本 pane 无任何覆盖层页签时不渲染标签栏，避免中部空条；打开时仍需标签栏承载页签。
   // 顶排保留第一行供拖窗；空态已有欢迎页，不显示「+」。
-  if (paneSessions.length === 0 && pane.overlays.length === 0 && !isTop) return null
+  if (paneSessions.length === 0 && visibleOverlays.length === 0 && !isTop) return null
 
   // 计算会话名称编号 - 基于全局同名会话
   const getNameWithIndex = (session: typeof paneSessions[0]) => {
@@ -914,10 +927,10 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
     | { kind: 'session'; session: typeof paneSessions[0]; index: number }
     | { kind: 'overlay'; overlay: OverlayRef }
   const tabItems: TabItem[] = []
-  const pendingSlotted = pane.overlays
+  const pendingSlotted = visibleOverlays
     .filter(r => r.slot != null)
     .sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0))
-  const tailOverlays = pane.overlays.filter(r => r.slot == null)
+  const tailOverlays = visibleOverlays.filter(r => r.slot == null)
   let visibleIndex = 0
   for (const session of paneSessions) {
     const rawIndex = pane.sessions.indexOf(session.id)
@@ -938,7 +951,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
   return (
     <div
       className={cn(
-        'flex items-center bg-[var(--bg-rack)]',
+        'flex shrink-0 items-center bg-[var(--bg-rack)]',
         !isTop && 'border-b border-[var(--rule)]',
         // 左留白随侧栏收起态切换(0↔32px),与左列宽度滑动同为 150ms ease-out --
         // 收起/展开时页签与滑动中的左列边缘同步让位,不跳变
@@ -949,6 +962,8 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
       )}
       style={{
         height: TOPBAR_HEIGHT,
+        // 停靠任务区只占内容层；第一行继续延伸到窗口右侧控制簇。
+        width: isTop && isTopRight ? 'calc(100% + var(--task-shelf-reserve, 0px))' : undefined,
         paddingLeft: isTop && isTopLeft ? 'var(--top-left-reserve)' : undefined,
         paddingRight: isTop && isTopRight ? 'var(--top-right-reserve)' : undefined
       }}
@@ -969,7 +984,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
               data-tab-id={item.session.id}
               onClick={() => handleTabClick(item.session.id)}
               onDoubleClick={() => handleTabDoubleClick(item.session.id)}
-              onContextMenu={() => handleTabRightClick(item.session.id, item.session.config.type)}
+              onContextMenu={event => { handleTabRightClick(item.session.id, item.session.config.type); if (!item.session.config.ownerPluginId) showShelfContextMenu(event, 'terminal', item.session.id) }}
               draggable
               onDragStart={(e) => handleDragStart(e, item.session.id)}
               onDragEnd={handleDragEnd}
@@ -1027,10 +1042,17 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
                   </span>
                 )
               )}
+              <button className="win-no-drag pane-tab-close w-[16px] h-[16px] flex-shrink-0 flex items-center justify-center hover:text-[var(--amber)]"
+                title={t('taskShelf.collect')} aria-label={t('taskShelf.collect')}
+                onMouseDown={e => e.preventDefault()} onClick={e => { e.stopPropagation(); const resource = shelfResource('terminal', item.session.id); if (resource) void useTaskShelf.getState().collect(resource) }}>
+                <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true"><path d="M2 9v4h12V9M8 2v7m-3-3 3 3 3-3" /></svg>
+              </button>
               <button
                 onClick={async (e) => {
                   e.stopPropagation()
                   const sessionId = item.session.id
+                  const savedId = shelfEntryFor('terminal', sessionId)
+                  if (savedId) { useTaskShelf.getState().hide(savedId); return }
                   // 1. 先从 pane 移除页签：同步、与连接状态无关，确保 UI 立刻响应
                   removeSessionFromPane(pane.id, sessionId)
                   // 1.5 关掉的是活动页签且 pane 还有存活页签 → 切换后的新活动终端

@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { ProjectSceneRequest, ProjectSceneResult } from '@shared/project-scene'
+import type { TaskShelfRequest, TaskShelfResult } from '@shared/task-shelf'
 import type { WorkbenchActivityRequest, WorkbenchActivitySnapshot } from '@shared/workbench-activity'
 import type { ActivityNavigationRequest, ActivityNavigationResult } from '@shared/activity-navigation'
 import type { IpcRendererEvent } from 'electron'
@@ -14,6 +15,7 @@ import { isWebTabShortcutAction } from '@shared/webtab-shortcut'
 import { WEB_TERMINAL_CHANNEL, type WebTerminalRequest, type WebTerminalResult } from '@shared/web-terminal'
 import { isSidebarShortcutAction, type SidebarShortcutAction } from '@shared/sidebar-shortcut'
 import type { BrowserRequest, BrowserResult } from '@shared/browser-settings'
+import { BROWSER_LAUNCH_PENDING, BROWSER_LAUNCH_TAKE } from '@shared/browser-launch'
 import type { McpAuditRetentionLimit } from '@shared/mcp-audit'
 import { BROWSER_DOWNLOADS_EVENT, type BrowserDownloadsSnapshot } from '@shared/browser-downloads'
 import { BROWSER_DEVTOOLS_CHANNEL, BROWSER_DEVTOOLS_EVENT, type BrowserDevToolsRequest, type BrowserDevToolsEvent } from '@shared/browser-devtools'
@@ -304,6 +306,12 @@ const electronAPI = {
   getConfig: (key: string) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET, key),
   // 搜索联想、证书确认均经宿主通道；网页 guest 没有此 bridge。
   browserRequest: (request: BrowserRequest): Promise<BrowserResult> => ipcRenderer.invoke('browser:request', request),
+  takeBrowserLaunches: (): Promise<string[]> => ipcRenderer.invoke(BROWSER_LAUNCH_TAKE),
+  onBrowserLaunchPending: (callback: () => void) => {
+    const listener = () => callback()
+    ipcRenderer.on(BROWSER_LAUNCH_PENDING, listener)
+    return () => ipcRenderer.removeListener(BROWSER_LAUNCH_PENDING, listener)
+  },
   onBrowserDownloadsChanged: (callback: (snapshot: BrowserDownloadsSnapshot) => void) => {
     const listener = (_event: IpcRendererEvent, snapshot: BrowserDownloadsSnapshot) => callback(snapshot)
     ipcRenderer.on(BROWSER_DOWNLOADS_EVENT, listener)
@@ -467,6 +475,13 @@ const electronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.HARNESS_WORKTREE_LIST, cwd),
   // 项目现场及可读名称查询；显式启动只返回运行期会话 ID，不复制环境变量到现场。
   projectSceneRequest: (request: ProjectSceneRequest): Promise<ProjectSceneResult> => ipcRenderer.invoke('project-scene:request', request),
+  // 任务保存区：收纳只落恢复引用，恢复才显式启动；清单来自主进程单文件归档。
+  taskShelfRequest: (request: TaskShelfRequest): Promise<TaskShelfResult> => ipcRenderer.invoke('task-shelf:request', request),
+  onTaskShelfShortcut: (callback: (action: 'toggle' | 'collect') => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, action: unknown): void => { if (action === 'toggle' || action === 'collect') callback(action) }
+    ipcRenderer.on('task-shelf:shortcut', listener)
+    return () => ipcRenderer.removeListener('task-shelf:shortcut', listener)
+  },
   // 快照包含只读 Web 回合；Web 审批由官方工作台原有链路处理。
   workbenchActivityRequest: (request: WorkbenchActivityRequest): Promise<WorkbenchActivitySnapshot> => ipcRenderer.invoke('workbench-activity:request', request),
   onTuiActivityChanged: (callback: (snapshot: import('@shared/tui-activity').TuiActivitySnapshot) => void): (() => void) => {

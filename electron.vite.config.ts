@@ -16,7 +16,8 @@ export default defineConfig({
           uploadWorker: resolve(__dirname, 'src/main/file/upload-worker.ts'),
           mcpServer: resolve(__dirname, 'src/main/mcp-server/index.ts'),
           pluginHost: resolve(__dirname, 'src/main/plugin-host/index.ts'),
-          pluginHostOneshot: resolve(__dirname, 'src/main/plugin-host/oneshot.ts')
+          pluginHostOneshot: resolve(__dirname, 'src/main/plugin-host/oneshot.ts'),
+          localHostWorker: resolve(__dirname, 'src/main/terminal/local-host-worker.ts')
         },
         output: {
           format: 'cjs',

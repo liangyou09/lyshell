@@ -37,15 +37,15 @@ describe('共享工作台无界面轮询', () => {
   it('held/releasing 显示共享信号，free 清除信号和 Pet 目标，并回报详情身份', async () => {
     renderHook(() => useWorkbenchSnapshot('__dsh_web__'))
     await tick(0)
-    expect(patch).toHaveBeenLastCalledWith('__dsh_web__', { readOnly: false, held: true, petSessionId: 'pet-1' })
+    expect(patch).toHaveBeenLastCalledWith('__dsh_web__', { readOnly: false, held: true, petSessionId: 'pet-1', currentSessionId: null })
     expect(noteKey).toHaveBeenLastCalledWith('held:1:-:pet-1')
     expect(notePhase).toHaveBeenLastCalledWith('held')
     getSnapshot.mockResolvedValue(response('releasing', 'pet-2'))
     await tick()
-    expect(patch).toHaveBeenLastCalledWith('__dsh_web__', { readOnly: false, held: true, petSessionId: 'pet-2' })
+    expect(patch).toHaveBeenLastCalledWith('__dsh_web__', { readOnly: false, held: true, petSessionId: 'pet-2', currentSessionId: null })
     getSnapshot.mockResolvedValue(response('free', null))
     await tick()
-    expect(patch).toHaveBeenLastCalledWith('__dsh_web__', { readOnly: false, held: false, petSessionId: null })
+    expect(patch).toHaveBeenLastCalledWith('__dsh_web__', { readOnly: false, held: false, petSessionId: null, currentSessionId: null })
     expect(notePhase).toHaveBeenLastCalledWith('free')
   })
 

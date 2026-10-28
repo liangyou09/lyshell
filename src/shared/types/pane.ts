@@ -21,6 +21,8 @@ export interface OverlayRef {
   id: string          // 实例 id；单例用固定哨兵 '__dsh_web__' / '__mcp_audit__'（同时是页签 data-tab-id）
   kind: OverlayKind
   active: boolean
+  shelved?: boolean  // 收纳只隐藏入口，引用和实体仍挂载，禁止走关闭销毁流程
+  retained?: boolean // 展开后仍由任务保存区持有
   slot: number | null // 在终端页签序列中的插入坐标（pane.sessions RAW 坐标）；null = 钉尾追加
 }
 
@@ -98,7 +100,7 @@ export interface WebTabPopupRequest {
 // 用于「继续」时定位界面上已有的实例；不参与持久化，也不承载命令/进程/凭据。
 export type OverlayPayload = { ownerPluginId?: string; projectSceneKey?: string; projectSceneId?: string; projectSceneEntry?: SceneEntry } & (
   | { kind: 'projectEntry'; target: SceneTarget; entry: SceneEntry; launch?: { status: 'pending' | 'unknown' } | { status: 'accepted'; sessionId: string } }
-  | { kind: 'web'; url: string; title: string; favicon?: string; nav?: WebTabNav; postToken?: string }
+  | { kind: 'web'; url: string; title: string; favicon?: string; nav?: WebTabNav; postToken?: string; fromPost?: boolean }
   | { kind: 'doc' } & DocOverlayPayload
   | {
       kind: 'dshWeb'
@@ -125,6 +127,7 @@ export type OverlayPayload = { ownerPluginId?: string; projectSceneKey?: string;
        * payload 里另存一份，避免出现第二个真相源。
        */
       petSessionId?: string | null
+      currentSessionId?: string | null
       /**
        * 详情面身份（phase:epoch:taskId:sessionId）。渲染层用它记「这条详情已经落地过」以及
        * **用户关掉的是哪个身份** —— 同身份不再自动重开（见 stores/workbench-detail）。

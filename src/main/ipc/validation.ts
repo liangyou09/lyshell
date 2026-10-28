@@ -81,6 +81,9 @@ import { validateBrowserSettings } from '../browser/validation'
 import type { CodeWorkspaceRequest } from '@shared/code-workspaces'
 import { validateWorktreeKey } from '@shared/worktree'
 import { isMcpAuditRetentionLimit, type McpAuditRetentionLimit } from '@shared/mcp-audit'
+import type { ShelfResource, TaskShelfRequest } from '@shared/task-shelf'
+import { parseShelfPreferences } from '@shared/task-shelf'
+import { normalizeSshDirectory } from '../terminal/shelf-ssh-context'
 
 export function validateMcpAuditRetentionLimit(value: unknown): McpAuditRetentionLimit {
   if (!isMcpAuditRetentionLimit(value)) throw new ValidationError('Invalid MCP audit retention limit')
@@ -178,7 +181,8 @@ export function validateAgentWorkspaceFields(
 export function validateBrowserRequest(raw: unknown): BrowserRequest {
   const value = assertObject(raw, 'browserRequest')
   switch (value.kind) {
-    case 'get': case 'passwords': case 'downloads': case 'openDownloadDirectory': return { kind: value.kind }
+    case 'get': case 'passwords': case 'downloads': case 'openDownloadDirectory':
+    case 'defaultBrowserStatus': case 'requestDefaultBrowser': return { kind: value.kind }
     case 'searchSuggestions': return { kind: 'searchSuggestions', query: assertString(value.query, 'query', { maxLength: 200 }) }
     case 'downloadAction': return { kind: 'downloadAction', id: assertString(value.id, 'id', { maxLength: 128 }), action: assertEnum(value.action, 'action', ['cancel', 'reveal', 'open', 'remove'] as const) }
     case 'save': return { kind: 'save', settings: validateBrowserSettings(value.settings) }
@@ -219,6 +223,10 @@ export function validatePluginActionReceipt(raw: unknown): { requestId: string; 
 /** 只有主窗口 renderer 可认领资源管理器启动请求，webview/浮窗不能消费队列。 */
 export function assertExplorerLaunchConsumer(senderId: number, consumerId: number | null): void {
   if (senderId !== consumerId) throw new ValidationError('Explorer launch requires the main window')
+}
+
+export function assertBrowserLaunchConsumer(senderId: number, consumerId: number | null, isMainFrame: boolean): void {
+  if (senderId !== consumerId || !isMainFrame) throw new ValidationError('Browser launch requires the main window')
 }
 
 /** 插件连接只传动作请求 ID，不接受 renderer 自报 pluginId。 */
@@ -451,4 +459,75 @@ export function validateDownloadHistoryPage(sessionId: unknown, offset: unknown)
   const safeSessionId = sessionId === undefined ? undefined : assertString(sessionId, 'sessionId', { maxLength: 128 })
   if (offset !== undefined && (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0)) throw new ValidationError('Invalid history offset')
   return { sessionId: safeSessionId, offset: offset === undefined ? 0 : offset as number }
+}
+
+/**
+ * 保存区请求只接受契约白名单。收纳的信息全部来自主进程运行态，
+ * 这里只校验「指向哪个实例」——渲染层自报的 URL/标题仅用于多标签区分。
+ */
+export function validateTaskShelfRequest(raw: unknown): TaskShelfRequest {
+  const value = assertObject(raw, 'taskShelfRequest')
+  const fields: Record<string, string[]> = { list: ['kind'], capture: ['kind', 'resource', 'entryId'], remove: ['kind', 'id'], restore: ['kind', 'id'], rename: ['kind', 'id', 'title'], archive: ['kind', 'id', 'archived'], preferences: ['kind', 'preferences'] }
+  const allowed = typeof value.kind === 'string' ? fields[value.kind] : undefined
+  if (!allowed || Object.keys(value).some(key => !allowed.includes(key))) throw new ValidationError('Unknown task shelf request field')
+  if (value.kind === 'list') return { kind: 'list' }
+  if (value.kind === 'preferences') return { kind: 'preferences', preferences: parseShelfPreferences(value.preferences) }
+  if (value.kind === 'archive') return { kind: 'archive', id: assertString(value.id, 'id', { maxLength: 128 }), archived: assertBoolean(value.archived, 'archived') }
+  if (value.kind === 'capture') {
+    const resource = taskShelfResource(assertObject(value.resource, 'resource'))
+    const entryId = value.entryId === undefined ? undefined : assertString(value.entryId, 'entryId', { maxLength: 128 })
+    return entryId === undefined ? { kind: 'capture', resource } : { kind: 'capture', resource, entryId }
+  }
+  if (value.kind === 'remove' || value.kind === 'restore') {
+    return { kind: value.kind, id: assertString(value.id, 'id', { maxLength: 128 }) }
+  }
+  if (value.kind === 'rename') {
+    return {
+      kind: 'rename',
+      id: assertString(value.id, 'id', { maxLength: 128 }),
+      title: assertString(value.title, 'title', { maxLength: 200 })
+    }
+  }
+  throw new ValidationError('Unknown task shelf request')
+}
+
+/** 远端持久终端开关进入配置前校验；运行期附着引用不能写进普通会话配置。 */
+export function validateSshPersistence(config: import('@shared/types').SessionConfig, saved = false): void {
+  if (config.type === 'local' && config.local?.terminalHostId !== undefined) {
+    const id = assertString(config.local.terminalHostId, 'local.terminalHostId', { maxLength: 36 })
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(id)) throw new ValidationError('Invalid local terminal host')
+    if (saved) delete config.local.terminalHostId
+  }
+  if (config.type !== 'ssh' || !config.ssh) return
+  const ssh = assertObject(config.ssh, 'ssh')
+  if (ssh.keepSessionAlive !== undefined) assertBoolean(ssh.keepSessionAlive, 'ssh.keepSessionAlive')
+  if (ssh.resumeDirectory !== undefined) {
+    const directory = normalizeSshDirectory(ssh.resumeDirectory)
+    if (!directory) throw new ValidationError('Invalid SSH resume directory')
+    if (saved) delete config.ssh.resumeDirectory
+  }
+  if (ssh.resumeSessionName !== undefined) {
+    const name = assertString(ssh.resumeSessionName, 'ssh.resumeSessionName', { maxLength: 64 })
+    if (!/^lyshell[-_][A-Za-z0-9_-]+$/.test(name)) throw new ValidationError('Invalid remote task session name')
+    if (saved) delete config.ssh.resumeSessionName
+  }
+}
+
+function taskShelfResource(value: Record<string, unknown>): ShelfResource {
+  const allowed = value.kind === 'web' ? ['kind', 'id', 'url', 'title', 'post'] : ['kind', 'id']
+  if (Object.keys(value).some(key => !allowed.includes(key))) throw new ValidationError('Unknown task shelf resource field')
+  if (value.kind === 'terminal' || value.kind === 'harness') {
+    const id = assertString(value.id, 'resource.id', { maxLength: 128 })
+    return value.kind === 'terminal' ? { kind: 'terminal', id } : { kind: 'harness', id }
+  }
+  if (value.kind !== 'web') throw new ValidationError('Unknown task shelf resource')
+  const web: Extract<ShelfResource, { kind: 'web' }> = {
+    kind: 'web',
+    id: assertString(value.id, 'resource.id', { maxLength: 128 }),
+    // 空 URL 合法：调用方允许登记「只在当前实例有效」的页面，安全判定在主进程做。
+    url: assertString(value.url, 'resource.url', { maxLength: 4096, allowEmpty: true }),
+    title: assertString(value.title, 'resource.title', { maxLength: 200, allowEmpty: true })
+  }
+  if (value.post !== undefined) web.post = assertBoolean(value.post, 'resource.post')
+  return web
 }

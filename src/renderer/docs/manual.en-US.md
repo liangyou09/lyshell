@@ -305,6 +305,8 @@ Instant switching, no restart.
 | `F5` / `Shift + F5` | Reload / reload without cache in a regular web tab |
 | `F12` | Toggle DevTools below the current regular web tab |
 | `Ctrl + Shift + H` / `V` | Horizontal / vertical split |
+| `Ctrl + Shift + J` | Toggle the saved-tasks panel (configurable in Settings → Terminal) |
+| `Ctrl + Shift + S` | Collect the current tab into saved tasks (configurable there too) |
 | `Ctrl + Shift + P` | Fullscreen command palette |
 | `Ctrl + Shift + O` | Open a local document |
 | `Alt + 1…8` | Switch to Project Launcher, Session Launcher, DeepSeek, Codex, Claude, Plugins, Web, Settings in order; works in inputs, terminals and embedded pages, and expands a collapsed sidebar |
@@ -316,7 +318,7 @@ Terminal search offers **Current tab / All terminals**. Cross-terminal navigatio
 
 ## Settings highlights
 
-- **Terminal** — font size applies live; buffer lines and cursor style apply to new sessions
+- **Terminal** — font size applies live; buffer lines and cursor style apply to new sessions; saved-task shortcuts are edited here as well
 - **Downloads** — default download directory, per-server subdirectory option
 - **MCP** — registration configs & security toggles live in this manual's *MCP integration* section
 - **Appearance** — theme, language (中文 / English)

@@ -29,11 +29,13 @@ const SENSITIVE_SSH_FIELDS = ['password', 'privateKey', 'passphrase'] as const
 
 const cloneSession = (session: SessionConfig): SessionConfig => ({
   ...session,
-  ssh: session.ssh ? { ...session.ssh } : undefined,
+  // 所有保存入口（含 connect/MCP）都经过盘边界，运行期恢复引用不能进入普通配置。
+  ssh: session.ssh ? { ...session.ssh, resumeSessionName: undefined, resumeDirectory: undefined } : undefined,
   telnet: session.telnet ? { ...session.telnet } : undefined,
   serial: session.serial ? { ...session.serial } : undefined,
   local: session.local ? {
     ...session.local,
+    terminalHostId: undefined,
     env: session.local.env ? { ...session.local.env } : undefined,
     // shellArgs 同 tags/startupCommands 的逐层拷贝纪律：cloneSession 的立意就是引用
     // 隔离（盘边界两侧互不共享可变结构），数组漏拷会留共享引用的后门

@@ -1,8 +1,9 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { usePaneStore } from '../../stores/pane-store'
 import { OVERLAY_KINDS } from '../../stores'
-import TerminalView from '../Terminal/TerminalView'
+import ShelfTerminalHost from './ShelfTerminalHost'
+import { useShelfSurface, shelfSurfaceStyle, focusShelfSurface, leaveShelfSurface, SHELF_SURFACE_ENTER } from './task-shelf-surfaces'
 import CommandScreen from '../CommandScreen/CommandScreen'
 import PaneTabBar from './PaneTabBar'
 import { McpAuditPanel } from './McpAuditPanel'
@@ -15,6 +16,7 @@ import { WEB_TAB_PLACEHOLDER_ATTR } from './WebTabLayer'
 import type { PaneNode, SplitDirection, OverlayKind, OverlayPayload, OverlayRef, DocOverlayPayload } from '@shared/types'
 import { DSH_WEB_PARTITION } from '@shared/constants'
 import SearchableTab from '../Search/SearchableTab'
+import { isShelfWebPreviewing, subscribeShelfWebPreviews } from './task-shelf-preview-sources'
 
 type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center' | null
 
@@ -41,6 +43,7 @@ interface OverlayContentProps {
   paneId: string
   overlay: OverlayRef
   payload: OverlayPayload
+  shelfHosted?: boolean
 }
 
 // MCP 审计面板：单例纯 DOM；「去活即卸载」由 OVERLAY_KINDS.unmountWhenInactive 承担
@@ -55,13 +58,16 @@ McpAuditOverlay.displayName = 'McpAuditOverlay'
 // S4 共享工作台：Pet 绑定期间的权威相位由无界面轮询（useWorkbenchSnapshot）记账，
 // 「PetLink 占用中」改由页签名表达（dsh & petlink）。这里不再压可见状态条 ——
 // 它贴在 webview 顶部，会被读成终端内容区的第一行。v3 官方 Web 始终可输入和操作。
-const DshWebOverlay = React.memo<OverlayContentProps>(({ overlay, payload }) => {
+const DshWebOverlay = React.memo<OverlayContentProps>(({ overlay, payload, shelfHosted }) => {
   // 无界面记账（held / petSessionId / 详情面相位）。hook 必须在早退之前调用。
   useWorkbenchSnapshot(overlay.id)
+  const previewing = useSyncExternalStore(subscribeShelfWebPreviews, () => isShelfWebPreviewing(overlay.id))
   if (payload.kind !== 'dshWeb') return null
   return (
     <SearchableTab id={overlay.id} web className="relative w-full h-full flex flex-col">
-      <webview partition={DSH_WEB_PARTITION} src={payload.url} className="w-full flex-1 min-h-0" />
+      <webview data-task-shelf-id={overlay.id} partition={DSH_WEB_PARTITION} src={payload.url} className="w-full flex-1 min-h-0"
+        {...(previewing && !overlay.active && !shelfHosted ? { inert: '' } : {})}
+        style={previewing && !overlay.active && !shelfHosted ? { visibility: 'visible', opacity: 0, pointerEvents: 'none' } : undefined} />
     </SearchableTab>
   )
 })
@@ -103,15 +109,25 @@ const overlayContentRenderers: Record<OverlayKind, React.FC<OverlayContentProps>
  */
 const OverlayHost: React.FC<{ paneId: string; overlay: OverlayRef }> = ({ paneId, overlay }) => {
   const payload = usePaneStore(s => s.overlayPayloads[overlay.id])
+  const surface = useShelfSurface('harness', overlay.id)
+  const lastMini = useRef(surface)
+  if (overlay.active) lastMini.current = null
+  else if (surface?.rect) lastMini.current = surface
+  const mini = overlay.kind === 'dshWeb' && !overlay.active ? surface ?? (lastMini.current ? { ...lastMini.current, visible: false, interactive: false } : null) : null
   if (!payload) return null // 防御：引用无 payload（异常中间态）不渲染
   if (!overlay.active && OVERLAY_KINDS[overlay.kind].unmountWhenInactive) return null
   const Renderer = overlayContentRenderers[overlay.kind]
   return (
     <div
       className="absolute inset-0"
-      style={{ visibility: overlay.active ? 'visible' : 'hidden', zIndex: overlay.active ? 10 : 0 }}
+      style={mini ? shelfSurfaceStyle(mini) : { visibility: overlay.active ? 'visible' : 'hidden', zIndex: overlay.active ? 10 : 0 }}
+      data-shelf-native={mini?.visible ? '' : undefined}
+      {...(mini && !mini.interactive ? { inert: '' } : {})}
+      onMouseDownCapture={() => { if (mini) focusShelfSurface('harness', overlay.id) }}
+      onFocusCapture={() => { if (mini) focusShelfSurface('harness', overlay.id) }}
+      onMouseEnter={() => { if (mini) window.dispatchEvent(new Event(SHELF_SURFACE_ENTER)) }} onMouseLeave={leaveShelfSurface}
     >
-      <Renderer paneId={paneId} overlay={overlay} payload={payload} />
+      <Renderer paneId={paneId} overlay={overlay} payload={payload} shelfHosted={!!mini} />
     </div>
   )
 }
@@ -548,16 +564,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
                 const isVisible = sessionId === node.activeSessionId &&
                   !hiddenTabSessions[sessionId] && !liveOverlayActive
                 return (
-                  <div
-                    key={sessionId}
-                    className="absolute inset-0"
-                    style={{
-                      visibility: isVisible ? 'visible' : 'hidden',
-                      zIndex: isVisible ? 1 : 0
-                    }}
-                  >
-                    <TerminalView sessionId={sessionId} paneId={node.id} />
-                  </div>
+                  <ShelfTerminalHost key={sessionId} sessionId={sessionId} paneId={node.id} mainVisible={isVisible} />
                 )
               })}
               {/* 所有页签都被隐藏时叠加提示;终端实例仍挂载下层,保留连接与输出 */}
@@ -632,7 +639,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
         style={{
           [node.direction === 'horizontal' ? 'width' : 'height']: `${node.splitRatio * 100}%`
         }}
-        className="flex-shrink-0 overflow-hidden"
+        className={`flex-shrink-0 min-w-0 min-h-0 ${isTop && isTopRight && node.direction === 'vertical' ? 'overflow-visible' : 'overflow-hidden'}`}
       >
         <PaneView node={node.firstChild} isTop={isTop} isTopLeft={isTopLeft}
           isTopRight={node.direction === 'horizontal' ? false : isTopRight} />
@@ -640,7 +647,7 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
 
       <SplitDivider paneId={node.id} direction={node.direction} />
 
-      <div className="flex-1 overflow-hidden">
+      <div className={`flex-1 min-w-0 min-h-0 ${isTop && isTopRight && node.direction === 'horizontal' ? 'overflow-visible' : 'overflow-hidden'}`}>
         {/* secondChild 恒非最左;vertical 时它整列位于下方,三个 flag 全 false */}
         <PaneView node={node.secondChild}
           isTop={node.direction === 'horizontal' ? isTop : false}

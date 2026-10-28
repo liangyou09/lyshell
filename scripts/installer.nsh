@@ -171,12 +171,66 @@ LangString LyShellExplorerOpen 1033 "Open in LyShell"
   WriteRegStr SHELL_CONTEXT "Software\Classes\${KEY}\shell\LyShell\command" "" '$\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" --open-directory $\"${DIRECTORY}\.$\"'
 !macroend
 
+; 默认浏览器注册只写当前用户 HKCU（UserChoice 本身也是按用户保存），
+; 不写 HKLM，也不写 UserChoice：最终是否设为默认由用户在 Windows 设置里决定。
+!define LYSHELL_BROWSER_APP "LyShell"
+!define LYSHELL_BROWSER_PROGID "LyShellURL"
+!define LYSHELL_BROWSER_CLIENT "Software\Clients\StartMenuInternet\${LYSHELL_BROWSER_APP}"
+!define LYSHELL_BROWSER_CAPABILITIES "${LYSHELL_BROWSER_CLIENT}\Capabilities"
+!define LYSHELL_BROWSER_DESCRIPTION "LyShell 智能终端（内置网页浏览器）"
+
+!macro LyShellRegisterDefaultBrowser
+  ; ProgID 只声明 URL 协议，不声明 .html 等文件类型。
+  WriteRegStr HKCU "Software\Classes\${LYSHELL_BROWSER_PROGID}" "" "LyShell URL"
+  WriteRegStr HKCU "Software\Classes\${LYSHELL_BROWSER_PROGID}" "URL Protocol" ""
+  ; 图标写在 DefaultIcon 子键的默认值上，父键上名为 DefaultIcon 的值不会被系统读取。
+  WriteRegStr HKCU "Software\Classes\${LYSHELL_BROWSER_PROGID}\DefaultIcon" "" '$\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\",0'
+  WriteRegStr HKCU "Software\Classes\${LYSHELL_BROWSER_PROGID}\shell\open\command" "" '$\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" --open-url $\"%1$\"'
+
+  ; StartMenuInternet 客户端信息，供 Windows 设置读取显示名与图标。
+  WriteRegStr HKCU "${LYSHELL_BROWSER_CLIENT}" "" "${LYSHELL_BROWSER_APP}"
+  WriteRegStr HKCU "${LYSHELL_BROWSER_CLIENT}\DefaultIcon" "" '$\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\",0'
+  WriteRegStr HKCU "${LYSHELL_BROWSER_CLIENT}\shell\open\command" "" '$\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\"'
+  WriteRegStr HKCU "${LYSHELL_BROWSER_CAPABILITIES}" "ApplicationName" "${LYSHELL_BROWSER_APP}"
+  ; ApplicationDescription 是微软文档要求的必填项。
+  WriteRegStr HKCU "${LYSHELL_BROWSER_CAPABILITIES}" "ApplicationDescription" "${LYSHELL_BROWSER_DESCRIPTION}"
+  WriteRegStr HKCU "${LYSHELL_BROWSER_CAPABILITIES}" "ApplicationIcon" '$\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\",0'
+  WriteRegStr HKCU "${LYSHELL_BROWSER_CAPABILITIES}\URLAssociations" "http" "${LYSHELL_BROWSER_PROGID}"
+  WriteRegStr HKCU "${LYSHELL_BROWSER_CAPABILITIES}\URLAssociations" "https" "${LYSHELL_BROWSER_PROGID}"
+
+  ; 只在“默认应用”列表登记本产品，不触碰 UserChoice。
+  WriteRegStr HKCU "Software\RegisteredApplications" "${LYSHELL_BROWSER_APP}" "${LYSHELL_BROWSER_CAPABILITIES}"
+
+  ; 通知 Shell 关联已变化；不等待刷新，避免安装器卡住。
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x00002000, p 0, p 0)'
+!macroend
+
+!macro LyShellUnregisterDefaultBrowser
+  ; 只有注册命令仍指向本次安装目录时才清理。便携版会把同一组键改写成
+  ; 便携包装 exe 的路径，此时卸载安装版不能误删便携版注册。
+  ReadRegStr $0 HKCU "Software\Classes\${LYSHELL_BROWSER_PROGID}\shell\open\command" ""
+  StrCmp $0 '$\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" --open-url $\"%1$\"' 0 browserRegistrationDone
+  ReadRegStr $0 HKCU "${LYSHELL_BROWSER_CLIENT}\shell\open\command" ""
+  StrCmp $0 '$\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\"' 0 browserRegistrationDone
+
+    DeleteRegKey HKCU "Software\Classes\${LYSHELL_BROWSER_PROGID}"
+    DeleteRegKey HKCU "${LYSHELL_BROWSER_CLIENT}"
+    ReadRegStr $0 HKCU "Software\RegisteredApplications" "${LYSHELL_BROWSER_APP}"
+    StrCmp $0 "${LYSHELL_BROWSER_CAPABILITIES}" 0 +2
+      DeleteRegValue HKCU "Software\RegisteredApplications" "${LYSHELL_BROWSER_APP}"
+    System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x00002000, p 0, p 0)'
+
+  browserRegistrationDone:
+!macroend
+
 !macro customInstall
   !insertmacro LyShellRegisterExplorerMenu "Directory" "%1"
   !insertmacro LyShellRegisterExplorerMenu "Directory\Background" "%V"
   !insertmacro LyShellRegisterExplorerMenu "Drive" "%1"
   ; ShellExecute 可用名称 lyshell / lyshell.exe 找到应用（资源管理器地址栏、Win+R）。
   WriteRegStr SHELL_CONTEXT "Software\Microsoft\Windows\CurrentVersion\App Paths\lyshell.exe" "" "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+  ; 安装版在这里完成默认浏览器注册；便携版由应用内按钮在用户确认后注册。
+  !insertmacro LyShellRegisterDefaultBrowser
 !macroend
 
 !macro LyShellUnregisterExplorerMenu KEY
@@ -186,6 +240,7 @@ LangString LyShellExplorerOpen 1033 "Open in LyShell"
 !macroend
 
 !macro customUnInstall
+  !insertmacro LyShellUnregisterDefaultBrowser
   !insertmacro LyShellUnregisterExplorerMenu "Directory"
   !insertmacro LyShellUnregisterExplorerMenu "Directory\Background"
   !insertmacro LyShellUnregisterExplorerMenu "Drive"

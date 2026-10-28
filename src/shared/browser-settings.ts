@@ -1,4 +1,5 @@
 import type { BrowserDownloadAction, BrowserDownloadsSnapshot } from './browser-downloads'
+import type { DefaultBrowserStatus } from './default-browser'
 
 export const BROWSER_CHANNEL = 'browser:request'
 /** 内置新标签页标识，只由 renderer 绘制，不交给 webview 导航。 */
@@ -40,6 +41,8 @@ export interface BrowserCertificateInfo {
 }
 export type BrowserRequest =
   | { kind: 'get' }
+  | { kind: 'defaultBrowserStatus' }
+  | { kind: 'requestDefaultBrowser' }
   | { kind: 'searchSuggestions'; query: string }
   | { kind: 'downloads' }
   | { kind: 'openDownloadDirectory' }
@@ -53,6 +56,7 @@ export type BrowserRequest =
   | { kind: 'trustCertificate'; guestId: number; url: string; certificateId: string }
 export interface BrowserResult {
   success: boolean
+  defaultBrowserStatus?: DefaultBrowserStatus
   error?: string
   settings?: BrowserSettings
   passwords?: BrowserPasswordInfo[]

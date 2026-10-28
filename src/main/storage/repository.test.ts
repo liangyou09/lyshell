@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { mkdirSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, rmSync, writeFileSync, readFileSync } from 'fs'
 
 vi.mock('fs', async importOriginal => {
   const actual = await importOriginal<typeof import('fs')>()
@@ -199,6 +199,26 @@ describe('SessionRepository.deduplicate（generateSessionKey 含 shellArgs）', 
 })
 
 describe('SessionRepository 落盘引用隔离（cloneSession 逐层拷贝）', () => {
+  it('全部保存入口剥离运行期宿主与 SSH 恢复引用，旧配置读入时也不附着历史宿主', () => {
+    const repo = new SessionRepository()
+    const config: SessionConfig = {
+      ...makeLocalSession({}),
+      local: { shell: 'pwsh', terminalHostId: 'cb307d5f-eb03-4273-a658-c15da4b55937' },
+      ssh: { host: 'example', port: 22, username: 'test', resumeDirectory: '/srv/work', resumeSessionName: 'lyshell-old' }
+    }
+    repo.saveSession(config)
+    const stored = JSON.parse(readFileSync(sessionsPath, 'utf8')) as SessionConfig[]
+    expect(stored[0].local).not.toHaveProperty('terminalHostId')
+    expect(stored[0].ssh).not.toHaveProperty('resumeDirectory')
+    expect(stored[0].ssh).not.toHaveProperty('resumeSessionName')
+    expect(config.local?.terminalHostId).toBeDefined()
+    expect(config.ssh?.resumeDirectory).toBe('/srv/work')
+    writeFileSync(sessionsPath, JSON.stringify([config]))
+    const reloaded = new SessionRepository().get(config.id)!
+    expect(reloaded.local?.terminalHostId).toBeUndefined()
+    expect(reloaded.ssh?.resumeDirectory).toBeUndefined()
+    expect(reloaded.ssh?.resumeSessionName).toBeUndefined()
+  })
   it('保存后原地修改调用方数组不影响落盘内容', () => {
     const repo = new SessionRepository()
     const args = ['-NoProfile']

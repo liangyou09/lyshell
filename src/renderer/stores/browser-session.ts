@@ -6,6 +6,8 @@ let restored = false
 
 /** 设置读取失败后仍继续监听，后续重试成功时补建恢复和持久化订阅。 */
 export function initializeBrowserSession(): () => void {
+  // 新版统一由显式收纳的任务清单恢复；旧地址清单保留，但不再自动打开临时网页。
+  if (window.electronAPI?.taskShelfRequest) return () => {}
   let disposed = false
   let offPanes: (() => void) | undefined
   const sync = () => {

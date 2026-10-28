@@ -420,6 +420,14 @@
   font-weight: 500;
 }
 
+/* 任务保存区快捷键：与终端字段同排右对齐，窄栏时输入框换行到下一行。 */
+.settings-shortcut-input { flex: 0 1 150px; font-variant-numeric: tabular-nums; }
+.settings-shortcut-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.settings-shortcut-status,
+.settings-shortcut-error { margin-right: auto; font-size: var(--settings-text-size); line-height: 1.5; }
+.settings-shortcut-status { color: var(--text-rack-data); }
+.settings-shortcut-error { color: var(--error-rack); }
+
 .settings-path-label { margin-bottom: 6px; color: var(--text-rack-data); font-size: var(--settings-text-size); }
 .settings-path { display: flex; align-items: stretch; padding: 0; text-align: left; }
 .settings-path-open { display: flex; flex: 0 0 32px; align-items: center; justify-content: center; color: var(--text-rack-data); border-radius: 4px; }

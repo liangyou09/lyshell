@@ -1,3 +1,4 @@
+import { useShelfKeyboardFocus } from '../Layout/task-shelf-surfaces'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Terminal, type ITerminalOptions } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -34,6 +35,11 @@ import { bindSelectionCopy } from './selection-copy'
 interface TerminalViewProps {
   sessionId: string
   paneId?: string
+  /**
+   * 任务架迷你宿主（ShelfTerminalHost）在当前/最后收纳期间传入的交互额度。
+   * 缺席 = 普通分屏调用方，活动页签语义完全不变。
+   */
+  shelfHost?: { active: boolean; interactive: boolean }
 }
 
 // SearchAddon 装饰配置:必传 matchOverviewRuler。
@@ -131,7 +137,7 @@ function patchXtermFloatMeasure(terminal: Terminal): void {
  * 终端视图组件
  * 终端实例存储在全局 store 中，与 sessionId 绑定，不受组件生命周期影响
  */
-const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId }) => {
+const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHost }) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
   const resizeTimeoutRef = useRef<number | null>(null)
@@ -196,12 +202,18 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId }) => {
   const session = sessions.find(s => s.id === sessionId)
   const sessionConfig = session?.config
   const blockInput = session?.lockedByMcp ?? false
+  // 迷你宿主（任务架侧栏）的交互额度：登记为不可交互时与 MCP 锁定同路阻塞 ——
+  // onData / 右键粘贴读 blockInputRef，xterm 侧走 options.disableStdin。
+  const shelfHosted = shelfHost !== undefined
+  const shelfActive = shelfHost?.active === true
+  const shelfInteractive = shelfHost?.interactive === true
+  const inputBlocked = blockInput || (shelfHosted && !shelfInteractive)
 
-  // 用 ref 让 onData / 右键粘贴回调读到最新的锁定状态：这两个回调注册在下方
+  // 用 ref 让 onData / 右键粘贴回调读到最新的输入阻塞状态：这两个回调注册在下方
   // 依赖数组不含 blockInput 的大 effect 里（terminal 创建时注册一次），闭包会捕获
   // 初始 blockInput=false；不加 ref，MCP 锁定后用户输入仍会写入 PTY。
-  const blockInputRef = useRef(blockInput)
-  useEffect(() => { blockInputRef.current = blockInput }, [blockInput])
+  const blockInputRef = useRef(inputBlocked)
+  useEffect(() => { blockInputRef.current = inputBlocked }, [inputBlocked])
 
   // 本实例是否是窗口当前可见的终端（活动分屏的活动页签、未被隐藏、无覆盖层接管）——
   // 口径同 SessionsPanel 底部读数的 activeTerminalSessionId 选择器。后台页签保持
@@ -221,6 +233,12 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId }) => {
     resetLock: () => void
   } | null>(null)
 
+  // 键盘归属：普通调用方沿用 isTabActive；被收纳进任务架侧栏时，只认「已露出 +
+  // 可交互 + 当前活动」的那一个迷你实例。所有会话都常驻挂载，若不门控，一次 Ctrl+F
+  // 会让每个迷你终端各开一条搜索栏。shelfHost 缺席时口径与原来完全一致。
+  const shelfKeyboardFocus = useShelfKeyboardFocus()
+  const keyboardActive = shelfHosted ? shelfActive && shelfInteractive : isTabActive && shelfKeyboardFocus === null
+
   // 聚焦终端（仅当本 session 是其所在 pane 的活跃页签且未被隐藏时）。
   // 同一 pane 内所有 xterm 实例都保持挂载（非活跃用 visibility:hidden 隐藏），
   // 若不设守卫，多个实例会争抢焦点，导致「新建会话后无法直接输入」。
@@ -232,6 +250,13 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId }) => {
     const paneStore = usePaneStore.getState()
     if (useUiStore.getState().paletteOpen) return
     if (containerRef.current?.parentElement?.querySelector('[data-search-panel]')) return
+    if (shelfHosted) {
+      // 迷你宿主：是否露在侧栏里由 registry 登记决定，主分屏守卫（活动 pane/页签）
+      // 在这里不成立，改用同一套键盘归属口径
+      if (shelfActive && shelfInteractive) getTerminal(sessionId)?.terminal.focus()
+      return
+    }
+    if (shelfKeyboardFocus !== null) return
     if (paneId && paneStore.layout.activePaneId !== paneId) return
     const pane = paneId ? paneStore.getPaneById(paneId) : undefined
     const isActive = pane?.type === 'leaf'
@@ -241,7 +266,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId }) => {
     if (isActive) {
       getTerminal(sessionId)?.terminal.focus()
     }
-  }, [sessionId, paneId, getTerminal])
+  }, [sessionId, paneId, getTerminal, shelfHosted, shelfActive, shelfInteractive, shelfKeyboardFocus])
 
   // 全局命令面板从本终端上方关闭：面板卸载把焦点摔到 body；焦点仍悬空（没有
   // 被对话框之类接走）时，可见的活动终端接回键盘 —— 与空态命令屏的接回对称。
@@ -483,7 +508,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId }) => {
         // 而 SearchAddon 又只在传 decorations 时才 fire onDidChangeResults,
         // 不传就拿不到匹配计数(显示 "no matches")。
         allowProposedApi: true,
-        disableStdin: blockInput  // 只读或 MCP 锁定时禁止键盘输入
+        disableStdin: inputBlocked  // 只读 / MCP 锁定 / 迷你宿主不可交互时禁止键盘输入
       })
 
       fitAddon = new FitAddon()
@@ -899,13 +924,13 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId }) => {
     }
   }, [sessionId, getTerminal, registerTerminal])
 
-  // 当只读/MCP 锁定状态变化时，动态更新终端 disableStdin
+  // 当只读/MCP 锁定状态或迷你宿主交互额度变化时，动态更新终端 disableStdin
   useEffect(() => {
     const instance = getTerminal(sessionId)
     if (instance) {
-      instance.terminal.options.disableStdin = blockInput
+      instance.terminal.options.disableStdin = inputBlocked
     }
-  }, [sessionId, blockInput, getTerminal])
+  }, [sessionId, inputBlocked, getTerminal])
 
   // 主题切换时实时更新 xterm 配色 -- setTheme 已同步把 --terminal-bg 写入 :root,
   // 此处读 computed 值重选深/浅配色集与对比度,终端无需重建。
@@ -920,9 +945,10 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId }) => {
   }, [themeId, customBase, sessionId, getTerminal])
 
   // Ctrl+F 快捷键查找(window 捕获:抢在 xterm 的按键处理前) —— 只在可见实例上开:
-  // 所有页签都常驻挂载,不门控的话一次 Ctrl+F 会在每个后台页签里同时开搜索栏
+  // 所有页签都常驻挂载,不门控的话一次 Ctrl+F 会在每个后台页签里同时开搜索栏。
+  // 被收纳进任务架时口径换成 keyboardActive(只有活动且可交互的那一个迷你实例)。
   useEffect(() => {
-    if (!isTabActive) return
+    if (!keyboardActive) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && !e.isComposing && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault()
@@ -939,13 +965,13 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId }) => {
     // 使用 capture 模式确保在其他处理器之前捕获
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [isTabActive])
+  }, [keyboardActive])
 
   // ESC 收起搜索条 —— 入 useDismiss 的 ESC 回退栈(document 捕获层,与状态栏编码菜单等
   // 浮层同栈):多层同开时后开的先收,而不是搜索条永远抢第一下;栈顶消费后
   // stopPropagation,不穿给 xterm 的 textarea(裸 \x1b 发给远端)。仅可见实例占栈籍:
   // 后台页签里开着的搜索条悬在栈顶会截停活动页签的 ESC(见 isTabActive 注释)
-  useEscDismiss(showSearch && isTabActive, () => {
+  useEscDismiss(showSearch && keyboardActive, () => {
     setShowSearch(false)
     // 关闭时永远清掉装饰,避免遗留高亮干扰阅读
     searchAddonRef.current?.clearDecorations()
@@ -1135,7 +1161,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId }) => {
   // 搜索词、选项和范围变化时同步高亮与计数；隐藏面板不重新落墨。
   // 先失效装饰缓存，确保同词切选项也重算全部匹配；实时搜索用 incremental。
   useEffect(() => {
-    if (!showSearch || !isTabActive) return
+    if (!showSearch || !keyboardActive) return
     setAllTabsNoMatches(false)
     if (receivingSearchRef.current) {
       receivingSearchRef.current = false
@@ -1157,7 +1183,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId }) => {
         decorations: SEARCH_DECORATIONS
       })
     }
-  }, [showSearch, isTabActive, searchScope, searchText, caseSensitive, useRegex, wholeWord, isSearchRegexValid, getTerminal, sessionId])
+  }, [showSearch, keyboardActive, searchScope, searchText, caseSensitive, useRegex, wholeWord, isSearchRegexValid, getTerminal, sessionId])
 
   // 拖动开始:按下顶栏时记录指针在面板内的偏移
   const startDrag = (e: React.MouseEvent) => {

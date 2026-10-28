@@ -15,6 +15,8 @@ import { wireExclusiveControl } from './dsh/exclusive-runtime'
 import { tuiActivity } from './harness/tui-activity'
 import { cleanupTuiLaunchFiles } from './harness/tui-launch'
 import { explorerLaunchQueue, parseExplorerDirectory, validateExplorerDirectory } from './explorer-launch'
+import { browserLaunchQueue } from './browser/launch'
+import { BROWSER_LAUNCH_PENDING, parseBrowserLaunchUrls } from '@shared/browser-launch'
 import { readActiveExplorerDirectory } from './explorer-directory'
 
 // 导入模块
@@ -23,6 +25,7 @@ import { validateWebTabPostLoadRequest } from './ipc/validation'
 import { downloadHistory } from './storage'
 import { preferencesRepository } from './storage/repository'
 import { sessionManager } from './terminal/session-manager'
+import { LocalConnector } from './connectors/local'
 import { setMainWindow, setMainWindowForUpload, cleanupAllWorkers, cleanupAllUploadWorkers } from './file'
 import { setMcpConfirmationWindow } from './mcp/confirmation-window'
 import { reachabilityProber } from './reachability/reachability-prober'
@@ -50,6 +53,7 @@ import { KILL_STEP_TIMEOUT_FLOOR_MS, sweepOrphanDshWeb } from './dsh/proc'
 import { IPC_CHANNELS, WEBBAR_DEEPLINK_SCHEMES, WEBBAR_PARTITION, DSH_WEB_PARTITION } from '@shared/constants'
 import { handleBrowserShortcut } from './browser/shortcuts'
 import { registerSidebarShortcuts } from './sidebar-shortcut'
+import { registerTaskShelfShortcuts } from './task-shelf-shortcut'
 import { createLogTap } from '@shared/log-throttle'
 import { decideWebviewFrameNavigation, gateWebviewSubframeNavigation } from './webview-frame-navigation'
 import { PendingWebbarPostStore, webbarPostLoadOptions, webbarPostRawBytesWithinLimit } from './webbar-post'
@@ -446,6 +450,7 @@ function createMainWindow(): void {
 
   // 设置主窗口引用给 Worker 管理器
   explorerLaunchQueue.consumerId = mainWindow.webContents.id
+  browserLaunchQueue.consumerId = mainWindow.webContents.id
   setMainWindow(mainWindow)
   setMainWindowForUpload(mainWindow)
   setMcpConfirmationWindow(mainWindow)
@@ -497,6 +502,7 @@ function createMainWindow(): void {
   mainWindow.on('closed', () => {
     setTerminalCaptureWindow(null)
     explorerLaunchQueue.consumerId = null
+    browserLaunchQueue.consumerId = null
     clearTimeout(resizePersistTimer)
     setMainWindow(null)  // 清除窗口引用
     setMainWindowForUpload(null)
@@ -813,6 +819,7 @@ function createMainWindow(): void {
 // 用户在别的 app 按 Ctrl+Alt+F 也会被吞掉
 function registerWindowShortcuts(window: BrowserWindow): void {
   registerSidebarShortcuts(window)
+  registerTaskShelfShortcuts(window)
   window.webContents.on('before-input-event', (_event, input) => {
     // Ctrl+`(backquote)切换浮窗。键码用 `Backquote` 比 input.key 更稳:不同键盘布局上 `` ` `` 的 key 值可能不同
     const isCtrl = input.control || input.meta  // mac 上 Cmd 等价
@@ -846,7 +853,10 @@ if (!gotSingleInstanceLock) {
   // downloadHistory.init()），否则那边先 load 到空档案。详见 dev-user-data.ts
   seedDevConfigFromProd()
   if (startupDirectory) explorerLaunchQueue.enqueue(startupDirectory)
+  for (const url of parseBrowserLaunchUrls(startupArgs)) browserLaunchQueue.enqueue(url)
   app.on('second-instance', (_event, argv, workingDirectory, additionalData) => {
+    for (const url of parseBrowserLaunchUrls(argv.slice(app.isPackaged ? 1 : 2))) browserLaunchQueue.enqueue(url)
+    mainWindow?.webContents.send(BROWSER_LAUNCH_PENDING)
     if (process.platform === 'win32') {
       // 传原实例解析后的 cwd，避免 Chromium 调整二实例 argv 后丢掉无参数启动语义。
       const directory = validateExplorerDirectory(
@@ -863,6 +873,17 @@ if (!gotSingleInstanceLock) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.show()
       mainWindow.focus()
+    }
+  })
+  // macOS 的链接事件可能早于 ready；同步登记，冷启动同样进入队列。
+  app.on('open-url', (event, url) => {
+    event.preventDefault()
+    browserLaunchQueue.enqueue(url)
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+      mainWindow.webContents.send(BROWSER_LAUNCH_PENDING)
     }
   })
 }
@@ -1119,10 +1140,12 @@ app.on('will-quit', (event) => {
     cleanupDownloadsDir(getPluginsDir())  // 清理 URL 安装临时下载(.downloads/),防累积
     mcpAuditRepository.flushSync()  // 同步落盘 MCP 审计日志，防丢最近事件
     reachabilityProber.stop()  // 停止可达性探测定时器
-    // 断开所有本地终端 PTY 进程
+    // 已收纳的本地终端只脱离宿主；普通终端仍明确终止。
+    const localQuitTasks: Promise<void>[] = []
     for (const session of sessionManager.getAllSessions()) {
       if (session.connector && session.status === 'connected') {
-        session.connector.disconnect().catch(() => {})
+        if (session.connector instanceof LocalConnector) localQuitTasks.push(session.connector.detachForQuit())
+        else session.connector.disconnect().catch(() => {})
       }
     }
 
@@ -1139,6 +1162,7 @@ app.on('will-quit', (event) => {
     const QUIT_DSH_EXIT_GRACE_MS = KILL_STEP_TIMEOUT_FLOOR_MS + 500
     // 插件 Windows taskkill 有 5s 预算，POSIX 整组强杀有 2.5s grace；均需等待完成。
     waitForQuitCleanup([
+      ...localQuitTasks,
       tuiActivity.close(),
       cleanupTuiLaunchFiles(),
       dshWebManager.closeForQuit(Date.now() + QUIT_DSH_CLOSE_BUDGET_MS),

@@ -6,6 +6,7 @@ import { useWorkbenchActivity, activityDirectoryKey, activityFresh, tuiActivityF
 import { useSessionStore, type SessionState } from '../../stores/session-store'
 import { usePaneStore } from '../../stores/pane-store'
 import { ActivityNotifications, ActivityNoticeIcon, activityProjectName, activityNoticeTitle } from './ActivityNotifications'
+import { showShelfNotice } from './task-shelf-navigation'
 import './WorkbenchActivity.css'
 
 export function ActivityIcon() {
@@ -130,7 +131,7 @@ export function WorkbenchActivity() {
         {(state.actionError || navigationError || state.error) && <p role="status" className="workbench-activity-message">{state.actionError || navigationError || state.error}</p>}
         {state.panelView === 'notices' ? <>
           {state.notices.length > 0 && <div className="workbench-activity-notice-actions"><span>{text('最近的工作动态', 'Recent work activity')}</span><button onClick={() => state.markRead()} disabled={!state.unreadNoticeIds.length}>{text('全部已读', 'Mark all read')}</button><button onClick={state.dismiss}>{text('清空', 'Clear')}</button></div>}
-          {visibleNotices.map(notice => <button key={notice.id} className={`workbench-notice-row${state.unreadNoticeIds.includes(notice.id) ? ' is-unread' : ''}`} onClick={() => { state.markRead(notice.id); state.show(notice.workspace, notice.sessionId) }}>
+          {visibleNotices.map(notice => <button key={notice.id} className={`workbench-notice-row${state.unreadNoticeIds.includes(notice.id) ? ' is-unread' : ''}`} onClick={() => { state.markRead(notice.id); if (showShelfNotice(notice)) state.close(); else state.show(notice.workspace, notice.sessionId) }}>
             <ActivityNoticeIcon kind={notice.kind}/><span><strong>{activityProjectName(notice.workspace)}</strong><span>{activityNoticeTitle(notice, i18n.language.startsWith('en'))}</span><small title={notice.workspace}>{notice.workspace} · {notice.sessionId.slice(-8)}</small></span><time dateTime={new Date(notice.at).toISOString()}>{new Date(notice.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</time>
           </button>)}
           {!visibleNotices.length && <div className="workbench-activity-empty"><ActivityIcon/><strong>{text('暂时没有新提醒', 'All quiet for now')}</strong><p>{text('任务完成、失败或需要审批时，会在右上角提醒你。', 'A notification will appear here when a task completes, fails, or needs approval.')}</p></div>}

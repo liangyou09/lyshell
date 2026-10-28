@@ -1017,6 +1017,8 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                   onBlur={e => { e.currentTarget.style.borderBottomColor = sshPrivateKey ? accent : 'var(--rule)' }}
                 />
               </FieldRow>
+
+              <p className="mt-3 pt-2.5 border-t border-[var(--rule-soft)] text-[11px] text-[var(--text-rack-mute)] leading-relaxed">{t('taskShelf.sshContextHint')}</p>
             </div>
           )}
 

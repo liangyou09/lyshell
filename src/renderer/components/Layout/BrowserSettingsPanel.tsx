@@ -6,6 +6,7 @@ import { usePaneStore } from '../../stores/pane-store'
 import { SettingsBackGlyph, SettingsNavigation } from './SettingsNavigation'
 import './BrowserSettingsPanel.css'
 import BrowserDownloads from './BrowserDownloads'
+import DefaultBrowserControl from './DefaultBrowserControl'
 
 const Card: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => <section className="settings-card" aria-label={title}>{children}</section>
 
@@ -88,6 +89,7 @@ const BrowserSettingsPanel: React.FC<{
       <fieldset disabled={busy || !loaded} className="browser-fields">
         {category === 'downloads' && <Card title={t('browser.downloads')}><BrowserDownloads showDirectorySettings /></Card>}
         {category === 'general' && <Card title={t('browser.general')}>
+          <DefaultBrowserControl />
           <label className="browser-field"><span>{t('browser.homePage')}</span><input type="url" className="settings-input" placeholder="https://example.com" value={draft.homePage} maxLength={4096} onChange={e => patch('homePage', e.target.value)} /></label>
           <p className="browser-hint">{t('browser.homeHint')}</p>
           <label className="browser-field"><span>{t('browser.searchEngine')}</span><select className="settings-input" value={draft.searchEngine} onChange={e => patch('searchEngine', e.target.value as BrowserSettings['searchEngine'])}>
@@ -96,7 +98,7 @@ const BrowserSettingsPanel: React.FC<{
           <label className="browser-field"><span>{t('browser.zoom')}</span><select className="settings-input" value={draft.zoomFactor} onChange={e => patch('zoomFactor', Number(e.target.value))}>
             {[0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2].map(value => <option key={value} value={value}>{Math.round(value * 100)}%</option>)}
           </select></label>
-          {switchRow('restoreTabs')}{switchRow('restoreMini')}
+          {window.electronAPI?.taskShelfRequest ? <p className="browser-hint">{t('taskShelf.managedTabs')}</p> : switchRow('restoreTabs')}{switchRow('restoreMini')}
           <p className="browser-hint">{t('browser.restoreHint')}</p>
         </Card>}
         {category === 'network' && <Card title={t('browser.network')}>

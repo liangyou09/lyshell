@@ -307,6 +307,8 @@ DELETE http://127.0.0.1:${LYSHELL_MCP_PORT}/api/plugins/${LYSHELL_PLUGIN_ID}/vie
 | `F5` / `Shift + F5` | 刷新 / 忽略缓存刷新普通网页页签 |
 | `F12` | 打开/关闭普通网页页签下方的开发者工具 |
 | `Ctrl + Shift + H` / `V` | 水平 / 垂直分屏 |
+| `Ctrl + Shift + J` | 展开／收起任务保存区（可在设置 → 终端修改） |
+| `Ctrl + Shift + S` | 收纳当前页签到任务保存区（同上，可修改） |
 | `Ctrl + Shift + P` | 全屏命令面板 |
 | `Ctrl + Shift + O` | 打开本地文档 |
 | `Alt + 1…8` | 依次切换 Project Launcher、Session Launcher、DeepSeek、Codex、Claude、插件、网页、设置；在输入框、终端和内嵌网页中均可用，侧栏收起时自动展开 |
@@ -318,7 +320,7 @@ DELETE http://127.0.0.1:${LYSHELL_MCP_PORT}/api/plugins/${LYSHELL_PLUGIN_ID}/vie
 
 ## 设置要点
 
-- **终端** —— 字号实时生效；缓冲行数与光标样式应用于新会话
+- **终端** —— 字号实时生效；缓冲行数与光标样式应用于新会话；任务保存区快捷键也在这里修改
 - **下载** —— 默认下载目录、按服务器建子目录
 - **MCP** —— 注册配置与安全开关见本手册「MCP 集成」段
 - **外观** —— 主题、语言（中文 / English）

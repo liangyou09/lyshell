@@ -212,6 +212,9 @@ interface PaneStore {
   mountOverlay: (paneId: string | undefined, payload: OverlayPayload, opts?: { id?: string; background?: boolean; afterId?: string }) => string | null  // 挂载并激活（background=true 只挂载不激活、不动 activePaneId），返回实例 id（无可用 pane 返回 null）
   activateOverlay: (id: string) => void       // 激活（叶子内跨种类 radio + activePaneId 切换）
   deactivateOverlay: (id: string) => void     // 仅隐藏（页签保留）
+  shelveOverlay: (id: string) => void
+  retainShelfResource: (id: string, terminal: boolean, retained: boolean) => void
+  retainedSessionIds: Record<string, boolean>
   closeOverlay: (id: string) => void          // 真正关闭（回落/副作用/纯覆盖层 pane 回并）
   closeOverlaysInPane: (paneId: string, kind?: OverlayKind) => void
   deactivateOverlaysInPane: (paneId: string, kind?: OverlayKind) => void  // 隐藏本 pane 全部（或指定种类）覆盖层
@@ -817,7 +820,7 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
         overlays: leaf.overlays.map(r => {
           if (r.id === id) {
             const slot = def.singleton ? null : r.slot
-            return r.active && slot === r.slot ? r : { ...r, active: true, slot }
+            return r.active && !r.shelved && slot === r.slot ? r : { ...r, active: true, shelved: false, slot }
           }
           return r.active ? { ...r, active: false } : r
         })
@@ -834,7 +837,7 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
         const slot = sourceIndex >= 0 ? leaf.overlays[sourceIndex].slot : null
         // 后台打开保留同伴激活态；前台打开只在当前叶子内 radio。
         const overlays = background ? [...leaf.overlays] : leaf.overlays.map(r => r.active ? { ...r, active: false } : r)
-        overlays.splice(sourceIndex >= 0 ? sourceIndex + 1 : overlays.length, 0, { id, kind: payload.kind, active: !background, slot })
+        overlays.splice(sourceIndex >= 0 ? sourceIndex + 1 : overlays.length, 0, { id, kind: payload.kind, active: !background, slot, ...(existing?.ref.retained ? { retained: true } : {}) })
         return { ...leaf, overlays }
       })
       root = removeEmptyPanes(root)
@@ -859,13 +862,32 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
         root: editLeaf(st.layout.root, found.leaf.id, leaf => ({
           ...leaf,
           overlays: leaf.overlays.map(r => {
-            if (r.id === id) return r.active ? r : { ...r, active: true }
+            if (r.id === id) return r.active && !r.shelved ? r : { ...r, active: true, shelved: false }
             return r.active ? { ...r, active: false } : r
           })
         })),
         activePaneId: found.leaf.id
       }
     })
+  },
+
+  retainedSessionIds: {},
+  retainShelfResource: (id, terminal, retained) => {
+    const st = get()
+    if (terminal) {
+      const next = { ...st.retainedSessionIds }
+      if (retained) next[id] = true; else delete next[id]
+      set({ retainedSessionIds: next })
+    } else if (findOverlayRef(st.layout.root, id)) {
+      set({ layout: { ...st.layout, root: editRef(st.layout.root, id, r => ({ ...r, retained })) } })
+    }
+  },
+
+  shelveOverlay: (id) => {
+    const st = get()
+    const found = findOverlayRef(st.layout.root, id)
+    if (!found) return
+    set({ layout: { ...st.layout, root: editRef(st.layout.root, id, r => ({ ...r, active: false, shelved: true, retained: true })) } })
   },
 
   deactivateOverlay: (id) => {
@@ -883,12 +905,13 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     const st = get()
     const found = findOverlayRef(st.layout.root, id)
     if (!found) return
+    if (found.ref.retained) { st.shelveOverlay(id); return }
     const { leaf, ref } = found
     const remaining = leaf.overlays.filter(r => r.id !== id)
     // 关掉激活页签 → 浏览器惯例：切到同 pane 同种类最后一个；没有则回到终端
     //（activeSessionId 不曾被动过，覆盖层卸载即显示）
     const fallback = ref.active && OVERLAY_KINDS[ref.kind].fallbackToLastInPane
-      ? [...remaining].reverse().find(r => r.kind === ref.kind)
+      ? [...remaining].reverse().find(r => r.kind === ref.kind && !r.shelved)
       : undefined
     const rootAfterRemove = editLeaf(st.layout.root, leaf.id, l => ({
       ...l,
@@ -905,13 +928,15 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     const st = get()
     const leaf = findPane(st.layout.root, paneId)
     if (leaf?.type !== 'leaf') return
-    const doomed = leaf.overlays.filter(r => !kind || r.kind === kind)
+    const held = leaf.overlays.filter(r => r.retained && (!kind || r.kind === kind))
+    for (const ref of held) get().shelveOverlay(ref.id)
+    const doomed = leaf.overlays.filter(r => !r.retained && (!kind || r.kind === kind))
     if (doomed.length === 0) return
     // 树上保留的是 doomed 的补集（曾把 doomed 谓词原样抄到这里 —— 种类过滤整个反转，
     // 混合 pane 里留下僵尸 ref / 泄漏孤儿 payload；契约套件的混合种类 case 锁死）
-    const rootAfterRemove = editLeaf(st.layout.root, paneId, l => ({
+    const rootAfterRemove = editLeaf(get().layout.root, paneId, l => ({
       ...l,
-      overlays: kind ? l.overlays.filter(r => r.kind !== kind) : []
+      overlays: l.overlays.filter(r => r.retained || (kind && r.kind !== kind))
     }))
     closeRefsTail(st, set, rootAfterRemove, paneId)
   },
@@ -1138,7 +1163,7 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     // opts.background：弹窗修饰键转发 —— 后台页签，见 mountOverlay 的 background 注
     const id = get().mountOverlay(replacing?.leaf.id ?? after?.leaf.id ?? paneId, {
       kind: 'web', url, title: new URL(url).hostname,
-      ...(opts?.postToken ? { postToken: opts.postToken } : {}),
+      ...(opts?.postToken ? { postToken: opts.postToken, fromPost: true } : {}),
       ...(ownerPluginId ? { ownerPluginId } : {})
     }, {
       ...(opts?.background ? { background: true } : {}),
@@ -1529,7 +1554,18 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     // 需在此一并清理 hiddenTabSessions 残留,保持与 removeSessionFromPane 一致
     const sessionIdsToClean = (pane?.type === 'leaf' ? pane.sessions : []) ?? []
 
-    const newRoot = removePaneAndMerge(layout.root, paneId)
+    let newRoot = removePaneAndMerge(layout.root, paneId)
+    // 保存区持有的资源迁到存活叶子并收起，关闭分屏不能释放后台现场。
+    const retainedSessions = (pane?.type === 'leaf' ? pane.sessions : []).filter(id => get().retainedSessionIds[id])
+    const retainedOverlays = (pane?.type === 'leaf' ? pane.overlays : []).filter(ref => ref.retained)
+    const firstLeaf = (node: PaneNode): PaneLeaf => node.type === 'leaf' ? node : firstLeaf(node.firstChild)
+    const destination = firstLeaf(newRoot)
+    if (retainedSessions.length || retainedOverlays.length) {
+      newRoot = editLeaf(newRoot, destination.id, leaf => ({ ...leaf,
+        sessions: [...new Set([...leaf.sessions, ...retainedSessions])],
+        overlays: [...leaf.overlays.filter(ref => !retainedOverlays.some(saved => saved.id === ref.id)), ...retainedOverlays.map(ref => ({ ...ref, active: false, shelved: true }))]
+      }))
+    }
     // pane 连同其覆盖层引用一起被删：悬空 payload 按孤儿回收（dsh web 由此杀子进程）
     const payloadPatch = pruneOverlayPayloads(newRoot, get().overlayPayloads, get().draggingOverlayId)
 
@@ -1537,7 +1573,10 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     const nextHidden = { ...get().hiddenTabSessions }
     let hiddenChanged = false
     for (const sid of sessionIdsToClean) {
-      if (nextHidden[sid] !== undefined) {
+      if (get().retainedSessionIds[sid]) {
+        nextHidden[sid] = true
+        hiddenChanged = true
+      } else if (nextHidden[sid] !== undefined) {
         delete nextHidden[sid]
         hiddenChanged = true
       }
@@ -1740,7 +1779,7 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
       if (newSessions.length === 0 && overlays.length > 0 && !overlays.some(r => r.active)) {
         const byKind = new Map<OverlayKind, OverlayRef>()
         for (const r of overlays) {
-          if (!OVERLAY_KINDS[r.kind].activateOnLastTerminalClose) continue
+          if (r.shelved || !OVERLAY_KINDS[r.kind].activateOnLastTerminalClose) continue
           byKind.set(r.kind, r)  // 后写覆盖 → 每种类取最后一个
         }
         const candidates = [...byKind.values()].sort((a, b) =>

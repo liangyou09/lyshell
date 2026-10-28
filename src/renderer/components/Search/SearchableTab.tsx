@@ -5,6 +5,7 @@ import { useUiStore } from '../../stores/ui-store'
 import { useEscDismiss } from '../../hooks'
 import TerminalSearchPanel from '../Terminal/TerminalSearchPanel'
 import { findTextRanges } from './dom-search'
+import { focusShelfSurface, getShelfSurface, useShelfKeyboardFocus } from '../Layout/task-shelf-surfaces'
 
 export const FIND_IN_TAB_EVENT = 'lyshell:find-in-tab'
 let nextHighlightId = 0
@@ -34,10 +35,12 @@ export default function SearchableTab({ id, children, className = 'relative w-fu
   const requestRef = useRef<number | null>(null)
   const [highlightId] = useState(() => `tab-search-${++nextHighlightId}`)
   const cleanHighlights = useRef<() => void>(() => {})
-  const active = usePaneStore(s => {
+  const shelfFocus = useShelfKeyboardFocus()
+  const mainActive = usePaneStore(s => {
     const pane = findPane(s.layout.root, s.layout.activePaneId)
     return pane?.type === 'leaf' && pane.overlays.some(r => r.id === id && r.active)
   })
+  const active = shelfFocus === `web:${id}` || shelfFocus === `harness:${id}` || mainActive && shelfFocus === null
   let invalidRegex = false
   if (!web && regex && query) {
     if (query.length > 4096) invalidRegex = true
@@ -103,6 +106,10 @@ export default function SearchableTab({ id, children, className = 'relative w-fu
   useEffect(() => {
     const root = rootRef.current!
     const activate = () => {
+      if (root.closest('[data-shelf-native]')) {
+        focusShelfSurface(getShelfSurface('web', id) ? 'web' : 'harness', id)
+        return
+      }
       const state = usePaneStore.getState()
       const paneId = state.getOverlayPaneId(id)
       if (paneId && state.layout.activePaneId !== paneId) state.setActivePane(paneId)

@@ -1,0 +1,141 @@
+.task-shelf,.task-shelf-context-menu,.task-shelf-edge {
+  /* 任务区固定使用白色画布，不随应用深色主题反转。 */
+  --bg-rack:#fff;
+  --bg-base:#fff;
+  --bg-slot:#f3f4f6;
+  --text-rack:#202020;
+  --rule:#e2e4e8;
+  --error-rack:#b42318;
+  --shelf-accent:color-mix(in srgb,var(--amber) 60%,#000);
+  --amber-glow:#fff;
+  color-scheme:light;
+}
+.task-shelf { position:absolute; right:0; top:36px; bottom:0; z-index:45; display:flex; color:var(--text-rack); background:var(--bg-rack); border-left:1px solid var(--rule); font-family:inherit; transform:translateX(100%); visibility:hidden; pointer-events:none; }
+.task-shelf.is-open { transform:translateX(0); visibility:visible; pointer-events:auto; }
+.task-shelf:not(.is-docked).is-open { box-shadow:-8px 10px 28px rgb(0 0 0 / 18%); }
+.task-shelf-edge { position:absolute; right:18px; top:calc(50% - 24px); z-index:46; display:grid; place-items:center; width:20px; height:48px; padding:0; border:1px solid var(--rule); border-radius:4px; background:var(--bg-rack); color:var(--text-rack); cursor:pointer; }
+.task-shelf-edge>svg { width:14px; height:14px; }
+.task-shelf-edge:hover { background:var(--bg-slot); }
+.task-shelf-edge.is-open { opacity:0; pointer-events:none; }
+.task-shelf-edge.is-drop-target { right:0; top:36px; bottom:0; height:auto; width:8px; background:transparent; border:0; }
+.task-shelf-edge.is-drop-target>* { display:none; }
+.task-shelf-handle-dot { position:absolute; top:5px; right:3px; width:5px; height:5px; border-radius:50%; background:var(--shelf-accent); }
+.task-shelf-edge:focus-visible { outline:2px solid var(--shelf-accent); outline-offset:-2px; }
+.task-shelf button,.task-shelf select { font:inherit; color:inherit; }
+.task-shelf button:focus-visible { outline:2px solid var(--shelf-accent); outline-offset:-2px; }
+.task-shelf button:disabled { opacity:.55; cursor:wait; }
+.task-shelf-attention { display:inline-block; margin-left:8px; width:5px; height:5px; border-radius:50%; background:var(--shelf-accent); vertical-align:middle; }
+.task-shelf-panel { min-width:0; display:flex; flex:1; flex-direction:column; overflow:hidden; }
+.task-shelf-header { display:flex; align-items:center; gap:6px; padding:14px 10px 10px 12px; }
+.task-shelf-heading { flex:1; min-width:0; }
+.task-shelf-header h2 { font-size:14px; line-height:22px; font-weight:650; margin:0; white-space:nowrap; }
+.task-shelf-icon-button { flex-shrink:0; border:0; background:transparent; display:grid; place-items:center; width:24px; height:24px; cursor:pointer; border-radius:4px; }
+.task-shelf-icon-button:hover { background:var(--bg-slot); }
+.task-shelf-modes { display:flex; flex-shrink:0; gap:1px; padding:2px; background:var(--bg-base); border-radius:4px; }
+.task-shelf-modes button { background:transparent; border:0; padding:4px; font-size:10px; line-height:16px; border-radius:3px; cursor:pointer; }
+.task-shelf-modes button[aria-pressed=true] { background:var(--bg-slot); color:var(--shelf-accent); }
+.task-shelf-views { display:flex; margin:0 12px; border-bottom:1px solid var(--rule); }
+.task-shelf-views button { flex:1; padding:7px 4px; border:0; border-bottom:2px solid transparent; font-size:11px; background:transparent; cursor:pointer; }
+.task-shelf-views button[aria-selected=true] { border-bottom-color:var(--shelf-accent); }
+.task-shelf-context-menu { position:fixed; z-index:350; display:flex; flex-direction:column; width:218px; max-width:calc(100vw - 16px); padding:5px; color:var(--text-rack); background:var(--bg-rack); border-radius:6px; box-shadow:0 8px 28px rgb(0 0 0 / 24%); font-family:inherit; }
+.task-shelf-context-menu button { text-align:left; padding:8px 10px; background:transparent; color:inherit; border:0; border-radius:3px; font:inherit; font-size:12px; cursor:pointer; }
+.task-shelf-context-menu button:hover { background:var(--bg-slot); }
+.task-shelf-context-menu button:focus-visible { outline:2px solid var(--shelf-accent); outline-offset:-2px; }
+.task-shelf-list { flex:1; overflow:auto; min-height:0; overscroll-behavior:contain; scrollbar-color:var(--rule) transparent; scrollbar-width:thin; }
+.task-shelf-item { display:flex; align-items:center; border-bottom:1px solid var(--rule); padding:2px 8px 2px 0; }
+.task-shelf:not(.has-previews) .task-shelf-item:hover { background:var(--bg-slot); }
+.task-shelf-open { min-width:0; flex:1; display:flex; align-items:flex-start; gap:10px; padding:13px 8px; border:0; background:transparent; text-align:left; cursor:pointer; }
+.task-shelf-open>svg { flex-shrink:0; margin-top:2px; }
+.task-shelf-item-text { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.task-shelf-item-text strong { font-size:12px; line-height:18px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.task-shelf-item-text>span { font-size:11px; line-height:16px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; opacity:.78; }
+.task-shelf-list.has-live-windows { display:flex; flex-direction:column; gap:12px; padding:12px; overflow:auto; background:#f5f6f8; }
+.task-shelf.has-previews .task-shelf-item { position:relative; display:flex; flex:none; flex-direction:column; align-items:stretch; min-height:0; padding:0; background:var(--bg-base); border:1px solid var(--rule); border-radius:6px; overflow:hidden; }
+.task-shelf.has-previews .task-shelf-open { width:100%; flex:none; gap:8px; padding:12px 10px 9px; }
+.task-shelf.has-previews .task-shelf-open>svg { width:17px; height:17px; margin-top:1px; }
+.task-shelf.has-previews .task-shelf-item-text { flex:1; padding-right:54px; }
+.task-shelf.has-previews .task-shelf-item-text strong { font-size:13px; line-height:20px; }
+.task-shelf.has-previews .task-shelf-item-text>span,.task-shelf.has-previews .task-shelf-status { display:none; }
+.task-shelf.has-previews .task-shelf-item-actions { position:absolute; right:8px; top:9px; }
+.task-shelf-window-toolbar { flex-shrink:0; display:flex; align-items:center; flex-wrap:wrap; gap:6px; min-height:34px; padding:0 10px 9px; border-bottom:1px solid var(--rule); }
+.task-shelf-window-state { flex:1; min-width:0; display:flex; align-items:center; gap:6px; color:color-mix(in srgb,var(--text-rack) 72%,#fff); font-size:11px; line-height:18px; }
+.task-shelf-window-state>.task-shelf-status-dot { margin:0; }
+.task-shelf .task-shelf-enable-input { color:var(--shelf-accent); font-size:11px; }
+.task-shelf-preview { position:relative; display:block; flex:1; width:100%; min-width:0; min-height:0; overflow:hidden; background:var(--bg-slot); pointer-events:none; }
+.task-shelf-preview.is-tile { height:100%; aspect-ratio:auto; }
+.task-shelf-preview.is-tile img,.task-shelf-preview.is-tile canvas { object-fit:cover; object-position:left top; }
+.task-shelf-preview.is-tile .task-shelf-preview-empty { background:#f0f1f3; color:#6b7079; }
+.task-shelf-window-content { height:260px; min-height:180px; display:flex; position:relative; }
+.task-shelf-live-surface { width:100%; height:100%; background:#fff; }
+.task-shelf-window-content.is-terminal .task-shelf-live-surface { background:var(--terminal-bg); }
+.task-shelf-browser-bar { display:flex; gap:3px; align-items:center; padding:6px 8px; border-bottom:1px solid var(--rule); background:#f8f9fa; }
+.task-shelf-browser-bar button { display:grid; place-items:center; width:24px; height:26px; flex:none; border:0; border-radius:3px; background:transparent; cursor:pointer; }
+.task-shelf-browser-bar button:hover { background:#e9ebee; }
+.task-shelf-browser-bar input { flex:1; min-width:0; height:26px; border:1px solid var(--rule); border-radius:4px; padding:3px 7px; background:#fff; color:var(--text-rack); font:inherit; font-size:11px; }
+.task-shelf-browser-bar input:focus { outline:1px solid var(--shelf-accent); outline-offset:-1px; }
+.task-shelf-browser-bar input[aria-invalid=true] { border-color:var(--error-rack); }
+.task-shelf-preview.is-terminal { background:var(--terminal-bg); }
+.task-shelf-preview canvas,.task-shelf-preview img { width:100%; height:100%; object-fit:contain; }
+.task-shelf-preview canvas[hidden] { display:none; }
+.task-shelf-preview-empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:16px; color:color-mix(in srgb,var(--text-rack) 68%,#fff); background:#fafafb; font-size:12px; line-height:18px; text-align:center; }
+.task-shelf-status { font-size:10px; line-height:16px; }
+.task-shelf-status.status-approval,.task-shelf-status.status-inUse { color:var(--shelf-accent); }
+.task-shelf-status.status-failed,.task-shelf-status.status-unsaved { color:var(--error-rack); }
+.task-shelf-item-actions { display:flex; align-items:center; gap:2px; }
+.task-shelf-item-actions button { display:grid; place-items:center; width:22px; height:26px; padding:0; background:transparent; border:0; cursor:pointer; border-radius:3px; }
+.task-shelf-item-actions button:hover { background:var(--bg-base); }
+.task-shelf-grid { flex-shrink:0; display:grid; gap:8px; padding:12px; max-height:min(40vh,320px); overflow:auto; scrollbar-width:thin; scrollbar-color:var(--rule) transparent; }
+.task-shelf-tile { position:relative; min-width:0; aspect-ratio:1; display:flex; flex-direction:column; align-items:stretch; gap:0; padding:0; color:inherit; text-align:left; background:#fff; border:1px solid #e1e3e7; border-radius:5px; overflow:hidden; cursor:pointer; }
+.task-shelf-tile:hover { border-color:#aaaeb6; }
+.task-shelf-tile.is-selected { border-color:var(--shelf-accent); }
+.task-shelf-tile.is-selected .task-shelf-tile-label { color:var(--shelf-accent); font-weight:650; }
+.task-shelf-tile.is-empty { background:transparent; border-style:dashed; border-color:#eceef1; cursor:default; }
+.task-shelf-tile-surface { display:flex; flex:1; min-height:28px; width:100%; overflow:hidden; background:var(--bg-slot); }
+.task-shelf-tile-location { display:flex; flex:1; align-items:center; justify-content:center; gap:8px; color:#6b7079; font-size:11px; }
+.task-shelf-tile-label { flex-shrink:0; width:100%; min-height:34px; padding:6px 7px 0; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; font-size:12px; line-height:16px; font-weight:550; overflow-wrap:anywhere; }
+.task-shelf-tile-state { display:flex; flex-shrink:0; align-items:center; gap:5px; min-width:0; padding:4px 7px 7px; color:#656970; font-size:10px; line-height:13px; }
+.task-shelf-tile-state>span:last-child { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.task-shelf-tile-state>.task-shelf-status-dot { width:5px; height:5px; margin:0; }
+.task-shelf-status-dot { display:inline-block; flex-shrink:0; width:6px; height:6px; margin-top:6px; border-radius:50%; background:#777; }
+.task-shelf-status-dot.is-running { background:#3672bc; }
+.task-shelf-status-dot.is-idle { background:#78807a; }
+.task-shelf-status-dot.is-completed,.task-shelf-status-dot.is-turnEnded { background:#328052; }
+.task-shelf-status-dot.is-approval { background:var(--shelf-accent); outline:2px solid color-mix(in srgb,var(--shelf-accent) 16%,transparent); }
+.task-shelf-status-dot.is-failed { background:var(--error-rack); }
+.task-shelf-status-dot.is-interrupted,.task-shelf-status-dot.is-disconnected { background:#936545; }
+.task-shelf-notices { display:flex; flex-direction:column; }
+.task-shelf-notice { display:flex; flex-direction:column; gap:5px; padding:12px 8px; border:0; border-bottom:1px solid var(--rule); background:var(--bg-base); text-align:left; cursor:pointer; }
+.task-shelf-notice.is-unread { background:var(--bg-slot); }
+.task-shelf-notice>span { font-size:11px; opacity:.75; }
+.task-shelf-notice>strong { font-size:12px; font-weight:550; }
+.task-shelf-notice-history { margin:8px; padding:6px; font-size:11px; border:0; background:var(--bg-base); cursor:pointer; }
+.task-shelf-loading { display:block; padding:12px 8px; font-size:12px; }
+.task-shelf-detail { padding:14px 14px 14px 8px; border-top:1px solid var(--rule); font-size:11px; line-height:18px; }
+.task-shelf-detail>span { font-weight:600; }
+.task-shelf-detail p { margin:5px 0; opacity:.85; }
+.task-shelf-detail time { font-size:10px; opacity:.75; font-variant-numeric:tabular-nums; }
+.task-shelf-session-id { overflow-wrap:anywhere; }
+.task-shelf-context summary { cursor:pointer; padding:5px 0; }
+.task-shelf-context pre { max-height:200px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; font-size:11px; line-height:17px; margin:6px 0; padding:8px; background:var(--bg-base); scrollbar-color:var(--rule) transparent; }
+.task-shelf-context :focus-visible { outline:2px solid var(--shelf-accent); outline-offset:1px; }
+.task-shelf-disconnect { display:block; margin-top:10px; padding:4px 8px; border:1px solid var(--rule); border-radius:4px; background:var(--bg-base); cursor:pointer; font-size:11px; }
+.task-shelf-error { display:flex; align-items:flex-start; gap:8px; padding:8px; margin:0 12px 10px 8px; font-size:11px; line-height:17px; color:var(--error-rack); background:var(--bg-base); overflow-wrap:anywhere; }
+.task-shelf-error button { flex-shrink:0; border:0; background:var(--bg-slot); padding:2px 5px; border-radius:3px; cursor:pointer; }
+.task-shelf-drop-target { margin:0 12px 10px 8px; padding:14px 8px; border:1px dashed var(--shelf-accent); color:var(--shelf-accent); font-size:12px; text-align:center; background:var(--bg-base); }
+.task-shelf.is-drop .task-shelf-drop-target { background:var(--amber-glow); }
+/* 保留 6px 拖拽热区，高亮只覆盖面板边界的 1px 线。 */
+.task-shelf-resizer { position:absolute; top:0; bottom:0; left:-3px; width:6px; background:transparent; cursor:col-resize; touch-action:none; }
+.task-shelf-resizer::before { content:''; position:absolute; top:0; bottom:0; left:2px; width:1px; background:transparent; pointer-events:none; }
+.task-shelf-resizer:focus-visible { outline:none; }
+.task-shelf-resizer:hover::before,.task-shelf-resizer:active::before,.task-shelf-resizer:focus-visible::before { background:var(--shelf-accent); }
+@media (prefers-reduced-motion:no-preference) {
+  .task-shelf { transition:transform 180ms cubic-bezier(.16,1,.3,1), visibility 0s linear 180ms; }
+  .task-shelf.is-open { transition-delay:0s; }
+  .task-shelf.is-docked { transition:none; }
+  .task-shelf-drop-target { transition:background-color 140ms ease-out; }
+}
+
+/* 小浏览器保留页面本体，主窗口的终端工具栏在召回后继续使用。 */
+[data-shelf-native] .web-terminal-tools { display:none; }
+
+.task-shelf-enable-input { padding:3px 6px; border:0; background:transparent; font-size:11px; line-height:15px; border-radius:3px; cursor:pointer; }

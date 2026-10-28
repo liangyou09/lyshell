@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { activityDirectoryKey, activityFresh, tuiActivityFresh, webActivityFresh, useWorkbenchActivity, type ActivityNotice } from '../../stores/workbench-activity'
 import { activityToastTimeout, createActivityToastTracker, mergeActivityToasts } from '../../stores/activity-toast'
+import { showShelfNotice } from './task-shelf-navigation'
 
 export function activityProjectName(workspace: string): string {
   const parts = workspace.replace(/[\\/]+$/, '').split(/[\\/]/)
@@ -93,7 +94,7 @@ export function ActivityNotifications() {
   }, [notices, unreadNoticeIds, muted, snapshot, fresh, tuiFresh, webFresh, tracker, i18n.language])
   const expire = useCallback((id: string) => setToasts(current => current.filter(notice => notice.id !== id)), [])
   const dismiss = useCallback((id: string) => { markRead(id); expire(id) }, [markRead, expire])
-  const openNotice = useCallback((notice: ActivityNotice) => { markRead(notice.id); expire(notice.id); show(notice.workspace, notice.sessionId) }, [markRead, expire, show])
+  const openNotice = useCallback((notice: ActivityNotice) => { markRead(notice.id); expire(notice.id); if (!showShelfNotice(notice)) show(notice.workspace, notice.sessionId) }, [markRead, expire, show])
   return <>
     <div className="activity-toast-region win-no-drag" aria-label={i18n.language.startsWith('en') ? 'Task notifications' : '任务通知'} hidden={open}>
       {toasts.map(notice => <ActivityToast key={notice.id} notice={notice} suspended={open} onExpire={expire} onDismiss={dismiss} onOpen={openNotice}/>) }

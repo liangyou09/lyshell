@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ActivityNotifications, activityProjectName } from './ActivityNotifications'
 import { useWorkbenchActivity, type ActivityNotice } from '../../stores/workbench-activity'
 import type { WorkbenchActivitySnapshot } from '@shared/workbench-activity'
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ i18n: { language: 'zh' } }) }))
+vi.mock('react-i18next', async importOriginal => ({ ...await importOriginal<typeof import('react-i18next')>(), useTranslation: () => ({ i18n: { language: 'zh' } }) }))
 
 let snapshot: WorkbenchActivitySnapshot
 function notice(kind: ActivityNotice['kind'] = 'completed', suffix = kind): ActivityNotice {

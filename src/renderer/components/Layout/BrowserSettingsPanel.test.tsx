@@ -9,7 +9,7 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => k
 const api = vi.fn()
 beforeEach(() => {
   useBrowserSettingsStore.setState({ settings: structuredClone(DEFAULT_BROWSER_SETTINGS), loaded: true, error: null, encryptionAvailable: true })
-  api.mockReset().mockImplementation(async (r: BrowserRequest) => ({ success: true, settings: r.kind === 'save' ? r.settings : structuredClone(DEFAULT_BROWSER_SETTINGS), passwords: [], encryptionAvailable: true }))
+  api.mockReset().mockImplementation(async (r: BrowserRequest) => ({ success: true, settings: r.kind === 'save' ? r.settings : structuredClone(DEFAULT_BROWSER_SETTINGS), passwords: [], encryptionAvailable: true, defaultBrowserStatus: { supported: true, registered: false, isDefault: false, canRegister: true } }))
   Object.defineProperty(window, 'electronAPI', { configurable: true, value: { browserRequest: api } })
 })
 afterEach(cleanup)

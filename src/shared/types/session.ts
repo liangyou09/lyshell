@@ -77,6 +77,14 @@ export interface SSHConfig {
   shellEnterCommands?: string
   // 进入 shell 后的等待时间（毫秒），默认 1000
   shellEnterWait?: number
+  // 可续接终端：交互 shell 在远端 tmux 里运行，断线后可附着回原会话。
+  // 仅在用户显式开启时生效；关闭时行为与旧版本完全一致。远端没有 tmux 会在连接时明确报错。
+  keepSessionAlive?: boolean
+  // 仅运行期注入：要附着回来的原 tmux 会话名（保存区恢复用）。
+  // 普通配置编辑不暴露、不保存；带该名时只 attach 已有会话，不会新建同名会话冒充恢复成功。
+  resumeSessionName?: string
+  // 仅本次普通 SSH 重连尽力回到的目录；不写入保存的连接配置。
+  resumeDirectory?: string
 }
 
 /**
@@ -117,6 +125,8 @@ export interface SerialPortInfo {
  * 本地终端配置
  */
 export interface LocalConfig {
+  /** 仅运行期：当前档案下已鉴权的独立 PTY 宿主引用；普通保存配置不写入。 */
+  terminalHostId?: string
   shell?: string
   /** 启动 shell 的附加参数（如 agent 宿主 pwsh 的 -NoProfile）；缺省无参 */
   shellArgs?: string[]
