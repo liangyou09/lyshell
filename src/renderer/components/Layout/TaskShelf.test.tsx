@@ -44,9 +44,48 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals() })
 const tick = async (ms: number) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms) }) }
-const openPanel = (view: ReturnType<typeof render>) => { fireEvent.click(view.getByRole('button', { name: /Toggle saved tasks/ })) }
+const openPanel = (view: ReturnType<typeof render>) => { fireEvent.click(view.getByRole('button', { name: /Toggle saved tasks/ }), { detail: 1 }) }
 
 describe('保存区交互入口', () => {
+  it('键盘聚焦入口保持可见，显式打开后移焦面板，Esc 关闭后归还入口', async () => {
+    const view = render(<TaskShelf />)
+    const edge = view.getByRole('button', { name: /Toggle saved tasks/ })
+    act(() => edge.focus())
+    await tick(400)
+    expect(view.queryByRole('heading', { name: 'Tasks' })).toBeNull()
+    expect(document.activeElement).toBe(edge)
+    fireEvent.click(edge, { detail: 0 })
+    const panel = view.getByRole('complementary')
+    expect(panel.contains(document.activeElement)).toBe(true)
+    expect(panel.hasAttribute('inert')).toBe(false)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await tick(400)
+    expect(document.activeElement).toBe(edge)
+    expect(panel.hasAttribute('inert')).toBe(true)
+    expect(edge.getAttribute('aria-expanded')).toBe('false')
+  })
+  it('快捷键和外部请求收起时，焦点同样离开隐藏面板', async () => {
+    const view = render(<TaskShelf />)
+    const edge = view.getByRole('button', { name: /Toggle saved tasks/ })
+    fireEvent.click(edge, { detail: 0 })
+    fireEvent.keyDown(window, { key: 'j', ctrlKey: true, shiftKey: true })
+    expect(document.activeElement).toBe(edge)
+    fireEvent.click(edge, { detail: 0 })
+    act(() => useTaskShelf.setState({ viewRequest: { revision: 1, open: false } }))
+    expect(document.activeElement).toBe(edge)
+    await tick(400)
+    expect(view.queryByRole('heading', { name: 'Tasks' })).toBeNull()
+  })
+  it('鼠标悬停展开不改变当前工作区焦点', async () => {
+    const view = render(<><input aria-label="Working input" /><TaskShelf /></>)
+    const input = view.getByRole('textbox', { name: 'Working input' })
+    act(() => input.focus())
+    fireEvent.mouseEnter(view.getByRole('button', { name: /Toggle saved tasks/ }))
+    await tick(300)
+    expect(view.getByRole('heading', { name: 'Tasks' })).toBeTruthy()
+    expect(document.activeElement).toBe(input)
+    expect(useTaskShelf.getState().reservedWidth).toBe(0)
+  })
   it('高频拖宽按帧合并，释放捕获提交最终宽度并只持久化一次', async () => {
     localStorage.setItem('lyshell.taskShelf.view.v1', JSON.stringify({ mode: 'hover', width: 400 }))
     const frames = new Map<number, FrameRequestCallback>()

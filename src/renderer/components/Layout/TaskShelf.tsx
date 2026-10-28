@@ -65,6 +65,8 @@ const TaskShelf: React.FC = () => {
   const [showNotices, setShowNotices] = useState(false)
   const [now, setNow] = useState(Date.now)
   const root = useRef<HTMLElement>(null)
+  const edge = useRef<HTMLButtonElement>(null)
+  const keyboardOpen = useRef(false)
   const panelId = useId()
   const resizeStart = useRef<{ x: number; width: number }>()
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>()
@@ -97,7 +99,15 @@ const TaskShelf: React.FC = () => {
     if (useTaskShelf.getState().reservedWidth !== reservedWidth) useTaskShelf.setState({ reservedWidth })
   }, [docked, width])
   useLayoutEffect(() => () => { useTaskShelf.setState({ reservedWidth: 0 }) }, [])
-  useLayoutEffect(() => { root.current?.toggleAttribute('inert', !shown) }, [shown])
+  // 在 inert 生效前记录焦点，确保按钮、快捷键及外部请求收起时都能归还入口。
+  useLayoutEffect(() => {
+    const restoreFocus = !shown && root.current?.contains(document.activeElement)
+    root.current?.toggleAttribute('inert', !shown)
+    if (shown && keyboardOpen.current) {
+      root.current?.querySelector<HTMLElement>('button:not([disabled])')?.focus()
+    } else if (restoreFocus) edge.current?.focus()
+    keyboardOpen.current = false
+  }, [shown])
   useLayoutEffect(() => {
     useTaskShelf.setState({ panelVisible: shown })
     return () => { useTaskShelf.setState({ panelVisible: false }) }
@@ -153,7 +163,13 @@ const TaskShelf: React.FC = () => {
   }, [expanded, pinned, resizing, shortcuts, docked])
 
   const enter = () => { clearTimeout(closeTimer.current); clearTimeout(hoverTimer.current); hoverTimer.current = setTimeout(() => setExpanded(true), 250) }
-  const closePanel = () => { clearTimeout(hoverTimer.current); clearTimeout(closeTimer.current); setExpanded(false); setPinned(false); setDropOver(false) }
+  // 键盘聚焦入口只取消待执行的收起，不在 250ms 后自动展开并把入口自身藏掉；
+  // 展开由 Enter/Space 触发，细柄焦点环继续作为可见入口。
+  const holdEntryFocus = () => { clearTimeout(closeTimer.current); clearTimeout(hoverTimer.current) }
+  const closePanel = () => {
+    clearTimeout(hoverTimer.current); clearTimeout(closeTimer.current)
+    setExpanded(false); setPinned(false); setDropOver(false)
+  }
   const leave = useCallback(() => {
     clearTimeout(hoverTimer.current)
     closeTimer.current = setTimeout(() => { if (!root.current?.contains(document.activeElement) && !document.activeElement?.closest('.task-shelf-context-menu') && !isShelfSurfaceEngaged() && !resizing) setExpanded(false); setDropOver(false) }, 350)
@@ -196,11 +212,18 @@ const TaskShelf: React.FC = () => {
 
   return <>
     <TaskShelfContextMenu />
-    <button className={`task-shelf-edge win-no-drag ${shown ? 'is-open' : ''} ${canDrop ? 'is-drop-target' : ''}`} aria-controls={panelId} aria-expanded={shown}
+    <button ref={edge} className={`task-shelf-edge win-no-drag ${shown ? 'is-open' : ''} ${canDrop ? 'is-drop-target' : ''}`} aria-controls={panelId} aria-expanded={shown}
       tabIndex={shown ? -1 : 0} aria-label={t('taskShelf.toggleHint', { shortcut: shortcuts.toggleShortcut || '—' })}
-      onMouseEnter={enter} onMouseLeave={leave} onFocus={enter} onBlur={leave}
-      onClick={() => { clearTimeout(hoverTimer.current); clearTimeout(closeTimer.current); setPinned(true) }}
-      onDragOver={dragOver} onDrop={event => { void handleDrop(event) }}><ShelfIcon />{attention > 0 && <span className="task-shelf-handle-dot" />}</button>
+      onMouseEnter={enter} onMouseLeave={leave} onFocus={holdEntryFocus} onBlur={leave}
+      onClick={event => {
+        clearTimeout(hoverTimer.current); clearTimeout(closeTimer.current)
+        // detail 为 0 说明是键盘 Enter/Space 触发，打开后把焦点移入面板。
+        if (event.detail === 0) keyboardOpen.current = true
+        setPinned(true)
+      }}
+      onDragOver={dragOver} onDrop={event => { void handleDrop(event) }}>
+      {attention > 0 && <span className="task-shelf-handle-dot" />}
+    </button>
     <aside ref={root} id={panelId} className={`task-shelf win-no-drag ${shown ? 'is-open' : ''} ${docked ? 'is-docked' : ''} ${dropOver ? 'is-drop' : ''} ${showPreviews ? 'has-previews' : ''}`}
     style={{ width }} aria-hidden={!shown} aria-label={t('taskShelf.title')} onMouseEnter={enter} onMouseLeave={leave}
     onFocus={enter} onBlur={leave} onDragOver={dragOver} onDragLeave={event => {

@@ -12,15 +12,23 @@
 }
 .task-shelf { position:absolute; right:0; top:36px; bottom:0; z-index:45; display:flex; color:var(--text-rack); background:var(--bg-rack); border-left:1px solid var(--rule); font-family:inherit; transform:translateX(100%); visibility:hidden; pointer-events:none; }
 .task-shelf.is-open { transform:translateX(0); visibility:visible; pointer-events:auto; }
-.task-shelf:not(.is-docked).is-open { box-shadow:-8px 10px 28px rgb(0 0 0 / 18%); }
-.task-shelf-edge { position:absolute; right:18px; top:calc(50% - 24px); z-index:46; display:grid; place-items:center; width:20px; height:48px; padding:0; border:1px solid var(--rule); border-radius:4px; background:var(--bg-rack); color:var(--text-rack); cursor:pointer; }
-.task-shelf-edge>svg { width:14px; height:14px; }
-.task-shelf-edge:hover { background:var(--bg-slot); }
+/* 覆盖态是从右边缘伸出的面：柔和左投影 + 左上/下轻圆角；停靠态保持直角与不动画。
+   clip 让子元素跟随圆角，4px 余量保留左侧 3px 的 resizer 拖拽热区。 */
+.task-shelf:not(.is-docked) { border-radius:8px 0 0 8px; overflow:clip; overflow-clip-margin:4px; }
+.task-shelf:not(.is-docked).is-open { box-shadow:-10px 0 24px rgb(0 0 0 / 10%); }
+/* 入口始终只是一条细柄；悬停时轻微拉长，直接展开面板，不弹出中间按钮。
+   28×72 透明热区右侧留 18px，避开终端及网页滚动条。 */
+.task-shelf-edge { position:absolute; right:18px; top:calc(50% - 18px); z-index:46; display:grid; place-items:center; width:28px; height:72px; padding:0; border:0; background:transparent; color:var(--text-rack); cursor:pointer; }
+.task-shelf-edge::before { content:''; position:absolute; top:50%; right:0; width:3px; height:36px; margin-top:-18px; border-radius:2px; background:#8b929c; }
+.task-shelf-edge:hover::before,.task-shelf-edge:focus-visible::before { transform:translateX(-1px) scaleY(1.33); background:#747d89; }
 .task-shelf-edge.is-open { opacity:0; pointer-events:none; }
-.task-shelf-edge.is-drop-target { right:0; top:36px; bottom:0; height:auto; width:8px; background:transparent; border:0; }
+/* 拖拽时只保留全高 8px 边缘热区，新装饰全部隐去，不受悬停/焦点页签样式影响。 */
+.task-shelf-edge.is-drop-target { right:0; top:36px; bottom:0; height:auto; width:8px; background:transparent; border:0; border-radius:0; }
 .task-shelf-edge.is-drop-target>* { display:none; }
-.task-shelf-handle-dot { position:absolute; top:5px; right:3px; width:5px; height:5px; border-radius:50%; background:var(--shelf-accent); }
-.task-shelf-edge:focus-visible { outline:2px solid var(--shelf-accent); outline-offset:-2px; }
+.task-shelf-edge.is-drop-target::before { display:none; }
+.task-shelf-handle-dot { position:absolute; top:11px; right:2px; width:5px; height:5px; border-radius:50%; background:var(--shelf-accent); }
+.task-shelf-edge:focus-visible { outline:none; }
+.task-shelf-edge:focus-visible::before { outline:2px solid var(--shelf-accent); outline-offset:3px; }
 .task-shelf button,.task-shelf select { font:inherit; color:inherit; }
 .task-shelf button:focus-visible { outline:2px solid var(--shelf-accent); outline-offset:-2px; }
 .task-shelf button:disabled { opacity:.55; cursor:wait; }
@@ -130,10 +138,13 @@
 .task-shelf-resizer:focus-visible { outline:none; }
 .task-shelf-resizer:hover::before,.task-shelf-resizer:active::before,.task-shelf-resizer:focus-visible::before { background:var(--shelf-accent); }
 @media (prefers-reduced-motion:no-preference) {
-  .task-shelf { transition:transform 180ms cubic-bezier(.16,1,.3,1), visibility 0s linear 180ms; }
-  .task-shelf.is-open { transition-delay:0s; }
+  /* 展开 220ms 自然 ease-out，收起 160ms；只动 transform/visibility，不动画面板宽度。 */
+  .task-shelf { transition:transform 160ms cubic-bezier(.4,0,.6,1), visibility 0s linear 160ms; }
+  .task-shelf.is-open { transition:transform 220ms cubic-bezier(.16,1,.3,1), visibility 0s linear 0s; }
   .task-shelf.is-docked { transition:none; }
   .task-shelf-drop-target { transition:background-color 140ms ease-out; }
+  .task-shelf-edge { transition:opacity 120ms ease-out; }
+  .task-shelf-edge::before { transition:transform 180ms cubic-bezier(.16,1,.3,1), background-color 140ms ease-out; }
 }
 
 /* 小浏览器保留页面本体，主窗口的终端工具栏在召回后继续使用。 */
