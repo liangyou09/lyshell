@@ -20,6 +20,14 @@ beforeEach(() => {
   vi.useFakeTimers(); localStorage.clear(); listEntries = [entry]; archiveResponse = null
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
   request.mockReset(); request.mockImplementation(async input => {
+    if (input.kind === 'activate') {
+      const items = input.items.map(item => ({ taskId: item.taskId, status: 'moved' as const }))
+      listEntries = listEntries.map(entry => {
+        if (!items.some(item => item.taskId === entry.id)) return entry
+        const next = { ...entry, revision: entry.revision + 1 }; delete next.archivedAt; return next
+      })
+      return { success: true, entries: listEntries, activation: { requestId: input.requestId, items, total: items.length, moved: items.length, alreadyTasks: 0, missing: 0, conflict: 0, failed: 0 } }
+    }
     if (input.kind === 'archive') {
       if (archiveResponse) return archiveResponse
       const entries = listEntries.map(item => {
@@ -37,7 +45,7 @@ beforeEach(() => {
     return { success: true, entries: listEntries }
   })
   Object.defineProperty(window, 'electronAPI', { configurable: true, value: { taskShelfRequest: request } })
-  useTaskShelf.setState({ entries: [entry], bindings: { page: { kind: 'web', id: 'w' } }, loaded: true, error: null, busy: {}, saveErrors: {}, panelVisible: false, viewRequest: null, preferences: { ...DEFAULT_TASK_SHELF_PREFERENCES } })
+  useTaskShelf.setState({ entries: [entry], bindings: { page: { kind: 'web', id: 'w' } }, loaded: true, error: null, busy: {}, saveErrors: {}, panelVisible: false, viewRequest: null, startup: null, activation: null, activating: false, uiIntentRevision: 0, preferences: { ...DEFAULT_TASK_SHELF_PREFERENCES } })
   useSessionStore.setState({ sessions: [] })
   useWorkbenchActivity.setState({ snapshot: null, notices: [], unreadNoticeIds: [], open: false })
   usePaneStore.setState({ layout: { root: { type: 'leaf', id: 'p', sessions: [], activeSessionId: null, overlays: [{ kind: 'web', id: 'w', active: false, shelved: true, retained: true, slot: null }] }, activePaneId: 'p' }, overlayPayloads: { w: { kind: 'web', url: 'https://example.org/', title: entry.title } }, draggingOverlayId: null, draggingSessionId: null, hiddenTabSessions: {} })
@@ -235,7 +243,7 @@ describe('保存区交互入口', () => {
     fireEvent.dragOver(edge, { dataTransfer })
     await act(async () => { fireEvent.drop(view.getByRole('complementary'), { dataTransfer }) })
     expect(request.mock.calls.filter(([r]) => r.kind === 'capture')).toHaveLength(1)
-    expect(view.queryByRole('heading', { name: 'Tasks' })).toBeNull()
+    expect(view.queryByRole('heading', { name: 'Tasks' })).toBeTruthy()
     expect(useTaskShelf.getState().reservedWidth).toBe(0)
   })
   it('宽屏停靠仍预留面板宽度，显式收起后释放全部空间', async () => {
@@ -253,13 +261,15 @@ describe('保存区交互入口', () => {
       expect(view.queryByRole('heading', { name: 'Tasks' })).toBeNull()
     } finally { available.mockRestore() }
   })
-  it('点击任务展开原网页并收起临时面板，记录继续保留', async () => {
+  it('静态卡片选择不打开资源，明确在主区打开后侧栏保持展开', async () => {
     const view = render(<TaskShelf />)
     openPanel(view)
     await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Task slot 1' })) })
+    expect(usePaneStore.getState().getAllLeafPanes()[0].overlays[0]).toMatchObject({ active: false, shelved: true })
+    await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Open in main window' })) })
     expect(usePaneStore.getState().getAllLeafPanes()[0].overlays[0]).toMatchObject({ id: 'w', active: true, shelved: false, retained: true })
     expect(useTaskShelf.getState().entries).toHaveLength(1)
-    expect(view.queryByRole('heading', { name: 'Tasks' })).toBeNull()
+    expect(view.queryByRole('heading', { name: 'Tasks' })).toBeTruthy()
   })
   it('模式选择可访问并保存用户偏好', async () => {
     const view = render(<TaskShelf />)
@@ -302,19 +312,63 @@ describe('保存区交互入口', () => {
 })
 
 describe('归档交互', () => {
-  it('打开归档条目时先移回任务区，再展开原网页并收起面板', async () => {
+  it('首屏按已提交启动结果显示Archive，即使有运行绑定也不采集或展示实时实例', async () => {
+    localStorage.setItem('lyshell.taskShelf.view.v1', JSON.stringify({ mode: 'hover', width: 520 }))
+    listEntries = [{ ...entry, archivedAt: 1 }]
+    useTaskShelf.setState({ entries: listEntries, startup: { bootId: 'boot', scopeId: 'scope', status: 'ready', archiveOnBoot: true } })
+    const view = render(<TaskShelf />); openPanel(view); await tick(0)
+    expect(view.getByRole('tab', { name: /Archive/ }).getAttribute('aria-selected')).toBe('true')
+    expect(view.getByRole('button', { name: 'Activate all' })).toBeTruthy()
+    expect(view.container.querySelector('.task-shelf-preview')).toBeNull()
+    expect(view.container.querySelector('[data-shelf-surface]')).toBeNull()
+    expect(request.mock.calls.some(([request]) => request.kind === 'restore')).toBe(false)
+  })
+  it('普通按钮残留焦点不阻止移出350ms自动收起，返回会撤销旧计时', async () => {
+    const view = render(<TaskShelf />); openPanel(view)
+    const panel = view.getByRole('complementary')
+    act(() => view.getByRole('button', { name: 'Hover' }).focus())
+    fireEvent.mouseLeave(panel); await tick(300)
+    expect(panel.getAttribute('aria-hidden')).toBe('false')
+    fireEvent.mouseEnter(panel); await tick(100)
+    expect(panel.getAttribute('aria-hidden')).toBe('false')
+    fireEvent.mouseLeave(panel); await tick(350)
+    expect(panel.getAttribute('aria-hidden')).toBe('true')
+  })
+  it('中文组合输入与编辑焦点保护自动收起，移焦后重新检查', async () => {
+    const view = render(<TaskShelf />); openPanel(view)
+    const panel = view.getByRole('complementary'), input = document.createElement('input')
+    panel.append(input); input.value = '中文输入'
+    act(() => input.focus()); fireEvent.compositionStart(input); fireEvent.mouseLeave(panel); await tick(500)
+    expect(panel.getAttribute('aria-hidden')).toBe('false')
+    fireEvent.compositionEnd(input); await tick(500)
+    expect(panel.getAttribute('aria-hidden')).toBe('false')
+    act(() => input.blur()); fireEvent.focusIn(document.body); await tick(350)
+    expect(input.value).toBe('中文输入')
+    expect(panel.getAttribute('aria-hidden')).toBe('true')
+  })
+  it('固定模式移出不收起，显式关闭保留固定偏好', async () => {
+    localStorage.setItem('lyshell.taskShelf.view.v1', JSON.stringify({ mode: 'fixed', width: 304 }))
+    const view = render(<TaskShelf />); openPanel(view)
+    fireEvent.mouseLeave(view.getByRole('complementary')); await tick(800)
+    expect(view.getByRole('heading', { name: 'Tasks' })).toBeTruthy()
+    fireEvent.click(view.getByRole('button', { name: 'Collapse saved tasks' })); await tick(0)
+    expect(JSON.parse(localStorage.getItem('lyshell.taskShelf.view.v1')!).mode).toBe('fixed')
+    expect(useTaskShelf.getState().reservedWidth).toBe(0)
+  })
+  it('激活归档卡片只移回任务区，不重建或打开网页且不收起侧栏', async () => {
     const archived: TaskShelfEntry = { ...entry, title: 'Archived reference', archivedAt: 100 }
     listEntries = [archived]
-    useTaskShelf.setState({ entries: [archived] })
+    useTaskShelf.setState({ entries: [archived], startup: { bootId: 'boot', scopeId: 'scope', status: 'ready', archiveOnBoot: false } })
     const view = render(<TaskShelf />)
     openPanel(view)
     await act(async () => { fireEvent.click(view.getByRole('tab', { name: /Archive/ })) })
     expect(view.getByRole('button', { name: 'Task slot 1' })).toBeTruthy()
     await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Task slot 1' })) })
-    expect(request.mock.calls.map(([r]) => r).find(r => r.kind === 'archive')).toEqual({ kind: 'archive', id: 'page', archived: false })
+    expect(request.mock.calls.map(([r]) => r).find(r => r.kind === 'activate')).toMatchObject({ kind: 'activate', bootId: 'boot', scopeId: 'scope', items: [{ taskId: 'page', expectedRevision: 1 }] })
     expect(useTaskShelf.getState().entries[0].archivedAt).toBeUndefined()
-    expect(usePaneStore.getState().getAllLeafPanes()[0].overlays[0]).toMatchObject({ id: 'w', active: true, shelved: false, retained: true })
-    expect(view.queryByRole('heading', { name: 'Tasks' })).toBeNull()
+    expect(usePaneStore.getState().getAllLeafPanes()[0].overlays[0]).toMatchObject({ id: 'w', active: false, shelved: true })
+    expect(request.mock.calls.filter(([r]) => r.kind === 'restore')).toHaveLength(0)
+    expect(view.queryByRole('heading', { name: 'Tasks' })).toBeTruthy()
   })
   it('归档失败留在原视图：任务仍在列表，页签保持展开并显示错误', async () => {
     usePaneStore.setState({ layout: { root: { type: 'leaf', id: 'p', sessions: [], activeSessionId: null, overlays: [{ kind: 'web', id: 'w', active: true, shelved: false, retained: true, slot: null }] }, activePaneId: 'p' } })

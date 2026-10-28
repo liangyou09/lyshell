@@ -1,5 +1,7 @@
 {
   "taskShelf": {
+    "presentationUnconfirmed": "网页已加载，画面暂未确认。", "showCurrentPage": "显示当前页面",
+    "activateAll": "全部激活", "activating": "正在激活…", "realtimeLabel": "实时显示", "realtimeTasks": "仅任务区", "realtimeNone": "静态卡片", "retryActivation": "重试失败项", "activationResult": "已激活 {{moved}} · 已在任务区 {{alreadyTasks}} · 已变更 {{conflict}} · 已删除 {{missing}} · 失败 {{failed}}",
     "mainWindow": "主窗口", "focusedTask": "当前任务内容", "previewMode": "内容查看方式", "readable": "清晰", "overview": "全貌", "typeHere": "输入",
     "activityStatus": { "running": "执行中", "idle": "空闲 · 等待输入", "approval": "等待确认", "completed": "任务已完成", "turnEnded": "本轮结束", "failed": "需要检查", "interrupted": "已中断", "disconnected": "已断开", "unknown": "暂无可靠任务状态" },
     "slot": "任务格 {{index}}", "gridLabel": "任务格", "inMain": "已在主窗口 · 点击召回", "notices": "提醒", "notificationHistory": "全部会话与提醒",

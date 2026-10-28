@@ -91,12 +91,15 @@ export interface TerminalPreviewOptions {
   maxRows?: number
   /** readable 模式字号（px），默认 12，有效范围 4..200。 */
   fontSize?: number
+  /** 分配画布像素前准入；返回 false 时不改变原画布，保留旧画面。 */
+  beforeResize?: (width: number, height: number) => boolean
 }
 
 interface ResolvedPreviewOptions {
   mode: TerminalPreviewMode
   maxRows: number
   fontSize: number
+  beforeResize?: (width: number, height: number) => boolean
 }
 
 /** 一次绘制使用的网格布局。 */
@@ -163,9 +166,13 @@ export function paintTerminalPreview(
     const gridWidth = frame.cols * cellWidth
     const gridHeight = frame.rows * cellHeight
     const scale = frame.scale
+    const nextWidth = Math.max(1, Math.round(gridWidth * scale))
+    const nextHeight = Math.max(1, Math.round(gridHeight * scale))
+    // 分配像素前先由调用方预留预算；拒绝时不触碰画布，旧画面保持可读。
+    if (preview.beforeResize && !preview.beforeResize(nextWidth, nextHeight)) return false
 
-    canvas.width = Math.max(1, Math.round(gridWidth * scale))
-    canvas.height = Math.max(1, Math.round(gridHeight * scale))
+    canvas.width = nextWidth
+    canvas.height = nextHeight
 
     // 设置画布尺寸会重置上下文状态，因此状态一律放在其后设置。
     // 以虚拟网格坐标绘制，再整体缩放到画布像素（readable 模式固定 1:1）。
@@ -314,13 +321,15 @@ function normalizeCursorRow(value: unknown, rows: number): number {
 function readPreviewOptions(raw: unknown): ResolvedPreviewOptions {
   const source = raw && typeof raw === 'object' ? (raw as TerminalPreviewOptions) : {}
   const mode: TerminalPreviewMode = source.mode === 'readable' ? 'readable' : 'overview'
+  const beforeResize = typeof source.beforeResize === 'function' ? source.beforeResize : undefined
   if (mode !== 'readable') {
-    return { mode, maxRows: DEFAULT_READABLE_MAX_ROWS, fontSize: DEFAULT_READABLE_FONT_SIZE }
+    return { mode, maxRows: DEFAULT_READABLE_MAX_ROWS, fontSize: DEFAULT_READABLE_FONT_SIZE, beforeResize }
   }
   return {
     mode,
     maxRows: Math.floor(boundedNumber(source.maxRows, DEFAULT_READABLE_MAX_ROWS, 1, MAX_PREVIEW_ROWS)),
-    fontSize: boundedNumber(source.fontSize, DEFAULT_READABLE_FONT_SIZE, 4, 200)
+    fontSize: boundedNumber(source.fontSize, DEFAULT_READABLE_FONT_SIZE, 4, 200),
+    beforeResize
   }
 }
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { WebviewTag } from 'electron'
 import { usePaneStore } from '../../stores/pane-store'
@@ -13,6 +13,9 @@ import { webLoadFailureFromEvent, type WebLoadFailure } from './web-load-error'
 import { BROWSER_NEW_TAB_URL } from '@shared/browser-settings'
 import CommandScreen from '../CommandScreen/CommandScreen'
 import { isShelfWebPreviewing, shelfWebPreviewRevision, subscribeShelfWebPreviews } from './task-shelf-preview-sources'
+import { settleBrowserLoad } from '../../stores/browser-load-tracker'
+import type { ShelfBrowserResult } from '@shared/shelf-browser'
+import { openShelfWebPreview, refreshShelfWebPreview } from './task-shelf-web-frame'
 
 import { useShelfSurfacePresence, getShelfSurface, subscribeShelfSurfaces, shelfSurfaceStyle, focusShelfSurface, leaveShelfSurface, SHELF_SURFACE_ENTER } from './task-shelf-surfaces'
 
@@ -86,7 +89,39 @@ function faviconUrlFromEvent(e: Event): string | undefined {
  * WebPanel 地址栏与导航按钮消费；元素登记进 web-tab-controls 注册表，
  * 面板按钮与宿主/主进程快捷键经它对本页签下指令。
  */
-export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: string }> = ({ id, url, postToken }) => {
+type WebTabOverlayProps = { id: string; url: string; postToken?: string; shelfTaskId?: string; unmanaged?: boolean }
+const createRequests = new Map<string, Promise<string>>()
+/** 先取得 main 的一次性创建许可，再挂载 webview；StrictMode 复用同一在途许可。 */
+export const WebTabOverlay: React.FC<WebTabOverlayProps> = props => {
+  const { t } = useTranslation()
+  const [permit, setPermit] = useState<string>()
+  const [error, setError] = useState<string>()
+  const [retry, setRetry] = useState(0)
+  useEffect(() => {
+    if (props.unmanaged || !window.electronAPI?.shelfBrowserRequest) return
+    let disposed = false
+    const resourceId = props.shelfTaskId ? `saved:${props.shelfTaskId}` : `tab:${props.id}`
+    let request = createRequests.get(props.id)
+    if (!request) {
+      const created: Promise<string> = window.electronAPI.shelfBrowserRequest({ kind: 'permit', resourceId, url: props.postToken ? 'about:blank' : props.url, taskId: props.shelfTaskId, source: props.shelfTaskId ? 'explicitShelf' : 'explicitMain' }).then((result: ShelfBrowserResult) => {
+        if (!result.success || !result.permitId) throw new Error(result.success ? '未取得网页创建许可' : result.error)
+        return result.permitId
+      })
+      request = created
+      createRequests.set(props.id, created)
+    }
+    void request.then(id => { if (!disposed) setPermit(id) }, reason => {
+      if (!disposed) { const message = String(reason instanceof Error ? reason.message : reason); setError(message); settleBrowserLoad(props.id, message) }
+    })
+    return () => { disposed = true }
+  }, [props.id, props.url, props.postToken, props.shelfTaskId, props.unmanaged, retry])
+  useEffect(() => () => { createRequests.delete(props.id) }, [props.id])
+  if (props.unmanaged || !window.electronAPI?.shelfBrowserRequest) return <LiveWebTabOverlay {...props} />
+  if (permit) return <LiveWebTabOverlay {...props} permit={permit} />
+  return <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-sm" role="status">{error || t('webBar.loading')}{error && <button onClick={() => { createRequests.delete(props.id); setError(undefined); setRetry(value => value + 1) }}>{t('taskShelf.retry')}</button>}</div>
+}
+
+const LiveWebTabOverlay: React.FC<WebTabOverlayProps & { permit?: string }> = ({ id, url, postToken, permit, shelfTaskId }) => {
   const setWebTabTitle = usePaneStore(s => s.setWebTabTitle)
   const setWebTabFavicon = usePaneStore(s => s.setWebTabFavicon)
   const setWebTabNav = usePaneStore(s => s.setWebTabNav)
@@ -94,6 +129,55 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
   const settleWebTabPost = usePaneStore(s => s.settleWebTabPost)
   const { t } = useTranslation()
   const ref = useRef<WebviewTag | null>(null)
+  const [presentationReady, setPresentationReady] = useState(!shelfTaskId)
+  const [presentationFailed, setPresentationFailed] = useState(false)
+  useLayoutEffect(() => { ref.current?.toggleAttribute('inert', !presentationReady) }, [presentationReady])
+  useEffect(() => {
+    if (!shelfTaskId || presentationReady) return
+    const page = ref.current
+    if (!page) return
+    let disposed = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let deadline: ReturnType<typeof setTimeout> | undefined
+    let release: (() => void) | undefined
+    let navigation = 0
+    let loaded = false
+    const navigate = (event: Event) => { if ((event as Event & { isMainFrame?: boolean; isInPlace?: boolean }).isMainFrame && !(event as Event & { isInPlace?: boolean }).isInPlace) navigation++ }
+    const capture = () => {
+      loaded = true
+      clearTimeout(timer)
+      if (document.hidden) return
+      timer = setTimeout(() => {
+        const generation = navigation
+        const handle = openShelfWebPreview(page, `shelf:web:${id}`, 'explicitShelf')
+        if (!handle) { if (!disposed) setPresentationFailed(true); return }
+        release?.(); release = handle.release
+        clearTimeout(deadline)
+        const captureDeadline = setTimeout(() => { if (!disposed && generation === navigation) setPresentationFailed(true) }, 5000)
+        deadline = captureDeadline
+        void (async () => {
+          const resourceId = `saved:${shelfTaskId}`
+          const before: ShelfBrowserResult | undefined = await window.electronAPI?.shelfBrowserRequest?.({ kind: 'inspect', resourceId })
+          const frame = await refreshShelfWebPreview(handle)
+          if (disposed || document.hidden || generation !== navigation) return
+          if (!frame?.image) { setPresentationFailed(true); return }
+          // 协调器读取失败时不能把一次截图当作附着/代际核验成功；回退开关明确返回 unmanaged。
+          if (!before?.success || (!before.token && before.state !== 'unmanaged')) { setPresentationFailed(true); return }
+          if (before?.success && before.token && before.geometryRevision !== undefined) {
+            const rect = page.getBoundingClientRect()
+            const presented: ShelfBrowserResult = await window.electronAPI.shelfBrowserRequest({ kind: 'presented', resourceId, token: before.token, geometryRevision: before.geometryRevision + 1, width: rect.width, height: rect.height, dpr: window.devicePixelRatio })
+            if (!presented.success) { setPresentationFailed(true); return }
+          }
+          if (!disposed && !document.hidden && generation === navigation) setPresentationReady(true)
+        })().catch(() => { if (!disposed && generation === navigation) setPresentationFailed(true) }).finally(() => { clearTimeout(captureDeadline); handle.release() })
+      }, 200)
+    }
+    page.addEventListener('dom-ready', capture)
+    page.addEventListener('did-start-navigation', navigate)
+    const onVisibility = () => { if (loaded && !document.hidden) capture() }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => { disposed = true; clearTimeout(timer); clearTimeout(deadline); release?.(); page.removeEventListener('dom-ready', capture); page.removeEventListener('did-start-navigation', navigate); document.removeEventListener('visibilitychange', onVisibility) }
+  }, [id, shelfTaskId, presentationReady])
   const inShelf = useShelfSurfacePresence('web', id)
   const fullZoom = useRef<number | null>(null)
   useLayoutEffect(() => {
@@ -298,6 +382,7 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
     const onStopLoading = (): void => {
       // 停止网络加载不等于文档能显示；未就绪时保留稳定占位。
       setWebTabNav(id, { loading: false })
+      settleBrowserLoad(id, navigationFailedRef.current ? '网页导航失败，请在主区打开查看详情。' : undefined)
     }
     const onStartNavigation = (event: Event): void => {
       const evt = event as Event & { isMainFrame?: boolean; isInPlace?: boolean; detail?: { isMainFrame?: boolean; isInPlace?: boolean } }
@@ -313,6 +398,7 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
       setWebTabNav(id, { loading: false })
     }
     const onRenderGone = (): void => {
+      settleBrowserLoad(id, '网页进程已退出，请在主区打开查看详情。')
       navigationFailedRef.current = true
       setLoadError({ url: lastUrlRef.current || url, description: 'ERR_RENDER_PROCESS_GONE' })
       setLoadState('failed')
@@ -334,6 +420,7 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
     // about:blank 很快完成时，dom-ready 可能早于监听器；方法面已就绪则补认领。
     startPost()
     return () => {
+      settleBrowserLoad(id, '网页入口已关闭')
       el.removeEventListener('page-title-updated', onTitle)
       el.removeEventListener('page-favicon-updated', onFavicon)
       el.removeEventListener('dom-ready', onDomReady)
@@ -356,12 +443,18 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
         <webview
           ref={ref}
           partition={WEBBAR_PARTITION}
+          webpreferences={permit ? `lyshellCreatePermit=${permit}` : undefined}
           src={initialSrc}
           allowpopups=""
+          tabIndex={presentationReady ? 0 : -1}
           className="w-full h-full"
-          style={{ visibility: loadState === 'failed' ? 'hidden' : undefined }}
+          style={{ visibility: loadState === 'failed' ? 'hidden' : undefined, pointerEvents: presentationReady ? undefined : 'none' }}
         />
         {/* eslint-enable react/no-unknown-property */}
+        {!presentationReady && loadState === 'done' && <div className="absolute inset-0 z-10 flex flex-col items-start justify-center gap-2 bg-[var(--terminal-bg)] p-4 text-sm" role="status">
+          <span>{t(presentationFailed ? 'taskShelf.presentationUnconfirmed' : 'webBar.loading')}</span>
+          {presentationFailed && <button onClick={() => setPresentationReady(true)}>{t('taskShelf.showCurrentPage')}</button>}
+        </div>}
         {loadState === 'loading' && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--terminal-bg)] text-sm text-gray-400 pointer-events-none">
             {t('webBar.loading')}
@@ -393,6 +486,8 @@ export interface WebTabLayerEntry {
   active: boolean
   url: string
   postToken?: string
+  shelfTaskId?: string
+  unmanaged?: boolean
 }
 
 /** 收集布局树里全部网页页签（树序）—— 常驻层渲染清单的纯函数。 */
@@ -415,7 +510,8 @@ export function collectWebTabEntries(
           paneId: node.id,
           active: ref.active,
           url: p.url,
-          ...(p.postToken ? { postToken: p.postToken } : {})
+          ...(p.postToken ? { postToken: p.postToken } : {}),
+          ...(p.shelfTaskId ? { shelfTaskId: p.shelfTaskId } : {}), ...(p.ownerPluginId ? { unmanaged: true } : {})
         })
       }
     }
@@ -465,6 +561,7 @@ const WebTabLayer: React.FC = () => {
   const dragging = usePaneStore(s => !!s.draggingSessionId || !!s.draggingOverlayId)
   const draggingRef = useRef(dragging); draggingRef.current = dragging
   const miniRects = useRef(new Map<string, ReturnType<typeof getShelfSurface>>())
+  const demands = useRef(new Map<string, string>())
   const previewRevision = useSyncExternalStore(subscribeShelfWebPreviews, shelfWebPreviewRevision)
   const entries = useMemo(() => collectWebTabEntries(layout.root, overlayPayloads), [layout, overlayPayloads])
   // 同步回调经 ref 读最新清单：payload 高频回写（标题/导航态/favicon）只重渲染
@@ -485,6 +582,7 @@ const WebTabLayer: React.FC = () => {
     const wrappers = new Map([...container.querySelectorAll<HTMLElement>(`[${WEB_TAB_WRAPPER_ATTR}]`)].map(node => [node.getAttribute(WEB_TAB_WRAPPER_ATTR), node]))
     const writes: Array<() => void> = []
     for (const id of miniRects.current.keys()) if (!entriesRef.current.some(entry => entry.id === id)) miniRects.current.delete(id)
+    for (const id of demands.current.keys()) if (!entriesRef.current.some(entry => entry.id === id)) demands.current.delete(id)
     for (const entry of entriesRef.current) {
       const wrapper = wrappers.get(entry.id)
       if (!wrapper) continue
@@ -497,6 +595,11 @@ const WebTabLayer: React.FC = () => {
         rect.left + rect.width <= base.width + 1 && rect.top + rect.height <= base.height + 1
       const main = entry.active && positioned
       const surface = main ? null : getShelfSurface('web', entry.id)
+      const demand = `${main}:${!!surface?.visible}`
+      if (!entry.unmanaged && entry.url !== BROWSER_NEW_TAB_URL && window.electronAPI?.shelfBrowserRequest && demands.current.get(entry.id) !== demand) {
+        demands.current.set(entry.id, demand)
+        void window.electronAPI.shelfBrowserRequest({ kind: 'demand', resourceId: entry.shelfTaskId ? `saved:${entry.shelfTaskId}` : `tab:${entry.id}`, main, shelf: !!surface?.visible }).catch(() => { demands.current.delete(entry.id) })
+      }
       if (main) miniRects.current.delete(entry.id)
       if (surface?.rect) miniRects.current.set(entry.id, surface)
       const mini = surface ?? (!main ? miniRects.current.get(entry.id) : null)
@@ -562,7 +665,7 @@ const WebTabLayer: React.FC = () => {
         >
           {entry.url === BROWSER_NEW_TAB_URL
             ? <CommandScreen mode="embedded" paneActive={entry.active && layout.activePaneId === entry.paneId} covered={!entry.active} paneId={entry.paneId} webTabId={entry.id} />
-            : <WebTabOverlay id={entry.id} url={entry.url} postToken={entry.postToken} />}
+            : <WebTabOverlay id={entry.id} url={entry.url} postToken={entry.postToken} shelfTaskId={entry.shelfTaskId} unmanaged={entry.unmanaged} />}
         </div>
       ))}
     </div>

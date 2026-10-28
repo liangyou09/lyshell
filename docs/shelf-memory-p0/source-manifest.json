@@ -1,0 +1,68 @@
+{
+  "files": [
+    {
+      "path": "src/main/storage/task-shelf-repository.ts",
+      "sha256": "77116C579E3AA4C0396458F0022D1841FCA742F3373FC5BCDDB7D6DC864D5C0A"
+    },
+    {
+      "path": "src/main/terminal/output-buffer.ts",
+      "sha256": "15095F67B661771E25E4A5C201A6E396A2C2A5E37FD300B9CD47443503BBA0CB"
+    },
+    {
+      "path": "src/main/terminal/session-manager.ts",
+      "sha256": "900D399E087A1B0549C48CC1F5424D016A22B75832DB069D806C492041FFA055"
+    },
+    {
+      "path": "src/renderer/components/Layout/WebTabLayer.tsx",
+      "sha256": "E827A4A1E98708F82DEC8C7BB18D676540300192F389D7EEDBB69080E9518780"
+    },
+    {
+      "path": "src/renderer/components/Layout/TaskShelf.tsx",
+      "sha256": "BFA625C6F235D4CE39B00E6B752F4D50DD0CD4FD4463D6F73A7B8D46EF5CF760"
+    },
+    {
+      "path": "src/renderer/components/Layout/task-shelf-web-frame.ts",
+      "sha256": "4008FFB1B69A0F610E11367BDB40A664F5D7C79015FB0ED60D80144F3EB201D0"
+    },
+    {
+      "path": "scripts/shelf-memory-p0/app-baseline.cjs",
+      "sha256": "4ADFFA1262E3B5842EE6EF703EEC56FA58966984E149E0C89C54931E1A4DC0F0"
+    },
+    {
+      "path": "scripts/shelf-memory-p0/electron-baseline.cjs",
+      "sha256": "0A9D4FE431139038FEB1BAAB2F14BE8594D05C00EE9BF4FBBD6FAD3401666210"
+    },
+    {
+      "path": "scripts/shelf-memory-p0/history-benchmark.cjs",
+      "sha256": "0F0FE94EDBB24B4CCD3BABD10D620284F79C4A549E94E734F91160E0529AE722"
+    },
+    {
+      "path": "scripts/shelf-memory-p0/history-benchmark.node-test.cjs",
+      "sha256": "81D67404B6FE29BF4649073CEC48CA89C59752DD687DD5F71E235298C0AB31A9"
+    },
+    {
+      "path": "scripts/shelf-memory-p0/history-fixtures.cjs",
+      "sha256": "A75E36138772AEE763CE58C80AA005DA7BF78CC34D24BA72B9E653BBAAE93363"
+    },
+    {
+      "path": "scripts/shelf-memory-p0/history-fixtures.node-test.cjs",
+      "sha256": "DE5C7B27878F26BB4FB81922AD6DEE33255EC2BA144E62B9B3A0AAA687A6A3E0"
+    },
+    {
+      "path": "scripts/shelf-memory-p0/summarize-app.cjs",
+      "sha256": "2C0ABE95FE7B723F01ECE873AFD84350C3E0C513FD9D677AB483C9FA2C09E625"
+    },
+    {
+      "path": "scripts/shelf-memory-p0/summarize-electron.cjs",
+      "sha256": "2ABDCD374FBDD08E02BF5D74EB1DE6DD7A934F7886841A8DE7DA5DA248C5230F"
+    },
+    {
+      "path": "scripts/shelf-memory-p0/summarize-history.cjs",
+      "sha256": "FB0B71D7599772BF2AC46C142804FF442D4B50F8D4E97D92493C7281EBFF2D1B"
+    }
+  ],
+  "sourceBranch": "codex/shelf-memory-p0",
+  "sourceCommit": "34d64dc3eed8bc7c53a03775475808545340d72e",
+  "baselineIncludesOriginalUncommittedChanges": false,
+  "productionModified": false
+}

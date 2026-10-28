@@ -1,0 +1,3589 @@
+{
+  "schema": 1,
+  "kind": "isolated-preview-capture-ab",
+  "generatedAt": "2026-10-28T12:48:25.241Z",
+  "workspace": "C:\\Users\\69534\\.codex\\worktrees\\shelf-memory-p0\\LyShell",
+  "gitHead": "34d64dc3eed8bc7c53a03775475808545340d72e",
+  "smoke": false,
+  "intendedUse": "P5 预览同负载前后对照（单代表性场景）；不替代完整应用或五分钟后稳态",
+  "before": {
+    "origin": "git show 34d64dc3eed8bc7c53a03775475808545340d72e:src/renderer/components/Layout/task-shelf-web-frame.ts",
+    "sourcePath": "tmp\\shelf-memory-compare\\before\\task-shelf-web-frame.ts",
+    "sha256": "4008ffb1b69a0f610e11367bdb40a664f5d7c79015fb0ed60d80144f3eb201d0",
+    "bytes": 1222,
+    "bundle": {
+      "path": "tmp\\shelf-memory-compare\\bundles\\before.js",
+      "bytes": 2074,
+      "sha256": "b5babc569127ac230accb3b8c1b1a790b8c1ef922eb33ccbf03d0370b419bcc5"
+    }
+  },
+  "after": {
+    "origin": "working tree src/renderer/components/Layout/task-shelf-web-frame.ts",
+    "sourcePath": "src/renderer/components/Layout/task-shelf-web-frame.ts",
+    "sha256": "d048d60be1a61c746dee820e1c92b49d565d48d3885399dcd07110cec3759be2",
+    "bytes": 19537,
+    "dirty": true,
+    "bundle": {
+      "path": "tmp\\shelf-memory-compare\\bundles\\after.js",
+      "bytes": 39787,
+      "sha256": "9852a183317d08e96f319f9895705d3ec69ecfe0b929d57dbb58f1070b9a62fd"
+    }
+  },
+  "bundleTool": {
+    "esbuild": "0.20.2"
+  },
+  "config": {
+    "guests": 10,
+    "ops": 100,
+    "hotOps": 50,
+    "guestWidth": 424,
+    "guestHeight": 630,
+    "columns": 5,
+    "hostWidth": 2200,
+    "hostHeight": 1300,
+    "sampleMs": 100,
+    "cacheWindowMs": 400,
+    "coldGapMs": 420,
+    "loadSettleMs": 600,
+    "settleMs": 700,
+    "seedBase": 9000
+  },
+  "runOrder": [
+    {
+      "order": 1,
+      "impl": "before",
+      "round": 1,
+      "valid": true
+    },
+    {
+      "order": 2,
+      "impl": "after",
+      "round": 1,
+      "valid": true
+    },
+    {
+      "order": 3,
+      "impl": "after",
+      "round": 2,
+      "valid": true
+    },
+    {
+      "order": 4,
+      "impl": "before",
+      "round": 2,
+      "valid": true
+    },
+    {
+      "order": 5,
+      "impl": "before",
+      "round": 3,
+      "valid": true
+    },
+    {
+      "order": 6,
+      "impl": "after",
+      "round": 3,
+      "valid": true
+    }
+  ],
+  "environment": {
+    "platform": "win32",
+    "arch": "x64",
+    "node": "v24.15.0",
+    "cpus": 12,
+    "cpuModel": "Intel(R) Core(TM) i5-10505 CPU @ 3.20GHz",
+    "totalMemoryBytes": 34058174464,
+    "electron": "43.7.11"
+  },
+  "serverRequests": 72,
+  "runs": [
+    {
+      "impl": "before",
+      "round": 1,
+      "order": 1,
+      "valid": true,
+      "exit": 0,
+      "timedOut": false,
+      "durationMs": 12441,
+      "rawFile": null,
+      "gzipFile": "docs\\shelf-memory-p0\\preview-compare-raw\\preview-compare-before-round1.json.gz",
+      "logFile": "tmp\\shelf-memory-compare\\logs\\before-round1.log",
+      "errors": [],
+      "environment": {
+        "versions": {
+          "electron": "43.7.11",
+          "chrome": "150.0.7871.250",
+          "node": "24.21.0",
+          "v8": "15.0.245.31-electron.0"
+        },
+        "platform": "win32",
+        "display": {
+          "id": 531024683,
+          "label": "34G6K",
+          "scaleFactor": 1,
+          "size": {
+            "width": 2560,
+            "height": 1440
+          },
+          "workAreaSize": {
+            "width": 2560,
+            "height": 1392
+          }
+        },
+        "dpr": 1,
+        "viewport": {
+          "width": 2200,
+          "height": 1300
+        },
+        "hostContentSize": [
+          2200,
+          1300
+        ],
+        "hostBounds": {
+          "x": 172,
+          "y": 26,
+          "width": 2216,
+          "height": 1365
+        },
+        "hostVisible": true,
+        "guestSize": {
+          "width": 424,
+          "height": 630
+        },
+        "guests": 10,
+        "guestsFullyVisible": 10,
+        "guestElements": [
+          {
+            "index": 0,
+            "rect": {
+              "left": 8,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 1,
+            "rect": {
+              "left": 440,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 2,
+            "rect": {
+              "left": 872,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 3,
+            "rect": {
+              "left": 1304,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 4,
+            "rect": {
+              "left": 1736,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 5,
+            "rect": {
+              "left": 8,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 6,
+            "rect": {
+              "left": 440,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 7,
+            "rect": {
+              "left": 872,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 8,
+            "rect": {
+              "left": 1304,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 9,
+            "rect": {
+              "left": 1736,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          }
+        ],
+        "guestViewport": {
+          "w": 424,
+          "h": 630,
+          "cw": 424,
+          "ch": 630,
+          "dpr": 1
+        },
+        "hostWebContentsId": 1
+      },
+      "plan": {
+        "ops": 100,
+        "hot": 50,
+        "cold": 50,
+        "pages": 10,
+        "cacheWindowMs": 400,
+        "coldGapMs": 420
+      },
+      "ops": {
+        "total": 100,
+        "success": 100,
+        "failure": 0,
+        "thrown": 0,
+        "capture": 51,
+        "cache": 49,
+        "skipped": 0,
+        "error": 0,
+        "captureCallsUsed": 51,
+        "strayCaptureCalls": 0,
+        "returnedSizes": [
+          {
+            "size": "424x630",
+            "count": 100
+          }
+        ],
+        "imageChars": {
+          "n": 100,
+          "min": 972926,
+          "p50": 973062,
+          "p95": 973110,
+          "max": 973122,
+          "mean": 973057.2
+        },
+        "latencyMs": {
+          "all": {
+            "n": 100,
+            "min": 0,
+            "p50": 36.7,
+            "p95": 54.8,
+            "max": 58,
+            "mean": 23.32
+          },
+          "capture": {
+            "n": 51,
+            "min": 36.7,
+            "p50": 45.2,
+            "p95": 57.2,
+            "max": 58,
+            "mean": 45.72
+          },
+          "cache": {
+            "n": 49,
+            "min": 0,
+            "p50": 0,
+            "p95": 0,
+            "max": 0.1,
+            "mean": 0
+          }
+        },
+        "cacheHitGapMs": {
+          "count": 49,
+          "within400": 49,
+          "min": 0,
+          "max": 51
+        },
+        "errorKinds": []
+      },
+      "capture": {
+        "calls": 51,
+        "ok": 51,
+        "empty": 0,
+        "failed": 0,
+        "nativeMs": {
+          "n": 51,
+          "min": 8,
+          "p50": 13.1,
+          "p95": 20.9,
+          "max": 23,
+          "mean": 13.8
+        },
+        "errorKinds": []
+      },
+      "memory": {
+        "sampleCount": 112,
+        "finalMiB": 639.09,
+        "finalPhase": "final",
+        "peakMiB": 639.09,
+        "peakPhase": "final",
+        "medianMiB": 552.68,
+        "workingSetPeakMiB": 2216.11,
+        "privateMissingSamples": 0,
+        "phases": [
+          {
+            "phase": "startup",
+            "n": 3,
+            "medianMiB": 48.96,
+            "maxMiB": 71.95
+          },
+          {
+            "phase": "guests-loading",
+            "n": 22,
+            "medianMiB": 348.71,
+            "maxMiB": 516.09
+          },
+          {
+            "phase": "guests-loaded",
+            "n": 46,
+            "medianMiB": 548.12,
+            "maxMiB": 557.35
+          },
+          {
+            "phase": "ops-warm",
+            "n": 2,
+            "medianMiB": 557.28,
+            "maxMiB": 557.28
+          },
+          {
+            "phase": "ops-cold",
+            "n": 26,
+            "medianMiB": 606.41,
+            "maxMiB": 633.68
+          },
+          {
+            "phase": "ops-done",
+            "n": 7,
+            "medianMiB": 638.6,
+            "maxMiB": 638.6
+          },
+          {
+            "phase": "driver-done",
+            "n": 1,
+            "medianMiB": 639.03,
+            "maxMiB": 639.03
+          },
+          {
+            "phase": "settled-final",
+            "n": 4,
+            "medianMiB": 639.04,
+            "maxMiB": 639.04
+          },
+          {
+            "phase": "final",
+            "n": 1,
+            "medianMiB": 639.09,
+            "maxMiB": 639.09
+          }
+        ]
+      },
+      "jsHeap": {
+        "checkpoints": [
+          {
+            "label": "guests-loaded",
+            "usedMiB": 5.84,
+            "totalMiB": 8.47
+          },
+          {
+            "label": "ops-done",
+            "usedMiB": 26.15,
+            "totalMiB": 28.08
+          },
+          {
+            "label": "settled",
+            "usedMiB": 26.15,
+            "totalMiB": 28.08
+          }
+        ],
+        "finalUsedMiB": 26.15,
+        "peakUsedMiB": 26.15
+      },
+      "diagnostics": null,
+      "imageHashes": {
+        "0": "d1ace6a74072e8f1129739a87e5534befe043ef2aac1a6bf41936500433704fd",
+        "1": "9b2ede35b9945e64d329698955e31e6856484e37649942f81248ba4801e0b1e0",
+        "2": "e423049608070f7599a528a6deb84cee760e50285809a584e47fe2994510a90f",
+        "3": "e2bf22a7811ef2d3ce8ebaaf1de19d1783d175a453bcce580d3349272f24b879",
+        "4": "df223936ad55f5e6e4901ea8cf361e4d2bcbb6a6ed46354c046b79ff1e05c09f",
+        "5": "5170d90de78222e32340f5149beac5d8f212b20e62c4300ed096c76bccc6aabe",
+        "6": "cae3220bcbaf7dbd16a3051c9f6af3ea2800664ee76b8de561e6c4a84800cedc",
+        "7": "525cf35cec7942fc62baf4a90618e1dd3fdb0230834d7c97d9b3b0a15ef85533",
+        "8": "48793e46493e41a929d9cd985a20b760322345937375575f0d874b4cff3efc40",
+        "9": "c77aefcb3865ec9c21880bef31ac78ebab05f84056bf8cf61275aa30119352a9"
+      },
+      "isolation": {
+        "proxy": "direct",
+        "blockedRequests": [],
+        "partition": "persist:preview-compare",
+        "profileRemovedOnExit": true
+      },
+      "phases": [
+        {
+          "phase": "host-ready",
+          "atMs": 290.8
+        },
+        {
+          "phase": "guests-loading",
+          "atMs": 290.9
+        },
+        {
+          "phase": "guests-loaded",
+          "atMs": 2641.2
+        },
+        {
+          "phase": "instrument",
+          "atMs": 7609.8
+        },
+        {
+          "phase": "ops-warm",
+          "atMs": 7609.9
+        },
+        {
+          "phase": "ops-cold",
+          "atMs": 7864.8
+        },
+        {
+          "phase": "ops-done",
+          "atMs": 10631.2
+        },
+        {
+          "phase": "settled",
+          "atMs": 11340.7
+        }
+      ]
+    },
+    {
+      "impl": "after",
+      "round": 1,
+      "order": 2,
+      "valid": true,
+      "exit": 0,
+      "timedOut": false,
+      "durationMs": 12741,
+      "rawFile": null,
+      "gzipFile": "docs\\shelf-memory-p0\\preview-compare-raw\\preview-compare-after-round1.json.gz",
+      "logFile": "tmp\\shelf-memory-compare\\logs\\after-round1.log",
+      "errors": [],
+      "environment": {
+        "versions": {
+          "electron": "43.7.11",
+          "chrome": "150.0.7871.250",
+          "node": "24.21.0",
+          "v8": "15.0.245.31-electron.0"
+        },
+        "platform": "win32",
+        "display": {
+          "id": 531024683,
+          "label": "34G6K",
+          "scaleFactor": 1,
+          "size": {
+            "width": 2560,
+            "height": 1440
+          },
+          "workAreaSize": {
+            "width": 2560,
+            "height": 1392
+          }
+        },
+        "dpr": 1,
+        "viewport": {
+          "width": 2200,
+          "height": 1300
+        },
+        "hostContentSize": [
+          2200,
+          1300
+        ],
+        "hostBounds": {
+          "x": 172,
+          "y": 26,
+          "width": 2216,
+          "height": 1365
+        },
+        "hostVisible": true,
+        "guestSize": {
+          "width": 424,
+          "height": 630
+        },
+        "guests": 10,
+        "guestsFullyVisible": 10,
+        "guestElements": [
+          {
+            "index": 0,
+            "rect": {
+              "left": 8,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 1,
+            "rect": {
+              "left": 440,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 2,
+            "rect": {
+              "left": 872,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 3,
+            "rect": {
+              "left": 1304,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 4,
+            "rect": {
+              "left": 1736,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 5,
+            "rect": {
+              "left": 8,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 6,
+            "rect": {
+              "left": 440,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 7,
+            "rect": {
+              "left": 872,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 8,
+            "rect": {
+              "left": 1304,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 9,
+            "rect": {
+              "left": 1736,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          }
+        ],
+        "guestViewport": {
+          "w": 424,
+          "h": 630,
+          "cw": 424,
+          "ch": 630,
+          "dpr": 1
+        },
+        "hostWebContentsId": 1
+      },
+      "plan": {
+        "ops": 100,
+        "hot": 50,
+        "cold": 50,
+        "pages": 10,
+        "cacheWindowMs": 400,
+        "coldGapMs": 420
+      },
+      "ops": {
+        "total": 100,
+        "success": 100,
+        "failure": 0,
+        "thrown": 0,
+        "capture": 51,
+        "cache": 49,
+        "skipped": 0,
+        "error": 0,
+        "captureCallsUsed": 51,
+        "strayCaptureCalls": 0,
+        "returnedSizes": [
+          {
+            "size": "404x600",
+            "count": 100
+          }
+        ],
+        "imageChars": {
+          "n": 100,
+          "min": 972926,
+          "p50": 973062,
+          "p95": 973110,
+          "max": 973122,
+          "mean": 973057.2
+        },
+        "latencyMs": {
+          "all": {
+            "n": 100,
+            "min": 0,
+            "p50": 37.2,
+            "p95": 55.5,
+            "max": 62.6,
+            "mean": 25.65
+          },
+          "capture": {
+            "n": 51,
+            "min": 37.2,
+            "p50": 50.4,
+            "p95": 61.6,
+            "max": 62.6,
+            "mean": 50.29
+          },
+          "cache": {
+            "n": 49,
+            "min": 0,
+            "p50": 0,
+            "p95": 0.1,
+            "max": 0.1,
+            "mean": 0.01
+          }
+        },
+        "cacheHitGapMs": {
+          "count": 49,
+          "within400": 49,
+          "min": 0,
+          "max": 70
+        },
+        "errorKinds": []
+      },
+      "capture": {
+        "calls": 51,
+        "ok": 51,
+        "empty": 0,
+        "failed": 0,
+        "nativeMs": {
+          "n": 51,
+          "min": 8.4,
+          "p50": 14.2,
+          "p95": 21.4,
+          "max": 23.8,
+          "mean": 14.91
+        },
+        "errorKinds": []
+      },
+      "memory": {
+        "sampleCount": 113,
+        "finalMiB": 603.98,
+        "finalPhase": "final",
+        "peakMiB": 629.08,
+        "peakPhase": "ops-cold",
+        "medianMiB": 550.23,
+        "workingSetPeakMiB": 2302.45,
+        "privateMissingSamples": 0,
+        "phases": [
+          {
+            "phase": "startup",
+            "n": 2,
+            "medianMiB": 54.39,
+            "maxMiB": 71.36
+          },
+          {
+            "phase": "guests-loading",
+            "n": 20,
+            "medianMiB": 333.39,
+            "maxMiB": 549.78
+          },
+          {
+            "phase": "guests-loaded",
+            "n": 47,
+            "medianMiB": 543.41,
+            "maxMiB": 568.12
+          },
+          {
+            "phase": "ops-warm",
+            "n": 3,
+            "medianMiB": 552.49,
+            "maxMiB": 556.5
+          },
+          {
+            "phase": "ops-cold",
+            "n": 27,
+            "medianMiB": 600.99,
+            "maxMiB": 629.08
+          },
+          {
+            "phase": "ops-done",
+            "n": 7,
+            "medianMiB": 603.55,
+            "maxMiB": 603.55
+          },
+          {
+            "phase": "driver-done",
+            "n": 1,
+            "medianMiB": 603.96,
+            "maxMiB": 603.96
+          },
+          {
+            "phase": "settled-final",
+            "n": 5,
+            "medianMiB": 603.97,
+            "maxMiB": 603.97
+          },
+          {
+            "phase": "final",
+            "n": 1,
+            "medianMiB": 603.98,
+            "maxMiB": 603.98
+          }
+        ]
+      },
+      "jsHeap": {
+        "checkpoints": [
+          {
+            "label": "guests-loaded",
+            "usedMiB": 5.91,
+            "totalMiB": 8.51
+          },
+          {
+            "label": "ops-done",
+            "usedMiB": 24.47,
+            "totalMiB": 27
+          },
+          {
+            "label": "settled",
+            "usedMiB": 9.33,
+            "totalMiB": 11.38
+          }
+        ],
+        "finalUsedMiB": 9.33,
+        "peakUsedMiB": 24.47
+      },
+      "diagnostics": {
+        "sources": 10,
+        "visibleSources": 0,
+        "scheduler": {
+          "running": 0,
+          "queued": 0,
+          "pending": 0,
+          "circuitOpen": false,
+          "watchdogTrips": 0,
+          "captures": 51,
+          "submitted": 51,
+          "merged": 0,
+          "captured": 51,
+          "failed": 0,
+          "rejected": 0,
+          "cancelled": 0,
+          "temporaryPeakMiB": 6.71
+        },
+        "cache": {
+          "entries": 8,
+          "retired": 0,
+          "leases": 0,
+          "encodedMiB": 14.85,
+          "decodedMiB": 0,
+          "peakEncodedMiB": 16.7,
+          "peakDecodedMiB": 0,
+          "hits": 51,
+          "misses": 100,
+          "offers": 51,
+          "evictions": 43,
+          "rejectedAdmission": 0,
+          "rejectedEntries": 0,
+          "invalidations": 0
+        }
+      },
+      "imageHashes": {
+        "0": "d1ace6a74072e8f1129739a87e5534befe043ef2aac1a6bf41936500433704fd",
+        "1": "9b2ede35b9945e64d329698955e31e6856484e37649942f81248ba4801e0b1e0",
+        "2": "e423049608070f7599a528a6deb84cee760e50285809a584e47fe2994510a90f",
+        "3": "e2bf22a7811ef2d3ce8ebaaf1de19d1783d175a453bcce580d3349272f24b879",
+        "4": "df223936ad55f5e6e4901ea8cf361e4d2bcbb6a6ed46354c046b79ff1e05c09f",
+        "5": "5170d90de78222e32340f5149beac5d8f212b20e62c4300ed096c76bccc6aabe",
+        "6": "cae3220bcbaf7dbd16a3051c9f6af3ea2800664ee76b8de561e6c4a84800cedc",
+        "7": "525cf35cec7942fc62baf4a90618e1dd3fdb0230834d7c97d9b3b0a15ef85533",
+        "8": "48793e46493e41a929d9cd985a20b760322345937375575f0d874b4cff3efc40",
+        "9": "c77aefcb3865ec9c21880bef31ac78ebab05f84056bf8cf61275aa30119352a9"
+      },
+      "isolation": {
+        "proxy": "direct",
+        "blockedRequests": [],
+        "partition": "persist:preview-compare",
+        "profileRemovedOnExit": true
+      },
+      "phases": [
+        {
+          "phase": "host-ready",
+          "atMs": 144.3
+        },
+        {
+          "phase": "guests-loading",
+          "atMs": 144.5
+        },
+        {
+          "phase": "guests-loaded",
+          "atMs": 2562.4
+        },
+        {
+          "phase": "instrument",
+          "atMs": 7600.1
+        },
+        {
+          "phase": "ops-warm",
+          "atMs": 7600.2
+        },
+        {
+          "phase": "ops-cold",
+          "atMs": 7883.5
+        },
+        {
+          "phase": "ops-done",
+          "atMs": 10861.6
+        },
+        {
+          "phase": "settled",
+          "atMs": 11576.5
+        }
+      ]
+    },
+    {
+      "impl": "after",
+      "round": 2,
+      "order": 3,
+      "valid": true,
+      "exit": 0,
+      "timedOut": false,
+      "durationMs": 12399,
+      "rawFile": null,
+      "gzipFile": "docs\\shelf-memory-p0\\preview-compare-raw\\preview-compare-after-round2.json.gz",
+      "logFile": "tmp\\shelf-memory-compare\\logs\\after-round2.log",
+      "errors": [],
+      "environment": {
+        "versions": {
+          "electron": "43.7.11",
+          "chrome": "150.0.7871.250",
+          "node": "24.21.0",
+          "v8": "15.0.245.31-electron.0"
+        },
+        "platform": "win32",
+        "display": {
+          "id": 531024683,
+          "label": "34G6K",
+          "scaleFactor": 1,
+          "size": {
+            "width": 2560,
+            "height": 1440
+          },
+          "workAreaSize": {
+            "width": 2560,
+            "height": 1392
+          }
+        },
+        "dpr": 1,
+        "viewport": {
+          "width": 2200,
+          "height": 1300
+        },
+        "hostContentSize": [
+          2200,
+          1300
+        ],
+        "hostBounds": {
+          "x": 172,
+          "y": 26,
+          "width": 2216,
+          "height": 1365
+        },
+        "hostVisible": true,
+        "guestSize": {
+          "width": 424,
+          "height": 630
+        },
+        "guests": 10,
+        "guestsFullyVisible": 10,
+        "guestElements": [
+          {
+            "index": 0,
+            "rect": {
+              "left": 8,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 1,
+            "rect": {
+              "left": 440,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 2,
+            "rect": {
+              "left": 872,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 3,
+            "rect": {
+              "left": 1304,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 4,
+            "rect": {
+              "left": 1736,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 5,
+            "rect": {
+              "left": 8,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 6,
+            "rect": {
+              "left": 440,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 7,
+            "rect": {
+              "left": 872,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 8,
+            "rect": {
+              "left": 1304,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 9,
+            "rect": {
+              "left": 1736,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          }
+        ],
+        "guestViewport": {
+          "w": 424,
+          "h": 630,
+          "cw": 424,
+          "ch": 630,
+          "dpr": 1
+        },
+        "hostWebContentsId": 1
+      },
+      "plan": {
+        "ops": 100,
+        "hot": 50,
+        "cold": 50,
+        "pages": 10,
+        "cacheWindowMs": 400,
+        "coldGapMs": 420
+      },
+      "ops": {
+        "total": 100,
+        "success": 100,
+        "failure": 0,
+        "thrown": 0,
+        "capture": 51,
+        "cache": 49,
+        "skipped": 0,
+        "error": 0,
+        "captureCallsUsed": 51,
+        "strayCaptureCalls": 0,
+        "returnedSizes": [
+          {
+            "size": "404x600",
+            "count": 100
+          }
+        ],
+        "imageChars": {
+          "n": 100,
+          "min": 972926,
+          "p50": 973062,
+          "p95": 973110,
+          "max": 973122,
+          "mean": 973057.2
+        },
+        "latencyMs": {
+          "all": {
+            "n": 100,
+            "min": 0,
+            "p50": 42.2,
+            "p95": 56.2,
+            "max": 61.2,
+            "mean": 25.53
+          },
+          "capture": {
+            "n": 51,
+            "min": 42.2,
+            "p50": 48.9,
+            "p95": 58.1,
+            "max": 61.2,
+            "mean": 50.05
+          },
+          "cache": {
+            "n": 49,
+            "min": 0,
+            "p50": 0,
+            "p95": 0.1,
+            "max": 0.1,
+            "mean": 0.01
+          }
+        },
+        "cacheHitGapMs": {
+          "count": 49,
+          "within400": 49,
+          "min": 0,
+          "max": 68.9
+        },
+        "errorKinds": []
+      },
+      "capture": {
+        "calls": 51,
+        "ok": 51,
+        "empty": 0,
+        "failed": 0,
+        "nativeMs": {
+          "n": 51,
+          "min": 9,
+          "p50": 13,
+          "p95": 18.9,
+          "max": 19.9,
+          "mean": 13.81
+        },
+        "errorKinds": []
+      },
+      "memory": {
+        "sampleCount": 111,
+        "finalMiB": 607.01,
+        "finalPhase": "final",
+        "peakMiB": 635.02,
+        "peakPhase": "ops-cold",
+        "medianMiB": 553.43,
+        "workingSetPeakMiB": 2213.21,
+        "privateMissingSamples": 0,
+        "phases": [
+          {
+            "phase": "startup",
+            "n": 2,
+            "medianMiB": 42.22,
+            "maxMiB": 49.5
+          },
+          {
+            "phase": "guests-loading",
+            "n": 20,
+            "medianMiB": 373.47,
+            "maxMiB": 516.09
+          },
+          {
+            "phase": "guests-loaded",
+            "n": 46,
+            "medianMiB": 546.58,
+            "maxMiB": 555.81
+          },
+          {
+            "phase": "ops-warm",
+            "n": 2,
+            "medianMiB": 555.72,
+            "maxMiB": 555.72
+          },
+          {
+            "phase": "ops-cold",
+            "n": 28,
+            "medianMiB": 604.89,
+            "maxMiB": 635.02
+          },
+          {
+            "phase": "ops-done",
+            "n": 6,
+            "medianMiB": 606.57,
+            "maxMiB": 606.58
+          },
+          {
+            "phase": "driver-done",
+            "n": 1,
+            "medianMiB": 606.98,
+            "maxMiB": 606.98
+          },
+          {
+            "phase": "settled-final",
+            "n": 5,
+            "medianMiB": 607,
+            "maxMiB": 607
+          },
+          {
+            "phase": "final",
+            "n": 1,
+            "medianMiB": 607.01,
+            "maxMiB": 607.01
+          }
+        ]
+      },
+      "jsHeap": {
+        "checkpoints": [
+          {
+            "label": "guests-loaded",
+            "usedMiB": 5.92,
+            "totalMiB": 8.51
+          },
+          {
+            "label": "ops-done",
+            "usedMiB": 24.5,
+            "totalMiB": 26.75
+          },
+          {
+            "label": "settled",
+            "usedMiB": 9.33,
+            "totalMiB": 11.88
+          }
+        ],
+        "finalUsedMiB": 9.33,
+        "peakUsedMiB": 24.5
+      },
+      "diagnostics": {
+        "sources": 10,
+        "visibleSources": 0,
+        "scheduler": {
+          "running": 0,
+          "queued": 0,
+          "pending": 0,
+          "circuitOpen": false,
+          "watchdogTrips": 0,
+          "captures": 51,
+          "submitted": 51,
+          "merged": 0,
+          "captured": 51,
+          "failed": 0,
+          "rejected": 0,
+          "cancelled": 0,
+          "temporaryPeakMiB": 6.71
+        },
+        "cache": {
+          "entries": 8,
+          "retired": 0,
+          "leases": 0,
+          "encodedMiB": 14.85,
+          "decodedMiB": 0,
+          "peakEncodedMiB": 16.7,
+          "peakDecodedMiB": 0,
+          "hits": 51,
+          "misses": 100,
+          "offers": 51,
+          "evictions": 43,
+          "rejectedAdmission": 0,
+          "rejectedEntries": 0,
+          "invalidations": 0
+        }
+      },
+      "imageHashes": {
+        "0": "d1ace6a74072e8f1129739a87e5534befe043ef2aac1a6bf41936500433704fd",
+        "1": "9b2ede35b9945e64d329698955e31e6856484e37649942f81248ba4801e0b1e0",
+        "2": "e423049608070f7599a528a6deb84cee760e50285809a584e47fe2994510a90f",
+        "3": "e2bf22a7811ef2d3ce8ebaaf1de19d1783d175a453bcce580d3349272f24b879",
+        "4": "df223936ad55f5e6e4901ea8cf361e4d2bcbb6a6ed46354c046b79ff1e05c09f",
+        "5": "5170d90de78222e32340f5149beac5d8f212b20e62c4300ed096c76bccc6aabe",
+        "6": "cae3220bcbaf7dbd16a3051c9f6af3ea2800664ee76b8de561e6c4a84800cedc",
+        "7": "525cf35cec7942fc62baf4a90618e1dd3fdb0230834d7c97d9b3b0a15ef85533",
+        "8": "48793e46493e41a929d9cd985a20b760322345937375575f0d874b4cff3efc40",
+        "9": "c77aefcb3865ec9c21880bef31ac78ebab05f84056bf8cf61275aa30119352a9"
+      },
+      "isolation": {
+        "proxy": "direct",
+        "blockedRequests": [],
+        "partition": "persist:preview-compare",
+        "profileRemovedOnExit": true
+      },
+      "phases": [
+        {
+          "phase": "host-ready",
+          "atMs": 204.3
+        },
+        {
+          "phase": "guests-loading",
+          "atMs": 204.4
+        },
+        {
+          "phase": "guests-loaded",
+          "atMs": 2463.7
+        },
+        {
+          "phase": "instrument",
+          "atMs": 7433.4
+        },
+        {
+          "phase": "ops-warm",
+          "atMs": 7433.6
+        },
+        {
+          "phase": "ops-cold",
+          "atMs": 7703.1
+        },
+        {
+          "phase": "ops-done",
+          "atMs": 10679.5
+        },
+        {
+          "phase": "settled",
+          "atMs": 11392.5
+        }
+      ]
+    },
+    {
+      "impl": "before",
+      "round": 2,
+      "order": 4,
+      "valid": true,
+      "exit": 0,
+      "timedOut": false,
+      "durationMs": 12436,
+      "rawFile": null,
+      "gzipFile": "docs\\shelf-memory-p0\\preview-compare-raw\\preview-compare-before-round2.json.gz",
+      "logFile": "tmp\\shelf-memory-compare\\logs\\before-round2.log",
+      "errors": [],
+      "environment": {
+        "versions": {
+          "electron": "43.7.11",
+          "chrome": "150.0.7871.250",
+          "node": "24.21.0",
+          "v8": "15.0.245.31-electron.0"
+        },
+        "platform": "win32",
+        "display": {
+          "id": 531024683,
+          "label": "34G6K",
+          "scaleFactor": 1,
+          "size": {
+            "width": 2560,
+            "height": 1440
+          },
+          "workAreaSize": {
+            "width": 2560,
+            "height": 1392
+          }
+        },
+        "dpr": 1,
+        "viewport": {
+          "width": 2200,
+          "height": 1300
+        },
+        "hostContentSize": [
+          2200,
+          1300
+        ],
+        "hostBounds": {
+          "x": 172,
+          "y": 26,
+          "width": 2216,
+          "height": 1365
+        },
+        "hostVisible": true,
+        "guestSize": {
+          "width": 424,
+          "height": 630
+        },
+        "guests": 10,
+        "guestsFullyVisible": 10,
+        "guestElements": [
+          {
+            "index": 0,
+            "rect": {
+              "left": 8,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 1,
+            "rect": {
+              "left": 440,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 2,
+            "rect": {
+              "left": 872,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 3,
+            "rect": {
+              "left": 1304,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 4,
+            "rect": {
+              "left": 1736,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 5,
+            "rect": {
+              "left": 8,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 6,
+            "rect": {
+              "left": 440,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 7,
+            "rect": {
+              "left": 872,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 8,
+            "rect": {
+              "left": 1304,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 9,
+            "rect": {
+              "left": 1736,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          }
+        ],
+        "guestViewport": {
+          "w": 424,
+          "h": 630,
+          "cw": 424,
+          "ch": 630,
+          "dpr": 1
+        },
+        "hostWebContentsId": 1
+      },
+      "plan": {
+        "ops": 100,
+        "hot": 50,
+        "cold": 50,
+        "pages": 10,
+        "cacheWindowMs": 400,
+        "coldGapMs": 420
+      },
+      "ops": {
+        "total": 100,
+        "success": 100,
+        "failure": 0,
+        "thrown": 0,
+        "capture": 51,
+        "cache": 49,
+        "skipped": 0,
+        "error": 0,
+        "captureCallsUsed": 51,
+        "strayCaptureCalls": 0,
+        "returnedSizes": [
+          {
+            "size": "424x630",
+            "count": 100
+          }
+        ],
+        "imageChars": {
+          "n": 100,
+          "min": 972926,
+          "p50": 973062,
+          "p95": 973110,
+          "max": 973122,
+          "mean": 973057.2
+        },
+        "latencyMs": {
+          "all": {
+            "n": 100,
+            "min": 0,
+            "p50": 35.5,
+            "p95": 57.2,
+            "max": 61.8,
+            "mean": 25
+          },
+          "capture": {
+            "n": 51,
+            "min": 35.5,
+            "p50": 49.1,
+            "p95": 58.2,
+            "max": 61.8,
+            "mean": 49.01
+          },
+          "cache": {
+            "n": 49,
+            "min": 0,
+            "p50": 0,
+            "p95": 0,
+            "max": 0.1,
+            "mean": 0
+          }
+        },
+        "cacheHitGapMs": {
+          "count": 49,
+          "within400": 49,
+          "min": 0,
+          "max": 55
+        },
+        "errorKinds": []
+      },
+      "capture": {
+        "calls": 51,
+        "ok": 51,
+        "empty": 0,
+        "failed": 0,
+        "nativeMs": {
+          "n": 51,
+          "min": 8.9,
+          "p50": 13.8,
+          "p95": 21.4,
+          "max": 22.3,
+          "mean": 14.12
+        },
+        "errorKinds": []
+      },
+      "memory": {
+        "sampleCount": 112,
+        "finalMiB": 635.32,
+        "finalPhase": "final",
+        "peakMiB": 635.98,
+        "peakPhase": "ops-cold",
+        "medianMiB": 555.09,
+        "workingSetPeakMiB": 2208.89,
+        "privateMissingSamples": 0,
+        "phases": [
+          {
+            "phase": "startup",
+            "n": 3,
+            "medianMiB": 71.82,
+            "maxMiB": 75.02
+          },
+          {
+            "phase": "guests-loading",
+            "n": 20,
+            "medianMiB": 345.51,
+            "maxMiB": 538.09
+          },
+          {
+            "phase": "guests-loaded",
+            "n": 46,
+            "medianMiB": 550,
+            "maxMiB": 559.11
+          },
+          {
+            "phase": "ops-warm",
+            "n": 3,
+            "medianMiB": 559.11,
+            "maxMiB": 563.75
+          },
+          {
+            "phase": "ops-cold",
+            "n": 27,
+            "medianMiB": 610.34,
+            "maxMiB": 635.98
+          },
+          {
+            "phase": "ops-done",
+            "n": 6,
+            "medianMiB": 634.82,
+            "maxMiB": 634.82
+          },
+          {
+            "phase": "driver-done",
+            "n": 1,
+            "medianMiB": 635.25,
+            "maxMiB": 635.25
+          },
+          {
+            "phase": "settled-final",
+            "n": 5,
+            "medianMiB": 635.27,
+            "maxMiB": 635.27
+          },
+          {
+            "phase": "final",
+            "n": 1,
+            "medianMiB": 635.32,
+            "maxMiB": 635.32
+          }
+        ]
+      },
+      "jsHeap": {
+        "checkpoints": [
+          {
+            "label": "guests-loaded",
+            "usedMiB": 5.83,
+            "totalMiB": 8.22
+          },
+          {
+            "label": "ops-done",
+            "usedMiB": 24.26,
+            "totalMiB": 26.47
+          },
+          {
+            "label": "settled",
+            "usedMiB": 24.26,
+            "totalMiB": 26.47
+          }
+        ],
+        "finalUsedMiB": 24.26,
+        "peakUsedMiB": 24.26
+      },
+      "diagnostics": null,
+      "imageHashes": {
+        "0": "d1ace6a74072e8f1129739a87e5534befe043ef2aac1a6bf41936500433704fd",
+        "1": "9b2ede35b9945e64d329698955e31e6856484e37649942f81248ba4801e0b1e0",
+        "2": "e423049608070f7599a528a6deb84cee760e50285809a584e47fe2994510a90f",
+        "3": "e2bf22a7811ef2d3ce8ebaaf1de19d1783d175a453bcce580d3349272f24b879",
+        "4": "df223936ad55f5e6e4901ea8cf361e4d2bcbb6a6ed46354c046b79ff1e05c09f",
+        "5": "5170d90de78222e32340f5149beac5d8f212b20e62c4300ed096c76bccc6aabe",
+        "6": "cae3220bcbaf7dbd16a3051c9f6af3ea2800664ee76b8de561e6c4a84800cedc",
+        "7": "525cf35cec7942fc62baf4a90618e1dd3fdb0230834d7c97d9b3b0a15ef85533",
+        "8": "48793e46493e41a929d9cd985a20b760322345937375575f0d874b4cff3efc40",
+        "9": "c77aefcb3865ec9c21880bef31ac78ebab05f84056bf8cf61275aa30119352a9"
+      },
+      "isolation": {
+        "proxy": "direct",
+        "blockedRequests": [],
+        "partition": "persist:preview-compare",
+        "profileRemovedOnExit": true
+      },
+      "phases": [
+        {
+          "phase": "host-ready",
+          "atMs": 236.7
+        },
+        {
+          "phase": "guests-loading",
+          "atMs": 236.8
+        },
+        {
+          "phase": "guests-loaded",
+          "atMs": 2488.3
+        },
+        {
+          "phase": "instrument",
+          "atMs": 7496.7
+        },
+        {
+          "phase": "ops-warm",
+          "atMs": 7497
+        },
+        {
+          "phase": "ops-cold",
+          "atMs": 7766.7
+        },
+        {
+          "phase": "ops-done",
+          "atMs": 10700.3
+        },
+        {
+          "phase": "settled",
+          "atMs": 11403.3
+        }
+      ]
+    },
+    {
+      "impl": "before",
+      "round": 3,
+      "order": 5,
+      "valid": true,
+      "exit": 0,
+      "timedOut": false,
+      "durationMs": 12690,
+      "rawFile": null,
+      "gzipFile": "docs\\shelf-memory-p0\\preview-compare-raw\\preview-compare-before-round3.json.gz",
+      "logFile": "tmp\\shelf-memory-compare\\logs\\before-round3.log",
+      "errors": [],
+      "environment": {
+        "versions": {
+          "electron": "43.7.11",
+          "chrome": "150.0.7871.250",
+          "node": "24.21.0",
+          "v8": "15.0.245.31-electron.0"
+        },
+        "platform": "win32",
+        "display": {
+          "id": 531024683,
+          "label": "34G6K",
+          "scaleFactor": 1,
+          "size": {
+            "width": 2560,
+            "height": 1440
+          },
+          "workAreaSize": {
+            "width": 2560,
+            "height": 1392
+          }
+        },
+        "dpr": 1,
+        "viewport": {
+          "width": 2200,
+          "height": 1300
+        },
+        "hostContentSize": [
+          2200,
+          1300
+        ],
+        "hostBounds": {
+          "x": 172,
+          "y": 26,
+          "width": 2216,
+          "height": 1365
+        },
+        "hostVisible": true,
+        "guestSize": {
+          "width": 424,
+          "height": 630
+        },
+        "guests": 10,
+        "guestsFullyVisible": 10,
+        "guestElements": [
+          {
+            "index": 0,
+            "rect": {
+              "left": 8,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 1,
+            "rect": {
+              "left": 440,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 2,
+            "rect": {
+              "left": 872,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 3,
+            "rect": {
+              "left": 1304,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 4,
+            "rect": {
+              "left": 1736,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 5,
+            "rect": {
+              "left": 8,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 6,
+            "rect": {
+              "left": 440,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 7,
+            "rect": {
+              "left": 872,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 8,
+            "rect": {
+              "left": 1304,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 9,
+            "rect": {
+              "left": 1736,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          }
+        ],
+        "guestViewport": {
+          "w": 424,
+          "h": 630,
+          "cw": 424,
+          "ch": 630,
+          "dpr": 1
+        },
+        "hostWebContentsId": 1
+      },
+      "plan": {
+        "ops": 100,
+        "hot": 50,
+        "cold": 50,
+        "pages": 10,
+        "cacheWindowMs": 400,
+        "coldGapMs": 420
+      },
+      "ops": {
+        "total": 100,
+        "success": 100,
+        "failure": 0,
+        "thrown": 0,
+        "capture": 51,
+        "cache": 49,
+        "skipped": 0,
+        "error": 0,
+        "captureCallsUsed": 51,
+        "strayCaptureCalls": 0,
+        "returnedSizes": [
+          {
+            "size": "424x630",
+            "count": 100
+          }
+        ],
+        "imageChars": {
+          "n": 100,
+          "min": 972926,
+          "p50": 973062,
+          "p95": 973110,
+          "max": 973122,
+          "mean": 973057.2
+        },
+        "latencyMs": {
+          "all": {
+            "n": 100,
+            "min": 0,
+            "p50": 41.6,
+            "p95": 54.5,
+            "max": 67.1,
+            "mean": 24.98
+          },
+          "capture": {
+            "n": 51,
+            "min": 41.6,
+            "p50": 48.8,
+            "p95": 60.2,
+            "max": 67.1,
+            "mean": 48.98
+          },
+          "cache": {
+            "n": 49,
+            "min": 0,
+            "p50": 0,
+            "p95": 0.1,
+            "max": 0.1,
+            "mean": 0.01
+          }
+        },
+        "cacheHitGapMs": {
+          "count": 49,
+          "within400": 49,
+          "min": 0,
+          "max": 68.9
+        },
+        "errorKinds": []
+      },
+      "capture": {
+        "calls": 51,
+        "ok": 51,
+        "empty": 0,
+        "failed": 0,
+        "nativeMs": {
+          "n": 51,
+          "min": 8.4,
+          "p50": 13.5,
+          "p95": 19.7,
+          "max": 25.6,
+          "mean": 14.01
+        },
+        "errorKinds": []
+      },
+      "memory": {
+        "sampleCount": 113,
+        "finalMiB": 636.04,
+        "finalPhase": "final",
+        "peakMiB": 636.04,
+        "peakPhase": "final",
+        "medianMiB": 550.93,
+        "workingSetPeakMiB": 2213.48,
+        "privateMissingSamples": 0,
+        "phases": [
+          {
+            "phase": "startup",
+            "n": 3,
+            "medianMiB": 51.18,
+            "maxMiB": 73.34
+          },
+          {
+            "phase": "guests-loading",
+            "n": 20,
+            "medianMiB": 367.06,
+            "maxMiB": 531.75
+          },
+          {
+            "phase": "guests-loaded",
+            "n": 47,
+            "medianMiB": 545.32,
+            "maxMiB": 554.51
+          },
+          {
+            "phase": "ops-warm",
+            "n": 3,
+            "medianMiB": 554.48,
+            "maxMiB": 562.55
+          },
+          {
+            "phase": "ops-cold",
+            "n": 27,
+            "medianMiB": 605.16,
+            "maxMiB": 634.7
+          },
+          {
+            "phase": "ops-done",
+            "n": 6,
+            "medianMiB": 635.59,
+            "maxMiB": 635.61
+          },
+          {
+            "phase": "driver-done",
+            "n": 1,
+            "medianMiB": 636.02,
+            "maxMiB": 636.02
+          },
+          {
+            "phase": "settled-final",
+            "n": 5,
+            "medianMiB": 636.03,
+            "maxMiB": 636.03
+          },
+          {
+            "phase": "final",
+            "n": 1,
+            "medianMiB": 636.04,
+            "maxMiB": 636.04
+          }
+        ]
+      },
+      "jsHeap": {
+        "checkpoints": [
+          {
+            "label": "guests-loaded",
+            "usedMiB": 5.85,
+            "totalMiB": 8.47
+          },
+          {
+            "label": "ops-done",
+            "usedMiB": 26.15,
+            "totalMiB": 28.58
+          },
+          {
+            "label": "settled",
+            "usedMiB": 26.15,
+            "totalMiB": 28.58
+          }
+        ],
+        "finalUsedMiB": 26.15,
+        "peakUsedMiB": 26.15
+      },
+      "diagnostics": null,
+      "imageHashes": {
+        "0": "d1ace6a74072e8f1129739a87e5534befe043ef2aac1a6bf41936500433704fd",
+        "1": "9b2ede35b9945e64d329698955e31e6856484e37649942f81248ba4801e0b1e0",
+        "2": "e423049608070f7599a528a6deb84cee760e50285809a584e47fe2994510a90f",
+        "3": "e2bf22a7811ef2d3ce8ebaaf1de19d1783d175a453bcce580d3349272f24b879",
+        "4": "df223936ad55f5e6e4901ea8cf361e4d2bcbb6a6ed46354c046b79ff1e05c09f",
+        "5": "5170d90de78222e32340f5149beac5d8f212b20e62c4300ed096c76bccc6aabe",
+        "6": "cae3220bcbaf7dbd16a3051c9f6af3ea2800664ee76b8de561e6c4a84800cedc",
+        "7": "525cf35cec7942fc62baf4a90618e1dd3fdb0230834d7c97d9b3b0a15ef85533",
+        "8": "48793e46493e41a929d9cd985a20b760322345937375575f0d874b4cff3efc40",
+        "9": "c77aefcb3865ec9c21880bef31ac78ebab05f84056bf8cf61275aa30119352a9"
+      },
+      "isolation": {
+        "proxy": "direct",
+        "blockedRequests": [],
+        "partition": "persist:preview-compare",
+        "profileRemovedOnExit": true
+      },
+      "phases": [
+        {
+          "phase": "host-ready",
+          "atMs": 323.7
+        },
+        {
+          "phase": "guests-loading",
+          "atMs": 323.8
+        },
+        {
+          "phase": "guests-loaded",
+          "atMs": 2690.2
+        },
+        {
+          "phase": "instrument",
+          "atMs": 7714.8
+        },
+        {
+          "phase": "ops-warm",
+          "atMs": 7714.9
+        },
+        {
+          "phase": "ops-cold",
+          "atMs": 7987.7
+        },
+        {
+          "phase": "ops-done",
+          "atMs": 10902.5
+        },
+        {
+          "phase": "settled",
+          "atMs": 11610.1
+        }
+      ]
+    },
+    {
+      "impl": "after",
+      "round": 3,
+      "order": 6,
+      "valid": true,
+      "exit": 0,
+      "timedOut": false,
+      "durationMs": 12634,
+      "rawFile": null,
+      "gzipFile": "docs\\shelf-memory-p0\\preview-compare-raw\\preview-compare-after-round3.json.gz",
+      "logFile": "tmp\\shelf-memory-compare\\logs\\after-round3.log",
+      "errors": [],
+      "environment": {
+        "versions": {
+          "electron": "43.7.11",
+          "chrome": "150.0.7871.250",
+          "node": "24.21.0",
+          "v8": "15.0.245.31-electron.0"
+        },
+        "platform": "win32",
+        "display": {
+          "id": 531024683,
+          "label": "34G6K",
+          "scaleFactor": 1,
+          "size": {
+            "width": 2560,
+            "height": 1440
+          },
+          "workAreaSize": {
+            "width": 2560,
+            "height": 1392
+          }
+        },
+        "dpr": 1,
+        "viewport": {
+          "width": 2200,
+          "height": 1300
+        },
+        "hostContentSize": [
+          2200,
+          1300
+        ],
+        "hostBounds": {
+          "x": 172,
+          "y": 26,
+          "width": 2216,
+          "height": 1365
+        },
+        "hostVisible": true,
+        "guestSize": {
+          "width": 424,
+          "height": 630
+        },
+        "guests": 10,
+        "guestsFullyVisible": 10,
+        "guestElements": [
+          {
+            "index": 0,
+            "rect": {
+              "left": 8,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 1,
+            "rect": {
+              "left": 440,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 2,
+            "rect": {
+              "left": 872,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 3,
+            "rect": {
+              "left": 1304,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 4,
+            "rect": {
+              "left": 1736,
+              "top": 8,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 5,
+            "rect": {
+              "left": 8,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 6,
+            "rect": {
+              "left": 440,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 7,
+            "rect": {
+              "left": 872,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 8,
+            "rect": {
+              "left": 1304,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          },
+          {
+            "index": 9,
+            "rect": {
+              "left": 1736,
+              "top": 646,
+              "width": 424,
+              "height": 630
+            },
+            "viewport": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "viewportPreResize": {
+              "w": 424,
+              "h": 630,
+              "cw": 424,
+              "ch": 630,
+              "dpr": 1
+            },
+            "resizePropagated": false
+          }
+        ],
+        "guestViewport": {
+          "w": 424,
+          "h": 630,
+          "cw": 424,
+          "ch": 630,
+          "dpr": 1
+        },
+        "hostWebContentsId": 1
+      },
+      "plan": {
+        "ops": 100,
+        "hot": 50,
+        "cold": 50,
+        "pages": 10,
+        "cacheWindowMs": 400,
+        "coldGapMs": 420
+      },
+      "ops": {
+        "total": 100,
+        "success": 100,
+        "failure": 0,
+        "thrown": 0,
+        "capture": 51,
+        "cache": 49,
+        "skipped": 0,
+        "error": 0,
+        "captureCallsUsed": 51,
+        "strayCaptureCalls": 0,
+        "returnedSizes": [
+          {
+            "size": "404x600",
+            "count": 100
+          }
+        ],
+        "imageChars": {
+          "n": 100,
+          "min": 972926,
+          "p50": 973062,
+          "p95": 973110,
+          "max": 973122,
+          "mean": 973057.2
+        },
+        "latencyMs": {
+          "all": {
+            "n": 100,
+            "min": 0,
+            "p50": 38.7,
+            "p95": 55.3,
+            "max": 63.8,
+            "mean": 25.09
+          },
+          "capture": {
+            "n": 51,
+            "min": 38.7,
+            "p50": 49.5,
+            "p95": 57.7,
+            "max": 63.8,
+            "mean": 49.19
+          },
+          "cache": {
+            "n": 49,
+            "min": 0,
+            "p50": 0,
+            "p95": 0,
+            "max": 0.1,
+            "mean": 0
+          }
+        },
+        "cacheHitGapMs": {
+          "count": 49,
+          "within400": 49,
+          "min": 0,
+          "max": 71.9
+        },
+        "errorKinds": []
+      },
+      "capture": {
+        "calls": 51,
+        "ok": 51,
+        "empty": 0,
+        "failed": 0,
+        "nativeMs": {
+          "n": 51,
+          "min": 8,
+          "p50": 12.8,
+          "p95": 21.2,
+          "max": 23.3,
+          "mean": 14.37
+        },
+        "errorKinds": []
+      },
+      "memory": {
+        "sampleCount": 113,
+        "finalMiB": 609.8,
+        "finalPhase": "final",
+        "peakMiB": 633.54,
+        "peakPhase": "ops-cold",
+        "medianMiB": 555.05,
+        "workingSetPeakMiB": 2207.5,
+        "privateMissingSamples": 0,
+        "phases": [
+          {
+            "phase": "startup",
+            "n": 3,
+            "medianMiB": 66.08,
+            "maxMiB": 72.78
+          },
+          {
+            "phase": "guests-loading",
+            "n": 20,
+            "medianMiB": 353.52,
+            "maxMiB": 535.96
+          },
+          {
+            "phase": "guests-loaded",
+            "n": 47,
+            "medianMiB": 549.27,
+            "maxMiB": 558.45
+          },
+          {
+            "phase": "ops-warm",
+            "n": 2,
+            "medianMiB": 558.33,
+            "maxMiB": 558.33
+          },
+          {
+            "phase": "ops-cold",
+            "n": 27,
+            "medianMiB": 605.77,
+            "maxMiB": 633.54
+          },
+          {
+            "phase": "ops-done",
+            "n": 7,
+            "medianMiB": 609.07,
+            "maxMiB": 609.32
+          },
+          {
+            "phase": "driver-done",
+            "n": 1,
+            "medianMiB": 609.5,
+            "maxMiB": 609.5
+          },
+          {
+            "phase": "settled-final",
+            "n": 5,
+            "medianMiB": 609.52,
+            "maxMiB": 609.77
+          },
+          {
+            "phase": "final",
+            "n": 1,
+            "medianMiB": 609.8,
+            "maxMiB": 609.8
+          }
+        ]
+      },
+      "jsHeap": {
+        "checkpoints": [
+          {
+            "label": "guests-loaded",
+            "usedMiB": 5.91,
+            "totalMiB": 8.51
+          },
+          {
+            "label": "ops-done",
+            "usedMiB": 24.47,
+            "totalMiB": 27
+          },
+          {
+            "label": "settled",
+            "usedMiB": 9.33,
+            "totalMiB": 11.13
+          }
+        ],
+        "finalUsedMiB": 9.33,
+        "peakUsedMiB": 24.47
+      },
+      "diagnostics": {
+        "sources": 10,
+        "visibleSources": 0,
+        "scheduler": {
+          "running": 0,
+          "queued": 0,
+          "pending": 0,
+          "circuitOpen": false,
+          "watchdogTrips": 0,
+          "captures": 51,
+          "submitted": 51,
+          "merged": 0,
+          "captured": 51,
+          "failed": 0,
+          "rejected": 0,
+          "cancelled": 0,
+          "temporaryPeakMiB": 6.71
+        },
+        "cache": {
+          "entries": 8,
+          "retired": 0,
+          "leases": 0,
+          "encodedMiB": 14.85,
+          "decodedMiB": 0,
+          "peakEncodedMiB": 16.7,
+          "peakDecodedMiB": 0,
+          "hits": 51,
+          "misses": 100,
+          "offers": 51,
+          "evictions": 43,
+          "rejectedAdmission": 0,
+          "rejectedEntries": 0,
+          "invalidations": 0
+        }
+      },
+      "imageHashes": {
+        "0": "d1ace6a74072e8f1129739a87e5534befe043ef2aac1a6bf41936500433704fd",
+        "1": "9b2ede35b9945e64d329698955e31e6856484e37649942f81248ba4801e0b1e0",
+        "2": "e423049608070f7599a528a6deb84cee760e50285809a584e47fe2994510a90f",
+        "3": "e2bf22a7811ef2d3ce8ebaaf1de19d1783d175a453bcce580d3349272f24b879",
+        "4": "df223936ad55f5e6e4901ea8cf361e4d2bcbb6a6ed46354c046b79ff1e05c09f",
+        "5": "5170d90de78222e32340f5149beac5d8f212b20e62c4300ed096c76bccc6aabe",
+        "6": "cae3220bcbaf7dbd16a3051c9f6af3ea2800664ee76b8de561e6c4a84800cedc",
+        "7": "525cf35cec7942fc62baf4a90618e1dd3fdb0230834d7c97d9b3b0a15ef85533",
+        "8": "48793e46493e41a929d9cd985a20b760322345937375575f0d874b4cff3efc40",
+        "9": "c77aefcb3865ec9c21880bef31ac78ebab05f84056bf8cf61275aa30119352a9"
+      },
+      "isolation": {
+        "proxy": "direct",
+        "blockedRequests": [],
+        "partition": "persist:preview-compare",
+        "profileRemovedOnExit": true
+      },
+      "phases": [
+        {
+          "phase": "host-ready",
+          "atMs": 278.7
+        },
+        {
+          "phase": "guests-loading",
+          "atMs": 278.8
+        },
+        {
+          "phase": "guests-loaded",
+          "atMs": 2625.4
+        },
+        {
+          "phase": "instrument",
+          "atMs": 7637.2
+        },
+        {
+          "phase": "ops-warm",
+          "atMs": 7637.9
+        },
+        {
+          "phase": "ops-cold",
+          "atMs": 7923.8
+        },
+        {
+          "phase": "ops-done",
+          "atMs": 10842
+        },
+        {
+          "phase": "settled",
+          "atMs": 11551.4
+        }
+      ]
+    }
+  ],
+  "aggregate": {
+    "comparisonValid": true,
+    "invalidReasons": [],
+    "equalWork": true,
+    "before": {
+      "rounds": [
+        {
+          "order": 1,
+          "round": 1,
+          "valid": true,
+          "finalMemoryMiB": 639.09,
+          "peakMemoryMiB": 639.09,
+          "captureP50Ms": 45.2,
+          "captureCalls": 51
+        },
+        {
+          "order": 4,
+          "round": 2,
+          "valid": true,
+          "finalMemoryMiB": 635.32,
+          "peakMemoryMiB": 635.98,
+          "captureP50Ms": 49.1,
+          "captureCalls": 51
+        },
+        {
+          "order": 5,
+          "round": 3,
+          "valid": true,
+          "finalMemoryMiB": 636.04,
+          "peakMemoryMiB": 636.04,
+          "captureP50Ms": 48.8,
+          "captureCalls": 51
+        }
+      ],
+      "validRounds": 3,
+      "ops": {
+        "total": 300,
+        "capture": 153,
+        "cache": 147,
+        "skipped": 0,
+        "error": 0,
+        "success": 300,
+        "failure": 0
+      },
+      "latencyMs": {
+        "all": {
+          "n": 300,
+          "min": 0,
+          "p50": 37.1,
+          "p95": 55.7,
+          "max": 67.1,
+          "mean": 24.43
+        },
+        "capture": {
+          "n": 153,
+          "min": 35.5,
+          "p50": 47.6,
+          "p95": 58,
+          "max": 67.1,
+          "mean": 47.91
+        },
+        "cache": {
+          "n": 147,
+          "min": 0,
+          "p50": 0,
+          "p95": 0,
+          "max": 0.1,
+          "mean": 0
+        }
+      },
+      "imageChars": {
+        "n": 300,
+        "min": 972926,
+        "p50": 973062,
+        "p95": 973110,
+        "max": 973122,
+        "mean": 973057.2
+      },
+      "memoryMiB": {
+        "finalMedian": 636.04,
+        "finalMin": 635.32,
+        "finalMax": 639.09,
+        "peak": 639.09,
+        "medianMedian": 552.68
+      },
+      "jsHeapMiB": {
+        "finalMedian": 26.15,
+        "peak": 26.15
+      },
+      "captureCalls": 153,
+      "captureFailed": 0
+    },
+    "after": {
+      "rounds": [
+        {
+          "order": 2,
+          "round": 1,
+          "valid": true,
+          "finalMemoryMiB": 603.98,
+          "peakMemoryMiB": 629.08,
+          "captureP50Ms": 50.4,
+          "captureCalls": 51
+        },
+        {
+          "order": 3,
+          "round": 2,
+          "valid": true,
+          "finalMemoryMiB": 607.01,
+          "peakMemoryMiB": 635.02,
+          "captureP50Ms": 48.9,
+          "captureCalls": 51
+        },
+        {
+          "order": 6,
+          "round": 3,
+          "valid": true,
+          "finalMemoryMiB": 609.8,
+          "peakMemoryMiB": 633.54,
+          "captureP50Ms": 49.5,
+          "captureCalls": 51
+        }
+      ],
+      "validRounds": 3,
+      "ops": {
+        "total": 300,
+        "capture": 153,
+        "cache": 147,
+        "skipped": 0,
+        "error": 0,
+        "success": 300,
+        "failure": 0
+      },
+      "latencyMs": {
+        "all": {
+          "n": 300,
+          "min": 0,
+          "p50": 38.9,
+          "p95": 56.2,
+          "max": 63.8,
+          "mean": 25.42
+        },
+        "capture": {
+          "n": 153,
+          "min": 37.2,
+          "p50": 49.3,
+          "p95": 58.5,
+          "max": 63.8,
+          "mean": 49.84
+        },
+        "cache": {
+          "n": 147,
+          "min": 0,
+          "p50": 0,
+          "p95": 0,
+          "max": 0.1,
+          "mean": 0
+        }
+      },
+      "imageChars": {
+        "n": 300,
+        "min": 972926,
+        "p50": 973062,
+        "p95": 973110,
+        "max": 973122,
+        "mean": 973057.2
+      },
+      "memoryMiB": {
+        "finalMedian": 607.01,
+        "finalMin": 603.98,
+        "finalMax": 609.8,
+        "peak": 635.02,
+        "medianMedian": 553.43
+      },
+      "jsHeapMiB": {
+        "finalMedian": 9.33,
+        "peak": 24.5
+      },
+      "captureCalls": 153,
+      "captureFailed": 0
+    },
+    "delta": {
+      "finalMemoryMiB": -29.03,
+      "peakMemoryMiB": -4.07,
+      "jsHeapFinalMiB": -16.82,
+      "captureP50Ms": 1.7,
+      "captureP95Ms": 0.5
+    },
+    "claims": {
+      "benefitClaimed": false,
+      "note": "前后工作量与成功图数一致；内存与耗时差异仍受采样与噪声限制，未声称收益。"
+    },
+    "dataPaths": {
+      "summary": "docs/shelf-memory-p0/preview-compare-results.json",
+      "rawGzip": [
+        "docs\\shelf-memory-p0\\preview-compare-raw\\preview-compare-before-round1.json.gz",
+        "docs\\shelf-memory-p0\\preview-compare-raw\\preview-compare-after-round1.json.gz",
+        "docs\\shelf-memory-p0\\preview-compare-raw\\preview-compare-after-round2.json.gz",
+        "docs\\shelf-memory-p0\\preview-compare-raw\\preview-compare-before-round2.json.gz",
+        "docs\\shelf-memory-p0\\preview-compare-raw\\preview-compare-before-round3.json.gz",
+        "docs\\shelf-memory-p0\\preview-compare-raw\\preview-compare-after-round3.json.gz"
+      ],
+      "logs": [
+        "tmp\\shelf-memory-compare\\logs\\before-round1.log",
+        "tmp\\shelf-memory-compare\\logs\\after-round1.log",
+        "tmp\\shelf-memory-compare\\logs\\after-round2.log",
+        "tmp\\shelf-memory-compare\\logs\\before-round2.log",
+        "tmp\\shelf-memory-compare\\logs\\before-round3.log",
+        "tmp\\shelf-memory-compare\\logs\\after-round3.log"
+      ],
+      "report": "docs/shelf-memory-p0/preview-compare-report.md"
+    }
+  }
+}

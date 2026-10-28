@@ -1,4 +1,28 @@
 import log from 'electron-log'
+import type { ShelfBrowserRequest } from '@shared/shelf-browser'
+export function validateShelfBrowserRequest(raw: unknown): ShelfBrowserRequest {
+  const value = assertObject(raw, 'shelfBrowserRequest')
+  const kind = assertEnum(value.kind, 'kind', ['permit', 'demand', 'inspect', 'presented'] as const)
+  const fields = kind === 'permit' ? ['kind', 'resourceId', 'url', 'taskId', 'source'] : kind === 'demand' ? ['kind', 'resourceId', 'main', 'shelf'] : kind === 'presented' ? ['kind', 'resourceId', 'token', 'geometryRevision', 'width', 'height', 'dpr'] : ['kind', 'resourceId']
+  if (Object.keys(value).some(key => !fields.includes(key))) throw new ValidationError('Invalid shelf browser request')
+  const resourceId = assertString(value.resourceId, 'resourceId', { maxLength: 256 })
+  if (!/^(tab|saved):.+$/.test(resourceId) || [...resourceId].some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) throw new ValidationError('Invalid resourceId')
+  if (kind === 'inspect') return { kind, resourceId }
+  if (kind === 'presented') {
+    const token = assertObject(value.token, 'token')
+    if (Object.keys(token).some(key => !['scopeId', 'resourceId', 'instanceGeneration', 'navigationGeneration', 'demandRevision'].includes(key))) throw new ValidationError('Invalid browser token')
+    const generation = (key: string) => assertNumber(token[key], key, { min: 0, max: Number.MAX_SAFE_INTEGER, integer: true })
+    return { kind, resourceId, token: { scopeId: assertString(token.scopeId, 'scopeId', { maxLength: 256 }), resourceId: assertString(token.resourceId, 'token.resourceId', { maxLength: 256 }), instanceGeneration: generation('instanceGeneration'), navigationGeneration: generation('navigationGeneration'), demandRevision: generation('demandRevision') }, geometryRevision: assertNumber(value.geometryRevision, 'geometryRevision', { min: 1, max: Number.MAX_SAFE_INTEGER, integer: true }), width: assertNumber(value.width, 'width', { min: 1, max: 16384 }), height: assertNumber(value.height, 'height', { min: 1, max: 16384 }), dpr: assertNumber(value.dpr, 'dpr', { min: 0.5, max: 8 }) }
+  }
+  if (kind === 'demand') return { kind, resourceId, main: assertBoolean(value.main, 'main'), shelf: assertBoolean(value.shelf, 'shelf') }
+  const url = assertString(value.url, 'url', { maxLength: 4096 })
+  let parsed: URL
+  try { parsed = new URL(url) } catch { throw new ValidationError('Invalid browser URL') }
+  if (!['http:', 'https:'].includes(parsed.protocol) && url !== 'about:blank') throw new ValidationError('Invalid browser URL')
+  const taskId = value.taskId === undefined ? undefined : assertString(value.taskId, 'taskId', { maxLength: 128 })
+  if (resourceId.startsWith('saved:') && resourceId !== `saved:${taskId}`) throw new ValidationError('Saved resource requires matching taskId')
+  return { kind, resourceId, url, ...(taskId ? { taskId } : {}), source: assertEnum(value.source, 'source', ['explicitMain', 'explicitShelf', 'bulkVisible'] as const) }
+}
 import type { WorkbenchActivityRequest } from '@shared/workbench-activity'
 import type { ActivityNavigationRequest } from '@shared/activity-navigation'
 
@@ -82,7 +106,7 @@ import type { CodeWorkspaceRequest } from '@shared/code-workspaces'
 import { validateWorktreeKey } from '@shared/worktree'
 import { isMcpAuditRetentionLimit, type McpAuditRetentionLimit } from '@shared/mcp-audit'
 import type { ShelfResource, TaskShelfRequest } from '@shared/task-shelf'
-import { parseShelfPreferences } from '@shared/task-shelf'
+import { parseShelfPreferences, SHELF_ACTIVATION_LIMIT } from '@shared/task-shelf'
 import { normalizeSshDirectory } from '../terminal/shelf-ssh-context'
 
 export function validateMcpAuditRetentionLimit(value: unknown): McpAuditRetentionLimit {
@@ -467,12 +491,34 @@ export function validateDownloadHistoryPage(sessionId: unknown, offset: unknown)
  */
 export function validateTaskShelfRequest(raw: unknown): TaskShelfRequest {
   const value = assertObject(raw, 'taskShelfRequest')
-  const fields: Record<string, string[]> = { list: ['kind'], capture: ['kind', 'resource', 'entryId'], remove: ['kind', 'id'], restore: ['kind', 'id'], rename: ['kind', 'id', 'title'], archive: ['kind', 'id', 'archived'], preferences: ['kind', 'preferences'] }
+  const fields: Record<string, string[]> = {
+    list: ['kind'],
+    capture: ['kind', 'resource', 'entryId'],
+    remove: ['kind', 'id'],
+    restore: ['kind', 'id'],
+    rename: ['kind', 'id', 'title'],
+    archive: ['kind', 'id', 'archived'],
+    preferences: ['kind', 'preferences'],
+    activate: ['kind', 'bootId', 'scopeId', 'requestId', 'items'],
+    retryInitialization: ['kind', 'bootId', 'scopeId']
+  }
   const allowed = typeof value.kind === 'string' ? fields[value.kind] : undefined
   if (!allowed || Object.keys(value).some(key => !allowed.includes(key))) throw new ValidationError('Unknown task shelf request field')
   if (value.kind === 'list') return { kind: 'list' }
   if (value.kind === 'preferences') return { kind: 'preferences', preferences: parseShelfPreferences(value.preferences) }
   if (value.kind === 'archive') return { kind: 'archive', id: assertString(value.id, 'id', { maxLength: 128 }), archived: assertBoolean(value.archived, 'archived') }
+  if (value.kind === 'activate') {
+    return {
+      kind: 'activate',
+      bootId: shelfStartupToken(value.bootId, 'bootId'),
+      scopeId: shelfStartupToken(value.scopeId, 'scopeId'),
+      requestId: shelfStartupToken(value.requestId, 'requestId'),
+      items: parseShelfActivationItems(value.items)
+    }
+  }
+  if (value.kind === 'retryInitialization') {
+    return { kind: 'retryInitialization', bootId: shelfStartupToken(value.bootId, 'bootId'), scopeId: shelfStartupToken(value.scopeId, 'scopeId') }
+  }
   if (value.kind === 'capture') {
     const resource = taskShelfResource(assertObject(value.resource, 'resource'))
     const entryId = value.entryId === undefined ? undefined : assertString(value.entryId, 'entryId', { maxLength: 128 })
@@ -489,6 +535,37 @@ export function validateTaskShelfRequest(raw: unknown): TaskShelfRequest {
     }
   }
   throw new ValidationError('Unknown task shelf request')
+}
+
+/** 启动标识与请求 ID 都参与幂等判定：规范化首尾空白后必须非空、≤128。 */
+function shelfStartupToken(value: unknown, name: string): string {
+  const text = assertString(value, name, { maxLength: 128 }).trim()
+  if (!text) throw new ValidationError(`${name} is required`)
+  return text
+}
+
+/**
+ * 一次激活最多携带仓库上限条记录（0 条合法：UI 无任务时也要能拿到空结果）；
+ * 每项严格 { taskId, expectedRevision }，taskId 同批唯一，版本必须是正的安全整数。
+ */
+function parseShelfActivationItems(value: unknown): Array<{ taskId: string; expectedRevision: number }> {
+  if (!Array.isArray(value)) throw new ValidationError('items must be an array')
+  if (value.length > SHELF_ACTIVATION_LIMIT) throw new ValidationError(`items must have at most ${SHELF_ACTIVATION_LIMIT} entries`)
+  const seen = new Set<string>()
+  return value.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) throw new ValidationError(`items[${index}] must be an object`)
+    const entry = item as Record<string, unknown>
+    if (Object.keys(entry).some(key => key !== 'taskId' && key !== 'expectedRevision')) throw new ValidationError(`items[${index}] has unknown field`)
+    const taskId = assertString(entry.taskId, `items[${index}].taskId`, { maxLength: 128 }).trim()
+    if (!taskId) throw new ValidationError(`items[${index}].taskId is required`)
+    if (seen.has(taskId)) throw new ValidationError(`items[${index}].taskId is duplicated`)
+    seen.add(taskId)
+    const expectedRevision = entry.expectedRevision
+    if (typeof expectedRevision !== 'number' || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+      throw new ValidationError(`items[${index}].expectedRevision must be a positive safe integer`)
+    }
+    return { taskId, expectedRevision }
+  })
 }
 
 /** 远端持久终端开关进入配置前校验；运行期附着引用不能写进普通会话配置。 */

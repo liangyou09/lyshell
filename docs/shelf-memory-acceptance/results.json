@@ -1,0 +1,602 @@
+{
+  "schema": 1,
+  "kind": "isolated-full-app-acceptance",
+  "sampledPeakOnly": true,
+  "notes": [
+    "每规模启动/全部激活各3样本；不能当作100次UI操作的p95。",
+    "每轮100次list和100次activation IPC；不含原生鼠标/IME延迟。",
+    "窗口为测试固定可见性；不访问真实用户档案。",
+    "含全部应用子进程的私有内存，JS heap/external不另行叠加。",
+    "与P0场景不同，不能直接用差值声称内存收益。"
+  ],
+  "runs": [
+    {
+      "count": 20,
+      "round": 1,
+      "electron": "43.7.11",
+      "node": "24.21.0",
+      "chrome": "150.0.7871.250",
+      "dpr": 1,
+      "window": {
+        "x": 1120,
+        "y": 296,
+        "width": 1500,
+        "height": 900
+      },
+      "proxy": "direct (isolated profile only)",
+      "startupMs": 1953.8436000000002,
+      "activateAllMs": 303.00919999999996,
+      "archiveGuests": 0,
+      "automaticGuests": 4,
+      "explicitGuests": 5,
+      "nativeAttaches": 5,
+      "handshakes": 5,
+      "mainViewport": {
+        "width": 1212,
+        "height": 831
+      },
+      "mainElement": {
+        "width": 1212,
+        "height": 831,
+        "inert": false
+      },
+      "listIpcMs": {
+        "n": 100,
+        "min": 0.30000001192092896,
+        "p50": 1.399999976158142,
+        "p95": 57.84499997794617,
+        "max": 367.10000002384186
+      },
+      "activationIpcMs": {
+        "n": 100,
+        "min": 1.899999976158142,
+        "p50": 5.75,
+        "p95": 105.20000003576268,
+        "max": 253
+      },
+      "phases": [
+        {
+          "phase": "startup",
+          "privateMiB": {
+            "n": 22,
+            "min": 105.375,
+            "p50": 265.66015625,
+            "p95": 427.994140625,
+            "max": 457.91015625
+          }
+        },
+        {
+          "phase": "activate-all",
+          "privateMiB": {
+            "n": 26,
+            "min": 492.1953125,
+            "p50": 649.875,
+            "p95": 717.169921875,
+            "max": 726.984375
+          }
+        },
+        {
+          "phase": "static",
+          "privateMiB": {
+            "n": 12,
+            "min": 699.61328125,
+            "p50": 736.298828125,
+            "p95": 761.6392578125,
+            "max": 773.6640625
+          }
+        },
+        {
+          "phase": "classification-latency",
+          "privateMiB": {
+            "n": 39,
+            "min": 689.9609375,
+            "p50": 743.1953125,
+            "p95": 763.870703125,
+            "max": 770.15234375
+          }
+        },
+        {
+          "phase": "settled",
+          "privateMiB": {
+            "n": 1,
+            "min": 754.7109375,
+            "p50": 754.7109375,
+            "p95": 754.7109375,
+            "max": 754.7109375
+          }
+        }
+      ],
+      "peakPrivateMiB": 773.6640625
+    },
+    {
+      "count": 20,
+      "round": 2,
+      "electron": "43.7.11",
+      "node": "24.21.0",
+      "chrome": "150.0.7871.250",
+      "dpr": 1,
+      "window": {
+        "x": 1120,
+        "y": 296,
+        "width": 1500,
+        "height": 900
+      },
+      "proxy": "direct (isolated profile only)",
+      "startupMs": 1901.4905,
+      "activateAllMs": 117.32709999999997,
+      "archiveGuests": 0,
+      "automaticGuests": 4,
+      "explicitGuests": 5,
+      "nativeAttaches": 5,
+      "handshakes": 5,
+      "mainViewport": {
+        "width": 1212,
+        "height": 831
+      },
+      "mainElement": {
+        "width": 1212,
+        "height": 831,
+        "inert": false
+      },
+      "listIpcMs": {
+        "n": 100,
+        "min": 0.30000001192092896,
+        "p50": 0.8499999940395355,
+        "p95": 112.15000001192085,
+        "max": 359.69999998807907
+      },
+      "activationIpcMs": {
+        "n": 100,
+        "min": 1.699999988079071,
+        "p50": 6.3499999940395355,
+        "p95": 125.8800000101327,
+        "max": 434.19999998807907
+      },
+      "phases": [
+        {
+          "phase": "startup",
+          "privateMiB": {
+            "n": 23,
+            "min": 104.57421875,
+            "p50": 266.11328125,
+            "p95": 404.86328124999994,
+            "max": 428.96484375
+          }
+        },
+        {
+          "phase": "activate-all",
+          "privateMiB": {
+            "n": 21,
+            "min": 449.21875,
+            "p50": 665.046875,
+            "p95": 714.3984375,
+            "max": 722.0546875
+          }
+        },
+        {
+          "phase": "static",
+          "privateMiB": {
+            "n": 12,
+            "min": 687.38671875,
+            "p50": 721.1328125,
+            "p95": 754.378125,
+            "max": 763.49609375
+          }
+        },
+        {
+          "phase": "classification-latency",
+          "privateMiB": {
+            "n": 39,
+            "min": 675.2421875,
+            "p50": 724.0625,
+            "p95": 748.0832031250001,
+            "max": 756.21875
+          }
+        },
+        {
+          "phase": "settled",
+          "privateMiB": {
+            "n": 2,
+            "min": 675.25390625,
+            "p50": 680.93359375,
+            "p95": 686.0453125,
+            "max": 686.61328125
+          }
+        }
+      ],
+      "peakPrivateMiB": 763.49609375
+    },
+    {
+      "count": 20,
+      "round": 3,
+      "electron": "43.7.11",
+      "node": "24.21.0",
+      "chrome": "150.0.7871.250",
+      "dpr": 1,
+      "window": {
+        "x": 1120,
+        "y": 296,
+        "width": 1500,
+        "height": 900
+      },
+      "proxy": "direct (isolated profile only)",
+      "startupMs": 1567.5159999999998,
+      "activateAllMs": 70.98609999999962,
+      "archiveGuests": 0,
+      "automaticGuests": 4,
+      "explicitGuests": 5,
+      "nativeAttaches": 5,
+      "handshakes": 5,
+      "mainViewport": {
+        "width": 1212,
+        "height": 831
+      },
+      "mainElement": {
+        "width": 1212,
+        "height": 831,
+        "inert": false
+      },
+      "listIpcMs": {
+        "n": 100,
+        "min": 0.19999998807907104,
+        "p50": 0.8999999761581421,
+        "p95": 104.36499995589256,
+        "max": 165.19999998807907
+      },
+      "activationIpcMs": {
+        "n": 100,
+        "min": 1.5999999642372131,
+        "p50": 4.949999988079071,
+        "p95": 178.75499995350827,
+        "max": 421
+      },
+      "phases": [
+        {
+          "phase": "startup",
+          "privateMiB": {
+            "n": 20,
+            "min": 104.859375,
+            "p50": 278.314453125,
+            "p95": 449.44375,
+            "max": 492.08984375
+          }
+        },
+        {
+          "phase": "activate-all",
+          "privateMiB": {
+            "n": 18,
+            "min": 482.40625,
+            "p50": 631.611328125,
+            "p95": 707.127734375,
+            "max": 707.984375
+          }
+        },
+        {
+          "phase": "static",
+          "privateMiB": {
+            "n": 13,
+            "min": 697.3203125,
+            "p50": 742.2734375,
+            "p95": 762.83984375,
+            "max": 770.6796875
+          }
+        },
+        {
+          "phase": "classification-latency",
+          "privateMiB": {
+            "n": 41,
+            "min": 676.375,
+            "p50": 732.0703125,
+            "p95": 751.11328125,
+            "max": 759.625
+          }
+        },
+        {
+          "phase": "settled",
+          "privateMiB": {
+            "n": 2,
+            "min": 685.515625,
+            "p50": 713.880859375,
+            "p95": 739.4095703125,
+            "max": 742.24609375
+          }
+        }
+      ],
+      "peakPrivateMiB": 770.6796875
+    },
+    {
+      "count": 100,
+      "round": 1,
+      "electron": "43.7.11",
+      "node": "24.21.0",
+      "chrome": "150.0.7871.250",
+      "dpr": 1,
+      "window": {
+        "x": 1120,
+        "y": 296,
+        "width": 1500,
+        "height": 900
+      },
+      "proxy": "direct (isolated profile only)",
+      "startupMs": 1637.4782,
+      "activateAllMs": 210.42300000000023,
+      "archiveGuests": 0,
+      "automaticGuests": 4,
+      "explicitGuests": 5,
+      "nativeAttaches": 5,
+      "handshakes": 5,
+      "mainViewport": {
+        "width": 1212,
+        "height": 831
+      },
+      "mainElement": {
+        "width": 1212,
+        "height": 831,
+        "inert": false
+      },
+      "listIpcMs": {
+        "n": 100,
+        "min": 1,
+        "p50": 5.0999999940395355,
+        "p95": 102.76999998986712,
+        "max": 251.60000002384186
+      },
+      "activationIpcMs": {
+        "n": 100,
+        "min": 2.5,
+        "p50": 5.450000017881393,
+        "p95": 61.3849999994039,
+        "max": 424.30000001192093
+      },
+      "phases": [
+        {
+          "phase": "startup",
+          "privateMiB": {
+            "n": 20,
+            "min": 105.125,
+            "p50": 277.85546875,
+            "p95": 457.17343750000003,
+            "max": 505.51953125
+          }
+        },
+        {
+          "phase": "activate-all",
+          "privateMiB": {
+            "n": 23,
+            "min": 506.8671875,
+            "p50": 684.4296875,
+            "p95": 738.4078125,
+            "max": 744.8203125
+          }
+        },
+        {
+          "phase": "static",
+          "privateMiB": {
+            "n": 13,
+            "min": 695.29296875,
+            "p50": 728.74609375,
+            "p95": 780.8203125,
+            "max": 783.515625
+          }
+        },
+        {
+          "phase": "classification-latency",
+          "privateMiB": {
+            "n": 40,
+            "min": 715.8984375,
+            "p50": 761.02734375,
+            "p95": 801.2396484375,
+            "max": 818.7109375
+          }
+        },
+        {
+          "phase": "settled",
+          "privateMiB": {
+            "n": 8,
+            "min": 716.55078125,
+            "p50": 739.662109375,
+            "p95": 752.66015625,
+            "max": 752.66015625
+          }
+        }
+      ],
+      "peakPrivateMiB": 818.7109375
+    },
+    {
+      "count": 100,
+      "round": 2,
+      "electron": "43.7.11",
+      "node": "24.21.0",
+      "chrome": "150.0.7871.250",
+      "dpr": 1,
+      "window": {
+        "x": 1120,
+        "y": 296,
+        "width": 1500,
+        "height": 900
+      },
+      "proxy": "direct (isolated profile only)",
+      "startupMs": 1539.3364,
+      "activateAllMs": 141.01580000000013,
+      "archiveGuests": 0,
+      "automaticGuests": 4,
+      "explicitGuests": 5,
+      "nativeAttaches": 5,
+      "handshakes": 5,
+      "mainViewport": {
+        "width": 1212,
+        "height": 831
+      },
+      "mainElement": {
+        "width": 1212,
+        "height": 831,
+        "inert": false
+      },
+      "listIpcMs": {
+        "n": 100,
+        "min": 0.8999999761581421,
+        "p50": 5.25,
+        "p95": 75.93499998748298,
+        "max": 301.80000001192093
+      },
+      "activationIpcMs": {
+        "n": 100,
+        "min": 2.400000035762787,
+        "p50": 7.800000011920929,
+        "p95": 78.46000001132485,
+        "max": 219.30000001192093
+      },
+      "phases": [
+        {
+          "phase": "startup",
+          "privateMiB": {
+            "n": 18,
+            "min": 110.4296875,
+            "p50": 292.201171875,
+            "p95": 483.4921875,
+            "max": 489.40234375
+          }
+        },
+        {
+          "phase": "activate-all",
+          "privateMiB": {
+            "n": 22,
+            "min": 503.203125,
+            "p50": 677.02734375,
+            "p95": 729.427734375,
+            "max": 734.29296875
+          }
+        },
+        {
+          "phase": "static",
+          "privateMiB": {
+            "n": 13,
+            "min": 700.9921875,
+            "p50": 736.98046875,
+            "p95": 760.71171875,
+            "max": 763.390625
+          }
+        },
+        {
+          "phase": "classification-latency",
+          "privateMiB": {
+            "n": 45,
+            "min": 703.1953125,
+            "p50": 748.4296875,
+            "p95": 795.86328125,
+            "max": 812.04296875
+          }
+        },
+        {
+          "phase": "settled",
+          "privateMiB": {
+            "n": 1,
+            "min": 748.46484375,
+            "p50": 748.46484375,
+            "p95": 748.46484375,
+            "max": 748.46484375
+          }
+        }
+      ],
+      "peakPrivateMiB": 812.04296875
+    },
+    {
+      "count": 100,
+      "round": 3,
+      "electron": "43.7.11",
+      "node": "24.21.0",
+      "chrome": "150.0.7871.250",
+      "dpr": 1,
+      "window": {
+        "x": 1120,
+        "y": 296,
+        "width": 1500,
+        "height": 900
+      },
+      "proxy": "direct (isolated profile only)",
+      "startupMs": 1548.2849999999999,
+      "activateAllMs": 220.04860000000008,
+      "archiveGuests": 0,
+      "automaticGuests": 4,
+      "explicitGuests": 5,
+      "nativeAttaches": 5,
+      "handshakes": 5,
+      "mainViewport": {
+        "width": 1212,
+        "height": 831
+      },
+      "mainElement": {
+        "width": 1212,
+        "height": 831,
+        "inert": false
+      },
+      "listIpcMs": {
+        "n": 100,
+        "min": 1.0999999642372131,
+        "p50": 3.0499999821186066,
+        "p95": 43.00500000119204,
+        "max": 110.70000004768372
+      },
+      "activationIpcMs": {
+        "n": 100,
+        "min": 2.700000047683716,
+        "p50": 8.450000017881393,
+        "p95": 102.2549999773501,
+        "max": 411.7999999523163
+      },
+      "phases": [
+        {
+          "phase": "startup",
+          "privateMiB": {
+            "n": 19,
+            "min": 109.55859375,
+            "p50": 302.63671875,
+            "p95": 445.3574218749999,
+            "max": 500.5
+          }
+        },
+        {
+          "phase": "activate-all",
+          "privateMiB": {
+            "n": 21,
+            "min": 524.24609375,
+            "p50": 656.0859375,
+            "p95": 707.8359375,
+            "max": 715.7890625
+          }
+        },
+        {
+          "phase": "static",
+          "privateMiB": {
+            "n": 11,
+            "min": 695.92578125,
+            "p50": 728.72265625,
+            "p95": 758.90234375,
+            "max": 761.9140625
+          }
+        },
+        {
+          "phase": "classification-latency",
+          "privateMiB": {
+            "n": 44,
+            "min": 718.60546875,
+            "p50": 742.57421875,
+            "p95": 783.303125,
+            "max": 808.34765625
+          }
+        },
+        {
+          "phase": "settled",
+          "privateMiB": {
+            "n": 1,
+            "min": 757.88671875,
+            "p50": 757.88671875,
+            "p95": 757.88671875,
+            "max": 757.88671875
+          }
+        }
+      ],
+      "peakPrivateMiB": 808.34765625
+    }
+  ]
+}

@@ -16,6 +16,7 @@ import { tuiActivity } from './harness/tui-activity'
 import { cleanupTuiLaunchFiles } from './harness/tui-launch'
 import { explorerLaunchQueue, parseExplorerDirectory, validateExplorerDirectory } from './explorer-launch'
 import { browserLaunchQueue } from './browser/launch'
+import { shelfBrowserRuntime } from './browser/shelf-browser-runtime'
 import { BROWSER_LAUNCH_PENDING, parseBrowserLaunchUrls } from '@shared/browser-launch'
 import { readActiveExplorerDirectory } from './explorer-directory'
 
@@ -559,6 +560,7 @@ function createMainWindow(): void {
   mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
     const src = params?.src || ''
     if (params?.partition === WEBBAR_PARTITION) {
+      if (!shelfBrowserRuntime.willAttach(mainWindow!.webContents, webPreferences, src)) { event.preventDefault(); return }
       // 网页访问栏（完整页签 + 小窗）：只校验协议（渲染层 normalizeWebBarUrl 已做
       // 同样归一化，这里是服务端兜底）；空 src 例外放行（小窗 loadURL 起航路径）
       // POST 页签先挂 about:blank，待 dom-ready 后凭一次性 token 在主进程发出原 POST。
@@ -618,6 +620,7 @@ function createMainWindow(): void {
   })
 
   mainWindow.webContents.on('did-attach-webview', (_event, webContents) => {
+    if (mainWindow) shelfBrowserRuntime.didAttach(mainWindow.webContents, webContents)
     // 插件视图 guest 优先：queue 首条记录的 partition session 与本 guest 一致即对号
     // 入座（不匹配不动队列 —— dsh/webbar 的 attach 不产生排队记录）。
     const pending = pendingPluginAttaches[0]

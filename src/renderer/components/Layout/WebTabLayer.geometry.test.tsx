@@ -7,8 +7,10 @@ import type { PaneLayout } from '@shared/types'
 import '../../i18n'
 import { registerShelfSurface } from './task-shelf-surfaces'
 import { isShelfWebPreviewing, registerShelfWebPreview } from './task-shelf-preview-sources'
+import { BROWSER_NEW_TAB_URL } from '@shared/browser-settings'
 
 vi.mock('../Search/SearchableTab', () => ({ default: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }))
+vi.mock('../CommandScreen/CommandScreen', () => ({ default: () => <div>command screen</div> }))
 let resize!: () => void
 const pane = (id: string, active = true): PaneLayout => ({ root: {
   id, type: 'leaf', sessions: ['terminal'], activeSessionId: 'terminal',
@@ -32,6 +34,18 @@ beforeEach(() => {
 afterEach(() => { cleanup(); document.querySelectorAll('[data-pane-id]').forEach(node => node.remove()); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 describe('网页覆盖层定位与显示原子性', () => {
+  it('命令屏不登记网页需求或占用 guest 许可', () => {
+    const oldApi = window.electronAPI
+    const request = vi.fn().mockResolvedValue({ success: true, deepSleepSupported: false })
+    window.electronAPI = { ...oldApi, shelfBrowserRequest: request }
+    try {
+      placeholder('pane-a')
+      usePaneStore.setState({ overlayPayloads: { 'web-geometry': { kind: 'web', url: BROWSER_NEW_TAB_URL, title: '' } } })
+      render(<WebTabLayer />)
+      act(() => resize())
+      expect(request).not.toHaveBeenCalled()
+    } finally { window.electronAPI = oldApi }
+  })
   it('找不到占位时不展示旧矩形，正确 pane 就位后才显示', () => {
     const { container } = render(<WebTabLayer />)
     const wrapper = container.querySelector<HTMLElement>('[data-webtab-wrapper]')!

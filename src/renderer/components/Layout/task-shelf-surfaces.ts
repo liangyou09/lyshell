@@ -77,7 +77,7 @@ function measure(record: SurfaceRecord, key: string, bounds = new Map<Element, D
     clip = { left, top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) }
   }
   const clipped = measureShelfSurface(rect, clip)
-  const visible = clipped.visible && !record.target.closest('[aria-hidden="true"]')
+  const visible = clipped.visible && !document.hidden && !record.target.closest('[aria-hidden="true"]')
   return { rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height }, clipPath: clipped.clipPath, visible, interactive: visible && record.interactive, active: visible && record.interactive && key === activeKey }
 }
 
@@ -111,6 +111,7 @@ function releaseFocus(event: FocusEvent) {
   }
 }
 function watch() {
+  document.addEventListener('visibilitychange', refreshShelfSurfaces)
   document.addEventListener('focusin', releaseFocus)
   window.addEventListener('scroll', schedule, true)
   window.addEventListener('resize', schedule)
@@ -118,6 +119,7 @@ function watch() {
   window.addEventListener('transitionend', schedule, true)
 }
 function unwatch() {
+  document.removeEventListener('visibilitychange', refreshShelfSurfaces)
   document.removeEventListener('focusin', releaseFocus)
   window.removeEventListener('scroll', schedule, true)
   window.removeEventListener('resize', schedule)

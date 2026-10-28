@@ -33,3 +33,32 @@ describe('保存区 IPC 白名单', () => {
     expect(() => validateSshPersistence({ ...config, ssh: { ...config.ssh!, keepSessionAlive: 'true' as never } })).toThrow()
   })
 })
+
+describe('启动归档与分类命令 IPC 校验', () => {
+  const ids = { bootId: 'boot-1', scopeId: 'shelf:abc' }
+
+  it('activate 严格白名单：0 条合法，超 100 条/重复或空 taskId/非法版本一律拒绝', () => {
+    expect(validateTaskShelfRequest({ kind: 'activate', ...ids, requestId: 'r-1', items: [] })).toEqual({ kind: 'activate', ...ids, requestId: 'r-1', items: [] })
+    const item = { taskId: 't-1', expectedRevision: 2 }
+    expect(validateTaskShelfRequest({ kind: 'activate', ...ids, requestId: 'r-2', items: [item] })).toMatchObject({ items: [item] })
+
+    const many = Array.from({ length: 101 }, (_, index) => ({ taskId: `t-${index}`, expectedRevision: 1 }))
+    expect(() => validateTaskShelfRequest({ kind: 'activate', ...ids, requestId: 'r-3', items: many })).toThrow(/at most/)
+    expect(() => validateTaskShelfRequest({ kind: 'activate', ...ids, requestId: 'r-4', items: [item, item] })).toThrow(/duplicated/)
+    expect(() => validateTaskShelfRequest({ kind: 'activate', ...ids, requestId: 'r-5', items: [{ taskId: '  ', expectedRevision: 1 }] })).toThrow()
+    expect(() => validateTaskShelfRequest({ kind: 'activate', ...ids, requestId: 'r-6', items: [{ taskId: 't', expectedRevision: 0 }] })).toThrow()
+    expect(() => validateTaskShelfRequest({ kind: 'activate', ...ids, requestId: 'r-7', items: [{ taskId: 't', expectedRevision: 1.5 }] })).toThrow()
+    expect(() => validateTaskShelfRequest({ kind: 'activate', ...ids, requestId: 'r-8', items: [{ taskId: 't', expectedRevision: 1, status: 'moved' }] })).toThrow(/unknown field/)
+    expect(() => validateTaskShelfRequest({ kind: 'activate', ...ids, requestId: '', items: [] })).toThrow()
+    expect(() => validateTaskShelfRequest({ kind: 'activate', ...ids, requestId: 'x'.repeat(129), items: [] })).toThrow()
+    expect(() => validateTaskShelfRequest({ kind: 'activate', bootId: '', scopeId: ids.scopeId, requestId: 'r-9', items: [] })).toThrow()
+    expect(() => validateTaskShelfRequest({ kind: 'activate', ...ids, requestId: 'r-10', items: [], extra: true })).toThrow(/field/)
+    expect(() => validateTaskShelfRequest({ kind: 'activate', ...ids, requestId: 'r-11', items: 'nope' })).toThrow()
+  })
+
+  it('retryInitialization 只接受 boot/scope，不接收任何额外字段', () => {
+    expect(validateTaskShelfRequest({ kind: 'retryInitialization', ...ids })).toEqual({ kind: 'retryInitialization', ...ids })
+    expect(() => validateTaskShelfRequest({ kind: 'retryInitialization', ...ids, requestId: 'r' })).toThrow(/field/)
+    expect(() => validateTaskShelfRequest({ kind: 'retryInitialization', bootId: ids.bootId })).toThrow()
+  })
+})
