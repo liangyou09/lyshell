@@ -121,6 +121,11 @@ export default defineConfig({
             'markdown-parser': ['unified', 'remark-parse', 'remark-gfm'],
             // 大段静态更新日志独立打包，设置面板仍同步挂载以保持插件打开回执时序。
             'release-notes': [resolve(__dirname, 'CHANGELOG.md') + '?raw'],
+            // 中英文手册是无副作用的静态文本，独立缓存，保留同步打开手册的时序。
+            'builtin-manuals': [
+              resolve(__dirname, 'src/renderer/docs/manual.zh-CN.md') + '?raw',
+              resolve(__dirname, 'src/renderer/docs/manual.en-US.md') + '?raw'
+            ],
             'vendor': ['zustand', 'lodash-es', 'dayjs', 'classnames']
           }
         }
