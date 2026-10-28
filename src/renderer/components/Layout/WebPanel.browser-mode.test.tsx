@@ -28,6 +28,7 @@
  * favicon 代取（用例自带历史时走 electronAPI 桩）。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { lazy, Suspense } from 'react'
 import { render, cleanup, screen, act, fireEvent, waitFor, within } from '@testing-library/react'
 import type { WebviewTag } from 'electron'
 import { usePaneStore } from '../../stores/pane-store'
@@ -590,6 +591,42 @@ describe('主题化网址候选列表', () => {
 })
 
 describe('Ctrl+L 聚焦请求令牌（ui-store）', () => {
+  it('冷加载期间保留聚焦请求，加载完成后消费；切换面板保留小窗元素', async () => {
+    setupBrowserMode()
+    localStorage.setItem('lyshell.webbarMini.url.v1', 'https://example.com/mini')
+    let resolvePanel!: (value: { default: typeof WebPanel }) => void
+    const LazyPanel = lazy(() => new Promise<{ default: typeof WebPanel }>(resolve => { resolvePanel = resolve }))
+    const tree = (visible: boolean) => <Suspense fallback={null}><LazyPanel visible={visible} /></Suspense>
+    const view = render(tree(true))
+    act(() => { useUiStore.getState().requestWebBarFocus() })
+    expect(useUiStore.getState().webBarFocusRequest).not.toBe(0)
+    await act(async () => { resolvePanel({ default: WebPanel }) })
+    expect(document.activeElement).toBe(inputOf())
+    expect(useUiStore.getState().webBarFocusRequest).toBe(0)
+    const guest = wvOf()
+    expect(guest).not.toBeNull()
+    view.rerender(tree(false))
+    view.rerender(tree(true))
+    expect(wvOf()).toBe(guest)
+  })
+
+  it('冷加载期间切走：加载完成不抢焦点，返回时也不重放旧请求', async () => {
+    setupBrowserMode()
+    let resolvePanel!: (value: { default: typeof WebPanel }) => void
+    const LazyPanel = lazy(() => new Promise<{ default: typeof WebPanel }>(resolve => { resolvePanel = resolve }))
+    const tree = (visible: boolean) => <><input aria-label="other-panel" /><Suspense fallback={null}><LazyPanel visible={visible} /></Suspense></>
+    const view = render(tree(true))
+    act(() => { useUiStore.getState().requestWebBarFocus() })
+    view.rerender(tree(false))
+    const otherInput = screen.getByRole('textbox', { name: 'other-panel' })
+    otherInput.focus()
+    await act(async () => { resolvePanel({ default: WebPanel }) })
+    expect(document.activeElement).toBe(otherInput)
+    expect(useUiStore.getState().webBarFocusRequest).toBe(0)
+    view.rerender(tree(true))
+    expect(document.activeElement).toBe(otherInput)
+  })
+
   it('请求先于挂载到达：挂载后消费，聚焦 + 全选 + 归零', () => {
     setupBrowserMode()
     useUiStore.getState().requestWebBarFocus()

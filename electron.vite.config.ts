@@ -126,6 +126,11 @@ export default defineConfig({
               resolve(__dirname, 'src/renderer/docs/manual.zh-CN.md') + '?raw',
               resolve(__dirname, 'src/renderer/docs/manual.en-US.md') + '?raw'
             ],
+            // 翻译数据无初始化副作用，仍同步提供首帧语言，新增文案不再挤占主入口。
+            'locale-data': [
+              resolve(__dirname, 'src/renderer/locales/zh.json'),
+              resolve(__dirname, 'src/renderer/locales/en.json')
+            ],
             'vendor': ['zustand', 'lodash-es', 'dayjs', 'classnames']
           }
         }

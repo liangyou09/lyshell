@@ -4,11 +4,9 @@ import { ProjectSceneBar } from './ProjectSceneBar'
 import { WorkbenchActivity } from './WorkbenchActivity'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import SessionsPanel from './SessionsPanel'
 import ActivityRail, { type NavTab, RAIL_WIDTH, isFixedNavTab } from './ActivityRail'
 import type { DshLaunchAction } from './DshLaunchTab'
 import SidebarToggle from './SidebarToggle'
-import AgentsPanel from './AgentsPanel'
 import SplitPaneContainer from './SplitPaneContainer'
 import { isWebTabShortcutTarget } from './keyboard-target'
 import WebTabLayer from './WebTabLayer'
@@ -22,8 +20,6 @@ import { TOPBAR_HEIGHT, TOP_LEFT_RESERVE, TOP_LEFT_ICON_RESERVE, SIDEBAR_DIVIDER
 import { hasVisiblePaneTabs } from './sidebar-brand'
 import './SidebarResizeHandle.css'
 import { startAllHarnessDetects } from './harness-detect'
-import PluginPanel from './PluginPanel'
-import WebPanel from './WebPanel'
 import BrowserDownloadPopup from './BrowserDownloadPopup'
 import PluginViewPanel from './PluginViewPanel'
 import PluginViewDialog, { type PluginViewDialogSpec } from './PluginViewDialog'
@@ -62,6 +58,11 @@ import { openPluginWebTab } from './plugin-web-tab'
 // 工作区和环境编辑器按需加载，避免占用默认会话面板的启动入口 chunk。
 const HarnessPanel = lazy(() => import('./HarnessPanel'))
 const DshMarketPanel = lazy(() => import('./DshMarketPanel'))
+// 非首屏功能按面板加载；各自的 Suspense 不影响其他面板和已保活的网页。
+const AgentsPanel = lazy(() => import('./AgentsPanel'))
+const PluginPanel = lazy(() => import('./PluginPanel'))
+const WebPanel = lazy(() => import('./WebPanel'))
+const SessionsPanel = lazy(() => import('./SessionsPanel'))
 
 // 左列收起态/宽度的 localStorage 镜像 key -- 主进程 config 异步,首帧用它同步定态防闪
 // (activeNav 的 lyshell.navTab.v1 同款规避);懒读与双写共用常量,防两处字面量漂移
@@ -1170,17 +1171,21 @@ const MainWindow: React.FC = () => {
           />
           <div style={{ width: `${effectiveSidebarWidth}px` }} className="relative flex-shrink-0 min-w-0 h-full">
             {activeNav === 'sessions' && (
-              <SessionsPanel
-                onConnect={handleConnect}
-                onExecuteCommand={handleExecuteCommand}
-                quickCommandsDisabled={overlayActiveHere}
-              />
+              <Suspense fallback={null}>
+                <SessionsPanel
+                  onConnect={handleConnect}
+                  onExecuteCommand={handleExecuteCommand}
+                  quickCommandsDisabled={overlayActiveHere}
+                />
+              </Suspense>
             )}
             {(activeNav === 'agents' || retainedNav === 'agents') && <div className={cn('h-full', activeNav !== 'agents' && 'hidden')}>
-              <AgentsPanel visible={activeNav === 'agents'} onOpenEnvSettings={() => handleNavChange('env')} onOpenWorkspaceSettings={() => {
-                setRequestedSettingsView(prev => ({ key: 'workspace', nonce: (prev?.nonce ?? 0) + 1, returnTo: 'agents' }))
-                handleNavChange('settings')
-              }} />
+              <Suspense fallback={null}>
+                <AgentsPanel visible={activeNav === 'agents'} onOpenEnvSettings={() => handleNavChange('env')} onOpenWorkspaceSettings={() => {
+                  setRequestedSettingsView(prev => ({ key: 'workspace', nonce: (prev?.nonce ?? 0) + 1, returnTo: 'agents' }))
+                  handleNavChange('settings')
+                }} />
+              </Suspense>
             </div>}
             <Suspense fallback={null}>
               {dshPanelAlive && <div className={cn('absolute inset-0', activeNav !== 'dsh' && 'hidden')}>
@@ -1199,12 +1204,14 @@ const MainWindow: React.FC = () => {
                 }} />
               </div>}
             </Suspense>
-            {activeNav === 'plugins' && <PluginPanel />}
+            {activeNav === 'plugins' && <Suspense fallback={null}><PluginPanel /></Suspense>}
             {/* Web 面板保活常挂载(见 webPanelAlive 注释),切走时经 visible 隐藏 */}
-            {webPanelAlive && <WebPanel visible={activeNav === 'web' && !sidebarCollapsed} onOpenSettings={() => {
-              setRequestedSettingsView(prev => ({ key: 'browser', nonce: (prev?.nonce ?? 0) + 1, returnTo: 'web' }))
-              handleNavChange('settings')
-            }} />}
+            {webPanelAlive && <Suspense fallback={null}>
+              <WebPanel visible={activeNav === 'web' && !sidebarCollapsed} onOpenSettings={() => {
+                setRequestedSettingsView(prev => ({ key: 'browser', nonce: (prev?.nonce ?? 0) + 1, returnTo: 'web' }))
+                handleNavChange('settings')
+              }} />
+            </Suspense>}
             {/* 插件视图面板(保活):首次激活后常挂载,absolute 叠放互不挤占,同屏只
                 显示 activeNav 命中的那个;列表摘除时由上方 effect 卸载失效键 */}
             {railPluginViews.map((view) => {

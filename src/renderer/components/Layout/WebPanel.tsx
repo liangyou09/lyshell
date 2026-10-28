@@ -470,10 +470,13 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
   const webBarFocusRequest = useUiStore((s) => s.webBarFocusRequest)
   useEffect(() => {
     if (!webBarFocusRequest) return
-    inputRef.current?.focus()
-    inputRef.current?.select()
+    // 首次按需加载可能跨过一次导航；切走后到达的请求只消费，不抢其他面板焦点。
+    if (visible) {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    }
     useUiStore.getState().consumeWebBarFocusRequest()
-  }, [webBarFocusRequest])
+  }, [webBarFocusRequest, visible])
 
   // 值同步后保住全选:Ctrl+L 的挂载路径里,聚焦/全选 effect 与值回写同批跑,
   // 提交前输入还是空串 —— select() 落在空值上,值落定后光标被推到末尾(没有
