@@ -2,6 +2,8 @@
   "taskShelf": {
     "movePanel": "Move task panel", "movePanelHint": "Drag to an edge, or focus this handle and use the arrow keys.", "edge": { "left": "Left", "right": "Right", "top": "Top", "bottom": "Bottom" },
     "recallAll": "Recall all tasks", "recallAllHint": "Put all saved tasks from the main window back in Tasks and keep them running.",
+    "presentationUnconfirmed": "Page loaded; the picture could not be confirmed.", "showCurrentPage": "Show current page",
+    "activateAll": "Activate all", "activating": "Activating…", "realtimeLabel": "Live view", "realtimeTasks": "Tasks only", "realtimeNone": "Static", "retryActivation": "Retry failed items", "activationResult": "{{moved}} activated · {{alreadyTasks}} already active · {{conflict}} changed · {{missing}} missing · {{failed}} failed",
     "mainWindow": "Main window", "focusedTask": "Selected task content", "previewMode": "Content view", "readable": "Readable", "overview": "Overview", "typeHere": "Type here",
     "activityStatus": { "running": "Running", "idle": "Awaiting input", "approval": "Confirmation needed", "completed": "Task completed", "turnEnded": "Turn ended", "failed": "Needs attention", "interrupted": "Interrupted", "disconnected": "Disconnected", "unknown": "Task state unavailable" },
     "slot": "Task slot {{index}}", "gridLabel": "Task slots", "inMain": "In main window · click to recall", "notices": "Alerts", "notificationHistory": "All sessions & alerts", "emptyNotices": "You're all caught up", "emptyNoticesHint": "Task results and requests for confirmation appear here.",

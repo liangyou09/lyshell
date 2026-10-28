@@ -8,6 +8,7 @@ import { expandTilde, resolveWorkspaceCwd } from './cwd'
 import { listWorktreeKeys } from './worktree'
 import type { ShelfCaptureInput, TaskShelfRepository } from '../storage/task-shelf-repository'
 import { captureSshContext, normalizeSshDirectory } from '../terminal/shelf-ssh-context'
+import { createTaskShelfCommandService, SHELF_INITIALIZATION_BLOCKED } from './task-shelf-command-service'
 
 /** 能走 harness 续接链的三类启动器（与 @shared/harness 的 HarnessAgentKind 同集）。 */
 export type ShelfAgentKind = 'codex' | 'claude' | 'dsh'
@@ -43,7 +44,7 @@ export interface ShelfHarnessRuntime {
 
 export interface TaskShelfDeps {
   repository: TaskShelfRepository
-  /** 生产首次读取重试启动补归档，失败时保留待重试状态，不向界面返回过期 Tasks。 */
+  /** 旧调用方的启动归档别名；失败状态与重试统一由 commands 管理。 */
   archiveOnStart?: boolean
   session: (id: string) => ShelfSessionView | undefined
   createSession: (config: SessionConfig) => Promise<{ id: string }>
@@ -58,6 +59,8 @@ export interface TaskShelfDeps {
     restore: (id: string, name: string, cwd?: string) => Promise<ShelfSpawnResult>
   }
   harnessView?: () => Promise<{ recovery: Extract<ShelfRecovery, { kind: 'harness' }>; workspace?: string } | undefined>
+  /** 生产显式传环境开关；默认 false 保留既有 fixture 测试语义（不自动归档）。 */
+  startupArchiveEnabled?: boolean
   now?: () => number
 }
 
@@ -110,13 +113,19 @@ function agentFromTags(tags: string[] | undefined): { kind: 'codex' | 'claude' |
  */
 export function createTaskShelfService(deps: TaskShelfDeps): TaskShelfService {
   const now = deps.now ?? Date.now
-  let startupArchivePending = deps.archiveOnStart === true
   /** 同一记录的恢复串行化：并发点击共享同一个在途结果，绝不重复启动。 */
   const inflight = new Map<string, Promise<TaskShelfResult>>()
   /** entryId → 上一次恢复成功创建的 terminal id，用于「恢复后再次点击」直接复用原实例。 */
   const reused = new Map<string, string>()
   /** 精确 resume 已明确指定的 ID：官方首个 hook 到达前保留，不因启动中的空观察抹掉。 */
   const resumedCliIds = new Map<string, string>()
+  /** 启动归档/分类命令：构造即同步完成一次初始化，之后所有 IPC 写入都排在其后。 */
+  const commands = createTaskShelfCommandService({
+    repository: deps.repository,
+    startupArchiveEnabled: deps.startupArchiveEnabled ?? deps.archiveOnStart ?? false,
+    ...(deps.now ? { now: deps.now } : {})
+  })
+  commands.ensureStartup()
 
   const list = (): TaskShelfEntry[] => deps.repository.list()
 
@@ -403,7 +412,7 @@ export function createTaskShelfService(deps: TaskShelfDeps): TaskShelfService {
         const entry = deps.repository.get(id)
         if (!entry) throw new Error('保存记录不存在')
         const restored = await restoreEntry(entry)
-        return { success: true, entries: list(), entry: deps.repository.get(id) ?? entry, restored }
+        return { success: true, entries: list(), entry: deps.repository.get(id) ?? entry, restored, startup: commands.startup() }
       } catch (error) {
         return { success: false, error: (error as Error).message }
       }
@@ -415,22 +424,32 @@ export function createTaskShelfService(deps: TaskShelfDeps): TaskShelfService {
   return {
     request: async request => {
       try {
-        if (startupArchivePending) {
-          deps.repository.archiveAll(now())
-          startupArchivePending = false
+        // 初始化（加载 + 归档）同步完成后才进入任何写入分支；异步 capture 也走这条串行入口。
+        const startup = commands.ensureStartup()
+        // 初始化未完成时只允许 list 与 retryInitialization：restore 不是只读操作
+        // （恢复成功后会改绑 resourceKey／标记 cliObservationLost），同样必须拦住。
+        const initializationAllowed = request.kind === 'list' || request.kind === 'retryInitialization'
+        if (startup.status === 'blocked' && !initializationAllowed) {
+          throw Object.assign(new Error(commands.blockedError() ?? '任务保存区初始化未完成'), { code: SHELF_INITIALIZATION_BLOCKED })
         }
         switch (request.kind) {
-          case 'list':
-            return { success: true, entries: list(), preferences: deps.repository.getPreferences() }
+          case 'list': {
+            try {
+              return { success: true, entries: list(), preferences: deps.repository.getPreferences(), startup }
+            } catch (error) {
+              // 归档文件损坏时保留原文件：如实报告初始化未完成，而不是假装空保存区。
+              return { success: false, error: (error as Error).message, code: SHELF_INITIALIZATION_BLOCKED, startup }
+            }
+          }
           case 'preferences':
-            return { success: true, entries: list(), preferences: deps.repository.setPreferences(request.preferences) }
+            return { success: true, entries: list(), preferences: deps.repository.setPreferences(request.preferences), startup }
           case 'archive': {
             const entry = deps.repository.archive(request.id, request.archived, now())
-            return { success: true, entries: list(), entry }
+            return { success: true, entries: list(), entry, startup }
           }
           case 'unarchiveAll':
             // 只改列表归属：整批移回归档记录，绝不调用 restore/spawn/connect/retain。
-            return { success: true, entries: deps.repository.unarchiveAll(now()) }
+            return { success: true, entries: deps.repository.unarchiveAll(now()), startup }
           case 'capture': {
             const input = describeCapture(request.resource, request.entryId)
             if (request.resource.kind === 'harness') {
@@ -447,7 +466,7 @@ export function createTaskShelfService(deps: TaskShelfDeps): TaskShelfService {
               if (request.resource.kind === 'terminal' && !alreadyHeld) await Promise.resolve(deps.retainSession?.(request.resource.id, false)).catch(() => {})
               throw error
             }
-            return { success: true, entries: list(), entry: result.entry }
+            return { success: true, entries: list(), entry: result.entry, startup }
           }
           case 'remove': {
             const removed = deps.repository.get(request.id)
@@ -466,11 +485,22 @@ export function createTaskShelfService(deps: TaskShelfDeps): TaskShelfService {
             try { deps.repository.remove(request.id) }
             catch (error) { if (runtimeId) await Promise.resolve(deps.retainSession?.(runtimeId, true)).catch(() => {}); throw error }
             reused.delete(request.id)
-            return { success: true, entries: list(), ...(restored ? { restored } : {}) }
+            return { success: true, entries: list(), ...(restored ? { restored } : {}), startup }
           }
           case 'rename': {
             const entry = deps.repository.rename(request.id, request.title, now())
-            return { success: true, entries: list(), entry }
+            return { success: true, entries: list(), entry, startup }
+          }
+          case 'activate': {
+            // 只改分类与必要排序：不调用 restore/create/connect/launch，也不执行任何命令。
+            const outcome = commands.activate(request)
+            if (!outcome.success) return { success: false, error: outcome.error, code: outcome.code }
+            return { success: true, entries: list(), startup: commands.startup(), activation: outcome.activation }
+          }
+          case 'retryInitialization': {
+            const outcome = commands.retryInitialization(request.bootId, request.scopeId)
+            if (!outcome.success) return { success: false, error: outcome.error, code: outcome.code }
+            return { success: true, entries: list(), startup: outcome.startup }
           }
           case 'restore':
             return await restoreLocked(request.id)
@@ -478,7 +508,8 @@ export function createTaskShelfService(deps: TaskShelfDeps): TaskShelfService {
             throw new Error('Unknown task shelf request')
         }
       } catch (error) {
-        return { success: false, error: (error as Error).message }
+        const code = (error as { code?: string }).code
+        return { success: false, error: (error as Error).message, ...(code ? { code } : {}), ...(code === SHELF_INITIALIZATION_BLOCKED ? { startup: commands.startup() } : {}) }
       }
     }
   }

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useTaskShelf, initializeTaskShelf, shelfEntryVisible, shelfResource, collectActiveShelfTask } from '../../stores/task-shelf'
+import { useTaskShelf, initializeTaskShelf, shelfEntryVisible, shelfResource, collectActiveShelfTask, requestShelfBrowserRestore, withdrawShelfBrowserRestores } from '../../stores/task-shelf'
 import { matchShelfShortcut } from '@shared/task-shelf'
 import { TaskShelfContextMenu, showShelfEntryContextMenu } from './TaskShelfContextMenu'
 import { usePaneStore } from '../../stores/pane-store'
@@ -18,6 +18,7 @@ import { activityNoticeTitle, activityProjectName } from './ActivityNotification
 import './TaskShelf.css'
 import { useFrameCommit } from '../../hooks/useFrameCommit'
 import { useShallow } from 'zustand/react/shallow'
+import { SHELF_PREVIEWS_ENABLED, SHELF_SIDEBAR_RESTORE_ENABLED } from '../../stores/shelf-feature-flags'
 
 const PREF_KEY = 'lyshell.taskShelf.view.v1'
 function readPreferences(): { mode: ShelfMode; width: number; height: number; edge: ShelfEdge } {
@@ -25,6 +26,22 @@ function readPreferences(): { mode: ShelfMode; width: number; height: number; ed
     const saved = JSON.parse(localStorage.getItem(PREF_KEY) || '{}')
     return { edge: shelfEdge(saved.edge), height: Number.isFinite(saved.height) ? Math.max(200, saved.height) : 420, mode: ['auto', 'hover', 'fixed'].includes(saved.mode) ? saved.mode : 'auto', width: Number.isFinite(saved.width) ? shelfPanelWidth(saved.width, Infinity) : 304 }
   } catch { return { mode: 'auto', width: 304, height: 420, edge: 'right' } }
+}
+function readRealtimePreference(): 'tasks' | 'none' {
+  try { return localStorage.getItem('lyshell.taskShelf.realtime.v1') === 'none' ? 'none' : 'tasks' }
+  catch { return 'tasks' }
+}
+
+/** 恢复排队与真正挂载前都读取当前卡片几何，滚离视口不会沿用激活时的旧资格。 */
+export function isShelfRestoreCardVisible(panel: HTMLElement | null, id: string): boolean {
+  const card = [...panel?.querySelectorAll<HTMLElement>('[data-shelf-card]') ?? []].find(node => node.dataset.shelfCard === id)
+  const bounds = panel?.getBoundingClientRect()
+  if (!card || !bounds || bounds.width <= 0 || bounds.height <= 0) return false
+  const rect = card.getBoundingClientRect()
+  const clip = card.closest('.task-shelf-grid')?.getBoundingClientRect() ?? bounds
+  return rect.width > 0 && rect.height > 0 && rect.bottom > Math.max(0, bounds.top, clip.top) &&
+    rect.top < Math.min(window.innerHeight, bounds.bottom, clip.bottom) && rect.right > Math.max(0, bounds.left, clip.left) &&
+    rect.left < Math.min(window.innerWidth, bounds.right, clip.right)
 }
 
 export function ShelfIcon({ kind = 'shelf' }: { kind?: string }): React.ReactElement {
@@ -39,9 +56,9 @@ export function ShelfIcon({ kind = 'shelf' }: { kind?: string }): React.ReactEle
 const TaskShelf: React.FC = () => {
   const { t, i18n } = useTranslation()
   // 快捷键只在设置 → 终端 里修改(见 SettingsPanel)，保存区只消费当前绑定。
-  const { entries, bindings, loaded, busy, restoringArchived, error, saveErrors, open, retry, archive, restoreArchived, viewRequest, preferences: shortcuts } = useTaskShelf(useShallow(s => ({
-    entries: s.entries, bindings: s.bindings, loaded: s.loaded, busy: s.busy, restoringArchived: s.restoringArchived, error: s.error, saveErrors: s.saveErrors,
-    open: s.open, retry: s.retry, archive: s.archive, restoreArchived: s.restoreArchived, viewRequest: s.viewRequest, preferences: s.preferences
+  const { entries, bindings, loaded, busy, error, saveErrors, open, retry, archive, activate, activating, activation, startup, viewRequest, preferences: shortcuts } = useTaskShelf(useShallow(s => ({
+    entries: s.entries, bindings: s.bindings, loaded: s.loaded, busy: s.busy, error: s.error, saveErrors: s.saveErrors,
+    open: s.open, retry: s.retry, archive: s.archive, activate: s.activate, activating: s.activating, activation: s.activation, startup: s.startup, viewRequest: s.viewRequest, preferences: s.preferences
   })))
   const draggingSession = usePaneStore(s => s.draggingSessionId)
   const draggingOverlay = usePaneStore(s => s.draggingOverlayId)
@@ -64,6 +81,8 @@ const TaskShelf: React.FC = () => {
   const [docked, setDocked] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [pinned, setPinned] = useState(false)
+  const [dismissed, setDismissed] = useState(false)
+  const [realtime, setRealtime] = useState(readRealtimePreference)
   const [dropOver, setDropOver] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
   const [resizing, setResizing] = useState(false)
@@ -75,7 +94,14 @@ const TaskShelf: React.FC = () => {
   const [bodySize, setBodySize] = useState({ width: 0, height: 0 })
   const edge = useRef<HTMLButtonElement>(null)
   const keyboardOpen = useRef(false)
-  const focusRestoredTasks = useRef(false)
+  const choseView = useRef(false)
+  const initializedBoot = useRef<string>()
+  const pointerInside = useRef(false)
+  const composing = useRef(false)
+  const keyboardNavigating = useRef(false)
+  const closeRevision = useRef(0)
+  const interaction = useRef({ resizing, mode: preferences.mode })
+  interaction.current = { resizing, mode: preferences.mode }
   const panelId = useId()
   const resizeStart = useRef<{ x: number; width: number }>()
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>()
@@ -93,15 +119,52 @@ const TaskShelf: React.FC = () => {
   const finishResize = () => { resizeCommit.flush(); resizeStart.current = undefined; setResizing(false) }
   const inputWidth = Math.min(SHELF_INPUT_WIDTH, shelfPanelWidth(Infinity, available, windowWidth))
   const canDrop = !!draggingSession || !!draggingOverlay && ['web', 'dshWeb'].includes(usePaneStore.getState().overlayPayloads[draggingOverlay]?.kind)
-  const shown = docked || expanded || pinned || (canDrop && dropOver)
+  const displayedEntries = entries.filter(entry => !!entry.archivedAt === showArchived)
+  const horizontalLayout = shelfHorizontalLayout(bodySize.width || width, bodySize.height || Math.max(0, height - 48), displayedEntries.length)
+  const showPreviews = SHELF_PREVIEWS_ENABLED && !showArchived && realtime === 'tasks' && width >= SHELF_PREVIEW_WIDTH && (!horizontal || horizontalLayout.showPreviews)
+  const shown = !dismissed && (docked || expanded || pinned || (canDrop && dropOver))
+  const restorePolicy = useRef(false)
+  restorePolicy.current = shown && showPreviews && !showNotices && document.visibilityState !== 'hidden'
+  const activationDemand = useTaskShelf(s => s.activationDemand)
+  const restoreErrors = useTaskShelf(s => s.restoreErrors)
+  const canRestore = (id: string, intent: number) => restorePolicy.current && isShelfRestoreCardVisible(root.current, id) && useTaskShelf.getState().uiIntentRevision === intent && useTaskShelf.getState().entries.some(entry => entry.id === id && !entry.archivedAt)
+  useEffect(() => {
+    if (!restorePolicy.current) withdrawShelfBrowserRestores()
+    const onVisibility = () => {
+      restorePolicy.current = shown && showPreviews && !showNotices && !document.hidden
+      if (!restorePolicy.current) withdrawShelfBrowserRestores()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [shown, showPreviews, showNotices])
+  useEffect(() => {
+    if (!SHELF_SIDEBAR_RESTORE_ENABLED || !activationDemand || activationDemand.consumed) return
+    // 只针对本批完成布局时的可视集合生成一次需求；滚动不重新触发。
+    let second = 0
+    const first = requestAnimationFrame(() => { second = requestAnimationFrame(() => {
+      const current = useTaskShelf.getState().activationDemand
+      if (!current || current.revision !== activationDemand.revision || current.consumed) return
+      // 持久于组件挂载的运行期状态：StrictMode 清理不会丢掉未执行需求，真实重挂也不重复消费。
+      useTaskShelf.setState({ activationDemand: { ...current, consumed: true } })
+      if (!restorePolicy.current || useTaskShelf.getState().uiIntentRevision !== activationDemand.intent) return
+      const candidates = new Set(activationDemand.ids)
+      for (const card of root.current?.querySelectorAll<HTMLElement>('[data-shelf-card]') ?? []) {
+        const id = card.dataset.shelfCard!
+        const entry = useTaskShelf.getState().entries.find(item => item.id === id)
+        if (!candidates.has(id) || entry?.recovery.kind !== 'web' || useTaskShelf.getState().bindings[id]) continue
+        if (!isShelfRestoreCardVisible(root.current, id)) continue
+        void requestShelfBrowserRestore(id, activationDemand.single ? 'explicitShelf' : 'bulkVisible', () => canRestore(id, activationDemand.intent))
+      }
+    }) })
+    return () => { cancelAnimationFrame(first); cancelAnimationFrame(second) }
+  }, [activationDemand])
 
   useEffect(() => initializeTaskShelf(), [])
-  useLayoutEffect(() => {
-    if (focusRestoredTasks.current && !showArchived && !showNotices) {
-      focusRestoredTasks.current = false
-      root.current?.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')?.focus()
-    }
-  }, [showArchived, showNotices])
+  useEffect(() => {
+    if (startup?.status !== 'ready' || initializedBoot.current === startup.bootId) return
+    initializedBoot.current = startup.bootId
+    if (!choseView.current) setShowArchived(startup.archiveOnBoot)
+  }, [startup])
   useLayoutEffect(() => { refreshShelfSurfaces() })
   useLayoutEffect(() => {
     const target = body.current
@@ -131,13 +194,13 @@ const TaskShelf: React.FC = () => {
     return () => clearTimeout(timer)
   }, [preferences.mode, windowWidth, available, width, horizontal, height, availableHeight])
   useLayoutEffect(() => {
-    const reservedWidth = docked && !horizontal ? width : 0
-    const reservedHeight = docked && horizontal ? height : 0
+    const reservedWidth = docked && shown && !horizontal ? width : 0
+    const reservedHeight = docked && shown && horizontal ? height : 0
     const state = useTaskShelf.getState()
     if (state.reservedWidth !== reservedWidth || state.reservedHeight !== reservedHeight || state.reservedEdge !== preferences.edge) {
       useTaskShelf.setState({ reservedWidth, reservedHeight, reservedEdge: preferences.edge })
     }
-  }, [docked, width, height, horizontal, preferences.edge])
+  }, [docked, shown, width, height, horizontal, preferences.edge])
   useLayoutEffect(() => () => { useTaskShelf.setState({ reservedWidth: 0, reservedHeight: 0, reservedEdge: 'right' }) }, [])
   // 在 inert 生效前记录焦点，确保按钮、快捷键及外部请求收起时都能归还入口。
   useLayoutEffect(() => {
@@ -160,14 +223,15 @@ const TaskShelf: React.FC = () => {
   useEffect(() => {
     if (!viewRequest) return
     clearTimeout(hoverTimer.current); clearTimeout(closeTimer.current)
-    setPinned(viewRequest.open); setExpanded(false); setDropOver(false)
+    setDismissed(!viewRequest.open); setPinned(viewRequest.open); setExpanded(false); setDropOver(false)
     setShowNotices(!!viewRequest.notices)
     if (viewRequest.entryId) {
       setSelected(viewRequest.entryId)
-      setShowArchived(!!useTaskShelf.getState().entries.find(entry => entry.id === viewRequest.entryId)?.archivedAt)
-      setPreferences(p => ({ ...p, width: Math.max(p.width, SHELF_PREVIEW_WIDTH) }))
+      choseView.current = true
+      setShowArchived(viewRequest.view === 'tasks' ? false : !!useTaskShelf.getState().entries.find(entry => entry.id === viewRequest.entryId)?.archivedAt)
+      if (!viewRequest.view) setPreferences(p => ({ ...p, width: Math.max(p.width, SHELF_PREVIEW_WIDTH) }))
     }
-    if (!viewRequest.open) { setDocked(false); setPreferences(p => ({ ...p, mode: 'hover' })) }
+    if (viewRequest.view) setShowArchived(viewRequest.view === 'archive')
   }, [viewRequest])
   useEffect(() => {
     if (!shown || !selected) return
@@ -185,8 +249,8 @@ const TaskShelf: React.FC = () => {
   useEffect(() => {
     const run = (action: 'toggle' | 'collect') => {
       if (action === 'toggle') {
-        if (docked) { closePanel(); setDocked(false); setPreferences(p => ({ ...p, mode: 'hover' })) }
-        else { clearTimeout(hoverTimer.current); setExpanded(false); setPinned(value => !value) }
+        if (shown) closePanel()
+        else { clearTimeout(hoverTimer.current); setDismissed(false); setExpanded(true); setPinned(false) }
       }
       else void collectActiveShelfTask()
     }
@@ -196,29 +260,36 @@ const TaskShelf: React.FC = () => {
         const action = matchShelfShortcut({ type: 'keyDown', key: event.key, code: event.code, control: event.ctrlKey, meta: event.metaKey, shift: event.shiftKey, alt: event.altKey, isAutoRepeat: event.repeat, isComposing: event.isComposing }, shortcuts)
         if (action) { event.preventDefault(); event.stopPropagation(); run(action) }
       }
-      if (event.key === 'Escape' && (expanded || pinned) && !resizing && !moveStart.current && !isShelfSurfaceEngaged()) closePanel()
+      if (event.isComposing || composing.current) return
+      if (event.key === 'Escape' && shown && !resizing && !moveStart.current && !isShelfSurfaceEngaged()) closePanel()
     }
     window.addEventListener('keydown', handle)
     return () => { off?.(); window.removeEventListener('keydown', handle) }
-  }, [expanded, pinned, resizing, shortcuts, docked])
+  }, [shown, resizing, shortcuts])
 
-  const enter = () => { pointerInsideWindow.current = true; clearTimeout(closeTimer.current); clearTimeout(hoverTimer.current); if (!moveStart.current) hoverTimer.current = setTimeout(() => setExpanded(true), 300) }
-  // 键盘聚焦入口只取消待执行的收起，不在 300ms 后自动展开并把入口自身藏掉；
+  const enter = () => { pointerInsideWindow.current = true; pointerInside.current = true; closeRevision.current++; clearTimeout(closeTimer.current); clearTimeout(hoverTimer.current); if (!moveStart.current) hoverTimer.current = setTimeout(() => { setDismissed(false); setExpanded(true) }, 250) }
+  // 键盘聚焦入口只取消待执行的收起，不在 250ms 后自动展开并把入口自身藏掉；
   // 展开由 Enter/Space 触发，细柄焦点环继续作为可见入口。
   const holdEntryFocus = () => { clearTimeout(closeTimer.current); clearTimeout(hoverTimer.current) }
   const closePanel = () => {
+    useTaskShelf.getState().invalidateIntent()
+    closeRevision.current++
     clearTimeout(hoverTimer.current); clearTimeout(closeTimer.current)
+    setDismissed(true)
     setExpanded(false); setPinned(false); setDropOver(false)
   }
   const leave = useCallback(() => {
-    clearTimeout(hoverTimer.current); clearTimeout(closeTimer.current)
+    clearTimeout(hoverTimer.current)
+    clearTimeout(closeTimer.current)
+    const revision = ++closeRevision.current
     if (!pointerInsideWindow.current) return
     closeTimer.current = setTimeout(() => {
-      if (!pointerInsideWindow.current) return
-      if (!root.current?.matches(':hover') && !root.current?.contains(document.activeElement) && !document.activeElement?.closest('.task-shelf-context-menu') && !isShelfSurfaceEngaged() && !resizing && !moveStart.current) setExpanded(false)
-      setDropOver(false)
-    }, 450)
-  }, [resizing])
+      const focus = document.activeElement
+      const editing = focus instanceof Element && !!focus.closest('input,textarea,select,[contenteditable="true"]') && (root.current?.contains(focus) || !!focus.closest('[data-shelf-native]'))
+      if (!pointerInsideWindow.current || moveStart.current || revision !== closeRevision.current || pointerInside.current || interaction.current.mode === 'fixed' || interaction.current.resizing || composing.current || keyboardNavigating.current || editing || document.querySelector('.task-shelf-context-menu') || isShelfSurfaceEngaged()) return
+      setExpanded(false); setPinned(false); setDropOver(false)
+    }, 350)
+  }, [])
   useEffect(() => {
     // 离开整个软件只暂停自动收起；返回客户端后再依据实际落点重新计时。
     const pause = () => {
@@ -235,6 +306,7 @@ const TaskShelf: React.FC = () => {
       const target = event.target
       if (target instanceof Node && (root.current?.contains(target) || edge.current?.contains(target))) return
       if (target instanceof Element && target.closest('.task-shelf-context-menu,[data-shelf-native]')) return
+      pointerInside.current = false
       leave()
     }
     window.addEventListener('mouseout', boundaryLeave, true)
@@ -252,12 +324,16 @@ const TaskShelf: React.FC = () => {
       document.removeEventListener('dragover', resume, true)
     }
   }, [leave])
+  const exit = () => { pointerInside.current = false; leave() }
   useEffect(() => {
-    const hold = () => { clearTimeout(closeTimer.current); clearTimeout(hoverTimer.current) }
-    const release = () => leave()
+    const hold = () => { pointerInside.current = true; closeRevision.current++; clearTimeout(closeTimer.current); clearTimeout(hoverTimer.current) }
+    const release = () => { pointerInside.current = false; leave() }
+    const reconsider = () => { if (!pointerInside.current) leave() }
+    document.addEventListener('focusin', reconsider)
+    document.addEventListener('pointerup', reconsider)
     window.addEventListener(SHELF_SURFACE_ENTER, hold)
     window.addEventListener(SHELF_SURFACE_LEAVE, release)
-    return () => { window.removeEventListener(SHELF_SURFACE_ENTER, hold); window.removeEventListener(SHELF_SURFACE_LEAVE, release) }
+    return () => { document.removeEventListener('focusin', reconsider); document.removeEventListener('pointerup', reconsider); window.removeEventListener(SHELF_SURFACE_ENTER, hold); window.removeEventListener(SHELF_SURFACE_LEAVE, release) }
   }, [leave])
   const handleDrop = async (event: React.DragEvent) => {
     if (!canDrop) return
@@ -266,28 +342,28 @@ const TaskShelf: React.FC = () => {
     const kind = pane.draggingSessionId ? 'terminal' : pane.overlayPayloads[pane.draggingOverlayId || '']?.kind === 'dshWeb' ? 'harness' : 'web'
     const resource = shelfResource(kind, pane.draggingSessionId || pane.draggingOverlayId || '')
     pane.setDraggingSession(null); pane.setDraggingOverlay(null)
-    if (resource) { const saved = await useTaskShelf.getState().collect(resource); if (saved) closePanel() }
+    if (resource) await useTaskShelf.getState().collect(resource)
   }
   const attention = (error ? 1 : 0) + entries.filter(entry => {
     const binding = bindings[entry.id]
     const status = resolveShelfTaskStatus(entry, binding, activity, sessions.find(s => s.id === binding?.id)?.status, Math.max(now, Date.now()))
     return !!saveErrors[entry.id] || status === 'failed' || status === 'approval'
   }).length
-  const displayedEntries = entries.filter(entry => !!entry.archivedAt === showArchived)
   const selectedEntry = displayedEntries.find(entry => entry.id === selected) ?? displayedEntries.find(entry => !shelfEntryVisible(entry.id)) ?? displayedEntries[0]
   const focusedId = selectedEntry?.id
-  const horizontalLayout = shelfHorizontalLayout(bodySize.width || width, bodySize.height || Math.max(0, height - 48), displayedEntries.length)
-  const showPreviews = width >= SHELF_PREVIEW_WIDTH && (!horizontal || horizontalLayout.showPreviews)
   const focusedWindows = showPreviews ? displayedEntries.filter(entry => !shelfEntryVisible(entry.id) && !!bindings[entry.id]) : []
   const grid = shelfGridLayout(width)
   const openInMain = async (id: string) => {
     const entry = entries.find(item => item.id === id)
     if (entry?.archivedAt && !await archive(id, false)) return
+    useTaskShelf.getState().invalidateIntent()
     await open(id)
   }
 
   const changeEdge = (next: ShelfEdge, keepOpen = true) => {
     clearTimeout(hoverTimer.current); clearTimeout(closeTimer.current)
+    useTaskShelf.getState().invalidateIntent()
+    setDismissed(false)
     setPreferences(p => ({ ...p, edge: next }))
     if (keepOpen) { setPinned(true); setExpanded(true) }
   }
@@ -321,7 +397,7 @@ const TaskShelf: React.FC = () => {
   }
 
   const dragOver = (event: React.DragEvent) => {
-    if (canDrop) { pointerInsideWindow.current = true; clearTimeout(hoverTimer.current); clearTimeout(closeTimer.current); event.preventDefault(); event.stopPropagation(); setExpanded(true); setDropOver(true); event.dataTransfer.dropEffect = 'move' }
+    if (canDrop) { pointerInsideWindow.current = true; clearTimeout(hoverTimer.current); clearTimeout(closeTimer.current); event.preventDefault(); event.stopPropagation(); setDismissed(false); setExpanded(true); setDropOver(true); event.dataTransfer.dropEffect = 'move' }
   }
 
   return <>
@@ -338,20 +414,23 @@ const TaskShelf: React.FC = () => {
         const next = ({ ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'top', ArrowDown: 'bottom' } as Record<string, ShelfEdge>)[event.key]
         if (next) { event.preventDefault(); event.stopPropagation(); changeEdge(next, shown) }
       }}
-      onMouseEnter={enter} onMouseLeave={leave} onFocus={holdEntryFocus} onBlur={leave}
+      onMouseEnter={enter} onMouseLeave={exit} onFocus={holdEntryFocus} onBlur={leave}
       onClick={event => {
         if (skipEdgeClick.current) { skipEdgeClick.current = false; if (event.detail !== 0) return }
         clearTimeout(hoverTimer.current); clearTimeout(closeTimer.current)
         // detail 为 0 说明是键盘 Enter/Space 触发，打开后把焦点移入面板。
-        if (event.detail === 0) keyboardOpen.current = true
-        setPinned(true)
+        if (event.detail === 0) { keyboardOpen.current = true; keyboardNavigating.current = true }
+        setDismissed(false); setPinned(true)
       }}
       onDragOver={dragOver} onDrop={event => { void handleDrop(event) }}>
       {attention > 0 && <span className="task-shelf-handle-dot" />}
     </button>
-    <aside ref={root} id={panelId} data-edge={preferences.edge} className={`task-shelf win-no-drag ${shown ? 'is-open' : ''} ${moving ? 'is-moving' : ''} ${docked ? 'is-docked' : ''} ${dropOver ? 'is-drop' : ''} ${showPreviews ? 'has-previews' : ''}`}
-    style={horizontal ? { width, height } : { width }} aria-hidden={!shown} aria-label={t('taskShelf.title')} onMouseEnter={enter} onMouseLeave={leave}
-    onFocus={holdEntryFocus} onBlur={leave} onDragOver={dragOver} onDragLeave={event => {
+    <aside ref={root} id={panelId} data-edge={preferences.edge} className={`task-shelf win-no-drag ${shown ? 'is-open' : ''} ${moving ? 'is-moving' : ''} ${docked && shown ? 'is-docked' : ''} ${dropOver ? 'is-drop' : ''} ${showPreviews ? 'has-previews' : ''}`}
+    style={horizontal ? { width, height } : { width }} aria-hidden={!shown} aria-label={t('taskShelf.title')} onMouseEnter={enter} onMouseLeave={exit}
+    onCompositionStart={() => { composing.current = true }} onCompositionEnd={() => { composing.current = false; if (!pointerInside.current) leave() }}
+    onKeyDownCapture={event => { if (['Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) keyboardNavigating.current = true }}
+    onPointerDownCapture={() => { keyboardNavigating.current = false }}
+    onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) keyboardNavigating.current = false; if (!pointerInside.current) leave() }} onDragOver={dragOver} onDragLeave={event => {
       if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { setDropOver(false); leave() }
     }} onDrop={event => { void handleDrop(event) }}>
     <div className="task-shelf-panel">
@@ -371,41 +450,38 @@ const TaskShelf: React.FC = () => {
       <header className="task-shelf-header">
         <div className="task-shelf-heading"><h2>{t('taskShelf.shortTitle')}{attention > 0 && <span className="task-shelf-attention" aria-label={t('taskShelf.attention', { count: attention })} />}</h2></div>
         <div className="task-shelf-modes" role="group" aria-label={t('taskShelf.displayMode')}>
-          {(['auto', 'hover', 'fixed'] as const).map(mode => <button key={mode} aria-pressed={preferences.mode === mode} onClick={() => setPreferences(p => ({ ...p, mode }))}>{t(`taskShelf.mode.${mode}`)}</button>)}
-          <select className="task-shelf-mode-select" aria-label={t('taskShelf.displayMode')} value={preferences.mode} onChange={event => setPreferences(p => ({ ...p, mode: event.target.value as ShelfMode }))}>
+          {(['auto', 'hover', 'fixed'] as const).map(mode => <button key={mode} aria-pressed={preferences.mode === mode} onClick={() => { setDismissed(false); setPreferences(p => ({ ...p, mode })) }}>{t(`taskShelf.mode.${mode}`)}</button>)}
+          <select className="task-shelf-mode-select" aria-label={t('taskShelf.displayMode')} value={preferences.mode} onChange={event => { setDismissed(false); setPreferences(p => ({ ...p, mode: event.target.value as ShelfMode })) }}>
             {(['auto', 'hover', 'fixed'] as const).map(mode => <option key={mode} value={mode}>{t(`taskShelf.mode.${mode}`)}</option>)}
           </select>
         </div>
-        <button className="task-shelf-icon-button task-shelf-collapse" title={t('taskShelf.collapse')} aria-label={t('taskShelf.collapse')} onClick={() => { closePanel(); if (docked) { setDocked(false); setPreferences(p => ({ ...p, mode: 'hover' })) } }}><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg></button>
+        <button className="task-shelf-icon-button task-shelf-collapse" title={t('taskShelf.collapse')} aria-label={t('taskShelf.collapse')} onClick={closePanel}><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg></button>
       </header>
       <div className="task-shelf-view-row">
       <div className="task-shelf-views" role="tablist" aria-label={t('taskShelf.taskViews')} onKeyDown={event => {
         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
         event.preventDefault()
+        choseView.current = true; useTaskShelf.getState().invalidateIntent()
         const current = showNotices ? 2 : showArchived ? 1 : 0
         const next = event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (current + (event.key === 'ArrowLeft' ? 2 : 1)) % 3
         setShowArchived(next === 1); setShowNotices(next === 2)
         event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
       }}>
-        <button role="tab" tabIndex={!showArchived && !showNotices ? 0 : -1} aria-selected={!showArchived && !showNotices} onClick={() => { setShowArchived(false); setShowNotices(false) }}>{t('taskShelf.activeTasks')} <span className="task-shelf-view-count">{entries.filter(entry => !entry.archivedAt).length}</span></button>
-        <button role="tab" tabIndex={showArchived && !showNotices ? 0 : -1} aria-selected={showArchived && !showNotices} onClick={() => { setShowArchived(true); setShowNotices(false) }}>{t('taskShelf.archivedTasks')} <span className="task-shelf-view-count">{entries.filter(entry => !!entry.archivedAt).length}</span></button>
-        <button role="tab" tabIndex={showNotices ? 0 : -1} aria-selected={showNotices} onClick={() => setShowNotices(true)}>{t('taskShelf.notices')} <span className="task-shelf-view-count">{unreadNoticeIds.length}</span></button>
+        <button role="tab" tabIndex={!showArchived && !showNotices ? 0 : -1} aria-selected={!showArchived && !showNotices} onClick={() => { choseView.current = true; useTaskShelf.getState().invalidateIntent(); setShowArchived(false); setShowNotices(false) }}>{t('taskShelf.activeTasks')} <span className="task-shelf-view-count">{entries.filter(entry => !entry.archivedAt).length}</span></button>
+        <button role="tab" tabIndex={showArchived && !showNotices ? 0 : -1} aria-selected={showArchived && !showNotices} onClick={() => { choseView.current = true; useTaskShelf.getState().invalidateIntent(); setShowArchived(true); setShowNotices(false) }}>{t('taskShelf.archivedTasks')} <span className="task-shelf-view-count">{entries.filter(entry => !!entry.archivedAt).length}</span></button>
+        <button role="tab" tabIndex={showNotices ? 0 : -1} aria-selected={showNotices} onClick={() => { choseView.current = true; useTaskShelf.getState().invalidateIntent(); setShowNotices(true) }}>{t('taskShelf.notices')} <span className="task-shelf-view-count">{unreadNoticeIds.length}</span></button>
       </div>
 
       {!showArchived && !showNotices && <button className="task-shelf-view-action" disabled={!tasksInMain.length || tasksInMain.some(entry => busy[entry.id])} aria-label={t('taskShelf.recallAll')} title={t('taskShelf.recallAllHint')} onClick={recallAll}>
         <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 4h4v12h-4M3 10h9m-3-3 3 3-3 3" /></svg><span>{t('taskShelf.recallAll')}</span>
       </button>}
-      {showArchived && !showNotices && <div className="task-shelf-archive-actions">
-        <button className="task-shelf-view-action" aria-label={t(restoringArchived ? 'taskShelf.restoringAll' : 'taskShelf.restoreAll')} disabled={!loaded || restoringArchived || !entries.some(entry => !!entry.archivedAt)} title={t('taskShelf.restoreAllHint')} onClick={() => {
-          void restoreArchived().then(restored => {
-            if (!restored) return
-            focusRestoredTasks.current = true
-            setSelected(null); setShowArchived(false); setShowNotices(false)
-          })
-        }}><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6h9a4 4 0 0 1 0 8H9M7 3 4 6l3 3M4 14v3h12v-3" /></svg><span>{t(restoringArchived ? 'taskShelf.restoringAll' : 'taskShelf.restoreAll')}</span></button>
+      </div>
+      </div>
+      {!showNotices && <div className="task-shelf-policy">
+        {showArchived ? <button disabled={activating || startup?.status !== 'ready' || !displayedEntries.length} onClick={() => { void activate(undefined, selectedEntry?.id) }}>{t(activating ? 'taskShelf.activating' : 'taskShelf.activateAll')}</button>
+          : <label>{t('taskShelf.realtimeLabel')}<select value={realtime} onChange={event => { const next = event.target.value === 'none' ? 'none' : 'tasks'; useTaskShelf.getState().invalidateIntent(); setRealtime(next); try { localStorage.setItem('lyshell.taskShelf.realtime.v1', next) } catch { /* 当前运行仍生效 */ } }}><option value="tasks">{t('taskShelf.realtimeTasks')}</option><option value="none">{t('taskShelf.realtimeNone')}</option></select></label>}
       </div>}
-      </div>
-      </div>
+      {activation && !showNotices && <div className="task-shelf-activation" role="status">{t('taskShelf.activationResult', { ...activation })}{activation.failed > 0 && <button disabled={activating} onClick={() => { void useTaskShelf.getState().retryActivation() }}>{t('taskShelf.retryActivation')}</button>}</div>}
       {error && <div className="task-shelf-error" role="alert"><span>{error}</span><button onClick={() => { void retry() }}>{t('taskShelf.retry')}</button></div>}
       {canDrop && <div className="task-shelf-drop-target">{t('taskShelf.drop')}</div>}
       <div ref={body} className="task-shelf-body" style={horizontal ? { '--shelf-grid-width': `${horizontalLayout.gridWidth}px`, '--shelf-preview-width': `${horizontalLayout.previewCardWidth}px` } as React.CSSProperties : undefined}>
@@ -414,15 +490,22 @@ const TaskShelf: React.FC = () => {
           const binding = bindings[entry.id]
           const inMain = shelfEntryVisible(entry.id)
           const status = resolveShelfTaskStatus(entry, binding, activity, sessions.find(s => s.id === binding?.id)?.status, Math.max(now, Date.now()))
-          return <button key={entry.id} className={`task-shelf-tile ${focusedId === entry.id ? 'is-selected' : ''} ${inMain ? 'is-in-main' : ''}`}
+          return <button key={entry.id} data-shelf-card={entry.id} className={`task-shelf-tile ${focusedId === entry.id ? 'is-selected' : ''} ${inMain ? 'is-in-main' : ''}`}
             aria-label={t('taskShelf.slot', { index: index + 1 })} title={[entry.title, entry.workspace, t(`taskShelf.activityStatus.${status}`), inMain ? t('taskShelf.inMain') : ''].filter(Boolean).join('\n')}
-            disabled={busy[entry.id]} onFocus={() => setSelected(entry.id)} onContextMenu={event => showShelfEntryContextMenu(event, entry.id)}
+            disabled={busy[entry.id] || activating} onFocus={() => setSelected(entry.id)} onContextMenu={event => showShelfEntryContextMenu(event, entry.id)}
             onClick={() => {
+              useTaskShelf.getState().invalidateIntent()
               setSelected(entry.id)
-              if (!showPreviews || inMain || !binding) void openInMain(entry.id)
-              else [...root.current?.querySelectorAll<HTMLElement>('[data-shelf-entry]') ?? []].find(node => node.dataset.shelfEntry === entry.id)?.scrollIntoView?.({ block: 'nearest' })
+              if (showArchived) void activate([entry.id], entry.id)
+              else if (inMain) void openInMain(entry.id)
+              else {
+                const intent = useTaskShelf.getState().uiIntentRevision
+                if (SHELF_SIDEBAR_RESTORE_ENABLED && restorePolicy.current && entry.recovery.kind === 'web' && !binding) void requestShelfBrowserRestore(entry.id, 'explicitShelf', () => canRestore(entry.id, intent))
+                const node = [...root.current?.querySelectorAll<HTMLElement>('[data-shelf-entry]') ?? []].find(node => node.dataset.shelfEntry === entry.id)
+                node?.scrollIntoView?.({ block: 'nearest' })
+              }
             }}>
-            <span className="task-shelf-tile-surface">{shown && binding && !inMain
+            <span className="task-shelf-tile-surface">{SHELF_PREVIEWS_ENABLED && shown && !showArchived && realtime === 'tasks' && binding && !inMain
               ? <TaskShelfPreview kind={binding.kind} id={binding.id} variant="tile" fallback={<ShelfIcon kind={entry.recovery.kind} />} />
               : <span className="task-shelf-tile-location"><ShelfIcon kind={entry.recovery.kind} /><span>{t(`taskShelf.type.${entry.recovery.kind}`)}</span></span>}</span>
             <span className="task-shelf-tile-label">{entry.title}</span>
@@ -431,6 +514,11 @@ const TaskShelf: React.FC = () => {
         })}
       </div>}
       <div className={`task-shelf-list ${focusedWindows.length > 0 && !showNotices ? 'has-live-windows' : ''}`}>
+        {selectedEntry && showPreviews && !showNotices && !bindings[selectedEntry.id] && <div className="task-shelf-detail">
+          <strong>{selectedEntry.title}</strong>
+          {restoreErrors[selectedEntry.id] && <p role="status">{restoreErrors[selectedEntry.id]}</p>}
+          <button disabled={busy[selectedEntry.id]} onClick={() => { void openInMain(selectedEntry.id) }}>{t('taskShelf.openInMain')}</button>
+        </div>}
         {!loaded && <span className="task-shelf-loading" role="status">{t('taskShelf.loading')}</span>}
         {loaded && !showNotices && displayedEntries.length === 0 && <div className="task-shelf-empty">
           <ShelfIcon /><h3>{t(showArchived ? 'taskShelf.emptyArchive' : 'taskShelf.emptyTitle')}</h3>
@@ -474,6 +562,7 @@ const TaskShelf: React.FC = () => {
               }}><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="13" cy="8" r="1"/></svg></button>
             </div>
             </div>
+            {restoreErrors[entry.id] && <p className="task-shelf-error" role="status">{restoreErrors[entry.id]}</p>}
             {shown && showPreviews && binding && <div className="task-shelf-window-body">
               {binding.kind === 'web' && <TaskShelfBrowserBar id={binding.id} interactive={interactive} />}
               <div className={`task-shelf-window-content is-${binding.kind}`}><TaskShelfLiveSurface kind={binding.kind} id={binding.id} interactive={interactive} /></div>
@@ -482,7 +571,8 @@ const TaskShelf: React.FC = () => {
         })}
       </div>
       </div>
-      {selectedEntry && !horizontal && !showPreviews && !showNotices && <div className="task-shelf-detail">
+      {selectedEntry && !showPreviews && !showNotices && <div className="task-shelf-detail">
+        <button disabled={busy[selectedEntry.id] || activating} onClick={() => { void openInMain(selectedEntry.id) }}>{t('taskShelf.openInMain')}</button>
         {selectedEntry.recovery.kind === 'terminal' && selectedEntry.recovery.type === 'ssh' && <p>{selectedEntry.recovery.cwd ? t('taskShelf.remoteDirectory', { directory: selectedEntry.recovery.cwd }) : t('taskShelf.remoteDirectoryUnknown')}</p>}
         {selectedEntry.context && <details className="task-shelf-context"><summary>{t('taskShelf.contextTitle')}</summary><p>{t('taskShelf.contextHint')}</p><pre tabIndex={0} aria-label={t('taskShelf.contextTitle')}>{selectedEntry.context.text}</pre></details>}
         {selectedEntry.recovery.kind === 'terminal' && selectedEntry.recovery.cliSessionId && <p className="task-shelf-session-id" title={selectedEntry.recovery.cliSessionId}>{selectedEntry.recovery.cliSessionId}</p>}

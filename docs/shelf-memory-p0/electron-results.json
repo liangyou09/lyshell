@@ -1,0 +1,1016 @@
+{
+  "kind": "isolated-component-fixture",
+  "units": "MiB unless named otherwise",
+  "applicationBenchmark": false,
+  "productionReady": false,
+  "capabilityGate": {
+    "safeWebviewClose": false,
+    "hiddenGuestCapture": false
+  },
+  "externalTasks": "none launched",
+  "sourceCommit": "34d64dc3eed8bc7c53a03775475808545340d72e",
+  "rounds": [
+    {
+      "round": 1,
+      "versions": {
+        "node": "24.21.0",
+        "acorn": "8.18.0",
+        "ada": "4.0.0",
+        "amaro": "1.1.11",
+        "ares": "1.34.8",
+        "brotli": "1.2.0",
+        "cldr": "48.0",
+        "icu": "78.2",
+        "llhttp": "9.4.3",
+        "merve": "1.2.2",
+        "modules": "148",
+        "napi": "10",
+        "nbytes": "0.1.4",
+        "ncrypto": "0.0.1",
+        "nghttp2": "1.70.0",
+        "nghttp3": "",
+        "ngtcp2": "",
+        "openssl": "0.0.0",
+        "simdjson": "4.6.7",
+        "simdutf": "7.7.0",
+        "sqlite": "3.53.4",
+        "tz": "2026d",
+        "undici": "7.29.1",
+        "unicode": "17.0",
+        "uv": "1.52.1",
+        "uvwasi": "0.0.23",
+        "v8": "15.0.245.31-electron.0",
+        "zlib": "1.3.2.1-motley",
+        "zstd": "1.6.0",
+        "electron": "43.7.11",
+        "chrome": "150.0.7871.250"
+      },
+      "cpu": "Intel(R) Core(TM) i5-10505 CPU @ 3.20GHz",
+      "totalMemory": 34058174464,
+      "display": {
+        "accelerometerSupport": "unknown",
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "width": 3440,
+          "height": 1440
+        },
+        "colorDepth": 24,
+        "colorSpace": "{primaries:BT709, transfer:SRGB, matrix:RGB, range:FULL}",
+        "depthPerComponent": 8,
+        "detected": true,
+        "displayFrequency": 59,
+        "id": 531024683,
+        "internal": false,
+        "label": "34G6K",
+        "maximumCursorSize": {
+          "width": 0,
+          "height": 0
+        },
+        "monochrome": false,
+        "nativeOrigin": {
+          "x": 0,
+          "y": 0
+        },
+        "rotation": 0,
+        "scaleFactor": 1,
+        "size": {
+          "width": 3440,
+          "height": 1440
+        },
+        "workArea": {
+          "x": 0,
+          "y": 0,
+          "width": 3440,
+          "height": 1392
+        },
+        "workAreaSize": {
+          "width": 3440,
+          "height": 1392
+        },
+        "touchSupport": "unknown"
+      },
+      "probes": {
+        "capture": {
+          "width": 960,
+          "height": 600,
+          "encodedCharacters": 24782
+        },
+        "stayHiddenCapture": {
+          "error": "UnknownVizError",
+          "hostVisible": false
+        },
+        "beforeUnload": {
+          "prevented": true,
+          "survived": false
+        },
+        "remainingGuests": 0
+      },
+      "phases": [
+        {
+          "phase": "startup",
+          "totalPrivateMiB": {
+            "n": 1,
+            "min": 73.89453125,
+            "p50": 73.89453125,
+            "p95": 73.89453125,
+            "max": 73.89453125
+          },
+          "totalWorkingSetMiB": {
+            "n": 1,
+            "min": 367.06640625,
+            "p50": 367.06640625,
+            "p95": 367.06640625,
+            "max": 367.06640625
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "web-1",
+          "totalPrivateMiB": {
+            "n": 16,
+            "min": 136.6015625,
+            "p50": 173.125,
+            "p95": 173.16015625,
+            "max": 173.16015625
+          },
+          "totalWorkingSetMiB": {
+            "n": 16,
+            "min": 624.9140625,
+            "p50": 663.5859375,
+            "p95": 663.59375,
+            "max": 663.59375
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "web-10",
+          "totalPrivateMiB": {
+            "n": 18,
+            "min": 189.77734375,
+            "p50": 464.53125,
+            "p95": 558.98046875,
+            "max": 558.98046875
+          },
+          "totalWorkingSetMiB": {
+            "n": 18,
+            "min": 681.43359375,
+            "p50": 1780.07421875,
+            "p95": 2318.02734375,
+            "max": 2318.02734375
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "web-30",
+          "totalPrivateMiB": {
+            "n": 20,
+            "min": 475.01171875,
+            "p50": 1112.4765625,
+            "p95": 1113.13671875,
+            "max": 1188.49609375
+          },
+          "totalWorkingSetMiB": {
+            "n": 20,
+            "min": 1792.6953125,
+            "p50": 4262.953125,
+            "p95": 4263.3984375,
+            "max": 4697.06640625
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "protected-close",
+          "totalPrivateMiB": {
+            "n": 5,
+            "min": 788.76171875,
+            "p50": 1116.609375,
+            "p95": 1116.76953125,
+            "max": 1116.76953125
+          },
+          "totalWorkingSetMiB": {
+            "n": 5,
+            "min": 2932.5078125,
+            "p50": 4269.66015625,
+            "p95": 4269.87890625,
+            "max": 4269.87890625
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "closed-guests",
+          "totalPrivateMiB": {
+            "n": 15,
+            "min": 200.1171875,
+            "p50": 200.1171875,
+            "p95": 200.17578125,
+            "max": 200.17578125
+          },
+          "totalWorkingSetMiB": {
+            "n": 15,
+            "min": 600.71875,
+            "p50": 600.76171875,
+            "p95": 600.765625,
+            "max": 600.765625
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "xterm-1",
+          "totalPrivateMiB": {
+            "n": 11,
+            "min": 213.234375,
+            "p50": 227.62890625,
+            "p95": 229.34375,
+            "max": 229.34375
+          },
+          "totalWorkingSetMiB": {
+            "n": 11,
+            "min": 615.03125,
+            "p50": 629.11328125,
+            "p95": 632.33984375,
+            "max": 632.33984375
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "xterm-10",
+          "totalPrivateMiB": {
+            "n": 13,
+            "min": 241.8125,
+            "p50": 395.3828125,
+            "p95": 403.6328125,
+            "max": 403.6328125
+          },
+          "totalWorkingSetMiB": {
+            "n": 13,
+            "min": 644.30078125,
+            "p50": 796.44921875,
+            "p95": 804.20703125,
+            "max": 804.20703125
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "xterm-30",
+          "totalPrivateMiB": {
+            "n": 17,
+            "min": 412.37109375,
+            "p50": 792.578125,
+            "p95": 793.0234375,
+            "max": 793.0234375
+          },
+          "totalWorkingSetMiB": {
+            "n": 17,
+            "min": 812.8515625,
+            "p50": 1191.93359375,
+            "p95": 1192.33984375,
+            "max": 1192.33984375
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "metadata-cards-20",
+          "totalPrivateMiB": {
+            "n": 6,
+            "min": 792.48046875,
+            "p50": 792.48046875,
+            "p95": 792.578125,
+            "max": 792.578125
+          },
+          "totalWorkingSetMiB": {
+            "n": 6,
+            "min": 1191.8515625,
+            "p50": 1191.9140625,
+            "p95": 1191.9453125,
+            "max": 1191.9453125
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "metadata-cards-100",
+          "totalPrivateMiB": {
+            "n": 6,
+            "min": 792.609375,
+            "p50": 792.609375,
+            "p95": 792.96875,
+            "max": 792.96875
+          },
+          "totalWorkingSetMiB": {
+            "n": 6,
+            "min": 1191.9453125,
+            "p50": 1191.9453125,
+            "p95": 1192.64453125,
+            "max": 1192.64453125
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "disposed",
+          "totalPrivateMiB": {
+            "n": 10,
+            "min": 791.2734375,
+            "p50": 792.80078125,
+            "p95": 792.80078125,
+            "max": 792.80078125
+          },
+          "totalWorkingSetMiB": {
+            "n": 10,
+            "min": 1190.65234375,
+            "p50": 1192.40625,
+            "p95": 1192.40625,
+            "max": 1192.40625
+          },
+          "sampledPeakOnly": true
+        }
+      ],
+      "samplerMs": {
+        "n": 138,
+        "min": 0.17399999999906868,
+        "p50": 0.32660000000032596,
+        "p95": 1.6251000000002023,
+        "max": 1.925799999999981
+      }
+    },
+    {
+      "round": 2,
+      "versions": {
+        "node": "24.21.0",
+        "acorn": "8.18.0",
+        "ada": "4.0.0",
+        "amaro": "1.1.11",
+        "ares": "1.34.8",
+        "brotli": "1.2.0",
+        "cldr": "48.0",
+        "icu": "78.2",
+        "llhttp": "9.4.3",
+        "merve": "1.2.2",
+        "modules": "148",
+        "napi": "10",
+        "nbytes": "0.1.4",
+        "ncrypto": "0.0.1",
+        "nghttp2": "1.70.0",
+        "nghttp3": "",
+        "ngtcp2": "",
+        "openssl": "0.0.0",
+        "simdjson": "4.6.7",
+        "simdutf": "7.7.0",
+        "sqlite": "3.53.4",
+        "tz": "2026d",
+        "undici": "7.29.1",
+        "unicode": "17.0",
+        "uv": "1.52.1",
+        "uvwasi": "0.0.23",
+        "v8": "15.0.245.31-electron.0",
+        "zlib": "1.3.2.1-motley",
+        "zstd": "1.6.0",
+        "electron": "43.7.11",
+        "chrome": "150.0.7871.250"
+      },
+      "cpu": "Intel(R) Core(TM) i5-10505 CPU @ 3.20GHz",
+      "totalMemory": 34058174464,
+      "display": {
+        "accelerometerSupport": "unknown",
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "width": 3440,
+          "height": 1440
+        },
+        "colorDepth": 24,
+        "colorSpace": "{primaries:BT709, transfer:SRGB, matrix:RGB, range:FULL}",
+        "depthPerComponent": 8,
+        "detected": true,
+        "displayFrequency": 59,
+        "id": 531024683,
+        "internal": false,
+        "label": "34G6K",
+        "maximumCursorSize": {
+          "width": 0,
+          "height": 0
+        },
+        "monochrome": false,
+        "nativeOrigin": {
+          "x": 0,
+          "y": 0
+        },
+        "rotation": 0,
+        "scaleFactor": 1,
+        "size": {
+          "width": 3440,
+          "height": 1440
+        },
+        "workArea": {
+          "x": 0,
+          "y": 0,
+          "width": 3440,
+          "height": 1392
+        },
+        "workAreaSize": {
+          "width": 3440,
+          "height": 1392
+        },
+        "touchSupport": "unknown"
+      },
+      "probes": {
+        "capture": {
+          "width": 960,
+          "height": 600,
+          "encodedCharacters": 24782
+        },
+        "stayHiddenCapture": {
+          "error": "UnknownVizError",
+          "hostVisible": false
+        },
+        "beforeUnload": {
+          "prevented": true,
+          "survived": false
+        },
+        "remainingGuests": 0
+      },
+      "phases": [
+        {
+          "phase": "startup",
+          "totalPrivateMiB": {
+            "n": 1,
+            "min": 77.58203125,
+            "p50": 77.58203125,
+            "p95": 77.58203125,
+            "max": 77.58203125
+          },
+          "totalWorkingSetMiB": {
+            "n": 1,
+            "min": 369.7421875,
+            "p50": 369.7421875,
+            "p95": 369.7421875,
+            "max": 369.7421875
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "web-1",
+          "totalPrivateMiB": {
+            "n": 16,
+            "min": 140.4453125,
+            "p50": 177.30859375,
+            "p95": 177.32421875,
+            "max": 177.32421875
+          },
+          "totalWorkingSetMiB": {
+            "n": 16,
+            "min": 627.84765625,
+            "p50": 666.62890625,
+            "p95": 666.63671875,
+            "max": 666.63671875
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "web-10",
+          "totalPrivateMiB": {
+            "n": 19,
+            "min": 194.84375,
+            "p50": 475.78515625,
+            "p95": 519.29296875,
+            "max": 519.29296875
+          },
+          "totalWorkingSetMiB": {
+            "n": 19,
+            "min": 685.09765625,
+            "p50": 1789.12890625,
+            "p95": 2103.2421875,
+            "max": 2103.2421875
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "web-30",
+          "totalPrivateMiB": {
+            "n": 20,
+            "min": 491.23046875,
+            "p50": 1108.00390625,
+            "p95": 1108.046875,
+            "max": 1126.74609375
+          },
+          "totalWorkingSetMiB": {
+            "n": 20,
+            "min": 1807.36328125,
+            "p50": 4256.66796875,
+            "p95": 4259.44921875,
+            "max": 4364.4765625
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "capture",
+          "totalPrivateMiB": {
+            "n": 1,
+            "min": 1113.21875,
+            "p50": 1113.21875,
+            "p95": 1113.21875,
+            "max": 1113.21875
+          },
+          "totalWorkingSetMiB": {
+            "n": 1,
+            "min": 4266.484375,
+            "p50": 4266.484375,
+            "p95": 4266.484375,
+            "max": 4266.484375
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "protected-close",
+          "totalPrivateMiB": {
+            "n": 4,
+            "min": 898.3046875,
+            "p50": 1111.1796875,
+            "p95": 1111.46875,
+            "max": 1111.46875
+          },
+          "totalWorkingSetMiB": {
+            "n": 4,
+            "min": 3408.34375,
+            "p50": 4262.51953125,
+            "p95": 4262.82421875,
+            "max": 4262.82421875
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "closed-guests",
+          "totalPrivateMiB": {
+            "n": 15,
+            "min": 204.4140625,
+            "p50": 204.4140625,
+            "p95": 204.4765625,
+            "max": 204.4765625
+          },
+          "totalWorkingSetMiB": {
+            "n": 15,
+            "min": 602.984375,
+            "p50": 603.01953125,
+            "p95": 603.046875,
+            "max": 603.046875
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "xterm-1",
+          "totalPrivateMiB": {
+            "n": 12,
+            "min": 207.26171875,
+            "p50": 231.18359375,
+            "p95": 231.3125,
+            "max": 231.3125
+          },
+          "totalWorkingSetMiB": {
+            "n": 12,
+            "min": 606.8203125,
+            "p50": 630.76171875,
+            "p95": 631.81640625,
+            "max": 631.81640625
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "xterm-10",
+          "totalPrivateMiB": {
+            "n": 13,
+            "min": 270.03125,
+            "p50": 397.07421875,
+            "p95": 409.80078125,
+            "max": 409.80078125
+          },
+          "totalWorkingSetMiB": {
+            "n": 13,
+            "min": 670.20703125,
+            "p50": 797.5078125,
+            "p95": 808.95703125,
+            "max": 808.95703125
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "xterm-30",
+          "totalPrivateMiB": {
+            "n": 17,
+            "min": 455.92578125,
+            "p50": 802.51171875,
+            "p95": 802.51171875,
+            "max": 802.51171875
+          },
+          "totalWorkingSetMiB": {
+            "n": 17,
+            "min": 854.59375,
+            "p50": 1199.73046875,
+            "p95": 1199.74609375,
+            "max": 1199.74609375
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "metadata-cards-20",
+          "totalPrivateMiB": {
+            "n": 5,
+            "min": 801.11328125,
+            "p50": 801.11328125,
+            "p95": 801.11328125,
+            "max": 801.11328125
+          },
+          "totalWorkingSetMiB": {
+            "n": 5,
+            "min": 1198.578125,
+            "p50": 1198.578125,
+            "p95": 1198.58203125,
+            "max": 1198.58203125
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "metadata-cards-100",
+          "totalPrivateMiB": {
+            "n": 6,
+            "min": 801.0859375,
+            "p50": 801.0859375,
+            "p95": 801.1875,
+            "max": 801.1875
+          },
+          "totalWorkingSetMiB": {
+            "n": 6,
+            "min": 1198.5546875,
+            "p50": 1198.5546875,
+            "p95": 1198.78125,
+            "max": 1198.78125
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "disposed",
+          "totalPrivateMiB": {
+            "n": 11,
+            "min": 801.67578125,
+            "p50": 801.67578125,
+            "p95": 802.375,
+            "max": 802.375
+          },
+          "totalWorkingSetMiB": {
+            "n": 11,
+            "min": 1198.83984375,
+            "p50": 1198.83984375,
+            "p95": 1199.5078125,
+            "max": 1199.5078125
+          },
+          "sampledPeakOnly": true
+        }
+      ],
+      "samplerMs": {
+        "n": 140,
+        "min": 0.13400000000001455,
+        "p50": 0.3246999999992113,
+        "p95": 1.334899999999834,
+        "max": 1.5354999999999563
+      }
+    },
+    {
+      "round": 3,
+      "versions": {
+        "node": "24.21.0",
+        "acorn": "8.18.0",
+        "ada": "4.0.0",
+        "amaro": "1.1.11",
+        "ares": "1.34.8",
+        "brotli": "1.2.0",
+        "cldr": "48.0",
+        "icu": "78.2",
+        "llhttp": "9.4.3",
+        "merve": "1.2.2",
+        "modules": "148",
+        "napi": "10",
+        "nbytes": "0.1.4",
+        "ncrypto": "0.0.1",
+        "nghttp2": "1.70.0",
+        "nghttp3": "",
+        "ngtcp2": "",
+        "openssl": "0.0.0",
+        "simdjson": "4.6.7",
+        "simdutf": "7.7.0",
+        "sqlite": "3.53.4",
+        "tz": "2026d",
+        "undici": "7.29.1",
+        "unicode": "17.0",
+        "uv": "1.52.1",
+        "uvwasi": "0.0.23",
+        "v8": "15.0.245.31-electron.0",
+        "zlib": "1.3.2.1-motley",
+        "zstd": "1.6.0",
+        "electron": "43.7.11",
+        "chrome": "150.0.7871.250"
+      },
+      "cpu": "Intel(R) Core(TM) i5-10505 CPU @ 3.20GHz",
+      "totalMemory": 34058174464,
+      "display": {
+        "accelerometerSupport": "unknown",
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "width": 3440,
+          "height": 1440
+        },
+        "colorDepth": 24,
+        "colorSpace": "{primaries:BT709, transfer:SRGB, matrix:RGB, range:FULL}",
+        "depthPerComponent": 8,
+        "detected": true,
+        "displayFrequency": 59,
+        "id": 531024683,
+        "internal": false,
+        "label": "34G6K",
+        "maximumCursorSize": {
+          "width": 0,
+          "height": 0
+        },
+        "monochrome": false,
+        "nativeOrigin": {
+          "x": 0,
+          "y": 0
+        },
+        "rotation": 0,
+        "scaleFactor": 1,
+        "size": {
+          "width": 3440,
+          "height": 1440
+        },
+        "workArea": {
+          "x": 0,
+          "y": 0,
+          "width": 3440,
+          "height": 1392
+        },
+        "workAreaSize": {
+          "width": 3440,
+          "height": 1392
+        },
+        "touchSupport": "unknown"
+      },
+      "probes": {
+        "capture": {
+          "width": 960,
+          "height": 600,
+          "encodedCharacters": 24782
+        },
+        "stayHiddenCapture": {
+          "error": "UnknownVizError",
+          "hostVisible": false
+        },
+        "beforeUnload": {
+          "prevented": true,
+          "survived": false
+        },
+        "remainingGuests": 0
+      },
+      "phases": [
+        {
+          "phase": "startup",
+          "totalPrivateMiB": {
+            "n": 1,
+            "min": 74.046875,
+            "p50": 74.046875,
+            "p95": 74.046875,
+            "max": 74.046875
+          },
+          "totalWorkingSetMiB": {
+            "n": 1,
+            "min": 366.87109375,
+            "p50": 366.87109375,
+            "p95": 366.87109375,
+            "max": 366.87109375
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "web-1",
+          "totalPrivateMiB": {
+            "n": 16,
+            "min": 135.68359375,
+            "p50": 173.52734375,
+            "p95": 173.5625,
+            "max": 173.5625
+          },
+          "totalWorkingSetMiB": {
+            "n": 16,
+            "min": 623.55859375,
+            "p50": 663.515625,
+            "p95": 663.52734375,
+            "max": 663.52734375
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "web-10",
+          "totalPrivateMiB": {
+            "n": 18,
+            "min": 189.98046875,
+            "p50": 474.03515625,
+            "p95": 511.6171875,
+            "max": 511.6171875
+          },
+          "totalWorkingSetMiB": {
+            "n": 18,
+            "min": 681.3203125,
+            "p50": 1788.2890625,
+            "p95": 2003.52734375,
+            "max": 2003.52734375
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "web-30",
+          "totalPrivateMiB": {
+            "n": 20,
+            "min": 486.76953125,
+            "p50": 1109.40234375,
+            "p95": 1127.87890625,
+            "max": 1167.72265625
+          },
+          "totalWorkingSetMiB": {
+            "n": 20,
+            "min": 1803.359375,
+            "p50": 4255.11328125,
+            "p95": 4365.96484375,
+            "max": 4582.1875
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "capture",
+          "totalPrivateMiB": {
+            "n": 1,
+            "min": 1112.640625,
+            "p50": 1112.640625,
+            "p95": 1112.640625,
+            "max": 1112.640625
+          },
+          "totalWorkingSetMiB": {
+            "n": 1,
+            "min": 4255.91796875,
+            "p50": 4255.91796875,
+            "p95": 4255.91796875,
+            "max": 4255.91796875
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "protected-close",
+          "totalPrivateMiB": {
+            "n": 4,
+            "min": 1113.08203125,
+            "p50": 1113.0859375,
+            "p95": 1113.26171875,
+            "max": 1113.26171875
+          },
+          "totalWorkingSetMiB": {
+            "n": 4,
+            "min": 4261.171875,
+            "p50": 4261.203125,
+            "p95": 4261.38671875,
+            "max": 4261.38671875
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "closed-guests",
+          "totalPrivateMiB": {
+            "n": 15,
+            "min": 201.33984375,
+            "p50": 201.34765625,
+            "p95": 208.2109375,
+            "max": 208.2109375
+          },
+          "totalWorkingSetMiB": {
+            "n": 15,
+            "min": 599.91015625,
+            "p50": 599.9609375,
+            "p95": 611.0234375,
+            "max": 611.0234375
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "xterm-1",
+          "totalPrivateMiB": {
+            "n": 12,
+            "min": 201.34765625,
+            "p50": 227.01953125,
+            "p95": 231.27734375,
+            "max": 231.27734375
+          },
+          "totalWorkingSetMiB": {
+            "n": 12,
+            "min": 599.97265625,
+            "p50": 627.63671875,
+            "p95": 632.78515625,
+            "max": 632.78515625
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "xterm-10",
+          "totalPrivateMiB": {
+            "n": 13,
+            "min": 249.96484375,
+            "p50": 399.1328125,
+            "p95": 408.2265625,
+            "max": 408.2265625
+          },
+          "totalWorkingSetMiB": {
+            "n": 13,
+            "min": 650.96875,
+            "p50": 798.92578125,
+            "p95": 806.28515625,
+            "max": 806.28515625
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "xterm-30",
+          "totalPrivateMiB": {
+            "n": 18,
+            "min": 432.73828125,
+            "p50": 792.26171875,
+            "p95": 793.375,
+            "max": 793.375
+          },
+          "totalWorkingSetMiB": {
+            "n": 18,
+            "min": 830.5078125,
+            "p50": 1189.83203125,
+            "p95": 1190.9296875,
+            "max": 1190.9296875
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "metadata-cards-20",
+          "totalPrivateMiB": {
+            "n": 6,
+            "min": 792.26171875,
+            "p50": 792.26171875,
+            "p95": 792.26171875,
+            "max": 792.26171875
+          },
+          "totalWorkingSetMiB": {
+            "n": 6,
+            "min": 1189.83984375,
+            "p50": 1189.90234375,
+            "p95": 1189.90234375,
+            "max": 1189.90234375
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "metadata-cards-100",
+          "totalPrivateMiB": {
+            "n": 6,
+            "min": 792.04296875,
+            "p50": 792.04296875,
+            "p95": 792.26171875,
+            "max": 792.26171875
+          },
+          "totalWorkingSetMiB": {
+            "n": 6,
+            "min": 1189.8125,
+            "p50": 1189.8125,
+            "p95": 1189.90234375,
+            "max": 1189.90234375
+          },
+          "sampledPeakOnly": true
+        },
+        {
+          "phase": "disposed",
+          "totalPrivateMiB": {
+            "n": 10,
+            "min": 791.9296875,
+            "p50": 792.3046875,
+            "p95": 792.3046875,
+            "max": 792.3046875
+          },
+          "totalWorkingSetMiB": {
+            "n": 10,
+            "min": 1189.5859375,
+            "p50": 1189.890625,
+            "p95": 1189.890625,
+            "max": 1189.890625
+          },
+          "sampledPeakOnly": true
+        }
+      ],
+      "samplerMs": {
+        "n": 140,
+        "min": 0.11959999999999127,
+        "p50": 0.2445000000006985,
+        "p95": 1.0981000000001586,
+        "max": 1.511899999999514
+      }
+    }
+  ]
+}

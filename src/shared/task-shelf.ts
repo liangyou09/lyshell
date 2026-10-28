@@ -27,6 +27,32 @@ export interface TaskShelfEntry {
   capability: 'live-only' | 'local-live' | 'reconnect' | 'ssh-resume' | 'directory' | 'cli-resume' | 'cli-history' | 'web' | 'harness-history'
 }
 
+/** 启动归档状态：bootId/scopeId 标识本次运行与唯一保存仓库；ready 才能安全分类。 */
+export interface TaskShelfStartup {
+  bootId: string
+  scopeId: string
+  status: 'ready' | 'blocked'
+  archiveOnBoot: boolean
+  error?: string
+}
+
+/** 每项激活只有一种结果；分类失败与资源恢复失败分开计数。 */
+export type ShelfClassificationStatus = 'moved' | 'alreadyTasks' | 'conflict' | 'missing' | 'failed'
+
+export interface TaskShelfActivation {
+  requestId: string
+  items: Array<{ taskId: string; status: ShelfClassificationStatus }>
+  total: number
+  moved: number
+  alreadyTasks: number
+  conflict: number
+  missing: number
+  failed: number
+}
+
+/** 一次激活请求最多带仓库上限条记录，避免分批改变点击时的集合。 */
+export const SHELF_ACTIVATION_LIMIT = 100
+
 export type TaskShelfRequest =
   | { kind: 'list' }
   | { kind: 'capture'; resource: ShelfResource; entryId?: string }
@@ -37,11 +63,14 @@ export type TaskShelfRequest =
   /** 归档区「全部移回 Tasks」：只改列表归属，不恢复任何实例。 */
   | { kind: 'unarchiveAll' }
   | { kind: 'preferences'; preferences: TaskShelfPreferences }
+  | { kind: 'activate'; bootId: string; scopeId: string; requestId: string; items: Array<{ taskId: string; expectedRevision: number }> }
+  | { kind: 'retryInitialization'; bootId: string; scopeId: string }
 
 export type TaskShelfResult =
   | { success: true; entries: TaskShelfEntry[]; entry?: TaskShelfEntry; preferences?: TaskShelfPreferences;
-      restored?: { kind: 'terminal'; sessionId: string } | { kind: 'web'; url: string } | Extract<ShelfRecovery, { kind: 'harness' }> }
-  | { success: false; error: string }
+      restored?: { kind: 'terminal'; sessionId: string } | { kind: 'web'; url: string } | Extract<ShelfRecovery, { kind: 'harness' }>
+      startup?: TaskShelfStartup; activation?: TaskShelfActivation }
+  | { success: false; error: string; code?: string; startup?: TaskShelfStartup }
 
 export interface TaskShelfPreferences { toggleShortcut: string; collectShortcut: string }
 /** 展开默认用 Ctrl+`：不占用带 Shift 的字母组合，也就避开了命令面板的 Ctrl+Shift+P。 */

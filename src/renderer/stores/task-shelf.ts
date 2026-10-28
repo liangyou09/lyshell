@@ -1,9 +1,11 @@
 import { create } from 'zustand'
-import { DEFAULT_TASK_SHELF_PREFERENCES, type TaskShelfPreferences, type ShelfResource, type TaskShelfEntry, type TaskShelfRequest, type TaskShelfResult } from '@shared/task-shelf'
+import { DEFAULT_TASK_SHELF_PREFERENCES, type TaskShelfPreferences, type ShelfResource, type TaskShelfEntry, type TaskShelfRequest, type TaskShelfResult, type TaskShelfStartup, type TaskShelfActivation } from '@shared/task-shelf'
 import { usePaneStore } from './pane-store'
 import { useSessionStore } from './session-store'
 import { useWorkbenchActivity } from './workbench-activity'
 import { ConnectionStatus } from '@shared/types'
+import { createBrowserRestoreScheduler, type BrowserRestoreSource, type BrowserRestoreContext } from './browser-restore-scheduler'
+import { waitForBrowserLoad, settleBrowserLoad } from './browser-load-tracker'
 
 type Binding = { kind: ShelfResource['kind']; id: string }
 interface ShelfStore {
@@ -19,7 +21,16 @@ interface ShelfStore {
   reservedHeight: number
   reservedEdge: 'left' | 'right' | 'top' | 'bottom'
   panelVisible: boolean
-  viewRequest: { revision: number; open: boolean; entryId?: string; notices?: boolean } | null
+  viewRequest: { revision: number; open: boolean; entryId?: string; notices?: boolean; view?: 'tasks' | 'archive' } | null
+  startup: TaskShelfStartup | null
+  activation: TaskShelfActivation | null
+  activating: boolean
+  activationDemand: { revision: number; intent: number; ids: string[]; single: boolean; consumed?: boolean } | null
+  restoreErrors: Record<string, string>
+  uiIntentRevision: number
+  invalidateIntent: () => number
+  activate: (ids?: string[], selectionId?: string) => Promise<TaskShelfActivation | null>
+  retryActivation: () => Promise<void>
   showPanel: (entryId?: string, notices?: boolean) => void
   togglePanel: () => void
   preferences: TaskShelfPreferences
@@ -39,12 +50,57 @@ const pending = new Map<string, Promise<boolean>>()
 const dirty = new Set<string>()
 let timer: ReturnType<typeof setTimeout> | undefined
 
+async function restoreBrowser(context: BrowserRestoreContext): Promise<Binding> {
+  const id = context.resourceId
+  const current = useTaskShelf.getState().bindings[id]
+  if (current && usePaneStore.getState().overlayPayloads[current.id]) return current
+  const result = await invoke({ kind: 'restore', id })
+  if (!context.isValid()) throw new Error('Restore demand withdrawn')
+  if (result.restored?.kind !== 'web') throw new Error('Only ordinary webpages can be restored automatically')
+  const overlayId = `shelf-web-${id}`
+  const loaded = waitForBrowserLoad(overlayId)
+  // 立即安装拒绝处理器，挂载前的同步错误也不会产生 unhandled rejection。
+  void loaded.catch(() => undefined)
+  const pane = usePaneStore.getState()
+  const mounted = pane.mountOverlay(undefined, { kind: 'web', url: result.restored.url, title: result.entry?.title || result.restored.url, shelfTaskId: id }, { id: overlayId, background: true })
+  if (!mounted) { settleBrowserLoad(overlayId, '无法创建网页入口'); throw new Error('无法创建网页入口') }
+  context.onCreated()
+  const binding: Binding = { kind: 'web', id: mounted }
+  useTaskShelf.setState(state => ({ bindings: { ...state.bindings, [id]: binding } }))
+  pane.retainShelfResource(mounted, false, true)
+  if (context.source() === 'explicitMain') await reveal(binding)
+  else pane.shelveOverlay(mounted)
+  try { await loaded }
+  catch (error) { useTaskShelf.setState(state => state.entries.some(entry => entry.id === id) ? { restoreErrors: { ...state.restoreErrors, [id]: (error as Error).message } } : {}); throw error }
+  useTaskShelf.setState(state => { const restoreErrors = { ...state.restoreErrors }; delete restoreErrors[id]; return { restoreErrors } })
+  return binding
+}
+const browserRestores = createBrowserRestoreScheduler<Binding>({ run: restoreBrowser })
+export async function requestShelfBrowserRestore(id: string, source: BrowserRestoreSource, isValid: () => boolean): Promise<Binding | null> {
+  const result = await browserRestores.submit(id, source, isValid)
+  useTaskShelf.setState(state => {
+    if (!state.entries.some(entry => entry.id === id)) return {}
+    const restoreErrors = { ...state.restoreErrors }
+    if (result.status === 'ready') delete restoreErrors[id]
+    else if (result.status !== 'cancelled') restoreErrors[id] = result.error || (result.status === 'busy' ? '恢复预算已满，请选择卡片或在主区打开。' : '网页恢复失败，请在主区打开后重试。')
+    return { restoreErrors }
+  })
+  return result.status === 'ready' ? result.value : null
+}
+export const shelfBrowserRestoreDiagnostics = () => browserRestores.diagnostics()
+export function withdrawShelfBrowserRestores(): void {
+  for (const entry of useTaskShelf.getState().entries) {
+    browserRestores.withdraw(entry.id, 'explicitShelf')
+    browserRestores.withdraw(entry.id, 'bulkVisible')
+  }
+}
+
 function invoke(request: TaskShelfRequest): Promise<Extract<TaskShelfResult, { success: true }>> {
   const call = queue.then(async () => {
     if (!window.electronAPI?.taskShelfRequest) throw new Error('任务保存区暂不可用，请更新并重启 LyShell。')
     const result = await window.electronAPI.taskShelfRequest(request)
-    if (!result.success) throw new Error(result.error)
-    useTaskShelf.setState({ entries: result.entries, loaded: true, ...(result.preferences ? { preferences: result.preferences } : {}) })
+    if (!result.success) { if (result.startup) useTaskShelf.setState({ startup: result.startup }); throw new Error(result.error) }
+    useTaskShelf.setState({ entries: result.entries, loaded: true, ...(result.preferences ? { preferences: result.preferences } : {}), ...(result.startup ? { startup: result.startup } : {}) })
     return result
   })
   queue = call.then(() => undefined, () => undefined)
@@ -152,12 +208,44 @@ function schedule(id: string): void {
 }
 
 export const useTaskShelf = create<ShelfStore>((set, get) => ({
-  entries: [], bindings: {}, loaded: false, busy: {}, restoringArchived: false, error: null, saveErrors: {}, restoreFailures: {}, reservedWidth: 0, reservedHeight: 0, reservedEdge: 'right', panelVisible: false, viewRequest: null, preferences: { ...DEFAULT_TASK_SHELF_PREFERENCES },
-  showPanel: (entryId, notices = false) => set(state => ({ viewRequest: { revision: (state.viewRequest?.revision ?? 0) + 1, open: true, entryId, notices } })),
-  togglePanel: () => set(state => ({ viewRequest: { revision: (state.viewRequest?.revision ?? 0) + 1, open: !state.panelVisible } })),
+  entries: [], bindings: {}, loaded: false, busy: {}, restoringArchived: false, restoreFailures: {}, reservedHeight: 0, reservedEdge: 'right', error: null, saveErrors: {}, reservedWidth: 0, panelVisible: false, viewRequest: null, startup: null, activation: null, activating: false, activationDemand: null, restoreErrors: {}, uiIntentRevision: 0, preferences: { ...DEFAULT_TASK_SHELF_PREFERENCES },
+  invalidateIntent: () => { const next = get().uiIntentRevision + 1; set({ uiIntentRevision: next }); return next },
+  showPanel: (entryId, notices = false) => set(state => ({ uiIntentRevision: state.uiIntentRevision + 1, viewRequest: { revision: (state.viewRequest?.revision ?? 0) + 1, open: true, entryId, notices } })),
+  togglePanel: () => set(state => ({ uiIntentRevision: state.uiIntentRevision + 1, viewRequest: { revision: (state.viewRequest?.revision ?? 0) + 1, open: !state.panelVisible } })),
   load: async () => {
-    try { await invoke({ kind: 'list' }); set({ error: null }) }
+    try { const result = await invoke({ kind: 'list' }); set({ error: result.startup?.status === 'blocked' ? result.startup.error || '任务初始化失败，请重试。' : null }) }
     catch (error) { set({ error: (error as Error).message }) }
+  },
+  activate: async (ids, selectionId) => {
+    if (get().activating) return null
+    const startup = get().startup
+    if (!startup || startup.status !== 'ready') { set({ error: startup?.error || '任务初始化尚未完成，请重试。' }); return null }
+    // 点击时固定集合及版本；排队期间的新归档不加入本批。
+    const wanted = ids ? new Set(ids) : null
+    const snapshot = get().entries.filter(entry => wanted ? wanted.has(entry.id) : !!entry.archivedAt).map(entry => ({ taskId: entry.id, expectedRevision: entry.revision }))
+    const intent = get().invalidateIntent()
+    set({ activating: true, error: null })
+    try {
+      const result = await invoke({ kind: 'activate', bootId: startup.bootId, scopeId: startup.scopeId, requestId: crypto.randomUUID(), items: snapshot })
+      const activation = result.activation
+      if (!activation) throw new Error('激活结果未确认，请重新读取任务状态。')
+      set({ activation })
+      const successful = activation.items.filter(item => item.status === 'moved' || item.status === 'alreadyTasks').map(item => item.taskId)
+      if (successful.length && get().uiIntentRevision === intent) {
+        const target = selectionId && get().entries.some(e => e.id === selectionId && !e.archivedAt) ? selectionId : successful[0]
+        set(state => ({ viewRequest: { revision: (state.viewRequest?.revision ?? 0) + 1, open: state.panelVisible, view: 'tasks', entryId: target } }))
+        set(state => ({ activationDemand: { revision: (state.activationDemand?.revision ?? 0) + 1, intent, ids: successful, single: !!ids && ids.length === 1 } }))
+      }
+      return activation
+    } catch (error) { set({ error: (error as Error).message }); return null }
+    finally { set({ activating: false }) }
+  },
+  retryActivation: async () => {
+    const ids = get().activation?.items.filter(item => item.status === 'failed').map(item => item.taskId) ?? []
+    if (!ids.length) return
+    await get().load()
+    const eligible = ids.filter(id => get().entries.some(e => e.id === id && !!e.archivedAt))
+    if (eligible.length) await get().activate(eligible)
   },
   collect: resource => {
     const key = `${resource.kind}:${resource.id}`
@@ -181,16 +269,25 @@ export const useTaskShelf = create<ShelfStore>((set, get) => ({
     try {
       let binding = get().bindings[id]
       const stillLive = binding && (binding.kind !== 'terminal' || useSessionStore.getState().sessions.some(s => s.id === binding.id && ['connected', 'connecting'].includes(s.status)))
-      if (binding && stillLive && await reveal(binding, paneId, background)) return true
+      if (binding && stillLive && await reveal(binding, paneId, background)) { if (binding.kind === 'web') browserRestores.releaseResident(id); return true }
+      let entry = get().entries.find(item => item.id === id)
+      if (!entry) { await get().load(); entry = get().entries.find(item => item.id === id) }
+      if (!entry) throw new Error('保存记录不存在或尚未读取成功，请重新加载后再打开。')
+      if (entry?.recovery.kind === 'web') {
+        const restored = await requestShelfBrowserRestore(id, 'explicitMain', () => get().entries.some(item => item.id === id))
+        if (!restored) return false
+        if (!await reveal(restored, paneId, background)) throw new Error('网页已恢复，定位页签失败。')
+        const resource = shelfResource('web', restored.id)
+        if (resource) await capture(resource, id)
+        return true
+      }
       const result = await invoke({ kind: 'restore', id })
       const restored = result.restored
       if (!restored) throw new Error('当前任务需要在原界面手动恢复。')
       if (restored.kind === 'terminal') binding = { kind: 'terminal', id: restored.sessionId }
       else if (restored.kind === 'web') {
-        const pane = usePaneStore.getState()
-        const overlayId = pane.mountOverlay(paneId, { kind: 'web', url: restored.url, title: result.entry?.title || restored.url }, { background })
-        if (!overlayId) throw new Error('无法打开任务页签。')
-        binding = { kind: 'web', id: overlayId }
+        // 记录在请求期间被外部更新：下一次按新类型进入网页队列，不能旁路创建实体。
+        throw new Error('保存任务类型已变化，请重新读取后再打开。')
       } else {
         const navigation = restored.sessionId && restored.identity
           ? await window.electronAPI.workbenchActivityNavigate({ kind: 'open', identity: restored.identity, sessionId: restored.sessionId }) : null
@@ -223,23 +320,36 @@ export const useTaskShelf = create<ShelfStore>((set, get) => ({
   },
   remove: async id => {
     if (get().busy[id]) return
+    get().invalidateIntent()
     try {
-      const binding = get().bindings[id]
+      let binding = get().bindings[id]
       // 运行资源先恢复可见，再取消保存；不关闭进程或网页。
       if (binding) await reveal(binding)
       const result = await invoke({ kind: 'remove', id })
+      // 自动恢复可能在 remove 排队期间才挂载；以当前绑定交回主区，不能遗留无卡片的隐藏实例。
+      const latest = get().bindings[id]
+      if (latest && (latest.id !== binding?.id || latest.kind !== binding?.kind)) await reveal(latest)
+      binding = latest ?? binding
       if (!binding && result.restored?.kind === 'terminal') await reveal({ kind: 'terminal', id: result.restored.sessionId })
       if (binding) usePaneStore.getState().retainShelfResource(binding.id, binding.kind === 'terminal', false)
+      browserRestores.releaseResident(id)
       dirty.delete(id)
       set(state => {
         const bindings = { ...state.bindings }; delete bindings[id]
         const saveErrors = { ...state.saveErrors }; delete saveErrors[id]
         const restoreFailures = { ...state.restoreFailures }; delete restoreFailures[id]
-        return { bindings, saveErrors, restoreFailures, error: null }
+        const restoreErrors = { ...state.restoreErrors }; delete restoreErrors[id]
+        return { bindings, saveErrors, restoreFailures, restoreErrors, error: null }
       })
     } catch (error) { set({ error: (error as Error).message }) }
   },
   retry: async () => {
+    const startup = get().startup
+    if (startup?.status === 'blocked') {
+      try { await invoke({ kind: 'retryInitialization', bootId: startup.bootId, scopeId: startup.scopeId }); await get().load() }
+      catch (error) { set({ error: (error as Error).message }) }
+      return
+    }
     const failures = Object.entries(get().restoreFailures)
     if (failures.length) {
       const errors: string[] = []
@@ -255,12 +365,12 @@ export const useTaskShelf = create<ShelfStore>((set, get) => ({
   },
   archive: async (id, archived) => {
     if (get().busy[id]) return false
+    if (!archived) {
+      const result = await get().activate([id])
+      return !!result?.items.some(item => item.taskId === id && (item.status === 'moved' || item.status === 'alreadyTasks'))
+    }
+    get().invalidateIntent()
     try {
-      // 移回 Tasks 代表恢复可用实例；启动失败时仍留在归档，便于重试。
-      if (!archived && !await get().open(id, undefined, true)) {
-        set(state => ({ restoreFailures: { ...state.restoreFailures, [id]: true } }))
-        return false
-      }
       await invoke({ kind: 'archive', id, archived })
       get().hide(id)
       return true
@@ -270,13 +380,9 @@ export const useTaskShelf = create<ShelfStore>((set, get) => ({
     if (get().restoringArchived) return false
     set({ restoringArchived: true })
     try {
-      const ids = get().entries.filter(entry => !!entry.archivedAt).map(entry => entry.id)
-      const errors: string[] = []
-      for (const id of ids) {
-        if (!await get().archive(id, false)) errors.push(get().error || '任务正在恢复，请稍后重试。')
-      }
-      set({ error: errors.length ? [...new Set(errors)].join('\n') : null })
-      return !errors.length
+      // 保留原入口的兼容名称，所有批量移回都走固定快照；分类本身不创建 shell/Agent。
+      const result = await get().activate()
+      return !!result && result.failed === 0 && result.conflict === 0 && result.missing === 0
     } catch (error) {
       set({ error: (error as Error).message })
       return false
@@ -294,6 +400,10 @@ export function initializeTaskShelf(): () => void {
   const offPanes = usePaneStore.subscribe((state, previous) => {
     if (state.overlayPayloads === previous.overlayPayloads) return
     for (const [id, binding] of Object.entries(useTaskShelf.getState().bindings)) {
+      if (binding.kind === 'web' && previous.overlayPayloads[binding.id] && !state.overlayPayloads[binding.id]) {
+        settleBrowserLoad(binding.id, '网页入口已关闭')
+        browserRestores.releaseResident(id)
+      }
       if (binding.kind !== 'terminal' && state.overlayPayloads[binding.id] !== previous.overlayPayloads[binding.id]) schedule(id)
     }
   })

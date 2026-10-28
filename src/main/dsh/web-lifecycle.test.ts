@@ -392,10 +392,11 @@ describe('DshWebManager 生命周期', () => {
   })
 
   it('启动恢复：只处理「上次遗留」的记录，本会话写下的一个都不碰', async () => {
+    const manager = new DshWebManager()
+    // 先建立会话边界，再模拟本会话写下记录；跨毫秒调度也不能把记录变成旧会话。
     const sessionRecord: RecordedPid = { pid: 7, name: 'cmd.exe', cmdline: null, recordedAt: Date.now() }
     mocks.readPidRecord.mockResolvedValue([sessionRecord])
 
-    const manager = new DshWebManager()
     await manager.recoverFromRecord()
 
     // 一条候选都没有 → 连核对都不发起（本会话刚 spawn 的进程不可能被当成遗留物）

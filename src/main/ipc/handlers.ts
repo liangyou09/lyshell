@@ -50,6 +50,8 @@ import { validateCodeWorkspaceRequest } from './validation'
 import { launchResolveSerializer } from '../harness/task-serializer'
 import { detectDependencies } from '../harness/detect'
 import { createTaskShelfService } from '../harness/task-shelf'
+import { shelfBrowserRuntime } from '../browser/shelf-browser-runtime'
+import { validateShelfBrowserRequest } from './validation'
 import { SSHConnector } from '../connectors/ssh'
 import { LocalConnector } from '../connectors/local'
 import { LocalHostClient } from '../terminal/local-host-client'
@@ -2766,7 +2768,6 @@ export function registerIPCHandlers(): void {
   // ========== 任务保存区（拖入才落盘；capture 只记录恢复引用，restore 才显式启动） ==========
   const taskShelf = createTaskShelfService({
     repository: taskShelfRepository,
-    archiveOnStart: true,
     // alive 用连接器枚举算好，服务侧不关心两套 ConnectionStatus 的差异。
     session: id => {
       if (sessionManager.isSessionDeleting(id)) return undefined
@@ -2810,6 +2811,9 @@ export function registerIPCHandlers(): void {
     },
     tui: () => tuiActivity.snapshot(),
     spawn: spawnLocalCommandSession,
+    // 生产默认启用启动归档；LYSHELL_SHELF_STARTUP_ARCHIVE=0 关闭。服务在进程内只创建一次，
+    // renderer 刷新（重新 list）不会换 bootId，因而不会重复归档。
+    startupArchiveEnabled: process.env.LYSHELL_SHELF_STARTUP_ARCHIVE !== '0',
     harness: {
       // 与 harness workspace:launch 同一口径：绑定项跟随设置项目录，未绑定项 cwd 为空（恢复时拒绝）。
       workspace: (kind, id) => {
@@ -2831,9 +2835,27 @@ export function registerIPCHandlers(): void {
   ipcMain.handle('task-shelf:request', async (event, raw: unknown) => {
     try {
       if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Task shelf requires the main window')
-      // 批量移回与单项操作共用严格白名单，只向服务层传递校验后的请求。
       const request = validateTaskShelfRequest(raw)
-      return await taskShelf.request(request)
+      const result = await taskShelf.request(request)
+      if (result.success && result.entry && request.kind === 'capture' && request.resource.kind === 'web') shelfBrowserRuntime.bindTask(event.sender, result.entry.id, request.resource.id)
+      if (result.success && request.kind === 'remove') shelfBrowserRuntime.unbindTask(event.sender, request.id)
+      return result
+    } catch (error) {
+      const code = (error as { code?: string }).code
+      return { success: false, error: (error as Error).message, ...(code ? { code } : {}) }
+    }
+  })
+
+  ipcMain.handle('shelf-browser:request', async (event, raw: unknown) => {
+    try {
+      if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Shelf browser requires the main window')
+      const request = validateShelfBrowserRequest(raw)
+      if (request.kind === 'permit' && request.taskId) {
+        const result = await taskShelf.request({ kind: 'list' })
+        const entry = result.success && result.entries.find(item => item.id === request.taskId)
+        if (!entry || entry.archivedAt || entry.recovery.kind !== 'web' || entry.recovery.url !== request.url) throw new ValidationError('Saved webpage is unavailable or changed')
+      }
+      return shelfBrowserRuntime.request(event.sender, request)
     } catch (error) { return { success: false, error: (error as Error).message } }
   })
 

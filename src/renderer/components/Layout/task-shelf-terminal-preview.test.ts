@@ -926,6 +926,55 @@ describe('paintTerminalPreview readable 模式', () => {
   })
 })
 
+describe('paintTerminalPreview 重分配前的预算钩子', () => {
+  it('钩子收到本次预计尺寸，拒绝时不改画布、不绘制，旧画面保留', () => {
+    const terminal = createTerminal({ cols: 4, rows: 2, history: [row('AB')] })
+    const { ctx, ops } = createContext()
+    const { canvas } = createCanvas(ctx)
+    // 模拟上一帧留下的画布尺寸。
+    canvas.width = 7
+    canvas.height = 5
+    const beforeResize = vi.fn(() => false)
+
+    expect(paintTerminalPreview(asCanvas(canvas), asTerminal(terminal), { beforeResize })).toBe(false)
+
+    expect(beforeResize).toHaveBeenCalledWith(4 * CELL_W, 2 * CELL_H)
+    expect(canvas.width).toBe(7)
+    expect(canvas.height).toBe(5)
+    expect(ops).toHaveLength(0)
+    expect(ctx.setTransform).not.toHaveBeenCalled()
+  })
+
+  it('钩子预留成功后仍按原逻辑分配画布并绘制', () => {
+    const terminal = createTerminal({ cols: 4, rows: 2, history: [row('AB')] })
+    const { ctx, texts } = createContext()
+    const { canvas } = createCanvas(ctx)
+    const beforeResize = vi.fn(() => true)
+
+    expect(paintTerminalPreview(asCanvas(canvas), asTerminal(terminal), { beforeResize })).toBe(true)
+
+    expect(beforeResize).toHaveBeenCalledWith(4 * CELL_W, 2 * CELL_H)
+    expect(canvas.width).toBe(4 * CELL_W)
+    expect(canvas.height).toBe(2 * CELL_H)
+    expect(texts().map((op) => op.text)).toEqual(['AB'])
+  })
+
+  it('钩子抛错时按失败处理，不分配画布也不抛出', () => {
+    const terminal = createTerminal({ cols: 4, rows: 2, history: [row('AB')] })
+    const { ctx } = createContext()
+    const { canvas } = createCanvas(ctx)
+    canvas.width = 3
+    canvas.height = 2
+
+    expect(paintTerminalPreview(asCanvas(canvas), asTerminal(terminal), {
+      beforeResize: () => { throw new Error('预算已满') }
+    })).toBe(false)
+
+    expect(canvas.width).toBe(3)
+    expect(canvas.height).toBe(2)
+  })
+})
+
 function textsOf(ctx: Record<string, unknown>) {
   const calls = (ctx.fillText as ReturnType<typeof vi.fn>).mock.calls as unknown[][]
   return calls.map((call) => call[0])

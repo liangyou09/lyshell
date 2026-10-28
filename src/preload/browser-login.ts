@@ -1,4 +1,8 @@
 import { ipcRenderer } from 'electron'
+
+// main 写入的单次许可不暴露到页面世界；接收方仍校验原生 guest 与宿主关系。
+const shelfPermit = process.argv.find(arg => arg.startsWith('--lyshell-shelf-permit='))?.slice('--lyshell-shelf-permit='.length)
+if (window.top === window && shelfPermit && shelfPermit.length <= 128) window.addEventListener('DOMContentLoaded', () => { ipcRenderer.send('shelf-browser:attach', shelfPermit) }, { once: true })
 import { loginClickTarget, loginFieldsFor, type LoginFields } from './browser-login-fields'
 import { installLoginSuggestions } from './browser-login-suggestions'
 

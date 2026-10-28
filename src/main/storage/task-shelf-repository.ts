@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { shelfWebUrl, DEFAULT_TASK_SHELF_PREFERENCES, LEGACY_TASK_SHELF_TOGGLE_SHORTCUT, parseShelfPreferences, type TaskShelfPreferences, type ShelfRecovery, type TaskShelfEntry } from '@shared/task-shelf'
 import { ConnectionType } from '@shared/types/session'
 import { atomicWriteFileSync, getConfigDir } from './repository'
@@ -228,6 +228,15 @@ export interface ShelfCaptureResult {
   changed: boolean
 }
 
+/** 分类结果：moved 表示本次改成了目标分类；already* 表示无需变更；conflict/missing 不写；failed 由原子写入失败统一标记。 */
+export type ShelfArchiveStatus = 'moved' | 'alreadyArchived' | 'alreadyTasks' | 'conflict' | 'missing' | 'failed'
+
+export interface ShelfArchiveBatchResult {
+  items: Array<{ id: string; status: ShelfArchiveStatus }>
+  committed: boolean
+  error?: string
+}
+
 /**
  * 任务保存区仓储：单文件 version 1 归档，原子替换写入。
  * 全部校验通过后才替换内存；写入失败回滚内存并保留上次有效文件。
@@ -248,6 +257,25 @@ export class TaskShelfRepository {
     this.ensureLoaded()
     const entry = this.entries.find(item => item.id === id)
     return entry ? clone(entry) : undefined
+  }
+
+  /** 归档文件的绝对路径：scopeId 由它派生，测试也用它检查落盘内容。 */
+  get filePath(): string { return this.file }
+
+  /**
+   * 当前文件内容摘要；启动重试据此识别「合法外部更新」，不覆盖别人的写入。
+   * 只有「文件确实不存在」(ENOENT) 才返回 undefined；其余读取异常一律抛出，
+   * 否则会被当成「没有变化」从而绕过外部更新检查。
+   */
+  diskDigest(): string | undefined {
+    let data: Buffer
+    try {
+      data = readFileSync(this.file)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+      throw new Error(`读取任务保存区失败：${(error as Error).message}`)
+    }
+    return createHash('sha256').update(data).digest('hex')
   }
 
   getPreferences(): TaskShelfPreferences { this.ensureLoaded(); return { ...this.preferences } }
@@ -363,6 +391,72 @@ export class TaskShelfRepository {
     next.updatedAt = Math.max(now, existing.updatedAt + 1)
     this.commit(this.entries.map(item => (item.id === existing.id ? next : item)))
     return { entry: clone(next), created: false, changed: true }
+  }
+
+  /**
+   * 分类命令唯一写入点：在串行执行区内按版本判定每项状态，成功项按请求顺序追加到 Tasks 末尾；
+   * 单次原子写入失败时全部待改项记 failed，内存与磁盘都保持原分类。
+   */
+  archiveBatch(items: ReadonlyArray<{ id: string; expectedRevision: number }>, now = Date.now()): ShelfArchiveBatchResult {
+    this.ensureLoaded()
+    const moved = new Map<string, TaskShelfEntry>()
+    const statuses = items.map(item => {
+      if (moved.has(item.id)) return { id: item.id, status: 'conflict' as const }
+      const entry = this.entries.find(candidate => candidate.id === item.id)
+      if (!entry) return { id: item.id, status: 'missing' as const }
+      // 先校验版本再判定分类：旧快照不能覆盖别人之后的修改。
+      if (entry.revision !== item.expectedRevision) return { id: item.id, status: 'conflict' as const }
+      if (!entry.archivedAt) return { id: item.id, status: 'alreadyTasks' as const }
+      const next: TaskShelfEntry = { ...entry, revision: entry.revision + 1, updatedAt: Math.max(now, entry.updatedAt + 1) }
+      delete next.archivedAt
+      moved.set(entry.id, next)
+      return { id: item.id, status: 'moved' as const }
+    })
+    if (moved.size === 0) return { items: statuses, committed: false }
+    // 尚未移动的记录保持原相对顺序，成功项按请求顺序追加到 Tasks 末尾。
+    // 只能按 moved 的唯一键迭代：重复 id 在 items 里只能出现一次，否则会把同一记录重复持久化。
+    const next = [...this.entries.filter(entry => !moved.has(entry.id)), ...moved.values()]
+    try {
+      this.commit(next)
+      return { items: statuses, committed: true }
+    } catch (error) {
+      return {
+        items: statuses.map(item => item.status === 'moved' ? { id: item.id, status: 'failed' as const } : item),
+        committed: false,
+        error: (error as Error).message
+      }
+    }
+  }
+
+  /**
+   * 启动归档唯一写入点：把固定快照里的记录标为 Archive（archivedAt），保持既有顺序。
+   * 单次原子写入失败时全部待改项记 failed，内存与磁盘都保持原分类。
+   */
+  archiveSnapshot(items: ReadonlyArray<{ id: string; expectedRevision: number }>, now = Date.now()): ShelfArchiveBatchResult {
+    this.ensureLoaded()
+    const changed = new Map<string, TaskShelfEntry>()
+    const statuses = items.map(item => {
+      if (changed.has(item.id)) return { id: item.id, status: 'conflict' as const }
+      const entry = this.entries.find(candidate => candidate.id === item.id)
+      if (!entry) return { id: item.id, status: 'missing' as const }
+      // 先校验版本再判定分类：旧快照不能覆盖别人之后的修改。
+      if (entry.revision !== item.expectedRevision) return { id: item.id, status: 'conflict' as const }
+      if (entry.archivedAt) return { id: item.id, status: 'alreadyArchived' as const }
+      const next: TaskShelfEntry = { ...entry, archivedAt: now, revision: entry.revision + 1, updatedAt: Math.max(now, entry.updatedAt + 1) }
+      changed.set(entry.id, next)
+      return { id: item.id, status: 'moved' as const }
+    })
+    if (changed.size === 0) return { items: statuses, committed: false }
+    try {
+      this.commit(this.entries.map(entry => changed.get(entry.id) ?? entry))
+      return { items: statuses, committed: true }
+    } catch (error) {
+      return {
+        items: statuses.map(item => item.status === 'moved' ? { id: item.id, status: 'failed' as const } : item),
+        committed: false,
+        error: (error as Error).message
+      }
+    }
   }
 
   remove(id: string): boolean {

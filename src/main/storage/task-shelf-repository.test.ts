@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ConnectionType } from '@shared/types/session'
@@ -663,5 +663,184 @@ describe('TaskShelfRepository.unarchiveAll', () => {
     const expected = singleResults.map(entry => single.archive(entry.id, false, 9000))
     const project = (entries: TaskShelfEntry[]) => entries.map(({ id: _id, ...rest }) => rest)
     expect(project(moved)).toEqual(project(expected))
+  })
+})
+
+describe('分类命令原子批次', () => {
+  /** 造一条已归档记录：capture → revision 1，archive → revision 2。 */
+  function archived(repository: TaskShelfRepository, key: string, archivedAt = 2000): ReturnType<TaskShelfRepository['capture']>['entry'] {
+    const { entry } = repository.capture(captureInput({ resourceKey: `terminal:${key}`, title: key, recovery: { kind: 'terminal', sessionId: key, type: ConnectionType.LOCAL }, capability: 'directory' }), 1000)
+    return repository.archive(entry.id, true, archivedAt)
+  }
+
+  it('按请求顺序移动，保留原 Tasks 相对顺序，只改分类/revision/updatedAt', () => {
+    const repository = new TaskShelfRepository(file)
+    const first = archived(repository, 'a')
+    const second = archived(repository, 'b')
+    const tasks = repository.capture(captureInput({ resourceKey: 'terminal:c', title: 'c', recovery: { kind: 'terminal', sessionId: 'c', type: ConnectionType.LOCAL }, capability: 'directory' }), 1500).entry
+
+    const result = repository.archiveBatch([{ id: second.id, expectedRevision: second.revision }, { id: first.id, expectedRevision: first.revision }], 3000)
+    expect(result.committed).toBe(true)
+    expect(result.items).toEqual([
+      { id: second.id, status: 'moved' },
+      { id: first.id, status: 'moved' }
+    ])
+    // 原有 Tasks 保持相对顺序，本批成功项按请求顺序追加
+    expect(repository.list().map(entry => entry.id)).toEqual([tasks.id, second.id, first.id])
+    const movedFirst = repository.get(first.id)!
+    expect(movedFirst.archivedAt).toBeUndefined()
+    expect(movedFirst.revision).toBe(first.revision + 1)
+    expect(movedFirst.updatedAt).toBe(3000)
+    expect(movedFirst.title).toBe(first.title)
+    expect(movedFirst.recovery).toEqual(first.recovery)
+  })
+
+  it('alreadyTasks / conflict / missing 单项计数，且不写盘', () => {
+    const repository = new TaskShelfRepository(file)
+    const first = archived(repository, 'a')
+    const tasks = repository.capture(captureInput({ resourceKey: 'terminal:c', title: 'c', recovery: { kind: 'terminal', sessionId: 'c', type: ConnectionType.LOCAL }, capability: 'directory' }), 1500).entry
+    const writes = disk.writes
+    const result = repository.archiveBatch([
+      { id: tasks.id, expectedRevision: tasks.revision },
+      { id: first.id, expectedRevision: 99 },
+      { id: 'missing', expectedRevision: 1 },
+      { id: first.id, expectedRevision: first.revision },
+      { id: first.id, expectedRevision: first.revision }
+    ], 3000)
+    expect(result.committed).toBe(true)
+    expect(result.items.map(item => item.status)).toEqual(['alreadyTasks', 'conflict', 'missing', 'moved', 'conflict'])
+    expect(repository.get(first.id)?.archivedAt).toBeUndefined()
+    expect(disk.writes).toBe(writes + 1)
+  })
+
+  it('同一 id 重复出现只持久化一次：重新从磁盘加载也读不到重复记录', () => {
+    const repository = new TaskShelfRepository(file)
+    const first = archived(repository, 'a')
+    const result = repository.archiveBatch([
+      { id: first.id, expectedRevision: first.revision },
+      { id: first.id, expectedRevision: first.revision },
+      { id: first.id, expectedRevision: first.revision }
+    ], 3000)
+    // 只有第一次真正移动，重复项按冲突计数，但绝不能重复落盘
+    expect(result.items.map(item => item.status)).toEqual(['moved', 'conflict', 'conflict'])
+    expect(repository.list().map(entry => entry.id)).toEqual([first.id])
+    expect(repository.get(first.id)?.archivedAt).toBeUndefined()
+    // 真正重新读取：文件里若出现重复 id，ensureLoaded 会直接判定归档损坏
+    const reloaded = new TaskShelfRepository(file)
+    expect(reloaded.list().map(entry => entry.id)).toEqual([first.id])
+    expect(reloaded.get(first.id)?.archivedAt).toBeUndefined()
+    expect(reloaded.get(first.id)?.revision).toBe(first.revision + 1)
+  })
+
+  it('全部分类无变化时不提交（alreadyTasks/missing/conflict 不写盘）', () => {
+    const repository = new TaskShelfRepository(file)
+    const tasks = repository.capture(captureInput({ resourceKey: 'terminal:c', title: 'c', recovery: { kind: 'terminal', sessionId: 'c', type: ConnectionType.LOCAL }, capability: 'directory' }), 1500).entry
+    const writes = disk.writes
+    const result = repository.archiveBatch([{ id: tasks.id, expectedRevision: tasks.revision }, { id: 'missing', expectedRevision: 1 }], 3000)
+    expect(result).toMatchObject({ committed: false })
+    expect(disk.writes).toBe(writes)
+  })
+
+  it('单次原子写入失败：全部待改项 failed，内存与文件保持原分类', () => {
+    const repository = new TaskShelfRepository(file)
+    const first = archived(repository, 'a')
+    const second = archived(repository, 'b')
+    const before = readFileSync(file, 'utf8')
+
+    disk.failWrite = true
+    const result = repository.archiveBatch([{ id: first.id, expectedRevision: first.revision }, { id: second.id, expectedRevision: second.revision }], 3000)
+    disk.failWrite = false
+
+    expect(result.committed).toBe(false)
+    expect(result.error).toMatch(/保存区写入失败/)
+    expect(result.items.map(item => item.status)).toEqual(['failed', 'failed'])
+    expect(repository.get(first.id)).toMatchObject({ archivedAt: 2000, revision: first.revision })
+    expect(repository.get(second.id)).toMatchObject({ archivedAt: 2000, revision: second.revision })
+    expect(readFileSync(file, 'utf8')).toBe(before)
+  })
+})
+
+describe('启动归档原子批次', () => {
+  function task(repository: TaskShelfRepository, key: string, now = 1000): ReturnType<TaskShelfRepository['capture']>['entry'] {
+    return repository.capture(captureInput({ resourceKey: `terminal:${key}`, title: key, recovery: { kind: 'terminal', sessionId: key, type: ConnectionType.LOCAL }, capability: 'directory' }), now).entry
+  }
+
+  it('快照内记录按原顺序进入 Archive，已归档项记 alreadyArchived，冲突/缺失单项计数', () => {
+    const repository = new TaskShelfRepository(file)
+    const first = task(repository, 'a')
+    const second = task(repository, 'b')
+    const already = repository.archive(task(repository, 'c').id, true, 1500)
+    const writes = disk.writes
+
+    const result = repository.archiveSnapshot([
+      { id: first.id, expectedRevision: first.revision },
+      { id: already.id, expectedRevision: already.revision },
+      { id: second.id, expectedRevision: 99 },
+      { id: 'missing', expectedRevision: 1 }
+    ], 4000)
+
+    expect(result.items.map(item => item.status)).toEqual(['moved', 'alreadyArchived', 'conflict', 'missing'])
+    expect(result.committed).toBe(true)
+    expect(repository.list().map(entry => entry.id)).toEqual([first.id, second.id, already.id])
+    expect(repository.get(first.id)).toMatchObject({ archivedAt: 4000, revision: first.revision + 1, updatedAt: 4000 })
+    expect(repository.get(already.id)).toMatchObject({ archivedAt: 1500, revision: already.revision })
+    expect(disk.writes).toBe(writes + 1)
+  })
+
+  it('全部已归档时不写盘；写入失败时全部待改项 failed 且原分类保留', () => {
+    const repository = new TaskShelfRepository(file)
+    const archived = repository.archive(task(repository, 'a').id, true, 1500)
+    const writes = disk.writes
+    expect(repository.archiveSnapshot([{ id: archived.id, expectedRevision: archived.revision }], 4000)).toMatchObject({ committed: false })
+    expect(disk.writes).toBe(writes)
+
+    const pending = task(repository, 'b', 1200)
+    const before = readFileSync(file, 'utf8')
+    disk.failWrite = true
+    const failed = repository.archiveSnapshot([
+      { id: pending.id, expectedRevision: pending.revision },
+      { id: archived.id, expectedRevision: archived.revision }
+    ], 4000)
+    disk.failWrite = false
+    expect(failed.items.map(item => item.status)).toEqual(['failed', 'alreadyArchived'])
+    expect(repository.get(pending.id)).toMatchObject({ revision: pending.revision })
+    expect(repository.get(pending.id)?.archivedAt).toBeUndefined()
+    expect(readFileSync(file, 'utf8')).toBe(before)
+  })
+
+  it('100 条快照全部归档，顺序不变', () => {
+    const repository = new TaskShelfRepository(file)
+    const entries = Array.from({ length: 100 }, (_, index) => task(repository, `t${index}`, 1000 + index))
+    const result = repository.archiveSnapshot(entries.map(entry => ({ id: entry.id, expectedRevision: entry.revision })), 5000)
+    expect(result.items.every(item => item.status === 'moved')).toBe(true)
+    expect(repository.list().map(entry => entry.id)).toEqual(entries.map(entry => entry.id))
+    expect(repository.list().every(entry => entry.archivedAt === 5000)).toBe(true)
+  })
+})
+
+describe('diskDigest', () => {
+  it('只有文件确实不存在（ENOENT）才返回 undefined', () => {
+    const repository = new TaskShelfRepository(file)
+    expect(repository.diskDigest()).toBeUndefined()
+  })
+
+  it('内容不变摘要稳定，内容变化摘要随之变化', () => {
+    const repository = new TaskShelfRepository(file)
+    repository.capture(captureInput(), 1000)
+    const before = repository.diskDigest()
+    expect(typeof before).toBe('string')
+    expect(repository.diskDigest()).toBe(before)
+
+    const archive = readArchive() as { version: number; entries: Array<Record<string, unknown>> }
+    archive.entries[0].title = '外部改名'
+    writeFileSync(file, JSON.stringify(archive), 'utf8')
+    expect(repository.diskDigest()).not.toBe(before)
+  })
+
+  it('文件存在但读不出来时抛错，不能当作「文件不存在」', () => {
+    // 归档路径被目录占住：existsSync 仍为真，readFileSync 抛 EISDIR（非 ENOENT）
+    mkdirSync(file)
+    const repository = new TaskShelfRepository(file)
+    expect(() => repository.diskDigest()).toThrow(/读取任务保存区失败/)
   })
 })

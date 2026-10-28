@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { ProjectSceneRequest, ProjectSceneResult } from '@shared/project-scene'
 import type { TaskShelfRequest, TaskShelfResult } from '@shared/task-shelf'
+import type { ShelfBrowserRequest, ShelfBrowserResult } from '@shared/shelf-browser'
 import type { WorkbenchActivityRequest, WorkbenchActivitySnapshot } from '@shared/workbench-activity'
 import type { ActivityNavigationRequest, ActivityNavigationResult } from '@shared/activity-navigation'
 import type { IpcRendererEvent } from 'electron'
@@ -468,8 +469,11 @@ const electronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.HARNESS_WORKTREE_LIST, cwd),
   // 项目现场及可读名称查询；显式启动只返回运行期会话 ID，不复制环境变量到现场。
   projectSceneRequest: (request: ProjectSceneRequest): Promise<ProjectSceneResult> => ipcRenderer.invoke('project-scene:request', request),
-  // 任务保存区：批量移回只改列表；restore 才显式启动，全部请求由主进程白名单校验。
+  // 任务保存区：收纳只落恢复引用，恢复才显式启动；清单来自主进程单文件归档。
+  // 成功结果可带 startup（启动归档状态）与 activation（分类统计）；失败可带 code，
+  // 例如 INITIALIZATION_BLOCKED / STALE_BOOT / CONFLICT。通道与载荷类型未变，仅新增可选字段。
   taskShelfRequest: (request: TaskShelfRequest): Promise<TaskShelfResult> => ipcRenderer.invoke('task-shelf:request', request),
+  shelfBrowserRequest: (request: ShelfBrowserRequest): Promise<ShelfBrowserResult> => ipcRenderer.invoke('shelf-browser:request', request),
   onTaskShelfShortcut: (callback: (action: 'toggle' | 'collect') => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, action: unknown): void => { if (action === 'toggle' || action === 'collect') callback(action) }
     ipcRenderer.on('task-shelf:shortcut', listener)

@@ -11,8 +11,8 @@ import { createTaskShelfService, type ShelfAgentKind, type ShelfSessionView, typ
 
 describe('Codex 集成边界', () => {
   it('首次请求先补归档上次 Tasks，本次新收纳的任务不受后续读取影响', async () => {
-    const { service, repository, state } = setup({ archiveOnStart: true })
-    const previous = repository.capture({ resourceKey: 'web:old', title: 'Previous task', capability: 'web', recovery: { kind: 'web', url: 'https://example.org/' } }, 10).entry
+    const { service, repository, state } = setup({ archiveOnStart: true, seedRepository: repository => { repository.capture({ resourceKey: 'web:old', title: 'Previous task', capability: 'web', recovery: { kind: 'web', url: 'https://example.org/' } }, 10) } })
+    const previous = repository.list()[0]
     const listed = await service.request({ kind: 'list' })
     expect(listed).toMatchObject({ success: true, entries: [{ id: previous.id, archivedAt: 1000 }] })
     const current = entryOf(await service.request({ kind: 'capture', resource: { kind: 'web', id: 'current', title: 'New task', url: 'https://example.com/' } }))
@@ -21,13 +21,15 @@ describe('Codex 集成边界', () => {
     expect(state.spawns).toHaveLength(0)
     expect(state.connects).toHaveLength(0)
   })
-  it('启动补归档写盘失败不返回旧 Tasks，恢复写入后下次请求继续补做', async () => {
-    const { service, repository } = setup({ archiveOnStart: true })
-    const previous = repository.capture({ resourceKey: 'web:old', title: 'Previous task', capability: 'web', recovery: { kind: 'web', url: 'https://example.org/' } }, 10).entry
-    disk.failWrite = true
-    expect(await service.request({ kind: 'list' })).toMatchObject({ success: false, error: expect.stringContaining('写入失败') })
+  it('启动补归档写盘失败保留真实分类，显式权威重试后归档', async () => {
+    const { service, repository } = setup({ archiveOnStart: true, seedRepository: repository => { repository.capture({ resourceKey: 'web:old', title: 'Previous task', capability: 'web', recovery: { kind: 'web', url: 'https://example.org/' } }, 10) }, beforeCreate: () => { disk.failWrite = true } })
+    const previous = repository.list()[0]
+    const blocked = await service.request({ kind: 'list' })
+    expect(blocked).toMatchObject({ success: true, startup: { status: 'blocked' } })
     expect(repository.get(previous.id)?.archivedAt).toBeUndefined()
     disk.failWrite = false
+    if (!blocked.success || !blocked.startup) throw Error('Expected startup')
+    await service.request({ kind: 'retryInitialization', bootId: blocked.startup.bootId, scopeId: blocked.startup.scopeId })
     expect(await service.request({ kind: 'list' })).toMatchObject({ success: true, entries: [{ id: previous.id, archivedAt: 1000 }] })
   })
   it.each([true, false])('SSH 恢复先准备历史，重复打开不再注入；原运行记录存在=%s', async sameRuntime => {
@@ -222,8 +224,8 @@ describe('本地独立宿主集成', () => {
   })
 })
 
-/** 仓储落盘走真实文件的 tmp+rename；这里只接住「写失败」开关。 */
-const disk = vi.hoisted(() => ({ failWrite: false }))
+/** 仓储落盘走真实文件的 tmp+rename；这里只接住「写失败」开关，并统计真实写入次数。 */
+const disk = vi.hoisted(() => ({ failWrite: false, writes: 0 }))
 
 vi.mock('../storage/repository', async () => {
   const fs = await import('node:fs')
@@ -231,6 +233,7 @@ vi.mock('../storage/repository', async () => {
     getConfigDir: () => '.',
     atomicWriteFileSync: (filePath: string, data: string): void => {
       if (disk.failWrite) throw new Error('disk full')
+      disk.writes += 1
       fs.writeFileSync(`${filePath}.tmp`, data, 'utf8')
       fs.renameSync(`${filePath}.tmp`, filePath)
     }
@@ -270,6 +273,7 @@ let dir: string
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'lyshell-shelf-service-'))
   disk.failWrite = false
+  disk.writes = 0
 })
 
 afterEach(() => {
@@ -335,7 +339,7 @@ function entryIdOf(result: TaskShelfResult): string {
   return entryOf(result).id
 }
 
-function setup(options: { archiveOnStart?: boolean; commands?: Partial<Record<ShelfAgentKind, string>>; env?: Record<string, string>; harnessView?: TaskShelfDeps['harnessView']; localHost?: TaskShelfDeps['localHost']; retainSession?: TaskShelfDeps['retainSession']; spawn?: TaskShelfDeps['spawn']; connectSession?: TaskShelfDeps['connectSession'] } = {}): ShelfTestHarness {
+function setup(options: { archiveOnStart?: boolean; commands?: Partial<Record<ShelfAgentKind, string>>; env?: Record<string, string>; harnessView?: TaskShelfDeps['harnessView']; localHost?: TaskShelfDeps['localHost']; retainSession?: TaskShelfDeps['retainSession']; spawn?: TaskShelfDeps['spawn']; connectSession?: TaskShelfDeps['connectSession']; startupArchiveEnabled?: boolean; seedRepository?: (repository: TaskShelfRepository) => void; beforeCreate?: () => void } = {}): ShelfTestHarness {
   const repository = new TaskShelfRepository(join(dir, 'task-shelf.json'))
   const state: ShelfTestState = {
     sessions: new Map<string, ShelfSessionView>(),
@@ -388,6 +392,9 @@ function setup(options: { archiveOnStart?: boolean; commands?: Partial<Record<Sh
     },
     now: () => 1000
   }
+  if (options.startupArchiveEnabled !== undefined) deps.startupArchiveEnabled = options.startupArchiveEnabled
+  options.seedRepository?.(repository)
+  options.beforeCreate?.()
 
   return { service: createTaskShelfService(deps), repository, state }
 }
@@ -847,5 +854,118 @@ describe('任务保存区 unarchiveAll', () => {
     expect(harness.state.spawns).toHaveLength(0)
     expect(harness.state.created).toHaveLength(0)
     expect(harness.state.sessions.size).toBe(0)
+  })
+})
+
+describe('启动归档与分类命令（IPC 面）', () => {
+  /** 启动前遗留的 Tasks 记录：启动归档要把它移入 Archive。 */
+  const seedLegacyTask = (repository: TaskShelfRepository): void => {
+    const { entry } = repository.capture(
+      {
+        resourceKey: 'terminal:legacy',
+        title: '旧任务',
+        recovery: { kind: 'terminal', sessionId: 'legacy', type: ConnectionType.LOCAL },
+        capability: 'directory'
+      },
+      500
+    )
+    expect(entry.archivedAt).toBeUndefined()
+  }
+
+  it('list 成功总是携带 startup（默认关闭归档时 ready）', async () => {
+    const harness = setup()
+    const listed = await harness.service.request({ kind: 'list' })
+    expect(listed.success && listed.startup).toMatchObject({ status: 'ready', archiveOnBoot: false })
+  })
+
+  it('启动归档把启动前记录移入 Archive，之后新保存直接是 Tasks；activate 只分类不启动任何东西', async () => {
+    const harness = setup({ startupArchiveEnabled: true, seedRepository: seedLegacyTask })
+    const listed = await harness.service.request({ kind: 'list' })
+    if (!listed.success || !listed.startup) throw new Error('缺少 startup')
+    expect(listed.startup).toMatchObject({ status: 'ready', archiveOnBoot: true })
+    expect(listed.entries).toHaveLength(1)
+    expect(listed.entries[0].archivedAt).toBeDefined()
+
+    harness.state.sessions.set('t1', { alive: true, config: sessionConfig({ type: ConnectionType.LOCAL, local: { cwd: dir } }) })
+    const captured = await harness.service.request({ kind: 'capture', resource: { kind: 'terminal', id: 't1' } })
+    const id = entryIdOf(captured)
+    // 启动之后新建的保存记录直接是 Tasks，不进入旧启动批次
+    expect(entryOf(captured).archivedAt).toBeUndefined()
+
+    const archived = await harness.service.request({ kind: 'archive', id, archived: true })
+    if (!archived.success) throw new Error(archived.error)
+    const current = harness.repository.get(id)!
+    const spawned = harness.state.spawns.length
+
+    const result = await harness.service.request({
+      kind: 'activate',
+      bootId: listed.startup.bootId,
+      scopeId: listed.startup.scopeId,
+      requestId: 'r-1',
+      items: [{ taskId: id, expectedRevision: current.revision }]
+    })
+    if (!result.success || !result.activation) throw new Error(result.success ? '缺少 activation' : result.error)
+    expect(result.activation).toMatchObject({ total: 1, moved: 1, alreadyTasks: 0, conflict: 0, missing: 0, failed: 0 })
+    expect(result.entries.find(entry => entry.id === id)?.archivedAt).toBeUndefined()
+    expect(harness.state.spawns).toHaveLength(spawned)
+    expect(harness.state.created).toEqual([])
+    expect(harness.state.connects).toEqual([])
+    expect(harness.state.launches).toEqual([])
+
+    const stale = await harness.service.request({ kind: 'retryInitialization', bootId: 'old-boot', scopeId: listed.startup.scopeId })
+    expect(stale).toMatchObject({ success: false, code: 'STALE_BOOT' })
+  })
+
+  it('初始化持久保存失败：list 给真实原记录 + blocked，变更命令与 restore 都被拒且不写盘，重试后 ready', async () => {
+    const harness = setup({
+      startupArchiveEnabled: true,
+      seedRepository: seedLegacyTask,
+      beforeCreate: () => {
+        disk.failWrite = true
+      }
+    })
+    const listed = await harness.service.request({ kind: 'list' })
+    if (!listed.success || !listed.startup) throw new Error('缺少 startup')
+    expect(listed.startup.status).toBe('blocked')
+    expect(listed.startup.error).toMatch(/保存区写入失败/)
+    expect(listed.entries).toHaveLength(1)
+    // 保存失败不伪装成功：保留真实原分类（仍是 Tasks）
+    expect(listed.entries[0].archivedAt).toBeUndefined()
+
+    harness.state.sessions.set('t1', { alive: true, config: sessionConfig({ type: ConnectionType.LOCAL, local: { cwd: dir } }) })
+    const blockedCapture = await harness.service.request({ kind: 'capture', resource: { kind: 'terminal', id: 't1' } })
+    expect(blockedCapture).toMatchObject({ success: false, code: 'INITIALIZATION_BLOCKED' })
+    const blockedActivate = await harness.service.request({
+      kind: 'activate',
+      bootId: listed.startup.bootId,
+      scopeId: listed.startup.scopeId,
+      requestId: 'r-1',
+      items: []
+    })
+    expect(blockedActivate).toMatchObject({ success: false, code: 'INITIALIZATION_BLOCKED' })
+    const blockedArchive = await harness.service.request({ kind: 'archive', id: listed.entries[0].id, archived: false })
+    expect(blockedArchive).toMatchObject({ success: false, code: 'INITIALIZATION_BLOCKED' })
+    const blockedRename = await harness.service.request({ kind: 'rename', id: listed.entries[0].id, title: 'x' })
+    expect(blockedRename).toMatchObject({ success: false, code: 'INITIALIZATION_BLOCKED' })
+
+    // restore 不是只读：恢复成功会改绑 resourceKey 并写盘，初始化未完成时同样必须拒绝。
+    const entriesBefore = harness.repository.list()
+    const writesBefore = disk.writes
+    const blockedRestore = await harness.service.request({ kind: 'restore', id: listed.entries[0].id })
+    expect(blockedRestore).toMatchObject({ success: false, code: 'INITIALIZATION_BLOCKED' })
+    // 0 创建 / 0 连接 / 0 启动 / 0 写盘 / 保存区记录一个字节都没动
+    expect(harness.state.created).toHaveLength(0)
+    expect(harness.state.connects).toHaveLength(0)
+    expect(harness.state.spawns).toHaveLength(0)
+    expect(disk.writes).toBe(writesBefore)
+    expect(harness.repository.list()).toEqual(entriesBefore)
+    expect(harness.repository.get(listed.entries[0].id)?.revision).toBe(entriesBefore[0].revision)
+
+    disk.failWrite = false
+    const retried = await harness.service.request({ kind: 'retryInitialization', bootId: listed.startup.bootId, scopeId: listed.startup.scopeId })
+    if (!retried.success || !retried.startup) throw new Error(retried.success ? '缺少 startup' : retried.error)
+    expect(retried.startup.status).toBe('ready')
+    // 重试归档成功：启动前那条记录进入 Archive，原记录未丢
+    expect(retried.entries.find(entry => entry.id === listed.entries[0].id)?.archivedAt).toBeDefined()
   })
 })

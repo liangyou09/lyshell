@@ -109,7 +109,7 @@
 .task-shelf-item-actions { display:flex; align-items:center; gap:2px; }
 .task-shelf-item-actions button { display:grid; place-items:center; width:22px; height:26px; padding:0; background:transparent; border:0; cursor:pointer; border-radius:3px; }
 .task-shelf-item-actions button:hover { background:var(--bg-base); }
-.task-shelf-grid { flex-shrink:0; display:grid; align-content:start; gap:12px; padding:16px; max-height:min(40vh,320px); overflow:auto; scrollbar-width:thin; scrollbar-color:var(--rule) transparent; }
+.task-shelf-grid { flex-shrink:0; display:grid; grid-auto-rows:max-content; align-content:start; gap:12px; padding:16px; max-height:min(40vh,320px); overflow:auto; scrollbar-width:thin; scrollbar-color:var(--rule) transparent; }
 .task-shelf-grid.is-overview { flex:1; min-height:0; max-height:none; }
 .task-shelf-grid.is-overview+.task-shelf-list:empty { flex:none; }
 .task-shelf-tile { position:relative; min-width:0; aspect-ratio:1.05; display:flex; flex-direction:column; align-items:stretch; gap:0; padding:0; color:inherit; text-align:left; background:#fff; border:1px solid #e1e3e7; border-radius:7px; overflow:hidden; cursor:pointer; }
@@ -272,3 +272,9 @@
   .task-shelf-view-action>span { display:none; }
   .task-shelf-view-action { width:28px; min-height:28px; padding:5px; }
 }
+.task-shelf-policy { display:flex; align-items:center; justify-content:flex-end; gap:8px; padding:7px 12px; font-size:11px; }
+.task-shelf-policy label { display:flex; align-items:center; gap:7px; }
+.task-shelf-policy select,.task-shelf-policy button,.task-shelf-activation button,.task-shelf-detail>button { padding:4px 7px; border:1px solid var(--rule); background:var(--bg-base); border-radius:3px; cursor:pointer; }
+.task-shelf-policy select { max-width:150px; }
+.task-shelf-activation { padding:6px 12px; font-size:11px; line-height:17px; overflow-wrap:anywhere; }
+.task-shelf-activation button { margin-left:6px; }

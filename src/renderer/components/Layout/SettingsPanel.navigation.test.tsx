@@ -28,7 +28,11 @@ describe('设置分类导航', () => {
     Object.assign(window.electronAPI, { codeWorkspaceRequest: request, listHarnessWorktrees: async () => ({ success: true, keys: [], worktreeRoot: 'D:/shared-project/.lyshell-worktrees' }) })
     const view = render(<SettingsPanel />)
     fireEvent.click(view.getByRole('button', { name: 'settings.workspace' }))
-    fireEvent.click(await view.findByRole('button', { name: 'workspacePresets.add' }))
+    const add = await view.findByRole('button', { name: 'workspacePresets.add' })
+    // 懒加载面板初次 list 会禁用入口；等待可操作状态，避免把存在当作加载已完成。
+    await waitFor(() => expect(request).toHaveBeenCalledWith({ kind: 'list' }))
+    await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(add)
     fireEvent.change(view.getByLabelText('workspacePresets.name'), { target: { value: 'Project' } })
     fireEvent.change(view.getByLabelText('settings.workspaceDefaultCwd'), { target: { value: 'D:/shared-project' } })
     fireEvent.change(view.getByLabelText('workspacePresets.directoryIsolation'), { target: { value: 'worktree' } })
