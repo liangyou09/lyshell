@@ -26,18 +26,20 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
-/** 展开保存区，在已保存条目的行上右键，返回菜单与触发元素。 */
-const setup = async () => {
+/** 展开保存区，分别从窄栏卡片和宽栏小窗标题打开菜单。 */
+const setup = async (width: number) => {
+  vi.stubGlobal('innerWidth', 1800)
+  localStorage.setItem('lyshell.taskShelf.view.v1', JSON.stringify({ mode: 'hover', width }))
   const view = render(<TaskShelf />)
   fireEvent.click(view.getByRole('button', { name: /Toggle saved tasks/ }))
-  const openItem = view.getByRole('button', { name: /Saved reference/ })
+  const openItem = view.getByRole('button', { name: width >= 360 ? /Saved reference/ : 'Task slot 1' })
   openItem.focus()
-  fireEvent.contextMenu(openItem.closest('.task-shelf-item') as HTMLElement, { clientX: 120, clientY: 80 })
+  fireEvent.contextMenu(openItem.closest('.task-shelf-item') ?? openItem, { clientX: 120, clientY: 80 })
   const menu = view.getByRole('menu', { name: 'Task actions' })
   return { view, openItem, menu }
 }
 
-describe('任务保存区右键菜单', () => {
+describe.each([240, 600])('任务保存区右键菜单（宽度 %s）', width => {
   it('悬停展开时，焦点移入 portal 右键菜单仍保持面板展开', async () => {
     const view = render(<TaskShelf />)
     fireEvent.mouseEnter(view.getByRole('button', { name: /Toggle saved tasks/ }))
@@ -71,7 +73,7 @@ describe('任务保存区右键菜单', () => {
   })
 
   it('右键已保存条目提供收起/归档/移除，并把焦点放到首个菜单项', async () => {
-    const { menu } = await setup()
+    const { menu } = await setup(width)
     expect(within(menu).getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Put back in saved tasks', 'Archive and keep running', 'Stop saving'])
     expect(document.activeElement).toBe(within(menu).getByRole('menuitem', { name: 'Put back in saved tasks' }))
   })
@@ -79,7 +81,7 @@ describe('任务保存区右键菜单', () => {
   // 菜单的 Escape 必须阻止冒泡：否则 TaskShelf.tsx 的 window keydown 会把保存区整体收起，
   // 触发元素随面板卸载，焦点落到 <body>。
   it('Escape 关闭菜单并把焦点还原到右键时的条目', async () => {
-    const { view, openItem, menu } = await setup()
+    const { view, openItem, menu } = await setup(width)
     fireEvent.keyDown(menu, { key: 'Escape' })
     await act(async () => {})
     expect(view.queryByRole('menu', { name: 'Task actions' })).toBeNull()
@@ -87,7 +89,7 @@ describe('任务保存区右键菜单', () => {
   })
 
   it('右键收纳只提交一次保存并收起原页签，不重建实例', async () => {
-    const { view, menu } = await setup()
+    const { view, menu } = await setup(width)
     await act(async () => { fireEvent.click(within(menu).getByRole('menuitem', { name: 'Put back in saved tasks' })) })
     const captures = request.mock.calls.map(([r]) => r).filter(r => r.kind === 'capture')
     expect(captures).toEqual([{ kind: 'capture', resource: { kind: 'web', id: 'w', url: 'https://example.org/', title: 'Saved reference', post: false }, entryId: 'page' }])
@@ -97,7 +99,7 @@ describe('任务保存区右键菜单', () => {
   })
 
   it('右键移除停止保存但保留运行页签', async () => {
-    const { view, menu } = await setup()
+    const { view, menu } = await setup(width)
     await act(async () => { fireEvent.click(within(menu).getByRole('menuitem', { name: 'Stop saving' })) })
     expect(request.mock.calls.map(([r]) => r)).toContainEqual({ kind: 'remove', id: 'page' })
     expect(useTaskShelf.getState().entries).toEqual([])

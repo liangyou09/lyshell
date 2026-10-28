@@ -11,6 +11,7 @@ import SplitPaneContainer from './SplitPaneContainer'
 import { isWebTabShortcutTarget } from './keyboard-target'
 import WebTabLayer from './WebTabLayer'
 import TaskShelf from './TaskShelf'
+import { useFrameCommit } from '../../hooks/useFrameCommit'
 import { useTaskShelf } from '../../stores/task-shelf'
 import { FIND_IN_TAB_EVENT } from '../Search/SearchableTab'
 import FloatWindow from '../FloatWindow/FloatWindow'
@@ -122,6 +123,7 @@ const MainWindow: React.FC = () => {
   const [isResizingSidebar, setIsResizingSidebar] = useState(false)
   // 拖宽起点处的偏好宽 -- 拖到收起的路径回滚到它(收起不该顺带销毁宽度偏好)
   const sidebarDragStartWidth = useRef(0)
+  const sidebarDraggingRef = useRef(false)
   const [floatVisible, setFloatVisible] = useState(false) // 浮窗默认隐藏
   // 全局命令面板开合落 ui-store(TerminalView 的自动聚焦守卫要跨组件读它,见
   // ui-store 注释);本组件只订阅渲染,写经 getState
@@ -613,26 +615,28 @@ const MainWindow: React.FC = () => {
     }).catch(() => {}).finally(() => setCollapsedLoaded(true))
   }, [])
   useEffect(() => {
+    if (isResizingSidebar) return
     try { localStorage.setItem(COLLAPSED_STORAGE_KEY, sidebarCollapsed ? '1' : '0') } catch { /* quota */ }
     const t = setTimeout(() => {
       window.electronAPI?.setConfig('sidebarCollapsed', sidebarCollapsed)
     }, 500)
     return () => clearTimeout(t)
-  }, [sidebarCollapsed])
+  }, [sidebarCollapsed, isResizingSidebar])
 
-  // 左列宽度:config 异步对账 + 变更双写(localStorage 镜像即时写,config 防抖写)/ 拖动
+  // 左列宽度：拖动中只更新画面，释放捕获后写镜像和防抖配置。
   useEffect(() => {
     window.electronAPI?.getConfig('sidebarWidth').then((w: unknown) => {
       if (typeof w === 'number' && w > 0) setSidebarWidth(w)
     }).catch(() => {})
   }, [])
   useEffect(() => {
+    if (isResizingSidebar) return
     try { localStorage.setItem(WIDTH_STORAGE_KEY, String(sidebarWidth)) } catch { /* quota */ }
     const t = setTimeout(() => {
       window.electronAPI?.setConfig('sidebarWidth', sidebarWidth)
     }, 500)
     return () => clearTimeout(t)
-  }, [sidebarWidth])
+  }, [sidebarWidth, isResizingSidebar])
   // 窗口宽跟踪 -- resize 时更新 sidebarMax 的分母。逐帧 setState 的重渲成本与拖宽
   // (pointermove setState)同档,且窗口 resize 本身已触发整树 reflow,不构成额外热点
   useEffect(() => {
@@ -644,6 +648,10 @@ const MainWindow: React.FC = () => {
   // harness webview 激活时往右拖，指针一进 webview 范围 mousemove 就被 guest 吞掉
   // (同跨域 iframe)，捕获后 pointermove 恒回流本元素
   const startSidebarResize = (e: React.PointerEvent) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    sidebarDraggingRef.current = true
     sidebarDragStartWidth.current = sidebarWidth
     e.currentTarget.setPointerCapture(e.pointerId)
     setIsResizingSidebar(true)
@@ -653,9 +661,7 @@ const MainWindow: React.FC = () => {
   // 下限语义：拖到 SIDEBAR_MIN_WIDTH 以下不再是钉死的下限，而是直接收起左列；拖回
   // 此值以上又随指针展开（所见即所得）。收起路径把宽度回滚到拖前偏好值 —— 收起不
   // 销毁宽度偏好，再展开即回到收起前的宽度
-  const handleSidebarResizeMove = (e: React.PointerEvent) => {
-    if (!isResizingSidebar) return
-    const raw = e.clientX - RAIL_WIDTH
+  const sidebarCommit = useFrameCommit<number>(raw => {
     if (raw < SIDEBAR_MIN_WIDTH) {
       setSidebarCollapsed(true)
       setSidebarWidth(sidebarDragStartWidth.current)
@@ -663,8 +669,12 @@ const MainWindow: React.FC = () => {
     }
     setSidebarCollapsed(false)
     setSidebarWidth(Math.min(sidebarMax, raw))
+  })
+  const handleSidebarResizeMove = (e: React.PointerEvent) => {
+    if (!sidebarDraggingRef.current) return
+    sidebarCommit.schedule(e.clientX - RAIL_WIDTH)
   }
-  const endSidebarResize = () => setIsResizingSidebar(false)
+  const endSidebarResize = () => { sidebarCommit.flush(); sidebarDraggingRef.current = false; setIsResizingSidebar(false) }
 
   // 两条输入路径共用导航：原生事件覆盖宿主及 webview，DOM capture 兼容宿主合成事件。
   const routeSidebarShortcut = useCallback((action: SidebarShortcutAction) => {

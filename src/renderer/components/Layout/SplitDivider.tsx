@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { usePaneStore } from '../../stores/pane-store'
 import type { SplitDirection } from '@shared/types'
 import './SplitDivider.css'
+import { useFrameCommit } from '../../hooks/useFrameCommit'
 
 interface SplitDividerProps {
   paneId: string
@@ -22,15 +23,19 @@ const SplitDivider: React.FC<SplitDividerProps> = ({ paneId, direction }) => {
   // 会让任何 pane-store 写入（含拖拽期间每个 pointermove 的 setSplitRatio 自身）
   // 重渲染全部分隔条
   const setSplitRatio = usePaneStore(s => s.setSplitRatio)
+  const draggingRef = useRef(false)
+  const ratioCommit = useFrameCommit<number>(ratio => setSplitRatio(paneId, ratio))
 
   // 开始拖拽
   const handlePointerDown = (e: React.PointerEvent) => {
+    if (e.button !== undefined && e.button !== 0) return
     e.preventDefault()
     // 指针捕获:拖拽跟随与指针下元素解耦 -- 相邻 pane 显示 harness webview 时,指针一进
     // webview 范围 mousemove 就被 guest 吞掉(同跨域 iframe),捕获后 pointermove 恒回流本元素。
     // move/up 监听直接挂在本元素上(捕获事件重定向到捕获元素后从它起冒泡),不依赖 window 级监听
     e.currentTarget.setPointerCapture(e.pointerId)
     setIsDragging(true)
+    draggingRef.current = true
     startPosRef.current = direction === 'horizontal' ? e.clientX : e.clientY
     // 起始比例在按下时从 store 现读（而非渲染期快照）—— 本组件不订阅布局，
     // 渲染期快照可能滞后，拖起来会从旧比例跳变
@@ -44,7 +49,7 @@ const SplitDivider: React.FC<SplitDividerProps> = ({ paneId, direction }) => {
 
   // 拖拽中 -- 捕获生效时事件恒重定向到本元素,这里的 React 监听即拖拽全程的接收方
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging) return
+    if (!draggingRef.current) return
 
     const containerSize = containerSizeRef.current
     if (containerSize <= 0) return
@@ -54,10 +59,12 @@ const SplitDivider: React.FC<SplitDividerProps> = ({ paneId, direction }) => {
       : e.clientY - startPosRef.current
 
     const newRatio = startRatioRef.current + delta / containerSize
-    setSplitRatio(paneId, newRatio)
+    ratioCommit.schedule(newRatio)
   }
 
   const endDragging = () => {
+    ratioCommit.flush()
+    draggingRef.current = false
     setIsDragging(false)
   }
 

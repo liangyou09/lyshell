@@ -51,21 +51,22 @@
 .task-shelf-item-text>span { font-size:11px; line-height:16px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; opacity:.78; }
 .task-shelf-list.has-live-windows { display:flex; flex-direction:column; gap:12px; padding:12px; overflow:auto; background:#f5f6f8; }
 .task-shelf.has-previews .task-shelf-item { position:relative; display:flex; flex:none; flex-direction:column; align-items:stretch; min-height:0; padding:0; background:var(--bg-base); border:1px solid var(--rule); border-radius:6px; overflow:hidden; }
-.task-shelf.has-previews .task-shelf-open { width:100%; flex:none; gap:8px; padding:12px 10px 9px; }
+.task-shelf-window-header { display:flex; align-items:center; gap:6px; min-width:0; padding:4px 6px; border-bottom:1px solid var(--rule); }
+.task-shelf.has-previews .task-shelf-open { flex:1; min-width:0; align-items:center; gap:6px; padding:4px 0; }
 .task-shelf.has-previews .task-shelf-open>svg { width:17px; height:17px; margin-top:1px; }
-.task-shelf.has-previews .task-shelf-item-text { flex:1; padding-right:54px; }
-.task-shelf.has-previews .task-shelf-item-text strong { font-size:13px; line-height:20px; }
+.task-shelf.has-previews .task-shelf-item-text { flex:1; padding-right:0; }
+.task-shelf.has-previews .task-shelf-item-text strong { font-size:11px; line-height:18px; }
 .task-shelf.has-previews .task-shelf-item-text>span,.task-shelf.has-previews .task-shelf-status { display:none; }
-.task-shelf.has-previews .task-shelf-item-actions { position:absolute; right:8px; top:9px; }
-.task-shelf-window-toolbar { flex-shrink:0; display:flex; align-items:center; flex-wrap:wrap; gap:6px; min-height:34px; padding:0 10px 9px; border-bottom:1px solid var(--rule); }
-.task-shelf-window-state { flex:1; min-width:0; display:flex; align-items:center; gap:6px; color:color-mix(in srgb,var(--text-rack) 72%,#fff); font-size:11px; line-height:18px; }
+.task-shelf.has-previews .task-shelf-item-actions { position:static; flex-shrink:0; }
+.task-shelf-window-toolbar { flex-shrink:0; display:flex; align-items:center; flex-wrap:nowrap; gap:4px; min-width:0; padding:0; }
+.task-shelf-window-state { flex:1; min-width:0; display:flex; align-items:center; gap:6px; color:color-mix(in srgb,var(--text-rack) 72%,#fff); font-size:10px; line-height:18px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .task-shelf-window-state>.task-shelf-status-dot { margin:0; }
 .task-shelf .task-shelf-enable-input { color:var(--shelf-accent); font-size:11px; }
 .task-shelf-preview { position:relative; display:block; flex:1; width:100%; min-width:0; min-height:0; overflow:hidden; background:var(--bg-slot); pointer-events:none; }
 .task-shelf-preview.is-tile { height:100%; aspect-ratio:auto; }
 .task-shelf-preview.is-tile img,.task-shelf-preview.is-tile canvas { object-fit:cover; object-position:left top; }
 .task-shelf-preview.is-tile .task-shelf-preview-empty { background:#f0f1f3; color:#6b7079; }
-.task-shelf-window-content { height:260px; min-height:180px; display:flex; position:relative; }
+.task-shelf-window-content { width:100%; aspect-ratio:16 / 9; flex:none; min-height:0; display:flex; position:relative; }
 .task-shelf-live-surface { width:100%; height:100%; background:#fff; }
 .task-shelf-window-content.is-terminal .task-shelf-live-surface { background:var(--terminal-bg); }
 .task-shelf-browser-bar { display:flex; gap:3px; align-items:center; padding:6px 8px; border-bottom:1px solid var(--rule); background:#f8f9fa; }
@@ -139,3 +140,7 @@
 [data-shelf-native] .web-terminal-tools { display:none; }
 
 .task-shelf-enable-input { padding:3px 6px; border:0; background:transparent; font-size:11px; line-height:15px; border-radius:3px; cursor:pointer; }
+
+/* 窄栏仅显示完整卡片清单，滚动范围覆盖所有任务。 */
+.task-shelf:not(.has-previews) .task-shelf-grid { flex:1; min-height:0; max-height:none; align-content:start; }
+.task-shelf:not(.has-previews) .task-shelf-list:empty { flex:none; }

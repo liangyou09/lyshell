@@ -183,7 +183,8 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
   // 空态内联文档：无会话 pane 中激活中的 doc 不再整面盖屏，而是内联为命令屏的
   // 输出区（md 在上、prompt 在下，键盘始终在命令屏）。payload 订阅按实例收敛
   // （与 OverlayHost 同门面）：刷新/标题回写只重渲染本 pane
-  const inlineDocRef = node.type === 'leaf' && node.sessions.length === 0
+  const hasVisibleTerminal = node.type === 'leaf' && node.sessions.some(id => !hiddenTabSessions[id])
+  const inlineDocRef = node.type === 'leaf' && !hasVisibleTerminal
     ? node.overlays.find(r => r.active && r.kind === 'doc')
     : undefined
   const inlineDocPayload = usePaneStore(s =>
@@ -556,37 +557,13 @@ const PaneView: React.FC<PaneViewProps> = ({ node, isTop, isTopLeft, isTopRight 
           className="flex-1 flex overflow-hidden relative"
         >
           {/* 渲染所有 session 的终端,非活跃 / 被隐藏的用 CSS 隐藏,确保 xterm 实例不卸载、持续接收数据 */}
-          {node.sessions.length > 0 ? (
-            <>
-              {node.sessions.map(sessionId => {
-                // 被隐藏的页签:终端仍挂载(保留连接与输出),但不可见;活跃且未隐藏
-                // 才显示。活覆盖层盖屏时同样只藏不卸(见 liveOverlayActive)
-                const isVisible = sessionId === node.activeSessionId &&
-                  !hiddenTabSessions[sessionId] && !liveOverlayActive
-                return (
-                  <ShelfTerminalHost key={sessionId} sessionId={sessionId} paneId={node.id} mainVisible={isVisible} />
-                )
-              })}
-              {/* 所有页签都被隐藏时叠加提示;终端实例仍挂载下层,保留连接与输出 */}
-              {node.sessions.every(id => hiddenTabSessions[id]) && (
-                <div className="absolute inset-0 flex items-center justify-center bg-[var(--terminal-bg)] text-gray-500 z-10 pointer-events-none">
-                  <div className="text-center">
-                    <p className="text-sm">{t('pane.allTabsHidden')}</p>
-                    <p className="text-xs mt-1">{t('pane.allTabsHiddenHint')}</p>
-                  </div>
-                </div>
-              )}
-            </>
-          ) : (
-            /* 空状态即全屏 TUI 命令界面(/help 等,命令集见 command-registry)——
-               铺满 pane,banner/输出区/候选列表/prompt/状态栏;pane 激活时聚焦
-               (activePaneId 启动后才落定,由组件内 effect 追平)。激活中的 doc
-               不盖屏而是内联为输出区(inlineDoc,md 在上、prompt 在下);活面板
-               (web / dsh web / MCP)显示时盖住命令屏、让出焦点,全撤后收回。
-               covered 只看 active 的活面板 —— 激活 doc 不算(内联),
-               OverlayHost 把非活动覆盖层 visibility:hidden 渲染在 z0,停驻的
-               页签也不真盖屏。页签拖入落区指示器仍盖在其上(zIndex 更高),
-               拖拽分屏不受影响 */
+          {node.sessions.map(sessionId => {
+            const isVisible = sessionId === node.activeSessionId &&
+              !hiddenTabSessions[sessionId] && !liveOverlayActive
+            return <ShelfTerminalHost key={sessionId} sessionId={sessionId} paneId={node.id} mainVisible={isVisible} />
+          })}
+          {/* 收纳只改变可见性；终端保持挂载，空出的主区域回到首页。 */}
+          {!hasVisibleTerminal && (
             <CommandScreen
               mode="embedded"
               paneId={node.id}

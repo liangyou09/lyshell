@@ -16,6 +16,8 @@ import { resolveShelfTaskStatus } from './task-shelf-status'
 import { showShelfNotice } from './task-shelf-navigation'
 import { activityNoticeTitle, activityProjectName } from './ActivityNotifications'
 import './TaskShelf.css'
+import { useFrameCommit } from '../../hooks/useFrameCommit'
+import { useShallow } from 'zustand/react/shallow'
 
 const PREF_KEY = 'lyshell.taskShelf.view.v1'
 function readPreferences(): { mode: ShelfMode; width: number } {
@@ -37,7 +39,10 @@ export function ShelfIcon({ kind = 'shelf' }: { kind?: string }): React.ReactEle
 const TaskShelf: React.FC = () => {
   const { t, i18n } = useTranslation()
   // 快捷键只在设置 → 终端 里修改(见 SettingsPanel)，保存区只消费当前绑定。
-  const { entries, bindings, loaded, busy, error, saveErrors, open, retry, archive, viewRequest, preferences: shortcuts } = useTaskShelf()
+  const { entries, bindings, loaded, busy, error, saveErrors, open, retry, archive, viewRequest, preferences: shortcuts } = useTaskShelf(useShallow(s => ({
+    entries: s.entries, bindings: s.bindings, loaded: s.loaded, busy: s.busy, error: s.error, saveErrors: s.saveErrors,
+    open: s.open, retry: s.retry, archive: s.archive, viewRequest: s.viewRequest, preferences: s.preferences
+  })))
   const draggingSession = usePaneStore(s => s.draggingSessionId)
   const draggingOverlay = usePaneStore(s => s.draggingOverlayId)
   // 显隐、状态与工作台事件分别驱动列表，不以静默输出推断完成。
@@ -64,8 +69,11 @@ const TaskShelf: React.FC = () => {
   const resizeStart = useRef<{ x: number; width: number }>()
   const hoverTimer = useRef<ReturnType<typeof setTimeout>>()
   const closeTimer = useRef<ReturnType<typeof setTimeout>>()
-  const width = shelfPanelWidth(preferences.width, available)
+  const width = shelfPanelWidth(preferences.width, available, windowWidth)
+  const resizeCommit = useFrameCommit<number>(next => setPreferences(p => p.width === next ? p : { ...p, width: next }))
+  const finishResize = () => { resizeCommit.flush(); resizeStart.current = undefined; setResizing(false) }
   const showPreviews = width >= SHELF_PREVIEW_WIDTH
+  const inputWidth = Math.min(SHELF_INPUT_WIDTH, shelfPanelWidth(Infinity, available, windowWidth))
   const canDrop = !!draggingSession || !!draggingOverlay && ['web', 'dshWeb'].includes(usePaneStore.getState().overlayPayloads[draggingOverlay]?.kind)
   const shown = docked || expanded || pinned || (canDrop && dropOver)
 
@@ -74,7 +82,7 @@ const TaskShelf: React.FC = () => {
   useLayoutEffect(() => {
     const parent = root.current?.parentElement
     if (!parent) return
-    const update = () => { setAvailable(parent.clientWidth); setWindowWidth(window.innerWidth) }
+    const update = () => { if (parent.clientWidth > 0) setAvailable(parent.clientWidth); setWindowWidth(window.innerWidth) }
     update()
     const observer = new ResizeObserver(update); observer.observe(parent)
     window.addEventListener('resize', update)
@@ -85,9 +93,10 @@ const TaskShelf: React.FC = () => {
     return () => clearTimeout(timer)
   }, [preferences.mode, windowWidth, available, width])
   useLayoutEffect(() => {
-    useTaskShelf.setState({ reservedWidth: docked ? width : 0 })
-    return () => { useTaskShelf.setState({ reservedWidth: 0 }) }
+    const reservedWidth = docked ? width : 0
+    if (useTaskShelf.getState().reservedWidth !== reservedWidth) useTaskShelf.setState({ reservedWidth })
   }, [docked, width])
+  useLayoutEffect(() => () => { useTaskShelf.setState({ reservedWidth: 0 }) }, [])
   useLayoutEffect(() => { root.current?.toggleAttribute('inert', !shown) }, [shown])
   useLayoutEffect(() => {
     useTaskShelf.setState({ panelVisible: shown })
@@ -119,8 +128,9 @@ const TaskShelf: React.FC = () => {
     if (!canDrop && dropOver) { setDropOver(false); setExpanded(false) }
   }, [canDrop, dropOver])
   useEffect(() => {
+    if (resizing) return
     try { localStorage.setItem(PREF_KEY, JSON.stringify(preferences)) } catch { /* 保留本次布局 */ }
-  }, [preferences])
+  }, [preferences, resizing])
   useEffect(() => () => { clearTimeout(hoverTimer.current); clearTimeout(closeTimer.current) }, [])
   useEffect(() => {
     const run = (action: 'toggle' | 'collect') => {
@@ -172,7 +182,7 @@ const TaskShelf: React.FC = () => {
   const displayedEntries = entries.filter(entry => !!entry.archivedAt === showArchived)
   const selectedEntry = displayedEntries.find(entry => entry.id === selected) ?? displayedEntries.find(entry => !shelfEntryVisible(entry.id)) ?? displayedEntries[0]
   const focusedId = selectedEntry?.id
-  const focusedWindows = showPreviews ? displayedEntries.filter(entry => !shelfEntryVisible(entry.id) && !!bindings[entry.id]) : selectedEntry && !shelfEntryVisible(selectedEntry.id) ? [selectedEntry] : []
+  const focusedWindows = showPreviews ? displayedEntries.filter(entry => !shelfEntryVisible(entry.id) && !!bindings[entry.id]) : []
   const grid = shelfGridLayout(width, displayedEntries.length)
   const openInMain = async (id: string) => {
     const entry = entries.find(item => item.id === id)
@@ -198,10 +208,10 @@ const TaskShelf: React.FC = () => {
     }} onDrop={event => { void handleDrop(event) }}>
     <div className="task-shelf-panel">
       <div className="task-shelf-resizer" role="separator" aria-label={t('taskShelf.resize')} aria-orientation="vertical" tabIndex={0}
-        onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); setPreferences(p => ({ ...p, width: shelfPanelWidth(width + (event.key === 'ArrowLeft' ? 16 : -16), available) })) } }}
+        onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); setPreferences(p => ({ ...p, width: shelfPanelWidth(width + (event.key === 'ArrowLeft' ? 16 : -16), available, windowWidth) })) } }}
         onPointerDown={event => { if (event.button !== 0) return; resizeStart.current = { x: event.clientX, width }; setResizing(true); event.currentTarget.setPointerCapture(event.pointerId); event.preventDefault() }}
-        onPointerMove={event => { const start = resizeStart.current; if (start) setPreferences(p => ({ ...p, width: shelfPanelWidth(start.width + start.x - event.clientX, available) })) }}
-        onPointerUp={() => { resizeStart.current = undefined; setResizing(false) }} onPointerCancel={() => { resizeStart.current = undefined; setResizing(false) }} onLostPointerCapture={() => { resizeStart.current = undefined; setResizing(false) }} />
+        onPointerMove={event => { const start = resizeStart.current; if (start) resizeCommit.schedule(shelfPanelWidth(start.width + start.x - event.clientX, available, windowWidth)) }}
+        onPointerUp={finishResize} onPointerCancel={finishResize} onLostPointerCapture={finishResize} />
       <header className="task-shelf-header"><div className="task-shelf-heading"><h2>{t('taskShelf.shortTitle')}{attention > 0 && <span className="task-shelf-attention" aria-label={t('taskShelf.attention', { count: attention })} />}</h2></div>
         <div className="task-shelf-modes" role="group" aria-label={t('taskShelf.displayMode')}>
           {(['auto', 'hover', 'fixed'] as const).map(mode => <button key={mode} aria-pressed={preferences.mode === mode} onClick={() => setPreferences(p => ({ ...p, mode }))}>{t(`taskShelf.mode.${mode}`)}</button>)}
@@ -232,7 +242,7 @@ const TaskShelf: React.FC = () => {
             disabled={busy[entry.id]} onFocus={() => setSelected(entry.id)} onContextMenu={event => showShelfEntryContextMenu(event, entry.id)}
             onClick={() => {
               setSelected(entry.id)
-              if (inMain || !binding) void openInMain(entry.id)
+              if (!showPreviews || inMain || !binding) void openInMain(entry.id)
               else [...root.current?.querySelectorAll<HTMLElement>('[data-shelf-entry]') ?? []].find(node => node.dataset.shelfEntry === entry.id)?.scrollIntoView?.({ block: 'nearest' })
             }}>
             <span className="task-shelf-tile-surface">{shown && binding && !inMain
@@ -256,11 +266,11 @@ const TaskShelf: React.FC = () => {
           const binding = bindings[entry.id]
           const session = binding?.kind === 'terminal' ? sessions.find(s => s.id === binding.id) : undefined
           const payload = binding && binding.kind !== 'terminal' ? usePaneStore.getState().overlayPayloads[binding.id] : undefined
-          const interactive = width >= SHELF_INPUT_WIDTH && !canDrop && !session?.lockedByMcp && !session?.config.ownerPluginId && !payload?.ownerPluginId && !(payload?.kind === 'dshWeb' && payload.readOnly)
+          const interactive = showPreviews && width >= inputWidth && !canDrop && !session?.lockedByMcp && !session?.config.ownerPluginId && !payload?.ownerPluginId && !(payload?.kind === 'dshWeb' && payload.readOnly)
           const taskStatus = resolveShelfTaskStatus(entry, binding, activity, session?.status, Math.max(now, Date.now()))
           const status = saveErrors[entry.id] ? 'unsaved' : !binding ? 'saved' : ['approval', 'failed', 'turnEnded', 'disconnected'].includes(taskStatus) ? taskStatus : 'background'
           return <div key={entry.id} data-shelf-entry={entry.id} className={`task-shelf-item ${focusedId === entry.id ? 'is-focused' : ''}`} role="region" aria-label={t('taskShelf.focusedTask')} onContextMenu={event => showShelfEntryContextMenu(event, entry.id)}>
-            <button className="task-shelf-open" disabled={busy[entry.id]} onFocus={() => setSelected(entry.id)} title={[entry.title, entry.workspace, t(`taskShelf.status.${status}`)].filter(Boolean).join('\n')}
+            <div className="task-shelf-window-header"><button className="task-shelf-open" disabled={busy[entry.id]} onFocus={() => setSelected(entry.id)} title={[entry.title, entry.workspace, t(`taskShelf.status.${status}`)].filter(Boolean).join('\n')}
               draggable={!!binding && !busy[entry.id]} onDragStart={event => {
                 if (!binding) return
                 event.dataTransfer.setData('text/plain', binding.kind === 'terminal' ? binding.id : OVERLAY_DRAG_MARKER + binding.id); event.dataTransfer.effectAllowed = 'move'
@@ -271,6 +281,9 @@ const TaskShelf: React.FC = () => {
               onClick={() => { void openInMain(entry.id) }}>
               <ShelfIcon kind={entry.recovery.kind} /><span className="task-shelf-item-text"><strong>{entry.title}</strong><span>{entry.workspace || t(`taskShelf.type.${entry.recovery.kind}`)}</span><small className={`task-shelf-status status-${status}`}>{busy[entry.id] ? t('taskShelf.opening') : t(`taskShelf.status.${status}`)}</small></span>
             </button>
+            {showPreviews && <div className="task-shelf-window-toolbar"><span className="task-shelf-window-state" title={t(`taskShelf.activityStatus.${taskStatus}`)}><span className={`task-shelf-status-dot is-${taskStatus}`} />{taskStatus === 'unknown' ? t(`taskShelf.type.${entry.recovery.kind}`) : t(`taskShelf.activityStatus.${taskStatus}`)}</span>
+              {width < inputWidth && <button className="task-shelf-enable-input" title={t('taskShelf.enableInput')} onClick={() => { setPreferences(p => ({ ...p, width: inputWidth })); setPinned(true) }}>{t('taskShelf.typeHere')}</button>}
+            </div>}
             <div className="task-shelf-item-actions">
               <button className="task-shelf-main-button" disabled={busy[entry.id]} title={t('taskShelf.openInMain')} aria-label={t('taskShelf.openInMain')} onClick={() => { void openInMain(entry.id) }}><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true"><path d="M3 9 9 3M3 3h6v6"/></svg></button>
               <button title={t('taskShelf.taskActions')} aria-label={t('taskShelf.taskActions')} onClick={event => {
@@ -278,9 +291,7 @@ const TaskShelf: React.FC = () => {
                 showShelfEntryContextMenu({ preventDefault: () => event.preventDefault(), stopPropagation: () => event.stopPropagation(), clientX: rect.right, clientY: rect.bottom }, entry.id)
               }}><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="13" cy="8" r="1"/></svg></button>
             </div>
-            {showPreviews && <div className="task-shelf-window-toolbar"><span className="task-shelf-window-state" title={t(`taskShelf.activityStatus.${taskStatus}`)}><span className={`task-shelf-status-dot is-${taskStatus}`} />{taskStatus === 'unknown' ? t(`taskShelf.type.${entry.recovery.kind}`) : t(`taskShelf.activityStatus.${taskStatus}`)}</span>
-              {width < SHELF_INPUT_WIDTH && <button className="task-shelf-enable-input" title={t('taskShelf.enableInput')} onClick={() => { setPreferences(p => ({ ...p, width: SHELF_INPUT_WIDTH })); setPinned(true) }}>{t('taskShelf.typeHere')}</button>}
-            </div>}
+            </div>
             {shown && showPreviews && binding && <>
               {binding.kind === 'web' && <TaskShelfBrowserBar id={binding.id} interactive={interactive} />}
               <div className={`task-shelf-window-content is-${binding.kind}`}><TaskShelfLiveSurface kind={binding.kind} id={binding.id} interactive={interactive} /></div>

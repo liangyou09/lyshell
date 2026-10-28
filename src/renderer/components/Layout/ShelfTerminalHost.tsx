@@ -1,11 +1,13 @@
-import React, { useCallback, useEffect, useRef, type CSSProperties } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from 'react'
 import TerminalView from '../Terminal/TerminalView'
 import {
   focusShelfSurface,
   leaveShelfSurface,
   SHELF_SURFACE_ENTER,
   shelfSurfaceStyle,
-  useShelfSurface,
+  getShelfSurface,
+  subscribeShelfSurfaces,
+  useShelfSurfaceMode,
   type ShelfSurfaceSnapshot
 } from './task-shelf-surfaces'
 
@@ -38,23 +40,17 @@ export interface ShelfTerminalHostProps {
 const ShelfTerminalHost: React.FC<ShelfTerminalHostProps> = ({ sessionId, paneId, mainVisible, visible }) => {
   // 两个名字取其一（PaneView 传 mainVisible，任务书契约叫 visible）
   const visibleInMain = mainVisible ?? visible ?? false
-  const surface = useShelfSurface('terminal', sessionId)
+  const mode = useShelfSurfaceMode('terminal', sessionId)
+  const surface = getShelfSurface('terminal', sessionId)
   const hostRef = useRef<HTMLDivElement>(null)
   const lastSurfaceRef = useRef<ShelfSurfaceSnapshot | null>(null)
-
-  // 登记期间持续记住最后一帧几何；主视图一旦可见立即清空，免得旧的迷你矩形在
-  // 「收起侧栏 → 主视图短暂不可见」之间被误当成本次布局。
-  useEffect(() => {
-    if (surface) lastSurfaceRef.current = surface
-  }, [surface])
-  useEffect(() => {
-    if (visibleInMain) lastSurfaceRef.current = null
-  }, [visibleInMain])
 
   const mini: ShelfSurfaceSnapshot | null = visibleInMain ? null : surface ?? lastSurfaceRef.current
   // 登记已注销、只剩最后一帧几何：位置保留占位，但不再对外暴露
   const exposed = !!mini && surface !== null && surface.visible
   const interactive = exposed && surface.interactive
+  const inMini = mini !== null
+  const shelfHost = useMemo(() => inMini ? { active: mini?.active === true, interactive } : undefined, [inMini, mini?.active, interactive])
 
   const style: CSSProperties = mini
     ? {
@@ -70,14 +66,35 @@ const ShelfTerminalHost: React.FC<ShelfTerminalHostProps> = ({ sessionId, paneId
         zIndex: visibleInMain ? 1 : 0
       }
 
+  useLayoutEffect(() => {
+    const sync = () => {
+      const current = getShelfSurface('terminal', sessionId)
+      if (visibleInMain) { lastSurfaceRef.current = null; return }
+      if (current) lastSurfaceRef.current = current
+      const retained = current ?? lastSurfaceRef.current
+      const element = hostRef.current
+      if (!retained?.rect || !element) return
+      const shown = !!current?.visible
+      Object.assign(element.style, shelfSurfaceStyle(retained), {
+        left: `${retained.rect.left}px`, top: `${retained.rect.top}px`,
+        width: `${retained.rect.width}px`, height: `${retained.rect.height}px`,
+        visibility: shown ? 'visible' : 'hidden',
+        pointerEvents: shown && current.interactive ? 'auto' : 'none',
+        clipPath: shown ? retained.clipPath : 'inset(100%)'
+      })
+    }
+    sync()
+    return subscribeShelfSurfaces(sync)
+  }, [visibleInMain, sessionId, mode])
+
   // 不可交互（侧栏收起、被别的任务顶掉、或未登记可交互）时不接受 Tab 焦点：
   // pointerEvents:none 只管指针，键盘聚焦要靠 inert 才拦得住。
   useEffect(() => {
     const element = hostRef.current
     if (!element) return
-    if (mini && !interactive) element.setAttribute('inert', '')
+    if (inMini && !interactive) element.setAttribute('inert', '')
     else element.removeAttribute('inert')
-  }, [mini, interactive])
+  }, [inMini, interactive])
 
   // 点到 / 聚焦到真实终端就认领这个面：右侧面板据此保持展开，键盘归属也随之切换
   const claimSurface = useCallback(() => {
@@ -111,7 +128,7 @@ const ShelfTerminalHost: React.FC<ShelfTerminalHostProps> = ({ sessionId, paneId
       <TerminalView
         sessionId={sessionId}
         paneId={paneId}
-        shelfHost={mini ? { active: mini.active, interactive } : undefined}
+        shelfHost={shelfHost}
       />
     </div>
   )

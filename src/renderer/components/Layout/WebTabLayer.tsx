@@ -14,7 +14,7 @@ import { BROWSER_NEW_TAB_URL } from '@shared/browser-settings'
 import CommandScreen from '../CommandScreen/CommandScreen'
 import { isShelfWebPreviewing, shelfWebPreviewRevision, subscribeShelfWebPreviews } from './task-shelf-preview-sources'
 
-import { getShelfSurface, subscribeShelfSurfaces, shelfSurfacesRevision, shelfSurfaceStyle, focusShelfSurface, leaveShelfSurface, SHELF_SURFACE_ENTER } from './task-shelf-surfaces'
+import { useShelfSurfacePresence, getShelfSurface, subscribeShelfSurfaces, shelfSurfaceStyle, focusShelfSurface, leaveShelfSurface, SHELF_SURFACE_ENTER } from './task-shelf-surfaces'
 
 // 占位（PaneView 内）与实体（本层内）互认的 DOM 锚点；值本身写入字面量属性
 export const WEB_TAB_PLACEHOLDER_ATTR = 'data-webtab-placeholder'
@@ -94,6 +94,26 @@ export const WebTabOverlay: React.FC<{ id: string; url: string; postToken?: stri
   const settleWebTabPost = usePaneStore(s => s.settleWebTabPost)
   const { t } = useTranslation()
   const ref = useRef<WebviewTag | null>(null)
+  const inShelf = useShelfSurfacePresence('web', id)
+  const fullZoom = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const page = ref.current
+    if (!page) return
+    const apply = () => {
+      try {
+        if (inShelf) {
+          if (fullZoom.current === null) fullZoom.current = page.getZoomFactor()
+          page.setZoomFactor(fullZoom.current * 0.85)
+        } else if (fullZoom.current !== null) {
+          page.setZoomFactor(fullZoom.current)
+          fullZoom.current = null
+        }
+      } catch { /* guest 尚未就绪，dom-ready 后再应用。 */ }
+    }
+    apply()
+    page.addEventListener('dom-ready', apply)
+    return () => { page.removeEventListener('dom-ready', apply) }
+  }, [inShelf])
   const [devToolsOpen, setDevToolsOpen] = useState(false)
   const [inspectPoint, setInspectPoint] = useState<{ x: number; y: number }>()
   const closeDevTools = useCallback(() => {
@@ -442,7 +462,6 @@ const WebTabLayer: React.FC = () => {
   const layout = usePaneStore(s => s.layout)
   const overlayPayloads = usePaneStore(s => s.overlayPayloads)
   const containerRef = useRef<HTMLDivElement>(null)
-  const surfaceRevision = useSyncExternalStore(subscribeShelfSurfaces, shelfSurfacesRevision)
   const dragging = usePaneStore(s => !!s.draggingSessionId || !!s.draggingOverlayId)
   const draggingRef = useRef(dragging); draggingRef.current = dragging
   const miniRects = useRef(new Map<string, ReturnType<typeof getShelfSurface>>())
@@ -460,12 +479,16 @@ const WebTabLayer: React.FC = () => {
     const container = containerRef.current
     if (!container) return
     const base = container.getBoundingClientRect()
-    const placeholders = [...document.querySelectorAll<HTMLElement>(`[${WEB_TAB_PLACEHOLDER_ATTR}]`)]
+    const placeholders = new Map([...document.querySelectorAll<HTMLElement>(`[${WEB_TAB_PLACEHOLDER_ATTR}]`)].map(node => [
+      `${node.getAttribute(WEB_TAB_PLACEHOLDER_ATTR)}@${node.closest('[data-pane-id]')?.getAttribute('data-pane-id')}`, node
+    ]))
+    const wrappers = new Map([...container.querySelectorAll<HTMLElement>(`[${WEB_TAB_WRAPPER_ATTR}]`)].map(node => [node.getAttribute(WEB_TAB_WRAPPER_ATTR), node]))
+    const writes: Array<() => void> = []
     for (const id of miniRects.current.keys()) if (!entriesRef.current.some(entry => entry.id === id)) miniRects.current.delete(id)
     for (const entry of entriesRef.current) {
-      const wrapper = [...container.querySelectorAll<HTMLElement>(`[${WEB_TAB_WRAPPER_ATTR}]`)].find(node => node.getAttribute(WEB_TAB_WRAPPER_ATTR) === entry.id)
+      const wrapper = wrappers.get(entry.id)
       if (!wrapper) continue
-      const placeholder = placeholders.find(node => node.getAttribute(WEB_TAB_PLACEHOLDER_ATTR) === entry.id && node.closest('[data-pane-id]')?.getAttribute('data-pane-id') === entry.paneId)
+      const placeholder = placeholders.get(`${entry.id}@${entry.paneId}`)
       const r = placeholder?.getBoundingClientRect()
       const rect = r ? webTabWrapperRect(base, r) : null
       // 占位尚未挂好、移到别的 pane 或尺寸无效时，不沿用旧位置展示网页。
@@ -481,25 +504,32 @@ const WebTabLayer: React.FC = () => {
         const current = surface ?? { ...mini, visible: false, interactive: false }
         const interactive = current.visible && current.interactive && !draggingRef.current
         const style = shelfSurfaceStyle({ ...current, interactive })
-        Object.assign(wrapper.style, style, { left: `${current.rect!.left}px`, top: `${current.rect!.top}px`, width: `${current.rect!.width}px`, height: `${current.rect!.height}px`, zIndex: '46', opacity: '1' })
-        wrapper.toggleAttribute('inert', !interactive)
-        wrapper.toggleAttribute('data-shelf-native', current.visible)
+        writes.push(() => {
+          Object.assign(wrapper.style, style, { left: `${current.rect!.left}px`, top: `${current.rect!.top}px`, width: `${current.rect!.width}px`, height: `${current.rect!.height}px`, zIndex: '46', opacity: '1' })
+          wrapper.toggleAttribute('inert', !interactive)
+          wrapper.toggleAttribute('data-shelf-native', current.visible)
+        })
         continue
       }
-      wrapper.removeAttribute('data-shelf-native')
       const previewing = isShelfWebPreviewing(entry.id)
-      Object.assign(wrapper.style, { position: 'absolute', inset: 'auto', zIndex: '15', clipPath: '', visibility: main || previewing ? 'visible' : 'hidden', opacity: previewing && !main ? '0' : '1', pointerEvents: main ? 'auto' : 'none' })
-      wrapper.toggleAttribute('inert', !main)
-      if (!positioned || !rect) continue
-      wrapper.style.left = `${rect.left}px`
-      wrapper.style.top = `${rect.top}px`
-      wrapper.style.width = `${rect.width}px`
-      wrapper.style.height = `${rect.height}px`
+      writes.push(() => {
+        wrapper.removeAttribute('data-shelf-native')
+        Object.assign(wrapper.style, { position: 'absolute', inset: 'auto', zIndex: '15', clipPath: '', visibility: main || previewing ? 'visible' : 'hidden', opacity: previewing && !main ? '0' : '1', pointerEvents: main ? 'auto' : 'none' })
+        wrapper.toggleAttribute('inert', !main)
+        if (!positioned || !rect) return
+        wrapper.style.left = `${rect.left}px`
+        wrapper.style.top = `${rect.top}px`
+        wrapper.style.width = `${rect.width}px`
+        wrapper.style.height = `${rect.height}px`
+      })
     }
+    writes.forEach(write => write())
   }, [])
 
   // 布局树任何编辑（含等尺寸换位、active 切换引发的挂载点变动）都重测一次
-  useLayoutEffect(() => { sync() }, [sync, layout, overlayPayloads, previewRevision, surfaceRevision, dragging])
+  useLayoutEffect(() => { sync() }, [sync, layout, overlayPayloads, previewRevision, dragging])
+  // 几何每帧直接同步到常驻宿主，不让整个网页 React 树随滚动重新渲染。
+  useLayoutEffect(() => subscribeShelfSurfaces(sync), [sync])
 
   useLayoutEffect(() => {
     sync()

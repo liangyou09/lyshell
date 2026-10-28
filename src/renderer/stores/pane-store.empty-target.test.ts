@@ -45,6 +45,45 @@ const setLayout = (root: PaneNode, activePaneId: string): void => {
 
 beforeEach(() => {
   localStorage.clear()
+  usePaneStore.setState({ retainedSessionIds: {} })
+})
+
+describe('可见页签收敛与资源释放边界', () => {
+  it('收纳网页只处理所在分屏，保留用户另行拆出的空位', () => {
+    const source = leaf('source', ['visible'], [{ id: 'web', kind: 'web', active: true, slot: null }])
+    const empty = leaf('intentional-empty', [])
+    setLayout({ id: 'split', type: 'split', direction: 'horizontal', splitRatio: .5, firstChild: source, secondChild: empty }, 'source')
+    usePaneStore.setState({ overlayPayloads: { web: { kind: 'web', url: 'https://example.org/', title: 'Page' } } })
+    usePaneStore.getState().shelveOverlay('web')
+    expect(usePaneStore.getState().getAllLeafPanes().map(p => p.id)).toEqual(['source', 'intentional-empty'])
+    expect(usePaneStore.getState().getOverlayPaneId('web')).toBe('source')
+  })
+
+  it.each([false, true])('批量关闭覆盖层保留其他主动拆出的空位（retained=%s）', retained => {
+    const source = leaf('source', ['visible'], [{ id: 'web', kind: 'web', active: true, slot: null, retained }])
+    const empty = leaf('intentional-empty', [])
+    setLayout({ id: 'split', type: 'split', direction: 'horizontal', splitRatio: .5, firstChild: source, secondChild: empty }, 'intentional-empty')
+    usePaneStore.setState({ overlayPayloads: { web: { kind: 'web', url: 'https://example.org/', title: 'Page' } } })
+
+    usePaneStore.getState().closeOverlaysInPane('source')
+
+    expect(usePaneStore.getState().getAllLeafPanes().map(p => p.id)).toEqual(['source', 'intentional-empty'])
+    expect(usePaneStore.getState().layout.activePaneId).toBe('intentional-empty')
+    expect(usePaneStore.getState().getOverlayPaneId('web')).toBe(retained ? 'source' : null)
+  })
+
+  it('显式移除连接会释放 retained 标记与引用，其他页签保持可见', () => {
+    setLayout({ id: 'split', type: 'split', direction: 'horizontal', splitRatio: .5,
+      firstChild: leaf('source', ['visible', 'held']), secondChild: leaf('other', ['other-session'])
+    }, 'source')
+    usePaneStore.setState({ hiddenTabSessions: { held: true }, retainedSessionIds: { held: true } })
+    usePaneStore.getState().removeSessionFromAllPanes('held')
+    expect(paneOf('held')).toBeUndefined()
+    expect(usePaneStore.getState().retainedSessionIds.held).toBeUndefined()
+    expect(usePaneStore.getState().hiddenTabSessions.held).toBeUndefined()
+    expect(paneOf('visible')?.activeSessionId).toBe('visible')
+    expect(usePaneStore.getState().getAllLeafPanes()).toHaveLength(2)
+  })
 })
 
 describe('空 pane 目标保护（keepId 豁免）', () => {

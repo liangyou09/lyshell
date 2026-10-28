@@ -20,6 +20,7 @@ import { PALETTE_CLOSED_EVENT } from '../../commands/palette'
 import TerminalSearchPanel from './TerminalSearchPanel'
 import { searchAllTerminals } from './search-all-terminals'
 import { bindSelectionCopy } from './selection-copy'
+import { createTerminalResizeScheduler, type TerminalSize } from './terminal-resize-scheduler'
 
 // 注意：本组件依赖 xterm.js 内部私有 API，无稳定性承诺，xterm 任何版本更新都可能改名或移除。
 //   - IME 定位与搜狗 Shift 上屏：_core、_compositionHelper、_textarea、updateCompositionElements、
@@ -140,7 +141,11 @@ function patchXtermFloatMeasure(terminal: Terminal): void {
 const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHost }) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
-  const resizeTimeoutRef = useRef<number | null>(null)
+  const reportedSizeRef = useRef<TerminalSize>({ cols: 0, rows: 0 })
+  const notifyResize = useCallback((cols: number, rows: number) => {
+    window.electronAPI?.terminalResize(sessionId, cols, rows)
+    reportedSizeRef.current = { cols, rows }
+  }, [sessionId])
   // 字号变化 → PTY resize 的防抖句柄:连续调档(+5/-5 往返、多档连滚、设置面板
   // 步进实时派发后的连点)只在落定时下发一次终端几何,配合 connector 层的同尺寸
   // 跳过,净零往返完全不打扰 PTY。窗口取 500ms:盖住滚轮手势与快速连点,又不让
@@ -205,6 +210,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
   // 迷你宿主（任务架侧栏）的交互额度：登记为不可交互时与 MCP 锁定同路阻塞 ——
   // onData / 右键粘贴读 blockInputRef，xterm 侧走 options.disableStdin。
   const shelfHosted = shelfHost !== undefined
+  const shelfHostedRef = useRef(shelfHosted); shelfHostedRef.current = shelfHosted
   const shelfActive = shelfHost?.active === true
   const shelfInteractive = shelfHost?.interactive === true
   const inputBlocked = blockInput || (shelfHosted && !shelfInteractive)
@@ -463,7 +469,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
               if (rect.width > 0 && rect.height > 0) {
                 instance.fitAddon.fit()
                 if (instance.terminal.cols && instance.terminal.rows) {
-                  window.electronAPI?.terminalResize(sessionId, instance.terminal.cols, instance.terminal.rows)
+                  notifyResize(instance.terminal.cols, instance.terminal.rows)
                 }
               }
             } catch {
@@ -628,7 +634,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
             inst.fitAddon.fit()
             if ((terminal.cols !== before.cols || terminal.rows !== before.rows)
               && terminal.cols && terminal.rows) {
-              window.electronAPI?.terminalResize(sessionId, terminal.cols, terminal.rows)
+              notifyResize(terminal.cols, terminal.rows)
             }
             // 网格变化后光标位置变化，解除 IME 位置锁定
             imePatchRef.current?.resetLock()
@@ -661,7 +667,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
         if (rect.width > 0 && rect.height > 0) {
           instance.fitAddon.fit()
           if (instance.terminal.cols && instance.terminal.rows) {
-            window.electronAPI?.terminalResize(sessionId, instance.terminal.cols, instance.terminal.rows)
+            notifyResize(instance.terminal.cols, instance.terminal.rows)
           }
           // 新建/复用终端后自动聚焦，避免用户必须先点击才能输入
           focusTerminalIfActive()
@@ -774,69 +780,30 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
       imePatchRef.current?.resetLock()
     }
 
-    // 处理终端 resize - 使用 ResizeObserver 监听容器大小变化（带防抖）
-    const handleResize = () => {
-      const instance = getTerminal(sessionId)
-      if (instance && containerRef.current) {
-        try {
-          const rect = containerRef.current.getBoundingClientRect()
-          if (rect.width <= 0 || rect.height <= 0) {
-            return
-          }
-
-          const oldCols = instance.terminal.cols
-          const oldRows = instance.terminal.rows
-
-          instance.fitAddon.fit()
-
-          const newCols = instance.terminal.cols
-          const newRows = instance.terminal.rows
-
-          if (newCols && newRows && (newCols !== oldCols || newRows !== oldRows)) {
-            window.electronAPI?.terminalResize(sessionId, newCols, newRows)
-          }
-
-        } catch {
-          // 终端可能已销毁，忽略错误
-        }
-      }
-    }
-
-    // 防抖的 resize 处理（150ms 防抖，减少频繁重绘）
-    const debouncedResize = () => {
-      // 尺寸变化当下立即解除 IME 位置锁定，避免防抖窗口内候选框仍锁在旧坐标
+    // 视觉 fit 跟随显示帧，PTY 仍在拖动停止 150ms 后同步，避免 ConPTY 重印风暴。
+    const resizeScheduler = createTerminalResizeScheduler({
+      initialSize: reportedSizeRef.current,
+      getReportedSize: () => reportedSizeRef.current,
+      fit: () => {
+        const instance = getTerminal(sessionId)
+        const element = containerRef.current
+        if (!instance || !element || getComputedStyle(element).visibility === 'hidden') return null
+        if (element.clientWidth <= 0 || element.clientHeight <= 0) return null
+        imePatchRef.current?.resetLock()
+        instance.fitAddon.fit()
+        return { cols: instance.terminal.cols, rows: instance.terminal.rows }
+      },
+      notify: ({ cols, rows }) => notifyResize(cols, rows)
+    })
+    const scheduleResize = () => {
       imePatchRef.current?.resetLock()
-      if (resizeTimeoutRef.current) {
-        clearTimeout(resizeTimeoutRef.current)
-      }
-      resizeTimeoutRef.current = window.setTimeout(handleResize, 150)
+      resizeScheduler.schedule()
     }
-
-    const resizeObserver = new ResizeObserver(debouncedResize)
+    const resizeObserver = new ResizeObserver(scheduleResize)
     resizeObserverRef.current = resizeObserver
     resizeObserver.observe(containerRef.current)
-
-    // 处理窗口 resize（作为备用）
-    const handleWindowResize = () => {
-      const instance = getTerminal(sessionId)
-      if (instance && containerRef.current) {
-        try {
-          const rect = containerRef.current.getBoundingClientRect()
-          if (rect.width > 0 && rect.height > 0) {
-            instance.fitAddon.fit()
-            if (instance.terminal.cols && instance.terminal.rows) {
-              window.electronAPI?.terminalResize(sessionId, instance.terminal.cols, instance.terminal.rows)
-            }
-            // 窗口 resize 后光标位置变化，解除 IME 位置锁定
-            imePatchRef.current?.resetLock()
-          }
-        } catch {
-          // 终端可能已销毁，忽略错误
-        }
-      }
-    }
-
-    window.addEventListener('resize', handleWindowResize)
+    window.addEventListener('resize', scheduleResize)
+    window.addEventListener('pane-resize', scheduleResize)
     // 监听器统一挂到局部捕获的 container 上:cleanup 时 containerRef.current 可能已被
     // React 置空/换节点(HMR 重挂载、卸载竞态),届时 removeEventListener 会静默失败,
     // 在同一 DOM 容器上累积出重复的 contextmenu 监听 —— 表现为右键粘贴一次触发两下(dev 特有)。
@@ -857,7 +824,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
       fontSizeRef.current = next
       const instance = getTerminal(sessionId)
       if (instance) {
-        instance.terminal.options.fontSize = next
+        instance.terminal.options.fontSize = shelfHostedRef.current ? Math.max(10, next - 2) : next
         instance.fitAddon.fit()
         // PTY resize 走 500ms 防抖,连续调档合并为落定时的一次下发:
         // ConPTY 每次 resize 都会整屏重印,与 Claude Code(Ink)等 raw-mode TUI
@@ -870,7 +837,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
           fontResizeTimerRef.current = null
           const current = getTerminal(sessionId)
           if (current?.terminal.cols && current.terminal.rows) {
-            window.electronAPI?.terminalResize(sessionId, current.terminal.cols, current.terminal.rows)
+            notifyResize(current.terminal.cols, current.terminal.rows)
           }
         }, 500)
         // 字号变化后光标位置变化，解除 IME 位置锁定
@@ -891,11 +858,9 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
     return () => {
       resizeObserver.disconnect()
       resizeObserverRef.current = null
-      if (resizeTimeoutRef.current) {
-        clearTimeout(resizeTimeoutRef.current)
-        resizeTimeoutRef.current = null
-      }
-      window.removeEventListener('resize', handleWindowResize)
+      resizeScheduler.dispose()
+      window.removeEventListener('resize', scheduleResize)
+      window.removeEventListener('pane-resize', scheduleResize)
       // 用 effect 挂载时捕获的 container 解绑,保证 remove 一定命中当初 add 的那个节点
       container.removeEventListener('contextmenu', handleContextMenu)
       container.removeEventListener('mousedown', handleMouseDown)
@@ -922,7 +887,21 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
       // 注意：不在这里 dispose 终端，终端实例保存在 store 中
       // 只有在 session 断开时才 dispose
     }
-  }, [sessionId, getTerminal, registerTerminal])
+  }, [sessionId, getTerminal, registerTerminal, notifyResize])
+
+  // 小窗使用更紧凑的字号，召回主窗口恢复原字号，不改全局偏好或重建终端。
+  useEffect(() => {
+    const instance = getTerminal(sessionId)
+    if (!instance) return
+    const size = shelfHosted ? Math.max(10, fontSizeRef.current - 2) : fontSizeRef.current
+    if (instance.terminal.options.fontSize === size) return
+    instance.terminal.options.fontSize = size
+    instance.fitAddon.fit()
+    if (instance.terminal.cols && instance.terminal.rows) {
+      notifyResize(instance.terminal.cols, instance.terminal.rows)
+    }
+    imePatchRef.current?.resetLock()
+  }, [shelfHosted, sessionId, getTerminal, notifyResize])
 
   // 当只读/MCP 锁定状态或迷你宿主交互额度变化时，动态更新终端 disableStdin
   useEffect(() => {
@@ -977,43 +956,6 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
     searchAddonRef.current?.clearDecorations()
   })
 
-  // 监听分屏 resize 事件（带防抖）
-  useEffect(() => {
-    const handlePaneResize = () => {
-      const instance = getTerminal(sessionId)
-      if (instance && containerRef.current) {
-        try {
-          const rect = containerRef.current.getBoundingClientRect()
-          if (rect.width > 0 && rect.height > 0) {
-            // 分屏 resize 当下立即解除 IME 位置锁定，避免防抖窗口内候选框仍锁在旧坐标
-            imePatchRef.current?.resetLock()
-            // 使用防抖，避免频繁重绘
-            if (resizeTimeoutRef.current) {
-              clearTimeout(resizeTimeoutRef.current)
-            }
-            resizeTimeoutRef.current = window.setTimeout(() => {
-              try {
-                instance.fitAddon.fit()
-                const cols = instance.terminal.cols
-                const rows = instance.terminal.rows
-                if (cols && rows) {
-                  window.electronAPI?.terminalResize(sessionId, cols, rows)
-                }
-              } catch {
-                // 终端可能已销毁，忽略错误
-              }
-            }, 100)
-          }
-        } catch {
-          // 终端可能已销毁，忽略错误
-        }
-      }
-    }
-
-    window.addEventListener('pane-resize', handlePaneResize)
-    return () => window.removeEventListener('pane-resize', handlePaneResize)
-  }, [sessionId, paneId, getTerminal])
-
   // 标签页切换后重新 fit + resize（终端可能从隐藏变为可见）
   useEffect(() => {
     const handleTabSwitch = () => {
@@ -1030,7 +972,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
                 const cols = instance.terminal.cols
                 const rows = instance.terminal.rows
                 if (cols && rows) {
-                  window.electronAPI?.terminalResize(sessionId, cols, rows)
+                  notifyResize(cols, rows)
                 }
                 // 切换页签后自动聚焦，用户可立即输入
                 focusTerminalIfActive()
@@ -1046,7 +988,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
     }
     window.addEventListener('terminal-tab-switched', handleTabSwitch)
     return () => window.removeEventListener('terminal-tab-switched', handleTabSwitch)
-  }, [sessionId, getTerminal])
+  }, [sessionId, getTerminal, notifyResize])
 
   // 输出订阅由 terminal-store 管理，按 xterm.write 完成回调确认消费。
 
@@ -1069,7 +1011,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
                   const cols = instance.terminal.cols
                   const rows = instance.terminal.rows
                   if (cols && rows) {
-                    window.electronAPI?.terminalResize(sessionId, cols, rows)
+                    notifyResize(cols, rows)
                   }
                 } catch {
                   // 忽略错误
@@ -1098,7 +1040,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
     })
 
     return cleanup
-  }, [sessionId, getTerminal, sessionConfig])
+  }, [sessionId, getTerminal, sessionConfig, notifyResize])
 
   // 执行搜索
   const doSearch = (direction: 'next' | 'prev') => {
@@ -1263,4 +1205,4 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
   )
 }
 
-export default TerminalView
+export default React.memo(TerminalView)

@@ -614,6 +614,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
   const { t } = useTranslation()
   // 被隐藏的页签(Sidebar LIVE 段会话标签点击 toggle)——不渲染对应页签,但终端实例保留
   const hiddenTabSessions = usePaneStore(s => s.hiddenTabSessions)
+  const hasSplit = usePaneStore(s => s.layout.root.type === 'split')
   const visibleOverlays = pane.overlays.filter(ref => !ref.shelved)
 
   // 防止重复双击
@@ -644,6 +645,7 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
   // 依赖条是否渲染：空 pane 走下方早退分支不渲染条容器，首个页签出现后条容器才挂载，
   // mount-once 的空依赖会漏掉"先空后有页签"的条
   const stripRendered = paneSessions.length > 0 || visibleOverlays.length > 0
+  const closeEmptyPane = hasSplit && !stripRendered
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -893,8 +895,8 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
   }
 
   // 无会话且本 pane 无任何覆盖层页签时不渲染标签栏，避免中部空条；打开时仍需标签栏承载页签。
-  // 顶排保留第一行供拖窗；空态已有欢迎页，不显示「+」。
-  if (paneSessions.length === 0 && visibleOverlays.length === 0 && !isTop) return null
+  // 顶排保留第一行供拖窗；分屏空态保留关闭入口，收纳任务后仍能合并空间。
+  if (!stripRendered && !isTop && !closeEmptyPane) return null
 
   // 计算会话名称编号 - 基于全局同名会话
   const getNameWithIndex = (session: typeof paneSessions[0]) => {
@@ -1053,6 +1055,10 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
                   const sessionId = item.session.id
                   const savedId = shelfEntryFor('terminal', sessionId)
                   if (savedId) { useTaskShelf.getState().hide(savedId); return }
+                  if (usePaneStore.getState().retainedSessionIds[sessionId]) {
+                    removeSessionFromPane(pane.id, sessionId)
+                    return
+                  }
                   // 1. 先从 pane 移除页签：同步、与连接状态无关，确保 UI 立刻响应
                   removeSessionFromPane(pane.id, sessionId)
                   // 1.5 关掉的是活动页签且 pane 还有存活页签 → 切换后的新活动终端
@@ -1128,6 +1134,22 @@ const PaneTabBar: React.FC<PaneTabBarProps> = ({ pane, isTop, isTopLeft, isTopRi
           </button>
         )}
       </div>
+
+      {closeEmptyPane && (
+        <button
+          type="button"
+          title={t('pane.closePane')}
+          aria-label={t('pane.closePane')}
+          className="win-no-drag w-[28px] h-full flex-shrink-0 flex items-center justify-center text-[var(--text-rack-mute)] hover:bg-[var(--bg-slot)] hover:text-[var(--text-rack)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--amber)] focus-visible:outline-offset-[-2px]"
+          onClick={event => {
+            event.stopPropagation()
+            const state = usePaneStore.getState()
+            if (state.layout.root.type === 'split' && state.getPaneById(pane.id)?.type === 'leaf') state.closePane(pane.id)
+          }}
+        >
+          <svg aria-hidden viewBox="0 0 12 12" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="m3 3 6 6m0-6-6 6" /></svg>
+        </button>
+      )}
 
       {/* 保底拖拽抓手(仅顶排) -- 页签 flex-1 伸长铺满整条后(Edge 式只缩不滚),条内
           空白归零,而左右留白分别被展开 pill / 右上控制簇盖住(win-no-drag 浮层),

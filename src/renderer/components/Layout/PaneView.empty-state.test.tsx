@@ -65,6 +65,7 @@ const resetLayout = (): void => {
     },
     overlayPayloads: {},
     hiddenTabSessions: {},
+    retainedSessionIds: {},
     draggingOverlayId: null,
     draggingSessionId: null
   })
@@ -93,6 +94,54 @@ afterEach(() => {
 })
 
 describe('PaneView 空态焦点:内容页签全关后命令屏收回键盘', () => {
+  it.each(['horizontal', 'vertical'] as const)('最后可见页签收纳后自动合并（%s），右栏终端和网页迁移保活', direction => {
+    const siblingId = 'sibling-session'
+    useSessionStore.setState(state => ({ sessions: [...state.sessions, { id: siblingId, config: { ...sessionConfig, id: siblingId }, status: ConnectionStatus.CONNECTED }] }))
+    usePaneStore.setState({
+      layout: { root: { id: 'split', type: 'split', direction, splitRatio: .5,
+        firstChild: { id: 'pane-1', type: 'leaf', sessions: [SESSION_ID], activeSessionId: SESSION_ID, overlays: [{ id: 'saved-web', kind: 'web', active: true, slot: null }] },
+        secondChild: { id: 'pane-2', type: 'leaf', sessions: [siblingId], activeSessionId: siblingId, overlays: [] }
+      }, activePaneId: 'pane-1' },
+      overlayPayloads: { 'saved-web': { kind: 'web', url: 'https://example.org/', title: 'Saved page' } }
+    })
+    // 上下分屏验证下半区：空态标签栏不能因非顶排而整体消失。
+    const root = pane().layout.root
+    if (direction === 'vertical' && root.type === 'split') usePaneStore.setState({ layout: {
+      ...pane().layout, root: { ...root, firstChild: root.secondChild, secondChild: root.firstChild }
+    } })
+    const payload = pane().overlayPayloads['saved-web']
+    render(<Harness />)
+    act(() => { pane().retainShelfResource(SESSION_ID, true, true); pane().toggleLiveSessionTabs([SESSION_ID], true) })
+    // 仍有可见网页时不把分屏当空态关闭。
+    expect(screen.queryByRole('button', { name: 'Close pane' })).toBeNull()
+    act(() => pane().shelveOverlay('saved-web'))
+    expect(pane().getAllLeafPanes()).toHaveLength(1)
+    expect(pane().getPaneById('pane-1')).toBeUndefined()
+    expect(pane().layout.activePaneId).toBe('pane-2')
+    expect(pane().getPaneBySessionId(SESSION_ID)?.id).toBe('pane-2')
+    expect(pane().hiddenTabSessions[SESSION_ID]).toBe(true)
+    expect(pane().getPaneBySessionId(siblingId)?.activeSessionId).toBe(siblingId)
+    expect(pane().overlayPayloads['saved-web']).toBe(payload)
+    expect(pane().getAllLeafPanes()[0].overlays[0]).toMatchObject({ id: 'saved-web', shelved: true, retained: true, active: false })
+    expect(useSessionStore.getState().sessions.find(s => s.id === SESSION_ID)?.status).toBe(ConnectionStatus.CONNECTED)
+    expect(screen.queryByRole('button', { name: 'Close pane' })).toBeNull()
+    act(() => pane().toggleLiveSessionTabs([SESSION_ID], false))
+    expect(pane().hiddenTabSessions[SESSION_ID]).toBeUndefined()
+    expect(pane().getPaneBySessionId(SESSION_ID)?.id).toBe('pane-2')
+  })
+
+  it('最后一个终端收纳后回到首页，召回后首页让位且连接仍在', () => {
+    render(<Harness />)
+    act(() => { pane().addSessionToPane('pane-1', SESSION_ID) })
+    expect(screen.queryByRole('textbox')).toBeNull()
+    act(() => { pane().toggleLiveSessionTabs([SESSION_ID], true) })
+    expect(document.activeElement).toBe(inputOf())
+    expect((pane().layout.root as PaneLeaf).sessions).toEqual([SESSION_ID])
+    expect(useSessionStore.getState().sessions[0].status).toBe(ConnectionStatus.CONNECTED)
+    act(() => { pane().toggleLiveSessionTabs([SESSION_ID], false) })
+    expect(screen.queryByRole('textbox')).toBeNull()
+  })
+
   it('纯终端流:会话长出又关掉(根被换新 id),命令屏重新聚焦', () => {
     render(<Harness />)
     expect(document.activeElement).toBe(inputOf())

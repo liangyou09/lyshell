@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, renderHook } from '@testing-library/react'
-import { focusShelfSurface, getShelfSurface, measureShelfSurface, refreshShelfSurfaces, registerShelfSurface, useShelfKeyboardFocus } from './task-shelf-surfaces'
+import { focusShelfSurface, getShelfSurface, measureShelfSurface, refreshShelfSurfaces, registerShelfSurface, updateShelfSurfaceInteraction, useShelfKeyboardFocus } from './task-shelf-surfaces'
 
 const releases: Array<() => void> = []
 const rect = (left: number, top: number, width: number, height: number): DOMRect => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON() {} })
@@ -64,5 +64,33 @@ describe('原生小窗口位置和输入归属', () => {
     releases.push(old, registerShelfSurface('web', 'w', second.slot, false))
     old()
     expect(getShelfSurface('web', 'w')).toMatchObject({ rect: { top: 300 }, visible: true, interactive: false })
+  })
+  it('共享裁剪祖先每轮只测一次，无关控件过渡不启动几何动画循环', () => {
+    const { aside, slot } = target()
+    const second = slot.cloneNode() as HTMLElement
+    second.getBoundingClientRect = () => rect(500, 400, 460, 260)
+    slot.parentElement!.append(second)
+    const asideRead = vi.spyOn(aside, 'getBoundingClientRect')
+    const listRead = vi.spyOn(slot.parentElement!, 'getBoundingClientRect')
+    releases.push(registerShelfSurface('terminal', 't', slot, true), registerShelfSurface('web', 'w', second, true))
+    asideRead.mockClear(); listRead.mockClear()
+    refreshShelfSurfaces()
+    expect(asideRead).toHaveBeenCalledTimes(1)
+    expect(listRead).toHaveBeenCalledTimes(1)
+    const raf = vi.fn(() => 2)
+    vi.stubGlobal('requestAnimationFrame', raf)
+    const transition = Object.assign(new Event('transitionrun', { bubbles: true }), { propertyName: 'background-color' })
+    slot.dispatchEvent(transition)
+    expect(raf).not.toHaveBeenCalled()
+  })
+  it('权限变化保留登记和几何，立即撤销输入归属', () => {
+    const { slot } = target()
+    releases.push(registerShelfSurface('terminal', 't', slot, true))
+    focusShelfSurface('terminal', 't')
+    const before = getShelfSurface('terminal', 't')!.rect
+    updateShelfSurfaceInteraction('terminal', 't', false)
+    expect(getShelfSurface('terminal', 't')).toMatchObject({ rect: before, visible: true, active: false, interactive: false })
+    updateShelfSurfaceInteraction('terminal', 't', true)
+    expect(getShelfSurface('terminal', 't')).toMatchObject({ rect: before, visible: true, active: false, interactive: true })
   })
 })

@@ -50,7 +50,8 @@ beforeEach(() => {
     layout: { root: makePane([]), activePaneId: 'pane-1' },
     overlayPayloads: {},
     draggingOverlayId: null,
-    hiddenTabSessions: {}
+    hiddenTabSessions: {},
+    retainedSessionIds: {}
   })
 })
 
@@ -111,6 +112,41 @@ describe('PaneTabBar 顶排页签条(渲染断言)', () => {
   it('空 pane 非顶排不渲染(窗口中部不出现空条)', () => {
     const { container } = render(<PaneTabBar pane={makePane([])} />)
     expect(container.innerHTML).toBe('')
+  })
+
+  it('恢复出的空分屏在非顶排也能关闭，已收纳终端保留在存活分屏', () => {
+    const pane = makePane(['saved'])
+    const other: PaneLeaf = { ...makePane(['visible']), id: 'other' }
+    useSessionStore.setState({ sessions: [makeSession('saved', 'Saved terminal'), makeSession('visible', 'Main terminal')] })
+    usePaneStore.setState({ layout: { root: {
+      id: 'split', type: 'split', direction: 'vertical', splitRatio: .5, firstChild: other, secondChild: pane
+    }, activePaneId: pane.id }, hiddenTabSessions: { saved: true }, retainedSessionIds: { saved: true } })
+    const { getByRole, queryByRole } = render(<PaneTabBar pane={pane} />)
+    fireEvent.click(getByRole('button', { name: 'Close pane' }))
+    expect(usePaneStore.getState().getAllLeafPanes()).toHaveLength(1)
+    expect(usePaneStore.getState().getPaneBySessionId('saved')?.id).toBe('other')
+    expect(usePaneStore.getState().hiddenTabSessions.saved).toBe(true)
+    expect(useSessionStore.getState().sessions.find(s => s.id === 'saved')?.status).toBe(ConnectionStatus.CONNECTED)
+    expect(queryByRole('button', { name: 'Close pane' })).toBeNull()
+  })
+
+  it('终端页签关闭以 store 保留标记为准，缺少任务架 UI 绑定也不误断开', () => {
+    const pane = makePane(['saved'])
+    const other: PaneLeaf = { ...makePane(['visible']), id: 'other' }
+    useSessionStore.setState({ sessions: [makeSession('saved', 'Saved terminal'), makeSession('visible', 'Main terminal')] })
+    usePaneStore.setState({ layout: { root: {
+      id: 'split', type: 'split', direction: 'horizontal', splitRatio: .5, firstChild: pane, secondChild: other
+    }, activePaneId: pane.id }, retainedSessionIds: { saved: true } })
+    const disconnect = vi.spyOn(useSessionStore.getState(), 'disconnectSession')
+    try {
+      const { container } = render(<PaneTabBar pane={pane} isTop />)
+      fireEvent.click(container.querySelector('button[title="Close connection"]')!)
+      expect(disconnect).not.toHaveBeenCalled()
+      expect(usePaneStore.getState().getAllLeafPanes()).toHaveLength(1)
+      expect(usePaneStore.getState().getPaneBySessionId('saved')?.id).toBe('other')
+      expect(usePaneStore.getState().hiddenTabSessions.saved).toBe(true)
+      expect(useSessionStore.getState().sessions.find(s => s.id === 'saved')?.status).toBe(ConnectionStatus.CONNECTED)
+    } finally { disconnect.mockRestore() }
   })
 
   it('仅首行最右页签条延伸过常驻任务区，控制簇留白保持在窗口右端', () => {

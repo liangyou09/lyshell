@@ -1,12 +1,20 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type { PaneLeaf, PaneSplit, SplitDirection } from '@shared/types'
 import { usePaneStore } from '../../stores/pane-store'
 import SplitDivider from './SplitDivider'
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
-afterEach(() => { cleanup(); vi.restoreAllMocks() })
+let frames: Map<number, FrameRequestCallback>
+beforeEach(() => {
+  frames = new Map()
+  let id = 0
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++id, callback); return id })
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id))
+})
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+const frame = () => act(() => { const callbacks = [...frames.values()]; frames.clear(); callbacks.forEach(callback => callback(0)) })
 
 const leaf = (id: string): PaneLeaf => ({
   id, type: 'leaf', sessions: [], activeSessionId: null, overlays: []
@@ -54,6 +62,8 @@ describe.each<SplitDirection>(['horizontal', 'vertical'])('分屏拖拽：%s', d
     pointer(divider, 'pointerdown', 100, 100)
     expect(divider.setPointerCapture).toHaveBeenCalledWith(1)
     pointer(divider, 'pointermove', 300, 200)
+    expect(ratio()).toBe(0.5)
+    frame()
     expect(ratio()).toBeCloseTo(0.7)
     pointer(divider, 'pointerup', 300, 200)
     pointer(divider, 'pointermove', 400, 300)
@@ -64,8 +74,25 @@ describe.each<SplitDirection>(['horizontal', 'vertical'])('分屏拖拽：%s', d
     const divider = setup(direction)
     pointer(divider, 'pointerdown', 100, 100)
     pointer(divider, 'pointermove', 2000, 2000)
+    frame()
     expect(ratio()).toBe(0.9)
     pointer(divider, 'pointermove', -2000, -2000)
+    frame()
     expect(ratio()).toBe(0.1)
+  })
+  it('一帧仅提交最新位置，丢失捕获也保留最后位移，卸载撤销未执行更新', () => {
+    const divider = setup(direction)
+    pointer(divider, 'pointerdown', 100, 100)
+    pointer(divider, 'pointermove', 150, 125)
+    pointer(divider, 'pointermove', 300, 200)
+    expect(frames.size).toBe(1)
+    expect(ratio()).toBe(0.5)
+    pointer(divider, 'lostpointercapture', 300, 200)
+    expect(ratio()).toBeCloseTo(0.7)
+    expect(frames.size).toBe(0)
+    pointer(divider, 'pointerdown', 300, 200)
+    pointer(divider, 'pointermove', 400, 250)
+    cleanup(); frame()
+    expect(ratio()).toBeCloseTo(0.7)
   })
 })

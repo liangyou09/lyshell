@@ -14,6 +14,7 @@ export function shelfDocked(mode: ShelfMode, windowWidth: number, availableWidth
   return enough && windowWidth >= (previous ? 1720 : 1800)
 }
 
-export function shelfPanelWidth(value: number, available: number): number {
-  return Math.max(240, Math.min(640, value, Math.max(240, available - 32)))
+export function shelfPanelWidth(value: number, available: number, windowWidth = available): number {
+  const maximum = Math.max(0, Math.min(windowWidth * 0.4, available - 32))
+  return Math.min(maximum, Math.max(240, value))
 }

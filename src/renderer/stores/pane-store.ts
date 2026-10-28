@@ -572,7 +572,7 @@ const pruneOverlayPayloads = (
     : { overlayPayloads: next }
 }
 
-// 关闭/移除 pane 后的焦点兜底（settleLayoutAfterPrune / closePane /
+// 关闭/移除 pane 后的焦点兜底（settleVisiblePaneLayout / closePane /
 // removeSessionFromPane 共用同一语义）：activePaneId 仍有效则保持 —— 此前
 // closePane / removeSessionFromPane 无条件重置 leaves[0]，关后台 pane 会把焦点
 // 抢到第一个 pane、关中间 pane 焦点不去吸收侧。失效则优先「吸收侧」：closedPaneId
@@ -597,12 +597,34 @@ const settleActivePaneAfterClose = (
   return siblingLeaf?.id ?? collectLeaves(treeAfterClose)[0]?.id ?? activePaneId
 }
 
-// 关闭覆盖层后的空 pane 回并 + 焦点兜底：纯覆盖层 pane（拆屏产物）空出即从树里清掉、
-// split 随之回并（分屏还原）。焦点兜底收敛在 settleActivePaneAfterClose —— 无 pane
-// 被清时 activePaneId 必然仍有效，由它直接保持
-const settleLayoutAfterPrune = (root: PaneNode, closedPaneId: string, activePaneId: string): PaneLayout => {
-  const pruned = removeEmptyPanes(root)
-  return { root: pruned, activePaneId: settleActivePaneAfterClose(pruned, root, closedPaneId, activePaneId) }
+/**
+ * 移除可见页签后的共同收尾：后台宿主不等于可见内容。
+ * 只收敛本次受影响的叶子，保留用户主动拆出的其他空位；隐藏终端和收纳覆盖层
+ * 迁入相邻存活叶子，ID / payload / 连接不变。最后一叶保留作首页与后台宿主。
+ */
+const settleVisiblePaneLayout = (layout: PaneLayout, hidden: Record<string, boolean>, affectedIds: string[]): PaneLayout => {
+  let { root, activePaneId } = layout
+  for (const id of new Set(affectedIds)) {
+    const leaf = findPane(root, id)
+    if (root.type !== 'split' || leaf?.type !== 'leaf' ||
+      leaf.sessions.some(sid => hidden[sid] !== true) || leaf.overlays.some(ref => !ref.shelved)) continue
+    const before = root
+    const parent = findParent(root, id)
+    if (!parent) continue
+    const sibling = parent.firstChild.id === id ? parent.secondChild : parent.firstChild
+    const destinations = collectLeaves(sibling)
+    const destination = destinations.find(pane => pane.id === activePaneId) ?? destinations[0]
+    if (!destination) continue
+    root = editLeaf(root, destination.id, target => ({ ...target,
+      sessions: [...new Set([...target.sessions, ...leaf.sessions])],
+      // slot 是原叶子的会话坐标；迁到新叶后随追加会话一起平移。
+      overlays: [...target.overlays, ...leaf.overlays.filter(ref => !target.overlays.some(existing => existing.id === ref.id))
+        .map(ref => ref.slot == null ? ref : { ...ref, slot: target.sessions.length + ref.slot })]
+    }))
+    root = removePaneAndMerge(root, id)
+    activePaneId = settleActivePaneAfterClose(root, before, id, activePaneId)
+  }
+  return root === layout.root && activePaneId === layout.activePaneId ? layout : { root, activePaneId }
 }
 
 // 关闭管线尾部（closeOverlay / closeOverlaysInPane 共享）：回并空 pane → 回收 payload
@@ -612,12 +634,14 @@ const settleLayoutAfterPrune = (root: PaneNode, closedPaneId: string, activePane
 // payload 回收直接委托 pruneOverlayPayloads：以回并后的树推导悬空集，是 doomed
 // 显式名单的超集（顺带兜底清掉任何非预期孤儿），副作用/拖拽复位语义与其一致
 const closeRefsTail = (
-  st: Pick<PaneStore, 'overlayPayloads' | 'layout' | 'draggingOverlayId'>,
+  st: Pick<PaneStore, 'overlayPayloads' | 'layout' | 'draggingOverlayId' | 'hiddenTabSessions'>,
   commit: (patch: Partial<PaneStore>) => void,
   rootAfterRemove: PaneNode,
   prunedLeafId: string
 ): void => {
-  const layout = settleLayoutAfterPrune(rootAfterRemove, prunedLeafId, st.layout.activePaneId)
+  const layout = settleVisiblePaneLayout(
+    { root: rootAfterRemove, activePaneId: st.layout.activePaneId }, st.hiddenTabSessions, [prunedLeafId]
+  )
   commit({ ...pruneOverlayPayloads(layout.root, st.overlayPayloads, st.draggingOverlayId), layout })
 }
 
@@ -887,7 +911,9 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     const st = get()
     const found = findOverlayRef(st.layout.root, id)
     if (!found) return
-    set({ layout: { ...st.layout, root: editRef(st.layout.root, id, r => ({ ...r, active: false, shelved: true, retained: true })) } })
+    set({ layout: settleVisiblePaneLayout({ ...st.layout,
+      root: editRef(st.layout.root, id, r => ({ ...r, active: false, shelved: true, retained: true }))
+    }, st.hiddenTabSessions, [found.leaf.id]) })
   },
 
   deactivateOverlay: (id) => {
@@ -919,7 +945,7 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
         ? remaining.map(r => r.id === fallback.id ? { ...r, active: true } : r)
         : remaining
     }))
-    // 拆屏产生的纯覆盖层 pane 空出即回并（removeEmptyPanes 的 overlays 保护），
+    // 拆屏产生的纯覆盖层 pane 空出即回并，只处理本次所在叶子，
     // payload 回收 / 副作用 / 拖拽复位在共享尾部 closeRefsTail
     closeRefsTail(st, set, rootAfterRemove, leaf.id)
   },
@@ -929,14 +955,15 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     const leaf = findPane(st.layout.root, paneId)
     if (leaf?.type !== 'leaf') return
     const held = leaf.overlays.filter(r => r.retained && (!kind || r.kind === kind))
-    for (const ref of held) get().shelveOverlay(ref.id)
     const doomed = leaf.overlays.filter(r => !r.retained && (!kind || r.kind === kind))
-    if (doomed.length === 0) return
+    if (doomed.length === 0 && held.length === 0) return
     // 树上保留的是 doomed 的补集（曾把 doomed 谓词原样抄到这里 —— 种类过滤整个反转，
     // 混合 pane 里留下僵尸 ref / 泄漏孤儿 payload；契约套件的混合种类 case 锁死）
-    const rootAfterRemove = editLeaf(get().layout.root, paneId, l => ({
+    // 一次树事务完成批量收纳/删除，不能在循环中先合并 pane 后再按旧 paneId 删除。
+    const rootAfterRemove = editLeaf(st.layout.root, paneId, l => ({
       ...l,
       overlays: l.overlays.filter(r => r.retained || (kind && r.kind !== kind))
+        .map(r => r.retained && (!kind || r.kind === kind) ? { ...r, active: false, shelved: true } : r)
     }))
     closeRefsTail(st, set, rootAfterRemove, paneId)
   },
@@ -1633,9 +1660,10 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
         return { ...node, firstChild: f, secondChild: s }
       }
       const newRoot = fixActive(state.layout.root)
+      const affectedIds = hidden ? collectLeaves(state.layout.root).filter(pane => pane.sessions.some(id => sessionIds.includes(id))).map(pane => pane.id) : []
       return {
         hiddenTabSessions: next,
-        layout: { ...state.layout, root: newRoot }
+        layout: settleVisiblePaneLayout({ ...state.layout, root: newRoot }, next, affectedIds)
       }
     })
   },
@@ -1727,11 +1755,17 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     const layout = get().layout
     const pane = findPane(layout.root, paneId) as PaneLeaf | undefined
 
-    if (!pane || pane.type !== 'leaf') return
+    if (!pane || pane.type !== 'leaf' || !pane.sessions.includes(sessionId)) return
+
+    // 已保存资源的「关闭页签」与收纳共用同一隐藏/布局收敛路径，不释放后台宿主。
+    if (get().retainedSessionIds[sessionId]) {
+      get().toggleLiveSessionTabs([sessionId], true)
+      return
+    }
 
     const newSessions = pane.sessions.filter(s => s !== sessionId)
     const newActiveId = pane.activeSessionId === sessionId
-      ? (newSessions.length > 0 ? newSessions[0] : null)
+      ? (newSessions.find(id => !get().hiddenTabSessions[id]) ?? null)
       : pane.activeSessionId
 
     // 插槽衰减（decaySlotsAfterRemoval 唯一事实源）：被关会话在插槽左侧时插槽减一，
@@ -1791,18 +1825,20 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
       }
       set({
         ...(hiddenChanged ? { hiddenTabSessions: nextHidden } : {}),
-        layout: {
+        layout: settleVisiblePaneLayout({
           root: replacePane(layout.root, paneId, { ...updatedPane, overlays }),
           // pane 因承载覆盖层保留：active 仍有效保持（关后台 pane 的最后一个终端
           // 页签不抢焦点），无效则落本 pane（自动激活的覆盖层就在这里）
           activePaneId: findPane(layout.root, layout.activePaneId) ? layout.activePaneId : paneId
-        }
+        }, nextHidden, [paneId])
       })
     }
   },
 
   // 从所有分屏移除指定 session(批量关闭,Sidebar LIVE 段的关闭按钮用)
   removeSessionFromAllPanes: (sessionId) => {
+    // 显式关闭连接/后端删除走释放语义；与只关闭可见页签的收纳语义分开。
+    get().retainShelfResource(sessionId, true, false)
     // 先收集所有含此 sessionId 的 pane id —— removeSessionFromPane 会改 layout 树,所以不能边遍历边删
     const targetIds = collectLeaves(get().layout.root)
       .filter(p => p.sessions.includes(sessionId))

@@ -23,6 +23,7 @@ const h = vi.hoisted(() => ({
   surface: { current: null as ShelfSurfaceSnapshot | null },
   focus: vi.fn(),
   leave: vi.fn(),
+  listeners: new Set<() => void>(),
   mounts: { current: 0 }
 }))
 
@@ -32,7 +33,9 @@ vi.mock('./task-shelf-surfaces', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./task-shelf-surfaces')>()
   return {
     ...actual,
-    useShelfSurface: () => h.surface.current,
+    getShelfSurface: () => h.surface.current,
+    useShelfSurfaceMode: () => h.surface.current ? 1 : 0,
+    subscribeShelfSurfaces: (listener: () => void) => { h.listeners.add(listener); return () => { h.listeners.delete(listener) } },
     focusShelfSurface: (...args: unknown[]) => h.focus(...args),
     leaveShelfSurface: () => h.leave()
   }
@@ -87,6 +90,7 @@ beforeEach(() => {
   h.focus.mockClear()
   h.leave.mockClear()
   h.mounts.current = 0
+  h.listeners.clear()
   ;(globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
     observe() {}
     unobserve() {}
@@ -97,6 +101,21 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('ShelfTerminalHost', () => {
+  it('矩形订阅当帧追平位置，注销后保留最新尺寸', () => {
+    h.surface.current = snapshot()
+    const { container, rerender } = render(<ShelfTerminalHost sessionId="s1" mainVisible={false} />)
+    const host = hostOf(container)
+    h.surface.current = snapshot({ rect: { left: 900, top: 100, width: 500, height: 280 } })
+    h.listeners.forEach(listener => listener())
+    expect(host.style.left).toBe('900px')
+    expect(host.style.width).toBe('500px')
+    h.surface.current = null
+    h.listeners.forEach(listener => listener())
+    rerender(<ShelfTerminalHost sessionId="s1" mainVisible={false} />)
+    expect(host.style.width).toBe('500px')
+    expect(host.style.visibility).toBe('hidden')
+    expect(h.mounts.current).toBe(1)
+  })
   it('主视图可见：absolute inset0 + visible + z1，不挂迷你标记', () => {
     h.surface.current = snapshot()
     const { container } = render(<ShelfTerminalHost sessionId="s1" paneId="p1" mainVisible />)

@@ -40,6 +40,16 @@ export function getShelfSurface(kind: ShelfSurfaceKind, id: string): ShelfSurfac
 export function useShelfSurface(kind: ShelfSurfaceKind, id: string): ShelfSurfaceSnapshot | null {
   return useSyncExternalStore(subscribe, () => getShelfSurface(kind, id))
 }
+export function useShelfSurfacePresence(kind: ShelfSurfaceKind, id: string): boolean {
+  return useSyncExternalStore(subscribe, () => records.has(keyFor(kind, id)))
+}
+/** 宿主只在显隐/输入归属改变时渲染，矩形通过同帧订阅直接写样式。 */
+export function useShelfSurfaceMode(kind: ShelfSurfaceKind, id: string): number {
+  return useSyncExternalStore(subscribe, () => {
+    const surface = getShelfSurface(kind, id)
+    return surface ? 1 | (surface.visible ? 2 : 0) | (surface.interactive ? 4 : 0) | (surface.active ? 8 : 0) : 0
+  })
+}
 
 /** 固定定位可跨越分屏的裁剪边界，但必须显式裁到右侧内容滚动区。 */
 export function measureShelfSurface(target: ShelfSurfaceRect, clip: ShelfSurfaceRect): { visible: boolean; clipPath: string } {
@@ -50,15 +60,20 @@ export function measureShelfSurface(target: ShelfSurfaceRect, clip: ShelfSurface
   return { visible: true, clipPath: `inset(${top - target.top}px ${target.left + target.width - right}px ${target.top + target.height - bottom}px ${left - target.left}px)` }
 }
 
-function measure(record: SurfaceRecord, key: string): ShelfSurfaceSnapshot {
-  const rect = record.target.getBoundingClientRect()
+function measure(record: SurfaceRecord, key: string, bounds = new Map<Element, DOMRect>()): ShelfSurfaceSnapshot {
+  const read = (element: Element) => {
+    let rect = bounds.get(element)
+    if (!rect) { rect = element.getBoundingClientRect(); bounds.set(element, rect) }
+    return rect
+  }
+  const rect = read(record.target)
   if (![rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) return { rect: record.snapshot.rect, clipPath: 'inset(100%)', visible: false, interactive: false, active: false }
   let clip: ShelfSurfaceRect = { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight }
   for (const ancestor of [record.target.closest('.task-shelf-list'), record.target.closest('.task-shelf')]) {
     if (!ancestor) continue
-    const bounds = ancestor.getBoundingClientRect()
-    const left = Math.max(clip.left, bounds.left), top = Math.max(clip.top, bounds.top)
-    const right = Math.min(clip.left + clip.width, bounds.right), bottom = Math.min(clip.top + clip.height, bounds.bottom)
+    const ancestorRect = read(ancestor)
+    const left = Math.max(clip.left, ancestorRect.left), top = Math.max(clip.top, ancestorRect.top)
+    const right = Math.min(clip.left + clip.width, ancestorRect.right), bottom = Math.min(clip.top + clip.height, ancestorRect.bottom)
     clip = { left, top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) }
   }
   const clipped = measureShelfSurface(rect, clip)
@@ -69,16 +84,25 @@ function measure(record: SurfaceRecord, key: string): ShelfSurfaceSnapshot {
 function refresh() {
   frame = 0
   let changed = false
+  // 一帧内共享滚动区和侧栏边界；先完成全部读取，再通知宿主写样式。
+  const bounds = new Map<Element, DOMRect>()
   for (const [key, record] of records) {
-    const next = measure(record, key)
-    if (JSON.stringify(next) !== JSON.stringify(record.snapshot)) { record.snapshot = next; changed = true }
+    const next = measure(record, key, bounds)
+    const old = record.snapshot
+    if (next.visible !== old.visible || next.interactive !== old.interactive || next.active !== old.active || next.clipPath !== old.clipPath ||
+      next.rect?.left !== old.rect?.left || next.rect?.top !== old.rect?.top || next.rect?.width !== old.rect?.width || next.rect?.height !== old.rect?.height) {
+      record.snapshot = next; changed = true
+    }
   }
   if (activeKey && !records.get(activeKey)?.snapshot.interactive) { activeKey = null; changed = true }
   if (changed) publish()
   if (records.size && performance.now() < animateUntil) frame = requestAnimationFrame(refresh)
 }
 function schedule() { if (!frame && records.size) frame = requestAnimationFrame(refresh) }
-function transition() { animateUntil = performance.now() + 220; schedule() }
+function transition(event: TransitionEvent) {
+  if (!(event.target instanceof Element) || !event.target.matches('.task-shelf') || !['transform', 'width'].includes(event.propertyName)) return
+  animateUntil = performance.now() + 220; schedule()
+}
 function releaseFocus(event: FocusEvent) {
   if (activeKey && event.target instanceof Element && !event.target.closest('[data-shelf-native]')) {
     activeKey = null
@@ -117,7 +141,7 @@ export function registerShelfSurface(kind: ShelfSurfaceKind, id: string, target:
   if (first) watch()
   record.snapshot = measure(record, key)
   if (activeKey === key && !record.snapshot.interactive) activeKey = null
-  publish(); transition()
+  publish(); schedule()
   let stopped = false
   return () => {
     if (stopped) return
@@ -128,6 +152,16 @@ export function registerShelfSurface(kind: ShelfSurfaceKind, id: string, target:
     if (!records.size) unwatch()
     publish(); schedule()
   }
+}
+
+export function updateShelfSurfaceInteraction(kind: ShelfSurfaceKind, id: string, interactive: boolean): void {
+  const key = keyFor(kind, id)
+  const record = records.get(key)
+  if (!record || record.interactive === interactive) return
+  record.interactive = interactive
+  if (activeKey === key && !interactive) activeKey = null
+  record.snapshot = { ...record.snapshot, interactive: record.snapshot.visible && interactive, active: record.snapshot.visible && interactive && activeKey === key }
+  publish()
 }
 
 export function focusShelfSurface(kind: ShelfSurfaceKind, id: string): void {
