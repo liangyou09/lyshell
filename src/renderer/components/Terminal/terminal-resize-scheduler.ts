@@ -15,6 +15,12 @@
  * burst 内拖回 initialSize 的净零变化不会产生通知。fit 返回 null（容器隐藏或
  * 不可测量）时清空已拟合尺寸，绝不把旧值当当前值通知；恢复可见后重新 schedule
  * 即可继续。
+ *
+ * 与「容器隐藏」不同，isResizing 为 true 表示用户正在拖动布局（侧栏/分屏）：
+ * 此时整个调度器暂停——schedule 既不排队帧也不创建尾部定时器，已排队的帧/尾部
+ * 到点也直接放弃，不 fit、不通知 PTY。暂停不清空基线或 fittedSize，但也不会在
+ * 手势结束后自动补一拍；调用方需在释放时显式调用一次 schedule()，由尾部按最新
+ * 尺寸与基线比较后只通知一次。
  */
 
 export interface TerminalSize {
@@ -35,6 +41,17 @@ export interface TerminalResizeSchedulerOptions {
    * 避免重复下发。返回值非法时回退到调度器内部记录。
    */
   getReportedSize?: () => TerminalSize | null
+  /**
+   * 可选：当前是否处于用户布局手势（侧栏/分屏拖动）中。
+   *
+   * 返回 true 时调度器整体暂停：schedule 不排队动画帧、不 fit、不在尾部通知
+   * PTY，也不创建会持续重置的定时器；手势结束时不会自动恢复，调用方需显式
+   * 再调用一次 schedule()（例如订阅 layout-resize 的释放事件）。这与 fit 返回
+   * null（容器隐藏）不同：暂停不改变基线，也不清空 fittedSize。
+   *
+   * 回调抛错按「未暂停」处理，保持默认行为。
+   */
+  isResizing?: () => boolean
   /** 尾部防抖窗口，默认 150ms。 */
   delay?: number
 }
@@ -82,6 +99,28 @@ export function createTerminalResizeScheduler(
   let cancelFrame: (() => void) | null = null
   let timer: ReturnType<typeof setTimeout> | null = null
 
+  /** 布局手势期间暂停一切 fit/通知；读取失败时退回默认行为。 */
+  const isPaused = (): boolean => {
+    if (!options.isResizing) return false
+    try {
+      return options.isResizing()
+    } catch {
+      return false
+    }
+  }
+
+  /** 清空已排队的帧与尾部定时器（不改变暂停/销毁状态）。 */
+  const cancelPending = (): void => {
+    if (cancelFrame !== null) {
+      cancelFrame()
+      cancelFrame = null
+    }
+    if (timer !== null) {
+      clearTimeout(timer)
+      timer = null
+    }
+  }
+
   const runFit = (): void => {
     try {
       fittedSize = normalizeSize(options.fit())
@@ -95,6 +134,12 @@ export function createTerminalResizeScheduler(
   const runFrame = (): void => {
     cancelFrame = null
     if (disposed) return
+    if (isPaused()) {
+      // 手势期间帧被节流后才执行：放弃本次 fit，并清掉此前排队的尾部，
+      // 避免手势结束后旧定时器自动补发中间尺寸。
+      cancelPending()
+      return
+    }
     runFit()
   }
 
@@ -113,11 +158,14 @@ export function createTerminalResizeScheduler(
   const runTail = (): void => {
     timer = null
     if (disposed) return
+    if (isPaused()) return
     const generation = fitGeneration
     // 即使帧已执行，也必须核对当前可见性和网格，避免回写旧尺寸。
     runFit()
     // 补 fit 期间又收到事件：本次 fit 结果可能已是中间态，交给新排队的尾部。
     if (disposed || fitGeneration !== generation) return
+    // 补 fit 期间手势开始（或 schedule 被暂停）：不通知，等释放后的显式 schedule。
+    if (isPaused()) return
 
     // 字号/页签等路径可能已直接通知过 PTY；以外部最新基线为准，避免重复下发。
     let baseline = reportedSize
@@ -142,6 +190,12 @@ export function createTerminalResizeScheduler(
 
   const schedule = (): void => {
     if (disposed) return
+    if (isPaused()) {
+      // 手势进行中：不排队动画帧、不创建/重置尾部定时器，避免持续拖动时
+      // 产生反复触发的计时器；释放后由调用方显式 schedule() 恢复。
+      cancelPending()
+      return
+    }
     fitGeneration += 1
 
     if (cancelFrame === null) {
@@ -156,14 +210,7 @@ export function createTerminalResizeScheduler(
   const dispose = (): void => {
     if (disposed) return
     disposed = true
-    if (cancelFrame !== null) {
-      cancelFrame()
-      cancelFrame = null
-    }
-    if (timer !== null) {
-      clearTimeout(timer)
-      timer = null
-    }
+    cancelPending()
   }
 
   return { schedule, dispose }

@@ -17,13 +17,15 @@ describe('终端 resize 调度器', () => {
   let requestFrame: Mock<[callback: FrameRequestCallback], number>
   let cancelFrame: Mock<[id: number], void>
   let scheduler: TerminalResizeScheduler | null
+  let resizing: boolean
 
-  const create = (options: { delay?: number; initialSize?: TerminalSize; getReportedSize?: () => TerminalSize | null } = {}): TerminalResizeScheduler => {
+  const create = (options: { delay?: number; initialSize?: TerminalSize; getReportedSize?: () => TerminalSize | null; isResizing?: () => boolean } = {}): TerminalResizeScheduler => {
     scheduler = createTerminalResizeScheduler({
       fit,
       notify,
       initialSize: options.initialSize ?? INITIAL,
       ...(options.getReportedSize === undefined ? {} : { getReportedSize: options.getReportedSize }),
+      ...(options.isResizing === undefined ? {} : { isResizing: options.isResizing }),
       ...(options.delay === undefined ? {} : { delay: options.delay })
     })
     return scheduler
@@ -60,6 +62,7 @@ describe('终端 resize 调度器', () => {
     vi.stubGlobal('requestAnimationFrame', requestFrame)
     vi.stubGlobal('cancelAnimationFrame', cancelFrame)
     scheduler = null
+    resizing = false
   })
 
   afterEach(() => {
@@ -471,5 +474,169 @@ describe('终端 resize 调度器', () => {
     flushFrame()
     vi.advanceTimersByTime(150)
     expect(notifyCalls).toEqual([{ ...INITIAL }])
+  })
+
+  it('手势期间不排队帧与定时器，释放后显式 schedule 按最新尺寸只通知一次', () => {
+    const s = create({ isResizing: () => resizing })
+    geometry = { cols: 100, rows: 30 }
+    s.schedule()
+    flushFrame()
+    expect(fit).toHaveBeenCalledTimes(1)
+
+    // 手势开始后即使 ResizeObserver 继续触发 schedule，也不排队、不建定时器。
+    resizing = true
+    s.schedule()
+    s.schedule()
+    expect(frames.size).toBe(0)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(fit).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(1000)
+    expect(fit).toHaveBeenCalledTimes(1)
+    expect(notifyCalls).toEqual([])
+
+    // 释放本身不会自动恢复：释放时显式 schedule，尾部按最新尺寸比较后只发一次。
+    geometry = { cols: 132, rows: 43 }
+    resizing = false
+    s.schedule()
+    expect(frames.size).toBe(1)
+    flushFrame()
+    expect(fit).toHaveBeenCalledTimes(2)
+    vi.advanceTimersByTime(149)
+    expect(notifyCalls).toEqual([])
+    vi.advanceTimersByTime(1)
+    expect(notifyCalls).toEqual([{ cols: 132, rows: 43 }])
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('暂停会放弃手势前已排队的尾部，不补 fit 也不通知', () => {
+    const s = create({ isResizing: () => resizing })
+    geometry = { cols: 100, rows: 30 }
+    s.schedule()
+    expect(frames.size).toBe(1)
+    expect(vi.getTimerCount()).toBe(1)
+
+    resizing = true
+    // 尾部先到：暂停时不补 fit，也不能把中间尺寸发给 PTY。
+    vi.advanceTimersByTime(150)
+    expect(fit).not.toHaveBeenCalled()
+    expect(notifyCalls).toEqual([])
+
+    // 迟到的帧执行时仍暂停：不 fit。
+    flushFrame()
+    expect(fit).not.toHaveBeenCalled()
+  })
+
+  it('暂停中先到的帧放弃 fit，并清掉已排队的尾部定时器', () => {
+    const s = create({ isResizing: () => resizing })
+    geometry = { cols: 100, rows: 30 }
+    s.schedule()
+    resizing = true
+
+    flushFrame()
+    expect(fit).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+
+    vi.advanceTimersByTime(1000)
+    expect(fit).not.toHaveBeenCalled()
+    expect(notifyCalls).toEqual([])
+  })
+
+  it('释放后没有显式 schedule 时不会自动补发', () => {
+    const s = create({ isResizing: () => resizing })
+    geometry = { cols: 100, rows: 30 }
+    s.schedule()
+    resizing = true
+    vi.advanceTimersByTime(150)
+    flushFrame()
+
+    resizing = false
+    vi.advanceTimersByTime(1000)
+    expect(fit).not.toHaveBeenCalled()
+    expect(notifyCalls).toEqual([])
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('暂停不清空基线，恢复后尺寸未变则不重复通知', () => {
+    const s = create({ isResizing: () => resizing })
+    geometry = { cols: 100, rows: 30 }
+    s.schedule()
+    flushFrame()
+    vi.advanceTimersByTime(150)
+    expect(notifyCalls).toEqual([{ cols: 100, rows: 30 }])
+
+    // 手势中尺寸变了也不发；基线仍是 100x30。
+    resizing = true
+    geometry = { cols: 120, rows: 40 }
+    s.schedule()
+    vi.advanceTimersByTime(200)
+    expect(notifyCalls).toHaveLength(1)
+
+    // 释放后拖回基线尺寸：不需要重复通知。
+    resizing = false
+    geometry = { cols: 100, rows: 30 }
+    s.schedule()
+    flushFrame()
+    vi.advanceTimersByTime(150)
+    expect(notifyCalls).toHaveLength(1)
+  })
+
+  it('尾部补 fit 期间手势开始时不通知中间尺寸，释放后再通知最新尺寸', () => {
+    const s = create({ isResizing: () => resizing })
+    geometry = { cols: 100, rows: 30 }
+    let flipped = false
+    fit.mockImplementation(() => {
+      const result = geometry ? { ...geometry } : null
+      if (!flipped) {
+        flipped = true
+        resizing = true
+        s.schedule()
+      }
+      return result
+    })
+
+    s.schedule()
+    vi.advanceTimersByTime(150)
+    expect(fit).toHaveBeenCalledTimes(1)
+    expect(notifyCalls).toEqual([])
+
+    // 释放后显式 schedule 才会按最新尺寸通知。
+    resizing = false
+    geometry = { cols: 110, rows: 34 }
+    s.schedule()
+    flushFrame()
+    vi.advanceTimersByTime(150)
+    expect(notifyCalls).toEqual([{ cols: 110, rows: 34 }])
+  })
+
+  it('isResizing 抛错时按未暂停处理，保持默认行为', () => {
+    const s = create({
+      isResizing: () => {
+        throw new Error('flag boom')
+      }
+    })
+    geometry = { cols: 100, rows: 30 }
+
+    s.schedule()
+    expect(() => {
+      flushFrame()
+      vi.advanceTimersByTime(150)
+    }).not.toThrow()
+    expect(notifyCalls).toEqual([{ cols: 100, rows: 30 }])
+  })
+
+  it('暂停期间 dispose 不留下帧或定时器，之后 schedule 无效', () => {
+    resizing = true
+    const s = create({ isResizing: () => resizing })
+    s.schedule()
+    expect(frames.size).toBe(0)
+    expect(vi.getTimerCount()).toBe(0)
+
+    s.dispose()
+    resizing = false
+    s.schedule()
+    vi.advanceTimersByTime(1000)
+    expect(fit).not.toHaveBeenCalled()
+    expect(notifyCalls).toEqual([])
   })
 })

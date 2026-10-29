@@ -21,6 +21,7 @@ import TerminalSearchPanel from './TerminalSearchPanel'
 import { searchAllTerminals } from './search-all-terminals'
 import { bindSelectionCopy } from './selection-copy'
 import { createTerminalResizeScheduler, type TerminalSize } from './terminal-resize-scheduler'
+import { isLayoutResizing, subscribeLayoutResize } from '../Layout/layout-resize'
 
 // 注意：本组件依赖 xterm.js 内部私有 API，无稳定性承诺，xterm 任何版本更新都可能改名或移除。
 //   - IME 定位与搜狗 Shift 上屏：_core、_compositionHelper、_textarea、updateCompositionElements、
@@ -780,10 +781,11 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
       imePatchRef.current?.resetLock()
     }
 
-    // 视觉 fit 跟随显示帧，PTY 仍在拖动停止 150ms 后同步，避免 ConPTY 重印风暴。
+    // 调宽期间先保留终端网格；释放后再 fit，避免所有可见终端的 DOM 重排阻塞指针。
     const resizeScheduler = createTerminalResizeScheduler({
       initialSize: reportedSizeRef.current,
       getReportedSize: () => reportedSizeRef.current,
+      isResizing: isLayoutResizing,
       fit: () => {
         const instance = getTerminal(sessionId)
         const element = containerRef.current
@@ -799,6 +801,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
       imePatchRef.current?.resetLock()
       resizeScheduler.schedule()
     }
+    const stopResizeSubscription = subscribeLayoutResize(active => { if (!active) scheduleResize() })
     const resizeObserver = new ResizeObserver(scheduleResize)
     resizeObserverRef.current = resizeObserver
     resizeObserver.observe(containerRef.current)
@@ -859,6 +862,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
       resizeObserver.disconnect()
       resizeObserverRef.current = null
       resizeScheduler.dispose()
+      stopResizeSubscription()
       window.removeEventListener('resize', scheduleResize)
       window.removeEventListener('pane-resize', scheduleResize)
       // 用 effect 挂载时捕获的 container 解绑,保证 remove 一定命中当初 add 的那个节点

@@ -2,7 +2,6 @@ import React, { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { TOPBAR_HEIGHT } from './topbar-metrics'
 import './TopRightControls.css'
-import { WorkbenchActivityButton } from './WorkbenchActivityButton'
 
 export interface TopRightControlsProps {
   isMaximized: boolean
@@ -12,7 +11,7 @@ export interface TopRightControlsProps {
 }
 
 /**
- * 窗口第一行右侧控制簇 -- 任务通知与系统窗口操作用细分隔线分开。
+ * 窗口第一行右侧控制簇；会话、任务和提醒统一收进任务侧栏。
  * 工具键统一为透明底按钮，静息字面与同行页签同档。
  * (MCP 活动状态片曾在此,现移至左侧 ActivityRail 轨底设置槽上方 -- McpActivityRailSlot)
  *
@@ -51,14 +50,6 @@ const TopRightControls: React.FC<TopRightControlsProps> = ({
       className="top-right-controls win-no-drag"
       style={{ height: TOPBAR_HEIGHT }}
     >
-      {/* 应用控制簇 */}
-      <div className="window-control-group">
-        <WorkbenchActivityButton />
-      </div>
-
-      {/* 簇分隔 hairline */}
-      <span aria-hidden className="window-control-divider" />
-
       {/* 系统窗口控制簇 */}
       <div className="window-control-group">
         {/* 缩小 */}

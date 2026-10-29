@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ActivityNotifications, activityProjectName } from './ActivityNotifications'
 import { useWorkbenchActivity, type ActivityNotice } from '../../stores/workbench-activity'
 import type { WorkbenchActivitySnapshot } from '@shared/workbench-activity'
+import { useTaskShelf } from '../../stores/task-shelf'
 vi.mock('react-i18next', async importOriginal => ({ ...await importOriginal<typeof import('react-i18next')>(), useTranslation: () => ({ i18n: { language: 'zh' } }) }))
 
 let snapshot: WorkbenchActivitySnapshot
@@ -14,6 +15,7 @@ function deliver(value: ActivityNotice) {
   act(() => useWorkbenchActivity.setState(state => ({ notices: [value, ...state.notices], unreadNoticeIds: [value.id, ...state.unreadNoticeIds] })))
 }
 beforeEach(() => {
+  useTaskShelf.setState({ panelVisible: false })
   vi.useFakeTimers()
   vi.setSystemTime(new Date('2026-10-26T03:00:00Z'))
   snapshot = { observedAt: Date.now(), identity: { instanceId: 'backend-a', instanceEpoch: 1 }, connection: 'connected', sessions: [{ key: 'session-a', sessionId: 'session-a', taskId: 'task-a', workspace: 'C:/projects/LyShell', taskState: 'running', source: 'native-harness', updatedAt: Date.now(), stale: false, approvals: [{ id: 'approval', toolName: 'shell', options: ['allowed-once', 'rejected'], reason: '', askedAt: Date.now() }] }] }
@@ -22,6 +24,18 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.useRealTimers() })
 describe('右上角任务通知', () => {
+  it('侧栏展开时暂停浮动提醒，收起后继续显示且保留未读', () => {
+    const view = render(<ActivityNotifications />)
+    const event = notice()
+    deliver(event)
+    act(() => useTaskShelf.setState({ panelVisible: true }))
+    expect(view.container.querySelector('.activity-toast-region')?.hasAttribute('hidden')).toBe(true)
+    act(() => { vi.advanceTimersByTime(9000) })
+    expect(useWorkbenchActivity.getState().unreadNoticeIds).toContain(event.id)
+    act(() => useTaskShelf.setState({ panelVisible: false }))
+    expect(view.container.querySelector('.activity-toast-region')?.hasAttribute('hidden')).toBe(false)
+    expect(view.getByText('任务已完成')).toBeTruthy()
+  })
   it('内置聊天显示独立来源，审批只在同后台同回合有效，结束提示8秒后收起', () => {
     const identity = { instanceId: 'web-backend', instanceEpoch: 2 }
     snapshot = { ...snapshot, identity: null, connection: 'offline', sessions: [], web: { observedAt: Date.now(), connection: 'connected', identity, revision: 1, events: [], sessions: [{ sessionId: 'web-a', workspace: 'C:/projects/LyShell', turnId: 'web-turn', state: 'waiting-approval', updatedAt: Date.now(), approvalIds: ['web-approval'] }] } }

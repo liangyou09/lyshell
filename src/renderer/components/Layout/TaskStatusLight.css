@@ -1,0 +1,23 @@
+.task-status-indicator { --task-light:#737b87; display:inline-flex; align-items:center; gap:6px; min-width:0; max-width:100%; vertical-align:middle; }
+.task-status-light { display:block; position:relative; flex:none; width:9px; height:9px; border:1px solid var(--task-light); border-radius:50%; background:var(--task-light); }
+.task-status-label { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:11px; line-height:18px; }
+.task-status-indicator[data-task-status=accepted] { --task-light:#3267b1; }
+.task-status-indicator[data-task-status=accepted] .task-status-light { background:transparent; border-width:2px; }
+.task-status-indicator[data-task-status=running] { --task-light:#3267b1; }
+.task-status-indicator[data-task-status=idle] { --task-light:#287b4e; }
+.task-status-indicator[data-task-status=idle] .task-status-light { background:transparent; border-width:2px; }
+.task-status-indicator[data-task-status=approval] { --task-light:#9a6b12; }
+.task-status-indicator[data-task-status=turnEnded] { --task-light:#287b4e; }
+.task-status-indicator[data-task-status=turnEnded] .task-status-light { background:transparent; }
+.task-status-indicator[data-task-status=completed] { --task-light:#287b4e; }
+.task-status-indicator[data-task-status=failed],.task-status-indicator[data-task-status=connectionError] { --task-light:#b43e39; }
+.task-status-indicator[data-task-status=connectionError] .task-status-light { background:transparent; border-width:2px; }
+.task-status-indicator[data-task-status=interrupted] { --task-light:#9a6b12; }
+.task-status-indicator[data-task-status=interrupted] .task-status-light { background:transparent; border-width:2px; }
+.task-status-indicator[data-task-status=disconnected] .task-status-light { background:transparent; border-style:dashed; }
+.task-status-indicator[data-task-status=unknown] .task-status-light { background:transparent; }
+.task-status-indicator[data-task-status=unknown][data-instance-status=live] { --task-light:#287b4e; }
+.task-status-legend { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 12px; padding:4px 0 12px; color:var(--text-rack); }
+@media (forced-colors:active) {
+  .task-status-light { forced-color-adjust:none; }
+}

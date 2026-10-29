@@ -24,7 +24,7 @@ interface ShelfStore {
   reservedHeight: number
   reservedEdge: 'left' | 'right' | 'top' | 'bottom'
   panelVisible: boolean
-  viewRequest: { revision: number; open: boolean; entryId?: string; notices?: boolean; view?: 'tasks' | 'archive' } | null
+  viewRequest: { revision: number; open: boolean; entryId?: string; notices?: boolean; view?: 'tasks' | 'archive' | 'sessions' | 'notices' } | null
   startup: TaskShelfStartup | null
   activation: TaskShelfActivation | null
   activating: boolean
@@ -35,6 +35,7 @@ interface ShelfStore {
   activate: (ids?: string[], selectionId?: string) => Promise<TaskShelfActivation | null>
   retryActivation: () => Promise<void>
   showPanel: (entryId?: string, notices?: boolean) => void
+  showActivity: (view: 'sessions' | 'notices') => void
   togglePanel: () => void
   preferences: TaskShelfPreferences
   load: () => Promise<void>
@@ -238,6 +239,7 @@ export const useTaskShelf = create<ShelfStore>((set, get) => ({
   entries: [], bindings: {}, loaded: false, busy: {}, restoringArchived: false, restoreFailures: {}, reservedHeight: 0, reservedEdge: 'right', error: null, saveErrors: {}, reservedWidth: 0, panelVisible: false, viewRequest: null, startup: null, activation: null, activating: false, activationDemand: null, restoreErrors: {}, uiIntentRevision: 0, preferences: { ...DEFAULT_TASK_SHELF_PREFERENCES },
   invalidateIntent: () => { const next = get().uiIntentRevision + 1; set({ uiIntentRevision: next }); return next },
   showPanel: (entryId, notices = false) => set(state => ({ uiIntentRevision: state.uiIntentRevision + 1, viewRequest: { revision: (state.viewRequest?.revision ?? 0) + 1, open: true, entryId, notices } })),
+  showActivity: view => set(state => ({ uiIntentRevision: state.uiIntentRevision + 1, viewRequest: { revision: (state.viewRequest?.revision ?? 0) + 1, open: true, view } })),
   togglePanel: () => set(state => ({ uiIntentRevision: state.uiIntentRevision + 1, viewRequest: { revision: (state.viewRequest?.revision ?? 0) + 1, open: !state.panelVisible } })),
   load: async () => {
     try { const result = await invoke({ kind: 'list' }); set({ error: result.startup?.status === 'blocked' ? result.startup.error || '任务初始化失败，请重试。' : null }) }

@@ -1,7 +1,7 @@
-import React, { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import React, { lazy, Suspense, useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react'
 import cn from 'classnames'
 import { ProjectSceneBar } from './ProjectSceneBar'
-import { WorkbenchActivity } from './WorkbenchActivity'
+import { WorkbenchActivityMonitor } from './WorkbenchActivity'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import ActivityRail, { type NavTab, RAIL_WIDTH, isFixedNavTab } from './ActivityRail'
@@ -12,6 +12,8 @@ import { isWebTabShortcutTarget } from './keyboard-target'
 import WebTabLayer from './WebTabLayer'
 import TaskShelf from './TaskShelf'
 import { useFrameCommit } from '../../hooks/useFrameCommit'
+import { beginLayoutResize, isLayoutResizing, subscribeLayoutResize } from './layout-resize'
+import { retainWebviewViewports } from './layout-resize-viewports'
 import { useTaskShelf } from '../../stores/task-shelf'
 import { createConnectionStatusHandler } from '../../stores/connection-status'
 import { FIND_IN_TAB_EVENT } from '../Search/SearchableTab'
@@ -124,6 +126,7 @@ const MainWindow: React.FC = () => {
   // 拖宽起点处的偏好宽 -- 拖到收起的路径回滚到它(收起不该顺带销毁宽度偏好)
   const sidebarDragStartWidth = useRef(0)
   const sidebarDraggingRef = useRef(false)
+  const sidebarResizeLease = useRef<(() => void) | null>(null)
   // 全局命令面板开合落 ui-store(TerminalView 的自动聚焦守卫要跨组件读它,见
   // ui-store 注释);本组件只订阅渲染,写经 getState
   const paletteOpen = useUiStore(s => s.paletteOpen)
@@ -141,6 +144,20 @@ const MainWindow: React.FC = () => {
   const taskShelfReserve = useTaskShelf(s => s.reservedWidth)
   const taskShelfHeight = useTaskShelf(s => s.reservedHeight)
   const taskShelfEdge = useTaskShelf(s => s.reservedEdge)
+  useLayoutEffect(() => {
+    let release: (() => void) | undefined
+    const update = (active: boolean) => {
+      release?.(); release = undefined
+      if (active && terminalWrapperRef.current) release = retainWebviewViewports(terminalWrapperRef.current)
+    }
+    update(isLayoutResizing())
+    const unsubscribe = subscribeLayoutResize(update)
+    return () => { unsubscribe(); release?.() }
+  }, [])
+  useLayoutEffect(() => {
+    if (!isResizingSidebar) { sidebarResizeLease.current?.(); sidebarResizeLease.current = null }
+  }, [isResizingSidebar])
+  useLayoutEffect(() => () => { sidebarResizeLease.current?.(); sidebarResizeLease.current = null }, [])
 
   // 切换左列页签 -- 持久化到 localStorage(Alt+1/2/3 与页签轨点击共用)
   const handleNavChange = useCallback((tab: NavTab) => {
@@ -586,12 +603,13 @@ const MainWindow: React.FC = () => {
   // harness webview 激活时往右拖，指针一进 webview 范围 mousemove 就被 guest 吞掉
   // (同跨域 iframe)，捕获后 pointermove 恒回流本元素
   const startSidebarResize = (e: React.PointerEvent) => {
-    if (e.button !== 0) return
+    if (e.button !== 0 || sidebarDraggingRef.current) return
     e.preventDefault()
     e.stopPropagation()
     sidebarDraggingRef.current = true
     sidebarDragStartWidth.current = sidebarWidth
     e.currentTarget.setPointerCapture(e.pointerId)
+    sidebarResizeLease.current = beginLayoutResize()
     setIsResizingSidebar(true)
   }
   // 侧栏调宽：move/up 监听直接挂在分隔条/热区元素上即可覆盖拖拽全程（pointer 捕获期间
@@ -612,7 +630,13 @@ const MainWindow: React.FC = () => {
     if (!sidebarDraggingRef.current) return
     sidebarCommit.schedule(e.clientX - RAIL_WIDTH)
   }
-  const endSidebarResize = () => { sidebarCommit.flush(); sidebarDraggingRef.current = false; setIsResizingSidebar(false) }
+  const flushSidebarResize = sidebarCommit.flush
+  const endSidebarResize = useCallback(() => { flushSidebarResize(); sidebarDraggingRef.current = false; setIsResizingSidebar(false) }, [flushSidebarResize])
+  useEffect(() => {
+    if (!isResizingSidebar) return
+    window.addEventListener('blur', endSidebarResize)
+    return () => window.removeEventListener('blur', endSidebarResize)
+  }, [isResizingSidebar, endSidebarResize])
 
   // 两条输入路径共用导航：原生事件覆盖宿主及 webview，DOM capture 兼容宿主合成事件。
   const routeSidebarShortcut = useCallback((action: SidebarShortcutAction) => {
@@ -1207,13 +1231,13 @@ const MainWindow: React.FC = () => {
               槽宽读 --edge-frame-width,与 .edge-frame 边框 / .edge-hit 命中条同源 */}
           {/* 内容树为停靠区让宽；首行最右页签条读同一变量延伸回窗口边缘。 */}
           <div className={cn('h-full', sidebarCollapsed && 'pl-[var(--edge-frame-width)] pb-[var(--edge-frame-width)]')} style={{
-            paddingRight: taskShelfEdge === 'right' ? taskShelfReserve : 0,
-            paddingLeft: taskShelfEdge === 'left' ? `calc(${taskShelfReserve}px + ${sidebarCollapsed ? 'var(--edge-frame-width)' : '0px'})` : undefined,
-            paddingTop: taskShelfEdge === 'top' ? taskShelfHeight : 0,
-            paddingBottom: taskShelfEdge === 'bottom' ? `calc(${taskShelfHeight}px + ${sidebarCollapsed ? 'var(--edge-frame-width)' : '0px'})` : undefined,
-            '--task-shelf-reserve': `${taskShelfEdge === 'right' ? taskShelfReserve : 0}px`,
-            '--task-shelf-left-reserve': `${taskShelfEdge === 'left' ? taskShelfReserve : 0}px`,
-            '--task-shelf-top-reserve': `${taskShelfEdge === 'top' ? taskShelfHeight : 0}px`
+            paddingRight: taskShelfEdge === 'right' ? `var(--task-shelf-drag-width, ${taskShelfReserve}px)` : 0,
+            paddingLeft: taskShelfEdge === 'left' ? `calc(var(--task-shelf-drag-width, ${taskShelfReserve}px) + ${sidebarCollapsed ? 'var(--edge-frame-width)' : '0px'})` : undefined,
+            paddingTop: taskShelfEdge === 'top' ? `var(--task-shelf-drag-height, ${taskShelfHeight}px)` : 0,
+            paddingBottom: taskShelfEdge === 'bottom' ? `calc(var(--task-shelf-drag-height, ${taskShelfHeight}px) + ${sidebarCollapsed ? 'var(--edge-frame-width)' : '0px'})` : undefined,
+            '--task-shelf-reserve': taskShelfEdge === 'right' ? `var(--task-shelf-drag-width, ${taskShelfReserve}px)` : '0px',
+            '--task-shelf-left-reserve': taskShelfEdge === 'left' ? `var(--task-shelf-drag-width, ${taskShelfReserve}px)` : '0px',
+            '--task-shelf-top-reserve': taskShelfEdge === 'top' ? `var(--task-shelf-drag-height, ${taskShelfHeight}px)` : '0px'
           } as React.CSSProperties}>
             <SplitPaneContainer />
           </div>
@@ -1295,7 +1319,7 @@ const MainWindow: React.FC = () => {
           )}
         </div>
         <ProjectSceneBar showBar={!hasVisibleTabs && !paletteOpen} />
-        <WorkbenchActivity />
+        <WorkbenchActivityMonitor />
       </div>
 
       {/* MCP 活动面板以页签形式挂在各分屏 PaneView 内，由布局树里的 mcpAudit 覆盖层引用驱动 */}

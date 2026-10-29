@@ -24,7 +24,7 @@ export function shelfEntryForNotice(notice: ActivityNotice): string | undefined 
 export function showShelfNotice(notice: ActivityNotice): boolean {
   const id = shelfEntryForNotice(notice)
   if (!id) return false
-  // 铃铛请求在小窗查看：收回原实例，仍是同一个进程和同一个网页。
+  // 提醒请求在小窗查看：收回原实例，仍是同一个进程和同一个网页。
   useTaskShelf.getState().hide(id)
   useTaskShelf.getState().showPanel(id)
   return true

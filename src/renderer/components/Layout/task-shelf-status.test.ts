@@ -5,7 +5,10 @@ import type { ShelfRecovery, TaskShelfEntry } from '@shared/task-shelf'
 import type { TuiActivitySession, TuiActivitySnapshot, TuiActivityState } from '@shared/tui-activity'
 import type { WorkbenchActivitySession, WorkbenchActivitySnapshot } from '@shared/workbench-activity'
 import { ConnectionStatus, ConnectionType } from '@shared/types'
-import { resolveShelfTaskStatus, type ShelfTaskStatus } from './task-shelf-status'
+import {
+  resolveNativeTaskStatus, resolveShelfTaskStatus, resolveTerminalTaskStatus, resolveWebTaskStatus,
+  type ShelfTaskStatus
+} from './task-shelf-status'
 
 const NOW = 1_700_000_000_000
 const FRESH_MS = 12000
@@ -94,9 +97,10 @@ function webSnapshot(
 }
 
 describe('保存区终端任务状态', () => {
-  it('连接错误只表达失败，断开/关闭只表达断线，均不借用 TUI 的运行态', () => {
+  it('连接错误只表达连接异常，断开/关闭只表达断线，均不借用 TUI 的运行态', () => {
     const snapshot = activity(tuiSnapshot([tuiRow({ state: 'running', active: true })]))
-    expect(resolveShelfTaskStatus(terminalEntry(), TERMINAL_BINDING, snapshot, ConnectionStatus.ERROR, NOW)).toBe('failed')
+    // 连接异常的任务结果未知，不能冒充任务失败。
+    expect(resolveShelfTaskStatus(terminalEntry(), TERMINAL_BINDING, snapshot, ConnectionStatus.ERROR, NOW)).toBe('connectionError')
     expect(resolveShelfTaskStatus(terminalEntry(), TERMINAL_BINDING, snapshot, ConnectionStatus.DISCONNECTED, NOW)).toBe('disconnected')
     expect(resolveShelfTaskStatus(terminalEntry(), TERMINAL_BINDING, snapshot, 'closed', NOW)).toBe('disconnected')
   })
@@ -160,9 +164,10 @@ describe('保存区终端任务状态', () => {
 })
 
 describe('保存区 Harness 原生任务状态', () => {
-  it('原生任务行映射运行、完成、失败与中断', () => {
+  it('原生任务行映射已接收、运行、完成、失败与中断', () => {
     const cases: Array<[WorkbenchActivitySession['taskState'], ShelfTaskStatus]> = [
-      ['accepted', 'running'],
+      // accepted 只是官方已接收，还没有运行证据，不能伪装成 running。
+      ['accepted', 'accepted'],
       ['running', 'running'],
       ['completed', 'completed'],
       ['failed', 'failed'],
@@ -292,6 +297,164 @@ describe('保存区 Harness 官方 Web 回合状态', () => {
       const snapshot = offlineNative(webSnapshot([webRow({ state: 'running' })], overrides))
       expect(resolveShelfTaskStatus(harnessEntry({ taskId: 'turn-a' }), undefined, snapshot, undefined, NOW)).toBe('unknown')
     }
+  })
+})
+
+describe('终端任务状态接口', () => {
+  it('新鲜快照中同一终端的活跃行给出映射结果', () => {
+    const cases: Array<[TuiActivityState, ShelfTaskStatus]> = [
+      ['idle', 'idle'],
+      ['running', 'running'],
+      ['waiting-approval', 'approval'],
+      ['turn-ended', 'turnEnded'],
+      ['failed', 'failed'],
+      ['interrupted', 'interrupted'],
+      ['unknown', 'unknown'],
+      // 会话结束本身没有可信任务结果，不能当成完成或失败。
+      ['session-ended', 'unknown']
+    ]
+    for (const [state, expected] of cases) {
+      const snapshot = activity(tuiSnapshot([tuiRow({ state })]))
+      expect(resolveTerminalTaskStatus('t-a', snapshot, ConnectionStatus.CONNECTED, NOW)).toBe(expected)
+    }
+    // 在线但没有任何 TUI 事件时仍然未知。
+    expect(resolveTerminalTaskStatus('t-a', activity(tuiSnapshot([])), ConnectionStatus.CONNECTED, NOW)).toBe('unknown')
+  })
+
+  it('连接异常/断开覆盖 TUI 旧事件，不沿用旧结论', () => {
+    for (const staleState of ['completed', 'running', 'waiting-approval'] as TuiActivityState[]) {
+      const snapshot = activity(tuiSnapshot([tuiRow({ state: staleState })]))
+      expect(resolveTerminalTaskStatus('t-a', snapshot, ConnectionStatus.ERROR, NOW)).toBe('connectionError')
+      expect(resolveTerminalTaskStatus('t-a', snapshot, ConnectionStatus.DISCONNECTED, NOW)).toBe('disconnected')
+      expect(resolveTerminalTaskStatus('t-a', snapshot, 'closed', NOW)).toBe('disconnected')
+    }
+  })
+
+  it('过期、未来时钟或没有快照时不提供状态', () => {
+    for (const observedAt of [NOW - FRESH_MS, NOW - FRESH_MS - 1, NOW + 1]) {
+      const snapshot = activity(tuiSnapshot([tuiRow({ state: 'running' })], observedAt))
+      expect(resolveTerminalTaskStatus('t-a', snapshot, ConnectionStatus.CONNECTED, NOW)).toBe('unknown')
+    }
+    expect(resolveTerminalTaskStatus('t-a', null, ConnectionStatus.CONNECTED, NOW)).toBe('unknown')
+    // 连接断开/异常不依赖快照，缺快照也照实说明。
+    expect(resolveTerminalTaskStatus('t-a', null, ConnectionStatus.ERROR, NOW)).toBe('connectionError')
+  })
+
+  it('其他终端或已失活的旧审批行不是当前任务状态', () => {
+    const otherTerminal = activity(tuiSnapshot([tuiRow({ terminalId: 't-b', state: 'waiting-approval' })]))
+    expect(resolveTerminalTaskStatus('t-a', otherTerminal, ConnectionStatus.CONNECTED, NOW)).toBe('unknown')
+
+    const inactiveApproval = activity(tuiSnapshot([tuiRow({ state: 'waiting-approval', active: false })]))
+    expect(resolveTerminalTaskStatus('t-a', inactiveApproval, ConnectionStatus.CONNECTED, NOW)).toBe('unknown')
+
+    // 同一终端残留的失活旧审批行不能压过当前活跃行。
+    const mixed = activity(tuiSnapshot([
+      tuiRow({ launchId: 'launch-old', state: 'waiting-approval', active: false }),
+      tuiRow({ state: 'running' })
+    ]))
+    expect(resolveTerminalTaskStatus('t-a', mixed, ConnectionStatus.CONNECTED, NOW)).toBe('running')
+  })
+
+  it('默认使用当前时间判定新鲜度', () => {
+    const snapshot = activity(tuiSnapshot([tuiRow()], Date.now()))
+    expect(resolveTerminalTaskStatus('t-a', snapshot, ConnectionStatus.CONNECTED)).toBe('running')
+  })
+})
+
+describe('原生任务状态接口', () => {
+  const approval = (id = 'approval-a') => ({
+    id, toolName: 'shell', reason: '', options: ['allowed-once' as const, 'rejected' as const], askedAt: NOW
+  })
+
+  it('按任务阶段映射，accepted 不冒充运行', () => {
+    const cases: Array<[WorkbenchActivitySession['taskState'], ShelfTaskStatus]> = [
+      ['accepted', 'accepted'],
+      ['running', 'running'],
+      ['completed', 'completed'],
+      ['failed', 'failed'],
+      ['cancelled', 'interrupted'],
+      ['unconfirmed', 'unknown'],
+      ['unknown', 'unknown']
+    ]
+    for (const [taskState, expected] of cases) {
+      const row = nativeRow({ taskState })
+      expect(resolveNativeTaskStatus(row, nativeSnapshot([row]), NOW)).toBe(expected)
+    }
+  })
+
+  it('审批优先于任务阶段，包括已完成但仍有待处理审批的残留行', () => {
+    const running = nativeRow({ taskState: 'running', approvals: [approval()] })
+    expect(resolveNativeTaskStatus(running, nativeSnapshot([running]), NOW)).toBe('approval')
+    const completed = nativeRow({ taskState: 'completed', approvals: [approval()] })
+    expect(resolveNativeTaskStatus(completed, nativeSnapshot([completed]), NOW)).toBe('approval')
+    const accepted = nativeRow({ taskState: 'accepted', approvals: [approval()] })
+    expect(resolveNativeTaskStatus(accepted, nativeSnapshot([accepted]), NOW)).toBe('approval')
+  })
+
+  it('过期、未来时钟、离线或过期行都不提供状态', () => {
+    const row = nativeRow({ taskState: 'completed' })
+    for (const overrides of [
+      { observedAt: NOW - FRESH_MS },
+      { observedAt: NOW - FRESH_MS - 1 },
+      { observedAt: NOW + 1 },
+      { connection: 'offline' as const },
+      { connection: 'stale' as const },
+      { identity: null }
+    ]) {
+      expect(resolveNativeTaskStatus(row, nativeSnapshot([row], overrides), NOW)).toBe('unknown')
+    }
+    const stale = nativeRow({ taskState: 'completed', stale: true })
+    expect(resolveNativeTaskStatus(stale, nativeSnapshot([stale]), NOW)).toBe('unknown')
+    // 过期行即使带审批也不显示审批。
+    const staleApproval = nativeRow({ taskState: 'running', stale: true, approvals: [approval()] })
+    expect(resolveNativeTaskStatus(staleApproval, nativeSnapshot([staleApproval]), NOW)).toBe('unknown')
+    expect(resolveNativeTaskStatus(row, null, NOW)).toBe('unknown')
+  })
+
+  it('默认使用当前时间判定新鲜度', () => {
+    const row = nativeRow({ taskState: 'accepted' })
+    expect(resolveNativeTaskStatus(row, nativeSnapshot([row], { observedAt: Date.now() }))).toBe('accepted')
+  })
+})
+
+describe('官方 Web 回合状态接口', () => {
+  it('按回合状态映射，回合结束只能是 turnEnded', () => {
+    const cases: Array<[HarnessWebActivitySession['state'], ShelfTaskStatus]> = [
+      ['running', 'running'],
+      ['waiting-approval', 'approval'],
+      ['turn-ended', 'turnEnded'],
+      ['failed', 'failed'],
+      ['interrupted', 'interrupted']
+    ]
+    for (const [state, expected] of cases) {
+      const row = webRow({ state })
+      expect(resolveWebTaskStatus(row, webSnapshot([row]), NOW)).toBe(expected)
+    }
+    // 回合结束不能升级成完成；原生 completed 与 Web turn-ended 必须区分。
+    const ended = webRow({ state: 'turn-ended' })
+    expect(resolveWebTaskStatus(ended, webSnapshot([ended]), NOW)).toBe('turnEnded')
+    const completedNative = nativeRow({ taskState: 'completed' })
+    expect(resolveNativeTaskStatus(completedNative, nativeSnapshot([completedNative]), NOW)).toBe('completed')
+  })
+
+  it('过期、未来时钟、离线或缺失快照时不提供状态', () => {
+    const row = webRow({ state: 'running' })
+    for (const overrides of [
+      { observedAt: NOW - FRESH_MS },
+      { observedAt: NOW - FRESH_MS - 1 },
+      { observedAt: NOW + 1 },
+      { connection: 'offline' as const },
+      { connection: 'stale' as const },
+      { identity: null }
+    ]) {
+      expect(resolveWebTaskStatus(row, webSnapshot([row], overrides), NOW)).toBe('unknown')
+    }
+    expect(resolveWebTaskStatus(row, undefined, NOW)).toBe('unknown')
+  })
+
+  it('默认使用当前时间判定新鲜度', () => {
+    const row = webRow({ state: 'waiting-approval' })
+    expect(resolveWebTaskStatus(row, webSnapshot([row], { observedAt: Date.now() }))).toBe('approval')
   })
 })
 

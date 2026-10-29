@@ -1,3 +1,4 @@
+import { useTaskShelf } from '../../stores/task-shelf'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { activityDirectoryKey, activityFresh, tuiActivityFresh, webActivityFresh, useWorkbenchActivity, type ActivityNotice } from '../../stores/workbench-activity'
@@ -62,6 +63,8 @@ function ActivityToast({ notice, suspended, onExpire, onDismiss, onOpen }: {
 export function ActivityNotifications() {
   const { i18n } = useTranslation()
   const { notices, unreadNoticeIds, muted, snapshot, open, markRead, show } = useWorkbenchActivity()
+  const sidebarOpen = useTaskShelf(state => state.panelVisible)
+  const panelOpen = open || sidebarOpen
   const [tracker] = useState(() => createActivityToastTracker(notices))
   const [toasts, setToasts] = useState<ActivityNotice[]>([])
   const [announcement, setAnnouncement] = useState('')
@@ -96,8 +99,8 @@ export function ActivityNotifications() {
   const dismiss = useCallback((id: string) => { markRead(id); expire(id) }, [markRead, expire])
   const openNotice = useCallback((notice: ActivityNotice) => { markRead(notice.id); expire(notice.id); if (!showShelfNotice(notice)) show(notice.workspace, notice.sessionId) }, [markRead, expire, show])
   return <>
-    <div className="activity-toast-region win-no-drag" aria-label={i18n.language.startsWith('en') ? 'Task notifications' : '任务通知'} hidden={open}>
-      {toasts.map(notice => <ActivityToast key={notice.id} notice={notice} suspended={open} onExpire={expire} onDismiss={dismiss} onOpen={openNotice}/>) }
+    <div className="activity-toast-region win-no-drag" aria-label={i18n.language.startsWith('en') ? 'Task notifications' : '任务通知'} hidden={panelOpen}>
+      {toasts.map(notice => <ActivityToast key={notice.id} notice={notice} suspended={panelOpen} onExpire={expire} onDismiss={dismiss} onOpen={openNotice}/>) }
     </div>
     <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</span>
   </>
