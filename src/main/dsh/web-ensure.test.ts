@@ -143,7 +143,7 @@ interface BridgeHarness {
   setHandshake: (impl: (call: number) => BridgeHandshakeResult | Promise<BridgeHandshakeResult>) => void
 }
 
-function makeManager(opts: { instanceId?: string; epoch?: number; withBridge?: boolean } = {}): BridgeHarness {
+function makeManager(opts: { instanceId?: string; epoch?: number; withBridge?: boolean; recoverBackend?: boolean } = {}): BridgeHarness {
   const plans: BridgeHarness['plans'] = []
   const handshakes: BridgeHarness['handshakes'] = []
   let handshakeImpl: (call: number) => BridgeHandshakeResult | Promise<BridgeHandshakeResult> = () => ({
@@ -160,6 +160,7 @@ function makeManager(opts: { instanceId?: string; epoch?: number; withBridge?: b
     }
   })
   const manager = new DshWebManager({
+    recoverBackend: opts.recoverBackend,
     locateBridge: () => (opts.withBridge === false
       ? null
       : { dir: 'C:\\pkg\\dsh-bridge', entry: 'C:\\pkg\\dsh-bridge\\index.mjs', client: 'C:\\pkg\\dsh-bridge\\client.js', manifest: 'C:\\pkg\\dsh-bridge\\package.json' }),
@@ -205,6 +206,74 @@ beforeEach(() => {
   mocks.killPidTree.mockResolvedValue({ status: 'killed', targets: [] })
   mocks.sweep.mockResolvedValue([])
   mocks.recoverRecordedPids.mockResolvedValue({ killed: [], dropped: [] })
+})
+
+describe('LyShell 宿主持有、退出恢复与插件隔离', () => {
+  it.runIf(process.platform === 'win32')('旧树未确认回收时显式 recover 也不能启动重叠后台', async () => {
+    const child = fakeChild(7301)
+    mocks.spawn.mockReturnValue(child as unknown as ChildProcess)
+    mocks.attachJob.mockReturnValue(null)
+    mocks.killPidTree.mockResolvedValue({ status: 'unverified', message: 'cannot verify old descendants' })
+    mocks.listProcesses.mockResolvedValue(null)
+    const h = makeManager({ recoverBackend: true })
+    const started = h.manager.ensure(makeLaunch('C:\\ws'))
+    await waitForListener(child.stdout); await ready(child); await started
+    child.emit('exit', 1, null)
+    expect(h.manager.recoveryStatus).toMatchObject({ lastExit: { recoveryBlocked: 'old-process-tree-unverified' } })
+    const recovery = h.manager.recoverBackend()
+    await flush()
+    // 回归旧实现会错误地 spawn：让它完成握手，避免用超时替代结果断言。
+    if (mocks.spawn.mock.calls.length > 1) await ready(child)
+    expect(await recovery).toBe(false)
+    expect(mocks.spawn).toHaveBeenCalledTimes(1)
+    expect(mocks.killPidTree).toHaveBeenCalledWith(7301, undefined, expect.any(Object))
+  })
+  it('Pet 最后租约释放和页签关闭都保留后台；确认退出后有限恢复，退出 LyShell 不复活', async () => {
+    const first = fakeChild(7101), second = fakeChild(7102)
+    mocks.spawn.mockReturnValueOnce(first as unknown as ChildProcess).mockReturnValueOnce(second as unknown as ChildProcess)
+    mocks.attachJob.mockImplementation(() => ({ close: () => true, terminate: () => true }))
+    const h = makeManager({ recoverBackend: true })
+    const recoveredEvent = vi.fn()
+    h.manager.onBackendRecovered(recoveredEvent)
+    h.setHandshake(call => ({ ok: true, handshake: { protocolVersion: 2, instanceId: `backend-${call}`,
+      instanceEpoch: call, cwd: 'C:\\ws', dshHome: 'C:\\home', hostBridge: true, clientBundle: true, controlPort: 12000 + call } }))
+    const launch = makeLaunch('C:\\ws')
+    const started = h.manager.ensure(launch, { bindingId: 'exclusive:pet' })
+    await waitForListener(first.stdout); await ready(first); await started
+    h.manager.retainBackend('exclusive:pet')
+    h.manager.unretainBackend('exclusive:pet'); h.manager.release('exclusive:pet')
+    expect(h.manager.leaseCount).toBe(0)
+    await h.manager.close()
+    expect(h.manager.running).toBe(true)
+    expect(h.manager.instanceIdentity?.instanceId).toBe('backend-1')
+    expect(mocks.killPidTree).not.toHaveBeenCalled()
+    first.stderr.emit('data', 'ENOMEM secret=do-not-log')
+    first.emit('exit', 1, null)
+    expect(h.manager.recoveryStatus).toMatchObject({ phase: 'waiting', lastExit: { code: 1, errorCodes: ['ENOMEM'] } })
+    await waitForListener(second.stdout, 2500); await ready(second)
+    expect(h.manager.instanceIdentity?.instanceId).toBe('backend-2')
+    expect(recoveredEvent).toHaveBeenCalledWith({ identity: { instanceId: 'backend-2', instanceEpoch: 2 }, url: 'http://127.0.0.1:3080/', cwd: 'C:\\ws' })
+    expect(JSON.stringify(h.manager.recoveryStatus)).not.toContain('do-not-log')
+    await h.manager.closeForQuit(Date.now() + 100)
+    second.emit('exit', 0, null)
+    expect(h.manager.recoveryStatus.phase).toBe('stopped')
+    expect(mocks.spawn).toHaveBeenCalledTimes(2)
+    expect(mocks.spawn.mock.calls[0][2].env.LYSHELL_HARNESS_WORK_JOURNAL).toContain('harness-work')
+  })
+
+  it('退出时尚未触发的恢复计时器被取消', async () => {
+    const child = fakeChild(7201)
+    mocks.spawn.mockReturnValue(child as unknown as ChildProcess)
+    mocks.attachJob.mockReturnValue({ close: () => true, terminate: () => true })
+    const h = makeManager({ recoverBackend: true })
+    const pending = h.manager.ensure(makeLaunch('C:\\ws'))
+    await waitForListener(child.stdout); await ready(child); await pending
+    child.emit('exit', 1, null)
+    await h.manager.closeForQuit(Date.now() + 100)
+    await sleep(1100)
+    expect(mocks.spawn).toHaveBeenCalledTimes(1)
+    expect(h.manager.recoveryStatus.phase).toBe('stopped')
+  })
 })
 
 describe('托管 ensure/acquire：同一实例语义', () => {

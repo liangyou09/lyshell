@@ -158,6 +158,8 @@ export interface ExclusiveControlSnapshot {
   binding: ExclusiveBindingView | null
   /** 是否有活动任务（accepted 之后、completed 之前） */
   activeTask: ExclusiveTaskView | null
+  /** 后台已确认换代的旧任务，只展示未知结果，不冒充新后台任务或终态。 */
+  interruptedTasks?: Array<{ task: ExclusiveTaskView; outcome: 'unknown'; detectedAt: number }>
   /** 当前最早的一条待答原生审批（兼容字段；完整列表见 approvals） */
   pendingApproval: ExclusiveApprovalView | null
   /** 全部待答原生审批（并发审批用；Pet 据此逐条展示与回答） */

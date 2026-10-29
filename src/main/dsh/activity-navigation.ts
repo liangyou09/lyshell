@@ -8,6 +8,7 @@ import { readWorkbenchActivity } from './activity'
 import { readHarnessWebActivity } from './web-activity'
 
 const sameIdentity = (a: ActivityBackendIdentity | null, b: ActivityBackendIdentity) => a?.instanceId === b.instanceId && a?.instanceEpoch === b.instanceEpoch
+const targets = new Map<string, { logical: string; execution: string; identity: ActivityBackendIdentity; at: number }>()
 async function bridge(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
   const endpoint = dshWebManager.bridgeControlEndpoint
   if (!endpoint) throw new Error('Harness backend unavailable')
@@ -51,14 +52,22 @@ export async function navigateWorkbenchActivity(request: ActivityNavigationReque
       const detail = await acquireWorkbenchDetail()
       if (!detail.ok || !sameIdentity(detail, request.identity)) throw new Error('Harness workbench unavailable or backend changed')
       const requestId = randomUUID()
-      await bridge({ cmd: 'native-viewer-nav', identity: request.identity, sessionId: request.sessionId, requestId })
+      const reply = await bridge({ cmd: 'native-viewer-nav', identity: request.identity, sessionId: request.sessionId, requestId })
+      for (const [id, target] of targets) if (Date.now() - target.at > 300_000) targets.delete(id)
+      if (targets.size >= 128) targets.delete(targets.keys().next().value!)
+      targets.set(requestId, { logical: request.sessionId,
+        execution: typeof reply.navigationSessionId === 'string' ? reply.navigationSessionId : request.sessionId,
+        identity: request.identity, at: Date.now() })
       return { success: true, requestId, navigation: 'pending', url: detail.url, cwd: webSession?.workspace || session?.workspace || undefined }
     }
     const result = await bridge({ cmd: 'snapshot' })
     if (!sameIdentity(result.identity as ActivityBackendIdentity | null, request.identity)) throw new Error('Harness backend changed')
     const viewer = result.viewer as { request?: { requestId: string }; lastAck?: { requestId: string; sessionId: string; currentSessionId: string; status: string }; currentSessionId?: string }
-    if (viewer.lastAck?.requestId === request.requestId && viewer.lastAck.sessionId === request.sessionId) {
-      return { success: true, requestId: request.requestId, navigation: viewer.lastAck.status === 'navigated' && viewer.lastAck.currentSessionId === request.sessionId && viewer.currentSessionId === request.sessionId ? 'navigated' : 'failed' }
+    const target = targets.get(request.requestId)
+    if (target && (target.logical !== request.sessionId || !sameIdentity(target.identity, request.identity) || Date.now() - target.at > 300_000)) throw new Error('Navigation target expired or changed')
+    const execution = target?.execution ?? request.sessionId
+    if (viewer.lastAck?.requestId === request.requestId && viewer.lastAck.sessionId === execution) {
+      return { success: true, requestId: request.requestId, navigation: viewer.lastAck.status === 'navigated' && viewer.lastAck.currentSessionId === execution && viewer.currentSessionId === execution ? 'navigated' : 'failed' }
     }
     return { success: true, requestId: request.requestId, navigation: viewer.request?.requestId === request.requestId ? 'pending' : 'failed' }
   } catch (error) { return { success: false, error: (error as Error).message } }

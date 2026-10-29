@@ -21,6 +21,15 @@ describe('任务区按实际窗口空间适配', () => {
     expect(shelfHorizontalLayout(1400, 400, 2).previewWidth).toBeGreaterThan(shelfHorizontalLayout(1400, 300, 2).previewWidth)
     expect(shelfHorizontalLayout(552, 400, 2).previewWidth).toBe(376)
   })
+  it('显式选择横版任务时限制方块区域，为小窗口留出空间', () => {
+    expect(shelfHorizontalLayout(552, 300, 4).showPreviews).toBe(false)
+    const selected = shelfHorizontalLayout(552, 300, 4, true)
+    expect(selected.showPreviews).toBe(true)
+    expect(selected.previewWidth).toBeGreaterThanOrEqual(280)
+    expect(selected.gridWidth + selected.previewWidth + 28).toBeLessThanOrEqual(552)
+    expect(shelfHorizontalLayout(1400, 440, 50, true).showPreviews).toBe(true)
+    expect(shelfHorizontalLayout(400, 440, 7, true).showPreviews).toBe(false)
+  })
   it('仅吸附到有效内容区四边，中央或窗口外不换边', () => {
     const rect = { left: 100, top: 36, width: 1000, height: 700 }
     expect(shelfDropEdge(101, 350, rect)).toBe('left')

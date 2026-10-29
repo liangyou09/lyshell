@@ -55,6 +55,7 @@ export default defineConfig({
           // 只经 contextBridge 暴露 window.lyshellView（bootstrap/callApi/动作/弹窗）
           pluginView: resolve(__dirname, 'src/preload/plugin-view.ts'),
           browserLogin: resolve(__dirname, 'src/preload/browser-login.ts'),
+          shelfReadonly: resolve(__dirname, 'src/preload/shelf-readonly.ts'),
           browserPrompt: resolve(__dirname, 'src/preload/browser-prompt.ts'),
           browserMenu: resolve(__dirname, 'src/preload/browser-menu.ts'),
           mcpConfirmation: resolve(__dirname, 'src/preload/mcp-confirmation.ts')

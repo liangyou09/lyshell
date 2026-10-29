@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, screen, session, webContents } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, screen, session, webContents, powerMonitor } from 'electron'
 import { join, resolve, isAbsolute } from 'path'
 import log from 'electron-log'
 import * as fs from 'fs'
@@ -17,6 +17,7 @@ import { cleanupTuiLaunchFiles } from './harness/tui-launch'
 import { explorerLaunchQueue, parseExplorerDirectory, validateExplorerDirectory } from './explorer-launch'
 import { browserLaunchQueue } from './browser/launch'
 import { shelfBrowserRuntime } from './browser/shelf-browser-runtime'
+import { isReadonlyPartition, hasReadonlySession, initializeReadonlySession } from './browser/shelf-readonly-contract'
 import { BROWSER_LAUNCH_PENDING, parseBrowserLaunchUrls } from '@shared/browser-launch'
 import { readActiveExplorerDirectory } from './explorer-directory'
 
@@ -60,7 +61,7 @@ import { stopRecordedLocalHosts } from './terminal/local-host-lifecycle'
 import { createLogTap } from '@shared/log-throttle'
 import { decideWebviewFrameNavigation, gateWebviewSubframeNavigation } from './webview-frame-navigation'
 import { PendingWebbarPostStore, webbarPostLoadOptions, webbarPostRawBytesWithinLimit } from './webbar-post'
-import { initializeBrowser, setupBrowserGuest } from './browser/service'
+import { initializeBrowser, setupBrowserGuest, browserGuestRequiresKeepalive } from './browser/service'
 import { setupBrowserContextMenu } from './browser/context-menu'
 import { BROWSER_DEVTOOLS_EVENT } from '@shared/browser-devtools'
 
@@ -111,6 +112,8 @@ app.on('child-process-gone', (_event, details) => {
 })
 
 let mainWindow: BrowserWindow | null = null
+// 在 guest 首航前观察原生地址，did-attach 时 HTTP 重定向可能已经完成。
+app.on('web-contents-created', (_event, contents) => shelfBrowserRuntime.observeGuest(contents))
 let stopMcpHttpServerImpl: (() => Promise<void>) | undefined
 
 // 网页访问栏 webview 的会话 partition（插件面板 URL 栏打开的通用网页，完整页签
@@ -452,6 +455,10 @@ function createMainWindow(): void {
   })
 
   // 设置主窗口引用给 Worker 管理器
+  mainWindow.on('show', () => shelfBrowserRuntime.hostBoundary())
+  mainWindow.on('hide', () => shelfBrowserRuntime.hostBoundary())
+  mainWindow.on('minimize', () => shelfBrowserRuntime.hostBoundary())
+  mainWindow.on('restore', () => shelfBrowserRuntime.hostBoundary())
   explorerLaunchQueue.consumerId = mainWindow.webContents.id
   browserLaunchQueue.consumerId = mainWindow.webContents.id
   setMainWindow(mainWindow)
@@ -561,8 +568,13 @@ function createMainWindow(): void {
   //   导航策略是「放行任意 http/https」，复用等于把放宽后的策略扩散到所有新入口。
   mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
     const src = params?.src || ''
-    if (params?.partition === WEBBAR_PARTITION) {
-      if (!shelfBrowserRuntime.willAttach(mainWindow!.webContents, webPreferences, src)) { event.preventDefault(); return }
+    if (params?.partition === WEBBAR_PARTITION || isReadonlyPartition(params?.partition)) {
+      if (isReadonlyPartition(params.partition)) {
+        try { initializeReadonlySession(session.fromPartition(params.partition)) }
+        catch { event.preventDefault(); return }
+      }
+      if (!shelfBrowserRuntime.willAttach(mainWindow!.webContents, webPreferences, src, session.fromPartition(params.partition))) { event.preventDefault(); return }
+      if (isReadonlyPartition(params.partition) && webPreferences.javascript !== true) { event.preventDefault(); return }
       // 网页访问栏（完整页签 + 小窗）：只校验协议（渲染层 normalizeWebBarUrl 已做
       // 同样归一化，这里是服务端兜底）；空 src 例外放行（小窗 loadURL 起航路径）
       // POST 页签先挂 about:blank，待 dom-ready 后凭一次性 token 在主进程发出原 POST。
@@ -608,6 +620,8 @@ function createMainWindow(): void {
     delete webPreferences.preload
     if (params?.partition === WEBBAR_PARTITION) {
       webPreferences.preload = join(__dirname, '../preload/browserLogin.js')
+    } else if (isReadonlyPartition(params?.partition)) {
+      webPreferences.preload = join(__dirname, '../preload/shelfReadonly.js')
     } else if (
       typeof params?.partition === 'string' &&
       params.partition.startsWith(PLUGIN_VIEW_PARTITION_PREFIX)
@@ -623,6 +637,14 @@ function createMainWindow(): void {
 
   mainWindow.webContents.on('did-attach-webview', (_event, webContents) => {
     if (mainWindow) shelfBrowserRuntime.didAttach(mainWindow.webContents, webContents)
+    if (hasReadonlySession(webContents.session)) {
+      webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+      webContents.on('will-frame-navigate', event => {
+        try { const url = new URL(event.url); if (!event.isMainFrame || !/^https?:$/.test(url.protocol) || url.username || url.password || url.search || url.hash) event.preventDefault() }
+        catch { event.preventDefault() }
+      })
+      return
+    }
     // 插件视图 guest 优先：queue 首条记录的 partition session 与本 guest 一致即对号
     // 入座（不匹配不动队列 —— dsh/webbar 的 attach 不产生排队记录）。
     const pending = pendingPluginAttaches[0]
@@ -886,6 +908,11 @@ if (!gotSingleInstanceLock) {
 
 // 应用启动
 app.whenReady().then(async () => {
+  const powerBlocks = new Set<string>()
+  powerMonitor.on('suspend', () => { powerBlocks.add('suspend'); shelfBrowserRuntime.hostBoundary(true) })
+  powerMonitor.on('lock-screen', () => { powerBlocks.add('lock'); shelfBrowserRuntime.hostBoundary(true) })
+  powerMonitor.on('resume', () => { powerBlocks.delete('suspend'); shelfBrowserRuntime.hostBoundary(powerBlocks.size > 0) })
+  powerMonitor.on('unlock-screen', () => { powerBlocks.delete('lock'); shelfBrowserRuntime.hostBoundary(powerBlocks.size > 0) })
   // 单实例竞争失败方：quit 已排队，ready 在部分版本仍会触发，这里不再往下引导
   // （锁的持有方才有资格创建窗口/起服务器）
   if (!gotSingleInstanceLock) return
@@ -901,6 +928,7 @@ app.whenReady().then(async () => {
   const browserUserAgent = webbarSession.getUserAgent().replace(/\s+(?:lyshell|Electron)\/\S+/gi, '')
   webbarSession.setUserAgent(browserUserAgent)
   await initializeBrowser()
+  shelfBrowserRuntime.configureReloadableSupport(webbarSession, browserGuestRequiresKeepalive)
 
   // 清扫上次崩溃/强杀遗留的孤儿 dsh web（会占着 DSH 会话写锁 → 「当前会话已被占用」）。
   // 两条互补路径，覆盖面对齐 proc.ts 的三层防护：

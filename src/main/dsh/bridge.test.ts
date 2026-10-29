@@ -688,6 +688,9 @@ let loadSeq = 0
 async function loadHostHalf(moduleDir: string): Promise<HostHalfModule> {
   const entry = join(moduleDir, 'index.mjs')
   writeFileSync(entry, bridgeIndexSource(), 'utf8')
+  for (const file of ['work-journal.mjs', 'work-state.mjs']) {
+    writeFileSync(join(moduleDir, file), readFileSync(join(process.cwd(), 'resources/dsh-bridge', file)))
+  }
   const url = `${pathToFileURL(entry).href}?case=${loadSeq++}`
   return (await import(/* @vite-ignore */ url)) as HostHalfModule
 }

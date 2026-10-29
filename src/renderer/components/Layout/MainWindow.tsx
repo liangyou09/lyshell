@@ -13,6 +13,7 @@ import WebTabLayer from './WebTabLayer'
 import TaskShelf from './TaskShelf'
 import { useFrameCommit } from '../../hooks/useFrameCommit'
 import { useTaskShelf } from '../../stores/task-shelf'
+import { createConnectionStatusHandler } from '../../stores/connection-status'
 import { FIND_IN_TAB_EVENT } from '../Search/SearchableTab'
 import CommandScreen from '../CommandScreen/CommandScreen'
 import TopRightControls from './TopRightControls'
@@ -462,73 +463,10 @@ const MainWindow: React.FC = () => {
   useEffect(() => {
     if (!window.electronAPI) return
 
-    const cleanup = window.electronAPI.onConnectionStatus((data) => {
-      const store = useSessionStore.getState()
-
-      // 如果会话不在 store 中，检查状态
-      const existingSession = store.sessions.find(s => s.id === data.id)
-      if (!existingSession) {
-        store.updateSessionStatus(data.id, data.status, data.error)
-        // 对于断开或错误状态的会话，不要重新添加（可能是用户关闭后被移除的临时会话）
-        if (data.status === 'disconnected' || data.status === 'error') {
-          return
-        }
-
-        // 从后端获取会话配置并添加（仅对于 connecting/connected 状态）
-        const fetchId = Symbol(data.id)
-        pendingSessionFetches.current.set(data.id, fetchId)
-        window.electronAPI?.getSession(data.id).then(config => {
-          if (pendingSessionFetches.current.get(data.id) !== fetchId) return
-          pendingSessionFetches.current.delete(data.id)
-          if (config) {
-            const nowKnown = useSessionStore.getState().sessions.find(session => session.id === data.id)
-            if (nowKnown) {
-              // 项目入口已按原分屏落位；迟到的 fetch 只补 connected，不再移动页签。
-              if (nowKnown.status === 'connecting' && data.status === 'connected') store.updateSessionStatus(data.id, data.status, data.error)
-              return
-            }
-            store.addTemporarySession({
-              id: data.id,
-              config,
-              status: data.status,
-              skipAutoAddToPane: false
-            })
-
-            // 立即添加到当前分屏（即使是 connecting 状态）
-            const paneStore = usePaneStore.getState()
-            const activePaneId = paneStore.layout.activePaneId
-            if (activePaneId) {
-              paneStore.addSessionToPane(activePaneId, data.id)
-            }
-          }
-        })
-        return
-      }
-
-      // 更新状态
-      store.updateSessionStatus(data.id, data.status, data.error)
-
-      // 当会话连接成功时，检查是否需要自动添加到分屏
-      if (data.status === 'connected') {
-        // 检查是否跳过自动添加
-        if (existingSession.skipAutoAddToPane) {
-          store.clearSkipAutoAddToPane(data.id)
-          return  // 跳过自动添加，让克隆逻辑手动处理
-        }
-
-        // 检查会话是否已经在某个分屏中
-        const paneStore = usePaneStore.getState()
-        const allPanes = paneStore.getAllLeafPanes()
-        const isInPane = allPanes.some(p => p.sessions.includes(data.id))
-
-        if (!isInPane) {
-          const activePaneId = paneStore.layout.activePaneId
-          if (activePaneId) {
-            paneStore.addSessionToPane(activePaneId, data.id)
-          }
-        }
-      }
-    })
+    const cleanup = window.electronAPI.onConnectionStatus(createConnectionStatusHandler(
+      pendingSessionFetches.current,
+      id => window.electronAPI.getSession(id)
+    ))
 
     return cleanup
   }, [])

@@ -101,6 +101,33 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('ShelfTerminalHost', () => {
+  it('首次挂载且小窗矩形未就绪时，主区占位完全透明、裁空且 inert', () => {
+    h.surface.current = null
+    const { container, rerender } = render(<ShelfTerminalHost sessionId="s1" mainVisible={false} />)
+    const host = hostOf(container)
+    expect(host.style.visibility).toBe('hidden')
+    expect(host.style.opacity).toBe('0')
+    expect(host.style.clipPath).toBe('inset(100%)')
+    expect(host.hasAttribute('inert')).toBe(true)
+    h.surface.current = snapshot()
+    h.listeners.forEach(listener => listener())
+    rerender(<ShelfTerminalHost sessionId="s1" mainVisible={false} />)
+    expect(host.style.position).toBe('fixed')
+    expect(host.style.left).toBe('1200px')
+    expect(host.style.width).toBe('320px')
+    expect(host.style.opacity).toBe('1')
+    expect(h.mounts.current).toBe(1)
+  })
+  it('没有有效矩形的可见标记不能把终端露到默认坐标', () => {
+    h.surface.current = snapshot({ rect: null })
+    const { container } = render(<ShelfTerminalHost sessionId="s1" mainVisible={false} />)
+    const host = hostOf(container)
+    expect(host.style.opacity).toBe('0')
+    expect(host.style.visibility).toBe('hidden')
+    expect(host.style.clipPath).toBe('inset(100%)')
+    expect(host.hasAttribute('data-shelf-native')).toBe(false)
+    expect(host.hasAttribute('inert')).toBe(true)
+  })
   it('矩形订阅当帧追平位置，注销后保留最新尺寸', () => {
     h.surface.current = snapshot()
     const { container, rerender } = render(<ShelfTerminalHost sessionId="s1" mainVisible={false} />)

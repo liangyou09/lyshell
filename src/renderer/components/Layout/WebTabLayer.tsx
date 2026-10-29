@@ -15,6 +15,7 @@ import CommandScreen from '../CommandScreen/CommandScreen'
 import { isShelfWebPreviewing, shelfWebPreviewRevision, subscribeShelfWebPreviews } from './task-shelf-preview-sources'
 import { settleBrowserLoad } from '../../stores/browser-load-tracker'
 import type { ShelfBrowserResult } from '@shared/shelf-browser'
+import { releaseSleepingBrowserResident } from '../../stores/task-shelf'
 import { openShelfWebPreview, refreshShelfWebPreview } from './task-shelf-web-frame'
 
 import { useShelfSurfacePresence, getShelfSurface, subscribeShelfSurfaces, shelfSurfaceStyle, focusShelfSurface, leaveShelfSurface, SHELF_SURFACE_ENTER } from './task-shelf-surfaces'
@@ -89,12 +90,21 @@ function faviconUrlFromEvent(e: Event): string | undefined {
  * WebPanel 地址栏与导航按钮消费；元素登记进 web-tab-controls 注册表，
  * 面板按钮与宿主/主进程快捷键经它对本页签下指令。
  */
-type WebTabOverlayProps = { id: string; url: string; postToken?: string; shelfTaskId?: string; unmanaged?: boolean }
-const createRequests = new Map<string, Promise<string>>()
+type WebTabOverlayProps = { id: string; url: string; postToken?: string; shelfTaskId?: string; unmanaged?: boolean; readonlyMode?: boolean; reloadableMode?: boolean }
+type Grant = { permitId: string; partition?: string; url?: string }
+const createRequests = new Map<string, Promise<Grant>>()
+// 快速本地页可能在 React effect 安装前已发出 dom-ready；只补认已附着、
+// 不再加载的 HTTP 文档。about:blank/POST 引导页不能当作实际内容就绪。
+function hasLoadedWebDocument(page: WebviewTag): boolean {
+  try { return page.getWebContentsId() > 0 && /^https?:\/\//i.test(page.getURL()) && !page.isLoading() }
+  catch { return false }
+}
 /** 先取得 main 的一次性创建许可，再挂载 webview；StrictMode 复用同一在途许可。 */
 export const WebTabOverlay: React.FC<WebTabOverlayProps> = props => {
   const { t } = useTranslation()
-  const [permit, setPermit] = useState<string>()
+  const [permit, setPermit] = useState<Grant>()
+  const [sleeping, setSleeping] = useState(false)
+  const [keepaliveReason, setKeepaliveReason] = useState<string>()
   const [error, setError] = useState<string>()
   const [retry, setRetry] = useState(0)
   useEffect(() => {
@@ -103,25 +113,44 @@ export const WebTabOverlay: React.FC<WebTabOverlayProps> = props => {
     const resourceId = props.shelfTaskId ? `saved:${props.shelfTaskId}` : `tab:${props.id}`
     let request = createRequests.get(props.id)
     if (!request) {
-      const created: Promise<string> = window.electronAPI.shelfBrowserRequest({ kind: 'permit', resourceId, url: props.postToken ? 'about:blank' : props.url, taskId: props.shelfTaskId, source: props.shelfTaskId ? 'explicitShelf' : 'explicitMain' }).then((result: ShelfBrowserResult) => {
+      const created: Promise<Grant> = window.electronAPI.shelfBrowserRequest({ kind: 'permit', resourceId, url: props.postToken ? 'about:blank' : props.url, taskId: props.shelfTaskId, readonlyMode: props.readonlyMode, source: props.shelfTaskId ? 'explicitShelf' : 'explicitMain' }).then((result: ShelfBrowserResult) => {
         if (!result.success || !result.permitId) throw new Error(result.success ? '未取得网页创建许可' : result.error)
-        return result.permitId
+        return { permitId: result.permitId, partition: result.partition, url: result.url }
       })
       request = created
       createRequests.set(props.id, created)
     }
-    void request.then(id => { if (!disposed) setPermit(id) }, reason => {
+    void request.then(id => { if (!disposed) { setPermit(id); setSleeping(false); window.dispatchEvent(new CustomEvent('shelf-browser-instance-ready', { detail: props.id })) } }, reason => {
       if (!disposed) { const message = String(reason instanceof Error ? reason.message : reason); setError(message); settleBrowserLoad(props.id, message) }
     })
     return () => { disposed = true }
-  }, [props.id, props.url, props.postToken, props.shelfTaskId, props.unmanaged, retry])
+  }, [props.id, props.url, props.postToken, props.shelfTaskId, props.unmanaged, props.readonlyMode, retry])
+  useEffect(() => {
+    if (props.unmanaged || !(props.readonlyMode || props.reloadableMode) || !window.electronAPI?.shelfBrowserRequest) return
+    let disposed = false, busy = false
+    const timer = setInterval(() => {
+      if (busy) return
+      busy = true
+      void window.electronAPI.shelfBrowserRequest({ kind: 'inspect', resourceId: props.shelfTaskId ? `saved:${props.shelfTaskId}` : `tab:${props.id}` }).then(result => {
+        if (disposed || !result.success) return
+        if (props.reloadableMode) setKeepaliveReason(result.sleepReason && !['safe', 'unknown'].includes(result.sleepReason) ? result.sleepReason : undefined)
+        if (props.reloadableMode && result.reloadableMode === false) usePaneStore.getState().setWebTabReloadableMode(props.id, false)
+        if (result.state !== 'sleeping') return
+        // main 只在匹配 destroyed 后发布 sleeping，此时才卸载空 webview 元素。
+        setSleeping(true); setPermit(undefined); createRequests.delete(props.id); releaseSleepingBrowserResident(props.id)
+        if (result.canRestore) { setError(undefined); setRetry(value => value + 1) }
+      }).finally(() => { busy = false }).catch(() => undefined)
+    }, 1000)
+    return () => { disposed = true; clearInterval(timer) }
+  }, [props.id, props.shelfTaskId, props.unmanaged, props.readonlyMode, props.reloadableMode])
   useEffect(() => () => { createRequests.delete(props.id) }, [props.id])
   if (props.unmanaged || !window.electronAPI?.shelfBrowserRequest) return <LiveWebTabOverlay {...props} />
-  if (permit) return <LiveWebTabOverlay {...props} permit={permit} />
+  if (permit) return <LiveWebTabOverlay key={permit.permitId} {...props} url={permit.url ?? props.url} permit={permit.permitId} partition={permit.partition} keepaliveReason={keepaliveReason} />
+  if (sleeping) return <div className="flex h-full items-center justify-center p-4 text-sm" role="status">{t('webBar.sleeping')}</div>
   return <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-sm" role="status">{error || t('webBar.loading')}{error && <button onClick={() => { createRequests.delete(props.id); setError(undefined); setRetry(value => value + 1) }}>{t('taskShelf.retry')}</button>}</div>
 }
 
-const LiveWebTabOverlay: React.FC<WebTabOverlayProps & { permit?: string }> = ({ id, url, postToken, permit, shelfTaskId }) => {
+const LiveWebTabOverlay: React.FC<WebTabOverlayProps & { permit?: string; partition?: string; keepaliveReason?: string }> = ({ id, url, postToken, permit, shelfTaskId, partition, readonlyMode, reloadableMode, keepaliveReason }) => {
   const setWebTabTitle = usePaneStore(s => s.setWebTabTitle)
   const setWebTabFavicon = usePaneStore(s => s.setWebTabFavicon)
   const setWebTabNav = usePaneStore(s => s.setWebTabNav)
@@ -172,11 +201,14 @@ const LiveWebTabOverlay: React.FC<WebTabOverlayProps & { permit?: string }> = ({
         })().catch(() => { if (!disposed && generation === navigation) setPresentationFailed(true) }).finally(() => { clearTimeout(captureDeadline); handle.release() })
       }, 200)
     }
+    const captureLoaded = () => { if (hasLoadedWebDocument(page)) capture() }
     page.addEventListener('dom-ready', capture)
     page.addEventListener('did-start-navigation', navigate)
+    page.addEventListener('did-stop-loading', captureLoaded)
+    captureLoaded()
     const onVisibility = () => { if (loaded && !document.hidden) capture() }
     document.addEventListener('visibilitychange', onVisibility)
-    return () => { disposed = true; clearTimeout(timer); clearTimeout(deadline); release?.(); page.removeEventListener('dom-ready', capture); page.removeEventListener('did-start-navigation', navigate); document.removeEventListener('visibilitychange', onVisibility) }
+    return () => { disposed = true; clearTimeout(timer); clearTimeout(deadline); release?.(); page.removeEventListener('dom-ready', capture); page.removeEventListener('did-start-navigation', navigate); page.removeEventListener('did-stop-loading', captureLoaded); document.removeEventListener('visibilitychange', onVisibility) }
   }, [id, shelfTaskId, presentationReady])
   const inShelf = useShelfSurfacePresence('web', id)
   const fullZoom = useRef<number | null>(null)
@@ -323,6 +355,7 @@ const LiveWebTabOverlay: React.FC<WebTabOverlayProps & { permit?: string }> = ({
       const isMainFrame = evt.isMainFrame ?? evt.detail?.isMainFrame
       if (isMainFrame === false) return
       if (!url) return
+      if (reloadableMode && url === 'about:blank') return // 内部卸载事务不是可保存/展示的新地址。
       if (postToken && url === 'about:blank') return
       // POST 首航落点即页签新身份：摘令牌 + payload.url 改写为落点（settle 后再调
       // 是 no-op，无需实例侧一次性标记）—— 异常重挂按落点 GET 恢复；主进程令牌
@@ -381,6 +414,7 @@ const LiveWebTabOverlay: React.FC<WebTabOverlayProps & { permit?: string }> = ({
     }
     const onStopLoading = (): void => {
       // 停止网络加载不等于文档能显示；未就绪时保留稳定占位。
+      if (hasLoadedWebDocument(el)) onDomReady()
       setWebTabNav(id, { loading: false })
       settleBrowserLoad(id, navigationFailedRef.current ? '网页导航失败，请在主区打开查看详情。' : undefined)
     }
@@ -419,6 +453,7 @@ const LiveWebTabOverlay: React.FC<WebTabOverlayProps & { permit?: string }> = ({
     el.addEventListener('render-process-gone', onRenderGone)
     // about:blank 很快完成时，dom-ready 可能早于监听器；方法面已就绪则补认领。
     startPost()
+    if (!postToken && hasLoadedWebDocument(el)) onDomReady()
     return () => {
       settleBrowserLoad(id, '网页入口已关闭')
       el.removeEventListener('page-title-updated', onTitle)
@@ -433,17 +468,19 @@ const LiveWebTabOverlay: React.FC<WebTabOverlayProps & { permit?: string }> = ({
       el.removeEventListener('did-fail-load', onLoadFail)
       el.removeEventListener('render-process-gone', onRenderGone)
     }
-  }, [id, url, postToken, setWebTabTitle, setWebTabFavicon, setWebTabNav, recordWebTabVisit, settleWebTabPost])
+  }, [id, url, postToken, reloadableMode, setWebTabTitle, setWebTabFavicon, setWebTabNav, recordWebTabVisit, settleWebTabPost])
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-[var(--terminal-bg)]">
       <WebTerminalTools id={id} pageRef={ref} />
+      {readonlyMode && <div role="status" className="shrink-0 border-b border-[var(--rule)] bg-[var(--bg-rack)] px-3 py-1 text-xs text-[var(--text-rack)]">{t('webBar.readonlyStatus')}</div>}
+      {reloadableMode && !readonlyMode && <div role="status" className="shrink-0 border-b border-[var(--rule)] bg-[var(--bg-rack)] px-3 py-1 text-xs text-[var(--text-rack)]">{t('webBar.reloadableStatus')}{keepaliveReason && ' ' + t(keepaliveReason === 'no-user-activation' ? 'webBar.reloadNeedsInteraction' : keepaliveReason === 'unload-prevented' ? 'webBar.reloadUnloadRefused' : /input|editable|design-mode|non-get|download/.test(keepaliveReason) ? 'webBar.reloadEditing' : /media|audible|permission|websocket|devtools/.test(keepaliveReason) ? 'webBar.reloadActivity' : 'webBar.reloadUnverified')}</div>}
       <SearchableTab id={id} web className="relative min-h-0 w-full flex-1">
         {/* Electron webview 专属属性，React 的通用 DOM 规则不认识。 */}
         {/* eslint-disable react/no-unknown-property */}
         <webview
           ref={ref}
-          partition={WEBBAR_PARTITION}
+          partition={partition ?? WEBBAR_PARTITION}
           webpreferences={permit ? `lyshellCreatePermit=${permit}` : undefined}
           src={initialSrc}
           allowpopups=""
@@ -488,6 +525,8 @@ export interface WebTabLayerEntry {
   postToken?: string
   shelfTaskId?: string
   unmanaged?: boolean
+  readonlyMode?: boolean
+  reloadableMode?: boolean
 }
 
 /** 收集布局树里全部网页页签（树序）—— 常驻层渲染清单的纯函数。 */
@@ -510,6 +549,8 @@ export function collectWebTabEntries(
           paneId: node.id,
           active: ref.active,
           url: p.url,
+          ...(p.readonlyMode ? { readonlyMode: true } : {}),
+          ...(p.reloadableMode ? { reloadableMode: true } : {}),
           ...(p.postToken ? { postToken: p.postToken } : {}),
           ...(p.shelfTaskId ? { shelfTaskId: p.shelfTaskId } : {}), ...(p.ownerPluginId ? { unmanaged: true } : {})
         })
@@ -598,7 +639,7 @@ const WebTabLayer: React.FC = () => {
       const demand = `${main}:${!!surface?.visible}`
       if (!entry.unmanaged && entry.url !== BROWSER_NEW_TAB_URL && window.electronAPI?.shelfBrowserRequest && demands.current.get(entry.id) !== demand) {
         demands.current.set(entry.id, demand)
-        void window.electronAPI.shelfBrowserRequest({ kind: 'demand', resourceId: entry.shelfTaskId ? `saved:${entry.shelfTaskId}` : `tab:${entry.id}`, main, shelf: !!surface?.visible }).catch(() => { demands.current.delete(entry.id) })
+        void window.electronAPI.shelfBrowserRequest({ kind: 'demand', resourceId: entry.shelfTaskId ? `saved:${entry.shelfTaskId}` : `tab:${entry.id}`, main, shelf: !!surface?.visible }).then(result => { if (!result.success) demands.current.delete(entry.id) }).catch(() => { demands.current.delete(entry.id) })
       }
       if (main) miniRects.current.delete(entry.id)
       if (surface?.rect) miniRects.current.set(entry.id, surface)
@@ -633,6 +674,11 @@ const WebTabLayer: React.FC = () => {
   useLayoutEffect(() => { sync() }, [sync, layout, overlayPayloads, previewRevision, dragging])
   // 几何每帧直接同步到常驻宿主，不让整个网页 React 树随滚动重新渲染。
   useLayoutEffect(() => subscribeShelfSurfaces(sync), [sync])
+  useLayoutEffect(() => {
+    const created = (event: Event) => { demands.current.delete((event as CustomEvent<string>).detail); sync() }
+    window.addEventListener('shelf-browser-instance-ready', created)
+    return () => window.removeEventListener('shelf-browser-instance-ready', created)
+  }, [sync])
 
   useLayoutEffect(() => {
     sync()
@@ -665,7 +711,7 @@ const WebTabLayer: React.FC = () => {
         >
           {entry.url === BROWSER_NEW_TAB_URL
             ? <CommandScreen mode="embedded" paneActive={entry.active && layout.activePaneId === entry.paneId} covered={!entry.active} paneId={entry.paneId} webTabId={entry.id} />
-            : <WebTabOverlay id={entry.id} url={entry.url} postToken={entry.postToken} shelfTaskId={entry.shelfTaskId} unmanaged={entry.unmanaged} />}
+            : <WebTabOverlay id={entry.id} url={entry.url} postToken={entry.postToken} shelfTaskId={entry.shelfTaskId} unmanaged={entry.unmanaged} readonlyMode={entry.readonlyMode} reloadableMode={entry.reloadableMode} />}
         </div>
       ))}
     </div>

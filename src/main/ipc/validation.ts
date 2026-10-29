@@ -2,12 +2,15 @@ import log from 'electron-log'
 import type { ShelfBrowserRequest } from '@shared/shelf-browser'
 export function validateShelfBrowserRequest(raw: unknown): ShelfBrowserRequest {
   const value = assertObject(raw, 'shelfBrowserRequest')
-  const kind = assertEnum(value.kind, 'kind', ['permit', 'demand', 'inspect', 'presented'] as const)
-  const fields = kind === 'permit' ? ['kind', 'resourceId', 'url', 'taskId', 'source'] : kind === 'demand' ? ['kind', 'resourceId', 'main', 'shelf'] : kind === 'presented' ? ['kind', 'resourceId', 'token', 'geometryRevision', 'width', 'height', 'dpr'] : ['kind', 'resourceId']
-  if (Object.keys(value).some(key => !fields.includes(key))) throw new ValidationError('Invalid shelf browser request')
+  const kind = assertEnum(value.kind, 'kind', ['permit', 'demand', 'inspect', 'presented', 'wake', 'reloadPolicy'] as const)
+  const fields = kind === 'permit' ? ['kind', 'resourceId', 'url', 'taskId', 'source', 'readonlyMode'] : kind === 'demand' ? ['kind', 'resourceId', 'main', 'shelf'] : kind === 'wake' ? ['kind', 'resourceId', 'source'] : kind === 'presented' ? ['kind', 'resourceId', 'token', 'geometryRevision', 'width', 'height', 'dpr'] : ['kind', 'resourceId']
+  const allowedFields = kind === 'reloadPolicy' ? ['kind', 'resourceId', 'enabled', 'url'] : fields
+  if (Object.keys(value).some(key => !allowedFields.includes(key))) throw new ValidationError('Invalid shelf browser request')
   const resourceId = assertString(value.resourceId, 'resourceId', { maxLength: 256 })
   if (!/^(tab|saved):.+$/.test(resourceId) || [...resourceId].some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) throw new ValidationError('Invalid resourceId')
   if (kind === 'inspect') return { kind, resourceId }
+  if (kind === 'reloadPolicy') return { kind, resourceId, enabled: assertBoolean(value.enabled, 'enabled'), url: assertString(value.url, 'url', { maxLength: 4096 }) }
+  if (kind === 'wake') return { kind, resourceId, source: assertEnum(value.source, 'source', ['explicitMain', 'explicitShelf', 'bulkVisible'] as const) }
   if (kind === 'presented') {
     const token = assertObject(value.token, 'token')
     if (Object.keys(token).some(key => !['scopeId', 'resourceId', 'instanceGeneration', 'navigationGeneration', 'demandRevision'].includes(key))) throw new ValidationError('Invalid browser token')
@@ -21,9 +24,16 @@ export function validateShelfBrowserRequest(raw: unknown): ShelfBrowserRequest {
   if (!['http:', 'https:'].includes(parsed.protocol) && url !== 'about:blank') throw new ValidationError('Invalid browser URL')
   const taskId = value.taskId === undefined ? undefined : assertString(value.taskId, 'taskId', { maxLength: 128 })
   if (resourceId.startsWith('saved:') && resourceId !== `saved:${taskId}`) throw new ValidationError('Saved resource requires matching taskId')
-  return { kind, resourceId, url, ...(taskId ? { taskId } : {}), source: assertEnum(value.source, 'source', ['explicitMain', 'explicitShelf', 'bulkVisible'] as const) }
+  return { kind, resourceId, url, ...(taskId ? { taskId } : {}), ...(value.readonlyMode === undefined ? {} : { readonlyMode: assertBoolean(value.readonlyMode, 'readonlyMode') }), source: assertEnum(value.source, 'source', ['explicitMain', 'explicitShelf', 'bulkVisible'] as const) }
 }
 import type { WorkbenchActivityRequest } from '@shared/workbench-activity'
+import { readHarnessRecoveredEvent, type HarnessRecoveredEvent } from '@shared/harness-recovery'
+
+export function validateHarnessRecoveredEvent(raw: unknown): HarnessRecoveredEvent {
+  const value = readHarnessRecoveredEvent(raw)
+  if (!value) throw new ValidationError('Invalid Harness recovery event')
+  return value
+}
 import type { ActivityNavigationRequest } from '@shared/activity-navigation'
 
 export function validateActivityNavigationRequest(raw: unknown): ActivityNavigationRequest {

@@ -4,6 +4,7 @@ import type { TaskShelfRequest, TaskShelfResult } from '@shared/task-shelf'
 import type { ShelfBrowserRequest, ShelfBrowserResult } from '@shared/shelf-browser'
 import type { WorkbenchActivityRequest, WorkbenchActivitySnapshot } from '@shared/workbench-activity'
 import type { ActivityNavigationRequest, ActivityNavigationResult } from '@shared/activity-navigation'
+import { HARNESS_RECOVERED_CHANNEL, HARNESS_RECOVERY_GET_CHANNEL, readHarnessRecoveredEvent, type HarnessRecoveredEvent } from '@shared/harness-recovery'
 import type { IpcRendererEvent } from 'electron'
 import type { TerminalOutputControl, TerminalOutputReceipt } from '@shared/terminal-output'
 import type { WorktreeListResult } from '@shared/worktree'
@@ -457,6 +458,16 @@ const electronAPI = {
     ipcRenderer.on(IPC_CHANNELS.DSH_WEB_DETAIL_CHANGED, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.DSH_WEB_DETAIL_CHANGED, listener)
   },
+  getHarnessBackend: (): Promise<HarnessRecoveredEvent | null> =>
+    ipcRenderer.invoke(HARNESS_RECOVERY_GET_CHANNEL).then(readHarnessRecoveredEvent),
+  onHarnessBackendRecovered: (callback: (event: HarnessRecoveredEvent) => void) => {
+    const listener = (_event: IpcRendererEvent, raw: unknown) => {
+      const event = readHarnessRecoveredEvent(raw)
+      if (event) callback(event)
+    }
+    ipcRenderer.on(HARNESS_RECOVERED_CHANNEL, listener)
+    return () => ipcRenderer.removeListener(HARNESS_RECOVERED_CHANNEL, listener)
+  },
 
   // 网页访问栏 favicon 代取（主进程限制 http/https + 体积，返回 data URI；渲染层 CSP 不放行远程图）
   fetchFavicon: (url: string): Promise<{ success: true; dataUri: string } | { success: false; error: string }> =>
@@ -473,6 +484,8 @@ const electronAPI = {
   // 成功结果可带 startup（启动归档状态）与 activation（分类统计）；失败可带 code，
   // 例如 INITIALIZATION_BLOCKED / STALE_BOOT / CONFLICT。通道与载荷类型未变，仅新增可选字段。
   taskShelfRequest: (request: TaskShelfRequest): Promise<TaskShelfResult> => ipcRenderer.invoke('task-shelf:request', request),
+  // readonlyMode 只申请主进程强制的隔离只读副本，不赋予网页上报 safe 的权限。
+  // reloadPolicy 只在宿主 UI 发起；main 核对当前 URL，并在放行前要求本机用户明确选择。
   shelfBrowserRequest: (request: ShelfBrowserRequest): Promise<ShelfBrowserResult> => ipcRenderer.invoke('shelf-browser:request', request),
   onTaskShelfShortcut: (callback: (action: 'toggle' | 'collect') => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, action: unknown): void => { if (action === 'toggle' || action === 'collect') callback(action) }

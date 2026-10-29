@@ -144,11 +144,15 @@ export function createTaskShelfService(deps: TaskShelfDeps): TaskShelfService {
     if (resource.kind === 'web') {
       // POST 结果与不可保存的地址只保留在当前实例：连原 URL 都不写盘。
       const safe = resource.post === true ? undefined : shelfWebUrl(resource.url)
+      const previous = entryId ? deps.repository.get(entryId) : list().find(entry => entry.resourceKey === `web:${resource.id}`)
+      const readonlyMode = resource.readonlyMode === true
+      const reloadableMode = resource.reloadableMode === true && !readonlyMode
+      const sleep = (readonlyMode || reloadableMode) && previous?.recovery.kind === 'web' && previous.recovery.sleep?.url === safe && !!previous.recovery.readonlyMode === readonlyMode && !!previous.recovery.reloadableMode === reloadableMode ? previous.recovery.sleep : undefined
       return {
         entryId,
         resourceKey: `web:${resource.id}`,
         title: cleanTitle(resource.title, '网页'),
-        recovery: safe ? { kind: 'web', url: safe } : { kind: 'web' },
+        recovery: safe ? { kind: 'web', url: safe, ...(readonlyMode ? { readonlyMode: true as const } : {}), ...(reloadableMode ? { reloadableMode: true as const } : {}), ...(sleep ? { sleep } : {}) } : { kind: 'web' },
         capability: safe ? 'web' : 'live-only'
       }
     }

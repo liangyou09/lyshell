@@ -26,13 +26,13 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
-/** 展开保存区，分别从窄栏卡片和宽栏小窗标题打开菜单。 */
+/** 当前窄/宽布局都从任务方块打开菜单，不先恢复小窗。 */
 const setup = async (width: number) => {
   vi.stubGlobal('innerWidth', 1800)
   localStorage.setItem('lyshell.taskShelf.view.v1', JSON.stringify({ mode: 'hover', width }))
   const view = render(<TaskShelf />)
   fireEvent.click(view.getByRole('button', { name: /Toggle saved tasks/ }))
-  const openItem = view.getByRole('button', { name: width >= 360 ? /Saved reference/ : 'Task slot 1' })
+  const openItem = view.getByRole('button', { name: 'Task slot 1' })
   openItem.focus()
   fireEvent.contextMenu(openItem.closest('.task-shelf-item') ?? openItem, { clientX: 120, clientY: 80 })
   const menu = view.getByRole('menu', { name: 'Task actions' })
@@ -74,7 +74,7 @@ describe.each([240, 600])('任务保存区右键菜单（宽度 %s）', width =>
 
   it('右键已保存条目提供收起/归档/移除，并把焦点放到首个菜单项', async () => {
     const { menu } = await setup(width)
-    expect(within(menu).getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Put back in saved tasks', 'Archive and keep running', 'Stop saving'])
+    expect(within(menu).getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Put back in saved tasks', 'Task details', 'Archive and keep running', 'Stop saving'])
     expect(document.activeElement).toBe(within(menu).getByRole('menuitem', { name: 'Put back in saved tasks' }))
   })
 

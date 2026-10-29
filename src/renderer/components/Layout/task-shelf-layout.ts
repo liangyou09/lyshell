@@ -16,10 +16,12 @@ export function shelfDropEdge(x: number, y: number, rect: { left: number; top: n
 export const SHELF_PREVIEW_WIDTH = 360
 export const SHELF_INPUT_WIDTH = 520
 /** 横向任务栏：标题位于上方，网页工具栏计入统一的 16:9 窗口高度。 */
-export function shelfHorizontalLayout(width: number, height: number, count: number) {
+export function shelfHorizontalLayout(width: number, height: number, count: number, previewRequested = false) {
   const rows = Math.max(1, Math.floor((height - 24) / 136))
   const columns = Math.max(1, Math.ceil(count / rows))
-  const gridWidth = Math.min(width, columns * 136 + 12)
+  // 显式选择任务时让方块区横向滚动，为右侧小窗口保留至少 280px。
+  const gridMaximum = previewRequested && width >= 456 ? Math.min(Math.max(148, width * 0.4), width - 308) : width
+  const gridWidth = Math.min(width, columns * 136 + 12, gridMaximum)
   const previewWidth = Math.max(0, Math.min(width - gridWidth - 28, (height - 70) * 16 / 9))
   const previewCardWidth = previewWidth + 2
   return { rows, columns, gridWidth, previewWidth, previewCardWidth, showPreviews: previewWidth >= 280 }

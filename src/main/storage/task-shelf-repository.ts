@@ -5,6 +5,7 @@ import { shelfWebUrl, DEFAULT_TASK_SHELF_PREFERENCES, LEGACY_TASK_SHELF_TOGGLE_S
 import { ConnectionType } from '@shared/types/session'
 import { atomicWriteFileSync, getConfigDir } from './repository'
 import { captureSshContext, SSH_CONTEXT_LIMIT } from '../terminal/shelf-ssh-context'
+import type { ShelfWebSleep } from '@shared/task-shelf'
 
 /** 保存区上限：满了只拒绝新增，绝不悄悄驱逐用户已经保存的任务。 */
 export const TASK_SHELF_LIMIT = 100
@@ -82,7 +83,20 @@ function parseRecovery(raw: unknown): ShelfRecovery {
     // 落盘地址必须仍然过一遍共享脱敏判据：手工改回敏感地址不会复活。
     const url = shelfWebUrl(requiredText(value.url, MAX_RECOVERY_TEXT))
     if (!url) damaged()
-    return { kind: 'web', url }
+    const recovery: Extract<ShelfRecovery, { kind: 'web' }> = { kind: 'web', url }
+    if (value.readonlyMode === true) recovery.readonlyMode = true
+    if (value.reloadableMode === true) recovery.reloadableMode = true
+    if (recovery.readonlyMode && recovery.reloadableMode) damaged()
+    if (value.sleep !== undefined) {
+      const sleep = asRecord(value.sleep)
+      const validPartition = recovery.readonlyMode ? typeof sleep.partition === 'string' && /^shelf-readonly-v1:[a-f0-9-]{36}$/.test(sleep.partition) : recovery.reloadableMode && sleep.partition === 'persist:webbar'
+      if (!validPartition || typeof sleep.partition !== 'string' || sleep.formatVersion !== 1 || sleep.url !== url ||
+        !Number.isSafeInteger(sleep.recordedAt) || (sleep.recordedAt as number) < 1 ||
+        typeof sleep.zoom !== 'number' || !Number.isFinite(sleep.zoom) || sleep.zoom < 0.25 || sleep.zoom > 5 ||
+        typeof sleep.scrollY !== 'number' || !Number.isFinite(sleep.scrollY) || sleep.scrollY < 0 || sleep.scrollY > 10_000_000) damaged()
+      recovery.sleep = { formatVersion: 1, url, partition: sleep.partition, taskId: requiredText(sleep.taskId, MAX_ID), resourceId: requiredText(sleep.resourceId, 512), suspendOperationId: requiredText(sleep.suspendOperationId, MAX_ID), recordedAt: sleep.recordedAt as number, zoom: sleep.zoom, scrollY: sleep.scrollY }
+    }
+    return recovery
   }
   if (value.kind !== 'terminal') damaged()
   const type = value.type
@@ -172,6 +186,7 @@ function parseEntry(raw: unknown): TaskShelfEntry {
     recovery,
     capability: capability as TaskShelfEntry['capability']
   }
+  if (recovery.kind === 'web' && recovery.sleep && recovery.sleep.taskId !== entry.id) damaged()
   if (workspace) entry.workspace = workspace
   if (value.context !== undefined) {
     const context = asRecord(value.context)
@@ -202,7 +217,7 @@ function fingerprint(entry: TaskShelfEntry): string {
           recovery.cliSessionId ?? '', recovery.cliObservationLost ?? false, recovery.connectionKey ?? '', recovery.tmuxSession ?? '', recovery.localHostId ?? ''
         ]
       : recovery.kind === 'web'
-        ? ['web', recovery.url ?? '']
+        ? ['web', recovery.url ?? '', recovery.readonlyMode ?? false, recovery.reloadableMode ?? false, recovery.sleep ?? null]
         : ['harness', recovery.sessionId ?? '', recovery.taskId ?? '', recovery.identity?.instanceId ?? '', recovery.identity?.instanceEpoch ?? '', recovery.lastState ?? '']
   return JSON.stringify([entry.resourceKey, entry.title, entry.workspace ?? '', entry.capability, parts, entry.context?.text ?? ''])
 }
@@ -261,6 +276,26 @@ export class TaskShelfRepository {
 
   /** 归档文件的绝对路径：scopeId 由它派生，测试也用它检查落盘内容。 */
   get filePath(): string { return this.file }
+
+  /** 仅 main 的可丢弃契约接入层调用；与分类共用同步原子提交点。 */
+  saveWebSleep(id: string, expectedRevision: number, sleep: ShelfWebSleep): TaskShelfEntry {
+    const entry = this.get(id)
+    if (!entry || entry.revision !== expectedRevision || entry.recovery.kind !== 'web' || !(entry.recovery.readonlyMode || entry.recovery.reloadableMode) || entry.capability !== 'web' || sleep.taskId !== id) throw new Error('网页保存记录已变化')
+    const recovery = parseRecovery({ kind: 'web', url: sleep.url, ...(entry.recovery.readonlyMode ? { readonlyMode: true } : { reloadableMode: true }), sleep })
+    const next = { ...entry, recovery, revision: entry.revision + 1, updatedAt: Math.max(Date.now(), entry.updatedAt + 1) }
+    this.commit(this.entries.map(item => item.id === id ? next : item))
+    return clone(next)
+  }
+
+  /** 宿主显式同意仅对当前保存的 URL 生效；撤销时移除旧睡眠快照。 */
+  setWebReloadable(id: string, url: string, enabled: boolean): TaskShelfEntry {
+    const entry = this.get(id)
+    if (!entry || entry.capability !== 'web' || entry.recovery.kind !== 'web' || entry.recovery.readonlyMode || entry.recovery.url !== url || !shelfWebUrl(url)) throw new Error('网页保存记录已变化，请重新收纳当前页面')
+    const recovery = parseRecovery({ kind: 'web', url, ...(enabled ? { reloadableMode: true } : {}) })
+    const next = { ...entry, recovery, revision: entry.revision + 1, updatedAt: Math.max(Date.now(), entry.updatedAt + 1) }
+    this.commit(this.entries.map(item => item.id === id ? next : item))
+    return clone(next)
+  }
 
   /**
    * 当前文件内容摘要；启动重试据此识别「合法外部更新」，不覆盖别人的写入。

@@ -1,5 +1,5 @@
 import { BrowserWindow, dialog, ipcMain, session, webContents } from 'electron'
-import type { IpcMainEvent, IpcMainInvokeEvent, WebContents } from 'electron'
+import type { IpcMainEvent, IpcMainInvokeEvent, Session, WebContents } from 'electron'
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { atomicWriteFileSync, getConfigDir, preferencesRepository } from '../storage/repository'
@@ -11,6 +11,7 @@ import { confirmBrowserCertificate, getBrowserCertificate, invalidateBrowserCert
 import { initializeBrowserPrompts, requestBrowserPrompt } from './prompts'
 import { browserDownloadAction, getBrowserDownloads, initializeBrowserDownloads, openBrowserDownloadDirectory } from './downloads'
 import { browserSearchSuggestions, clearBrowserSearchSuggestions } from './search-suggestions'
+import { initializeReadonlySession, isReadonlyPartition } from './shelf-readonly-contract'
 
 const passwords = new BrowserPasswords()
 let settings: BrowserSettings | null = null
@@ -19,6 +20,10 @@ const grants = new Set<string>()
 const prompting = new Set<number>()
 const lastCapture = new Map<number, number>()
 const documentEpochs = new Map<number, number>()
+/** 请求中的权限弹窗与本页媒体授权均需保活，关闭设备后也不猜测授权已撤回。 */
+export function browserGuestRequiresKeepalive(guestId: number): boolean {
+  return prompting.has(guestId) || [...grants].some(key => key.startsWith(`${guestId}|`) && /\|(camera|microphone)$/.test(key))
+}
 const browserSession = () => session.fromPartition(WEBBAR_PARTITION)
 const settingsPath = () => join(getConfigDir(), 'browser-settings.json')
 const zh = () => String(preferencesRepository.get('locale')).startsWith('zh')
@@ -38,12 +43,19 @@ function guestOrigin(event: IpcMainEvent | IpcMainInvokeEvent): string | null {
   return browserOrigin(event.senderFrame.url)
 }
 
-async function applyProxy(value: BrowserSettings): Promise<void> {
-  const ses = browserSession()
+async function applyProxy(value: BrowserSettings, ses: Session = browserSession()): Promise<void> {
   await ses.setProxy(value.proxyMode === 'fixed'
     ? { mode: 'fixed_servers', proxyRules: value.proxyServer, proxyBypassRules: value.proxyBypass }
     : { mode: value.proxyMode })
   await ses.closeAllConnections()
+}
+
+/** 新建/恢复只读副本也遵守应用当前代理；配置完成前不向 renderer 发创建许可。 */
+export async function prepareReadonlyBrowserSession(partition: string): Promise<void> {
+  if (!isReadonlyPartition(partition) || !partition.includes(':')) throw new Error('Invalid readonly partition')
+  const ses = session.fromPartition(partition)
+  initializeReadonlySession(ses)
+  await applyProxy(getBrowserSettings(), ses)
 }
 
 export function setupBrowserGuest(guest: WebContents): void {

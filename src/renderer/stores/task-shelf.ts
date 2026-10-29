@@ -6,11 +6,14 @@ import { useWorkbenchActivity } from './workbench-activity'
 import { ConnectionStatus } from '@shared/types'
 import { createBrowserRestoreScheduler, type BrowserRestoreSource, type BrowserRestoreContext } from './browser-restore-scheduler'
 import { waitForBrowserLoad, settleBrowserLoad } from './browser-load-tracker'
+import { beginShelfTerminalRestore } from './shelf-terminal-placement'
 
 type Binding = { kind: ShelfResource['kind']; id: string }
 interface ShelfStore {
   entries: TaskShelfEntry[]
   bindings: Record<string, Binding>
+  previewEntries: Record<string, true>
+  setPreview: (id: string, visible: boolean) => void
   loaded: boolean
   busy: Record<string, boolean>
   restoringArchived: boolean
@@ -53,7 +56,20 @@ let timer: ReturnType<typeof setTimeout> | undefined
 async function restoreBrowser(context: BrowserRestoreContext): Promise<Binding> {
   const id = context.resourceId
   const current = useTaskShelf.getState().bindings[id]
-  if (current && usePaneStore.getState().overlayPayloads[current.id]) return current
+  if (current && usePaneStore.getState().overlayPayloads[current.id]) {
+    const state = await window.electronAPI?.shelfBrowserRequest?.({ kind: 'inspect', resourceId: `saved:${id}` })
+    if (state?.success && (state.state === 'sleeping' || state.state === 'suspending')) {
+      if (!context.isValid()) throw new Error('Restore demand withdrawn')
+      const loaded = waitForBrowserLoad(current.id)
+      void loaded.catch(() => undefined)
+      const wake = await window.electronAPI.shelfBrowserRequest({ kind: 'wake', resourceId: `saved:${id}`, source: context.source() })
+      if (!wake.success) { settleBrowserLoad(current.id, wake.error); throw new Error(wake.error) }
+      context.onCreated()
+      if (context.source() === 'explicitMain') await reveal(current)
+      await loaded
+    }
+    return current
+  }
   const result = await invoke({ kind: 'restore', id })
   if (!context.isValid()) throw new Error('Restore demand withdrawn')
   if (result.restored?.kind !== 'web') throw new Error('Only ordinary webpages can be restored automatically')
@@ -62,7 +78,7 @@ async function restoreBrowser(context: BrowserRestoreContext): Promise<Binding> 
   // 立即安装拒绝处理器，挂载前的同步错误也不会产生 unhandled rejection。
   void loaded.catch(() => undefined)
   const pane = usePaneStore.getState()
-  const mounted = pane.mountOverlay(undefined, { kind: 'web', url: result.restored.url, title: result.entry?.title || result.restored.url, shelfTaskId: id }, { id: overlayId, background: true })
+  const mounted = pane.mountOverlay(undefined, { kind: 'web', url: result.restored.url, title: result.entry?.title || result.restored.url, shelfTaskId: id, readonlyMode: result.entry?.recovery.kind === 'web' && result.entry.recovery.readonlyMode === true, reloadableMode: result.entry?.recovery.kind === 'web' && result.entry.recovery.reloadableMode === true }, { id: overlayId, background: true })
   if (!mounted) { settleBrowserLoad(overlayId, '无法创建网页入口'); throw new Error('无法创建网页入口') }
   context.onCreated()
   const binding: Binding = { kind: 'web', id: mounted }
@@ -88,8 +104,12 @@ export async function requestShelfBrowserRestore(id: string, source: BrowserRest
   return result.status === 'ready' ? result.value : null
 }
 export const shelfBrowserRestoreDiagnostics = () => browserRestores.diagnostics()
-export function withdrawShelfBrowserRestores(): void {
+export function releaseSleepingBrowserResident(overlayId: string): void {
+  for (const [id, binding] of Object.entries(useTaskShelf.getState().bindings)) if (binding.kind === 'web' && binding.id === overlayId) browserRestores.releaseResident(id)
+}
+export function withdrawShelfBrowserRestores(id?: string): void {
   for (const entry of useTaskShelf.getState().entries) {
+    if (id && entry.id !== id) continue
     browserRestores.withdraw(entry.id, 'explicitShelf')
     browserRestores.withdraw(entry.id, 'bulkVisible')
   }
@@ -208,6 +228,13 @@ function schedule(id: string): void {
 }
 
 export const useTaskShelf = create<ShelfStore>((set, get) => ({
+  previewEntries: {},
+  setPreview: (id, visible) => set(state => {
+    const previewEntries = { ...state.previewEntries }
+    if (visible) previewEntries[id] = true
+    else delete previewEntries[id]
+    return { previewEntries }
+  }),
   entries: [], bindings: {}, loaded: false, busy: {}, restoringArchived: false, restoreFailures: {}, reservedHeight: 0, reservedEdge: 'right', error: null, saveErrors: {}, reservedWidth: 0, panelVisible: false, viewRequest: null, startup: null, activation: null, activating: false, activationDemand: null, restoreErrors: {}, uiIntentRevision: 0, preferences: { ...DEFAULT_TASK_SHELF_PREFERENCES },
   invalidateIntent: () => { const next = get().uiIntentRevision + 1; set({ uiIntentRevision: next }); return next },
   showPanel: (entryId, notices = false) => set(state => ({ uiIntentRevision: state.uiIntentRevision + 1, viewRequest: { revision: (state.viewRequest?.revision ?? 0) + 1, open: true, entryId, notices } })),
@@ -232,6 +259,7 @@ export const useTaskShelf = create<ShelfStore>((set, get) => ({
       set({ activation })
       const successful = activation.items.filter(item => item.status === 'moved' || item.status === 'alreadyTasks').map(item => item.taskId)
       if (successful.length && get().uiIntentRevision === intent) {
+        for (const id of successful) get().hide(id)
         const target = selectionId && get().entries.some(e => e.id === selectionId && !e.archivedAt) ? selectionId : successful[0]
         set(state => ({ viewRequest: { revision: (state.viewRequest?.revision ?? 0) + 1, open: state.panelVisible, view: 'tasks', entryId: target } }))
         set(state => ({ activationDemand: { revision: (state.activationDemand?.revision ?? 0) + 1, intent, ids: successful, single: !!ids && ids.length === 1 } }))
@@ -255,32 +283,44 @@ export const useTaskShelf = create<ShelfStore>((set, get) => ({
       const id = shelfEntryFor(resource.kind, resource.id)
       const saved = await capture(resource, id)
       // 保存失败不隐藏，原现场保留。
-      if (saved && shelfResource(resource.kind, resource.id)) hideBinding(resource)
+      if (saved && shelfResource(resource.kind, resource.id)) {
+        const savedId = shelfEntryFor(resource.kind, resource.id)
+        if (savedId) get().setPreview(savedId, false)
+        hideBinding(resource)
+      }
       return saved
     })().finally(() => pending.delete(key))
     pending.set(key, job)
     return job
   },
-  hide: id => { const binding = get().bindings[id]; if (binding) { hideBinding(binding); schedule(id) } },
+  hide: id => {
+    get().setPreview(id, false)
+    withdrawShelfBrowserRestores(id)
+    const binding = get().bindings[id]
+    if (binding) { hideBinding(binding); schedule(id) }
+  },
   open: async (id, paneId, background = false) => {
     if (get().busy[id]) return false
+    let releasePlacement: (() => void) | undefined
+    const finishOpen = () => { if (!background) get().setPreview(id, false); return true }
     set(state => { const restoreFailures = { ...state.restoreFailures }; delete restoreFailures[id]; return { restoreFailures } })
     set(state => ({ busy: { ...state.busy, [id]: true }, error: null }))
     try {
       let binding = get().bindings[id]
       const stillLive = binding && (binding.kind !== 'terminal' || useSessionStore.getState().sessions.some(s => s.id === binding.id && ['connected', 'connecting'].includes(s.status)))
-      if (binding && stillLive && await reveal(binding, paneId, background)) { if (binding.kind === 'web') browserRestores.releaseResident(id); return true }
+      if (binding && stillLive && await reveal(binding, paneId, background)) { if (binding.kind === 'web') browserRestores.releaseResident(id); return finishOpen() }
       let entry = get().entries.find(item => item.id === id)
       if (!entry) { await get().load(); entry = get().entries.find(item => item.id === id) }
       if (!entry) throw new Error('保存记录不存在或尚未读取成功，请重新加载后再打开。')
       if (entry?.recovery.kind === 'web') {
-        const restored = await requestShelfBrowserRestore(id, 'explicitMain', () => get().entries.some(item => item.id === id))
+        const restored = await requestShelfBrowserRestore(id, background ? 'explicitShelf' : 'explicitMain', () => get().entries.some(item => item.id === id) && (!background || !!get().previewEntries[id]))
         if (!restored) return false
         if (!await reveal(restored, paneId, background)) throw new Error('网页已恢复，定位页签失败。')
         const resource = shelfResource('web', restored.id)
         if (resource) await capture(resource, id)
-        return true
+        return finishOpen()
       }
+      if (background && entry.recovery.kind === 'terminal') releasePlacement = beginShelfTerminalRestore()
       const result = await invoke({ kind: 'restore', id })
       const restored = result.restored
       if (!restored) throw new Error('当前任务需要在原界面手动恢复。')
@@ -314,9 +354,9 @@ export const useTaskShelf = create<ShelfStore>((set, get) => ({
       if (!await reveal(binding, paneId, background)) throw new Error('任务已恢复，定位页签失败，请重试定位。')
       const resource = shelfResource(binding.kind, binding.id)
       if (resource) await capture(resource, id)
-      return true
+      return finishOpen()
     } catch (error) { set(state => ({ error: (error as Error).message, restoreFailures: { ...state.restoreFailures, [id]: false } })); return false }
-    finally { set(state => { const busy = { ...state.busy }; delete busy[id]; return { busy } }) }
+    finally { releasePlacement?.(); set(state => { const busy = { ...state.busy }; delete busy[id]; return { busy } }) }
   },
   remove: async id => {
     if (get().busy[id]) return
@@ -339,7 +379,8 @@ export const useTaskShelf = create<ShelfStore>((set, get) => ({
         const saveErrors = { ...state.saveErrors }; delete saveErrors[id]
         const restoreFailures = { ...state.restoreFailures }; delete restoreFailures[id]
         const restoreErrors = { ...state.restoreErrors }; delete restoreErrors[id]
-        return { bindings, saveErrors, restoreFailures, restoreErrors, error: null }
+        const previewEntries = { ...state.previewEntries }; delete previewEntries[id]
+        return { bindings, previewEntries, saveErrors, restoreFailures, restoreErrors, error: null }
       })
     } catch (error) { set({ error: (error as Error).message }) }
   },
@@ -354,7 +395,7 @@ export const useTaskShelf = create<ShelfStore>((set, get) => ({
     if (failures.length) {
       const errors: string[] = []
       for (const [id, archived] of failures) {
-        if (!await (archived ? get().archive(id, false) : get().open(id))) errors.push(get().error || '恢复失败，请重试。')
+        if (!await (archived ? get().archive(id, false) : get().open(id, undefined, !!get().previewEntries[id]))) errors.push(get().error || '恢复失败，请重试。')
       }
       set({ error: errors.length ? [...new Set(errors)].join('\n') : null })
       return

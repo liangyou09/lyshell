@@ -190,6 +190,37 @@ afterEach(() => {
   unregisterWebview('web-1')
 })
 
+describe('普通页闲置重载契约入口', () => {
+  it('同意后才更新当前页策略，并可明确恢复保持运行', async () => {
+    setupBrowserMode()
+    const previous = window.electronAPI
+    const request = vi.fn().mockImplementation(async input => ({ success: true, reloadableMode: input.enabled, deepSleepSupported: input.enabled }))
+    window.electronAPI = { ...previous, shelfBrowserRequest: request }
+    try {
+      render(<WebPanel />)
+      fireEvent.click(screen.getByTitle('More actions'))
+      await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: 'Allow idle reload…' })) })
+      expect(request).toHaveBeenCalledWith({ kind: 'reloadPolicy', resourceId: 'tab:web-1', enabled: true, url: 'https://example.com/' })
+      expect(usePaneStore.getState().overlayPayloads['web-1']).toMatchObject({ reloadableMode: true })
+      fireEvent.click(screen.getByTitle('More actions'))
+      await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: 'Keep this page running' })) })
+      expect(request).toHaveBeenLastCalledWith({ kind: 'reloadPolicy', resourceId: 'tab:web-1', enabled: false, url: 'https://example.com/' })
+      expect(usePaneStore.getState().overlayPayloads['web-1']).toMatchObject({ reloadableMode: false })
+    } finally { window.electronAPI = previous }
+  })
+  it('本机确认被取消时不把网页标成已允许重载', async () => {
+    setupBrowserMode()
+    const previous = window.electronAPI
+    window.electronAPI = { ...previous, shelfBrowserRequest: vi.fn().mockResolvedValue({ success: false, error: 'cancelled' }) }
+    try {
+      render(<WebPanel />)
+      fireEvent.click(screen.getByTitle('More actions'))
+      await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: 'Allow idle reload…' })) })
+      expect(usePaneStore.getState().overlayPayloads['web-1']).not.toHaveProperty('reloadableMode', true)
+    } finally { window.electronAPI = previous }
+  })
+})
+
 describe('浏览器下载入口', () => {
   it('侧栏下载标签可用键盘进入，目录配置留在浏览器设置中', async () => {
     setupBrowserMode()
@@ -1028,7 +1059,7 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
     const clear = screen.getByRole('menuitem', { name: 'Clear' })
     expect(more.getAttribute('aria-expanded')).toBe('true')
     expect(screen.getByRole('menu').id).toBe(more.getAttribute('aria-controls'))
-    expect(document.activeElement).toBe(clear)
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Open read-only copy (can sleep)' }))
     fireEvent.keyDown(clear, { key: 'Escape' })
     expect(document.activeElement).toBe(more)
     expect(more.getAttribute('aria-expanded')).toBe('false')
@@ -1094,15 +1125,17 @@ describe('写轮眼小窗（栏底迷你浏览器）', () => {
       expect(screen.queryByTitle('Reload (F5)')).toBeNull()
       expect(screen.getByTitle('Back (Alt+←)')).toBeTruthy()
       expect(screen.getByTitle('Forward (Alt+→)')).toBeTruthy()
-      // 无分组操作；单个清空项也支持循环键盘导航和焦点归还。
+      // 无分组操作；只读副本和清空项支持循环键盘导航和焦点归还。
       act(() => { usePaneStore.setState({ webTabHistory: ['https://a.example.com/one'] }) })
       fireEvent.click(screen.getByTitle('More actions'))
       expect(screen.queryByRole('menuitem', { name: /Collapse|Expand/ })).toBeNull()
       const clearAction = screen.getByRole('menuitem', { name: 'Clear' })
-      expect(document.activeElement).toBe(clearAction)
-      for (const key of ['ArrowDown', 'ArrowUp', 'Home', 'End']) {
-        fireEvent.keyDown(clearAction, { key })
-        expect(document.activeElement).toBe(clearAction)
+      const readonlyAction = screen.getByRole('menuitem', { name: 'Open read-only copy (can sleep)' })
+      expect(document.activeElement).toBe(readonlyAction)
+      const reloadAction = screen.getByRole('menuitem', { name: 'Allow idle reload…' })
+      for (const [key, expected] of [['ArrowDown', reloadAction], ['ArrowDown', clearAction], ['ArrowUp', reloadAction], ['ArrowUp', readonlyAction], ['End', clearAction], ['Home', readonlyAction]] as const) {
+        fireEvent.keyDown(document.activeElement!, { key })
+        expect(document.activeElement).toBe(expected)
       }
       fireEvent.keyDown(clearAction, { key: 'Tab' })
       expect(screen.queryByRole('menu')).toBeNull()

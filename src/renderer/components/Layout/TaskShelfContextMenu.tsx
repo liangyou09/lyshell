@@ -16,7 +16,7 @@ export function showShelfEntryContextMenu(event: ContextEvent, entryId: string):
   event.preventDefault(); event.stopPropagation()
   window.dispatchEvent(new CustomEvent<ContextTarget>(CONTEXT_EVENT, { detail: { entryId, x: event.clientX, y: event.clientY } }))
 }
-export function TaskShelfContextMenu(): ReactPortal | null {
+export function TaskShelfContextMenu({ onDetails }: { onDetails?: (id: string) => void } = {}): ReactPortal | null {
   const { t } = useTranslation()
   const [target, setTarget] = useState<ContextTarget | null>(null)
   const [position, setPosition] = useState({ left: 0, top: 0 })
@@ -59,6 +59,7 @@ export function TaskShelfContextMenu(): ReactPortal | null {
     }}>
     {resource && <button role="menuitem" onClick={() => run(() => useTaskShelf.getState().collect(resource))}>{t(entry ? 'taskShelf.hide' : 'taskShelf.collect')}</button>}
     {entry && <>
+      {onDetails && <button role="menuitem" onClick={() => run(() => onDetails(entry.id))}>{t('taskShelf.details')}</button>}
       <button role="menuitem" onClick={() => run(() => useTaskShelf.getState().archive(entry.id, !entry.archivedAt))}>{t(entry.archivedAt ? 'taskShelf.unarchive' : 'taskShelf.archiveRunning')}</button>
       <button role="menuitem" onClick={() => run(() => useTaskShelf.getState().remove(entry.id))}>{t('taskShelf.remove')}</button>
     </>}

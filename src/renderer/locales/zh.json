@@ -1,7 +1,7 @@
 {
   "taskShelf": {
     "movePanel": "调整任务栏位置", "movePanelHint": "拖到上、下、左、右边缘调整位置；也可聚焦后按方向键。", "edge": { "left": "左侧", "right": "右侧", "top": "顶部", "bottom": "底部" },
-    "recallAll": "全部收回", "recallAllHint": "将主窗口中已收纳的全部任务一键收回任务区，保留原实例继续运行。",
+    "recallAll": "全部收回", "recallAllHint": "将小窗口或主窗口中的任务收回为方块，保留原实例继续运行。",
     "presentationUnconfirmed": "网页已加载，画面暂未确认。", "showCurrentPage": "显示当前页面",
     "activateAll": "全部激活", "activating": "正在激活…", "realtimeLabel": "实时显示", "realtimeTasks": "仅任务区", "realtimeNone": "静态卡片", "retryActivation": "重试失败项", "activationResult": "已激活 {{moved}} · 已在任务区 {{alreadyTasks}} · 已变更 {{conflict}} · 已删除 {{missing}} · 失败 {{failed}}",
     "mainWindow": "主窗口", "focusedTask": "当前任务内容", "previewMode": "内容查看方式", "readable": "清晰", "overview": "全貌", "typeHere": "输入",
@@ -19,7 +19,7 @@
     "terminateLocal": "终止本地进程", "terminateLocalHint": "结束原本地终端及其中程序，保留保存记录。",
     "title": "任务保存区", "shortTitle": "任务", "subtitle": "收起现场，继续运行", "toggleHint": "展开任务保存区 · {{shortcut}}", "otherTasks": "其他任务",
     "taskActions": "任务操作", "archiveRunning": "归档并继续运行", "unarchive": "移回任务区", "activeTasks": "任务", "archivedTasks": "归档", "taskViews": "任务列表", "emptyArchive": "暂无归档任务", "archiveHint": "归档保留恢复记录，正在运行的任务继续执行。点击条目可移回任务区并继续。",
-    "attention": "{{count}} 个任务需要处理", "resize": "调整任务区尺寸", "collapse": "收起任务区", "displayMode": "任务区显示方式",
+    "attention": "{{count}} 个任务需要处理", "resize": "调整任务区尺寸", "collapse": "收起任务区", "displayMode": "任务区显示方式", "viewOptions": "显示设置", "openInShelf": "在小窗口中打开", "expandTask": "放大到主工作区", "recallTask": "收回为方块，保留运行", "details": "任务详情",
     "mode": { "auto": "自动", "hover": "悬停", "fixed": "常驻" },
     "retry": "重试", "drop": "拖到这里，保存并收起", "emptyTitle": "留住手头的任务", "loading": "正在读取任务…", "sshToggle": "可续接终端（需要远端 tmux）", "sshHint": "新终端在远端 tmux 中运行。收纳后断线可接回原会话；普通已运行程序不会自动迁移。", "disconnect": "断开连接", "disconnectHint": "断开此终端连接，保留保存记录和本机历史；远端程序是否继续运行取决于服务器。",
     "emptyHint": "把终端、AI 或网页页签拖到这里。后台继续运行，点一下接着用。", "opening": "正在打开…",
@@ -436,6 +436,21 @@
     "unavailable": "页面已变化，请关闭提示卡后重新尝试。"
   },
   "webBar": {
+    "readonlyStatus": "只读副本：页面脚本、编辑、提交和媒体已停用。",
+    "openReadonly": "打开只读副本（可休眠）",
+    "allowIdleReload": "允许闲置后重载…",
+    "keepRunning": "保持此页运行",
+    "reloadableDetail": "允许此网址收纳闲置后重新加载；脚本运行现场和页面内任务不会恢复，启用前需要确认。",
+    "reloadableStatus": "已允许此网址闲置重载；编辑、媒体及其他受保护活动仍会保活。",
+    "reloadableFailed": "未能更改闲置重载策略，请等页面完成加载后重试。",
+    "reloadNeedsInteraction": "继续保活：此文档尚未获得浏览器用户手势。",
+    "reloadUnloadRefused": "继续保活：页面已拒绝卸载。",
+    "reloadEditing": "继续保活：检测到编辑、表单或文件操作。",
+    "reloadActivity": "继续保活：媒体、权限、实时连接或开发工具需要保持运行。",
+    "reloadUnverified": "继续保活：当前文档暂不能核实为可安全重载。",
+    "readonlyDetail": "独立打开无脚本、表单、媒体和登录能力的只读页面。收纳后闲置五分钟可释放；再次打开会重新访问网址。原页面继续保留。",
+    "sleeping": "页面已休眠；选择卡片或在主区打开以恢复。",
+
     "title": "浏览器",
     "placeholder": "输入 URL 回车打开",
     "go": "前往网址或搜索",

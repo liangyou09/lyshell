@@ -25,6 +25,8 @@ import http from 'node:http'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { openWorkJournal } from './work-journal.mjs'
+import { newNativeState, saveNativeState, loadNativeStates } from './work-state.mjs'
 
 // Diagnostics contain only fixed codes and phases, never provider text, stacks, headers or bodies.
 export function workDiagnostic(error) {
@@ -54,7 +56,7 @@ const HARNESS_PROTOCOL_VERSION = 2
 const HANDSHAKE_PATH = '/__lyshell/harness/handshake'
 const KEY_HEADER = 'x-lyshell-harness-key'
 const KEY_ENV = 'LYSHELL_HARNESS_BRIDGE_KEY'
-const BRIDGE_VERSION = '0.3.0'
+const BRIDGE_VERSION = '0.4.0'
 
 /** 等待 Pet 回答一次原生审批的上限（毫秒）。超时按 cancelled 处理（fail closed，不自动 allow）。 */
 const APPROVAL_WAIT_MS = 15 * 60 * 1000
@@ -193,6 +195,8 @@ export function apply(ctx) {
   // 那就等于把「只有宿主知道」的凭据发给了我们不控制的环境。抹掉后凭据只存在于本闭包中。
   const key = process.env[KEY_ENV]
   delete process.env[KEY_ENV]
+  const journalDirectory = process.env.LYSHELL_HARNESS_WORK_JOURNAL
+  delete process.env.LYSHELL_HARNESS_WORK_JOURNAL
   if (typeof key !== 'string' || key.length === 0) {
     // 无凭据 ⇒ 不注册任何路由（fail closed）。只输出一行固定提示，不含任何凭据。
     process.stdout.write('lyshell-harness-bridge: host-only key missing; handshake route not registered\n')
@@ -228,7 +232,8 @@ export function apply(ctx) {
   const pendingApprovals = new Map()
   const taskWaiters = new Set()
   // 原生外部工作通道独立持有会话、任务与审批，不占用 Pet 的 heldEpoch。
-  const nativeWork = createNativeWorkController(ctx, () => ({ instanceId, instanceEpoch }))
+  const nativeWork = createNativeWorkController(ctx, () => ({ instanceId, instanceEpoch }),
+    { journal: journalDirectory ? openWorkJournal(journalDirectory) : null })
   // 只观察未由 native/Pet 控制的官方回合，绝不取得会话控制权。
   const webActivity = createWebActivityObserver(ctx, () => ({ instanceId, instanceEpoch }), sessionId =>
     nativeWork.isActive(sessionId) || activeTask?.sessionId === sessionId && !['completed', 'failed', 'cancelled'].includes(activeTask.state))
@@ -485,7 +490,9 @@ export function apply(ctx) {
       }
       const abort = () => finish('cancelled')
       const timer = setTimeout(abort, APPROVAL_WAIT_MS)
-      pendingApprovals.set(approvalId, { view, finish })
+      pendingApprovals.set(approvalId, { view, finish, handoff: () => {
+        try { finish(next()) } catch { finish('cancelled') }
+      } })
       request.signal?.addEventListener('abort', abort, { once: true })
       if (request.signal?.aborted) abort()
     })
@@ -535,20 +542,14 @@ export function apply(ctx) {
       }
       heldEpoch = payload.epoch
       heldBinding = payload.bindingId
+      if (activeTask && !terminal(activeTask)) activeTask = { ...activeTask, epoch: heldEpoch }
       return snapshot()
     }
     requireEpoch(payload)
     if (payload.cmd === 'release') {
-      if (activeTask && !terminal(activeTask)) {
-        // A queued prompt must start (or settle) before cancellation, so no inbox work survives release.
-        await waitTask(activeTask.taskId, task => task.state !== 'accepted')
-        cancelApprovals()
-        if (!terminal(activeTask)) {
-          controller().cancel({ sessionId: activeTask.sessionId })
-          await waitTask(activeTask.taskId, terminal)
-        }
-      }
-      cancelApprovals()
+      // 连接解绑不隐式停止任务；停止仅由独立 cancel 处理。
+      // 已发出的 Pet 审批交回官方 waterfall，仍需原有权限，不自动允许。
+      for (const entry of [...pendingApprovals.values()]) entry.handoff()
       // 交回控制：未落地的导航请求随之作废（不 fake 落地，也不留一个会拽用户的悬空请求）
       if (viewer.request) {
         viewer.lastAck = { requestId: viewer.request.requestId, revision: viewer.request.revision,
@@ -624,8 +625,9 @@ export function apply(ctx) {
       expireNativeViewerRequest()
       if (viewer.request) throw new BridgeError('viewer/stale', 'another navigation is pending')
       const revision = viewerBump()
-      viewer.request = { requestId: payload.requestId, sessionId: payload.sessionId, revision, epoch: heldEpoch, requestedAt: Date.now(), source: 'native' }
-      return snapshot()
+      const navigationSessionId = nativeWork.executionSessionId(payload.sessionId) ?? payload.sessionId
+      viewer.request = { requestId: payload.requestId, sessionId: navigationSessionId, revision, epoch: heldEpoch, requestedAt: Date.now(), source: 'native' }
+      return { ...snapshot(), navigationSessionId }
     }
     if (payload.cmd === 'snapshot' || payload.cmd === 'poll') return { ...snapshot(), webBusy: anyRunning() }
     if (payload.cmd === 'approve') {
@@ -939,35 +941,46 @@ export function createWebActivityObserver(ctx, identity, excluded = () => false)
 }
 
 /** 原生工作通道：仅接受宿主转发，绝不接管现有 Web/Pet 会话。 */
-export function createNativeWorkController(ctx, identity) {
-  const owners = new Map()
-  const ownedSessions = new Set()
+export function createNativeWorkController(ctx, identity, { journal = null } = {}) {
+  const restored = loadNativeStates(journal)
+  const owners = restored.states
+  const ownedSessions = restored.sessions
   const activeTasks = new Map()
   const service = name => typeof ctx.get === 'function' ? ctx.get(name) : ctx[name]
   const controller = () => service('sessionController')
   const terminal = record => record && ['completed', 'failed', 'cancelled'].includes(record.task.state)
   const fail = (code = 'bad-request') => { throw new BridgeError(code, 'native work request refused') }
+  let persistenceFailed = false
+  const persist = state => {
+    if (persistenceFailed) fail('journal/unavailable')
+    try { saveNativeState(journal, state) }
+    catch { persistenceFailed = true; fail('journal/unavailable') }
+  }
   const stateOf = owner => {
     if (typeof owner !== 'string' || !/^[a-f0-9]{64}$/.test(owner)) fail()
     let state = owners.get(owner)
     if (!state) {
       if (owners.size >= 64) fail('task/busy')
-      state = { sessionId: null, lastTask: null, sessions: new Map(), tasks: new Map(), requests: new Map(),
-        submissions: new Map(), approvals: new Map(), output: [], pending: 0, disconnecting: false, viewRevision: 0, tail: Promise.resolve() }
+      state = newNativeState(owner)
       owners.set(owner, state)
     }
     return state
   }
   const view = (sessionId, row, record) => ({
     sessionId, workspace: row?.workspace ?? null,
+    executionSessionId: record?.task.executionSessionId ?? row?.executionSessionId ?? sessionId,
     status: record?.approvals.size ? 'approval' : record?.task.state === 'unconfirmed' ? 'error' : record && !terminal(record) ? 'running' : 'idle',
-    taskId: record?.task.taskId ?? null, taskState: record?.task.state ?? null, task: record ? { ...record.task } : null,
+    recoveryRequired: record?.task.recoveryRequired === true,
+    taskId: record?.task.taskId ?? null, taskState: record?.task.state ?? null,
+    task: record ? { ...record.task, officialTurn: record.turn, eventSeq: record.eventSeq } : null,
     approvals: record ? [...record.approvals.values()].map(entry => ({ ...entry.view, options: [...entry.view.options] })) : [],
     transcript: record ? record.transcript.map(entry => ({ ...entry })) : [],
     transcriptTruncated: record ? record.truncated || record.seq > record.transcript.length : false
   })
   const snapshot = (state, row = state.sessions.get(state.sessionId), record = row?.current ?? (state.sessionId === null ? state.lastTask : null)) => ({
     ok: true, identity: identity(), revision: ++state.viewRevision, selectedSessionId: state.sessionId,
+    durability: persistenceFailed ? 'unavailable' : journal ? 'durable' : 'volatile',
+    resumeMode: typeof controller()?.fork === 'function' ? 'cold-fork' : 'unsupported',
     ...view(row?.sessionId ?? null, row, record),
     // 每行都是该会话最新任务的视图；输出/审批总预算按 owner 限制，避免 64 倍放大。
     sessions: [...state.sessions.values()].map(row => view(row.sessionId, row, row.current)),
@@ -983,6 +996,30 @@ export function createNativeWorkController(ctx, identity) {
   }
   const clearApprovals = record => { for (const entry of [...record.approvals.values()]) entry.finish('cancelled') }
   const active = sessionId => activeTasks.get(sessionId)
+  const reconcile = async record => {
+    if (!record?.task.recoveryRequired || terminal(record) || !Number.isSafeInteger(record.turn)) return
+    // 官方冷读不启动 Agent；只认已持久化且精确匹配原回合的 turn/end。
+    const query = service('sessionQuery')
+    if (typeof query?.observeSession !== 'function') return
+    let observed
+    try {
+      const execution = record.task.executionSessionId ?? record.task.sessionId
+      observed = await query.observeSession(execution)
+      const row = record.owner.sessions.get(record.task.sessionId)
+      if (!observed || observed.header?.id !== execution ||
+        resolve(observed.header?.cwd ?? '') !== resolve(row.workspace)) return
+      const end = observed.events?.find(event => event.type === 'turn/end' && event.data?.turn === record.turn &&
+        Number.isSafeInteger(event.seq) && event.seq >= record.floor)
+      if (!end) return
+      const reason = end.data.reason?.kind
+      if (!['completed', 'aborted', 'interrupted', 'forked', 'error', 'blocked'].includes(reason)) return
+      record.task.state = reason === 'completed' ? 'completed' : ['aborted', 'interrupted', 'forked'].includes(reason) ? 'cancelled' : 'failed'
+      record.task.endReason = reason; record.task.endedAt = end.time ?? Date.now()
+      record.task.recoveryRequired = ['interrupted', 'forked'].includes(reason); record.task.recoveredFromHistory = true
+      record.eventSeq = end.seq
+      persist(record.owner)
+    } finally { observed?.[Symbol.dispose]?.() }
+  }
   const push = (record, kind, text, extra = {}) => {
     if (typeof text !== 'string') return
     const bounded = text.slice(-128 * 1024)
@@ -1014,16 +1051,21 @@ export function createNativeWorkController(ctx, identity) {
       record.task.state = reason === 'completed' ? 'completed' : ['aborted', 'interrupted', 'forked'].includes(reason) ? 'cancelled' : 'failed'
       record.task.endedAt = Date.now()
       record.task.endReason = reason || 'unknown'
-      activeTasks.delete(record.task.sessionId)
+      activeTasks.delete(record.task.executionSessionId ?? record.task.sessionId)
       clearApprovals(record)
     } else if (event.type === 'user/message') push(record, 'user', textOf(event.data))
     else if (event.type === 'assistant/message') push(record, 'assistant', textOf(event.data.message))
     else if (event.type === 'tool/call') push(record, 'tool-call', event.data.arguments, { toolName: event.data.name, callId: event.data.callId })
     else if (event.type === 'tool/result') push(record, 'tool-result', textOf(event.data.message), { callId: event.data.message.toolCallId, failed: event.data.message.isError === true })
+    // 官方终态先持久化再可见；磁盘故障不能继续接收新任务。
+    try { persist(record.owner) } catch { record.task.durability = 'unavailable' }
   }), 'lyshell native work: turn evidence')
   ctx.effect(() => ctx.on('agent/error', ({ agent, error }) => {
     const record = active(agent?.id)
-    if (record) record.task.diagnostic = workDiagnostic(error)
+    if (record) {
+      record.task.diagnostic = workDiagnostic(error)
+      try { persist(record.owner) } catch { record.task.durability = 'unavailable' }
+    }
   }), 'lyshell native work: error evidence')
   ctx.effect(() => ctx.on('approval/request', (request, next) => {
     const record = active(request.agent?.session?.id)
@@ -1053,8 +1095,19 @@ export function createNativeWorkController(ctx, identity) {
   }, { prepend: true }), 'lyshell native work: isolated approvals')
   ctx.effect(() => () => { for (const state of owners.values()) for (const entry of [...state.approvals.values()]) entry.finish('cancelled') }, 'lyshell native work: cleanup')
 
-  async function submit(state, row, request, digest) {
-    const result = await controller().resolveAgent(row.sessionId)
+  async function submit(state, row, request, digest, previous = null) {
+    let executionSessionId = row.executionSessionId ?? row.sessionId
+    if (previous) {
+      // resolveAgent(旧会话) 可能恢复未结束 Agent，先冷 fork 精确历史边界，
+      // 用官方 fork closers 封闭旧回合，再仅提交用户核对后的剩余工作。
+      if (typeof controller().fork !== 'function') fail('task/resume-unsupported')
+      const forked = await controller().fork({ sessionId: previous.task.executionSessionId ?? row.sessionId,
+        atSeq: Math.max(previous.eventSeq, previous.floor), allowMigration: false })
+      if (!isBoundedId(forked?.sessionId) || ownedSessions.has(forked.sessionId)) fail('bridge/unavailable')
+      executionSessionId = forked.sessionId
+      ownedSessions.add(executionSessionId)
+    }
+    const result = await controller().resolveAgent(executionSessionId)
     const agent = result?.agent
     if (!agent || result.error || !Number.isSafeInteger(agent.session.seq)) fail('task/not-found')
     if (agent.status === 'running') fail('task/busy')
@@ -1062,33 +1115,50 @@ export function createNativeWorkController(ctx, identity) {
     if (state.requests.size >= 256) {
       const victim = [...state.requests].find(([, record]) => terminal(record))
       if (!victim) fail('task/busy')
+      if (journal) {
+        if (state.retired.size >= 10000) fail('journal/capacity')
+        const old = victim[1]
+        state.retired.set(victim[0], { digest: old.digest, task: { taskId: old.task.taskId, sessionId: old.task.sessionId,
+          requestId: old.task.requestId, state: old.task.state, attemptId: old.task.attemptId, executionSessionId: old.task.executionSessionId,
+          resumed: old.task.resumed === true, acceptedAt: old.task.acceptedAt, endedAt: old.task.endedAt } })
+      }
       state.requests.delete(victim[0])
-      if (state.sessions.get(victim[1].task.sessionId)?.current !== victim[1]) state.tasks.delete(victim[1].task.taskId)
+      if (state.sessions.get(victim[1].task.sessionId)?.current !== victim[1] &&
+        state.tasks.get(victim[1].task.taskId) === victim[1]) state.tasks.delete(victim[1].task.taskId)
     }
-    const taskId = randomUUID()
-    const record = { owner: state, task: { taskId, sessionId: row.sessionId, state: 'accepted', acceptedAt: Date.now(), requestId: request.requestId },
+    const taskId = previous?.task.taskId ?? randomUUID()
+    const attemptId = randomUUID()
+    const record = { owner: state, task: { taskId, sessionId: row.sessionId, state: 'accepted', acceptedAt: Date.now(), requestId: request.requestId,
+      attemptId, attempt: (previous?.task.attempt ?? 0) + 1, executionIdentity: identity(), executionSessionId,
+      ...(previous ? { previousAttemptId: previous.task.attemptId, resumed: true } : {}) },
       digest, accepted: false, floor: agent.session.seq, eventSeq: agent.session.seq - 1, turn: null,
       transcript: [], seq: 0, truncated: false, approvals: new Map() }
     if (row.current && state.requests.get(row.current.task.requestId) !== row.current) state.tasks.delete(row.current.task.taskId)
     row.current = record
+    row.executionSessionId = executionSessionId
     state.lastTask = record
     state.requests.set(request.requestId, record)
     state.tasks.set(taskId, record)
-    activeTasks.set(row.sessionId, record)
+    activeTasks.set(executionSessionId, record)
+    // 不保存待重放 prompt。先落盘请求指纹和执行身份；任何写盘失败都不能 dispatch。
+    try { persist(state) } catch { activeTasks.delete(executionSessionId); record.task.state = 'unconfirmed'; throw new BridgeError('journal/unavailable', 'task was not dispatched') }
     try {
-      await controller().prompt({ sessionId: row.sessionId, requestId: taskId, mode: 'queue',
+      await controller().prompt({ sessionId: executionSessionId, requestId: attemptId, mode: 'queue',
         content: [{ type: 'text', text: request.text }] }, new AbortController().signal)
       record.accepted = true
     } catch {
       if (record.task.state === 'accepted') record.task.state = 'unconfirmed'
+      persist(state)
       fail('bridge/unavailable')
     }
+    persist(state)
     return { ...snapshot(state, row, record), accepted: true, acceptedTaskId: taskId }
   }
   async function control(state, request) {
     if (request.kind === 'disconnect') {
       if (state.pending > 1 || [...state.tasks.values()].some(record => !terminal(record))) fail('task/busy')
       state.sessionId = null
+      persist(state)
       return snapshot(state)
     }
     if (request.kind === 'new') {
@@ -1104,11 +1174,19 @@ export function createNativeWorkController(ctx, identity) {
       if (!state.sessions.has(request.sessionId)) fail('task/not-found')
       state.sessionId = request.sessionId
     } else fail()
+    persist(state)
     return snapshot(state)
   }
   return {
     owns: sessionId => ownedSessions.has(sessionId),
     isActive: sessionId => !!active(sessionId),
+    executionSessionId: sessionId => {
+      for (const state of owners.values()) {
+        const row = state.sessions.get(sessionId)
+        if (row) return row.executionSessionId ?? row.sessionId
+      }
+      return null
+    },
     async request(owner, request) {
       const state = stateOf(owner)
       if (!request || typeof request !== 'object' || Array.isArray(request)) fail()
@@ -1116,8 +1194,15 @@ export function createNativeWorkController(ctx, identity) {
         (request.sessionId !== undefined && !isBoundedId(request.sessionId) || request.taskId !== undefined && !isBoundedId(request.taskId))) fail()
       if (request.kind === 'state' || request.kind === 'targets') {
         const target = request.kind === 'state' ? locate(state, request) : null
+        const records = target?.record ? [target.record] : [...state.tasks.values()]
+        for (const record of records) {
+          try { await reconcile(record) } catch { record.task.historyUnavailable = true }
+        }
         return target ? snapshot(state, target.row, target.record) : snapshot(state)
       }
+      // 日志故障禁止新增副作用，但停止任务和拒绝审批仍须可用。
+      if (persistenceFailed && request.kind !== 'cancel' &&
+        !(request.kind === 'approve' && ['rejected', 'cancelled'].includes(request.optionId))) fail('journal/unavailable')
       if (request.kind === 'approve') {
         const entry = state.approvals.get(request.id)
         if (!entry || terminal(entry.record) || request.sessionId !== undefined && request.sessionId !== entry.view.sessionId ||
@@ -1127,31 +1212,42 @@ export function createNativeWorkController(ctx, identity) {
         return snapshot(state, state.sessions.get(entry.view.sessionId), entry.record)
       }
       if (state.disconnecting) fail('task/busy')
-      if (request.kind === 'submit') {
+      if (request.kind === 'submit' || request.kind === 'resume') {
         if (!isBoundedId(request.sessionId) || !isBoundedId(request.requestId) || typeof request.text !== 'string' ||
           !request.text.trim() || request.text.length > 32000) fail()
         const row = state.sessions.get(request.sessionId)
         if (!row) fail('task/not-found')
+        const previousTask = request.kind === 'resume' ? state.tasks.get(request.taskId) : null
         const digest = createHash('sha256').update(request.text).digest('hex')
-        const previous = state.requests.get(request.requestId)
+        const retired = state.retired.get(request.requestId)
+        const previous = state.requests.get(request.requestId) ?? (retired ? { ...retired, accepted: true,
+          approvals: new Map(), transcript: [], truncated: true, seq: 0 } : null)
         if (previous) {
-          if (previous.digest !== digest || previous.task.sessionId !== row.sessionId) fail()
+          if (previous.digest !== digest || previous.task.sessionId !== row.sessionId ||
+            (previous.task.resumed === true) !== (request.kind === 'resume') ||
+            request.kind === 'resume' && previous.task.taskId !== request.taskId) fail()
           return { ...snapshot(state, row, previous), accepted: previous.accepted, duplicate: true, acceptedTaskId: previous.task.taskId }
         }
         const pending = state.submissions.get(request.requestId)
         if (pending) {
-          if (pending.digest !== digest || pending.sessionId !== row.sessionId) fail()
+          if (pending.digest !== digest || pending.sessionId !== row.sessionId || pending.kind !== request.kind) fail()
           return { ...await pending.promise, duplicate: true }
         }
-        if (row.pending || row.cancelling || row.current && !terminal(row.current)) fail('task/busy')
+        if (request.kind === 'resume' && (!previousTask || previousTask.task.sessionId !== row.sessionId ||
+          !previousTask.task.recoveryRequired || row.current !== previousTask)) fail('task/not-recoverable')
+        if (previousTask) {
+          await reconcile(previousTask)
+          if (!previousTask.task.recoveryRequired) fail('task/not-recoverable')
+        }
+        if (row.pending || row.cancelling || !previousTask && row.current && !terminal(row.current)) fail('task/busy')
         row.pending = true
         state.pending++
-        const promise = Promise.resolve().then(() => submit(state, row, request, digest)).finally(() => {
+        const promise = Promise.resolve().then(() => submit(state, row, request, digest, previousTask)).finally(() => {
           row.pending = false
           state.pending--
           state.submissions.delete(request.requestId)
         })
-        state.submissions.set(request.requestId, { digest, sessionId: row.sessionId, promise })
+        state.submissions.set(request.requestId, { digest, sessionId: row.sessionId, kind: request.kind, promise })
         return promise
       }
       if (request.kind === 'cancel') {
@@ -1163,7 +1259,7 @@ export function createNativeWorkController(ctx, identity) {
         state.pending++
         try {
           clearApprovals(record)
-          await controller().cancel({ sessionId: record.task.sessionId })
+          await controller().cancel({ sessionId: record.task.executionSessionId ?? record.task.sessionId })
           return snapshot(state, row, record)
         } finally { row.cancelling = false; state.pending-- }
       }

@@ -52,6 +52,57 @@ function readArchive(): { version: number; entries: Record<string, unknown>[] } 
 }
 
 describe('归档与偏好持久化', () => {
+  it('普通页显式重载同意与原 persist:webbar 快照持久化，撤销时删除快照', () => {
+    const repository = new TaskShelfRepository(file)
+    const url = 'https://example.com/read'
+    const entry = repository.capture(captureInput({ resourceKey: 'web:a', capability: 'web', recovery: { kind: 'web', url } })).entry
+    const enabled = repository.setWebReloadable(entry.id, url, true)
+    const metadata = { formatVersion: 1 as const, taskId: entry.id, resourceId: 'tab:a', suspendOperationId: 'normal-operation', recordedAt: 1000, url, partition: 'persist:webbar', zoom: 1.25, scrollY: 500 }
+    expect(() => repository.saveWebSleep(entry.id, enabled.revision, { ...metadata, partition: 'persist:other-account' })).toThrow()
+    repository.saveWebSleep(entry.id, enabled.revision, metadata)
+    expect(new TaskShelfRepository(file).get(entry.id)?.recovery).toEqual({ kind: 'web', url, reloadableMode: true, sleep: metadata })
+    repository.setWebReloadable(entry.id, url, false)
+    expect(new TaskShelfRepository(file).get(entry.id)?.recovery).toEqual({ kind: 'web', url })
+  })
+  it('普通页重载同意不跨 URL、不覆盖只读契约，写入失败保持原状态', () => {
+    const repository = new TaskShelfRepository(file)
+    const url = 'https://example.com/read'
+    const entry = repository.capture(captureInput({ resourceKey: 'web:a', capability: 'web', recovery: { kind: 'web', url } })).entry
+    expect(() => repository.setWebReloadable(entry.id, 'https://example.com/other', true)).toThrow()
+    disk.failWrite = true
+    expect(() => repository.setWebReloadable(entry.id, url, true)).toThrow('disk full')
+    expect(repository.get(entry.id)).toEqual(entry)
+    expect(new TaskShelfRepository(file).get(entry.id)).toEqual(entry)
+    disk.failWrite = false
+    const readonly = repository.capture(captureInput({ resourceKey: 'web:b', capability: 'web', recovery: { kind: 'web', url, readonlyMode: true } })).entry
+    expect(() => repository.setWebReloadable(readonly.id, url, true)).toThrow()
+  })
+  it('只读休眠快照原子保存、校验版本、跨重启保留，失败不覆盖旧快照', () => {
+    const repository = new TaskShelfRepository(file)
+    const entry = repository.capture(captureInput({ resourceKey: 'web:a', capability: 'web', recovery: { kind: 'web', url: 'https://example.com/read', readonlyMode: true } })).entry
+    const metadata = { formatVersion: 1 as const, taskId: entry.id, resourceId: 'tab:a', suspendOperationId: 'operation-1', recordedAt: 1000, url: 'https://example.com/final', partition: 'shelf-readonly-v1:01234567-89ab-cdef-0123-456789abcdef', zoom: 1.25, scrollY: 400 }
+    repository.saveWebSleep(entry.id, entry.revision, metadata)
+    const saved = new TaskShelfRepository(file).get(entry.id)
+    expect(saved?.recovery).toEqual({ kind: 'web', url: metadata.url, readonlyMode: true, sleep: metadata })
+    expect(() => repository.saveWebSleep(entry.id, entry.revision, metadata)).toThrow('变化')
+    disk.failWrite = true
+    expect(() => repository.saveWebSleep(entry.id, saved!.revision, { ...metadata, suspendOperationId: 'operation-2' })).toThrow('disk full')
+    expect(repository.get(entry.id)).toEqual(saved)
+    expect(new TaskShelfRepository(file).get(entry.id)).toEqual(saved)
+  })
+  it('拒绝未知快照版本、错误分区与越界滚动，不把动态恢复记录当只读快照', () => {
+    const repository = new TaskShelfRepository(file)
+    const entry = repository.capture(captureInput({ resourceKey: 'web:a', capability: 'web', recovery: { kind: 'web', url: 'https://example.com/read', readonlyMode: true } })).entry
+    const metadata = { formatVersion: 1 as const, taskId: entry.id, resourceId: 'tab:a', suspendOperationId: 'operation', recordedAt: 1000, url: 'https://example.com/read', partition: 'shelf-readonly-v1:01234567-89ab-cdef-0123-456789abcdef', zoom: 1, scrollY: 0 }
+    for (const patch of [{ partition: 'persist:webbar' }, { scrollY: Infinity }, { zoom: NaN }]) {
+      expect(() => repository.saveWebSleep(entry.id, entry.revision, { ...metadata, ...patch })).toThrow()
+      expect(repository.get(entry.id)).toEqual(entry)
+    }
+    const archive = readArchive()
+    archive.entries[0].recovery = { kind: 'web', url: metadata.url, readonlyMode: true, sleep: { ...metadata, formatVersion: 2 } }
+    writeFileSync(file, JSON.stringify(archive))
+    expect(() => new TaskShelfRepository(file).list()).toThrow('damaged')
+  })
   it('SSH 目录末尾的空格跨重启原样保留，不切换到另一个目录', () => {
     const repository = new TaskShelfRepository(file)
     const cwd = '/srv/task directory '

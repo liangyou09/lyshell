@@ -1,0 +1,1586 @@
+{
+  "generatedAt": "2026-10-29T05:28:26.251Z",
+  "artifacts": [
+    {
+      "source": "tmp/reloadable-runtime-acceptance/results.json",
+      "file": "runtime-100.json.gz",
+      "bytes": 49505,
+      "sha256": "eb89d6cdcecc750627617b9555b9b75aa8ee0279e0d3bc39f2bd3df5081b7964",
+      "gzipSha256": "355e2fe8f753789d39b14f2c360013e5fcbcb0b00e19d8fcc539a02466f220ea"
+    },
+    {
+      "source": "tmp/reloadable-gui/results.json",
+      "file": "gui.json.gz",
+      "bytes": 4735,
+      "sha256": "54401723361c57162dff14705a051150c7bb911d088291b34d76b735124a2987",
+      "gzipSha256": "243859485ac4247f81703e9db6464f201bd015ea078026e2fc57ccd3be3d2ca7"
+    },
+    {
+      "source": "tmp/reloadable-gui/readonly-main.png",
+      "file": "gui-readonly-main.png.gz",
+      "bytes": 59687,
+      "sha256": "27b35c5d3cf432cd48bed4849ebf1c6984a90fb77858dfc51eaa964ffa521557",
+      "gzipSha256": "0b2e94497cb04d0b61be599a0c35497d6967be397246a1c3555e68f8d60f00bc"
+    },
+    {
+      "source": "tmp/reloadable-gui/sleeping.png",
+      "file": "gui-sleeping.png.gz",
+      "bytes": 93713,
+      "sha256": "6182420cf81df2119392b022ed04d789796cdc0b1180adf960a67085e1190025",
+      "gzipSha256": "9bc09358a2c1385bb972238908caf91fe44b0ffba78e621607d24ae54f001c82"
+    },
+    {
+      "source": "tmp/reloadable-gui/restored-main.png",
+      "file": "gui-restored-main.png.gz",
+      "bytes": 79404,
+      "sha256": "4c4d6d8b9d16642a9ed7e1b7d23d9901536cb88ce08da47150398b6b6f13c74e",
+      "gzipSha256": "e1dfbe3d48ca0fae8c8fc1b84a540768c58a40f728c0cd8941e6629b076a7208"
+    },
+    {
+      "source": "tmp/reloadable-gui/eighth-attempt-menu-render-timing.json",
+      "file": "retained-gui-eighth-attempt-menu-render-timing.json.gz",
+      "bytes": 6748,
+      "sha256": "d415b984b0a43b0bef8d945a6326a5354661248e073cc7f4eee2930ed30cdb16",
+      "gzipSha256": "f4158a077e8d96ff70717601ad6df7d35c936429a464ccefe50e106cba67d45b"
+    },
+    {
+      "source": "tmp/reloadable-gui/fifth-attempt-restore-ui-click.json",
+      "file": "retained-gui-fifth-attempt-restore-ui-click.json.gz",
+      "bytes": 4258,
+      "sha256": "bded94085d68e063fc2b5135824cfc0d45e99f21d07864cd346c0f4b8f4481ae",
+      "gzipSha256": "77858de8d0af143bc3a2f03576366d68612e82c4c57723fff7953d2436507959"
+    },
+    {
+      "source": "tmp/reloadable-gui/first-attempt-archive-not-ready.json",
+      "file": "retained-gui-first-attempt-archive-not-ready.json.gz",
+      "bytes": 1095,
+      "sha256": "f6e7865994a88e69b23dc52fcc9e2ede9172771f038b339f34996316571cce2c",
+      "gzipSha256": "bb816b6ade572738bfc6b95a5e241c0583bf32e4f336297b488877da24e4352f"
+    },
+    {
+      "source": "tmp/reloadable-gui/fourth-attempt-react-not-mounted.json",
+      "file": "retained-gui-fourth-attempt-react-not-mounted.json.gz",
+      "bytes": 3210,
+      "sha256": "97a292537d8c3c561ec40c64fe24b8be2a528bf789dea047a25d659e36524291",
+      "gzipSha256": "dd5fb9828abae8d82767aafe03095a9ca6930a50e6eeea2d389a647674367122"
+    },
+    {
+      "source": "tmp/reloadable-gui/ninth-attempt-disabled-main-button-and-viz-error.json",
+      "file": "retained-gui-ninth-attempt-disabled-main-button-and-viz-error.json.gz",
+      "bytes": 4381,
+      "sha256": "67eaefa692ce7704dd242c4732abd7442c75ab3a890d0da8c9e7789aaa04abb8",
+      "gzipSha256": "b9a365184b6af2472fe7b5e56ab51a2fd4689b70726dfed3cdc7902c73713bf5"
+    },
+    {
+      "source": "tmp/reloadable-gui/second-attempt-stale-css-selector.json",
+      "file": "retained-gui-second-attempt-stale-css-selector.json.gz",
+      "bytes": 3154,
+      "sha256": "40842cc15082d58bb51ce1e0ec12e4d89da4b8b77724c515c26666f966152ffa",
+      "gzipSha256": "5d565cced949845f3c6c75b4285ce2b45b25fd0e9de5420d20152d8af98a8cfc"
+    },
+    {
+      "source": "tmp/reloadable-gui/seventh-attempt-cold-capture-metadata.json",
+      "file": "retained-gui-seventh-attempt-cold-capture-metadata.json.gz",
+      "bytes": 4816,
+      "sha256": "d7b6ea6c640ceb98ee07f4592b0e06885e1e50d5c1174aff8a430665c94b8522",
+      "gzipSha256": "64e9b9f3892b3d9a32e9fe45bf10c26553f1a489489e64ac577a4444b2dec2e4"
+    },
+    {
+      "source": "tmp/reloadable-gui/sixth-attempt-fixture-const-redeclared.json",
+      "file": "retained-gui-sixth-attempt-fixture-const-redeclared.json.gz",
+      "bytes": 4399,
+      "sha256": "205edf99f898ef391708a2822dd0a76b1d85a904e832019266571ea46a2a45b4",
+      "gzipSha256": "f629204060e0849a82b840cb580a494309f4353665d52909fbc770757fff1f17"
+    },
+    {
+      "source": "tmp/reloadable-gui/third-attempt-panel-not-open.json",
+      "file": "retained-gui-third-attempt-panel-not-open.json.gz",
+      "bytes": 3056,
+      "sha256": "1f53f55a1fd800f2c9d264de40e28fa2f5d0b300a1adf8b57c33f08d37380be4",
+      "gzipSha256": "36b7f187143f330897b5e61bb45fbc98ccdb135604d1e38eba5c6544ae4dd0c2"
+    },
+    {
+      "source": "tmp/reloadable-redirect/failed-before-fix.json",
+      "file": "redirect-before-fix.json.gz",
+      "bytes": 2137,
+      "sha256": "c0065627cf42100d0ddb24ba2141c3a90771c92f5db2ab286f20304a11c1c248",
+      "gzipSha256": "75b12571da21b84e860dfcf5372dd2c8771566f95861cc235ef662d4449ce084"
+    },
+    {
+      "source": "tmp/reloadable-redirect/results.json",
+      "file": "redirect-after-fix.json.gz",
+      "bytes": 3025,
+      "sha256": "f3920a725ebf786f2fabb9574a0ed65873cebdc37071e660e168bd4f15f30c28",
+      "gzipSha256": "28db0904f8eb037c1aa64133d65087bfb323864ee3f6b6cb33ec722743c3f6d5"
+    },
+    {
+      "source": "tmp/reloadable-redirect/failed-consent-before-fix.json",
+      "file": "redirect-consent-before-fix.json.gz",
+      "bytes": 2755,
+      "sha256": "c5e0fa05e67f48b86edd80052a416b37d5dd43327f10ad05f436e84516de876e",
+      "gzipSha256": "e3910be263e0451e842ac984a813fbe9735a895c241521821177b7dfcc36514e"
+    },
+    {
+      "source": "tmp/reloadable-app/codex-takeover.json",
+      "file": "native-task-cancelled-handoff.json.gz",
+      "bytes": 601,
+      "sha256": "d104c137f40647ead1e92bca8562e39033b829a96ef511043e687b0b40011971",
+      "gzipSha256": "b8d8936149b1f2318e0a0c787a571bdca7930a0f8cb0c76339a3fa3142f59165"
+    },
+    {
+      "source": "tmp/reloadable-app/codex-aborted-open-only-edge.json",
+      "file": "aborted-fixture-edge-action.json.gz",
+      "bytes": 198,
+      "sha256": "71a5bd882f34f4ba007d4dabffc18d4bfc9eb44f502216a00b73a0933d1f16df",
+      "gzipSha256": "64a698a2e321d11831607d6da151d32382c01fb97663a1e9bfb7d3bbb061f6a8"
+    },
+    {
+      "source": "docs/shelf-memory-p0/reloadable-guard-probe-results.json",
+      "file": "guard.json.gz",
+      "bytes": 165376,
+      "sha256": "24ae8ebd20284614a82ae4704fce8fe777bdecf27af3d7075806ae6380a0fff6",
+      "gzipSha256": "f0a7f58946ee2444779c85eb01b59c96eb0b7d58904dbe15650d9297e0b84338"
+    },
+    {
+      "source": "docs/shelf-memory-p0/navigation-close-probe-results.json",
+      "file": "navigation-close.json.gz",
+      "bytes": 831539,
+      "sha256": "19f30b1038b0a0433264abb61cc045de2ce5e25ffec28301e0dabe0980ab6f0e",
+      "gzipSha256": "4af890ac085d345aceb83ddf568bbf2a004d632d41aa2728d7cfd76bf21fd0bb"
+    },
+    {
+      "source": "tmp/navigation-close-probe-terminal-evidence.json",
+      "file": "navigation-terminal.json.gz",
+      "bytes": 272,
+      "sha256": "54c85162b26a602d1e9e02ea0f344b7573726c1abb2ab9eef5babad4d3a3bb7b",
+      "gzipSha256": "824b5c628345e9e143638b92b561803762aa807649b86e69d2d5777003cba19b"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T05-02-58-714Z-r1-before-sXD40i/result.json",
+      "file": "app-before-1.json.gz",
+      "bytes": 3358689,
+      "sha256": "973d98cce2f32e01422e041d4ad0a68269d84b80d71fda482c1085f9c20e456f",
+      "gzipSha256": "d4c3d4ca5705aac4c59820e15f2a34aa31b1f67d5681bc0b3d5f547913608342"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T05-02-58-714Z-r1-before-sXD40i/appData/lyshell-dev/config/task-shelf.json",
+      "file": "app-before-1-shelf.json.gz",
+      "bytes": 4520,
+      "sha256": "bd1d1183c23f32c6dd5f4c1d0b4d4b0dcbe73ad91fbb33cf7b427aa26e752194",
+      "gzipSha256": "46492c56f83738a017374e9cd0d7b53fd773221935d10fea0dee3e731a039554"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T05-02-58-714Z-r1-after-rv7XbG/result.json",
+      "file": "app-after-1.json.gz",
+      "bytes": 2401048,
+      "sha256": "452ca1c9904f14115bd4e53f9c35d9bf82b9a2f3724c78e8daf4c490fd261136",
+      "gzipSha256": "edd8b185ee413eb2d1aa3b2e074f72e98ab79bdc93b9b0e118a5cd2799001b05"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T05-02-58-714Z-r1-after-rv7XbG/appData/lyshell-dev/config/task-shelf.json",
+      "file": "app-after-1-shelf.json.gz",
+      "bytes": 9397,
+      "sha256": "0458349d5ecc37d765035ccdec20501b91b552f88f640a772599de191690095e",
+      "gzipSha256": "60022256fd0625be715e15e3a13ab2ce50cf8eaed781b0d47858ec4c3ac8470e"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T05-02-58-714Z-r1-after-rv7XbG/recheck.json",
+      "file": "restart-1.json.gz",
+      "bytes": 12891,
+      "sha256": "d7590f6cad0126fc56bc88f8b898edf4575053cc933ed3d809212c6f68f67812",
+      "gzipSha256": "3dcfb7177360bd67cb4caaf6418e85c1a479328051b7bff259756436f5211340"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T05-02-58-714Z-r2-after-Ywepkn/result.json",
+      "file": "app-after-2.json.gz",
+      "bytes": 2394162,
+      "sha256": "61242a51c4a46e32b93039df942f57ca0839c89d86242f7b99e816a2fbb8c708",
+      "gzipSha256": "25ee6b1665c3ee55fe2d1240cbc68308c14cfe1e66379e969b9188d6920e77cd"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T05-02-58-714Z-r2-after-Ywepkn/appData/lyshell-dev/config/task-shelf.json",
+      "file": "app-after-2-shelf.json.gz",
+      "bytes": 9397,
+      "sha256": "fa07c35c9cfffe3b46da2023c682288224c53a2fd7addb3845dad1bff791260e",
+      "gzipSha256": "985f744a08eee8dcd6a0391d8dd888f46541b00cc0079108e8fe6e1945a75cff"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T05-02-58-714Z-r2-after-Ywepkn/recheck.json",
+      "file": "restart-2.json.gz",
+      "bytes": 12891,
+      "sha256": "6eb6ad499b473e7c107f0c5d63463d7b64f4b673ce0dd71c0c35739397df8896",
+      "gzipSha256": "56d6b491d6b02734e309fbedebd0228299310be7c23c79b57e783923afdd903e"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T05-02-58-714Z-r2-before-W4Nk7f/result.json",
+      "file": "app-before-2.json.gz",
+      "bytes": 3358864,
+      "sha256": "0e9f396335746018acf54614104fd4217c0508ffa59cc996c04d4663109584d8",
+      "gzipSha256": "ca8a0704305554509a7af9a52fcddcf4161f5b5aefa3ccdca662260f3189145d"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T05-02-58-714Z-r2-before-W4Nk7f/appData/lyshell-dev/config/task-shelf.json",
+      "file": "app-before-2-shelf.json.gz",
+      "bytes": 4520,
+      "sha256": "f1a9d8342ed83d5066d020846503b46de363449c3905f46be4f53cb27c85058a",
+      "gzipSha256": "b8194263f505bc8384576fbde64b3b2322baa272d2990232013a5b6a4918327d"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T05-02-58-714Z-r3-before-t1Oqpq/result.json",
+      "file": "app-before-3.json.gz",
+      "bytes": 3357973,
+      "sha256": "7e3f268b5da43ed16a98f738609a305cfff6447b9b159b0ccac91e6c273e6757",
+      "gzipSha256": "bcedd4ad7d6b7bb18763841c2db1a7ee5593bf9e0dc8f444a9e325c5c59aa1b8"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T05-02-58-714Z-r3-before-t1Oqpq/appData/lyshell-dev/config/task-shelf.json",
+      "file": "app-before-3-shelf.json.gz",
+      "bytes": 4520,
+      "sha256": "bdb2ff17c813706c65da59a45aae003d107ac5b526bec3d557c1b3a3e8b8771c",
+      "gzipSha256": "d9e06e4da89b9716ebbfa1d4a8a583070921836949078cc1514894f6cb5d1d8a"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T05-02-58-714Z-r3-after-xvvhkL/result.json",
+      "file": "app-after-3.json.gz",
+      "bytes": 2364835,
+      "sha256": "ef631ba5df6917922c6edb05938da5121886fcc1bd8b249a1693075eeca4d51c",
+      "gzipSha256": "2c59db9ed4a624a7aeed9639cacda63409d28b1606d8b0aef2ecdb15981a5aca"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T05-02-58-714Z-r3-after-xvvhkL/appData/lyshell-dev/config/task-shelf.json",
+      "file": "app-after-3-shelf.json.gz",
+      "bytes": 9397,
+      "sha256": "8faeb6c3eced9c95c148f06503b6aa59a5e5f68941eae901e508e074c9b9d1fc",
+      "gzipSha256": "0c5fafd3cc3a8211dcf7fcbfbb6cd73cff4f1fa1d30897241a491e8a42cf4b67"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T05-02-58-714Z-r3-after-xvvhkL/recheck.json",
+      "file": "restart-3.json.gz",
+      "bytes": 12891,
+      "sha256": "1547cde9363b379c3d9605d9187a0f17b785b5a252ba04ab2ffe2f5e08089792",
+      "gzipSha256": "bbcc7c133ced10be39483946012755a5996fbf9a337770a7432ce998c59f008c"
+    },
+    {
+      "source": "scripts/shelf-memory-p0/reloadable-app.cjs",
+      "file": "measured-app-fixture.cjs.gz",
+      "bytes": 121007,
+      "sha256": "f26a0a38c712a781bc7442327ddedc91c362fa73dfe62f0e3264756bcf0195dd",
+      "gzipSha256": "c37b130d30878694025534ba11392e42f53826e88730ae213e46b0d11ce4a6e5"
+    },
+    {
+      "source": "docs/shelf-memory-p0/reloadable-app-results.json",
+      "file": "app-summary.json.gz",
+      "bytes": 555918,
+      "sha256": "d0ea8d56ce6dd2e078d8bd6f1ba4d5ce5d2a8e3fade6856a47ac9f251d10a3e4",
+      "gzipSha256": "5b47f3e767f91d2b84705f51f2f963787c5281205574d0d7f749a287f3ca5e8c"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-07-14-866Z-r1-before-rD7944/result.json",
+      "file": "retained-app-2026-10-29T03-07-14-866Z-r1-before-rD7944.json.gz",
+      "bytes": 77270,
+      "sha256": "1ba3e20e506e17a668cae051f3222c60855676d50efeb4205922d2a37e48d285",
+      "gzipSha256": "138aa7ffd2a5ee7adebfdef20326153d52523b38671b8fff8e0ac079603e5b01"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-07-14-866Z-r1-before-rD7944/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-2026-10-29T03-07-14-866Z-r1-before-rD7944-shelf.json.gz",
+      "bytes": 4378,
+      "sha256": "1d57aeb5afec39917ff54fbb570c4f768a154a78d71fd7b7ce6a3413b02e060b",
+      "gzipSha256": "387d009b76da74ac1a4ca9aa749af3c14d814a88cda926b1e7c34e4617849d84"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-09-05-190Z-r1-before-6MPTAE/result.json",
+      "file": "retained-app-2026-10-29T03-09-05-190Z-r1-before-6MPTAE.json.gz",
+      "bytes": 766534,
+      "sha256": "e7903744dbe5ed8b0b144b3fc1db15ae4640e12d600769dba0b1e3485e22d638",
+      "gzipSha256": "36339f636dfd7c61e2154eec888aa1137f1aed292e35272edb0ea1dddcb5eb94"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-09-05-190Z-r1-before-6MPTAE/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-2026-10-29T03-09-05-190Z-r1-before-6MPTAE-shelf.json.gz",
+      "bytes": 4520,
+      "sha256": "6330a7d438354d7552ab3332b40462a63585d6fe79f3f896b4de7d39cfaa0157",
+      "gzipSha256": "d8345f2859ca261e738caca33ce60fa3fff66bc050f881124c9b570cc6470788"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-38-58-294Z-r1-before-MqiAf7/result.json",
+      "file": "retained-app-2026-10-29T03-38-58-294Z-r1-before-MqiAf7.json.gz",
+      "bytes": 60443,
+      "sha256": "262262c1b52310df76f8d849c10a1803482b5b21ebf0c5f5c1269651403b2527",
+      "gzipSha256": "089f5ca6d70338f7103012dfee94e71149b70eb24c9c2152b4382403ee688109"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-38-58-294Z-r1-before-MqiAf7/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-2026-10-29T03-38-58-294Z-r1-before-MqiAf7-shelf.json.gz",
+      "bytes": 4400,
+      "sha256": "4f23c3459985f1abc01fab4dd3385d2f1fea6dd18a27a16065c70427459f56f6",
+      "gzipSha256": "a122b36a1517a279c0fc688c886f3aee4cee6777743660dc330fead5f552bf6b"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-46-29-564Z-r1-after-Y63lyg/result.json",
+      "file": "retained-app-2026-10-29T03-46-29-564Z-r1-after-Y63lyg.json.gz",
+      "bytes": 643748,
+      "sha256": "b2c04e9c8f508a62f7ecf89d2a4eebdf719fd9482564c857e94f251597b98fa8",
+      "gzipSha256": "53a41fd9da4df5eac29c079f126eaff07c3445a6b884e5bae009bfd3e5ef8c16"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-46-29-564Z-r1-after-Y63lyg/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-2026-10-29T03-46-29-564Z-r1-after-Y63lyg-shelf.json.gz",
+      "bytes": 8940,
+      "sha256": "66369902c93d1240109f99e722847780f2d1120723456fb6f346f9d1be4ff834",
+      "gzipSha256": "e8ff0a06bc32a8171fe66ed22a8ca8e730cae242e7e91c7bb8f57233bd09c057"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-46-29-564Z-r1-before-plfbK6/result.json",
+      "file": "retained-app-2026-10-29T03-46-29-564Z-r1-before-plfbK6.json.gz",
+      "bytes": 11388121,
+      "sha256": "82e03ac5da8a4f136519c0dc3ccca470051c899c76a9a68a18cad7772b1f5609",
+      "gzipSha256": "c0e1448865a4f8872e6d8e0ea2b487e562b2c1cd40a528c607bffd4298ce2d88"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-46-29-564Z-r1-before-plfbK6/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-2026-10-29T03-46-29-564Z-r1-before-plfbK6-shelf.json.gz",
+      "bytes": 4520,
+      "sha256": "2443689790d53d55ac4b39a5925aa5010aabc9bf9400a5418573cfc66d5eb2ff",
+      "gzipSha256": "8329a93c94eca18deead9795154bdccf6f10b1f0c746fe46c367fd94f6988b37"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-59-04-635Z-r1-after-j5vI7v/result.json",
+      "file": "retained-app-2026-10-29T03-59-04-635Z-r1-after-j5vI7v.json.gz",
+      "bytes": 933730,
+      "sha256": "396d721fc23b1b91534a90021c550936cc12db7579a6dc400c5422770f6156ca",
+      "gzipSha256": "0c1b7d3c1e4d9ffd259389c0090380ac2f08998f115f4fe3c9c1531179e8c4b8"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-59-04-635Z-r1-after-j5vI7v/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-2026-10-29T03-59-04-635Z-r1-after-j5vI7v-shelf.json.gz",
+      "bytes": 8973,
+      "sha256": "2f5d3a24821cdd1ee5c16a0b6423de9141bc477f2407d51e6b5da1c8fa5d5b85",
+      "gzipSha256": "6c0fc9c904fa5f8b345457c109114ca720fc6d0db763e1e0a22b1801f81c7c57"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-59-04-635Z-r1-before-IT4DjF/result.json",
+      "file": "retained-app-2026-10-29T03-59-04-635Z-r1-before-IT4DjF.json.gz",
+      "bytes": 1516816,
+      "sha256": "223484097e15dc45f1189f3c2cda04ed13c46f7a7cba21b4944dfb3d9e353bf6",
+      "gzipSha256": "baad8df7ac03c89dfa976a3d6fe6c34e53648348319b6cd3a1a49dd0ec004bd5"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-59-04-635Z-r1-before-IT4DjF/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-2026-10-29T03-59-04-635Z-r1-before-IT4DjF-shelf.json.gz",
+      "bytes": 4520,
+      "sha256": "cf2efa9e02712206ee0d08a58dc0ca6fe1c4f10ec89086312639af44a45e920f",
+      "gzipSha256": "b52e96efd8d009bc7a35de451b020fd78025f8b02e201aab7e706577640d36e1"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-11-55-498Z-r1-after-BCdFUe/result.json",
+      "file": "retained-app-2026-10-29T04-11-55-498Z-r1-after-BCdFUe.json.gz",
+      "bytes": 1110844,
+      "sha256": "07974c19057934245731c8b21fc4c3499ed16f7b491779f513b2181e0244975e",
+      "gzipSha256": "4d97e85c5f3024b6e054db2689cc671f5690f3acae09296fc2a8d13b7b6db1ea"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-11-55-498Z-r1-after-BCdFUe/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-2026-10-29T04-11-55-498Z-r1-after-BCdFUe-shelf.json.gz",
+      "bytes": 9393,
+      "sha256": "2cb95098b51c16d6881228118390e296b245f46382378b3dde8d9e572edb9f32",
+      "gzipSha256": "c8aa48a8cc52d78833e8aa563caf759440f2aaec302c6ac28721d5ab8101692a"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-11-55-498Z-r1-before-2cMkpq/result.json",
+      "file": "retained-app-2026-10-29T04-11-55-498Z-r1-before-2cMkpq.json.gz",
+      "bytes": 1525509,
+      "sha256": "d94a6062fb05ad99c252f9103ea589dacc7bfda8e179c2e698136122a11e8396",
+      "gzipSha256": "21ec1fbce166302cc56c4d2224e5be9948bfe1e5863b19690ea1e296453af4a4"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-11-55-498Z-r1-before-2cMkpq/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-2026-10-29T04-11-55-498Z-r1-before-2cMkpq-shelf.json.gz",
+      "bytes": 4520,
+      "sha256": "f813408e3707f4cd1027131b2e45dbe8d6ffe71ee439be7e8ebecddd04a01f72",
+      "gzipSha256": "14473b34253705576b15517f806911fbce83d2b6f7830d05caa1c5474a17ef24"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-17-21-516Z-r1-before-wkM76P/result.json",
+      "file": "retained-app-2026-10-29T04-17-21-516Z-r1-before-wkM76P.json.gz",
+      "bytes": 11341168,
+      "sha256": "23b4d89072800be747a059432a3ecf892a8ec5fad36bb3a0379ae268b3c549a0",
+      "gzipSha256": "df1e90638c6b81b83fbbf2a6f977f4b28f53f2ed430a7ece28a2ee4d93d952b2"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-17-21-516Z-r1-before-wkM76P/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-2026-10-29T04-17-21-516Z-r1-before-wkM76P-shelf.json.gz",
+      "bytes": 4520,
+      "sha256": "7e862fdd0e2b3cc7dd68380145337b812eaea78f8966bf46724d79a1e79183b4",
+      "gzipSha256": "0532c7945838e2da56992ed796caeadee1289a1ccb14479f41b74a9f67512b04"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-28-55-737Z-r1-after-pjHupy/result.json",
+      "file": "retained-app-2026-10-29T04-28-55-737Z-r1-after-pjHupy.json.gz",
+      "bytes": 602281,
+      "sha256": "0b70927a52841b6a2c4f114e00c481c106eaf7bdd0f833c972763e44c2c0e296",
+      "gzipSha256": "e9627fe28acd063571400d1730448148b6e5ae59e164e379d530c85235441105"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-28-55-737Z-r1-after-pjHupy/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-2026-10-29T04-28-55-737Z-r1-after-pjHupy-shelf.json.gz",
+      "bytes": 9393,
+      "sha256": "227460e57ff489478e5ab032d795550a35f1d0dde48a08151427c748faf37d77",
+      "gzipSha256": "5f4e661955c631a7c4ea7511d4e3fc5020dbd27e1b22ad1bd9eda01a546d7d97"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-28-55-737Z-r1-before-8pTl56/result.json",
+      "file": "retained-app-2026-10-29T04-28-55-737Z-r1-before-8pTl56.json.gz",
+      "bytes": 801943,
+      "sha256": "ba5440b8889a09ca6f967b54ea67bfbabf7c68e11fe41bbf15b711c60c3fe418",
+      "gzipSha256": "7fc075cf8c39516167fea060b73af551bab9163638492db6f0793e3ffb1caf05"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-28-55-737Z-r1-before-8pTl56/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-2026-10-29T04-28-55-737Z-r1-before-8pTl56-shelf.json.gz",
+      "bytes": 4520,
+      "sha256": "79a8022a422847a2ee2360d0662faffa672188c4a8c1e848e58dc08d2008d294",
+      "gzipSha256": "9974f6e56b897f54c273f0cd2f278321e902d5d7b762dde3ae98c2fa204eb462"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-30-56-478Z-r1-after-4ECwIv/result.json",
+      "file": "retained-app-2026-10-29T04-30-56-478Z-r1-after-4ECwIv.json.gz",
+      "bytes": 1792242,
+      "sha256": "5bd4663b0e61a0db6bf704d228f2cd5a8936c93ab2298aa271e8745230377f54",
+      "gzipSha256": "fa008551377ccb7d39d08a6a5e0fa0f417c9e5c5470f6a607f67ef35ff50e189"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-30-56-478Z-r1-after-4ECwIv/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-2026-10-29T04-30-56-478Z-r1-after-4ECwIv-shelf.json.gz",
+      "bytes": 8974,
+      "sha256": "b52716321398209a7da5f323c7e313384c51269ebe91757e1f402c8a7922a447",
+      "gzipSha256": "5667b846df5a24b75a7d5f99ace7ecb18ec02f2ee979a92b13ceec7bd064deb0"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-30-56-478Z-r1-before-RIMOz9/result.json",
+      "file": "retained-app-2026-10-29T04-30-56-478Z-r1-before-RIMOz9.json.gz",
+      "bytes": 3093282,
+      "sha256": "ab5943596078842e369814e859b08df05a4d31060a5e3bf114dfa7b2d8d72a1d",
+      "gzipSha256": "50ef11a7c933ca2aa2bd7250f50e4a8209f2ce4aa4632a98cba0ced1f3b491ab"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-30-56-478Z-r1-before-RIMOz9/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-2026-10-29T04-30-56-478Z-r1-before-RIMOz9-shelf.json.gz",
+      "bytes": 4520,
+      "sha256": "a23b956e3e19849cdbd0cbd12caf040e633e8014da7ad64f0771c1c7ca55dfa1",
+      "gzipSha256": "19ba0dba723fc2562c08a099b256da8cc9d0bbe4ac139465b29c757a334b7a2e"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-43-59-490Z-r1-after-WVjvlE/result.json",
+      "file": "retained-app-2026-10-29T04-43-59-490Z-r1-after-WVjvlE.json.gz",
+      "bytes": 2322660,
+      "sha256": "d99ee3d817193c29516df76f44c21466fcf2554d00bd884a5c146046dd0c3331",
+      "gzipSha256": "20b764a0f8c1ac71d66e74e8c1ebb643f02a9d88ffc6575137ed51551ca30328"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-43-59-490Z-r1-after-WVjvlE/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-2026-10-29T04-43-59-490Z-r1-after-WVjvlE-shelf.json.gz",
+      "bytes": 9397,
+      "sha256": "7eebadeeefe8a3abeed86a1c4384df8e49c5567ad08eee236e5775951f8e1e27",
+      "gzipSha256": "59c2a48d054cb17885d9274af2997c56b0b9f31c183530907e9706a43c3067fd"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-48-45-495Z-r1-after-Mpn3Cx/result.json",
+      "file": "retained-app-2026-10-29T04-48-45-495Z-r1-after-Mpn3Cx.json.gz",
+      "bytes": 826649,
+      "sha256": "cbb8ef1c4910170acfbe10993ebb648c3fa523bb45744705f43153d7196d3845",
+      "gzipSha256": "cf8d71bbacc06df2f3247f714fe3e7e30ea621787721a1426fb163b9fad77c66"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-48-45-495Z-r1-after-Mpn3Cx/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-2026-10-29T04-48-45-495Z-r1-after-Mpn3Cx-shelf.json.gz",
+      "bytes": 8536,
+      "sha256": "de2052307a7eab61c29f48caa4d64722c267e9f568bf47a18fffa7f84ca695d4",
+      "gzipSha256": "a80a476bfe821640acbf083a9fffd609628b4b00212f8bbf7488f12045d3129e"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-48-45-495Z-r1-before-dSyVim/result.json",
+      "file": "retained-app-2026-10-29T04-48-45-495Z-r1-before-dSyVim.json.gz",
+      "bytes": 3103712,
+      "sha256": "4a780be81b43cf75384fdc1ed9058fa229a86dc5ce129a44cb40ada58eceaebf",
+      "gzipSha256": "aaeee391685dcc7d55d611538c2503b564ff9d132001c627e7abf62c88c57c3c"
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-48-45-495Z-r1-before-dSyVim/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-2026-10-29T04-48-45-495Z-r1-before-dSyVim-shelf.json.gz",
+      "bytes": 4520,
+      "sha256": "c5cdd65eb3269312a985d9f41077e7812b4d19be95d56532ad3b37f7b6f360e7",
+      "gzipSha256": "af2c27b9274e618537472770ea62d60f70f5d89144a4e6b6584b8e57ab76217a"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-05-57-849Z-1Hyj1K/result.json",
+      "file": "retained-app-probe-2026-10-29T03-05-57-849Z-1Hyj1K.json.gz",
+      "bytes": 4933,
+      "sha256": "975a676ba4bb8f9f07b96f84bac58daa210deb1cdafe2d8af8711bc5b10521f2",
+      "gzipSha256": "65f609dd4a8883bea5fa15ca60292cf3b947485777f69a9c58ef285dea9aa30d"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-05-57-849Z-1Hyj1K/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-probe-2026-10-29T03-05-57-849Z-1Hyj1K-shelf.json.gz",
+      "bytes": 4136,
+      "sha256": "11b5abf552c7470eea2ca2c6dfbb8fb394477722a7a19051c524559f206eda0b",
+      "gzipSha256": "496b83969f523bf79a962378b098d214fbfaabe6b0f898c18799a51562069fc0"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-06-36-237Z-4tgaG0/result.json",
+      "file": "retained-app-probe-2026-10-29T03-06-36-237Z-4tgaG0.json.gz",
+      "bytes": 84243,
+      "sha256": "fe8ec244a98b4068f05640795d78e170f5eb2710e91ce94247da5a14328c5898",
+      "gzipSha256": "f71bd59eaa9fc6e9f2999123f8dbd49acbde0c16a05406665de977d599aa3bc5"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-06-36-237Z-4tgaG0/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-probe-2026-10-29T03-06-36-237Z-4tgaG0-shelf.json.gz",
+      "bytes": 4763,
+      "sha256": "fd93db3fc4d087dfd56ac9f9afc321f3c10ef785b14f64c3ea159bbae82e1831",
+      "gzipSha256": "13282fe064398e1181aff1f76cfca99ee75456af94d5838437765983ac73b3a9"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-08-16-054Z-04eufN/result.json",
+      "file": "retained-app-probe-2026-10-29T03-08-16-054Z-04eufN.json.gz",
+      "bytes": 86650,
+      "sha256": "0ce5f66d1b37b10ecbd9f5b1e5284d78378936e45ad90137412804eca83b8119",
+      "gzipSha256": "7dca4a2fdd1472297b7047409cb48f1d9fbb479482473f29c094bfd502dab6bd"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-08-16-054Z-04eufN/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-probe-2026-10-29T03-08-16-054Z-04eufN-shelf.json.gz",
+      "bytes": 4763,
+      "sha256": "68084fb72d58d33ffce13d4d0fa0a1a9dcfcbe85211a7b9674b34cb039f864ab",
+      "gzipSha256": "89e713774288229543c12f9a5edf7839c3c4a2e2d52d989475e4f4f026ce0ce6"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-14-32-744Z-jl0dfZ/result.json",
+      "file": "retained-app-probe-2026-10-29T03-14-32-744Z-jl0dfZ.json.gz",
+      "bytes": 227614,
+      "sha256": "a29e6a9cf5d60562e74473c7104ada802b96f86916d0be7c708e7876e500cbfa",
+      "gzipSha256": "36eb9646ea01bee4e40665a64067451c7db3cb332cc727b63fd116f8afb91678"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-14-32-744Z-jl0dfZ/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-probe-2026-10-29T03-14-32-744Z-jl0dfZ-shelf.json.gz",
+      "bytes": 5198,
+      "sha256": "b247144658bd45c40abce7b3ca89b7b889b8d038a27376cc0dc5c50d79a24276",
+      "gzipSha256": "746def000352a17a7c30a66648577a363f91acc20d1bcfc15b5c49c4a72d5f60"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-16-09-143Z-Zd3e9q/result.json",
+      "file": "retained-app-probe-2026-10-29T03-16-09-143Z-Zd3e9q.json.gz",
+      "bytes": 234662,
+      "sha256": "aeecfaf025713c07e9782ed037867ba5b043c923ca464ac26d6583659c41a948",
+      "gzipSha256": "3bb3628fb978f5dced2bd4f5d2ff2163bcbc1e787e184f6120ed2f14fb4148b0"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-16-09-143Z-Zd3e9q/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-probe-2026-10-29T03-16-09-143Z-Zd3e9q-shelf.json.gz",
+      "bytes": 5198,
+      "sha256": "4630074df749e82e2935b7986201edbcdcd0976566ba2e4fe946d0fecefdc9d8",
+      "gzipSha256": "48d6582a2c5fbbcad218be4dca883bdb63a64eabe5af07e5578bda0a127e43a1"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-18-35-314Z-6MjQC8/result.json",
+      "file": "retained-app-probe-2026-10-29T03-18-35-314Z-6MjQC8.json.gz",
+      "bytes": 209445,
+      "sha256": "f5535d5578ce9353687169c42219e312967e86bd78ffad6ed9de78e8cc665f0d",
+      "gzipSha256": "25ca8db80275b2526f2a0c8aa67f1944d717070ed2c7db706a515468beb08c1e"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-18-35-314Z-6MjQC8/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-probe-2026-10-29T03-18-35-314Z-6MjQC8-shelf.json.gz",
+      "bytes": 4795,
+      "sha256": "f2a06b57bf54cde46db0ce3a84cfd10adf067d596f78b821fbbf7efe86dbc1a8",
+      "gzipSha256": "b64433865f06c405eb1d1304162563049393de3911d5f884d9c5973d7e3b3004"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-23-55-047Z-M6W3Mp/result.json",
+      "file": "retained-app-probe-2026-10-29T03-23-55-047Z-M6W3Mp.json.gz",
+      "bytes": 229669,
+      "sha256": "2a84b9e5027e66d5309eb4b3c33685eb925d0bba0d3ec0c604558b48b64ee0f5",
+      "gzipSha256": "53aba125a8a21dd189d6a339c99fea59781b320c9d8a5a341f51a1df359036a0"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-23-55-047Z-M6W3Mp/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-probe-2026-10-29T03-23-55-047Z-M6W3Mp-shelf.json.gz",
+      "bytes": 5198,
+      "sha256": "fe1c70376ef788aa6258d5b1dc97e3c6b82c2d9f58ed8e4044f67d7aeab60cf2",
+      "gzipSha256": "82b8a21b1eae69f9f81765885b096118930423d348ba188452c44c494b4898d8"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-28-39-904Z-Ngq6Oe/result.json",
+      "file": "retained-app-probe-2026-10-29T03-28-39-904Z-Ngq6Oe.json.gz",
+      "bytes": 180882,
+      "sha256": "5948dbc182e7acc8fde7ff30ac1d7c4cee03322a4ee4d423f8f7504303514bb8",
+      "gzipSha256": "4b8cb1c2808d6d7477f180035a3a471845534d63f83dd91147907050bfed15a2"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-28-39-904Z-Ngq6Oe/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-probe-2026-10-29T03-28-39-904Z-Ngq6Oe-shelf.json.gz",
+      "bytes": 4785,
+      "sha256": "bfcc30b4afd47f33af536288612b5f2bc6f40d830140d0aa6d660d23dcff0410",
+      "gzipSha256": "1579af131879e85b8b627814d64593ed08b98c99d391c6f7dd86335b3a638b50"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-29-17-436Z-WrTPzh/result.json",
+      "file": "retained-app-probe-2026-10-29T03-29-17-436Z-WrTPzh.json.gz",
+      "bytes": 180317,
+      "sha256": "7b953463f747da0566335230a82cda4275c847ed88ec0a08681b3f67506aa52b",
+      "gzipSha256": "3d7ed68d05ac24de044f7570b22a14312b3b39291c27f4cf824b463d27d4c311"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-29-17-436Z-WrTPzh/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-probe-2026-10-29T03-29-17-436Z-WrTPzh-shelf.json.gz",
+      "bytes": 4785,
+      "sha256": "beb6b0cddaa2a8f09a6fde7ee0d4df7fc6470d8a54053ab103dc161c1ca71c7a",
+      "gzipSha256": "f51a62bd340dce8c100eb73c8b8f6c0b76084e34b3342e50ee0b11a2bca7a050"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-30-39-387Z-sbw9YZ/result.json",
+      "file": "retained-app-probe-2026-10-29T03-30-39-387Z-sbw9YZ.json.gz",
+      "bytes": 229623,
+      "sha256": "18efc669f5081539c28905be28e2235831415e474065783ab59bc03a7cd00861",
+      "gzipSha256": "503902cad11e6a203aac7bee232cd0b432abb539fc272c3769281d6fa260734b"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-30-39-387Z-sbw9YZ/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-probe-2026-10-29T03-30-39-387Z-sbw9YZ-shelf.json.gz",
+      "bytes": 4410,
+      "sha256": "7da63e043293a3fe7f104c010d7695bc5ef7dbfae42423e95878eae9a678b15b",
+      "gzipSha256": "94852b38e4ffe192252e470273268f214aaaf54cb99eefe46dcde7e442e92ab5"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-39-15-459Z-EBWW8F/result.json",
+      "file": "retained-app-probe-2026-10-29T03-39-15-459Z-EBWW8F.json.gz",
+      "bytes": 45794,
+      "sha256": "436f9a9518caed0cf71c7187be7f623eb94da5cd4bb486139fb7b26ec7c646df",
+      "gzipSha256": "0108858a9d00d2da773b03cc6a062b211f7416fe4735c21c7282c94492eb29ce"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-39-15-459Z-EBWW8F/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-probe-2026-10-29T03-39-15-459Z-EBWW8F-shelf.json.gz",
+      "bytes": 4400,
+      "sha256": "71c3bbe6b0bb01a4a8e1a4ffde4c6aaa8728d3f41d15c0e577cca8ee85fa4746",
+      "gzipSha256": "05552bceebbdc34b90bc269e01396cec9cf2a57f6922f345f90d000b3d485cb8"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-39-56-167Z-1Y6Ej8/result.json",
+      "file": "retained-app-probe-2026-10-29T03-39-56-167Z-1Y6Ej8.json.gz",
+      "bytes": 211140,
+      "sha256": "8765ac41543d7b338d3b78a57fdaf5f70248e1fca243b424c0caf6a4685ac1f4",
+      "gzipSha256": "4514d05cbc80783327da004cf17c84ea38bb59ea2f256e74147392e2fbc84edf"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-39-56-167Z-1Y6Ej8/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-probe-2026-10-29T03-39-56-167Z-1Y6Ej8-shelf.json.gz",
+      "bytes": 4410,
+      "sha256": "67e20969ef5351194781db759b34e6054fa267ebc7fa6081f5c7738b75b76388",
+      "gzipSha256": "673241e71b274c0e8cc1d7666e9bd27fe88ee684c3463d0002ce4ff3ed56c5ce"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-42-03-991Z-dbgZtz/result.json",
+      "file": "retained-app-probe-2026-10-29T03-42-03-991Z-dbgZtz.json.gz",
+      "bytes": 251456,
+      "sha256": "fafd458aa005718b90fd39981ee772b768b65854d65f0bf25d59e1c3ecc5949d",
+      "gzipSha256": "f6b6e085bdebf3a9363289992c491b989a691a9c63bed8c03cc998bd28283a74"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-42-03-991Z-dbgZtz/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-probe-2026-10-29T03-42-03-991Z-dbgZtz-shelf.json.gz",
+      "bytes": 4410,
+      "sha256": "db04bf78b57d82ae9ea7a18e53d29441f9e7594aad91252ba51fa5971db2e5b0",
+      "gzipSha256": "b8eda45ce480ce77c3f9e5c1584b881a98feb19cdffc481c42085af06ee9ad9d"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-44-31-027Z-b0jkb0/result.json",
+      "file": "retained-app-probe-2026-10-29T03-44-31-027Z-b0jkb0.json.gz",
+      "bytes": 230302,
+      "sha256": "262b6ce116d73dfc0d6c023566a1f0038f18f8dcc1c9ddf8307f4a2808e933d7",
+      "gzipSha256": "3517437bd2dd11c7c7e70b658208f54c4660ed8c4157bff1f3747068f520cfc9"
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-44-31-027Z-b0jkb0/appData/lyshell-dev/config/task-shelf.json",
+      "file": "retained-app-probe-2026-10-29T03-44-31-027Z-b0jkb0-shelf.json.gz",
+      "bytes": 4813,
+      "sha256": "c39610c24649ef49fa4b7d4e6aca0a1a5e6407eab4adbabfeb9ca1e36b51ac12",
+      "gzipSha256": "f86c44e7c98ce29e866f405cc6f3f47e0921fd062fc40281579c8e8dd2efb5d2"
+    }
+  ],
+  "checks": {
+    "runtime": {
+      "cycles": 100,
+      "lateBlankCaptureChecks": 103,
+      "sourceSha256": {
+        "src/main/browser/shelf-browser-runtime.ts": "48c0eb4bd7b0e4c486303331f53f78a33f97eb101abde6dada85c84152e34596",
+        "src/main/browser/shelf-resource-lifecycle.ts": "7a46a9256d9883efb946a9d6016ff24b00175e1e615b4af98afef76e5ced2ff0",
+        "src/main/browser/shelf-reloadable-guard.ts": "1c26f7c9ac079c16b5a4a336c75e8b8bf4eaca6872a9fcc501fe9338c8df6e2c",
+        "src/main/browser/shelf-cancellable-close.ts": "21a164e2e23204da4d4b4122eb879f4e9f48632ba6810ec03eda6d67783e08bc"
+      },
+      "finalGuests": 3,
+      "stats": {
+        "resources": 4,
+        "metadataOnly": 0,
+        "live": 3,
+        "suspending": 0,
+        "sleeping": 1,
+        "restoring": 0,
+        "closed": 0,
+        "instances": 3,
+        "permits": 3,
+        "demands": 0
+      }
+    },
+    "gui": {
+      "revokeKeepsAlive": true,
+      "uiAndMainIPC": true,
+      "lateBlankCapturePersisted": true,
+      "nativeDialogResponsesSimulated": true
+    },
+    "guard": {
+      "cases": 42,
+      "checks": 270,
+      "sourceSha256": "1c26f7c9ac079c16b5a4a336c75e8b8bf4eaca6872a9fcc501fe9338c8df6e2c"
+    },
+    "navigation": {
+      "cases": 15,
+      "roundsPerCase": 3,
+      "validEvidence": 45,
+      "backendTurnEndEvidence": "navigation-terminal.json.gz",
+      "originalNativeApiCompletedReceipt": false
+    },
+    "fullApp": {
+      "currentSourceDigest": "3bbdc515579e67ddec97c28c8f8a0c286701299a1bd1e157e33ddece52708fb9",
+      "sourceFileCount": 928,
+      "measurements": [
+        {
+          "arm": "before",
+          "round": 1,
+          "sampleCount": 1376,
+          "allPhaseObservedPeakMiB": 1212.68,
+          "phases": {
+            "boot": {
+              "samples": 193,
+              "median": 456.01,
+              "mean": 482.03,
+              "peak": 798.88,
+              "min": 57.51,
+              "pidMedian": 6,
+              "typeMedianMiB": {
+                "Browser": 109.67,
+                "Utility": 12.81,
+                "GPU": 136.66,
+                "Tab": 195.05
+              }
+            },
+            "loaded": {
+              "samples": 28,
+              "median": 796.69,
+              "mean": 796.92,
+              "peak": 798.9,
+              "min": 794.43,
+              "pidMedian": 16,
+              "typeMedianMiB": {
+                "Browser": 115.96,
+                "GPU": 202.38,
+                "Utility": 13.58,
+                "Tab": 464.95
+              }
+            },
+            "transition": {
+              "samples": 54,
+              "median": 782.4,
+              "mean": 790.4,
+              "peak": 803.07,
+              "min": 776.82,
+              "pidMedian": 16,
+              "typeMedianMiB": {
+                "Browser": 115.47,
+                "GPU": 181.97,
+                "Utility": 13.58,
+                "Tab": 471.36
+              }
+            },
+            "sleep": {
+              "samples": 28,
+              "median": 770.65,
+              "mean": 749.84,
+              "peak": 777.07,
+              "min": 709.67,
+              "pidMedian": 16,
+              "typeMedianMiB": {
+                "Browser": 112.73,
+                "GPU": 176.27,
+                "Utility": 13.51,
+                "Tab": 468.19
+              }
+            },
+            "cycles": {
+              "samples": 1045,
+              "median": 1147.21,
+              "mean": 1095.08,
+              "peak": 1212.68,
+              "min": 753.83,
+              "pidMedian": 16,
+              "typeMedianMiB": {
+                "Browser": 116.28,
+                "GPU": 533.73,
+                "Utility": 13.51,
+                "Tab": 481.98
+              }
+            },
+            "final": {
+              "samples": 28,
+              "median": 1165.37,
+              "mean": 1167.18,
+              "peak": 1180.75,
+              "min": 1165.12,
+              "pidMedian": 16,
+              "typeMedianMiB": {
+                "Browser": 116,
+                "GPU": 518.33,
+                "Utility": 13.32,
+                "Tab": 517.69
+              }
+            }
+          },
+          "softFailures": []
+        },
+        {
+          "arm": "after",
+          "round": 1,
+          "sampleCount": 1699,
+          "allPhaseObservedPeakMiB": 825.43,
+          "phases": {
+            "boot": {
+              "samples": 191,
+              "median": 493.79,
+              "mean": 501.73,
+              "peak": 821.5,
+              "min": 60.68,
+              "pidMedian": 7,
+              "typeMedianMiB": {
+                "Browser": 112.54,
+                "Utility": 13.04,
+                "GPU": 144.78,
+                "Tab": 223.91
+              }
+            },
+            "loaded": {
+              "samples": 27,
+              "median": 816.85,
+              "mean": 817.49,
+              "peak": 820.6,
+              "min": 815.77,
+              "pidMedian": 16,
+              "typeMedianMiB": {
+                "Browser": 117.26,
+                "GPU": 204.38,
+                "Utility": 13.68,
+                "Tab": 481.52
+              }
+            },
+            "transition": {
+              "samples": 26,
+              "median": 817.27,
+              "mean": 740.5,
+              "peak": 825.43,
+              "min": 555.39,
+              "pidMedian": 15.5,
+              "typeMedianMiB": {
+                "Browser": 118.62,
+                "GPU": 204.66,
+                "Utility": 13.85,
+                "Tab": 480.41
+              }
+            },
+            "sleep": {
+              "samples": 28,
+              "median": 544.11,
+              "mean": 544.05,
+              "peak": 544.73,
+              "min": 542.47,
+              "pidMedian": 6,
+              "typeMedianMiB": {
+                "Browser": 119.67,
+                "GPU": 177,
+                "Utility": 14.01,
+                "Tab": 233.45
+              }
+            },
+            "cycles": {
+              "samples": 1399,
+              "median": 517,
+              "mean": 517.41,
+              "peak": 571.59,
+              "min": 464.32,
+              "pidMedian": 7,
+              "typeMedianMiB": {
+                "Browser": 115.42,
+                "GPU": 154.92,
+                "Utility": 13.5,
+                "Tab": 234.95
+              }
+            },
+            "final": {
+              "samples": 28,
+              "median": 487.84,
+              "mean": 488.03,
+              "peak": 490.59,
+              "min": 486.36,
+              "pidMedian": 6,
+              "typeMedianMiB": {
+                "Browser": 115.58,
+                "GPU": 149.93,
+                "Utility": 13.32,
+                "Tab": 209.02
+              }
+            }
+          },
+          "softFailures": []
+        },
+        {
+          "arm": "after",
+          "round": 2,
+          "sampleCount": 1698,
+          "allPhaseObservedPeakMiB": 831.207,
+          "phases": {
+            "boot": {
+              "samples": 188,
+              "median": 474.32,
+              "mean": 500.48,
+              "peak": 815.91,
+              "min": 58.02,
+              "pidMedian": 7,
+              "typeMedianMiB": {
+                "Browser": 109.14,
+                "Utility": 13.02,
+                "GPU": 142.47,
+                "Tab": 221
+              }
+            },
+            "loaded": {
+              "samples": 28,
+              "median": 800.53,
+              "mean": 801.11,
+              "peak": 804.45,
+              "min": 799.25,
+              "pidMedian": 16,
+              "typeMedianMiB": {
+                "Browser": 114.77,
+                "GPU": 206.55,
+                "Utility": 13.71,
+                "Tab": 465.51
+              }
+            },
+            "transition": {
+              "samples": 26,
+              "median": 749.1,
+              "mean": 703.56,
+              "peak": 831.21,
+              "min": 533.18,
+              "pidMedian": 13,
+              "typeMedianMiB": {
+                "Browser": 116.75,
+                "GPU": 205.66,
+                "Utility": 14.03,
+                "Tab": 409.79
+              }
+            },
+            "sleep": {
+              "samples": 27,
+              "median": 533.38,
+              "mean": 532.71,
+              "peak": 533.41,
+              "min": 530.42,
+              "pidMedian": 6,
+              "typeMedianMiB": {
+                "Browser": 116.98,
+                "GPU": 175.41,
+                "Utility": 14.03,
+                "Tab": 226.99
+              }
+            },
+            "cycles": {
+              "samples": 1400,
+              "median": 500.31,
+              "mean": 502.6,
+              "peak": 572.02,
+              "min": 449.85,
+              "pidMedian": 7,
+              "typeMedianMiB": {
+                "Browser": 112.72,
+                "GPU": 150.75,
+                "Utility": 13.54,
+                "Tab": 223.21
+              }
+            },
+            "final": {
+              "samples": 29,
+              "median": 479.95,
+              "mean": 479.81,
+              "peak": 481.32,
+              "min": 477.45,
+              "pidMedian": 6,
+              "typeMedianMiB": {
+                "Browser": 111.79,
+                "GPU": 147.56,
+                "Utility": 13.35,
+                "Tab": 206.9
+              }
+            }
+          },
+          "softFailures": []
+        },
+        {
+          "arm": "before",
+          "round": 2,
+          "sampleCount": 1375,
+          "allPhaseObservedPeakMiB": 1230.891,
+          "phases": {
+            "boot": {
+              "samples": 192,
+              "median": 464.23,
+              "mean": 499.02,
+              "peak": 805.96,
+              "min": 58.92,
+              "pidMedian": 6,
+              "typeMedianMiB": {
+                "Browser": 111.46,
+                "Utility": 12.98,
+                "GPU": 140.78,
+                "Tab": 208.41
+              }
+            },
+            "loaded": {
+              "samples": 28,
+              "median": 803.7,
+              "mean": 803.87,
+              "peak": 806.2,
+              "min": 802.41,
+              "pidMedian": 16,
+              "typeMedianMiB": {
+                "Browser": 116.61,
+                "GPU": 206.71,
+                "Utility": 13.66,
+                "Tab": 466.61
+              }
+            },
+            "transition": {
+              "samples": 54,
+              "median": 788.12,
+              "mean": 796.42,
+              "peak": 810.74,
+              "min": 784.03,
+              "pidMedian": 16,
+              "typeMedianMiB": {
+                "Browser": 116.64,
+                "GPU": 185.66,
+                "Utility": 13.66,
+                "Tab": 471.82
+              }
+            },
+            "sleep": {
+              "samples": 28,
+              "median": 774.82,
+              "mean": 751.21,
+              "peak": 784.11,
+              "min": 719.88,
+              "pidMedian": 16,
+              "typeMedianMiB": {
+                "Browser": 114.5,
+                "GPU": 177.75,
+                "Utility": 13.66,
+                "Tab": 468.94
+              }
+            },
+            "cycles": {
+              "samples": 1046,
+              "median": 1156.67,
+              "mean": 1105.99,
+              "peak": 1230.89,
+              "min": 757.55,
+              "pidMedian": 16,
+              "typeMedianMiB": {
+                "Browser": 117.67,
+                "GPU": 532.55,
+                "Utility": 13.59,
+                "Tab": 494.68
+              }
+            },
+            "final": {
+              "samples": 27,
+              "median": 1186.84,
+              "mean": 1187.68,
+              "peak": 1191.65,
+              "min": 1184.63,
+              "pidMedian": 16,
+              "typeMedianMiB": {
+                "Browser": 117.34,
+                "GPU": 529.49,
+                "Utility": 13.47,
+                "Tab": 526.45
+              }
+            }
+          },
+          "softFailures": []
+        },
+        {
+          "arm": "before",
+          "round": 3,
+          "sampleCount": 1371,
+          "allPhaseObservedPeakMiB": 1212.883,
+          "phases": {
+            "boot": {
+              "samples": 188,
+              "median": 488.65,
+              "mean": 503.09,
+              "peak": 803.57,
+              "min": 57.34,
+              "pidMedian": 7,
+              "typeMedianMiB": {
+                "Browser": 109.46,
+                "Utility": 13.08,
+                "GPU": 146.02,
+                "Tab": 218.67
+              }
+            },
+            "loaded": {
+              "samples": 27,
+              "median": 795.68,
+              "mean": 796.19,
+              "peak": 798.24,
+              "min": 794.55,
+              "pidMedian": 16,
+              "typeMedianMiB": {
+                "Browser": 115.45,
+                "GPU": 199.83,
+                "Utility": 13.77,
+                "Tab": 466.56
+              }
+            },
+            "transition": {
+              "samples": 55,
+              "median": 778.06,
+              "mean": 787.03,
+              "peak": 803.25,
+              "min": 771.69,
+              "pidMedian": 16,
+              "typeMedianMiB": {
+                "Browser": 115.52,
+                "GPU": 176.4,
+                "Utility": 13.77,
+                "Tab": 471.44
+              }
+            },
+            "sleep": {
+              "samples": 27,
+              "median": 767.01,
+              "mean": 748.41,
+              "peak": 771.96,
+              "min": 708.32,
+              "pidMedian": 16,
+              "typeMedianMiB": {
+                "Browser": 112.76,
+                "GPU": 171.31,
+                "Utility": 13.77,
+                "Tab": 469.2
+              }
+            },
+            "cycles": {
+              "samples": 1046,
+              "median": 1144.82,
+              "mean": 1093.53,
+              "peak": 1212.88,
+              "min": 708.82,
+              "pidMedian": 16,
+              "typeMedianMiB": {
+                "Browser": 115.88,
+                "GPU": 529.12,
+                "Utility": 13.7,
+                "Tab": 483.3
+              }
+            },
+            "final": {
+              "samples": 28,
+              "median": 1171.24,
+              "mean": 1171.12,
+              "peak": 1175.08,
+              "min": 1168.6,
+              "pidMedian": 16,
+              "typeMedianMiB": {
+                "Browser": 115.62,
+                "GPU": 524.28,
+                "Utility": 13.47,
+                "Tab": 517.94
+              }
+            }
+          },
+          "softFailures": []
+        },
+        {
+          "arm": "after",
+          "round": 3,
+          "sampleCount": 1678,
+          "allPhaseObservedPeakMiB": 830.633,
+          "phases": {
+            "boot": {
+              "samples": 190,
+              "median": 460.13,
+              "mean": 494.79,
+              "peak": 809.66,
+              "min": 57.22,
+              "pidMedian": 6,
+              "typeMedianMiB": {
+                "Browser": 109.3,
+                "Utility": 12.92,
+                "GPU": 134.32,
+                "Tab": 219.23
+              }
+            },
+            "loaded": {
+              "samples": 27,
+              "median": 807.71,
+              "mean": 807.58,
+              "peak": 808.66,
+              "min": 805.83,
+              "pidMedian": 16,
+              "typeMedianMiB": {
+                "Browser": 114.25,
+                "GPU": 200.99,
+                "Utility": 13.61,
+                "Tab": 479.16
+              }
+            },
+            "transition": {
+              "samples": 26,
+              "median": 670.61,
+              "mean": 674.59,
+              "peak": 830.63,
+              "min": 540.87,
+              "pidMedian": 10,
+              "typeMedianMiB": {
+                "Browser": 117.26,
+                "GPU": 199.22,
+                "Utility": 13.93,
+                "Tab": 338.04
+              }
+            },
+            "sleep": {
+              "samples": 28,
+              "median": 541.38,
+              "mean": 541.13,
+              "peak": 541.63,
+              "min": 540.52,
+              "pidMedian": 6,
+              "typeMedianMiB": {
+                "Browser": 118.07,
+                "GPU": 175.44,
+                "Utility": 13.93,
+                "Tab": 234.19
+              }
+            },
+            "cycles": {
+              "samples": 1380,
+              "median": 520.1,
+              "mean": 519.43,
+              "peak": 568.2,
+              "min": 469.78,
+              "pidMedian": 7,
+              "typeMedianMiB": {
+                "Browser": 113.49,
+                "GPU": 150.92,
+                "Utility": 13.49,
+                "Tab": 243.04
+              }
+            },
+            "final": {
+              "samples": 27,
+              "median": 494.48,
+              "mean": 499.11,
+              "peak": 527.6,
+              "min": 494.36,
+              "pidMedian": 6,
+              "typeMedianMiB": {
+                "Browser": 110.66,
+                "GPU": 150.98,
+                "Utility": 13.26,
+                "Tab": 219.57
+              }
+            }
+          },
+          "softFailures": []
+        }
+      ],
+      "deltas": [
+        {
+          "phase": "boot",
+          "beforeMiB": 464.23,
+          "afterMiB": 474.32,
+          "deltaMiB": 10.09,
+          "deltaPct": 2.17
+        },
+        {
+          "phase": "loaded",
+          "beforeMiB": 796.69,
+          "afterMiB": 807.71,
+          "deltaMiB": 11.02,
+          "deltaPct": 1.38
+        },
+        {
+          "phase": "transition",
+          "beforeMiB": 782.4,
+          "afterMiB": 749.1,
+          "deltaMiB": -33.3,
+          "deltaPct": -4.26
+        },
+        {
+          "phase": "sleep",
+          "beforeMiB": 770.65,
+          "afterMiB": 541.38,
+          "deltaMiB": -229.27,
+          "deltaPct": -29.75
+        },
+        {
+          "phase": "cycles",
+          "beforeMiB": 1147.21,
+          "afterMiB": 517,
+          "deltaMiB": -630.21,
+          "deltaPct": -54.93
+        },
+        {
+          "phase": "final",
+          "beforeMiB": 1171.24,
+          "afterMiB": 487.84,
+          "deltaMiB": -683.4,
+          "deltaPct": -58.35
+        }
+      ],
+      "latency": {
+        "before": {
+          "samples": 102,
+          "readyMs": {
+            "n": 102,
+            "p50": 429.5,
+            "p95": 464,
+            "min": 394,
+            "max": 1017
+          },
+          "wheelMs": {
+            "n": 102,
+            "p50": 1749.5,
+            "p95": 1777,
+            "min": 1535,
+            "max": 1793
+          },
+          "observers": {
+            "guest-input-event-fallback": 102
+          },
+          "definition": {
+            "readyMs": "cycle start (real clock) -> page presented through the real shelf UI, live, content+session verified, input gate interactive, activation checked",
+            "wheelMs": "full software wheel scenario including setup, failed main-window attempt, fallback/retry and 25ms polling -> observed movement; not hardware latency",
+            "wheelDelivery": "attempt order: main-window webContents.sendInputEvent -> guest webContents.sendInputEvent (two ticks) -> scroll reset + guest tick. The recorded observer counts show which delivery actually reached the page; the main-window wheel does not reach a webview guest in this build, so samples are dominated by guest-level software input",
+            "excluded": "no read-only scroll IPC exists in ordinary mode and none is fabricated; keyboard/IME/OS-hardware input latency is NOT claimed"
+          }
+        },
+        "after": {
+          "samples": 102,
+          "readyMs": {
+            "n": 102,
+            "p50": 951,
+            "p95": 1407,
+            "min": 386,
+            "max": 1529
+          },
+          "wheelMs": {
+            "n": 102,
+            "p50": 1754,
+            "p95": 1772,
+            "min": 1532,
+            "max": 1786
+          },
+          "observers": {
+            "guest-input-event-fallback": 102
+          },
+          "definition": {
+            "readyMs": "cycle start (real clock) -> page presented through the real shelf UI, live, content+session verified, input gate interactive, activation checked",
+            "wheelMs": "full software wheel scenario including setup, failed main-window attempt, fallback/retry and 25ms polling -> observed movement; not hardware latency",
+            "wheelDelivery": "attempt order: main-window webContents.sendInputEvent -> guest webContents.sendInputEvent (two ticks) -> scroll reset + guest tick. The recorded observer counts show which delivery actually reached the page; the main-window wheel does not reach a webview guest in this build, so samples are dominated by guest-level software input",
+            "excluded": "no read-only scroll IPC exists in ordinary mode and none is fabricated; keyboard/IME/OS-hardware input latency is NOT claimed"
+          }
+        }
+      }
+    }
+  },
+  "retainedRuns": [
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-07-14-866Z-r1-before-rD7944/result.json",
+      "ok": false,
+      "error": "reading-1 ordinary content mismatch :: {\"title\":\"Reading 1\",\"scriptRan\":true,\"index\":1,\"proof\":\"js-ok\",\"auth\":\"signed-out\",\"authState\":\"signed-out\",\"cookiePresent\":true,\"authVisible\":false,\"ready\":\"complete\",\"scrollHeight\":4435,\"scrollY\":0,\"zoom\":1}",
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-09-05-190Z-r1-before-6MPTAE/result.json",
+      "ok": false,
+      "error": "wheel did not scroll reading-1 :: start=664 observed={\"y\":664,\"at\":35476.80000001192}",
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-38-58-294Z-r1-before-MqiAf7/result.json",
+      "ok": false,
+      "error": "no native guest after presenting reading-1",
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-46-29-564Z-r1-after-Y63lyg/result.json",
+      "ok": false,
+      "error": "assertion failed: reading-1 sleep metadata keeps zoom :: {\"metaZoom\":1,\"expected\":0.9}",
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-46-29-564Z-r1-before-plfbK6/result.json",
+      "ok": true,
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-59-04-635Z-r1-after-j5vI7v/result.json",
+      "ok": false,
+      "error": "assertion failed: cycle 1 restored scroll matches saved scroll reading-2 :: {\"scrollY\":803.2000122070312,\"metaScrollY\":873,\"delta\":-70,\"settled\":false}",
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T03-59-04-635Z-r1-before-IT4DjF/result.json",
+      "ok": true,
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-11-55-498Z-r1-after-BCdFUe/result.json",
+      "ok": true,
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-11-55-498Z-r1-before-2cMkpq/result.json",
+      "ok": true,
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-17-21-516Z-r1-before-wkM76P/result.json",
+      "ok": true,
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-28-55-737Z-r1-after-pjHupy/result.json",
+      "ok": true,
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-28-55-737Z-r1-before-8pTl56/result.json",
+      "ok": true,
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-30-56-478Z-r1-after-4ECwIv/result.json",
+      "ok": false,
+      "error": "timeout waiting for saved:reading-9 state=sleeping",
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-30-56-478Z-r1-before-RIMOz9/result.json",
+      "ok": true,
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-43-59-490Z-r1-after-WVjvlE/result.json",
+      "ok": true,
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-48-45-495Z-r1-after-Mpn3Cx/result.json",
+      "ok": false,
+      "error": "cycle 6 missing rewritten sleep metadata reading-7",
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/2026-10-29T04-48-45-495Z-r1-before-dSyVim/result.json",
+      "ok": true,
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-05-57-849Z-1Hyj1K/result.json",
+      "ok": false,
+      "error": "protocol.registerSchemesAsPrivileged should be called before app is ready",
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-06-36-237Z-4tgaG0/result.json",
+      "ok": true,
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-08-16-054Z-04eufN/result.json",
+      "ok": true,
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-14-32-744Z-jl0dfZ/result.json",
+      "ok": true,
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-16-09-143Z-Zd3e9q/result.json",
+      "ok": true,
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-18-35-314Z-6MjQC8/result.json",
+      "ok": true,
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-23-55-047Z-M6W3Mp/result.json",
+      "ok": true,
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-28-39-904Z-Ngq6Oe/result.json",
+      "ok": false,
+      "error": "no ordinary-page presentation for saved:reading-1 ([{\"candidate\":\"main-button\",\"message\":\"timeout waiting for expand-to-main action for reading-1\"}])",
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-29-17-436Z-WrTPzh/result.json",
+      "ok": false,
+      "error": "no ordinary-page presentation for saved:reading-1 ([{\"candidate\":\"main-button\",\"message\":\"timeout waiting for expand-to-main action for reading-1\"}])",
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-30-39-387Z-sbw9YZ/result.json",
+      "ok": true,
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-39-15-459Z-EBWW8F/result.json",
+      "ok": false,
+      "error": "probe: no native guest",
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-39-56-167Z-1Y6Ej8/result.json",
+      "ok": true,
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-42-03-991Z-dbgZtz/result.json",
+      "ok": false,
+      "error": "no ordinary-page presentation for saved:reading-1 ([{\"candidate\":\"main-button\",\"message\":\"timeout waiting for presented saved:reading-1\"}])",
+      "includedInComparison": false
+    },
+    {
+      "source": "tmp/reloadable-app/probe-2026-10-29T03-44-31-027Z-b0jkb0/result.json",
+      "ok": true,
+      "includedInComparison": false
+    }
+  ]
+}

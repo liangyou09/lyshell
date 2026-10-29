@@ -159,6 +159,7 @@ export class ExclusiveControlService {
       phase: this.phase,
       binding: this.binding ? { ...this.binding } : null,
       activeTask: this.activeTask ? { ...this.activeTask } : null,
+      interruptedTasks: this.interruptedTasks.map(entry => ({ ...entry, task: { ...entry.task } })),
       pendingApproval: approvals.length > 0 ? approvals[0] : null,
       approvals,
       transcript: this.transcript.map((entry) => ({ ...entry })),
@@ -182,6 +183,22 @@ export class ExclusiveControlService {
   /** 是否处于「已撤销、等桥确认」状态（S4 只读显示用；此期间 Pet 绑定仍待确认；Web 继续可操作）。 */
   get isReleasing(): boolean {
     return this.phase === 'releasing'
+  }
+
+  private readonly interruptedTasks: NonNullable<ExclusiveControlSnapshot['interruptedTasks']> = []
+
+  /** 只对宿主已确认的新实例解除旧绑定；网络超时/null 不能作为换代证据。 */
+  private discardReplacedBinding(): boolean {
+    const current = this.deps.currentInstance(), binding = this.binding
+    if (!binding || !current || current.instanceId === binding.instanceId && current.instanceEpoch === binding.instanceEpoch) return false
+    if (this.activeTask && this.isTaskOpen(this.activeTask)) {
+      this.interruptedTasks.push({ task: { ...this.activeTask }, outcome: 'unknown', detectedAt: this.now() })
+      if (this.interruptedTasks.length > 64) this.interruptedTasks.shift()
+    }
+    this.activeTask = null
+    this.revokedEpoch = Math.max(this.revokedEpoch, binding.epoch)
+    this.dropBinding('control/revoked', binding.epoch, 'Backend replaced; previous task outcome unknown')
+    return true
   }
 
   /**
@@ -263,6 +280,7 @@ export class ExclusiveControlService {
     this.lastAllocatedEpoch = epoch
     const bindingId = randomUUID()
     return this.admit(async () => {
+      this.discardReplacedBinding()
       if (this.binding) {
         // 同一插件实例重复 acquire 幂等（复用当前绑定，不换 epoch、不重启后台）
         if (this.binding.pluginId === input.pluginId && this.binding.pluginInstanceId === input.pluginInstanceId) {
@@ -342,6 +360,7 @@ export class ExclusiveControlService {
         return await this.releaseBridgeHolding('control/revoked', epoch, 'revoked during acquire')
       }
       this.phase = 'held'
+      this.applyBridgeTask(outcome.task, epoch)
       this.pushEvent({ type: 'control/acquired', epoch })
       log.info(`[Exclusive] acquired by ${input.pluginId} (epoch ${epoch})`)
       return { ok: true as const, binding: { ...this.binding }, snapshot: this.snapshot() }
@@ -377,7 +396,7 @@ export class ExclusiveControlService {
   }
 
   /**
-   * 显式交回控制：等桥**确认**（真实回合结束）后才解绑并清 lease。
+   * 显式交回连接：等桥确认解绑后清 lease；不停止已接受的回合。
    * 桥失败 ⇒ 保留 held 并报明确错误（不假成功、不自造 cancelled）；后台不 kill。
    */
   async release(epoch: number): Promise<ExclusiveResult<{ snapshot: ExclusiveControlSnapshot }>> {
@@ -404,7 +423,7 @@ export class ExclusiveControlService {
 
   /**
    * 插件撤销路径（禁用/卸载/host token 撤销）：**立即**拒绝旧请求并停止接受新绑定，
-   * 再走桥 release（桥会真实取消官方回合）。桥未确认期间保持撤销中（phase 不为 free），
+   * 再走桥 release（任务继续，审批交回官方权限链）。桥未确认期间保持撤销中（phase 不为 free），
    * 不假 free；共享后台继续活着（只解租约，不 kill）。
    */
   revoke(reason: string): void {
@@ -471,6 +490,7 @@ export class ExclusiveControlService {
   }
 
   private requireEpoch(epoch: number): ExclusiveFail | null {
+    this.discardReplacedBinding()
     if (!this.binding) {
       return { ok: false, code: 'control/not-held', error: 'exclusive control is not held', snapshot: this.snapshot() }
     }
@@ -814,6 +834,7 @@ export class ExclusiveControlService {
    * **不**继续报旧的 held 快照。桥不可达同样明确失败（不 local fallback、不盲重发）。
    */
   async syncFromBridge(): Promise<{ ok: true } | { ok: false; code: ExclusiveErrorCode; error: string }> {
+    if (this.discardReplacedBinding()) return { ok: false, code: 'auth/generation-stale', error: 'Backend replaced; old task outcome unknown; reacquire without resubmitting' }
     if (!this.binding) return { ok: true }
     const epoch = this.binding.epoch
     const boundInstance = this.binding.instanceId
@@ -932,7 +953,7 @@ export class ExclusiveControlService {
       // 本地还没有任务（例如主进程重启后首次同步）：采纳桥的真实状态
       this.activeTask = { ...task }
     } else {
-      if (current.state === task.state && current.endedAt === task.endedAt) {
+      if (current.state === task.state && current.endedAt === task.endedAt && current.epoch === task.epoch) {
         if (task.diagnostic) this.activeTask = { ...current, diagnostic: task.diagnostic }
         return
       }

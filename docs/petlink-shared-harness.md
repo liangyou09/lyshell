@@ -10,15 +10,15 @@ LyShell 复用已有兼容 Web 实例，不存在时按需启动一个。Pet 模
 
 Pet 显式详情动作先挂载主区域页签，再等待官方导航回执，用本次 requestId/revision 的真实 ack 确认落地。共享状态由无界面轮询维护：held/releasing 时页签名为 `dsh & petlink`，释放后恢复原名称；工作台顶部不再显示状态条或“回到 Pet 任务会话”按钮，返回任务通过 Pet 的显式详情入口完成。轮询失败保留最后成功读取的状态，不把缓存快照当作新状态。用户浏览推进 revision，陈旧导航请求作废；重复推送不抢回已浏览位置，单页签不会因重复详情重载或重启后台。
 
-关闭详情页签只 detach，任务继续。普通推送和轮询尊重关闭记录；Pet 再次显式请求详情时，携带独立的 `reopen` 标记重建页签，已有页签则聚焦，后台继续复用。IPC 的普通 `force` 补发不清除关闭记录，避免重开链路递归或自动弹回。Pet release、插件撤销和正常退出释放 Pet 自身绑定，不杀共享后台。LyShell 正常退出回收其 owned 进程树。托管 holder 存在时显式 `dsh:web:open` 走复用路径，异工作区/启动配置冲突会明确拒绝，避免重开中断后台。该进程保护不限制官方 Web 的任务输入和配置功能。
+关闭详情页签只 detach，任务继续。普通推送和轮询尊重关闭记录；Pet 再次显式请求详情时，携带独立的 `reopen` 标记重建页签，已有页签则聚焦，后台继续复用。IPC 的普通 `force` 补发不清除关闭记录，避免重开链路递归或自动弹回。Pet release、插件撤销和 Pet 正常退出只释放 Pet 自身绑定，不取消任务、不杀共享后台；停止任务使用独立 cancel。未决审批交回官方审批链，绝不自动批准。LyShell 正常退出回收其 owned 进程树。托管 holder 存在时显式 `dsh:web:open` 走复用路径，异工作区/启动配置冲突会明确拒绝，避免重开中断后台。该进程保护不限制官方 Web 的任务输入和配置功能。
 
 两端沿用官方 agent loop。同一会话上的同时提交、停止与配置修改按官方行为处理，当前不保证区分所有并发回合副作用。Pet 仍验证 sessionId/taskId/epoch/approvalId，防止陈旧 Pet 请求误作用到新任务。
 
-断线保留已知进度，报明确错误，不自动 fallback 或重发未知 submit。恢复先读取权威快照；原任务已接受则继续跟踪，未知结果仍不允许盲重发。禁用/卸载撤销 host token 和 Pet 未决审批；重新启用通过新连接器交接新凭据。强杀或持续不可达不保证即时 release。
+断线保留已知进度，报明确错误，不自动 fallback 或重发未知 submit。恢复先读取权威快照；原任务已接受则继续跟踪，未知结果仍不允许盲重发。禁用/卸载撤销 host token，Pet 未决审批交回官方处理且旧审批 ID 失效；重新启用通过新连接器交接新凭据。强杀或持续不可达不保证即时 release。
 
 ## 协议、凭据和兼容
 
-- 桥协议 2，包版本 0.3.0。`resources/dsh-bridge` 随 LyShell 位于 asar 外；运行期 owned patch 经 `dsh web --patch <abs> --port 0 --no-open` 加载，不改官方 dsh 包或用户 profile。
+- 桥协议 2，包版本 0.4.0。`resources/dsh-bridge` 随 LyShell 位于 asar 外；运行期 owned patch 经 `dsh web --patch <abs> --port 0 --no-open` 加载，不改官方 dsh 包或用户 profile。
 - `/api/exclusive-control` 与 `Exclusive*` 是历史保留名字，实际语义是 Pet 任务绑定。所有相位的 `readOnly=false`，viewer `gatedPaths=[]`。历史 gate/approval-decision 路由常量未注册，`LYSHELL_EXCLUSIVE_*` 未注入；保留的 dshBridge token API 当前没有生产 bind 调用。
 - Pet HTTP 变更/事件/详情要求已启用 `aipet` 的真实 host token（`x-lyshell-token`）。global/session/UI/其他插件不能冒充。已鉴权 snapshot 读面包含有界工作输出，不匿名开放，也不授予任务写权限。
 - 主进程桥用独立随机 `x-lyshell-harness-key`。桥从 spawn env 捕获后立即删除环境键；官方工具子进程不继承。token/key 不进入状态、日志、模型、URL 或用户设置。
@@ -35,3 +35,10 @@ Pet 显式详情动作先挂载主区域页签，再等待官方导航回执，�
 4. 核对一个后台、重复详情同页签、Web 输入/新建/历史、Pet 原生审批。单独启动 Pet 应仍 local，即使 LyShell 外部 HTTP 已启用或共用 DSH_HOME。
 
 本次只交付 checkout 代码与文档，未安装、打包或替换正式实例。最终证据保存在相邻 AIPet checkout 的 `artifacts/lyshell-harness-host/S7-report.md`，详列真实完整应用与 fixture 的各自验证边界；不宣称线上模型故障已修复。
+
+## 宿主稳定性边界（2026-10-29）
+
+- 后台由 LyShell 持有，不能随最后一个插件租约释放而退出。PetLink 的连接、绑定代际和审批路由独立于后台生命周期与原生任务记录。
+- Pet release/revoke 不再隐式调用官方 session-wide cancel；已接受的工作继续，审批回到官方权限链。需要停止 Pet 自己的回合时，先显式 cancel 并跟踪正式终态。
+- 宿主确认新 backend identity 后，旧 Pet 绑定失效、旧审批清空；旧活动任务进入 snapshot.interruptedTasks（outcome:unknown），不会谎报 cancelled/completed。重新 acquire 仅建立新绑定，不重发旧任务。桥短暂不可达或 identity 未知时不能判定换代。
+- 原生工作具备独立的持久日志与 recover/resume 协议，详见 native-harness-work.md。共享 dsh 进程仍共享计算资源，本次保证生命周期/权限隔离与可追踪恢复，不宣称进程级内存故障零影响。

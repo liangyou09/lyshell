@@ -100,7 +100,7 @@ export interface WebTabPopupRequest {
 // 用于「继续」时定位界面上已有的实例；不参与持久化，也不承载命令/进程/凭据。
 export type OverlayPayload = { ownerPluginId?: string; projectSceneKey?: string; projectSceneId?: string; projectSceneEntry?: SceneEntry } & (
   | { kind: 'projectEntry'; target: SceneTarget; entry: SceneEntry; launch?: { status: 'pending' | 'unknown' } | { status: 'accepted'; sessionId: string } }
-  | { kind: 'web'; url: string; title: string; favicon?: string; nav?: WebTabNav; postToken?: string; fromPost?: boolean; shelfTaskId?: string }
+  | { kind: 'web'; url: string; title: string; favicon?: string; nav?: WebTabNav; postToken?: string; fromPost?: boolean; shelfTaskId?: string; readonlyMode?: boolean; reloadableMode?: boolean }
   | { kind: 'doc' } & DocOverlayPayload
   | {
       kind: 'dshWeb'

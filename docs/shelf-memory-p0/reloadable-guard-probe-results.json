@@ -1,0 +1,6553 @@
+{
+  "schema": 1,
+  "kind": "reloadable-guard-real-electron-probe",
+  "status": "completed",
+  "startedAt": "2026-10-29T01:34:11.062Z",
+  "startedAtMs": 1793237651063,
+  "versions": {
+    "node": "24.21.0",
+    "acorn": "8.18.0",
+    "ada": "4.0.0",
+    "amaro": "1.1.11",
+    "ares": "1.34.8",
+    "brotli": "1.2.0",
+    "cldr": "48.0",
+    "icu": "78.2",
+    "llhttp": "9.4.3",
+    "merve": "1.2.2",
+    "modules": "148",
+    "napi": "10",
+    "nbytes": "0.1.4",
+    "ncrypto": "0.0.1",
+    "nghttp2": "1.70.0",
+    "nghttp3": "",
+    "ngtcp2": "",
+    "openssl": "0.0.0",
+    "simdjson": "4.6.7",
+    "simdutf": "7.7.0",
+    "sqlite": "3.53.4",
+    "tz": "2026d",
+    "undici": "7.29.1",
+    "unicode": "17.0",
+    "uv": "1.52.1",
+    "uvwasi": "0.0.23",
+    "v8": "15.0.245.31-electron.0",
+    "zlib": "1.3.2.1-motley",
+    "zstd": "1.6.0",
+    "electron": "43.7.11",
+    "chrome": "150.0.7871.250"
+  },
+  "runtime": {
+    "appData": "tmp\\reloadable-guard-probe\\appData",
+    "userData": "tmp\\reloadable-guard-probe\\userData",
+    "sessionData": "tmp\\reloadable-guard-probe\\sessionData",
+    "isolatedProfile": true,
+    "network": {
+      "bind": "127.0.0.1",
+      "hostOverride": "shelf-fixture.test -> 127.0.0.1",
+      "externalCalls": "none by design"
+    },
+    "electronFromPackage": "43.7.11",
+    "node": "v24.15.0",
+    "platform": "win32",
+    "arch": "x64",
+    "cpu": "Intel(R) Core(TM) i5-10505 CPU @ 3.20GHz",
+    "hostResolver": "host-resolver-rules: MAP shelf-fixture.test 127.0.0.1"
+  },
+  "apiObservations": {
+    "serviceWorkers": {
+      "hasServiceWorkers": true,
+      "typeOfGetAllRunning": "function",
+      "returnKind": "plain",
+      "keys": 0,
+      "prototype": "Object"
+    },
+    "mainFrame": {
+      "present": true,
+      "framesIsArray": true,
+      "framesLength": 1,
+      "firstIsMainFrame": true,
+      "processId": 4,
+      "routingId": 1
+    },
+    "session": {
+      "partition": "persist:webbar",
+      "sameInstance": true,
+      "isPersistent": true,
+      "readonly": false
+    },
+    "inject": {
+      "isolatedWorldId": 1005,
+      "hasExecuteJavaScriptInIsolatedWorld": true,
+      "userGestureParamSupported": true,
+      "isolatedWorldGlobals": {
+        "userActivation": true,
+        "readyState": "complete",
+        "top": true,
+        "isolatedGlobalMarker": "object"
+      }
+    },
+    "framesInSubtree": {
+      "present": true,
+      "isArray": true,
+      "length": 1,
+      "firstIsMainFrame": true,
+      "elementTypes": [
+        "WebFrameMain"
+      ]
+    },
+    "iframeFramesInSubtree": {
+      "isArray": true,
+      "length": 2,
+      "elementTypes": [
+        "WebFrameMain",
+        "WebFrameMain"
+      ]
+    },
+    "debugger": {
+      "hasDebugger": true,
+      "isAttached": true,
+      "attachError": null
+    }
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "at": "2026-10-29T01:34:23.189Z",
+      "cases": [
+        {
+          "name": "clean-no-activation",
+          "pass": true,
+          "durationMs": 271
+        },
+        {
+          "name": "clean-with-activation",
+          "pass": true,
+          "durationMs": 434
+        },
+        {
+          "name": "same-url-get-reload",
+          "pass": true,
+          "durationMs": 848
+        },
+        {
+          "name": "navigation-rotates-nonce",
+          "pass": true,
+          "durationMs": 390
+        },
+        {
+          "name": "control-added-then-removed",
+          "pass": true,
+          "durationMs": 1248
+        },
+        {
+          "name": "file-input-present",
+          "pass": true,
+          "durationMs": 401
+        },
+        {
+          "name": "iframe-present",
+          "pass": true,
+          "durationMs": 1062
+        },
+        {
+          "name": "post-request-observed",
+          "pass": true,
+          "durationMs": 404
+        },
+        {
+          "name": "pending-get",
+          "pass": true,
+          "durationMs": 685
+        },
+        {
+          "name": "explicit-block-during-snapshot",
+          "pass": true,
+          "durationMs": 400
+        },
+        {
+          "name": "input-not-prevented",
+          "pass": true,
+          "durationMs": 839
+        },
+        {
+          "name": "scroll-restore",
+          "pass": true,
+          "durationMs": 2190
+        },
+        {
+          "name": "debugger-attached",
+          "pass": true,
+          "durationMs": 1177
+        },
+        {
+          "name": "download-observed",
+          "pass": true,
+          "durationMs": 1020
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "at": "2026-10-29T01:34:34.612Z",
+      "cases": [
+        {
+          "name": "clean-no-activation",
+          "pass": true,
+          "durationMs": 286
+        },
+        {
+          "name": "clean-with-activation",
+          "pass": true,
+          "durationMs": 438
+        },
+        {
+          "name": "same-url-get-reload",
+          "pass": true,
+          "durationMs": 851
+        },
+        {
+          "name": "navigation-rotates-nonce",
+          "pass": true,
+          "durationMs": 392
+        },
+        {
+          "name": "control-added-then-removed",
+          "pass": true,
+          "durationMs": 1317
+        },
+        {
+          "name": "file-input-present",
+          "pass": true,
+          "durationMs": 391
+        },
+        {
+          "name": "iframe-present",
+          "pass": true,
+          "durationMs": 1070
+        },
+        {
+          "name": "post-request-observed",
+          "pass": true,
+          "durationMs": 404
+        },
+        {
+          "name": "pending-get",
+          "pass": true,
+          "durationMs": 667
+        },
+        {
+          "name": "explicit-block-during-snapshot",
+          "pass": true,
+          "durationMs": 406
+        },
+        {
+          "name": "input-not-prevented",
+          "pass": true,
+          "durationMs": 819
+        },
+        {
+          "name": "scroll-restore",
+          "pass": true,
+          "durationMs": 2200
+        },
+        {
+          "name": "debugger-attached",
+          "pass": true,
+          "durationMs": 1144
+        },
+        {
+          "name": "download-observed",
+          "pass": true,
+          "durationMs": 1037
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "at": "2026-10-29T01:34:46.018Z",
+      "cases": [
+        {
+          "name": "clean-no-activation",
+          "pass": true,
+          "durationMs": 281
+        },
+        {
+          "name": "clean-with-activation",
+          "pass": true,
+          "durationMs": 405
+        },
+        {
+          "name": "same-url-get-reload",
+          "pass": true,
+          "durationMs": 887
+        },
+        {
+          "name": "navigation-rotates-nonce",
+          "pass": true,
+          "durationMs": 403
+        },
+        {
+          "name": "control-added-then-removed",
+          "pass": true,
+          "durationMs": 1247
+        },
+        {
+          "name": "file-input-present",
+          "pass": true,
+          "durationMs": 404
+        },
+        {
+          "name": "iframe-present",
+          "pass": true,
+          "durationMs": 1071
+        },
+        {
+          "name": "post-request-observed",
+          "pass": true,
+          "durationMs": 406
+        },
+        {
+          "name": "pending-get",
+          "pass": true,
+          "durationMs": 671
+        },
+        {
+          "name": "explicit-block-during-snapshot",
+          "pass": true,
+          "durationMs": 420
+        },
+        {
+          "name": "input-not-prevented",
+          "pass": true,
+          "durationMs": 826
+        },
+        {
+          "name": "scroll-restore",
+          "pass": true,
+          "durationMs": 2175
+        },
+        {
+          "name": "debugger-attached",
+          "pass": true,
+          "durationMs": 1190
+        },
+        {
+          "name": "download-observed",
+          "pass": true,
+          "durationMs": 1020
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "name": "clean-no-activation",
+      "expected": "blocked:no-user-activation（导航后旧 latch 必须消失）",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/clean",
+        "requested": "http://shelf-fixture.test:54091/clean"
+      },
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "no-user-activation"
+          ],
+          "url": "http://shelf-fixture.test:54091/clean",
+          "documentNonce": "a442aeceaec8ab818ddbdeca081c8c73",
+          "scrollY": 0
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "no-user-activation"
+        ],
+        "url": "http://shelf-fixture.test:54091/clean",
+        "documentNonce": "a442aeceaec8ab818ddbdeca081c8c73",
+        "scrollY": 0
+      },
+      "checks": {
+        "navigation-completed": true,
+        "not-safe-without-activation": true,
+        "no-user-activation-code": true,
+        "previous-latch-cleared": true,
+        "page-javascript-ran": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "not-safe-without-activation",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "no-user-activation-code",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "previous-latch-cleared",
+          "value": true,
+          "note": "previous=[] now=[\"no-user-activation\"]"
+        },
+        {
+          "name": "page-javascript-ran",
+          "value": true,
+          "note": null
+        }
+      ],
+      "pass": true,
+      "round": 1,
+      "durationMs": 271
+    },
+    {
+      "name": "clean-with-activation",
+      "expected": "safe（合成激活后），nonce 在重复快照间稳定",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/clean",
+        "requested": "http://shelf-fixture.test:54091/clean"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "positive-clean",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/clean",
+          "documentNonce": "85a1c30a8a5731d8fa05b1bd54b3401c",
+          "scrollY": 0
+        },
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/clean",
+          "documentNonce": "85a1c30a8a5731d8fa05b1bd54b3401c",
+          "scrollY": 0
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "safe",
+        "reasonCodes": [],
+        "url": "http://shelf-fixture.test:54091/clean",
+        "documentNonce": "85a1c30a8a5731d8fa05b1bd54b3401c",
+        "scrollY": 0
+      },
+      "checks": {
+        "navigation-completed": true,
+        "activation-observed": true,
+        "safe": true,
+        "nonce-present": true,
+        "nonce-stable-across-snapshots": true,
+        "scroll-bounded": true,
+        "url-echoed": true,
+        "page-javascript-ran": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "safe",
+          "value": true,
+          "note": "decision=safe codes=[]"
+        },
+        {
+          "name": "nonce-present",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "nonce-stable-across-snapshots",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "scroll-bounded",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "url-echoed",
+          "value": true,
+          "note": "url=http://shelf-fixture.test:54091/clean"
+        },
+        {
+          "name": "page-javascript-ran",
+          "value": true,
+          "note": null
+        }
+      ],
+      "pass": true,
+      "round": 1,
+      "durationMs": 434
+    },
+    {
+      "name": "same-url-get-reload",
+      "expected": "同一 URL GET reload：cookie 保留（仅布尔）、JS heap 丢失、activation 重置、nonce 轮换、网络 200",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/cookies",
+        "requested": "http://shelf-fixture.test:54091/cookies"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "reload-before",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "activationAfter": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "reload-after",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "reloadResult": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/cookies"
+      },
+      "cookies": {
+        "beforeCount": 1,
+        "afterCount": 1,
+        "namesRecorded": false
+      },
+      "heap": {
+        "before": "alive",
+        "after": "undefined"
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/cookies",
+          "documentNonce": "572dced58644e41b406a1bc6b2da9a05",
+          "scrollY": 0
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "no-user-activation"
+          ],
+          "url": "http://shelf-fixture.test:54091/cookies",
+          "documentNonce": "5a623f89e82907acf09c2da87921906b",
+          "scrollY": 0
+        },
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/cookies",
+          "documentNonce": "5a623f89e82907acf09c2da87921906b",
+          "scrollY": 0
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "safe",
+        "reasonCodes": [],
+        "url": "http://shelf-fixture.test:54091/cookies",
+        "documentNonce": "5a623f89e82907acf09c2da87921906b",
+        "scrollY": 0
+      },
+      "network": [
+        {
+          "method": "GET",
+          "path": "/cookies",
+          "host": "shelf-fixture.test:54091",
+          "at": 1793237652530,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/cookies",
+          "host": "shelf-fixture.test:54091",
+          "at": 1793237652923,
+          "status": 200
+        }
+      ],
+      "checks": {
+        "navigation-completed": true,
+        "reload-same-url": true,
+        "without-activation-not-safe": true,
+        "activation-observed": true,
+        "safe-before-reload": true,
+        "cookie-present-before": true,
+        "cookie-preserved-after-reload": true,
+        "heap-marker-before": true,
+        "heap-lost-after-reload": true,
+        "activation-reset-after-reload": true,
+        "re-activation-observed": true,
+        "safe-after-reload": true,
+        "nonce-rotated-after-reload": true,
+        "complete-get-network": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "reload-same-url",
+          "value": true,
+          "note": "url=http://shelf-fixture.test:54091/cookies"
+        },
+        {
+          "name": "without-activation-not-safe",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "safe-before-reload",
+          "value": true,
+          "note": "decision=safe"
+        },
+        {
+          "name": "cookie-present-before",
+          "value": true,
+          "note": "count=1"
+        },
+        {
+          "name": "cookie-preserved-after-reload",
+          "value": true,
+          "note": "count=1"
+        },
+        {
+          "name": "heap-marker-before",
+          "value": true,
+          "note": "value=alive"
+        },
+        {
+          "name": "heap-lost-after-reload",
+          "value": true,
+          "note": "value=undefined"
+        },
+        {
+          "name": "activation-reset-after-reload",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "re-activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "safe-after-reload",
+          "value": true,
+          "note": "decision=safe"
+        },
+        {
+          "name": "nonce-rotated-after-reload",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "complete-get-network",
+          "value": true,
+          "note": "GET /cookies count=2"
+        }
+      ],
+      "pass": true,
+      "round": 1,
+      "durationMs": 848
+    },
+    {
+      "name": "navigation-rotates-nonce",
+      "expected": "真实导航换新 nonce；单主框架",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/clean2",
+        "requested": "http://shelf-fixture.test:54091/clean2"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "nav-nonce",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/clean2",
+          "documentNonce": "a799379c2138e0a1bea4323e380811b6",
+          "scrollY": 0
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "safe",
+        "reasonCodes": [],
+        "url": "http://shelf-fixture.test:54091/clean2",
+        "documentNonce": "a799379c2138e0a1bea4323e380811b6",
+        "scrollY": 0
+      },
+      "framesInSubtree": {
+        "present": true,
+        "isArray": true,
+        "length": 1,
+        "firstIsMainFrame": true,
+        "elementTypes": [
+          "WebFrameMain"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "activation-observed": true,
+        "safe": true,
+        "nonce-rotated-by-navigation": true,
+        "url-is-new-document": true,
+        "single-main-frame": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "safe",
+          "value": true,
+          "note": "decision=safe codes=[]"
+        },
+        {
+          "name": "nonce-rotated-by-navigation",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "url-is-new-document",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "single-main-frame",
+          "value": true,
+          "note": null
+        }
+      ],
+      "pass": true,
+      "round": 1,
+      "durationMs": 390
+    },
+    {
+      "name": "control-added-then-removed",
+      "expected": "控件出现过即 latch；移除后仍 blocked（latch 直到下一次完整导航）",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/control-flash",
+        "requested": "http://shelf-fixture.test:54091/control-flash"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "control-flash",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/control-flash",
+          "documentNonce": "cc06671f9c78b84a7fdfa4f062f2f216",
+          "scrollY": 0
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "editable-control"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "editable-control"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "activation-observed": true,
+        "safe-before-control": true,
+        "control-added": true,
+        "control-removed": true,
+        "no-control-in-dom-now": true,
+        "blocked-after-removal": true,
+        "editable-control-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "safe-before-control",
+          "value": true,
+          "note": "decision=safe"
+        },
+        {
+          "name": "control-added",
+          "value": true,
+          "note": "__controlAdded=1"
+        },
+        {
+          "name": "control-removed",
+          "value": true,
+          "note": "__controlRemoved=1"
+        },
+        {
+          "name": "no-control-in-dom-now",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "blocked-after-removal",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "editable-control-code",
+          "value": true,
+          "note": null
+        }
+      ],
+      "pass": true,
+      "round": 1,
+      "durationMs": 1248
+    },
+    {
+      "name": "file-input-present",
+      "expected": "blocked:editable-control（不打开选择框）",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/file",
+        "requested": "http://shelf-fixture.test:54091/file"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "file-input",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "blocked",
+              "reasonCodes": [
+                "editable-control"
+              ]
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "editable-control"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "editable-control"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "blocked": true,
+        "editable-control-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "blocked",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "editable-control-code",
+          "value": true,
+          "note": null
+        }
+      ],
+      "pass": true,
+      "round": 1,
+      "durationMs": 401
+    },
+    {
+      "name": "iframe-present",
+      "expected": "framesInSubtree>1 => blocked:subframe-present",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/iframe",
+        "requested": "http://shelf-fixture.test:54091/iframe"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "iframe",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "blocked",
+              "reasonCodes": [
+                "subframe-present"
+              ]
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "subframe-present"
+          ]
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "subframe-present"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "subframe-present"
+        ]
+      },
+      "framesInSubtree": {
+        "isArray": true,
+        "length": 2,
+        "elementTypes": [
+          "WebFrameMain",
+          "WebFrameMain"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "frames-in-subtree-greater-than-one": true,
+        "not-safe": true,
+        "subframe-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "frames-in-subtree-greater-than-one",
+          "value": true,
+          "note": "length=2"
+        },
+        {
+          "name": "not-safe",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "subframe-code",
+          "value": true,
+          "note": "[\"subframe-present\"]"
+        }
+      ],
+      "pass": true,
+      "round": 1,
+      "durationMs": 1062
+    },
+    {
+      "name": "post-request-observed",
+      "expected": "blocked:non-get-request（观察，不取消请求）",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/post",
+        "requested": "http://shelf-fixture.test:54091/post"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "post",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "blocked",
+              "reasonCodes": [
+                "non-get-request"
+              ]
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "non-get-request"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "non-get-request"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "post-completed": true,
+        "blocked": true,
+        "non-get-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "post-completed",
+          "value": true,
+          "note": "__postDone=1"
+        },
+        {
+          "name": "blocked",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "non-get-code",
+          "value": true,
+          "note": "[\"non-get-request\"]"
+        }
+      ],
+      "pass": true,
+      "round": 1,
+      "durationMs": 404
+    },
+    {
+      "name": "pending-get",
+      "expected": "blocked:request-pending（未完成请求）",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/pending",
+        "requested": "http://shelf-fixture.test:54091/pending"
+      },
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "request-pending"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "request-pending"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "fetch-started": true,
+        "blocked": true,
+        "request-pending-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "fetch-started",
+          "value": true,
+          "note": "__pendingStarted=1"
+        },
+        {
+          "name": "blocked",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "request-pending-code",
+          "value": true,
+          "note": "[\"request-pending\"]"
+        }
+      ],
+      "pass": true,
+      "round": 1,
+      "durationMs": 685
+    },
+    {
+      "name": "explicit-block-during-snapshot",
+      "expected": "在途快照不能被旧文档干净回包覆盖；显式 block 保留",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/clean",
+        "requested": "http://shelf-fixture.test:54091/clean"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "block-race",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/clean",
+          "documentNonce": "a9433ab903b3ddd9f4f2ca6ccd89a315",
+          "scrollY": 0
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "user-timeout"
+          ]
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "user-timeout"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "user-timeout"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "safe-before-block": true,
+        "in-flight-not-safe": true,
+        "explicit-code-visible": true,
+        "blocked-after": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "safe-before-block",
+          "value": true,
+          "note": "decision=safe"
+        },
+        {
+          "name": "in-flight-not-safe",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "explicit-code-visible",
+          "value": true,
+          "note": "{\"during\":[\"user-timeout\"],\"after\":[\"user-timeout\"]}"
+        },
+        {
+          "name": "blocked-after",
+          "value": true,
+          "note": null
+        }
+      ],
+      "pass": true,
+      "round": 1,
+      "durationMs": 400
+    },
+    {
+      "name": "input-not-prevented",
+      "expected": "键盘输入仍送达网页且 defaultPrevented=false；闸门只观察并 latch key-input",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/input-events",
+        "requested": "http://shelf-fixture.test:54091/input-events"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "input-case",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "pageEvents": [
+        {
+          "type": "keydown",
+          "prevented": false
+        }
+      ],
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "key-input"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "key-input"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "activation-observed": true,
+        "page-received-key-events": true,
+        "guard-did-not-prevent-default": true,
+        "page-javascript-still-ran": true,
+        "blocked-after-key": true,
+        "key-input-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "page-received-key-events",
+          "value": true,
+          "note": "events=[{\"type\":\"keydown\",\"prevented\":false}]"
+        },
+        {
+          "name": "guard-did-not-prevent-default",
+          "value": true,
+          "note": "prevented=[]"
+        },
+        {
+          "name": "page-javascript-still-ran",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "blocked-after-key",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "key-input-code",
+          "value": true,
+          "note": "[\"key-input\"]"
+        }
+      ],
+      "pass": true,
+      "round": 1,
+      "durationMs": 839
+    },
+    {
+      "name": "scroll-restore",
+      "expected": "真实文档滚动可被快照观测；reload 后旧 nonce 恢复无效，新 nonce 恢复到原位置（±2px）",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/tall",
+        "requested": "http://shelf-fixture.test:54091/tall"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "restore-top",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "activationAfter": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "restore-after-reload",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "reloadResult": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/tall"
+      },
+      "positions": {
+        "scrolled": {
+          "y": 900
+        },
+        "reloadedAfterReset": {
+          "y": 0
+        },
+        "afterStaleNonceRestore": {
+          "y": 0
+        },
+        "afterRestore": {
+          "y": 900
+        },
+        "snapshotScrollY": 900
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/tall",
+          "documentNonce": "c029193844c0e718b860e7ff737d657c",
+          "scrollY": 0
+        },
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/tall",
+          "documentNonce": "c029193844c0e718b860e7ff737d657c",
+          "scrollY": 900
+        },
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/tall",
+          "documentNonce": "43377c08511513a7daeeeefa4bc4f165",
+          "scrollY": 0
+        },
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/tall",
+          "documentNonce": "43377c08511513a7daeeeefa4bc4f165",
+          "scrollY": 900
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "safe",
+        "reasonCodes": [],
+        "url": "http://shelf-fixture.test:54091/tall",
+        "documentNonce": "43377c08511513a7daeeeefa4bc4f165",
+        "scrollY": 900
+      },
+      "checks": {
+        "navigation-completed": true,
+        "activation-observed": true,
+        "safe-at-top": true,
+        "programmatic-scroll-applied": true,
+        "snapshot-sees-scroll": true,
+        "reload-completed": true,
+        "nonce-rotated-after-reload": true,
+        "reloaded-doc-reset-to-top": true,
+        "stale-nonce-no-op": true,
+        "restore-converged": true,
+        "safe-after-restore": true,
+        "snapshot-scroll-matches": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "safe-at-top",
+          "value": true,
+          "note": "decision=safe"
+        },
+        {
+          "name": "programmatic-scroll-applied",
+          "value": true,
+          "note": "{\"y\":900}"
+        },
+        {
+          "name": "snapshot-sees-scroll",
+          "value": true,
+          "note": "scrollY=900"
+        },
+        {
+          "name": "reload-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "nonce-rotated-after-reload",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "reloaded-doc-reset-to-top",
+          "value": true,
+          "note": "{\"y\":0}"
+        },
+        {
+          "name": "stale-nonce-no-op",
+          "value": true,
+          "note": "fresh={\"y\":0} afterStale={\"y\":0}"
+        },
+        {
+          "name": "restore-converged",
+          "value": true,
+          "note": "{\"y\":900}"
+        },
+        {
+          "name": "safe-after-restore",
+          "value": true,
+          "note": "decision=safe codes=[]"
+        },
+        {
+          "name": "snapshot-scroll-matches",
+          "value": true,
+          "note": "scrollY=900"
+        }
+      ],
+      "pass": true,
+      "round": 1,
+      "durationMs": 2190
+    },
+    {
+      "name": "debugger-attached",
+      "expected": "debugger attach => 当前导航永久 blocked:devtools-open；下一次完整导航才清除",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/clean",
+        "requested": "http://shelf-fixture.test:54091/clean"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "debugger",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "activationAfter": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "debugger-cleared",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/clean",
+          "documentNonce": "db12d8a1adf31bafe32f2c26136f67d3",
+          "scrollY": 0
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "devtools-open"
+          ]
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "devtools-open"
+          ]
+        },
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/clean",
+          "documentNonce": "b98980ebc98902cd4dacd8b85e084229",
+          "scrollY": 0
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "devtools-open"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "safe-before-debugger": true,
+        "attach-worked": true,
+        "blocked-while-attached": true,
+        "latch-survives-detach": true,
+        "navigation-clears-latch": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "safe-before-debugger",
+          "value": true,
+          "note": "decision=safe"
+        },
+        {
+          "name": "attach-worked",
+          "value": true,
+          "note": "isAttached=true"
+        },
+        {
+          "name": "blocked-while-attached",
+          "value": true,
+          "note": "{\"decision\":\"blocked\",\"reasonCodes\":[\"devtools-open\"]}"
+        },
+        {
+          "name": "latch-survives-detach",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "navigation-clears-latch",
+          "value": true,
+          "note": "decision=safe codes=[]"
+        }
+      ],
+      "pass": true,
+      "round": 1,
+      "durationMs": 1177
+    },
+    {
+      "name": "download-observed",
+      "expected": "will-download => latch blocked:download",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/download",
+        "requested": "http://shelf-fixture.test:54091/download"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "download",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "navigated": {
+        "ok": false,
+        "error": "ERR_FAILED (-2) loading 'http://shelf-fixture.test:54091/download-file'"
+      },
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "download"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "download"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "download-triggered": true,
+        "not-safe": true,
+        "download-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "download-triggered",
+          "value": true,
+          "note": "downloadEvents=1"
+        },
+        {
+          "name": "not-safe",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "download-code",
+          "value": true,
+          "note": "[\"download\"]"
+        }
+      ],
+      "pass": true,
+      "round": 1,
+      "durationMs": 1020
+    },
+    {
+      "name": "clean-no-activation",
+      "expected": "blocked:no-user-activation（导航后旧 latch 必须消失）",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/clean",
+        "requested": "http://shelf-fixture.test:54091/clean"
+      },
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "no-user-activation"
+          ],
+          "url": "http://shelf-fixture.test:54091/clean",
+          "documentNonce": "aa0a7a3d2af8032138c7b8d1d8fdc07a",
+          "scrollY": 0
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "no-user-activation"
+        ],
+        "url": "http://shelf-fixture.test:54091/clean",
+        "documentNonce": "aa0a7a3d2af8032138c7b8d1d8fdc07a",
+        "scrollY": 0
+      },
+      "checks": {
+        "navigation-completed": true,
+        "not-safe-without-activation": true,
+        "no-user-activation-code": true,
+        "previous-latch-cleared": true,
+        "page-javascript-ran": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "not-safe-without-activation",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "no-user-activation-code",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "previous-latch-cleared",
+          "value": true,
+          "note": "previous=[\"download\"] now=[\"no-user-activation\"]"
+        },
+        {
+          "name": "page-javascript-ran",
+          "value": true,
+          "note": null
+        }
+      ],
+      "pass": true,
+      "round": 2,
+      "durationMs": 286
+    },
+    {
+      "name": "clean-with-activation",
+      "expected": "safe（合成激活后），nonce 在重复快照间稳定",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/clean",
+        "requested": "http://shelf-fixture.test:54091/clean"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "positive-clean",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/clean",
+          "documentNonce": "00e854b207caf3b813c6094d9d96f32d",
+          "scrollY": 0
+        },
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/clean",
+          "documentNonce": "00e854b207caf3b813c6094d9d96f32d",
+          "scrollY": 0
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "safe",
+        "reasonCodes": [],
+        "url": "http://shelf-fixture.test:54091/clean",
+        "documentNonce": "00e854b207caf3b813c6094d9d96f32d",
+        "scrollY": 0
+      },
+      "checks": {
+        "navigation-completed": true,
+        "activation-observed": true,
+        "safe": true,
+        "nonce-present": true,
+        "nonce-stable-across-snapshots": true,
+        "scroll-bounded": true,
+        "url-echoed": true,
+        "page-javascript-ran": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "safe",
+          "value": true,
+          "note": "decision=safe codes=[]"
+        },
+        {
+          "name": "nonce-present",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "nonce-stable-across-snapshots",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "scroll-bounded",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "url-echoed",
+          "value": true,
+          "note": "url=http://shelf-fixture.test:54091/clean"
+        },
+        {
+          "name": "page-javascript-ran",
+          "value": true,
+          "note": null
+        }
+      ],
+      "pass": true,
+      "round": 2,
+      "durationMs": 438
+    },
+    {
+      "name": "same-url-get-reload",
+      "expected": "同一 URL GET reload：cookie 保留（仅布尔）、JS heap 丢失、activation 重置、nonce 轮换、网络 200",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/cookies",
+        "requested": "http://shelf-fixture.test:54091/cookies"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "reload-before",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "activationAfter": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "reload-after",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "reloadResult": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/cookies"
+      },
+      "cookies": {
+        "beforeCount": 1,
+        "afterCount": 1,
+        "namesRecorded": false
+      },
+      "heap": {
+        "before": "alive",
+        "after": "undefined"
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/cookies",
+          "documentNonce": "aeca55b132b2494fcdb90668d278feb4",
+          "scrollY": 0
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "no-user-activation"
+          ],
+          "url": "http://shelf-fixture.test:54091/cookies",
+          "documentNonce": "3aeed28120d31dd7529b82434700355b",
+          "scrollY": 0
+        },
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/cookies",
+          "documentNonce": "3aeed28120d31dd7529b82434700355b",
+          "scrollY": 0
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "safe",
+        "reasonCodes": [],
+        "url": "http://shelf-fixture.test:54091/cookies",
+        "documentNonce": "3aeed28120d31dd7529b82434700355b",
+        "scrollY": 0
+      },
+      "network": [
+        {
+          "method": "GET",
+          "path": "/cookies",
+          "host": "shelf-fixture.test:54091",
+          "at": 1793237652530,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/cookies",
+          "host": "shelf-fixture.test:54091",
+          "at": 1793237652923,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/cookies",
+          "host": "shelf-fixture.test:54091",
+          "at": 1793237663921,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/cookies",
+          "host": "shelf-fixture.test:54091",
+          "at": 1793237664319,
+          "status": 200
+        }
+      ],
+      "checks": {
+        "navigation-completed": true,
+        "reload-same-url": true,
+        "without-activation-not-safe": true,
+        "activation-observed": true,
+        "safe-before-reload": true,
+        "cookie-present-before": true,
+        "cookie-preserved-after-reload": true,
+        "heap-marker-before": true,
+        "heap-lost-after-reload": true,
+        "activation-reset-after-reload": true,
+        "re-activation-observed": true,
+        "safe-after-reload": true,
+        "nonce-rotated-after-reload": true,
+        "complete-get-network": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "reload-same-url",
+          "value": true,
+          "note": "url=http://shelf-fixture.test:54091/cookies"
+        },
+        {
+          "name": "without-activation-not-safe",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "safe-before-reload",
+          "value": true,
+          "note": "decision=safe"
+        },
+        {
+          "name": "cookie-present-before",
+          "value": true,
+          "note": "count=1"
+        },
+        {
+          "name": "cookie-preserved-after-reload",
+          "value": true,
+          "note": "count=1"
+        },
+        {
+          "name": "heap-marker-before",
+          "value": true,
+          "note": "value=alive"
+        },
+        {
+          "name": "heap-lost-after-reload",
+          "value": true,
+          "note": "value=undefined"
+        },
+        {
+          "name": "activation-reset-after-reload",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "re-activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "safe-after-reload",
+          "value": true,
+          "note": "decision=safe"
+        },
+        {
+          "name": "nonce-rotated-after-reload",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "complete-get-network",
+          "value": true,
+          "note": "GET /cookies count=4"
+        }
+      ],
+      "pass": true,
+      "round": 2,
+      "durationMs": 851
+    },
+    {
+      "name": "navigation-rotates-nonce",
+      "expected": "真实导航换新 nonce；单主框架",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/clean2",
+        "requested": "http://shelf-fixture.test:54091/clean2"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "nav-nonce",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/clean2",
+          "documentNonce": "28aaed4dd4dce535cb03e3c2806ef5e3",
+          "scrollY": 0
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "safe",
+        "reasonCodes": [],
+        "url": "http://shelf-fixture.test:54091/clean2",
+        "documentNonce": "28aaed4dd4dce535cb03e3c2806ef5e3",
+        "scrollY": 0
+      },
+      "framesInSubtree": {
+        "present": true,
+        "isArray": true,
+        "length": 1,
+        "firstIsMainFrame": true,
+        "elementTypes": [
+          "WebFrameMain"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "activation-observed": true,
+        "safe": true,
+        "nonce-rotated-by-navigation": true,
+        "url-is-new-document": true,
+        "single-main-frame": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "safe",
+          "value": true,
+          "note": "decision=safe codes=[]"
+        },
+        {
+          "name": "nonce-rotated-by-navigation",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "url-is-new-document",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "single-main-frame",
+          "value": true,
+          "note": null
+        }
+      ],
+      "pass": true,
+      "round": 2,
+      "durationMs": 392
+    },
+    {
+      "name": "control-added-then-removed",
+      "expected": "控件出现过即 latch；移除后仍 blocked（latch 直到下一次完整导航）",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/control-flash",
+        "requested": "http://shelf-fixture.test:54091/control-flash"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "control-flash",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/control-flash",
+          "documentNonce": "600a452e8d74b706772cb93652a68453",
+          "scrollY": 0
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "editable-control"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "editable-control"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "activation-observed": true,
+        "safe-before-control": true,
+        "control-added": true,
+        "control-removed": true,
+        "no-control-in-dom-now": true,
+        "blocked-after-removal": true,
+        "editable-control-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "safe-before-control",
+          "value": true,
+          "note": "decision=safe"
+        },
+        {
+          "name": "control-added",
+          "value": true,
+          "note": "__controlAdded=1"
+        },
+        {
+          "name": "control-removed",
+          "value": true,
+          "note": "__controlRemoved=1"
+        },
+        {
+          "name": "no-control-in-dom-now",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "blocked-after-removal",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "editable-control-code",
+          "value": true,
+          "note": null
+        }
+      ],
+      "pass": true,
+      "round": 2,
+      "durationMs": 1317
+    },
+    {
+      "name": "file-input-present",
+      "expected": "blocked:editable-control（不打开选择框）",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/file",
+        "requested": "http://shelf-fixture.test:54091/file"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "file-input",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "blocked",
+              "reasonCodes": [
+                "editable-control"
+              ]
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "editable-control"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "editable-control"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "blocked": true,
+        "editable-control-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "blocked",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "editable-control-code",
+          "value": true,
+          "note": null
+        }
+      ],
+      "pass": true,
+      "round": 2,
+      "durationMs": 391
+    },
+    {
+      "name": "iframe-present",
+      "expected": "framesInSubtree>1 => blocked:subframe-present",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/iframe",
+        "requested": "http://shelf-fixture.test:54091/iframe"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "iframe",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "blocked",
+              "reasonCodes": [
+                "subframe-present"
+              ]
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "subframe-present"
+          ]
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "subframe-present"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "subframe-present"
+        ]
+      },
+      "framesInSubtree": {
+        "isArray": true,
+        "length": 2,
+        "elementTypes": [
+          "WebFrameMain",
+          "WebFrameMain"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "frames-in-subtree-greater-than-one": true,
+        "not-safe": true,
+        "subframe-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "frames-in-subtree-greater-than-one",
+          "value": true,
+          "note": "length=2"
+        },
+        {
+          "name": "not-safe",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "subframe-code",
+          "value": true,
+          "note": "[\"subframe-present\"]"
+        }
+      ],
+      "pass": true,
+      "round": 2,
+      "durationMs": 1070
+    },
+    {
+      "name": "post-request-observed",
+      "expected": "blocked:non-get-request（观察，不取消请求）",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/post",
+        "requested": "http://shelf-fixture.test:54091/post"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "post",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "blocked",
+              "reasonCodes": [
+                "non-get-request"
+              ]
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "non-get-request"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "non-get-request"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "post-completed": true,
+        "blocked": true,
+        "non-get-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "post-completed",
+          "value": true,
+          "note": "__postDone=1"
+        },
+        {
+          "name": "blocked",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "non-get-code",
+          "value": true,
+          "note": "[\"non-get-request\"]"
+        }
+      ],
+      "pass": true,
+      "round": 2,
+      "durationMs": 404
+    },
+    {
+      "name": "pending-get",
+      "expected": "blocked:request-pending（未完成请求）",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/pending",
+        "requested": "http://shelf-fixture.test:54091/pending"
+      },
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "request-pending"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "request-pending"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "fetch-started": true,
+        "blocked": true,
+        "request-pending-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "fetch-started",
+          "value": true,
+          "note": "__pendingStarted=1"
+        },
+        {
+          "name": "blocked",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "request-pending-code",
+          "value": true,
+          "note": "[\"request-pending\"]"
+        }
+      ],
+      "pass": true,
+      "round": 2,
+      "durationMs": 667
+    },
+    {
+      "name": "explicit-block-during-snapshot",
+      "expected": "在途快照不能被旧文档干净回包覆盖；显式 block 保留",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/clean",
+        "requested": "http://shelf-fixture.test:54091/clean"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "block-race",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/clean",
+          "documentNonce": "113355a2bd5d3d4a897a4004508b7d1a",
+          "scrollY": 0
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "user-timeout"
+          ]
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "user-timeout"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "user-timeout"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "safe-before-block": true,
+        "in-flight-not-safe": true,
+        "explicit-code-visible": true,
+        "blocked-after": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "safe-before-block",
+          "value": true,
+          "note": "decision=safe"
+        },
+        {
+          "name": "in-flight-not-safe",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "explicit-code-visible",
+          "value": true,
+          "note": "{\"during\":[\"user-timeout\"],\"after\":[\"user-timeout\"]}"
+        },
+        {
+          "name": "blocked-after",
+          "value": true,
+          "note": null
+        }
+      ],
+      "pass": true,
+      "round": 2,
+      "durationMs": 406
+    },
+    {
+      "name": "input-not-prevented",
+      "expected": "键盘输入仍送达网页且 defaultPrevented=false；闸门只观察并 latch key-input",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/input-events",
+        "requested": "http://shelf-fixture.test:54091/input-events"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "input-case",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "pageEvents": [
+        {
+          "type": "keydown",
+          "prevented": false
+        }
+      ],
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "key-input"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "key-input"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "activation-observed": true,
+        "page-received-key-events": true,
+        "guard-did-not-prevent-default": true,
+        "page-javascript-still-ran": true,
+        "blocked-after-key": true,
+        "key-input-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "page-received-key-events",
+          "value": true,
+          "note": "events=[{\"type\":\"keydown\",\"prevented\":false}]"
+        },
+        {
+          "name": "guard-did-not-prevent-default",
+          "value": true,
+          "note": "prevented=[]"
+        },
+        {
+          "name": "page-javascript-still-ran",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "blocked-after-key",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "key-input-code",
+          "value": true,
+          "note": "[\"key-input\"]"
+        }
+      ],
+      "pass": true,
+      "round": 2,
+      "durationMs": 819
+    },
+    {
+      "name": "scroll-restore",
+      "expected": "真实文档滚动可被快照观测；reload 后旧 nonce 恢复无效，新 nonce 恢复到原位置（±2px）",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/tall",
+        "requested": "http://shelf-fixture.test:54091/tall"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "restore-top",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "activationAfter": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "restore-after-reload",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "reloadResult": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/tall"
+      },
+      "positions": {
+        "scrolled": {
+          "y": 900
+        },
+        "reloadedAfterReset": {
+          "y": 0
+        },
+        "afterStaleNonceRestore": {
+          "y": 0
+        },
+        "afterRestore": {
+          "y": 900
+        },
+        "snapshotScrollY": 900
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/tall",
+          "documentNonce": "dc816a3d914fdb957a26805c756bccaf",
+          "scrollY": 0
+        },
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/tall",
+          "documentNonce": "dc816a3d914fdb957a26805c756bccaf",
+          "scrollY": 900
+        },
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/tall",
+          "documentNonce": "3531fe897cc37154cbf43a6b93dbc534",
+          "scrollY": 0
+        },
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/tall",
+          "documentNonce": "3531fe897cc37154cbf43a6b93dbc534",
+          "scrollY": 900
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "safe",
+        "reasonCodes": [],
+        "url": "http://shelf-fixture.test:54091/tall",
+        "documentNonce": "3531fe897cc37154cbf43a6b93dbc534",
+        "scrollY": 900
+      },
+      "checks": {
+        "navigation-completed": true,
+        "activation-observed": true,
+        "safe-at-top": true,
+        "programmatic-scroll-applied": true,
+        "snapshot-sees-scroll": true,
+        "reload-completed": true,
+        "nonce-rotated-after-reload": true,
+        "reloaded-doc-reset-to-top": true,
+        "stale-nonce-no-op": true,
+        "restore-converged": true,
+        "safe-after-restore": true,
+        "snapshot-scroll-matches": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "safe-at-top",
+          "value": true,
+          "note": "decision=safe"
+        },
+        {
+          "name": "programmatic-scroll-applied",
+          "value": true,
+          "note": "{\"y\":900}"
+        },
+        {
+          "name": "snapshot-sees-scroll",
+          "value": true,
+          "note": "scrollY=900"
+        },
+        {
+          "name": "reload-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "nonce-rotated-after-reload",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "reloaded-doc-reset-to-top",
+          "value": true,
+          "note": "{\"y\":0}"
+        },
+        {
+          "name": "stale-nonce-no-op",
+          "value": true,
+          "note": "fresh={\"y\":0} afterStale={\"y\":0}"
+        },
+        {
+          "name": "restore-converged",
+          "value": true,
+          "note": "{\"y\":900}"
+        },
+        {
+          "name": "safe-after-restore",
+          "value": true,
+          "note": "decision=safe codes=[]"
+        },
+        {
+          "name": "snapshot-scroll-matches",
+          "value": true,
+          "note": "scrollY=900"
+        }
+      ],
+      "pass": true,
+      "round": 2,
+      "durationMs": 2200
+    },
+    {
+      "name": "debugger-attached",
+      "expected": "debugger attach => 当前导航永久 blocked:devtools-open；下一次完整导航才清除",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/clean",
+        "requested": "http://shelf-fixture.test:54091/clean"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "debugger",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "activationAfter": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "debugger-cleared",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/clean",
+          "documentNonce": "fe96a6d4a3f4434fd78f251d9db61426",
+          "scrollY": 0
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "devtools-open"
+          ]
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "devtools-open"
+          ]
+        },
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/clean",
+          "documentNonce": "c2ec39ff613eec4256252c7404ad8436",
+          "scrollY": 0
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "devtools-open"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "safe-before-debugger": true,
+        "attach-worked": true,
+        "blocked-while-attached": true,
+        "latch-survives-detach": true,
+        "navigation-clears-latch": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "safe-before-debugger",
+          "value": true,
+          "note": "decision=safe"
+        },
+        {
+          "name": "attach-worked",
+          "value": true,
+          "note": "isAttached=true"
+        },
+        {
+          "name": "blocked-while-attached",
+          "value": true,
+          "note": "{\"decision\":\"blocked\",\"reasonCodes\":[\"devtools-open\"]}"
+        },
+        {
+          "name": "latch-survives-detach",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "navigation-clears-latch",
+          "value": true,
+          "note": "decision=safe codes=[]"
+        }
+      ],
+      "pass": true,
+      "round": 2,
+      "durationMs": 1144
+    },
+    {
+      "name": "download-observed",
+      "expected": "will-download => latch blocked:download",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/download",
+        "requested": "http://shelf-fixture.test:54091/download"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "download",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "navigated": {
+        "ok": false,
+        "error": "ERR_FAILED (-2) loading 'http://shelf-fixture.test:54091/download-file'"
+      },
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "download"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "download"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "download-triggered": true,
+        "not-safe": true,
+        "download-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "download-triggered",
+          "value": true,
+          "note": "downloadEvents=2"
+        },
+        {
+          "name": "not-safe",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "download-code",
+          "value": true,
+          "note": "[\"download\"]"
+        }
+      ],
+      "pass": true,
+      "round": 2,
+      "durationMs": 1037
+    },
+    {
+      "name": "clean-no-activation",
+      "expected": "blocked:no-user-activation（导航后旧 latch 必须消失）",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/clean",
+        "requested": "http://shelf-fixture.test:54091/clean"
+      },
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "no-user-activation"
+          ],
+          "url": "http://shelf-fixture.test:54091/clean",
+          "documentNonce": "81c0c223daedfdfc47897d5b3d602829",
+          "scrollY": 0
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "no-user-activation"
+        ],
+        "url": "http://shelf-fixture.test:54091/clean",
+        "documentNonce": "81c0c223daedfdfc47897d5b3d602829",
+        "scrollY": 0
+      },
+      "checks": {
+        "navigation-completed": true,
+        "not-safe-without-activation": true,
+        "no-user-activation-code": true,
+        "previous-latch-cleared": true,
+        "page-javascript-ran": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "not-safe-without-activation",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "no-user-activation-code",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "previous-latch-cleared",
+          "value": true,
+          "note": "previous=[\"download\"] now=[\"no-user-activation\"]"
+        },
+        {
+          "name": "page-javascript-ran",
+          "value": true,
+          "note": null
+        }
+      ],
+      "pass": true,
+      "round": 3,
+      "durationMs": 281
+    },
+    {
+      "name": "clean-with-activation",
+      "expected": "safe（合成激活后），nonce 在重复快照间稳定",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/clean",
+        "requested": "http://shelf-fixture.test:54091/clean"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "positive-clean",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/clean",
+          "documentNonce": "48ed770208215ee85a6f39dba6b31113",
+          "scrollY": 0
+        },
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/clean",
+          "documentNonce": "48ed770208215ee85a6f39dba6b31113",
+          "scrollY": 0
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "safe",
+        "reasonCodes": [],
+        "url": "http://shelf-fixture.test:54091/clean",
+        "documentNonce": "48ed770208215ee85a6f39dba6b31113",
+        "scrollY": 0
+      },
+      "checks": {
+        "navigation-completed": true,
+        "activation-observed": true,
+        "safe": true,
+        "nonce-present": true,
+        "nonce-stable-across-snapshots": true,
+        "scroll-bounded": true,
+        "url-echoed": true,
+        "page-javascript-ran": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "safe",
+          "value": true,
+          "note": "decision=safe codes=[]"
+        },
+        {
+          "name": "nonce-present",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "nonce-stable-across-snapshots",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "scroll-bounded",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "url-echoed",
+          "value": true,
+          "note": "url=http://shelf-fixture.test:54091/clean"
+        },
+        {
+          "name": "page-javascript-ran",
+          "value": true,
+          "note": null
+        }
+      ],
+      "pass": true,
+      "round": 3,
+      "durationMs": 405
+    },
+    {
+      "name": "same-url-get-reload",
+      "expected": "同一 URL GET reload：cookie 保留（仅布尔）、JS heap 丢失、activation 重置、nonce 轮换、网络 200",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/cookies",
+        "requested": "http://shelf-fixture.test:54091/cookies"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "reload-before",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "activationAfter": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "reload-after",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "reloadResult": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/cookies"
+      },
+      "cookies": {
+        "beforeCount": 1,
+        "afterCount": 1,
+        "namesRecorded": false
+      },
+      "heap": {
+        "before": "alive",
+        "after": "undefined"
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/cookies",
+          "documentNonce": "a01f8d089c85772d27c08895425234b6",
+          "scrollY": 0
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "no-user-activation"
+          ],
+          "url": "http://shelf-fixture.test:54091/cookies",
+          "documentNonce": "a64cf7a3c66a6d15028ab2413993186b",
+          "scrollY": 0
+        },
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/cookies",
+          "documentNonce": "a64cf7a3c66a6d15028ab2413993186b",
+          "scrollY": 0
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "safe",
+        "reasonCodes": [],
+        "url": "http://shelf-fixture.test:54091/cookies",
+        "documentNonce": "a64cf7a3c66a6d15028ab2413993186b",
+        "scrollY": 0
+      },
+      "network": [
+        {
+          "method": "GET",
+          "path": "/cookies",
+          "host": "shelf-fixture.test:54091",
+          "at": 1793237652530,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/cookies",
+          "host": "shelf-fixture.test:54091",
+          "at": 1793237652923,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/cookies",
+          "host": "shelf-fixture.test:54091",
+          "at": 1793237663921,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/cookies",
+          "host": "shelf-fixture.test:54091",
+          "at": 1793237664319,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/cookies",
+          "host": "shelf-fixture.test:54091",
+          "at": 1793237675303,
+          "status": 200
+        },
+        {
+          "method": "GET",
+          "path": "/cookies",
+          "host": "shelf-fixture.test:54091",
+          "at": 1793237675715,
+          "status": 200
+        }
+      ],
+      "checks": {
+        "navigation-completed": true,
+        "reload-same-url": true,
+        "without-activation-not-safe": true,
+        "activation-observed": true,
+        "safe-before-reload": true,
+        "cookie-present-before": true,
+        "cookie-preserved-after-reload": true,
+        "heap-marker-before": true,
+        "heap-lost-after-reload": true,
+        "activation-reset-after-reload": true,
+        "re-activation-observed": true,
+        "safe-after-reload": true,
+        "nonce-rotated-after-reload": true,
+        "complete-get-network": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "reload-same-url",
+          "value": true,
+          "note": "url=http://shelf-fixture.test:54091/cookies"
+        },
+        {
+          "name": "without-activation-not-safe",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "safe-before-reload",
+          "value": true,
+          "note": "decision=safe"
+        },
+        {
+          "name": "cookie-present-before",
+          "value": true,
+          "note": "count=1"
+        },
+        {
+          "name": "cookie-preserved-after-reload",
+          "value": true,
+          "note": "count=1"
+        },
+        {
+          "name": "heap-marker-before",
+          "value": true,
+          "note": "value=alive"
+        },
+        {
+          "name": "heap-lost-after-reload",
+          "value": true,
+          "note": "value=undefined"
+        },
+        {
+          "name": "activation-reset-after-reload",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "re-activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "safe-after-reload",
+          "value": true,
+          "note": "decision=safe"
+        },
+        {
+          "name": "nonce-rotated-after-reload",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "complete-get-network",
+          "value": true,
+          "note": "GET /cookies count=6"
+        }
+      ],
+      "pass": true,
+      "round": 3,
+      "durationMs": 887
+    },
+    {
+      "name": "navigation-rotates-nonce",
+      "expected": "真实导航换新 nonce；单主框架",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/clean2",
+        "requested": "http://shelf-fixture.test:54091/clean2"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "nav-nonce",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/clean2",
+          "documentNonce": "a11ffa06b9eda076946c7ad9238a9414",
+          "scrollY": 0
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "safe",
+        "reasonCodes": [],
+        "url": "http://shelf-fixture.test:54091/clean2",
+        "documentNonce": "a11ffa06b9eda076946c7ad9238a9414",
+        "scrollY": 0
+      },
+      "framesInSubtree": {
+        "present": true,
+        "isArray": true,
+        "length": 1,
+        "firstIsMainFrame": true,
+        "elementTypes": [
+          "WebFrameMain"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "activation-observed": true,
+        "safe": true,
+        "nonce-rotated-by-navigation": true,
+        "url-is-new-document": true,
+        "single-main-frame": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "safe",
+          "value": true,
+          "note": "decision=safe codes=[]"
+        },
+        {
+          "name": "nonce-rotated-by-navigation",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "url-is-new-document",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "single-main-frame",
+          "value": true,
+          "note": null
+        }
+      ],
+      "pass": true,
+      "round": 3,
+      "durationMs": 403
+    },
+    {
+      "name": "control-added-then-removed",
+      "expected": "控件出现过即 latch；移除后仍 blocked（latch 直到下一次完整导航）",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/control-flash",
+        "requested": "http://shelf-fixture.test:54091/control-flash"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "control-flash",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/control-flash",
+          "documentNonce": "9ea55450ebefb380c8d1d10890dac2b1",
+          "scrollY": 0
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "editable-control"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "editable-control"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "activation-observed": true,
+        "safe-before-control": true,
+        "control-added": true,
+        "control-removed": true,
+        "no-control-in-dom-now": true,
+        "blocked-after-removal": true,
+        "editable-control-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "safe-before-control",
+          "value": true,
+          "note": "decision=safe"
+        },
+        {
+          "name": "control-added",
+          "value": true,
+          "note": "__controlAdded=1"
+        },
+        {
+          "name": "control-removed",
+          "value": true,
+          "note": "__controlRemoved=1"
+        },
+        {
+          "name": "no-control-in-dom-now",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "blocked-after-removal",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "editable-control-code",
+          "value": true,
+          "note": null
+        }
+      ],
+      "pass": true,
+      "round": 3,
+      "durationMs": 1247
+    },
+    {
+      "name": "file-input-present",
+      "expected": "blocked:editable-control（不打开选择框）",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/file",
+        "requested": "http://shelf-fixture.test:54091/file"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "file-input",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "blocked",
+              "reasonCodes": [
+                "editable-control"
+              ]
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "editable-control"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "editable-control"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "blocked": true,
+        "editable-control-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "blocked",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "editable-control-code",
+          "value": true,
+          "note": null
+        }
+      ],
+      "pass": true,
+      "round": 3,
+      "durationMs": 404
+    },
+    {
+      "name": "iframe-present",
+      "expected": "framesInSubtree>1 => blocked:subframe-present",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/iframe",
+        "requested": "http://shelf-fixture.test:54091/iframe"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "iframe",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "blocked",
+              "reasonCodes": [
+                "subframe-present"
+              ]
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "subframe-present"
+          ]
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "subframe-present"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "subframe-present"
+        ]
+      },
+      "framesInSubtree": {
+        "isArray": true,
+        "length": 2,
+        "elementTypes": [
+          "WebFrameMain",
+          "WebFrameMain"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "frames-in-subtree-greater-than-one": true,
+        "not-safe": true,
+        "subframe-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "frames-in-subtree-greater-than-one",
+          "value": true,
+          "note": "length=2"
+        },
+        {
+          "name": "not-safe",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "subframe-code",
+          "value": true,
+          "note": "[\"subframe-present\"]"
+        }
+      ],
+      "pass": true,
+      "round": 3,
+      "durationMs": 1071
+    },
+    {
+      "name": "post-request-observed",
+      "expected": "blocked:non-get-request（观察，不取消请求）",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/post",
+        "requested": "http://shelf-fixture.test:54091/post"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "post",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "blocked",
+              "reasonCodes": [
+                "non-get-request"
+              ]
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "non-get-request"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "non-get-request"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "post-completed": true,
+        "blocked": true,
+        "non-get-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "post-completed",
+          "value": true,
+          "note": "__postDone=1"
+        },
+        {
+          "name": "blocked",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "non-get-code",
+          "value": true,
+          "note": "[\"non-get-request\"]"
+        }
+      ],
+      "pass": true,
+      "round": 3,
+      "durationMs": 406
+    },
+    {
+      "name": "pending-get",
+      "expected": "blocked:request-pending（未完成请求）",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/pending",
+        "requested": "http://shelf-fixture.test:54091/pending"
+      },
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "request-pending"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "request-pending"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "fetch-started": true,
+        "blocked": true,
+        "request-pending-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "fetch-started",
+          "value": true,
+          "note": "__pendingStarted=1"
+        },
+        {
+          "name": "blocked",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "request-pending-code",
+          "value": true,
+          "note": "[\"request-pending\"]"
+        }
+      ],
+      "pass": true,
+      "round": 3,
+      "durationMs": 671
+    },
+    {
+      "name": "explicit-block-during-snapshot",
+      "expected": "在途快照不能被旧文档干净回包覆盖；显式 block 保留",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/clean",
+        "requested": "http://shelf-fixture.test:54091/clean"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "block-race",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/clean",
+          "documentNonce": "2eb97261cc82d51d9d143a6c2bc7a07c",
+          "scrollY": 0
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "user-timeout"
+          ]
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "user-timeout"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "user-timeout"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "safe-before-block": true,
+        "in-flight-not-safe": true,
+        "explicit-code-visible": true,
+        "blocked-after": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "safe-before-block",
+          "value": true,
+          "note": "decision=safe"
+        },
+        {
+          "name": "in-flight-not-safe",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "explicit-code-visible",
+          "value": true,
+          "note": "{\"during\":[\"user-timeout\"],\"after\":[\"user-timeout\"]}"
+        },
+        {
+          "name": "blocked-after",
+          "value": true,
+          "note": null
+        }
+      ],
+      "pass": true,
+      "round": 3,
+      "durationMs": 420
+    },
+    {
+      "name": "input-not-prevented",
+      "expected": "键盘输入仍送达网页且 defaultPrevented=false；闸门只观察并 latch key-input",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/input-events",
+        "requested": "http://shelf-fixture.test:54091/input-events"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "input-case",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "pageEvents": [
+        {
+          "type": "keydown",
+          "prevented": false
+        }
+      ],
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "key-input"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "key-input"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "activation-observed": true,
+        "page-received-key-events": true,
+        "guard-did-not-prevent-default": true,
+        "page-javascript-still-ran": true,
+        "blocked-after-key": true,
+        "key-input-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "page-received-key-events",
+          "value": true,
+          "note": "events=[{\"type\":\"keydown\",\"prevented\":false}]"
+        },
+        {
+          "name": "guard-did-not-prevent-default",
+          "value": true,
+          "note": "prevented=[]"
+        },
+        {
+          "name": "page-javascript-still-ran",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "blocked-after-key",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "key-input-code",
+          "value": true,
+          "note": "[\"key-input\"]"
+        }
+      ],
+      "pass": true,
+      "round": 3,
+      "durationMs": 826
+    },
+    {
+      "name": "scroll-restore",
+      "expected": "真实文档滚动可被快照观测；reload 后旧 nonce 恢复无效，新 nonce 恢复到原位置（±2px）",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/tall",
+        "requested": "http://shelf-fixture.test:54091/tall"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "restore-top",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "activationAfter": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "restore-after-reload",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "reloadResult": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/tall"
+      },
+      "positions": {
+        "scrolled": {
+          "y": 900
+        },
+        "reloadedAfterReset": {
+          "y": 0
+        },
+        "afterStaleNonceRestore": {
+          "y": 0
+        },
+        "afterRestore": {
+          "y": 900
+        },
+        "snapshotScrollY": 900
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/tall",
+          "documentNonce": "64896891dd10433e75091f3e10e883d6",
+          "scrollY": 0
+        },
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/tall",
+          "documentNonce": "64896891dd10433e75091f3e10e883d6",
+          "scrollY": 900
+        },
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/tall",
+          "documentNonce": "c52c8a0887c55aeb12a52b18707f02bd",
+          "scrollY": 0
+        },
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/tall",
+          "documentNonce": "c52c8a0887c55aeb12a52b18707f02bd",
+          "scrollY": 900
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "safe",
+        "reasonCodes": [],
+        "url": "http://shelf-fixture.test:54091/tall",
+        "documentNonce": "c52c8a0887c55aeb12a52b18707f02bd",
+        "scrollY": 900
+      },
+      "checks": {
+        "navigation-completed": true,
+        "activation-observed": true,
+        "safe-at-top": true,
+        "programmatic-scroll-applied": true,
+        "snapshot-sees-scroll": true,
+        "reload-completed": true,
+        "nonce-rotated-after-reload": true,
+        "reloaded-doc-reset-to-top": true,
+        "stale-nonce-no-op": true,
+        "restore-converged": true,
+        "safe-after-restore": true,
+        "snapshot-scroll-matches": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "activation-observed",
+          "value": true,
+          "note": "executeJavaScriptInIsolatedWorld:userGesture"
+        },
+        {
+          "name": "safe-at-top",
+          "value": true,
+          "note": "decision=safe"
+        },
+        {
+          "name": "programmatic-scroll-applied",
+          "value": true,
+          "note": "{\"y\":900}"
+        },
+        {
+          "name": "snapshot-sees-scroll",
+          "value": true,
+          "note": "scrollY=900"
+        },
+        {
+          "name": "reload-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "nonce-rotated-after-reload",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "reloaded-doc-reset-to-top",
+          "value": true,
+          "note": "{\"y\":0}"
+        },
+        {
+          "name": "stale-nonce-no-op",
+          "value": true,
+          "note": "fresh={\"y\":0} afterStale={\"y\":0}"
+        },
+        {
+          "name": "restore-converged",
+          "value": true,
+          "note": "{\"y\":900}"
+        },
+        {
+          "name": "safe-after-restore",
+          "value": true,
+          "note": "decision=safe codes=[]"
+        },
+        {
+          "name": "snapshot-scroll-matches",
+          "value": true,
+          "note": "scrollY=900"
+        }
+      ],
+      "pass": true,
+      "round": 3,
+      "durationMs": 2175
+    },
+    {
+      "name": "debugger-attached",
+      "expected": "debugger attach => 当前导航永久 blocked:devtools-open；下一次完整导航才清除",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/clean",
+        "requested": "http://shelf-fixture.test:54091/clean"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "debugger",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "activationAfter": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "debugger-cleared",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "snapshots": [
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/clean",
+          "documentNonce": "c0e4497cdb2af0941d13bef050cf20b3",
+          "scrollY": 0
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "devtools-open"
+          ]
+        },
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "devtools-open"
+          ]
+        },
+        {
+          "decision": "safe",
+          "reasonCodes": [],
+          "url": "http://shelf-fixture.test:54091/clean",
+          "documentNonce": "0bd084c1669e1be1c4c76b3aff24828a",
+          "scrollY": 0
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "devtools-open"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "safe-before-debugger": true,
+        "attach-worked": true,
+        "blocked-while-attached": true,
+        "latch-survives-detach": true,
+        "navigation-clears-latch": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "safe-before-debugger",
+          "value": true,
+          "note": "decision=safe"
+        },
+        {
+          "name": "attach-worked",
+          "value": true,
+          "note": "isAttached=true"
+        },
+        {
+          "name": "blocked-while-attached",
+          "value": true,
+          "note": "{\"decision\":\"blocked\",\"reasonCodes\":[\"devtools-open\"]}"
+        },
+        {
+          "name": "latch-survives-detach",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "navigation-clears-latch",
+          "value": true,
+          "note": "decision=safe codes=[]"
+        }
+      ],
+      "pass": true,
+      "round": 3,
+      "durationMs": 1190
+    },
+    {
+      "name": "download-observed",
+      "expected": "will-download => latch blocked:download",
+      "nav": {
+        "ok": true,
+        "url": "http://shelf-fixture.test:54091/download",
+        "requested": "http://shelf-fixture.test:54091/download"
+      },
+      "activation": {
+        "ok": true,
+        "method": "executeJavaScriptInIsolatedWorld:userGesture",
+        "reason": "download",
+        "trials": [
+          {
+            "label": "executeJavaScriptInIsolatedWorld:userGesture=true",
+            "synthetic": true,
+            "hardwareInput": false,
+            "error": null,
+            "isolatedWorldUserActivation": {
+              "has": true,
+              "active": true,
+              "transient": true
+            },
+            "snapshot": {
+              "decision": "safe",
+              "reasonCodes": []
+            },
+            "activationObserved": true
+          }
+        ]
+      },
+      "navigated": {
+        "ok": false,
+        "error": "ERR_FAILED (-2) loading 'http://shelf-fixture.test:54091/download-file'"
+      },
+      "snapshots": [
+        {
+          "decision": "blocked",
+          "reasonCodes": [
+            "download"
+          ]
+        }
+      ],
+      "finalSnapshot": {
+        "decision": "blocked",
+        "reasonCodes": [
+          "download"
+        ]
+      },
+      "checks": {
+        "navigation-completed": true,
+        "download-triggered": true,
+        "not-safe": true,
+        "download-code": true
+      },
+      "details": [
+        {
+          "name": "navigation-completed",
+          "value": true,
+          "note": null
+        },
+        {
+          "name": "download-triggered",
+          "value": true,
+          "note": "downloadEvents=3"
+        },
+        {
+          "name": "not-safe",
+          "value": true,
+          "note": "decision=blocked"
+        },
+        {
+          "name": "download-code",
+          "value": true,
+          "note": "[\"download\"]"
+        }
+      ],
+      "pass": true,
+      "round": 3,
+      "durationMs": 1020
+    }
+  ],
+  "checks": [
+    {
+      "case": "clean-no-activation",
+      "round": 1,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "clean-no-activation",
+      "round": 1,
+      "check": "not-safe-without-activation",
+      "pass": true
+    },
+    {
+      "case": "clean-no-activation",
+      "round": 1,
+      "check": "no-user-activation-code",
+      "pass": true
+    },
+    {
+      "case": "clean-no-activation",
+      "round": 1,
+      "check": "previous-latch-cleared",
+      "pass": true
+    },
+    {
+      "case": "clean-no-activation",
+      "round": 1,
+      "check": "page-javascript-ran",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 1,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 1,
+      "check": "activation-observed",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 1,
+      "check": "safe",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 1,
+      "check": "nonce-present",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 1,
+      "check": "nonce-stable-across-snapshots",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 1,
+      "check": "scroll-bounded",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 1,
+      "check": "url-echoed",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 1,
+      "check": "page-javascript-ran",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 1,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 1,
+      "check": "reload-same-url",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 1,
+      "check": "without-activation-not-safe",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 1,
+      "check": "activation-observed",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 1,
+      "check": "safe-before-reload",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 1,
+      "check": "cookie-present-before",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 1,
+      "check": "cookie-preserved-after-reload",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 1,
+      "check": "heap-marker-before",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 1,
+      "check": "heap-lost-after-reload",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 1,
+      "check": "activation-reset-after-reload",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 1,
+      "check": "re-activation-observed",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 1,
+      "check": "safe-after-reload",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 1,
+      "check": "nonce-rotated-after-reload",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 1,
+      "check": "complete-get-network",
+      "pass": true
+    },
+    {
+      "case": "navigation-rotates-nonce",
+      "round": 1,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "navigation-rotates-nonce",
+      "round": 1,
+      "check": "activation-observed",
+      "pass": true
+    },
+    {
+      "case": "navigation-rotates-nonce",
+      "round": 1,
+      "check": "safe",
+      "pass": true
+    },
+    {
+      "case": "navigation-rotates-nonce",
+      "round": 1,
+      "check": "nonce-rotated-by-navigation",
+      "pass": true
+    },
+    {
+      "case": "navigation-rotates-nonce",
+      "round": 1,
+      "check": "url-is-new-document",
+      "pass": true
+    },
+    {
+      "case": "navigation-rotates-nonce",
+      "round": 1,
+      "check": "single-main-frame",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 1,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 1,
+      "check": "activation-observed",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 1,
+      "check": "safe-before-control",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 1,
+      "check": "control-added",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 1,
+      "check": "control-removed",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 1,
+      "check": "no-control-in-dom-now",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 1,
+      "check": "blocked-after-removal",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 1,
+      "check": "editable-control-code",
+      "pass": true
+    },
+    {
+      "case": "file-input-present",
+      "round": 1,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "file-input-present",
+      "round": 1,
+      "check": "blocked",
+      "pass": true
+    },
+    {
+      "case": "file-input-present",
+      "round": 1,
+      "check": "editable-control-code",
+      "pass": true
+    },
+    {
+      "case": "iframe-present",
+      "round": 1,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "iframe-present",
+      "round": 1,
+      "check": "frames-in-subtree-greater-than-one",
+      "pass": true
+    },
+    {
+      "case": "iframe-present",
+      "round": 1,
+      "check": "not-safe",
+      "pass": true
+    },
+    {
+      "case": "iframe-present",
+      "round": 1,
+      "check": "subframe-code",
+      "pass": true
+    },
+    {
+      "case": "post-request-observed",
+      "round": 1,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "post-request-observed",
+      "round": 1,
+      "check": "post-completed",
+      "pass": true
+    },
+    {
+      "case": "post-request-observed",
+      "round": 1,
+      "check": "blocked",
+      "pass": true
+    },
+    {
+      "case": "post-request-observed",
+      "round": 1,
+      "check": "non-get-code",
+      "pass": true
+    },
+    {
+      "case": "pending-get",
+      "round": 1,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "pending-get",
+      "round": 1,
+      "check": "fetch-started",
+      "pass": true
+    },
+    {
+      "case": "pending-get",
+      "round": 1,
+      "check": "blocked",
+      "pass": true
+    },
+    {
+      "case": "pending-get",
+      "round": 1,
+      "check": "request-pending-code",
+      "pass": true
+    },
+    {
+      "case": "explicit-block-during-snapshot",
+      "round": 1,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "explicit-block-during-snapshot",
+      "round": 1,
+      "check": "safe-before-block",
+      "pass": true
+    },
+    {
+      "case": "explicit-block-during-snapshot",
+      "round": 1,
+      "check": "in-flight-not-safe",
+      "pass": true
+    },
+    {
+      "case": "explicit-block-during-snapshot",
+      "round": 1,
+      "check": "explicit-code-visible",
+      "pass": true
+    },
+    {
+      "case": "explicit-block-during-snapshot",
+      "round": 1,
+      "check": "blocked-after",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 1,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 1,
+      "check": "activation-observed",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 1,
+      "check": "page-received-key-events",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 1,
+      "check": "guard-did-not-prevent-default",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 1,
+      "check": "page-javascript-still-ran",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 1,
+      "check": "blocked-after-key",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 1,
+      "check": "key-input-code",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 1,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 1,
+      "check": "activation-observed",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 1,
+      "check": "safe-at-top",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 1,
+      "check": "programmatic-scroll-applied",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 1,
+      "check": "snapshot-sees-scroll",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 1,
+      "check": "reload-completed",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 1,
+      "check": "nonce-rotated-after-reload",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 1,
+      "check": "reloaded-doc-reset-to-top",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 1,
+      "check": "stale-nonce-no-op",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 1,
+      "check": "restore-converged",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 1,
+      "check": "safe-after-restore",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 1,
+      "check": "snapshot-scroll-matches",
+      "pass": true
+    },
+    {
+      "case": "debugger-attached",
+      "round": 1,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "debugger-attached",
+      "round": 1,
+      "check": "safe-before-debugger",
+      "pass": true
+    },
+    {
+      "case": "debugger-attached",
+      "round": 1,
+      "check": "attach-worked",
+      "pass": true
+    },
+    {
+      "case": "debugger-attached",
+      "round": 1,
+      "check": "blocked-while-attached",
+      "pass": true
+    },
+    {
+      "case": "debugger-attached",
+      "round": 1,
+      "check": "latch-survives-detach",
+      "pass": true
+    },
+    {
+      "case": "debugger-attached",
+      "round": 1,
+      "check": "navigation-clears-latch",
+      "pass": true
+    },
+    {
+      "case": "download-observed",
+      "round": 1,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "download-observed",
+      "round": 1,
+      "check": "download-triggered",
+      "pass": true
+    },
+    {
+      "case": "download-observed",
+      "round": 1,
+      "check": "not-safe",
+      "pass": true
+    },
+    {
+      "case": "download-observed",
+      "round": 1,
+      "check": "download-code",
+      "pass": true
+    },
+    {
+      "case": "clean-no-activation",
+      "round": 2,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "clean-no-activation",
+      "round": 2,
+      "check": "not-safe-without-activation",
+      "pass": true
+    },
+    {
+      "case": "clean-no-activation",
+      "round": 2,
+      "check": "no-user-activation-code",
+      "pass": true
+    },
+    {
+      "case": "clean-no-activation",
+      "round": 2,
+      "check": "previous-latch-cleared",
+      "pass": true
+    },
+    {
+      "case": "clean-no-activation",
+      "round": 2,
+      "check": "page-javascript-ran",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 2,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 2,
+      "check": "activation-observed",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 2,
+      "check": "safe",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 2,
+      "check": "nonce-present",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 2,
+      "check": "nonce-stable-across-snapshots",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 2,
+      "check": "scroll-bounded",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 2,
+      "check": "url-echoed",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 2,
+      "check": "page-javascript-ran",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 2,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 2,
+      "check": "reload-same-url",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 2,
+      "check": "without-activation-not-safe",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 2,
+      "check": "activation-observed",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 2,
+      "check": "safe-before-reload",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 2,
+      "check": "cookie-present-before",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 2,
+      "check": "cookie-preserved-after-reload",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 2,
+      "check": "heap-marker-before",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 2,
+      "check": "heap-lost-after-reload",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 2,
+      "check": "activation-reset-after-reload",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 2,
+      "check": "re-activation-observed",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 2,
+      "check": "safe-after-reload",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 2,
+      "check": "nonce-rotated-after-reload",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 2,
+      "check": "complete-get-network",
+      "pass": true
+    },
+    {
+      "case": "navigation-rotates-nonce",
+      "round": 2,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "navigation-rotates-nonce",
+      "round": 2,
+      "check": "activation-observed",
+      "pass": true
+    },
+    {
+      "case": "navigation-rotates-nonce",
+      "round": 2,
+      "check": "safe",
+      "pass": true
+    },
+    {
+      "case": "navigation-rotates-nonce",
+      "round": 2,
+      "check": "nonce-rotated-by-navigation",
+      "pass": true
+    },
+    {
+      "case": "navigation-rotates-nonce",
+      "round": 2,
+      "check": "url-is-new-document",
+      "pass": true
+    },
+    {
+      "case": "navigation-rotates-nonce",
+      "round": 2,
+      "check": "single-main-frame",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 2,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 2,
+      "check": "activation-observed",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 2,
+      "check": "safe-before-control",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 2,
+      "check": "control-added",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 2,
+      "check": "control-removed",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 2,
+      "check": "no-control-in-dom-now",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 2,
+      "check": "blocked-after-removal",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 2,
+      "check": "editable-control-code",
+      "pass": true
+    },
+    {
+      "case": "file-input-present",
+      "round": 2,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "file-input-present",
+      "round": 2,
+      "check": "blocked",
+      "pass": true
+    },
+    {
+      "case": "file-input-present",
+      "round": 2,
+      "check": "editable-control-code",
+      "pass": true
+    },
+    {
+      "case": "iframe-present",
+      "round": 2,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "iframe-present",
+      "round": 2,
+      "check": "frames-in-subtree-greater-than-one",
+      "pass": true
+    },
+    {
+      "case": "iframe-present",
+      "round": 2,
+      "check": "not-safe",
+      "pass": true
+    },
+    {
+      "case": "iframe-present",
+      "round": 2,
+      "check": "subframe-code",
+      "pass": true
+    },
+    {
+      "case": "post-request-observed",
+      "round": 2,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "post-request-observed",
+      "round": 2,
+      "check": "post-completed",
+      "pass": true
+    },
+    {
+      "case": "post-request-observed",
+      "round": 2,
+      "check": "blocked",
+      "pass": true
+    },
+    {
+      "case": "post-request-observed",
+      "round": 2,
+      "check": "non-get-code",
+      "pass": true
+    },
+    {
+      "case": "pending-get",
+      "round": 2,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "pending-get",
+      "round": 2,
+      "check": "fetch-started",
+      "pass": true
+    },
+    {
+      "case": "pending-get",
+      "round": 2,
+      "check": "blocked",
+      "pass": true
+    },
+    {
+      "case": "pending-get",
+      "round": 2,
+      "check": "request-pending-code",
+      "pass": true
+    },
+    {
+      "case": "explicit-block-during-snapshot",
+      "round": 2,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "explicit-block-during-snapshot",
+      "round": 2,
+      "check": "safe-before-block",
+      "pass": true
+    },
+    {
+      "case": "explicit-block-during-snapshot",
+      "round": 2,
+      "check": "in-flight-not-safe",
+      "pass": true
+    },
+    {
+      "case": "explicit-block-during-snapshot",
+      "round": 2,
+      "check": "explicit-code-visible",
+      "pass": true
+    },
+    {
+      "case": "explicit-block-during-snapshot",
+      "round": 2,
+      "check": "blocked-after",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 2,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 2,
+      "check": "activation-observed",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 2,
+      "check": "page-received-key-events",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 2,
+      "check": "guard-did-not-prevent-default",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 2,
+      "check": "page-javascript-still-ran",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 2,
+      "check": "blocked-after-key",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 2,
+      "check": "key-input-code",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 2,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 2,
+      "check": "activation-observed",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 2,
+      "check": "safe-at-top",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 2,
+      "check": "programmatic-scroll-applied",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 2,
+      "check": "snapshot-sees-scroll",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 2,
+      "check": "reload-completed",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 2,
+      "check": "nonce-rotated-after-reload",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 2,
+      "check": "reloaded-doc-reset-to-top",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 2,
+      "check": "stale-nonce-no-op",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 2,
+      "check": "restore-converged",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 2,
+      "check": "safe-after-restore",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 2,
+      "check": "snapshot-scroll-matches",
+      "pass": true
+    },
+    {
+      "case": "debugger-attached",
+      "round": 2,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "debugger-attached",
+      "round": 2,
+      "check": "safe-before-debugger",
+      "pass": true
+    },
+    {
+      "case": "debugger-attached",
+      "round": 2,
+      "check": "attach-worked",
+      "pass": true
+    },
+    {
+      "case": "debugger-attached",
+      "round": 2,
+      "check": "blocked-while-attached",
+      "pass": true
+    },
+    {
+      "case": "debugger-attached",
+      "round": 2,
+      "check": "latch-survives-detach",
+      "pass": true
+    },
+    {
+      "case": "debugger-attached",
+      "round": 2,
+      "check": "navigation-clears-latch",
+      "pass": true
+    },
+    {
+      "case": "download-observed",
+      "round": 2,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "download-observed",
+      "round": 2,
+      "check": "download-triggered",
+      "pass": true
+    },
+    {
+      "case": "download-observed",
+      "round": 2,
+      "check": "not-safe",
+      "pass": true
+    },
+    {
+      "case": "download-observed",
+      "round": 2,
+      "check": "download-code",
+      "pass": true
+    },
+    {
+      "case": "clean-no-activation",
+      "round": 3,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "clean-no-activation",
+      "round": 3,
+      "check": "not-safe-without-activation",
+      "pass": true
+    },
+    {
+      "case": "clean-no-activation",
+      "round": 3,
+      "check": "no-user-activation-code",
+      "pass": true
+    },
+    {
+      "case": "clean-no-activation",
+      "round": 3,
+      "check": "previous-latch-cleared",
+      "pass": true
+    },
+    {
+      "case": "clean-no-activation",
+      "round": 3,
+      "check": "page-javascript-ran",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 3,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 3,
+      "check": "activation-observed",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 3,
+      "check": "safe",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 3,
+      "check": "nonce-present",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 3,
+      "check": "nonce-stable-across-snapshots",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 3,
+      "check": "scroll-bounded",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 3,
+      "check": "url-echoed",
+      "pass": true
+    },
+    {
+      "case": "clean-with-activation",
+      "round": 3,
+      "check": "page-javascript-ran",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 3,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 3,
+      "check": "reload-same-url",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 3,
+      "check": "without-activation-not-safe",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 3,
+      "check": "activation-observed",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 3,
+      "check": "safe-before-reload",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 3,
+      "check": "cookie-present-before",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 3,
+      "check": "cookie-preserved-after-reload",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 3,
+      "check": "heap-marker-before",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 3,
+      "check": "heap-lost-after-reload",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 3,
+      "check": "activation-reset-after-reload",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 3,
+      "check": "re-activation-observed",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 3,
+      "check": "safe-after-reload",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 3,
+      "check": "nonce-rotated-after-reload",
+      "pass": true
+    },
+    {
+      "case": "same-url-get-reload",
+      "round": 3,
+      "check": "complete-get-network",
+      "pass": true
+    },
+    {
+      "case": "navigation-rotates-nonce",
+      "round": 3,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "navigation-rotates-nonce",
+      "round": 3,
+      "check": "activation-observed",
+      "pass": true
+    },
+    {
+      "case": "navigation-rotates-nonce",
+      "round": 3,
+      "check": "safe",
+      "pass": true
+    },
+    {
+      "case": "navigation-rotates-nonce",
+      "round": 3,
+      "check": "nonce-rotated-by-navigation",
+      "pass": true
+    },
+    {
+      "case": "navigation-rotates-nonce",
+      "round": 3,
+      "check": "url-is-new-document",
+      "pass": true
+    },
+    {
+      "case": "navigation-rotates-nonce",
+      "round": 3,
+      "check": "single-main-frame",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 3,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 3,
+      "check": "activation-observed",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 3,
+      "check": "safe-before-control",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 3,
+      "check": "control-added",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 3,
+      "check": "control-removed",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 3,
+      "check": "no-control-in-dom-now",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 3,
+      "check": "blocked-after-removal",
+      "pass": true
+    },
+    {
+      "case": "control-added-then-removed",
+      "round": 3,
+      "check": "editable-control-code",
+      "pass": true
+    },
+    {
+      "case": "file-input-present",
+      "round": 3,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "file-input-present",
+      "round": 3,
+      "check": "blocked",
+      "pass": true
+    },
+    {
+      "case": "file-input-present",
+      "round": 3,
+      "check": "editable-control-code",
+      "pass": true
+    },
+    {
+      "case": "iframe-present",
+      "round": 3,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "iframe-present",
+      "round": 3,
+      "check": "frames-in-subtree-greater-than-one",
+      "pass": true
+    },
+    {
+      "case": "iframe-present",
+      "round": 3,
+      "check": "not-safe",
+      "pass": true
+    },
+    {
+      "case": "iframe-present",
+      "round": 3,
+      "check": "subframe-code",
+      "pass": true
+    },
+    {
+      "case": "post-request-observed",
+      "round": 3,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "post-request-observed",
+      "round": 3,
+      "check": "post-completed",
+      "pass": true
+    },
+    {
+      "case": "post-request-observed",
+      "round": 3,
+      "check": "blocked",
+      "pass": true
+    },
+    {
+      "case": "post-request-observed",
+      "round": 3,
+      "check": "non-get-code",
+      "pass": true
+    },
+    {
+      "case": "pending-get",
+      "round": 3,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "pending-get",
+      "round": 3,
+      "check": "fetch-started",
+      "pass": true
+    },
+    {
+      "case": "pending-get",
+      "round": 3,
+      "check": "blocked",
+      "pass": true
+    },
+    {
+      "case": "pending-get",
+      "round": 3,
+      "check": "request-pending-code",
+      "pass": true
+    },
+    {
+      "case": "explicit-block-during-snapshot",
+      "round": 3,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "explicit-block-during-snapshot",
+      "round": 3,
+      "check": "safe-before-block",
+      "pass": true
+    },
+    {
+      "case": "explicit-block-during-snapshot",
+      "round": 3,
+      "check": "in-flight-not-safe",
+      "pass": true
+    },
+    {
+      "case": "explicit-block-during-snapshot",
+      "round": 3,
+      "check": "explicit-code-visible",
+      "pass": true
+    },
+    {
+      "case": "explicit-block-during-snapshot",
+      "round": 3,
+      "check": "blocked-after",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 3,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 3,
+      "check": "activation-observed",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 3,
+      "check": "page-received-key-events",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 3,
+      "check": "guard-did-not-prevent-default",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 3,
+      "check": "page-javascript-still-ran",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 3,
+      "check": "blocked-after-key",
+      "pass": true
+    },
+    {
+      "case": "input-not-prevented",
+      "round": 3,
+      "check": "key-input-code",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 3,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 3,
+      "check": "activation-observed",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 3,
+      "check": "safe-at-top",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 3,
+      "check": "programmatic-scroll-applied",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 3,
+      "check": "snapshot-sees-scroll",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 3,
+      "check": "reload-completed",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 3,
+      "check": "nonce-rotated-after-reload",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 3,
+      "check": "reloaded-doc-reset-to-top",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 3,
+      "check": "stale-nonce-no-op",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 3,
+      "check": "restore-converged",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 3,
+      "check": "safe-after-restore",
+      "pass": true
+    },
+    {
+      "case": "scroll-restore",
+      "round": 3,
+      "check": "snapshot-scroll-matches",
+      "pass": true
+    },
+    {
+      "case": "debugger-attached",
+      "round": 3,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "debugger-attached",
+      "round": 3,
+      "check": "safe-before-debugger",
+      "pass": true
+    },
+    {
+      "case": "debugger-attached",
+      "round": 3,
+      "check": "attach-worked",
+      "pass": true
+    },
+    {
+      "case": "debugger-attached",
+      "round": 3,
+      "check": "blocked-while-attached",
+      "pass": true
+    },
+    {
+      "case": "debugger-attached",
+      "round": 3,
+      "check": "latch-survives-detach",
+      "pass": true
+    },
+    {
+      "case": "debugger-attached",
+      "round": 3,
+      "check": "navigation-clears-latch",
+      "pass": true
+    },
+    {
+      "case": "download-observed",
+      "round": 3,
+      "check": "navigation-completed",
+      "pass": true
+    },
+    {
+      "case": "download-observed",
+      "round": 3,
+      "check": "download-triggered",
+      "pass": true
+    },
+    {
+      "case": "download-observed",
+      "round": 3,
+      "check": "not-safe",
+      "pass": true
+    },
+    {
+      "case": "download-observed",
+      "round": 3,
+      "check": "download-code",
+      "pass": true
+    }
+  ],
+  "errors": [],
+  "limitations": [
+    "未测试媒体自动播放：Electron/Chromium 自动播放策略在无用户手势下不稳定，避免把不支持当成通过。",
+    "激活使用合成手势（executeJavaScript(userGesture:true) / sendInputEvent），不是真实硬件输入。",
+    "文件上传未经过系统文件选择框（无法在无 UI 交互下完成）；用 File/Blob 的 PUT 请求与 <input type=file> 存在性分别覆盖。",
+    "下载用例只观察 will-download 与 latch，不验证落盘内容。"
+  ],
+  "origin": "http://shelf-fixture.test:54091",
+  "serverPort": 54091,
+  "guardModule": {
+    "provider": "app:reloadable-v1",
+    "exports": [
+      "RELOADABLE_PROVIDER",
+      "ReloadablePageGuard",
+      "initializeReloadableSession"
+    ],
+    "bundlePath": "tmp\\reloadable-guard-probe\\guard-bundle.cjs",
+    "bundleSha": "2dfd48184737bb4acc465ec4e318db9ce90cfee23c0e941c12daf5ca3bbcce87",
+    "bundledSourceHash": "1c26f7c9ac079c16b5a4a336c75e8b8bf4eaca6872a9fcc501fe9338c8df6e2c"
+  },
+  "initialLoad": {
+    "ok": true,
+    "url": "http://shelf-fixture.test:54091/clean",
+    "requested": "http://shelf-fixture.test:54091/clean"
+  },
+  "finishedAt": "2026-10-29T01:34:46.018Z",
+  "summary": {
+    "rounds": 3,
+    "cases": 42,
+    "passed": 42,
+    "failed": 0,
+    "failedCases": [],
+    "checks": {
+      "total": 270,
+      "passed": 270
+    },
+    "decisions": {
+      "blocked": 30,
+      "safe": 12
+    },
+    "sourceHash": "1c26f7c9ac079c16b5a4a336c75e8b8bf4eaca6872a9fcc501fe9338c8df6e2c",
+    "bundleSha": "2dfd48184737bb4acc465ec4e318db9ce90cfee23c0e941c12daf5ca3bbcce87",
+    "errors": []
+  },
+  "durationMs": 36680,
+  "commands": {
+    "probe": "node scripts/shelf-memory-p0/reloadable-guard-probe.cjs",
+    "electronChild": "electron scripts/shelf-memory-p0/reloadable-guard-probe.cjs（由编排进程 spawn，非 dist/main）",
+    "bundle": "esbuild.buildSync(src/main/browser/shelf-reloadable-guard.ts -> tmp/reloadable-guard-probe/guard-bundle.cjs, platform=node, external=electron)",
+    "rerun": "node scripts/shelf-memory-p0/reloadable-guard-probe.cjs"
+  },
+  "sourceStability": {
+    "exercisedSourceHash": "1c26f7c9ac079c16b5a4a336c75e8b8bf4eaca6872a9fcc501fe9338c8df6e2c",
+    "hashesBefore": {
+      "guard": "1c26f7c9ac079c16b5a4a336c75e8b8bf4eaca6872a9fcc501fe9338c8df6e2c",
+      "contract": "cfec01cae97bdf5864d8c538a5550586d4b583116a4eae807afdc4cd713babc7",
+      "taskShelf": "49a8c0fb7936941b12967988c335ffa8b30915bda1c3c94a0ea36dae03c4d3e2"
+    },
+    "hashesAfter": {
+      "guard": "1c26f7c9ac079c16b5a4a336c75e8b8bf4eaca6872a9fcc501fe9338c8df6e2c",
+      "contract": "cfec01cae97bdf5864d8c538a5550586d4b583116a4eae807afdc4cd713babc7",
+      "taskShelf": "49a8c0fb7936941b12967988c335ffa8b30915bda1c3c94a0ea36dae03c4d3e2"
+    },
+    "stableDuringProbe": true,
+    "bundleSha256": "2dfd48184737bb4acc465ec4e318db9ce90cfee23c0e941c12daf5ca3bbcce87",
+    "bundleSize": 35473,
+    "bundleBuiltFromSourceHash": "1c26f7c9ac079c16b5a4a336c75e8b8bf4eaca6872a9fcc501fe9338c8df6e2c",
+    "note": "探针运行期间源文件未变化，exercised 内容即 bundle 时的源码"
+  },
+  "exit": {
+    "status": 0,
+    "signal": null,
+    "error": null
+  }
+}

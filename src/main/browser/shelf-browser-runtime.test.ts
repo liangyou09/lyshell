@@ -5,7 +5,7 @@ import { ShelfBrowserRuntime } from './shelf-browser-runtime'
 
 function host(id = 1) { return Object.assign(new EventEmitter(), { id }) as unknown as WebContents }
 function guest(owner: WebContents, preferences: WebPreferences, id = 10) {
-  return Object.assign(new EventEmitter(), { id, hostWebContents: owner, getLastWebPreferences: () => preferences }) as unknown as WebContents
+  return Object.assign(new EventEmitter(), { id, hostWebContents: owner, getURL: () => input.url, isDestroyed: () => false, isLoadingMainFrame: () => false, getLastWebPreferences: () => preferences }) as unknown as WebContents
 }
 const input = { kind: 'permit' as const, resourceId: 'tab:a', url: 'https://fixture.test/', source: 'explicitMain' as const }
 function permit(runtime: ShelfBrowserRuntime, owner: WebContents) {

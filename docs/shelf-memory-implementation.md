@@ -1,5 +1,7 @@
 # LyShell 保存区与内存方案实施记录
 
+最新补充：main 已实现普通页逐网址显式同意的闲置重载，以及独立只读副本深睡。范围、可撤销导航、保护条件与验收见 [网页安全深睡](shelf-memory-deep-sleep.md)。未授权或无法验证的动态页继续保活。本页其余内容保留历史实施口径。
+
 日期：2026-10-28。本页记录实施阶段：工作分支 `codex/shelf-memory-p0`，工作目录 `C:/Users/69534/.codex/worktrees/shelf-memory-p0/LyShell`，基线 `34d64dc3eed8bc7c53a03775475808545340d72e`；输入为 [完整实施方案](LyShell_完整实施方案_v1_20261028.md)。后续 main 集成、审查修正和最终验证见 [审查记录](shelf-memory-review.md)，没有打包发布。
 
 ## 已落地的行为

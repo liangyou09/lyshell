@@ -8,6 +8,9 @@ import { DSH_WEB_PARTITION } from '@shared/constants'
 import { readSystemPath, getCachedSystemPath } from '../env/refresh'
 import { resolveDshHome } from './env'
 import { attachDshProcessJob, type DshProcessJob } from './windows-job'
+import { BackendRecovery, harnessExitEvidence } from './backend-recovery'
+import { createHash } from 'crypto'
+import type { HarnessRecoveredEvent } from '@shared/harness-recovery'
 import {
   BRIDGE_RUNTIME_DIR_NAME,
   buildLaunchLine,
@@ -120,6 +123,8 @@ export interface DshWebOpenOptions {
 
 /** 管理器对外可注入的边界（测试与打包态区分）；生产走 defaultDshWebManagerDeps()。 */
 export interface DshWebManagerDeps {
+  /** 生产启用宿主持有与有限重启；隔离测试显式选择启用。 */
+  recoverBackend?: boolean
   /** 定位随包发布的桥包；null ⇒ 无桥 */
   locateBridge?: () => BridgePackageLocation | null
   /** 准备宿主 owned 运行资源（确定性 patch 文件 + 运行期随机 host-only key） */
@@ -141,6 +146,7 @@ export interface DshWebManagerDeps {
  */
 export function defaultDshWebManagerDeps(): DshWebManagerDeps {
   return {
+    recoverBackend: true,
     locateBridge: () => {
       if (typeof app?.isPackaged !== 'boolean') return null
       return locateBridgePackage({
@@ -477,6 +483,18 @@ export class DshWebManager {
    * 这个共享后台。持有者是具名集合（幂等），解绑只影响这一个名字。
    */
   private readonly backendHolders = new Set<string>()
+  private hostHeld = false
+  private quitting = false
+  private readonly recovery = new BackendRecovery()
+  private lastExit: Record<string, unknown> | null = null
+  private lastIdentity: DshInstanceIdentity | null = null
+  private lastLaunch: ResolvedDshWebLaunch | null = null
+  private readonly recoveredListeners = new Set<(event: HarnessRecoveredEvent) => void>()
+
+  onBackendRecovered(listener: (event: HarnessRecoveredEvent) => void): () => void {
+    this.recoveredListeners.add(listener)
+    return () => { this.recoveredListeners.delete(listener) }
+  }
   /** profile 写入锁独立于后台代际，旧实例清理不得把安装中的锁一起清除。 */
   private profileMutationHolder: string | null = null
 
@@ -505,7 +523,14 @@ export class DshWebManager {
    * 没有运行时就交给调用方按默认目标解析，绝不在这里猜路径。
    */
   get currentLaunch(): ResolvedDshWebLaunch | null {
-    return this.readyInstance?.launch ?? this.runningLaunch?.launch ?? null
+    return this.readyInstance?.launch ?? this.runningLaunch?.launch ?? this.lastLaunch
+  }
+
+  /** 不含凭据、启动环境和登录 URL；供 API 展示后台与任务状态的区别。 */
+  get recoveryStatus(): Record<string, unknown> {
+    return { ...this.recovery.snapshot(), running: this.running, ready: !!this.bridgeControlEndpoint,
+      lastIdentity: this.lastIdentity ? { instanceId: this.lastIdentity.instanceId, instanceEpoch: this.lastIdentity.instanceEpoch } : null,
+      lastExit: this.lastExit }
   }
 
   /**
@@ -553,12 +578,12 @@ export class DshWebManager {
 
   /** 当前是否有托管持有者（Pet 托管控制 / 共享工作台详情）。 */
   get isManaged(): boolean {
-    return this.backendHolders.size > 0 || this.profileMutationHolder !== null
+    return this.hostHeld || this.backendHolders.size > 0 || this.profileMutationHolder !== null
   }
 
   /** 当前 keep-alive 持有者快照（诊断/测试；不含凭据）。 */
   managedHolders(): string[] {
-    return [...this.backendHolders, ...(this.profileMutationHolder ? [this.profileMutationHolder] : [])]
+    return [...(this.hostHeld ? ['lyshell:host'] : []), ...this.backendHolders, ...(this.profileMutationHolder ? [this.profileMutationHolder] : [])]
   }
 
   /**
@@ -570,12 +595,14 @@ export class DshWebManager {
    * 清掉启动登记、临时 patch 与内存凭据，不留「假 ready」。
    */
   async open(opts: DshWebOpenOptions): Promise<DshWebLaunchResult> {
+    if (this.quitting) return { ok: false, code: 'unavailable', error: 'LyShell is shutting down' }
     // 托管期间（Pet 托管控制 / 共享工作台详情持有）绝不走显式重开：open() 会先杀旧实例，
     // 那会打断 Pet 正在跑的任务。明确拒绝，调用方改走 acquire 复用路径。
     if (this.isManaged) {
       log.warn(`[dsh web] explicit reopen refused while managed by: ${this.managedHolders().join(', ')}`)
       return { ok: false, error: 'the shared dsh web backend has active consumers; disconnect them before reopening', code: 'managed' }
     }
+    if (this.recovery.snapshot().phase !== 'starting') this.recovery.reset()
     // 先推进代际再关闭旧实例：旧进程退出时其 exit/error 回调因 generation 不匹配被忽略，
     // 不会把随后 spawn 的新进程 this.child 清成 null（快速切换工作区导致的孤儿进程根因）。
     const generation = ++this.generation
@@ -660,6 +687,7 @@ export class DshWebManager {
       let readyHandled = false  // 命中 ready 行即刻锁门，不等 exchange/handshake 结束才防重入
       let stdoutBuf = ''
       let stderrBuf = ''
+      let expectedExit = false
 
       /** 失败路径统一的桥资源回收：删 patch + 丢弃 key（内存），不留半个桥。 */
       const dropBridge = (): void => {
@@ -702,6 +730,12 @@ export class DshWebManager {
       // host-only 凭据**最后**注入：工作区 env 里的同名键不能覆盖/伪造它。
       const bridgeEnv = plan ? plan.childEnv() : undefined
       const childEnv = bridgeEnv ? { ...childEnvBase, ...bridgeEnv } : childEnvBase
+      // 宿主 owned、按启动配置隔离的持久目录；桥捕获后删除 env，不泄露给工具。
+      if (plan && this.deps.recoverBackend) {
+        const scope = JSON.stringify([launch.cwd, launch.dshHome])
+        childEnv.LYSHELL_HARNESS_WORK_JOURNAL = join(app.getPath('userData'), 'harness-work',
+          createHash('sha256').update(process.platform === 'win32' ? scope.toLowerCase() : scope).digest('hex'))
+      }
 
       // 出生观察点必须取在 spawn 之前：spawn 到落盘之间进程可能已经死过一轮，取晚了
       // 会把复用进程的出生时刻包进「不晚于记录」的冒充窗口里（见 ownedPids 注释）。
@@ -758,6 +792,7 @@ export class DshWebManager {
       }
 
       const timer = setTimeout(() => {
+        expectedExit = true
         log.warn('dsh web ready timeout, killing child')
         // 自清理走 enqueueClose()：不推进 generation，否则下面的 finish 会被当成「被顶掉」，
         // 把「启动超时」误报成 superseded。close() 不 reject（doClose 全程吞错），.catch 只是保险丝
@@ -777,6 +812,7 @@ export class DshWebManager {
         // 回显 URL 必须通过 loopback+port 校验 —— 恶意/异常 dsh stdout 注入外站时在此拦截
         const url = validateLoopbackUrl(raw)
         if (!url) {
+          expectedExit = true
           log.warn('dsh web emitted a non-loopback URL, rejected:', raw)
           // 同上：自清理不推进代际，失败原因才不会被误报成 superseded
           void this.enqueueClose().catch((err) => log.warn('dsh web close after bad url failed:', err))
@@ -805,6 +841,7 @@ export class DshWebManager {
             key: plan.key
           })
           if (!result.ok) {
+            expectedExit = true
             // 失败：清 patch、丢 key、树杀进程，绝不留登记为「就绪」的实例
             log.warn(`dsh web bridge handshake failed: ${result.reason}`)
             void this.enqueueClose().catch((err) => log.warn('dsh web close after bridge failure failed:', err))
@@ -813,6 +850,7 @@ export class DshWebManager {
           }
           const identity = checkBridgeIdentity(result.handshake, { cwd: opts.cwd, dshHome: expectedDshHome })
           if (!identity.ok) {
+            expectedExit = true
             log.warn(`dsh web bridge identity mismatch: ${identity.reason}`)
             void this.enqueueClose().catch((err) => log.warn('dsh web close after identity mismatch failed:', err))
             finish({ ok: false, error: `harness bridge identity mismatch: ${identity.reason}`, code: 'no-bridge' })
@@ -835,6 +873,17 @@ export class DshWebManager {
               },
               plan,
               controlPort: result.handshake.controlPort
+            }
+            const previousIdentity = this.lastIdentity
+            this.lastIdentity = { ...this.readyInstance.identity }
+            this.lastLaunch = launch
+            this.hostHeld = this.deps.recoverBackend === true
+            if (this.recovery.snapshot().phase !== 'starting') this.recovery.ready()
+            if (previousIdentity && previousIdentity.instanceId !== this.lastIdentity.instanceId) {
+              const event = { identity: { instanceId: this.lastIdentity.instanceId, instanceEpoch: this.lastIdentity.instanceEpoch }, url, cwd: launch.cwd }
+              for (const listener of this.recoveredListeners) {
+                try { listener(event) } catch { log.warn('[dsh web] recovery observer failed') }
+              }
             }
           }
           finish({ ok: true, url })
@@ -863,7 +912,19 @@ export class DshWebManager {
         finish({ ok: false, error: `Failed to spawn dsh: ${err.message}` })
       })
       child.on('exit', (code, signal) => {
+        const wasReady = this.readyInstance?.generation === generation
+        const exitedIdentity = wasReady ? this.readyInstance!.identity : null
         const jobClosed = child.pid ? this.closeJob(child.pid, jobForChild) : false
+        const unverifiedTree = wasReady && this.deps.recoverBackend && process.platform === 'win32' && !jobClosed
+        const exit = { at: Date.now(), generation, pid: child.pid ?? null, code, signal,
+          expected: expectedExit || generation !== this.generation || this.quitting || code === 0,
+          identity: exitedIdentity ? { instanceId: exitedIdentity.instanceId, instanceEpoch: exitedIdentity.instanceEpoch } : null,
+          ...harnessExitEvidence(stderrBuf),
+          ...(unverifiedTree
+            ? { recoveryBlocked: 'old-process-tree-unverified' } : {}) }
+        if (generation === this.generation) this.lastExit = exit
+        log.warn('[dsh web] process exited', exit)
+        try { plan?.cleanup() } catch { log.warn('[dsh web] exit bridge cleanup failed') }
         if (jobClosed && child.pid && generation !== this.generation) {
           // close() 已推进代际、但排队的 doClose 可能还没跑：Job 关闭已收完整棵树。
           // 只清当前这代的指针与留档，避免下一次 open 被一个已结束的 pid 挡住。
@@ -885,14 +946,17 @@ export class DshWebManager {
           this.leases.clear()
           // 托管 keep-alive 持有者随实例消失失效，否则会永久挡住显式重开
           this.backendHolders.clear()
+          this.hostHeld = false
           if (child.pid) {
-            this.releaseOwnedPid(child.pid, spawnedAt)
+            // 包裹进程退出不能证明其子孙已结束；保留原归属令牌，让显式恢复也先核实旧树。
+            if (unverifiedTree) this.pendingPid = child.pid
+            else this.releaseOwnedPid(child.pid, spawnedAt)
           }
           // 自然退出（用户在 UI 里关掉 dsh、或 dsh 自己崩了）也要清档：留着一个已经不属于
           // 我们的 pid，下次启动的恢复会拿它去核对，PID 复用后就是实打实的误杀面。
           // 由 close() 触发的退出不走这里（close 已推进 generation），那次留档由
           // settlePidRecord 按树杀结果决定「清档还是留给下次兜底」。
-          if (child.pid) {
+          if (child.pid && !unverifiedTree) {
             void this.unrecordPids([child.pid]).catch((err) =>
               log.warn('dsh web pid unrecord failed:', (err as Error).message)
             )
@@ -901,8 +965,31 @@ export class DshWebManager {
         // 即使被顶掉也要 finish：否则被 close() 杀掉的旧 open 永不 resolve
         const detail = stderrBuf.trim() || (code != null ? `exit code ${code}` : `signal ${signal}`)
         finish({ ok: false, error: `dsh web exited before ready: ${detail}` })
+        // 仅确认的进程退出触发恢复；桥超时/长模型回合不重启。
+        // Windows 包裹层退出必须先由 Job 确认整棵树已收回，不能遗留旧 node 再开一代。
+        if (wasReady && !expectedExit && code !== 0 && generation === this.generation && !this.quitting && this.deps.recoverBackend &&
+          (process.platform !== 'win32' || jobClosed)) this.scheduleBackendRecovery(launch)
       })
     })
+  }
+
+  private scheduleBackendRecovery(launch: ResolvedDshWebLaunch): void {
+    this.recovery.schedule(async () => {
+      if (this.quitting) return false
+      if (this.readyInstance && this.child) return true
+      const result = await this.ensure(launch)
+      return result.ok && !!this.readyInstance && !!this.child
+    })
+  }
+
+  /** 显式恢复只启动后台；从不重放任务，也不顶掉仍活着但暂时不可达的后台。 */
+  async recoverBackend(): Promise<boolean> {
+    if (this.quitting) return false
+    if (this.readyInstance && this.child) return true
+    if (this.child || this.starting || !this.lastLaunch) return false
+    this.recovery.reset()
+    const result = await this.ensure(this.lastLaunch)
+    return result.ok
   }
 
   /**
@@ -1211,6 +1298,7 @@ export class DshWebManager {
       log.info(`[dsh web] close requested while managed (${this.managedHolders().join(', ')}); view detached, backend kept`)
       return Promise.resolve()
     }
+    this.recovery.stop()
     this.generation++
     this.invalidateInstance()
     // 显式关闭也作废「正在启动」的登记：旧启动的 open() 会因代际不符返回 superseded，
@@ -1231,6 +1319,9 @@ export class DshWebManager {
    * 早在 spawn 时就已留档，由下次启动的恢复流程接手。
    */
   closeForQuit(deadline: number): Promise<void> {
+    this.quitting = true
+    this.hostHeld = false
+    this.recovery.stop()
     this.generation++
     const pid = this.child?.pid ?? this.killingPid ?? this.pendingPid
     this.child = null
@@ -1255,6 +1346,7 @@ export class DshWebManager {
     this.leases.clear()
     // 实例租约随后台失效；独立的 profile 写入锁仍由安装方在 finally 中释放。
     this.backendHolders.clear()
+    this.hostHeld = false
     if (!plan) return
     try {
       plan.cleanup()

@@ -109,6 +109,7 @@ interface SessionRecord {
   workspace: string
   taskId: string | null
   taskAcceptedAt: number | null
+  attemptId: string | null
   taskState: WorkbenchTaskState
   updatedAt: number
   stale: boolean
@@ -161,6 +162,7 @@ interface ParsedState {
   taskSessionId: string | null
   taskId: string | null
   taskAcceptedAt: number | null
+  attemptId: string | null
   taskState: WorkbenchTaskState
   sessions: Array<{ sessionId: string; workspace: string }>
   approvals: ParsedApproval[]
@@ -429,7 +431,7 @@ function applyParsedState(record: OwnerRecord, parsed: ParsedState, now: number)
     let session = record.sessions.get(entry.sessionId)
     if (!session) {
       session = {
-        sessionId: entry.sessionId, workspace: entry.workspace, taskId: null, taskAcceptedAt: null,
+        sessionId: entry.sessionId, workspace: entry.workspace, taskId: null, taskAcceptedAt: null, attemptId: null,
         taskState: 'unknown', updatedAt: now, stale: false, approvals: new Map()
       }
       record.sessions.set(entry.sessionId, session)
@@ -439,15 +441,18 @@ function applyParsedState(record: OwnerRecord, parsed: ParsedState, now: number)
     }
     if (entry.sessionId === current.taskSessionId && current.taskId !== null) {
       // acceptedAt 只能比较同一会话的任务；并行会话之间没有先后覆盖关系。
-      if (current.taskAcceptedAt !== null && session.taskAcceptedAt !== null && session.taskAcceptedAt > current.taskAcceptedAt) continue
-      if (session.taskId === current.taskId && (
+      const sameAttempt = session.attemptId === current.attemptId
+      if (session.taskId === current.taskId && session.attemptId && !current.attemptId) continue
+      if (sameAttempt && current.taskAcceptedAt !== null && session.taskAcceptedAt !== null && session.taskAcceptedAt > current.taskAcceptedAt) continue
+      if (sameAttempt && session.taskId === current.taskId && (
         TERMINAL_STATES.includes(session.taskState) && session.taskState !== current.taskState ||
         session.taskState === 'running' && current.taskState === 'accepted'
       )) continue
       // 本次快照明确描述了该会话的当前任务：可信更新。
-      if (session.taskId !== current.taskId) {
+      if (session.taskId !== current.taskId || !sameAttempt) {
         session.taskId = current.taskId
         session.taskAcceptedAt = current.taskAcceptedAt
+        session.attemptId = current.attemptId
         session.updatedAt = now
       }
       if (session.taskState !== current.taskState) {
@@ -734,12 +739,17 @@ function parseStateBody(body: Record<string, unknown>, nested = false): ParsedSt
   // 任务归属：优先取官方 task.sessionId；disconnect 后 body.sessionId 为 null，任务仍属旧会话。
   let taskSessionId: string | null = sessionId
   let taskAcceptedAt: number | null = null
+  let attemptId: string | null = null
   if (body.task !== undefined && body.task !== null) {
     if (!isRecord(body.task)) return null
     if (body.task.taskId !== taskId) return null
     if (body.task.state !== undefined && body.task.state !== taskState) return null
     if (!isBoundedId(body.task.sessionId)) return null
     taskSessionId = body.task.sessionId
+    if (body.task.attemptId !== undefined) {
+      if (!isBoundedId(body.task.attemptId)) return null
+      attemptId = body.task.attemptId
+    }
     if (body.task.acceptedAt !== undefined) {
       if (!isSafeTimestamp(body.task.acceptedAt)) return null
       taskAcceptedAt = body.task.acceptedAt
@@ -829,7 +839,7 @@ function parseStateBody(body: Record<string, unknown>, nested = false): ParsedSt
     }
   }
   return {
-    bridgeRevision, offline, identity, sessionId, taskSessionId, taskId, taskAcceptedAt, taskState,
+    bridgeRevision, offline, identity, sessionId, taskSessionId, taskId, taskAcceptedAt, attemptId, taskState,
     sessions, approvals, transcript, transcriptTruncated: truncated, ...(sessionStates ? { sessionStates } : {})
   }
 }

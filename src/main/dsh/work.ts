@@ -2,8 +2,10 @@ import http from 'http'
 import { createHash } from 'crypto'
 import { statSync } from 'fs'
 import { isAbsolute } from 'path'
+import { app } from 'electron'
 import type { HarnessWorkRequest } from '@shared/harness-work'
-import { BRIDGE_KEY_HEADER } from './bridge'
+import { BRIDGE_KEY_HEADER, locateBridgePackage } from './bridge'
+import { persistentGlobalWorkOwner, readSavedWorkState } from './work-history'
 import { dshWebManager } from './web'
 import { createDshWebLaunchResolver } from './launch-resolve'
 import {
@@ -17,7 +19,8 @@ const unavailable = (): WorkReply => ({ status: 503, body: {
 } })
 
 /** 凭据本身不离开 main；hash 只是桥内租户键，不是可用于鉴权的 token。 */
-export function harnessWorkOwner(token: string): string {
+export function harnessWorkOwner(token: string, global = false): string {
+  if (global) return persistentGlobalWorkOwner(app.getPath('userData'))
   return createHash('sha256').update('lyshell-native-work\0').update(token).digest('hex')
 }
 
@@ -73,6 +76,12 @@ export async function runHarnessWork(
   owner: string, request: HarnessWorkRequest, stillAuthorized: () => boolean
 ): Promise<WorkReply> {
   const reply = await dispatchHarnessWork(owner, request, stillAuthorized)
+  if (!stillAuthorized()) return { status: 403, body: { ok: false, error: 'Work credential revoked' } }
+  if (reply.body.ok === true && reply.body.identity && reply.body.status !== 'offline') {
+    if (lastSnapshots.size >= 64 && !lastSnapshots.has(owner)) lastSnapshots.delete(lastSnapshots.keys().next().value!)
+    lastSnapshots.set(owner, structuredClone(reply.body))
+  }
+  reply.body.backend = dshWebManager.recoveryStatus ?? null
   // 把权威快照留在 main 内（owner 不外传），供工作台活动面板聚合；失败回执不会被当成状态。
   recordWorkbenchActivityReply(owner, reply)
   return reply
@@ -100,6 +109,40 @@ async function dispatchHarnessWork(
 }
 
 const mutations = new Map<string, { pending: number; disconnecting: boolean }>()
+const lastSnapshots = new Map<string, Record<string, unknown>>()
+
+async function offlineState(owner: string, request: HarnessWorkRequest): Promise<WorkReply> {
+  try {
+    if (typeof app?.getPath === 'function' && typeof app?.isPackaged === 'boolean') {
+      const location = locateBridgePackage({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, devRoot: app.getAppPath() })
+      const saved = location && await readSavedWorkState(app.getPath('userData'), location.dir, owner, request)
+      if (saved) return { status: saved.ok ? 200 : 409, body: saved }
+    }
+  } catch { return { status: 503, body: { ok: false, code: 'journal/unavailable', error: 'Saved Harness state unavailable; do not resubmit unknown work' } } }
+  const previous = lastSnapshots.get(owner)
+  if (previous) {
+    const body = structuredClone(previous)
+    const stale = (value: Record<string, unknown>): Record<string, unknown> => {
+      const interrupted = ['accepted', 'running', 'unconfirmed'].includes(String(value.taskState))
+      return { ...value, status: 'offline', stale: true, taskState: interrupted ? 'unconfirmed' : value.taskState,
+        task: value.task && typeof value.task === 'object' && interrupted
+          ? { ...value.task, lastConfirmedState: (value.task as Record<string, unknown>).state, state: 'unconfirmed', recoveryRequired: true } : value.task,
+        approvals: [], recoveryRequired: interrupted }
+    }
+    const sessions = Array.isArray(body.sessions) ? body.sessions.map(row => stale(row as Record<string, unknown>)) : []
+    let target = stale(body)
+    if (request.kind === 'state' && (request.sessionId || request.taskId)) {
+      const matches = (row: Record<string, unknown>): boolean => (!request.sessionId || row.sessionId === request.sessionId) && (!request.taskId || row.taskId === request.taskId)
+      const found = matches(body) ? body : sessions.find(matches)
+      if (!found) return { status: 409, body: { ok: false, code: 'task/not-found', error: 'No saved task for this selector' } }
+      target = stale(found)
+    }
+    return { status: 200, body: { ...body, ...target, sessions, identity: null, lastKnownIdentity: body.identity,
+      recovery: 'Backend unavailable; progress retained, execution outcome may be unknown' } }
+  }
+  return { status: 200, body: { ok: true, status: 'offline', identity: null, sessionId: null, taskId: null, taskState: null,
+    sessions: [], approvals: [], transcript: [], recovery: 'Backend unavailable; previous task outcome is unknown' } }
+}
 
 async function executeHarnessWork(
   owner: string, request: HarnessWorkRequest, stillAuthorized: () => boolean
@@ -108,6 +151,19 @@ async function executeHarnessWork(
   if (!stillAuthorized()) return { status: 403, body: { ok: false, error: 'Work credential revoked' } }
   // 一旦该凭据发起过原生工作，就纳入活动面板观察；之后的失败只会让条目标为过期。
   registerWorkbenchActivityOwner(owner)
+  if (request.kind === 'recover') {
+    if (!dshWebManager.bridgeControlEndpoint) {
+      const recovered = await dshWebManager.recoverBackend?.()
+      if (!recovered && !dshWebManager.running) {
+        const resolver = createDshWebLaunchResolver(HARNESS_AGENTS.dsh)
+        const started = await dshWebManager.acquire(target => resolver.resolve(target))
+        if (!started.ok) return { status: 409, body: { ok: false, code: started.code, error: started.error } }
+      }
+    }
+    if (!stillAuthorized()) return { status: 403, body: { ok: false, error: 'Work credential revoked' } }
+    const endpoint = dshWebManager.bridgeControlEndpoint
+    return endpoint ? requestNativeWorkBridge(endpoint, owner, { kind: 'targets' }) : unavailable()
+  }
   if (request.kind === 'new' && request.workspace !== undefined) {
     let valid = false
     try { valid = isAbsolute(request.workspace) && statSync(request.workspace).isDirectory() } catch { /* 无效目录 */ }
@@ -115,8 +171,7 @@ async function executeHarnessWork(
   }
   if (!dshWebManager.bridgeControlEndpoint && request.kind !== 'new') {
     if (request.kind !== 'state' && request.kind !== 'targets') return unavailable()
-    return { status: 200, body: { ok: true, status: 'offline', sessionId: null, taskId: null, taskState: null,
-      sessions: [], approvals: [], transcript: [], recovery: 'Backend unavailable; previous task outcome is unknown' } }
+    return offlineState(owner, request)
   }
   // 读状态无启动副作用。变更先持有后台，避免用户重开工作台终止在途任务。
   if (!['state', 'targets', 'disconnect'].includes(request.kind)) {

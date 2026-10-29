@@ -1,0 +1,200 @@
+{
+  "ok": false,
+  "generatedAt": "2026-10-28T14:59:56.230Z",
+  "command": "node scripts/shelf-memory-p0/deep-sleep-app.cjs --rounds=1 --cycles=1",
+  "scope": "built LyShell (dist/main/index.js) full app, isolated task-shelf recovery profile, loopback fixture",
+  "build": {
+    "before": {
+      "dist/main/index.js": {
+        "size": 1860852,
+        "mtimeMs": 1793199397966,
+        "sha256": "3efdd2402a1b4a28d743e2be95dba1400da51990fc7856d16daec1668c245e5b"
+      },
+      "dist/preload/shelfReadonly.js": {
+        "size": 8301,
+        "mtimeMs": 1793199398224,
+        "sha256": "f1084fefdaabe593cb967b44f6590f4dc35f3c7bc0812c10e00aaea7d6adc80f"
+      },
+      "dist/preload/index.js": {
+        "size": 35674,
+        "mtimeMs": 1793199398222,
+        "sha256": "14ca92d54eff5d72b04ce97cbc2f142362c7fd0ca2aec0095470e889ddf00209"
+      },
+      "dist/renderer/index.html": {
+        "size": 2905,
+        "mtimeMs": 1793199410594,
+        "sha256": "e23790a6ebe7aabb101c2a53b646f7fcd7d4d8910cfa78b0b69b8d5d7a337364"
+      }
+    },
+    "after": {
+      "dist/main/index.js": {
+        "size": 1860852,
+        "mtimeMs": 1793199397966,
+        "sha256": "3efdd2402a1b4a28d743e2be95dba1400da51990fc7856d16daec1668c245e5b"
+      },
+      "dist/preload/shelfReadonly.js": {
+        "size": 8301,
+        "mtimeMs": 1793199398224,
+        "sha256": "f1084fefdaabe593cb967b44f6590f4dc35f3c7bc0812c10e00aaea7d6adc80f"
+      },
+      "dist/preload/index.js": {
+        "size": 35674,
+        "mtimeMs": 1793199398222,
+        "sha256": "14ca92d54eff5d72b04ce97cbc2f142362c7fd0ca2aec0095470e889ddf00209"
+      },
+      "dist/renderer/index.html": {
+        "size": 2905,
+        "mtimeMs": 1793199410594,
+        "sha256": "e23790a6ebe7aabb101c2a53b646f7fcd7d4d8910cfa78b0b69b8d5d7a337364"
+      }
+    },
+    "stable": true,
+    "readyFile": "{\"ready\":true,\"integrationUpdate\":\"Before benchmark, read tmp/deep-sleep-app-contract-update.md. Final build has per-resource readonly Session UUIDs and challenge handshake; typecheck/build passed.\"}"
+  },
+  "fixture": {
+    "host": "shelf-fixture.test:127.0.0.1",
+    "hits": {
+      "counts": {
+        "/fixture/0": 1,
+        "/pixel.gif": 10,
+        "/fixture/1": 1,
+        "/favicon.ico": 10,
+        "/fixture/2": 1,
+        "/fixture/3": 1,
+        "/fixture/4": 1,
+        "/fixture/5": 1,
+        "/fixture/6": 1,
+        "/fixture/7": 1,
+        "/fixture/8": 1,
+        "/fixture/9": 1,
+        "/__hits": 1
+      },
+      "posts": 0,
+      "total": 31
+    },
+    "serverPaths": [
+      "/subframe",
+      "/media.mp4",
+      "/posted",
+      "/leak",
+      "/worker.js",
+      "/beacon",
+      "/leak.gif"
+    ]
+  },
+  "config": {
+    "rounds": 1,
+    "cyclesPerRound": 1,
+    "arms": {
+      "before": "LYSHELL_SHELF_READONLY_SLEEP='0'",
+      "after": "LYSHELL_SHELF_READONLY_SLEEP unset"
+    },
+    "virtualClock": "main-process Date.now patched; +300001 ms after demands clear (production threshold unchanged)",
+    "readonlyPartitions": "one non-persistent Session per read-only resource: shelf-readonly-v1:<uuid>, reused verbatim on wake",
+    "memoryMetric": "sum of per-PID max memory.privateBytes from app.getAppMetrics() (KB->MiB), sampled every 100 ms"
+  },
+  "runs": [
+    {
+      "round": 1,
+      "arm": "before",
+      "ok": false,
+      "wallMs": 54150,
+      "base": "tmp\\deep-sleep-app\\2026-10-28T14-59-02-046Z-r1-before-ig7ABU",
+      "counts": {},
+      "memory": {
+        "boot": {
+          "samples": 359,
+          "median": 853.43,
+          "mean": 797.13,
+          "peak": 944.33,
+          "min": 324.69
+        }
+      },
+      "error": {
+        "message": "timeout waiting for protected script ran :: {\"href\":\"http://shelf-fixture.test:56689/protected\",\"ready\":\"complete\",\"title\":\"\",\"prot\":false,\"bodyText\":\"\",\"scripts\":0,\"csp\":null,\"wcId\":true}",
+        "stack": "Error: timeout waiting for protected script ran :: {\"href\":\"http://shelf-fixture.test:56689/protected\",\"ready\":\"complete\",\"title\":\"\",\"prot\":false,\"bodyText\":\"\",\"scripts\":0,\"csp\":null,\"wcId\":true}\n    at until (D:\\workspace\\claude\\LyShell\\scripts\\shelf-memory-p0\\deep-sleep-app.cjs:864:11)\n    at async runArm (D:\\workspace\\claude\\LyShell\\scripts\\shelf-memory-p0\\deep-sleep-app.cjs:1234:25)\n    at async D:\\workspace\\claude\\LyShell\\scripts\\shelf-memory-p0\\deep-sleep-app.cjs:1531:7",
+        "check": null,
+        "detail": null,
+        "step": "open protected",
+        "guestUrls": [
+          "http://shelf-fixture.test:56689/protected",
+          "http://shelf-fixture.test:56689/fixture/9",
+          "http://shelf-fixture.test:56689/fixture/8",
+          "http://shelf-fixture.test:56689/fixture/7",
+          "http://shelf-fixture.test:56689/fixture/6",
+          "http://shelf-fixture.test:56689/fixture/5",
+          "http://shelf-fixture.test:56689/fixture/4",
+          "http://shelf-fixture.test:56689/fixture/3",
+          "http://shelf-fixture.test:56689/fixture/2",
+          "http://shelf-fixture.test:56689/fixture/1",
+          "http://shelf-fixture.test:56689/fixture/0"
+        ],
+        "virtualOffsetMs": 0,
+        "arm": "before",
+        "round": 1
+      }
+    }
+  ],
+  "memory": {
+    "loaded": {
+      "before": null,
+      "after": null,
+      "parityPct": null
+    },
+    "final": {
+      "before": null,
+      "after": null,
+      "deltaMiB": null,
+      "deltaPct": null
+    },
+    "sleep": {
+      "after": null
+    },
+    "verdict": "no-data"
+  },
+  "acceptance": {
+    "checks": {
+      "total": 187,
+      "failed": 0,
+      "failures": []
+    },
+    "counts": {
+      "beforeRuns": 0,
+      "afterRuns": 0,
+      "reloadCycles": 0,
+      "restoreCycles": 0,
+      "expectedRestoreCycles": 1
+    },
+    "before": [],
+    "after": []
+  },
+  "recheck": null,
+  "validity": {
+    "status": "failed",
+    "reasons": [
+      "run failed (round 1 before): timeout waiting for protected script ran :: {\"href\":\"http://shelf-fixture.test:56689/protected\",\"ready\":\"complete\",\"title\":\"\",\"prot\":false,\"bodyText\":\"\",\"scripts\":0,\"csp\":null,\"wcId\":true}",
+      "missing/failed before-arm runs",
+      "missing/failed after-arm runs",
+      "snapshot recheck failed or skipped",
+      "restore cycles 0 < 100"
+    ],
+    "buildStable": true,
+    "restoreCycles": 0,
+    "loadedParityPct": null,
+    "failedChecks": 0,
+    "expected": {
+      "complete": true,
+      "fetched": 1
+    }
+  },
+  "limitations": [
+    "Single Windows host; fixture served on loopback with shelf-fixture.test mapped to 127.0.0.1; no credentials or external network.",
+    "Application-total private memory is the sum of app.getAppMetrics().memory.privateBytes per PID; it excludes any metric not reported there (no JS heap/external added by the harness).",
+    "Virtual clock: only the Electron main process Date.now is offset (+300001 ms after demands clear); production deepSleepAfterMs stays at its 5 min default. Both arms advance the same virtual clock.",
+    "Static pages cannot execute page script by design (CSP script-src none), so page-authored JS/form/media/iframe attempts are verified via blocked network requests plus hardened DOM; trusted-input blocking is covered by Codex unit tests.",
+    "Each read-only resource now has its own non-persistent Session (shelf-readonly-v1:<uuid>) and zoom is set per page; the fixture asserts the DOM partition attribute, native Session identity, distinct Sessions, and persisted per-resource partition metadata.",
+    "Protected/unknown dynamic pages are seeded without readonlyMode because only contract-verified readonly guests are sleep-eligible; the expected 10-destroyed/2-live invariant requires them dynamic. beforeunload close refusal is unit-tested by Codex, not re-run here.",
+    "Snapshot reread is proven by a fresh recheck process reading task-shelf.json and the shelf list; a lifecycle inspect is impossible before attach (no record), so no fake state is asserted.",
+    "GUI/visual review is explicitly out of scope; screenshots are saved but not interpreted by this harness."
+  ]
+}

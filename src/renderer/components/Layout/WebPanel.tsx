@@ -367,6 +367,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
   const setWebTabNav = usePaneStore((s) => s.setWebTabNav)
   const [webBarInput, setWebBarInput] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
+  const [reloadPolicyBusy, setReloadPolicyBusy] = useState(false)
 
   // ───── 写轮眼小窗（栏底迷你浏览器）─────
   const recordWebTabVisit = usePaneStore((s) => s.recordWebTabVisit)
@@ -900,7 +901,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
           <StopIcon size={18} />
         </IconBtn>}
         {/* 清空仅在更多菜单中提供；窄栏额外收纳设置与主页。 */}
-        {(navCompact || listView === 'recent') && (
+        {(navCompact || listView === 'recent' || activeWebTabId !== null) && (
           <div ref={navMoreRef} className="relative flex-shrink-0">
             <IconBtn ref={navMoreTriggerRef} title={t('webBar.more')} aria-haspopup="menu" aria-expanded={navMoreOpen} aria-controls={navMoreOpen ? navMoreId : undefined} amber size="lg" bright onClick={() => setNavMoreOpen(o => !o)}>
               <MoreIcon size={18} />
@@ -920,6 +921,22 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
                 className="win-no-drag absolute top-full right-0 mt-1 z-50 w-[168px] bg-[var(--bg-rack)] border border-[var(--rule)] rounded-sm p-1 shadow-xl [&_button:focus-visible]:outline [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-[var(--amber)]">
                 {navCompact && onOpenSettings && <button type="button" role="menuitem" onClick={() => { closeNavMore(); onOpenSettings() }} className="w-full px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)]">{t('browser.title')}</button>}
                 {navCompact && browserSettings.homePage && <button type="button" role="menuitem" onClick={() => { closeNavMore(); handleOpenWebTab(browserSettings.homePage) }} className="w-full px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)]">{t('browser.openHome')}</button>}
+                {activeWebTab?.kind === 'web' && !activeWebTab.readonlyMode && !activeWebTab.fromPost && !activeWebTab.ownerPluginId && displayUrl && <button type="button" role="menuitem"
+                  title={t('webBar.readonlyDetail')}
+                  onClick={() => { closeNavMore(); openWebTab(displayUrl, undefined, { afterTabId: activeWebTabId ?? undefined, readonlyMode: true }) }}
+                  className="w-full px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)]">{t('webBar.openReadonly')}</button>}
+                {activeWebTab?.kind === 'web' && !activeWebTab.readonlyMode && !activeWebTab.fromPost && !activeWebTab.ownerPluginId && activeWebTabId && displayUrl && <button type="button" role="menuitem"
+                  disabled={reloadPolicyBusy} title={t('webBar.reloadableDetail')}
+                  onClick={() => {
+                    const id = activeWebTabId
+                    const enabled = !activeWebTab.reloadableMode
+                    closeNavMore(); setReloadPolicyBusy(true); setNotice(null)
+                    void window.electronAPI.shelfBrowserRequest({ kind: 'reloadPolicy', resourceId: activeWebTab.shelfTaskId ? `saved:${activeWebTab.shelfTaskId}` : `tab:${id}`, enabled, url: displayUrl }).then(result => {
+                      if (result.success && result.reloadableMode !== undefined) usePaneStore.getState().setWebTabReloadableMode(id, result.reloadableMode)
+                      else if (!result.success && result.error !== 'cancelled') setNotice(result.error)
+                    }).catch(() => setNotice(t('webBar.reloadableFailed'))).finally(() => setReloadPolicyBusy(false))
+                  }}
+                  className="w-full px-2.5 py-1.5 text-left text-[12px] text-[var(--text-rack)] rounded-sm hover:bg-[var(--bg-slot)] disabled:opacity-40">{t(activeWebTab.reloadableMode ? 'webBar.keepRunning' : 'webBar.allowIdleReload')}</button>}
                 {listView === 'recent' && <button
                   type="button"
                   role="menuitem"

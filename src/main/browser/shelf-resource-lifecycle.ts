@@ -321,6 +321,8 @@ export interface ShelfResourceLifecycleOptions {
   allowlistedProviderIds?: readonly string[]
   /** 只有调用方专项验证过 close 可安全撤销时才能为 true；默认 false。 */
   safeCloseSupported?: boolean
+  /** main 强制的可丢弃契约；不能来自网页/renderer 的 safe 声明。 */
+  verifyDiscardContract?: (token: ResourceToken) => boolean
 }
 
 interface Demand {
@@ -507,6 +509,7 @@ export class ShelfResourceLifecycle {
   private readonly permitTimeoutMs: number
   private readonly providerIds: ReadonlySet<string>
   private readonly safeCloseSupported: boolean
+  private readonly verifyDiscardContract?: (token: ResourceToken) => boolean
 
   constructor(options: ShelfResourceLifecycleOptions = {}) {
     this.clock = options.now ?? Date.now
@@ -519,6 +522,7 @@ export class ShelfResourceLifecycle {
     this.permitTimeoutMs = boundedMs(options.permitTimeoutMs, DEFAULT_PERMIT_TIMEOUT_MS)
     this.providerIds = new Set((options.allowlistedProviderIds ?? []).filter(isSmallString))
     this.safeCloseSupported = options.safeCloseSupported === true
+    this.verifyDiscardContract = options.verifyDiscardContract
   }
 
   // ---- 需求与展示归属 -------------------------------------------------------
@@ -621,6 +625,8 @@ export class ShelfResourceLifecycle {
     if (!Number.isSafeInteger(instanceGeneration)) return fail('limit-reached', '实例代际已耗尽')
     this.instanceSequence = instanceGeneration
     record.instanceGeneration = instanceGeneration
+    record.protection = null
+    record.lastRefusedProtectionRevision = null
     record.permit = {
       permitId,
       ownerId: record.ownerId,
@@ -711,7 +717,7 @@ export class ShelfResourceLifecycle {
     record.state = 'live'
     record.restoreStatus = 'loading'
     record.presentationReady = false
-    record.idleSince = null
+    record.idleSince = !record.mainDemand && !record.shelfDemand ? this.clock() : null
     this.diagnose(record, 'attached', verified.guestId)
     return { ok: true, guestId: verified.guestId, token: this.tokenOf(record) }
   }
@@ -765,6 +771,9 @@ export class ShelfResourceLifecycle {
     if (!isBoundedWebUrl(url)) return fail('invalid', 'url 非法')
     const record = resolved
     record.navigationGeneration += 1
+    record.protection = null
+    record.lastRefusedProtectionRevision = null
+    record.idleSince = record.state === 'live' && !record.mainDemand && !record.shelfDemand ? this.clock() : null
     record.lastUrl = url
     record.geometry = null
     record.presentationReady = false
@@ -1041,6 +1050,15 @@ export class ShelfResourceLifecycle {
 
   // ---- 统计与诊断 -------------------------------------------------------
 
+  /** 电源/锁屏/宿主展示边界失效旧期限，不累计睡眠期间的五分钟。 */
+  invalidateIdle(): void {
+    for (const record of this.records.values()) {
+      record.protection = null
+      if (record.suspend?.phase === 'saving') this.keepAlive(record, 'recheck-failed', 'host-boundary')
+      record.idleSince = record.state === 'live' && !record.mainDemand && !record.shelfDemand ? this.clock() : null
+    }
+  }
+
   stats(): LifecycleStats {
     const stats: LifecycleStats = {
       resources: this.records.size,
@@ -1200,7 +1218,7 @@ export class ShelfResourceLifecycle {
 
   private suspendCodes(record: ResourceRecord, policyAllowed: boolean, restore: RestoreMetadata, now: number): LifecycleCode[] {
     const codes: LifecycleCode[] = []
-    if (!this.safeCloseSupported) codes.push('unsupported-close')
+    if (!this.safeCloseSupported && !this.verifyDiscardContract?.(this.tokenOf(record))) codes.push('unsupported-close')
     if (record.state !== 'live' || !record.guest) codes.push('not-eligible')
     if (record.kind !== 'web') codes.push('kind-unsupported')
     if (!policyAllowed) codes.push('policy-disabled')
@@ -1245,7 +1263,7 @@ export class ShelfResourceLifecycle {
       return 'protection-stale'
     }
     if (now - protection.checkedAt > this.protectionTtlMs) return 'protection-expired'
-    if (!this.safeCloseSupported) return 'unsupported-close'
+    if (!this.safeCloseSupported && !this.verifyDiscardContract?.(this.tokenOf(record))) return 'unsupported-close'
     return null
   }
 

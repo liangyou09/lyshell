@@ -117,6 +117,22 @@ const approval = (over: Partial<ExclusiveApprovalView> = {}): ExclusiveApprovalV
 })
 
 describe('凭据层：只认受控插件的 host token', () => {
+  it('确定换代后旧绑定/审批失效，任务结果保留未知，新 acquire 不再返回旧绑定', async () => {
+    const h = makeHarness(), epoch = await held(h)
+    h.setSyncOutcome({ ok: true, identity: { instanceId: 'inst-1', instanceEpoch: 1000 }, holding: true,
+      task: task({ epoch }), approvals: [approval({ epoch })] })
+    await h.service.syncFromBridge()
+    h.setInstance(null)
+    expect(h.service.getSnapshot().binding?.epoch).toBe(epoch)
+    h.setInstance({ instanceId: 'inst-2', instanceEpoch: 2000 })
+    expect(await h.service.syncFromBridge()).toMatchObject({ ok: false, code: 'auth/generation-stale' })
+    expect(h.service.getSnapshot()).toMatchObject({ phase: 'free', binding: null, activeTask: null, approvals: [],
+      interruptedTasks: [{ outcome: 'unknown', task: { taskId: 'task-1', state: 'running' } }] })
+    h.setOutcome(() => ({ ok: true, identity: { instanceId: 'inst-2', instanceEpoch: 2000 }, holding: true }))
+    const reacquired = await h.service.acquire({ pluginId: PLUGIN, pluginInstanceId: 'pet-1' })
+    expect(reacquired).toMatchObject({ ok: true, binding: { instanceId: 'inst-2' } })
+    expect(h.commands.some(command => command.cmd === 'submit' || command.cmd === 'cancel')).toBe(false)
+  })
   it('global/session/UI token/其他插件一律按冒充拒绝', () => {
     const h = makeHarness()
     for (const facts of [

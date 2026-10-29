@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from 'react'
+import React, { useCallback, useLayoutEffect, useMemo, useRef, type CSSProperties } from 'react'
 import TerminalView from '../Terminal/TerminalView'
 import {
   focusShelfSurface,
@@ -47,7 +47,7 @@ const ShelfTerminalHost: React.FC<ShelfTerminalHostProps> = ({ sessionId, paneId
 
   const mini: ShelfSurfaceSnapshot | null = visibleInMain ? null : surface ?? lastSurfaceRef.current
   // 登记已注销、只剩最后一帧几何：位置保留占位，但不再对外暴露
-  const exposed = !!mini && surface !== null && surface.visible
+  const exposed = !!mini?.rect && surface !== null && surface.visible
   const interactive = exposed && surface.interactive
   const inMini = mini !== null
   const shelfHost = useMemo(() => inMini ? { active: mini?.active === true, interactive } : undefined, [inMini, mini?.active, interactive])
@@ -55,6 +55,7 @@ const ShelfTerminalHost: React.FC<ShelfTerminalHostProps> = ({ sessionId, paneId
   const style: CSSProperties = mini
     ? {
         ...shelfSurfaceStyle(mini),
+        opacity: exposed ? 1 : 0,
         ...(exposed
           ? {}
           : { visibility: 'hidden' as const, pointerEvents: 'none' as const, clipPath: 'inset(100%)' })
@@ -63,6 +64,9 @@ const ShelfTerminalHost: React.FC<ShelfTerminalHostProps> = ({ sessionId, paneId
         position: 'absolute',
         inset: 0,
         visibility: visibleInMain ? 'visible' : 'hidden',
+        opacity: visibleInMain ? 1 : 0,
+        pointerEvents: visibleInMain ? 'auto' : 'none',
+        clipPath: visibleInMain ? '' : 'inset(100%)',
         zIndex: visibleInMain ? 1 : 0
       }
 
@@ -79,6 +83,7 @@ const ShelfTerminalHost: React.FC<ShelfTerminalHostProps> = ({ sessionId, paneId
         left: `${retained.rect.left}px`, top: `${retained.rect.top}px`,
         width: `${retained.rect.width}px`, height: `${retained.rect.height}px`,
         visibility: shown ? 'visible' : 'hidden',
+        opacity: shown ? 1 : 0,
         pointerEvents: shown && current.interactive ? 'auto' : 'none',
         clipPath: shown ? retained.clipPath : 'inset(100%)'
       })
@@ -89,12 +94,12 @@ const ShelfTerminalHost: React.FC<ShelfTerminalHostProps> = ({ sessionId, paneId
 
   // 不可交互（侧栏收起、被别的任务顶掉、或未登记可交互）时不接受 Tab 焦点：
   // pointerEvents:none 只管指针，键盘聚焦要靠 inert 才拦得住。
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = hostRef.current
     if (!element) return
-    if (inMini && !interactive) element.setAttribute('inert', '')
+    if (!visibleInMain && !interactive) element.setAttribute('inert', '')
     else element.removeAttribute('inert')
-  }, [inMini, interactive])
+  }, [visibleInMain, interactive])
 
   // 点到 / 聚焦到真实终端就认领这个面：右侧面板据此保持展开，键盘归属也随之切换
   const claimSurface = useCallback(() => {

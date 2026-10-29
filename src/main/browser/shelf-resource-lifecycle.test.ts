@@ -553,7 +553,7 @@ describe('深睡保护与关闭事务', () => {
     })
   })
 
-  it('实例换代后旧保护结论按 protection-stale 拒绝深睡', () => {
+  it('导航换代清空旧保护结论，新导航可以从保护版本 1 开始', () => {
     const h = harness({ deepSleepAfterMs: 1_000 })
     bringLive(h)
     const first = tokenOf(h)
@@ -567,15 +567,16 @@ describe('深睡保护与关闭事务', () => {
         navigationGeneration: first.navigationGeneration
       }).ok
     ).toBe(true)
-    // 导航换代：保护结论仍停在旧 navigationGeneration
+    // 导航换代：旧证据立刻失效，不能刷新旧版本 TTL。
     const navigated = h.lc.recordNavigation(first, 'https://example.com/next')
     if (!navigated.ok) throw new Error(navigated.code)
     expect(h.lc.clearDemand({ ...R, source: 'explicitMain' }).ok).toBe(true)
     h.advance(1_500)
     const evaluated = h.lc.evaluateSuspend({ ...R, policyAllowed: true, restore: restoreMeta(h) })
     if (!evaluated.ok) throw new Error('unreachable')
-    expect(evaluated.codes).toContain('protection-stale')
+    expect(evaluated.codes).toContain('protection-unknown')
     expect(evaluated.eligible).toBe(false)
+    expect(h.lc.reportProtection({ ...R, decision: 'safe', providerId: 'provider.a', revision: 1, instanceGeneration: navigated.token.instanceGeneration, navigationGeneration: navigated.token.navigationGeneration }).ok).toBe(true)
   })
 
   it('恢复 URL 上限为仓库统一的 4096，凭据与非 GET 仍拒绝', () => {

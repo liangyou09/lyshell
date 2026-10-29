@@ -2,16 +2,18 @@ import type { ApiRouteMeta } from './api-routes'
 
 export type HarnessWorkRequest =
   | { kind: 'state'; sessionId?: string; taskId?: string }
-  | { kind: 'targets' | 'disconnect' }
+  | { kind: 'targets' | 'disconnect' | 'recover' }
   | { kind: 'new'; workspace?: string }
   | { kind: 'select'; sessionId: string }
   | { kind: 'submit'; text: string; requestId: string; sessionId: string }
+  | { kind: 'resume'; taskId: string; text: string; requestId: string; sessionId: string }
   | { kind: 'cancel'; taskId: string; sessionId?: string }
   | { kind: 'approve'; id: string; sessionId?: string; taskId?: string; optionId: 'allowed-once' | 'rejected' | 'cancelled' }
 
 const fields: Record<string, string[]> = {
   state: ['sessionId', 'taskId'], targets: [], disconnect: [], new: ['workspace'], select: ['sessionId'],
-  submit: ['text', 'requestId', 'sessionId'], cancel: ['taskId', 'sessionId'], approve: ['id', 'optionId', 'sessionId', 'taskId']
+  submit: ['text', 'requestId', 'sessionId'], cancel: ['taskId', 'sessionId'], approve: ['id', 'optionId', 'sessionId', 'taskId'],
+  recover: [], resume: ['taskId', 'text', 'requestId', 'sessionId']
 }
 
 /** 严格校验外部请求；不允许传 owner、宿主配置或 Pet epoch。 */
@@ -26,7 +28,8 @@ export function parseHarnessWorkRequest(value: unknown): HarnessWorkRequest | nu
   if (p.kind === 'new' && p.workspace !== undefined &&
     (typeof p.workspace !== 'string' || !p.workspace.trim() || p.workspace.length > 2048 || [...p.workspace].some(char => char.charCodeAt(0) < 32))) return null
   if (p.kind === 'select' && !id('sessionId')) return null
-  if (p.kind === 'submit' && (!id('requestId') || !id('sessionId') || typeof p.text !== 'string' || !p.text.trim() || p.text.length > 32000)) return null
+  if (['submit', 'resume'].includes(p.kind) && (!id('requestId') || !id('sessionId') || typeof p.text !== 'string' || !p.text.trim() || p.text.length > 32000)) return null
+  if (p.kind === 'resume' && !id('taskId')) return null
   if (p.kind === 'cancel' && !id('taskId')) return null
   if (p.kind === 'approve' && (!id('id') || typeof p.optionId !== 'string' || !['allowed-once', 'rejected', 'cancelled'].includes(p.optionId))) return null
   return p as HarnessWorkRequest
@@ -36,13 +39,13 @@ export const HARNESS_WORK_ROUTE: ApiRouteMeta = {
   name: 'lyshell_harness_work', path: '/api/harness/work/request', method: 'POST',
   capabilities: ['localExecute', 'fileWrite'], transports: ['http', 'stdio-mcp'],
   title: 'DeepSeek Harness 工作控制',
-  description: 'LyShell 原生 Harness 工作通道，独立于 PetLink。kind: state/targets/new/select/submit/cancel/approve/disconnect。同凭据不同会话可并行，每会话只允许一个活动任务。先 new 创建会话；submit 按 sessionId 定位，不依赖当前选择，并携带凭据内唯一 requestId。state 可按 sessionId/taskId 精确读取；无参数返回默认会话，sessions 含各会话最新任务视图。接收不等于完成，按 identity、acceptedTaskId 与官方 completed 跟踪；未知结果禁止重发。cancel 按 taskId，approve 按返回的 id/options，可附 sessionId/taskId 核对归属。disconnect 要求所有任务结束。凭据隔离，不接管 Pet/Web 历史会话。',
+  description: 'LyShell 原生 Harness 工作通道，独立于 PetLink。kind: state/targets/new/select/submit/cancel/approve/disconnect/recover/resume。同凭据不同会话可并行，每会话最多一个活动任务。new 创建会话；submit 按 sessionId 和唯一 requestId 提交。state 按 sessionId/taskId 精确读取，断线保留持久进度但不是当前执行证据。recover 仅恢复后台，绝不重发任务。核对副作用后可 resume，提供原 taskId、sessionId、新 requestId 与剩余工作 text；保留逻辑 taskId、新建 attemptId。审批不跨重启恢复。接收不等于完成，只认对应 attempt 的官方终态。cancel 只停止目标任务。disconnect 不杀共享后台。不接管 Pet/Web 历史会话。',
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   outputSchema: { type: 'object', additionalProperties: true, properties: { ok: { type: 'boolean' } }, required: ['ok'] },
   inputSchema: {
     type: 'object', additionalProperties: false,
     properties: {
-      kind: { type: 'string', enum: ['state', 'targets', 'new', 'select', 'submit', 'cancel', 'approve', 'disconnect'] },
+      kind: { type: 'string', enum: ['state', 'targets', 'new', 'select', 'submit', 'cancel', 'approve', 'disconnect', 'recover', 'resume'] },
       workspace: { type: 'string', description: 'new 的绝对工作目录；省略使用后台启动目录' },
       sessionId: { type: 'string', maxLength: 128, description: 'submit/select 必填；state/cancel/approve 可用作精确会话定位' }, text: { type: 'string', maxLength: 32000 },
       requestId: { type: 'string', maxLength: 128 }, taskId: { type: 'string' }, id: { type: 'string' },

@@ -1,5 +1,7 @@
 # 小窗口内存优化 P0 实施记录
 
+最新普通页逐网址闲置重载与只读副本深睡范围见 [契约说明](../shelf-memory-deep-sleep.md)。[普通页三轮对照](reloadable-report.md)已完成102次恢复，长循环后私有内存中位数1171.24→487.84MiB。[只读副本对照](deep-sleep-report.md)保留历史构建，数据不混用。本页其余内容仍是历史 P0 基线。
+
 > 本页为冻结的 P0 基线记录。后续实现、最终验收和条件阶段停止决定见 [完整实施记录](../shelf-memory-implementation.md)；下文的“本轮”仅指当时的基线阶段。
 
 日期：2026-10-28。分支：`codex/shelf-memory-p0`。实际 worktree 与测量基线提交：`34d64dc3eed8bc7c53a03775475808545340d72e`，源码哈希见 `source-manifest.json`。

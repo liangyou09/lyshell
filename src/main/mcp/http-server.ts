@@ -2591,9 +2591,9 @@ async function handleHarnessWork(req: http.IncomingMessage, res: http.ServerResp
   }
   if (!stillAuthorized()) return sendJson(res, 403, { success: false, error: 'Harness work access is disabled or credential revoked (writes require localExecute and fileWrite)' })
   const auth = await authorizeMcpOperation('harness_work', writing ? 'localExecute' : 'read', binding.originSessionId,
-    `Harness ${request.kind}${request.kind === 'submit' ? ': ' + summarizeText(request.text, 512) : ''}`, binding)
+    `Harness ${request.kind}${request.kind === 'submit' || request.kind === 'resume' ? ': ' + summarizeText(request.text, 512) : ''}`, binding)
   if (!auth.allowed || !stillAuthorized()) return sendJson(res, 403, { success: false, error: auth.reason ?? 'Work credential revoked' })
-  const reply = await runHarnessWork(harnessWorkOwner(token), request, stillAuthorized)
+  const reply = await runHarnessWork(harnessWorkOwner(token, binding.kind === 'global'), request, stillAuthorized)
   sendJson(res, reply.status, { success: reply.body.ok === true, data: reply.body,
     ...(reply.body.ok !== true ? { error: typeof reply.body.error === 'string' ? reply.body.error : 'Harness work request failed' } : {}) })
 }

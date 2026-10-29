@@ -1,0 +1,1062 @@
+{
+  "ok": true,
+  "generatedAt": "2026-10-28T15:37:07.755Z",
+  "command": "node scripts/shelf-memory-p0/deep-sleep-app-codex.cjs --rounds=3 --cycles=34",
+  "scope": "built LyShell (dist/main/index.js) full app, isolated task-shelf recovery profile, loopback fixture",
+  "build": {
+    "before": {
+      "dist/main/index.js": {
+        "size": 1861342,
+        "mtimeMs": 1793199834136,
+        "sha256": "9877b72302482f03736dddc5b3e6806489e628cef4166d8307975bf218697db9"
+      },
+      "dist/preload/shelfReadonly.js": {
+        "size": 8301,
+        "mtimeMs": 1793199834280,
+        "sha256": "f1084fefdaabe593cb967b44f6590f4dc35f3c7bc0812c10e00aaea7d6adc80f"
+      },
+      "dist/preload/index.js": {
+        "size": 35674,
+        "mtimeMs": 1793199834279,
+        "sha256": "14ca92d54eff5d72b04ce97cbc2f142362c7fd0ca2aec0095470e889ddf00209"
+      },
+      "dist/renderer/index.html": {
+        "size": 2905,
+        "mtimeMs": 1793199848269,
+        "sha256": "e23790a6ebe7aabb101c2a53b646f7fcd7d4d8910cfa78b0b69b8d5d7a337364"
+      }
+    },
+    "after": {
+      "dist/main/index.js": {
+        "size": 1861342,
+        "mtimeMs": 1793199834136,
+        "sha256": "9877b72302482f03736dddc5b3e6806489e628cef4166d8307975bf218697db9"
+      },
+      "dist/preload/shelfReadonly.js": {
+        "size": 8301,
+        "mtimeMs": 1793199834280,
+        "sha256": "f1084fefdaabe593cb967b44f6590f4dc35f3c7bc0812c10e00aaea7d6adc80f"
+      },
+      "dist/preload/index.js": {
+        "size": 35674,
+        "mtimeMs": 1793199834279,
+        "sha256": "14ca92d54eff5d72b04ce97cbc2f142362c7fd0ca2aec0095470e889ddf00209"
+      },
+      "dist/renderer/index.html": {
+        "size": 2905,
+        "mtimeMs": 1793199848269,
+        "sha256": "e23790a6ebe7aabb101c2a53b646f7fcd7d4d8910cfa78b0b69b8d5d7a337364"
+      }
+    },
+    "stable": true,
+    "readyFile": "{\"ready\":true,\"integrationUpdate\":\"Read tmp/deep-sleep-app-contract-update.md. Final build has per-resource Sessions, challenge handshake, readonly sessions now apply current browser proxy before grant. FIXTURE HINT: webbar initializeBrowser applies system proxy and overrides no-proxy-server; set the isolated persist:webbar session to direct after app startup, or seed browser-settings.json proxyMode direct. Existing app-acceptance.cjs already does this. Protected blank page + no server hit is likely that proxy, not page-script policy.\"}"
+  },
+  "fixture": {
+    "host": "shelf-fixture.test:127.0.0.1",
+    "hits": {
+      "counts": {
+        "/fixture/0": 10,
+        "/pixel.gif": 88,
+        "/favicon.ico": 58,
+        "/fixture/1": 10,
+        "/fixture/2": 10,
+        "/fixture/3": 10,
+        "/fixture/4": 8,
+        "/fixture/5": 8,
+        "/fixture/6": 8,
+        "/fixture/7": 8,
+        "/fixture/8": 8,
+        "/fixture/9": 8,
+        "/protected": 2,
+        "/unknown": 2,
+        "/__hits": 7
+      },
+      "posts": 0,
+      "total": 245
+    },
+    "serverPaths": [
+      "/subframe",
+      "/media.mp4",
+      "/posted",
+      "/leak",
+      "/worker.js",
+      "/beacon",
+      "/leak.gif"
+    ]
+  },
+  "config": {
+    "rounds": 3,
+    "cyclesPerRound": 34,
+    "arms": {
+      "before": "LYSHELL_SHELF_READONLY_SLEEP='0'",
+      "after": "LYSHELL_SHELF_READONLY_SLEEP unset"
+    },
+    "virtualClock": "main-process Date.now patched; +300001 ms after demands clear (production threshold unchanged)",
+    "readonlyPartitions": "one non-persistent Session per read-only resource: shelf-readonly-v1:<uuid>, reused verbatim on wake",
+    "memoryMetric": "sum of per-PID max memory.privateBytes from app.getAppMetrics() (KB->MiB), sampled every 100 ms"
+  },
+  "runs": [
+    {
+      "round": 1,
+      "arm": "before",
+      "ok": true,
+      "wallMs": 125607,
+      "base": "tmp\\deep-sleep-app-codex\\2026-10-28T15-18-35-609Z-r1-before-NqJOg4",
+      "counts": {
+        "nativeAttaches": 12,
+        "reloadCycles": 34,
+        "cycles": 34,
+        "finalGuests": 12,
+        "finalLiveReadonly": 10,
+        "totalGuestCreates": 12,
+        "entries": 12
+      },
+      "memory": {
+        "boot": {
+          "samples": 192,
+          "median": 734.9,
+          "mean": 723.94,
+          "peak": 986.63,
+          "min": 343.87
+        },
+        "loaded": {
+          "samples": 24,
+          "median": 983.01,
+          "mean": 982.95,
+          "peak": 983.1,
+          "min": 982.5
+        },
+        "cycles": {
+          "samples": 831,
+          "median": 944.29,
+          "mean": 944.77,
+          "peak": 987.78,
+          "min": 923.84
+        },
+        "final": {
+          "samples": 19,
+          "median": 943.65,
+          "mean": 943.23,
+          "peak": 948.02,
+          "min": 941.04
+        }
+      },
+      "error": null
+    },
+    {
+      "round": 1,
+      "arm": "after",
+      "ok": true,
+      "wallMs": 139242,
+      "base": "tmp\\deep-sleep-app-codex\\2026-10-28T15-18-35-609Z-r1-after-vLDAPL",
+      "counts": {
+        "nativeAttaches": 46,
+        "nativeDestroyed": 44,
+        "sleepingStates": [
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping"
+        ],
+        "restoreCycles": 34,
+        "cycles": 34,
+        "finalGuests": 2,
+        "finalLiveReadonly": 0,
+        "finalLiveDynamic": 2,
+        "totalGuestCreates": 46,
+        "entries": 12
+      },
+      "memory": {
+        "boot": {
+          "samples": 201,
+          "median": 741.18,
+          "mean": 741.61,
+          "peak": 985.63,
+          "min": 346.73
+        },
+        "loaded": {
+          "samples": 24,
+          "median": 984.72,
+          "mean": 982.25,
+          "peak": 985.67,
+          "min": 975.61
+        },
+        "sleep": {
+          "samples": 18,
+          "median": 672.74,
+          "mean": 732.79,
+          "peak": 923.5,
+          "min": 672.7
+        },
+        "cycles": {
+          "samples": 958,
+          "median": 588.65,
+          "mean": 595.26,
+          "peak": 702.89,
+          "min": 544.15
+        },
+        "final": {
+          "samples": 19,
+          "median": 556.22,
+          "mean": 556.44,
+          "peak": 560.9,
+          "min": 555.74
+        }
+      },
+      "error": null
+    },
+    {
+      "round": 2,
+      "arm": "after",
+      "ok": true,
+      "wallMs": 137326,
+      "base": "tmp\\deep-sleep-app-codex\\2026-10-28T15-18-35-609Z-r2-after-MiRpUH",
+      "counts": {
+        "nativeAttaches": 46,
+        "nativeDestroyed": 44,
+        "sleepingStates": [
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping"
+        ],
+        "restoreCycles": 34,
+        "cycles": 34,
+        "finalGuests": 2,
+        "finalLiveReadonly": 0,
+        "finalLiveDynamic": 2,
+        "totalGuestCreates": 46,
+        "entries": 12
+      },
+      "memory": {
+        "boot": {
+          "samples": 190,
+          "median": 737.17,
+          "mean": 719.89,
+          "peak": 979.88,
+          "min": 344.39
+        },
+        "loaded": {
+          "samples": 25,
+          "median": 974.65,
+          "mean": 975,
+          "peak": 976.22,
+          "min": 974.46
+        },
+        "sleep": {
+          "samples": 19,
+          "median": 678.82,
+          "mean": 744.05,
+          "peak": 953.63,
+          "min": 676.93
+        },
+        "cycles": {
+          "samples": 949,
+          "median": 586.82,
+          "mean": 593.33,
+          "peak": 704.02,
+          "min": 538
+        },
+        "final": {
+          "samples": 19,
+          "median": 562.97,
+          "mean": 563.19,
+          "peak": 565.16,
+          "min": 559.28
+        }
+      },
+      "error": null
+    },
+    {
+      "round": 2,
+      "arm": "before",
+      "ok": true,
+      "wallMs": 124736,
+      "base": "tmp\\deep-sleep-app-codex\\2026-10-28T15-18-35-609Z-r2-before-2C1B6Z",
+      "counts": {
+        "nativeAttaches": 12,
+        "reloadCycles": 34,
+        "cycles": 34,
+        "finalGuests": 12,
+        "finalLiveReadonly": 10,
+        "totalGuestCreates": 12,
+        "entries": 12
+      },
+      "memory": {
+        "boot": {
+          "samples": 193,
+          "median": 730.23,
+          "mean": 719.07,
+          "peak": 976.31,
+          "min": 339.3
+        },
+        "loaded": {
+          "samples": 25,
+          "median": 971.83,
+          "mean": 971.91,
+          "peak": 976.54,
+          "min": 970.82
+        },
+        "cycles": {
+          "samples": 830,
+          "median": 940.15,
+          "mean": 941.65,
+          "peak": 980.18,
+          "min": 916.97
+        },
+        "final": {
+          "samples": 19,
+          "median": 937.9,
+          "mean": 937.85,
+          "peak": 947.66,
+          "min": 935.41
+        }
+      },
+      "error": null
+    },
+    {
+      "round": 3,
+      "arm": "before",
+      "ok": true,
+      "wallMs": 125038,
+      "base": "tmp\\deep-sleep-app-codex\\2026-10-28T15-32-39-454Z-r3-before-x99YN9",
+      "counts": {
+        "nativeAttaches": 12,
+        "reloadCycles": 34,
+        "cycles": 34,
+        "finalGuests": 12,
+        "finalLiveReadonly": 10,
+        "totalGuestCreates": 12,
+        "entries": 12
+      },
+      "memory": {
+        "boot": {
+          "samples": 194,
+          "median": 743.91,
+          "mean": 733.8,
+          "peak": 1000.13,
+          "min": 342.08
+        },
+        "loaded": {
+          "samples": 25,
+          "median": 997.14,
+          "mean": 996.75,
+          "peak": 1000.81,
+          "min": 994.37
+        },
+        "cycles": {
+          "samples": 830,
+          "median": 960.07,
+          "mean": 961.44,
+          "peak": 1007.9,
+          "min": 938.97
+        },
+        "final": {
+          "samples": 19,
+          "median": 957.92,
+          "mean": 958.29,
+          "peak": 960.9,
+          "min": 955.29
+        }
+      },
+      "error": null
+    },
+    {
+      "round": 3,
+      "arm": "after",
+      "ok": true,
+      "wallMs": 139609,
+      "base": "tmp\\deep-sleep-app-codex\\2026-10-28T15-32-39-454Z-r3-after-yoV021",
+      "counts": {
+        "nativeAttaches": 46,
+        "nativeDestroyed": 44,
+        "sleepingStates": [
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping"
+        ],
+        "restoreCycles": 34,
+        "cycles": 34,
+        "finalGuests": 2,
+        "finalLiveReadonly": 0,
+        "finalLiveDynamic": 2,
+        "totalGuestCreates": 46,
+        "entries": 12
+      },
+      "memory": {
+        "boot": {
+          "samples": 195,
+          "median": 726.32,
+          "mean": 718.76,
+          "peak": 971.49,
+          "min": 337.03
+        },
+        "loaded": {
+          "samples": 24,
+          "median": 968.41,
+          "mean": 968.19,
+          "peak": 968.69,
+          "min": 966.97
+        },
+        "sleep": {
+          "samples": 19,
+          "median": 667.36,
+          "mean": 748.98,
+          "peak": 972.24,
+          "min": 664.94
+        },
+        "cycles": {
+          "samples": 967,
+          "median": 586.15,
+          "mean": 590.01,
+          "peak": 695.24,
+          "min": 544.21
+        },
+        "final": {
+          "samples": 19,
+          "median": 550.8,
+          "mean": 554.37,
+          "peak": 585.45,
+          "min": 550.77
+        }
+      },
+      "error": null
+    }
+  ],
+  "memory": {
+    "sampledPeakAllPhasesMiB": {
+      "before": [
+        987.78,
+        981.19,
+        1007.9
+      ],
+      "after": [
+        985.67,
+        982.5,
+        972.24
+      ]
+    },
+    "loaded": {
+      "before": {
+        "runs": 3,
+        "medianOfMedians": 983.01,
+        "medianOfMeans": 982.95,
+        "peakOfPeaks": 1000.81,
+        "perRun": [
+          {
+            "median": 983.01,
+            "mean": 982.95,
+            "peak": 983.1,
+            "samples": 24
+          },
+          {
+            "median": 971.83,
+            "mean": 971.91,
+            "peak": 976.54,
+            "samples": 25
+          },
+          {
+            "median": 997.14,
+            "mean": 996.75,
+            "peak": 1000.81,
+            "samples": 25
+          }
+        ]
+      },
+      "after": {
+        "runs": 3,
+        "medianOfMedians": 974.65,
+        "medianOfMeans": 975,
+        "peakOfPeaks": 985.67,
+        "perRun": [
+          {
+            "median": 984.72,
+            "mean": 982.25,
+            "peak": 985.67,
+            "samples": 24
+          },
+          {
+            "median": 974.65,
+            "mean": 975,
+            "peak": 976.22,
+            "samples": 25
+          },
+          {
+            "median": 968.41,
+            "mean": 968.19,
+            "peak": 968.69,
+            "samples": 24
+          }
+        ]
+      },
+      "parityPct": 0.85
+    },
+    "final": {
+      "before": {
+        "runs": 3,
+        "medianOfMedians": 943.65,
+        "medianOfMeans": 943.23,
+        "peakOfPeaks": 960.9,
+        "perRun": [
+          {
+            "median": 943.65,
+            "mean": 943.23,
+            "peak": 948.02,
+            "samples": 19
+          },
+          {
+            "median": 937.9,
+            "mean": 937.85,
+            "peak": 947.66,
+            "samples": 19
+          },
+          {
+            "median": 957.92,
+            "mean": 958.29,
+            "peak": 960.9,
+            "samples": 19
+          }
+        ]
+      },
+      "after": {
+        "runs": 3,
+        "medianOfMedians": 556.22,
+        "medianOfMeans": 556.44,
+        "peakOfPeaks": 585.45,
+        "perRun": [
+          {
+            "median": 556.22,
+            "mean": 556.44,
+            "peak": 560.9,
+            "samples": 19
+          },
+          {
+            "median": 562.97,
+            "mean": 563.19,
+            "peak": 565.16,
+            "samples": 19
+          },
+          {
+            "median": 550.8,
+            "mean": 554.37,
+            "peak": 585.45,
+            "samples": 19
+          }
+        ]
+      },
+      "deltaMiB": -387.43,
+      "deltaPct": -41.06
+    },
+    "sleep": {
+      "after": {
+        "runs": 3,
+        "medianOfMedians": 672.74,
+        "medianOfMeans": 744.05,
+        "peakOfPeaks": 972.24,
+        "perRun": [
+          {
+            "median": 672.74,
+            "mean": 732.79,
+            "peak": 923.5,
+            "samples": 18
+          },
+          {
+            "median": 678.82,
+            "mean": 744.05,
+            "peak": 953.63,
+            "samples": 19
+          },
+          {
+            "median": 667.36,
+            "mean": 748.98,
+            "peak": 972.24,
+            "samples": 19
+          }
+        ]
+      }
+    },
+    "verdict": "-387.43 MiB (-41.06%) after-vs-before at final steady state"
+  },
+  "latency": {
+    "before": {
+      "readyMs": {
+        "n": 102,
+        "p50": 43,
+        "p95": 49,
+        "min": 36,
+        "max": 64
+      },
+      "wheelToPreloadIpcMs": {
+        "n": 102,
+        "p50": 172.58,
+        "p95": 190.41,
+        "min": 154.98,
+        "max": 194.79
+      }
+    },
+    "after": {
+      "readyMs": {
+        "n": 102,
+        "p50": 904,
+        "p95": 1436,
+        "min": 456,
+        "max": 1464
+      },
+      "wheelToPreloadIpcMs": {
+        "n": 102,
+        "p50": 21.67,
+        "p95": 231.95,
+        "min": 7.78,
+        "max": 234.76
+      }
+    }
+  },
+  "acceptance": {
+    "checks": {
+      "total": 4386,
+      "failed": 0,
+      "failures": []
+    },
+    "counts": {
+      "beforeRuns": 3,
+      "afterRuns": 3,
+      "reloadCycles": 102,
+      "restoreCycles": 102,
+      "expectedRestoreCycles": 102
+    },
+    "before": [
+      {
+        "nativeAttaches": 12,
+        "reloadCycles": 34,
+        "cycles": 34,
+        "finalGuests": 12,
+        "finalLiveReadonly": 10,
+        "totalGuestCreates": 12,
+        "entries": 12
+      },
+      {
+        "nativeAttaches": 12,
+        "reloadCycles": 34,
+        "cycles": 34,
+        "finalGuests": 12,
+        "finalLiveReadonly": 10,
+        "totalGuestCreates": 12,
+        "entries": 12
+      },
+      {
+        "nativeAttaches": 12,
+        "reloadCycles": 34,
+        "cycles": 34,
+        "finalGuests": 12,
+        "finalLiveReadonly": 10,
+        "totalGuestCreates": 12,
+        "entries": 12
+      }
+    ],
+    "after": [
+      {
+        "nativeAttaches": 46,
+        "nativeDestroyed": 44,
+        "sleepingStates": [
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping"
+        ],
+        "restoreCycles": 34,
+        "cycles": 34,
+        "finalGuests": 2,
+        "finalLiveReadonly": 0,
+        "finalLiveDynamic": 2,
+        "totalGuestCreates": 46,
+        "entries": 12
+      },
+      {
+        "nativeAttaches": 46,
+        "nativeDestroyed": 44,
+        "sleepingStates": [
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping"
+        ],
+        "restoreCycles": 34,
+        "cycles": 34,
+        "finalGuests": 2,
+        "finalLiveReadonly": 0,
+        "finalLiveDynamic": 2,
+        "totalGuestCreates": 46,
+        "entries": 12
+      },
+      {
+        "nativeAttaches": 46,
+        "nativeDestroyed": 44,
+        "sleepingStates": [
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping",
+          "sleeping"
+        ],
+        "restoreCycles": 34,
+        "cycles": 34,
+        "finalGuests": 2,
+        "finalLiveReadonly": 0,
+        "finalLiveDynamic": 2,
+        "totalGuestCreates": 46,
+        "entries": 12
+      }
+    ]
+  },
+  "recheck": {
+    "ok": true,
+    "wallMs": 3562,
+    "bootId": "1c4e20ab-d979-43b0-a4dc-cd08aee1e203",
+    "expectedBootId": "aef35683-33e7-4e75-8307-8bea950524dc",
+    "archived": true,
+    "snapshot": [
+      {
+        "id": "static-0",
+        "archived": true,
+        "sleep": {
+          "formatVersion": 1,
+          "partition": "shelf-readonly-v1:31c546f6-d251-46a2-85e5-35a549fed15b",
+          "url": "http://shelf-fixture.test:50861/fixture/0",
+          "taskId": "static-0",
+          "zoom": 0.9,
+          "scrollY": 1311,
+          "suspendOperationId": "2e40d0ed-cb5c-4e08-baa5-15fd7ed42453"
+        }
+      },
+      {
+        "id": "static-1",
+        "archived": true,
+        "sleep": {
+          "formatVersion": 1,
+          "partition": "shelf-readonly-v1:3275c9f3-010a-4ee3-91c8-08e5d581fd66",
+          "url": "http://shelf-fixture.test:50861/fixture/1",
+          "taskId": "static-1",
+          "zoom": 1,
+          "scrollY": 1180,
+          "suspendOperationId": "661b92c0-fa0c-4185-9d32-8669f7c742f9"
+        }
+      },
+      {
+        "id": "static-2",
+        "archived": true,
+        "sleep": {
+          "formatVersion": 1,
+          "partition": "shelf-readonly-v1:d30b6e0c-478c-45fa-9edc-e04e52b6e9e5",
+          "url": "http://shelf-fixture.test:50861/fixture/2",
+          "taskId": "static-2",
+          "zoom": 1.1,
+          "scrollY": 1075,
+          "suspendOperationId": "b8556f1d-583c-411c-8eab-11c4f72b52fd"
+        }
+      },
+      {
+        "id": "static-3",
+        "archived": true,
+        "sleep": {
+          "formatVersion": 1,
+          "partition": "shelf-readonly-v1:f2631c5a-a7a1-47d9-831a-2aa585978c6f",
+          "url": "http://shelf-fixture.test:50861/fixture/3",
+          "taskId": "static-3",
+          "zoom": 0.9,
+          "scrollY": 1311,
+          "suspendOperationId": "83143bca-b99b-466b-a253-b72a02d165a4"
+        }
+      },
+      {
+        "id": "static-4",
+        "archived": true,
+        "sleep": {
+          "formatVersion": 1,
+          "partition": "shelf-readonly-v1:26048cfc-f0ee-4e65-8476-e4e149795498",
+          "url": "http://shelf-fixture.test:50861/fixture/4",
+          "taskId": "static-4",
+          "zoom": 1,
+          "scrollY": 1060,
+          "suspendOperationId": "3f1191e9-ab1f-48bb-8337-0c1c44acdd9a"
+        }
+      },
+      {
+        "id": "static-5",
+        "archived": true,
+        "sleep": {
+          "formatVersion": 1,
+          "partition": "shelf-readonly-v1:069d142c-4e10-426f-bade-02cc0424927f",
+          "url": "http://shelf-fixture.test:50861/fixture/5",
+          "taskId": "static-5",
+          "zoom": 1.1,
+          "scrollY": 965,
+          "suspendOperationId": "140a5967-fc48-4b95-8a37-7a4f58626a89"
+        }
+      },
+      {
+        "id": "static-6",
+        "archived": true,
+        "sleep": {
+          "formatVersion": 1,
+          "partition": "shelf-readonly-v1:bbc110e5-b6fb-4452-9f55-34faeb2991ca",
+          "url": "http://shelf-fixture.test:50861/fixture/6",
+          "taskId": "static-6",
+          "zoom": 0.9,
+          "scrollY": 1178,
+          "suspendOperationId": "f44e1eab-2e8a-45a4-819c-8e583a2accb8"
+        }
+      },
+      {
+        "id": "static-7",
+        "archived": true,
+        "sleep": {
+          "formatVersion": 1,
+          "partition": "shelf-readonly-v1:942e46da-269b-4ef6-9e0b-2ea878b40bf0",
+          "url": "http://shelf-fixture.test:50861/fixture/7",
+          "taskId": "static-7",
+          "zoom": 1,
+          "scrollY": 1060,
+          "suspendOperationId": "b7b6a8e0-a15b-4eee-9b79-0c9418686249"
+        }
+      },
+      {
+        "id": "static-8",
+        "archived": true,
+        "sleep": {
+          "formatVersion": 1,
+          "partition": "shelf-readonly-v1:3ece0a0a-ce80-4e7e-9ef1-06c50a0d3020",
+          "url": "http://shelf-fixture.test:50861/fixture/8",
+          "taskId": "static-8",
+          "zoom": 1.1,
+          "scrollY": 965,
+          "suspendOperationId": "362f0241-bd21-47e1-9eb4-17dabb3ffb1f"
+        }
+      },
+      {
+        "id": "static-9",
+        "archived": true,
+        "sleep": {
+          "formatVersion": 1,
+          "partition": "shelf-readonly-v1:815a718f-7f52-4c57-805f-946bc02715c3",
+          "url": "http://shelf-fixture.test:50861/fixture/9",
+          "taskId": "static-9",
+          "zoom": 0.9,
+          "scrollY": 1178,
+          "suspendOperationId": "627d6de9-6ad3-47a4-8431-c7ddc1b054b6"
+        }
+      },
+      {
+        "id": "protected",
+        "archived": true,
+        "sleep": null
+      },
+      {
+        "id": "unknown",
+        "archived": true,
+        "sleep": null
+      }
+    ],
+    "expectedPartitions": {
+      "static-0": "shelf-readonly-v1:31c546f6-d251-46a2-85e5-35a549fed15b",
+      "static-1": "shelf-readonly-v1:3275c9f3-010a-4ee3-91c8-08e5d581fd66",
+      "static-2": "shelf-readonly-v1:d30b6e0c-478c-45fa-9edc-e04e52b6e9e5",
+      "static-3": "shelf-readonly-v1:f2631c5a-a7a1-47d9-831a-2aa585978c6f",
+      "static-4": "shelf-readonly-v1:26048cfc-f0ee-4e65-8476-e4e149795498",
+      "static-5": "shelf-readonly-v1:069d142c-4e10-426f-bade-02cc0424927f",
+      "static-6": "shelf-readonly-v1:bbc110e5-b6fb-4452-9f55-34faeb2991ca",
+      "static-7": "shelf-readonly-v1:942e46da-269b-4ef6-9e0b-2ea878b40bf0",
+      "static-8": "shelf-readonly-v1:3ece0a0a-ce80-4e7e-9ef1-06c50a0d3020",
+      "static-9": "shelf-readonly-v1:815a718f-7f52-4c57-805f-946bc02715c3"
+    },
+    "listSleep": 10,
+    "guests": 0,
+    "error": null
+  },
+  "validity": {
+    "status": "valid",
+    "reasons": [],
+    "buildStable": true,
+    "restoreCycles": 102,
+    "loadedParityPct": 0.85,
+    "failedChecks": 0,
+    "expected": {
+      "complete": true,
+      "fetched": 6
+    }
+  },
+  "limitations": [
+    "Single Windows host; fixture served on loopback with shelf-fixture.test mapped to 127.0.0.1; no credentials or external network.",
+    "Application-total private memory is the sum of app.getAppMetrics().memory.privateBytes per PID; it excludes any metric not reported there (no JS heap/external added by the harness).",
+    "Virtual clock: only the Electron main process Date.now is offset (+300001 ms after demands clear); production deepSleepAfterMs stays at its 5 min default. Both arms advance the same virtual clock.",
+    "Static pages cannot execute page script by design (CSP script-src none), so page-authored JS/form/media/iframe attempts are verified via blocked network requests plus hardened DOM; trusted-input blocking is covered by Codex unit tests.",
+    "Each read-only resource now has its own non-persistent Session (shelf-readonly-v1:<uuid>) and zoom is set per page; the fixture asserts the DOM partition attribute, native Session identity, distinct Sessions, and persisted per-resource partition metadata.",
+    "Protected/unknown dynamic pages are seeded without readonlyMode because only contract-verified readonly guests are sleep-eligible; the expected 10-destroyed/2-live invariant requires them dynamic. beforeunload close refusal is unit-tested by Codex, not re-run here.",
+    "Snapshot reread is proven by a fresh recheck process reading task-shelf.json and the shelf list; a lifecycle inspect is impossible before attach (no record), so no fake state is asserted.",
+    "GUI/visual review is explicitly out of scope; screenshots are saved but not interpreted by this harness."
+  ],
+  "priorFailedAttempts": [
+    {
+      "round": 3,
+      "arm": "before",
+      "ok": false,
+      "wallMs": 13675,
+      "base": "tmp\\deep-sleep-app-codex\\2026-10-28T15-18-35-609Z-r3-before-uShJUS",
+      "counts": {
+        "nativeAttaches": 1
+      },
+      "memory": {
+        "boot": {
+          "samples": 86,
+          "median": 486.03,
+          "mean": 468.71,
+          "peak": 495.32,
+          "min": 342.07
+        }
+      },
+      "error": {
+        "message": "timeout waiting for actual input gate for static-0",
+        "stack": "Error: timeout waiting for actual input gate for static-0\n    at until (D:\\workspace\\claude\\LyShell\\scripts\\shelf-memory-p0\\deep-sleep-app-codex.cjs:880:11)\n    at async openEntry (D:\\workspace\\claude\\LyShell\\scripts\\shelf-memory-p0\\deep-sleep-app-codex.cjs:1163:5)\n    at async runArm (D:\\workspace\\claude\\LyShell\\scripts\\shelf-memory-p0\\deep-sleep-app-codex.cjs:1237:23)\n    at async D:\\workspace\\claude\\LyShell\\scripts\\shelf-memory-p0\\deep-sleep-app-codex.cjs:1573:7",
+        "check": null,
+        "detail": null,
+        "step": "open static-0",
+        "guestUrls": [
+          "http://shelf-fixture.test:50861/fixture/0"
+        ],
+        "virtualOffsetMs": 0,
+        "arm": "before",
+        "round": 3
+      }
+    }
+  ],
+  "methodNote": "A prior third-round first-picture gate timeout was retained. Completed pairs use the same production build; the failed pair alone was retried, permitting only the existing explicit Show current page fallback after controlled-page verification.",
+  "evidence": {
+    "raw": [
+      {
+        "file": "before-1.json.gz",
+        "sha256": "fc7a29c908fd59b47812f5c227a9af82740ac8cd1279af4221aaebdd99415ae8",
+        "samples": 1105,
+        "processTypes": [
+          "Browser",
+          "GPU",
+          "Utility",
+          "Tab"
+        ],
+        "nativeCreates": 12,
+        "nativeDestroyed": 0
+      },
+      {
+        "file": "after-1.json.gz",
+        "sha256": "730121e0d8d611e9949a677f292ec0d36f5deb3c8e0807f0b2e63c8ed0b3975d",
+        "samples": 1238,
+        "processTypes": [
+          "Browser",
+          "GPU",
+          "Utility",
+          "Tab"
+        ],
+        "nativeCreates": 46,
+        "nativeDestroyed": 44
+      },
+      {
+        "file": "after-2.json.gz",
+        "sha256": "9634e515137c71123d810fb3a9aeaec7bd8abe599e19e1e591e6f6a91454451b",
+        "samples": 1221,
+        "processTypes": [
+          "Browser",
+          "GPU",
+          "Utility",
+          "Tab"
+        ],
+        "nativeCreates": 46,
+        "nativeDestroyed": 44
+      },
+      {
+        "file": "before-2.json.gz",
+        "sha256": "3ea1b6bf7ba78b2a94244ccdadc83416e4805693499046cf2dc3c6ac7e4bf2f0",
+        "samples": 1106,
+        "processTypes": [
+          "Browser",
+          "GPU",
+          "Utility",
+          "Tab"
+        ],
+        "nativeCreates": 12,
+        "nativeDestroyed": 0
+      },
+      {
+        "file": "before-3.json.gz",
+        "sha256": "65536336dce1c4fb0cf7c78ef0520d16d99a00d5da04e8d362c83490a42b27f3",
+        "samples": 1107,
+        "processTypes": [
+          "Browser",
+          "GPU",
+          "Utility",
+          "Tab"
+        ],
+        "nativeCreates": 12,
+        "nativeDestroyed": 0
+      },
+      {
+        "file": "after-3.json.gz",
+        "sha256": "8c714d615296bf50c8f85a4faafb548b9b4e9ac1d215410087ce3b543528d192",
+        "samples": 1238,
+        "processTypes": [
+          "Browser",
+          "GPU",
+          "Utility",
+          "Tab"
+        ],
+        "nativeCreates": 46,
+        "nativeDestroyed": 44
+      }
+    ],
+    "sourceSha256": {
+      "src/main/browser/shelf-browser-runtime.ts": "91f19102ba8bb48d73dc213bd1f416fb6026808628383bd2015cfce7a8d59393",
+      "src/main/browser/shelf-resource-lifecycle.ts": "7a46a9256d9883efb946a9d6016ff24b00175e1e615b4af98afef76e5ced2ff0",
+      "src/main/browser/shelf-readonly-contract.ts": "cfec01cae97bdf5864d8c538a5550586d4b583116a4eae807afdc4cd713babc7",
+      "src/main/browser/service.ts": "9dfc979115305df70ed878983a7288a7d4865c22ac4f81ad8155fea02dbf3824",
+      "src/main/ipc/handlers.ts": "9ee0af53a2cadc1dd1a6317ae911b9a30ad9e1537383864ddd8287c7d208ab99",
+      "src/main/ipc/validation.ts": "46ec6265b17b61d1993970f01ded3a1a26069c1cf75c713849bbdc13f9ffca1f",
+      "src/main/storage/task-shelf-repository.ts": "84034bd57c0d4628550b10c45cd0faf1d115c0f2d93c13bc0b65b58ae58e7b14",
+      "src/preload/shelf-readonly.ts": "de4e0ce4c35242dcb68f3868a6fcd637633f032215155206d7a5cc56166e0599",
+      "src/renderer/components/Layout/WebTabLayer.tsx": "28d52d40084084272fb5f1d68b60b4fb2a8a556c8ee9215167c4d2e3ed64197f"
+    },
+    "metric": "All getAppMetrics processes had finite Windows privateBytes; Browser/Tab/GPU/Utility included, deduplicated by PID. Tab includes UI and guest renderers."
+  }
+}

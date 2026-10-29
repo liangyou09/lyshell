@@ -3,14 +3,19 @@ import type { ConnectionType } from './types/session'
 /** 保存区持久化恢复引用，SSH 另存已显示输出的有限尾部；不复制配置凭据或重放命令。 */
 export type ShelfResource =
   | { kind: 'terminal'; id: string }
-  | { kind: 'web'; id: string; url: string; title: string; post?: boolean }
+  | { kind: 'web'; id: string; url: string; title: string; post?: boolean; readonlyMode?: true; reloadableMode?: true }
   | { kind: 'harness'; id: string }
 
 export type ShelfRecovery =
   | { kind: 'terminal'; sessionId: string; sessionConfigId?: string; type: ConnectionType; cwd?: string;
       agentKind?: 'codex' | 'claude' | 'dsh' | 'agent'; agentId?: string; cliSessionId?: string; cliObservationLost?: boolean; connectionKey?: string; tmuxSession?: string; localHostId?: string }
-  | { kind: 'web'; url?: string }
+  | { kind: 'web'; url?: string; readonlyMode?: true; reloadableMode?: true; sleep?: ShelfWebSleep }
   | { kind: 'harness'; sessionId?: string; taskId?: string; identity?: { instanceId: string; instanceEpoch: number }; lastState?: string }
+
+export interface ShelfWebSleep {
+  formatVersion: 1; recordedAt: number; taskId: string; resourceId: string; suspendOperationId: string;
+  url: string; partition: string; zoom: number; scrollY: number
+}
 
 export interface TaskShelfEntry {
   id: string

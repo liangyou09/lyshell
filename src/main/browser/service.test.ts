@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   setProxy: vi.fn(), close: vi.fn(), clearCache: vi.fn(), clearData: vi.fn(), write: vi.fn(),
   check: vi.fn(), request: vi.fn(), dialog: vi.fn(), find: vi.fn(), savePassword: vi.fn(),
   available: vi.fn(), list: vi.fn(),
+  readonlyProxy: vi.fn(), readonlyClose: vi.fn(), initializeReadonly: vi.fn(),
   handlers: new Map<string, (...args: unknown[]) => unknown>(), listeners: new Map<string, (...args: unknown[]) => unknown>()
 }))
 const ses = vi.hoisted(() => ({
@@ -13,8 +14,10 @@ const ses = vi.hoisted(() => ({
   setProxy: mocks.setProxy, closeAllConnections: mocks.close, clearCache: mocks.clearCache,
   clearStorageData: mocks.clearData, setPermissionCheckHandler: mocks.check, setPermissionRequestHandler: mocks.request
 }))
+const readonlySes = vi.hoisted(() => ({ setProxy: mocks.readonlyProxy, closeAllConnections: mocks.readonlyClose }))
+vi.mock('./shelf-readonly-contract', () => ({ initializeReadonlySession: mocks.initializeReadonly, isReadonlyPartition: (value: string) => /^shelf-readonly-v1:[a-f0-9-]{36}$/.test(value) }))
 vi.mock('electron', () => ({
-  session: { fromPartition: (partition: string) => { expect(partition).toBe('persist:webbar'); return ses } },
+  session: { fromPartition: (partition: string) => { if (partition.startsWith('shelf-readonly-v1:')) return readonlySes; expect(partition).toBe('persist:webbar'); return ses } },
   webContents: { getAllWebContents: () => [] },
   BrowserWindow: { fromWebContents: () => null }, dialog: { showMessageBox: mocks.dialog },
   ipcMain: { handle: (name: string, fn: (...args: unknown[]) => unknown) => mocks.handlers.set(name, fn), on: (name: string, fn: (...args: unknown[]) => unknown) => mocks.listeners.set(name, fn) }
@@ -44,9 +47,19 @@ beforeEach(() => {
   mocks.clearCache.mockResolvedValue(undefined); mocks.clearData.mockResolvedValue(undefined)
   mocks.dialog.mockResolvedValue({ response: 0 }); mocks.find.mockReturnValue(null)
   mocks.available.mockReturnValue(true); mocks.list.mockReturnValue([])
+  mocks.readonlyProxy.mockResolvedValue(undefined); mocks.readonlyClose.mockResolvedValue(undefined)
 })
 
 describe('浏览器主进程会话隔离', () => {
+  it('只读创建许可返回前配置当前代理，不能误配置普通浏览分区', async () => {
+    const service = await import('./service')
+    await service.browserRequest({ kind: 'save', settings: { ...DEFAULT_BROWSER_SETTINGS, proxyMode: 'direct' } })
+    await service.prepareReadonlyBrowserSession('shelf-readonly-v1:01234567-89ab-cdef-0123-456789abcdef')
+    expect(mocks.initializeReadonly).toHaveBeenCalledWith(readonlySes)
+    expect(mocks.readonlyProxy).toHaveBeenCalledWith({ mode: 'direct' })
+    expect(mocks.readonlyClose).toHaveBeenCalledOnce()
+    await expect(service.prepareReadonlyBrowserSession('persist:webbar')).rejects.toThrow('Invalid readonly partition')
+  })
   it('代理失败后恢复旧代理，不落盘新设置', async () => {
     const service = await import('./service')
     await service.initializeBrowser()

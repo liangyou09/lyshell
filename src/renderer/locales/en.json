@@ -1,7 +1,7 @@
 {
   "taskShelf": {
     "movePanel": "Move task panel", "movePanelHint": "Drag to an edge, or focus this handle and use the arrow keys.", "edge": { "left": "Left", "right": "Right", "top": "Top", "bottom": "Bottom" },
-    "recallAll": "Recall all tasks", "recallAllHint": "Put all saved tasks from the main window back in Tasks and keep them running.",
+    "recallAll": "Recall all tasks", "recallAllHint": "Recall tasks from small windows or the main workspace to their tiles and keep them running.",
     "presentationUnconfirmed": "Page loaded; the picture could not be confirmed.", "showCurrentPage": "Show current page",
     "activateAll": "Activate all", "activating": "Activating…", "realtimeLabel": "Live view", "realtimeTasks": "Tasks only", "realtimeNone": "Static", "retryActivation": "Retry failed items", "activationResult": "{{moved}} activated · {{alreadyTasks}} already active · {{conflict}} changed · {{missing}} missing · {{failed}} failed",
     "mainWindow": "Main window", "focusedTask": "Selected task content", "previewMode": "Content view", "readable": "Readable", "overview": "Overview", "typeHere": "Type here",
@@ -19,7 +19,7 @@
     "terminateLocal": "End local process", "terminateLocalHint": "End the original local terminal and its programs. Keep the saved entry.",
     "title": "Saved tasks", "shortTitle": "Tasks", "subtitle": "Put it aside. Keep it running.", "toggleHint": "Toggle saved tasks · {{shortcut}}", "otherTasks": "Other tasks",
     "taskActions": "Task actions", "archiveRunning": "Archive and keep running", "unarchive": "Move back to tasks", "activeTasks": "Tasks", "archivedTasks": "Archive", "taskViews": "Task lists", "emptyArchive": "No archived tasks", "archiveHint": "Archived entries keep their recovery data. Running tasks continue. Open an entry to move it back to tasks.",
-    "attention": "{{count}} tasks need attention", "resize": "Resize saved tasks", "collapse": "Collapse saved tasks", "displayMode": "Task panel display",
+    "attention": "{{count}} tasks need attention", "resize": "Resize saved tasks", "collapse": "Collapse saved tasks", "displayMode": "Task panel display", "viewOptions": "View options", "openInShelf": "Open in task window", "expandTask": "Expand to main workspace", "recallTask": "Recall to tile and keep running", "details": "Task details",
     "mode": { "auto": "Auto", "hover": "Hover", "fixed": "Docked" },
     "retry": "Retry", "drop": "Drop to save and put aside", "emptyTitle": "Keep your work close", "loading": "Loading saved tasks…", "sshToggle": "Resumable terminal (remote tmux required)", "sshHint": "New terminals run inside remote tmux. Collect one to reconnect later. Existing processes are not migrated.", "disconnect": "Disconnect", "disconnectHint": "Disconnect this terminal and keep its saved entry and local history. Whether remote programs continue depends on the server.",
     "emptyHint": "Drag a terminal, AI or web tab here. It keeps running. Click to return.", "opening": "Opening…",
@@ -434,6 +434,21 @@
     "unavailable": "The page has changed. Close this card and try again."
   },
   "webBar": {
+    "readonlyStatus": "Read-only copy: page scripts, editing, submissions and media are disabled.",
+    "openReadonly": "Open read-only copy (can sleep)",
+    "allowIdleReload": "Allow idle reload…",
+    "keepRunning": "Keep this page running",
+    "reloadableDetail": "Allow this URL to reload after it is saved and idle. JavaScript state and in-page work will not be restored. You will be asked to confirm.",
+    "reloadableStatus": "Idle reload allowed for this URL. Editing, media and other protected activity keep it running.",
+    "reloadableFailed": "Could not change idle reload permission. Try again after the page finishes loading.",
+    "reloadNeedsInteraction": "Kept running: this document has not received a browser user gesture.",
+    "reloadUnloadRefused": "Kept running: the page refused to unload.",
+    "reloadEditing": "Kept running: editing, a form or file activity was observed.",
+    "reloadActivity": "Kept running: media, permissions, a live connection or developer tools require it.",
+    "reloadUnverified": "Kept running: the current document cannot be verified for safe reloading.",
+    "readonlyDetail": "Open a separate page without scripts, forms, media or sign-in. Save it to the shelf to release it after five idle minutes. Opening it again revisits the URL. The original page stays open.",
+    "sleeping": "Page is sleeping. Select its card or open it in the main area to restore.",
+
     "title": "Browser",
     "placeholder": "Enter a URL and press Enter",
     "go": "Go to address or search",

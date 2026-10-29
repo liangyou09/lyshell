@@ -30,6 +30,17 @@ async function start(reply: Record<string, unknown>) {
   deps.endpoint = { port: (server.address() as { port: number }).port, key: 'host-key' }
 }
 describe('原生会话显式导航', () => {
+  it('续接后的逻辑会话导航到执行分支，并按真实执行分支确认 ack', async () => {
+    const reply: Record<string, unknown> = { ok: true, identity: deps.identity, navigationSessionId: 'continued-session' }
+    await start(reply)
+    const opened = await navigateWorkbenchActivity({ kind: 'open', identity: deps.identity, sessionId: 'session-a' })
+    if (!opened.success || !opened.requestId) throw new Error('fixture navigation failed')
+    reply.viewer = { currentSessionId: 'continued-session', lastAck: {
+      requestId: opened.requestId, sessionId: 'continued-session', currentSessionId: 'continued-session', status: 'navigated' } }
+    expect(await navigateWorkbenchActivity({ kind: 'navigation', identity: deps.identity, sessionId: 'session-a', requestId: opened.requestId }))
+      .toMatchObject({ success: true, navigation: 'navigated' })
+    expect((await navigateWorkbenchActivity({ kind: 'navigation', identity: deps.identity, sessionId: 'wrong-session', requestId: opened.requestId })).success).toBe(false)
+  })
   it('内置聊天独立核对身份，导航不提交任务或获取 native 控制权', async () => {
     await start({ ok: true })
     deps.read.mockResolvedValue({ connection: 'offline', identity: null, sessions: [] })

@@ -156,6 +156,15 @@ beforeEach(() => {
 })
 
 describe('工作台活动：快照读取', () => {
+  it('同一逻辑 task 的新 attempt 可以从旧终态继续；旧 attempt 迟到快照不倒退', async () => {
+    let body = completedBody({ task: { taskId: 'task-a', sessionId: 's1', state: 'completed', attemptId: 'attempt-1', acceptedAt: 1 } })
+    createRig(() => ok(body)); registerWorkbenchActivityOwner(OWNER_A)
+    expect((await readWorkbenchActivity()).sessions[0].taskState).toBe('completed')
+    body = runningBody({ task: { taskId: 'task-a', sessionId: 's1', state: 'running', attemptId: 'attempt-2', acceptedAt: 2 }, revision: 2 })
+    expect((await readWorkbenchActivity()).sessions[0].taskState).toBe('running')
+    body = completedBody({ task: { taskId: 'task-a', sessionId: 's1', state: 'completed', attemptId: 'attempt-1', acceptedAt: 1 }, revision: 1 })
+    expect((await readWorkbenchActivity()).sessions[0].taskState).toBe('running')
+  })
   it('较早快照的迟到回执不能删除新会话、清空审批或回退同毫秒的新任务', async () => {
     const current = approvalBody({ revision: 3, task: { taskId: 'task-a', sessionId: 's1', state: 'running', acceptedAt: 100 } })
     const b = runningBody({ sessionId: 's2', workspace: 'D:/ws/two', taskId: 'task-b',

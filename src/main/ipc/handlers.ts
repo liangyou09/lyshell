@@ -1,4 +1,5 @@
 import { ipcMain, BrowserWindow, dialog, shell, app, net } from 'electron'
+import { shelfWebUrl } from '@shared/task-shelf'
 import { readWorkbenchActivity, approveWorkbenchActivity } from '../dsh/activity'
 import { validateWorkbenchActivityRequest } from './validation'
 import { validateActivityNavigationRequest } from './validation'
@@ -30,6 +31,8 @@ import { sessionRepository, preferencesRepository, quickCommandsRepository } fro
 import { agentRepository } from '../storage/agent-repository'
 import type { AgentConfig } from '../storage/agent-repository'
 import { dshWebManager } from '../dsh/web'
+import { HARNESS_RECOVERED_CHANNEL, HARNESS_RECOVERY_GET_CHANNEL } from '@shared/harness-recovery'
+import { validateHarnessRecoveredEvent } from './validation'
 import { requestDshMarket } from '../dsh/market'
 import { DSH_MARKET_CHANNEL } from '@shared/dsh-market'
 import { validateDshMarketAction } from './validation'
@@ -149,7 +152,7 @@ import { webTerminalRequest } from '../browser/web-terminal'
 import { validateWebTerminalRequest } from './validation'
 import { browserDevToolsRequest } from '../browser/devtools'
 import { validateWebTabDevToolsRequest } from './validation'
-import { browserRequest } from '../browser/service'
+import { browserRequest, prepareReadonlyBrowserSession } from '../browser/service'
 import { notifyBrowserDownloadDirectoryChanged } from '../browser/downloads'
 import { validateBrowserRequest } from './validation'
 const tuiFilesByTerminal = new Map<string, string[]>()
@@ -456,7 +459,18 @@ function sanitizeMessageBoxOptions(options: unknown): MessageBoxOptions {
 /**
  * 注册所有 IPC 处理器
  */
+let unbindHarnessRecovery: (() => void) | undefined
 export function registerIPCHandlers(): void {
+  unbindHarnessRecovery?.()
+  unbindHarnessRecovery = dshWebManager.onBackendRecovered?.(event => {
+    sendToAllWindows(HARNESS_RECOVERED_CHANNEL, validateHarnessRecoveredEvent(event))
+  })
+  ipcMain.handle(HARNESS_RECOVERY_GET_CHANNEL, () => {
+    const identity = dshWebManager.instanceIdentity, url = dshWebManager.currentUrl
+    return identity && url ? validateHarnessRecoveredEvent({
+      identity: { instanceId: identity.instanceId, instanceEpoch: identity.instanceEpoch }, url, cwd: identity.cwd
+    }) : null
+  })
   ipcMain.handle(WEB_TERMINAL_CHANNEL, async (event, raw: unknown) => {
     if (event.sender.getType() !== 'window' || !BrowserWindow.fromWebContents(event.sender) || event.senderFrame !== event.sender.mainFrame) return { success: false, error: 'denied' }
     const request = validateWebTerminalRequest(raw)
@@ -2766,6 +2780,7 @@ export function registerIPCHandlers(): void {
     } catch (error) { return { success: false, error: (error as Error).message } }
   })
   // ========== 任务保存区（拖入才落盘；capture 只记录恢复引用，restore 才显式启动） ==========
+  shelfBrowserRuntime.configurePersistence({ read: id => taskShelfRepository.get(id), save: (id, revision, metadata) => { taskShelfRepository.saveWebSleep(id, revision, metadata) }, setReloadable: (id, url, enabled) => { taskShelfRepository.setWebReloadable(id, url, enabled) } })
   const taskShelf = createTaskShelfService({
     repository: taskShelfRepository,
     // alive 用连接器枚举算好，服务侧不关心两套 ConnectionStatus 的差异。
@@ -2836,8 +2851,16 @@ export function registerIPCHandlers(): void {
     try {
       if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Task shelf requires the main window')
       const request = validateTaskShelfRequest(raw)
+      // 冷恢复实体按 saved:taskId 领取许可；收纳时必须先关联实际覆盖层，不能等落盘后再认领契约。
+      if (request.kind === 'capture' && request.resource.kind === 'web') {
+        if (request.entryId && taskShelfRepository.get(request.entryId)?.recovery.kind === 'web') shelfBrowserRuntime.bindTask(event.sender, request.entryId, request.resource.id)
+        if (shelfBrowserRuntime.isReadonlyResource(event.sender, request.resource.id, request.resource.url)) request.resource.readonlyMode = true
+        if (shelfBrowserRuntime.isReloadableResource(event.sender, request.resource.id, request.resource.url)) request.resource.reloadableMode = true
+      }
       const result = await taskShelf.request(request)
-      if (result.success && result.entry && request.kind === 'capture' && request.resource.kind === 'web') shelfBrowserRuntime.bindTask(event.sender, result.entry.id, request.resource.id)
+      if (result.success && result.entry && request.kind === 'capture' && request.resource.kind === 'web') {
+        shelfBrowserRuntime.bindTask(event.sender, result.entry.id, request.resource.id)
+      }
       if (result.success && request.kind === 'remove') shelfBrowserRuntime.unbindTask(event.sender, request.id)
       return result
     } catch (error) {
@@ -2850,12 +2873,29 @@ export function registerIPCHandlers(): void {
     try {
       if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Shelf browser requires the main window')
       const request = validateShelfBrowserRequest(raw)
+      if (request.kind === 'reloadPolicy' && request.enabled) {
+        const current = shelfBrowserRuntime.request(event.sender, { kind: 'inspect', resourceId: request.resourceId })
+        if (!current.success || current.url !== request.url || current.readonlyMode || current.state !== 'live' || !shelfWebUrl(request.url)) throw new ValidationError('当前网页不能启用闲置重载')
+        const parent = BrowserWindow.fromWebContents(event.sender)!
+        const chinese = String(preferencesRepository.get('locale')).startsWith('zh')
+        const choice = await dialog.showMessageBox(parent, {
+          type: 'question', noLink: true, defaultId: 0, cancelId: 0,
+          title: chinese ? '允许此页闲置后重新加载？' : 'Allow this page to reload after idling?',
+          message: request.url,
+          detail: chinese ? '收纳且闲置五分钟后，此页可释放运行现场，下次打开会重新访问同一网址。脚本内存、表单、sessionStorage、WebSocket 和页面内任务不会恢复。仅对你确认可以重复读取、无需保持运行的页面启用。检测到编辑、上传、媒体、权限活动或拒绝卸载时仍保活；换到其他网址后需重新允许。' : 'After this page is saved and idle for five minutes, its running state may be discarded. Opening it again revisits the same URL. JavaScript memory, forms, sessionStorage, WebSockets and in-page work are not restored. Enable only for a page you know can be read repeatedly and does not need to keep running. Editing, uploads, media, permission activity or an unload refusal keep it alive. Navigating to another URL revokes this permission.',
+          buttons: chinese ? ['保持运行', '允许闲置重载'] : ['Keep running', 'Allow idle reload'],
+        })
+        if (choice.response !== 1) return { success: false, error: 'cancelled' }
+      }
       if (request.kind === 'permit' && request.taskId) {
         const result = await taskShelf.request({ kind: 'list' })
         const entry = result.success && result.entries.find(item => item.id === request.taskId)
-        if (!entry || entry.archivedAt || entry.recovery.kind !== 'web' || entry.recovery.url !== request.url) throw new ValidationError('Saved webpage is unavailable or changed')
+        const current = shelfBrowserRuntime.request(event.sender, { kind: 'inspect', resourceId: request.resourceId })
+        if (!entry || entry.archivedAt || entry.recovery.kind !== 'web' || (entry.recovery.url !== request.url && !(current.success && current.state === 'sleeping'))) throw new ValidationError('Saved webpage is unavailable or changed')
       }
-      return shelfBrowserRuntime.request(event.sender, request)
+      const result = shelfBrowserRuntime.request(event.sender, request)
+      if (request.kind === 'permit' && result.success && result.readonlyMode && result.partition) await prepareReadonlyBrowserSession(result.partition)
+      return result
     } catch (error) { return { success: false, error: (error as Error).message } }
   })
 

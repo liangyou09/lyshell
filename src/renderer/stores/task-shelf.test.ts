@@ -24,6 +24,7 @@ const terminalConfig = (cwd: string): SessionConfig => ({
 beforeEach(() => {
   vi.useFakeTimers(); records = []
   useTaskShelf.setState({ entries: [], bindings: {}, loaded: false, busy: {}, startup: { bootId: 'boot', scopeId: 'scope', status: 'ready', archiveOnBoot: false }, activation: null, activating: false, uiIntentRevision: 0, restoringArchived: false, error: null, saveErrors: {}, restoreFailures: {}, preferences: { ...DEFAULT_TASK_SHELF_PREFERENCES } })
+  useTaskShelf.setState({ previewEntries: {} })
   useSessionStore.setState({ sessions: [] })
   usePaneStore.setState({ layout: { root: { type: 'leaf', id: 'pane', sessions: [], activeSessionId: null, overlays: [{ kind: 'web', id: 'web-1', active: true, slot: null }] }, activePaneId: 'pane' }, overlayPayloads: { 'web-1': { kind: 'web', url: 'https://example.org/', title: 'Original' } }, hiddenTabSessions: {}, retainedSessionIds: {} })
   api.mockReset(); api.mockImplementation(async request => {

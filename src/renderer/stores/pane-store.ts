@@ -239,7 +239,7 @@ interface PaneStore {
   // opts.background：弹窗修饰键转发（中键/Ctrl+点击）的后台页签语义 —— 挂载不激活，
   // 不抢焦点；用户留在原 pane 原页签
   openStartTab: (paneId?: string) => string | null
-  openWebTab: (rawUrl: string, paneId?: string, opts?: { background?: boolean; postToken?: string; ownerPluginId?: string; replaceStartTabId?: string; afterTabId?: string }) => { ok: true } | { ok: false; error: string }
+  openWebTab: (rawUrl: string, paneId?: string, opts?: { background?: boolean; postToken?: string; ownerPluginId?: string; replaceStartTabId?: string; afterTabId?: string; readonlyMode?: boolean }) => { ok: true } | { ok: false; error: string }
   // POST 首航落定（WebTabOverlay 在 did-navigate / 认领失败时调）：主进程令牌
   // take 即销毁，认领后必须从 payload 摘除 —— 否则重挂（拖分屏/拆分）拿死令牌
   // 再认领必拒。落点已知时把 url 一并改写为落点：页签身份从「POST 目标」变成
@@ -247,6 +247,7 @@ interface PaneStore {
   // 会话 cookie 在、登录态不丢），而不是对 POST 目标发一个注定失败的 GET
   settleWebTabPost: (id: string, landedUrl?: string) => void
   setWebTabTitle: (id: string, title: string) => void
+  setWebTabReloadableMode: (id: string, enabled: boolean) => void
   setWebTabFavicon: (id: string, favicon: string) => void
   // 导航态回写（WebTabOverlay 的 did-navigate / did-navigate-in-page / loading 事件）：
   // 地址栏显示与导航按钮可用性的数据源。nav 浅合并 —— 事件只带增量字段
@@ -1180,6 +1181,7 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     }
     const plugins = usePluginStore.getState()
     const ownerPluginId = opts?.ownerPluginId ?? pluginWebOwner(url, plugins.items.filter(p => p.enabled).flatMap(p => p.views))
+    if (opts?.readonlyMode && (ownerPluginId || opts.postToken)) return { ok: false, error: '只读副本不支持插件页面或 POST 页面' }
     if (ownerPluginId && (plugins.items.some(p => p.id === ownerPluginId && !p.enabled)
       || (plugins.loaded && !plugins.items.some(p => p.id === ownerPluginId)))) {
       return { ok: false, error: 'plugin is disabled' }
@@ -1190,6 +1192,7 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     // opts.background：弹窗修饰键转发 —— 后台页签，见 mountOverlay 的 background 注
     const id = get().mountOverlay(replacing?.leaf.id ?? after?.leaf.id ?? paneId, {
       kind: 'web', url, title: new URL(url).hostname,
+      ...(opts?.readonlyMode ? { readonlyMode: true } : {}),
       ...(opts?.postToken ? { postToken: opts.postToken, fromPost: true } : {}),
       ...(ownerPluginId ? { ownerPluginId } : {})
     }, {
@@ -1253,6 +1256,13 @@ export const usePaneStore = create<PaneStore>((set, get) => ({
     })
   },
 
+  setWebTabReloadableMode: (id, enabled) => {
+    set(st => {
+      const payload = st.overlayPayloads[id]
+      if (payload?.kind !== 'web' || payload.reloadableMode === enabled) return st
+      return { overlayPayloads: { ...st.overlayPayloads, [id]: { ...payload, reloadableMode: enabled } } }
+    })
+  },
   setWebTabNav: (id, patch) => {
     // 函数式 set 原子更新（对齐 setWebTabTitle/favicon）：多个页签的导航事件
     // 异步回写交错时各自基于最新 state 合并，不用陈旧快照覆盖

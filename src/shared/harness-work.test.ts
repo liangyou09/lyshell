@@ -5,6 +5,7 @@ import { API_ROUTES, MCP_TOOL_DEFINITIONS, PATH_BY_NAME } from './api-routes'
 describe('原生 Harness 请求契约', () => {
   it.each([
     { kind: 'state' }, { kind: 'targets' }, { kind: 'disconnect' }, { kind: 'new' },
+    { kind: 'recover' }, { kind: 'resume', sessionId: 's', taskId: 't', requestId: 'resume-r', text: 'Verified; remaining work' },
     { kind: 'new', workspace: 'D:/project' }, { kind: 'select', sessionId: 's' },
     { kind: 'submit', sessionId: 's', text: 'task', requestId: 'r' },
     { kind: 'cancel', taskId: 't' }, { kind: 'approve', id: 'a', optionId: 'rejected' },
@@ -14,6 +15,9 @@ describe('原生 Harness 请求契约', () => {
   ])('接受合法请求 %j', value => expect(parseHarnessWorkRequest(value)).toEqual(value))
   it.each([
     null, [], {}, { kind: 'toString' }, { kind: '__proto__' }, { kind: 'acquire', epoch: 1 },
+    { kind: 'recover', owner: 'forged' }, { kind: 'recover', workspace: 'D:/other' },
+    { kind: 'resume', sessionId: 's', requestId: 'r', text: 'x' },
+    { kind: 'resume', sessionId: 's', taskId: 't', requestId: 'r', text: '' },
     { kind: 'state', owner: 'pet' }, { kind: 'new', workspace: 'bad\0path' },
     { kind: 'submit', requestId: 'r', text: 'x' }, { kind: 'submit', sessionId: 's', requestId: 'r', text: ' ' },
     { kind: 'submit', sessionId: 's', requestId: 'r', text: 'x'.repeat(32001) },

@@ -5,6 +5,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { createRequire } from 'module'
 import { BRIDGE_KEY_HEADER } from './bridge'
+import { ExclusiveControlService, type ExclusiveBridgeOutcome } from './exclusive-control'
 
 vi.mock('electron-log', () => ({ default: { info: () => {}, error: () => {}, warn: () => {} } }))
 
@@ -251,6 +252,9 @@ describe('原生 Harness 工作通道与 Pet 共存', () => {
 function makeBridgePackage(dir: string): void {
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'index.mjs'), bridgeSource(), 'utf8')
+  for (const file of ['work-journal.mjs', 'work-state.mjs']) {
+    writeFileSync(join(dir, file), readFileSync(join(process.cwd(), 'resources/dsh-bridge', file)))
+  }
   writeFileSync(join(dir, 'client.js'), '// client half\n', 'utf8')
   // 在 Node 原生模块中 import，避免 Vitest VM 的临时模块缓存/回调介入。
   writeFileSync(join(dir, 'import.cjs'), 'module.exports = specifier => import(specifier)\n', 'utf8')
@@ -864,21 +868,71 @@ describe('桥：原生审批归属', () => {
   })
 })
 
-describe('桥：release 等真实终态、不 kill 后台', () => {
-  it('release 先等真实取消终态：期间保持 held，终态到达后才释放 gate', async () => {
+describe('桥：连接 release 与任务 cancel 分离、不 kill 后台', () => {
+  it('真实控制服务撤销插件贯穿 HTTP 桥，仅解绑 Pet，原生任务和审批继续', async () => {
+    const h = await makeHarness({ agents: ['pet-session'] })
+    try {
+      const identity = (await h.post({ cmd: 'snapshot' })).body.identity as { instanceId: string; instanceEpoch: number }
+      const release = vi.fn()
+      let enabled = true
+      const service = new ExclusiveControlService({ currentInstance: () => identity,
+        isPluginEnabled: () => enabled, acquireBackend: async () => ({ bindingId: 'pet-lease', release }),
+        runBridge: async command => (await h.post(command as unknown as Record<string, unknown>)).body as unknown as ExclusiveBridgeOutcome })
+      const held = await service.acquire({ pluginId: 'aipet', pluginInstanceId: 'pet-process' })
+      if (!held.ok) throw new Error('fixture acquire failed')
+      await h.post({ cmd: 'submit', epoch: held.binding.epoch, taskId: 'pet-running', sessionId: 'pet-session', text: 'pet work' })
+      h.turnStart('pet-session', 1); await service.syncFromBridge()
+      const petApproval = h.approvalRequest({ agent: { session: { id: 'pet-session' } }, toolName: 'shell' })
+      const owner = 'a'.repeat(64)
+      const sessionId = String((await h.post({ cmd: 'native-work', owner, request: { kind: 'new' } })).body.sessionId)
+      await h.post({ cmd: 'native-work', owner, request: { kind: 'submit', sessionId, requestId: 'native', text: 'native work' } })
+      h.turnStart(sessionId, 1)
+      const pending = h.approvalRequest({ agent: { session: { id: sessionId } }, toolName: 'shell' })
+      const before = (await h.post({ cmd: 'native-work', owner, request: { kind: 'state', sessionId } })).body
+      enabled = false; service.revoke('plugin disabled')
+      const deadline = Date.now() + 3000
+      while (service.getSnapshot().phase !== 'free' && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 5))
+      expect(service.getSnapshot().phase).toBe('free'); expect(release).toHaveBeenCalledTimes(1)
+      expect(await petApproval.result).toBe('unavailable')
+      const after = (await h.post({ cmd: 'native-work', owner, request: { kind: 'state', sessionId } })).body
+      expect(after.taskState).toBe('running'); expect(after.approvals).toEqual(before.approvals)
+      expect((await h.post({ cmd: 'snapshot' })).body.identity).toEqual(identity)
+      expect(h.calls.cancel).toEqual([])
+      h.turnEnd(sessionId, 1, 'completed'); expect(await pending.result).toBe('cancelled')
+      h.turnEnd('pet-session', 1, 'completed')
+    } finally { h.dispose() }
+  })
+  it('Pet 断开时审批交回官方处理，原生任务与审批保持不变', async () => {
+    const h = await makeHarness({ agents: ['session-1'] })
+    try {
+      await submitTask(h); h.turnStart('session-1', 1)
+      const petApproval = h.approvalRequest({ agent: { session: { id: 'session-1' } }, toolName: 'shell' })
+      const owner = 'a'.repeat(64)
+      const sid = String((await h.post({ cmd: 'native-work', owner, request: { kind: 'new' } })).body.sessionId)
+      await h.post({ cmd: 'native-work', owner, request: { kind: 'submit', sessionId: sid, requestId: 'parallel', text: 'continue' } })
+      h.turnStart(sid, 1)
+      const nativeApproval = h.approvalRequest({ agent: { session: { id: sid } }, toolName: 'shell' })
+      const before = (await h.post({ cmd: 'native-work', owner, request: { kind: 'state', sessionId: sid } })).body
+      await h.post({ cmd: 'release', epoch: 1 })
+      expect(await petApproval.result).toBe('unavailable') // fixture 的官方审批接收器；没有被自动 allow。
+      const after = (await h.post({ cmd: 'native-work', owner, request: { kind: 'state', sessionId: sid } })).body
+      expect(after.approvals).toEqual(before.approvals)
+      expect(after.taskState).toBe('running')
+      expect(h.calls.cancel).toEqual([])
+      h.turnEnd(sid, 1, 'aborted'); expect(await nativeApproval.result).toBe('cancelled')
+    } finally { h.dispose() }
+  })
+  it('release 只解绑，运行回合继续；不通过 session cancel 影响共享任务', async () => {
     const h = await makeHarness({ agents: ['session-1'] })
     await submitTask(h)
     h.turnStart('session-1', 1)
 
-    const releasing = h.post({ cmd: 'release', epoch: 1 })
-    // release 会先发官方 cancel，再等真实 turn/end
-    await new Promise((r) => setTimeout(r, 10))
-    expect(h.calls.cancel).toEqual(['session-1'])
-    await expect(Promise.race([releasing, Promise.resolve('pending')])).resolves.toBe('pending')
+    const released = await h.post({ cmd: 'release', epoch: 1 })
+    expect(h.calls.cancel).toEqual([])
+    expect((released.body.task as Record<string, unknown>).state).toBe('running')
     expect(h.connectionRequest('/api/session/prompt').blocked).toBe(false)
 
-    h.turnEnd('session-1', 1, 'aborted')
-    const released = await releasing
+    h.turnEnd('session-1', 1, 'completed')
     expect(released.status).toBe(200)
     expect(released.body.holding).toBe(false)
     // 共享后台仍在：控制面仍可再次 acquire（不是 kill）
