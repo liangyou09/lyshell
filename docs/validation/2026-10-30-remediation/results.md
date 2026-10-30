@@ -11,6 +11,8 @@
 源代码集成提交为 `bd9009c42738d265b660ca6bb09c497ce381d26f`；后续提交归档烟测脚本、文档及日志。
 最终整套 Vitest、类型、lint、架构与构建均记录该集成提交的精确 HEAD。每条 `*.json` 保留真实命令、起止时间和退出码，同名 `*.log` 为完整 stdout/stderr。
 
+交付构建另在归档提交 `6d3bb3e05c6079ac73bac5f28ac304ba874de01c` 上通过（delivery-build），包含最新变更日志。已核对该提交的 src、构建配置与根依赖清单和上述已通过全量测试的集成提交没有差异；后续提交只补验证记录与报告格式。
+
 早期 `r1-report` 至 `r8-report` 与 corrections 是委派当时的阶段记录，里面“尚未接线”等内容不代表最终状态，以本文和后续代码为准。早期失败日志保留，不覆盖成成功。
 
 本地环境为 Windows x64，系统 Node 24.15.0、npm 11.12.1；Electron 43.7.11 内置 Node 24.21.0、ABI 148。工作树使用原目录依赖的 junction，未对共享 node_modules 执行重建或 npm ci。Web SSH 使用独立依赖和锁文件。
@@ -42,6 +44,7 @@ R8 是受限试点；尚未迁移的插件、dsh、任务架截图、账号与�
 | 全部变更 TS/TSX lint | 退出 0，0 错误、66 警告 | committed-lint |
 | 架构门禁 | 488 生产源文件，0 违反、0 运行时/静态循环 | committed-architecture |
 | Electron/renderer 构建 | 退出 0；patternWorker 与 localCommandWorker 均进入 dist/main | committed-build |
+| 包含最新变更日志的交付构建 | 退出 0 | delivery-build |
 | Node 测试层 | 25 项通过，退出 0 | committed-node-tests |
 | 独立 Web SSH | 类型退出 0、2 文件 22 项通过；源文件未在后续变更 | r7-final-web-ssh-typecheck、r7-final-web-ssh-tests-corrected |
 | Electron ABI | 真实 Electron 中 PTY、serialport、koffi 加载成功 | native-abi |

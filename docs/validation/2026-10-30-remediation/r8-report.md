@@ -73,4 +73,3 @@
 - 补充并发关闭/迟到高 revision poll/终态拒绝、close中dispose、未确认后显式核对回归。
 
 Stage A 的具体迁移目标与尚未迁移的调用逐项列于 docs/browser-host.md；没有宣称全应用 webview 已迁移。最终补修验证：代理测试1文件9项通过，renderer/preload/shared类型检查退出0，相关ESLint退出0（0错误、0警告），git diff --check退出0；日志为 r8-close-followup.log。
-
