@@ -1,20 +1,24 @@
 import { EventEmitter } from 'events'
+import { randomUUID } from 'crypto'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { runInNewContext } from 'vm'
 import ts from 'typescript'
 import type { Client, ClientChannel } from 'ssh2'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConnectionStatus, ConnectionType } from '@shared/types'
 import { OperationError } from '@shared/operation'
 import { SSHCommandExecutor } from '../file/ssh-command-executor'
 import { SSHCommandShell } from '../file/ssh-command-shell'
+import { CommandService } from '../commands/command-service'
+import type { CommandExecutionHandle, ResourceCloseResult } from '../commands/types'
 import type { SSHFileClient } from '../file/ssh-file-client'
 import type { TokenBinding } from './auth'
 import { capabilityEnabled, operationCapabilities } from './operation-policy'
 
 const source = ts.createSourceFile('http-server.ts', readFileSync(join(process.cwd(), 'src/main/mcp/http-server.ts'), 'utf8'), ts.ScriptTarget.Latest, true)
 const names = ['commandDispatchGuard', 'isMcpConfirmationAuthorized', 'authorizeMcpOperation', 'confirmDestructiveIfNeeded',
+  'commandCaller', 'scheduledCommandTarget', 'retainCommandResponse', 'sendCommandFailure', 'sendOperationError',
   'handleExecuteCommand', 'handleExecuteCommandStream', 'handleRunOnSessions']
 // 修复前也运行同一行为用例，缺少新 helper 时仍执行原 handler 复现缺陷。
 const script = ts.transpileModule(names.flatMap(name => {
@@ -22,6 +26,16 @@ const script = ts.transpileModule(names.flatMap(name => {
   if (!node && name !== 'commandDispatchGuard') throw new Error(`Missing ${name}`)
   return node ? [node.getText(source)] : []
 }).join('\n'), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
+
+const services: CommandService[] = []
+afterEach(() => {
+  for (const service of services) {
+    expect(service.scheduler.snapshot()).toMatchObject({ active: 0, queued: 0, unconfirmed: 0 })
+    expect(service.budget.retainedBytes).toBe(0)
+    expect(service.budget.sendBytes).toBe(0)
+  }
+  services.length = 0
+})
 
 function fixture(type = ConnectionType.SSH, exitCode: number | null = 7, shell = false) {
   const stream = new EventEmitter() as ClientChannel
@@ -38,7 +52,8 @@ function fixture(type = ConnectionType.SSH, exitCode: number | null = 7, shell =
     queueMicrotask(() => { stream.emit('data', Buffer.from('fixture')); stream.emit('exit', exitCode); stream.emit('close') })
   })
   const client = { exec, shell: vi.fn(callback => callback(undefined, stream)) }
-  const file = { getClient: async () => client as unknown as Client } as unknown as SSHFileClient
+  const getClient = vi.fn(async () => client as unknown as Client)
+  const file = { getClient } as unknown as SSHFileClient
   const connector = shell ? new SSHCommandShell(file, 'enter') : new SSHCommandExecutor(file)
   const session = { config: { type, name: 'private-target', local: {} }, status: ConnectionStatus.CONNECTED,
     connector: {}, connectionInstanceId: 'first' }
@@ -51,9 +66,23 @@ function fixture(type = ConnectionType.SSH, exitCode: number | null = 7, shell =
   const sse: Array<{ type: string; exitCode?: number }> = []
   const confirm = vi.fn(async (_request, current: () => boolean) => current())
   const getConnector = vi.fn(async () => connector)
-  const local = vi.fn(async () => ({ output: 'fixture', exitCode }))
+  const local = vi.fn(async (_options?: unknown) => ({ output: 'fixture', exitCode }))
+  let localClose: Promise<ResourceCloseResult> | undefined
+  const commandService = new CommandService()
+  services.push(commandService)
+  const createLocalCommandExecution = (options: { reserveBytes: (bytes: number) => void; onData?: (chunk: string) => void }): CommandExecutionHandle => {
+    const result = local(options).then(result => {
+      options.reserveBytes(Buffer.byteLength(result.output))
+      options.onData?.(result.output)
+      return { ...result, exitCode: result.exitCode ?? -1 }
+    })
+    const closed: ResourceCloseResult = { state: 'closed', localClosed: true, remoteTerminated: 'confirmed' }
+    return { result, resourceClosed: localClose ?? result.then(() => closed, () => closed), cancel: vi.fn() }
+  }
   const context = {
     ConnectionStatus, ConnectionType, OperationError, operationCapabilities, capabilityEnabled,
+    commandService, businessGate: { phase: 'running', accepts: () => true },
+    bindingCredentialIds: new WeakMap([[binding, 'fixture-caller']]), uuidv4: randomUUID,
     MAX_TEXT_LENGTH: 1024 * 1024, MAX_COMMAND_TIMEOUT_MS: 300000,
     confirmationCredentials: new WeakMap([[binding, () => state.valid]]), getMcpSecuritySettings: () => settings,
     sessionManager: { getSession: (id: string) => id === 'target' ? live : undefined },
@@ -61,17 +90,67 @@ function fixture(type = ConnectionType.SSH, exitCode: number | null = 7, shell =
     getSessionSummary: () => ({}), auditMcpOperation: vi.fn(), summarizeText: (text: string) => text,
     mcpRequestSource: () => 'fixture', t: (key: string) => key, requestMcpConfirmation: confirm, scanDestructiveCommand: (): Array<{ name: string }> => [],
     log: { error: vi.fn() }, clampNumber: (value: number) => value,
-    sendJson: (_res: unknown, status: number, body: typeof responses[number]['body']) => responses.push({ status, body }),
-    CommandStreamWriter: class { chunk() {} async finish(event: typeof sse[number]) { sse.push(event) } }, AbortController,
-    fileManager: { getCommandConnector: getConnector }, executeLocalCommand: local, executeLocalCommandStream: local
+    sendJson: (res: EventEmitter & { end: () => void }, status: number, body: typeof responses[number]['body']) => {
+      responses.push({ status, body }); res.end()
+    },
+    CommandStreamWriter: class {
+      constructor(private res: EventEmitter & { end: () => void }) {}
+      chunk() {}
+      async finish(event: typeof sse[number]) { sse.push(event); this.res.end() }
+    }, AbortController,
+    fileManager: { getCommandConnector: getConnector }, createLocalCommandExecution
   }
   const api = runInNewContext(script + '\n({handleExecuteCommand,handleExecuteCommandStream,handleRunOnSessions})', context)
-  const response = () => Object.assign(new EventEmitter(), { writeHead: vi.fn(), end: vi.fn(), write: vi.fn(() => true) })
-  return { api, response, state, settings, binding, session, responses, sse, exec, client, stream, getConnector, local, connector, confirm, context,
+  const response = () => {
+    const res = Object.assign(new EventEmitter(), {
+      destroyed: false, writableEnded: false, headersSent: false,
+      writeHead: vi.fn(), end: vi.fn(), write: vi.fn(() => true)
+    })
+    res.writeHead.mockImplementation(() => { res.headersSent = true; return res })
+    res.end.mockImplementation(() => { res.writableEnded = true; res.emit('finish'); return res })
+    return res
+  }
+  return { api, response, state, settings, binding, session, responses, sse, exec, client, stream, getConnector, getClient,
+    local, connector, confirm, context, commandService,
+    deferLocalClose: (close: Promise<ResourceCloseResult>) => { localClose = close },
     replace: () => { live = { ...session } }, remove: () => { live = undefined } }
 }
 
 describe('HTTP 独立命令最终派发与资源身份', () => {
+  it.each([false, true])('真实 SSH 执行器在 getClient 等待后撤权仍不派发（shell=%s）', async shell => {
+    const f = fixture(ConnectionType.SSH, 0, shell)
+    f.getClient.mockImplementation(async () => {
+      await Promise.resolve()
+      f.state.valid = false
+      return f.client as unknown as Client
+    })
+    await f.api.handleExecuteCommand({ sessionId: 'target', command: 'fixture' }, f.response(), f.binding)
+    expect(f.getClient).toHaveBeenCalledOnce()
+    expect(f.exec).not.toHaveBeenCalled()
+    expect(f.client.shell).not.toHaveBeenCalled()
+    expect(f.stream.write).not.toHaveBeenCalled()
+  })
+
+  it('HTTP response 先 close 不归还仍待真实资源关闭的执行位', async () => {
+    const f = fixture(ConnectionType.LOCAL, 0)
+    let close!: (value: ResourceCloseResult) => void
+    f.deferLocalClose(new Promise(resolve => { close = resolve }))
+    const res = f.response()
+    const request = f.api.handleExecuteCommand({ sessionId: 'target', command: 'fixture' }, res, f.binding)
+    await vi.waitFor(() => expect(f.local).toHaveBeenCalledOnce())
+    expect(f.commandService.scheduler.snapshot().active).toBe(1)
+    expect(f.commandService.budget.retainedBytes).toBeGreaterThan(0)
+    res.destroyed = true
+    res.emit('close')
+    await Promise.resolve()
+    expect(f.commandService.scheduler.snapshot().active).toBe(1)
+    close({ state: 'closed', localClosed: true, remoteTerminated: 'confirmed' })
+    await request
+    expect(f.commandService.scheduler.snapshot().active).toBe(0)
+    expect(f.commandService.budget.retainedBytes).toBe(0)
+    expect(f.commandService.budget.sendBytes).toBe(0)
+  })
+
   it('批量破坏性确认通过后目标换代，不能将原批准用于新连接', async () => {
     const f = fixture()
     f.settings.confirmDestructiveCommands = true

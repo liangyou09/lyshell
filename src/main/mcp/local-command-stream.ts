@@ -1,55 +1,23 @@
-import { spawn } from 'child_process'
-import { StringDecoder } from 'string_decoder'
-import log from 'electron-log'
-import { appendCommandOutput } from '../file/command-output'
-import { terminatePluginProcess } from '../plugin/process-cleanup'
-import { childEnvironment } from '../env/child-environment'
+import { createLocalCommandExecution, type LocalCommandDeps } from '../commands/local-command-core'
 
+/**
+ * 兼容导出：旧调用方只消费结果与增量输出。
+ *
+ * 需要取消、资源关闭确认（resourceClosed）或输出预算预占的调用方应改用
+ * createLocalCommandExecution / CommandService；本函数只返回 result。
+ * 末位 deps 仅供测试固定平台分支，生产调用不传。
+ */
 export function executeLocalCommandStream(
   command: string,
   cwd: string | undefined,
   env: Record<string, string> | undefined,
   timeout: number,
   onData: (chunk: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  deps?: LocalCommandDeps
 ): Promise<{ output: string; exitCode: number }> {
-  return new Promise((resolve, reject) => {
-    const execEnv = childEnvironment(process.env, env) as Record<string, string>
-    const execCwd = cwd || process.env.USERPROFILE || process.env.HOME || ''
-
-    log.info(`[MCP] Executing local command stream (${command.length} characters)`)
-
-    if (signal?.aborted) { reject(new Error('Command aborted')); return }
-    const child = spawn(command, { cwd: execCwd, env: execEnv, shell: true, windowsHide: true, detached: process.platform !== 'win32' })
-    let output = ''
-    let settled = false
-    const stdout = new StringDecoder('utf8')
-    const stderr = new StringDecoder('utf8')
-    const finish = (error?: Error, exitCode = -1) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', onAbort)
-      if (error) {
-        child.stdout?.destroy(); child.stderr?.destroy()
-        void terminatePluginProcess(child, { processGroup: process.platform !== 'win32' }).catch(cleanupError => log.warn('[MCP] Command cleanup failed:', cleanupError.message))
-        reject(error)
-      }
-      else resolve({ output, exitCode })
-    }
-    const timer = setTimeout(() => finish(new Error('Command timeout')), timeout)
-    const onAbort = () => finish(new Error('Command aborted'))
-    signal?.addEventListener('abort', onAbort, { once: true })
-    const append = (chunk: string) => {
-      if (settled || !chunk) return
-      try { output = appendCommandOutput(output, chunk); onData(chunk) } catch (error) { finish(error as Error) }
-    }
-    child.stdout?.on('data', (data: Buffer) => append(stdout.write(data)))
-    child.stderr?.on('data', (data: Buffer) => append(stderr.write(data)))
-    child.on('error', (error) => finish(error))
-    child.on('close', (code: number | null) => {
-      append(stdout.end()); append(stderr.end())
-      finish(undefined, code ?? -1)
-    })
-  })
+  return createLocalCommandExecution({ command, cwd, env, timeoutMs: timeout, onData, signal }, deps).result
 }
+
+export { createLocalCommandExecution } from '../commands/local-command-core'
+export type { LocalCommandDeps, LocalCommandOptions } from '../commands/local-command-core'

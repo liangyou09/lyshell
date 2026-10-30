@@ -1,32 +1,34 @@
-import { appendCommandOutput } from './command-output'
+import { CommandOutputCollector } from './command-output'
 
 interface OutputSpan { start: number; length: number }
 
 /** stdout 控制标记单独识别；位置映射到合并输出，保留标记分片间的 stderr。 */
 export class ShellCommandOutput {
-  private output = ''
   private tail = ''
   private tailSpans: OutputSpan[] = []
   private lineStart = true
   private published = 0
   private readonly prefix: string
   private readonly complete: RegExp
+  private readonly collector: CommandOutputCollector
 
-  constructor(marker: string, private readonly onData?: (chunk: string) => void) {
+  constructor(marker: string, private readonly onData?: (chunk: string) => void, collector?: CommandOutputCollector) {
     this.prefix = `${marker}:`
     this.complete = new RegExp(`(?:^|\\n)(${marker}:(\\d{1,10})\\r?\\n)`, 'g')
+    // 标记剥离与位置映射需要完整缓冲，因此 onData 由本类按剥离后的内容推送。
+    this.collector = collector ?? new CommandOutputCollector()
   }
 
   stderr(chunk: string): void {
     if (!chunk) return
-    this.output = appendCommandOutput(this.output, chunk)
-    this.publish(this.tailSpans[0]?.start ?? this.output.length)
+    this.collector.append(chunk)
+    this.publish(this.tailSpans[0]?.start ?? this.collector.output.length)
   }
 
   stdout(chunk: string): { output: string; exitCode: number } | undefined {
     if (!chunk) return
-    const start = this.output.length
-    this.output = appendCommandOutput(this.output, chunk)
+    const start = this.collector.output.length
+    this.collector.append(chunk)
     const spans = [...this.tailSpans, { start, length: chunk.length }]
     const scan = this.tail + chunk
     const atLineStart = this.tail.length > 0 || this.lineStart
@@ -39,10 +41,10 @@ export class ShellCommandOutput {
       const parts: string[] = []
       let cursor = 0
       for (const span of removed) {
-        parts.push(this.output.slice(cursor, span.start))
+        parts.push(this.collector.output.slice(cursor, span.start))
         cursor = span.start + span.length
       }
-      parts.push(this.output.slice(cursor))
+      parts.push(this.collector.output.slice(cursor))
       const output = parts.join('')
       this.onData?.(output.slice(this.published))
       return { output, exitCode: Number(match[2]) }
@@ -59,13 +61,18 @@ export class ShellCommandOutput {
     this.tail = partial ? candidate : ''
     this.tailSpans = partial ? this.sliceSpans(spans, scan.length - candidate.length, scan.length) : []
     this.lineStart = chunk.endsWith('\n')
-    this.publish(this.tailSpans[0]?.start ?? this.output.length)
+    this.publish(this.tailSpans[0]?.start ?? this.collector.output.length)
     return undefined
+  }
+
+  /** 失败后释放完整输出占用；调用方从此不再读取本实例。 */
+  discard(): void {
+    this.collector.discard()
   }
 
   private publish(end: number): void {
     if (end <= this.published) return
-    const chunk = this.output.slice(this.published, end)
+    const chunk = this.collector.output.slice(this.published, end)
     this.published = end
     this.onData?.(chunk)
   }

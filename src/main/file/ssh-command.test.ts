@@ -197,13 +197,20 @@ describe('命令输出资源上限', () => {
   it('持久 shell 超限销毁通道并拒绝排队命令', async () => {
     const { file, stream } = fixture()
     const shell = new SSHCommandShell(file, '')
-    const a = shell.execRaw('fixture', 1000)
-    const b = shell.execRaw('queued', 1000)
-    const checks = [expect(a).rejects.toThrow('output limit'), expect(b).rejects.toThrow('output limit')]
+    const a = shell.executeCommand({ command: 'fixture', timeoutMs: 1000 })
+    const b = shell.executeCommand({ command: 'queued', timeoutMs: 1000 })
+    const checks = [
+      expect(a.result).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN', retryDisposition: 'reconcile-first', reason: 'OUTPUT_LIMIT' }),
+      expect(b.result).rejects.toMatchObject({ code: 'RESOURCE_LIMIT' })
+    ]
     await vi.waitFor(() => expect(stream.write).toHaveBeenCalled())
     for (let i = 0; i < 512; i++) stream.emit('data', Buffer.alloc(65536, 120))
     await Promise.all(checks)
     expect(stream.destroy).toHaveBeenCalledOnce()
+    expect(await a.resourceClosed).toMatchObject({ state: 'closed', localClosed: true, remoteTerminated: 'unknown' })
+    expect(await b.resourceClosed).toMatchObject({ state: 'closed', localClosed: true, remoteTerminated: 'not-dispatched' })
+    expect(stream.write).toHaveBeenCalledOnce()
+    expect(vi.mocked(stream.write).mock.calls.join('')).not.toContain('queued')
   })
 
   it('完成标记分片时仍保留真实退出码', async () => {

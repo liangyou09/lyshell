@@ -17,7 +17,7 @@ beforeEach(() => { vi.clearAllMocks() })
 it('本地流式输出 32 MiB 在 1 Mi 字符处拒绝，关闭管道并回收进程树', async () => {
   const child = fixture()
   let sent = 0
-  const pending = executeLocalCommandStream('fixture', undefined, undefined, 1000, c => { sent += c.length })
+  const pending = executeLocalCommandStream('fixture', undefined, undefined, 1000, c => { sent += c.length }, undefined, { platform: 'linux' })
   const rejection = expect(pending).rejects.toThrow('output limit')
   for (let i = 0; i < 512; i++) child.stdout.emit('data', Buffer.alloc(65536, 120))
   await rejection
@@ -27,12 +27,12 @@ it('本地流式输出 32 MiB 在 1 Mi 字符处拒绝，关闭管道并回收�
 })
 
 it('预取消不 spawn；执行期间取消回收且丢弃迟到输出', async () => {
-  await expect(executeLocalCommandStream('fixture', undefined, undefined, 1000, vi.fn(), AbortSignal.abort())).rejects.toThrow('aborted')
+  await expect(executeLocalCommandStream('fixture', undefined, undefined, 1000, vi.fn(), AbortSignal.abort(), { platform: 'linux' })).rejects.toThrow('aborted')
   expect(mocks.spawn).not.toHaveBeenCalled()
   const child = fixture()
   const abort = new AbortController()
   const onData = vi.fn()
-  const pending = executeLocalCommandStream('fixture', undefined, undefined, 1000, onData, abort.signal)
+  const pending = executeLocalCommandStream('fixture', undefined, undefined, 1000, onData, abort.signal, { platform: 'linux' })
   abort.abort()
   child.stdout.emit('data', Buffer.from('late'))
   await expect(pending).rejects.toThrow('aborted')
@@ -42,7 +42,7 @@ it('预取消不 spawn；执行期间取消回收且丢弃迟到输出', async (
 
 it('分片 UTF-8、stderr 和真实退出码保留', async () => {
   const child = fixture()
-  const pending = executeLocalCommandStream('fixture', undefined, undefined, 1000, () => {})
+  const pending = executeLocalCommandStream('fixture', undefined, undefined, 1000, () => {}, undefined, { platform: 'linux' })
   const bytes = Buffer.from('中文')
   child.stdout.emit('data', bytes.subarray(0, 1)); child.stdout.emit('data', bytes.subarray(1))
   child.stderr.emit('data', Buffer.from('err'))

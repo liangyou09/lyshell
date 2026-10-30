@@ -69,7 +69,7 @@ describe('独立 SSH 命令最终派发授权', () => {
     let opened!: (error: undefined, stream: ClientChannel) => void
     f.client.shell.mockImplementation(callback => { opened = callback })
     const pending = new SSHCommandShell(f.file, 'enter').execStream('effect', 1000, () => {}, undefined, f.guard)
-    const check = expect(pending).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    const check = expect(pending).rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN', retryDisposition: 'reconcile-first' })
     await vi.waitFor(() => expect(f.client.shell).toHaveBeenCalledOnce())
     f.revoke()
     opened(undefined, f.stream)
