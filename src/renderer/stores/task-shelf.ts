@@ -24,7 +24,7 @@ interface ShelfStore {
   reservedHeight: number
   reservedEdge: 'left' | 'right' | 'top' | 'bottom'
   panelVisible: boolean
-  viewRequest: { revision: number; open: boolean; entryId?: string; notices?: boolean; view?: 'tasks' | 'archive' | 'sessions' | 'notices' } | null
+  viewRequest: { revision: number; open: boolean; entryId?: string; notices?: boolean; view?: 'tasks' | 'archive' | 'trash' | 'sessions' | 'notices' } | null
   startup: TaskShelfStartup | null
   activation: TaskShelfActivation | null
   activating: boolean
@@ -251,7 +251,7 @@ export const useTaskShelf = create<ShelfStore>((set, get) => ({
     if (!startup || startup.status !== 'ready') { set({ error: startup?.error || '任务初始化尚未完成，请重试。' }); return null }
     // 点击时固定集合及版本；排队期间的新归档不加入本批。
     const wanted = ids ? new Set(ids) : null
-    const snapshot = get().entries.filter(entry => wanted ? wanted.has(entry.id) : !!entry.archivedAt).map(entry => ({ taskId: entry.id, expectedRevision: entry.revision }))
+    const snapshot = get().entries.filter(entry => wanted ? wanted.has(entry.id) : !!entry.archivedAt && !entry.trashedAt).map(entry => ({ taskId: entry.id, expectedRevision: entry.revision }))
     const intent = get().invalidateIntent()
     set({ activating: true, error: null })
     try {
@@ -262,7 +262,7 @@ export const useTaskShelf = create<ShelfStore>((set, get) => ({
       const successful = activation.items.filter(item => item.status === 'moved' || item.status === 'alreadyTasks').map(item => item.taskId)
       if (successful.length && get().uiIntentRevision === intent) {
         for (const id of successful) get().hide(id)
-        const target = selectionId && get().entries.some(e => e.id === selectionId && !e.archivedAt) ? selectionId : successful[0]
+        const target = selectionId && get().entries.some(e => e.id === selectionId && !e.archivedAt && !e.trashedAt) ? selectionId : successful[0]
         set(state => ({ viewRequest: { revision: (state.viewRequest?.revision ?? 0) + 1, open: state.panelVisible, view: 'tasks', entryId: target } }))
         set(state => ({ activationDemand: { revision: (state.activationDemand?.revision ?? 0) + 1, intent, ids: successful, single: !!ids && ids.length === 1 } }))
       }
@@ -274,7 +274,7 @@ export const useTaskShelf = create<ShelfStore>((set, get) => ({
     const ids = get().activation?.items.filter(item => item.status === 'failed').map(item => item.taskId) ?? []
     if (!ids.length) return
     await get().load()
-    const eligible = ids.filter(id => get().entries.some(e => e.id === id && !!e.archivedAt))
+    const eligible = ids.filter(id => get().entries.some(e => e.id === id && (!!e.archivedAt || !!e.trashedAt)))
     if (eligible.length) await get().activate(eligible)
   },
   collect: resource => {

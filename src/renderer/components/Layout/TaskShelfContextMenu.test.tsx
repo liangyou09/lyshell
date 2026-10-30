@@ -6,6 +6,7 @@ import { useTaskShelf } from '../../stores/task-shelf'
 import { usePaneStore } from '../../stores/pane-store'
 import { useSessionStore } from '../../stores/session-store'
 import { DEFAULT_TASK_SHELF_PREFERENCES, type TaskShelfEntry, type TaskShelfRequest, type TaskShelfResult } from '@shared/task-shelf'
+import { ConnectionType } from '@shared/types'
 import '../../i18n'
 
 const entry: TaskShelfEntry = { id: 'page', resourceKey: 'web:w', title: 'Saved reference', createdAt: 1, updatedAt: 1, revision: 1, capability: 'web', recovery: { kind: 'web', url: 'https://example.org/' } }
@@ -108,5 +109,41 @@ describe.each([240, 600])('任务保存区右键菜单（宽度 %s）', width =>
     expect(usePaneStore.getState().overlayPayloads.w).toBeDefined()
     expect(usePaneStore.getState().getAllLeafPanes()[0].overlays[0]).toMatchObject({ id: 'w', active: true, retained: false })
     expect(view.queryByRole('menu', { name: 'Task actions' })).toBeNull()
+  })
+})
+
+describe('回收站条目菜单', () => {
+  const recycled: TaskShelfEntry = { ...entry, id: 'recycled', title: 'Recycled terminal', resourceKey: 'terminal:old', recovery: { kind: 'terminal', sessionId: 'old', type: ConnectionType.LOCAL }, capability: 'directory', trashedAt: 10 }
+  const prepare = async () => {
+    request.mockImplementation(async input => {
+      if (input.kind === 'remove') return { success: true, entries: [] }
+      if (input.kind === 'activate') {
+        const activated = { ...recycled }; delete activated.trashedAt
+        return { success: true, entries: [activated], activation: { requestId: input.requestId, items: [{ taskId: recycled.id, status: 'moved' }], total: 1, moved: 1, alreadyTasks: 0, conflict: 0, missing: 0, failed: 0 } }
+      }
+      return { success: true, entries: [recycled] }
+    })
+    useTaskShelf.setState({ entries: [recycled], bindings: {}, previewEntries: {}, startup: { bootId: 'recycle-boot', scopeId: 'recycle-scope', status: 'ready', archiveOnBoot: false }, activation: null, activating: false, viewRequest: null })
+    const view = render(<TaskShelf />)
+    fireEvent.click(view.getByRole('button', { name: /Toggle saved tasks/ }))
+    fireEvent.click(view.getByRole('tab', { name: 'Trash 1' }))
+    fireEvent.contextMenu(view.getByRole('button', { name: 'Task slot 1' }))
+    await act(async () => {})
+    return { view, menu: view.getByRole('menu', { name: 'Task actions' }) }
+  }
+  it('提供激活、详情和移除，不提供收纳或归档，也不先恢复实例', async () => {
+    const { menu } = await prepare()
+    expect(within(menu).getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Task details', 'Activate task', 'Remove from Trash'])
+    await act(async () => { fireEvent.click(within(menu).getByRole('menuitem', { name: 'Activate task' })) })
+    expect(request.mock.calls.find(([input]) => input.kind === 'activate')?.[0]).toMatchObject({ items: [{ taskId: recycled.id, expectedRevision: 1 }] })
+    expect(request.mock.calls.some(([input]) => input.kind === 'restore' || input.kind === 'capture')).toBe(false)
+    expect(useTaskShelf.getState().entries[0].trashedAt).toBeUndefined()
+  })
+  it('从回收站移除直接删除恢复记录，不创建终端', async () => {
+    const { menu } = await prepare()
+    await act(async () => { fireEvent.click(within(menu).getByRole('menuitem', { name: 'Remove from Trash' })) })
+    expect(request.mock.calls.map(([input]) => input)).toContainEqual({ kind: 'remove', id: recycled.id })
+    expect(useTaskShelf.getState().entries).toEqual([])
+    expect(request.mock.calls.some(([input]) => input.kind === 'restore' || input.kind === 'capture' || input.kind === 'activate')).toBe(false)
   })
 })

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import log from 'electron-log'
-import { shelfWebUrl, DEFAULT_TASK_SHELF_PREFERENCES, LEGACY_TASK_SHELF_TOGGLE_SHORTCUT, parseShelfPreferences, type TaskShelfPreferences, type ShelfRecovery, type TaskShelfEntry } from '@shared/task-shelf'
+import { shelfWebUrl, DEFAULT_TASK_SHELF_PREFERENCES, LEGACY_TASK_SHELF_TOGGLE_SHORTCUT, TASK_SHELF_TRASH_LIMIT, parseShelfPreferences, type TaskShelfPreferences, type ShelfRecovery, type TaskShelfEntry } from '@shared/task-shelf'
 import { ConnectionType } from '@shared/types/session'
 import { atomicWriteFileSync, getConfigDir } from './repository'
 import { JsonStoreLoadError, loadJsonFileSync, RevisionConflictError, writeBackupSync } from './atomic-json'
@@ -200,6 +200,10 @@ function parseEntry(raw: unknown): TaskShelfEntry {
     if (!Number.isSafeInteger(value.archivedAt) || (value.archivedAt as number) < 1) damaged()
     entry.archivedAt = value.archivedAt as number
   }
+  if (value.trashedAt !== undefined) {
+    if (recovery.kind !== 'terminal' || value.archivedAt !== undefined || !Number.isSafeInteger(value.trashedAt) || (value.trashedAt as number) < 1) damaged()
+    entry.trashedAt = value.trashedAt as number
+  }
   return entry
 }
 
@@ -245,8 +249,10 @@ function parseArchive(raw: unknown): { entries: TaskShelfEntry[]; preferences: T
       damaged()
     }
   }
-  if (archive.entries.length > TASK_SHELF_LIMIT) damaged()
+  if (archive.entries.length > TASK_SHELF_LIMIT + TASK_SHELF_TRASH_LIMIT) damaged()
   const entries = archive.entries.map(parseEntry)
+  const trashCount = entries.filter(entry => entry.trashedAt !== undefined).length
+  if (trashCount > TASK_SHELF_TRASH_LIMIT || entries.length - trashCount > TASK_SHELF_LIMIT) damaged()
   const ids = new Set<string>()
   const keys = new Set<string>()
   for (const entry of entries) {
@@ -274,7 +280,7 @@ export interface ShelfCaptureResult {
   changed: boolean
 }
 
-/** 分类结果：moved 表示本次改成了目标分类；already* 表示无需变更；conflict/missing 不写；failed 由原子写入失败统一标记。 */
+/** 分类结果：moved 表示改成了目标分类；already* 无需变更；conflict/missing 不写；failed 表示容量不足或原子写入失败。 */
 export type ShelfArchiveStatus = 'moved' | 'alreadyArchived' | 'alreadyTasks' | 'conflict' | 'missing' | 'failed'
 
 export interface ShelfArchiveBatchResult {
@@ -375,6 +381,7 @@ export class TaskShelfRepository {
     this.ensureLoaded()
     const entry = this.entries.find(item => item.id === id)
     if (!entry) throw new Error('保存记录不存在')
+    if (entry.trashedAt !== undefined) throw new Error('请先激活回收站任务，再更改归档分类')
     if (!!entry.archivedAt === archived) return clone(entry)
     const next = { ...entry, revision: entry.revision + 1, updatedAt: Math.max(now, entry.updatedAt + 1) }
     if (archived) next.archivedAt = now; else delete next.archivedAt
@@ -392,7 +399,7 @@ export class TaskShelfRepository {
     this.ensureLoaded()
     let pending = false
     const next = this.entries.map(entry => {
-      if (entry.archivedAt !== undefined) return entry
+      if (entry.archivedAt !== undefined || entry.trashedAt !== undefined) return entry
       pending = true
       return { ...entry, archivedAt: now, revision: entry.revision + 1, updatedAt: Math.max(now, entry.updatedAt + 1) }
     })
@@ -435,9 +442,11 @@ export class TaskShelfRepository {
     const existing = rebound ?? this.entries.find(item => item.resourceKey === resourceKey)
     if (rebound && rebound.recovery.kind !== input.recovery.kind) throw new Error('不能把保存任务改绑到不同的资源类型')
     if (rebound && this.entries.some(item => item.id !== rebound.id && item.resourceKey === resourceKey)) throw new Error('该页签已经属于另一条保存记录')
+    // 回收站晋升必须显式走带 revision 的激活协议，不能靠迟到的动态捕获绕过容量检查。
+    if (existing?.trashedAt !== undefined) throw new Error('请先激活回收站任务，再保存变更')
 
     if (!existing) {
-      if (this.entries.length >= TASK_SHELF_LIMIT) {
+      if (this.entries.filter(entry => entry.trashedAt === undefined).length >= TASK_SHELF_LIMIT) {
         throw new Error(`保存区已满（最多 ${TASK_SHELF_LIMIT} 项）；请先移除不再需要的任务`)
       }
       const created: TaskShelfEntry = {
@@ -478,6 +487,38 @@ export class TaskShelfRepository {
     return { entry: clone(next), created: false, changed: true }
   }
 
+  /** 退出时整批收集未保存终端；仅回收站按新增顺序淘汰，保存区与归档完全保留。 */
+  recycle(inputs: ReadonlyArray<ShelfCaptureInput>, now = Date.now()): TaskShelfEntry[] {
+    this.ensureLoaded()
+    const existingKeys = new Map(this.entries.map(entry => [entry.resourceKey, entry]))
+    const existingHosts = new Map(this.entries.flatMap(entry => entry.recovery.kind === 'terminal' && entry.recovery.localHostId ? [[entry.recovery.localHostId.toLowerCase(), entry] as const] : []))
+    const keys = new Set<string>(), hosts = new Set<string>()
+    const candidates: Array<{ entry: TaskShelfEntry; existing: boolean }> = []
+    for (const input of inputs) {
+      if (input.recovery.kind !== 'terminal') throw new Error('回收站只接受终端任务')
+      // 重建白名单字段，调用方传入的命令、环境、凭据和多余元数据不进入内存或磁盘。
+      const candidate = parseEntry({
+        id: randomUUID(), resourceKey: input.resourceKey, title: input.title, workspace: input.workspace,
+        createdAt: now, updatedAt: now, revision: 1, trashedAt: now,
+        recovery: input.recovery, capability: input.capability, ...(input.context ? { context: input.context } : {})
+      })
+      const host = candidate.recovery.kind === 'terminal' ? candidate.recovery.localHostId?.toLowerCase() : undefined
+      if (keys.has(candidate.resourceKey) || host && hosts.has(host)) continue
+      keys.add(candidate.resourceKey)
+      if (host) hosts.add(host)
+      const existing = existingKeys.get(candidate.resourceKey) ?? (host ? existingHosts.get(host) : undefined)
+      if (existing && existing.trashedAt === undefined) continue
+      candidates.push({ entry: existing ?? candidate, existing: !!existing })
+    }
+    // 先对本批可回收身份取最近十二个，再跳过已有项；否则同一批超过十二项的退出重试
+    // 会把上次已淘汰的早期条目重新加入，反而挤掉真正最近的记录。
+    const added = candidates.slice(-TASK_SHELF_TRASH_LIMIT).filter(candidate => !candidate.existing).map(candidate => candidate.entry)
+    if (!added.length) return this.entries.map(clone)
+    const trashed = [...this.entries.filter(entry => entry.trashedAt !== undefined), ...added].slice(-TASK_SHELF_TRASH_LIMIT)
+    this.commit([...this.entries.filter(entry => entry.trashedAt === undefined), ...trashed])
+    return this.entries.map(clone)
+  }
+
   /**
    * 分类命令唯一写入点：在串行执行区内按版本判定每项状态，成功项按请求顺序追加到 Tasks 末尾；
    * 单次原子写入失败时全部待改项记 failed，内存与磁盘都保持原分类。
@@ -485,15 +526,21 @@ export class TaskShelfRepository {
   archiveBatch(items: ReadonlyArray<{ id: string; expectedRevision: number }>, now = Date.now()): ShelfArchiveBatchResult {
     this.ensureLoaded()
     const moved = new Map<string, TaskShelfEntry>()
+    let savedCount = this.entries.filter(entry => entry.trashedAt === undefined).length
     const statuses = items.map(item => {
       if (moved.has(item.id)) return { id: item.id, status: 'conflict' as const }
       const entry = this.entries.find(candidate => candidate.id === item.id)
       if (!entry) return { id: item.id, status: 'missing' as const }
       // 先校验版本再判定分类：旧快照不能覆盖别人之后的修改。
       if (entry.revision !== item.expectedRevision) return { id: item.id, status: 'conflict' as const }
-      if (!entry.archivedAt) return { id: item.id, status: 'alreadyTasks' as const }
+      if (entry.archivedAt === undefined && entry.trashedAt === undefined) return { id: item.id, status: 'alreadyTasks' as const }
+      if (entry.trashedAt !== undefined) {
+        if (savedCount >= TASK_SHELF_LIMIT) return { id: item.id, status: 'failed' as const }
+        savedCount++
+      }
       const next: TaskShelfEntry = { ...entry, revision: entry.revision + 1, updatedAt: Math.max(now, entry.updatedAt + 1) }
       delete next.archivedAt
+      delete next.trashedAt
       moved.set(entry.id, next)
       return { id: item.id, status: 'moved' as const }
     })
@@ -526,7 +573,7 @@ export class TaskShelfRepository {
       if (!entry) return { id: item.id, status: 'missing' as const }
       // 先校验版本再判定分类：旧快照不能覆盖别人之后的修改。
       if (entry.revision !== item.expectedRevision) return { id: item.id, status: 'conflict' as const }
-      if (entry.archivedAt) return { id: item.id, status: 'alreadyArchived' as const }
+      if (entry.archivedAt !== undefined || entry.trashedAt !== undefined) return { id: item.id, status: 'alreadyArchived' as const }
       const next: TaskShelfEntry = { ...entry, archivedAt: now, revision: entry.revision + 1, updatedAt: Math.max(now, entry.updatedAt + 1) }
       changed.set(entry.id, next)
       return { id: item.id, status: 'moved' as const }

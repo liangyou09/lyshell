@@ -63,6 +63,23 @@ function readArchive(): { version: number; entries: Record<string, unknown>[] } 
 }
 
 describe('T01 启动归档固定首次快照', () => {
+  it('回收站不进入启动归档快照，显式激活后移入Tasks且分类请求去重', () => {
+    const repository = new TaskShelfRepository(file)
+    const [saved] = seedTasks(repository, ['saved'])
+    const trash = repository.recycle([captureInput('trash')], 2000).find(entry => entry.trashedAt !== undefined)!
+    const service = createTaskShelfCommandService({ repository, startupArchiveEnabled: true, now: () => 9000 })
+    const { bootId, scopeId, status } = service.startup()
+    expect(status).toBe('ready')
+    expect(repository.get(saved.id)?.archivedAt).toBe(9000)
+    expect(repository.get(trash.id)).toEqual(trash)
+    const request = { bootId, scopeId, requestId: 'trash-activate', items: [{ taskId: trash.id, expectedRevision: trash.revision }] }
+    expect(service.activate(request)).toMatchObject({ success: true, activation: { moved: 1, failed: 0 } })
+    expect(repository.get(trash.id)?.trashedAt).toBeUndefined()
+    expect(repository.get(trash.id)?.archivedAt).toBeUndefined()
+    const writes = disk.writes
+    expect(service.activate(request)).toMatchObject({ success: true, activation: { moved: 1 } })
+    expect(disk.writes).toBe(writes)
+  })
   it('启动把启动前记录移入 Archive，之后新增保存与重复读取都不再参与', () => {
     const repository = new TaskShelfRepository(file)
     // 混合重启：a 是 Tasks，b 已在 Archive

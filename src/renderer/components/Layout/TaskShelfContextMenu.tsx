@@ -57,11 +57,13 @@ export function TaskShelfContextMenu({ onDetails }: { onDetails?: (id: string) =
       const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (at + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length
       buttons[next]?.focus()
     }}>
-    {resource && <button role="menuitem" onClick={() => run(() => useTaskShelf.getState().collect(resource))}>{t(entry ? 'taskShelf.hide' : 'taskShelf.collect')}</button>}
+    {resource && !entry?.trashedAt && <button role="menuitem" onClick={() => run(() => useTaskShelf.getState().collect(resource))}>{t(entry ? 'taskShelf.hide' : 'taskShelf.collect')}</button>}
     {entry && <>
       {onDetails && <button role="menuitem" onClick={() => run(() => onDetails(entry.id))}>{t('taskShelf.details')}</button>}
-      <button role="menuitem" onClick={() => run(() => useTaskShelf.getState().archive(entry.id, !entry.archivedAt))}>{t(entry.archivedAt ? 'taskShelf.unarchive' : 'taskShelf.archiveRunning')}</button>
-      <button role="menuitem" onClick={() => run(() => useTaskShelf.getState().remove(entry.id))}>{t('taskShelf.remove')}</button>
+      {entry.trashedAt
+        ? <button role="menuitem" onClick={() => run(() => useTaskShelf.getState().activate([entry.id], entry.id))}>{t('taskShelf.activateTask')}</button>
+        : <button role="menuitem" onClick={() => run(() => useTaskShelf.getState().archive(entry.id, !entry.archivedAt))}>{t(entry.archivedAt ? 'taskShelf.unarchive' : 'taskShelf.archiveRunning')}</button>}
+      <button role="menuitem" onClick={() => run(() => useTaskShelf.getState().remove(entry.id))}>{t(entry.trashedAt ? 'taskShelf.removeFromTrash' : 'taskShelf.remove')}</button>
     </>}
   </div>, document.body)
 }

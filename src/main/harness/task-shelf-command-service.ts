@@ -93,7 +93,7 @@ export function createTaskShelfCommandService(deps: TaskShelfCommandDeps): TaskS
     try {
       // 摘要和快照必须在同一个 try 里：任一读取失败都不允许走到写盘分支。
       digest = deps.repository.diskDigest()
-      snapshot = deps.repository.list().map(entry => ({ id: entry.id, revision: entry.revision }))
+      snapshot = deps.repository.list().filter(entry => entry.trashedAt === undefined).map(entry => ({ id: entry.id, revision: entry.revision }))
     } catch (error) {
       // 归档文件读取失败时连快照都无法固定：保持 blocked，由 list 自己报告真实读取错误。
       readFailed = true

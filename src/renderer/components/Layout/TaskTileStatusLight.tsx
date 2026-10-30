@@ -33,6 +33,6 @@ export function TaskTileStatusLight({ entry, binding, terminalStatus, hostPresen
   }, [visible, binding?.kind, entry.id, key])
   const browserState = browser?.key === key && Math.max(now, Date.now()) - browser.at < 8000 ? browser.state : undefined
   const status = resolveShelfInstanceStatus({ entry, binding, terminalStatus, browserState, hostPresent, taskStatus })
-  const label = [entry.archivedAt ? t('taskShelf.archivedBadge') : t('taskShelf.activeTasks'), t(`taskShelf.instanceStatus.${status}`), t(`taskShelf.activityStatus.${taskStatus}`)].join(' · ')
+  const label = [entry.trashedAt ? t('taskShelf.trash') : entry.archivedAt ? t('taskShelf.archivedBadge') : t('taskShelf.activeTasks'), t(`taskShelf.instanceStatus.${status}`), t(`taskShelf.activityStatus.${taskStatus}`)].join(' · ')
   return <TaskStatusLight status={taskStatus} instanceStatus={status} label={label} />
 }

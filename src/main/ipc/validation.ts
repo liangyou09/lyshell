@@ -525,6 +525,18 @@ export function validateDownloadHistoryPage(sessionId: unknown, offset: unknown)
   return { sessionId: safeSessionId, offset: offset === undefined ? 0 : offset as number }
 }
 
+/** 页签登记只接收有界、唯一的 ID；恢复数据仍从主进程会话取得。 */
+export function validateTaskShelfTerminalTabs(raw: unknown): string[] {
+  if (!Array.isArray(raw) || raw.length > 10000) throw new ValidationError('Terminal tabs must be an array of at most 10000 IDs')
+  const seen = new Set<string>()
+  return raw.map((value, index) => {
+    const id = assertString(value, `terminalTabs[${index}]`, { maxLength: 128 }).trim()
+    if (!id || seen.has(id)) throw new ValidationError('Terminal tab IDs must be nonempty and unique')
+    seen.add(id)
+    return id
+  })
+}
+
 /**
  * 保存区请求只接受契约白名单。收纳的信息全部来自主进程运行态，
  * 这里只校验「指向哪个实例」——渲染层自报的 URL/标题仅用于多标签区分。

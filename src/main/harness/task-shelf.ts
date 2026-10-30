@@ -66,6 +66,8 @@ export interface TaskShelfDeps {
 
 export interface TaskShelfService {
   request: (request: TaskShelfRequest) => Promise<TaskShelfResult>
+  /** 仅应用退出调用：从主进程权威会话描述实际页签，批量写入有界回收站，不启动或保活资源。 */
+  recycleUnsavedTerminals: (ids: readonly string[]) => TaskShelfEntry[]
 }
 
 export type TaskShelfRestored = NonNullable<Extract<TaskShelfResult, { success: true }>['restored']>
@@ -415,6 +417,7 @@ export function createTaskShelfService(deps: TaskShelfDeps): TaskShelfService {
       try {
         const entry = deps.repository.get(id)
         if (!entry) throw new Error('保存记录不存在')
+        if (entry.trashedAt) throw new Error('请先激活回收站任务，再打开终端')
         const restored = await restoreEntry(entry)
         return { success: true, entries: list(), entry: deps.repository.get(id) ?? entry, restored, startup: commands.startup() }
       } catch (error) {
@@ -426,6 +429,33 @@ export function createTaskShelfService(deps: TaskShelfDeps): TaskShelfService {
   }
 
   return {
+    recycleUnsavedTerminals: ids => {
+      if (commands.ensureStartup().status !== 'ready') throw new Error(commands.blockedError() ?? '任务保存区初始化未完成，无法保存回收站')
+      const saved = list()
+      const manuallySaved = saved.filter(entry => !entry.trashedAt)
+      const knownResources = new Set(manuallySaved.map(entry => entry.resourceKey))
+      const knownHosts = new Set(manuallySaved.flatMap(entry => entry.recovery.kind === 'terminal' && entry.recovery.localHostId ? [entry.recovery.localHostId.toLowerCase()] : []))
+      const inputs: ShelfCaptureInput[] = []
+      for (const id of new Set(ids)) {
+        if (knownResources.has(`terminal:${id}`)) continue
+        const session = deps.session(id)
+        if (!session || session.config.ownerPluginId) continue
+        const hostId = session.localHostId ?? session.config.local?.terminalHostId
+        if (hostId && knownHosts.has(hostId.toLowerCase())) continue
+        inputs.push(describeCapture({ kind: 'terminal', id }, undefined))
+      }
+      // 页签顺序稳定地打破同一创建时间的平局；同次退出优先保留最近新建的终端。
+      inputs.sort((left, right) => {
+        const created = (input: ShelfCaptureInput) => {
+          const id = input.recovery.kind === 'terminal' ? input.recovery.sessionId : ''
+          const raw = deps.session(id)?.config.createdAt
+          const time = raw instanceof Date ? raw.getTime() : new Date(raw ?? 0).getTime()
+          return Number.isFinite(time) ? time : 0
+        }
+        return created(left) - created(right)
+      })
+      return deps.repository.recycle(inputs, now())
+    },
     request: async request => {
       try {
         // 初始化（加载 + 归档）同步完成后才进入任何写入分支；异步 capture 也走这条串行入口。
@@ -475,6 +505,12 @@ export function createTaskShelfService(deps: TaskShelfDeps): TaskShelfService {
           case 'remove': {
             const removed = deps.repository.get(request.id)
             if (!removed) throw new Error('保存记录不存在')
+            // 回收项从未取得资源保留权：移除只删恢复记录，不探测、附着或变更原终端。
+            if (removed.trashedAt !== undefined) {
+              deps.repository.remove(request.id)
+              reused.delete(request.id)
+              return { success: true, entries: list(), startup }
+            }
             let runtimeId = removed.recovery.kind === 'terminal' ? reused.get(request.id) ?? removed.recovery.sessionId : undefined
             let restored: TaskShelfRestored | undefined
             if (removed.recovery.kind === 'terminal' && removed.recovery.localHostId && deps.localHost && (!runtimeId || !deps.session(runtimeId)?.alive)) {

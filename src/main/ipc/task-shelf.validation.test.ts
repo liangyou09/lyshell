@@ -1,9 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
-import { validateSshPersistence, validateTaskShelfRequest } from './validation'
+import { validateSshPersistence, validateTaskShelfRequest, validateTaskShelfTerminalTabs } from './validation'
 import { ConnectionType, type SessionConfig } from '@shared/types'
 vi.mock('electron-log', () => ({ default: { warn: vi.fn(), error: vi.fn() } }))
 
 describe('保存区 IPC 白名单', () => {
+  it('退出回收的页签登记只接收有界唯一 ID，不接收恢复数据', () => {
+    expect(validateTaskShelfTerminalTabs([])).toEqual([])
+    expect(validateTaskShelfTerminalTabs([' t1 ', 't2'])).toEqual(['t1', 't2'])
+    for (const raw of [null, {}, [''], ['  '], ['t', 't'], ['t', ' t '], ['x'.repeat(129)], [{ id: 't', command: 'injected' }], Array.from({ length: 10001 }, (_, index) => `t${index}`)]) {
+      expect(() => validateTaskShelfTerminalTabs(raw)).toThrow()
+    }
+  })
   it('SSH 目录引用只接收安全绝对路径，保存配置时剥离；Telnet 不引入目录字段', () => {
     const config = { type: ConnectionType.SSH, ssh: { host: 'example', username: 'user', port: 22, resumeDirectory: '/srv/a b' } } as SessionConfig
     validateSshPersistence(config)

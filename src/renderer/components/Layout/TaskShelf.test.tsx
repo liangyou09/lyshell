@@ -30,7 +30,7 @@ beforeEach(() => {
       const items = input.items.map(item => ({ taskId: item.taskId, status: 'moved' as const }))
       listEntries = listEntries.map(entry => {
         if (!items.some(item => item.taskId === entry.id)) return entry
-        const next = { ...entry, revision: entry.revision + 1 }; delete next.archivedAt; return next
+        const next = { ...entry, revision: entry.revision + 1 }; delete next.archivedAt; delete next.trashedAt; return next
       })
       return { success: true, entries: listEntries, activation: { requestId: input.requestId, items, total: items.length, moved: items.length, alreadyTasks: 0, missing: 0, conflict: 0, failed: 0 } }
     }
@@ -96,7 +96,7 @@ describe('保存区交互入口', () => {
     act(() => useSessionStore.setState(state => ({ sessions: state.sessions.map(row => ({ ...row, status: ConnectionStatus.ERROR })) })))
     expect(light().getAttribute('data-task-status')).toBe('connectionError')
   })
-  it('右上角只保留系统按钮，会话详情嵌在同一侧栏并可键盘切换四个页签', async () => {
+  it('右上角只保留系统按钮，会话详情嵌在同一侧栏并可键盘切换五个页签', async () => {
     Object.assign(window.electronAPI, { workbenchActivityRequest: vi.fn().mockResolvedValue({ observedAt: Date.now(), connection: 'offline', identity: null, sessions: [] }) })
     const view = render(<><TopRightControls isMaximized={false} onMinimize={() => {}} onMaximize={() => {}} onClose={() => {}} /><TaskShelf /></>)
     openPanel(view); await tick(0)
@@ -112,6 +112,71 @@ describe('保存区交互入口', () => {
     fireEvent.keyDown(view.getByRole('tab', { name: /Alerts/ }), { key: 'Home' })
     expect(view.getByRole('tab', { name: /Tasks/ }).getAttribute('aria-selected')).toBe('true')
     expect(view.container.querySelector('[data-shelf-card="page"]')).toBeTruthy()
+    fireEvent.keyDown(view.getByRole('tab', { name: /Tasks/ }), { key: 'ArrowRight' })
+    fireEvent.keyDown(view.getByRole('tab', { name: /Archive/ }), { key: 'ArrowRight' })
+    expect(view.getByRole('tab', { name: 'Trash' }).getAttribute('aria-selected')).toBe('true')
+    expect(document.activeElement).toBe(view.getByRole('tab', { name: 'Trash' }))
+  })
+  it('任务、归档与回收站互斥计数，回收任务按最新优先且单击只激活所选项', async () => {
+    const recycled = (id: string, trashedAt: number): TaskShelfEntry => ({ ...entry, id, title: id, resourceKey: `terminal:${id}`, recovery: { kind: 'terminal', sessionId: id, type: ConnectionType.LOCAL }, capability: 'directory', trashedAt })
+    listEntries = [entry, { ...entry, id: 'archive', resourceKey: 'web:archive', archivedAt: 5 }, recycled('old', 10), recycled('new-a', 20), recycled('new-b', 20)]
+    useTaskShelf.setState({ entries: listEntries, bindings: {} })
+    const view = render(<TaskShelf />); openPanel(view); await tick(0)
+    expect(view.getByRole('tab', { name: 'Tasks 1' })).toBeTruthy()
+    expect(view.getByRole('tab', { name: 'Archive 1' })).toBeTruthy()
+    fireEvent.click(view.getByRole('tab', { name: 'Trash 3' }))
+    expect([...view.container.querySelectorAll<HTMLElement>('[data-shelf-card]')].map(card => card.dataset.shelfCard)).toEqual(['new-b', 'new-a', 'old'])
+    expect(view.container.querySelector('.task-shelf-preview')).toBeNull()
+    expect(view.container.querySelector('.task-shelf-window-content')).toBeNull()
+    const lamp = view.container.querySelector('[data-shelf-card="new-b"] [data-task-status]')!
+    expect(lamp.getAttribute('title')).toContain('Trash · Saved only')
+    expect(lamp.getAttribute('title')).not.toContain('Archived')
+    await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Task slot 1' })) })
+    expect(request.mock.calls.find(([input]) => input.kind === 'activate')?.[0]).toMatchObject({ items: [{ taskId: 'new-b', expectedRevision: 1 }] })
+    expect(view.getByRole('tab', { name: 'Tasks 2' }).getAttribute('aria-selected')).toBe('true')
+    expect(view.getByRole('tab', { name: 'Trash 2' })).toBeTruthy()
+    expect(useTaskShelf.getState().entries.find(item => item.id === 'new-b')?.trashedAt).toBeUndefined()
+    expect(useTaskShelf.getState().entries.find(item => item.id === 'new-a')?.trashedAt).toBe(20)
+    expect(request.mock.calls.some(([input]) => input.kind === 'restore')).toBe(false)
+  })
+  it('回收站全部激活只提交回收项，失败保留原分类供重试', async () => {
+    const trash: TaskShelfEntry = { ...entry, id: 'trash', resourceKey: 'terminal:trash', recovery: { kind: 'terminal', sessionId: 'trash', type: ConnectionType.LOCAL }, capability: 'directory', trashedAt: 20 }
+    listEntries = [entry, { ...entry, id: 'archive', resourceKey: 'web:archive', archivedAt: 10 }, trash]
+    useTaskShelf.setState({ entries: listEntries, bindings: {} })
+    const view = render(<TaskShelf />); openPanel(view); await tick(0)
+    fireEvent.click(view.getByRole('tab', { name: 'Trash 1' }))
+    archiveResponse = { success: false, error: 'disk full' }
+    await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Activate all' })) })
+    expect(view.getByRole('tab', { name: 'Trash 1' }).getAttribute('aria-selected')).toBe('true')
+    expect(useTaskShelf.getState().entries.find(item => item.id === 'trash')?.trashedAt).toBe(20)
+    expect(view.getByRole('alert').textContent).toContain('disk full')
+    archiveResponse = null
+    await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Activate all' })) })
+    const submissions = request.mock.calls.map(([input]) => input).filter(input => input.kind === 'activate')
+    expect(submissions).toHaveLength(2)
+    expect(submissions.every(input => input.items.length === 1 && input.items[0].taskId === 'trash')).toBe(true)
+    expect(useTaskShelf.getState().entries.find(item => item.id === 'archive')?.archivedAt).toBe(10)
+    expect(request.mock.calls.some(([input]) => input.kind === 'restore')).toBe(false)
+  })
+  it('外部定位回收项只切入回收站，不生成预览或恢复需求', async () => {
+    const trash: TaskShelfEntry = { ...entry, id: 'trash', resourceKey: 'terminal:trash', recovery: { kind: 'terminal', sessionId: 'trash', type: ConnectionType.LOCAL }, capability: 'directory', trashedAt: 20 }
+    listEntries = [entry, trash]
+    useTaskShelf.setState({ entries: listEntries, bindings: {} })
+    const view = render(<TaskShelf />); await tick(0)
+    act(() => useTaskShelf.getState().showPanel('trash'))
+    await tick(80)
+    expect(view.getByRole('tab', { name: 'Trash 1' }).getAttribute('aria-selected')).toBe('true')
+    expect(view.container.querySelector('[data-shelf-card="trash"]')).toBeTruthy()
+    expect(useTaskShelf.getState().previewEntries.trash).toBeUndefined()
+    expect(view.container.querySelector('.task-shelf-window-content')).toBeNull()
+    expect(request.mock.calls.some(([input]) => input.kind === 'restore' || input.kind === 'activate')).toBe(false)
+  })
+  it('空回收站说明退出收集与12项上限，全部激活不可用', async () => {
+    const view = render(<TaskShelf />); openPanel(view); await tick(0)
+    fireEvent.click(view.getByRole('tab', { name: 'Trash' }))
+    expect(view.getByText('Trash is empty')).toBeTruthy()
+    expect(view.getByText(/Unsaved terminal tabs.*12 tasks/)).toBeTruthy()
+    expect(view.getByRole('button', { name: 'Activate all' }).hasAttribute('disabled')).toBe(true)
   })
   it('项目入口和未匹配提醒都在侧栏定位会话，定位已收纳终端打开原小窗', async () => {
     const terminal = { id: 'local-a', status: ConnectionStatus.CONNECTED, config: { id: 'local-a', name: 'Codex terminal', type: ConnectionType.LOCAL, local: { cwd: 'C:/project' }, tags: [], terminal: {} as SessionConfig['terminal'], createdAt: new Date(), updatedAt: new Date() } }
@@ -447,34 +512,54 @@ describe('保存区交互入口', () => {
     expect(JSON.parse(localStorage.getItem('lyshell.taskShelf.view.v1')!).width).toBe(550)
     saved.mockRestore()
   })
-  it('方格可独立打开或收回多个小窗口，保留其他任务实例', async () => {
+  it('固定预览一次只显示一个任务，切换已打开方块不收回或重建其他实例', async () => {
     const second: TaskShelfEntry = { ...entry, id: 'second', resourceKey: 'web:w2', title: 'Second task' }
     listEntries = [entry, second]
     useTaskShelf.setState({ entries: listEntries, bindings: { page: { kind: 'web', id: 'w' }, second: { kind: 'web', id: 'w2' } } })
     useTaskShelf.getState().setPreview('page', true)
     useTaskShelf.getState().setPreview('second', true)
-    usePaneStore.setState(state => ({ overlayPayloads: { ...state.overlayPayloads, w2: { kind: 'web', url: 'https://example.com/', title: second.title } } }))
+    usePaneStore.setState(state => ({
+      layout: { root: { type: 'leaf', id: 'p', sessions: [], activeSessionId: null, overlays: [
+        { kind: 'web', id: 'w', active: false, shelved: true, retained: true, slot: null },
+        { kind: 'web', id: 'w2', active: false, shelved: true, retained: true, slot: null }
+      ] }, activePaneId: 'p' },
+      overlayPayloads: { ...state.overlayPayloads, w2: { kind: 'web', url: 'https://example.com/', title: second.title } }
+    }))
+    const bindings = useTaskShelf.getState().bindings
+    const payloads = usePaneStore.getState().overlayPayloads
     localStorage.setItem('lyshell.taskShelf.view.v1', JSON.stringify({ mode: 'hover', width: 400 }))
     const available = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1200)
     try {
       const view = render(<TaskShelf />)
       openPanel(view)
       expect(view.container.querySelectorAll('.task-shelf-tile .task-shelf-preview')).toHaveLength(2)
-      expect(view.container.querySelectorAll('.task-shelf-item')).toHaveLength(2)
-      expect(view.container.querySelectorAll('[data-shelf-surface=web]')).toHaveLength(2)
-      expect(view.container.querySelector('[data-shelf-entry=page]')?.textContent).toContain(entry.title)
-      fireEvent.click(view.getByRole('button', { name: 'Task slot 2' }))
-      expect(view.container.querySelector('[data-shelf-entry=second]')).toBeNull()
       expect(view.container.querySelectorAll('.task-shelf-item')).toHaveLength(1)
+      expect(view.container.querySelectorAll('[data-shelf-surface=web]')).toHaveLength(1)
+      expect(view.container.querySelector('[data-shelf-entry=page]')?.textContent).toContain(entry.title)
+      fireEvent.focus(view.getByRole('button', { name: 'Task slot 2' }))
+      expect(view.container.querySelector('[data-shelf-entry=page]')).toBeTruthy()
+      expect(view.container.querySelector('[data-shelf-entry=second]')).toBeNull()
       fireEvent.click(view.getByRole('button', { name: 'Task slot 2' }))
       expect(view.container.querySelector('[data-shelf-entry=second]')?.textContent).toContain(second.title)
-      expect(view.container.querySelectorAll('.task-shelf-item')).toHaveLength(2)
+      expect(view.container.querySelector('[data-shelf-entry=page]')).toBeNull()
+      expect(view.container.querySelectorAll('.task-shelf-item')).toHaveLength(1)
+      expect(useTaskShelf.getState().previewEntries).toEqual({ page: true, second: true })
+      expect(useTaskShelf.getState().bindings).toBe(bindings)
+      expect(usePaneStore.getState().overlayPayloads).toBe(payloads)
+      expect(usePaneStore.getState().getAllLeafPanes()[0].overlays).toHaveLength(2)
+      fireEvent.click(view.getByRole('button', { name: 'Task slot 2' }))
+      expect(view.container.querySelector('[data-shelf-entry=second]')).toBeNull()
+      expect(useTaskShelf.getState().previewEntries.second).toBeUndefined()
+      expect(useTaskShelf.getState().bindings).toBe(bindings)
+      fireEvent.click(view.getByRole('button', { name: 'Task slot 2' }))
+      expect(view.container.querySelector('[data-shelf-entry=second]')?.textContent).toContain(second.title)
+      expect(view.container.querySelectorAll('.task-shelf-item')).toHaveLength(1)
       expect(view.getByRole('button', { name: 'Task slot 2' }).className).toContain('is-selected')
       expect(request.mock.calls.some(([r]) => r.kind === 'restore')).toBe(false)
       await tick(0)
     } finally { available.mockRestore() }
   })
-  it('最窄栏保留每个任务的卡片，放宽后恢复全部实时小窗', async () => {
+  it('最窄栏保留全部方块，放宽后只呈现一个预览且保留全部绑定', async () => {
     listEntries = Array.from({ length: 9 }, (_, index) => ({ ...entry, id: `task-${index}`, resourceKey: `web:web-${index}` }))
     useTaskShelf.setState({ entries: listEntries, bindings: Object.fromEntries(listEntries.map((item, index) => [item.id, { kind: 'web', id: `web-${index}` }])) })
     listEntries.forEach(item => useTaskShelf.getState().setPreview(item.id, true))
@@ -484,10 +569,58 @@ describe('保存区交互入口', () => {
     expect(view.container.querySelectorAll('.task-shelf-tile:not(.is-empty)')).toHaveLength(9)
     expect(view.container.querySelectorAll('.task-shelf-item')).toHaveLength(0)
     expect(view.getByRole('button', { name: 'Task slot 9' })).toBeTruthy()
+    expect(view.container.querySelector('.task-shelf-preview-idle')).toBeNull()
+    const bindings = useTaskShelf.getState().bindings
     const resizer = view.getByRole('separator')
     for (let step = 0; step < 10; step++) fireEvent.keyDown(resizer, { key: 'ArrowLeft' })
-    expect(view.container.querySelectorAll('.task-shelf-item')).toHaveLength(9)
+    expect(view.container.querySelectorAll('.task-shelf-item')).toHaveLength(1)
+    expect(useTaskShelf.getState().bindings).toBe(bindings)
+    expect(Object.keys(useTaskShelf.getState().previewEntries)).toHaveLength(9)
     await tick(0)
+  })
+  it('打开和收回预览保留固定网格与原方块，空预览不触发恢复', async () => {
+    localStorage.setItem('lyshell.taskShelf.view.v1', JSON.stringify({ mode: 'hover', width: 400 }))
+    const view = render(<TaskShelf />)
+    openPanel(view)
+    const grid = view.container.querySelector('.task-shelf-grid')!
+    const card = view.getByRole('button', { name: 'Task slot 1' })
+    const binding = useTaskShelf.getState().bindings.page
+    expect(grid.classList.contains('is-overview')).toBe(false)
+    expect(view.container.querySelector('.task-shelf-preview-idle')).toBeTruthy()
+    expect(view.container.querySelector('.task-shelf-item')).toBeNull()
+    fireEvent.click(card)
+    expect(view.container.querySelector('.task-shelf-preview-idle')).toBeNull()
+    expect(view.container.querySelectorAll('.task-shelf-item')).toHaveLength(1)
+    expect(view.container.querySelector('.task-shelf-grid')).toBe(grid)
+    expect(view.getByRole('button', { name: 'Task slot 1' })).toBe(card)
+    expect(grid.classList.contains('is-overview')).toBe(false)
+    fireEvent.click(card)
+    expect(view.container.querySelector('.task-shelf-preview-idle')).toBeTruthy()
+    expect(view.container.querySelector('.task-shelf-grid')).toBe(grid)
+    expect(view.getByRole('button', { name: 'Task slot 1' })).toBe(card)
+    expect(useTaskShelf.getState().bindings.page).toBe(binding)
+    expect(request.mock.calls.some(([input]) => input.kind === 'restore')).toBe(false)
+    await tick(0)
+  })
+  it('外部定位覆盖原预览选择，返回任务页签仍显示同一任务', async () => {
+    const second: TaskShelfEntry = { ...entry, id: 'second', resourceKey: 'web:w2', title: 'Second task' }
+    listEntries = [entry, second]
+    useTaskShelf.setState({ entries: listEntries, bindings: { page: { kind: 'web', id: 'w' }, second: { kind: 'web', id: 'w2' } }, previewEntries: { page: true, second: true } })
+    localStorage.setItem('lyshell.taskShelf.view.v1', JSON.stringify({ mode: 'hover', width: 400 }))
+    const view = render(<TaskShelf />)
+    openPanel(view)
+    expect(view.container.querySelector('[data-shelf-entry=page]')).toBeTruthy()
+    const bindings = useTaskShelf.getState().bindings
+    act(() => useTaskShelf.getState().showPanel('second'))
+    await tick(0)
+    expect(view.container.querySelector('[data-shelf-entry=second]')).toBeTruthy()
+    expect(view.container.querySelector('[data-shelf-entry=page]')).toBeNull()
+    fireEvent.click(view.getByRole('tab', { name: /Archive/ }))
+    fireEvent.click(view.getByRole('tab', { name: /Tasks/ }))
+    expect(view.container.querySelector('[data-shelf-entry=second]')).toBeTruthy()
+    expect(view.container.querySelectorAll('.task-shelf-item')).toHaveLength(1)
+    expect(useTaskShelf.getState().bindings).toBe(bindings)
+    expect(request.mock.calls.some(([input]) => input.kind === 'restore')).toBe(false)
   })
   it('只显示实际任务，无任务时显示收纳说明与对应归档空态', async () => {
     const view = render(<TaskShelf />)
@@ -551,9 +684,9 @@ describe('保存区交互入口', () => {
     expect(panel.hasAttribute('inert')).toBe(true)
     expect(view.container.querySelector('.task-shelf-rail')).toBeNull()
     const edge = view.getByRole('button', { name: /Toggle saved tasks/ })
-    fireEvent.mouseEnter(edge); await tick(200)
+    fireEvent.mouseEnter(edge); await tick(100)
     expect(view.queryByRole('heading', { name: 'Tasks' })).toBeNull()
-    await tick(100)
+    await tick(50)
     expect(view.getByRole('heading', { name: 'Tasks' })).toBeTruthy()
     expect(panel.hasAttribute('inert')).toBe(false)
     expect(useTaskShelf.getState().reservedWidth).toBe(0)
@@ -1096,7 +1229,7 @@ describe('指针拖动调整侧栏尺寸', () => {
     expect(items(view.container)).toBe(0)
     pointer(separator, 'pointerup', { clientX: 200 })
     expect(columns(view.container)).toBe(5)
-    expect(items(view.container)).toBe(9)
+    expect(items(view.container)).toBe(1)
   })
 
   it('预览正文跨过360像素阈值往返拖动时保持同一DOM', async () => {
@@ -1167,7 +1300,7 @@ describe('指针拖动调整侧栏尺寸', () => {
     pointer(separator, 'pointercancel', { clientX: 200 })
     expect(shelf(view.container).style.width).toBe('640px')
     expect(columns(view.container)).toBe(5)
-    expect(items(view.container)).toBe(9)
+    expect(items(view.container)).toBe(1)
   })
 
   it('横版拖动保留起始行数与16:10正文，松手后才切回概览', async () => {

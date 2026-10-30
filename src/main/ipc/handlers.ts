@@ -69,7 +69,8 @@ import { SSHConnector } from '../connectors/ssh'
 import { LocalConnector } from '../connectors/local'
 import { LocalHostClient } from '../terminal/local-host-client'
 import { taskShelfRepository } from '../storage/task-shelf-repository'
-import { validateTaskShelfRequest } from './validation'
+import { validateTaskShelfRequest, validateTaskShelfTerminalTabs } from './validation'
+import { setTaskShelfQuitCollector, setTaskShelfTerminalTabs } from '../harness/task-shelf-quit'
 import { validateSshPersistence } from './validation'
 import { HARNESS_AGENTS, resolveWorkspaceEnv } from '../harness/config'
 import { migrateInlineEnvToProfiles } from '../harness/migrate-env'
@@ -1136,9 +1137,12 @@ export function registerIPCHandlers(): void {
   // 渲染层同步当前在终端页签/分屏中打开的会话集合
   applicationIpc.handle(IPC_CHANNELS.TERMINAL_OPEN_SESSIONS_SYNC, async (_event, _ids: unknown) => {
     try {
-      const ids = assertStringArray(_ids, 'ids', { maxItems: 10000, maxItemLength: 128 })
       const sender = _event.sender
+      if (BrowserWindow.fromWebContents(sender)?.webContents !== sender || _event.senderFrame !== sender.mainFrame) throw new ValidationError('Terminal tabs require the main window')
+      const ids = validateTaskShelfTerminalTabs(_ids)
       sessionManager.setTerminalOpenSessionsForWindow(sender.id, ids)
+      // 原集合在 webContents destroyed 时会清理；退出快照保留最后已登记的真实页签集合。
+      setTaskShelfTerminalTabs(ids)
       if (!registeredTerminalSyncWindows.has(sender.id)) {
         registeredTerminalSyncWindows.add(sender.id)
         sender.once('destroyed', () => {
@@ -3028,6 +3032,7 @@ export function registerIPCHandlers(): void {
       }
     }
   })
+  setTaskShelfQuitCollector(ids => { taskShelf.recycleUnsavedTerminals(ids) })
   applicationIpc.handle('task-shelf:request', async (event, raw: unknown) => {
     try {
       if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Task shelf requires the main window')

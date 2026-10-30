@@ -8,7 +8,7 @@
   --error-rack:#b42318;
   --shelf-accent:color-mix(in srgb,var(--amber) 60%,#000);
   --shelf-muted:#656970;
-  --shelf-border:#dce0e6;
+  --shelf-border:#e1e4e9;
   --shelf-radius:8px;
   --shelf-selection:color-mix(in srgb,var(--shelf-accent) 4%,#fff);
   --amber-glow:#fff;
@@ -19,7 +19,7 @@
 /* 覆盖态是从右边缘伸出的面：柔和左投影 + 左上/下轻圆角；停靠态保持直角与不动画。
    clip 让子元素跟随圆角，4px 余量保留左侧 3px 的 resizer 拖拽热区。 */
 .task-shelf:not(.is-docked) { border-radius:8px 0 0 8px; overflow:clip; overflow-clip-margin:4px; }
-.task-shelf:not(.is-docked).is-open { box-shadow:-10px 0 24px rgb(0 0 0 / 10%); }
+.task-shelf:not(.is-docked).is-open { box-shadow:-8px 0 24px rgb(0 0 0 / 8%); }
 /* 入口始终只是一条细柄；悬停时轻微拉长，直接展开面板，不弹出中间按钮。
    28×72 透明热区右侧留 18px，避开终端及网页滚动条。 */
 .task-shelf-edge { position:absolute; right:18px; top:calc(50% - 18px); z-index:46; display:grid; place-items:center; width:28px; height:72px; padding:0; border:0; background:transparent; color:var(--text-rack); cursor:pointer; }
@@ -65,8 +65,9 @@
 .task-shelf-modes button:hover { color:var(--text-rack); }
 .task-shelf-modes button[aria-pressed=true] { background:#fff; color:var(--text-rack); font-weight:600; }
 .task-shelf-view-row { display:flex; align-items:center; gap:12px; min-height:36px; padding:0 16px; border-bottom:1px solid var(--rule); }
-.task-shelf-views { display:flex; flex:1; min-width:0; gap:16px; }
-.task-shelf-views button { display:flex; align-items:center; justify-content:center; gap:6px; min-width:0; padding:7px 0 8px; border:0; border-bottom:2px solid transparent; color:var(--shelf-muted); font-size:12px; line-height:18px; background:transparent; cursor:pointer; white-space:nowrap; }
+.task-shelf-views { display:flex; flex:1; min-width:0; gap:16px; overflow-x:auto; overscroll-behavior-x:contain; scrollbar-width:none; }
+.task-shelf-views::-webkit-scrollbar { display:none; }
+.task-shelf-views button { display:flex; flex:none; align-items:center; justify-content:center; gap:6px; min-width:0; padding:7px 0 8px; border:0; border-bottom:2px solid transparent; color:var(--shelf-muted); font-size:12px; line-height:18px; background:transparent; cursor:pointer; white-space:nowrap; }
 .task-shelf-views button:hover { color:var(--text-rack); }
 .task-shelf-views button[aria-selected=true] { color:var(--text-rack); font-weight:600; border-bottom-color:var(--shelf-accent); }
 .task-shelf-view-count { display:inline-flex; align-items:center; justify-content:center; min-width:14px; height:18px; color:var(--shelf-muted); font-size:10px; line-height:18px; font-weight:500; font-variant-numeric:tabular-nums; }
@@ -87,7 +88,7 @@
 .task-shelf-item-text { display:flex; flex-direction:column; gap:4px; min-width:0; }
 .task-shelf-item-text strong { font-size:12px; line-height:18px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .task-shelf-item-text>span { font-size:11px; line-height:16px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; opacity:.78; }
-.task-shelf-list.has-live-windows { display:flex; flex-direction:column; gap:12px; padding:12px; overflow:auto; background:#fff; border-top:1px solid var(--rule); }
+.task-shelf-list.has-preview-slot { display:flex; flex-direction:column; gap:12px; padding:12px; overflow:auto; background:#fff; border-top:1px solid var(--rule); }
 .task-shelf.has-previews .task-shelf-item { position:relative; display:flex; flex:none; flex-direction:column; align-items:stretch; min-height:0; padding:0; background:var(--bg-base); border:1px solid var(--shelf-border); border-radius:var(--shelf-radius); overflow:hidden; }
 .task-shelf-window-header { display:flex; align-items:center; gap:8px; min-width:0; min-height:36px; padding:3px 8px 3px 10px; border-bottom:1px solid var(--rule); background:#fafbfc; }
 .task-shelf.has-previews .task-shelf-open { flex:1; min-width:0; align-items:center; gap:6px; padding:4px 0; }
@@ -97,8 +98,9 @@
 .task-shelf.has-previews .task-shelf-item.is-focused .task-shelf-window-header { color:var(--shelf-accent); }
 .task-shelf.has-previews .task-shelf-item-text>span,.task-shelf.has-previews .task-shelf-status { display:none; }
 .task-shelf.has-previews .task-shelf-item-actions { position:static; flex-shrink:0; }
-.task-shelf-window-toolbar { flex-shrink:0; display:flex; align-items:center; flex-wrap:nowrap; gap:4px; min-width:0; padding:0; }
-.task-shelf-window-state { flex:1; min-width:0; display:flex; align-items:center; gap:6px; color:color-mix(in srgb,var(--text-rack) 72%,#fff); font-size:10px; line-height:18px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.task-shelf-window-toolbar { flex-shrink:1; display:flex; align-items:center; flex-wrap:nowrap; gap:4px; min-width:0; padding:0; }
+.task-shelf-window-state { flex:1; min-width:0; display:flex; align-items:center; gap:5px; color:var(--shelf-muted); font-size:11px; line-height:18px; white-space:nowrap; }
+.task-shelf-window-state>span:last-child { overflow:hidden; text-overflow:ellipsis; }
 .task-shelf .task-shelf-enable-input { color:var(--shelf-accent); font-size:11px; }
 .task-shelf-preview { position:relative; display:block; flex:1; width:100%; min-width:0; min-height:0; overflow:hidden; background:var(--bg-slot); pointer-events:none; }
 .task-shelf-preview.is-tile { height:100%; aspect-ratio:auto; }
@@ -126,27 +128,38 @@
 .task-shelf-item-actions { display:flex; align-items:center; gap:2px; }
 .task-shelf-item-actions button { display:grid; place-items:center; width:28px; height:28px; padding:0; background:transparent; border:0; cursor:pointer; border-radius:4px; }
 .task-shelf-item-actions button:hover { background:var(--bg-slot); }
-.task-shelf-grid { flex-shrink:0; display:grid; grid-auto-rows:max-content; align-content:start; gap:12px; padding:12px; max-height:min(32vh,248px); overflow:auto; scrollbar-width:thin; scrollbar-color:var(--rule) transparent; }
+.task-shelf-grid { --shelf-grid-gap:10px; --shelf-tile-size:calc((100cqw - 24px - var(--shelf-grid-scrollbar,0px) - (var(--shelf-grid-columns,2) - 1) * var(--shelf-grid-gap)) / var(--shelf-grid-columns,2)); flex:0 0 calc(24px + var(--shelf-grid-rows,1) * var(--shelf-tile-size) + (var(--shelf-grid-rows,1) - 1) * var(--shelf-grid-gap)); min-height:0; display:grid; grid-auto-rows:max-content; align-content:start; gap:var(--shelf-grid-gap); padding:12px; overflow:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:var(--rule) transparent; }
+/* 固定滚动条占位与计算宽度一致，避免溢出时方块变窄而下一行露出半截。 */
+.task-shelf:is([data-edge=left],[data-edge=right]).has-previews .task-shelf-grid { --shelf-grid-scrollbar:8px; flex-basis:calc(12px + var(--shelf-grid-rows,1) * (var(--shelf-tile-size) + var(--shelf-grid-gap))); padding-bottom:var(--shelf-grid-gap); scrollbar-gutter:stable; scrollbar-width:auto; scrollbar-color:auto; }
+.task-shelf:is([data-edge=left],[data-edge=right]).has-previews .task-shelf-grid::-webkit-scrollbar { width:8px; }
+.task-shelf:is([data-edge=left],[data-edge=right]).has-previews .task-shelf-grid::-webkit-scrollbar-thumb { background:var(--rule); border-radius:4px; }
 .task-shelf-grid.is-overview { flex:1; min-height:0; max-height:none; }
 .task-shelf-grid.is-overview+.task-shelf-list:empty { flex:none; }
 .task-shelf-tile { position:relative; min-width:0; aspect-ratio:1; display:flex; flex-direction:column; align-items:stretch; gap:0; padding:0; color:inherit; text-align:left; background:#fff; border:1px solid var(--shelf-border); border-radius:var(--shelf-radius); overflow:hidden; cursor:pointer; }
 .task-shelf-tile:hover { border-color:#b1b8c2; background:#f8f9fb; }
 .task-shelf-tile.is-selected { border-color:var(--shelf-accent); background:var(--shelf-selection); }
 .task-shelf-tile.is-selected .task-shelf-tile-label { color:var(--shelf-accent); }
-.task-shelf-tile-surface { display:flex; flex:1; min-height:28px; width:100%; overflow:hidden; }
+.task-shelf-tile-surface { display:flex; flex:1; min-height:24px; width:100%; overflow:hidden; }
 .task-shelf-tile-location { display:flex; flex:1; align-items:flex-start; min-width:0; padding:12px; color:var(--shelf-muted); }
 .task-shelf-tile-location>svg { flex-shrink:0; }
-.task-shelf-tile-label { display:block; flex-shrink:0; width:100%; height:48px; padding:0 12px 12px; overflow:hidden; font-size:13px; line-height:18px; font-weight:550; }
+.task-shelf-tile-label { display:block; flex-shrink:0; width:100%; height:40px; padding:0 10px 4px; overflow:hidden; font-size:13px; line-height:18px; font-weight:550; }
 .task-shelf-tile-label>span { display:-webkit-box; max-height:36px; overflow:hidden; -webkit-line-clamp:2; -webkit-box-orient:vertical; word-break:keep-all; overflow-wrap:anywhere; text-wrap:pretty; }
 .task-shelf-tile-lamp { position:absolute; top:10px; right:10px; z-index:1; display:grid; place-items:center; width:17px; height:17px; border-radius:50%; background:var(--bg-base); }
-.task-shelf-tile.has-preview .task-shelf-tile-surface { margin:5px 5px 8px; width:calc(100% - 10px); border-radius:4px; }
-.task-shelf-tile.has-preview .task-shelf-tile-label { min-height:42px; max-height:42px; padding-bottom:6px; }
-.task-shelf-body.is-archive .task-shelf-tile:not(.is-selected) { background:#fafbfc; }
+.task-shelf-tile.has-preview .task-shelf-tile-surface { margin:5px 5px 6px; width:calc(100% - 10px); border-radius:4px; }
+.task-shelf-tile-state { display:block; flex-shrink:0; min-width:0; min-height:22px; padding:0 10px 8px; color:var(--shelf-muted); font-size:11px; line-height:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.task-shelf-tile-state.status-running,.task-shelf-tile-state.status-completed { color:#287b4e; }
+.task-shelf-tile-state.status-approval { color:var(--shelf-accent); }
+.task-shelf-tile-state.status-failed,.task-shelf-tile-state.status-connectionError { color:var(--error-rack); }
+.task-shelf-body:is(.is-archive,.is-trash) .task-shelf-tile:not(.is-selected) { background:#fafbfc; }
 .task-shelf-loading { display:block; padding:12px 8px; font-size:12px; }
 .task-shelf-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; min-height:240px; height:100%; padding:32px 24px; text-align:center; }
 .task-shelf-empty>svg { width:28px; height:28px; margin-bottom:8px; color:var(--shelf-muted); }
 .task-shelf-empty h3 { margin:0; font-size:14px; line-height:22px; font-weight:600; }
 .task-shelf-empty p { max-width:32ch; margin:0; color:var(--shelf-muted); font-size:12px; line-height:20px; text-wrap:pretty; }
+.task-shelf-preview-idle { display:flex; flex:1; min-height:160px; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:24px; text-align:center; color:var(--shelf-muted); }
+.task-shelf-preview-idle>svg { width:24px; height:24px; margin-bottom:4px; }
+.task-shelf-preview-idle h3 { margin:0; color:var(--text-rack); font-size:13px; line-height:20px; font-weight:550; }
+.task-shelf-preview-idle p { max-width:28ch; margin:0; font-size:12px; line-height:20px; text-wrap:pretty; }
 .task-shelf-detail { position:relative; flex-shrink:0; max-height:40vh; overflow:auto; padding:14px 40px 14px 16px; border-top:1px solid var(--rule); font-size:11px; line-height:18px; }
 .task-shelf-detail .task-shelf-detail-close { position:absolute; top:8px; right:8px; display:grid; place-items:center; width:24px; height:24px; padding:0; border:0; background:transparent; }
 .task-shelf-detail>span { font-weight:600; }
@@ -170,8 +183,9 @@
 .task-shelf-resizer:hover::before,.task-shelf-resizer:active::before,.task-shelf-resizer:focus-visible::before { background:var(--shelf-accent); }
 @media (prefers-reduced-motion:no-preference) {
   /* 起步轻、末段减速；停靠也只滑动面板，主区宽度仍一次到位，避免逐帧重排终端。 */
-  .task-shelf { transition:transform 440ms cubic-bezier(.3,0,.25,1), box-shadow 440ms ease, visibility 0s linear 440ms; }
-  .task-shelf.is-open { transition:transform 480ms cubic-bezier(.25,.1,.25,1), box-shadow 480ms ease, visibility 0s linear 0s; }
+  .task-shelf { transition:transform 220ms cubic-bezier(.3,0,.25,1), box-shadow 220ms ease, visibility 0s linear 220ms; }
+  .task-shelf.is-open { transition:transform 260ms cubic-bezier(.2,.8,.2,1), box-shadow 260ms ease, visibility 0s linear 0s; }
+  .task-shelf-tile { transition:border-color 140ms ease-out, background-color 140ms ease-out; }
   .task-shelf-drop-target { transition:background-color 140ms ease-out; }
   .task-shelf-edge { transition:opacity 120ms ease-out; }
   .task-shelf-edge::before { transition:transform 180ms cubic-bezier(.16,1,.3,1), background-color 140ms ease-out; }
@@ -190,7 +204,7 @@
   .task-shelf-view-row { gap:6px; padding:0 8px; }
   .task-shelf-views { gap:8px; }
   .task-shelf-views button { font-size:11px; }
-  .task-shelf-grid { gap:8px; padding:12px 8px; }
+  .task-shelf-grid { --shelf-grid-gap:8px; padding:12px 8px; }
   .task-shelf-tile { aspect-ratio:1; min-height:104px; }
   .task-shelf-tile-label { padding-right:8px; padding-left:8px; }
   .task-shelf-tile-location { padding:10px 8px; }
@@ -201,10 +215,7 @@
 .task-shelf:not(.has-previews) .task-shelf-grid { flex:1; min-height:0; max-height:none; align-content:start; }
 .task-shelf:not(.has-previews) .task-shelf-list:empty { flex:none; }
 
-/* 小窗打开后，保活方块收为一排；避免半行卡片占据下方的内容空间。 */
-.task-shelf:is([data-edge=right],[data-edge=left]) .task-shelf-grid:not(.is-overview) { display:flex; flex:none; gap:10px; max-height:none; padding:12px; overflow:auto; }
-.task-shelf:is([data-edge=right],[data-edge=left]) .task-shelf-grid:not(.is-overview) .task-shelf-tile { flex:0 0 104px; width:104px; height:104px; min-height:104px; }
-.task-shelf:is([data-edge=right],[data-edge=left]) .task-shelf-grid:not(.is-overview) .task-shelf-tile-label { padding-right:10px; padding-left:10px; font-size:12px; }
+/* 方块索引始终保留网格与固定高度，选择任务只替换下方预览。 */
 
 /* 同一实例在四个边缘换位；首行窗口控制始终保留。 */
 .task-shelf[data-edge=left] { left:0; right:auto; border-left:0; border-right:1px solid var(--rule); transform:translateX(-100%); }
@@ -245,7 +256,8 @@
 .task-shelf[data-edge=top] .task-shelf-grid,.task-shelf[data-edge=bottom] .task-shelf-grid { display:grid; grid-auto-flow:column; grid-auto-columns:124px; grid-template-columns:none; flex:0 0 var(--shelf-grid-width,148px); max-height:none; min-height:0; padding:12px; overflow:auto; align-items:start; align-content:start; justify-content:start; }
 .task-shelf[data-edge=top] .task-shelf-grid.is-overview,.task-shelf[data-edge=bottom] .task-shelf-grid.is-overview { flex:1; }
 .task-shelf[data-edge=top] .task-shelf-tile,.task-shelf[data-edge=bottom] .task-shelf-tile { direction:ltr; flex:0 0 124px; width:124px; height:124px; aspect-ratio:1; min-height:124px; }
-.task-shelf[data-edge=top] .task-shelf-list.has-live-windows,.task-shelf[data-edge=bottom] .task-shelf-list.has-live-windows { display:flex; flex-direction:row; direction:ltr; padding:12px; border-top:0; border-left:1px solid var(--rule); overflow:auto; align-items:flex-start; }
+.task-shelf[data-edge=top] .task-shelf-list.has-preview-slot,.task-shelf[data-edge=bottom] .task-shelf-list.has-preview-slot { display:flex; flex-direction:row; direction:ltr; padding:12px; border-top:0; border-left:1px solid var(--rule); overflow:auto; align-items:flex-start; }
+.task-shelf[data-edge=top] .task-shelf-preview-idle,.task-shelf[data-edge=bottom] .task-shelf-preview-idle { align-self:stretch; }
 .task-shelf[data-edge=top] .task-shelf-item,.task-shelf[data-edge=bottom] .task-shelf-item { direction:ltr; flex:0 0 var(--shelf-preview-width,522px); }
 .task-shelf-position-overlay { position:absolute; inset:36px 0 0; z-index:90; background:rgb(248 249 251 / 55%); cursor:grabbing; }
 .task-shelf-position-target { position:absolute; display:grid; place-items:center; border:1px solid #c9cdd3; border-radius:8px; background:rgb(255 255 255 / 90%); color:#454950; font:12px 'Segoe UI','Microsoft YaHei',sans-serif; pointer-events:none; }

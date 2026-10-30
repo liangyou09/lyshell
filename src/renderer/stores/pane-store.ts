@@ -110,7 +110,8 @@ export function recordWebTabUrlToHistory(history: string[], url: string): string
 
 // zustand store 的最小订阅结构（初始化时 usePaneStore 尚未赋值，只能按结构类型传参）
 interface PaneStoreSubscription {
-  subscribe: (listener: (state: PaneStore, prevState: PaneStore) => void) => void
+  getState: () => PaneStore
+  subscribe: (listener: (state: PaneStore, prevState: PaneStore) => void) => () => void
 }
 
 // 自动保存布局的订阅函数。覆盖层瞬态：存前剥离 refs（树只落终端布局，重启无残留）。
@@ -172,17 +173,23 @@ const collectOpenSessionIds = (layout: PaneLayout): string[] => {
 }
 
 // 自动向主进程同步"当前在终端中打开的会话集合"
-const subscribeToTerminalOpenSessionsSync = (store: PaneStoreSubscription) => {
+export const subscribeToTerminalOpenSessionsSync = (store: PaneStoreSubscription): (() => void) => {
   let lastIds: string | null = null
-  store.subscribe((state: PaneStore, prevState: PaneStore) => {
-    if (state.layout === prevState.layout) return
-    const ids = collectOpenSessionIds(state.layout)
+  const publish = (layout: PaneLayout) => {
+    const sync = window.electronAPI?.syncTerminalOpenSessions
+    if (!sync) return
+    const ids = collectOpenSessionIds(layout)
     const idsKey = ids.join('\0')
     if (idsKey === lastIds) return
     lastIds = idsKey
-    window.electronAPI?.syncTerminalOpenSessions?.(ids)?.catch((err: unknown) => {
+    void sync(ids)?.catch((err: unknown) => {
       console.warn('Failed to sync terminal open sessions:', err)
     })
+  }
+  // 启动时也同步恢复出的实际页签；退出回收不能依赖之后恰好发生一次布局变化。
+  publish(store.getState().layout)
+  return store.subscribe((state: PaneStore, prevState: PaneStore) => {
+    if (state.layout !== prevState.layout) publish(state.layout)
   })
 }
 

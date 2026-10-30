@@ -26,6 +26,8 @@ export interface TaskShelfEntry {
   updatedAt: number
   revision: number
   archivedAt?: number
+  /** 退出时未手动保存的终端恢复记录；与归档分类互斥，不占手动保存名额。 */
+  trashedAt?: number
   /** SSH 已显示输出的本地只读尾部，不作为命令或运行态重放。 */
   context?: { text: string; capturedAt: number }
   recovery: ShelfRecovery
@@ -57,6 +59,8 @@ export interface TaskShelfActivation {
 
 /** 一次激活请求最多带仓库上限条记录，避免分批改变点击时的集合。 */
 export const SHELF_ACTIVATION_LIMIT = 100
+/** 回收站只保留最近的未保存终端，不驱逐手动保存的 Tasks / Archive。 */
+export const TASK_SHELF_TRASH_LIMIT = 12
 
 export type TaskShelfRequest =
   | { kind: 'list' }

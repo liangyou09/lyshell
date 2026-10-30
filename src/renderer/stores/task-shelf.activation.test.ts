@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTaskShelf } from './task-shelf'
+import { ConnectionType } from '@shared/types'
 import type { TaskShelfEntry, TaskShelfRequest, TaskShelfResult } from '@shared/task-shelf'
 
 const saved = (id: string, revision = 1): TaskShelfEntry => ({ id, resourceKey: `web:${id}`, title: id, revision, createdAt: 1, updatedAt: 1, archivedAt: 1, recovery: { kind: 'web', url: 'https://example.org/' }, capability: 'web' })
@@ -9,7 +10,7 @@ let entries: TaskShelfEntry[]
 const api = vi.fn<[TaskShelfRequest], Promise<TaskShelfResult>>()
 const succeed = (request: Extract<TaskShelfRequest, { kind: 'activate' }>): TaskShelfResult => {
   const items = request.items.map(item => ({ taskId: item.taskId, status: 'moved' as const }))
-  entries = entries.map(entry => { if (!items.some(item => item.taskId === entry.id)) return entry; const next = { ...entry, revision: entry.revision + 1 }; delete next.archivedAt; return next })
+  entries = entries.map(entry => { if (!items.some(item => item.taskId === entry.id)) return entry; const next = { ...entry, revision: entry.revision + 1 }; delete next.archivedAt; delete next.trashedAt; return next })
   return { success: true, entries, startup, activation: { requestId: request.requestId, items, total: items.length, moved: items.length, alreadyTasks: 0, conflict: 0, missing: 0, failed: 0 } }
 }
 beforeEach(() => {
@@ -20,6 +21,26 @@ beforeEach(() => {
 })
 
 describe('分类命令与界面意图分离', () => {
+  const trash = (id: string, revision = 1): TaskShelfEntry => ({ ...saved(id, revision), archivedAt: undefined, trashedAt: 10, resourceKey: `terminal:${id}`, recovery: { kind: 'terminal', sessionId: id, type: ConnectionType.LOCAL }, capability: 'directory' })
+  it('默认全部激活仅处理归档，回收项必须显式指定', async () => {
+    entries = [...entries, trash('recycled')]
+    useTaskShelf.setState({ entries })
+    await useTaskShelf.getState().activate()
+    expect(api.mock.calls[0][0]).toMatchObject({ items: [{ taskId: 'a', expectedRevision: 1 }, { taskId: 'b', expectedRevision: 1 }] })
+    expect(useTaskShelf.getState().entries.find(item => item.id === 'recycled')?.trashedAt).toBe(10)
+    await useTaskShelf.getState().activate(['recycled'], 'recycled')
+    expect(api.mock.calls[1][0]).toMatchObject({ items: [{ taskId: 'recycled', expectedRevision: 1 }] })
+    expect(useTaskShelf.getState().entries.find(item => item.id === 'recycled')?.trashedAt).toBeUndefined()
+    expect(useTaskShelf.getState().viewRequest).toMatchObject({ view: 'tasks', entryId: 'recycled' })
+  })
+  it('回收项激活失败重试使用新版本，未失败的归档不加入', async () => {
+    entries = [saved('archive', 2), trash('recycled', 7)]
+    useTaskShelf.setState({ entries, activation: { requestId: 'old', items: [{ taskId: 'recycled', status: 'failed' }], total: 1, moved: 0, alreadyTasks: 0, missing: 0, conflict: 0, failed: 1 } })
+    await useTaskShelf.getState().retryActivation()
+    expect(api.mock.calls.map(([input]) => input.kind)).toEqual(['list', 'activate'])
+    expect(api.mock.calls[1][0]).toMatchObject({ items: [{ taskId: 'recycled', expectedRevision: 7 }] })
+    expect(useTaskShelf.getState().entries.find(item => item.id === 'archive')?.archivedAt).toBe(1)
+  })
   it('全部激活固定点击时快照，后续归档不加入本批，绝不调用恢复', async () => {
     let release!: (value: TaskShelfResult) => void
     let submitted!: Extract<TaskShelfRequest, { kind: 'activate' }>

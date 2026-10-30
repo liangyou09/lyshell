@@ -29,17 +29,41 @@ describe('项目会话与任务面板', () => {
     useWorkbenchActivity.setState({ snapshot })
     const view = render(<WorkbenchActivity />)
     const light = () => view.container.querySelector('[data-session-id="local-a"] [data-task-status]')!
+    const visibleStatus = () => view.container.querySelector('[data-session-id="local-a"] .activity-session-state')!
     expect(light().getAttribute('data-task-status')).toBe('running')
+    expect(visibleStatus().textContent).toBe('执行中')
     act(() => useWorkbenchActivity.setState({ snapshot: { ...snapshot, tui: { ...snapshot.tui!, sessions: [{ ...tuiRow, state: 'waiting-approval' }] } } }))
     expect(light().getAttribute('data-task-status')).toBe('approval')
     expect(light().getAttribute('aria-label')).toBe('等待审批 · 请在终端处理')
+    expect(visibleStatus().textContent).toBe('待确认')
+    expect(visibleStatus().getAttribute('title')).toBe('等待审批 · 请在终端处理')
     act(() => useWorkbenchActivity.setState({ snapshot: { ...snapshot, tui: { ...snapshot.tui!, sessions: [{ ...tuiRow, state: 'waiting-approval', active: false }] } } }))
     expect(light().getAttribute('data-task-status')).toBe('unknown')
+    expect(visibleStatus().textContent).toBe('未知')
     act(() => useWorkbenchActivity.setState({ snapshot: { ...snapshot, tui: { ...snapshot.tui!, observedAt: Date.now() - 12001 } } }))
     expect(light().getAttribute('data-task-status')).toBe('unknown')
     act(() => useSessionStore.setState(state => ({ sessions: state.sessions.map(row => ({ ...row, status: ConnectionStatus.DISCONNECTED })) })))
     expect(light().getAttribute('data-task-status')).toBe('disconnected')
     expect(light().getAttribute('aria-label')).toContain('任务结果未知')
+    expect(visibleStatus().textContent).toBe('已断开')
+    expect(visibleStatus().getAttribute('title')).toContain('任务结果未知')
+  })
+  it.each([
+    ['accepted', '待运行'], ['running', '执行中'], ['completed', '已完成'], ['failed', '异常'],
+    ['cancelled', '已中断'], ['unconfirmed', '未知'], ['unknown', '未知']
+  ] as const)('原生任务 %s 的简短状态无需展开详情即可查看，过期后撤销旧状态', (taskState, label) => {
+    snapshot = { ...snapshot, sessions: [{ ...snapshot.sessions[0], taskState, approvals: [] }] }
+    useWorkbenchActivity.setState({ snapshot })
+    useSessionStore.setState({ sessions: [] })
+    const view = render(<WorkbenchActivity />)
+    const row = view.container.querySelector<HTMLElement>('[data-session-id="native-a"]')!
+    const visibleStatus = () => row.querySelector('.activity-session-state')!
+    expect(visibleStatus().textContent).toBe(label)
+    expect(row.querySelector('details')?.open).toBe(false)
+    expect(within(row).getByRole('button', { name: /^打开工作台/ }).contains(visibleStatus())).toBe(true)
+    act(() => useWorkbenchActivity.setState({ snapshot: { ...snapshot, connection: 'stale' } }))
+    expect(visibleStatus().textContent).toBe('未知')
+    expect(visibleStatus().getAttribute('title')).toBe('未知 · 状态已过期')
   })
   it('内置聊天支持目录筛选并提供工作台入口，不出现代答审批按钮', async () => {
     snapshot = { ...snapshot, identity: null, connection: 'offline', sessions: [], web: { observedAt: Date.now(), identity: { instanceId: 'web-backend', instanceEpoch: 2 }, connection: 'connected', revision: 1, events: [], sessions: [{ sessionId: 'web-a', workspace: 'D:/web', turnId: 'web-turn', state: 'waiting-approval', updatedAt: Date.now(), approvalIds: ['approval-a'] }] } }
@@ -66,6 +90,7 @@ describe('项目会话与任务面板', () => {
     const view = render(<WorkbenchActivity />)
     await act(async () => {})
     expect(view.getByText('本轮结束 · 不代表整个目标完成')).toBeTruthy()
+    expect(view.container.querySelector('[data-session-id="local-a"] .activity-session-state')?.textContent).toBe('本轮结束')
     expect(within(view.getByText('Codex terminal').closest('article')!).queryByText('已完成', { exact: true })).toBeNull()
     act(() => useWorkbenchActivity.setState({ snapshot: { ...snapshot, tui: { ...snapshot.tui!, sessions: [{ ...snapshot.tui!.sessions[0], state: 'waiting-approval' }] } } }))
     expect(view.getByText('等待审批 · 请在终端处理')).toBeTruthy()

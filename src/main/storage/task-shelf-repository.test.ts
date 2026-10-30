@@ -3,7 +3,7 @@ import { mkdirSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ConnectionType } from '@shared/types/session'
-import type { TaskShelfEntry } from '@shared/task-shelf'
+import { TASK_SHELF_TRASH_LIMIT, type TaskShelfEntry } from '@shared/task-shelf'
 import { TASK_SHELF_LIMIT, TaskShelfRepository, type ShelfCaptureInput } from './task-shelf-repository'
 import { RevisionConflictError } from './atomic-json'
 
@@ -51,6 +51,203 @@ function captureInput(overrides: Partial<ShelfCaptureInput> = {}): ShelfCaptureI
 function readArchive(): { version: number; entries: Record<string, unknown>[] } {
   return JSON.parse(readFileSync(file, 'utf8')) as { version: number; entries: Record<string, unknown>[] }
 }
+
+describe('未保存终端回收站', () => {
+  const terminal = (key: string, overrides: Partial<ShelfCaptureInput> = {}): ShelfCaptureInput => captureInput({
+    resourceKey: `terminal:${key}`, title: key,
+    recovery: { kind: 'terminal', sessionId: key, type: ConnectionType.LOCAL, cwd: `C:/work/${key}` },
+    capability: 'directory', ...overrides
+  })
+  const seedManual = (count: number): TaskShelfRepository => {
+    const entries = Array.from({ length: count }, (_, index) => ({
+      ...terminal(`saved-${index}`), id: `saved-${index}`, createdAt: 1000 + index, updatedAt: 1000 + index, revision: 1
+    }))
+    writeFileSync(file, JSON.stringify({ version: 1, entries }))
+    return new TaskShelfRepository(file)
+  }
+
+  it('整批一次写入，仅保留最近十二条，旧回收站按顺序淘汰而手动保存原样保留', () => {
+    const repository = new TaskShelfRepository(file)
+    const manual = repository.capture(terminal('manual'), 1000).entry
+    const archived = repository.capture(terminal('archived'), 1000).entry
+    repository.archive(archived.id, true, 1100)
+    repository.recycle(Array.from({ length: 5 }, (_, index) => terminal(`old-${index}`)), 1200)
+    const before = disk.writes
+    repository.recycle(Array.from({ length: 10 }, (_, index) => terminal(`new-${index}`)), 1300)
+    const entries = repository.list()
+    expect(disk.writes).toBe(before + 1)
+    expect(entries.filter(entry => entry.trashedAt !== undefined).map(entry => entry.title))
+      .toEqual(['old-3', 'old-4', ...Array.from({ length: 10 }, (_, index) => `new-${index}`)])
+    expect(repository.get(manual.id)).toEqual(manual)
+    expect(repository.get(archived.id)?.archivedAt).toBe(1100)
+    expect(repository.get(archived.id)).not.toHaveProperty('trashedAt')
+    expect(new TaskShelfRepository(file).list()).toEqual(entries)
+    expect(entries.filter(entry => entry.trashedAt !== undefined)).toHaveLength(TASK_SHELF_TRASH_LIMIT)
+  })
+
+  it('同批或重复退出不重复收集，已经保存、归档或同宿主的资源不再新增', () => {
+    const repository = new TaskShelfRepository(file)
+    const host = '01234567-89ab-cdef-0123-456789abcdef'
+    const input = terminal('manual', { recovery: { kind: 'terminal', type: ConnectionType.LOCAL, sessionId: 'manual', localHostId: host } })
+    const archived = repository.capture(input, 1000).entry
+    repository.archive(archived.id, true, 1100)
+    const pending = terminal('pending')
+    repository.recycle([input, terminal('rebound', { recovery: { kind: 'terminal', type: ConnectionType.LOCAL, sessionId: 'rebound', localHostId: host } }), pending, pending], 1200)
+    expect(repository.list().map(entry => entry.title)).toEqual(['manual', 'pending'])
+    const before = readFileSync(file, 'utf8'), writes = disk.writes
+    repository.recycle([input, pending], 1300)
+    expect(disk.writes).toBe(writes)
+    expect(readFileSync(file, 'utf8')).toBe(before)
+    expect(repository.get(archived.id)?.archivedAt).toBe(1100)
+  })
+
+  it('超过十二个终端的同批退出重试不复活已经淘汰的早期项', () => {
+    const repository = new TaskShelfRepository(file)
+    const inputs = Array.from({ length: 15 }, (_, index) => terminal(`tab-${index}`))
+    repository.recycle(inputs, 1000)
+    const before = readFileSync(file, 'utf8'), entries = repository.list(), writes = disk.writes
+    expect(entries.map(entry => entry.title)).toEqual(inputs.slice(-12).map(input => input.title))
+    repository.recycle(inputs, 1100)
+    expect(disk.writes).toBe(writes)
+    expect(readFileSync(file, 'utf8')).toBe(before)
+    expect(repository.list()).toEqual(entries)
+  })
+
+  it('回收站输入按白名单重建，未知命令、环境和凭据不进入内存或文件', () => {
+    const repository = new TaskShelfRepository(file)
+    const input = {
+      ...terminal('safe'), command: 'unsafe command', env: { PRIVATE_TOKEN: 'not-for-disk' },
+      recovery: { ...terminal('safe').recovery, password: 'secret-password', command: 'unsafe command' }
+    }
+    repository.recycle([input], 1000)
+    const entry = repository.list()[0]
+    expect(entry).toMatchObject({ trashedAt: 1000, revision: 1, capability: 'directory' })
+    expect(entry.recovery).toEqual(terminal('safe').recovery)
+    expect(entry).not.toHaveProperty('command')
+    expect(entry).not.toHaveProperty('env')
+    const raw = readFileSync(file, 'utf8')
+    expect(raw).not.toContain('not-for-disk')
+    expect(raw).not.toContain('secret-password')
+    expect(raw).not.toContain('unsafe command')
+  })
+
+  it('非法或非终端输入使整批拒绝，不留下部分写入', () => {
+    const repository = new TaskShelfRepository(file)
+    repository.recycle([terminal('old')], 1000)
+    const before = readFileSync(file, 'utf8')
+    for (const invalid of [
+      terminal('web', { resourceKey: 'web:web', recovery: { kind: 'web', url: 'https://example.com/' }, capability: 'web' }),
+      terminal('wrong-key', { resourceKey: 'web:wrong-key' }),
+      terminal('bad-title', { title: ' ' })
+    ]) {
+      expect(() => repository.recycle([terminal('new'), invalid], 1100)).toThrow()
+      expect(readFileSync(file, 'utf8')).toBe(before)
+      expect(repository.list().map(entry => entry.title)).toEqual(['old'])
+    }
+  })
+
+  it('回收站写失败整体回滚，原始十二项及磁盘保留，恢复后可重试', () => {
+    const repository = new TaskShelfRepository(file)
+    repository.recycle(Array.from({ length: 12 }, (_, index) => terminal(`old-${index}`)), 1000)
+    const before = readFileSync(file, 'utf8'), entries = repository.list()
+    disk.failWrite = true
+    expect(() => repository.recycle([terminal('new')], 1100)).toThrow('disk full')
+    expect(repository.list()).toEqual(entries)
+    expect(readFileSync(file, 'utf8')).toBe(before)
+    disk.failWrite = false
+    repository.recycle([terminal('new')], 1200)
+    expect(repository.list().map(entry => entry.title)).toEqual([...Array.from({ length: 11 }, (_, index) => `old-${index + 1}`), 'new'])
+  })
+
+  it('手动保存的一百项与十二个回收站名额隔离，激活超容量保留回收站', () => {
+    const repository = seedManual(TASK_SHELF_LIMIT)
+    repository.recycle(Array.from({ length: 12 }, (_, index) => terminal(`trash-${index}`)), 2000)
+    expect(repository.list()).toHaveLength(TASK_SHELF_LIMIT + TASK_SHELF_TRASH_LIMIT)
+    expect(new TaskShelfRepository(file).list()).toEqual(repository.list())
+    expect(() => repository.capture(terminal('extra'), 2100)).toThrow('保存区已满')
+    const trash = repository.list().find(entry => entry.trashedAt !== undefined)!
+    const before = readFileSync(file, 'utf8')
+    expect(repository.archiveBatch([{ id: trash.id, expectedRevision: trash.revision }], 2200))
+      .toMatchObject({ committed: false, items: [{ id: trash.id, status: 'failed' }] })
+    expect(repository.get(trash.id)).toEqual(trash)
+    expect(readFileSync(file, 'utf8')).toBe(before)
+    repository.remove(repository.list()[0].id)
+    expect(repository.archiveBatch([{ id: trash.id, expectedRevision: trash.revision }], 2300))
+      .toMatchObject({ committed: true, items: [{ id: trash.id, status: 'moved' }] })
+    expect(repository.get(trash.id)).toMatchObject({ revision: 2, updatedAt: 2300, recovery: trash.recovery })
+    expect(repository.get(trash.id)?.trashedAt).toBeUndefined()
+  })
+
+  it('有回收站记录时仍可补满手动保存名额，不能用直接capture/archive绕过激活', () => {
+    const repository = seedManual(TASK_SHELF_LIMIT - 1)
+    repository.recycle([terminal('trash')], 1000)
+    const trash = repository.list().find(entry => entry.trashedAt !== undefined)!
+    expect(() => repository.capture(terminal('trash'), 1100)).toThrow('请先激活')
+    expect(() => repository.archive(trash.id, false, 1100)).toThrow('请先激活')
+    expect(() => repository.archive(trash.id, true, 1100)).toThrow('请先激活')
+    repository.capture(terminal('saved-last'), 1200)
+    expect(repository.list()).toHaveLength(TASK_SHELF_LIMIT + 1)
+    expect(repository.get(trash.id)).toEqual(trash)
+  })
+
+  it('混合激活按版本和请求顺序提交，容量不足不影响归档项激活，重复项不重复占名额', () => {
+    const repository = seedManual(TASK_SHELF_LIMIT - 1)
+    const archived = repository.archive(repository.list()[0].id, true, 1200)
+    const trash = repository.recycle([terminal('trash-a'), terminal('trash-b')], 1300).filter(entry => entry.trashedAt !== undefined)
+    const result = repository.archiveBatch([
+      { id: trash[0].id, expectedRevision: trash[0].revision },
+      { id: trash[0].id, expectedRevision: trash[0].revision },
+      { id: trash[1].id, expectedRevision: trash[1].revision },
+      { id: archived.id, expectedRevision: archived.revision }
+    ], 1400)
+    expect(result.items.map(item => item.status)).toEqual(['moved', 'conflict', 'failed', 'moved'])
+    expect(repository.list().slice(-2).map(entry => entry.id)).toEqual([trash[0].id, archived.id])
+    expect(repository.get(trash[1].id)).toEqual(trash[1])
+    expect(repository.archiveBatch([{ id: trash[0].id, expectedRevision: trash[0].revision }], 1500).items[0].status).toBe('conflict')
+  })
+
+  it('退出归档、启动快照归档与全部取消归档均不移动回收站', () => {
+    const repository = new TaskShelfRepository(file)
+    const saved = repository.capture(terminal('saved'), 1000).entry
+    const trash = repository.recycle([terminal('trash')], 1100).find(entry => entry.trashedAt !== undefined)!
+    repository.archiveAll(1200)
+    expect(repository.get(saved.id)?.archivedAt).toBe(1200)
+    expect(repository.get(trash.id)).toEqual(trash)
+    const result = repository.archiveSnapshot([{ id: trash.id, expectedRevision: trash.revision }], 1300)
+    expect(result).toMatchObject({ committed: false, items: [{ id: trash.id, status: 'alreadyArchived' }] })
+    repository.unarchiveAll(1400)
+    expect(repository.get(saved.id)?.archivedAt).toBeUndefined()
+    expect(repository.get(trash.id)).toEqual(trash)
+  })
+
+  it('激活写失败同时保留回收站分类、顺序与版本', () => {
+    const repository = new TaskShelfRepository(file)
+    const trash = repository.recycle([terminal('trash')], 1000)[0]
+    const before = readFileSync(file, 'utf8')
+    disk.failWrite = true
+    expect(repository.archiveBatch([{ id: trash.id, expectedRevision: trash.revision }], 1200))
+      .toMatchObject({ committed: false, items: [{ id: trash.id, status: 'failed' }] })
+    expect(repository.get(trash.id)).toEqual(trash)
+    expect(readFileSync(file, 'utf8')).toBe(before)
+  })
+
+  it('旧档案保持兼容，回收站的非法分类、非终端与越界数量保留原件并拒绝加载', () => {
+    const valid = { ...terminal('trash'), id: 'trash', createdAt: 1000, updatedAt: 1000, revision: 1 }
+    writeFileSync(file, JSON.stringify({ version: 1, entries: [valid] }))
+    expect(new TaskShelfRepository(file).list()[0].trashedAt).toBeUndefined()
+    for (const invalid of [
+      [{ ...valid, trashedAt: 1100, archivedAt: 1100 }],
+      [{ ...valid, trashedAt: 0 }],
+      [{ ...valid, resourceKey: 'web:web', recovery: { kind: 'web', url: 'https://example.com/' }, capability: 'web', trashedAt: 1100 }],
+      Array.from({ length: 13 }, (_, index) => ({ ...valid, id: String(index), resourceKey: `terminal:${index}`, trashedAt: 1100 }))
+    ]) {
+      const raw = JSON.stringify({ version: 1, entries: invalid })
+      writeFileSync(file, raw)
+      expect(() => new TaskShelfRepository(file).list()).toThrow('damaged')
+      expect(readFileSync(file, 'utf8')).toBe(raw)
+    }
+  })
+})
 
 describe('归档与偏好持久化', () => {
   it('普通页显式重载同意与原 persist:webbar 快照持久化，撤销时删除快照', () => {

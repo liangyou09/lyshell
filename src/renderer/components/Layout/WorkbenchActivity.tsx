@@ -29,6 +29,7 @@ function ActivitySessionRow({ id, selected, name, source, workspace, status, tas
       <button className="activity-session-open" aria-label={`${action} · ${name}`} title={[name, source, workspace, status, action].filter(Boolean).join('\n')} disabled={disabled} onClick={onOpen}>
         <span className="activity-session-symbol"><span aria-hidden="true"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">{terminal ? <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3m6 0h4"/></> : <><path d="m12 3 3 6 6 3-6 3-3 6-3-6-6-3 6-3z"/></>}</svg></span><TaskStatusLight status={taskStatus} instanceStatus={instanceLive ? 'live' : undefined} label={instanceLive && taskStatus === 'unknown' ? `${t('taskShelf.instanceStatus.live')} · ${status}` : status} /></span>
         <strong>{name}</strong>
+        <span className={`activity-session-state status-${taskStatus}`} title={status}>{t(`taskShelf.statusShort.${taskStatus}`)}</span>
       </button>
     </div>
     <details className="activity-session-details"><summary aria-label={`${english ? 'Session details' : '会话详情'} · ${name}`} title={english ? 'Session details' : '会话详情'}><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m5 3 5 5-5 5"/></svg></summary><div><p className="activity-session-explanation">{status}</p>{children}<dl><div><dt>{english ? 'Source' : '来源'}</dt><dd>{source}</dd></div><div><dt>{english ? 'Workspace' : '项目目录'}</dt><dd>{workspace || (english ? 'Workspace unavailable' : '目录未提供')}</dd></div><div><dt>{english ? 'Session' : '会话'}</dt><dd>{id}</dd></div>{updatedAt !== undefined && <div><dt>{english ? 'Updated' : '更新于'}</dt><dd><time dateTime={new Date(updatedAt).toISOString()}>{new Date(updatedAt).toLocaleString()}</time></dd></div>}</dl></div></details>
@@ -100,12 +101,12 @@ export function WorkbenchActivity({ view = 'sessions' }: { view?: 'sessions' | '
   function focusTerminal(row: SessionState) {
     const saved = shelfEntryFor('terminal', row.id)
     const entry = useTaskShelf.getState().entries.find(item => item.id === saved)
-    if (saved && entry && !entry.archivedAt && (row.status === 'connected' || row.status === 'connecting')) {
+    if (saved && entry && !entry.archivedAt && !entry.trashedAt && (row.status === 'connected' || row.status === 'connecting')) {
       useTaskShelf.getState().hide(saved)
       useTaskShelf.getState().showPanel(saved)
       return
     }
-    // 定位归档或断开的终端只显示原实例，不隐式激活归档或进入恢复流程。
+    // 定位归档、回收或断开的终端只显示原实例，不隐式激活或进入恢复流程。
     if (saved) useTaskShelf.getState().setPreview(saved, false)
     const pane = usePaneStore.getState()
     pane.toggleLiveSessionTabs([row.id], false)

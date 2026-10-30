@@ -60,6 +60,7 @@ import { handleBrowserShortcut } from './browser/shortcuts'
 import { registerSidebarShortcuts } from './sidebar-shortcut'
 import { registerTaskShelfShortcuts } from './task-shelf-shortcut'
 import { taskShelfRepository } from './storage/task-shelf-repository'
+import { recycleTaskShelfTerminalsForQuit } from './harness/task-shelf-quit'
 import { stopRecordedLocalHosts } from './terminal/local-host-lifecycle'
 import { createLogTap } from '@shared/log-throttle'
 import { decideWebviewFrameNavigation, gateWebviewSubframeNavigation } from './webview-frame-navigation'
@@ -1162,6 +1163,9 @@ app.on('will-quit', (event) => {
   event.preventDefault()
   if (quitting) return
   quitting = true
+  // 未手动保存的真实终端页签先进入最多 12 项的回收站，随后再结束原进程与连接。
+  try { recycleTaskShelfTerminalsForQuit() }
+  catch (error) { log.warn('Unsaved terminal quit recycling failed:', error) }
   const inputCleanup = sessionManager.beginShutdown()
   void inputCleanup.catch(() => log.warn('Input revocation during shutdown was not confirmed'))
   // 在任何异步退出清理前落盘归档；失败保留原始记录，下一次启动补做。
@@ -1207,6 +1211,7 @@ app.on('will-quit', (event) => {
       for (const result of results) if (result.status === 'rejected') log.warn('Terminal quit cleanup failed:', result.reason)
       await stopRecordedLocalHosts(app.getPath('userData'), (id, error) => log.warn('Local host quit cleanup failed:', id, error))
       // 退出期间迟到的捕获也再归档一次；下一次启动仍有同样的兜底。
+      recycleTaskShelfTerminalsForQuit()
       taskShelfRepository.archiveAll()
     })
     waitForQuitCleanup([

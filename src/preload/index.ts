@@ -316,6 +316,7 @@ const electronAPI = {
     ipcRenderer.on(IPC_CHANNELS.TERMINAL_DATA, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.TERMINAL_DATA, listener)
   },
+  // 实际终端页签集合也供 main 在退出时回收未手动保存的任务；只上传 ID，不上传恢复数据。
   syncTerminalOpenSessions: (sessionIds: string[]) =>
     ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_OPEN_SESSIONS_SYNC, sessionIds),
   // MCP 占用/释放共享 PTY 通知

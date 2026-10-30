@@ -11,8 +11,8 @@
 .workbench-activity-toolbar>button { flex:none; font-size:11px; }
 .workbench-activity-toolbar .activity-icon-button { width:30px; padding:0; border-color:transparent; background:transparent; color:var(--shelf-muted); }
 .workbench-activity-list { flex:1; min-height:0; overflow:auto; padding:0 12px 12px; overscroll-behavior:contain; scrollbar-color:var(--rule) transparent; scrollbar-width:thin; }
-.workbench-activity-row { position:relative; padding:0 10px; border:1px solid var(--shelf-border); border-radius:var(--shelf-radius); background:var(--bg-base); }
-.workbench-activity-row+.workbench-activity-row { margin-top:8px; }
+.workbench-activity-row { position:relative; padding:0 10px; border:1px solid var(--rule); border-radius:6px; background:var(--bg-base); }
+.workbench-activity-row+.workbench-activity-row { margin-top:6px; }
 .workbench-activity-row:hover { border-color:#b1b8c2; background:#f8f9fb; }
 .workbench-activity-row.is-selected { border-color:var(--shelf-accent); background:var(--shelf-selection); }
 .workbench-activity-row:focus-visible { outline:2px solid var(--shelf-accent); outline-offset:-3px; }
@@ -43,7 +43,11 @@
 .activity-session-symbol { position:relative; display:grid; place-items:center; flex:none; width:24px; height:24px; color:var(--shelf-muted); }
 .activity-session-symbol>.task-status-indicator { position:absolute; right:-1px; bottom:-1px; padding:2px; border-radius:50%; background:var(--bg-base); }
 .workbench-activity-panel .activity-session-open { display:flex; align-items:center; justify-content:flex-start; flex:1; min-width:0; min-height:48px; gap:10px; padding:8px 0; border:0; border-radius:0; background:transparent; text-align:left; }
-.activity-session-open strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; line-height:20px; font-weight:550; }
+.activity-session-open strong { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; line-height:20px; font-weight:550; }
+.activity-session-state { flex-shrink:0; max-width:50%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--shelf-muted); font-size:11px; line-height:18px; }
+.activity-session-state:is(.status-running,.status-completed) { color:var(--activity-success); }
+.activity-session-state:is(.status-approval,.status-interrupted) { color:var(--shelf-accent); }
+.activity-session-state:is(.status-failed,.status-connectionError) { color:var(--activity-danger); }
 .workbench-activity-panel .activity-session-open:hover:not(:disabled) { background:transparent; color:var(--shelf-accent); }
 .activity-session-details { color:var(--shelf-muted); font-size:11px; }
 .activity-session-details>summary { position:absolute; top:10px; right:6px; display:grid; place-items:center; width:28px; height:28px; border-radius:4px; cursor:pointer; list-style:none; }
