@@ -10,6 +10,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { execSync } from 'child_process'
 import type { McpPortInfo } from '../mcp/types'
+import { LyShellApiError } from './api-error'
 
 /**
  * 发现 LyShell HTTP API 的连接信息
@@ -242,8 +243,11 @@ export class LyShellHttpClient {
     // send_and_wait / wait_for_prompt 都可能等待较久（长命令、慢 prompt），统一 60s；
     // wait_for_prompt 若走默认 30s 档，等待 >30s 会被客户端先超时。
     const isLongWait = apiPath.includes('/send-and-wait') || apiPath.includes('/wait-for-prompt')
+      || apiPath.includes('/tail-until') || apiPath.includes('/run-on-sessions')
+    const commandWait = apiPath.includes('/execute') || apiPath.includes('/run-on-sessions')
     // 文件传输含 SFTP 传输 + 同步 MD5 校验，大文件易超 120s；放宽到 600s（异步任务化前的过渡方案）。
-    const timeout = isFileTransfer ? 600000 : isLongWait ? 60000 : 30000
+    // 命令的服务端期限可达 120s，批次还包含排队；客户端不得在已接受的命令前先超时。
+    const timeout = isFileTransfer ? 600000 : commandWait ? 130000 : isLongWait ? 125000 : 30000
     return this.request('POST', apiPath, body, timeout)
   }
 
@@ -279,9 +283,8 @@ export class LyShellHttpClient {
           let data = ''
           res.on('data', (c: Buffer) => { data += c.toString() })
           res.on('end', () => {
-            let msg = data
-            try { const j = JSON.parse(data); msg = j.error || data } catch { /* 非 JSON */ }
-            reject(new Error(msg || `HTTP ${res.statusCode}`))
+            try { reject(new LyShellApiError(JSON.parse(data))) }
+            catch { reject(new Error(`HTTP ${res.statusCode}`)) }
           })
           return
         }
@@ -303,7 +306,7 @@ export class LyShellHttpClient {
             resolve({ output: evt.output ?? '', exitCode: evt.exitCode ?? 0 })
           } else if (evt.type === 'error' && !resolved) {
             resolved = true
-            reject(new Error(evt.error || 'Stream error'))
+            reject(new LyShellApiError(evt))
           } else if (evt.type === 'chunk') {
             onEvent(evt)
           }
@@ -368,7 +371,7 @@ export class LyShellHttpClient {
             if (parsed.success) {
               resolve(parsed)
             } else {
-              reject(new Error(parsed.error || 'Unknown error'))
+              reject(new LyShellApiError(parsed))
             }
           } catch {
             reject(new Error(`Invalid JSON response: ${data.substring(0, 200)}`))

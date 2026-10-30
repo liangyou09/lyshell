@@ -13,6 +13,8 @@ export interface ApiResponse<T = unknown> {
   requestId?: string
   code?: string
   retryDisposition?: import('@shared/operation').RetryDisposition
+  /** 固定的公开失败原因，不含表达式、命令或凭据。 */
+  reason?: string
   data?: T
   error?: string
 }
@@ -92,6 +94,9 @@ export interface ExecuteRequest {
 export interface ExecuteResponse {
   output: string
   exitCode: number
+  state?: 'completed'
+  resourceClosed?: 'closed' | 'unconfirmed' | 'failed'
+  remoteTerminated?: 'confirmed' | 'unknown' | 'not-dispatched'
 }
 
 /**
@@ -227,6 +232,8 @@ export interface SendAndWaitRequest {
   maxWaitMs?: number
   /** 正则表达式，匹配后立即返回 */
   waitForPattern?: string
+  /** 省略保留正则语义；普通文本显式使用 literal。 */
+  waitForPatternMode?: 'regex' | 'literal'
   /** 末尾非换行/控制字符时自动补 \n（默认 true） */
   autoNewline?: boolean
   /** best-effort 捕获退出码（POSIX shell only，会追加探针到命令后） */
@@ -421,4 +428,44 @@ export interface OpenConnectionDialogResponse {
   opened: boolean
   /** 给 agent 的下一步提示 */
   message: string
+}
+
+/** 只读等待的可选模式不改变旧客户端的正则语义。 */
+export interface WaitForPromptRequest {
+  sessionId: string
+  pattern?: string
+  patternMode?: 'regex' | 'literal'
+  timeoutMs?: number
+  idleMs?: number
+}
+
+export interface TailUntilRequest {
+  sessionId: string
+  pattern: string
+  patternMode?: 'regex' | 'literal'
+  timeoutMs?: number
+  pollMs?: number
+}
+
+export interface RunOnSessionsRequest {
+  sessionIds: string[]
+  command: string
+  timeout?: number
+  /** 整批期限，含排队；默认 55000 ms。 */
+  totalTimeoutMs?: number
+  dryRun?: boolean
+}
+
+export interface BatchCommandResult {
+  sessionId: string
+  output?: string
+  exitCode?: number
+  error?: string
+  reason?: string
+  partialOutput?: string
+  code?: import('@shared/operation').OperationErrorCode
+  retryDisposition?: import('@shared/operation').RetryDisposition
+  state?: 'completed' | 'failed' | 'not-started' | 'outcome-unknown'
+  resourceClosed?: 'closed' | 'unconfirmed' | 'failed'
+  remoteTerminated?: 'confirmed' | 'unknown' | 'not-dispatched'
 }

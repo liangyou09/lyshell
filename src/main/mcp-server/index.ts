@@ -21,6 +21,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 
 import { discoverLyshell, LyShellHttpClient } from './http-client'
+import { LyShellApiError } from './api-error'
 import { TOOL_DEFINITIONS, ALIAS_DEFINITIONS, ALIAS_TO_NEW, HIDDEN_FROM_LIST_TOOLS } from './tools'
 import { PATH_BY_NAME } from '@shared/api-routes'
 
@@ -268,7 +269,8 @@ async function main(): Promise<void> {
       const safeMessage = rawMessage.replace(/(?:C:\\|\/home\/|\/Users\/|\/root\/)[^\s"']*/g, '[path]')
       const withHint = appendHint(safeMessage)
       return {
-        content: [{ type: 'text' as const, text: `Error: ${withHint}` }],
+        content: [{ type: 'text' as const, text: err instanceof LyShellApiError
+          ? JSON.stringify({ error: withHint, ...err.details() }) : `Error: ${withHint}` }],
         isError: true
       }
     }

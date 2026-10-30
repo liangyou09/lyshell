@@ -828,8 +828,10 @@ export const API_ROUTES: ApiRouteMeta[] = [
           maximum: 300000,
           description: 'Maximum time to wait in ms regardless of idle detection (default 10000)'
         },
+        waitForPatternMode: { type: 'string', enum: ['regex', 'literal'], description: 'Match mode; omitted means regex. Use literal for ordinary text.' },
         waitForPattern: {
           type: 'string',
+          maxLength: 2048,
           description: 'Regex pattern to wait for in output. Returns immediately when matched.'
         },
         autoNewline: {
@@ -1076,7 +1078,8 @@ export const API_ROUTES: ApiRouteMeta[] = [
       type: 'object' as const,
       properties: {
         sessionId: sessionIdField,
-        pattern: { type: 'string', description: 'Regex to match against the session output buffer. Optional; defaults to a common shell-prompt regex ([$#>%]\\s*$).' },
+        patternMode: { type: 'string', enum: ['regex', 'literal'], description: 'Match mode; omitted means regex. Requires an explicit pattern.' },
+        pattern: { type: 'string', maxLength: 2048, description: 'Regex to match against the session output buffer. Optional; defaults to a common shell-prompt regex ([$#>%]\\s*$).' },
         timeoutMs: { type: 'number', minimum: 100, maximum: 120000, description: 'Max time to wait in ms (default 30000).' },
         idleMs: { type: 'number', minimum: 50, maximum: 10000, description: 'Idle threshold for the underlying settle detection (default 500).' }
       },
@@ -1108,7 +1111,8 @@ export const API_ROUTES: ApiRouteMeta[] = [
     transports: BOTH,
     title: '在多个会话上并发执行命令',
     description:
-      'Run the same command on multiple sessions concurrently (max concurrency 10, max 50 sessions per call). ' +
+      'Run the same command on up to 50 sessions. Shared limits: 16 active globally, 4 per caller, 2 per endpoint, with bounded fair queuing. ' +
+      'The batch deadline (totalTimeoutMs, default 55000) includes queuing. Output is limited to 8 MiB per batch and 32 MiB globally; incomplete output is reported as an error with optional partialOutput. ' +
       'Each session is authorized and routed independently - a failure on one session does NOT stop others. ' +
       'Telnet/Serial sessions are skipped with an error entry. Use this for fleet-wide checks like `uptime`, `df -h`, etc.\n\n' +
       'DRY RUN: pass dryRun=true to preview which sessions would receive the command WITHOUT executing. ' +
@@ -1126,7 +1130,8 @@ export const API_ROUTES: ApiRouteMeta[] = [
           description: 'Array of session IDs (cannot contain "current"; resolve it client-side first).'
         },
         command: { type: 'string', minLength: 1, description: 'Shell command to run on every session.' },
-        timeout: { type: 'number', minimum: 100, maximum: 120000, description: 'Per-session timeout in ms (default 30000).' },
+        timeout: { type: 'number', minimum: 100, maximum: 120000, description: 'Per-session execution timeout in ms (default 30000).' },
+        totalTimeoutMs: { type: 'number', minimum: 100, maximum: 120000, description: 'Total batch deadline including queuing, in ms (default 55000).' },
         dryRun: {
           type: 'boolean',
           description: 'If true, preview the target sessions and wouldExecute flags without executing the command (default false).'
@@ -1145,7 +1150,14 @@ export const API_ROUTES: ApiRouteMeta[] = [
               sessionId: { type: 'string' },
               output: { type: 'string' },
               exitCode: { type: 'number' },
-              error: { type: 'string' }
+              error: { type: 'string' },
+              partialOutput: { type: 'string', description: 'Diagnostic output only; incomplete and never a successful output.' },
+              reason: { type: 'string', description: 'Fixed resource/observation failure reason.' },
+              code: { type: 'string' },
+              retryDisposition: { type: 'string', enum: ['safe', 'reconcile-first', 'never'] },
+              state: { type: 'string', enum: ['completed', 'failed', 'not-started', 'outcome-unknown'] },
+              resourceClosed: { type: 'string', enum: ['closed', 'unconfirmed', 'failed'] },
+              remoteTerminated: { type: 'string', enum: ['confirmed', 'unknown', 'not-dispatched'] }
             }
           }
         }
@@ -1173,7 +1185,8 @@ export const API_ROUTES: ApiRouteMeta[] = [
       type: 'object' as const,
       properties: {
         sessionId: sessionIdField,
-        pattern: { type: 'string', minLength: 1, description: 'Regex to look for in the recent output.' },
+        patternMode: { type: 'string', enum: ['regex', 'literal'], description: 'Match mode; omitted means regex. Requires an explicit pattern.' },
+        pattern: { type: 'string', maxLength: 2048, minLength: 1, description: 'Regex to look for in the recent output.' },
         timeoutMs: { type: 'number', minimum: 500, maximum: 120000, description: 'Max wall time in ms (default 30000).' },
         pollMs: { type: 'number', minimum: 100, maximum: 5000, description: 'How often to re-check the buffer (default 500).' }
       },

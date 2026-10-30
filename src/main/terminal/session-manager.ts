@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid'
 import { EventEmitter } from 'events'
+import { performance } from 'node:perf_hooks'
 import log from 'electron-log'
 import { app } from 'electron'
 import { SSHConnector, TelnetConnector, SerialConnector, LocalConnector, ConnectionStatus, ConnectionType } from '../connectors'
@@ -22,6 +23,15 @@ import { applicationCallers } from '../security/application-caller'
 import { OutputHistoryBudget } from './output-budget'
 import { assertResolvedSecrets } from '../storage/secret-store'
 import { assertNoSecretPlaceholders } from '../storage/session-secrets'
+import { patternMatcher } from './pattern-matcher'
+import {
+  BUILTIN_PROMPT_PATTERN,
+  PatternMatchError,
+  asOutcomeUnknownError,
+  asPatternMatchError,
+  type MatchMode,
+  type PatternSpec
+} from './pattern-contract'
 
 const SHELL_OPEN_CLEANUP_TIMEOUT_MS = 5000
 
@@ -65,6 +75,12 @@ export interface SendAndWaitOptions {
   idleMs?: number
   maxWaitMs?: number
   waitForPattern?: string
+  /** 匹配模式；缺省 `regex`（保持既有 waitForPattern 的正则语义）。 */
+  waitForPatternMode?: MatchMode
+  /** 调用方主体标识，用于匹配池的每主体并发配额与公平性（缺省取控制租约主体，再退到 anonymous）。 */
+  callerKey?: string
+  /** 调用方中止信号：编译/匹配/等待期间中止都走清理路径，不会留下锁或监听器。 */
+  signal?: AbortSignal
   /** 末尾为普通可见字符时自动补一个 \n（默认 true）。避免调用方忘记加 \n 导致命令只回显不执行 */
   autoNewline?: boolean
   /**
@@ -88,6 +104,40 @@ export interface SendAndWaitResult {
   elapsedMs: number
   /** best-effort 退出码；仅在 captureExitCode=true 且解析成功时有值，否则 null */
   exitCode?: number | null
+}
+
+/** 只读等待的观察范围：`new-output` 只看记录游标之后的新输出，`recent` 每轮都看最近若干行。 */
+export type WaitPatternScope = 'new-output' | 'recent'
+
+/** wait_for_pattern 选项（供 MCP wait_for_prompt / tail_until 使用，只读、不写终端）。 */
+export interface WaitForPatternOptions {
+  /** 缺省用内置提示符正则（BUILTIN_PROMPT_PATTERN）；一旦显式给 mode，必须同时给 pattern。 */
+  pattern?: string
+  mode?: MatchMode
+  scope?: WaitPatternScope
+  /** `new-output` 范围下先检查一次最近历史（wait_for_prompt 的既有语义）。 */
+  checkHistoryFirst?: boolean
+  historyLines?: number
+  timeoutMs?: number
+  /** >0 时，只有整个窗口内几乎没有新输出才提前按「已静默」返回；0 表示一直等到命中或超时。 */
+  idleMs?: number
+  pollMs?: number
+  callerKey?: string
+  signal?: AbortSignal
+  /** 每轮观察前重新确认授权；撤销后立刻停止等待（只读操作也会被授权撤销打断）。 */
+  authorizeObservation?: () => boolean
+}
+
+/** wait_for_pattern 结果；`matched:false` 不是错误，`reason` 说明为何结束。 */
+export interface WaitForPatternResult {
+  matched: boolean
+  settled: boolean
+  reason: 'matched' | 'idle' | 'timeout' | 'disconnected'
+  output: string
+  cleanOutput: string
+  elapsedMs: number
+  pattern: string
+  mode: MatchMode
 }
 
 
@@ -143,6 +193,8 @@ export interface Session {
   pendingShelfHistory?: string // SSH 恢复时一次性注入本机显示流，绝不写入连接器
   outputPaused?: boolean  // 图形输出背压，重建 connector 时沿用
   pendingWaitLock?: boolean  // send_and_wait 并发锁
+  /** 锁所有者标记：只有持锁的那次等待才释放锁，避免超时清理误放别人的锁。 */
+  pendingWaitOwner?: symbol
   lockedByMcp?: boolean  // MCP 是否正在占用该会话 PTY（共享 PTY 模式时阻塞用户输入）
   mcpLockCount?: number  // MCP PTY 锁引用计数：并发 send_input/send_and_wait 各持一份，归零才真正解锁
   disconnectCleanup?: Promise<void>  // 自然 close / 显式 disconnect 共用的幂等清理
@@ -1109,37 +1161,56 @@ export class SessionManager extends EventEmitter {
 
   /**
    * 发送输入并等待响应（用于 MCP send_and_wait）
-   * 通过空闲检测/模式匹配/最大超时判断命令完成
+   * 通过空闲检测/模式匹配/最大超时判断命令完成。
+   *
+   * 外部正则的**编译与执行一律在隔离子进程**（PatternMatcher）内完成，主线程只做同步形态校验：
+   *   1. 同步形态/长度校验 → 2. 原子取会话等待锁并记 owner → 3. Worker 内编译校验
+   *   → 4. 复核会话/连接代际/控制租约/授权 → 5. 记游标+epoch、挂监听、走受控写入
+   *   → 6. 每次 Worker 返回后复核同一会话实例/仍授权/无输出缺口 → 7. 任何出口都清理锁/监听/预算。
    */
   async sendAndWait(id: string, options: SendAndWaitOptions): Promise<SendAndWaitResult> {
+    if (this.closing) throw new OperationError('FORBIDDEN', 'Application is shutting down')
+
+    // ── 1) 同步形态校验：此时未取锁、未取配额、未写终端 ──────────────────────
+    if (!options || typeof options !== 'object') throw new OperationError('INVALID_ARGUMENT', 'Invalid wait options')
+    if (typeof options.text !== 'string') throw new OperationError('INVALID_ARGUMENT', 'Wait text must be a string')
+    if (options.text.length > 2 * 1024 * 1024) throw new OperationError('INVALID_ARGUMENT', 'Wait text exceeds the maximum length')
+    // 显式给了非 string 的 pattern（null / number / object）是参数错误：
+    // 绝不能当成「未提供」继续发送输入，否则调用方的等待意图被静默丢弃。
+    const rawPattern = options.waitForPattern
+    if (rawPattern !== undefined && typeof rawPattern !== 'string') {
+      throw new PatternMatchError('PATTERN_NOT_A_STRING')
+    }
+    const patternText = typeof rawPattern === 'string' ? rawPattern : ''
+    const hasPattern = patternText.length > 0
+    if (!hasPattern && options.waitForPatternMode !== undefined) {
+      // 没有 pattern 却给了 mode：调用方语义含糊，按参数错误拒绝（不默认成内置提示符）。
+      throw new PatternMatchError('PATTERN_MODE_WITHOUT_PATTERN')
+    }
+    // 只做长度/模式校验，不编译正则（编译必须发生在 Worker 内）。
+    const spec: PatternSpec | null = hasPattern
+      ? patternMatcher.validate({ pattern: patternText, mode: options.waitForPatternMode })
+      : null
+
     const session = this.sessions.get(id)
     if (!session || !session.connector || session.status !== ConnectionStatus.CONNECTED) {
-      throw new Error(`Session not connected: ${id}`)
+      throw new OperationError('RESOURCE_NOT_FOUND', 'Terminal is not connected')
     }
-    if (!session.outputBuffer) {
-      throw new Error(`Output buffer not available for session: ${id}`)
-    }
+    if (!session.outputBuffer) throw new OperationError('RESOURCE_NOT_FOUND', 'Terminal output is not available')
+    const connector = session.connector
+    // 固定缓冲区实例：本次等待只认这一个 buffer，换掉即视为会话被替换。
+    const buffer = session.outputBuffer
+    if (session.pendingWaitLock) throw new OperationError('CONTROL_CONFLICT', 'A send_and_wait is already in progress for this session')
 
-    // 并发锁：同一会话同时只能有一个 send_and_wait
-    if (session.pendingWaitLock) {
-      throw new Error(`A send_and_wait is already in progress for session: ${id}`)
-    }
-
-    // 先校验正则、计算参数，再获取锁、再 write —— 避免校验失败导致锁泄漏或输入已发送
-    const waitMs = options.waitMs ?? 2000
-    const idleMs = options.idleMs ?? 300
+    const connectionInstanceId = session.connectionInstanceId
+    const waitMs = Math.min(Math.max(options.waitMs ?? 2000, 0), 55000)
+    const idleMs = Math.min(Math.max(options.idleMs ?? 300, 0), 60000)
     // maxWaitMs 上限钳制：客户端 HTTP 超时 60s，留 5s 余量，防止客户端先超时、服务端仍占用锁
-    const maxWaitMs = Math.min(options.maxWaitMs ?? 10000, 55000)
-    const pattern = options.waitForPattern
-
-    let patternRegex: RegExp | null = null
-    if (pattern) {
-      try {
-        patternRegex = new RegExp(pattern)
-      } catch (e) {
-        throw new Error(`Invalid waitForPattern regex: ${pattern}`)
-      }
-    }
+    const maxWaitMs = Math.min(Math.max(options.maxWaitMs ?? 10000, 100), 55000)
+    // 总期限从**编译前**的单调时间起算：compile / 排队 / 观测共用同一预算。
+    // 短总期限的调用不会因为「编译另给 5s」而在超时之后仍然写入输入。
+    const startedAt = performance.now()
+    const deadline = startedAt + maxWaitMs
 
     let processedText = processInputEscapeSequences(options.text)
 
@@ -1174,67 +1245,407 @@ export class SessionManager extends EventEmitter {
       return { output: ansiStripped, cleanOutput, settled, patternMatched, elapsedMs: elapsed, exitCode }
     }
 
-    session.pendingWaitLock = true
-    const connector = session.connector
-    const dataListener = () => { lastDataTime = Date.now() }
-    let lastDataTime: number
-    const buffer = session.outputBuffer!
+    const callerKey = options.callerKey?.trim() || options.control?.principalId || 'anonymous'
+    // 等待器配额覆盖整个 sendAndWait（编译 + 写入 + 观测），而不是单次 match。
+    // 配额不足时同步抛 MATCH_QUEUE_FULL（RESOURCE_LIMIT/safe）：此时还没有任何副作用。
+    const waiter = patternMatcher.acquireWaiter(callerKey)
+
+    let lastDataAt = performance.now()
+    const dataListener = (): void => { lastDataAt = performance.now() }
+    let listenerAttached = false
+    let inputAttempted = false
+    let startCursor = 0
+    let outputEpoch = 0
+    let lockOwner: symbol | null = null
 
     try {
-      const startCursor = buffer.getWriteCursor()
-      const outputEpoch = buffer.getOutputEpoch()
+      // ── 2) 原子取锁：同步置位并记 owner，finally 只释放自己的锁 ──────────────
+      lockOwner = Symbol('sendAndWait')
+      session.pendingWaitLock = true
+      session.pendingWaitOwner = lockOwner
 
-      // 发送输入（在锁保护范围内，确保 write 抛错也能释放锁）
-      if (processedText) await this.writeToSession(id, processedText, options.control, options.authorizeInput)
+      // ── 3) 模式编译校验在 Worker 内：失败时还没有任何终端写入 ──────────────
+      if (spec) {
+        await patternMatcher.compile(spec, {
+          callerKey,
+          timeoutMs: Math.max(1, Math.min(5000, deadline - performance.now())),
+          signal: options.signal
+        })
+      }
+      // 编译/排队已经耗尽总期限：不得再发送输入（无副作用，按可安全重试的排队超时上报）。
+      if (performance.now() >= deadline) throw new PatternMatchError('MATCH_QUEUE_TIMEOUT')
 
-      // 事件驱动更新最近数据时间
-      lastDataTime = Date.now()
+      // ── 4) Worker 返回后重新确认会话、连接代际、缓冲区、控制租约与当前授权 ──
+      await this.assertSendAndWaitReady(id, session, connector, connectionInstanceId, buffer, options)
+      if (performance.now() >= deadline) throw new PatternMatchError('MATCH_QUEUE_TIMEOUT')
+
+      // ── 5) 先挂监听并记录游标/epoch，再走既有受控写入路径 ──────────────────
       connector.on('data', dataListener)
+      listenerAttached = true
+      startCursor = buffer.getWriteCursor()
+      outputEpoch = buffer.getOutputEpoch()
+      if (processedText) await this.writeToSession(id, processedText, options.control, () => {
+        // 写入队列也消耗总期限；每个实际分片派发前仍走相同的受控授权路径。
+        if (performance.now() >= deadline) throw new PatternMatchError('MATCH_QUEUE_TIMEOUT')
+        return options.authorizeInput?.() ?? true
+      })
+      inputAttempted = processedText.length > 0
 
-      const startTime = Date.now()
+      let lastSnapshotKey = ''
       // eslint-disable-next-line no-constant-condition
       while (true) {
-        if (buffer.getOutputEpoch() !== outputEpoch || buffer.getEarliestCursor() > startCursor) {
-          throw new OperationError('OUTCOME_UNKNOWN', 'Output history has a gap; reconcile before sending more input', 'reconcile-first')
+        if (this.closing) throw new OperationError('FORBIDDEN', 'Application is shutting down')
+        // ── 6) 每轮（以及每次 Worker 返回后）复核同一会话实例仍授权、无输出缺口 ──
+        this.assertSendAndWaitLive(id, session, connector, connectionInstanceId, buffer)
+        if (options.signal?.aborted) throw new PatternMatchError('MATCH_CANCELLED')
+        if (options.authorizeInput && !options.authorizeInput()) {
+          throw new OperationError('FORBIDDEN', 'Terminal input authorization was revoked')
         }
-        if (this.sessions.get(id) !== session || session.connector !== connector || session.status !== ConnectionStatus.CONNECTED) {
-          throw new OperationError('OUTCOME_UNKNOWN', 'Terminal disconnected while observing output', 'reconcile-first')
-        }
-        const now = Date.now()
-        const elapsed = now - startTime
-        const idleSince = now - lastDataTime
+        this.assertOutputGapFree(buffer, startCursor, outputEpoch, 'Output history has a gap; reconcile before sending more input')
 
-        // 模式匹配检测：同时在 raw 与 ANSI 清洗后两种基底上匹配。
+        const idleSince = performance.now() - lastDataAt
+
+        // 模式匹配检测：同时在 raw 与 ANSI 清洗后两种基底上匹配（Worker 内执行）。
         // 默认 prompt 正则（[$#>%]\s*$）依赖清洗后的 $ 锚定（raw 末尾常带 ANSI 复位码）；
         // 带 ANSI 码的自定义正则只在 raw 上命中。两者取或，避免基底选择导致漏判。
-        if (patternRegex) {
-          const rawOutput = buffer.getOutputSince(startCursor, false).text
-          const ansiStripped = buffer.getOutputSince(startCursor, true).text
-          if (patternRegex.test(rawOutput) || patternRegex.test(ansiStripped)) {
-            return finalize(ansiStripped, true, true, elapsed)
+        // 只在输出游标/缺口位置变化时重新匹配，避免同一快照反复占用 Worker。
+        if (spec) {
+          const snapshotKey = `${buffer.getWriteCursor()}/${buffer.getEarliestCursor()}/${outputEpoch}`
+          if (snapshotKey !== lastSnapshotKey) {
+            lastSnapshotKey = snapshotKey
+            const rawOutput = buffer.getOutputSince(startCursor, false).text
+            const cleanOutput = buffer.getOutputSince(startCursor, true).text
+            const matched = await this.matchOnce(
+              spec,
+              [rawOutput, cleanOutput],
+              callerKey,
+              Math.max(1, deadline - performance.now()),
+              options.signal
+            )
+            // Worker 返回后必须重新确认（true / false 都一样）：
+            // 旧结果不能落到已被替换 / 授权已撤销 / 出现输出缺口的会话上。
+            this.assertSendAndWaitLive(id, session, connector, connectionInstanceId, buffer)
+            if (options.signal?.aborted) throw new PatternMatchError('MATCH_CANCELLED')
+            if (options.authorizeInput && !options.authorizeInput()) {
+              throw new OperationError('FORBIDDEN', 'Terminal input authorization was revoked')
+            }
+            this.assertOutputGapFree(buffer, startCursor, outputEpoch, 'Output history has a gap; reconcile before sending more input')
+            if (matched) {
+              return finalize(cleanOutput, true, true, performance.now() - startedAt)
+            }
           }
         }
 
+        const elapsed = performance.now() - startedAt
         // 空闲检测：超过 waitMs 且空闲超过 idleMs
         if (elapsed >= waitMs && idleSince >= idleMs) {
-          const ansiStripped = buffer.getOutputSince(startCursor, true).text
-          return finalize(ansiStripped, true, false, elapsed)
+          return finalize(buffer.getOutputSince(startCursor, true).text, true, false, elapsed)
         }
-
         // 最大超时
         if (elapsed >= maxWaitMs) {
-          const ansiStripped = buffer.getOutputSince(startCursor, true).text
-          return finalize(ansiStripped, false, false, elapsed)
+          return finalize(buffer.getOutputSince(startCursor, true).text, false, false, elapsed)
         }
+        // 50ms 轮询（不超过剩余预算）
+        await this.delay(Math.min(50, Math.max(1, deadline - performance.now())), options.signal)
+      }
+    } catch (error) {
+      // ── 输入已经发出：任何观测失败都只能是「结果未知」，绝不能标成可安全重试 ──
+      // （编译 / 取锁 / 写入之前的失败仍保留原始 code，例如 INVALID_ARGUMENT / CONTROL_CONFLICT。）
+      if (inputAttempted) throw asOutcomeUnknownError(error)
+      throw error
+    } finally {
+      // ── 7) 任何出口都清理监听器、只释放自己的锁/配额、归还被替换的缓冲区预算 ──
+      if (listenerAttached) connector.off('data', dataListener)
+      if (lockOwner && session.pendingWaitOwner === lockOwner) {
+        session.pendingWaitLock = false
+        session.pendingWaitOwner = undefined
+      }
+      waiter.release()
+      if (session.outputBuffer !== buffer) this.outputHistory.release(buffer)
+    }
+  }
 
-        // 50ms 轮询
-        await new Promise(resolve => setTimeout(resolve, 50))
+  /**
+   * 只读等待模式命中（供 MCP wait_for_prompt / tail_until）：不写终端、不取 send_and_wait 锁。
+   * 匹配同样在隔离子进程内执行；`authorizeObservation` 每轮复核，撤销立即停止。
+   * 观察范围与既有语义一致：`recent` 看最近 N 行；`new-output` 只看记录游标之后（可先查一次历史）。
+   */
+  async waitForPattern(id: string, options: WaitForPatternOptions = {}): Promise<WaitForPatternResult> {
+    if (this.closing) throw new OperationError('FORBIDDEN', 'Application is shutting down')
+    if (!options || typeof options !== 'object') throw new OperationError('INVALID_ARGUMENT', 'Invalid wait options')
+
+    // 非 string pattern 是参数错误：不能当成「未提供」退回内置提示符。
+    if (options.pattern !== undefined && typeof options.pattern !== 'string') {
+      throw new PatternMatchError('PATTERN_NOT_A_STRING')
+    }
+    const patternText = typeof options.pattern === 'string' ? options.pattern : ''
+    const hasPattern = patternText.trim().length > 0
+    if (!hasPattern && options.mode !== undefined) {
+      // 无 pattern 时只能用内置提示符正则；显式 mode（哪怕 regex）都是含糊调用。
+      throw new PatternMatchError('PATTERN_MODE_WITHOUT_PATTERN')
+    }
+    // 内置提示符固定 regex；自定义 pattern 缺省 regex，可由调用方显式要求 literal。
+    const spec = patternMatcher.validate(
+      hasPattern ? { pattern: patternText, mode: options.mode } : { pattern: BUILTIN_PROMPT_PATTERN, mode: 'regex' }
+    )
+
+    const session = this.sessions.get(id)
+    if (!session || !session.connector || session.status !== ConnectionStatus.CONNECTED) {
+      throw new OperationError('RESOURCE_NOT_FOUND', 'Terminal is not connected')
+    }
+    if (!session.outputBuffer) throw new OperationError('RESOURCE_NOT_FOUND', 'Terminal output is not available')
+    const connector = session.connector
+    // 固定缓冲区实例：等待期间 buffer 被换掉即视为会话被替换，不能拿旧内容当结果。
+    const buffer = session.outputBuffer
+    const connectionInstanceId = session.connectionInstanceId
+    const scope: WaitPatternScope = options.scope ?? 'new-output'
+    const historyLines = Math.min(Math.max(options.historyLines ?? 500, 1), 1000)
+    const timeoutMs = Math.min(Math.max(options.timeoutMs ?? 30000, 100), 300000)
+    const idleMs = Math.min(Math.max(options.idleMs ?? 0, 0), 60000)
+    const pollMs = Math.min(Math.max(options.pollMs ?? 250, 25), 5000)
+    const callerKey = options.callerKey?.trim() || 'anonymous'
+    // 只读等待同样占用「等待器」配额：整个调用期间有效，而不是每次 match 各占一份。
+    const waiter = patternMatcher.acquireWaiter(callerKey)
+
+    // 单调时钟：只读等待可能持续数十秒，不能受系统时间调整影响。
+    const startedAt = performance.now()
+    const startCursor = buffer.getWriteCursor()
+    const outputEpoch = buffer.getOutputEpoch()
+    let sawOutput = false
+    const dataListener = (): void => { sawOutput = true }
+    connector.on('data', dataListener)
+
+    /** 用指定快照构造结果：命中时必须返回真正被匹配的那份 bases，而不是事后重算的新输出。 */
+    const resultFrom = (
+      bases: { raw: string; clean: string },
+      matched: boolean,
+      settled: boolean,
+      reason: WaitForPatternResult['reason']
+    ): WaitForPatternResult => ({
+      matched,
+      settled,
+      reason,
+      output: bases.raw,
+      cleanOutput: bases.clean,
+      elapsedMs: performance.now() - startedAt,
+      pattern: spec.pattern,
+      mode: spec.mode
+    })
+    const currentBases = (): { raw: string; clean: string } => this.waitPatternBases(buffer, scope, historyLines, startCursor)
+    const result = (matched: boolean, settled: boolean, reason: WaitForPatternResult['reason']): WaitForPatternResult =>
+      resultFrom(currentBases(), matched, settled, reason)
+
+    /** 观察身份：会话实例、连接、代际都必须还是开始等待时的那一套（断连也算同一终端）。 */
+    const sameTerminal = (): boolean =>
+      this.sessions.get(id) === session
+      && session.connector === connector
+      && (connectionInstanceId === undefined || session.connectionInstanceId === connectionInstanceId)
+    const disconnected = (): boolean => session.status !== ConnectionStatus.CONNECTED
+    /** 缓冲区实例：连接被替换一代时它会换掉；断连时可能被释放，因此只要求在「仍连接」时一致。 */
+    const bufferCurrent = (): boolean => session.outputBuffer === buffer
+    /** 断连结果不读缓冲区：断开后旧快照既不可信也不保证还存在。 */
+    const disconnectedResult = (): WaitForPatternResult => ({
+      matched: false,
+      settled: false,
+      reason: 'disconnected',
+      output: '',
+      cleanOutput: '',
+      elapsedMs: performance.now() - startedAt,
+      pattern: spec.pattern,
+      mode: spec.mode
+    })
+    /** 授权优先于断连返回：撤销必须立刻暴露，不能被「正常 unmatched」掩盖。 */
+    const assertObservationAuthorized = (): void => {
+      if (options.authorizeObservation && !options.authorizeObservation()) {
+        throw new PatternMatchError('MATCH_AUTHORIZATION_REVOKED')
+      }
+    }
+    const assertNoGap = (): void => {
+      this.assertOutputGapFree(buffer, startCursor, outputEpoch, 'Output history has a gap; reconcile before waiting again')
+    }
+    /** 每轮/每次 Worker 返回后的统一复核；断连返回 true 表示应立刻以 unmatched 结束。 */
+    const recheck = (): boolean => {
+      if (!sameTerminal()) {
+        throw new OperationError('STALE_GENERATION', 'Terminal changed while waiting for output', 'safe')
+      }
+      assertObservationAuthorized()
+      if (disconnected()) return true
+      // 仍连接但缓冲区被换掉：属于连接换代，旧游标/快照不能再用。
+      if (!bufferCurrent()) {
+        throw new OperationError('STALE_GENERATION', 'Terminal changed while waiting for output', 'safe')
+      }
+      assertNoGap()
+      return false
+    }
+
+    try {
+      let lastSnapshotKey = ''
+      let historyChecked = false
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        if (this.closing) throw new OperationError('FORBIDDEN', 'Application is shutting down')
+        // 会话/连接/缓冲区被换掉：不再返回旧 buffer 的内容，调用方按代际失效处理。
+        if (recheck()) return disconnectedResult()
+
+        // 观察范围：recent 始终看最近行；new-output 首次可按调用方要求先看历史，之后只看新输出。
+        const useHistory = scope === 'recent' || (!historyChecked && options.checkHistoryFirst === true)
+        const snapshotKey = `${useHistory ? 'recent' : 'new'}:${buffer.getWriteCursor()}/${buffer.getEarliestCursor()}/${outputEpoch}`
+        if (snapshotKey !== lastSnapshotKey) {
+          lastSnapshotKey = snapshotKey
+          const bases = useHistory
+            ? { raw: buffer.getRecentLines(historyLines, false).text, clean: buffer.getRecentLines(historyLines, true).text }
+            : { raw: buffer.getOutputSince(startCursor, false).text, clean: buffer.getOutputSince(startCursor, true).text }
+          let matched: boolean
+          try {
+            matched = await this.matchOnce(spec, [bases.raw, bases.clean], callerKey,
+              Math.max(1, timeoutMs - (performance.now() - startedAt)), options.signal)
+          } catch (error) {
+            // 只读总期限结束是正常 unmatched；独立的正则执行硬超时仍保留 RESOURCE_LIMIT/never。
+            if (error instanceof PatternMatchError && error.reason === 'MATCH_QUEUE_TIMEOUT'
+              && performance.now() - startedAt >= timeoutMs) {
+              if (recheck()) return disconnectedResult()
+              return result(false, false, 'timeout')
+            }
+            throw error
+          }
+          // Worker 返回后重新确认：结果只能落到同一个会话实例/连接/缓冲区上。
+          if (recheck()) return disconnectedResult()
+          // 命中时返回真正被 Worker 匹配的那份快照（历史预检命中时不能返回空 output）。
+          if (matched) return resultFrom(bases, true, true, 'matched')
+        }
+        if (useHistory) historyChecked = true
+
+        const elapsed = performance.now() - startedAt
+        if (elapsed >= timeoutMs) return result(false, false, 'timeout')
+        // idleMs>0 只用于「整个窗口内完全没有新输出」的提前结束；一旦有输出就等到命中或超时。
+        if (idleMs > 0 && !sawOutput && elapsed >= idleMs) return result(false, true, 'idle')
+
+        await this.delay(Math.min(pollMs, Math.max(1, timeoutMs - elapsed)), options.signal)
       }
     } finally {
       connector.off('data', dataListener)
-      session.pendingWaitLock = false
-      if (session.outputBuffer !== buffer) this.outputHistory.release(buffer)
+      waiter.release()
     }
+  }
+
+  /** 观察基底：raw 与 ANSI 清洗后各一份，二者取或匹配（返回给调用方的展示也来自这里）。 */
+  private waitPatternBases(
+    buffer: OutputBuffer,
+    scope: WaitPatternScope,
+    historyLines: number,
+    startCursor: number
+  ): { raw: string; clean: string } {
+    if (scope === 'recent') {
+      return { raw: buffer.getRecentLines(historyLines, false).text, clean: buffer.getRecentLines(historyLines, true).text }
+    }
+    return { raw: buffer.getOutputSince(startCursor, false).text, clean: buffer.getOutputSince(startCursor, true).text }
+  }
+
+  /** 单次隔离匹配；Worker 侧错误统一收敛成固定 code/reason 的 PatternMatchError。 */
+  private async matchOnce(
+    spec: PatternSpec,
+    inputs: string[],
+    callerKey: string,
+    timeoutMs: number,
+    signal?: AbortSignal
+  ): Promise<boolean> {
+    try {
+      const outcome = await patternMatcher.match({ spec, inputs, callerKey, timeoutMs, signal })
+      return outcome.matched
+    } catch (error) {
+      throw asPatternMatchError(error)
+    }
+  }
+
+  /** 写终端之前的再确认：会话实例/代际/缓冲区/租约/授权都仍是取锁时的那一套。 */
+  private async assertSendAndWaitReady(
+    id: string,
+    session: Session,
+    connector: BaseConnector,
+    connectionInstanceId: string | undefined,
+    buffer: OutputBuffer,
+    options: SendAndWaitOptions
+  ): Promise<void> {
+    /** 同步可见的写前状态（含缓冲区实例）；任何一项不符都不能写终端。 */
+    const assertReadySync = (): void => {
+      if (this.closing) throw new OperationError('FORBIDDEN', 'Application is shutting down')
+      if (this.sessions.get(id) !== session || session.connector !== connector || session.status !== ConnectionStatus.CONNECTED) {
+        throw new OperationError('STALE_GENERATION', 'Terminal changed before sending input', 'safe')
+      }
+      if (connectionInstanceId !== undefined && session.connectionInstanceId !== connectionInstanceId) {
+        throw new OperationError('STALE_GENERATION', 'Terminal connection was replaced before sending input', 'safe')
+      }
+      // 缓冲区被替换说明会话已换了一代：旧游标/epoch 不能再用于本次等待。
+      if (session.outputBuffer !== buffer) {
+        throw new OperationError('STALE_GENERATION', 'Terminal changed before sending input', 'safe')
+      }
+      if (options.control && options.control.sessionId !== id) {
+        throw new OperationError('CONTROL_CONFLICT', 'Terminal input control changed before dispatch')
+      }
+      if (options.authorizeInput && !options.authorizeInput()) {
+        throw new OperationError('FORBIDDEN', 'Terminal input authorization was revoked')
+      }
+    }
+
+    assertReadySync()
+    if (options.control) {
+      try {
+        await this.inputControl.assertInput(options.control)
+      } catch {
+        throw new OperationError('CONTROL_CONFLICT', 'Terminal input control changed before dispatch')
+      }
+      // assertInput 是异步的：await 期间连接/锁/授权都可能变化，必须再核对一遍再写。
+      assertReadySync()
+    }
+  }
+
+  /** 等待/观察期间的存活断言：连接/缓冲区被替换 → STALE_GENERATION（输入已发出，需先对账）。 */
+  private assertSendAndWaitLive(
+    id: string,
+    session: Session,
+    connector: BaseConnector,
+    connectionInstanceId: string | undefined,
+    buffer: OutputBuffer
+  ): void {
+    if (this.sessions.get(id) !== session || session.connector !== connector || session.outputBuffer !== buffer) {
+      throw new OperationError('STALE_GENERATION', 'Terminal connection was replaced while observing output', 'reconcile-first')
+    }
+    if (connectionInstanceId !== undefined && session.connectionInstanceId !== connectionInstanceId) {
+      throw new OperationError('STALE_GENERATION', 'Terminal connection was replaced while observing output', 'reconcile-first')
+    }
+    if (session.status !== ConnectionStatus.CONNECTED) {
+      throw new OperationError('OUTCOME_UNKNOWN', 'Terminal disconnected while observing output', 'reconcile-first')
+    }
+  }
+
+  /**
+   * 输出缺口断言：epoch 变化（缓冲区被清空/换过一代）或最早可用游标越过起点，
+   * 都说明 startCursor 之后的内容已不完整，不能拿不完整的片段声称「未命中」。
+   */
+  private assertOutputGapFree(buffer: OutputBuffer, startCursor: number, outputEpoch: number, message: string): void {
+    if (buffer.getOutputEpoch() !== outputEpoch || buffer.getEarliestCursor() > startCursor) {
+      throw new OperationError('OUTCOME_UNKNOWN', message, 'reconcile-first')
+    }
+  }
+
+  /** 可中止的定时等待：中止信号触发时立刻返回，不留下计时器。 */
+  private delay(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new PatternMatchError('MATCH_CANCELLED'))
+        return
+      }
+      const onAbort = (): void => {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', onAbort)
+        reject(new PatternMatchError('MATCH_CANCELLED'))
+      }
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort)
+        resolve()
+      }, ms)
+      signal?.addEventListener('abort', onAbort, { once: true })
+    })
   }
 }
 
