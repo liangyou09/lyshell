@@ -20,7 +20,7 @@ import { isDocPath, docKindFromPath } from '@shared/types'
 import { assertSafeLocalPath } from '@main/file/path-safety'
 import { sessionRepository } from '@main/storage/repository'
 import { pluginRepository } from '@main/storage/plugin-repository'
-import { isSessionAllowedForMcp } from '@main/mcp/http-server'
+import { isSessionAllowedForMcp } from '@main/mcp/session-policy'
 import type { PluginGuestRecord } from './view-guests'
 
 /** 动作名（preload 暴露面与 renderer 消费端一致） */

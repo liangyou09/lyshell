@@ -30,7 +30,7 @@ import { app } from 'electron'
 import log from 'electron-log'
 import { pluginRepository, getPluginsDir } from '@main/storage/plugin-repository'
 import { bindPluginToken, revokePluginToken } from '@main/mcp/auth'
-import { getMcpHttpPort } from '@main/mcp/http-server'
+import { getMcpHttpPort } from '@main/mcp/http-port'
 import { pythonEngine } from '@main/python/engine'
 import { getPluginViewRegistry } from '@main/plugin/view-registry'
 import {
@@ -180,6 +180,11 @@ export class PluginHostManager {
 
   prepareShutdown(): Promise<void> {
     return Promise.all(this.nodeHostPluginIds.map(id => this.deactivatePlugin(id))).then(() => {})
+  }
+
+  /** 只用于退出协调器保留释放通道；身份仍由 HTTP 的存活 host token 验证。 */
+  isDeactivatingPlugin(pluginId: string): boolean {
+    return this.deactivationRequests.has(pluginId)
   }
 
   /**

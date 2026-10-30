@@ -4,7 +4,7 @@ import { ConnectionStatus } from '@shared/types'
 import type { SessionConfig } from '@shared/types'
 import type { HarnessEnvProfile, HarnessWorkspace } from '@shared/harness'
 import type { PluginListItem } from '@shared/plugin-types'
-import { DOC_ACTION_SCHEME } from './doc-actions'
+import { DOC_ACTION_SCHEME } from './doc-action-contract'
 import i18n from '../i18n'
 
 /**

@@ -86,7 +86,7 @@ vi.mock('../dsh/exclusive-runtime', () => ({
   publishWorkbenchDetail: (force = false) => workbench.publish(force)
 }))
 
-vi.mock('../ipc/handlers', () => ({
+vi.mock('../events/application-notifications', () => ({
   broadcastDshWebDetail: (detail: unknown, force = false, reopen = false) => {
     workbench.broadcasts.push({ detail, force, reopen })
   }

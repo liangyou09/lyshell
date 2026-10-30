@@ -1,6 +1,6 @@
-import { app, safeStorage } from 'electron'
+import { safeStorage } from 'electron'
 import { join } from 'path'
-import { existsSync, mkdirSync } from 'fs'
+import { getConfigDir } from './paths'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 import type { SessionConfig, SessionPublicConfig } from '@shared/types'
@@ -173,23 +173,7 @@ const validateSessionsFile = (raw: unknown): SessionConfig[] => {
   return raw as SessionConfig[]
 }
 
-/**
- * 配置存储路径 - 延迟获取
- */
-let configDirCache: string | null = null
-export const getConfigDir = (): string => {
-  if (!configDirCache) {
-    const userDataPath = app.getPath('userData')
-    const configDir = join(userDataPath, 'config')
-
-    if (!existsSync(configDir)) {
-      mkdirSync(configDir, { recursive: true })
-    }
-
-    configDirCache = configDir
-  }
-  return configDirCache
-}
+export { getConfigDir } from './paths'
 
 /**
  * 会话配置存储
@@ -216,8 +200,7 @@ export class SessionRepository {
   private secretMigrationFailed: Error | null = null
 
   constructor(secretStore?: SecretVault) {
-    // vault 的默认路径复用本模块 getConfigDir；只在实际访问时读取默认单例，
-    // 避免 bundle 初始化顺序中的 repository ↔ secret-store 循环依赖。
+    // 仅在实际访问时读取默认 vault；默认路径由无仓储依赖的 paths 模块提供。
     this.injectedSecretStore = secretStore
   }
 

@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('electron', () => ({ BrowserWindow: { fromId: mocks.fromId } }))
 vi.mock('@main/storage/plugin-repository', () => ({ pluginRepository: { get: mocks.pluginGet } }))
 vi.mock('@main/storage/repository', () => ({ sessionRepository: { get: mocks.sessionGet } }))
-vi.mock('@main/mcp/http-server', () => ({ isSessionAllowedForMcp: mocks.sessionAllowed }))
+vi.mock('@main/mcp/session-policy', () => ({ isSessionAllowedForMcp: mocks.sessionAllowed }))
 
 import {
   checkActionPermission,

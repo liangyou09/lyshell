@@ -9,7 +9,7 @@ vi.mock('electron', () => ({ app: {} }))
 vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 vi.mock('@main/storage/plugin-repository', () => ({ pluginRepository: { getEnabled: () => mocks.enabled.map(id => ({ id })) }, getPluginsDir: vi.fn() }))
 vi.mock('@main/mcp/auth', () => ({ revokePluginToken: mocks.revokeToken, bindPluginToken: mocks.bindToken }))
-vi.mock('@main/mcp/http-server', () => ({ getMcpHttpPort: () => mocks.port }))
+vi.mock('@main/mcp/http-port', () => ({ getMcpHttpPort: () => mocks.port }))
 vi.mock('@main/python/engine', () => ({ pythonEngine: {} }))
 vi.mock('@main/plugin/view-registry', () => ({ getPluginViewRegistry: () => ({ clearRuntimeForPlugins: vi.fn() }) }))
 import { PluginHostManager } from './host-mgr'

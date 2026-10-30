@@ -1,3 +1,4 @@
+import { DOC_ACTION_SCHEME } from './doc-action-contract'
 import { useUiStore, type CreateDialogPanel } from '../stores/ui-store'
 import { useSessionStore } from '../stores/session-store'
 import { dispatchNavigate } from './navigate'
@@ -24,7 +25,7 @@ import { applyMcpToggleToOpenHelpTabs } from '../components/DocPanel/readDoc'
  * (面板条件挂载也不丢),导航走 navigate.ts 的共用解耦通道。
  */
 
-export const DOC_ACTION_SCHEME = 'lyshell-action://'
+export { DOC_ACTION_SCHEME } from './doc-action-contract'
 
 /** 已知动作表:动作 id → 目标面板 */
 const CREATE_ACTIONS: Record<string, CreateDialogPanel> = {

@@ -8,7 +8,7 @@ import {
   loadJsonFileSync,
   writeBackupSync
 } from './atomic-json'
-import { getConfigDir } from './repository'
+import { getConfigDir } from './paths'
 import { isStrongSecureStorage } from '../security/secure-storage'
 import { SECRET_PLACEHOLDER, isSecretEnvKey, isSecretPlaceholder } from '@shared/harness'
 

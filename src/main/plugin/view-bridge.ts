@@ -31,7 +31,7 @@ import { makeViewDialogEntryUrl, PLUGIN_VIEW_SCHEME } from './view-protocol-core
 import { getRendererThemeMode, setRendererThemeMode, setUiThemeModeListener } from '../ui-theme'
 import { resolveApiRouteCall } from '../plugin-host/api'
 import { LyShellHttpClient } from '../mcp-server/http-client'
-import { getMcpHttpPort } from '../mcp/http-server'
+import { getMcpHttpPort } from '../mcp/http-port'
 import { getPluginUiToken } from '../mcp/auth'
 import { pluginRepository } from '../storage/plugin-repository'
 

@@ -33,7 +33,7 @@ import {
   confirmWorkbenchNavigation,
   syncExclusiveBridgeState
 } from '../dsh/exclusive-runtime'
-import { broadcastDshWebDetail } from '../ipc/handlers'
+import { broadcastDshWebDetail } from '../events/application-notifications'
 
 /**
  * 控制状态可能变了 ⇒ 重算共享工作台详情面，**只在身份真变时**推给渲染层。
