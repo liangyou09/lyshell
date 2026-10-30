@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import cn from 'classnames'
 import { useDismiss, useEscDismiss } from '../../hooks'
-import { DEFAULT_MCP_AUDIT_RETENTION, MCP_AUDIT_RETENTION_OPTIONS, isMcpAuditRetentionLimit, type McpAuditRetentionLimit } from '@shared/mcp-audit'
+import { DEFAULT_MCP_AUDIT_RETENTION, MCP_AUDIT_RETENTION_OPTIONS, isMcpAuditRetentionLimit, type McpAuditRetentionLimit, type McpAuditPersistenceState } from '@shared/mcp-audit'
 
 interface McpAuditRecord {
   id: string
@@ -23,6 +23,7 @@ interface McpAuditRecord {
 interface McpAuditResult {
   records: McpAuditRecord[]
   total: number
+  persistence?: McpAuditPersistenceState
 }
 
 interface McpAuditPanelProps {
@@ -200,6 +201,9 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
   const [retentionReady, setRetentionReady] = useState(false)
   const [retentionSaving, setRetentionSaving] = useState(false)
   const [retentionError, setRetentionError] = useState<'load' | 'save' | null>(null)
+  const [persistence, setPersistence] = useState<McpAuditPersistenceState | null>(null)
+  const [clearError, setClearError] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const retentionSavingRef = useRef(false)
   // 下拉选项：打开面板/刷新时从后端拉取去重后的操作名与会话
   const [operations, setOperations] = useState<string[]>([])
@@ -249,6 +253,7 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
       if (result && request === listRequestRef.current) {
         setRecords(result.records)
         setTotal(result.total)
+        setPersistence(result.persistence ?? null)
         setPage(targetPage)
       }
     } catch (err) {
@@ -294,6 +299,8 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
     setRetentionError(null)
     try {
       const result = await window.electronAPI.setMcpAuditRetention(limit)
+      // 设置与日志是两个提交点；日志提交失败时仍显示后端确认的实际设置值。
+      if (isMcpAuditRetentionLimit(result.limit)) setRetentionLimit(result.limit)
       if (!result.success || result.limit !== limit) throw new Error('Could not save audit retention')
       setRetentionLimit(limit)
       // 缩小上限可能移除旧页和筛选选项，统一回到第一页刷新。
@@ -318,6 +325,12 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
     return invalidateRequests
   }, [load, loadFacets, loadRetention, invalidateRequests])
 
+  useEffect(() => {
+    if (!persistence || persistence.lastFailure || persistence.currentRevision <= persistence.committedRevision) return
+    const timer = setTimeout(() => { void load(page) }, 1000)
+    return () => clearTimeout(timer)
+  }, [persistence, page, load])
+
   // ESC 关闭面板 —— 入 ESC 回退栈(栈顶优先、逐层回退,IME 组合期不触发),不自留
   // window 冒泡监听:栈顶成员在捕获层截停后自留监听收不到,第一下 ESC 表现为死键。
   // 面板作为分屏覆盖层条件挂载,挂载即入栈;与浮层/对话框同开时由栈序裁决,
@@ -327,9 +340,13 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   const handleClear = async () => {
+    if (clearing) return
     if (!window.confirm(t('mcpAudit.confirmClear'))) return
+    setClearing(true)
+    setClearError(false)
     try {
-      await window.electronAPI?.clearMcpAudit()
+      const result = await window.electronAPI?.clearMcpAudit()
+      if (!result?.success) throw new Error('Audit clear commit failed')
       // 清空后下拉选项也归零，并把所有过滤复位到"全部"
       setOperation(''); operationRef.current = ''
       setSession(''); sessionRef.current = ''
@@ -339,7 +356,11 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
       await load(1)
       loadFacets()
     } catch (err) {
+      setClearError(true)
+      await load(page)
       console.warn('Failed to clear MCP audit:', err)
+    } finally {
+      setClearing(false)
     }
   }
 
@@ -590,6 +611,15 @@ export function McpAuditPanel({ onClose }: McpAuditPanelProps): JSX.Element {
               {t(retentionError === 'load' ? 'mcpAudit.retentionLoadFailed' : 'mcpAudit.retentionSaveFailed')}
               {retentionError === 'load' && <button type="button" onClick={() => { void loadRetention() }} className="underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--amber)]">{t('mcpAudit.retentionRetry')}</button>}
             </div>
+          )}
+          {clearError && <div role="alert" className="w-full text-[var(--error-rack)]">{t('mcpAudit.clearFailed')}</div>}
+          {persistence?.lastFailure && (
+            <div role="alert" className="w-full text-[var(--error-rack)]">
+              {t(persistence.lastFailure.phase === 'backup' ? 'mcpAudit.backupFailed' : 'mcpAudit.persistenceFailed')}
+            </div>
+          )}
+          {persistence && !persistence.lastFailure && persistence.currentRevision > persistence.committedRevision && (
+            <div role="status" className="w-full text-[var(--text-rack-mute)]">{t('mcpAudit.persistencePending')}</div>
           )}
         </div>
       </div>

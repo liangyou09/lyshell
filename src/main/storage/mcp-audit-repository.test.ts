@@ -1,18 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { dirname, join, resolve } from 'path'
 import { tmpdir } from 'os'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
+import { open, rename, unlink } from 'fs/promises'
 
 const paths = vi.hoisted(() => ({ userData: '', logs: '' }))
-vi.mock('electron', () => ({
-  app: { getPath: (name: 'logs' | 'userData') => paths[name] }
-}))
-vi.mock('electron-log', () => ({
-  default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
-}))
-vi.mock('fs', async (importOriginal) => {
+vi.mock('electron', () => ({ app: { getPath: (name: 'logs' | 'userData') => paths[name] } }))
+vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
+vi.mock('fs', async importOriginal => {
   const actual = await importOriginal<typeof import('fs')>()
-  return { ...actual, writeFileSync: vi.fn(actual.writeFileSync), renameSync: vi.fn(actual.renameSync), unlinkSync: vi.fn(actual.unlinkSync) }
+  return { ...actual, writeFileSync: vi.fn(actual.writeFileSync) }
+})
+vi.mock('fs/promises', async importOriginal => {
+  const actual = await importOriginal<typeof import('fs/promises')>()
+  return { ...actual, open: vi.fn(actual.open), rename: vi.fn(actual.rename), unlink: vi.fn(actual.unlink) }
 })
 
 import { McpAuditRepository } from './mcp-audit-repository'
@@ -23,20 +24,21 @@ const record: McpAuditRecord = {
   operation: 'list_sessions', capability: 'read', allowed: true, tokenSource: 'global'
 }
 
-describe('MCP 活动日志位置及旧记录迁移', () => {
+describe('MCP 活动日志位置、异步提交及旧记录迁移', () => {
   let root: string
   let legacyPath: string
   let logPath: string
 
   beforeEach(async () => {
     vi.useFakeTimers()
-    const actual = await vi.importActual<typeof import('fs')>('fs')
-    vi.mocked(writeFileSync).mockReset().mockImplementation(actual.writeFileSync)
-    vi.mocked(renameSync).mockReset().mockImplementation(actual.renameSync)
-    vi.mocked(unlinkSync).mockReset().mockImplementation(actual.unlinkSync)
+    const sync = await vi.importActual<typeof import('fs')>('fs')
+    const asyncFs = await vi.importActual<typeof import('fs/promises')>('fs/promises')
+    vi.mocked(writeFileSync).mockReset().mockImplementation(sync.writeFileSync)
+    vi.mocked(open).mockReset().mockImplementation(asyncFs.open)
+    vi.mocked(rename).mockReset().mockImplementation(asyncFs.rename)
+    vi.mocked(unlink).mockReset().mockImplementation(asyncFs.unlink)
     root = mkdtempSync(join(tmpdir(), 'lyshell-mcp-audit-'))
     paths.userData = join(root, 'user-data')
-    // 不预建 logs，验证首次使用自动建目录；与用户数据目录相互独立。
     paths.logs = join(root, '便携应用', 'logs')
     mkdirSync(paths.userData, { recursive: true })
     legacyPath = join(paths.userData, 'mcp-audit.json')
@@ -46,63 +48,58 @@ describe('MCP 活动日志位置及旧记录迁移', () => {
   afterEach(() => {
     vi.clearAllTimers()
     vi.useRealTimers()
-    // 清理目标必须是本用例在系统临时目录下创建的独立目录。
     expect(dirname(resolve(root))).toBe(resolve(tmpdir()))
     rmSync(root, { recursive: true, force: true })
   })
 
   const readRecords = (file: string): McpAuditRecord[] => JSON.parse(readFileSync(file, 'utf8'))
-
   const seedRecords = (count: number) => {
     mkdirSync(paths.logs, { recursive: true })
     writeFileSync(logPath, JSON.stringify(Array.from({ length: count }, (_, index) => ({ ...record, id: String(index) }))))
   }
-
   const saveSettings = (value: unknown) => {
     mkdirSync(join(paths.userData, 'config'), { recursive: true })
     writeFileSync(join(paths.userData, 'config', 'mcp-audit-settings.json'), JSON.stringify(value))
   }
 
-  it('缩小保留条数立即裁剪最旧记录，并保存设置供重启读取', () => {
+  it('缩小保留条数裁剪最旧记录，flush 确认日志和设置供重启读取', async () => {
     seedRecords(1200)
     const repo = new McpAuditRepository()
     expect(repo.getRetentionLimit()).toBe(5000)
     repo.setRetentionLimit(1000)
     expect(repo.query({ limit: 2000 }).records.map(item => item.id))
       .toEqual(Array.from({ length: 1000 }, (_, index) => String(1199 - index)))
-    repo.flushSync()
+    await repo.flush()
     expect(readRecords(logPath)).toHaveLength(1000)
     expect(new McpAuditRepository().getRetentionLimit()).toBe(1000)
     repo.append({ operation: 'new-operation', capability: 'read', allowed: true, tokenSource: 'global' })
     expect(repo.query({}).total).toBe(1000)
     expect(repo.query({}).records[0].operation).toBe('new-operation')
-    repo.flushSync()
+    await repo.flush()
     expect(readRecords(logPath)[0].id).toBe('201')
   })
 
-  it('启动先读取已保存的上限，不会按默认 5000 条裁剪更大的已选档位', () => {
-    saveSettings({ retentionLimit: 10000 })
-    seedRecords(6000)
+  it('先读已保存上限，不按默认 5000 条裁剪更大的档位', () => {
+    saveSettings({ retentionLimit: 10000 }); seedRecords(6000)
     const repo = new McpAuditRepository()
     expect(repo.getRetentionLimit()).toBe(10000)
     expect(repo.query({}).total).toBe(6000)
   })
 
-  it('启动加载超额日志也按所选上限裁剪并落盘', () => {
-    saveSettings({ retentionLimit: 1000 })
-    seedRecords(1200)
+  it('加载超额日志按所选上限裁剪并异步落盘', async () => {
+    saveSettings({ retentionLimit: 1000 }); seedRecords(1200)
     const repo = new McpAuditRepository()
     expect(repo.query({}).total).toBe(1000)
-    repo.flushSync()
+    await repo.flush()
     expect(readRecords(logPath)).toHaveLength(1000)
   })
 
-  it.each([null, { retentionLimit: 0 }, { retentionLimit: 1000000 }, { retentionLimit: '1000' }])('非法设置文件 %j 回退默认档位', (settings) => {
+  it.each([null, { retentionLimit: 0 }, { retentionLimit: 1000000 }, { retentionLimit: '1000' }])('非法设置文件 %j 回退默认档位', settings => {
     saveSettings(settings)
     expect(new McpAuditRepository().getRetentionLimit()).toBe(5000)
   })
 
-  it('设置文件写入失败不改变原上限，也不裁剪现有记录', () => {
+  it('设置写入失败不改上限或裁剪记录', () => {
     seedRecords(1200)
     const repo = new McpAuditRepository()
     expect(repo.getRetentionLimit()).toBe(5000)
@@ -113,27 +110,35 @@ describe('MCP 活动日志位置及旧记录迁移', () => {
     expect(readRecords(logPath)).toHaveLength(1200)
   })
 
-  it('新记录和退出前刷盘都写入所配置的 logs 目录', () => {
+  it('append 不同步写盘，退出 revision 屏障提交到 logs 并拒绝后续追加', async () => {
     const repo = new McpAuditRepository()
+    const writesBefore = vi.mocked(writeFileSync).mock.calls.length
     repo.append({ operation: 'list_sessions', capability: 'read', allowed: true, tokenSource: 'global' })
-    repo.flushSync()
+    expect(vi.mocked(writeFileSync).mock.calls.length).toBe(writesBefore)
+    expect(existsSync(logPath)).toBe(false)
+    expect(repo.getPersistenceState()).toMatchObject({ currentRevision: 1, committedRevision: 0 })
+    const revision = repo.stopAcceptingWrites()
+    await repo.flush(revision)
     expect(readRecords(logPath)).toHaveLength(1)
     expect(existsSync(legacyPath)).toBe(false)
     expect(new McpAuditRepository().query({}).total).toBe(1)
+    expect(() => repo.append({ operation: 'late', capability: 'read', allowed: true, tokenSource: '' })).toThrow('draining')
   })
 
-  it('迁移旧位置的记录，确认新文件成功保存后移除旧文件', () => {
+  it('旧位置迁移等新文件提交后才删除原件', async () => {
     writeFileSync(legacyPath, JSON.stringify([record]))
     const repo = new McpAuditRepository()
     expect(repo.query({}).records).toEqual([record])
+    expect(readRecords(legacyPath)).toEqual([record])
+    expect(existsSync(logPath)).toBe(false)
+    await repo.flush()
     expect(readRecords(logPath)).toEqual([record])
     expect(existsSync(legacyPath)).toBe(false)
     expect(new McpAuditRepository().query({}).records).toEqual([record])
   })
 
-  it('新旧位置都有文件时以 logs 为准，不覆盖已有新记录', () => {
-    writeFileSync(legacyPath, JSON.stringify([record]))
-    mkdirSync(paths.logs, { recursive: true })
+  it('新旧位置都有文件时以 logs 为准，不覆盖新记录', () => {
+    writeFileSync(legacyPath, JSON.stringify([record])); seedRecords(1)
     const current = { ...record, id: 'new-record' }
     writeFileSync(logPath, JSON.stringify([current]))
     expect(new McpAuditRepository().query({}).records).toEqual([current])
@@ -141,76 +146,81 @@ describe('MCP 活动日志位置及旧记录迁移', () => {
     expect(readRecords(legacyPath)).toEqual([record])
   })
 
-  it('清空后重新加载仍为空，不会重新导入残留旧文件', () => {
-    writeFileSync(legacyPath, JSON.stringify([record]))
-    mkdirSync(paths.logs, { recursive: true })
-    writeFileSync(logPath, JSON.stringify([record]))
+  it('清空确认后重新加载为空，不导入残留旧文件', async () => {
+    writeFileSync(legacyPath, JSON.stringify([record])); seedRecords(1)
     const repo = new McpAuditRepository()
-    repo.clear()
-    repo.flushSync()
+    await repo.clear()
     expect(readRecords(logPath)).toEqual([])
     expect(new McpAuditRepository().query({}).total).toBe(0)
   })
 
-  it('迁移写盘失败时保留旧文件和内存记录，后续保存可重试', () => {
+  it('迁移临时创建失败保留原件与内存，flush 可重试', async () => {
     writeFileSync(legacyPath, JSON.stringify([record]))
-    vi.mocked(writeFileSync).mockImplementationOnce(() => { throw new Error('EACCES') })
     const repo = new McpAuditRepository()
     expect(repo.query({}).records).toEqual([record])
+    vi.mocked(open).mockRejectedValueOnce(Object.assign(new Error('EACCES'), { code: 'EACCES' }))
+    await expect(repo.flush()).rejects.toThrow('Persistence commit failed')
     expect(readRecords(legacyPath)).toEqual([record])
     expect(existsSync(logPath)).toBe(false)
-    repo.flushSync()
-    expect(readRecords(logPath)).toEqual([record])
-  })
-
-  it('迁移重命名失败时不直写目标文件，保留旧记录供下次完整迁移', () => {
-    writeFileSync(legacyPath, JSON.stringify([record]))
-    vi.mocked(renameSync).mockImplementationOnce(() => { throw new Error('EPERM') })
-    expect(new McpAuditRepository().query({}).records).toEqual([record])
-    expect(existsSync(logPath)).toBe(false)
-    expect(readRecords(legacyPath)).toEqual([record])
-    expect(new McpAuditRepository().query({}).records).toEqual([record])
+    expect(repo.getPersistenceState().lastFailure).toEqual({ revision: 1, phase: 'primary', code: 'PERSISTENCE_FAILED' })
+    await repo.flush()
     expect(readRecords(logPath)).toEqual([record])
     expect(existsSync(legacyPath)).toBe(false)
   })
 
-  it('裁剪记录的重命名失败时保留原日志文件，刷盘重试成功后再替换', () => {
+  it('迁移 rename 失败不直写目标，保留原件供重试', async () => {
+    writeFileSync(legacyPath, JSON.stringify([record]))
+    const repo = new McpAuditRepository()
+    expect(repo.query({}).records).toEqual([record])
+    vi.mocked(rename).mockRejectedValueOnce(new Error('EPERM'))
+    await expect(repo.flush()).rejects.toThrow('Persistence commit failed')
+    expect(existsSync(logPath)).toBe(false)
+    expect(readRecords(legacyPath)).toEqual([record])
+    await repo.flush()
+    expect(readRecords(logPath)).toEqual([record])
+    expect(existsSync(legacyPath)).toBe(false)
+  })
+
+  it('裁剪 rename 失败保留原日志，重试成功后才替换', async () => {
     seedRecords(1200)
     const repo = new McpAuditRepository()
     repo.setRetentionLimit(1000)
-    vi.mocked(renameSync).mockImplementationOnce(() => { throw new Error('EPERM') })
-    repo.flushSync()
+    vi.mocked(rename).mockRejectedValueOnce(new Error('EPERM'))
+    await expect(repo.flush()).rejects.toThrow('Persistence commit failed')
     expect(readRecords(logPath)).toHaveLength(1200)
     expect(repo.query({}).total).toBe(1000)
-    repo.flushSync()
+    await repo.flush()
     expect(readRecords(logPath)).toHaveLength(1000)
   })
 
-  it('旧文件删除失败时仍可读取新文件，避免重复导入', () => {
+  it('旧文件删除失败仍读新文件，避免重复导入', async () => {
     writeFileSync(legacyPath, JSON.stringify([record]))
-    vi.mocked(unlinkSync).mockImplementationOnce(() => { throw new Error('EACCES') })
-    expect(new McpAuditRepository().query({}).records).toEqual([record])
+    const repo = new McpAuditRepository()
+    expect(repo.query({}).records).toEqual([record])
+    vi.mocked(unlink).mockRejectedValueOnce(new Error('EACCES'))
+    await repo.flush()
     expect(readRecords(legacyPath)).toEqual([record])
     expect(readRecords(logPath)).toEqual([record])
     expect(new McpAuditRepository().query({}).records).toEqual([record])
   })
 
-  it('不迁移损坏的旧文件，保留原始内容', () => {
+  it('损坏旧文件不迁移，保留原始字节', () => {
     writeFileSync(legacyPath, '{broken')
     expect(new McpAuditRepository().query({}).total).toBe(0)
     expect(readFileSync(legacyPath, 'utf8')).toBe('{broken')
     expect(existsSync(logPath)).toBe(false)
   })
 
-  it('损坏的线上日志拒绝被空内存覆盖，append/flush 均保留原件', () => {
+  it('损坏线上日志只读，append/flush 不覆盖原件且暴露固定错误', async () => {
     mkdirSync(paths.logs, { recursive: true })
     writeFileSync(logPath, '{broken-live-log')
     const repo = new McpAuditRepository()
     expect(repo.query({}).total).toBe(0)
     repo.append({ operation: 'list_sessions', capability: 'read', allowed: true, tokenSource: 'global' })
-    repo.flushSync()
+    await expect(repo.flush()).rejects.toThrow('Persistence commit failed')
     expect(readFileSync(logPath, 'utf8')).toBe('{broken-live-log')
     expect(existsSync(legacyPath)).toBe(false)
     expect(readdirSync(paths.logs).some(name => name.startsWith('mcp-audit.json.corrupt-'))).toBe(true)
+    expect(repo.query({}).persistence.lastFailure?.code).toBe('PERSISTENCE_FAILED')
   })
 })

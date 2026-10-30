@@ -6,23 +6,25 @@
  * 对一个能在生产服务器上跑命令的工具，可见性即信任。
  *
  * 实现：内存有界缓冲（用户可设置保留上限）+ 防抖落盘（2s），避免每次 append 都写盘。
- * 退出前由 main/index.ts 的 will-quit 调 flushSync() 同步落盘，防丢最近事件。
+ * 退出前由生命周期协调器捕获 revision 并 await flush()；绝不另启同步写入者。
  * 查询走内存，倒序返回（最新在前）。
  */
 import { app } from 'electron'
 import { join } from 'path'
 import { existsSync, unlinkSync } from 'fs'
+import { unlink } from 'fs/promises'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
-import { DEFAULT_MCP_AUDIT_RETENTION, isMcpAuditRetentionLimit, type McpAuditRetentionLimit } from '@shared/mcp-audit'
+import { DEFAULT_MCP_AUDIT_RETENTION, isMcpAuditRetentionLimit, type McpAuditRetentionLimit, type McpAuditPersistenceState, type McpAuditQuery } from '@shared/mcp-audit'
+export type { McpAuditQuery } from '@shared/mcp-audit'
 import {
   atomicWriteFileSync,
   cloneJsonValue,
   JsonStoreLoadError,
   loadJsonFileSync,
   readJsonFileSync,
-  writeBackupSync
 } from './atomic-json'
+import { SerializedJsonWriter } from './serialized-json-writer'
 
 export interface McpAuditRecord {
   id: string
@@ -42,19 +44,6 @@ export interface McpAuditRecord {
   originSessionId?: string
 }
 
-export interface McpAuditQuery {
-  sessionId?: string
-  /** 操作名子串匹配 */
-  operation?: string
-  allowed?: boolean
-  /** ISO：仅返回此时间之后的记录 */
-  since?: string
-  /** ISO：仅返回此时间之前的记录 */
-  until?: string
-  limit?: number
-  offset?: number
-}
-
 export interface McpAuditFacets {
   /** 去重后的操作名（按字母序） */
   operations: string[]
@@ -62,13 +51,13 @@ export interface McpAuditFacets {
   sessions: { sessionId: string; sessionName?: string; sessionType?: string }[]
 }
 
-const SAVE_DEBOUNCE_MS = 2000
-
 export class McpAuditRepository {
   private filePath: string | null = null
   private records: McpAuditRecord[] = []
   private loaded = false
-  private saveTimer: NodeJS.Timeout | null = null
+  private writer: SerializedJsonWriter | null = null
+  private draining = false
+  private migratedFrom: string | null = null
   private retentionLimit: McpAuditRetentionLimit = DEFAULT_MCP_AUDIT_RETENTION
   private loadError: JsonStoreLoadError | null = null
 
@@ -76,6 +65,12 @@ export class McpAuditRepository {
     if (this.loaded) return
     this.loadRetention()
     this.filePath = join(app.getPath('logs'), 'mcp-audit.json')
+    this.writer = new SerializedJsonWriter(this.filePath, () => {
+      if (this.loadError) throw new Error('Audit log is read-only after load failure')
+      return JSON.stringify(this.records, null, 2)
+    }, {
+      onFailure: failure => log.error('[MCP] Audit persistence failed:', failure)
+    })
     this.load(join(app.getPath('userData'), 'mcp-audit.json'))
     this.loaded = true
   }
@@ -106,6 +101,7 @@ export class McpAuditRepository {
   setRetentionLimit(limit: McpAuditRetentionLimit): void {
     if (!isMcpAuditRetentionLimit(limit)) throw new Error('Invalid MCP audit retention limit')
     this.ensureInitialized()
+    this.assertAcceptingWrites()
     // 先确认设置已保存，再裁剪记录；保存失败时不改当前上限和记录。
     atomicWriteFileSync(this.settingsPath, JSON.stringify({ retentionLimit: limit }, null, 2))
     this.retentionLimit = limit
@@ -148,45 +144,24 @@ export class McpAuditRepository {
       log.warn(`[MCP] Audit log was corrupt; restored from backup (damaged copy: ${result.preservedPath ?? 'unavailable'})`)
     }
     log.info(`[MCP] Loaded ${this.records.length} audit records`)
-    // 先在 logs 中成功落盘，再删除旧文件；跨盘安装、便携目录也可迁移。
-    if (sourcePath !== this.filePath && this.saveNow()) {
-      try { unlinkSync(legacyPath) } catch (e) {
-        log.warn('[MCP] Failed to remove migrated audit log:', e)
-      }
+    // 异步迁移：新位置主文件提交确认后才删除旧文件；失败保留原件供显式重试。
+    if (sourcePath !== this.filePath) {
+      this.migratedFrom = legacyPath
+      this.scheduleSave()
     }
   }
 
   private scheduleSave(): void {
-    if (this.saveTimer) clearTimeout(this.saveTimer)
-    this.saveTimer = setTimeout(() => {
-      this.saveTimer = null
-      this.saveNow()
-    }, SAVE_DEBOUNCE_MS)
+    this.writer?.markDirty()
   }
 
-  private saveNow(): boolean {
-    if (!this.filePath) return false
-    if (this.loadError) {
-      // 损坏的线上日志只读：宁可丢新审计事件，也不能用内存空列表覆盖用户原件。
-      log.error('[MCP] Audit log is damaged; refusing to overwrite:', this.loadError)
-      return false
-    }
-    // 原子落盘：同目录唯一临时文件 + fsync + rename。替换失败时保留原文件，不能直写覆盖。
-    const json = JSON.stringify(this.records, null, 2)
-    try {
-      atomicWriteFileSync(this.filePath, json)
-      if (!writeBackupSync(this.filePath, json)) {
-        log.warn('[MCP] Failed to refresh audit log backup; primary commit succeeded')
-      }
-      return true
-    } catch (e) {
-      log.error('[MCP] Failed to save audit log:', e)
-      return false
-    }
+  private assertAcceptingWrites(): void {
+    if (this.draining) throw new Error('Audit repository is draining')
   }
 
   append(record: Omit<McpAuditRecord, 'id' | 'timestamp'>): void {
     this.ensureInitialized()
+    this.assertAcceptingWrites()
     this.records.push({ id: uuidv4(), timestamp: new Date().toISOString(), ...record })
     if (this.records.length > this.retentionLimit) {
       this.records = this.records.slice(-this.retentionLimit)
@@ -194,7 +169,7 @@ export class McpAuditRepository {
     this.scheduleSave()
   }
 
-  query(filter: McpAuditQuery): { records: McpAuditRecord[]; total: number } {
+  query(filter: McpAuditQuery): { records: McpAuditRecord[]; total: number; persistence: McpAuditPersistenceState } {
     this.ensureInitialized()
     let filtered = this.records
     if (filter.sessionId) filtered = filtered.filter(r => r.sessionId === filter.sessionId)
@@ -207,7 +182,7 @@ export class McpAuditRepository {
     const total = reversed.length
     const offset = Math.max(0, filter.offset ?? 0)
     const limit = Math.max(1, filter.limit ?? 200)
-    return { records: reversed.slice(offset, offset + limit).map(record => cloneJsonValue(record)), total }
+    return { records: reversed.slice(offset, offset + limit).map(record => cloneJsonValue(record)), total, persistence: this.getPersistenceState() }
   }
 
   /** 全量去重操作名/会话，供面板下拉选项。不随当前过滤变化--展示全集，便于用户任选。 */
@@ -233,19 +208,41 @@ export class McpAuditRepository {
     }
   }
 
-  clear(): void {
+  async clear(): Promise<void> {
     this.ensureInitialized()
+    this.assertAcceptingWrites()
     this.records = []
     this.scheduleSave()
+    await this.flush()
   }
 
-  /** 应用退出前同步落盘（will-quit 钩子调用） */
-  flushSync(): void {
-    if (this.saveTimer) {
-      clearTimeout(this.saveTimer)
-      this.saveTimer = null
+  getPersistenceState(): McpAuditPersistenceState {
+    this.ensureInitialized()
+    const state = this.writer!.getState()
+    if (this.loadError && !state.lastFailure) {
+      state.lastFailure = { revision: state.currentRevision, phase: 'primary', code: 'PERSISTENCE_FAILED' }
     }
-    this.saveNow()
+    return state
+  }
+
+  /** 停止新变更并捕获退出屏障；flush 必须放入正常退出的总期限。 */
+  stopAcceptingWrites(): number {
+    this.ensureInitialized()
+    this.draining = true
+    return this.writer!.stopAcceptingWrites()
+  }
+
+  async flush(targetRevision?: number): Promise<void> {
+    this.ensureInitialized()
+    if (this.loadError) throw new Error('Persistence commit failed')
+    await this.writer!.flush(targetRevision)
+    if (this.migratedFrom && this.writer!.getState().committedRevision > 0) {
+      const legacyPath = this.migratedFrom
+      this.migratedFrom = null
+      try { await unlink(legacyPath) } catch {
+        log.warn('[MCP] New audit log committed; legacy cleanup was not confirmed')
+      }
+    }
   }
 }
 

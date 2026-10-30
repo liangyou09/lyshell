@@ -117,4 +117,27 @@ describe('MCP 活动保留条数设置', () => {
     expect(selector().value).toBe('10000')
     expect(screen.queryByRole('status')).toBeNull()
   })
+
+  it('区分尚未提交和保存失败，刷新确认成功后清除状态', async () => {
+    const state = { currentRevision: 2, committedRevision: 1, dirtySince: 10, activeWrite: false, lastFailure: null, serializationMs: 1, writeMs: 1 }
+    getRecords.mockResolvedValueOnce({ records: [], total: 0, persistence: state })
+    getRecords.mockResolvedValue({ records: [], total: 0, persistence: { ...state, committedRevision: 2, dirtySince: null } })
+    render(<McpAuditPanel onClose={vi.fn()} />)
+    await ready()
+    expect(screen.getByRole('status').textContent).toBe('mcpAudit.persistencePending')
+    fireEvent.click(screen.getByRole('button', { name: 'mcpAudit.refresh' }))
+    await waitFor(() => expect(screen.queryByRole('status')).toBeNull())
+    getRecords.mockResolvedValue({ records: [], total: 0, persistence: { ...state, lastFailure: { revision: 2, phase: 'primary', code: 'PERSISTENCE_FAILED' } } })
+    fireEvent.click(screen.getByRole('button', { name: 'mcpAudit.refresh' }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('mcpAudit.persistenceFailed'))
+  })
+
+  it('日志提交失败时显示后端确认的保留设置值，不谎报设置未变', async () => {
+    setRetention.mockResolvedValueOnce({ success: false, limit: 1000 })
+    render(<McpAuditPanel onClose={vi.fn()} />)
+    await ready()
+    fireEvent.change(selector(), { target: { value: '1000' } })
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('mcpAudit.retentionSaveFailed'))
+    expect(selector().value).toBe('1000')
+  })
 })

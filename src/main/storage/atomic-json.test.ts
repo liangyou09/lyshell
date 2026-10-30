@@ -11,6 +11,14 @@ const fault = vi.hoisted(() => ({
   open: false,
   read: false,
   asyncRename: false,
+  asyncOpen: false,
+  asyncWrite: false,
+  asyncFsync: false,
+  asyncDirFsync: false,
+  asyncDirs: [] as string[],
+  collision: false,
+  asyncCollision: false,
+  collidedPath: '',
   copyCode: undefined as string | undefined,
   copyCollide: false,
   copies: [] as string[],
@@ -34,8 +42,14 @@ vi.mock('fs', async importOriginal => {
       return actual.fsyncSync(...args)
     }) as typeof actual.fsyncSync,
     openSync: ((...args: Parameters<typeof actual.openSync>) => {
+      if (fault.collision && args[1] === 'wx') {
+        fault.collidedPath = String(args[0])
+        actual.writeFileSync(args[0], 'existing-collision', { flag: 'wx' })
+        throw Object.assign(new Error('simulated existing temp file'), { code: 'EEXIST' })
+      }
       if (fault.open) throw Object.assign(new Error('simulated temp create failure'), { code: 'EACCES' })
-      fault.temps.push(String(args[0]))
+      // POSIX 还会以 r 打开父目录做 fsync；这里只记录排他创建的临时文件。
+      if (args[1] === 'wx') fault.temps.push(String(args[0]))
       return actual.openSync(...args)
     }) as typeof actual.openSync,
     readFileSync: ((...args: Parameters<typeof actual.readFileSync>) => {
@@ -57,6 +71,30 @@ vi.mock('fs/promises', async importOriginal => {
   const actual = await importOriginal<typeof import('fs/promises')>()
   return {
     ...actual,
+    open: (async (...args: Parameters<typeof actual.open>) => {
+      const temp = args[1] === 'wx'
+      if (temp && fault.asyncCollision) {
+        fault.collidedPath = String(args[0])
+        await actual.writeFile(args[0], 'existing-collision', { flag: 'wx' })
+        throw Object.assign(new Error('simulated existing async temp file'), { code: 'EEXIST' })
+      }
+      if (temp && fault.asyncOpen) throw Object.assign(new Error('simulated async temp failure'), { code: 'EACCES' })
+      const handle = await actual.open(...args)
+      if (!temp) fault.asyncDirs.push(String(args[0]))
+      const write = handle.writeFile.bind(handle)
+      const sync = handle.sync.bind(handle)
+      handle.writeFile = (async (...writeArgs: Parameters<typeof handle.writeFile>) => {
+        if (fault.asyncWrite) throw Object.assign(new Error('simulated async write failure'), { code: 'ENOSPC' })
+        return write(...writeArgs)
+      }) as typeof handle.writeFile
+      handle.sync = async () => {
+        if ((temp && fault.asyncFsync) || (!temp && fault.asyncDirFsync)) {
+          throw Object.assign(new Error('simulated async sync failure'), { code: 'EIO' })
+        }
+        return sync()
+      }
+      return handle
+    }) as typeof actual.open,
     rename: (async (...args: Parameters<typeof actual.rename>) => {
       if (fault.asyncRename) throw Object.assign(new Error('simulated async rename failure'), { code: 'EPERM' })
       return actual.rename(...args)
@@ -84,6 +122,10 @@ beforeEach(() => {
   dir = join(tmpdir(), `lyshell-atomic-${randomUUID()}`)
   mkdirSync(dir, { recursive: true })
   fault.write = fault.rename = fault.fsync = fault.open = fault.read = fault.asyncRename = false
+  fault.asyncOpen = fault.asyncWrite = fault.asyncFsync = fault.asyncDirFsync = false
+  fault.asyncDirs = []
+  fault.collision = fault.asyncCollision = false
+  fault.collidedPath = ''
   fault.copyCode = undefined
   fault.copyCollide = false
   fault.copies = []
@@ -144,9 +186,24 @@ describe('atomicWriteFileSync', () => {
     expect(new Set(fault.temps).size).toBe(2)
     expect(leftovers()).toEqual([])
   })
+
+  it('排他创建碰撞不删除并非本次创建的同名文件', () => {
+    writeFileSync(file(), 'old')
+    fault.collision = true
+    expect(() => atomicWriteFileSync(file(), 'new')).toThrow(AtomicJsonError)
+    expect(readFileSync(file(), 'utf8')).toBe('old')
+    expect(readFileSync(fault.collidedPath, 'utf8')).toBe('existing-collision')
+  })
 })
 
 describe('atomicWriteFile（异步）', () => {
+  it('排他创建碰撞不删除并非本次创建的同名文件', async () => {
+    writeFileSync(file(), 'old')
+    fault.asyncCollision = true
+    await expect(atomicWriteFile(file(), 'new')).rejects.toMatchObject({ phase: 'temp-create' })
+    expect(readFileSync(file(), 'utf8')).toBe('old')
+    expect(readFileSync(fault.collidedPath, 'utf8')).toBe('existing-collision')
+  })
   it('成功提交且不留临时文件', async () => {
     await atomicWriteFile(file(), 'async-ok')
     expect(readFileSync(file(), 'utf8')).toBe('async-ok')
@@ -158,6 +215,26 @@ describe('atomicWriteFile（异步）', () => {
     fault.asyncRename = true
     await expect(atomicWriteFile(file(), 'new')).rejects.toBeInstanceOf(AtomicJsonError)
     expect(readFileSync(file(), 'utf8')).toBe('old')
+    expect(leftovers()).toEqual([])
+  })
+
+  it.each([
+    ['asyncOpen', 'temp-create'],
+    ['asyncWrite', 'write'],
+    ['asyncFsync', 'fsync']
+  ] as const)('%s 阶段失败保留旧文件与精确阶段，不留下临时文件', async (key, phase) => {
+    writeFileSync(file(), 'old-complete')
+    fault[key] = true
+    await expect(atomicWriteFile(file(), 'new')).rejects.toMatchObject({ phase })
+    expect(readFileSync(file(), 'utf8')).toBe('old-complete')
+    expect(leftovers()).toEqual([])
+  })
+
+  it('目录同步是平台允许时的尽力操作，不否认已经完成的主提交', async () => {
+    fault.asyncDirFsync = true
+    await atomicWriteFile(file(), 'committed')
+    expect(readFileSync(file(), 'utf8')).toBe('committed')
+    expect(fault.asyncDirs).toEqual(process.platform === 'win32' ? [] : [dir])
     expect(leftovers()).toEqual([])
   })
 })

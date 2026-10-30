@@ -11,7 +11,7 @@ import {
   rmSync,
   writeFileSync
 } from 'fs'
-import { mkdir, open, rename, unlink, writeFile } from 'fs/promises'
+import { mkdir, open, rename, unlink } from 'fs/promises'
 import { randomUUID } from 'crypto'
 import { basename, dirname, join } from 'path'
 
@@ -127,6 +127,7 @@ export function atomicWriteFileSync(
   const dir = dirname(filePath)
   let tmpPath: string | undefined
   let fd: number | undefined
+  let created = false
   let phase: AtomicWritePhase = 'mkdir'
 
   try {
@@ -134,6 +135,7 @@ export function atomicWriteFileSync(
     phase = 'temp-create'
     tmpPath = tempPathFor(filePath)
     fd = openSync(tmpPath, 'wx', mode)
+    created = true
 
     phase = 'write'
     writeFileSync(fd, data, { encoding: 'utf-8' })
@@ -165,7 +167,7 @@ export function atomicWriteFileSync(
         // ignore
       }
     }
-    if (tmpPath) {
+    if (tmpPath && created) {
       try {
         rmSync(tmpPath, { force: true })
       } catch {
@@ -187,34 +189,61 @@ export async function atomicWriteFile(
 ): Promise<void> {
   const mode = options.mode ?? 0o600
   const dir = dirname(filePath)
-  const tmpPath = tempPathFor(filePath)
+  let tmpPath: string | undefined
+  let handle: Awaited<ReturnType<typeof open>> | undefined
+  let created = false
   let phase: AtomicWritePhase = 'mkdir'
 
   try {
     await mkdir(dir, { recursive: true })
 
+    phase = 'temp-create'
+    tmpPath = tempPathFor(filePath)
+    handle = await open(tmpPath, 'wx', mode)
+    created = true
+
     phase = 'write'
-    await writeFile(tmpPath, data, { encoding: 'utf-8', mode, flag: 'wx' })
+    await handle.writeFile(data, { encoding: 'utf-8' })
 
     if (options.fsync !== false) {
       phase = 'fsync'
-      const handle = await open(tmpPath, 'r+')
-      try {
-        await handle.sync()
-      } finally {
-        await handle.close()
-      }
+      await handle.sync()
     }
+
+    phase = 'chmod'
+    try { await handle.chmod(mode) } catch { /* open 时已指定权限；Windows chmod 有限 */ }
+    await handle.close()
+    handle = undefined
 
     phase = 'rename'
     await rename(tmpPath, filePath)
+    tmpPath = undefined
+
+    // 与同步版相同：POSIX 目录 fsync 尽力执行；失败不能否认已完成的 rename。
+    if (process.platform !== 'win32') {
+      let directory: Awaited<ReturnType<typeof open>> | undefined
+      try {
+        directory = await open(dir, 'r')
+        await directory.sync()
+      } catch { /* 平台/文件系统不支持目录同步时保留已提交结果 */ }
+      finally { try { await directory?.close() } catch { /* ignore */ } }
+    }
   } catch (err) {
-    try {
-      await unlink(tmpPath)
-    } catch {
-      // 临时文件可能尚未创建
+    try { await handle?.close() } catch { /* 保留原始错误 */ }
+    if (tmpPath && created) {
+      try { await unlink(tmpPath) } catch { /* 临时文件可能尚未创建 */ }
     }
     throw new AtomicJsonError(phase, filePath, err)
+  }
+}
+
+/** 主文件提交后串行刷新备份；失败只影响备份，不撤回主文件提交。 */
+export async function writeBackup(filePath: string, raw: string): Promise<boolean> {
+  try {
+    await atomicWriteFile(backupPathFor(filePath), raw)
+    return true
+  } catch {
+    return false
   }
 }
 
