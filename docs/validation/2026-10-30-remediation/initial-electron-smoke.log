@@ -1,0 +1,59 @@
+
+14:48:20.606 > Using system Python: C:\Users\69534\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe
+14:48:21.240 > Download history initialized
+14:48:21.379 > [MCP] Hardened port file ACL on Windows for DESKTOP-TL9I7VN\69534
+14:48:21.502 > [MCP] To register LyShell with an MCP client, add this to its mcpServers config:
+14:48:21.503 > [MCP] {
+  "mcpServers": {
+    "lyshell": {
+      "command": "D:\\workspace\\claude\\LyShell\\node_modules\\electron\\dist\\electron.exe",
+      "args": [
+        "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\dist\\main\\mcpServer.js"
+      ],
+      "env": {
+        "LYSHELL_USER_DATA": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\remediation-smoke\\profile-JGmZJp",
+        "ELECTRON_RUN_AS_NODE": "1"
+      }
+    }
+  }
+}
+14:48:21.504 > [MCP] Fallback (system Node.js, if the config above fails):
+14:48:21.504 > [MCP] {
+  "mcpServers": {
+    "lyshell": {
+      "command": "D:\\software\\nodejs\\node.exe",
+      "args": [
+        "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\dist\\main\\mcpServer.js"
+      ],
+      "env": {
+        "LYSHELL_USER_DATA": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\remediation-smoke\\profile-JGmZJp"
+      }
+    }
+  }
+}
+14:48:21.504 > [MCP] External access is OFF (default). Run the MCP client inside a LyShell-spawned local terminal,
+14:48:21.505 > [MCP]   or enable security.mcp.allowExternalMcpClients in preferences to allow external connections.
+14:48:21.505 > [MCP] HTTP server started on port 54668 (externalAccess=false)
+14:48:21.507 > [plugin-host] No enabled contributor plugins to start; nothing to spawn
+14:48:21.516 > Registering IPC handlers...
+14:48:21.518 > No sessions file found, starting fresh
+14:48:21.519 > IPC handlers registered successfully
+14:48:21.655 > Registered webbar deep-link scheme handler: bytedance://
+14:48:21.656 > Registered webbar deep-link scheme handler: snssdk1128://
+14:48:21.656 > Registered webbar deep-link scheme handler: aweme://
+14:48:21.657 > Registered webbar deep-link scheme handler: iesdouyin://
+14:48:21.657 > Registered webbar deep-link scheme handler: douyin://
+14:48:21.658 > LyShell started successfully
+14:48:24.356 > Saved 0 agents to storage
+14:48:24.357 > Initialized empty agent library
+14:48:24.365 > Set config: locale
+14:48:24.385 > List sessions
+14:48:24.386 > Get config: sidebarCollapsed
+14:48:24.386 > Get config: sidebarWidth
+14:48:24.386 > No quickCommands file found, starting fresh
+14:48:24.388 > Get config: quickCommand.defaultGroupColor
+14:48:24.523 > List sessions
+14:48:24.848 > Set config: sidebarCollapsed
+14:48:24.855 > Set config: sidebarWidth
+14:48:25.215 > [lifecycle] fatal state entered; new business requests are refused
+14:48:25.227 > [fatal] {"kind":"fatal","at":1793342905214,"source":"uncaughtException","phase":"running","pid":48876,"name":"TypeError","code":"ERR_INVALID_ARG_TYPE","message":"The \"listener\" argument must be of type function. Received null","stack":"TypeError [ERR_INVALID_ARG_TYPE]: The \"listener\" argument must be of type function. Received null\n    at checkListener (node:events:266:3)\n    at Worker.removeListener (node:events:681:7)\n    at done (C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\scripts\\remediation-electron-smoke.cjs:31:14)\n    at Worker.message (C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\scripts\\remediation-electron-smoke.cjs:26:54)\n    at Worker.emit (node:events:514:28)\n    at MessagePort.<anonymous> (node:internal/worker:350:14)\n    at [nodejs.internal.kHybridDispatch] (node:internal/event_target:848:20)\n    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28)"}

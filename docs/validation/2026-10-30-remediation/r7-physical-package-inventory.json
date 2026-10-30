@@ -1,0 +1,11 @@
+{
+  "head": "bd9009c42738d265b660ca6bb09c497ce381d26f",
+  "command": [
+    "node",
+    "tmp/remediation-physical-inventory.cjs"
+  ],
+  "start": "2026-10-30T08:19:37.444Z",
+  "end": "2026-10-30T08:19:38.183Z",
+  "exitCode": 0,
+  "signal": null
+}

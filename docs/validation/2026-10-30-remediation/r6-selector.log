@@ -1,0 +1,11 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v1.6.1 C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell
+
+ ✓ src/renderer/components/Terminal/TerminalView.search.test.tsx  (17 tests) 1913ms
+
+ Test Files  1 passed (1)
+      Tests  17 passed (17)
+   Start at  14:12:19
+   Duration  5.64s (transform 758ms, setup 0ms, collect 1.59s, tests 1.91s, environment 1.28s, prepare 132ms)
+

@@ -1,0 +1,11 @@
+{
+  "head": "36739a6deb32bc45bf7dcbf29635cce9c306230c",
+  "command": [
+    "node",
+    "tmp/run-browser-host-smoke.cjs"
+  ],
+  "start": "2026-10-30T07:18:27.024Z",
+  "end": "2026-10-30T07:18:30.558Z",
+  "exitCode": 1,
+  "signal": null
+}

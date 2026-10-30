@@ -1,0 +1,86 @@
+{
+  "platform": "win32",
+  "electron": "43.7.11",
+  "checks": {
+    "trustedPreload": true,
+    "readonlyProtection": true,
+    "navigation": true,
+    "capture": true,
+    "detachAndDestroyConfirmed": true
+  },
+  "memory": {
+    "baseline": [
+      {
+        "type": "Browser",
+        "workingSetSize": 130260,
+        "peakWorkingSetSize": 130980
+      },
+      {
+        "type": "GPU",
+        "workingSetSize": 89836,
+        "peakWorkingSetSize": 93824
+      },
+      {
+        "type": "Utility",
+        "workingSetSize": 55568,
+        "peakWorkingSetSize": 55568
+      },
+      {
+        "type": "Tab",
+        "workingSetSize": 145140,
+        "peakWorkingSetSize": 163576
+      }
+    ],
+    "nativeView": [
+      {
+        "type": "Browser",
+        "workingSetSize": 209616,
+        "peakWorkingSetSize": 228972
+      },
+      {
+        "type": "GPU",
+        "workingSetSize": 129464,
+        "peakWorkingSetSize": 131668
+      },
+      {
+        "type": "Utility",
+        "workingSetSize": 57212,
+        "peakWorkingSetSize": 57216
+      },
+      {
+        "type": "Tab",
+        "workingSetSize": 159664,
+        "peakWorkingSetSize": 168036
+      },
+      {
+        "type": "Tab",
+        "workingSetSize": 96680,
+        "peakWorkingSetSize": 96680
+      }
+    ],
+    "afterNativeClose": [
+      {
+        "type": "Browser",
+        "workingSetSize": 261608,
+        "peakWorkingSetSize": 267412
+      },
+      {
+        "type": "GPU",
+        "workingSetSize": 137036,
+        "peakWorkingSetSize": 137036
+      },
+      {
+        "type": "Utility",
+        "workingSetSize": 57252,
+        "peakWorkingSetSize": 57252
+      },
+      {
+        "type": "Tab",
+        "workingSetSize": 159740,
+        "peakWorkingSetSize": 168036
+      }
+    ]
+  },
+  "comparisonUnverified": "Comparison webview deadline exceeded",
+  "ok": true
+}

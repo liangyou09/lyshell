@@ -4,7 +4,7 @@
 > 项目：[liangyou09/lyshell](https://github.com/liangyou09/lyshell)  
 > 基线提交：[`a1800aeb77adfb90532007c7b282b9439c5f8d67`][commit]  
 > 基线版本：2.0.2；Electron 43.7.11  
-> 状态：**可执行的修复方案，尚未实施源码修改。**  
+> 状态：**已在独立工作树实施；本地结果与外部验收边界见 [实施报告](validation/2026-10-30-remediation/results.md)。**
 > 范围：覆盖本次架构评审发现的问题、相应兼容处理、回归保护、验证与发布步骤。
 
 ## 1. 修复目标与总体决策

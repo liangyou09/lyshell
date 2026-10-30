@@ -1,0 +1,22 @@
+{
+  "head": "bd9009c42738d265b660ca6bb09c497ce381d26f",
+  "sourceDirectory": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\remediation-package-source-d2yBkT",
+  "output": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\remediation-package-physical",
+  "start": "2026-10-30T08:16:55.372Z",
+  "end": "2026-10-30T08:18:30.873Z",
+  "command": [
+    "D:\\software\\nodejs\\node.exe",
+    "D:\\workspace\\claude\\LyShell\\node_modules\\electron-builder\\out\\cli\\cli.js",
+    "--projectDir=C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\remediation-package-source-d2yBkT",
+    "--dir",
+    "--win",
+    "--x64",
+    "--config.npmRebuild=false",
+    "--config.directories.output=C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\remediation-package-physical",
+    "--config.win.signExecutable=false"
+  ],
+  "exitCode": 0,
+  "signal": null,
+  "error": null,
+  "logFile": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\docs\\validation\\2026-10-30-remediation\\physical-package-builder.log"
+}

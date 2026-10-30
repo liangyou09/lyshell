@@ -1,0 +1,12 @@
+{
+  "head": "36739a6deb32bc45bf7dcbf29635cce9c306230c",
+  "command": [
+    "node",
+    "node_modules/typescript/bin/tsc",
+    "--noEmit"
+  ],
+  "start": "2026-10-30T07:44:14.440Z",
+  "end": "2026-10-30T07:44:31.970Z",
+  "exitCode": 0,
+  "signal": null
+}

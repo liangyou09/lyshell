@@ -1,0 +1,855 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v1.6.1 C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell
+
+ ✓ src/renderer/components/Layout/WebPanel.browser-mode.test.tsx  (62 tests) 4817ms
+ ✓ src/renderer/components/Layout/TaskShelf.test.tsx  (74 tests) 6029ms
+ ✓ src/renderer/stores/pane-store.webtab.test.ts  (84 tests) 42ms
+stderr | VirtualConsole.forward (D:\workspace\claude\LyShell\node_modules\jsdom\lib\jsdom\virtual-console.js:28:20)
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+
+ ✓ src/renderer/stores/pane-store.overlay-contract.test.ts  (125 tests) 47ms
+ ✓ src/renderer/components/DocPanel/registerDocLinkProvider.range.test.ts  (53 tests) 1099ms
+ ✓ src/renderer/components/Layout/PaneTabBar.topbar.test.tsx  (32 tests) 275ms
+ ✓ src/renderer/stores/pane-store.doctab.test.ts  (30 tests) 21ms
+ ✓ src/renderer/components/Layout/task-shelf-status.test.ts  (34 tests) 9ms
+ ✓ src/renderer/stores/pane-store.shelf-lifecycle.test.ts  (18 tests) 18ms
+ ✓ src/renderer/components/CommandScreen/CommandScreen.test.tsx  (32 tests) 1257ms
+ ✓ src/renderer/stores/project-scene.test.ts  (17 tests) 23ms
+ ✓ src/renderer/commands/command-registry.test.ts  (36 tests) 323ms
+ ✓ src/renderer/components/Layout/HarnessPanel.test.tsx  (27 tests) 2206ms
+ ✓ src/renderer/stores/task-shelf.test.ts  (19 tests) 32ms
+ ✓ src/renderer/stores/workbench-detail.test.ts  (18 tests) 16ms
+stderr | src/renderer/stores/workbench-detail.test.ts > 只读工作台详情面：同身份去重与关闭持久化 > 显式重开后旧请求 failure 不得清除新代际状态或关闭记录
+[workbench] detail open failed: undefined
+
+stderr | src/renderer/stores/workbench-detail.test.ts > 只读工作台详情面：同身份去重与关闭持久化 > 显式重开后旧请求 throw 不得清除新代际状态或关闭记录
+[workbench] detail open threw: Error: old request
+    at finishOld (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\renderer\stores\workbench-detail.test.ts:99:54)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\renderer\stores\workbench-detail.test.ts:106:5
+    at file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:510:146
+    at file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:135:14
+    at file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:60:26
+    at runTest (file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:781:17)
+    at runSuite (file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:909:15)
+    at runSuite (file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:909:15)
+    at runFiles (file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:958:5)
+    at startTests (file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:967:3)
+
+stderr | src/renderer/stores/workbench-detail.test.ts > 只读工作台详情面：同身份去重与关闭持久化 > 打开失败：不假标成功（显式恢复可用），同身份低频对账能再试
+[workbench] detail open failed: bridge/unavailable
+
+stderr | src/renderer/stores/workbench-detail.test.ts > 只读工作台详情面：同身份去重与关闭持久化 > openDetail 抛错：同样不假标成功并恢复可用（不毒死后续身份）
+[workbench] detail open threw: Error: boom
+    at Object.openDetail (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\renderer\stores\workbench-detail.test.ts:325:85)
+    at run (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\renderer\stores\workbench-detail.ts:142:26)
+    at open (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\renderer\stores\workbench-detail.ts:190:21)
+    at Object.ensure (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\renderer\stores\workbench-detail.ts:229:14)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\renderer\stores\workbench-detail.test.ts:327:13
+    at file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:135:14
+    at file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:60:26
+    at runTest (file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:781:17)
+    at runSuite (file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:909:15)
+    at runSuite (file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:909:15)
+
+ ✓ src/renderer/components/Layout/DshLaunchTab.test.tsx  (16 tests) 697ms
+ ✓ src/renderer/components/Layout/EnvProfilePanel.inline.test.tsx  (14 tests) 1705ms
+ ✓ src/renderer/components/Terminal/TerminalView.search.test.tsx  (17 tests) 878ms
+ ✓ src/renderer/components/Layout/ShelfTerminalHost.test.tsx  (13 tests) 101ms
+ ✓ src/renderer/components/Layout/PaneView.web-surface.test.tsx  (9 tests) 324ms
+ ✓ src/renderer/components/DocPanel/readDoc.test.ts  (16 tests) 289ms
+ ✓ src/renderer/commands/inventory.test.ts  (13 tests) 19ms
+ ✓ src/renderer/components/Layout/PaneView.empty-state.test.tsx  (9 tests) 634ms
+ ✓ src/renderer/components/Layout/WorkbenchActivity.test.tsx  (15 tests) 509ms
+ ✓ src/renderer/components/Layout/AgentsPanel.test.tsx  (10 tests) 1542ms
+ ✓ src/renderer/components/Layout/web-tab-popup.test.ts  (13 tests) 70ms
+ ✓ src/main/dsh/exclusive-client.test.ts  (6 tests) 100ms
+ ✓ src/renderer/components/Layout/WebTerminalTools.test.tsx  (13 tests) 611ms
+ ✓ src/renderer/commands/doc-actions.test.ts  (14 tests) 194ms
+ ✓ src/renderer/components/Layout/SettingsPanel.navigation.test.tsx  (7 tests) 1030ms
+ ✓ src/renderer/components/Layout/task-shelf-surfaces.test.ts  (11 tests) 115ms
+ ✓ src/renderer/components/Layout/CodeWorkspaceSettings.test.tsx  (10 tests) 1401ms
+ ✓ src/renderer/stores/pane-store.empty-target.test.ts  (13 tests) 19ms
+ ✓ src/renderer/components/Layout/ActivityNotifications.test.tsx  (10 tests) 367ms
+ ✓ src/renderer/components/Layout/WebTabOverlay.failure.test.tsx  (17 tests) 509ms
+ ✓ src/renderer/components/Layout/TaskShelfContextMenu.test.tsx  (14 tests) 2066ms
+ ✓ src/renderer/stores/workbench-activity.test.ts  (12 tests) 26ms
+ ✓ src/renderer/components/DocPanel/manualMcp.test.ts  (8 tests) 11ms
+ ✓ src/renderer/components/Layout/EnvProfilePanel.list.test.tsx  (8 tests) 1154ms
+ ✓ src/main/browser/web-terminal-discover-dom.test.ts  (10 tests) 50ms
+ ✓ src/renderer/components/Layout/DshMarketPanel.test.tsx  (6 tests) 461ms
+ ✓ src/renderer/browser/browser-host.test.ts  (9 tests) 48ms
+ ✓ src/renderer/components/Layout/WebTabLayer.geometry.test.tsx  (7 tests) 214ms
+ ✓ src/renderer/components/Layout/WorkspaceLauncherTree.test.tsx  (8 tests) 869ms
+ ✓ src/renderer/stores/task-shelf.activation.test.ts  (8 tests) 130ms
+ ✓ src/renderer/components/DocPanel/docHeadings.alignment.test.tsx  (48 tests) 204ms
+ ✓ src/renderer/components/Layout/TaskShelfPreview.test.tsx  (6 tests) 77ms
+ ✓ src/renderer/components/Layout/SessionsPanel.wall.test.tsx  (6 tests) 2127ms
+ ✓ src/renderer/components/Layout/McpAuditPanel.test.tsx  (7 tests) 518ms
+ ✓ src/renderer/stores/connection-status.test.ts  (9 tests) 16ms
+ ✓ src/renderer/commands/inventory.action-injection.test.tsx  (1 test) 114ms
+ ✓ src/renderer/components/Layout/SessionsPanel.bottom.test.tsx  (7 tests) 2631ms
+ ✓ src/renderer/components/Layout/web-tab-controls.test.ts  (12 tests) 9ms
+ ✓ src/renderer/components/Layout/PluginPanel.test.tsx  (5 tests) 365ms
+ ✓ src/renderer/components/DocPanel/docHeadings.test.ts  (20 tests) 31ms
+ ✓ src/preload/browser-login-suggestions.test.ts  (9 tests) 423ms
+ ✓ src/renderer/components/Layout/ProjectSceneBar.test.tsx  (6 tests) 419ms
+ ✓ src/renderer/components/Terminal/selection-copy.test.ts  (10 tests) 30ms
+ ✓ src/renderer/components/Layout/WebTabOverlay.presentation.test.tsx  (7 tests) 174ms
+ ✓ src/renderer/components/Layout/BrowserSettingsPanel.test.tsx  (4 tests) 389ms
+ ✓ src/renderer/stores/task-shelf.browser-restore.test.ts  (2 tests) 426ms
+ ✓ src/renderer/components/Layout/BrowserDownloads.test.tsx  (5 tests) 347ms
+ ✓ src/renderer/hooks/useDismiss.test.tsx  (9 tests) 64ms
+ ✓ src/renderer/components/Layout/WebTabDevTools.test.tsx  (3 tests) 268ms
+ ✓ src/renderer/components/Layout/BrowserDownloadPopup.test.tsx  (4 tests) 599ms
+ ✓ src/renderer/commands/launch.test.ts  (9 tests) 13ms
+ ✓ src/renderer/components/CommandScreen/CommandWelcome.test.tsx  (6 tests) 294ms
+ ✓ src/renderer/components/FileManager/FileBrowser.filter-scroll.test.tsx  (3 tests) 141ms
+ ✓ src/renderer/components/Layout/ProjectEntry.test.tsx  (5 tests) 316ms
+ ✓ src/renderer/components/Search/SearchableTab.test.tsx  (4 tests) 601ms
+ ✓ src/renderer/stores/pane-store.plugin-resources.test.ts  (5 tests) 13ms
+ ✓ src/renderer/stores/pane-store.terminal-tabs.test.ts  (5 tests) 6ms
+ ✓ src/renderer/stores/browser-session.test.ts  (4 tests) 40ms
+ ✓ src/renderer/components/Layout/BrowserAddressField.test.tsx  (6 tests) 354ms
+ ✓ src/preload/browser-login-fields.test.ts  (15 tests) 197ms
+ ✓ src/renderer/components/Layout/useWorkbenchSnapshot.test.tsx  (6 tests) 25ms
+ ✓ src/renderer/components/Layout/RackCombobox.test.tsx  (6 tests) 245ms
+ ✓ src/renderer/stores/pane-store.persistence.test.ts  (4 tests) 7ms
+ ✓ src/renderer/stores/pane-store.webtab-post.test.ts  (6 tests) 9ms
+ ✓ src/renderer/components/Layout/SettingsPanel.taskShortcuts.test.tsx  (4 tests) 493ms
+ ✓ src/renderer/components/Layout/EnvironmentNavigation.test.tsx  (5 tests) 788ms
+ ✓ src/renderer/components/Layout/plugin-web-tab.test.ts  (5 tests) 15ms
+ ✓ src/main/mcp/terminal-screenshot.test.ts  (5 tests) 27ms
+ ✓ src/renderer/components/Layout/SplitDivider.test.tsx  (8 tests) 45ms
+ ✓ src/renderer/components/Layout/BrowserSearchEngineButton.test.tsx  (3 tests) 262ms
+ ✓ src/renderer/components/Layout/BrowserContextMenu.test.tsx  (4 tests) 256ms
+ ✓ src/renderer/components/Layout/WebLoadError.test.tsx  (4 tests) 246ms
+ ✓ src/renderer/components/Terminal/search-all-terminals.test.ts  (5 tests) 9ms
+ ✓ src/main/browser/web-terminal-input.test.ts  (6 tests) 31ms
+ ✓ src/renderer/commands/demo-stage.test.ts  (4 tests) 19ms
+ ✓ src/renderer/components/Layout/DefaultBrowserControl.test.tsx  (5 tests) 239ms
+ ✓ src/renderer/components/Layout/web-tab-layer.test.ts  (6 tests) 4ms
+ ✓ src/renderer/components/Layout/EnvProfilePanel.escape.test.tsx  (4 tests) 343ms
+ ✓ src/renderer/components/Layout/task-shelf-preview-clock.test.ts  (3 tests) 10ms
+ ✓ src/renderer/stores/harness-web-activity.test.ts  (3 tests) 7ms
+ ✓ src/renderer/stores/project-entry-launch.test.ts  (3 tests) 16ms
+ ✓ src/renderer/components/Mcp/McpConfirmationView.test.tsx  (3 tests) 244ms
+ ✓ src/renderer/stores/task-shelf.harness.test.ts  (1 test) 10ms
+ ✓ src/renderer/components/Search/dom-search.test.ts  (7 tests) 167ms
+ ✓ src/renderer/components/Layout/SidebarToggle.test.tsx  (3 tests) 171ms
+ ✓ src/renderer/components/DocPanel/hljsToReact.test.ts  (8 tests) 113ms
+stderr | src/renderer/components/DocPanel/hljsToReact.test.ts > hljsToReact：高亮 → React 节点 > 未知语言 / null：回退纯文本节点且 ok=false
+Could not find the language 'rust', did you forget to load/include a language module?
+
+ ✓ src/renderer/components/DocPanel/MarkdownDoc.actionGate.test.tsx  (2 tests) 152ms
+ ✓ src/renderer/stores/session-store.remove-live.test.ts  (2 tests) 4ms
+ ✓ src/renderer/stores/browser-bookmarks-store.test.ts  (9 tests) 10ms
+ ✓ src/renderer/components/Layout/task-shelf-navigation.test.ts  (3 tests) 6ms
+ ✓ src/renderer/components/DocPanel/MarkdownDoc.urlTransform.test.tsx  (3 tests) 51ms
+ ✓ src/renderer/components/DocPanel/urlLink.test.ts  (10 tests) 6ms
+ ✓ src/main/dsh/market-client.test.ts  (1 test) 42ms
+ ✓ src/renderer/stores/task-shelf.ssh-context.test.ts  (1 test) 9ms
+ ✓ src/renderer/components/SessionDialog/SessionDialog.secrets.test.tsx  (2 tests) 134ms
+ ✓ src/renderer/hooks/useHarnessRecovery.test.tsx  (2 tests) 18ms
+ ✓ src/renderer/stores/browser-launch.test.ts  (3 tests) 5ms
+ ✓ src/renderer/components/Layout/TaskShelfBrowserBar.test.tsx  (2 tests) 192ms
+ ✓ src/renderer/components/DocPanel/docZoom.test.ts  (7 tests) 15ms
+ ✓ src/renderer/components/Layout/ScrollFold.test.tsx  (2 tests) 58ms
+ ✓ src/renderer/components/Layout/PluginViewDialog.test.tsx  (3 tests) 43ms
+ ✓ src/renderer/components/QuickCommands/QuickCommandsPanel.lid.test.tsx  (2 tests) 184ms
+ ✓ src/renderer/stores/theme-store.scroll-material.test.ts  (7 tests) 29ms
+ ✓ src/renderer/components/Layout/BrowserPromptView.test.tsx  (3 tests) 193ms
+ ✓ src/renderer/components/Layout/SettingsPanel.plugins.test.tsx  (1 test) 188ms
+ ✓ src/renderer/components/Layout/plugin-chat-tab.test.ts  (2 tests) 12ms
+ ✓ src/renderer/components/Layout/keyboard-target.test.ts  (5 tests) 20ms
+ ✓ src/renderer/components/DocPanel/DocHeader.refresh.test.tsx  (2 tests) 50ms
+ ✓ src/renderer/components/DocPanel/docRail.test.ts  (4 tests) 16ms
+ ✓ src/renderer/components/Layout/layout-resize-viewports.test.ts  (2 tests) 29ms
+ ✓ src/renderer/stores/session-store.clone.test.ts  (2 tests) 7ms
+ ✓ src/main/browser/web-terminal-unfocused-send.test.ts  (1 test) 30ms
+ ✓ src/renderer/components/DocPanel/docPan.test.ts  (2 tests) 13ms
+ ✓ src/renderer/components/Layout/PluginViewPanel.test.tsx  (1 test) 132ms
+ ✓ src/renderer/components/DocPanel/HtmlDoc.test.tsx  (1 test) 41ms
+ ✓ src/main/dsh/proc.test.ts  (124 tests) 84ms
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+ ✓ src/main/harness/task-shelf.test.ts  (58 tests) 1031ms
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+ ✓ src/main/dsh/exclusive-bridge.test.ts  (45 tests) 2163ms
+ ✓ src/main/browser/shelf-resource-lifecycle.test.ts  (31 tests) 49ms
+lyshell-harness-bridge: host-only key missing; handshake route not registered
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+lyshell-harness-bridge: host half applied (protocol 2)
+ ✓ src/main/dsh/bridge.test.ts  (36 tests) 1397ms
+ ✓ src/main/browser/web-terminal.test.ts  (46 tests) 42ms
+stderr | src/main/storage/task-shelf-repository.test.ts > 未保存终端回收站 > 旧档案保持兼容，回收站的非法分类、非终端与越界数量保留原件并拒绝加载
+15:53:02.970 > Failed to load task shelf archive, keeping damaged file untouched: JsonStoreLoadError: 配置文件损坏或 schema 不受支持：C:\Users\69534\AppData\Local\Temp\lyshell-shelf-CxYG0o\task-shelf.json
+    at Module.loadJsonFileSync (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\atomic-json.ts:366:14)
+    at TaskShelfRepository.ensureLoaded (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:635:20)
+    at TaskShelfRepository.list (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:323:10)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.test.ts:246:50
+    at Proxy.assertThrows (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\core\assertions.js:2644:7)
+    at Proxy.methodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\addMethod.js:57:25)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:850:16)
+    at Proxy.overwritingMethodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\overwriteMethod.js:78:33)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:1324:19)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:800:17)
+15:53:02.986 > Failed to load task shelf archive, keeping damaged file untouched: JsonStoreLoadError: 配置文件损坏或 schema 不受支持：C:\Users\69534\AppData\Local\Temp\lyshell-shelf-CxYG0o\task-shelf.json
+    at Module.loadJsonFileSync (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\atomic-json.ts:366:14)
+    at TaskShelfRepository.ensureLoaded (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:635:20)
+    at TaskShelfRepository.list (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:323:10)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.test.ts:246:50
+    at Proxy.assertThrows (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\core\assertions.js:2644:7)
+    at Proxy.methodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\addMethod.js:57:25)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:850:16)
+    at Proxy.overwritingMethodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\overwriteMethod.js:78:33)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:1324:19)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:800:17)
+15:53:02.990 > Failed to load task shelf archive, keeping damaged file untouched: JsonStoreLoadError: 配置文件损坏或 schema 不受支持：C:\Users\69534\AppData\Local\Temp\lyshell-shelf-CxYG0o\task-shelf.json
+    at Module.loadJsonFileSync (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\atomic-json.ts:366:14)
+    at TaskShelfRepository.ensureLoaded (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:635:20)
+    at TaskShelfRepository.list (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:323:10)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.test.ts:246:50
+    at Proxy.assertThrows (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\core\assertions.js:2644:7)
+    at Proxy.methodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\addMethod.js:57:25)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:850:16)
+    at Proxy.overwritingMethodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\overwriteMethod.js:78:33)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:1324:19)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:800:17)
+15:53:02.999 > Failed to load task shelf archive, keeping damaged file untouched: JsonStoreLoadError: 配置文件损坏或 schema 不受支持：C:\Users\69534\AppData\Local\Temp\lyshell-shelf-CxYG0o\task-shelf.json
+    at Module.loadJsonFileSync (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\atomic-json.ts:366:14)
+    at TaskShelfRepository.ensureLoaded (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:635:20)
+    at TaskShelfRepository.list (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:323:10)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.test.ts:246:50
+    at Proxy.assertThrows (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\core\assertions.js:2644:7)
+    at Proxy.methodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\addMethod.js:57:25)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:850:16)
+    at Proxy.overwritingMethodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\overwriteMethod.js:78:33)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:1324:19)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:800:17)
+
+stderr | src/main/storage/task-shelf-repository.test.ts > 归档与偏好持久化 > 拒绝未知快照版本、错误分区与越界滚动，不把动态恢复记录当只读快照
+15:53:03.225 > Failed to load task shelf archive, keeping damaged file untouched: JsonStoreLoadError: 配置文件损坏或 schema 不受支持：C:\Users\69534\AppData\Local\Temp\lyshell-shelf-iLHiOu\task-shelf.json
+    at Module.loadJsonFileSync (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\atomic-json.ts:366:14)
+    at TaskShelfRepository.ensureLoaded (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:635:20)
+    at TaskShelfRepository.list (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:323:10)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.test.ts:302:48
+    at Proxy.assertThrows (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\core\assertions.js:2644:7)
+    at Proxy.methodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\addMethod.js:57:25)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:850:16)
+    at Proxy.overwritingMethodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\overwriteMethod.js:78:33)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:1324:19)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:800:17)
+
+stderr | src/main/storage/task-shelf-repository.test.ts > 归档与偏好持久化 > 损坏清单不能部分提交快捷键，修复后重新完整读取
+15:53:03.422 > Failed to load task shelf archive, keeping damaged file untouched: JsonStoreLoadError: 配置文件损坏或 schema 不受支持：C:\Users\69534\AppData\Local\Temp\lyshell-shelf-MtCK8u\task-shelf.json
+    at Module.loadJsonFileSync (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\atomic-json.ts:366:14)
+    at TaskShelfRepository.ensureLoaded (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:635:20)
+    at TaskShelfRepository.list (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:323:10)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.test.ts:323:29
+    at Proxy.assertThrows (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\core\assertions.js:2644:7)
+    at Proxy.methodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\addMethod.js:57:25)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:850:16)
+    at Proxy.overwritingMethodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\overwriteMethod.js:78:33)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:1324:19)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:800:17)
+
+stderr | src/main/storage/task-shelf-repository.test.ts > TaskShelfRepository > 版本不对或结构损坏时抛错且保留原文件
+15:53:03.581 > Failed to load task shelf archive, keeping damaged file untouched: JsonStoreLoadError: 配置文件损坏或 schema 不受支持：C:\Users\69534\AppData\Local\Temp\lyshell-shelf-eTOFNu\task-shelf.json
+    at Module.loadJsonFileSync (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\atomic-json.ts:366:14)
+    at TaskShelfRepository.ensureLoaded (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:635:20)
+    at TaskShelfRepository.list (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:323:10)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.test.ts:471:31
+    at Proxy.assertThrows (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\core\assertions.js:2644:7)
+    at Proxy.methodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\addMethod.js:57:25)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:850:16)
+    at Proxy.overwritingMethodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\overwriteMethod.js:78:33)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:1324:19)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:800:17)
+15:53:03.586 > Failed to load task shelf archive, keeping damaged file untouched: JsonStoreLoadError: 配置文件损坏或 schema 不受支持：C:\Users\69534\AppData\Local\Temp\lyshell-shelf-eTOFNu\task-shelf.json
+    at Module.loadJsonFileSync (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\atomic-json.ts:366:14)
+    at TaskShelfRepository.ensureLoaded (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:635:20)
+    at TaskShelfRepository.list (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:323:10)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.test.ts:471:31
+    at Proxy.assertThrows (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\core\assertions.js:2644:7)
+    at Proxy.methodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\addMethod.js:57:25)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:850:16)
+    at Proxy.overwritingMethodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\overwriteMethod.js:78:33)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:1324:19)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:800:17)
+15:53:03.590 > Failed to load task shelf archive, keeping damaged file untouched: JsonStoreLoadError: 配置文件损坏或 schema 不受支持：C:\Users\69534\AppData\Local\Temp\lyshell-shelf-eTOFNu\task-shelf.json
+    at Module.loadJsonFileSync (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\atomic-json.ts:366:14)
+    at TaskShelfRepository.ensureLoaded (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:635:20)
+    at TaskShelfRepository.list (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:323:10)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.test.ts:471:31
+    at Proxy.assertThrows (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\core\assertions.js:2644:7)
+    at Proxy.methodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\addMethod.js:57:25)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:850:16)
+    at Proxy.overwritingMethodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\overwriteMethod.js:78:33)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:1324:19)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:800:17)
+15:53:03.594 > Failed to load task shelf archive, keeping damaged file untouched: JsonStoreLoadError: 配置文件损坏或 schema 不受支持：C:\Users\69534\AppData\Local\Temp\lyshell-shelf-eTOFNu\task-shelf.json
+    at Module.loadJsonFileSync (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\atomic-json.ts:366:14)
+    at TaskShelfRepository.ensureLoaded (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:635:20)
+    at TaskShelfRepository.list (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:323:10)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.test.ts:471:31
+    at Proxy.assertThrows (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\core\assertions.js:2644:7)
+    at Proxy.methodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\addMethod.js:57:25)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:850:16)
+    at Proxy.overwritingMethodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\overwriteMethod.js:78:33)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:1324:19)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:800:17)
+15:53:03.598 > Failed to load task shelf archive, keeping damaged file untouched: JsonStoreLoadError: 配置文件损坏或 schema 不受支持：C:\Users\69534\AppData\Local\Temp\lyshell-shelf-eTOFNu\task-shelf.json
+    at Module.loadJsonFileSync (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\atomic-json.ts:366:14)
+    at TaskShelfRepository.ensureLoaded (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:635:20)
+    at TaskShelfRepository.list (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:323:10)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.test.ts:471:31
+    at Proxy.assertThrows (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\core\assertions.js:2644:7)
+    at Proxy.methodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\addMethod.js:57:25)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:850:16)
+    at Proxy.overwritingMethodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\overwriteMethod.js:78:33)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:1324:19)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:800:17)
+
+stderr | src/main/storage/task-shelf-repository.test.ts > TaskShelfRepository > 拒绝重复 id / 重复 resourceKey / 非法恢复记录
+15:53:03.606 > Failed to load task shelf archive, keeping damaged file untouched: JsonStoreLoadError: 配置文件损坏或 schema 不受支持：C:\Users\69534\AppData\Local\Temp\lyshell-shelf-IOF4Z1\task-shelf.json
+    at Module.loadJsonFileSync (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\atomic-json.ts:366:14)
+    at TaskShelfRepository.ensureLoaded (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:635:20)
+    at TaskShelfRepository.list (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:323:10)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.test.ts:485:48
+    at Proxy.assertThrows (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\core\assertions.js:2644:7)
+    at Proxy.methodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\addMethod.js:57:25)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:850:16)
+    at Proxy.overwritingMethodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\overwriteMethod.js:78:33)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:1324:19)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:800:17)
+15:53:03.610 > Failed to load task shelf archive, keeping damaged file untouched: JsonStoreLoadError: 配置文件损坏或 schema 不受支持：C:\Users\69534\AppData\Local\Temp\lyshell-shelf-IOF4Z1\task-shelf.json
+    at Module.loadJsonFileSync (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\atomic-json.ts:366:14)
+    at TaskShelfRepository.ensureLoaded (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:635:20)
+    at TaskShelfRepository.list (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:323:10)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.test.ts:493:48
+    at Proxy.assertThrows (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\core\assertions.js:2644:7)
+    at Proxy.methodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\addMethod.js:57:25)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:850:16)
+    at Proxy.overwritingMethodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\overwriteMethod.js:78:33)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:1324:19)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:800:17)
+
+stderr | src/main/storage/task-shelf-repository.test.ts > expectedRevision 冲突 > 重复访问损坏归档也必须拒绝写入，健康查询可报告错误；修复后重新完整加载
+15:53:06.642 > Failed to load task shelf archive, keeping damaged file untouched: JsonStoreLoadError: 配置文件损坏或 schema 不受支持：C:\Users\69534\AppData\Local\Temp\lyshell-shelf-zAV04T\task-shelf.json
+    at Module.loadJsonFileSync (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\atomic-json.ts:366:14)
+    at TaskShelfRepository.ensureLoaded (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:635:20)
+    at TaskShelfRepository.list (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:323:10)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.test.ts:1102:29
+    at Proxy.assertThrows (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\core\assertions.js:2644:7)
+    at Proxy.methodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\addMethod.js:57:25)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:850:16)
+    at Proxy.overwritingMethodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\overwriteMethod.js:78:33)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:1324:19)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:800:17)
+15:53:06.647 > Failed to load task shelf archive, keeping damaged file untouched: JsonStoreLoadError: 配置文件损坏或 schema 不受支持：C:\Users\69534\AppData\Local\Temp\lyshell-shelf-zAV04T\task-shelf.json
+    at Module.loadJsonFileSync (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\atomic-json.ts:366:14)
+    at TaskShelfRepository.ensureLoaded (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:635:20)
+    at TaskShelfRepository.setPreferences (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:374:10)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.test.ts:1103:29
+    at Proxy.assertThrows (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\core\assertions.js:2644:7)
+    at Proxy.methodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\addMethod.js:57:25)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:850:16)
+    at Proxy.overwritingMethodWrapper (D:\workspace\claude\LyShell\node_modules\chai\lib\chai\utils\overwriteMethod.js:78:33)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:1324:19)
+    at Proxy.<anonymous> (file:///D:/workspace/claude/LyShell/node_modules/@vitest/expect/dist/index.js:800:17)
+15:53:06.649 > Failed to load task shelf archive, keeping damaged file untouched: JsonStoreLoadError: 配置文件损坏或 schema 不受支持：C:\Users\69534\AppData\Local\Temp\lyshell-shelf-zAV04T\task-shelf.json
+    at Module.loadJsonFileSync (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\atomic-json.ts:366:14)
+    at TaskShelfRepository.ensureLoaded (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:635:20)
+    at TaskShelfRepository.getLoadError (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.ts:311:16)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\task-shelf-repository.test.ts:1104:23
+    at file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:135:14
+    at file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:60:26
+    at runTest (file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:781:17)
+    at runSuite (file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:909:15)
+    at runSuite (file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:909:15)
+    at runFiles (file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:958:5)
+
+ ✓ src/main/storage/task-shelf-repository.test.ts  (61 tests) 3990ms
+ ✓ src/main/dsh/web-lifecycle.test.ts  (34 tests) 1383ms
+ ✓ src/main/browser/shelf-reloadable-guard.test.ts  (52 tests) 852ms
+ ✓ src/main/dsh/web-ensure.test.ts  (22 tests) 3346ms
+ ✓ src/renderer/components/Layout/task-shelf-terminal-preview.test.ts  (37 tests) 33ms
+ ✓ src/main/file/transfer-commit.sftp.test.ts  (21 tests) 1604ms
+ ✓ src/main/dsh/activity.test.ts  (41 tests) 32ms
+ ✓ src/main/dsh/exclusive-control.test.ts  (36 tests) 93ms
+ ✓ src/main/terminal/output-buffer.test.ts  (36 tests) 113ms
+ ✓ src/main/terminal/local-host-worker.test.ts  (24 tests) 1732ms
+ ✓ src/main/file/worker-manager.resource.test.ts  (19 tests) 30ms
+ ✓ src/main/terminal/local-host-client.test.ts  (27 tests) 1458ms
+ ✓ src/main/dsh/native-work-recovery.test.ts  (18 tests) 3014ms
+ ✓ src/main/harness/code-workspaces.test.ts  (30 tests) 18859ms
+ ✓ src/main/browser/shelf-readonly-contract.test.ts  (47 tests) 19ms
+ ✓ src/main/dsh/native-work-concurrency.test.ts  (20 tests) 41ms
+ ✓ src/main/terminal/session-manager.wait-pattern.test.ts  (25 tests) 1876ms
+ ✓ src/shared/plugin-types.test.ts  (73 tests) 20ms
+ ✓ src/main/terminal/local-host-control.test.ts  (20 tests) 1190ms
+ ✓ src/main/mcp/exclusive-routes.test.ts  (27 tests) 16ms
+ ✓ src/main/dsh/usage-service.test.ts  (17 tests) 262ms
+ ✓ src/main/plugin/view-actions.test.ts  (27 tests) 20ms
+ ✓ src/main/commands/command-service.test.ts  (19 tests) 420ms
+ ✓ src/main/storage/secret-migration.test.ts  (15 tests) 989ms
+ ✓ src/main/browser/default-browser.test.ts  (27 tests | 1 skipped) 191ms
+ ✓ src/main/terminal/pattern-matcher.test.ts  (20 tests) 2675ms
+ ✓ src/shared/browser-context-menu.test.ts  (32 tests) 14ms
+ ✓ src/main/plugin/view-registry.test.ts  (33 tests) 358ms
+ ✓ src/main/dsh/pricing.test.ts  (30 tests) 408ms
+ ✓ src/renderer/components/Terminal/terminal-resize-scheduler.test.ts  (29 tests) 20ms
+ ✓ src/shared/sidebar-shortcut.test.ts  (56 tests) 11ms
+ ✓ src/main/dsh/work-journal.test.ts  (30 tests | 2 skipped) 1711ms
+ ✓ src/main/terminal/session-manager.deletion.test.ts  (19 tests) 137ms
+ ✓ src/main/plugin/resource-registry.test.ts  (24 tests) 16ms
+ ✓ src/main/storage/repository.test.ts  (23 tests) 635ms
+ ✓ src/main/storage/atomic-json.test.ts  (29 tests) 258ms
+ ✓ src/main/storage/secret-ref-precedence.test.ts  (10 tests) 390ms
+ ✓ src/main/dsh/launch-resolve.test.ts  (15 tests) 521ms
+ ✓ src/main/terminal/input-control.test.ts  (25 tests) 29ms
+ ✓ src/renderer/components/DocPanel/docLink.test.ts  (59 tests) 20ms
+ ✓ src/main/harness/task-shelf-command-service.test.ts  (14 tests) 1740ms
+ ✓ src/main/storage/env-profile-repository.test.ts  (33 tests) 742ms
+ ✓ src/main/harness/migrate-profiles.test.ts  (20 tests) 959ms
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+ ✓ src/main/plugin/install-zip.test.ts  (38 tests) 379ms
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+ ✓ examples/legacy-transfer/integration.test.ts  (12 tests) 17258ms
+ ✓ src/main/file/worker-manager.attempt.test.ts  (13 tests) 174ms
+ ✓ src/main/terminal/output-dispatcher.test.ts  (14 tests) 20ms
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+ ✓ src/main/commands/windows-command-execution.test.ts  (16 tests) 289ms
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+ ✓ src/main/harness/worktree.test.ts  (24 tests) 21792ms
+ ✓ src/main/mcp/command-dispatch-authorization.test.ts  (22 tests) 124ms
+ ✓ src/main/ipc/session-export.secrets.test.ts  (6 tests) 829ms
+ ✓ src/main/plugin/view-dialogs.test.ts  (18 tests) 193ms
+ ✓ src/main/terminal/session-manager.plugin-resources.test.ts  (14 tests) 22ms
+ ✓ src/renderer/components/Layout/task-shelf-capture-scheduler.test.ts  (13 tests) 13ms
+ ✓ src/main/connectors/local.test.ts  (26 tests | 1 skipped) 44ms
+ ✓ src/main/lifecycle/app-lifecycle.test.ts  (19 tests) 407ms
+ ✓ src/main/connectors/ssh.tmux.test.ts  (17 tests) 3096ms
+ ✓ src/main/connectors/telnet.test.ts  (15 tests) 26ms
+ ✓ src/main/security/ssh-trust.test.ts  (20 tests) 175ms
+ ✓ src/main/harness/migrate-env.test.ts  (21 tests) 1383ms
+ ✓ src/main/storage/harness-workspace-repository.test.ts  (20 tests) 220ms
+ ✓ src/main/terminal/local-host-protocol.test.ts  (18 tests) 55ms
+ ✓ src/renderer/components/Layout/task-shelf-web-frame.test.ts  (14 tests) 17ms
+ ✓ src/main/browser/service.test.ts  (11 tests) 286ms
+stdout | src/main/dev-user-data.test.ts > dev-user-data 档案播种 > 缺的文件整份拷贝，条目数组按 id 补缺，非条目对象保持 dev 原样
+15:54:06.296 > [dev-user-data] seeded config: agents.json
+15:54:06.302 > [dev-user-data] merged missing entries into: dsh-workspaces.json
+15:54:06.305 > [dev-user-data] merged missing entries into: quickCommands.json
+15:54:06.308 > [dev-user-data] merged missing entries into: tags.json
+
+stdout | src/main/dev-user-data.test.ts > dev-user-data 档案播种 > 一次性语义：标记落定后不再重播，dev 里删掉的条目不会被正式版补回
+15:54:06.328 > [dev-user-data] seeded config: dsh-workspaces.json
+
+stderr | src/main/dev-user-data.test.ts > dev-user-data 档案播种 > 半截/畸形源不装不改、也不落标记（下轮启动重试）
+15:54:06.345 > [dev-user-data] source is not valid JSON (mid-write?), will retry: dsh-workspaces.json
+15:54:06.346 > [dev-user-data] source is not valid JSON (mid-write?), will retry: quickCommands.json
+
+stderr | src/main/dev-user-data.test.ts > dev-user-data 档案播种 > 开发侧目标文件损坏时不覆盖，也不落标记（修好后下轮重试）
+15:54:06.357 > [dev-user-data] target is not valid JSON, will retry: dsh-workspaces.json
+
+stdout | src/main/dev-user-data.test.ts > dev-user-data 档案播种 > 混合内容文件剥掉凭据字段：内联 env 与 ai.apiKey/masterPassword 不进 dev 档案
+15:54:06.377 > [dev-user-data] seeded config: agents.json
+15:54:06.380 > [dev-user-data] seeded config: dsh-workspaces.json
+15:54:06.384 > [dev-user-data] seeded config: preferences.json
+
+stdout | src/main/dev-user-data.test.ts > dev-user-data 档案播种 > 按 id 补进来的条目同样剥凭据（dev 已有的内联 env 不动）
+15:54:06.399 > [dev-user-data] merged missing entries into: agents.json
+
+stdout | src/main/dev-user-data.test.ts > dev-user-data 档案播种 > 含凭据的文件不播（会话密码 / 变量组 apiKey），其余文件照常播种
+15:54:06.451 > [dev-user-data] skipped sensitive file: browser-passwords.json
+15:54:06.452 > [dev-user-data] skipped sensitive file: dsh-env-profiles.json
+15:54:06.453 > [dev-user-data] seeded config: dsh-workspaces.json
+15:54:06.454 > [dev-user-data] skipped sensitive file: env-profiles.json
+15:54:06.454 > [dev-user-data] skipped sensitive file: sessions.json
+
+stdout | src/main/dev-user-data.test.ts > dev-user-data 档案播种 > import 期只切路径不播种 —— 播种等单实例锁到手再触发，两个 dev 实例才不会并发抢 .tmp
+15:54:06.464 > [dev-user-data] seeded config: dsh-workspaces.json
+
+stdout | src/main/dev-user-data.test.ts > dev-user-data 档案播种 > 标记只记结果与时间，不写本机绝对路径（dev 档案常被分享）
+15:54:06.473 > [dev-user-data] seeded config: dsh-workspaces.json
+
+ ✓ src/main/dev-user-data.test.ts  (11 tests) 231ms
+ ✓ src/main/file/transfer-commit.test.ts  (19 tests) 16ms
+ ✓ src/main/mcp/terminal-control-authorization.test.ts  (21 tests) 29ms
+ ✓ src/main/mcp/destructive-check.test.ts  (39 tests) 73ms
+ ✓ src/main/terminal/shelf-ssh-context.test.ts  (23 tests) 20ms
+ ✓ src/renderer/utils/env-profile-json.test.ts  (19 tests) 9ms
+ ✓ src/main/plugin/view-protocol-core.test.ts  (22 tests) 133ms
+ ✓ src/main/dsh/usage-fold.test.ts  (17 tests) 7ms
+ ✓ src/main/lifecycle/fatal-error.test.ts  (16 tests) 483ms
+ ✓ src/renderer/components/Layout/task-shelf-resource-budget.test.ts  (14 tests) 8ms
+ ✓ src/main/storage/repository-local-secrets.test.ts  (8 tests) 279ms
+ ✓ src/main/file/ssh-command.test.ts  (15 tests) 707ms
+ ✓ src/main/file/ssh-file-client.resource.test.ts  (10 tests) 14ms
+ ✓ src/main/mcp/session-resources.test.ts  (19 tests) 11ms
+ ✓ src/main/dsh/model-preset.test.ts  (21 tests) 165ms
+ ✓ src/main/file/transfer-scheduler.test.ts  (9 tests) 7ms
+ ✓ src/main/security/ssh-host-key.test.ts  (20 tests) 289ms
+ ✓ src/main/storage/mcp-audit-repository.test.ts  (18 tests) 366ms
+ ✓ src/main/browser/browser-host.test.ts  (11 tests) 33ms
+ ✓ src/main/storage/session-secrets.test.ts  (17 tests) 8ms
+ ✓ src/main/browser/shelf-browser-runtime.reloadable.test.ts  (13 tests) 22ms
+ ✓ src/main/browser/shelf-browser-runtime.sleep.test.ts  (15 tests) 73ms
+ ✓ src/main/commands/command-scheduler.test.ts  (12 tests) 48ms
+ ✓ src/main/plugin/host-mgr.restart.test.ts  (14 tests) 16ms
+ ✓ src/main/terminal/session-manager.failure.test.ts  (9 tests) 96ms
+ ✓ src/main/harness/tui-activity.test.ts  (11 tests) 54ms
+ ✓ src/main/mcp/terminal-observation-http.test.ts  (13 tests) 137ms
+stdout | src/main/storage/download-history.test.ts > 2000 次顺序新增不逐次重写整库，全部记录可跨页恢复，热记录有界
+15:54:11.781 > Created default download dir: C:\Users\69534\AppData\Local\Temp\lyshell-history-test-QtPCJQ\LyShell
+
+stdout | src/main/storage/download-history.test.ts > 旧版 2100 条迁移不删除任何记录、不改原文件；归档记录 MD5 可更新
+15:54:11.852 > Created default download dir: C:\Users\69534\AppData\Local\Temp\lyshell-history-test-AKZKt9\LyShell
+
+stdout | src/main/storage/download-history.test.ts > 筛选分页、归档删除和显式清空保持正确，不触碰下载文件
+15:54:11.943 > Created default download dir: C:\Users\69534\AppData\Local\Temp\lyshell-history-test-IVyiBQ\LyShell
+
+stdout | src/main/storage/download-history.test.ts > 原子替换失败保留已落盘版本，重试可恢复最新状态
+15:54:11.997 > Created default download dir: C:\Users\69534\AppData\Local\Temp\lyshell-history-test-COEBVX\LyShell
+
+stdout | src/main/storage/download-history.test.ts > 损坏历史隔离功能故障，启动继续且禁止用空库覆盖原文件
+15:54:12.021 > Created default download dir: C:\Users\69534\AppData\Local\Temp\lyshell-history-test-RjxVkx\LyShell
+
+stdout | src/main/storage/download-history.test.ts > 损坏历史隔离功能故障，启动继续且禁止用空库覆盖原文件
+<empty line>
+stderr | src/main/storage/download-history.test.ts > 损坏历史隔离功能故障，启动继续且禁止用空库覆盖原文件
+15:54:12.029 > Download history unavailable; original files preserved: Unexpected token 'c', "corrupt fixture" is not valid JSON
+
+stdout | src/main/storage/download-history.test.ts > 损坏的下载配置保留原件，默认值只用于内存且拒绝覆盖
+15:54:12.033 > Created default download dir: C:\Users\69534\AppData\Local\Temp\lyshell-history-test-XWSYLO\LyShell
+
+stdout | src/main/storage/download-history.test.ts > 损坏的下载配置保留原件，默认值只用于内存且拒绝覆盖
+<empty line>
+stderr | src/main/storage/download-history.test.ts > 损坏的下载配置保留原件，默认值只用于内存且拒绝覆盖
+15:54:12.038 > Failed to load download config, keeping damaged file untouched: JsonStoreLoadError: 配置文件损坏或 schema 不受支持：C:\Users\69534\AppData\Local\Temp\lyshell-history-test-XWSYLO\data\download-config.json
+    at Module.loadJsonFileSync (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\atomic-json.ts:366:14)
+    at DownloadHistoryStorage.init (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\download-history.ts:203:26)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\storage\download-history.test.ts:101:16
+    at runTest (file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:781:11)
+    at runSuite (file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:909:15)
+    at runFiles (file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:958:5)
+    at startTests (file:///D:/workspace/claude/LyShell/node_modules/@vitest/runner/dist/index.js:967:3)
+    at file:///D:/workspace/claude/LyShell/node_modules/vitest/dist/chunks/runtime-runBaseTests.oAvMKtQC.js:116:7
+    at withEnv (file:///D:/workspace/claude/LyShell/node_modules/vitest/dist/chunks/runtime-runBaseTests.oAvMKtQC.js:83:5)
+    at run (file:///D:/workspace/claude/LyShell/node_modules/vitest/dist/chunks/runtime-runBaseTests.oAvMKtQC.js:105:3)
+
+stdout | src/main/storage/download-history.test.ts > 配置替换失败保留旧配置和内存，重试后才切换并递增 revision
+15:54:12.047 > Created default download dir: C:\Users\69534\AppData\Local\Temp\lyshell-history-test-5uepOA\LyShell
+
+stdout | src/main/storage/download-history.test.ts > 配置替换失败保留旧配置和内存，重试后才切换并递增 revision
+15:54:12.097 > Loaded download config
+
+stdout | src/main/storage/download-history.test.ts > 配置 expectedRevision 过期时冲突且不落盘
+15:54:12.101 > Created default download dir: C:\Users\69534\AppData\Local\Temp\lyshell-history-test-L0koXO\LyShell
+
+stdout | src/main/storage/download-history.test.ts > 并发目录修改串行合并最新配置，revision 在实际轮到写入时复核
+15:54:12.119 > Created default download dir: C:\Users\69534\AppData\Local\Temp\lyshell-history-test-Nk8Isf\LyShell
+
+stdout | src/main/storage/download-history.test.ts > 分页回执中的热记录及日期是副本，修改它们不改变下一次读取或提交
+15:54:12.156 > Created default download dir: C:\Users\69534\AppData\Local\Temp\lyshell-history-test-nN3WDV\LyShell
+
+stdout | src/main/storage/download-history.test.ts > 配置与记录读取返回副本，外部修改不影响后续落盘
+15:54:12.167 > Created default download dir: C:\Users\69534\AppData\Local\Temp\lyshell-history-test-5d5Uqy\LyShell
+
+stdout | src/main/storage/download-history.test.ts > 配置与记录读取返回副本，外部修改不影响后续落盘
+15:54:12.198 > Loaded download config
+
+ ✓ src/main/storage/download-history.test.ts  (11 tests) 424ms
+ ✓ src/main/commands/local-command-core.test.ts  (11 tests) 192ms
+ ✓ src/main/file/worker-tcp-security.test.ts  (19 tests) 7ms
+ ✓ src/main/file/ssh-transfer-connection.test.ts  (13 tests) 18ms
+ ✓ src/main/connectors/ssh.hostkey.test.ts  (6 tests) 467ms
+ ✓ src/main/browser/downloads.test.ts  (9 tests) 164ms
+ ✓ src/main/browser/context-menu.test.ts  (11 tests) 17ms
+ ✓ src/main/plugin-host/api.test.ts  (18 tests) 14ms
+stderr | src/main/plugin-host/api.test.ts > spawnControlled > mcpServer.js 不存在时不注入 SCRIPT/EXE（mcpServer.js 缺失兜底）
+[plugin test-plugin] spawnControlled: mcpServer.js not found at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\plugin-host\mcpServer.js; child will run WITHOUT LyShell control (standalone mode)
+
+ ✓ src/main/dsh/work.test.ts  (9 tests) 665ms
+ ✓ src/main/storage/repository-secrets.test.ts  (8 tests) 134ms
+ ✓ src/main/terminal/session-manager.encoding.test.ts  (5 tests) 7ms
+ ✓ src/main/plugin/view-icons.test.ts  (12 tests) 52ms
+ ✓ src/main/storage/launcher-references.test.ts  (6 tests) 763ms
+ ✓ src/main/storage/agent-repository.test.ts  (16 tests) 129ms
+ ✓ src/main/file/path-safety.test.ts  (18 tests | 3 skipped) 18ms
+ ✓ src/main/browser/prompts.test.ts  (10 tests) 60ms
+ ✓ src/main/mcp/auth.test.ts  (18 tests) 8ms
+ ✓ examples/src-ps7-launcher.test.ts  (6 tests) 215ms
+ ✓ src/main/storage/secret-store.test.ts  (14 tests) 126ms
+ ✓ src/main/file/ssh-command-close-confirmation.test.ts  (9 tests) 617ms
+ ✓ src/shared/task-shelf.test.ts  (12 tests) 9ms
+ ✓ src/shared/terminal-control.test.ts  (16 tests) 10ms
+Preparing worktree (new branch 'one')
+Preparing worktree (new branch 'two')
+ ✓ src/main/codex/base-url-preset.test.ts  (11 tests) 138ms
+ ✓ src/main/dsh/exclusive-runtime.test.ts  (10 tests) 5ms
+ ✓ src/main/harness/project-scene.test.ts  (7 tests) 1306ms
+ ✓ src/main/harness/launch.test.ts  (17 tests) 7ms
+ ✓ src/main/ipc/application-ipc.test.ts  (12 tests) 14ms
+ ✓ src/renderer/components/Layout/task-shelf-layout.test.ts  (11 tests) 8ms
+ ✓ src/main/ipc/plugin-uninstall.cleanup.test.ts  (10 tests) 373ms
+ ✓ src/renderer/stores/activity-toast.test.ts  (16 tests) 10ms
+ ✓ src/main/terminal/output-budget.test.ts  (9 tests) 9ms
+ ✓ src/main/browser/devtools.test.ts  (7 tests) 9ms
+ ✓ src/main/browser/readonly-view-pilot.test.ts  (5 tests) 12ms
+ ✓ src/main/mcp-server/tools.test.ts  (12 tests) 13ms
+ ✓ src/main/mcp/list-files.test.ts  (15 tests) 61ms
+ ✓ src/main/dsh/web-activity-bridge.test.ts  (6 tests) 9ms
+ ✓ src/shared/webtab-shortcut.test.ts  (31 tests) 7ms
+ ✓ src/shared/worktree.test.ts  (18 tests) 11ms
+ ✓ src/main/storage/serialized-json-writer.test.ts  (9 tests) 11ms
+ ✓ src/main/connectors/local.host.test.ts  (9 tests) 186ms
+ ✓ src/main/ipc/task-shelf.validation.test.ts  (8 tests) 13ms
+ ✓ src/main/quit-cleanup.test.ts  (12 tests) 90ms
+ ✓ src/main/terminal/pattern-contract.test.ts  (13 tests) 12ms
+ ✓ src/main/mcp/confirmation-window.test.ts  (9 tests) 295ms
+ ✓ src/shared/web-terminal.test.ts  (12 tests) 7ms
+ ✓ scripts/default-browser.test.ts  (6 tests) 5ms
+ ✓ src/main/python/engine.test.ts  (10 tests) 1864ms
+ ✓ src/main/dsh/activity-navigation.test.ts  (5 tests) 42ms
+ ✓ src/main/dsh/web.test.ts  (30 tests) 6ms
+ ✓ src/main/plugin/process-cleanup.test.ts  (10 tests) 12ms
+ ✓ src/main/mcp/glob.test.ts  (22 tests) 7ms
+ ✓ src/main/lifecycle/lifecycle-state.test.ts  (7 tests) 103ms
+ ✓ src/main/file/ssh-command-authorization.test.ts  (7 tests) 128ms
+ ✓ examples/legacy-transfer/transfer.test.ts  (6 tests) 106ms
+ ✓ src/main/file/serial-chain-wiring.test.ts  (12 tests) 4ms
+ ✓ src/main/mcp/reconnect-resources.test.ts  (11 tests) 16ms
+ ✓ src/main/connectors/ssh.lifecycle.test.ts  (7 tests) 15ms
+ ✓ src/main/connectors/ssh-persistence.test.ts  (29 tests) 7ms
+ ✓ src/main/file/ssh-file-client.hostkey.test.ts  (4 tests) 578ms
+ ✓ src/main/ipc/connection-source.test.ts  (9 tests) 7ms
+ ✓ src/main/browser/certificates.test.ts  (8 tests) 26ms
+ ✓ src/main/harness/config.test.ts  (11 tests) 5ms
+ ✓ scripts/rename-unpacked.test.ts  (11 tests) 38ms
+ ✓ src/main/terminal/local-host-lifecycle.test.ts  (6 tests) 85ms
+ ✓ src/main/plugin/view-tokens.test.ts  (8 tests) 5ms
+ ✓ src/main/plugin-host/index.lifecycle.test.ts  (4 tests) 8313ms
+ ✓ src/main/browser/shelf-browser-runtime.test.ts  (4 tests) 8ms
+ ✓ src/main/mcp/confirmation-authorization.test.ts  (9 tests) 139ms
+ ✓ src/renderer/components/Terminal/terminal-output.test.ts  (6 tests) 308ms
+ ✓ src/main/browser/passwords.test.ts  (6 tests) 240ms
+ ✓ src/main/demo-stage.test.ts  (4 tests) 302ms
+ ✓ src/main/mcp/http-body.test.ts  (4 tests) 33ms
+ ✓ src/main/browser/context-menu-window.test.ts  (4 tests) 7ms
+ ✓ src/main/file/serial-chain.test.ts  (9 tests) 6ms
+ ✓ src/main/terminal/pattern-isolation.test.ts  (2 tests) 290ms
+ ✓ src/main/mcp/glob.isolated.test.ts  (2 tests) 205ms
+ ✓ src/main/connectors/base.test.ts  (9 tests) 18ms
+ ✓ src/main/storage/plugin-repository.test.ts  (7 tests) 148ms
+ ✓ src/main/python/engine.cancellation.test.ts  (10 tests) 17ms
+ ✓ src/main/mcp/list-files.handler.test.ts  (6 tests) 13ms
+ ✓ src/main/file/ssh-command-handle.test.ts  (5 tests) 243ms
+ ✓ src/main/file/ssh-transfer-connection.hostkey.test.ts  (3 tests) 203ms
+ ✓ src/main/dsh/web-activity.test.ts  (4 tests) 80ms
+ ✓ src/main/file/sftp-mkdir.test.ts  (9 tests) 8ms
+ ✓ src/shared/escape-sequences.test.ts  (18 tests) 4ms
+ ✓ src/main/dsh/market-install.test.ts  (5 tests) 14ms
+ ✓ src/main/terminal/osc-cwd-tracker.test.ts  (15 tests) 6ms
+ ✓ src/main/logging.test.ts  (7 tests) 28ms
+ ✓ src/main/explorer-launch.test.ts  (22 tests) 9ms
+ ✓ src/main/connectors/ssh.context.integration.test.ts  (1 test) 194ms
+ ✓ src/main/ipc/agent-workspace.validation.test.ts  (15 tests) 6ms
+ ✓ src/main/dsh/tariff.test.ts  (8 tests) 4ms
+ ✓ src/main/harness/agent-workspace.test.ts  (7 tests) 1305ms
+ ✓ src/main/harness/project-scene-launcher.test.ts  (3 tests) 5ms
+ ✓ src/main/terminal/ssh-history-display.test.ts  (5 tests) 192ms
+ ✓ src/main/mcp/terminal-stream.test.ts  (5 tests) 8ms
+ ✓ src/main/commands/output-budget.test.ts  (9 tests) 6ms
+ ✓ src/main/explorer-directory.test.ts  (10 tests) 8ms
+ ✓ src/shared/terminal-output.test.ts  (6 tests) 3ms
+ ✓ src/main/file/command-output.test.ts  (7 tests) 7ms
+ ✓ src/main/dsh/exclusive-bridge-client.test.ts  (5 tests) 105ms
+ ✓ src/shared/encoding.test.ts  (7 tests) 4ms
+ ✓ src/renderer/stores/browser-restore-scheduler.test.ts  (5 tests) 8ms
+ ✓ src/main/plugin/view-resource.test.ts  (6 tests) 35ms
+ ✓ src/main/plugin/view-dialog-input.test.ts  (4 tests) 7ms
+ ✓ src/main/dsh/market.test.ts  (7 tests) 60ms
+ ✓ src/renderer/components/Layout/ws-dir.test.ts  (11 tests) 5ms
+ ✓ src/main/harness/tui-launch.test.ts  (3 tests) 181ms
+ ✓ src/renderer/utils/dispatch-command.test.ts  (8 tests) 7ms
+ ✓ src/renderer/components/Layout/layout-resize.test.ts  (6 tests) 27ms
+ ✓ src/main/browser/shelf-cancellable-close.test.ts  (6 tests) 7ms
+ ✓ src/renderer/components/DocPanel/OutlineRail.test.ts  (11 tests) 4ms
+ ✓ src/shared/harness-work.test.ts  (48 tests) 9ms
+ ✓ src/main/plugin/host-ui.test.ts  (11 tests) 8ms
+ ✓ src/main/webbar-post.test.ts  (6 tests) 6ms
+ ✓ src/main/browser/search-suggestions.test.ts  (4 tests) 16ms
+ ✓ src/main/plugin/pet-llm.test.ts  (10 tests) 6ms
+ ✓ src/main/sidebar-shortcut.test.ts  (10 tests) 6ms
+ ✓ src/main/webview-frame-navigation.test.ts  (6 tests) 5ms
+ ✓ src/main/mcp/transfer-dispatch-authorization.test.ts  (2 tests) 91ms
+ ✓ src/main/browser/browser-host-ipc.test.ts  (2 tests) 4ms
+ ✓ src/renderer/components/Layout/work-launcher-tree.test.ts  (6 tests) 6ms
+ ✓ src/main/lifecycle/shutdown-checks.test.ts  (6 tests) 6ms
+ ✓ src/main/file/sftp-only.test.ts  (4 tests) 61ms
+ ✓ src/renderer/components/Layout/statusbar-compact.test.ts  (8 tests) 4ms
+ ✓ scripts/electron-builder-cache.test.ts  (11 tests) 11ms
+ ✓ src/main/mcp/interactive-confirmation.test.ts  (12 tests) 151ms
+ ✓ src/renderer/components/Layout/task-shelf-instance.test.ts  (4 tests) 4ms
+ ✓ src/main/mcp-server/api-error.integration.test.ts  (3 tests) 34ms
+ ✓ src/main/ipc/shelf-browser.validation.test.ts  (3 tests) 6ms
+ ✓ src/main/mcp/command-stream.test.ts  (4 tests) 9ms
+ ✓ src/main/ipc/code-workspaces.validation.test.ts  (19 tests) 6ms
+ ✓ src/main/mcp/local-command-stream.test.ts  (3 tests) 21ms
+stdout | src/main/mcp/local-command-stream.test.ts > 本地流式输出 32 MiB 在 1 Mi 字符处拒绝，关闭管道并回收进程树
+15:54:41.949 > [MCP] Executing local command (7 characters)
+15:54:41.956 > [MCP] Local command stopping (output-limit): Command output limit exceeded (max 1048576 chars)
+
+stdout | src/main/mcp/local-command-stream.test.ts > 预取消不 spawn；执行期间取消回收且丢弃迟到输出
+15:54:41.963 > [MCP] Executing local command (7 characters)
+15:54:41.965 > [MCP] Local command stopping (client): Command aborted
+
+stdout | src/main/mcp/local-command-stream.test.ts > 分片 UTF-8、stderr 和真实退出码保留
+15:54:41.966 > [MCP] Executing local command (7 characters)
+
+ ✓ scripts/postinstall.test.ts  (5 tests) 12ms
+ ✓ scripts/check-architecture-boundaries.test.ts  (2 tests) 40ms
+ ✓ src/main/harness/detect.test.ts  (7 tests) 13ms
+ ✓ src/main/security/application-caller.test.ts  (2 tests) 5ms
+ ✓ src/main/dsh/backend-recovery.test.ts  (4 tests) 9ms
+ ✓ src/main/mcp/session-policy.test.ts  (2 tests) 2ms
+ ✓ src/shared/project-scene.test.ts  (18 tests) 7ms
+ ✓ src/main/browser/shortcuts.test.ts  (7 tests) 6ms
+ ✓ src/main/dsh/zstd-frames.test.ts  (4 tests) 6ms
+ ✓ src/main/dsh/market-process.test.ts  (2 tests) 113ms
+ ✓ src/renderer/components/Layout/work-launcher-paths.test.ts  (4 tests) 5ms
+ ✓ src/main/ipc/session-deduplicate.secrets.test.ts  (1 test) 139ms
+ ✓ src/main/dsh/market-backend.test.ts  (5 tests) 6ms
+ ✓ src/renderer/stores/plugin-store.cleanup.test.ts  (3 tests) 4ms
+ ✓ src/main/events/application-notifications.test.ts  (2 tests) 5ms
+ ✓ src/main/ui-theme.test.ts  (5 tests) 5ms
+ ✓ src/main/plugin/host-mgr-oneshot.test.ts  (4 tests) 3ms
+ ✓ src/main/reachability/reachability-prober.test.ts  (3 tests) 6ms
+ ✓ src/shared/browser-settings.test.ts  (13 tests) 6ms
+ ✓ src/shared/workbench-activity.test.ts  (4 tests) 4ms
+ ✓ src/main/harness/task-serializer.test.ts  (4 tests) 17ms
+ ✓ src/main/env/refresh.test.ts  (12 tests) 6ms
+ ✓ src/main/dsh/env.test.ts  (10 tests) 4ms
+ ✓ src/renderer/components/Terminal/unicode15-provider.test.ts  (8 tests) 5ms
+ ✓ src/renderer/components/Search/regex-search-client.test.ts  (3 tests) 8ms
+ ✓ src/main/harness/cwd.test.ts  (10 tests) 6ms
+ ✓ src/main/dsh/calendar.test.ts  (6 tests) 6ms
+ ✓ src/main/mcp/client-config.test.ts  (2 tests) 3ms
+ ↓ src/main/plugin/process-cleanup.integration.test.ts  (1 test | 1 skipped)
+ ✓ src/main/lifecycle/shutdown-wiring.test.ts  (4 tests) 3ms
+ ✓ src/main/storage/session-import.test.ts  (2 tests) 5ms
+ ✓ src/renderer/components/Layout/sidebar-brand.test.ts  (4 tests) 4ms
+ ✓ src/shared/plugin-web-resources.test.ts  (2 tests) 4ms
+ ✓ src/main/mcp/shutdown-request-policy.test.ts  (7 tests) 5ms
+ ✓ src/shared/output-capture.test.ts  (4 tests) 6ms
+ ✓ src/main/webbar-deeplink.test.ts  (2 tests) 3ms
+ ✓ src/renderer/components/Layout/web-tab-popup-gate.test.ts  (4 tests) 4ms
+stderr | src/renderer/components/Layout/web-tab-popup-gate.test.ts > 网页弹窗短窗频控 > 挂载失败不登记，不消耗频控额度
+[WebTabPopup] dropped: popup burst limit exceeded: https://example.com/
+
+stderr | src/renderer/components/Layout/web-tab-popup-gate.test.ts > 网页弹窗短窗频控 > 5 秒内仍限制突发请求，改变查询参数=false
+[WebTabPopup] dropped: popup burst limit exceeded: https://example.com/?id=1
+
+stderr | src/renderer/components/Layout/web-tab-popup-gate.test.ts > 网页弹窗短窗频控 > 5 秒内仍限制突发请求，改变查询参数=true
+[WebTabPopup] dropped: popup burst limit exceeded: https://example.com/?id=4
+
+ ✓ src/main/ipc/workbench-activity.validation.test.ts  (9 tests) 5ms
+ ✓ src/main/browser/validation.test.ts  (21 tests) 10ms
+ ✓ src/shared/browser-launch.test.ts  (3 tests) 4ms
+ ✓ src/main/harness/task-shelf-quit.test.ts  (2 tests) 5ms
+ ✓ src/main/ipc/browser-certificate.test.ts  (11 tests) 5ms
+ ✓ src/main/env/refresh.resource.test.ts  (1 test) 28ms
+ ✓ src/main/file/redact.test.ts  (5 tests) 3ms
+ ✓ src/main/browser/browser-host-validation.test.ts  (2 tests) 5ms
+ ✓ src/shared/log-throttle.test.ts  (3 tests) 5ms
+ ✓ src/main/ipc/terminal-output.validation.test.ts  (14 tests) 7ms
+ ✓ src/shared/constants/snap-terminal-font-size.test.ts  (6 tests) 4ms
+ ✓ src/main/mcp/local-request.test.ts  (3 tests) 5ms
+ ✓ src/main/env/child-environment.test.ts  (2 tests) 3ms
+ ✓ src/main/task-shelf-shortcut.test.ts  (1 test) 4ms
+ ✓ examples/manifests.validate.test.ts  (17 tests) 9ms
+ ✓ src/main/mcp/operation-policy.test.ts  (2 tests) 3ms
+ ✓ src/main/ipc/browser-devtools.test.ts  (9 tests) 5ms
+ ✓ src/main/security/secure-storage.test.ts  (2 tests) 3ms
+ ✓ src/main/ipc/browser-launch.validation.test.ts  (2 tests) 3ms
+ ✓ src/renderer/components/FilePanel/FilePanel.test.ts  (2 tests) 2ms
+ ✓ src/main/dsh/market-tools.test.ts  (2 tests) 3ms
+ ✓ src/main/browser/launch.test.ts  (2 tests) 5ms
+ ✓ src/main/diagnostics/events.test.ts  (1 test) 3ms
+ ✓ src/main/ipc/workspace-reference.validation.test.ts  (5 tests) 3ms
+ ✓ src/main/ipc/mcp-audit-query.test.ts  (10 tests) 5ms
+ ✓ src/shared/harness-recovery.test.ts  (1 test) 3ms
+ ✓ src/main/ipc/browser-search.validation.test.ts  (1 test) 3ms
+ ✓ src/main/ipc/mcp-audit-retention.validation.test.ts  (18 tests) 4ms
+ ✓ src/main/ipc/explorer-launch.test.ts  (2 tests) 3ms
+ ✓ src/main/ipc/browser-menu.test.ts  (1 test) 3ms
+ ✓ src/main/diagnostics/request-context.test.ts  (1 test) 14ms
+ ✓ src/main/ipc/file-transfer.validation.test.ts  (10 tests) 4ms
+ ✓ src/main/harness/tui-notifier.test.ts  (1 test) 10621ms
+ ✓ src/shared/code-workspaces.test.ts  (1 test) 2ms
+
+ Test Files  430 passed | 1 skipped (431)
+      Tests  5473 passed | 8 skipped (5481)
+   Start at  15:51:04
+   Duration  238.01s (transform 11.05s, setup 32ms, collect 57.43s, tests 190.54s, environment 121.07s, prepare 42.84s)
+

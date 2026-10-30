@@ -1,0 +1,30 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v1.6.1 C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell
+
+ ✓ src/main/terminal/output-dispatcher.test.ts  (14 tests) 27ms
+ ✓ src/main/terminal/local-host-protocol.test.ts  (18 tests) 69ms
+ ✓ src/main/terminal/input-control.test.ts  (25 tests) 35ms
+ ✓ src/main/terminal/output-buffer.test.ts  (36 tests) 179ms
+ ✓ src/main/terminal/shelf-ssh-context.test.ts  (23 tests) 32ms
+ ✓ src/main/terminal/output-budget.test.ts  (9 tests) 13ms
+ ✓ src/main/terminal/session-manager.encoding.test.ts  (5 tests) 15ms
+ ✓ src/main/terminal/session-manager.plugin-resources.test.ts  (14 tests) 44ms
+ ✓ src/main/terminal/session-manager.failure.test.ts  (9 tests) 130ms
+ ✓ src/main/terminal/session-manager.deletion.test.ts  (19 tests) 167ms
+ ✓ src/main/terminal/pattern-contract.test.ts  (13 tests) 9ms
+ ✓ src/main/terminal/osc-cwd-tracker.test.ts  (15 tests) 8ms
+ ✓ src/main/terminal/local-host-lifecycle.test.ts  (6 tests) 95ms
+ ✓ src/main/terminal/pattern-isolation.test.ts  (2 tests) 269ms
+ ✓ src/main/terminal/ssh-history-display.test.ts  (5 tests) 194ms
+ ✓ src/main/terminal/local-host-control.test.ts  (20 tests) 1204ms
+ ✓ src/main/terminal/local-host-client.test.ts  (27 tests) 1373ms
+ ✓ src/main/terminal/session-manager.wait-pattern.test.ts  (15 tests) 978ms
+ ✓ src/main/terminal/local-host-worker.test.ts  (24 tests) 1751ms
+ ✓ src/main/terminal/pattern-matcher.test.ts  (16 tests) 2230ms
+
+ Test Files  20 passed (20)
+      Tests  315 passed (315)
+   Start at  14:45:41
+   Duration  3.36s (transform 2.32s, setup 4ms, collect 6.77s, tests 8.82s, environment 6ms, prepare 3.38s)
+

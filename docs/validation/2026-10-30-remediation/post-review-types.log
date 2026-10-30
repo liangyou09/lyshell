@@ -1,0 +1,1 @@
+src/main/commands/windows-command-execution.ts(173,41): error TS6133: 'reason' is declared but its value is never read.

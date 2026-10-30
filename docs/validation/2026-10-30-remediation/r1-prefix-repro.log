@@ -1,0 +1,9 @@
+{
+  "verdict": "WATCHDOG_TIMEOUT",
+  "timeoutMs": 6000,
+  "wallMs": 6385,
+  "exitCode": 1,
+  "signal": null,
+  "stdoutTail": "{\"phase\":\"compiling\",\"patternLength\":7,\"baseLength\":29}\n{\"phase\":\"compiled\"}\n",
+  "stderrTail": ""
+}

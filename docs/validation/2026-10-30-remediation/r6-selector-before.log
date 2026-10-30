@@ -1,0 +1,158 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v1.6.1 C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell
+
+ ❯ src/renderer/components/Terminal/TerminalView.search.test.tsx  (17 tests | 3 failed) 961ms
+   ❯ src/renderer/components/Terminal/TerminalView.search.test.tsx > TerminalView 实时搜索 > 1 个挂载终端不因无关会话或终端注册更新提交，控制锁仍更新输入门控
+     → expected Map{} to deeply equal Map{}
+   ❯ src/renderer/components/Terminal/TerminalView.search.test.tsx > TerminalView 实时搜索 > 10 个挂载终端不因无关会话或终端注册更新提交，控制锁仍更新输入门控
+     → expected Map{ 'profile-0' => 3, …(9) } to deeply equal Map{ 'profile-0' => 1, …(9) }
+   ❯ src/renderer/components/Terminal/TerminalView.search.test.tsx > TerminalView 实时搜索 > 30 个挂载终端不因无关会话或终端注册更新提交，控制锁仍更新输入门控
+     → expected Map{ 'profile-0' => 3, …(29) } to deeply equal Map{ 'profile-0' => 1, …(29) }
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/renderer/components/Terminal/TerminalView.search.test.tsx > TerminalView 实时搜索 > 1 个挂载终端不因无关会话或终端注册更新提交，控制锁仍更新输入门控
+AssertionError: expected Map{} to deeply equal Map{}
+
+- Expected
++ Received
+
+  Map {
+-   "profile-0" => 1,
++   "profile-0" => 3,
+  }
+
+ ❯ src/renderer/components/Terminal/TerminalView.search.test.tsx:115:21
+    113|       useTerminalStore.getState().registerTerminal('unrelated', fixtur…
+    114|     })
+    115|     expect(commits).toEqual(initialCommits)
+       |                     ^
+    116|     expect(ids.map(id => useTerminalStore.getState().getTerminal(id)))…
+    117|     expect(subscriptions).toHaveBeenCalledTimes(subscribed)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/renderer/components/Terminal/TerminalView.search.test.tsx > TerminalView 实时搜索 > 10 个挂载终端不因无关会话或终端注册更新提交，控制锁仍更新输入门控
+AssertionError: expected Map{ 'profile-0' => 3, …(9) } to deeply equal Map{ 'profile-0' => 1, …(9) }
+
+- Expected
++ Received
+
+  Map {
+-   "profile-0" => 1,
+-   "profile-1" => 1,
+-   "profile-2" => 1,
+-   "profile-3" => 1,
+-   "profile-4" => 1,
+-   "profile-5" => 1,
+-   "profile-6" => 1,
+-   "profile-7" => 1,
+-   "profile-8" => 1,
+-   "profile-9" => 1,
++   "profile-0" => 3,
++   "profile-1" => 3,
++   "profile-2" => 3,
++   "profile-3" => 3,
++   "profile-4" => 3,
++   "profile-5" => 3,
++   "profile-6" => 3,
++   "profile-7" => 3,
++   "profile-8" => 3,
++   "profile-9" => 3,
+  }
+
+ ❯ src/renderer/components/Terminal/TerminalView.search.test.tsx:115:21
+    113|       useTerminalStore.getState().registerTerminal('unrelated', fixtur…
+    114|     })
+    115|     expect(commits).toEqual(initialCommits)
+       |                     ^
+    116|     expect(ids.map(id => useTerminalStore.getState().getTerminal(id)))…
+    117|     expect(subscriptions).toHaveBeenCalledTimes(subscribed)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  src/renderer/components/Terminal/TerminalView.search.test.tsx > TerminalView 实时搜索 > 30 个挂载终端不因无关会话或终端注册更新提交，控制锁仍更新输入门控
+AssertionError: expected Map{ 'profile-0' => 3, …(29) } to deeply equal Map{ 'profile-0' => 1, …(29) }
+
+- Expected
++ Received
+
+  Map {
+-   "profile-0" => 1,
+-   "profile-1" => 1,
+-   "profile-10" => 1,
+-   "profile-11" => 1,
+-   "profile-12" => 1,
+-   "profile-13" => 1,
+-   "profile-14" => 1,
+-   "profile-15" => 1,
+-   "profile-16" => 1,
+-   "profile-17" => 1,
+-   "profile-18" => 1,
+-   "profile-19" => 1,
+-   "profile-2" => 1,
+-   "profile-20" => 1,
+-   "profile-21" => 1,
+-   "profile-22" => 1,
+-   "profile-23" => 1,
+-   "profile-24" => 1,
+-   "profile-25" => 1,
+-   "profile-26" => 1,
+-   "profile-27" => 1,
+-   "profile-28" => 1,
+-   "profile-29" => 1,
+-   "profile-3" => 1,
+-   "profile-4" => 1,
+-   "profile-5" => 1,
+-   "profile-6" => 1,
+-   "profile-7" => 1,
+-   "profile-8" => 1,
+-   "profile-9" => 1,
++   "profile-0" => 3,
++   "profile-1" => 3,
++   "profile-10" => 3,
++   "profile-11" => 3,
++   "profile-12" => 3,
++   "profile-13" => 3,
++   "profile-14" => 3,
++   "profile-15" => 3,
++   "profile-16" => 3,
++   "profile-17" => 3,
++   "profile-18" => 3,
++   "profile-19" => 3,
++   "profile-2" => 3,
++   "profile-20" => 3,
++   "profile-21" => 3,
++   "profile-22" => 3,
++   "profile-23" => 3,
++   "profile-24" => 3,
++   "profile-25" => 3,
++   "profile-26" => 3,
++   "profile-27" => 3,
++   "profile-28" => 3,
++   "profile-29" => 3,
++   "profile-3" => 3,
++   "profile-4" => 3,
++   "profile-5" => 3,
++   "profile-6" => 3,
++   "profile-7" => 3,
++   "profile-8" => 3,
++   "profile-9" => 3,
+  }
+
+ ❯ src/renderer/components/Terminal/TerminalView.search.test.tsx:115:21
+    113|       useTerminalStore.getState().registerTerminal('unrelated', fixtur…
+    114|     })
+    115|     expect(commits).toEqual(initialCommits)
+       |                     ^
+    116|     expect(ids.map(id => useTerminalStore.getState().getTerminal(id)))…
+    117|     expect(subscriptions).toHaveBeenCalledTimes(subscribed)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 14 passed (17)
+   Start at  14:12:41
+   Duration  3.92s (transform 549ms, setup 0ms, collect 1.18s, tests 961ms, environment 1.04s, prepare 113ms)
+

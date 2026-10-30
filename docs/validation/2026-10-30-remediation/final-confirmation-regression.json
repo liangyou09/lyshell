@@ -1,0 +1,16 @@
+{
+  "head": "36739a6deb32bc45bf7dcbf29635cce9c306230c",
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "src/main/mcp/confirmation-authorization.test.ts",
+    "src/main/mcp/shutdown-request-policy.test.ts",
+    "--maxWorkers=2",
+    "--minWorkers=1"
+  ],
+  "start": "2026-10-30T07:49:22.652Z",
+  "end": "2026-10-30T07:49:26.566Z",
+  "exitCode": 0,
+  "signal": null
+}

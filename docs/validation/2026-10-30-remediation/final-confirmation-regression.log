@@ -1,0 +1,12 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v1.6.1 C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell
+
+ ✓ src/main/mcp/shutdown-request-policy.test.ts  (7 tests) 5ms
+ ✓ src/main/mcp/confirmation-authorization.test.ts  (9 tests) 139ms
+
+ Test Files  2 passed (2)
+      Tests  16 passed (16)
+   Start at  15:49:23
+   Duration  3.20s (transform 1.78s, setup 0ms, collect 2.60s, tests 144ms, environment 0ms, prepare 193ms)
+

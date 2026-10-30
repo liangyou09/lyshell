@@ -1,0 +1,15 @@
+
+ RUN  v1.6.1 C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell
+
+ ✓ src/main/storage/atomic-json.test.ts  (29 tests) 147ms
+ ✓ src/main/storage/mcp-audit-repository.test.ts  (18 tests) 267ms
+ ✓ src/main/storage/serialized-json-writer.test.ts  (9 tests) 11ms
+ ✓ src/main/ipc/mcp-audit-query.test.ts  (10 tests) 4ms
+ ✓ src/renderer/components/Layout/McpAuditPanel.test.tsx  (7 tests) 518ms
+
+ Test Files  5 passed (5)
+      Tests  73 passed (73)
+   Start at  14:22:51
+   Duration  5.36s (transform 712ms, setup 0ms, collect 2.19s, tests 947ms, environment 843ms, prepare 444ms)
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m

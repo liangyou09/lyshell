@@ -1,0 +1,28 @@
+command: D:\software\nodejs\node.exe node_modules/vitest/vitest.mjs run src/main/browser/browser-host.test.ts src/main/browser/browser-host-validation.test.ts src/main/browser/browser-host-ipc.test.ts src/main/browser/readonly-view-pilot.test.ts src/main/browser/shelf-readonly-contract.test.ts src/main/browser/shelf-browser-runtime.test.ts src/main/browser/shelf-browser-runtime.sleep.test.ts src/main/browser/shelf-browser-runtime.reloadable.test.ts src/renderer/browser/browser-host.test.ts src/renderer/components/Layout/web-tab-controls.test.ts src/renderer/components/Layout/TaskShelfBrowserBar.test.tsx src/renderer/components/Layout/WebTabLayer.geometry.test.tsx src/renderer/components/Layout/WebPanel.browser-mode.test.tsx
+HEAD: 36739a6deb32bc45bf7dcbf29635cce9c306230c
+started: 2026-10-30T06:35:12.992Z
+ended: 2026-10-30T06:35:34.814Z
+exitCode: 0
+
+ RUN  v1.6.1 C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell
+
+ ✓ src/main/browser/browser-host.test.ts  (8 tests) 53ms
+ ✓ src/main/browser/shelf-readonly-contract.test.ts  (47 tests) 75ms
+ ✓ src/main/browser/readonly-view-pilot.test.ts  (2 tests) 23ms
+ ✓ src/main/browser/shelf-browser-runtime.test.ts  (4 tests) 35ms
+ ✓ src/main/browser/shelf-browser-runtime.reloadable.test.ts  (13 tests) 49ms
+ ✓ src/main/browser/shelf-browser-runtime.sleep.test.ts  (15 tests) 383ms
+ ✓ src/main/browser/browser-host-ipc.test.ts  (2 tests) 14ms
+ ✓ src/main/browser/browser-host-validation.test.ts  (2 tests) 21ms
+ ✓ src/renderer/browser/browser-host.test.ts  (6 tests) 86ms
+ ✓ src/renderer/components/Layout/web-tab-controls.test.ts  (12 tests) 23ms
+ ✓ src/renderer/components/Layout/TaskShelfBrowserBar.test.tsx  (2 tests) 413ms
+ ✓ src/renderer/components/Layout/WebTabLayer.geometry.test.tsx  (7 tests) 464ms
+ ✓ src/renderer/components/Layout/WebPanel.browser-mode.test.tsx  (62 tests) 11209ms
+
+ Test Files  13 passed (13)
+      Tests  182 passed (182)
+   Start at  14:35:14
+   Duration  20.10s (transform 7.34s, setup 6ms, collect 16.06s, tests 12.85s, environment 12.87s, prepare 3.47s)
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m

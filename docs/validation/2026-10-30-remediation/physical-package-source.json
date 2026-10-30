@@ -1,0 +1,2088 @@
+{
+  "head": "bd9009c42738d265b660ca6bb09c497ce381d26f",
+  "start": "2026-10-30T08:15:23.253Z",
+  "end": "2026-10-30T08:16:08.721Z",
+  "sourceDirectory": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\remediation-package-source-d2yBkT",
+  "originalModules": "D:\\workspace\\claude\\LyShell\\node_modules",
+  "physicalNodeModules": true,
+  "application": {
+    "files": 160,
+    "bytes": 36431161
+  },
+  "dependencies": {
+    "files": 10406,
+    "bytes": 142767096
+  },
+  "packageCount": 280,
+  "dependencyEdges": 557,
+  "packages": [
+    {
+      "name": "@modelcontextprotocol/sdk",
+      "version": "1.29.0",
+      "path": "@modelcontextprotocol/sdk",
+      "files": 677,
+      "bytes": 4268166
+    },
+    {
+      "name": "@xterm/addon-fit",
+      "version": "0.11.0",
+      "path": "@xterm/addon-fit",
+      "files": 9,
+      "bytes": 20727
+    },
+    {
+      "name": "@xterm/addon-search",
+      "version": "0.16.0",
+      "path": "@xterm/addon-search",
+      "files": 14,
+      "bytes": 838673
+    },
+    {
+      "name": "@xterm/xterm",
+      "version": "5.5.0",
+      "path": "@xterm/xterm",
+      "files": 106,
+      "bytes": 2400898
+    },
+    {
+      "name": "adm-zip",
+      "version": "0.5.18",
+      "path": "adm-zip",
+      "files": 19,
+      "bytes": 125500
+    },
+    {
+      "name": "classnames",
+      "version": "2.5.1",
+      "path": "classnames",
+      "files": 10,
+      "bytes": 23581
+    },
+    {
+      "name": "dayjs",
+      "version": "1.11.21",
+      "path": "dayjs",
+      "files": 451,
+      "bytes": 680086
+    },
+    {
+      "name": "eastasianwidth",
+      "version": "0.2.0",
+      "path": "eastasianwidth",
+      "files": 3,
+      "bytes": 13640
+    },
+    {
+      "name": "electron-log",
+      "version": "5.4.4",
+      "path": "electron-log",
+      "files": 40,
+      "bytes": 95562
+    },
+    {
+      "name": "electron-updater",
+      "version": "6.8.3",
+      "path": "electron-updater",
+      "files": 99,
+      "bytes": 552375
+    },
+    {
+      "name": "emoji-regex",
+      "version": "10.6.0",
+      "path": "emoji-regex",
+      "files": 6,
+      "bytes": 34544
+    },
+    {
+      "name": "highlight.js",
+      "version": "11.12.0",
+      "path": "highlight.js",
+      "files": 1569,
+      "bytes": 5503982
+    },
+    {
+      "name": "i18next",
+      "version": "26.3.4",
+      "path": "i18next",
+      "files": 19,
+      "bytes": 516365
+    },
+    {
+      "name": "iconv-lite",
+      "version": "0.7.2",
+      "path": "iconv-lite",
+      "files": 27,
+      "bytes": 343635
+    },
+    {
+      "name": "js-yaml",
+      "version": "4.3.1",
+      "path": "js-yaml",
+      "files": 36,
+      "bytes": 957953
+    },
+    {
+      "name": "koffi",
+      "version": "3.3.1",
+      "path": "koffi",
+      "files": 87,
+      "bytes": 1715844
+    },
+    {
+      "name": "lodash-es",
+      "version": "4.18.1",
+      "path": "lodash-es",
+      "files": 647,
+      "bytes": 634630
+    },
+    {
+      "name": "node-pty",
+      "version": "1.1.0",
+      "path": "node-pty",
+      "files": 312,
+      "bytes": 64691787
+    },
+    {
+      "name": "react",
+      "version": "18.3.1",
+      "path": "react",
+      "files": 20,
+      "bytes": 318101
+    },
+    {
+      "name": "react-dom",
+      "version": "18.3.1",
+      "path": "react-dom",
+      "files": 32,
+      "bytes": 4513549
+    },
+    {
+      "name": "react-i18next",
+      "version": "17.0.8",
+      "path": "react-i18next",
+      "files": 92,
+      "bytes": 927146
+    },
+    {
+      "name": "react-markdown",
+      "version": "9.1.0",
+      "path": "react-markdown",
+      "files": 9,
+      "bytes": 51913
+    },
+    {
+      "name": "react-router-dom",
+      "version": "6.30.4",
+      "path": "react-router-dom",
+      "files": 23,
+      "bytes": 901742
+    },
+    {
+      "name": "remark-gfm",
+      "version": "4.0.1",
+      "path": "remark-gfm",
+      "files": 8,
+      "bytes": 21993
+    },
+    {
+      "name": "remark-parse",
+      "version": "11.0.0",
+      "path": "remark-parse",
+      "files": 7,
+      "bytes": 19481
+    },
+    {
+      "name": "serialport",
+      "version": "12.0.0",
+      "path": "serialport",
+      "files": 9,
+      "bytes": 12267
+    },
+    {
+      "name": "ssh2",
+      "version": "1.17.0",
+      "path": "ssh2",
+      "files": 150,
+      "bytes": 1119022
+    },
+    {
+      "name": "unified",
+      "version": "11.0.5",
+      "path": "unified",
+      "files": 11,
+      "bytes": 145932
+    },
+    {
+      "name": "uuid",
+      "version": "9.0.1",
+      "path": "uuid",
+      "files": 76,
+      "bytes": 123288
+    },
+    {
+      "name": "zustand",
+      "version": "4.5.7",
+      "path": "zustand",
+      "files": 141,
+      "bytes": 327043
+    },
+    {
+      "name": "@hono/node-server",
+      "version": "1.19.14",
+      "path": "@hono/node-server",
+      "files": 55,
+      "bytes": 228343
+    },
+    {
+      "name": "ajv",
+      "version": "8.20.0",
+      "path": "@modelcontextprotocol/sdk/node_modules/ajv",
+      "files": 466,
+      "bytes": 1033496
+    },
+    {
+      "name": "ajv-formats",
+      "version": "3.0.1",
+      "path": "ajv-formats",
+      "files": 15,
+      "bytes": 56763
+    },
+    {
+      "name": "content-type",
+      "version": "1.0.5",
+      "path": "content-type",
+      "files": 5,
+      "bytes": 10471
+    },
+    {
+      "name": "cors",
+      "version": "2.8.6",
+      "path": "cors",
+      "files": 4,
+      "bytes": 19956
+    },
+    {
+      "name": "cross-spawn",
+      "version": "7.0.6",
+      "path": "cross-spawn",
+      "files": 9,
+      "bytes": 16094
+    },
+    {
+      "name": "eventsource",
+      "version": "3.0.7",
+      "path": "eventsource",
+      "files": 13,
+      "bytes": 147304
+    },
+    {
+      "name": "eventsource-parser",
+      "version": "3.1.0",
+      "path": "eventsource-parser",
+      "files": 21,
+      "bytes": 123218
+    },
+    {
+      "name": "express",
+      "version": "5.2.1",
+      "path": "express",
+      "files": 10,
+      "bytes": 75429
+    },
+    {
+      "name": "express-rate-limit",
+      "version": "8.5.2",
+      "path": "express-rate-limit",
+      "files": 9,
+      "bytes": 146332
+    },
+    {
+      "name": "hono",
+      "version": "4.12.25",
+      "path": "hono",
+      "files": 563,
+      "bytes": 1416507
+    },
+    {
+      "name": "jose",
+      "version": "6.2.3",
+      "path": "jose",
+      "files": 88,
+      "bytes": 257736
+    },
+    {
+      "name": "json-schema-typed",
+      "version": "8.0.2",
+      "path": "json-schema-typed",
+      "files": 9,
+      "bytes": 197188
+    },
+    {
+      "name": "pkce-challenge",
+      "version": "5.0.1",
+      "path": "pkce-challenge",
+      "files": 10,
+      "bytes": 18211
+    },
+    {
+      "name": "raw-body",
+      "version": "3.0.2",
+      "path": "raw-body",
+      "files": 5,
+      "bytes": 18495
+    },
+    {
+      "name": "zod",
+      "version": "4.4.3",
+      "path": "zod",
+      "files": 718,
+      "bytes": 4558122
+    },
+    {
+      "name": "zod-to-json-schema",
+      "version": "3.25.2",
+      "path": "zod-to-json-schema",
+      "files": 130,
+      "bytes": 219264
+    },
+    {
+      "name": "fs-extra",
+      "version": "10.1.0",
+      "path": "fs-extra",
+      "files": 31,
+      "bytes": 63278
+    },
+    {
+      "name": "lazy-val",
+      "version": "1.0.5",
+      "path": "lazy-val",
+      "files": 5,
+      "bytes": 2583
+    },
+    {
+      "name": "lodash.escaperegexp",
+      "version": "4.1.2",
+      "path": "lodash.escaperegexp",
+      "files": 4,
+      "bytes": 7605
+    },
+    {
+      "name": "lodash.isequal",
+      "version": "4.5.0",
+      "path": "lodash.isequal",
+      "files": 4,
+      "bytes": 52677
+    },
+    {
+      "name": "semver",
+      "version": "7.7.4",
+      "path": "electron-updater/node_modules/semver",
+      "files": 52,
+      "bytes": 97799
+    },
+    {
+      "name": "tiny-typed-emitter",
+      "version": "2.1.0",
+      "path": "tiny-typed-emitter",
+      "files": 5,
+      "bytes": 5302
+    },
+    {
+      "name": "builder-util-runtime",
+      "version": "9.5.1",
+      "path": "electron-updater/node_modules/builder-util-runtime",
+      "files": 42,
+      "bytes": 173884
+    },
+    {
+      "name": "typescript",
+      "version": "5.9.3",
+      "path": "typescript",
+      "files": 132,
+      "bytes": 23625066
+    },
+    {
+      "name": "safer-buffer",
+      "version": "2.1.2",
+      "path": "safer-buffer",
+      "files": 7,
+      "bytes": 42299
+    },
+    {
+      "name": "argparse",
+      "version": "2.0.1",
+      "path": "argparse",
+      "files": 7,
+      "bytes": 171548
+    },
+    {
+      "name": "@koromix/koffi-win32-x64",
+      "version": "3.3.1",
+      "path": "@koromix/koffi-win32-x64",
+      "files": 5,
+      "bytes": 1050207
+    },
+    {
+      "name": "node-addon-api",
+      "version": "7.1.1",
+      "path": "node-addon-api",
+      "files": 19,
+      "bytes": 396312
+    },
+    {
+      "name": "loose-envify",
+      "version": "1.4.0",
+      "path": "loose-envify",
+      "files": 8,
+      "bytes": 5814
+    },
+    {
+      "name": "scheduler",
+      "version": "0.23.2",
+      "path": "scheduler",
+      "files": 17,
+      "bytes": 93383
+    },
+    {
+      "name": "@babel/runtime",
+      "version": "7.29.7",
+      "path": "@babel/runtime",
+      "files": 249,
+      "bytes": 247667
+    },
+    {
+      "name": "html-parse-stringify",
+      "version": "3.0.1",
+      "path": "html-parse-stringify",
+      "files": 10,
+      "bytes": 55524
+    },
+    {
+      "name": "use-sync-external-store",
+      "version": "1.6.0",
+      "path": "use-sync-external-store",
+      "files": 18,
+      "bytes": 28186
+    },
+    {
+      "name": "@types/hast",
+      "version": "3.0.5",
+      "path": "@types/hast",
+      "files": 4,
+      "bytes": 35267
+    },
+    {
+      "name": "@types/mdast",
+      "version": "4.0.4",
+      "path": "@types/mdast",
+      "files": 4,
+      "bytes": 29432
+    },
+    {
+      "name": "devlop",
+      "version": "1.1.0",
+      "path": "devlop",
+      "files": 6,
+      "bytes": 22010
+    },
+    {
+      "name": "hast-util-to-jsx-runtime",
+      "version": "2.3.6",
+      "path": "hast-util-to-jsx-runtime",
+      "files": 10,
+      "bytes": 56610
+    },
+    {
+      "name": "html-url-attributes",
+      "version": "3.0.1",
+      "path": "html-url-attributes",
+      "files": 9,
+      "bytes": 8675
+    },
+    {
+      "name": "mdast-util-to-hast",
+      "version": "13.2.1",
+      "path": "mdast-util-to-hast",
+      "files": 89,
+      "bytes": 132114
+    },
+    {
+      "name": "remark-rehype",
+      "version": "11.1.2",
+      "path": "remark-rehype",
+      "files": 9,
+      "bytes": 48301
+    },
+    {
+      "name": "unist-util-visit",
+      "version": "5.1.0",
+      "path": "unist-util-visit",
+      "files": 8,
+      "bytes": 33781
+    },
+    {
+      "name": "vfile",
+      "version": "6.0.3",
+      "path": "vfile",
+      "files": 29,
+      "bytes": 121686
+    },
+    {
+      "name": "@types/react",
+      "version": "18.3.29",
+      "path": "@types/react",
+      "files": 15,
+      "bytes": 441853
+    },
+    {
+      "name": "@remix-run/router",
+      "version": "1.23.3",
+      "path": "@remix-run/router",
+      "files": 20,
+      "bytes": 2764342
+    },
+    {
+      "name": "react-router",
+      "version": "6.30.4",
+      "path": "react-router",
+      "files": 20,
+      "bytes": 857704
+    },
+    {
+      "name": "mdast-util-gfm",
+      "version": "3.1.0",
+      "path": "mdast-util-gfm",
+      "files": 8,
+      "bytes": 22153
+    },
+    {
+      "name": "micromark-extension-gfm",
+      "version": "3.0.0",
+      "path": "micromark-extension-gfm",
+      "files": 5,
+      "bytes": 20321
+    },
+    {
+      "name": "remark-stringify",
+      "version": "11.0.0",
+      "path": "remark-stringify",
+      "files": 7,
+      "bytes": 19639
+    },
+    {
+      "name": "mdast-util-from-markdown",
+      "version": "2.0.3",
+      "path": "mdast-util-from-markdown",
+      "files": 17,
+      "bytes": 97286
+    },
+    {
+      "name": "micromark-util-types",
+      "version": "2.0.2",
+      "path": "micromark-util-types",
+      "files": 5,
+      "bytes": 38950
+    },
+    {
+      "name": "@serialport/binding-mock",
+      "version": "10.2.2",
+      "path": "@serialport/binding-mock",
+      "files": 7,
+      "bytes": 25152
+    },
+    {
+      "name": "@serialport/bindings-cpp",
+      "version": "12.0.1",
+      "path": "@serialport/bindings-cpp",
+      "files": 49,
+      "bytes": 1752270
+    },
+    {
+      "name": "@serialport/parser-byte-length",
+      "version": "12.0.0",
+      "path": "@serialport/parser-byte-length",
+      "files": 5,
+      "bytes": 3944
+    },
+    {
+      "name": "@serialport/parser-cctalk",
+      "version": "12.0.0",
+      "path": "@serialport/parser-cctalk",
+      "files": 5,
+      "bytes": 4087
+    },
+    {
+      "name": "@serialport/parser-delimiter",
+      "version": "12.0.0",
+      "path": "@serialport/parser-delimiter",
+      "files": 5,
+      "bytes": 4281
+    },
+    {
+      "name": "@serialport/parser-inter-byte-timeout",
+      "version": "12.0.0",
+      "path": "@serialport/parser-inter-byte-timeout",
+      "files": 5,
+      "bytes": 4971
+    },
+    {
+      "name": "@serialport/parser-packet-length",
+      "version": "12.0.0",
+      "path": "@serialport/parser-packet-length",
+      "files": 5,
+      "bytes": 5616
+    },
+    {
+      "name": "@serialport/parser-readline",
+      "version": "12.0.0",
+      "path": "@serialport/parser-readline",
+      "files": 5,
+      "bytes": 3582
+    },
+    {
+      "name": "@serialport/parser-ready",
+      "version": "12.0.0",
+      "path": "@serialport/parser-ready",
+      "files": 5,
+      "bytes": 4414
+    },
+    {
+      "name": "@serialport/parser-regex",
+      "version": "12.0.0",
+      "path": "@serialport/parser-regex",
+      "files": 5,
+      "bytes": 4009
+    },
+    {
+      "name": "@serialport/parser-slip-encoder",
+      "version": "12.0.0",
+      "path": "@serialport/parser-slip-encoder",
+      "files": 9,
+      "bytes": 10028
+    },
+    {
+      "name": "@serialport/parser-spacepacket",
+      "version": "12.0.0",
+      "path": "@serialport/parser-spacepacket",
+      "files": 7,
+      "bytes": 11897
+    },
+    {
+      "name": "@serialport/stream",
+      "version": "12.0.0",
+      "path": "@serialport/stream",
+      "files": 5,
+      "bytes": 29503
+    },
+    {
+      "name": "debug",
+      "version": "4.3.4",
+      "path": "serialport/node_modules/debug",
+      "files": 7,
+      "bytes": 42352
+    },
+    {
+      "name": "asn1",
+      "version": "0.2.6",
+      "path": "asn1",
+      "files": 10,
+      "bytes": 19757
+    },
+    {
+      "name": "bcrypt-pbkdf",
+      "version": "1.0.2",
+      "path": "bcrypt-pbkdf",
+      "files": 5,
+      "bytes": 28994
+    },
+    {
+      "name": "cpu-features",
+      "version": "0.0.10",
+      "path": "cpu-features",
+      "files": 115,
+      "bytes": 576021
+    },
+    {
+      "name": "nan",
+      "version": "2.27.0",
+      "path": "nan",
+      "files": 50,
+      "bytes": 454658
+    },
+    {
+      "name": "@types/unist",
+      "version": "3.0.3",
+      "path": "@types/unist",
+      "files": 4,
+      "bytes": 6262
+    },
+    {
+      "name": "bail",
+      "version": "2.0.2",
+      "path": "bail",
+      "files": 5,
+      "bytes": 6353
+    },
+    {
+      "name": "extend",
+      "version": "3.0.2",
+      "path": "extend",
+      "files": 10,
+      "bytes": 23461
+    },
+    {
+      "name": "is-plain-obj",
+      "version": "4.1.0",
+      "path": "is-plain-obj",
+      "files": 5,
+      "bytes": 4080
+    },
+    {
+      "name": "trough",
+      "version": "2.2.0",
+      "path": "trough",
+      "files": 9,
+      "bytes": 22877
+    },
+    {
+      "name": "fast-deep-equal",
+      "version": "3.1.3",
+      "path": "fast-deep-equal",
+      "files": 11,
+      "bytes": 12966
+    },
+    {
+      "name": "fast-uri",
+      "version": "3.1.2",
+      "path": "fast-uri",
+      "files": 34,
+      "bytes": 156873
+    },
+    {
+      "name": "json-schema-traverse",
+      "version": "1.0.0",
+      "path": "@modelcontextprotocol/sdk/node_modules/json-schema-traverse",
+      "files": 12,
+      "bytes": 22220
+    },
+    {
+      "name": "require-from-string",
+      "version": "2.0.2",
+      "path": "require-from-string",
+      "files": 4,
+      "bytes": 3422
+    },
+    {
+      "name": "ajv",
+      "version": "8.20.0",
+      "path": "ajv-formats/node_modules/ajv",
+      "files": 466,
+      "bytes": 1033496
+    },
+    {
+      "name": "object-assign",
+      "version": "4.1.1",
+      "path": "object-assign",
+      "files": 4,
+      "bytes": 5493
+    },
+    {
+      "name": "vary",
+      "version": "1.1.2",
+      "path": "vary",
+      "files": 5,
+      "bytes": 8747
+    },
+    {
+      "name": "path-key",
+      "version": "3.1.1",
+      "path": "path-key",
+      "files": 5,
+      "bytes": 4553
+    },
+    {
+      "name": "shebang-command",
+      "version": "2.0.0",
+      "path": "shebang-command",
+      "files": 4,
+      "bytes": 2556
+    },
+    {
+      "name": "which",
+      "version": "2.0.2",
+      "path": "which",
+      "files": 6,
+      "bytes": 9975
+    },
+    {
+      "name": "accepts",
+      "version": "2.0.0",
+      "path": "accepts",
+      "files": 5,
+      "bytes": 16917
+    },
+    {
+      "name": "body-parser",
+      "version": "2.3.0",
+      "path": "body-parser",
+      "files": 10,
+      "bytes": 42536
+    },
+    {
+      "name": "content-disposition",
+      "version": "1.1.0",
+      "path": "content-disposition",
+      "files": 4,
+      "bytes": 19928
+    },
+    {
+      "name": "cookie",
+      "version": "0.7.2",
+      "path": "cookie",
+      "files": 5,
+      "bytes": 23382
+    },
+    {
+      "name": "cookie-signature",
+      "version": "1.2.2",
+      "path": "cookie-signature",
+      "files": 5,
+      "bytes": 4993
+    },
+    {
+      "name": "debug",
+      "version": "4.4.3",
+      "path": "debug",
+      "files": 7,
+      "bytes": 42793
+    },
+    {
+      "name": "depd",
+      "version": "2.0.0",
+      "path": "depd",
+      "files": 6,
+      "bytes": 27117
+    },
+    {
+      "name": "encodeurl",
+      "version": "2.0.0",
+      "path": "encodeurl",
+      "files": 4,
+      "bytes": 6980
+    },
+    {
+      "name": "escape-html",
+      "version": "1.0.3",
+      "path": "escape-html",
+      "files": 4,
+      "bytes": 3660
+    },
+    {
+      "name": "etag",
+      "version": "1.8.1",
+      "path": "etag",
+      "files": 5,
+      "bytes": 10809
+    },
+    {
+      "name": "finalhandler",
+      "version": "2.1.1",
+      "path": "finalhandler",
+      "files": 5,
+      "bytes": 18111
+    },
+    {
+      "name": "fresh",
+      "version": "2.0.0",
+      "path": "fresh",
+      "files": 5,
+      "bytes": 10289
+    },
+    {
+      "name": "http-errors",
+      "version": "2.0.1",
+      "path": "http-errors",
+      "files": 5,
+      "bytes": 19064
+    },
+    {
+      "name": "merge-descriptors",
+      "version": "2.0.0",
+      "path": "merge-descriptors",
+      "files": 5,
+      "bytes": 4373
+    },
+    {
+      "name": "mime-types",
+      "version": "3.0.2",
+      "path": "express/node_modules/mime-types",
+      "files": 6,
+      "bytes": 22871
+    },
+    {
+      "name": "on-finished",
+      "version": "2.4.1",
+      "path": "on-finished",
+      "files": 5,
+      "bytes": 13679
+    },
+    {
+      "name": "once",
+      "version": "1.4.0",
+      "path": "once",
+      "files": 4,
+      "bytes": 4046
+    },
+    {
+      "name": "parseurl",
+      "version": "1.3.3",
+      "path": "parseurl",
+      "files": 5,
+      "bytes": 10299
+    },
+    {
+      "name": "proxy-addr",
+      "version": "2.0.7",
+      "path": "proxy-addr",
+      "files": 5,
+      "bytes": 15399
+    },
+    {
+      "name": "qs",
+      "version": "6.15.2",
+      "path": "qs",
+      "files": 20,
+      "bytes": 322295
+    },
+    {
+      "name": "range-parser",
+      "version": "1.2.1",
+      "path": "range-parser",
+      "files": 5,
+      "bytes": 8457
+    },
+    {
+      "name": "router",
+      "version": "2.2.0",
+      "path": "router",
+      "files": 7,
+      "bytes": 46851
+    },
+    {
+      "name": "send",
+      "version": "1.2.1",
+      "path": "send",
+      "files": 4,
+      "bytes": 32200
+    },
+    {
+      "name": "serve-static",
+      "version": "2.2.1",
+      "path": "serve-static",
+      "files": 4,
+      "bytes": 14335
+    },
+    {
+      "name": "statuses",
+      "version": "2.0.2",
+      "path": "statuses",
+      "files": 6,
+      "bytes": 12505
+    },
+    {
+      "name": "type-is",
+      "version": "2.1.0",
+      "path": "type-is",
+      "files": 5,
+      "bytes": 21269
+    },
+    {
+      "name": "ip-address",
+      "version": "10.2.0",
+      "path": "ip-address",
+      "files": 30,
+      "bytes": 269957
+    },
+    {
+      "name": "bytes",
+      "version": "3.1.2",
+      "path": "bytes",
+      "files": 5,
+      "bytes": 12270
+    },
+    {
+      "name": "unpipe",
+      "version": "1.0.0",
+      "path": "unpipe",
+      "files": 5,
+      "bytes": 4311
+    },
+    {
+      "name": "graceful-fs",
+      "version": "4.2.11",
+      "path": "graceful-fs",
+      "files": 7,
+      "bytes": 32535
+    },
+    {
+      "name": "jsonfile",
+      "version": "6.2.1",
+      "path": "jsonfile",
+      "files": 5,
+      "bytes": 10943
+    },
+    {
+      "name": "universalify",
+      "version": "2.0.1",
+      "path": "universalify",
+      "files": 4,
+      "bytes": 4675
+    },
+    {
+      "name": "sax",
+      "version": "1.6.0",
+      "path": "sax",
+      "files": 4,
+      "bytes": 61006
+    },
+    {
+      "name": "js-tokens",
+      "version": "4.0.0",
+      "path": "js-tokens",
+      "files": 5,
+      "bytes": 15069
+    },
+    {
+      "name": "void-elements",
+      "version": "3.1.0",
+      "path": "void-elements",
+      "files": 4,
+      "bytes": 3113
+    },
+    {
+      "name": "dequal",
+      "version": "2.0.3",
+      "path": "dequal",
+      "files": 11,
+      "bytes": 14229
+    },
+    {
+      "name": "@types/estree",
+      "version": "1.0.9",
+      "path": "@types/estree",
+      "files": 5,
+      "bytes": 26153
+    },
+    {
+      "name": "comma-separated-tokens",
+      "version": "2.0.3",
+      "path": "comma-separated-tokens",
+      "files": 5,
+      "bytes": 9971
+    },
+    {
+      "name": "estree-util-is-identifier-name",
+      "version": "3.0.0",
+      "path": "estree-util-is-identifier-name",
+      "files": 7,
+      "bytes": 11862
+    },
+    {
+      "name": "hast-util-whitespace",
+      "version": "3.0.0",
+      "path": "hast-util-whitespace",
+      "files": 7,
+      "bytes": 11781
+    },
+    {
+      "name": "mdast-util-mdx-expression",
+      "version": "2.0.1",
+      "path": "mdast-util-mdx-expression",
+      "files": 8,
+      "bytes": 25728
+    },
+    {
+      "name": "mdast-util-mdx-jsx",
+      "version": "3.2.0",
+      "path": "mdast-util-mdx-jsx",
+      "files": 8,
+      "bytes": 56776
+    },
+    {
+      "name": "mdast-util-mdxjs-esm",
+      "version": "2.0.1",
+      "path": "mdast-util-mdxjs-esm",
+      "files": 7,
+      "bytes": 20343
+    },
+    {
+      "name": "property-information",
+      "version": "7.2.0",
+      "path": "property-information",
+      "files": 56,
+      "bytes": 122232
+    },
+    {
+      "name": "space-separated-tokens",
+      "version": "2.0.2",
+      "path": "space-separated-tokens",
+      "files": 5,
+      "bytes": 7753
+    },
+    {
+      "name": "style-to-js",
+      "version": "1.1.21",
+      "path": "style-to-js",
+      "files": 19,
+      "bytes": 66738
+    },
+    {
+      "name": "unist-util-position",
+      "version": "5.0.0",
+      "path": "unist-util-position",
+      "files": 7,
+      "bytes": 12779
+    },
+    {
+      "name": "vfile-message",
+      "version": "4.0.3",
+      "path": "vfile-message",
+      "files": 7,
+      "bytes": 34220
+    },
+    {
+      "name": "@ungap/structured-clone",
+      "version": "1.3.1",
+      "path": "@ungap/structured-clone",
+      "files": 16,
+      "bytes": 28217
+    },
+    {
+      "name": "micromark-util-sanitize-uri",
+      "version": "2.0.1",
+      "path": "micromark-util-sanitize-uri",
+      "files": 9,
+      "bytes": 17917
+    },
+    {
+      "name": "trim-lines",
+      "version": "3.0.1",
+      "path": "trim-lines",
+      "files": 5,
+      "bytes": 7493
+    },
+    {
+      "name": "unist-util-is",
+      "version": "6.0.1",
+      "path": "unist-util-is",
+      "files": 9,
+      "bytes": 31489
+    },
+    {
+      "name": "unist-util-visit-parents",
+      "version": "6.0.2",
+      "path": "unist-util-visit-parents",
+      "files": 14,
+      "bytes": 39087
+    },
+    {
+      "name": "@types/prop-types",
+      "version": "15.7.15",
+      "path": "@types/prop-types",
+      "files": 4,
+      "bytes": 7416
+    },
+    {
+      "name": "csstype",
+      "version": "3.2.3",
+      "path": "csstype",
+      "files": 5,
+      "bytes": 1253449
+    },
+    {
+      "name": "mdast-util-gfm-autolink-literal",
+      "version": "2.0.1",
+      "path": "mdast-util-gfm-autolink-literal",
+      "files": 7,
+      "bytes": 21703
+    },
+    {
+      "name": "mdast-util-gfm-footnote",
+      "version": "2.1.0",
+      "path": "mdast-util-gfm-footnote",
+      "files": 8,
+      "bytes": 24051
+    },
+    {
+      "name": "mdast-util-gfm-strikethrough",
+      "version": "2.0.0",
+      "path": "mdast-util-gfm-strikethrough",
+      "files": 7,
+      "bytes": 17828
+    },
+    {
+      "name": "mdast-util-gfm-table",
+      "version": "2.0.0",
+      "path": "mdast-util-gfm-table",
+      "files": 7,
+      "bytes": 30873
+    },
+    {
+      "name": "mdast-util-gfm-task-list-item",
+      "version": "2.0.0",
+      "path": "mdast-util-gfm-task-list-item",
+      "files": 7,
+      "bytes": 18341
+    },
+    {
+      "name": "mdast-util-to-markdown",
+      "version": "2.1.2",
+      "path": "mdast-util-to-markdown",
+      "files": 150,
+      "bytes": 148937
+    },
+    {
+      "name": "micromark-extension-gfm-autolink-literal",
+      "version": "2.1.0",
+      "path": "micromark-extension-gfm-autolink-literal",
+      "files": 15,
+      "bytes": 65381
+    },
+    {
+      "name": "micromark-extension-gfm-footnote",
+      "version": "2.1.0",
+      "path": "micromark-extension-gfm-footnote",
+      "files": 15,
+      "bytes": 79466
+    },
+    {
+      "name": "micromark-extension-gfm-strikethrough",
+      "version": "2.1.0",
+      "path": "micromark-extension-gfm-strikethrough",
+      "files": 15,
+      "bytes": 27585
+    },
+    {
+      "name": "micromark-extension-gfm-table",
+      "version": "2.1.1",
+      "path": "micromark-extension-gfm-table",
+      "files": 31,
+      "bytes": 92074
+    },
+    {
+      "name": "micromark-extension-gfm-tagfilter",
+      "version": "2.0.0",
+      "path": "micromark-extension-gfm-tagfilter",
+      "files": 7,
+      "bytes": 11960
+    },
+    {
+      "name": "micromark-extension-gfm-task-list-item",
+      "version": "2.1.0",
+      "path": "micromark-extension-gfm-task-list-item",
+      "files": 15,
+      "bytes": 24410
+    },
+    {
+      "name": "micromark-util-combine-extensions",
+      "version": "2.0.1",
+      "path": "micromark-util-combine-extensions",
+      "files": 6,
+      "bytes": 12387
+    },
+    {
+      "name": "decode-named-character-reference",
+      "version": "1.3.0",
+      "path": "decode-named-character-reference",
+      "files": 9,
+      "bytes": 9277
+    },
+    {
+      "name": "mdast-util-to-string",
+      "version": "4.0.0",
+      "path": "mdast-util-to-string",
+      "files": 7,
+      "bytes": 12692
+    },
+    {
+      "name": "micromark",
+      "version": "4.0.2",
+      "path": "micromark",
+      "files": 75,
+      "bytes": 209635
+    },
+    {
+      "name": "micromark-util-decode-numeric-character-reference",
+      "version": "2.0.2",
+      "path": "micromark-util-decode-numeric-character-reference",
+      "files": 9,
+      "bytes": 11414
+    },
+    {
+      "name": "micromark-util-decode-string",
+      "version": "2.0.1",
+      "path": "micromark-util-decode-string",
+      "files": 9,
+      "bytes": 11088
+    },
+    {
+      "name": "micromark-util-normalize-identifier",
+      "version": "2.0.1",
+      "path": "micromark-util-normalize-identifier",
+      "files": 9,
+      "bytes": 12256
+    },
+    {
+      "name": "micromark-util-symbol",
+      "version": "2.0.1",
+      "path": "micromark-util-symbol",
+      "files": 18,
+      "bytes": 40530
+    },
+    {
+      "name": "unist-util-stringify-position",
+      "version": "4.0.0",
+      "path": "unist-util-stringify-position",
+      "files": 7,
+      "bytes": 13180
+    },
+    {
+      "name": "@serialport/bindings-interface",
+      "version": "1.2.2",
+      "path": "@serialport/bindings-interface",
+      "files": 7,
+      "bytes": 10034
+    },
+    {
+      "name": "@serialport/parser-readline",
+      "version": "11.0.0",
+      "path": "@serialport/bindings-cpp/node_modules/@serialport/parser-readline",
+      "files": 5,
+      "bytes": 3582
+    },
+    {
+      "name": "debug",
+      "version": "4.3.4",
+      "path": "@serialport/bindings-cpp/node_modules/debug",
+      "files": 7,
+      "bytes": 42352
+    },
+    {
+      "name": "node-addon-api",
+      "version": "7.0.0",
+      "path": "@serialport/bindings-cpp/node_modules/node-addon-api",
+      "files": 18,
+      "bytes": 394960
+    },
+    {
+      "name": "node-gyp-build",
+      "version": "4.6.0",
+      "path": "@serialport/bindings-cpp/node_modules/node-gyp-build",
+      "files": 8,
+      "bytes": 13149
+    },
+    {
+      "name": "debug",
+      "version": "4.3.4",
+      "path": "@serialport/stream/node_modules/debug",
+      "files": 7,
+      "bytes": 42352
+    },
+    {
+      "name": "ms",
+      "version": "2.1.2",
+      "path": "serialport/node_modules/ms",
+      "files": 4,
+      "bytes": 6842
+    },
+    {
+      "name": "tweetnacl",
+      "version": "0.14.5",
+      "path": "tweetnacl",
+      "files": 12,
+      "bytes": 174046
+    },
+    {
+      "name": "buildcheck",
+      "version": "0.0.7",
+      "path": "buildcheck",
+      "files": 11,
+      "bytes": 46220
+    },
+    {
+      "name": "json-schema-traverse",
+      "version": "1.0.0",
+      "path": "ajv-formats/node_modules/json-schema-traverse",
+      "files": 12,
+      "bytes": 22220
+    },
+    {
+      "name": "shebang-regex",
+      "version": "3.0.0",
+      "path": "shebang-regex",
+      "files": 5,
+      "bytes": 2828
+    },
+    {
+      "name": "isexe",
+      "version": "2.0.0",
+      "path": "isexe",
+      "files": 8,
+      "bytes": 10956
+    },
+    {
+      "name": "mime-types",
+      "version": "3.0.2",
+      "path": "accepts/node_modules/mime-types",
+      "files": 6,
+      "bytes": 22871
+    },
+    {
+      "name": "negotiator",
+      "version": "1.0.0",
+      "path": "accepts/node_modules/negotiator",
+      "files": 9,
+      "bytes": 28710
+    },
+    {
+      "name": "content-type",
+      "version": "2.0.0",
+      "path": "body-parser/node_modules/content-type",
+      "files": 6,
+      "bytes": 20751
+    },
+    {
+      "name": "ms",
+      "version": "2.1.3",
+      "path": "ms",
+      "files": 4,
+      "bytes": 6721
+    },
+    {
+      "name": "inherits",
+      "version": "2.0.4",
+      "path": "inherits",
+      "files": 5,
+      "bytes": 3958
+    },
+    {
+      "name": "setprototypeof",
+      "version": "1.2.0",
+      "path": "setprototypeof",
+      "files": 6,
+      "bytes": 4025
+    },
+    {
+      "name": "toidentifier",
+      "version": "1.0.1",
+      "path": "toidentifier",
+      "files": 5,
+      "bytes": 4685
+    },
+    {
+      "name": "mime-db",
+      "version": "1.54.0",
+      "path": "express/node_modules/mime-db",
+      "files": 6,
+      "bytes": 225566
+    },
+    {
+      "name": "ee-first",
+      "version": "1.1.1",
+      "path": "ee-first",
+      "files": 4,
+      "bytes": 6259
+    },
+    {
+      "name": "wrappy",
+      "version": "1.0.2",
+      "path": "wrappy",
+      "files": 4,
+      "bytes": 2961
+    },
+    {
+      "name": "forwarded",
+      "version": "0.2.0",
+      "path": "forwarded",
+      "files": 5,
+      "bytes": 5876
+    },
+    {
+      "name": "ipaddr.js",
+      "version": "1.9.1",
+      "path": "ipaddr.js",
+      "files": 6,
+      "bytes": 42145
+    },
+    {
+      "name": "side-channel",
+      "version": "1.1.0",
+      "path": "side-channel",
+      "files": 12,
+      "bytes": 21545
+    },
+    {
+      "name": "is-promise",
+      "version": "4.0.0",
+      "path": "is-promise",
+      "files": 6,
+      "bytes": 2958
+    },
+    {
+      "name": "path-to-regexp",
+      "version": "8.4.2",
+      "path": "path-to-regexp",
+      "files": 6,
+      "bytes": 59680
+    },
+    {
+      "name": "mime-types",
+      "version": "3.0.2",
+      "path": "send/node_modules/mime-types",
+      "files": 6,
+      "bytes": 22871
+    },
+    {
+      "name": "content-type",
+      "version": "2.0.0",
+      "path": "type-is/node_modules/content-type",
+      "files": 6,
+      "bytes": 20751
+    },
+    {
+      "name": "media-typer",
+      "version": "1.1.0",
+      "path": "media-typer",
+      "files": 5,
+      "bytes": 9256
+    },
+    {
+      "name": "mime-types",
+      "version": "3.0.2",
+      "path": "type-is/node_modules/mime-types",
+      "files": 6,
+      "bytes": 22871
+    },
+    {
+      "name": "@types/estree-jsx",
+      "version": "1.0.5",
+      "path": "@types/estree-jsx",
+      "files": 4,
+      "bytes": 5773
+    },
+    {
+      "name": "ccount",
+      "version": "2.0.1",
+      "path": "ccount",
+      "files": 5,
+      "bytes": 7344
+    },
+    {
+      "name": "parse-entities",
+      "version": "4.0.2",
+      "path": "parse-entities",
+      "files": 8,
+      "bytes": 26410
+    },
+    {
+      "name": "stringify-entities",
+      "version": "4.0.4",
+      "path": "stringify-entities",
+      "files": 21,
+      "bytes": 23780
+    },
+    {
+      "name": "style-to-object",
+      "version": "1.0.14",
+      "path": "style-to-object",
+      "files": 18,
+      "bytes": 45764
+    },
+    {
+      "name": "micromark-util-character",
+      "version": "2.1.1",
+      "path": "micromark-util-character",
+      "files": 9,
+      "bytes": 42421
+    },
+    {
+      "name": "micromark-util-encode",
+      "version": "2.0.1",
+      "path": "micromark-util-encode",
+      "files": 6,
+      "bytes": 7971
+    },
+    {
+      "name": "mdast-util-find-and-replace",
+      "version": "3.0.2",
+      "path": "mdast-util-find-and-replace",
+      "files": 9,
+      "bytes": 23400
+    },
+    {
+      "name": "markdown-table",
+      "version": "3.0.4",
+      "path": "markdown-table",
+      "files": 6,
+      "bytes": 26109
+    },
+    {
+      "name": "longest-streak",
+      "version": "3.1.0",
+      "path": "longest-streak",
+      "files": 5,
+      "bytes": 7661
+    },
+    {
+      "name": "mdast-util-phrasing",
+      "version": "4.1.0",
+      "path": "mdast-util-phrasing",
+      "files": 7,
+      "bytes": 10032
+    },
+    {
+      "name": "micromark-util-classify-character",
+      "version": "2.0.1",
+      "path": "micromark-util-classify-character",
+      "files": 9,
+      "bytes": 11428
+    },
+    {
+      "name": "zwitch",
+      "version": "2.0.4",
+      "path": "zwitch",
+      "files": 5,
+      "bytes": 13752
+    },
+    {
+      "name": "micromark-core-commonmark",
+      "version": "2.0.3",
+      "path": "micromark-core-commonmark",
+      "files": 141,
+      "bytes": 266840
+    },
+    {
+      "name": "micromark-factory-space",
+      "version": "2.0.1",
+      "path": "micromark-factory-space",
+      "files": 9,
+      "bytes": 13753
+    },
+    {
+      "name": "micromark-util-chunked",
+      "version": "2.0.1",
+      "path": "micromark-util-chunked",
+      "files": 9,
+      "bytes": 16255
+    },
+    {
+      "name": "micromark-util-resolve-all",
+      "version": "2.0.1",
+      "path": "micromark-util-resolve-all",
+      "files": 6,
+      "bytes": 10316
+    },
+    {
+      "name": "character-entities",
+      "version": "2.0.2",
+      "path": "character-entities",
+      "files": 5,
+      "bytes": 44634
+    },
+    {
+      "name": "@types/debug",
+      "version": "4.1.13",
+      "path": "@types/debug",
+      "files": 4,
+      "bytes": 6478
+    },
+    {
+      "name": "micromark-util-subtokenize",
+      "version": "2.1.0",
+      "path": "micromark-util-subtokenize",
+      "files": 15,
+      "bytes": 51162
+    },
+    {
+      "name": "@serialport/parser-delimiter",
+      "version": "11.0.0",
+      "path": "@serialport/bindings-cpp/node_modules/@serialport/parser-delimiter",
+      "files": 5,
+      "bytes": 4232
+    },
+    {
+      "name": "ms",
+      "version": "2.1.2",
+      "path": "@serialport/bindings-cpp/node_modules/ms",
+      "files": 4,
+      "bytes": 6842
+    },
+    {
+      "name": "ms",
+      "version": "2.1.2",
+      "path": "@serialport/stream/node_modules/ms",
+      "files": 4,
+      "bytes": 6842
+    },
+    {
+      "name": "mime-db",
+      "version": "1.54.0",
+      "path": "accepts/node_modules/mime-db",
+      "files": 6,
+      "bytes": 225566
+    },
+    {
+      "name": "es-errors",
+      "version": "1.3.0",
+      "path": "es-errors",
+      "files": 22,
+      "bytes": 12324
+    },
+    {
+      "name": "object-inspect",
+      "version": "1.13.4",
+      "path": "object-inspect",
+      "files": 34,
+      "bytes": 102920
+    },
+    {
+      "name": "side-channel-list",
+      "version": "1.0.1",
+      "path": "side-channel-list",
+      "files": 13,
+      "bytes": 16973
+    },
+    {
+      "name": "side-channel-map",
+      "version": "1.0.1",
+      "path": "side-channel-map",
+      "files": 12,
+      "bytes": 13348
+    },
+    {
+      "name": "side-channel-weakmap",
+      "version": "1.0.2",
+      "path": "side-channel-weakmap",
+      "files": 12,
+      "bytes": 14667
+    },
+    {
+      "name": "mime-db",
+      "version": "1.54.0",
+      "path": "send/node_modules/mime-db",
+      "files": 6,
+      "bytes": 225566
+    },
+    {
+      "name": "mime-db",
+      "version": "1.54.0",
+      "path": "type-is/node_modules/mime-db",
+      "files": 6,
+      "bytes": 225566
+    },
+    {
+      "name": "@types/unist",
+      "version": "2.0.11",
+      "path": "parse-entities/node_modules/@types/unist",
+      "files": 4,
+      "bytes": 8543
+    },
+    {
+      "name": "character-entities-legacy",
+      "version": "3.0.0",
+      "path": "character-entities-legacy",
+      "files": 5,
+      "bytes": 9141
+    },
+    {
+      "name": "character-reference-invalid",
+      "version": "2.0.1",
+      "path": "character-reference-invalid",
+      "files": 5,
+      "bytes": 8428
+    },
+    {
+      "name": "is-alphanumerical",
+      "version": "2.0.1",
+      "path": "is-alphanumerical",
+      "files": 5,
+      "bytes": 7393
+    },
+    {
+      "name": "is-decimal",
+      "version": "2.0.1",
+      "path": "is-decimal",
+      "files": 5,
+      "bytes": 6892
+    },
+    {
+      "name": "is-hexadecimal",
+      "version": "2.0.1",
+      "path": "is-hexadecimal",
+      "files": 5,
+      "bytes": 7278
+    },
+    {
+      "name": "character-entities-html4",
+      "version": "2.1.0",
+      "path": "character-entities-html4",
+      "files": 5,
+      "bytes": 11364
+    },
+    {
+      "name": "inline-style-parser",
+      "version": "0.2.7",
+      "path": "inline-style-parser",
+      "files": 14,
+      "bytes": 66492
+    },
+    {
+      "name": "escape-string-regexp",
+      "version": "5.0.0",
+      "path": "mdast-util-find-and-replace/node_modules/escape-string-regexp",
+      "files": 5,
+      "bytes": 3659
+    },
+    {
+      "name": "micromark-factory-destination",
+      "version": "2.0.1",
+      "path": "micromark-factory-destination",
+      "files": 9,
+      "bytes": 20549
+    },
+    {
+      "name": "micromark-factory-label",
+      "version": "2.0.1",
+      "path": "micromark-factory-label",
+      "files": 9,
+      "bytes": 17588
+    },
+    {
+      "name": "micromark-factory-title",
+      "version": "2.0.1",
+      "path": "micromark-factory-title",
+      "files": 9,
+      "bytes": 16527
+    },
+    {
+      "name": "micromark-factory-whitespace",
+      "version": "2.0.1",
+      "path": "micromark-factory-whitespace",
+      "files": 9,
+      "bytes": 12143
+    },
+    {
+      "name": "micromark-util-html-tag-name",
+      "version": "2.0.1",
+      "path": "micromark-util-html-tag-name",
+      "files": 6,
+      "bytes": 10426
+    },
+    {
+      "name": "@types/ms",
+      "version": "2.1.0",
+      "path": "@types/ms",
+      "files": 4,
+      "bytes": 5101
+    },
+    {
+      "name": "call-bound",
+      "version": "1.0.4",
+      "path": "call-bound",
+      "files": 11,
+      "bytes": 17106
+    },
+    {
+      "name": "get-intrinsic",
+      "version": "1.3.0",
+      "path": "get-intrinsic",
+      "files": 9,
+      "bytes": 46542
+    },
+    {
+      "name": "is-alphabetical",
+      "version": "2.0.1",
+      "path": "is-alphabetical",
+      "files": 5,
+      "bytes": 7235
+    },
+    {
+      "name": "call-bind-apply-helpers",
+      "version": "1.0.2",
+      "path": "call-bind-apply-helpers",
+      "files": 21,
+      "bytes": 15952
+    },
+    {
+      "name": "es-define-property",
+      "version": "1.0.1",
+      "path": "es-define-property",
+      "files": 11,
+      "bytes": 10217
+    },
+    {
+      "name": "es-object-atoms",
+      "version": "1.1.2",
+      "path": "es-object-atoms",
+      "files": 16,
+      "bytes": 11967
+    },
+    {
+      "name": "function-bind",
+      "version": "1.1.2",
+      "path": "function-bind",
+      "files": 12,
+      "bytes": 31427
+    },
+    {
+      "name": "get-proto",
+      "version": "1.0.1",
+      "path": "get-proto",
+      "files": 15,
+      "bytes": 10840
+    },
+    {
+      "name": "gopd",
+      "version": "1.2.0",
+      "path": "gopd",
+      "files": 12,
+      "bytes": 9869
+    },
+    {
+      "name": "has-symbols",
+      "version": "1.1.0",
+      "path": "has-symbols",
+      "files": 16,
+      "bytes": 23409
+    },
+    {
+      "name": "hasown",
+      "version": "2.0.4",
+      "path": "hasown",
+      "files": 10,
+      "bytes": 10332
+    },
+    {
+      "name": "math-intrinsics",
+      "version": "1.1.0",
+      "path": "math-intrinsics",
+      "files": 38,
+      "bytes": 17323
+    },
+    {
+      "name": "dunder-proto",
+      "version": "1.0.1",
+      "path": "dunder-proto",
+      "files": 15,
+      "bytes": 13003
+    }
+  ],
+  "missingOptional": [
+    {
+      "name": "@cfworker/json-schema",
+      "importer": "node_modules/@modelcontextprotocol/sdk",
+      "kind": "optional-peer"
+    },
+    {
+      "name": "@koromix/koffi-linux-arm",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "@koromix/koffi-linux-arm64",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "@koromix/koffi-linux-ia32",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "@koromix/koffi-linux-x64",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "@koromix/koffi-linux-riscv64",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "@koromix/koffi-freebsd-ia32",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "@koromix/koffi-freebsd-x64",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "@koromix/koffi-freebsd-arm64",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "@koromix/koffi-openbsd-ia32",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "@koromix/koffi-openbsd-x64",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "@koromix/koffi-win32-ia32",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "@koromix/koffi-win32-arm64",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "@koromix/koffi-darwin-x64",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "@koromix/koffi-darwin-arm64",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "@koromix/koffi-linux-loong64",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "@koromix/koffi-android-arm64",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "@koromix/koffi-android-x64",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "@koromix/koffi-linux-ppc64",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "@koromix/koffi-openbsd-arm64",
+      "importer": "node_modules/koffi",
+      "kind": "optional"
+    },
+    {
+      "name": "immer",
+      "importer": "node_modules/zustand",
+      "kind": "optional-peer"
+    }
+  ],
+  "closureVerified": true
+}

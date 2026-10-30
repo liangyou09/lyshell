@@ -1,0 +1,11 @@
+{
+  "head": "bd9009c42738d265b660ca6bb09c497ce381d26f",
+  "command": [
+    "node",
+    "scripts/remediation-package-smoke.cjs"
+  ],
+  "start": "2026-10-30T08:06:54.909Z",
+  "end": "2026-10-30T08:06:59.208Z",
+  "exitCode": 1,
+  "signal": null
+}

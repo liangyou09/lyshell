@@ -1,0 +1,11 @@
+src/main/commands/command-service.ts(142,9): error TS2345: Argument of type '(reason: any) => { status: string; reason: any; }' is not assignable to parameter of type '(reason: any) => PromiseLike<never>'.
+  Property 'then' is missing in type '{ status: string; reason: any; }' but required in type 'PromiseLike<never>'.
+src/main/commands/command-service.ts(215,14): error TS2339: Property 'budget' does not exist on type 'CommandBatchExecution'.
+src/main/index.ts(1259,28): error TS2339: Property 'flushSync' does not exist on type 'McpAuditRepository'.
+src/main/mcp/http-server.ts(2873,41): error TS2339: Property 'waitForPattern' does not exist on type 'SessionManager'.
+src/main/mcp/http-server.ts(3037,41): error TS2339: Property 'waitForPattern' does not exist on type 'SessionManager'.
+src/main/terminal/session-manager.ts(25,1): error TS6133: 'patternMatcher' is declared but its value is never read.
+src/main/terminal/session-manager.ts(27,3): error TS6133: 'BUILTIN_PROMPT_PATTERN' is declared but its value is never read.
+src/main/terminal/session-manager.ts(28,3): error TS6133: 'PatternMatchError' is declared but its value is never read.
+src/main/terminal/session-manager.ts(29,3): error TS6133: 'asPatternMatchError' is declared but its value is never read.
+src/main/terminal/session-manager.ts(31,8): error TS6133: 'PatternSpec' is declared but its value is never read.

@@ -1,0 +1,62 @@
+
+15:45:30.069 > Using system Python: C:\Users\69534\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe
+15:45:30.242 > Download history initialized
+15:45:30.336 > [MCP] Hardened port file ACL on Windows for DESKTOP-TL9I7VN\69534
+15:45:30.467 > [MCP] To register LyShell with an MCP client, add this to its mcpServers config:
+15:45:30.468 > [MCP] {
+  "mcpServers": {
+    "lyshell": {
+      "command": "D:\\workspace\\claude\\LyShell\\node_modules\\electron\\dist\\electron.exe",
+      "args": [
+        "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\dist\\main\\mcpServer.js"
+      ],
+      "env": {
+        "LYSHELL_USER_DATA": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\browser-host-smoke\\profile-eCjhKk",
+        "ELECTRON_RUN_AS_NODE": "1"
+      }
+    }
+  }
+}
+15:45:30.471 > [MCP] Fallback (system Node.js, if the config above fails):
+15:45:30.472 > [MCP] {
+  "mcpServers": {
+    "lyshell": {
+      "command": "D:\\software\\nodejs\\node.exe",
+      "args": [
+        "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\dist\\main\\mcpServer.js"
+      ],
+      "env": {
+        "LYSHELL_USER_DATA": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\browser-host-smoke\\profile-eCjhKk"
+      }
+    }
+  }
+}
+15:45:30.472 > [MCP] External access is OFF (default). Run the MCP client inside a LyShell-spawned local terminal,
+15:45:30.472 > [MCP]   or enable security.mcp.allowExternalMcpClients in preferences to allow external connections.
+15:45:30.473 > [MCP] HTTP server started on port 65239 (externalAccess=false)
+15:45:30.476 > [plugin-host] No enabled contributor plugins to start; nothing to spawn
+15:45:30.490 > Registering IPC handlers...
+15:45:30.492 > No sessions file found, starting fresh
+15:45:30.493 > IPC handlers registered successfully
+15:45:30.542 > Registered webbar deep-link scheme handler: bytedance://
+15:45:30.542 > Registered webbar deep-link scheme handler: snssdk1128://
+15:45:30.543 > Registered webbar deep-link scheme handler: aweme://
+15:45:30.543 > Registered webbar deep-link scheme handler: iesdouyin://
+15:45:30.544 > Registered webbar deep-link scheme handler: douyin://
+15:45:30.544 > LyShell started successfully
+15:45:31.346 > Saved 0 agents to storage
+15:45:31.347 > Initialized empty agent library
+15:45:31.357 > Set config: locale
+15:45:31.385 > List sessions
+15:45:31.385 > Get config: sidebarCollapsed
+15:45:31.386 > Get config: sidebarWidth
+15:45:31.386 > No quickCommands file found, starting fresh
+15:45:31.387 > Get config: quickCommand.defaultGroupColor
+15:45:31.831 > Set config: sidebarCollapsed
+15:45:31.853 > Set config: sidebarWidth
+15:45:32.742 > Blocked webview attach with unexpected src: http://127.0.0.1:65236/
+15:45:37.832 > [lifecycle] draining (reason=app-will-quit, total budget 18000ms)
+15:45:37.838 > [MCP] HTTP server stopped
+15:45:37.880 > [lifecycle] stopped after 48ms with 0 unconfirmed step(s)
+15:45:37.883 > [lifecycle] shutdown completed in 48ms
+{"platform":"win32","electron":"43.7.11","checks":{"trustedPreload":true,"readonlyProtection":true,"navigation":true,"capture":true,"detachAndDestroyConfirmed":true},"memory":{"baseline":[{"type":"Browser","workingSetSize":129556,"peakWorkingSetSize":130888},{"type":"GPU","workingSetSize":89580,"peakWorkingSetSize":93620},{"type":"Utility","workingSetSize":55076,"peakWorkingSetSize":55076},{"type":"Tab","workingSetSize":146244,"peakWorkingSetSize":163448}],"nativeView":[{"type":"Browser","workingSetSize":208216,"peakWorkingSetSize":216724},{"type":"GPU","workingSetSize":122212,"peakWorkingSetSize":123860},{"type":"Utility","workingSetSize":56732,"peakWorkingSetSize":56736},{"type":"Tab","workingSetSize":159420,"peakWorkingSetSize":167760},{"type":"Tab","workingSetSize":96624,"peakWorkingSetSize":96668}],"afterNativeClose":[{"type":"Browser","workingSetSize":204600,"peakWorkingSetSize":262704},{"type":"GPU","workingSetSize":137860,"peakWorkingSetSize":144008},{"type":"Utility","workingSetSize":56772,"peakWorkingSetSize":56772},{"type":"Tab","workingSetSize":159488,"peakWorkingSetSize":167760}]},"comparisonUnverified":"Comparison webview deadline exceeded","ok":true}

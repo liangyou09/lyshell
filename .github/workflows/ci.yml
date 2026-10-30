@@ -73,6 +73,8 @@ jobs:
       - run: npm run rebuild
       - run: node scripts/run-native-check.cjs
       - run: npm run build
+      - if: runner.os == 'Windows'
+        run: node scripts/run-windows-command-smoke.cjs
       - if: runner.os == 'Linux'
         run: xvfb-run -a node scripts/run-electron-smoke.cjs
       - if: runner.os != 'Linux'
@@ -86,3 +88,5 @@ jobs:
           path: |
             tmp/remediation-smoke/*.json
             tmp/architecture/electron-integration-result.json
+            tmp/windows-command-smoke/latest-result.json
+            tmp/windows-command-smoke/**/result.json

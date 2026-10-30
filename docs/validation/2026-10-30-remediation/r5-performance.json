@@ -1,0 +1,51 @@
+{
+  "startedAt": "2026-10-30T06:21:15.376Z",
+  "endedAt": "2026-10-30T06:21:16.121Z",
+  "head": "36739a6deb32bc45bf7dcbf29635cce9c306230c",
+  "platform": "win32",
+  "arch": "x64",
+  "node": "v24.15.0",
+  "fixtureOnly": true,
+  "measurements": [
+    {
+      "count": 5000,
+      "utf8Bytes": 2308892,
+      "stringifyP50Ms": 4.067599999999999,
+      "stringifyP95Ms": 7.3914999999999935,
+      "sync": {
+        "elapsedMs": 21.663399999999996,
+        "maxHeartbeatGapMs": 36.4503
+      },
+      "async": {
+        "elapsedMs": 23.25890000000001,
+        "maxHeartbeatGapMs": 15.256299999999982
+      },
+      "workerEvaluation": {
+        "cloneDispatchMs": 2.7496000000000436,
+        "serializationMs": 3.899599999999964,
+        "roundTripMs": 13.419399999999996,
+        "returnedJsonBytes": 2308892
+      }
+    },
+    {
+      "count": 20000,
+      "utf8Bytes": 9248892,
+      "stringifyP50Ms": 17.683299999999974,
+      "stringifyP95Ms": 29.686200000000042,
+      "sync": {
+        "elapsedMs": 41.91369999999995,
+        "maxHeartbeatGapMs": 42.036699999999996
+      },
+      "async": {
+        "elapsedMs": 71.62310000000002,
+        "maxHeartbeatGapMs": 15.676199999999994
+      },
+      "workerEvaluation": {
+        "cloneDispatchMs": 18.830900000000042,
+        "serializationMs": 23.58839999999998,
+        "roundTripMs": 76.197,
+        "returnedJsonBytes": 9248892
+      }
+    }
+  ]
+}

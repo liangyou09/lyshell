@@ -1,0 +1,12 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v1.6.1 C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell/examples/web-ssh
+
+ ✓ web/terminal.test.ts  (1 test) 130ms
+ ✓ server.test.ts  (21 tests) 2444ms
+
+ Test Files  2 passed (2)
+      Tests  22 passed (22)
+   Start at  15:49:14
+   Duration  3.25s (transform 182ms, setup 0ms, collect 260ms, tests 2.57s, environment 1.11s, prepare 465ms)
+

@@ -1,0 +1,23 @@
+X [ERROR] Could not resolve "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\examples\\web-ssh\\examples\\web-ssh\\vitest.config.ts"
+
+failed to load config from C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\examples\web-ssh\examples\web-ssh\vitest.config.ts
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: Build failed with 1 error:
+error: Could not resolve "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\examples\\web-ssh\\examples\\web-ssh\\vitest.config.ts"
+    at failureErrorWithLog (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\examples\web-ssh\node_modules\esbuild\lib\main.js:1472:15)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\examples\web-ssh\node_modules\esbuild\lib\main.js:945:25
+    at runOnEndCallbacks (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\examples\web-ssh\node_modules\esbuild\lib\main.js:1315:45)
+    at buildResponseToResult (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\examples\web-ssh\node_modules\esbuild\lib\main.js:943:7)
+    at C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\examples\web-ssh\node_modules\esbuild\lib\main.js:970:16
+    at responseCallbacks.<computed> (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\examples\web-ssh\node_modules\esbuild\lib\main.js:622:9)
+    at handleIncomingPacket (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\examples\web-ssh\node_modules\esbuild\lib\main.js:677:12)
+    at Socket.readFromStdout (C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\examples\web-ssh\node_modules\esbuild\lib\main.js:600:7)
+    at Socket.emit (node:events:509:28)
+    at addChunk (node:internal/streams/readable:563:12) {
+  errors: [Getter/Setter],
+  warnings: [Getter/Setter]
+}
+
+
+

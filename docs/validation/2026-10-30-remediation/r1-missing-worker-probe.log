@@ -1,0 +1,8 @@
+missing REJECTED 31 ms {"reason":"MATCH_WORKER_FAILED","code":"RESOURCE_LIMIT","message":"Wait pattern matcher stopped unexpectedly"}
+missing diagnostics {"workers":1,"idleWorkers":0,"queued":0,"reservedChars":0,"waiters":0,"callers":0,"spawned":1,"timeouts":0,"terminations":1,"lateMessages":0,"failures":1,"unavailableSlots":0,"closed":false}
+missing shutdown {"confirmedExits":1,"unconfirmedExits":0}
+real RESOLVED 28 ms {"matched":false,"matchedIndex":-1,"elapsedMs":0.09340000000000259,"pattern":"x","mode":"regex"}
+real diagnostics {"workers":1,"idleWorkers":1,"queued":0,"reservedChars":0,"waiters":0,"callers":0,"spawned":1,"timeouts":0,"terminations":0,"lateMessages":0,"failures":0,"unavailableSlots":0,"closed":false}
+real shutdown {"confirmedExits":1,"unconfirmedExits":0}
+compile-rejected 28 ms {"reason":"INVALID_PATTERN","code":"INVALID_ARGUMENT","message":"Wait pattern is not a valid regular expression"}
+compile shutdown {"confirmedExits":1,"unconfirmedExits":0}

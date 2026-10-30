@@ -1,0 +1,11 @@
+command: node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json
+HEAD: 36739a6deb32bc45bf7dcbf29635cce9c306230c
+started: 2026-10-30T06:16:38.022Z
+ended: 2026-10-30T06:16:42.495Z
+exitCode: 2
+src/main/index.ts(1186,30): error TS2339: Property 'flushSync' does not exist on type 'McpAuditRepository'.
+src/main/mcp/http-server.ts(16,31): error TS6133: 'Session' is declared but its value is never read.
+src/main/mcp/http-server.ts(26,10): error TS6133: 'preferencesRepository' is declared but its value is never read.
+src/main/mcp/http-server.ts(245,5): error TS2304: Cannot find name 'execSync'.
+src/main/mcp/http-server.ts(759,19): error TS2304: Cannot find name 'STATUS_RANK'.
+src/main/mcp/http-server.ts(760,19): error TS2304: Cannot find name 'STATUS_RANK'.

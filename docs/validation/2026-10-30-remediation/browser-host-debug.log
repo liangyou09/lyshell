@@ -1,0 +1,62 @@
+
+15:20:56.633 > Using system Python: C:\Users\69534\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe
+15:20:56.792 > Download history initialized
+15:20:56.870 > [MCP] Hardened port file ACL on Windows for DESKTOP-TL9I7VN\69534
+15:20:57.026 > [MCP] To register LyShell with an MCP client, add this to its mcpServers config:
+15:20:57.027 > [MCP] {
+  "mcpServers": {
+    "lyshell": {
+      "command": "D:\\workspace\\claude\\LyShell\\node_modules\\electron\\dist\\electron.exe",
+      "args": [
+        "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\browser-host-debug\\dist\\main\\mcpServer.js"
+      ],
+      "env": {
+        "LYSHELL_USER_DATA": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\browser-host-smoke\\profile-qUHQCr",
+        "ELECTRON_RUN_AS_NODE": "1"
+      }
+    }
+  }
+}
+15:20:57.030 > [MCP] Fallback (system Node.js, if the config above fails):
+15:20:57.031 > [MCP] {
+  "mcpServers": {
+    "lyshell": {
+      "command": "D:\\software\\nodejs\\node.exe",
+      "args": [
+        "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\browser-host-debug\\dist\\main\\mcpServer.js"
+      ],
+      "env": {
+        "LYSHELL_USER_DATA": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\browser-host-smoke\\profile-qUHQCr"
+      }
+    }
+  }
+}
+15:20:57.032 > [MCP] External access is OFF (default). Run the MCP client inside a LyShell-spawned local terminal,
+15:20:57.033 > [MCP]   or enable security.mcp.allowExternalMcpClients in preferences to allow external connections.
+15:20:57.034 > [MCP] HTTP server started on port 52294 (externalAccess=false)
+15:20:57.037 > [plugin-host] No enabled contributor plugins to start; nothing to spawn
+15:20:57.042 > Registering IPC handlers...
+15:20:57.044 > No sessions file found, starting fresh
+15:20:57.047 > IPC handlers registered successfully
+15:20:57.101 > Registered webbar deep-link scheme handler: bytedance://
+15:20:57.102 > Registered webbar deep-link scheme handler: snssdk1128://
+15:20:57.103 > Registered webbar deep-link scheme handler: aweme://
+15:20:57.103 > Registered webbar deep-link scheme handler: iesdouyin://
+15:20:57.104 > Registered webbar deep-link scheme handler: douyin://
+15:20:57.104 > LyShell started successfully
+15:20:58.154 > Saved 0 agents to storage
+15:20:58.155 > Initialized empty agent library
+15:20:58.164 > Set config: locale
+15:20:58.190 > List sessions
+15:20:58.190 > Get config: sidebarCollapsed
+15:20:58.191 > Get config: sidebarWidth
+15:20:58.191 > No quickCommands file found, starting fresh
+15:20:58.192 > Get config: quickCommand.defaultGroupColor
+15:20:58.648 > Set config: sidebarCollapsed
+15:20:58.655 > Set config: sidebarWidth
+QA_BROWSER_HOST_ERROR [Error: UnknownVizError]
+15:20:59.348 > [lifecycle] draining (reason=app-will-quit, total budget 18000ms)
+15:20:59.358 > [MCP] HTTP server stopped
+15:20:59.369 > [lifecycle] stopped after 21ms with 0 unconfirmed step(s)
+15:20:59.373 > [lifecycle] shutdown completed in 21ms
+{"platform":"win32","electron":"43.7.11","checks":{},"memory":{"baseline":[{"type":"Browser","workingSetSize":129072,"peakWorkingSetSize":129684},{"type":"GPU","workingSetSize":89860,"peakWorkingSetSize":93824},{"type":"Utility","workingSetSize":55472,"peakWorkingSetSize":55472},{"type":"Tab","workingSetSize":144480,"peakWorkingSetSize":163288}]},"captureProbe":"optional-rectangle accepted","captureWithoutOptions":{"width":800,"height":480},"ok":false,"error":"Error: {\"success\":false,\"code\":\"OUTCOME_UNKNOWN\",\"error\":\"The browser host operation could not be confirmed\",\"retryDisposition\":\"reconcile-first\"}\n    at requireSuccess (C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\browser-host-electron-smoke.cjs:42:69)\n    at Immediate.<anonymous> (C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\browser-host-electron-smoke.cjs:66:25)"}

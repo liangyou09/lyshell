@@ -1,0 +1,11 @@
+{
+  "head": "36739a6deb32bc45bf7dcbf29635cce9c306230c",
+  "command": [
+    "node",
+    "scripts/lint-changed.cjs"
+  ],
+  "start": "2026-10-30T07:45:40.615Z",
+  "end": "2026-10-30T07:45:46.276Z",
+  "exitCode": 0,
+  "signal": null
+}

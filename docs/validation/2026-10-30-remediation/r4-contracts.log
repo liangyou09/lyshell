@@ -1,0 +1,29 @@
+command: node node_modules/vitest/vitest.mjs run src/main/mcp/client-config.test.ts src/main/mcp/session-policy.test.ts src/main/events/application-notifications.test.ts scripts/check-architecture-boundaries.test.ts src/main/plugin/view-actions.test.ts src/main/plugin/host-mgr.restart.test.ts src/main/mcp/exclusive-routes.test.ts src/renderer/commands/inventory.test.ts src/renderer/commands/doc-actions.test.ts src/main/storage/repository.test.ts src/main/storage/repository-secrets.test.ts src/main/storage/repository-local-secrets.test.ts src/main/storage/secret-store.test.ts src/main/storage/secret-ref-precedence.test.ts
+HEAD: 36739a6deb32bc45bf7dcbf29635cce9c306230c
+started: 2026-10-30T06:16:32.774Z
+ended: 2026-10-30T06:16:37.963Z
+exitCode: 0
+
+ RUN  v1.6.1 C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell
+
+ ✓ src/main/events/application-notifications.test.ts  (2 tests) 8ms
+ ✓ src/main/mcp/session-policy.test.ts  (2 tests) 4ms
+ ✓ src/main/plugin/host-mgr.restart.test.ts  (14 tests) 33ms
+ ✓ src/main/mcp/exclusive-routes.test.ts  (27 tests) 40ms
+ ✓ src/main/plugin/view-actions.test.ts  (27 tests) 53ms
+ ✓ scripts/check-architecture-boundaries.test.ts  (2 tests) 77ms
+ ✓ src/main/storage/secret-store.test.ts  (14 tests) 250ms
+ ✓ src/main/mcp/client-config.test.ts  (2 tests) 6ms
+ ✓ src/main/storage/repository-secrets.test.ts  (8 tests) 298ms
+ ✓ src/main/storage/repository-local-secrets.test.ts  (8 tests) 451ms
+ ✓ src/main/storage/secret-ref-precedence.test.ts  (10 tests) 578ms
+ ✓ src/main/storage/repository.test.ts  (23 tests) 1031ms
+ ✓ src/renderer/commands/inventory.test.ts  (13 tests) 32ms
+ ✓ src/renderer/commands/doc-actions.test.ts  (14 tests) 191ms
+
+ Test Files  14 passed (14)
+      Tests  166 passed (166)
+   Start at  14:16:33
+   Duration  4.27s (transform 4.02s, setup 0ms, collect 9.73s, tests 3.05s, environment 3.27s, prepare 2.96s)
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m

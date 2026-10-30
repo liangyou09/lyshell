@@ -1,0 +1,95 @@
+{
+  "archive": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\remediation-package-physical\\win-unpacked\\resources\\app.asar",
+  "archiveBytes": 68163100,
+  "archiveSha256": "b18cfe935ad2fcd049c2590c325f2d7a71c156ea9c9cc3fda0b06e5d9b8ba41f",
+  "archivePackageMetadataCount": 290,
+  "requiredFiles": {
+    "/dist/main/patternWorker.js": true,
+    "/node_modules/@serialport/parser-byte-length/dist/index.js": true,
+    "/node_modules/asn1/lib/ber/index.js": true,
+    "/node_modules/ssh2/lib/index.js": true,
+    "/node_modules/koffi/index.cjs": true
+  },
+  "nativeFiles": [
+    {
+      "path": "resources/app.asar.unpacked/node_modules/@koromix/koffi-win32-x64/win32_x64/koffi.node",
+      "bytes": 1047552
+    },
+    {
+      "path": "resources/app.asar.unpacked/node_modules/@serialport/bindings-cpp/prebuilds/android-arm/node.napi.armv7.node",
+      "bytes": 93432
+    },
+    {
+      "path": "resources/app.asar.unpacked/node_modules/@serialport/bindings-cpp/prebuilds/android-arm64/node.napi.armv8.node",
+      "bytes": 132552
+    },
+    {
+      "path": "resources/app.asar.unpacked/node_modules/@serialport/bindings-cpp/prebuilds/darwin-x64+arm64/node.napi.node",
+      "bytes": 289056
+    },
+    {
+      "path": "resources/app.asar.unpacked/node_modules/@serialport/bindings-cpp/prebuilds/linux-arm/node.napi.armv6.node",
+      "bytes": 117012
+    },
+    {
+      "path": "resources/app.asar.unpacked/node_modules/@serialport/bindings-cpp/prebuilds/linux-arm/node.napi.armv7.node",
+      "bytes": 117024
+    },
+    {
+      "path": "resources/app.asar.unpacked/node_modules/@serialport/bindings-cpp/prebuilds/linux-arm64/node.napi.armv8.node",
+      "bytes": 146744
+    },
+    {
+      "path": "resources/app.asar.unpacked/node_modules/@serialport/bindings-cpp/prebuilds/linux-x64/node.napi.glibc.node",
+      "bytes": 154928
+    },
+    {
+      "path": "resources/app.asar.unpacked/node_modules/@serialport/bindings-cpp/prebuilds/linux-x64/node.napi.musl.node",
+      "bytes": 153776
+    },
+    {
+      "path": "resources/app.asar.unpacked/node_modules/@serialport/bindings-cpp/prebuilds/win32-ia32/node.napi.node",
+      "bytes": 179200
+    },
+    {
+      "path": "resources/app.asar.unpacked/node_modules/@serialport/bindings-cpp/prebuilds/win32-x64/node.napi.node",
+      "bytes": 229376
+    },
+    {
+      "path": "resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-arm64/pty.node",
+      "bytes": 85496
+    },
+    {
+      "path": "resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-x64/pty.node",
+      "bytes": 52864
+    },
+    {
+      "path": "resources/app.asar.unpacked/node_modules/node-pty/prebuilds/win32-arm64/conpty.node",
+      "bytes": 302592
+    },
+    {
+      "path": "resources/app.asar.unpacked/node_modules/node-pty/prebuilds/win32-arm64/conpty_console_list.node",
+      "bytes": 122368
+    },
+    {
+      "path": "resources/app.asar.unpacked/node_modules/node-pty/prebuilds/win32-arm64/pty.node",
+      "bytes": 293376
+    },
+    {
+      "path": "resources/app.asar.unpacked/node_modules/node-pty/prebuilds/win32-x64/conpty.node",
+      "bytes": 312320
+    },
+    {
+      "path": "resources/app.asar.unpacked/node_modules/node-pty/prebuilds/win32-x64/conpty_console_list.node",
+      "bytes": 134656
+    },
+    {
+      "path": "resources/app.asar.unpacked/node_modules/node-pty/prebuilds/win32-x64/pty.node",
+      "bytes": 303104
+    }
+  ],
+  "expectedKoffiNativePresent": true,
+  "builderMissingPathWarnings": 0,
+  "metadataOnly": true,
+  "executableStarted": false
+}

@@ -1,0 +1,27 @@
+command: D:\software\nodejs\node.exe scripts/check-architecture-boundaries.cjs
+HEAD: 36739a6deb32bc45bf7dcbf29635cce9c306230c
+started: 2026-10-30T06:36:23.095Z
+ended: 2026-10-30T06:36:30.167Z
+exitCode: 0
+Architecture boundaries: 484 source files, 0 violations, 0 runtime cycles (0 static), 21 dynamic imports
+Dynamic import: src/main/browser/default-browser.ts:246 -> koffi
+Dynamic import: src/main/dsh/work-history.ts:47 -> <computed>
+Dynamic import: src/main/dsh/work-history.ts:48 -> <computed>
+Dynamic import: src/main/file/manager.ts:274 -> crypto
+Dynamic import: src/main/file/manager.ts:275 -> fs
+Dynamic import: src/main/ipc/handlers.ts:772 -> ../connectors
+Dynamic import: src/main/terminal/local-host-worker.ts:794 -> node-pty
+Dynamic import: src/main/terminal/session-manager.ts:582 -> @main/mcp/types
+Dynamic import: src/renderer/components/DocPanel/DocTabOverlay.tsx:10 -> ./MarkdownDoc
+Dynamic import: src/renderer/components/DocPanel/DocTabOverlay.tsx:11 -> ./HtmlDoc
+Dynamic import: src/renderer/components/Layout/MainWindow.tsx:62 -> ./HarnessPanel
+Dynamic import: src/renderer/components/Layout/MainWindow.tsx:63 -> ./DshMarketPanel
+Dynamic import: src/renderer/components/Layout/MainWindow.tsx:65 -> ./AgentsPanel
+Dynamic import: src/renderer/components/Layout/MainWindow.tsx:66 -> ./PluginPanel
+Dynamic import: src/renderer/components/Layout/MainWindow.tsx:67 -> ./WebPanel
+Dynamic import: src/renderer/components/Layout/MainWindow.tsx:68 -> ./SessionsPanel
+Dynamic import: src/renderer/components/Layout/SettingsPanel.tsx:19 -> ./EnvProfilePanel
+Dynamic import: src/renderer/components/Layout/SettingsPanel.tsx:20 -> ./CodeWorkspaceSettings
+Dynamic import: src/renderer/stores/project-entry-launch.ts:12 -> ./project-scene
+Dynamic import: src/renderer/stores/project-scene-ui.ts:63 -> ./project-scene
+Dynamic import: src/renderer/stores/project-scene-ui.ts:76 -> ./project-scene

@@ -1,0 +1,60 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v1.6.1 C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell
+
+ ✓ src/main/mcp/glob.test.ts  (22 tests) 9ms
+ ✓ src/main/mcp/auth.test.ts  (18 tests) 14ms
+ ✓ src/main/mcp/destructive-check.test.ts  (39 tests) 106ms
+ ✓ src/main/mcp/list-files.test.ts  (15 tests) 87ms
+ ✓ src/main/mcp-server/tools.test.ts  (12 tests) 26ms
+ ✓ src/main/mcp/exclusive-routes.test.ts  (27 tests) 37ms
+ ✓ src/main/mcp/session-resources.test.ts  (19 tests) 18ms
+ ✓ src/main/mcp/terminal-stream.test.ts  (5 tests) 11ms
+ ✓ src/main/mcp-server/api-error.integration.test.ts  (3 tests) 61ms
+ ✓ src/main/mcp/command-stream.test.ts  (4 tests) 28ms
+ ✓ src/main/mcp/transfer-dispatch-authorization.test.ts  (2 tests) 236ms
+ ✓ src/main/mcp/reconnect-resources.test.ts  (11 tests) 48ms
+ ✓ src/main/mcp/list-files.handler.test.ts  (6 tests) 40ms
+ ✓ src/main/mcp/terminal-control-authorization.test.ts  (21 tests) 62ms
+ ✓ src/main/mcp/glob.isolated.test.ts  (2 tests) 639ms
+ ✓ src/main/mcp/http-body.test.ts  (4 tests) 70ms
+ ✓ src/main/mcp/local-command-stream.test.ts  (3 tests) 72ms
+stdout | src/main/mcp/local-command-stream.test.ts > 本地流式输出 32 MiB 在 1 Mi 字符处拒绝，关闭管道并回收进程树
+14:45:50.399 > [MCP] Executing local command (7 characters)
+14:45:50.416 > [MCP] Local command stopping (output-limit): Command output limit exceeded (max 1048576 chars)
+
+stdout | src/main/mcp/local-command-stream.test.ts > 预取消不 spawn；执行期间取消回收且丢弃迟到输出
+14:45:50.456 > [MCP] Executing local command (7 characters)
+14:45:50.459 > [MCP] Local command stopping (client): Command aborted
+
+stdout | src/main/mcp/local-command-stream.test.ts > 分片 UTF-8、stderr 和真实退出码保留
+14:45:50.461 > [MCP] Executing local command (7 characters)
+
+ ✓ src/main/mcp/interactive-confirmation.test.ts  (12 tests) 473ms
+ ❯ src/main/mcp/confirmation-authorization.test.ts  (9 tests | 1 failed) 449ms
+   ❯ src/main/mcp/confirmation-authorization.test.ts > MCP 确认期间的授权变化 > HTTP 请求绑定真实凭据检查，撤销后不能继续确认
+     → allowsShutdownRelease is not defined
+ ✓ src/main/mcp/command-dispatch-authorization.test.ts  (22 tests) 231ms
+ ✓ src/main/mcp/local-request.test.ts  (3 tests) 7ms
+ ✓ src/main/mcp/shutdown-request-policy.test.ts  (7 tests) 10ms
+ ✓ src/main/mcp/session-policy.test.ts  (2 tests) 8ms
+ ✓ src/main/mcp/operation-policy.test.ts  (2 tests) 6ms
+ ✓ src/main/mcp/client-config.test.ts  (2 tests) 5ms
+ ✓ src/main/mcp/confirmation-window.test.ts  (9 tests) 4996ms
+ ✓ src/main/mcp/terminal-screenshot.test.ts  (5 tests) 28ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/main/mcp/confirmation-authorization.test.ts > MCP 确认期间的授权变化 > HTTP 请求绑定真实凭据检查，撤销后不能继续确认
+ReferenceError: allowsShutdownRelease is not defined
+ ❯ handleRequest evalmachine.<anonymous>:52:29
+ ❯ src/main/mcp/confirmation-authorization.test.ts:37:5
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 26 passed (27)
+      Tests  1 failed | 285 passed (286)
+   Start at  14:45:45
+   Duration  6.76s (transform 6.09s, setup 3ms, collect 35.94s, tests 7.78s, environment 979ms, prepare 6.55s)
+

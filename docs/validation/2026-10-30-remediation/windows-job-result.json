@@ -1,0 +1,115 @@
+{
+  "nonce": "fce74c59-2146-42d3-b00f-ce0fbbaa85f0",
+  "runDir": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\windows-command-smoke\\run-xB4ulG",
+  "startedAt": "2026-10-30T07:54:21.103Z",
+  "sourceSha256": "4cd282e95fad1066b759c5f878054946b97689e1b974436da7ac2f2fcf4bdfeb",
+  "pid": 15672,
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "endedAt": "2026-10-30T07:54:24.815Z",
+  "ok": true,
+  "inner": {
+    "ok": true,
+    "nonce": "fce74c59-2146-42d3-b00f-ce0fbbaa85f0",
+    "startedAt": "2026-10-30T07:54:21.283Z",
+    "runnerPid": 15672,
+    "platform": "win32",
+    "arch": "x64",
+    "electron": "43.7.11",
+    "node": "24.21.0",
+    "modulesAbi": "148",
+    "koffiLoadedInElectron": true,
+    "workerPath": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\dist\\main\\localCommandWorker.js",
+    "workerSha256": "9fb3bd183c85304f0b2689f5d3614d17376e9eb0cf4133a5247f14adeccaad55",
+    "coreSha256": "f9cf47408da9d5e9cbf9fbbc476238a1e1fa00e31f3773e4ff74d31198401cbf",
+    "cases": [
+      {
+        "name": "utf8-and-exit-seven",
+        "result": {
+          "state": "fulfilled",
+          "value": {
+            "output": "标准输出：中文\n标准错误：中文\n",
+            "exitCode": 7
+          }
+        },
+        "resultAt": "2026-10-30T07:54:21.458Z",
+        "resourceClosed": {
+          "state": "closed",
+          "localClosed": true,
+          "remoteTerminated": "confirmed"
+        },
+        "resourceClosedAt": "2026-10-30T07:54:21.584Z",
+        "checks": {
+          "chineseStdout": true,
+          "chineseStderr": true,
+          "actualExitCode": 7
+        }
+      },
+      {
+        "name": "timeout-background-descendants",
+        "result": {
+          "state": "rejected",
+          "error": {
+            "name": "OperationError",
+            "message": "Command timeout after 3000ms; inspect side effects before retrying",
+            "code": "OUTCOME_UNKNOWN",
+            "reason": "COMMAND_TIMEOUT",
+            "retryDisposition": "reconcile-first",
+            "partialOutput": ""
+          }
+        },
+        "reason": "COMMAND_TIMEOUT",
+        "resultAt": "2026-10-30T07:54:24.645Z",
+        "resourceClosed": {
+          "state": "closed",
+          "localClosed": true,
+          "remoteTerminated": "confirmed"
+        },
+        "resourceClosedAt": "2026-10-30T07:54:24.645Z",
+        "backgroundPids": [
+          {
+            "role": "tree-root",
+            "pid": 2984,
+            "state": "absent",
+            "errorCode": "ESRCH",
+            "parentPid": 40308
+          },
+          {
+            "role": "tree-child",
+            "pid": 50508,
+            "state": "absent",
+            "errorCode": "ESRCH",
+            "parentPid": 2984
+          },
+          {
+            "role": "tree-grandchild",
+            "pid": 47192,
+            "state": "absent",
+            "errorCode": "ESRCH",
+            "parentPid": 50508
+          }
+        ]
+      },
+      {
+        "name": "pre-abort-no-dispatch",
+        "result": {
+          "state": "rejected",
+          "error": {
+            "name": "Error",
+            "message": "Command aborted"
+          }
+        },
+        "resultAt": "2026-10-30T07:54:24.648Z",
+        "resourceClosed": {
+          "state": "closed",
+          "localClosed": true,
+          "remoteTerminated": "not-dispatched"
+        },
+        "resourceClosedAt": "2026-10-30T07:54:24.648Z",
+        "markerExists": false
+      }
+    ],
+    "endedAt": "2026-10-30T07:54:24.802Z"
+  }
+}

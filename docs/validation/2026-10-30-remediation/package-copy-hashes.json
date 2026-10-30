@@ -1,0 +1,14 @@
+[
+  {
+    "file": "resources/app.asar",
+    "sourceSha256": "b18cfe935ad2fcd049c2590c325f2d7a71c156ea9c9cc3fda0b06e5d9b8ba41f",
+    "runtimeCopySha256": "b18cfe935ad2fcd049c2590c325f2d7a71c156ea9c9cc3fda0b06e5d9b8ba41f",
+    "identical": true
+  },
+  {
+    "file": "LyShell.exe",
+    "sourceSha256": "47ca9990d0f5346afcf9ea270ce539eddd0d3285a9322bdf99849d4c9843a51f",
+    "runtimeCopySha256": "47ca9990d0f5346afcf9ea270ce539eddd0d3285a9322bdf99849d4c9843a51f",
+    "identical": true
+  }
+]

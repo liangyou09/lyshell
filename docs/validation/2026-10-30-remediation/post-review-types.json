@@ -1,0 +1,14 @@
+{
+  "head": "36739a6deb32bc45bf7dcbf29635cce9c306230c",
+  "command": [
+    "node",
+    "node_modules/typescript/bin/tsc",
+    "-p",
+    "tsconfig.node.json",
+    "--noEmit"
+  ],
+  "start": "2026-10-30T07:23:07.175Z",
+  "end": "2026-10-30T07:23:15.856Z",
+  "exitCode": 2,
+  "signal": null
+}

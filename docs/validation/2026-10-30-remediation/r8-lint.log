@@ -1,0 +1,5 @@
+command: D:\software\nodejs\node.exe node_modules/eslint/bin/eslint.js src/main/browser/browser-host.ts src/main/browser/browser-host-validation.ts src/main/browser/browser-host-ipc.ts src/main/browser/readonly-view-pilot.ts src/main/browser/browser-host.test.ts src/main/browser/browser-host-validation.test.ts src/main/browser/browser-host-ipc.test.ts src/main/browser/readonly-view-pilot.test.ts src/shared/browser-host.ts src/renderer/browser/browser-host.ts src/renderer/browser/browser-host.test.ts src/renderer/components/Layout/web-tab-controls.ts src/renderer/components/Layout/TaskShelfBrowserBar.tsx src/renderer/components/Layout/WebTabLayer.tsx src/renderer/components/Layout/WebPanel.tsx
+HEAD: 36739a6deb32bc45bf7dcbf29635cce9c306230c
+started: 2026-10-30T06:36:30.322Z
+ended: 2026-10-30T06:36:35.042Z
+exitCode: 0

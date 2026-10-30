@@ -1,0 +1,11 @@
+{
+  "head": "36739a6deb32bc45bf7dcbf29635cce9c306230c",
+  "command": [
+    "node",
+    "scripts/run-native-check.cjs"
+  ],
+  "start": "2026-10-30T06:56:37.662Z",
+  "end": "2026-10-30T06:56:38.004Z",
+  "exitCode": 0,
+  "signal": null
+}

@@ -1,0 +1,12 @@
+{
+  "head": "36739a6deb32bc45bf7dcbf29635cce9c306230c",
+  "command": [
+    "node",
+    "node_modules/electron-vite/bin/electron-vite.js",
+    "build"
+  ],
+  "start": "2026-10-30T07:44:11.949Z",
+  "end": "2026-10-30T07:44:29.913Z",
+  "exitCode": 0,
+  "signal": null
+}

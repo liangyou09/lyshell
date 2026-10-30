@@ -1,0 +1,66 @@
+{
+  "ok": true,
+  "startedAt": "2026-10-30T08:32:10.129Z",
+  "executable": "D:\\workspace\\claude\\LyShell\\tmp\\remediation-package-runtime-YIBou9\\LyShell.exe",
+  "asar": "D:\\workspace\\claude\\LyShell\\tmp\\remediation-package-runtime-YIBou9\\resources\\app.asar",
+  "profile": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\remediation-package-smoke\\run-jSviGV\\profile",
+  "runDir": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\remediation-package-smoke\\run-jSviGV",
+  "bootstrap": {
+    "pid": 14680,
+    "isPackaged": true,
+    "execPath": "D:\\workspace\\claude\\LyShell\\tmp\\remediation-package-runtime-YIBou9\\LyShell.exe",
+    "resourcesPath": "D:\\workspace\\claude\\LyShell\\tmp\\remediation-package-runtime-YIBou9\\resources",
+    "profileIsolationMethod": "pre-startup actual app.setPath"
+  },
+  "app": {
+    "ready": true,
+    "packaged": true,
+    "appPath": "D:\\workspace\\claude\\LyShell\\tmp\\remediation-package-runtime-YIBou9\\resources\\app.asar",
+    "userData": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\remediation-package-smoke\\run-jSviGV\\profile",
+    "sessionData": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\remediation-package-smoke\\run-jSviGV\\profile\\sessionData",
+    "rendererGone": false,
+    "monitorErrors": [],
+    "windows": [
+      {
+        "url": "file:///D:/workspace/claude/LyShell/tmp/remediation-package-runtime-YIBou9/resources/app.asar/dist/renderer/index.html",
+        "loading": false,
+        "visible": false
+      }
+    ]
+  },
+  "renderer": {
+    "rendererUrl": "file:///D:/workspace/claude/LyShell/tmp/remediation-package-runtime-YIBou9/resources/app.asar/dist/renderer/index.html",
+    "hidden": true,
+    "rendererIsolation": true,
+    "preload": {
+      "available": true,
+      "sessionsReadable": true,
+      "count": 0
+    }
+  },
+  "dependencies": {
+    "loaded": [
+      "electron-log",
+      "node-pty",
+      "koffi",
+      "serialport",
+      "ssh2"
+    ]
+  },
+  "worker": {
+    "workerPath": "D:\\workspace\\claude\\LyShell\\tmp\\remediation-package-runtime-YIBou9\\resources\\app.asar\\dist\\main\\patternWorker.js",
+    "protocol": 1,
+    "literal": true,
+    "invalidRegex": true,
+    "highBacktrackingInterrupted": true,
+    "terminateExitCode": 1,
+    "heartbeats": 8
+  },
+  "quitAcknowledged": true,
+  "exit": {
+    "code": 0,
+    "signal": null
+  },
+  "endedAt": "2026-10-30T08:32:12.078Z",
+  "timedOut": false
+}

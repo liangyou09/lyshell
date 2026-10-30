@@ -1,0 +1,171 @@
+{
+  "name": "CI",
+  "on": {
+    "pull_request": null,
+    "push": {
+      "branches": [
+        "main"
+      ]
+    },
+    "workflow_dispatch": null
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "jobs": {
+    "logic": {
+      "strategy": {
+        "fail-fast": false,
+        "matrix": {
+          "os": [
+            "ubuntu-latest",
+            "windows-latest",
+            "macos-latest"
+          ],
+          "node": [
+            "22.12.0",
+            "24"
+          ]
+        }
+      },
+      "runs-on": "${{ matrix.os }}",
+      "steps": [
+        {
+          "uses": "actions/checkout@v4",
+          "with": {
+            "fetch-depth": 0
+          }
+        },
+        {
+          "uses": "actions/setup-node@v4",
+          "with": {
+            "node-version": "${{ matrix.node }}",
+            "cache": "npm"
+          }
+        },
+        {
+          "run": "npm ci --ignore-scripts --no-audit --no-fund"
+        },
+        {
+          "run": "npm run typecheck"
+        },
+        {
+          "run": "npm run lint:changed",
+          "env": {
+            "LYSHELL_LINT_BASE": "${{ github.event.pull_request.base.sha || github.event.before || 'HEAD' }}"
+          }
+        },
+        {
+          "run": "npm run check:architecture"
+        },
+        {
+          "run": "npm test -- --maxWorkers=2 --minWorkers=1"
+        },
+        {
+          "run": "npm run test:node"
+        }
+      ]
+    },
+    "web-ssh": {
+      "strategy": {
+        "fail-fast": false,
+        "matrix": {
+          "os": [
+            "ubuntu-latest",
+            "windows-latest",
+            "macos-latest"
+          ],
+          "node": [
+            "22.12.0",
+            "24"
+          ]
+        }
+      },
+      "runs-on": "${{ matrix.os }}",
+      "defaults": {
+        "run": {
+          "working-directory": "examples/web-ssh"
+        }
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@v4"
+        },
+        {
+          "uses": "actions/setup-node@v4",
+          "with": {
+            "node-version": "${{ matrix.node }}",
+            "cache": "npm",
+            "cache-dependency-path": "examples/web-ssh/package-lock.json"
+          }
+        },
+        {
+          "run": "npm ci --ignore-scripts --no-audit --no-fund"
+        },
+        {
+          "run": "npm run typecheck"
+        },
+        {
+          "run": "npm test -- --maxWorkers=2 --minWorkers=1"
+        }
+      ]
+    },
+    "native": {
+      "strategy": {
+        "fail-fast": false,
+        "matrix": {
+          "os": [
+            "ubuntu-latest",
+            "windows-latest",
+            "macos-latest"
+          ]
+        }
+      },
+      "runs-on": "${{ matrix.os }}",
+      "steps": [
+        {
+          "uses": "actions/checkout@v4"
+        },
+        {
+          "uses": "actions/setup-node@v4",
+          "with": {
+            "node-version": "24",
+            "cache": "npm"
+          }
+        },
+        {
+          "run": "npm ci --no-audit --no-fund"
+        },
+        {
+          "run": "npm run rebuild"
+        },
+        {
+          "run": "node scripts/run-native-check.cjs"
+        },
+        {
+          "run": "npm run build"
+        },
+        {
+          "if": "runner.os == 'Linux'",
+          "run": "xvfb-run -a node scripts/run-electron-smoke.cjs"
+        },
+        {
+          "if": "runner.os != 'Linux'",
+          "run": "node scripts/run-electron-smoke.cjs"
+        },
+        {
+          "if": "runner.os == 'Windows'",
+          "run": "node scripts/run-electron-smoke.cjs --architecture"
+        },
+        {
+          "uses": "actions/upload-artifact@v4",
+          "if": "always()",
+          "with": {
+            "name": "native-evidence-${{ runner.os }}",
+            "path": "tmp/remediation-smoke/*.json\ntmp/architecture/electron-integration-result.json\n"
+          }
+        }
+      ]
+    }
+  }
+}

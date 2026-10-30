@@ -1,0 +1,9 @@
+{
+  "verdict": "COMPLETED",
+  "timeoutMs": 8000,
+  "wallMs": 155,
+  "exitCode": 0,
+  "signal": null,
+  "stdoutTail": "{\"readyFrame\":{\"type\":\"ready\",\"protocol\":1},\"literal\":{\"type\":\"match\",\"jobId\":\"built-1\",\"generation\":1,\"matched\":true,\"matchedIndex\":0,\"elapsedMs\":0.11320000000000618},\"regex\":{\"type\":\"match\",\"jobId\":\"built-2\",\"generation\":2,\"matched\":true,\"matchedIndex\":0,\"elapsedMs\":0.11750000000000682},\"prompt\":{\"type\":\"match\",\"jobId\":\"built-3\",\"generation\":3,\"matched\":true,\"matchedIndex\":0,\"elapsedMs\":0.04399999999999693},\"invalid\":{\"type\":\"error\",\"jobId\":\"built-4\",\"generation\":4,\"reason\":\"INVALID_PATTERN\",\"message\":\"Invalid regular expression: /(/: Unterminated group\"}}\n",
+  "stderrTail": ""
+}

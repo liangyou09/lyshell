@@ -1,0 +1,11 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v1.6.1 C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell
+
+ ✓ src/main/mcp-server/api-error.integration.test.ts  (3 tests) 35ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  14:22:02
+   Duration  678ms (transform 49ms, setup 0ms, collect 92ms, tests 35ms, environment 0ms, prepare 89ms)
+

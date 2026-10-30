@@ -1,0 +1,36 @@
+src/main/commands/windows-command-execution.test.ts(28,5): error TS2322: Type 'Mock<[], boolean>' is not assignable to type '(() => boolean) & Mock<any[], unknown>'.
+  Type 'Mock<[], boolean>' is not assignable to type 'Mock<any[], unknown>'.
+    Types of property 'mockImplementation' are incompatible.
+      Types of parameters 'fn' and 'fn' are incompatible.
+        Type 'unknown' is not assignable to type 'boolean'.
+src/main/commands/windows-command-execution.test.ts(29,5): error TS2322: Type 'Mock<[], boolean>' is not assignable to type '(() => boolean) & Mock<any[], unknown>'.
+  Type 'Mock<[], boolean>' is not assignable to type 'Mock<any[], unknown>'.
+    Types of property 'mockImplementation' are incompatible.
+      Types of parameters 'fn' and 'fn' are incompatible.
+        Type 'unknown' is not assignable to type 'boolean'.
+src/main/commands/windows-command-execution.test.ts(40,18): error TS2741: Property 'command' is missing in type '{}' but required in type 'HarnessOptions'.
+src/main/commands/windows-command-execution.test.ts(56,5): error TS2783: 'command' is specified more than once, so this usage will be overwritten.
+src/main/commands/windows-command-execution.test.ts(70,51): error TS2345: Argument of type '{ job: DshProcessJob & { terminate: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; }; }' is not assignable to parameter of type 'HarnessOptions'.
+  Property 'command' is missing in type '{ job: DshProcessJob & { terminate: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; }; }' but required in type 'HarnessOptions'.
+src/main/commands/windows-command-execution.test.ts(88,43): error TS2345: Argument of type '{ attachResult: null; }' is not assignable to parameter of type 'HarnessOptions'.
+  Property 'command' is missing in type '{ attachResult: null; }' but required in type 'HarnessOptions'.
+src/main/commands/windows-command-execution.test.ts(100,36): error TS2345: Argument of type '{ job: DshProcessJob; }' is not assignable to parameter of type 'HarnessOptions'.
+  Property 'command' is missing in type '{ job: DshProcessJob; }' but required in type 'HarnessOptions'.
+src/main/commands/windows-command-execution.test.ts(104,30): error TS2345: Argument of type '{ job: DshProcessJob & { terminate: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; }; }' is not assignable to parameter of type 'HarnessOptions'.
+  Property 'command' is missing in type '{ job: DshProcessJob & { terminate: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; }; }' but required in type 'HarnessOptions'.
+src/main/commands/windows-command-execution.test.ts(114,43): error TS2345: Argument of type '{ job: DshProcessJob & { terminate: Mock<any[], unknown>; close: Mock<any[], unknown>; }; treeSettleMs: number; terminationConfirmMs: number; onData: (chunk: string) => number; }' is not assignable to parameter of type 'HarnessOptions'.
+  Property 'command' is missing in type '{ job: DshProcessJob & { terminate: Mock<any[], unknown>; close: Mock<any[], unknown>; }; treeSettleMs: number; terminationConfirmMs: number; onData: (chunk: string) => number; }' but required in type 'HarnessOptions'.
+src/main/commands/windows-command-execution.test.ts(136,43): error TS2345: Argument of type '{ job: DshProcessJob & { terminate: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; }; }' is not assignable to parameter of type 'HarnessOptions'.
+  Property 'command' is missing in type '{ job: DshProcessJob & { terminate: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; }; }' but required in type 'HarnessOptions'.
+src/main/commands/windows-command-execution.test.ts(146,43): error TS2345: Argument of type '{ job: DshProcessJob & { terminate: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; }; treeSettleMs: number; terminationConfirmMs: number; }' is not assignable to parameter of type 'HarnessOptions'.
+  Property 'command' is missing in type '{ job: DshProcessJob & { terminate: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; }; treeSettleMs: number; terminationConfirmMs: number; }' but required in type 'HarnessOptions'.
+src/main/commands/windows-command-execution.test.ts(163,43): error TS2345: Argument of type '{ job: DshProcessJob & { terminate: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; }; treeSettleMs: number; terminationConfirmMs: number; }' is not assignable to parameter of type 'HarnessOptions'.
+  Property 'command' is missing in type '{ job: DshProcessJob & { terminate: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; }; treeSettleMs: number; terminationConfirmMs: number; }' but required in type 'HarnessOptions'.
+src/main/commands/windows-command-execution.test.ts(179,43): error TS2345: Argument of type '{ job: DshProcessJob & { terminate: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; }; treeSettleMs: number; }' is not assignable to parameter of type 'HarnessOptions'.
+  Property 'command' is missing in type '{ job: DshProcessJob & { terminate: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; }; treeSettleMs: number; }' but required in type 'HarnessOptions'.
+src/main/commands/windows-command-execution.test.ts(192,43): error TS2345: Argument of type '{ job: DshProcessJob & { terminate: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; }; }' is not assignable to parameter of type 'HarnessOptions'.
+  Property 'command' is missing in type '{ job: DshProcessJob & { terminate: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; }; }' but required in type 'HarnessOptions'.
+src/main/commands/windows-command-execution.test.ts(211,43): error TS2345: Argument of type '{ job: DshProcessJob & { terminate: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; }; timeoutMs: number; terminationConfirmMs: number; }' is not assignable to parameter of type 'HarnessOptions'.
+  Property 'command' is missing in type '{ job: DshProcessJob & { terminate: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; }; timeoutMs: number; terminationConfirmMs: number; }' but required in type 'HarnessOptions'.
+src/main/commands/windows-command-execution.test.ts(224,43): error TS2345: Argument of type '{ job: DshProcessJob & { terminate: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; }; }' is not assignable to parameter of type 'HarnessOptions'.
+  Property 'command' is missing in type '{ job: DshProcessJob & { terminate: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; }; }' but required in type 'HarnessOptions'.

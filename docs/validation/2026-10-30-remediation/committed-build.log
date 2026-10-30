@@ -1,0 +1,100 @@
+vite v5.4.21 building SSR bundle for production...
+transforming...
+✓ 901 modules transformed.
+rendering chunks...
+dist/main/chunks/_commonjsHelpers.js             0.21 kB
+dist/main/chunks/operation.js                    0.28 kB
+dist/main/chunks/types.js                        0.29 kB
+dist/main/chunks/sftp-mkdir.js                   0.97 kB
+dist/main/chunks/index.js                        1.46 kB
+dist/main/chunks/child-environment.js            1.66 kB
+dist/main/patternWorker.js                       2.81 kB
+dist/main/localCommandWorker.js                  3.34 kB
+dist/main/chunks/ssh-transfer-connection.js      4.12 kB
+dist/main/pluginHostOneshot.js                   5.32 kB
+dist/main/chunks/pattern-contract.js             6.69 kB
+dist/main/uploadWorker.js                        7.01 kB
+dist/main/worker.js                              7.11 kB
+dist/main/pluginHost.js                          7.60 kB
+dist/main/chunks/api.js                         20.91 kB
+dist/main/localHostWorker.js                    22.29 kB
+dist/main/chunks/local-host-protocol.js         37.53 kB
+dist/main/chunks/transfer-commit.js             44.66 kB
+dist/main/chunks/http-client.js                 71.69 kB
+dist/main/mcpServer.js                         708.64 kB
+dist/main/index.js                           2,114.91 kB
+✓ built in 6.73s
+vite v5.4.21 building SSR bundle for production...
+transforming...
+✓ 20 modules transformed.
+rendering chunks...
+dist/preload/mcpConfirmation.js   0.57 kB
+dist/preload/browserMenu.js       0.63 kB
+dist/preload/browserPrompt.js     0.67 kB
+dist/preload/pluginView.js        2.30 kB
+dist/preload/shelfReadonly.js     8.30 kB
+dist/preload/browserLogin.js     13.50 kB
+dist/preload/index.js            35.08 kB
+✓ built in 104ms
+vite v5.4.21 building for production...
+transforming...
+✓ 621 modules transformed.
+rendering chunks...
+../../dist/renderer/assets/regex-search.worker-DHwIvneW.js                 0.73 kB
+../../dist/renderer/mcp-confirmation.html                                  0.84 kB
+../../dist/renderer/browser-menu.html                                      0.85 kB
+../../dist/renderer/browser-prompt.html                                    1.02 kB
+../../dist/renderer/scroll-art-preview.html                                1.11 kB
+../../dist/renderer/index.html                                             2.60 kB
+../../dist/renderer/assets/claude-C-eKloz7.png                             6.98 kB
+../../dist/renderer/assets/GreatVibes-Launcher-lHz7pku5.woff2             10.14 kB
+../../dist/renderer/assets/icon-windows-rT6YHt65.png                     192.31 kB
+../../dist/renderer/assets/scroll-rollers-jade-v1-B12Ejwtk.png           558.88 kB
+../../dist/renderer/assets/work-launcher-art-v1-DWvPlQjr.png             577.64 kB
+../../dist/renderer/assets/brush-jade-wood-v1-RynljO6_.png               619.13 kB
+../../dist/renderer/assets/seal-box-lid-ash-v1-DsepHKDY.png              745.73 kB
+../../dist/renderer/assets/command-seal-white-jade-v1-NwoWjFgP.png       797.33 kB
+../../dist/renderer/assets/command-seal-grey-jade-v1-gbn8n9oU.png        875.90 kB
+../../dist/renderer/assets/scroll-tie-silk-gold-v1-U5RGDDvh.png        1,131.06 kB
+../../dist/renderer/assets/ink-landscape-horse-depth-v15-H0uwMtpD.png  1,694.78 kB
+../../dist/renderer/assets/xuan-paper-light-v1-BOBdFLvm.png            2,799.35 kB
+../../dist/renderer/assets/xuan-paper-dark-v1-D3vMY58T.png             2,808.17 kB
+../../dist/renderer/assets/MapleMono-NF-CN-Regular-D7KpPGAG.woff2      6,042.45 kB
+../../dist/renderer/assets/MapleMono-NF-CN-Bold-i7vb7mzg.woff2         6,153.42 kB
+../../dist/renderer/assets/style-DF3TyR9A.css                            323.78 kB
+../../dist/renderer/assets/RackSelect-DdKffyNd.js                          0.52 kB
+../../dist/renderer/assets/GroupList-Cl7nT84n.js                           0.71 kB
+../../dist/renderer/assets/workspace-project-color-Db9Hu4C8.js             0.77 kB
+../../dist/renderer/assets/worktree-sNReSHOP.js                            0.90 kB
+../../dist/renderer/assets/client-C93jkteH.js                              1.04 kB
+../../dist/renderer/assets/GroupHeader-BCjUDU6G.js                         2.26 kB
+../../dist/renderer/assets/HtmlDoc-B3d8qShu.js                             2.85 kB
+../../dist/renderer/assets/ScrollFold-C5TekGyA.js                          3.61 kB
+../../dist/renderer/assets/RackCombobox-BvF70_kO.js                        3.77 kB
+../../dist/renderer/assets/browserPrompt-BmJ1EQVo.js                       3.79 kB
+../../dist/renderer/assets/EnvRowsEditor-ulvvJQ29.js                       3.90 kB
+../../dist/renderer/assets/browserMenu-DFItAOUM.js                         4.30 kB
+../../dist/renderer/assets/mcpConfirmation-DmZyggTj.js                     5.68 kB
+../../dist/renderer/assets/scrollArtPreview-CicX_-P8.js                    8.65 kB
+../../dist/renderer/assets/CodeWorkspaceSettings-BJKYeasK.js               8.65 kB
+../../dist/renderer/assets/project-scene-DrLum4IH.js                      10.38 kB
+../../dist/renderer/assets/PluginPanel-D9aNYH4t.js                        11.64 kB
+../../dist/renderer/assets/vendor-wzG8qIv1.js                             18.88 kB
+../../dist/renderer/assets/DshMarketPanel-B_xe8SBr.js                     19.61 kB
+../../dist/renderer/assets/EnvProfilePanel-Bujk8dd3.js                    21.73 kB
+../../dist/renderer/assets/AgentsPanel-gpm3bj5j.js                        32.89 kB
+../../dist/renderer/assets/WebPanel-DIcA9UY_.js                           34.38 kB
+../../dist/renderer/assets/builtin-manuals-CxzEJaLG.js                    41.06 kB
+../../dist/renderer/assets/HarnessPanel-DmNjfXIV.js                       42.79 kB
+../../dist/renderer/assets/release-notes-XEnw6UCI.js                      43.79 kB
+../../dist/renderer/assets/globals-CIJHAii5.js                            48.27 kB
+../../dist/renderer/assets/ProtocolSeal-BGRtMb7A.js                       59.96 kB
+../../dist/renderer/assets/SessionsPanel-Bt1a8XrR.js                      64.34 kB
+../../dist/renderer/assets/dialog-artwork-BWk-OErv.js                     64.49 kB
+../../dist/renderer/assets/locale-data-OSYvi-PY.js                       104.15 kB
+../../dist/renderer/assets/markdown-parser-CaWnTsWP.js                   111.38 kB
+../../dist/renderer/assets/react-a1O6Brdy.js                             133.92 kB
+../../dist/renderer/assets/MarkdownDoc-DUrVVzmN.js                       140.49 kB
+../../dist/renderer/assets/xterm-D-7Vw7Gf.js                             321.47 kB
+../../dist/renderer/assets/index-B82yzWhk.js                             461.01 kB
+✓ built in 7.96s

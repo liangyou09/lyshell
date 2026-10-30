@@ -1,0 +1,13 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v1.6.1 C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell
+
+ ✓ src/main/ipc/application-ipc.test.ts  (12 tests) 21ms
+ ✓ src/main/terminal/session-manager.failure.test.ts  (9 tests) 271ms
+ ✓ src/main/webbar-deeplink.test.ts  (2 tests) 8ms
+
+ Test Files  3 passed (3)
+      Tests  23 passed (23)
+   Start at  14:35:12
+   Duration  5.99s (transform 2.43s, setup 0ms, collect 4.47s, tests 300ms, environment 1ms, prepare 574ms)
+

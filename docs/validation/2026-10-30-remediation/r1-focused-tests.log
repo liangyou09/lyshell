@@ -1,0 +1,14 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v1.6.1 C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell
+
+ ✓ src/main/terminal/pattern-contract.test.ts  (13 tests) 8ms
+ ✓ src/main/terminal/pattern-isolation.test.ts  (2 tests) 268ms
+ ✓ src/main/terminal/session-manager.wait-pattern.test.ts  (15 tests) 996ms
+ ✓ src/main/terminal/pattern-matcher.test.ts  (16 tests) 2152ms
+
+ Test Files  4 passed (4)
+      Tests  46 passed (46)
+   Start at  14:45:37
+   Duration  2.96s (transform 445ms, setup 0ms, collect 1.03s, tests 3.42s, environment 1ms, prepare 514ms)
+

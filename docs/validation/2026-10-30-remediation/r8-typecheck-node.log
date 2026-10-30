@@ -1,0 +1,5 @@
+command: D:\software\nodejs\node.exe node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json
+HEAD: 36739a6deb32bc45bf7dcbf29635cce9c306230c
+started: 2026-10-30T06:35:35.009Z
+ended: 2026-10-30T06:35:44.741Z
+exitCode: 0

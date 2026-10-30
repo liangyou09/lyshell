@@ -1,0 +1,1 @@
+src/main/terminal/session-manager.wait-pattern.test.ts(9,10): error TS6133: 'ConnectionStatus' is declared but its value is never read.

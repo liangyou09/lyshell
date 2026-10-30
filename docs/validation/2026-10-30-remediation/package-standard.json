@@ -1,0 +1,17 @@
+{
+  "head": "bd9009c42738d265b660ca6bb09c497ce381d26f",
+  "command": [
+    "node",
+    "node_modules/electron-builder/out/cli/cli.js",
+    "--dir",
+    "--win",
+    "--x64",
+    "--config.npmRebuild=false",
+    "--config.directories.output=tmp/remediation-package-standard",
+    "--config.win.signExecutable=false"
+  ],
+  "start": "2026-10-30T08:08:41.076Z",
+  "end": "2026-10-30T08:09:16.646Z",
+  "exitCode": 0,
+  "signal": null
+}

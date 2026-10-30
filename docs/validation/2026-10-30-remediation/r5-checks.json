@@ -1,0 +1,74 @@
+{
+  "head": "36739a6deb32bc45bf7dcbf29635cce9c306230c",
+  "result": [
+    {
+      "name": "tests",
+      "command": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "src/main/storage/serialized-json-writer.test.ts",
+        "src/main/storage/mcp-audit-repository.test.ts",
+        "src/main/storage/atomic-json.test.ts",
+        "src/main/ipc/mcp-audit-query.test.ts",
+        "src/renderer/components/Layout/McpAuditPanel.test.tsx",
+        "--maxWorkers=1",
+        "--minWorkers=1"
+      ],
+      "startedAt": "2026-10-30T06:22:51.327Z",
+      "endedAt": "2026-10-30T06:22:57.368Z",
+      "exitCode": 0
+    },
+    {
+      "name": "lint",
+      "command": [
+        "node",
+        "node_modules/eslint/bin/eslint.js",
+        "src/main/storage/serialized-json-writer.ts",
+        "src/main/storage/serialized-json-writer.test.ts",
+        "src/main/storage/atomic-json.ts",
+        "src/main/storage/atomic-json.test.ts",
+        "src/main/storage/mcp-audit-repository.ts",
+        "src/main/storage/mcp-audit-repository.test.ts",
+        "src/main/ipc/mcp-audit-query.test.ts",
+        "src/shared/mcp-audit.ts",
+        "src/renderer/components/Layout/McpAuditPanel.tsx",
+        "src/renderer/components/Layout/McpAuditPanel.test.tsx",
+        "src/main/ipc/validation.ts",
+        "src/main/ipc/handlers.ts",
+        "src/preload/index.ts"
+      ],
+      "startedAt": "2026-10-30T06:22:57.368Z",
+      "endedAt": "2026-10-30T06:22:59.657Z",
+      "exitCode": 0
+    },
+    {
+      "name": "typecheck-main",
+      "command": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "--noEmit",
+        "-p",
+        "tsconfig.node.json",
+        "--tsBuildInfoFile",
+        "tmp/r5-main.tsbuildinfo"
+      ],
+      "startedAt": "2026-10-30T06:22:59.657Z",
+      "endedAt": "2026-10-30T06:23:03.472Z",
+      "exitCode": 2
+    },
+    {
+      "name": "typecheck-renderer",
+      "command": [
+        "node",
+        "node_modules/typescript/bin/tsc",
+        "--noEmit",
+        "--tsBuildInfoFile",
+        "tmp/r5-renderer.tsbuildinfo"
+      ],
+      "startedAt": "2026-10-30T06:23:03.472Z",
+      "endedAt": "2026-10-30T06:23:14.492Z",
+      "exitCode": 0
+    }
+  ]
+}

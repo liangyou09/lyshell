@@ -1,0 +1,12 @@
+{
+  "head": "bd9009c42738d265b660ca6bb09c497ce381d26f",
+  "command": [
+    "node",
+    "tmp/remediation-physical-package.cjs",
+    "pack"
+  ],
+  "start": "2026-10-30T08:16:55.310Z",
+  "end": "2026-10-30T08:18:30.890Z",
+  "exitCode": 0,
+  "signal": null
+}

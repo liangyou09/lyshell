@@ -1,0 +1,29 @@
+command: node node_modules/vitest/vitest.mjs run src/renderer/browser/browser-host.test.ts
+HEAD: 36739a6deb32bc45bf7dcbf29635cce9c306230c
+started: 2026-10-30T07:01:37.024Z
+ended: 2026-10-30T07:01:39.874Z
+exitCode: 0
+
+ RUN  v1.6.1 C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell
+
+ ✓ src/renderer/browser/browser-host.test.ts  (9 tests) 34ms
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+   Start at  15:01:37
+   Duration  2.00s (transform 59ms, setup 0ms, collect 94ms, tests 34ms, environment 1.01s, prepare 115ms)
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+command: node node_modules/typescript/bin/tsc --noEmit
+HEAD: 36739a6deb32bc45bf7dcbf29635cce9c306230c
+started: 2026-10-30T07:01:39.876Z
+ended: 2026-10-30T07:01:54.161Z
+exitCode: 0
+
+command: node node_modules/eslint/bin/eslint.js src/renderer/browser/browser-host.ts src/renderer/browser/browser-host.test.ts
+HEAD: 36739a6deb32bc45bf7dcbf29635cce9c306230c
+started: 2026-10-30T07:01:54.162Z
+ended: 2026-10-30T07:01:55.829Z
+exitCode: 0
+

@@ -9,6 +9,14 @@ Published release notes are archived in full in their original language. Click a
 
 ## [Unreleased]
 
+- 隔离外部等待正则，保留默认 regex 并支持显式 literal；新增有界匹配 Worker、输入与等待配额。
+- 收敛未知致命错误和正常退出，新增包含准备阶段的 18 秒总期限。
+- 统一单条、流式与批量命令的公平调度和输出预算；执行名额等待真实关闭证据。Windows 命令先绑定 Job 再启动，SSH 通道关闭保留远端状态未知。
+- 审计记录串行异步落盘，界面显示提交中与保存失败；缩小终端订阅，移除指定运行时依赖循环。
+- 增加跨平台 CI、独立 Web SSH 验证和真实 Electron 烟测；浏览器宿主只读原生试点默认关闭。
+
+兼容字段、限额、未知结果处理与回退规则见 [修复兼容说明](docs/remediation-compatibility-2026-10-30.md)。本地验证边界见 [实施报告](docs/validation/2026-10-30-remediation/results.md)，安装、升级与跨平台真机验收仍需单独完成。
+
 ## [2.0.2] - 2026-10-18
 
 LyShell 2.0.2 完善内置浏览器与内容查找，新增 DSH 侧栏插件市场和原生 Harness 工作通道，改进 PetLink 与共享工作台的协作，并升级 Electron 运行时。以下内容汇总自 2.0.1 以来的更新。

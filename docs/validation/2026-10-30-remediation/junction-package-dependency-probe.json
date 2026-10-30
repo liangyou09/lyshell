@@ -1,0 +1,11 @@
+{
+  "head": "bd9009c42738d265b660ca6bb09c497ce381d26f",
+  "command": [
+    "node",
+    "D:/workspace/claude/LyShell/tmp/remediation-control/probe-package-modules.cjs"
+  ],
+  "start": "2026-10-30T08:14:20.900Z",
+  "end": "2026-10-30T08:14:21.094Z",
+  "exitCode": 0,
+  "signal": null
+}

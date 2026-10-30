@@ -1,0 +1,18 @@
+{
+  "head": "36739a6deb32bc45bf7dcbf29635cce9c306230c",
+  "command": [
+    "node",
+    "examples/web-ssh/node_modules/vitest/vitest.mjs",
+    "run",
+    "--root",
+    "examples/web-ssh",
+    "--config",
+    "vitest.config.ts",
+    "--maxWorkers=2",
+    "--minWorkers=1"
+  ],
+  "start": "2026-10-30T07:49:13.340Z",
+  "end": "2026-10-30T07:49:17.428Z",
+  "exitCode": 0,
+  "signal": null
+}

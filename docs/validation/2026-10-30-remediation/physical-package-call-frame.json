@@ -1,0 +1,12 @@
+{
+  "head": "bd9009c42738d265b660ca6bb09c497ce381d26f",
+  "command": [
+    "node",
+    "scripts/remediation-package-smoke.cjs",
+    "D:/workspace/claude/LyShell/tmp/remediation-package-runtime-YIBou9"
+  ],
+  "start": "2026-10-30T08:29:56.570Z",
+  "end": "2026-10-30T08:30:01.491Z",
+  "exitCode": 1,
+  "signal": null
+}

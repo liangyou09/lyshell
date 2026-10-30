@@ -1,0 +1,16 @@
+
+> lyshell-plugin-web-ssh@0.1.0 test
+> vitest run --config vitest.config.ts --maxWorkers=1 --minWorkers=1
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v1.6.1 C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell/examples/web-ssh
+
+ ✓ server.test.ts  (21 tests) 2296ms
+ ✓ web/terminal.test.ts  (1 test) 103ms
+
+ Test Files  2 passed (2)
+      Tests  22 passed (22)
+   Start at  14:19:50
+   Duration  4.10s (transform 135ms, setup 0ms, collect 244ms, tests 2.40s, environment 810ms, prepare 350ms)
+

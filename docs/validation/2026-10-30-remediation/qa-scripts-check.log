@@ -1,0 +1,7 @@
+scripts/remediation-validation.cjs:0
+scripts/remediation-browser-host-smoke.cjs:0
+scripts/run-browser-host-smoke.cjs:0
+scripts/remediation-windows-command-smoke.cjs:0
+scripts/run-windows-command-smoke.cjs:0
+scripts/remediation-package-smoke.cjs:0
+CI YAML parsed; Windows Job smoke present

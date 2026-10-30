@@ -1,0 +1,19 @@
+
+C:\Users\69534\.codex\worktrees\complete-remediation-20261030\LyShell\src\main\ipc\handlers.ts
+  1110:23   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1153:81   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1274:85   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1393:42   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1393:57   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1406:36   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1406:60   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1424:36   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1424:60   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1441:84   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1441:106  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1824:25   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1947:25   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  2176:83   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+✖ 14 problems (0 errors, 14 warnings)
+

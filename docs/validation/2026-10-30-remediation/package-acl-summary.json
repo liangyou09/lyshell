@@ -1,0 +1,18 @@
+{
+  "readOnly": true,
+  "permissionsChanged": false,
+  "managedWorktree": {
+    "path": "C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell/tmp/remediation-package-physical/win-unpacked",
+    "exitCode": 0,
+    "denyEntries": 145,
+    "lowMandatoryLevel": true,
+    "codexSandboxGroup": true
+  },
+  "normalWorkspace": {
+    "path": "D:/workspace/claude/LyShell/tmp/remediation-package-runtime-YIBou9",
+    "exitCode": 0,
+    "denyEntries": 0,
+    "lowMandatoryLevel": false,
+    "codexSandboxGroup": false
+  }
+}

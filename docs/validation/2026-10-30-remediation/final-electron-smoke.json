@@ -1,0 +1,11 @@
+{
+  "head": "36739a6deb32bc45bf7dcbf29635cce9c306230c",
+  "command": [
+    "node",
+    "scripts/run-electron-smoke.cjs"
+  ],
+  "start": "2026-10-30T07:47:07.230Z",
+  "end": "2026-10-30T07:47:09.430Z",
+  "exitCode": 0,
+  "signal": null
+}

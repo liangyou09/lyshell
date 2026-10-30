@@ -1,0 +1,59 @@
+
+15:58:44.406 > Using system Python: C:\Users\69534\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe
+15:58:44.604 > Download history initialized
+15:58:44.685 > [MCP] Hardened port file ACL on Windows for DESKTOP-TL9I7VN\69534
+15:58:44.822 > [MCP] To register LyShell with an MCP client, add this to its mcpServers config:
+15:58:44.822 > [MCP] {
+  "mcpServers": {
+    "lyshell": {
+      "command": "D:\\workspace\\claude\\LyShell\\node_modules\\electron\\dist\\electron.exe",
+      "args": [
+        "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\dist\\main\\mcpServer.js"
+      ],
+      "env": {
+        "LYSHELL_USER_DATA": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\remediation-smoke\\profile-M4AM2u",
+        "ELECTRON_RUN_AS_NODE": "1"
+      }
+    }
+  }
+}
+15:58:44.825 > [MCP] Fallback (system Node.js, if the config above fails):
+15:58:44.826 > [MCP] {
+  "mcpServers": {
+    "lyshell": {
+      "command": "D:\\software\\nodejs\\node.exe",
+      "args": [
+        "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\dist\\main\\mcpServer.js"
+      ],
+      "env": {
+        "LYSHELL_USER_DATA": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\remediation-smoke\\profile-M4AM2u"
+      }
+    }
+  }
+}
+15:58:44.826 > [MCP] External access is OFF (default). Run the MCP client inside a LyShell-spawned local terminal,
+15:58:44.826 > [MCP]   or enable security.mcp.allowExternalMcpClients in preferences to allow external connections.
+15:58:44.827 > [MCP] HTTP server started on port 59333 (externalAccess=false)
+15:58:44.829 > [plugin-host] No enabled contributor plugins to start; nothing to spawn
+15:58:44.833 > Registering IPC handlers...
+15:58:44.835 > No sessions file found, starting fresh
+15:58:44.836 > IPC handlers registered successfully
+15:58:44.882 > Registered webbar deep-link scheme handler: bytedance://
+15:58:44.882 > Registered webbar deep-link scheme handler: snssdk1128://
+15:58:44.883 > Registered webbar deep-link scheme handler: aweme://
+15:58:44.883 > Registered webbar deep-link scheme handler: iesdouyin://
+15:58:44.883 > Registered webbar deep-link scheme handler: douyin://
+15:58:44.884 > LyShell started successfully
+15:58:45.725 > Saved 0 agents to storage
+15:58:45.726 > Initialized empty agent library
+15:58:45.734 > Set config: locale
+15:58:45.762 > List sessions
+15:58:45.762 > Get config: sidebarCollapsed
+15:58:45.763 > Get config: sidebarWidth
+15:58:45.763 > No quickCommands file found, starting fresh
+15:58:45.764 > Get config: quickCommand.defaultGroupColor
+15:58:45.769 > List sessions
+15:58:45.981 > [lifecycle] draining (reason=app-will-quit, total budget 18000ms)
+15:58:45.990 > [MCP] HTTP server stopped
+15:58:45.996 > [lifecycle] stopped after 15ms with 0 unconfirmed step(s)
+15:58:46.003 > [lifecycle] shutdown completed in 15ms

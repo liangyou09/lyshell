@@ -1,0 +1,2 @@
+# 验证 stdout/stderr 保留原始字节；差异审阅以对应 JSON 元数据和报告为入口。
+*.log -diff -text

@@ -1,0 +1,12 @@
+{
+  "head": "bd9009c42738d265b660ca6bb09c497ce381d26f",
+  "command": [
+    "node",
+    "scripts/remediation-package-smoke.cjs",
+    "tmp/remediation-package-standard/win-unpacked"
+  ],
+  "start": "2026-10-30T08:12:17.951Z",
+  "end": "2026-10-30T08:12:22.588Z",
+  "exitCode": 1,
+  "signal": null
+}
