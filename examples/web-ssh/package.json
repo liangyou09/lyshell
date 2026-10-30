@@ -5,8 +5,8 @@
   "description": "IPv4 Web SSH server for the LyShell web-ssh plugin",
   "license": "MIT",
   "scripts": {
-    "test": "vitest run server.test.ts",
-    "test:watch": "vitest server.test.ts",
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
@@ -14,9 +14,12 @@
     "ws": "^8.18.3"
   },
   "devDependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "5.5.0",
     "@types/node": "^22.10.0",
     "@types/ssh2": "^1.15.5",
     "@types/ws": "^8.18.1",
+    "jsdom": "^30.0.1",
     "typescript": "^5.9.3",
     "vitest": "^1.6.1"
   }

@@ -25,6 +25,10 @@ import {
   parseProcessStartTime,
   readPidRecord,
   writePidRecord,
+  listProcesses,
+  lookupImageName,
+  lookupCmdline,
+  lookupProcessStartTime,
   type ProcInfo,
   type RecordedPid
 } from './proc'
@@ -70,6 +74,7 @@ function makeDeps(opts: {
   const staticProcs = typeof opts.procs === 'function' || opts.procs === null ? [] : opts.procs
   let nameByPid = new Map(staticProcs.map((p) => [p.pid, p.name]))
   const deps = {
+    platform: 'win32' as const,
     ownedRootSpawnedAt: 1000,
     listProcesses: async () => {
       listCount++
@@ -682,6 +687,7 @@ describe('killPidTree', () => {
     let lists = 0
     const alive = new Set([10])
     const result = await killPidTree(10, undefined, {
+      platform: 'win32',
       ownedRootSpawnedAt: 1000,
       listProcesses: async () => {
         lists++
@@ -710,6 +716,7 @@ describe('killPidTree', () => {
     const timeouts: number[] = []
     const alive = new Set([10])
     const result = await killPidTree(10, undefined, {
+      platform: 'win32',
       ownedRootSpawnedAt: 1000,
       listProcesses: async () => {
         clock = 2400  // 2.5s 预算只剩 100ms
@@ -742,6 +749,7 @@ describe('killPidTree', () => {
     let clock = 0
     const alive = new Set([10, 100, 200])
     const result = await killPidTree(10, undefined, {
+      platform: 'win32',
       ownedRootSpawnedAt: 1000,
       lookupStartTime: async () => 1000,
       lookupImageName: async () => 'cmd.exe',
@@ -771,6 +779,7 @@ describe('killPidTree', () => {
     const singleKills: number[] = []
     const alive = new Set([10, 100, 200])
     const result = await killPidTree(10, undefined, {
+      platform: 'win32',
       listProcesses: async () => {
         lists++
         if (lists === 2) clock = 2000  // 补刀前的核对枚举自己把最后的预算用光
@@ -862,14 +871,12 @@ describe('killPidTree', () => {
   })
 
   it('POSIX：主力树杀前的身份核对并发执行（串行的话 1.5s 下限 × N 会把 deadline 拖穿 N 步）', async () => {
-    const platformDesc = Object.getOwnPropertyDescriptor(process, 'platform')
-    Object.defineProperty(process, 'platform', { value: 'posix', configurable: true })
-    try {
       const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
       let inFlight = 0
       let peak = 0
       const alive = new Set([10, 100, 200])
       const result = await killPidTree(10, tree, {
+        platform: 'linux',
         isPidAlive: (p) => alive.has(p),
         listProcesses: async () => {
           throw new Error('should not enumerate: snapshot given')
@@ -891,9 +898,60 @@ describe('killPidTree', () => {
       // 3 个候选（root + 两个子孙）同时在查 —— 串行实现 peak 只会是 1
       expect(peak).toBe(3)
       expect(result.status).toBe('killed')
-    } finally {
-      if (platformDesc) Object.defineProperty(process, 'platform', platformDesc)
+  })
+})
+
+describe.each(['linux', 'darwin'] as const)('POSIX 进程 IO：%s', platform => {
+  it('显式选择 ps 查询，不执行 Windows 工具', async () => {
+    const calls: Array<{ file: string; args: string[] }> = []
+    const deps = {
+      platform,
+      execFile: async (file: string, args: string[]) => {
+        calls.push({ file, args })
+        if (args[0] === '-eo') return '  42 1 /usr/local/bin/node dsh web --port 0 --no-open\n'
+        if (args.includes('comm=')) return 'node\n'
+        if (args.includes('args=')) return 'node dsh web --port 0 --no-open\n'
+        return '2026-10-30T00:00:00.000Z\n'
+      }
     }
+    expect(await listProcesses(deps)).toEqual([{ pid: 42, ppid: 1, name: 'node', cmdline: '/usr/local/bin/node dsh web --port 0 --no-open' }])
+    expect(await lookupImageName(42, deps)).toBe('node')
+    expect(await lookupCmdline(42, deps)).toBe('node dsh web --port 0 --no-open')
+    expect(await lookupProcessStartTime(42, deps)).toBe(Date.parse('2026-10-30T00:00:00.000Z'))
+    expect(calls.map(call => call.file)).toEqual(['ps', 'ps', 'ps', 'ps'])
+  })
+
+  it('逐个核对身份、先子后根 TERM、宽限后 KILL，存活者不能报已回收', async () => {
+    const tree = [proc({ pid: 10, name: 'node', cmdline: 'node root' }), proc({ pid: 11, ppid: 10, name: 'node', cmdline: 'node child' })]
+    const signals: Array<[number, NodeJS.Signals]> = []
+    const checked: number[] = []
+    const alive = new Set([10, 11])
+    const result = await killPidTree(10, tree, {
+      platform,
+      lookupImageName: async pid => { checked.push(pid); return 'node' },
+      isPidAlive: pid => alive.has(pid),
+      signalPid: (pid, signal) => {
+        signals.push([pid, signal])
+        if (signal === 'SIGKILL' && pid === 11) alive.delete(pid)
+      },
+      execFile: async () => { throw new Error('Windows command must not be used') },
+      sleep: async () => {}
+    })
+    expect(checked).toEqual([10, 11])
+    expect(signals).toEqual([[11, 'SIGTERM'], [10, 'SIGTERM'], [10, 'SIGKILL'], [11, 'SIGKILL']])
+    expect(result).toMatchObject({ status: 'survivors', pids: [10] })
+  })
+
+  it('root 身份改变时不发送任何 signal', async () => {
+    const signalPid = vi.fn()
+    const result = await killPidTree(10, [proc({ pid: 10, name: 'node' })], {
+      platform,
+      lookupImageName: async () => 'unrelated',
+      signalPid,
+      sleep: async () => {}
+    })
+    expect(result.status).toBe('unverified')
+    expect(signalPid).not.toHaveBeenCalled()
   })
 })
 
@@ -902,6 +960,7 @@ describe('sweepOrphanDshWeb', () => {
     const orphan = proc({ pid: 200, ppid: 16376, name: 'node.exe', cmdline: LYSHELL_DSH_WEB })
     const kills: number[] = []
     const result = await sweepOrphanDshWeb({
+      platform: 'win32',
       listProcesses: async () => [orphan],
       isPidAlive: () => true,
       lookupStartTime: async () => 1000,
@@ -929,6 +988,7 @@ describe('sweepOrphanDshWeb', () => {
     const alive = new Set([5, 10, 100, 200, 400])
     const treeKills: number[] = []
     const result = await sweepOrphanDshWeb({
+      platform: 'win32',
       listProcesses: async () => {
         lists++
         return snapshot
@@ -960,6 +1020,7 @@ describe('sweepOrphanDshWeb', () => {
     let lists = 0
     const kills: number[] = []
     const result = await sweepOrphanDshWeb({
+      platform: 'win32',
       listProcesses: async () => (++lists === 1 ? [orphan] : [normal]),
       lookupStartTime: async () => 1000,
       lookupImageName: async () => 'node.exe',
@@ -978,6 +1039,7 @@ describe('sweepOrphanDshWeb', () => {
     let starts = 0
     const kills: number[] = []
     const result = await sweepOrphanDshWeb({
+      platform: 'win32',
       listProcesses: async () => [orphan],
       lookupStartTime: async () => ++starts === 3 ? 2000 : 1000,
       lookupImageName: async () => 'node.exe',
@@ -993,6 +1055,7 @@ describe('sweepOrphanDshWeb', () => {
 
   it('枚举失败 → 静默 no-op 是不够的：返回空并由调用方走 recoverRecordedPids 兜底', async () => {
     const result = await sweepOrphanDshWeb({
+      platform: 'win32',
       listProcesses: async () => null,
       isPidAlive: () => true,
       execFile: async () => {
@@ -1050,6 +1113,7 @@ describe('recoverRecordedPids（留档恢复路径）', () => {
   }): { deps: Parameters<typeof recoverRecordedPids>[1]; treeKills: number[] } {
     const treeKills = opts.treeKills ?? []
     const deps = {
+    platform: 'win32' as const,
       isPidAlive: (p: number) => opts.alive.has(p),
       listProcesses: async () => opts.snapshot ?? null,
       lookupStartTime: async (pid: number) => opts.startTimes?.[pid] ?? null,
@@ -1094,6 +1158,7 @@ describe('recoverRecordedPids（留档恢复路径）', () => {
     const alive = new Set([42, 43])
     const treeKills: number[] = []
     const result = await recoverRecordedPids([entry(42, 'cmd.exe')], {
+      platform: 'win32',
       isPidAlive: (p) => alive.has(p),
       listProcesses: async () => procs,
       lookupStartTime: async () => 1 - 60_000,
@@ -1119,6 +1184,7 @@ describe('recoverRecordedPids（留档恢复路径）', () => {
     const alive = new Set([42, 43])
     const treeKills: number[] = []
     const result = await recoverRecordedPids([entry(42, 'cmd.exe')], {
+      platform: 'win32',
       isPidAlive: (p) => alive.has(p),
       listProcesses: async () => procs,
       lookupStartTime: async () => 1 - 60_000,
@@ -1157,6 +1223,7 @@ describe('recoverRecordedPids（留档恢复路径）', () => {
   it('镜像名查询期间 root 死亡且无存活子孙 → 才清档（不能一见 name=null 就 dropped）', async () => {
     const alive = new Set([42])
     const result = await recoverRecordedPids([entry(42, 'cmd.exe')], {
+      platform: 'win32',
       isPidAlive: (p) => alive.has(p),
       listProcesses: async () => [],
       lookupStartTime: async () => 1 - 60_000,
@@ -1183,6 +1250,7 @@ describe('recoverRecordedPids（留档恢复路径）', () => {
     const alive = new Set([42, 43])
     const treeKills: number[] = []
     const result = await recoverRecordedPids([entry(42, 'cmd.exe')], {
+      platform: 'win32',
       isPidAlive: (p) => alive.has(p),
       listProcesses: async () => procs,
       lookupStartTime: async () => 1 - 60_000,
@@ -1211,6 +1279,7 @@ describe('recoverRecordedPids（留档恢复路径）', () => {
     const alive = new Set([42, 43])
     const treeKills: number[] = []
     const result = await recoverRecordedPids([entry(42, 'cmd.exe')], {
+      platform: 'win32',
       isPidAlive: (p) => alive.has(p),
       listProcesses: async () => procs,
       lookupStartTime: async () => 1 - 60_000,
@@ -1281,6 +1350,7 @@ describe('recoverRecordedPids（留档恢复路径）', () => {
     const killCalls: number[] = []
     const alive = new Set([43])
     const result = await recoverRecordedPids([entry(42, 'cmd.exe')], {
+      platform: 'win32',
       isPidAlive: (p) => alive.has(p),
       listProcesses: async () => procs,
       lookupStartTime: async () => null,
@@ -1533,6 +1603,7 @@ describe('recoverRecordedPids（留档恢复路径）', () => {
     const alive = new Set([42, 43])
     const treeKills: number[] = []
     const result = await recoverRecordedPids([entry(42, 'cmd.exe')], {
+      platform: 'win32',
       isPidAlive: (p) => alive.has(p),
       listProcesses: async () => procs,
       lookupStartTime: async () => entry(42).recordedAt + 60_000,  // 启动晚于记录 = 复用
@@ -1563,6 +1634,7 @@ describe('recoverRecordedPids（留档恢复路径）', () => {
     let snapshots = 0
     const kills: number[] = []
     const result = await recoverRecordedPids([entry(42)], {
+      platform: 'win32',
       isPidAlive: (pid) => pid === 43,
       listProcesses: async () => ++snapshots === 1 ? before : after,
       lookupStartTime: async () => null,
@@ -1584,6 +1656,7 @@ describe('recoverRecordedPids（留档恢复路径）', () => {
     ]
     const kills: number[] = []
     const result = await recoverRecordedPids([entry(42)], {
+      platform: 'win32',
       isPidAlive: (pid) => pid === 43,
       listProcesses: async () => procs,
       lookupStartTime: async () => 11_000,

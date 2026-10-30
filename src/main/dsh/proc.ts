@@ -129,6 +129,8 @@ export interface RecordedPid {
  * 这两条最关键的路径（模块直接 import child_process 是没法 stub 的）。
  */
 export interface ProcDeps {
+  /** 平台决策与进程 IO 一起注入；默认仍使用运行平台。 */
+  platform?: NodeJS.Platform
   /** 枚举进程表；null = 枚举失败（区别于空表 = 无进程） */
   listProcesses?: () => Promise<ProcInfo[] | null>
   isPidAlive?: (pid: number) => boolean
@@ -527,7 +529,7 @@ function clampTimeout(desired: number, deps?: ProcDeps): number {
 export async function listProcesses(deps?: ProcDeps): Promise<ProcInfo[] | null> {
   const exec = deps?.execFile ?? execFileAsync
   try {
-    if (process.platform === 'win32') {
+    if ((deps?.platform ?? process.platform) === 'win32') {
       const script = [
         // 中文 Windows 上控制台默认 GBK，不显式置 UTF-8 会把中文路径/参数按 GBK 解坏（对齐 refresh.ts）
         '$OutputEncoding=[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;',
@@ -567,7 +569,7 @@ export function isPidAlive(pid: number): boolean {
 export async function lookupImageName(pid: number, deps?: ProcDeps): Promise<string | null> {
   const exec = deps?.execFile ?? execFileAsync
   try {
-    if (process.platform === 'win32') {
+    if ((deps?.platform ?? process.platform) === 'win32') {
       const stdout = await exec(systemTool('tasklist.exe'), ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
         timeout: clampTimeout(5000, deps)
       })
@@ -596,7 +598,7 @@ export async function lookupImageName(pid: number, deps?: ProcDeps): Promise<str
  * 定位一致）；Windows 上非 WMI 路径拿不到 CommandLine（tasklist 只给镜像名），返回 null。
  */
 export async function lookupCmdline(pid: number, deps?: ProcDeps): Promise<string | null> {
-  if (process.platform === 'win32') return null
+  if ((deps?.platform ?? process.platform) === 'win32') return null
   const exec = deps?.execFile ?? execFileAsync
   try {
     const stdout = await exec('ps', ['-p', String(pid), '-o', 'args='], { timeout: clampTimeout(5000, deps) })
@@ -619,7 +621,7 @@ export async function lookupCmdline(pid: number, deps?: ProcDeps): Promise<strin
 export async function lookupProcessStartTime(pid: number, deps?: ProcDeps): Promise<number | null> {
   const exec = deps?.execFile ?? execFileAsync
   try {
-    if (process.platform === 'win32') {
+    if ((deps?.platform ?? process.platform) === 'win32') {
       const script = [
         // 中文 Windows 上控制台默认 GBK，显式置 UTF-8（对齐 listProcesses）
         '$OutputEncoding=[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;',
@@ -717,7 +719,7 @@ export async function killPidTree(
     const canCheckIdentity = !budgetTooTight && remainingMs(deps) > MIN_STEP_TIMEOUT_MS
     let firstRoundPids: number[] = []
     if (canCheckIdentity) {
-      const checkPids = process.platform === 'win32' ? [pid] : allPids
+      const checkPids = (deps?.platform ?? process.platform) === 'win32' ? [pid] : allPids
       // 并发查询：每个查询的超时都带 1.5s 下限（clampTimeout），串行的话 N 个候选能把
       // deadline 拖穿 N 步 —— 退出路径会在主力 kill 发出前被 app.exit() 截断。并发把
       // 超额压回「至多一步」，与 deadline 注释承诺的不变量一致。
@@ -754,7 +756,7 @@ export async function killPidTree(
     // --- 第一轮：整树清除 ---
     // 这一步是主力手段，一定发出去（哪怕预算已见底，clampTimeout 也会给它一个下限）；
     // 但被核对挡掉的 pid（root 已被复用）一个都不碰。
-    if (process.platform === 'win32') {
+    if ((deps?.platform ?? process.platform) === 'win32') {
       if (firstRoundPids.includes(pid)) {
         try {
           // /T 树杀：root 还活着时这一步就能收掉大部分子孙
@@ -812,7 +814,7 @@ export async function killPidTree(
     }
 
     // --- 第二轮：补刀 ---
-    if (process.platform !== 'win32') {
+    if ((deps?.platform ?? process.platform) !== 'win32') {
       // POSIX 上面已 SIGKILL 过一轮，还活着的是真杀不掉（或 PID 复用）—— 别再盲补
       return { status: 'survivors', pids: survivors, targets }
     }
@@ -1213,7 +1215,7 @@ async function killOnePid(
   signal: (pid: number, sig: NodeJS.Signals) => void,
   deps?: ProcDeps
 ): Promise<void> {
-  if (process.platform === 'win32') {
+  if ((deps?.platform ?? process.platform) === 'win32') {
     try {
       await exec(systemTool('taskkill.exe'), ['/F', '/T', '/PID', String(pid)], {
         timeout: clampTimeout(5000, deps)

@@ -30,6 +30,10 @@
     "clean": "rimraf dist release",
     "lint": "eslint src --ext .ts,.tsx",
     "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "lint:changed": "node scripts/lint-changed.cjs",
+    "check:architecture": "node scripts/check-architecture-boundaries.cjs",
+    "test:node": "node --test scripts/shelf-memory-p0/history-benchmark.node-test.cjs scripts/shelf-memory-p0/history-fixtures.node-test.cjs",
+    "test:web-ssh": "npm --prefix examples/web-ssh test",
     "test": "vitest run",
     "test:watch": "vitest"
   },

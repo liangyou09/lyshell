@@ -160,8 +160,7 @@ function createLauncher(options: {
           }
           const config = parseHostBootstrapMessage(message)
           const pty = new MockPty()
-          ptys.push(pty)
-          const handle = await startHostServer({ config, ptyFactory: () => pty })
+          const handle = await startHostServer({ config, ptyFactory: () => { ptys.push(pty); return pty } })
           handles.push(handle)
           // 服务端已挂好 onData，此时输出才会进环形缓冲
           options.onPty?.(pty)
@@ -170,7 +169,11 @@ function createLauncher(options: {
               listener({ kind: 'ready', v: LOCAL_HOST_PROTOCOL_VERSION, id: handle.id, pid: 4321, pipe: handle.pipe })
             }
           }
-        })()
+        })().catch(error => {
+          // 模拟真实 child 的 error 事件，不能让假 launcher 的异步失败变成
+          // 未处理 rejection，再把 client 等不到 ready 误判成超时。
+          for (const listener of [...errorListeners]) listener(error instanceof Error ? error : new Error(String(error)))
+        })
       },
       onMessage: (listener) => {
         messageListeners.push(listener)
@@ -229,7 +232,8 @@ const cleanedDirs: string[] = []
 const cleanedHandles: LocalHostServerHandle[] = []
 
 function makeUserDataDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'lh-client-'))
+  // macOS 的系统 tmpdir 很长；Unix socket 夹具使用短目录，仍保持每例独占。
+  const dir = mkdtempSync(join(process.platform === 'win32' ? tmpdir() : '/tmp', 'lh-client-'))
   cleanedDirs.push(dir)
   return dir
 }
@@ -308,12 +312,31 @@ function track(launcher: FakeLauncher): void {
 // ── create ────────────────────────────────────────────────────────────────────
 
 describe('create', () => {
-  it('描述文件写入失败时释放附着，未保存的宿主按宽限期清理', async () => {
+  it('描述文件加密失败时释放已经附着的 PTY，宿主按宽限期清理', async () => {
+    const harness = setup({ tune: { graceMs: 40 }, storage: {
+      ...fakeStorage,
+      encryptString: () => { throw new Error('descriptor encryption fixture failure') }
+    } })
+    await expectError(LocalHostClient.create(harness.dir, spawnOptions()), 'secure-storage-unavailable')
+    track(harness.launcher)
+    expect(harness.launcher.ptys).toHaveLength(1)
+    await waitUntil(() => harness.pty().killed)
+  })
+  it('描述目录创建失败与 PTY 启动阶段分别收尾，假 launcher 观察启动异常', async () => {
     const harness = setup({ tune: { graceMs: 40 } })
     writeFileSync(join(harness.dir, 'terminal-hosts'), 'block directory creation')
     await expect(LocalHostClient.create(harness.dir, spawnOptions())).rejects.toThrow()
     track(harness.launcher)
-    await waitUntil(() => harness.pty().killed)
+    if (process.platform === 'win32') {
+      // named pipe 不依赖 profile 子目录，ready 之后写描述文件才失败。
+      expect(harness.launcher.ptys).toHaveLength(1)
+      await waitUntil(() => harness.pty().killed)
+    } else {
+      // Unix socket 的目录在 ptyFactory 之前创建；尚未产生 PTY。
+      expect(harness.launcher.handles).toHaveLength(0)
+      expect(harness.launcher.ptys).toHaveLength(0)
+      expect(harness.launcher.disconnects).toBeGreaterThan(0)
+    }
   })
   it('分离后状态属于未知，不能把旧 running 快照当成在线', async () => {
     const harness = setup()
@@ -628,6 +651,9 @@ describe('生命周期', () => {
     client.on('disconnect', () => {
       disconnected += 1
     })
+    // exit 与 disconnect 保持 FIFO；先消费 shutdown 产生的退出证据，
+    // 否则无 exit 订阅者的首事件会按设计挡住后面的 disconnect。
+    client.on('exit', () => undefined)
 
     await harness.launcher.handles[0]?.shutdown()
     await waitUntil(() => disconnected === 1)

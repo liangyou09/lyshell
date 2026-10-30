@@ -6,7 +6,7 @@
  * 且本测试要验证的是协议与生命周期，不是终端仿真。
  */
 
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { createConnection } from 'net'
 import type { Socket } from 'net'
 import { tmpdir } from 'os'
@@ -20,6 +20,7 @@ import {
   LOCAL_HOST_REQUIRED_CAPABILITIES,
   encodeFrame,
   hostPipePath,
+  hostDescriptorPath,
   newHostId,
   newHostToken,
   parseHostFrame,
@@ -225,6 +226,13 @@ class RawHostClient {
 
 const openSockets: Socket[] = []
 const openHosts: LocalHostServerHandle[] = []
+const profileDirs: string[] = []
+
+function makeProfileDir(): string {
+  const dir = mkdtempSync(join(process.platform === 'win32' ? tmpdir() : '/tmp', 'lh-host-'))
+  profileDirs.push(dir)
+  return dir
+}
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -265,7 +273,7 @@ async function openHost(options: OpenHostOptions = {}): Promise<{
   const config: HostBootstrapConfig = {
     id,
     token: newHostToken(),
-    pipe: hostPipePath(shortBase, id),
+    pipe: hostPipePath(options.userDataDir ?? shortBase, id),
     spawn,
     tuning: {
       ...DEFAULT_HOST_TUNING,
@@ -298,6 +306,7 @@ afterEach(async () => {
   }
   const hosts = openHosts.splice(0)
   for (const handle of hosts) await handle.shutdown()
+  for (const dir of profileDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
 // ── 鉴权 ──────────────────────────────────────────────────────────────────────
@@ -615,7 +624,7 @@ describe('存活策略', () => {
   })
 
   it('宿主收尾时只删自己的描述文件', async () => {
-    const userDataDir = mkdtempSync(join(tmpdir(), 'lh-host-'))
+    const userDataDir = makeProfileDir()
     const { handle, config, pty } = await openHost({
       tuning: { exitRetentionMs: 20, graceMs: 500 },
       userDataDir
@@ -638,7 +647,24 @@ describe('存活策略', () => {
 
     await handle.finished
     expect(readHostDescriptor(userDataDir, handle.id)).toBeNull()
-    rmSync(userDataDir, { recursive: true, force: true })
+  })
+
+  it('宿主收尾保留同路径中伪造为其他 hostId 的描述文件', async () => {
+    const userDataDir = makeProfileDir()
+    const { handle } = await openHost({ userDataDir })
+    const file = hostDescriptorPath(userDataDir, handle.id)
+    mkdirSync(join(userDataDir, 'terminal-hosts'), { recursive: true })
+    const forged = JSON.stringify({
+      version: HOST_DESCRIPTOR_VERSION,
+      id: newHostId(),
+      pipe: handle.pipe,
+      pid: handle.pid,
+      encryptedToken: Buffer.from('cipher').toString('base64')
+    })
+    writeFileSync(file, forged)
+    expect(() => readHostDescriptor(userDataDir, handle.id)).toThrow()
+    await handle.shutdown()
+    expect(readFileSync(file, 'utf8')).toBe(forged)
   })
 })
 

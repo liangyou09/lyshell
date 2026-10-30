@@ -16,6 +16,7 @@ export default defineConfig({
     // **/*.test.ts 收集规则）：里面是主仓库各历史提交的完整检出，会把同一份测试跑多遍，
     // 且检出的可能是旧版代码 —— 损坏/过期的副本会让根目录的绿测在这里假红。
     // 升级/打包验收的临时工作目录也可能包含完整源码，避免收集重复测试。
-    exclude: [...configDefaults.exclude, '.lyshell-worktrees/**', 'tmp/**']
+    // Web SSH 有独立锁文件和 CI job；根集合仍包含其他 examples 与 scripts。
+    exclude: [...configDefaults.exclude, '.lyshell-worktrees/**', 'tmp/**', 'examples/web-ssh/**']
   }
 })

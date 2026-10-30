@@ -3,7 +3,8 @@
     "target": "ES2022",
     "module": "CommonJS",
     "moduleResolution": "node",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "allowImportingTsExtensions": true,
     "types": ["node"],
     "strict": true,
     "noUnusedLocals": true,
@@ -14,5 +15,5 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true
   },
-  "include": ["server.ts", "server.test.ts", "src/main.ts", "src/standalone.ts"]
+  "include": ["server.ts", "server.test.ts", "src/main.ts", "src/standalone.ts", "web/*.ts"]
 }
