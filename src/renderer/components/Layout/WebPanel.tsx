@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 
 import cn from 'classnames'
 import { useTranslation } from 'react-i18next'
 import type { WebviewTag } from 'electron'
+import { webviewBrowserHost } from '../../browser/browser-host'
 import { usePaneStore, normalizeWebBarUrl } from '../../stores/pane-store'
 import { useUiStore } from '../../stores/ui-store'
 import { usePluginStore } from '../../stores/plugin-store'
@@ -11,7 +12,7 @@ import { TOPBAR_HEIGHT } from './topbar-metrics'
 import { WebTabFavicon } from './PaneTabBar'
 import {
   selectActiveWebTabId, stopActiveWebTab,
-  activeWebTabGoBack, activeWebTabGoForward, getWebview,
+  activeWebTabGoBack, activeWebTabGoForward, getBrowserHost,
   registerMiniWebview, unregisterMiniWebview
 } from './web-tab-controls'
 import { ScrollTie } from './ScrollFold'
@@ -500,7 +501,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
   // 整棵 React 树卸载,只剩深色 body(进程存活、日志干净)。
   useEffect(() => {
     if (activeWebTabId === null) return
-    const el = getWebview(activeWebTabId)
+    const el = getBrowserHost(activeWebTabId)
     if (!el) return
     try {
       setWebTabNav(activeWebTabId, { canGoBack: el.canGoBack(), canGoForward: el.canGoForward() })
@@ -650,7 +651,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
   useEffect(() => {
     const el = miniEl
     if (miniUrl === null || !el || !miniReady || !el.loadURL) return
-    if (el.getURL() !== miniUrl) settleWebview(() => el.loadURL(miniUrl))
+    if (webviewBrowserHost(el).getURL() !== miniUrl) settleWebview(() => webviewBrowserHost(el).navigate(miniUrl))
   }, [miniUrl, miniEl, miniReady])
 
   // 工具条地址跟随落点:输入未持焦点才回写(编辑中不冲掉打到一半的地址 ——
@@ -703,7 +704,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
       }
       miniLastUrlRef.current = url
       setMiniUrl(url)
-      setMiniNav({ canGoBack: miniEl.canGoBack(), canGoForward: miniEl.canGoForward() })
+      setMiniNav({ canGoBack: webviewBrowserHost(miniEl).canGoBack(), canGoForward: webviewBrowserHost(miniEl).canGoForward() })
     }
     const onStartLoading = (): void => { setMiniLoading(true); setMiniCovering(true); setMiniFailed(null) }
     const onTitle = (e: Event): void => {
@@ -759,8 +760,8 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
     // URL 只落 state 而画心还是空态,点击像静默无反馈;已挂载(保活)则只是重新展卷
     if (miniClosed) setMiniClosed(false)
     const el = miniEl
-    if (el && miniReady && el.getURL() === norm) {
-      settleWebview(() => el.reload())
+    if (el && miniReady && webviewBrowserHost(el).getURL() === norm) {
+      settleWebview(() => webviewBrowserHost(el).reload())
       return true
     }
     if (miniLastUrlRef.current !== norm) miniTitleRef.current = ''
@@ -1117,7 +1118,7 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
           e.preventDefault()
           e.stopPropagation()
           if (!miniReady || !miniUrl) return
-          settleWebview(() => action === 'reload-hard' ? miniEl?.reloadIgnoringCache() : miniEl?.reload())
+          settleWebview(() => miniEl && webviewBrowserHost(miniEl).reload(action === 'reload-hard'))
         }}
         className={cn(
           'scroll-dual scroll-dual-compact scroll-dual-web web-mini-browser -mx-1.5 flex-shrink-0 select-none',
@@ -1192,16 +1193,16 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
                     刷新仍由 F5 处理，guest 内按键由主进程直接刷新小窗。 */}
                 <div className="web-mini-toolbar">
                   <div className="web-mini-navigation">
-                    <NavButton title={t('webBar.miniBack')} disabled={!miniNav.canGoBack} onClick={() => settleWebview(() => miniEl?.goBack())}>
+                    <NavButton title={t('webBar.miniBack')} disabled={!miniNav.canGoBack} onClick={() => settleWebview(() => miniEl && webviewBrowserHost(miniEl).back())}>
                       <ChevronLeftIcon size={14} />
                     </NavButton>
                     {miniLoading ? <NavButton
                         title={t('webBar.miniStop')}
                         disabled={miniUrl === null || !miniReady}
-                        onClick={() => settleWebview(() => miniEl?.stop())}
+                        onClick={() => settleWebview(() => miniEl && webviewBrowserHost(miniEl).stop())}
                       >
                         <StopIcon size={14} />
-                      </NavButton> : <NavButton title={t('webBar.miniForward')} disabled={!miniNav.canGoForward} onClick={() => settleWebview(() => miniEl?.goForward())}>
+                      </NavButton> : <NavButton title={t('webBar.miniForward')} disabled={!miniNav.canGoForward} onClick={() => settleWebview(() => miniEl && webviewBrowserHost(miniEl).forward())}>
                         <ChevronRightIcon size={14} />
                       </NavButton>}
                   </div>
@@ -1261,10 +1262,10 @@ const WebPanel: React.FC<{ visible?: boolean; onOpenSettings?: () => void }> = (
                       )}
                       {miniFailed && (
                         <WebLoadError compact failure={miniFailed} getGuestId={() => miniEl?.getWebContentsId()} onLeave={() => {
-                          try { if (miniReady && miniEl?.canGoBack()) { miniEl.goBack(); return } } catch { /* guest 可能已销毁。 */ }
+                          try { if (miniReady && miniEl && webviewBrowserHost(miniEl).canGoBack()) { settleWebview(() => webviewBrowserHost(miniEl).back()); return } } catch { /* guest 可能已销毁。 */ }
                           handleMiniClosePage()
                         }} onRetry={() => {
-                          if (miniEl) settleWebview(() => miniEl.loadURL(miniFailed.url))
+                          if (miniEl) settleWebview(() => webviewBrowserHost(miniEl).navigate(miniFailed.url))
                         }} />
                       )}
                     </>

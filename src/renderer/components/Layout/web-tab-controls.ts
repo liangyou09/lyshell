@@ -12,6 +12,7 @@
  * window blur 三保险）保证「用户正交互的 webview = 活动 pane 的活动页签」，常态自洽。
  */
 import type { WebviewTag } from 'electron'
+import { webviewBrowserHost, releaseWebviewBrowserHost, type WebviewBrowserHost } from '../../browser/browser-host'
 import type { PaneLayout } from '@shared/types'
 import { usePaneStore, normalizeWebBarUrl, findPane } from '../../stores/pane-store'
 import { BROWSER_NEW_TAB_URL } from '@shared/browser-settings'
@@ -26,19 +27,29 @@ export function registerWebTabDevTools(id: string, toggle: () => void): () => vo
 }
 const miniWebviews = new Set<WebviewTag>()
 
-export function registerMiniWebview(el: WebviewTag): void { miniWebviews.add(el) }
-export function unregisterMiniWebview(el: WebviewTag): void { miniWebviews.delete(el) }
+export function registerMiniWebview(el: WebviewTag): void { miniWebviews.add(el); webviewBrowserHost(el) }
+export function unregisterMiniWebview(el: WebviewTag): void { miniWebviews.delete(el); releaseWebviewBrowserHost(el) }
 
 export function registerWebview(id: string, el: WebviewTag): void {
+  const previous = webviews.get(id)
+  if (previous && previous !== el) releaseWebviewBrowserHost(previous)
   webviews.set(id, el)
+  webviewBrowserHost(el)
 }
 
 export function unregisterWebview(id: string): void {
+  const page = webviews.get(id)
+  if (page) releaseWebviewBrowserHost(page)
   webviews.delete(id)
 }
 
 export function getWebview(id: string): WebviewTag | null {
   return webviews.get(id) ?? null
+}
+
+export function getBrowserHost(id: string): WebviewBrowserHost | null {
+  const page = webviews.get(id)
+  return page ? webviewBrowserHost(page) : null
 }
 
 export function webTabIdForContentsId(webContentsId: number): string | undefined {
@@ -78,9 +89,9 @@ export function activeWebTabId(): string | null {
   return selectActiveWebTabId(usePaneStore.getState())
 }
 
-function activeWebview(): WebviewTag | null {
+function activeBrowserHost(): WebviewBrowserHost | null {
   const id = activeWebTabId()
-  return id !== null ? webviews.get(id) ?? null : null
+  return id !== null ? getBrowserHost(id) : null
 }
 
 /**
@@ -96,29 +107,26 @@ export function navigateActiveWebTab(raw: string): boolean {
   if (id && payload?.kind === 'web' && payload.url === BROWSER_NEW_TAB_URL) {
     return usePaneStore.getState().openWebTab(url, undefined, { replaceStartTabId: id }).ok
   }
-  activeWebview()?.loadURL(url)
+  void activeBrowserHost()?.navigate(url).catch(() => undefined)
   return true
 }
 
 /** 刷新活动网页页签（F5；hard=true 忽略缓存强刷，对应 Shift+F5） */
 export function reloadActiveWebTab(hard: boolean): void {
-  const el = activeWebview()
-  if (!el) return
-  if (hard) el.reloadIgnoringCache()
-  else el.reload()
+  void activeBrowserHost()?.reload(hard).catch(() => undefined)
 }
 
 /** 停止活动网页页签的加载中导航 */
 export function stopActiveWebTab(): void {
-  activeWebview()?.stop()
+  void activeBrowserHost()?.stop().catch(() => undefined)
 }
 
 export function activeWebTabGoBack(): void {
-  activeWebview()?.goBack()
+  void activeBrowserHost()?.back().catch(() => undefined)
 }
 
 export function activeWebTabGoForward(): void {
-  activeWebview()?.goForward()
+  void activeBrowserHost()?.forward().catch(() => undefined)
 }
 
 /** F12 开关活动网页页签下方的 DevTools。 */

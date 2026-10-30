@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { WebviewTag } from 'electron'
+import { webviewBrowserHost, applyBrowserHostPresentation } from '../../browser/browser-host'
 import { usePaneStore } from '../../stores/pane-store'
 import { registerWebview, unregisterWebview, activeWebTabId, registerWebTabDevTools } from './web-tab-controls'
 import WebTabDevTools from './WebTabDevTools'
@@ -96,7 +97,7 @@ const createRequests = new Map<string, Promise<Grant>>()
 // 快速本地页可能在 React effect 安装前已发出 dom-ready；只补认已附着、
 // 不再加载的 HTTP 文档。about:blank/POST 引导页不能当作实际内容就绪。
 function hasLoadedWebDocument(page: WebviewTag): boolean {
-  try { return page.getWebContentsId() > 0 && /^https?:\/\//i.test(page.getURL()) && !page.isLoading() }
+  try { const host = webviewBrowserHost(page); return host.contentsId() > 0 && /^https?:\/\//i.test(host.getURL()) && !host.isLoading() }
   catch { return false }
 }
 /** 先取得 main 的一次性创建许可，再挂载 webview；StrictMode 复用同一在途许可。 */
@@ -235,7 +236,7 @@ const LiveWebTabOverlay: React.FC<WebTabOverlayProps & { permit?: string; partit
   const closeDevTools = useCallback(() => {
     setDevToolsOpen(false)
     setInspectPoint(undefined)
-    try { ref.current?.focus() } catch { /* guest 已销毁。 */ }
+    try { if (ref.current) webviewBrowserHost(ref.current).focus() } catch { /* guest 已销毁。 */ }
   }, [])
   useLayoutEffect(() => {
     const page = ref.current
@@ -365,7 +366,7 @@ const LiveWebTabOverlay: React.FC<WebTabOverlayProps & { permit?: string; partit
       if (e.type !== 'did-navigate-in-page') pageTitle = ''
       lastUrlRef.current = url
       if (activeWebTabId() === id || getShelfSurface('web', id)?.visible) {
-        setWebTabNav(id, { url, canGoBack: el.canGoBack(), canGoForward: el.canGoForward() })
+        setWebTabNav(id, { url, canGoBack: webviewBrowserHost(el).canGoBack(), canGoForward: webviewBrowserHost(el).canGoForward() })
       } else {
         setWebTabNav(id, { url })
       }
@@ -379,7 +380,7 @@ const LiveWebTabOverlay: React.FC<WebTabOverlayProps & { permit?: string; partit
       if (!postToken || postRequestedRef.current) return
       let guestId: number
       try {
-        if (el.getURL() !== 'about:blank') return
+        if (webviewBrowserHost(el).getURL() !== 'about:blank') return
         guestId = el.getWebContentsId()
       } catch { return }
       postRequestedRef.current = true
@@ -500,14 +501,14 @@ const LiveWebTabOverlay: React.FC<WebTabOverlayProps & { permit?: string; partit
         )}
         {loadState === 'failed' && loadError && (
           <WebLoadError failure={loadError} getGuestId={() => ref.current?.getWebContentsId()} onLeave={() => {
-            try { if (ref.current?.canGoBack()) { ref.current.goBack(); return } } catch { /* guest 可能已销毁。 */ }
+            try { const host = ref.current && webviewBrowserHost(ref.current); if (host?.canGoBack()) { void host.back().catch(() => undefined); return } } catch { /* guest 可能已销毁。 */ }
             usePaneStore.getState().closeOverlay(id)
           }} onRetry={() => {
             const el = ref.current
             if (!el) return
             navigationFailedRef.current = false
             // 按实际失败地址重试，避免 reload 回到先前成功的页面；不重放 POST 正文。
-            try { void el.loadURL(loadError.url).catch(() => { /* did-fail-load 呈现详情 */ }) } catch { return }
+            try { void webviewBrowserHost(el).navigate(loadError.url).catch(() => { /* did-fail-load 呈现详情 */ }) } catch { return }
           }} />
         )}
       </SearchableTab>
@@ -649,7 +650,7 @@ const WebTabLayer: React.FC = () => {
         const interactive = current.visible && current.interactive && !draggingRef.current
         const style = shelfSurfaceStyle({ ...current, interactive })
         writes.push(() => {
-          Object.assign(wrapper.style, style, { left: `${current.rect!.left}px`, top: `${current.rect!.top}px`, width: `${current.rect!.width}px`, height: `${current.rect!.height}px`, zIndex: '46', opacity: '1' })
+          applyBrowserHostPresentation(wrapper, { ...style, left: `${current.rect!.left}px`, top: `${current.rect!.top}px`, width: `${current.rect!.width}px`, height: `${current.rect!.height}px`, zIndex: '46', opacity: '1' })
           wrapper.toggleAttribute('inert', !interactive)
           wrapper.toggleAttribute('data-shelf-native', current.visible)
         })
@@ -658,13 +659,10 @@ const WebTabLayer: React.FC = () => {
       const previewing = isShelfWebPreviewing(entry.id)
       writes.push(() => {
         wrapper.removeAttribute('data-shelf-native')
-        Object.assign(wrapper.style, { position: 'absolute', inset: 'auto', zIndex: '15', clipPath: '', visibility: main || previewing ? 'visible' : 'hidden', opacity: previewing && !main ? '0' : '1', pointerEvents: main ? 'auto' : 'none' })
+        applyBrowserHostPresentation(wrapper, { position: 'absolute', inset: 'auto', zIndex: '15', clipPath: '', visibility: main || previewing ? 'visible' : 'hidden', opacity: previewing && !main ? '0' : '1', pointerEvents: main ? 'auto' : 'none',
+          ...(positioned && rect ? { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` } : {})
+        })
         wrapper.toggleAttribute('inert', !main)
-        if (!positioned || !rect) return
-        wrapper.style.left = `${rect.left}px`
-        wrapper.style.top = `${rect.top}px`
-        wrapper.style.width = `${rect.width}px`
-        wrapper.style.height = `${rect.height}px`
       })
     }
     writes.forEach(write => write())
