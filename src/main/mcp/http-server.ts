@@ -8,17 +8,22 @@ import * as http from 'http'
 import * as net from 'net'
 import * as fs from 'fs'
 import * as path from 'path'
-import { exec, execSync } from 'child_process'
+import { execSync } from 'child_process'
 import { app } from 'electron'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 
-import { sessionManager, type Session } from '../terminal/session-manager'
-import { broadcastSessionsChanged, broadcastMcpOpenConnectionDialog } from '../ipc/handlers'
+import { sessionManager } from '../terminal/session-manager'
+import { broadcastSessionsChanged, broadcastMcpOpenConnectionDialog } from '../events/application-notifications'
+import { buildMcpAddCommand } from './client-config'
+export { buildMcpAddCommand, getMcpAddCommandForIpc } from './client-config'
+export type { McpAddCommand } from './client-config'
+import { getMcpSecuritySettings, isSessionAllowedForMcp, resolveRuntimeSessionId, pickBestRuntimeSession, STATUS_RANK } from './session-policy'
+export { isSessionAllowedForMcp } from './session-policy'
 import { processInputEscapeSequences, appendAutoNewline } from '@shared/escape-sequences'
 import { fileManager, runUploadWorkerAndWait, runDownloadWorkerAndWait, assertSafeLocalPath } from '../file'
 import { downloadHistory } from '../storage'
-import { preferencesRepository, quickCommandsRepository, sessionRepository } from '../storage/repository'
+import { quickCommandsRepository, sessionRepository } from '../storage/repository'
 import { agentRepository } from '../storage/agent-repository'
 import { mcpAuditRepository } from '../storage/mcp-audit-repository'
 import { ConnectionType, ConnectionStatus, SessionConfig } from '@shared/types'
@@ -31,15 +36,17 @@ import { harnessWorkOwner, runHarnessWork } from '../dsh/work'
 import { captureTerminalScreenshot } from './terminal-screenshot'
 import { streamTerminal, closeTerminalStreams } from './terminal-stream'
 import { CommandStreamWriter } from './command-stream'
-import { executeLocalCommandStream } from './local-command-stream'
+import { CommandService, createLocalCommandExecution, type CommandTargetSpec, type CommandBatchExecution, type CommandBatchResult, type CommandTargetOutcome } from '../commands'
 import * as mcpAuth from './auth'
 import { runWithRequestContext } from '../diagnostics/request-context'
-import { childEnvironment } from '../env/child-environment'
 import { operationCapabilities, capabilityEnabled } from './operation-policy'
 import { isLocalApiHost, RequestBudget, isBoundedJson } from './local-request'
 import { readTerminalControlRequest } from '@shared/terminal-control-request'
 import { isControlHandle, type ControlHandle, type ControllerIdentity } from '@shared/terminal-control'
 import { OperationError } from '@shared/operation'
+import { businessGate } from '../lifecycle/app-lifecycle'
+import { pluginHostManager } from '../plugin/host-mgr'
+import { allowsShutdownRelease } from './shutdown-request-policy'
 import { recordDiagnosticEvent } from '../diagnostics/events'
 import { setMcpHttpPort } from './http-port'
 import type { TokenBinding, TokenKind } from './auth'
@@ -61,9 +68,11 @@ import { t } from '../i18n'
 import { requestMcpConfirmation } from './confirmation-window'
 import type {
   ApiResponse,
+  WaitForPromptRequest,
+  TailUntilRequest,
+  RunOnSessionsRequest,
   SessionInfo,
   ExecuteRequest,
-  ExecuteResponse,
   ReadFileRequest,
   ReadFileResponse,
   DownloadFileRequest,
@@ -91,6 +100,13 @@ import type {
 
 let server: http.Server | null = null
 const requestBudget = new RequestBudget()
+const commandService = new CommandService()
+
+/** 退出协调器发起一次关闭；资源未确认时不能把步骤记为成功。 */
+export async function stopCommandExecutions(): Promise<void> {
+  const result = await commandService.shutdown('shutdown')
+  if (result.state !== 'closed' || result.unconfirmed > 0) throw new Error('Command resource shutdown was not confirmed')
+}
 // 请求断开不会终止底层命令；执行名额保持到 handler 实际结束。
 const executionBudget = new RequestBudget(16, 4)
 const PORT_FILE_NAME = 'mcp-server.json'
@@ -100,23 +116,6 @@ const MAX_TEXT_LENGTH = 1024 * 1024
 // 仅在 main 内保存请求凭据的存活检查，确认页不能提交或替换凭据。
 const confirmationCredentials = new WeakMap<TokenBinding, () => boolean>()
 const bindingCredentialIds = new WeakMap<TokenBinding, string>()
-
-interface McpSecuritySettings {
-  enabled?: boolean
-  allowRead?: boolean
-  allowInteractiveInput?: boolean
-  allowSshExecute?: boolean
-  allowLocalExecute?: boolean
-  allowFileWrite?: boolean
-  allowSessionControl?: boolean
-  allowSessionMetadataWrite?: boolean
-  requireConfirmation?: boolean
-  allowedSessionIds?: string[]
-  deniedSessionIds?: string[]
-  allowExternalMcpClients?: boolean
-  confirmDestructiveCommands?: boolean
-  confirmFirstNotesWrite?: boolean
-}
 
 interface McpAuditEvent {
   operation: string
@@ -132,26 +131,6 @@ interface McpAuditEvent {
   tokenSource?: TokenKind
   /** 当 tokenSource === 'session' 时，签发该 token 的 PTY 会话 ID */
   originSessionId?: string
-}
-
-const DEFAULT_MCP_SECURITY: Required<McpSecuritySettings> = {
-  enabled: true,
-  allowRead: true,
-  allowInteractiveInput: false,
-  allowSshExecute: false,
-  allowLocalExecute: false,
-  allowFileWrite: false,
-  allowSessionControl: false,
-  allowSessionMetadataWrite: false,
-  requireConfirmation: true,
-  allowedSessionIds: [],
-  deniedSessionIds: [],
-  // 默认关闭外部接入：只对 LyShell 自身孵化的本地 PTY（per-session token）开放
-  allowExternalMcpClients: false,
-  // 默认开启破坏性命令确认：对 session/global token 一视同仁的内容级防御层
-  confirmDestructiveCommands: true,
-  // 默认开启首次写入会话备注确认（C6）：session token 写元数据的唯一人工闸门
-  confirmFirstNotesWrite: true
 }
 
 /**
@@ -254,20 +233,6 @@ function getPortFilePath(): string {
 }
 
 /**
- * 获取 MCP Server 脚本的绝对路径。
- * dev 用 __dirname(dist/main);打包用 resources/app.asar/dist/main/(asar 内)。
- *
- * 注:打包后 app 在 resources/app.asar(无 app/ 目录),曾用 'app' 致 ENOENT -- 打包版 MCP server
- * 静默起不来。改 'app.asar' 修复(dist:win + asar 探针实测 ELECTRON_RUN_AS_NODE 可读 asar 内脚本)。
- */
-function getMcpServerScriptPath(): string {
-  if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'app.asar', 'dist', 'main', 'mcpServer.js')
-  }
-  return path.join(__dirname, 'mcpServer.js')
-}
-
-/**
  * Windows 下显式收紧端口文件 ACL 到 owner-only（B3）。
  *
  * 威胁模型澄清：文件 ACL 无法阻止同用户其它进程读取——同用户进程可 take ownership，
@@ -297,51 +262,6 @@ function hardenPortFilePermissionsWindows(filePath: string): void {
     log.warn(`[MCP] Failed to harden port file ACL on Windows: ${(err as Error).message}`)
   }
 }
-
-
-/**
- * 解析 Node.js 可执行文件路径
- * Electron 的 process.execPath 指向 Electron 二进制，不能直接启动 MCP Server 子进程
- * 需要系统安装的 Node.js
- */
-function resolveNodePath(): string {
-  // 优先查找系统 Node.js（Electron 的 process.execPath 指向 Electron 二进制，
-  // 不能用来启动 MCP Server 子进程）
-  try {
-    const result = execSync('where node', { encoding: 'utf-8', timeout: 5000 }).trim()
-    const candidates = result.split(/\r?\n/).map(p => p.trim()).filter(Boolean)
-    if (candidates.length > 0) return candidates[0]
-  } catch {
-    // where 命令失败，尝试常见路径
-  }
-
-  // Windows 常见路径
-  if (process.platform === 'win32') {
-    const commonPaths = [
-      path.join(process.env.ProgramFiles || 'C:\\Program Files', 'nodejs', 'node.exe'),
-      path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'nodejs', 'node.exe'),
-      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'nodejs', 'node.exe'),
-    ]
-    for (const p of commonPaths) {
-      if (fs.existsSync(p)) return p
-    }
-  }
-
-  // macOS / Linux
-  const unixPaths = ['/usr/local/bin/node', '/usr/bin/node', '/opt/homebrew/bin/node']
-  for (const p of unixPaths) {
-    if (fs.existsSync(p)) return p
-  }
-
-  // 找不到系统 Node.js：Electron 的 process.execPath 指向 Electron 二进制，
-  // 无法用来启动 MCP Server 子进程。直接报错并提示安装 Node.js，
-  // 而非静默写入一个无法工作的配置。
-  throw new Error(
-    '[MCP] System Node.js not found. The MCP Server requires a standalone Node.js ' +
-    'installation to run (Electron\'s bundled binary cannot spawn it). ' +
-    'Please install Node.js from https://nodejs.org/ and restart LyShell.'
-  )
-}
 /**
  * 输出通用 MCP `mcpServers` 配置，供用户自行注册 LyShell MCP Server
  * 不再自动改写用户外部配置文件（如 ~/.claude/mcp.json），避免崩溃残留与未授权改写。
@@ -360,93 +280,6 @@ function logMcpAddCommand(externalAccess: boolean): void {
     log.info('[MCP] External access is OFF (default). Run the MCP client inside a LyShell-spawned local terminal,')
     log.info('[MCP]   or enable security.mcp.allowExternalMcpClients in preferences to allow external connections.')
   }
-}
-
-export interface McpAddCommand {
-  /** 主配置：通用 mcpServers JSON，用 LyShell 自带 Electron 二进制 + ELECTRON_RUN_AS_NODE=1，无需系统 Node */
-  config: string
-  /** 备选配置：通用 mcpServers JSON，用系统 Node.js（若检测到），主配置失效时回退 */
-  systemNodeConfig?: string
-  /** Claude Code 专用：claude mcp add 命令（主配置，自带 Electron 二进制） */
-  claudeCommand: string
-  /** Codex CLI 专用：config.toml 片段（[mcp_servers.lyshell]） */
-  codexConfig: string
-  /** 当前是否允许外部 MCP 客户端接入 */
-  externalAccess: boolean
-}
-
-/** TOML 基本字符串转义：反斜杠 → \\，双引号 → \"（Windows 路径必须双写反斜杠，否则 TOML 解析报错） */
-function tomlEscape(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-}
-
-/**
- * 构造 MCP 注册信息（B6）：通用 `mcpServers` JSON + Claude Code 命令 + Codex config.toml 片段。
- *
- * 主配置用 process.execPath + ELECTRON_RUN_AS_NODE=1：LyShell 自带的 Electron 二进制
- * 在该 env 下作为纯 Node.js 运行，直接跑打包好的 mcpServer.js，无需用户另装系统 Node.js。
- * （历史注释误以为 Electron 二进制不能跑 MCP Server——ELECTRON_RUN_AS_NODE 正是为此。）
- *
- * 备选配置仍用系统 Node.js（若能检测到），供主配置在异常环境（如 env 被剥离）下回退。
- * 通用 JSON 任何 MCP 客户端（Claude Code / Cursor 等）通用；Claude/Codex 另给专属写法。
- */
-export function buildMcpAddCommand(externalAccess: boolean): McpAddCommand {
-  const scriptPath = getMcpServerScriptPath()
-  const userDataDir = app.getPath('userData')
-  const execPath = process.execPath
-
-  const config = JSON.stringify({
-    mcpServers: {
-      lyshell: {
-        command: execPath,
-        args: [scriptPath],
-        env: {
-          LYSHELL_USER_DATA: userDataDir,
-          ELECTRON_RUN_AS_NODE: '1',
-        },
-      },
-    },
-  }, null, 2)
-
-  let systemNodeConfig: string | undefined
-  try {
-    const nodePath = resolveNodePath()
-    systemNodeConfig = JSON.stringify({
-      mcpServers: {
-        lyshell: {
-          command: nodePath,
-          args: [scriptPath],
-          env: {
-            LYSHELL_USER_DATA: userDataDir,
-          },
-        },
-      },
-    }, null, 2)
-  } catch {
-    // 系统未装 Node.js —— 主配置不依赖它，忽略
-  }
-
-  // Claude Code 专用：claude mcp add 命令（主配置）
-  const claudeCommand =
-    `claude mcp add lyshell -e LYSHELL_USER_DATA="${userDataDir}" -e ELECTRON_RUN_AS_NODE=1 -- "${execPath}" "${scriptPath}"`
-
-  // Codex 走 ~/.codex/config.toml 的 [mcp_servers.*]（key 是下划线 mcp_servers，非 mcpServers）
-  const codexConfig = [
-    '[mcp_servers.lyshell]',
-    `command = "${tomlEscape(execPath)}"`,
-    `args = ["${tomlEscape(scriptPath)}"]`,
-    `env = { LYSHELL_USER_DATA = "${tomlEscape(userDataDir)}", ELECTRON_RUN_AS_NODE = "1" }`,
-  ].join('\n')
-
-  return { config, systemNodeConfig, claudeCommand, codexConfig, externalAccess }
-}
-
-/**
- * IPC 入口：读取当前外部接入开关并构造注册命令，供设置页"复制注册命令"按钮使用。
- */
-export function getMcpAddCommandForIpc(): McpAddCommand {
-  const externalAccess = getMcpSecuritySettings().allowExternalMcpClients === true
-  return buildMcpAddCommand(externalAccess)
 }
 
 // ========== HTTP 请求处理 ==========
@@ -506,6 +339,14 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   res.once('finish', () => recordDiagnosticEvent({ at: Date.now(), requestId, operation,
     source: binding?.kind === 'plugin' ? 'plugin' : 'http', outcome: res.statusCode < 400 ? 'completed' : 'refused',
     durationMs: Date.now() - receivedAt, status: res.statusCode }))
+
+  // 退出准备阶段仅保留协调器正在停止的 host 的释放操作，正文不能授予清理权限。
+  const shutdownRelease = allowsShutdownRelease(businessGate.phase, req.method, url.pathname, binding,
+    pluginId => pluginHostManager.isDeactivatingPlugin(pluginId))
+  if (url.pathname !== '/api/health' && !businessGate.accepts() && !shutdownRelease) {
+    sendJson(res, 503, { success: false, error: 'Application is shutting down', code: 'FORBIDDEN', retryDisposition: 'never' })
+    return
+  }
 
   // 路由分发
   runWithRequestContext({ requestId, principalId: bindingCredentialIds.get(binding!) ?? 'anonymous',
@@ -606,6 +447,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       if (!releaseExecution) return sendJson(res, 429, { success: false, error: 'Active operation limit reached' })
       readBody(req).then(body => {
         if (req.aborted || res.destroyed) return
+        if (!businessGate.accepts()) return sendJson(res, 503, { success: false, error: 'Application is shutting down', code: 'FORBIDDEN', retryDisposition: 'never' })
         // 读请求体期间插件可能已禁用或宿主已重启，旧凭据不能继续分配资源。
         if (!mcpAuth.resolveToken(req.headers['x-lyshell-token'])) {
           sendJson(res, 401, { success: false, error: 'Unauthorized' })
@@ -915,47 +757,6 @@ function buildSessionInfo(config: SessionConfig, terminalOpenIds: Set<string>): 
 }
 
 /**
- * 把 saved session ID 解析为当前正在运行的 runtime session ID。
- *
- * 前端打开 saved session 时会清空 config.id 并生成新的 runtime UUID，
- * 因此直接用 saved id 调用工具会找不到 session。此函数通过 originSavedSessionId
- * 反查对应的 runtime 会话；如果 sessionId 本身就是 live id 或没有关联 runtime，则原样返回。
- */
-function resolveRuntimeSessionId(sessionId: string): string {
-  // 本身是 live session，直接返回
-  if (sessionManager.getSession(sessionId)) {
-    return sessionId
-  }
-
-  // 反查 originSavedSessionId 匹配的 runtime 会话；无则原样返回
-  const best = pickBestRuntimeSession(sessionId)
-  return best ? best.id : sessionId
-}
-
-const STATUS_RANK: Record<string, number> = {
-  [ConnectionStatus.CONNECTED]: 5,
-  [ConnectionStatus.CONNECTING]: 4,
-  [ConnectionStatus.RECONNECTING]: 3,
-  [ConnectionStatus.ERROR]: 2,
-  [ConnectionStatus.DISCONNECTED]: 1
-}
-
-/**
- * 按 saved session ID 反查最优 runtime 会话（通过 originSavedSessionId）。
- * 优先 connected，其次按最近活跃时间倒序。供 buildSessionInfo 与 resolveRuntimeSessionId 复用。
- */
-function pickBestRuntimeSession(savedId: string): Session | undefined {
-  const candidates = sessionManager.getAllSessions().filter(s => s.config.originSavedSessionId === savedId)
-  if (candidates.length === 0) return undefined
-  return candidates.sort((a, b) => {
-    const rankA = STATUS_RANK[a.status] ?? 0
-    const rankB = STATUS_RANK[b.status] ?? 0
-    if (rankB !== rankA) return rankB - rankA
-    return b.lastActiveAt.getTime() - a.lastActiveAt.getTime()
-  })[0]
-}
-
-/**
  * 聚合 saved 会话与其所有 runtime 实例（saved id 直查 + origin 反查的克隆）中的最大
  * 连接计数 —— pickBestRuntimeSession 按状态/活跃度挑「一个」实例，实例断开后排序
  * 翻转会让报出的计数倒退（克隆 A=6、B=7，B 掉线后排名回到 A，list_sessions 从 7
@@ -1096,6 +897,7 @@ function commandDispatchGuard(sessionId: string, binding: TokenBinding): () => v
   const type = session?.config.type
   const capability = type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
   return () => {
+    if (!businessGate.accepts()) throw new OperationError('FORBIDDEN', 'Application is shutting down')
     if (!isMcpConfirmationAuthorized(binding, capability, type) || !isSessionAllowedForMcp(sessionId)) {
       throw new OperationError('FORBIDDEN', 'Command authorization was revoked before dispatch')
     }
@@ -1149,33 +951,14 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
       return
     }
 
-    let result: ExecuteResponse
-    assertCurrent()
-
-    if (session.config.type === ConnectionType.SSH) {
-      // SSH 会话：使用 fileManager 的 connector（独立 SSH exec 通道）
-      const connector = await fileManager.getCommandConnector(resolvedSessionId)
-      assertCurrent()
-      if (!connector.execRaw) {
-        sendJson(res, 500, { success: false, error: 'Connector does not support command execution' })
-        return
-      }
-      // 同流式入口复用真实 exit 事件；不能把 SSH 命令非零退出伪报成 0。
-      result = await connector.execStream(command, safeTimeout, () => {}, undefined, assertCurrent)
-    } else if (session.config.type === ConnectionType.LOCAL) {
-      // 本地会话：使用 child_process.exec
-      result = await executeLocalCommand(command, session.config.local?.cwd, session.config.local?.env, safeTimeout)
-    } else {
-      sendJson(res, 400, { success: false, error: `Command execution not supported for session type: ${session.config.type}` })
-      return
-    }
-
-    sendJson(res, 200, { success: true, data: result })
-  } catch (err: any) {
-    log.error('[MCP] Execute command error:', err)
-    sendJson(res, err instanceof OperationError ? err.code === 'FORBIDDEN' ? 403 : 409 : 500,
-      { success: false, error: err.message, ...(err instanceof OperationError ? { data: { code: err.code, retryDisposition: err.retryDisposition } } : {}) })
-  }
+    const execution = commandService.runBatch({ callerKey: commandCaller(binding), timeoutMs: safeTimeout,
+      totalTimeoutMs: safeTimeout + 5000, targets: [scheduledCommandTarget(resolvedSessionId, session, command, assertCurrent)] })
+    const batch = await execution.results
+    retainCommandResponse(res, execution, batch)
+    const outcome = batch.results[0]
+    if (outcome.state === 'completed') sendJson(res, 200, { success: true, data: outcome })
+    else sendCommandFailure(res, outcome)
+  } catch (error) { sendOperationError(res, error, 'Command execution failed; reconcile before retrying') }
 }
 
 /**
@@ -1230,77 +1013,31 @@ async function handleExecuteCommandStream(data: ExecuteRequest, res: http.Server
     }
 
     assertCurrent()
-    // 鉴权通过，切换到 SSE
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no'
-    })
-
-    const abortController = new AbortController()
-    const writer = new CommandStreamWriter(res, abortController)
-
+    const streamAbort = new AbortController()
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive', 'X-Accel-Buffering': 'no' })
+    const writer = new CommandStreamWriter(res, streamAbort)
+    const execution = commandService.runBatch({ callerKey: commandCaller(binding), timeoutMs: safeTimeout,
+      totalTimeoutMs: safeTimeout + 5000, targets: [scheduledCommandTarget(resolvedSessionId, session, command, assertCurrent,
+        chunk => { if (!res.destroyed && !res.writableEnded) writer.chunk(chunk) })] })
+    // 慢消费者是业务输出限制；普通断开保持已接受命令，直到真实关闭。
+    const stopSlowConsumer = () => { if (!res.destroyed) execution.cancel('output-limit') }
+    streamAbort.signal.addEventListener('abort', stopSlowConsumer, { once: true })
     try {
-      let result: { output: string; exitCode: number }
-      if (session.config.type === ConnectionType.SSH) {
-        const connector = await fileManager.getCommandConnector(resolvedSessionId)
-        assertCurrent()
-        if (!('execStream' in connector)) {
-          await writer.finish({ type: 'error', error: 'Connector does not support streaming execution' })
-          res.end()
-          return
-        }
-        result = await connector.execStream(
-          command,
-          safeTimeout,
-          (chunk) => writer.chunk(chunk),
-          abortController.signal,
-          assertCurrent
-        )
-      } else if (session.config.type === ConnectionType.LOCAL) {
-        result = await executeLocalCommandStream(
-          command,
-          session.config.local?.cwd,
-          session.config.local?.env,
-          safeTimeout,
-          (chunk) => writer.chunk(chunk),
-          abortController.signal
-        )
-      } else {
-        await writer.finish({ type: 'error', error: `Command execution not supported for session type: ${session.config.type}` })
-        res.end()
-        return
+      const batch = await execution.results
+      retainCommandResponse(res, execution, batch)
+      const outcome = batch.results[0]
+      if (!res.destroyed && !res.writableEnded) {
+        await writer.finish(outcome.state === 'completed' ? { type: 'done', ...outcome } : { type: 'error', ...outcome })
       }
-      await writer.finish({ type: 'done', exitCode: result.exitCode, output: result.output })
-    } catch (err: any) {
-      if (!res.destroyed) await writer.finish({ type: 'error', error: err.message || 'Execution failed' })
-    }
-    if (!res.writableEnded) res.end()
-  } catch (err: any) {
-    log.error('[MCP] Execute stream command error:', err)
-    if (!res.headersSent) {
-      sendJson(res, 500, { success: false, error: err.message })
-    } else if (!res.writableEnded) {
-      res.write(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`)
-      res.end()
-    }
+    } catch (error) {
+      if (!res.destroyed && !res.writableEnded) await writer.finish({ type: 'error', error: 'Command result could not be delivered',
+        code: error instanceof OperationError ? error.code : 'OUTCOME_UNKNOWN', retryDisposition: 'reconcile-first' }).catch(() => {})
+    } finally { streamAbort.signal.removeEventListener('abort', stopSlowConsumer) }
+  } catch (error) {
+    if (!res.headersSent) sendOperationError(res, error, 'Command execution failed; reconcile before retrying')
+    else if (!res.writableEnded) res.end()
   }
-}
-
-function inputIdentity(binding: TokenBinding): ControllerIdentity {
-  const id = bindingCredentialIds.get(binding)
-  if (!id) throw new OperationError('UNAUTHENTICATED', 'Terminal control requires a current credential')
-  return { principalId: `automation:${id}`, credentialId: id, source: 'automation' }
-}
-
-function authorizedInputHandle(raw: unknown, sessionId: string, binding: TokenBinding): ControlHandle {
-  const identity = inputIdentity(binding)
-  if (!isControlHandle(raw) || raw.sessionId !== sessionId || raw.principalId !== identity.principalId
-    || raw.credentialId !== identity.credentialId || raw.source !== identity.source) {
-    throw new OperationError('CONTROL_CONFLICT', 'Use terminal_control to obtain a confirmed control handle before sending input')
-  }
-  return raw
 }
 
 /** 自动化交互操作需用户确认当前上下文，再交出主界面的控制权。 */
@@ -1531,6 +1268,7 @@ async function handleReadOutput(data: ReadOutputRequest, res: http.ServerRespons
  * POST /api/send-and-wait — 发送输入并等待响应
  */
 async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
+  let cleanup = () => {}
   try {
     const { sessionId, text } = data
     if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 128 || typeof text !== 'string') {
@@ -1550,6 +1288,9 @@ async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerRespo
       return
     }
 
+    const targetConnector = targetSession.connector
+    const targetGeneration = targetSession.connectionInstanceId
+    const targetType = targetSession.config.type
     // 与 sessionManager.sendAndWait 内的转义和自动回车规则保持一致。
     const enter = process.platform === 'win32' && targetSession.config.type === ConnectionType.LOCAL ? '\r' : '\n'
     const confirmationText = appendAutoNewline(processInputEscapeSequences(text), data.autoNewline !== false, enter)
@@ -1566,12 +1307,18 @@ async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerRespo
     }
 
     const session = sessionManager.getSession(resolvedSessionId)
+    if (session !== targetSession || session.connector !== targetConnector
+      || session.connectionInstanceId !== targetGeneration || session.config.type !== targetType) {
+      throw new OperationError('STALE_GENERATION', 'Terminal changed before sending input')
+    }
     if (!session || session.status !== ConnectionStatus.CONNECTED) {
       sendJson(res, 400, { success: false, error: `Session not connected (status: ${session?.status ?? 'unknown'})` })
       return
     }
 
     const control = authorizedInputHandle(data.control, resolvedSessionId, binding)
+    const observer = observationAbort(res)
+    cleanup = observer.cleanup
     {
       const result: SendAndWaitResult = await sessionManager.sendAndWait(resolvedSessionId, {
         text,
@@ -1581,10 +1328,13 @@ async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerRespo
         // 注意：waitForPattern 是正则，不能过 summarizeText——后者会截断追加 '...'（被 RegExp 当成三个 .）
         // 并把 CR/LF/Tab 换成空格，悄悄改变正则语义。原样透传。
         waitForPattern: data.waitForPattern,
+        waitForPatternMode: data.waitForPatternMode,
+        callerKey: bindingCredentialIds.get(binding) ?? 'anonymous',
+        signal: observer.signal,
         autoNewline: data.autoNewline !== false,
         captureExitCode: data.captureExitCode === true,
         control,
-        authorizeInput: () => isMcpConfirmationAuthorized(binding, 'interactiveWrite', session.config.type) && isSessionAllowedForMcp(resolvedSessionId)
+        authorizeInput: () => isMcpConfirmationAuthorized(binding, 'interactiveWrite', targetType) && isSessionAllowedForMcp(resolvedSessionId)
       })
 
       log.info(`[MCP] Send-and-wait to session ${resolvedSessionId} (origin ${sessionId}): settled=${result.settled} elapsed=${result.elapsedMs}ms`)
@@ -1592,8 +1342,8 @@ async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerRespo
     }
   } catch (err: any) {
     log.error('[MCP] Send-and-wait error:', err)
-    sendJson(res, err instanceof OperationError ? 409 : 500, { success: false, error: err.message, ...(err instanceof OperationError ? { data: { code: err.code, retryDisposition: err.retryDisposition } } : {}) })
-  }
+    sendOperationError(res, err, 'Terminal observation failed; reconcile before sending more input')
+  } finally { cleanup() }
 }
 
 /**
@@ -2661,14 +2411,6 @@ async function handleUploadFile(data: UploadFileRequest, res: http.ServerRespons
   }
 }
 
-// ========== 工具函数 ==========
-
-function getMcpSecuritySettings(): Required<McpSecuritySettings> {
-  const security = preferencesRepository.get('security') as { mcp?: McpSecuritySettings } | undefined
-  const legacy = preferencesRepository.get('mcpSecurity') as McpSecuritySettings | undefined
-  return { ...DEFAULT_MCP_SECURITY, ...(security?.mcp || legacy || {}) }
-}
-
 function getSessionSummary(sessionId?: string): Pick<McpAuditEvent, 'sessionId' | 'sessionName' | 'sessionType'> {
   if (!sessionId) return {}
   const resolvedId = resolveRuntimeSessionId(sessionId)
@@ -2708,24 +2450,6 @@ function auditMcpOperation(event: McpAuditEvent): void {
 function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
   return Math.max(min, Math.min(max, Math.trunc(value)))
-}
-
-/**
- * 会话允许/拒绝名单校验（HTTP server 与插件视图动作共用，docs/plugin-ui-views-plan.md §四）：
- * 「MCP 总开关关闭 / 命中黑名单 / 白名单非空且未命中」任一即拒。同时检查原始 saved id
- * 与解析后的 runtime id（用户配置黑白名单时可能使用保存项 ID）。
- */
-export function isSessionAllowedForMcp(sessionId: string): boolean {
-  const settings = getMcpSecuritySettings()
-  if (!settings.enabled) return false
-  const resolvedSessionId = sessionId ? resolveRuntimeSessionId(sessionId) : undefined
-  const isDenied = (sid?: string) => sid !== undefined && settings.deniedSessionIds.includes(sid)
-  if (isDenied(sessionId) || isDenied(resolvedSessionId)) return false
-  if (settings.allowedSessionIds.length > 0) {
-    const isAllowed = (sid?: string) => sid !== undefined && settings.allowedSessionIds.includes(sid)
-    if (!isAllowed(sessionId) && !isAllowed(resolvedSessionId)) return false
-  }
-  return true
 }
 
 /** 原生 Harness 与 Pet 插件身份分离；每次请求及启动后重新核对实际 token。 */
@@ -3086,78 +2810,31 @@ function redactSecretEnv(env: Record<string, string>): Record<string, string> {
 /**
  * POST /api/wait-for-prompt — 等待某模式在终端输出中出现（不发送任何输入）
  */
-async function handleWaitForPrompt(
-  data: { sessionId: string; pattern?: string; timeoutMs?: number; idleMs?: number },
-  res: http.ServerResponse,
-  binding: TokenBinding
-): Promise<void> {
+async function handleWaitForPrompt(data: WaitForPromptRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
+  let cleanup = () => {}
   try {
-    const { sessionId, pattern } = data
-    if (!sessionId) {
-      sendJson(res, 400, { success: false, error: 'sessionId is required' })
-      return
-    }
-    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
-    // pattern 可选：缺省匹配常见 shell 提示符（$ / # / > / % 之一结尾，允许尾随空白）
-    const patternStr = pattern && pattern.trim() ? pattern : '[$#>%]\\s*$'
-
-    const session = sessionManager.getSession(resolvedSessionId)
-    if (!session) {
-      sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
-      return
-    }
-    if (session.status !== ConnectionStatus.CONNECTED) {
-      sendJson(res, 400, { success: false, error: `Session not connected (status: ${session.status})` })
-      return
-    }
-
-    const auth = await authorizeMcpOperation('wait_for_prompt', 'read', resolvedSessionId, summarizeText(patternStr, 200), binding)
-    if (!auth.allowed) {
-      sendJson(res, 403, { success: false, error: auth.reason })
-      return
-    }
-
-    // 先编译正则（提前 400，避免进入等待后才发现非法）
-    let regex: RegExp
-    try {
-      regex = new RegExp(patternStr)
-    } catch (e: any) {
-      sendJson(res, 400, { success: false, error: `Invalid pattern regex: ${e.message}` })
-      return
-    }
-
-    // 先查"已在缓冲区里"的近期输出：典型场景是 prompt 已就绪（reconnect 后、命令刚返回），
-    // 此时没有新输出产生，纯等新输出会超时。命中即立即返回。
-    // 同时在 raw 与 ANSI 清洗后两种基底上匹配：默认 prompt 正则依赖清洗后的 $ 锚定，
-    // 而带 ANSI 码的自定义正则只在 raw 上命中。
-    const existingRaw = sessionManager.readOutput(resolvedSessionId, { lines: 1000, raw: true })
-    const existingClean = sessionManager.readOutput(resolvedSessionId, { lines: 1000, raw: false })
-    if (existingRaw && existingClean && (regex.test(existingRaw.output) || regex.test(existingClean.output))) {
-      sendJson(res, 200, {
-        success: true,
-        data: { output: existingClean.output, cleanOutput: existingClean.output, settled: true, patternMatched: true, elapsedMs: 0 }
-      })
-      return
-    }
-
-    // 未在现有缓冲区命中 → 等待新输出。复用 sendAndWait({text:''})：
-    //  - 持有 pendingWaitLock，与 send_and_wait 互斥（避免并发对同一会话输出产生误判）；
-    //  - 在 raw 与清洗后两种基底上匹配（见 sendAndWait 实现）；
-    //  - 用 idleMs 做 settle 早返回（终端静默 idleMs 后即返回 settled:true）。
-    // 仅匹配"调用后新产生"的输出，避免对历史 scrollback 误命中（自定义 pattern 等待新出现时尤为关键）。
-    const result: SendAndWaitResult = await sessionManager.sendAndWait(resolvedSessionId, {
-      text: '',
-      waitMs: 0,
-      idleMs: clampNumber(data.idleMs, 50, 10000, 500),
-      maxWaitMs: clampNumber(data.timeoutMs, 100, MAX_COMMAND_TIMEOUT_MS, 30000),
-      waitForPattern: patternStr,
-      autoNewline: false
+    if (typeof data.sessionId !== 'string' || !data.sessionId || data.sessionId.length > 128) throw new OperationError('INVALID_ARGUMENT', 'A valid sessionId is required')
+    const id = resolveRuntimeSessionId(data.sessionId)
+    const session = sessionManager.getSession(id)
+    if (!session) throw new OperationError('RESOURCE_NOT_FOUND', 'Terminal is unavailable')
+    const type = session.config.type
+    const authorizeObservation = () => isMcpConfirmationAuthorized(binding, 'read', type) && isSessionAllowedForMcp(id)
+    const auth = await authorizeMcpOperation('wait_for_prompt', 'read', id, undefined, binding)
+    if (!auth.allowed || !authorizeObservation()) throw new OperationError('FORBIDDEN', 'Terminal observation is not authorized')
+    if (sessionManager.getSession(id) !== session) throw new OperationError('STALE_GENERATION', 'Terminal changed before observation')
+    const observer = observationAbort(res)
+    cleanup = observer.cleanup
+    const result = await sessionManager.waitForPattern(id, {
+      pattern: data.pattern, mode: data.patternMode, scope: 'new-output', checkHistoryFirst: true,
+      historyLines: 1000, timeoutMs: clampNumber(data.timeoutMs, 100, MAX_COMMAND_TIMEOUT_MS, 30000),
+      idleMs: clampNumber(data.idleMs, 50, 10000, 500), callerKey: bindingCredentialIds.get(binding) ?? 'anonymous',
+      signal: observer.signal, authorizeObservation
     })
-
-    sendJson(res, 200, { success: true, data: result })
-  } catch (err: any) {
-    sendJson(res, 500, { success: false, error: err.message })
-  }
+    if (!authorizeObservation()) throw new OperationError('FORBIDDEN', 'Terminal observation authorization was revoked')
+    sendJson(res, 200, { success: true, data: { output: result.cleanOutput, cleanOutput: result.cleanOutput,
+      settled: result.settled, patternMatched: result.matched, elapsedMs: result.elapsedMs } })
+  } catch (error) { sendOperationError(res, error, 'Terminal observation failed') }
+  finally { cleanup() }
 }
 
 /**
@@ -3166,7 +2843,7 @@ async function handleWaitForPrompt(
  * 最大并发 = min(sessionIds.length, 10)
  */
 async function handleRunOnSessions(
-  data: { sessionIds: string[]; command: string; timeout?: number; dryRun?: boolean },
+  data: RunOnSessionsRequest,
   res: http.ServerResponse,
   binding: TokenBinding
 ): Promise<void> {
@@ -3238,58 +2915,27 @@ async function handleRunOnSessions(
       return
     }
 
-    // 单 session 的执行（含鉴权 + 类型路由），失败转为 result entry 而非抛出
-    const runOne = async (sid: string): Promise<{ sessionId: string; output?: string; exitCode?: number; error?: string }> => {
+    const targets = await Promise.all(sessionIds.map(async sid => {
       const { resolved, assertCurrent } = dispatchTargets.get(sid)!
       const session = sessionManager.getSession(resolved)
-      if (!session) return { sessionId: sid, error: `Session not found: ${sid}` }
-      if (session.status !== ConnectionStatus.CONNECTED) {
-        return { sessionId: sid, error: `Session not connected (status: ${session.status})` }
+      let failure: OperationError | undefined
+      if (!session) failure = new OperationError('RESOURCE_NOT_FOUND', 'Command target is unavailable')
+      else {
+        const cap: McpCapability = session.config.type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
+        const auth = await authorizeMcpOperation('run_on_sessions', cap, resolved, summarizeText(command), binding, command)
+        if (!auth.allowed) failure = new OperationError('FORBIDDEN', 'Command target is not authorized')
       }
-      const cap: McpCapability = session.config.type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
-      const auth = await authorizeMcpOperation('run_on_sessions', cap, resolved, summarizeText(command), binding, command)
-      if (!auth.allowed) return { sessionId: sid, error: auth.reason }
-
-      try {
-        assertCurrent()
-        if (session.config.type === ConnectionType.SSH) {
-          const connector = await fileManager.getCommandConnector(resolved)
-          assertCurrent()
-          if (!connector.execRaw) {
-            return { sessionId: sid, error: 'Connector does not support execution' }
-          }
-          const result = await connector.execStream(command, safeTimeout, () => {}, undefined, assertCurrent)
-          return { sessionId: sid, output: result.output, exitCode: result.exitCode }
-        }
-        if (session.config.type === ConnectionType.LOCAL) {
-          const r = await executeLocalCommand(command, session.config.local?.cwd, session.config.local?.env, safeTimeout)
-          return { sessionId: sid, output: r.output, exitCode: r.exitCode }
-        }
-        return { sessionId: sid, error: `Command execution not supported for session type: ${session.config.type}` }
-      } catch (e: any) {
-        return { sessionId: sid, error: e.message || 'Unknown error' }
-      }
-    }
-
-    // 简单并发池：每次同时跑 min(remaining, 10)
-    const CONCURRENCY = Math.min(sessionIds.length, 10)
-    const queue = [...sessionIds]
-    const results: Array<{ sessionId: string; output?: string; exitCode?: number; error?: string }> = []
-    const workers: Promise<void>[] = []
-    for (let i = 0; i < CONCURRENCY; i++) {
-      workers.push((async () => {
-        while (queue.length > 0) {
-          const sid = queue.shift()!
-          results.push(await runOne(sid))
-        }
-      })())
-    }
-    await Promise.all(workers)
-
-    sendJson(res, 200, { success: true, data: { results } })
-  } catch (err: any) {
-    sendJson(res, 500, { success: false, error: err.message })
-  }
+      if (failure || !session) return { sessionId: sid, endpointKey: resolved,
+        revalidate: () => { throw failure }, dispatch: () => { throw failure } } satisfies CommandTargetSpec
+      const target = scheduledCommandTarget(resolved, session, command, assertCurrent)
+      return { ...target, sessionId: sid }
+    }))
+    const execution = commandService.runBatch({ callerKey: commandCaller(binding), targets, timeoutMs: safeTimeout,
+      totalTimeoutMs: clampNumber(data.totalTimeoutMs, 100, MAX_COMMAND_TIMEOUT_MS, 55000) })
+    const batch = await execution.results
+    retainCommandResponse(res, execution, batch)
+    sendJson(res, 200, { success: true, data: { results: batch.results, totalTimeoutMs: batch.totalTimeoutMs } })
+  } catch (error) { sendOperationError(res, error, 'Batch execution failed; reconcile before retrying') }
 }
 
 /**
@@ -3297,103 +2943,37 @@ async function handleRunOnSessions(
  * 比 wait_for_prompt 更适合"看着日志直到 X 出现"的语义；
  * 内部按 idleMs 间隔轮询 readOutput 缓冲，避免和实时 send_and_wait 共享数据流冲突。
  */
-async function handleTailUntil(
-  data: { sessionId: string; pattern: string; timeoutMs?: number; pollMs?: number },
-  res: http.ServerResponse,
-  binding: TokenBinding
-): Promise<void> {
+async function handleTailUntil(data: TailUntilRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
+  let cleanup = () => {}
   try {
-    const { sessionId, pattern } = data
-    if (!sessionId || !pattern) {
-      sendJson(res, 400, { success: false, error: 'sessionId and pattern are required' })
-      return
-    }
-
-    const resolvedSessionId = resolveRuntimeSessionId(sessionId)
-    const session = sessionManager.getSession(resolvedSessionId)
-    if (!session) {
-      sendJson(res, 404, { success: false, error: `Session not found: ${sessionId}` })
-      return
-    }
-    if (session.status !== ConnectionStatus.CONNECTED) {
-      sendJson(res, 400, { success: false, error: `Session not connected (status: ${session.status})` })
-      return
-    }
-
-    const auth = await authorizeMcpOperation('tail_until', 'read', resolvedSessionId, summarizeText(pattern, 200), binding)
-    if (!auth.allowed) {
-      sendJson(res, 403, { success: false, error: auth.reason })
-      return
-    }
-
-    let regex: RegExp
-    try {
-      regex = new RegExp(pattern)
-    } catch (e: any) {
-      sendJson(res, 400, { success: false, error: `Invalid pattern regex: ${e.message}` })
-      return
-    }
-
-    const timeoutMs = clampNumber(data.timeoutMs, 500, MAX_COMMAND_TIMEOUT_MS, 30000)
-    const pollMs = clampNumber(data.pollMs, 100, 5000, 500)
-    const start = Date.now()
-    let matched = false
-    let lastOutput = ''
-
-    while (Date.now() - start < timeoutMs) {
-      const out = sessionManager.readOutput(resolvedSessionId, { lines: 500, raw: false })
-      if (out) {
-        lastOutput = out.output
-        if (regex.test(lastOutput)) {
-          matched = true
-          break
-        }
-      }
-      // 注意：会话中途断开则放弃
-      const fresh = sessionManager.getSession(resolvedSessionId)
-      if (!fresh || fresh.status !== ConnectionStatus.CONNECTED) {
-        sendJson(res, 200, {
-          success: true,
-          data: { matched: false, elapsedMs: Date.now() - start, output: lastOutput, reason: 'session disconnected' }
-        })
-        return
-      }
-      await new Promise(r => setTimeout(r, pollMs))
-    }
-
-    sendJson(res, 200, {
-      success: true,
-      data: { matched, elapsedMs: Date.now() - start, output: lastOutput }
+    if (typeof data.sessionId !== 'string' || !data.sessionId || data.sessionId.length > 128 || typeof data.pattern !== 'string' || !data.pattern.length) throw new OperationError('INVALID_ARGUMENT', 'sessionId and pattern are required')
+    const id = resolveRuntimeSessionId(data.sessionId)
+    const session = sessionManager.getSession(id)
+    if (!session) throw new OperationError('RESOURCE_NOT_FOUND', 'Terminal is unavailable')
+    const type = session.config.type
+    const authorizeObservation = () => isMcpConfirmationAuthorized(binding, 'read', type) && isSessionAllowedForMcp(id)
+    const auth = await authorizeMcpOperation('tail_until', 'read', id, undefined, binding)
+    if (!auth.allowed || !authorizeObservation()) throw new OperationError('FORBIDDEN', 'Terminal observation is not authorized')
+    if (sessionManager.getSession(id) !== session) throw new OperationError('STALE_GENERATION', 'Terminal changed before observation')
+    const observer = observationAbort(res)
+    cleanup = observer.cleanup
+    const result = await sessionManager.waitForPattern(id, {
+      pattern: data.pattern, mode: data.patternMode, scope: 'recent', historyLines: 500,
+      timeoutMs: clampNumber(data.timeoutMs, 500, MAX_COMMAND_TIMEOUT_MS, 30000), idleMs: 0,
+      pollMs: clampNumber(data.pollMs, 100, 5000, 500), callerKey: bindingCredentialIds.get(binding) ?? 'anonymous',
+      signal: observer.signal, authorizeObservation
     })
-  } catch (err: any) {
-    sendJson(res, 500, { success: false, error: err.message })
-  }
+    if (!authorizeObservation()) throw new OperationError('FORBIDDEN', 'Terminal observation authorization was revoked')
+    sendJson(res, 200, { success: true, data: { matched: result.matched, output: result.cleanOutput, elapsedMs: result.elapsedMs,
+      ...(result.reason === 'disconnected' ? { reason: 'session disconnected' } : {}) } })
+  } catch (error) { sendOperationError(res, error, 'Terminal observation failed') }
+  finally { cleanup() }
 }
 
 /**
  * 执行本地命令
  */
-function executeLocalCommand(
-  command: string,
-  cwd?: string,
-  env?: Record<string, string>,
-  timeout: number = 30000
-): Promise<ExecuteResponse> {
-  return new Promise((resolve) => {
-    const execEnv = childEnvironment(process.env, env) as Record<string, string>
-    const execCwd = cwd || process.env.USERPROFILE || process.env.HOME || ''
 
-    // 记录通过 MCP 执行的本地命令
-    log.info(`[MCP] Executing local command (${command.length} characters)`)
-
-    exec(command, { cwd: execCwd, env: execEnv, timeout, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-      resolve({
-        output: stdout + (stderr ? '\n' + stderr : ''),
-        exitCode: error ? (error as any).code || 1 : 0
-      })
-    })
-  })
-}
 
 /**
  * 读取请求 body
@@ -3464,4 +3044,92 @@ function sendJson(res: http.ServerResponse, statusCode: number, data: ApiRespons
   } catch {
     /* socket 已失效,无需回包 */
   }
+}
+
+/** 只取消观察；已经发送的终端输入不重放。 */
+function observationAbort(res: http.ServerResponse): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController()
+  const close = () => controller.abort()
+  res.once('close', close)
+  return { signal: controller.signal, cleanup: () => { res.off('close', close) } }
+}
+
+/** 保留业务错误码与固定原因，未知实现异常不投影内部文本。 */
+function sendOperationError(res: http.ServerResponse, error: unknown, fallback: string): void {
+  if (!(error instanceof OperationError)) {
+    sendJson(res, 500, { success: false, error: fallback, code: 'OUTCOME_UNKNOWN', retryDisposition: 'reconcile-first' })
+    return
+  }
+  const status = error.code === 'INVALID_ARGUMENT' ? 400 : error.code === 'FORBIDDEN' ? 403
+    : error.code === 'RESOURCE_NOT_FOUND' ? 404 : error.code === 'RESOURCE_LIMIT' ? 429 : 409
+  const reason = 'reason' in error && typeof error.reason === 'string' ? error.reason : undefined
+  sendJson(res, status, { success: false, error: error.message, code: error.code, retryDisposition: error.retryDisposition,
+    ...(reason ? { reason } : {}) })
+}
+
+function commandCaller(binding: TokenBinding): string { return bindingCredentialIds.get(binding) ?? 'anonymous' }
+
+/** 出队和真正派发分开复核；连接创建期间占用执行位。 */
+function scheduledCommandTarget(id: string, session: NonNullable<ReturnType<typeof sessionManager.getSession>>, command: string,
+  assertCurrent: () => void, onData?: (chunk: string) => void): CommandTargetSpec {
+  let executor: Awaited<ReturnType<typeof fileManager.getCommandConnector>> | undefined
+  const type = session.config.type
+  return {
+    sessionId: id, endpointKey: `${type}:${id}:${session.connectionInstanceId}`,
+    async revalidate() {
+      assertCurrent()
+      if (type === ConnectionType.SSH) { executor = await fileManager.getCommandConnector(id); assertCurrent() }
+      else if (type !== ConnectionType.LOCAL) throw new OperationError('UNSUPPORTED_CAPABILITY', 'Command execution is unavailable for this terminal')
+    },
+    dispatch({ signal, timeoutMs, reserveBytes }) {
+      assertCurrent()
+      if (type === ConnectionType.SSH) {
+        if (!executor) throw new OperationError('RESOURCE_NOT_FOUND', 'Command connection is unavailable')
+        return executor.executeCommand({ command, timeoutMs, signal, reserveBytes, onData, assertCurrent })
+      }
+      return createLocalCommandExecution({ command, cwd: session.config.local?.cwd, env: session.config.local?.env,
+        timeoutMs, signal, reserveBytes, onData })
+    }
+  }
+}
+
+/** 客户端先断开时等结果不再增长后再释放；执行位由真实关闭回执管理。 */
+function retainCommandResponse(res: http.ServerResponse, execution: CommandBatchExecution, batch: CommandBatchResult): void {
+  if (res.destroyed || res.writableEnded) { execution.release(); return }
+  const key = `command-response:${uuidv4()}`
+  let released = false
+  const release = () => {
+    if (released) return
+    released = true
+    commandService.releaseSendBytes(key)
+    execution.release()
+    res.off('finish', release); res.off('close', release)
+  }
+  try {
+    commandService.reserveSendBytes(key, commandService.estimateBatchSendBytes(batch) + batch.results.length * 2048 + 4096)
+    res.once('finish', release); res.once('close', release)
+  } catch (error) { release(); throw error }
+}
+
+function sendCommandFailure(res: http.ServerResponse, outcome: CommandTargetOutcome): void {
+  const code = outcome.code ?? (outcome.state === 'not-started' ? 'RESOURCE_LIMIT' : 'OUTCOME_UNKNOWN')
+  const status = code === 'FORBIDDEN' ? 403 : code === 'RESOURCE_LIMIT' ? 429 : 409
+  sendJson(res, status, { success: false, code, retryDisposition: outcome.retryDisposition ?? 'reconcile-first',
+    error: outcome.error ?? 'Command did not complete', ...(outcome.reason ? { reason: outcome.reason } : {}), data: outcome })
+}
+
+
+function inputIdentity(binding: TokenBinding): ControllerIdentity {
+  const id = bindingCredentialIds.get(binding)
+  if (!id) throw new OperationError('UNAUTHENTICATED', 'Terminal control requires a current credential')
+  return { principalId: `automation:${id}`, credentialId: id, source: 'automation' }
+}
+
+function authorizedInputHandle(raw: unknown, sessionId: string, binding: TokenBinding): ControlHandle {
+  const identity = inputIdentity(binding)
+  if (!isControlHandle(raw) || raw.sessionId !== sessionId || raw.principalId !== identity.principalId
+    || raw.credentialId !== identity.credentialId || raw.source !== identity.source) {
+    throw new OperationError('CONTROL_CONFLICT', 'Use terminal_control to obtain a confirmed control handle before sending input')
+  }
+  return raw
 }

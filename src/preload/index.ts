@@ -6,6 +6,7 @@ import type { TerminalControlRequest, TerminalControlResult } from '@shared/term
 import type { ProjectSceneRequest, ProjectSceneResult } from '@shared/project-scene'
 import type { TaskShelfRequest, TaskShelfResult } from '@shared/task-shelf'
 import type { ShelfBrowserRequest, ShelfBrowserResult } from '@shared/shelf-browser'
+import type { BrowserHostRequest, BrowserHostResult } from '@shared/browser-host'
 import type { WorkbenchActivityRequest, WorkbenchActivitySnapshot } from '@shared/workbench-activity'
 import type { ActivityNavigationRequest, ActivityNavigationResult } from '@shared/activity-navigation'
 import { HARNESS_RECOVERED_CHANNEL, HARNESS_RECOVERY_GET_CHANNEL, readHarnessRecoveredEvent, type HarnessRecoveredEvent } from '@shared/harness-recovery'
@@ -22,7 +23,7 @@ import { WEB_TERMINAL_CHANNEL, type WebTerminalRequest, type WebTerminalResult }
 import { isSidebarShortcutAction, type SidebarShortcutAction } from '@shared/sidebar-shortcut'
 import type { BrowserRequest, BrowserResult } from '@shared/browser-settings'
 import { BROWSER_LAUNCH_PENDING, BROWSER_LAUNCH_TAKE } from '@shared/browser-launch'
-import type { McpAuditRetentionLimit } from '@shared/mcp-audit'
+import type { McpAuditRetentionLimit, McpAuditPersistenceState } from '@shared/mcp-audit'
 import { BROWSER_DOWNLOADS_EVENT, type BrowserDownloadsSnapshot } from '@shared/browser-downloads'
 import { BROWSER_DEVTOOLS_CHANNEL, BROWSER_DEVTOOLS_EVENT, type BrowserDevToolsRequest, type BrowserDevToolsEvent } from '@shared/browser-devtools'
 
@@ -348,9 +349,9 @@ const electronAPI = {
   },
   setConfig: (key: string, value: unknown) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_SET, key, value),
   getMcpAddCommand: () => ipcRenderer.invoke(IPC_CHANNELS.MCP_GET_ADD_COMMAND),
-  getMcpAudit: (filter?: unknown) => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_LIST, filter),
+  getMcpAudit: (filter?: unknown): Promise<{ records: unknown[]; total: number; persistence: McpAuditPersistenceState }> => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_LIST, filter),
   getMcpAuditFacets: () => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_FACETS),
-  clearMcpAudit: () => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_CLEAR),
+  clearMcpAudit: (): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_CLEAR),
   getMcpAuditRetention: (): Promise<McpAuditRetentionLimit> => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_RETENTION_GET),
   setMcpAuditRetention: (limit: McpAuditRetentionLimit): Promise<{ success: boolean; limit?: McpAuditRetentionLimit; error?: string }> => ipcRenderer.invoke(IPC_CHANNELS.MCP_AUDIT_RETENTION_SET, limit),
 
@@ -515,6 +516,7 @@ const electronAPI = {
   // readonlyMode 只申请主进程强制的隔离只读副本，不赋予网页上报 safe 的权限。
   // reloadPolicy 只在宿主 UI 发起；main 核对当前 URL，并在放行前要求本机用户明确选择。
   shelfBrowserRequest: (request: ShelfBrowserRequest): Promise<ShelfBrowserResult> => ipcRenderer.invoke('shelf-browser:request', request),
+  browserHostRequest: (request: BrowserHostRequest): Promise<BrowserHostResult> => ipcRenderer.invoke('browser-host:request', request),
   onTaskShelfShortcut: (callback: (action: 'toggle' | 'collect') => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, action: unknown): void => { if (action === 'toggle' || action === 'collect') callback(action) }
     ipcRenderer.on('task-shelf:shortcut', listener)

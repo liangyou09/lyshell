@@ -144,7 +144,7 @@ import { type BrowserRequest } from '@shared/browser-settings'
 import { validateBrowserSettings } from '../browser/validation'
 import type { CodeWorkspaceRequest } from '@shared/code-workspaces'
 import { validateWorktreeKey } from '@shared/worktree'
-import { isMcpAuditRetentionLimit, type McpAuditRetentionLimit } from '@shared/mcp-audit'
+import { isMcpAuditRetentionLimit, type McpAuditRetentionLimit, type McpAuditQuery } from '@shared/mcp-audit'
 import type { ShelfResource, TaskShelfRequest } from '@shared/task-shelf'
 import { parseShelfPreferences, SHELF_ACTIVATION_LIMIT } from '@shared/task-shelf'
 import { normalizeSshDirectory } from '../terminal/shelf-ssh-context'
@@ -152,6 +152,29 @@ import { normalizeSshDirectory } from '../terminal/shelf-ssh-context'
 export function validateMcpAuditRetentionLimit(value: unknown): McpAuditRetentionLimit {
   if (!isMcpAuditRetentionLimit(value)) throw new ValidationError('Invalid MCP audit retention limit')
   return value
+}
+
+/** 审计查询和保存状态共用同一只读入口；过滤值仍须在主进程验证。 */
+export function validateMcpAuditQuery(raw: unknown): McpAuditQuery {
+  if (raw === undefined) return {}
+  const value = assertObject(raw, 'auditQuery')
+  const result: McpAuditQuery = {}
+  const allowedKeys = new Set(['sessionId', 'operation', 'allowed', 'since', 'until', 'limit', 'offset'])
+  for (const key of Object.keys(value)) {
+    if (!allowedKeys.has(key)) throw new ValidationError('Invalid audit query field')
+  }
+  for (const key of ['sessionId', 'operation', 'since', 'until'] as const) {
+    if (value[key] !== undefined) result[key] = assertString(value[key], key, { maxLength: 512, allowEmpty: true })
+  }
+  if (value.allowed !== undefined) result.allowed = assertBoolean(value.allowed, 'allowed')
+  for (const key of ['limit', 'offset'] as const) {
+    if (value[key] === undefined) continue
+    const number = value[key]
+    if (typeof number !== 'number' || !Number.isSafeInteger(number) || number < (key === 'limit' ? 1 : 0)
+        || number > (key === 'limit' ? 20000 : 1000000)) throw new ValidationError('Invalid audit query range')
+    result[key] = number
+  }
+  return result
 }
 
 export function validateBuiltinTransferMethod(value: unknown): 'sftp' {

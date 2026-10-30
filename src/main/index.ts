@@ -13,7 +13,7 @@ import { seedDevConfigFromProd } from './dev-user-data'
 import './logging'
 import { startDemoStage } from './demo-stage'
 import { setTerminalCaptureWindow } from './mcp/terminal-screenshot'
-import { startMcpHttpServer, stopMcpHttpServer } from './mcp/http-server'
+import { startMcpHttpServer, stopMcpHttpServer, stopCommandExecutions } from './mcp/http-server'
 import { wireExclusiveControl } from './dsh/exclusive-runtime'
 import { tuiActivity } from './harness/tui-activity'
 import { cleanupTuiLaunchFiles } from './harness/tui-launch'
@@ -36,7 +36,13 @@ import { setMcpConfirmationWindow } from './mcp/confirmation-window'
 import { reachabilityProber } from './reachability/reachability-prober'
 import { mcpAuditRepository } from './storage/mcp-audit-repository'
 import { pluginHostManager } from './plugin/host-mgr'
-import { waitForQuitCleanup } from './quit-cleanup'
+import { appLifecycle } from './lifecycle/app-lifecycle'
+import { installFatalHandlers, serializeFatalReport } from './lifecycle/fatal-error'
+import { readLastExitState, writeFatalState, writeShutdownState } from './lifecycle/lifecycle-state'
+import { assertBrowserHostsClosed, runConcurrentCleanup, runSequentialCleanup } from './lifecycle/shutdown-checks'
+import { stopPatternMatcher } from './terminal/pattern-matcher'
+import { registerBrowserHostIpc } from './browser/browser-host-ipc'
+import type { BrowserHostSnapshot } from '@shared/browser-host'
 import { cleanupDownloadsDir } from './plugin/install-zip'
 import { pluginRepository, getPluginsDir } from './storage/plugin-repository'
 import {
@@ -76,29 +82,23 @@ registerPluginViewSchemePrivileged()
 // 开发环境标志（app.isPackaged 在 app.ready 前即可同步读取，供早期错误处理使用）
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
-// 全局错误处理 - 避免SSH超时等错误弹出对话框
-process.on('uncaughtException', (error) => {
-  // SSH 认证失败 / handshake timeout / PTY pipe 断裂 等连接相关错误，只记录日志不弹出
-  const msg = error.message || error.toString()
-  if (msg.includes('handshake') || msg.includes('SSH') || msg.includes('connection') || msg.includes('timeout')
-      || msg.includes('EPIPE') || msg.includes('EOF') || msg.includes('ECONNRESET')
-      || msg.includes('authentication')) {
-    log.error('Connection/PTY/SSH auth error (suppressed dialog):', msg)
-    return
-  }
-  // 其他错误：开发环境下快速失败（崩溃退出）以暴露 bug；生产环境只记日志避免影响用户
-  log.error('Uncaught exception:', error)
-  if (isDev) {
-    process.exit(1)
-  }
+// 全局错误处理 —— 不再按错误文本（SSH/timeout/EOF/EPIPE...）判断「可以继续服务」：
+// 那些是预期业务失败，必须在 Connector / 会话 / 任务边界内收尾（例如 sessionManager
+// 对 connector 'error' 的消费）。真正未捕获的异常与未处理 rejection 一律进入最小
+// 致命路径：置 fatal（关闭全部新业务入口）→ 同步写定长脱敏诊断 → 非零退出。
+// 诊断/日志/落盘任一步失败都必须在 finally 退出，且不调用任何业务仓储、不绕回
+// app.quit()。生命周期状态与接线契约见 src/main/lifecycle/。
+appLifecycle.setLogger({
+  info: (message, ...details) => log.info(message, ...details),
+  warn: (message, ...details) => log.warn(message, ...details)
 })
-
-process.on('unhandledRejection', (reason) => {
-  log.error('Unhandled rejection:', reason)
-  // 开发环境下快速失败，避免 Promise 异常被静默吞掉
-  if (isDev) {
-    process.exit(1)
-  }
+installFatalHandlers({
+  lifecycle: appLifecycle,
+  // 同步、定长、脱敏；失败返回 false 而不是抛错（不能阻止退出）。
+  persist: report => { writeFatalState(app.getPath('userData'), report) },
+  log: report => log.error('[fatal]', serializeFatalReport(report)),
+  // 预先定义的最小同步失效：只撤进程内运行时边界，不写业务仓库、不覆盖磁盘。
+  onFatalSync: [() => shelfBrowserRuntime.hostBoundary(true)]
 })
 
 // 渲染器/子进程死亡观测 —— 渲染进程与 GPU 进程死亡不进 Windows 事件日志，
@@ -118,7 +118,14 @@ app.on('child-process-gone', (_event, details) => {
 let mainWindow: BrowserWindow | null = null
 // 在 guest 首航前观察原生地址，did-attach 时 HTTP 重定向可能已经完成。
 app.on('web-contents-created', (_event, contents) => shelfBrowserRuntime.observeGuest(contents))
-let stopMcpHttpServerImpl: (() => Promise<void>) | undefined
+// MCP HTTP 服务器是否成功启动：未启动时退出不调用 stopMcpHttpServer（避免无谓地清 token）。
+let mcpHttpServerStarted = false
+// 退出等待登记：revoke 阶段只同步发起停止（不 await，避免活跃请求把整个撤权阶段卡住），
+// 完成 Promise 在这里登记，由 final 阶段在总期限内等待。
+let mcpHttpStopPromise: Promise<void> | undefined
+let patternMatcherStopPromise: Promise<void> | undefined
+// R8 浏览器宿主关闭入口：ready 时由 registerBrowserHostIpc() 返回并登记。
+let browserHostShutdown: (() => Promise<readonly Pick<BrowserHostSnapshot, 'phase'>[]>) | undefined
 
 // 网页访问栏 webview 的会话 partition（插件面板 URL 栏打开的通用网页，完整页签
 // 与写轮眼小窗共用）。与 dsh web（persist:dshweb）隔离：通用浏览可保留自己的
@@ -882,6 +889,8 @@ if (!gotSingleInstanceLock) {
   if (startupDirectory) explorerLaunchQueue.enqueue(startupDirectory)
   for (const url of parseBrowserLaunchUrls(startupArgs)) browserLaunchQueue.enqueue(url)
   app.on('second-instance', (_event, argv, workingDirectory, additionalData) => {
+    // 生命周期 gate：退出/致命阶段不再接受新的外部打开请求（队列已不再被消费）。
+    if (!appLifecycle.accepts()) return
     for (const url of parseBrowserLaunchUrls(argv.slice(app.isPackaged ? 1 : 2))) browserLaunchQueue.enqueue(url)
     mainWindow?.webContents.send(BROWSER_LAUNCH_PENDING)
     if (process.platform === 'win32') {
@@ -905,6 +914,8 @@ if (!gotSingleInstanceLock) {
   // macOS 的链接事件可能早于 ready；同步登记，冷启动同样进入队列。
   app.on('open-url', (event, url) => {
     event.preventDefault()
+    // 生命周期 gate：退出/致命阶段不再接受新的外部打开请求。
+    if (!appLifecycle.accepts()) return
     browserLaunchQueue.enqueue(url)
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
@@ -925,6 +936,11 @@ app.whenReady().then(async () => {
   // 单实例竞争失败方：quit 已排队，ready 在部分版本仍会触发，这里不再往下引导
   // （锁的持有方才有资格创建窗口/起服务器）
   if (!gotSingleInstanceLock) return
+  // 上次退出方式：致命退出只做保守恢复提示（记录日志），不自动重放任何副作用。
+  const lastExit = readLastExitState(app.getPath('userData'))
+  if (lastExit?.kind === 'fatal') {
+    log.warn(`[lifecycle] previous run ended fatally (${lastExit.reason ?? 'unknown reason'}); recovering conservatively`)
+  }
   // 启动归档由 taskShelfService 的固定快照/blocked 屏障统一处理，不能先行写盘绕过回退开关。
   await stopRecordedLocalHosts(app.getPath('userData'), (id, error) => log.warn('Previous local host cleanup failed:', id, error))
   // 设置应用ID
@@ -955,7 +971,7 @@ app.whenReady().then(async () => {
   // 否则用户在窗口中开本地终端时端口尚未就绪，session-token env 无法注入）
   try {
     await startMcpHttpServer()
-    stopMcpHttpServerImpl = stopMcpHttpServer
+    mcpHttpServerStarted = true
     // Pet 托管控制服务：接线到 dsh 桥的控制端点（只读快照/写操作都走 /api/exclusive-control）
     wireExclusiveControl()
   } catch (err) {
@@ -1005,6 +1021,13 @@ app.whenReady().then(async () => {
   // 注册 IPC 处理器 —— 必须先于 createMainWindow：renderer 启动即发起
   // plugin:list 等 invoke，handler 未就绪时首批调用会被「No handler registered」拒绝
   registerIPCHandlers()
+
+  // R8 浏览器宿主关闭入口：登记给 final 阶段，逐项确认 phase === 'closed'。
+  try {
+    browserHostShutdown = registerBrowserHostIpc().shutdown as () => Promise<readonly Pick<BrowserHostSnapshot, 'phase'>[]>
+  } catch (err) {
+    log.error('Failed to register browser host IPC:', err)
+  }
 
   // 创建主窗口
   createMainWindow()
@@ -1151,80 +1174,183 @@ app.whenReady().then(async () => {
   log.info('LyShell started successfully')
 })
 
-// 应用退出前清理资源 —— 窗口级快捷键随 webContents 一起销毁,不用单独 unregister
-let quitting = false
+// 应用退出前清理资源 —— 窗口级快捷键随 webContents 一起销毁,不用单独 unregister。
+//
+// 退出步骤注册在生命周期协调器上（src/main/lifecycle/app-lifecycle.ts）：
+// - 总期限从 beginDrain 起算，覆盖 prepareShutdown（旧实现等它完成才起计时器，
+//   插件准备永久不返回时退出会被无限拖延）；
+// - prepare 顺序执行 —— 插件 release/deactivate 期间 host token 与 HTTP 必须仍然有效；
+// - revoke 顺序执行 —— 停外部入口、撤 token，最后才是 final 的并行等待；
+// - 每步独立预算，单项失败/超时只记入报告，不阻断其他项；重复 will-quit 不重复执行。
+const QUIT_DSH_CLOSE_BUDGET_MS = 2500
+const QUIT_DSH_EXIT_GRACE_MS = KILL_STEP_TIMEOUT_FLOOR_MS + 500
+
+// R5 的审计仓库在 revoke 阶段末尾停止接收新变更并给出退出屏障 revision，
+// final 阶段按该 revision await flush（等待进入总期限）。
+let mcpAuditShutdownRevision: number | undefined
+let commandStopPromise: Promise<void> | undefined
+
+appLifecycle.registerStep('prepare', 'terminal-input-revocation', () =>
+  // 顺序不变：先回收未保存页签、再撤输入、最后归档。失败项不吞：全部执行完后以固定
+  // 说明 reject，由生命周期记入 unconfirmed（避免日志谎报成功）。
+  runSequentialCleanup('Terminal input revocation', [
+    { name: 'shelf-recycle', run: () => recycleTaskShelfTerminalsForQuit() },
+    { name: 'input-revocation', run: () => sessionManager.beginShutdown() },
+    { name: 'shelf-archive', run: () => taskShelfRepository.archiveAll() }
+  ]))
+
+appLifecycle.registerStep('prepare', 'plugin-release', () => pluginHostManager.prepareShutdown())
+
+appLifecycle.registerStep('revoke', 'mcp-http-stop', () => {
+  // 只发起停止、不在这里 await：server.close 会等待活跃 HTTP 请求结束，await 它会把
+  // 后续 matcher/plugin token/审计屏障全部挡在同一个子预算后面。完成等待在 final。
+  if (!mcpHttpServerStarted) return
+  mcpHttpStopPromise = stopMcpHttpServer()
+  void mcpHttpStopPromise.catch(() => undefined)
+})
+
+appLifecycle.registerStep('revoke', 'pattern-matcher', () => {
+  // 幂等；必须在停止外部入口之后发起。完成等待同样登记到 final。
+  patternMatcherStopPromise = stopPatternMatcher()
+  void patternMatcherStopPromise.catch(() => undefined)
+})
+
+appLifecycle.registerStep('revoke', 'plugin-host-stop', () => {
+  // 停止 plugin host 子进程 + 撤销 plugin token（此时插件 release 已完成）。
+  pluginHostManager.stop()
+})
+
+appLifecycle.registerStep('revoke', 'commands', () => {
+  commandStopPromise = stopCommandExecutions()
+  void commandStopPromise.catch(() => undefined)
+})
+
+appLifecycle.registerStep('revoke', 'audit-write-barrier', () => {
+  // 外部入口与 plugin token 都已撤下，此后不再有新审计写入；固定 revision 供 final 等待。
+  mcpAuditShutdownRevision = mcpAuditRepository.stopAcceptingWrites()
+})
+
+const quitDshDeadline = (): number => {
+  const deadlineAt = appLifecycle.deadlineAt ?? Date.now() + 8000
+  const closeBy = Math.min(Date.now() + QUIT_DSH_CLOSE_BUDGET_MS, deadlineAt - QUIT_DSH_EXIT_GRACE_MS)
+  // 余量必须严格大于 proc.ts 的单步下限：killPidTree 最多比 deadline 多花一步。
+  return Math.max(Date.now(), closeBy)
+}
+
+appLifecycle.registerStep('final', 'transfers', () =>
+  runConcurrentCleanup('Transfer cleanup', [
+    { name: 'download-workers', run: () => cleanupAllWorkers() },
+    { name: 'upload-workers', run: () => cleanupAllUploadWorkers() }
+  ]))
+
+appLifecycle.registerStep('final', 'terminals', () =>
+  // 收纳只在本次应用运行期间保留现场，退出时所有本地终端都明确终止。
+  runConcurrentCleanup('Terminal disconnect', sessionManager.getAllSessions().map((session, index) => ({
+    name: `session-${index}`,
+    run: () => {
+      if (!session.connector) return undefined
+      return session.connector instanceof LocalConnector
+        ? session.connector.disconnectForQuit()
+        : session.connector.disconnect()
+    }
+  }))))
+
+appLifecycle.registerStep('final', 'local-hosts', () =>
+  // 插件 Windows taskkill 有 5s 预算，POSIX 整组强杀有 2.5s grace；均需等待完成。
+  // 退出期间迟到的捕获也再归档一次；下一次启动仍有同样的兜底。
+  runSequentialCleanup('Terminal cleanup', [
+    {
+      name: 'recorded-local-hosts',
+      run: async () => {
+        let unconfirmed = false
+        await stopRecordedLocalHosts(app.getPath('userData'), (id, error) => {
+          unconfirmed = true
+          log.warn('Local host quit cleanup failed:', id, error)
+        })
+        if (unconfirmed) throw new Error('Recorded local host shutdown was not confirmed')
+      }
+    },
+    { name: 'shelf-recycle', run: () => recycleTaskShelfTerminalsForQuit() },
+    { name: 'shelf-archive', run: () => taskShelfRepository.archiveAll() }
+  ]))
+
+appLifecycle.registerStep('final', 'mcp-http-stop-wait', async () => {
+  if (mcpHttpStopPromise) await mcpHttpStopPromise
+})
+
+appLifecycle.registerStep('final', 'commands-wait', async () => {
+  if (commandStopPromise) await commandStopPromise
+})
+
+appLifecycle.registerStep('final', 'pattern-matcher-wait', async () => {
+  if (patternMatcherStopPromise) await patternMatcherStopPromise
+})
+
+appLifecycle.registerStep('final', 'browser-host', async () => {
+  // R8 浏览器宿主：必须等到每项 phase 为 closed，否则记入 unconfirmed。
+  if (!browserHostShutdown) return
+  assertBrowserHostsClosed(await browserHostShutdown())
+})
+
+appLifecycle.registerStep('final', 'dsh-web', () => {
+  // 关闭 dsh web 子进程（webview 随窗口一起销毁，这里只回收进程）—— 完成后才真正退出。
+  // 走 closeForQuit（抢跑、不排队）；身份无法确认时保留留档，由下次启动恢复。
+  return dshWebManager.closeForQuit(quitDshDeadline())
+})
+
+appLifecycle.registerStep('final', 'tui-activity', () => tuiActivity.close())
+appLifecycle.registerStep('final', 'tui-launch-files', () => cleanupTuiLaunchFiles())
+appLifecycle.registerStep('final', 'plugin-processes', () => pluginHostManager.waitForProcessCleanup())
+appLifecycle.registerStep('final', 'transfer-history', () => downloadHistory.flush())
+
+appLifecycle.registerStep('final', 'dialog-and-download-cleanup', () =>
+  runSequentialCleanup('Dialog and download cleanup', [
+    // 弹窗全量清理（guest 随窗口销毁，这里只是把 pending/attached 表清空并给发起方补取消事件）
+    { name: 'dialogs', run: () => pluginDialogManager.clearAll() },
+    // 清理 URL 安装临时下载(.downloads/),防累积
+    { name: 'downloads', run: () => cleanupDownloadsDir(getPluginsDir()) }
+  ]))
+
+appLifecycle.registerStep('final', 'mcp-audit-flush', () => {
+  // 按 revoke 阶段固定的 revision 等待落盘；等待时间计入 final 预算。
+  return mcpAuditRepository.flush(mcpAuditShutdownRevision)
+})
+
+appLifecycle.registerStep('final', 'reachability', () => {
+  reachabilityProber.stop()  // 停止可达性探测定时器
+})
+
 app.on('will-quit', (event) => {
   if (!gotSingleInstanceLock) return
   // dsh web 子进程必须等树杀真正完成再退出。此前 dshWebManager.close() 里 fire-and-forget
   // 的 spawn('taskkill') 会被 app 退出截断：实测只杀掉 shell 包裹层（cmd.exe）、漏掉真正的
   // node 孙进程，孤儿占着 DSH 会话写锁（不过期），下次开 dsh 报「当前会话已被占用」。
-  // 故先拦住默认退出，同步清理照旧执行，最后等 DSH 与插件进程清理落定再 app.exit。
-  // app.exit() 不再触发 will-quit；quitting 守卫防重复 quit 并发执行清理。
+  // 故先拦住默认退出，清理照旧执行，最后等 DSH 与插件进程清理落定再 app.exit。
+  // app.exit() 不再触发 will-quit；phase 是幂等守卫，防重复 quit 并发执行清理。
   event.preventDefault()
-  if (quitting) return
-  quitting = true
-  // 未手动保存的真实终端页签先进入最多 12 项的回收站，随后再结束原进程与连接。
-  try { recycleTaskShelfTerminalsForQuit() }
-  catch (error) { log.warn('Unsaved terminal quit recycling failed:', error) }
-  const inputCleanup = sessionManager.beginShutdown()
-  void inputCleanup.catch(() => log.warn('Input revocation during shutdown was not confirmed'))
-  // 在任何异步退出清理前落盘归档；失败保留原始记录，下一次启动补做。
-  try { taskShelfRepository.archiveAll() }
-  catch (error) { log.warn('Task shelf quit archive failed:', error) }
-  // PetLink 的 async deactivate 需要仍有效的 host token 与 HTTP/共享后台释放任务。
-  void pluginHostManager.prepareShutdown().catch(error => log.warn('Plugin graceful shutdown failed:', error)).then(() => {
-
-    const transfersCleanup = Promise.all([cleanupAllWorkers(), cleanupAllUploadWorkers()])
-    void transfersCleanup.catch(error => log.warn('Transfer quit cleanup failed:', error))
-    if (stopMcpHttpServerImpl) {
-      stopMcpHttpServerImpl()  // 停止 MCP HTTP 服务器
+  if (appLifecycle.phase === 'fatal') {
+    // 致命路径由 fatal handler 以非零码退出；这里不再走正常清理，也不覆盖为 0。
+    app.exit(1)
+    return
+  }
+  // 已在 draining/stopped：本次 quit 是重复触发，直接返回，等第一轮 app.exit。
+  if (appLifecycle.phase !== 'running') return
+  appLifecycle.beginDrain('app-will-quit')
+  void appLifecycle.runShutdown().then(report => {
+    if (report.kind === 'fatal') { app.exit(1); return }
+    if (!writeShutdownState(app.getPath('userData'), report)) {
+      log.warn('[lifecycle] shutdown state marker was not written')
     }
-    pluginHostManager.stop()  // 停止 plugin host 子进程 + 撤销 plugin token
-    // 弹窗全量清理（guest 随窗口销毁，这里只是把 pending/attached 表清空并给发起方补取消事件）
-    pluginDialogManager.clearAll()
-    cleanupDownloadsDir(getPluginsDir())  // 清理 URL 安装临时下载(.downloads/),防累积
-    try { mcpAuditRepository.flushSync() }
-    catch { log.warn('MCP audit flush failed during shutdown') }
-    reachabilityProber.stop()  // 停止可达性探测定时器
-    // 收纳只在本次应用运行期间保留现场，退出时所有本地终端都明确终止。
-    const localQuitTasks: Promise<void>[] = [inputCleanup]
-    for (const session of sessionManager.getAllSessions()) {
-      if (session.connector) {
-        if (session.connector instanceof LocalConnector) localQuitTasks.push(session.connector.disconnectForQuit())
-        else localQuitTasks.push(session.connector.disconnect())
-      }
+    if (report.unconfirmed.length > 0) {
+      log.warn(`[lifecycle] shutdown finished with unconfirmed steps: ${report.unconfirmed.join(', ')}`)
+    } else {
+      log.info(`[lifecycle] shutdown completed in ${report.elapsedMs}ms`)
     }
-
-    // 关闭 dsh web 子进程（webview 随窗口一起销毁，这里只回收进程）—— 完成后才真正退出。
-    // 走 closeForQuit（抢跑、不排队）：关窗时可能已经起了一轮树杀（交互路径的预算是 15s，
-    // 仍远长于退出预算，且可能正卡在 8s 的进程表枚举里），排队等它落定等于没设 deadline；
-    // 抢跑的这一轮优先终止 Windows Job；若 Job 绑定失败，则在预算内核对身份后树杀。
-    // 身份无法确认时保留留档，由下次启动恢复，不能凭裸 PID 强杀。
-    // 等待余量必须**严格大于** proc.ts 的单步下限：killPidTree 最多比 deadline 多花一步
-    // （把已经发出的 taskkill 跑完），之后还要把未确认的 pid 写进留档 —— 余量不够，
-    // app.exit() 就会赶在「最后一步 + 写留档」之前触发，孤儿连兜底记录都没有。
-    // （等待器也接住清理异常；app.exit 不再触发 will-quit，无重入。）
-    const QUIT_DSH_CLOSE_BUDGET_MS = 2500
-    const QUIT_DSH_EXIT_GRACE_MS = KILL_STEP_TIMEOUT_FLOOR_MS + 500
-    // 插件 Windows taskkill 有 5s 预算，POSIX 整组强杀有 2.5s grace；均需等待完成。
-    const terminalCleanup = Promise.allSettled(localQuitTasks).then(async results => {
-      for (const result of results) if (result.status === 'rejected') log.warn('Terminal quit cleanup failed:', result.reason)
-      await stopRecordedLocalHosts(app.getPath('userData'), (id, error) => log.warn('Local host quit cleanup failed:', id, error))
-      // 退出期间迟到的捕获也再归档一次；下一次启动仍有同样的兜底。
-      recycleTaskShelfTerminalsForQuit()
-      taskShelfRepository.archiveAll()
-    })
-    waitForQuitCleanup([
-      terminalCleanup,
-      transfersCleanup,
-      tuiActivity.close(),
-      cleanupTuiLaunchFiles(),
-      dshWebManager.closeForQuit(Date.now() + QUIT_DSH_CLOSE_BUDGET_MS),
-      pluginHostManager.waitForProcessCleanup(),
-      downloadHistory.flush()
-    ], Math.max(8000, QUIT_DSH_CLOSE_BUDGET_MS + QUIT_DSH_EXIT_GRACE_MS),
-      err => log.warn('Application cleanup on quit failed:', err)
-    ).then(() => app.exit(0))
+    app.exit(0)
+  }).catch(error => {
+    // 编排本身抛出（不应发生）：仍然非零退出，不把异常留在不确定状态里继续服务。
+    log.error('[lifecycle] shutdown orchestration failed:', error)
+    app.exit(1)
   })
 })
 

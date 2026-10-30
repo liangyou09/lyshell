@@ -17,7 +17,13 @@ export default defineConfig({
           mcpServer: resolve(__dirname, 'src/main/mcp-server/index.ts'),
           pluginHost: resolve(__dirname, 'src/main/plugin-host/index.ts'),
           pluginHostOneshot: resolve(__dirname, 'src/main/plugin-host/oneshot.ts'),
-          localHostWorker: resolve(__dirname, 'src/main/terminal/local-host-worker.ts')
+          localHostWorker: resolve(__dirname, 'src/main/terminal/local-host-worker.ts'),
+          // 外部等待正则的隔离执行 Worker（dist/main/patternWorker.js）：编译/匹配只在子进程内，
+          // 超时可 terminate；默认从 __dirname 加载，可用 LYSHELL_PATTERN_WORKER_SCRIPT 覆盖。
+          patternWorker: resolve(__dirname, 'src/main/terminal/pattern-worker.ts'),
+          // Windows 本地命令 helper（dist/main/localCommandWorker.js）：先绑定 Job 再启动用户命令，
+          // 父进程从同目录加载脚本并持有 Job handle 直到 ActiveProcesses=0。
+          localCommandWorker: resolve(__dirname, 'src/main/commands/local-command-worker.ts')
         },
         output: {
           format: 'cjs',

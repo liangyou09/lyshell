@@ -97,7 +97,6 @@ import { getDefaultBrowserStatus, requestDefaultBrowser } from '../browser/defau
 import { assertBrowserLaunchConsumer } from './validation'
 import { reachabilityProber, type ReachabilityTarget } from '../reachability/reachability-prober'
 import { ConnectionType, isDocPath, DOC_MAX_REMOTE_BYTES, DOC_MAX_LOCAL_BYTES } from '@shared/types'
-import type { ExclusiveWorkbenchDetail } from '@shared/exclusive-control'
 import { TERMINAL_ENCODINGS, DEFAULT_THEME_DARK } from '@shared/constants'
 import type { DocReadResult } from '@shared/types'
 import * as iconv from 'iconv-lite'
@@ -107,6 +106,7 @@ import {
   assertEnum,
   validateBuiltinTransferMethod,
   validateMcpAuditRetentionLimit,
+  validateMcpAuditQuery,
   assertExplorerLaunchConsumer,
   assertConnectionCloneSourceId,
   assertPluginActionRequestId,
@@ -123,9 +123,10 @@ import {
 } from './validation'
 import { resolveConnectionSource } from './connection-source'
 import { sanitizeSessionEncoding } from '@shared/encoding'
-import { getMcpAddCommandForIpc } from '../mcp/http-server'
+import { getMcpAddCommandForIpc } from '../mcp/client-config'
+import { sendToAllWindows, broadcastSessionsChanged, broadcastDshWebDetail, broadcastMcpSessionLocked, broadcastMcpSessionUnlocked } from '../events/application-notifications'
+export { broadcastSessionsChanged, broadcastDshWebDetail, broadcastMcpOpenConnectionDialog, broadcastMcpSessionLocked, broadcastMcpSessionUnlocked } from '../events/application-notifications'
 import { mcpAuditRepository } from '../storage/mcp-audit-repository'
-import type { McpAuditQuery } from '../storage/mcp-audit-repository'
 import { pluginRepository, getPluginsDir } from '../storage/plugin-repository'
 import { pluginHostManager } from '../plugin/host-mgr'
 import { getPluginViewRegistry } from '../plugin/view-registry'
@@ -338,37 +339,6 @@ function getAllWindows(): BrowserWindow[] {
   return BrowserWindow.getAllWindows()
 }
 
-/**
- * 向所有窗口发送事件
- */
-function sendToAllWindows(channel: string, ...args: any[]): void {
-  for (const win of getAllWindows()) {
-    if (!win.isDestroyed() && applicationCallers.isTrusted(win.webContents)) {
-      win.webContents.send(channel, ...args)
-    }
-  }
-}
-
-/**
- * 会话列表被外部路径（主要是 MCP HTTP API）改动后调用，
- * 通知所有渲染窗口增量拉取最新会话——避免 LLM 经 MCP 创建/改备注后 UI 不同步。
- * 渲染层订阅后做 merge 式同步，不会重置已连接会话的 status。
- */
-export function broadcastSessionsChanged(): void {
-  sendToAllWindows(IPC_CHANNELS.SESSIONS_CHANGED)
-}
-
-/**
- * S4：共享工作台**详情面**变化推送（无凭据）。
- *
- * 只在详情面身份（phase/epoch/taskId/sessionId）变化时推 —— 用户自己浏览历史不改变身份，
- * 所以「同一实例同一会话」的重复推送不会把用户从历史里拽回 Pet 任务会话。
- * `force` 用于详情页签刚打开/渲染层刚重载时的补发：渲染层按身份断言，不会因此重复动作。
- */
-export function broadcastDshWebDetail(detail: ExclusiveWorkbenchDetail, force = false, reopen = false): void {
-  sendToAllWindows('dsh:web:detail-changed', { detail, force, reopen })
-}
-
 /** 禁用/卸载共用：先失效在途动作，再完整断开资源，最后刷新保存项。 */
 async function releasePluginResources(pluginId: string, webOrigins: string[]): Promise<void> {
   // 应用重启后仍可回收插件创建的保存项与其运行时克隆。
@@ -389,28 +359,6 @@ async function releasePluginResources(pluginId: string, webOrigins: string[]): P
     notifyChanged: broadcastSessionsChanged,
     deleteLive: id => sessionManager.deleteSession(id)
   })
-}
-
-/**
- * MCP open_connection_dialog 工具（C4）调用：通知渲染层打开"新建连接"对话框。
- * agent 把凭据填写交还给用户（MCP 通道不接受凭据）。无 payload——只触发打开动作。
- */
-export function broadcastMcpOpenConnectionDialog(): void {
-  sendToAllWindows(IPC_CHANNELS.MCP_OPEN_CONNECTION_DIALOG)
-}
-
-/**
- * 通知所有渲染窗口：指定 session 的 PTY 被 MCP 锁定，应阻塞用户键盘输入
- */
-export function broadcastMcpSessionLocked(sessionId: string): void {
-  sendToAllWindows(IPC_CHANNELS.MCP_SESSION_LOCKED, { sessionId })
-}
-
-/**
- * 通知所有渲染窗口：指定 session 的 PTY 已解锁，恢复用户键盘输入
- */
-export function broadcastMcpSessionUnlocked(sessionId: string): void {
-  sendToAllWindows(IPC_CHANNELS.MCP_SESSION_UNLOCKED, { sessionId })
 }
 
 const allowedOpenDialogProperties = new Set<NonNullable<OpenDialogOptions['properties']>[number]>([
@@ -1343,8 +1291,8 @@ export function registerIPCHandlers(): void {
   })
 
   // MCP 审计日志查询（带过滤+分页）
-  applicationIpc.handle(IPC_CHANNELS.MCP_AUDIT_LIST, async (_event, filter: McpAuditQuery = {}) => {
-    return mcpAuditRepository.query(filter)
+  applicationIpc.handle(IPC_CHANNELS.MCP_AUDIT_LIST, async (_event, raw: unknown) => {
+    return mcpAuditRepository.query(validateMcpAuditQuery(raw))
   })
 
   // MCP 审计日志去重选项（操作名/会话），供面板下拉框
@@ -1354,8 +1302,12 @@ export function registerIPCHandlers(): void {
 
   // MCP 审计日志清空
   applicationIpc.handle(IPC_CHANNELS.MCP_AUDIT_CLEAR, async () => {
-    mcpAuditRepository.clear()
-    return { success: true }
+    try {
+      await mcpAuditRepository.clear()
+      return { success: true }
+    } catch {
+      return { success: false, error: 'Failed to commit MCP audit clear' }
+    }
   })
 
   applicationIpc.handle(IPC_CHANNELS.MCP_AUDIT_RETENTION_GET, async () => {
@@ -1366,12 +1318,13 @@ export function registerIPCHandlers(): void {
     try {
       const limit = validateMcpAuditRetentionLimit(raw)
       mcpAuditRepository.setRetentionLimit(limit)
+      await mcpAuditRepository.flush()
       return { success: true, limit }
     } catch (error) {
       const invalid = validationFailure(error)
       if (invalid) return invalid
       log.error('[MCP] Failed to save audit retention settings:', error)
-      return { success: false, error: 'Failed to save MCP audit retention settings' }
+      return { success: false, limit: mcpAuditRepository.getRetentionLimit(), error: 'Failed to commit MCP audit retention settings or log' }
     }
   })
 
