@@ -13,6 +13,7 @@ vi.mock('../storage/repository', async () => {
   return { getConfigDir: () => '.', atomicWriteFileSync: (path: string, data: string) => { fs.writeFileSync(`${path}.tmp`, data); fs.renameSync(`${path}.tmp`, path) } }
 })
 import { ProjectSceneRepository } from '../storage/project-scene-repository'
+import { RevisionConflictError } from '../storage/atomic-json'
 import { requestProjectScene, sceneDocAllowed, sceneTargetCwd } from './project-scene'
 
 describe('project scene persistence and selective restoration', () => {
@@ -97,5 +98,15 @@ describe('project scene persistence and selective restoration', () => {
     const file = join(dir, 'scenes.json'); writeFileSync(file, '{"version":2,"scenes":[]}')
     expect(() => repository.save({ target, directory: target.cwd, root: leaf([]), activeLeaf: 0 })).toThrow()
     expect(readFileSync(file, 'utf8')).toBe('{"version":2,"scenes":[]}')
+  })
+
+  it('rejects a stale expectedRevision without changing disk or memory', () => {
+    const saved = repository.save({ target, directory: target.cwd, root: leaf([{ kind: 'directory' }]), activeLeaf: 0 })
+    const revision = repository.getRevision()
+    expect(() => repository.save({ target, directory: target.cwd, root: leaf([]), activeLeaf: 0 }, { expectedRevision: revision - 1 }))
+      .toThrow(RevisionConflictError)
+    expect(repository.list().map(scene => scene.id)).toEqual([saved.id])
+    const reopened = new ProjectSceneRepository(join(dir, 'scenes.json'))
+    expect(reopened.list().map(scene => scene.id)).toEqual([saved.id])
   })
 })

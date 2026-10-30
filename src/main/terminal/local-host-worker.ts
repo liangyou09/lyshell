@@ -25,6 +25,7 @@ import {
   DEFAULT_BOOTSTRAP_TIMEOUT_MS,
   FrameDecoder,
   LOCAL_HOST_PROTOCOL_VERSION,
+  LOCAL_HOST_REQUIRED_CAPABILITIES,
   LocalHostError,
   LocalHostRingBuffer,
   MAX_SOCKET_PENDING_BYTES,
@@ -39,6 +40,13 @@ import {
   type HostBootstrapConfig,
   type LocalHostStatus
 } from './local-host-protocol'
+import {
+  checkFenceInstall,
+  checkInputFence,
+  nextFenceFloor,
+  type FenceFloor,
+  type InputFence
+} from '@shared/terminal-control'
 
 // ── PTY 抽象（生产用 node-pty，测试注入 mock）───────────────────────────────
 
@@ -162,6 +170,8 @@ export async function startHostServer(options: StartHostServerOptions): Promise<
   })
   const requestCache = new BoundedRequestCache(256)
   const attachedSockets = new Set<Socket>()
+  /** 宿主声明自己具备的能力；客户端握手时会校验必需项。 */
+  const hostCapabilities = [...LOCAL_HOST_REQUIRED_CAPABILITIES]
 
   let pty: HostPty | null = null
   let running = true
@@ -172,6 +182,13 @@ export async function startHostServer(options: StartHostServerOptions): Promise<
   let terminating = false
   let finished = false
   let active: ClientConn | null = null
+
+  /**
+   * 宿主侧输入围栏状态：唯一权威地决定「这次写入能不能落到 PTY」。
+   * 只由已附着客户端的 `input-fence` RPC 改写；断线/收尾一律清空并推进下限。
+   */
+  let activeFence: InputFence | null = null
+  let fenceFloor: FenceFloor | null = null
 
   let graceTimer: NodeJS.Timeout | null = null
   let exitTimer: NodeJS.Timeout | null = null
@@ -319,6 +336,7 @@ export async function startHostServer(options: StartHostServerOptions): Promise<
   const finish = async (): Promise<void> => {
     if (finished) return
     finished = true
+    clearInputFence()
     clearAllTimers()
     terminating = false
     crashGuardPty = null
@@ -355,6 +373,8 @@ export async function startHostServer(options: StartHostServerOptions): Promise<
 
   const onClientLost = (conn: ClientConn): void => {
     if (active !== conn) return
+    // 断线即清空围栏：旧 fence 之后既不能写，也不自动续租/重放任何输入。
+    clearInputFence()
     active = null
     stopHeartbeat()
     if (finished) return
@@ -403,7 +423,7 @@ export async function startHostServer(options: StartHostServerOptions): Promise<
     }
     if (hello.mode === 'probe') {
       // probe 只读：不占客户端位、不改 retained、不重放输出
-      writeFrame(conn, { type: 'probe', status: statusSnapshot() })
+      writeFrame(conn, { type: 'probe', status: statusSnapshot(), capabilities: hostCapabilities })
       conn.socket.end()
       return
     }
@@ -427,7 +447,7 @@ export async function startHostServer(options: StartHostServerOptions): Promise<
     conn.sent = hello.replay ? hello.cursor : ring.next
     clearGrace()
     clearExitRetention()
-    writeFrame(conn, { type: 'welcome', status: statusSnapshot(), cursor: conn.sent })
+    writeFrame(conn, { type: 'welcome', status: statusSnapshot(), cursor: conn.sent, capabilities: hostCapabilities })
     flush(conn)
     if (running) startHeartbeat()
     else broadcastExit()
@@ -459,6 +479,74 @@ export async function startHostServer(options: StartHostServerOptions): Promise<
     terminateTimer.unref?.()
   }
 
+  // ── 输入围栏 ────────────────────────────────────────────────────────────
+
+  /**
+   * 清空围栏并推进代际下限：断开之后旧 fence 既不能继续写，也不能被原样重装，
+   * 除非它仍是同一份未过期租约（由 checkFenceInstall 判定，且不延长有效期）。
+   * 这里不保留输入队列，也不重放任何历史输入。
+   */
+  const clearInputFence = (): void => {
+    if (activeFence) fenceFloor = nextFenceFloor(activeFence, fenceFloor)
+    activeFence = null
+  }
+
+  /** 安装/撤销围栏；只有 ack 成功之后新写入才开放。 */
+  const handleFenceFrame = (conn: ClientConn, frame: Extract<ClientFrame, { type: 'input-fence' }>): void => {
+    if (finished || !running) {
+      ackError(conn, frame.reqId, 'fence-rejected', 'PTY is not running')
+      return
+    }
+    if (frame.fence === null) {
+      clearInputFence()
+      ackOk(conn, frame.reqId)
+      return
+    }
+    const fence = frame.fence
+    if (!(now() < fence.expiresAt)) {
+      ackError(conn, frame.reqId, 'input-expired', 'input fence is already expired')
+      return
+    }
+    const rejection = checkFenceInstall(activeFence, fenceFloor, fence)
+    if (rejection) {
+      ackError(conn, frame.reqId, 'fence-rejected', `input fence rejected: ${rejection}`)
+      return
+    }
+    activeFence = fence
+    fenceFloor = nextFenceFloor(fence, fenceFloor)
+    ackOk(conn, frame.reqId)
+  }
+
+  /** 输入落地前最后一道核对：活动连接 + 当前 fence + 有效期，缺一不写。 */
+  const handleInputFrame = (conn: ClientConn, frame: Extract<ClientFrame, { type: 'input' }>): void => {
+    if (finished || !running || !pty) {
+      ackError(conn, frame.reqId, 'input-denied', 'PTY is not running')
+      return
+    }
+    if (active !== conn) {
+      ackError(conn, frame.reqId, 'input-denied', 'this connection is not the active host client')
+      return
+    }
+    const rejection = checkInputFence(activeFence, frame.fence, now())
+    if (rejection) {
+      ackError(
+        conn,
+        frame.reqId,
+        rejection === 'expired' ? 'input-expired' : 'input-denied',
+        `input fence rejected: ${rejection}`
+      )
+      return
+    }
+    try {
+      pty.write(frame.data)
+    } catch {
+      ackError(conn, frame.reqId, 'input-denied', 'PTY write failed')
+      return
+    }
+    // 每帧都回 ack：调用方能区分「宿主确实写了」与「被围栏拒绝」。
+    ackOk(conn, frame.reqId)
+  }
+
   const handleCommand = (conn: ClientConn, frame: ClientFrame): void => {
     switch (frame.type) {
       case 'hello':
@@ -468,17 +556,20 @@ export async function startHostServer(options: StartHostServerOptions): Promise<
         return
       case 'input': {
         if (!requestCache.accept(frame.reqId)) return
-        if (!running) return
-        try {
-          pty?.write(frame.data)
-        } catch {
-          // 写入失败由 PTY 退出路径收尾
-        }
+        handleInputFrame(conn, frame)
+        return
+      }
+      case 'input-fence': {
+        if (!requestCache.accept(frame.reqId)) return
+        // 围栏安装/撤销必须按到达顺序落地；并发 RPC 由客户端的串行链保证不重叠。
+        handleFenceFrame(conn, frame)
         return
       }
       case 'resize': {
         if (!requestCache.accept(frame.reqId)) return
         if (!running) return
+        // 无控制者时只允许 bootstrap 尺寸；已安装控制者后，迟到视图尺寸同样受围栏约束。
+        if ((activeFence || frame.fence) && checkInputFence(activeFence, frame.fence, now()) !== null) return
         // ConPTY 即使尺寸相同也可能重绘整屏；恢复/重复 fit 不能反复触发重排。
         if (frame.cols === currentCols && frame.rows === currentRows) return
         try {
@@ -553,8 +644,12 @@ export async function startHostServer(options: StartHostServerOptions): Promise<
         let frame: ClientFrame
         try {
           frame = parseClientFrame(raw)
-        } catch {
-          writeFrame(conn, { type: 'error', code: 'protocol-error', message: 'invalid frame', fatal: true })
+        } catch (error) {
+          // 保留帧解析给出的稳定 code（例如 v1 的 incompatible-version、缺能力），
+          // 不要一律压成 protocol-error：版本不兼容必须可辨。
+          const code = error instanceof LocalHostError ? error.code : 'protocol-error'
+          const message = error instanceof Error ? error.message : 'invalid frame'
+          writeFrame(conn, { type: 'error', code, message, fatal: true })
           socket.destroy()
           return
         }

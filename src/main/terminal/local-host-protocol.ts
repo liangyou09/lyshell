@@ -1,7 +1,8 @@
 /**
  * 本地 PTY 独立宿主 —— 纯协议层
  *
- * 该模块只依赖 Node 内置模块，供三处共用：
+ * 该模块只依赖 Node 内置模块与 `@shared/terminal-control`（纯 TS 契约，无 Node/Electron
+ * 依赖），供三处共用：
  *   - local-host-client.ts（Electron 主进程侧客户端）
  *   - local-host-worker.ts（ELECTRON_RUN_AS_NODE 独立宿主进程）
  *   - 单元测试（协议回环 / mock PTY）
@@ -27,11 +28,25 @@ import {
   writeFileSync
 } from 'fs'
 import { isAbsolute, join } from 'path'
+import { INPUT_CONTROL_CAPABILITY, isInputFence, type InputFence } from '@shared/terminal-control'
 
 // ── 常量 ──────────────────────────────────────────────────────────────────────
 
-/** 协议版本：帧内 v 字段，双方都必须等值，避免新旧宿主误连。 */
-export const LOCAL_HOST_PROTOCOL_VERSION = 1
+/**
+ * 协议版本：帧内 v 字段，双方都必须等值。
+ *
+ * v2 = 带输入围栏的协议：hello 声明能力、宿主有 fence 安装 RPC、每次 input 携带 fence。
+ * v1 宿主没有围栏概念，若允许它继续用 v1 帧就相当于「静默降级」回无控制的直接写，
+ * 因此两端都在解析阶段硬拒绝：版本不同一律 `incompatible-version`，不做兼容回退。
+ */
+export const LOCAL_HOST_PROTOCOL_VERSION = 2
+
+/** 双方都必须具备的最小能力集合；缺任何一个都在握手阶段被明确拒绝。 */
+export const LOCAL_HOST_REQUIRED_CAPABILITIES: readonly string[] = [INPUT_CONTROL_CAPABILITY]
+
+/** 能力名的边界（不信任入参）。 */
+export const MAX_CAPABILITIES = 32
+export const MAX_CAPABILITY_CHARS = 64
 
 /** 宿主描述文件版本。 */
 export const HOST_DESCRIPTOR_VERSION = 1
@@ -110,7 +125,11 @@ export type LocalHostErrorCode =
   | 'host-busy'
   | 'host-mismatch'
   | 'unauthorized'
+  | 'incompatible-version'
   | 'protocol-error'
+  | 'fence-rejected'
+  | 'input-denied'
+  | 'input-expired'
   | 'frame-too-large'
   | 'rpc-timeout'
   | 'terminate-timeout'
@@ -143,7 +162,11 @@ const LOCAL_HOST_ERROR_CODES: ReadonlySet<string> = new Set<LocalHostErrorCode>(
   'host-busy',
   'host-mismatch',
   'unauthorized',
+  'incompatible-version',
   'protocol-error',
+  'fence-rejected',
+  'input-denied',
+  'input-expired',
   'frame-too-large',
   'rpc-timeout',
   'terminate-timeout',
@@ -519,12 +542,17 @@ export interface ClientHelloFrame {
   mode: ClientHelloMode
   cursor: number
   replay: boolean
+  /** 客户端具备的能力；必须覆盖 LOCAL_HOST_REQUIRED_CAPABILITIES。 */
+  capabilities: string[]
 }
 
 export type ClientFrame =
   | ClientHelloFrame
-  | { v: number; type: 'input'; reqId: string; data: string }
-  | { v: number; type: 'resize'; reqId: string; cols: number; rows: number }
+  /** input 必须携带 fence：宿主在写之前核对当前活动连接 + 代际 + 有效期。 */
+  | { v: number; type: 'input'; reqId: string; data: string; fence: InputFence }
+  /** 安装/撤销输入围栏；`fence: null` = 撤销。 */
+  | { v: number; type: 'input-fence'; reqId: string; fence: InputFence | null }
+  | { v: number; type: 'resize'; reqId: string; cols: number; rows: number; fence?: InputFence }
   | { v: number; type: 'pause' }
   | { v: number; type: 'resume' }
   | { v: number; type: 'retain'; reqId: string; value: boolean }
@@ -534,8 +562,8 @@ export type ClientFrame =
   | { v: number; type: 'ping'; reqId: string }
 
 export type HostFrame =
-  | { v: number; type: 'welcome'; hostId: string; status: LocalHostStatus; cursor: number }
-  | { v: number; type: 'probe'; hostId: string; status: LocalHostStatus }
+  | { v: number; type: 'welcome'; hostId: string; status: LocalHostStatus; cursor: number; capabilities: string[] }
+  | { v: number; type: 'probe'; hostId: string; status: LocalHostStatus; capabilities: string[] }
   | { v: number; type: 'data'; hostId: string; start: number; data: string }
   | { v: number; type: 'gap'; hostId: string; from: number; to: number }
   | { v: number; type: 'exit'; hostId: string; exitCode: number }
@@ -549,6 +577,7 @@ export type HostFrame =
 const CLIENT_COMMAND_TYPES = new Set([
   'hello',
   'input',
+  'input-fence',
   'resize',
   'pause',
   'resume',
@@ -572,14 +601,64 @@ const HOST_FRAME_TYPES = new Set([
   'busy'
 ])
 
+/**
+ * 版本不一致一律按 `incompatible-version` 拒绝：这是「明确不兼容」而不是「帧格式看不懂」，
+ * 上层据此提示升级宿主，绝不静默降级到无围栏写入。
+ */
 function requireProtocolVersion(value: unknown): number {
+  if (typeof value !== 'number') {
+    throw new LocalHostError('protocol-error', 'frame is missing a numeric protocol version')
+  }
   if (value !== LOCAL_HOST_PROTOCOL_VERSION) {
     throw new LocalHostError(
-      'protocol-error',
+      'incompatible-version',
       `unsupported protocol version ${String(value)} (expected ${LOCAL_HOST_PROTOCOL_VERSION})`
     )
   }
   return LOCAL_HOST_PROTOCOL_VERSION
+}
+
+/** 能力列表：有界、去重、字符串非空；越界直接拒绝。 */
+export function parseCapabilities(value: unknown, what: string): string[] {
+  if (!Array.isArray(value) || value.length > MAX_CAPABILITIES) {
+    throw new LocalHostError('protocol-error', `${what} must be an array of at most ${MAX_CAPABILITIES} strings`)
+  }
+  const capabilities: string[] = []
+  for (const entry of value) {
+    if (typeof entry !== 'string' || entry.length === 0 || entry.length > MAX_CAPABILITY_CHARS) {
+      throw new LocalHostError('protocol-error', `${what} entries must be non-empty strings of at most ${MAX_CAPABILITY_CHARS} chars`)
+    }
+    if (!capabilities.includes(entry)) capabilities.push(entry)
+  }
+  return capabilities
+}
+
+/** 缺少必需能力 ⇒ 明确拒绝握手，不降级。 */
+export function requireCapabilities(capabilities: readonly string[], what: string): void {
+  const missing = LOCAL_HOST_REQUIRED_CAPABILITIES.filter((capability) => !capabilities.includes(capability))
+  if (missing.length > 0) {
+    throw new LocalHostError(
+      'incompatible-version',
+      `${what} is missing required capabilities: ${missing.join(', ')}`
+    )
+  }
+}
+
+/** fence 五字段必须完整且自洽；缺字段/越界一律 protocol-error。 */
+export function parseInputFence(value: unknown, what: string): InputFence {
+  if (!isInputFence(value)) {
+    throw new LocalHostError(
+      'protocol-error',
+      `${what} must be an input fence with epoch, connectionInstanceId, controllerInstanceId, leaseId and expiresAt`
+    )
+  }
+  return {
+    epoch: value.epoch,
+    connectionInstanceId: value.connectionInstanceId,
+    controllerInstanceId: value.controllerInstanceId,
+    leaseId: value.leaseId,
+    expiresAt: value.expiresAt
+  }
 }
 
 export function parseLocalHostStatus(value: unknown): LocalHostStatus {
@@ -614,6 +693,8 @@ export function parseClientFrame(value: unknown): ClientFrame {
       if (mode !== 'attach' && mode !== 'probe') {
         throw new LocalHostError('protocol-error', 'hello.mode must be attach or probe')
       }
+      const capabilities = parseCapabilities(record.capabilities, 'hello.capabilities')
+      requireCapabilities(capabilities, 'hello')
       return {
         v,
         type: 'hello',
@@ -622,7 +703,8 @@ export function parseClientFrame(value: unknown): ClientFrame {
         clientId: requireString(record.clientId, 'hello.clientId', 128),
         mode,
         cursor: record.cursor === undefined ? 0 : requireSafeInt(record.cursor, 'hello.cursor', 0, Number.MAX_SAFE_INTEGER),
-        replay: record.replay === undefined ? true : requireBoolean(record.replay, 'hello.replay')
+        replay: record.replay === undefined ? true : requireBoolean(record.replay, 'hello.replay'),
+        capabilities
       }
     }
     case 'input': {
@@ -630,13 +712,19 @@ export function parseClientFrame(value: unknown): ClientFrame {
       if (typeof data !== 'string' || data.length === 0 || data.length > MAX_INPUT_CHARS) {
         throw new LocalHostError('protocol-error', 'input.data must be a non-empty string within bounds')
       }
-      return { v, type: 'input', reqId: requireRequestId(record.reqId), data }
+      return { v, type: 'input', reqId: requireRequestId(record.reqId), data, fence: parseInputFence(record.fence, 'input.fence') }
+    }
+    case 'input-fence': {
+      const raw = record.fence
+      const fence = raw === null ? null : parseInputFence(raw, 'input-fence.fence')
+      return { v, type: 'input-fence', reqId: requireRequestId(record.reqId), fence }
     }
     case 'resize':
       return {
         v,
         type: 'resize',
         reqId: requireRequestId(record.reqId),
+        ...(record.fence === undefined ? {} : { fence: parseInputFence(record.fence, 'resize.fence') }),
         cols: requireSafeInt(record.cols, 'resize.cols', MIN_TERM_DIMENSION, MAX_TERM_DIMENSION),
         rows: requireSafeInt(record.rows, 'resize.rows', MIN_TERM_DIMENSION, MAX_TERM_DIMENSION)
       }
@@ -670,10 +758,23 @@ export function parseHostFrame(value: unknown): HostFrame {
   const v = LOCAL_HOST_PROTOCOL_VERSION
   const hostId = requireHostId(record.hostId, 'host frame hostId')
   switch (type as HostFrame['type']) {
-    case 'welcome':
-      return { v, type: 'welcome', hostId, status: parseLocalHostStatus(record.status), cursor: requireSafeInt(record.cursor, 'welcome.cursor', 0, Number.MAX_SAFE_INTEGER) }
-    case 'probe':
-      return { v, type: 'probe', hostId, status: parseLocalHostStatus(record.status) }
+    case 'welcome': {
+      const capabilities = parseCapabilities(record.capabilities, 'welcome.capabilities')
+      requireCapabilities(capabilities, 'welcome')
+      return {
+        v,
+        type: 'welcome',
+        hostId,
+        status: parseLocalHostStatus(record.status),
+        cursor: requireSafeInt(record.cursor, 'welcome.cursor', 0, Number.MAX_SAFE_INTEGER),
+        capabilities
+      }
+    }
+    case 'probe': {
+      const capabilities = parseCapabilities(record.capabilities, 'probe.capabilities')
+      requireCapabilities(capabilities, 'probe')
+      return { v, type: 'probe', hostId, status: parseLocalHostStatus(record.status), capabilities }
+    }
     case 'data': {
       const data = record.data
       if (typeof data !== 'string') throw new LocalHostError('protocol-error', 'data.data must be a string')

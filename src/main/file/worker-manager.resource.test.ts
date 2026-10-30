@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { transferScheduler } from './transfer-scheduler'
+import { transferAttemptTimeouts } from './transfer-attempt'
 import {
+  __resetUploadManagerForTests,
   cancelUpload,
   cancelUploadsBySession,
   cleanupAllUploadWorkers,
@@ -10,6 +12,7 @@ import {
   startUploadWorker,
 } from './upload-worker-manager'
 import {
+  __resetDownloadManagerForTests,
   cancelDownload,
   cancelDownloadsBySession,
   cleanupAllWorkers,
@@ -30,6 +33,7 @@ const state = vi.hoisted(() => ({
   workers: [] as any[],
   failNextConstruct: false,
   onConstruct: null as null | ((worker: any) => void),
+  trustAvailable: true,
 }))
 
 const historyMock = vi.hoisted(() => ({
@@ -44,6 +48,7 @@ vi.mock('worker_threads', async () => {
     workerData: any
     terminated = false
     exited = false
+    messages: any[] = []
 
     constructor(_script: string, options: any) {
       // 必须能在 super() 之前抛错，模拟同步构造失败
@@ -55,6 +60,11 @@ vi.mock('worker_threads', async () => {
       this.workerData = options?.workerData
       state.workers.push(this)
       state.onConstruct?.(this)
+    }
+
+    /** 管理器 → Worker 的取消通知（协作取消，不是 terminate） */
+    postMessage(message: any): void {
+      this.messages.push(message)
     }
 
     terminate(): Promise<number> {
@@ -74,6 +84,15 @@ vi.mock('../storage', () => ({
   downloadHistory: historyMock,
 }))
 
+// 主机密钥可信记录的真实行为由 ssh-trust.test.ts / ssh.hostkey.test.ts / *.hostkey.test.ts 覆盖；
+// 本文件全部是假 Worker + 假服务器，这里只固定 dispatch 前的匹配目标，避免依赖 Electron userData。
+vi.mock('../security/ssh-trust', () => ({
+  resolveTransferHostKey: (config: { host: string; port: number }) => {
+    if (!state.trustAvailable) throw Object.assign(new Error('Host trust was removed'), { name: 'SshHostKeyError', code: 'SSH_HOST_KEY_UNKNOWN' })
+    return { endpoint: `${config.host}:${config.port}`, fingerprint: `SHA256:${'A'.repeat(43)}` }
+  },
+}))
+
 const sent: any[] = []
 
 const flush = async (times = 10): Promise<void> => {
@@ -85,16 +104,58 @@ const exitWorker = (worker: any, code = 0): void => {
   worker.emit('exit', code)
 }
 
-const completeWorker = (worker: any): void => {
+/**
+ * 构造一条 Worker 终态消息（新协议：进度不等于终态，终态只由 result 消息给出）。
+ * attemptId 由主进程派发，测试中必须回传同一个值。
+ */
+const resultMessage = (worker: any, overrides: Record<string, any> = {}): any => {
   const data = worker.workerData
-  worker.emit('message', {
-    type: 'complete',
+  const size = typeof data.fileSize === 'number' ? data.fileSize : 0
+  return {
+    type: 'result',
     taskId: data.taskId,
-    sessionId: data.sessionId,
-    transferredSize: data.fileSize,
-    fileSize: data.fileSize,
-    progress: 100,
-    speed: 0,
+    attemptId: data.attemptId,
+    result: {
+      taskId: data.taskId,
+      attemptId: data.attemptId,
+      direction: 'upload',
+      outcome: 'completed',
+      phase: 'completed',
+      expectedSize: size,
+      transferredSize: size,
+      bytesWritten: size,
+      finalSize: size,
+      targetPath: data.remotePath ?? data.localPath,
+      tempPattern: '.lyshell-test.tmp',
+      tempCleanup: 'removed',
+      fileFsync: 'synced',
+      directoryFsync: 'unsupported',
+      commitStrategy: 'posix-rename',
+      commitDispatched: true,
+      committed: true,
+      warnings: [],
+      ...overrides,
+    },
+  }
+}
+
+const emitResult = (worker: any, overrides: Record<string, any> = {}): void => {
+  worker.emit('message', resultMessage(worker, overrides))
+}
+
+const completeWorker = (worker: any): void => {
+  emitResult(worker)
+}
+
+/** Worker 确认取消（已关闭句柄、只清理了自己的临时文件） */
+const confirmCancelledWorker = (worker: any): void => {
+  emitResult(worker, {
+    outcome: 'cancelled',
+    phase: 'verifying',
+    committed: false,
+    commitDispatched: false,
+    tempCleanup: 'removed',
+    error: { code: 'TRANSFER_CANCELLED', message: 'cancelled' },
   })
 }
 
@@ -170,6 +231,61 @@ const drainAll = async (maxRounds = 80): Promise<void> => {
 }
 
 describe('transfer worker manager resource limits', () => {
+  it.each(['upload', 'download'])('%s 已获额度但尚未恢复时取消，必须补发唯一取消终态', async direction => {
+    if (direction === 'upload') {
+      void startUploadWorker(uploadTask('cancel-before-microtask'))
+      expect(cancelUpload('cancel-before-microtask')).toBe(true)
+    } else {
+      void startDownloadWorker(downloadTask('cancel-before-microtask'))
+      expect(cancelDownload('cancel-before-microtask')).toBe(true)
+    }
+    await flush(16)
+    expect(state.workers).toHaveLength(0)
+    expect(receipts(item => item.taskId === 'cancel-before-microtask' && item.cancelled)).toHaveLength(1)
+    expect(transferScheduler.stats()).toMatchObject({ active: 0, queued: 0 })
+  })
+
+  it.each(['upload', 'download'])('%s 同路径排队期间忘记主机，不得用旧信任创建新 Worker', async direction => {
+    if (direction === 'upload') {
+      void startUploadWorker(uploadTask('trust-first', { remotePath: '/same' }))
+      void startUploadWorker(uploadTask('trust-queued', { remotePath: '/same' }))
+    } else {
+      void startDownloadWorker(downloadTask('trust-first', { localPath: '/same' }))
+      void startDownloadWorker(downloadTask('trust-queued', { localPath: '/same' }))
+    }
+    await flush(16)
+    expect(state.workers).toHaveLength(1)
+    state.trustAvailable = false
+    completeWorker(state.workers[0])
+    exitWorker(state.workers[0])
+    await flush(20)
+    expect(state.workers).toHaveLength(1)
+    expect(receipts(item => item.taskId === 'trust-queued' && item.failed)).toHaveLength(1)
+    expect(transferScheduler.stats()).toMatchObject({ active: 0, queued: 0 })
+  })
+
+  it.each(['upload', 'download'])('%s 排队期间调用方撤权，派发前拒绝且释放名额', async direction => {
+    let authorized = true
+    let queued: Promise<unknown>
+    if (direction === 'upload') {
+      void startUploadWorker(uploadTask('auth-first', { remotePath: '/same' }))
+      queued = runUploadWorkerAndWait(uploadTask('auth-queued', { remotePath: '/same' }), () => authorized).catch(error => error)
+    } else {
+      void startDownloadWorker(downloadTask('auth-first', { localPath: '/same' }))
+      queued = runDownloadWorkerAndWait(downloadTask('auth-queued', { localPath: '/same' }), () => authorized).catch(error => error)
+    }
+    await flush(16)
+    expect(state.workers).toHaveLength(1)
+    authorized = false
+    completeWorker(state.workers[0]); exitWorker(state.workers[0])
+    await flush(20)
+    // 旧实现仍创建第二个 Worker；先推进它，确保失败断言也不会留下未结算 Promise。
+    if (state.workers[1]) { completeWorker(state.workers[1]); exitWorker(state.workers[1]) }
+    expect(await queued).toMatchObject({ code: 'FORBIDDEN' })
+    expect(state.workers).toHaveLength(1)
+    expect(transferScheduler.stats()).toMatchObject({ active: 0, queued: 0 })
+  })
+
   it('首个微任务之前会话断开，已发放的额度也不会创建迟到 Worker', async () => {
     const upload = runUploadWorkerAndWait(uploadTask('immediate-up')).catch(error => error)
     registerDownloadMeta('immediate-down')
@@ -200,6 +316,11 @@ describe('transfer worker manager resource limits', () => {
     state.workers.length = 0
     state.failNextConstruct = false
     state.onConstruct = null
+    state.trustAvailable = true
+    __resetUploadManagerForTests()
+    __resetDownloadManagerForTests()
+    transferAttemptTimeouts.cancelGraceMs = 10_000
+    transferAttemptTimeouts.terminateWaitMs = 2_000
 
     const window = {
       isDestroyed: () => false,
@@ -340,7 +461,7 @@ describe('transfer worker manager resource limits', () => {
     expect(transferScheduler.stats()).toMatchObject({ active: 0, queued: 0 })
   })
 
-  it('会话取消覆盖路径串行队列、全局队列与活动 Worker，并补发 cancelled 回执', async () => {
+  it('会话取消：排队任务立即回执，活动 Worker 确认后才上报 cancelled', async () => {
     for (let index = 0; index < 6; index++) {
       registerDownloadMeta(`d${index}`)
     }
@@ -358,18 +479,44 @@ describe('transfer worker manager resource limits', () => {
     expect(transferScheduler.stats()).toMatchObject({ active: 4, queued: 2 })
 
     expect(cancelDownloadsBySession('s1')).toBe(6)
-    const cancelled = receipts(item => item.cancelled === true)
-    expect(cancelled.map(item => item.taskId).sort()).toEqual(['d0', 'd1', 'd2', 'd3', 'd4', 'd5'])
 
-    await flush(8)
+    // 从未创建 Worker 的任务没有需要回滚的副作用，可以立即确认取消
+    const immediately = receipts(item => item.cancelled === true).map(item => item.taskId).sort()
+    expect(immediately).toEqual(['d1', 'd4', 'd5'])
+    // 活动任务收到的是协作取消通知，管理器不会立即宣布 cancelled
+    for (const worker of aliveWorkers()) {
+      expect(worker.messages).toContainEqual({
+        type: 'cancel',
+        taskId: worker.workerData.taskId,
+        attemptId: worker.workerData.attemptId,
+      })
+    }
+    expect(
+      receipts(item => item.cancelled === true && ['d0', 'd2', 'd3'].includes(item.taskId)),
+    ).toHaveLength(0)
+    // 取消确认前，活动任务的额度与线程都保持不变
     expect(state.workers).toHaveLength(3)
-    expect(state.workers.some(worker => worker.workerData.taskId === 'd1')).toBe(false)
+    expect(getActiveTaskCount()).toBe(3)
 
-    for (const worker of aliveWorkers()) exitWorker(worker, 1)
+    // Worker 关闭句柄、只清理自己的临时文件后回报 cancelled，管理器才补发终态回执
+    for (const worker of aliveWorkers()) {
+      confirmCancelledWorker(worker)
+      exitWorker(worker, 1)
+    }
     await flush(12)
+
+    expect(receipts(item => item.cancelled === true).map(item => item.taskId).sort()).toEqual([
+      'd0',
+      'd1',
+      'd2',
+      'd3',
+      'd4',
+      'd5',
+    ])
     expect(getActiveTaskCount()).toBe(0)
     expect(transferScheduler.stats()).toMatchObject({ active: 0, queued: 0 })
     expect(state.workers).toHaveLength(3)
+    expect(state.workers.some(worker => worker.workerData.taskId === 'd1')).toBe(false)
     expect(historyMock.addRecord).not.toHaveBeenCalled()
   })
 
@@ -385,7 +532,7 @@ describe('transfer worker manager resource limits', () => {
     expect(transferScheduler.stats()).toMatchObject({ active: 4, queued: 1 })
 
     cleanupAllUploadWorkers()
-    expect(getActiveUploadCount()).toBe(0)
+    expect(getActiveUploadCount()).toBe(3)
     await flush(8)
     expect(state.workers).toHaveLength(3)
 
@@ -396,19 +543,26 @@ describe('transfer worker manager resource limits', () => {
     expect(receipts(item => item.completed === true)).toHaveLength(0)
   })
 
-  it('取消后迟到的 complete 不写下载历史，单任务取消不重复回执', async () => {
+  it('取消请求发出后：Worker 确认才报 cancelled；已提交则取消无效、按完成上报', async () => {
     registerDownloadMeta('late')
     startDownloadWorker(downloadTask('late'))
     await flush(10)
     expect(state.workers).toHaveLength(1)
 
-    // 单任务取消：manager 负责终止/清理，cancelled 回执由 IPC 层统一发送，避免重复
+    // 单任务取消：只发送协作取消通知，不立即宣布 cancelled（cancelled 回执由 IPC 层先发，属于 IPC 契约）
     expect(cancelDownload('late')).toBe(true)
     expect(receipts(item => item.taskId === 'late')).toHaveLength(0)
+    expect(state.workers[0].messages).toContainEqual({
+      type: 'cancel',
+      taskId: 'late',
+      attemptId: state.workers[0].workerData.attemptId,
+    })
 
-    // 取消已生效，迟到的 complete 不能再点亮完成状态或写历史
-    completeWorker(state.workers[0])
-    await flush(8)
+    // Worker 在提交前收到取消：关闭句柄、清理临时文件后确认
+    confirmCancelledWorker(state.workers[0])
+    await flush(6)
+    const cancelledReceipts = receipts(item => item.taskId === 'late' && item.cancelled === true)
+    expect(cancelledReceipts).toHaveLength(1)
     expect(receipts(item => item.taskId === 'late' && item.completed === true)).toHaveLength(0)
     expect(historyMock.addRecord).not.toHaveBeenCalled()
 
@@ -416,6 +570,20 @@ describe('transfer worker manager resource limits', () => {
     await flush(8)
     expect(getActiveTaskCount()).toBe(0)
     expect(historyMock.addRecord).not.toHaveBeenCalled()
+
+    // 竞态另一种结局：取消通知到达时提交已经完成 —— 取消无效，必须报完成并写历史
+    registerDownloadMeta('late-won')
+    startDownloadWorker(downloadTask('late-won'))
+    await flush(10)
+    const winner = state.workers[1]
+    expect(cancelDownload('late-won')).toBe(true)
+    completeWorker(winner)
+    await flush(6)
+    expect(receipts(item => item.taskId === 'late-won' && item.completed === true)).toHaveLength(1)
+    expect(receipts(item => item.taskId === 'late-won' && item.cancelled === true)).toHaveLength(0)
+    expect(historyMock.addRecord).toHaveBeenCalledTimes(1)
+    exitWorker(winner, 0)
+    await flush(8)
   })
 
   it('error 后额度仍被占用，迟到 complete 不覆盖终态，exit 后才 settle', async () => {
@@ -434,7 +602,7 @@ describe('transfer worker manager resource limits', () => {
     expect(receipts(item => item.taskId === 'err' && item.completed === true)).toHaveLength(0)
 
     exitWorker(state.workers[0], 1)
-    await expect(pending).rejects.toThrow('boom')
+    await expect(pending).rejects.toThrow('未回报终态')
     await flush(4)
     expect(transferScheduler.stats().active).toBe(0)
     expect(receipts(item => item.taskId === 'err')).toHaveLength(1)
@@ -465,7 +633,7 @@ describe('transfer worker manager resource limits', () => {
     await drainAll()
   })
 
-  it('上传会话取消覆盖路径串行队列与全局队列并补发 cancelled 回执', async () => {
+  it('上传会话取消：路径队列与全局队列立即回执，活动 Worker 确认后才报 cancelled', async () => {
     // cu1 与 cu0 同 endpoint 同远程路径：先占额度、再进入路径串行队列；cu4/cu5 进入全局队列
     startUploadWorker(uploadTask('cu0', { host: 'same-host', remotePath: '/same/remote' }))
     startUploadWorker(uploadTask('cu1', { host: 'same-host', remotePath: '/same/remote' }))
@@ -480,10 +648,23 @@ describe('transfer worker manager resource limits', () => {
     expect(transferScheduler.stats()).toMatchObject({ active: 4, queued: 2 })
 
     expect(cancelUploadsBySession('s1')).toBe(6)
-    const cancelled = receipts(item => item.cancelled === true)
-    expect(cancelled.map(item => item.taskId).sort()).toEqual(
-      ['cu0', 'cu1', 'cu2', 'cu3', 'cu4', 'cu5'],
-    )
+    // 路径队列 cu1、全局队列 cu4/cu5 从未创建 Worker，可立即确认取消
+    expect(receipts(item => item.cancelled === true).map(item => item.taskId).sort()).toEqual([
+      'cu1',
+      'cu4',
+      'cu5',
+    ])
+    // 活动 Worker 只收到取消通知，等它关闭句柄并清理临时文件后确认
+    for (const worker of aliveWorkers()) {
+      expect(worker.messages).toContainEqual({
+        type: 'cancel',
+        taskId: worker.workerData.taskId,
+        attemptId: worker.workerData.attemptId,
+      })
+    }
+    expect(
+      receipts(item => item.cancelled === true && ['cu0', 'cu2', 'cu3'].includes(item.taskId)),
+    ).toHaveLength(0)
 
     // 排队任务（路径队列 cu1、全局队列 cu4/cu5）在取消后从不创建 Worker
     await flush(8)
@@ -492,8 +673,19 @@ describe('transfer worker manager resource limits', () => {
       state.workers.some(worker => ['cu1', 'cu4', 'cu5'].includes(worker.workerData.taskId)),
     ).toBe(false)
 
-    for (const worker of aliveWorkers()) exitWorker(worker, 1)
+    for (const worker of aliveWorkers()) {
+      confirmCancelledWorker(worker)
+      exitWorker(worker, 1)
+    }
     await flush(12)
+    expect(receipts(item => item.cancelled === true).map(item => item.taskId).sort()).toEqual([
+      'cu0',
+      'cu1',
+      'cu2',
+      'cu3',
+      'cu4',
+      'cu5',
+    ])
     expect(getActiveUploadCount()).toBe(0)
     expect(transferScheduler.stats()).toMatchObject({ active: 0, queued: 0 })
     expect(receipts(item => item.completed === true)).toHaveLength(0)

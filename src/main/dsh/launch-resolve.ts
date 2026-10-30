@@ -9,6 +9,7 @@ import { detectDependencies } from '../harness/detect'
 import { launchResolveSerializer, type TaskSerializer } from '../harness/task-serializer'
 import { resolveLaunchWorktree, type LaunchWorktreeResult } from '../harness/worktree'
 import { readSystemPath } from '../env/refresh'
+import { childEnvironment } from '../env/child-environment'
 import { normalizeDshHomeEnv, resolveDshHome, type NormalizedEnvResult } from './env'
 
 /**
@@ -75,7 +76,7 @@ export function materializeLaunchEnv(input: {
   overrides?: Record<string, string>
 }): MaterializedLaunchEnv {
   return {
-    base: { ...input.base },
+    base: childEnvironment(input.base),
     systemPath: input.systemPath ?? null,
     overrides: input.overrides ? { ...input.overrides } : undefined
   }

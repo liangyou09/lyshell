@@ -18,6 +18,38 @@ function fixture() {
 }
 
 describe('xterm 消费后确认', () => {
+  it('有限历史先排队重置，再重放数据，防旧解析状态污染新历史', async () => {
+    let receive!: (id: string, data: string, receipt?: TerminalOutputReceipt) => void
+    const writes: string[] = []
+    const control = vi.fn(async () => ({ success: true, subscriptionId: 'new', historyTruncated: true }))
+    const api = { terminalOutputControl: control, onTerminalData: (callback: typeof receive) => { receive = callback; return () => {} } } as unknown as ElectronAPI
+    const stop = bindTerminalOutput('a', { write: data => { writes.push(String(data)) } }, api)
+    receive('a', 'bounded-history', { subscriptionId: 'new', sequence: 1 })
+    await vi.waitFor(() => expect(writes).toHaveLength(2))
+    expect(writes[0].startsWith('\x1bc')).toBe(true)
+    expect(writes[1]).toBe('bounded-history')
+    stop()
+  })
+
+  it('主机历史缺口重新订阅，旧 write callback 不确认新订阅', async () => {
+    let receive!: (id: string, data: string, receipt?: TerminalOutputReceipt) => void
+    const writes: Array<{ data: string; done?: () => void }> = []
+    let sequence = 0
+    const control = vi.fn(async (request: TerminalOutputControl) => request.kind === 'subscribe'
+      ? { success: true, subscriptionId: `s${++sequence}` } : { success: true })
+    const api = { terminalOutputControl: control, onTerminalData: (callback: typeof receive) => { receive = callback; return () => {} } } as unknown as ElectronAPI
+    const stop = bindTerminalOutput('a', { write: (data, done) => { writes.push({ data: String(data), done }) } }, api)
+    await Promise.resolve()
+    receive('a', 'old', { subscriptionId: 's1', sequence: 1 })
+    await vi.waitFor(() => expect(writes[0]?.data).toBe('old'))
+    receive('a', '', { subscriptionId: 's1', sequence: 2, error: 'history-gap' })
+    await vi.waitFor(() => expect(sequence).toBe(2))
+    writes[0].done!()
+    expect(control.mock.calls.some(([request]) => request.kind === 'ack')).toBe(false)
+    expect(writes.some(write => write.data.startsWith('\x1bc'))).toBe(true)
+    stop()
+  })
+
   it('等 write callback 完成才发 ACK，忽略其他订阅', async () => {
     const f = fixture()
     f.ready()

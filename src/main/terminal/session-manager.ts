@@ -13,8 +13,22 @@ import { getMcpHttpPort } from '@main/mcp/http-port'
 import * as mcpAuth from '@main/mcp/auth'
 import { tuiActivity } from '../harness/tui-activity'
 import { captureSshContext, formatSshHistoryForTerminal, normalizeSshDirectory } from './shelf-ssh-context'
+import type { SshHostKeyChallenge } from '../security/ssh-host-key'
+import type { BaseConnector } from '../connectors/base'
+import { InputControlService } from './input-control'
+import type { ControlHandle, ControllerIdentity } from '@shared/terminal-control'
+import { OperationError } from '@shared/operation'
+import { applicationCallers } from '../security/application-caller'
+import { OutputHistoryBudget } from './output-budget'
+import { assertResolvedSecrets } from '../storage/secret-store'
+import { assertNoSecretPlaceholders } from '../storage/session-secrets'
 
 const SHELL_OPEN_CLEANUP_TIMEOUT_MS = 5000
+
+export interface SessionConnectOptions {
+  /** 只允许可信 GUI 入口注入；外部连接配置不能提供确认函数。 */
+  confirmHostKey?: (challenge: SshHostKeyChallenge) => Promise<boolean>
+}
 
 /** 创建失败也要继续关闭；等待超时则保留资源，不能误报已经关闭。 */
 async function waitForShellOpeningForCleanup(opening: Promise<void>): Promise<void> {
@@ -60,6 +74,8 @@ export interface SendAndWaitOptions {
    * 仅适用于简单 shell 命令；对交互式程序（vim 等）无意义且会污染其输入。
    */
   captureExitCode?: boolean
+  control?: ControlHandle
+  authorizeInput?: () => boolean
 }
 
 /** send_and_wait 结果 */
@@ -131,6 +147,9 @@ export interface Session {
   mcpLockCount?: number  // MCP PTY 锁引用计数：并发 send_input/send_and_wait 各持一份，归零才真正解锁
   disconnectCleanup?: Promise<void>  // 自然 close / 显式 disconnect 共用的幂等清理
   connectorGeneration?: number  // 每次连接递增，隔离旧 connector 的迟到事件
+  connectionInstanceId?: string
+  startupPending?: boolean
+  outputHistoryGap?: boolean
   connectPromise?: Promise<Session>  // 同一 Session 的连接尝试串行化
 }
 
@@ -139,14 +158,54 @@ export interface Session {
  * 管理所有连接会话
  */
 export class SessionManager extends EventEmitter {
+  private inputChains = new Map<string, Promise<void>>()
+  private inputPending = new Map<string, number>()
+  private totalInputPending = 0
+  private closing = false
+
+  beginShutdown(): Promise<void> {
+    this.closing = true
+    return this.invalidateInput('shutdown')
+  }
+
+  invalidateInput(reason: string): Promise<void> {
+    const pending = this.inputControl.invalidateAll()
+    this.emit('terminal:control-invalidated', { reason })
+    return pending
+  }
+  readonly inputControl = new InputControlService({
+    onFence: async (id, fence) => {
+      const session = this.sessions.get(id)
+      const connector = session?.connector
+      if (!connector || (fence && session?.connectionInstanceId !== fence.connectionInstanceId)) {
+        if (fence) throw new OperationError('STALE_GENERATION', 'Terminal connection was replaced')
+        return
+      }
+      if (connector instanceof LocalConnector) await connector.setInputControl(fence)
+    },
+    isCredentialCurrent: identity => identity.source === 'gui'
+      ? applicationCallers.isPrincipalCurrent(identity.principalId)
+      : identity.source === 'internal' || !!identity.credentialId && mcpAuth.isCredentialIdCurrent(identity.credentialId)
+  })
+  private readonly outputHistory = new OutputHistoryBudget()
+
+  private createOutputBuffer(limit = 1024 * 1024): OutputBuffer {
+    const buffer = new OutputBuffer(limit)
+    this.outputHistory.attach(buffer)
+    buffer.setCapacity(limit)
+    return buffer
+  }
+
+  outputDiagnostics(): ReturnType<OutputHistoryBudget['snapshot']> { return this.outputHistory.snapshot() }
+
   retainSshContext(id: string, retained: boolean, history?: string): void {
     const session = this.sessions.get(id)
     if (!session || session.config.type !== ConnectionType.SSH) return
-    if (!retained) { session.shelfOutputBuffer = undefined; session.pendingShelfHistory = undefined; return }
+    if (!retained) { if (session.shelfOutputBuffer) this.outputHistory.release(session.shelfOutputBuffer); session.shelfOutputBuffer = undefined; session.pendingShelfHistory = undefined; return }
     const historyText = history ? captureSshContext(history) : undefined
     if (historyText) session.pendingShelfHistory = formatSshHistoryForTerminal(historyText)
     if (session.shelfOutputBuffer) return
-    const buffer = new OutputBuffer(64 * 1024)
+    const buffer = this.createOutputBuffer(64 * 1024)
     if (historyText) buffer.append(historyText)
     buffer.append(session.outputBuffer?.getOutputSince(0, false).text ?? '')
     session.shelfOutputBuffer = buffer
@@ -166,6 +225,8 @@ export class SessionManager extends EventEmitter {
    * 创建新会话
    */
   async createSession(config: SessionConfig): Promise<Session> {
+    if (this.closing) throw new OperationError('FORBIDDEN', 'Application is shutting down')
+    if (this.sessions.size >= 256) throw new OperationError('RESOURCE_LIMIT', 'Runtime session limit reached')
     const id = config.id || uuidv4()
     if (this.sessions.has(id)) {
       throw new Error(`Session already exists: ${id}`)
@@ -213,7 +274,7 @@ export class SessionManager extends EventEmitter {
     const session = this.sessions.get(id)
     if (!session) return
     session.outputPaused = paused
-    session.connector?.setOutputPaused?.(paused)
+    if (session.connector?.capabilities?.pauseOutput !== false) session.connector?.setOutputPaused?.(paused)
   }
 
   /**
@@ -368,10 +429,12 @@ export class SessionManager extends EventEmitter {
 
     try {
       await this.disconnectSession(id)
-      outputBuffer?.clear()
+      if (outputBuffer && !this.outputHistory.release(outputBuffer)) outputBuffer.clear()
+      if (session.shelfOutputBuffer) this.outputHistory.release(session.shelfOutputBuffer)
       session.outputBuffer = undefined
       // 只移除本次清理的对象，旧删除不能按 ID 误删替代会话或发送其删除事件。
       if (this.sessions.get(id) === session) {
+        await this.inputControl.forgetSession(id)
         this.sessions.delete(id)
         if (this.activeSessionId === id) this.activeSessionId = null
         for (const ids of this.terminalOpenSessions.values()) ids.delete(id)
@@ -392,19 +455,22 @@ export class SessionManager extends EventEmitter {
   /**
    * 连接会话。同一 Session 的并发调用复用同一个 Promise，完整串行化连接生命周期。
    */
-  async connectSession(id: string): Promise<Session> {
+  async connectSession(id: string, options: SessionConnectOptions = {}): Promise<Session> {
+    if (this.closing) throw new OperationError('FORBIDDEN', 'Application is shutting down')
     const session = this.sessions.get(id)
     if (!session) throw new Error(`Session not found: ${id}`)
     if (this.isSessionDeleting(id)) throw new Error(`Session is being deleted: ${id}`)
+    assertNoSecretPlaceholders(session.config)
+    if (session.config.local) assertResolvedSecrets(session.config.local)
     if (this.failedDisconnects.has(session)) throw new Error(`Previous disconnect failed: ${id}`)
     if (session.connectPromise) {
       if (!session.disconnectCleanup) return session.connectPromise
       try { await session.connectPromise } catch { /* 旧 attempt 被断开/替代 */ }
       if (this.sessions.get(id) !== session) throw new Error(`Session replaced: ${id}`)
-      return this.connectSession(id)
+      return this.connectSession(id, options)
     }
 
-    const promise = this.connectSessionAttempt(id, session)
+    const promise = this.connectSessionAttempt(id, session, options)
     session.connectPromise = promise
     try {
       return await promise
@@ -413,7 +479,7 @@ export class SessionManager extends EventEmitter {
     }
   }
 
-  private async connectSessionAttempt(id: string, session: Session): Promise<Session> {
+  private async connectSessionAttempt(id: string, session: Session, options: SessionConnectOptions): Promise<Session> {
     const disconnect = this.disconnectingSessions.get(session) ?? session.disconnectCleanup
     if (disconnect) await disconnect
     if (this.sessions.get(id) !== session) throw new Error(`Session replaced: ${id}`)
@@ -430,6 +496,7 @@ export class SessionManager extends EventEmitter {
     session.connector = undefined
     let connector: Session['connector']
     const isCurrentAttempt = (): boolean =>
+      !this.closing &&
       this.sessions.get(id) === session &&
       !this.isSessionDeleting(id) &&
       session.disconnectCleanup === undefined &&
@@ -448,7 +515,7 @@ export class SessionManager extends EventEmitter {
       switch (session.config.type) {
         case ConnectionType.SSH:
           // 保存区只在本机保留上下文；历史配置中的 tmux 开关不再改变连接方式。
-          session.connector = new SSHConnector(id, withRuntimeEncoding({ ...session.config.ssh as SSHConfig, keepSessionAlive: false, resumeSessionName: undefined }, session))
+          session.connector = new SSHConnector(id, withRuntimeEncoding({ ...session.config.ssh as SSHConfig, keepSessionAlive: false, resumeSessionName: undefined }, session), { confirmHostKey: options.confirmHostKey })
           break
         case ConnectionType.TELNET:
           session.connector = new TelnetConnector(id, withRuntimeEncoding(session.config.telnet as TelnetConfig, session))
@@ -494,9 +561,13 @@ export class SessionManager extends EventEmitter {
       // generation + Session/connector 身份校验，防旧 attempt 的迟到事件污染新连接。
       connector = session.connector
       if (!connector || !isCurrentAttempt()) throw new Error(`Connection superseded: ${id}`)
-      connector.setOutputPaused?.(session.outputPaused ?? false)
+      session.connectionInstanceId = uuidv4()
+      this.inputControl.bindSession(id, session.connectionInstanceId)
+      if (connector.capabilities?.pauseOutput !== false) connector.setOutputPaused?.(session.outputPaused ?? false)
 
-      session.outputBuffer = new OutputBuffer()
+      if (session.outputBuffer) this.outputHistory.release(session.outputBuffer)
+      session.outputBuffer = this.createOutputBuffer()
+      session.outputHistoryGap = false
       if (session.config.type === ConnectionType.SSH && session.pendingShelfHistory) {
         const history = session.pendingShelfHistory
         session.pendingShelfHistory = undefined
@@ -525,6 +596,13 @@ export class SessionManager extends EventEmitter {
           this.emit('session:cwd-changed', { sessionId: id, cwd: nextCwd })
         }
       })
+      connector.on('output-gap', () => {
+        if (!isCurrentAttempt()) return
+        session.outputBuffer?.clear()
+        session.shelfOutputBuffer?.clear()
+        session.outputHistoryGap = true
+        this.emit('terminal:history-gap', { sessionId: id })
+      })
       connector.on('close', () => {
         if (!isCurrentAttempt()) return
         void this.disconnectSession(id).catch((err) => {
@@ -547,6 +625,7 @@ export class SessionManager extends EventEmitter {
 
       if (!isCurrentAttempt()) throw new Error(`Connection superseded: ${id}`)
       session.status = ConnectionStatus.CONNECTED
+      session.startupPending = !resumedLocal && !!session.config.startupCommands?.length
       session.lastActiveAt = new Date()
 
       // 应用 pending 的终端尺寸（如果在连接前已经发送了 resize）
@@ -561,7 +640,6 @@ export class SessionManager extends EventEmitter {
       session.config.connectCount = (session.config.connectCount || 0) + 1
 
       log.info(`Session connected: ${id}`)
-      this.emit('session:status', { id, status: ConnectionStatus.CONNECTED })
 
       // 工作目录初始落位:连接期间已检出 OSC 更新值时检出值优先(不被种子
       // 覆盖),否则回落 spawn 种子 —— 此时 connect 已跑完,getSpawnCwd 读到的
@@ -583,13 +661,12 @@ export class SessionManager extends EventEmitter {
       if (!resumedLocal && session.config.startupCommands && session.config.startupCommands.length > 0) {
         // 本地终端启动快，200ms；远程连接需等待 shell 就绪，500ms
         const delay = session.config.type === ConnectionType.LOCAL ? 200 : 500
-        setTimeout(() => {
-          if (!isCurrentAttempt()) return
-          for (const cmd of session.config.startupCommands!) {
-            this.writeToSession(id, cmd + '\r')
-          }
-        }, delay)
+        await new Promise(resolve => setTimeout(resolve, delay))
+        if (!isCurrentAttempt()) throw new OperationError('STALE_GENERATION', 'Startup connection changed')
+        await this.sendStartupCommands(id, session, isCurrentAttempt)
       }
+      session.startupPending = false
+      this.emit('session:status', { id, status: ConnectionStatus.CONNECTED })
 
       return session
 
@@ -627,6 +704,7 @@ export class SessionManager extends EventEmitter {
     if (session.disconnectCleanup) return session.disconnectCleanup
 
     session.status = ConnectionStatus.DISCONNECTED
+    session.startupPending = false
     cancelDownloadsBySession(id)
     cancelUploadsBySession(id)
 
@@ -640,6 +718,7 @@ export class SessionManager extends EventEmitter {
       }
       if (!isSameSession()) return
       mcpAuth.revokeSessionToken(id)
+      await this.inputControl.unbindSession(id)
       if (!isSameSession()) return
 
       if (session.lockedByMcp) {
@@ -654,7 +733,7 @@ export class SessionManager extends EventEmitter {
       if (bufferToClean) {
         session.outputBuffer = undefined
         // sendAndWait 已持有自己的 buffer 引用，回合结束即可 GC；无需用 30s 定时器额外保活。
-        if (!session.pendingWaitLock) bufferToClean.clear()
+        if (!session.pendingWaitLock && !this.outputHistory.release(bufferToClean)) bufferToClean.clear()
       }
     })()
     return session.disconnectCleanup
@@ -715,7 +794,7 @@ export class SessionManager extends EventEmitter {
   /**
    * 重连会话
    */
-  async reconnectSession(id: string): Promise<Session> {
+  async reconnectSession(id: string, options: SessionConnectOptions = {}): Promise<Session> {
     const session = this.sessions.get(id)
     if (!session) throw new Error(`Session not found: ${id}`)
     if (this.isSessionDeleting(id)) throw new Error(`Session is being deleted: ${id}`)
@@ -723,26 +802,100 @@ export class SessionManager extends EventEmitter {
     // 断开等待后复核身份，不能重连同 ID 的替代对象或删除中的旧会话。
     if (this.sessions.get(id) !== session) throw new Error(`Session replaced: ${id}`)
     if (this.isSessionDeleting(id)) throw new Error(`Session is being deleted: ${id}`)
-    return await this.connectSession(id)
+    return await this.connectSession(id, options)
   }
 
   /**
    * 写入数据到会话
    */
-  writeToSession(id: string, data: string): void {
-    const session = this.sessions.get(id)
-    if (!session || !session.connector) {
-      log.warn(`Cannot write to session: ${id}`)
-      return
+  async writeToSession(id: string, data: string, control?: ControlHandle, authorized: () => boolean = () => true): Promise<void> {
+    const pending = this.inputPending.get(id) ?? 0
+    if (data.length > 1024 * 1024 || pending + data.length > 2 * 1024 * 1024 || this.totalInputPending + data.length > 8 * 1024 * 1024) {
+      throw new OperationError('RESOURCE_LIMIT', 'Terminal input queue budget exceeded')
     }
+    this.inputPending.set(id, pending + data.length)
+    this.totalInputPending += data.length
+    const previous = this.inputChains.get(id) ?? Promise.resolve()
+    const run = previous.catch(() => {}).then(() => this.dispatchInput(id, data, control, authorized))
+    this.inputChains.set(id, run)
+    try { await run } finally {
+      this.totalInputPending -= data.length
+      const remaining = (this.inputPending.get(id) ?? data.length) - data.length
+      if (remaining > 0) this.inputPending.set(id, remaining)
+      else this.inputPending.delete(id)
+      if (this.inputChains.get(id) === run) this.inputChains.delete(id)
+    }
+  }
 
-    session.connector.write(data)
+  private async dispatchInput(id: string, data: string, control: ControlHandle | undefined, authorized: () => boolean): Promise<void> {
+    if (this.closing) throw new OperationError('FORBIDDEN', 'Application is shutting down')
+    const session = this.sessions.get(id)
+    const connector = session?.connector
+    if (!session || !connector || session.status !== ConnectionStatus.CONNECTED) throw new OperationError('RESOURCE_NOT_FOUND', 'Terminal is not connected')
+    if (!control || control.sessionId !== id) throw new OperationError('CONTROL_CONFLICT', 'Acquire terminal input control before writing')
+    let offset = 0
+    try {
+    do {
+    if (this.closing) throw new OperationError('FORBIDDEN', 'Application is shutting down')
+    const fence = await this.inputControl.assertInput(control)
+    const current = this.inputControl.currentSnapshot(id)
+    if (this.sessions.get(id) !== session || session.connector !== connector || session.connectionInstanceId !== fence.connectionInstanceId
+      || current?.lease?.leaseId !== fence.leaseId || current.lease.epoch !== fence.epoch || Date.now() >= current.lease.expiresAt) {
+      throw new OperationError('STALE_GENERATION', 'Terminal input control changed before dispatch')
+    }
+    if (!authorized()) throw new OperationError('FORBIDDEN', 'Terminal input authorization was revoked')
+    let end = Math.min(offset + 32 * 1024, data.length)
+    if (end < data.length && /[\uD800-\uDBFF]/.test(data[end - 1]) && /[\uDC00-\uDFFF]/.test(data[end])) end--
+    try { await (connector as BaseConnector).writeConfirmed(data.slice(offset, end), fence) }
+    catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && ['rpc-timeout', 'disconnected'].includes(String(error.code))) {
+        throw new OperationError('OUTCOME_UNKNOWN', 'Terminal input acknowledgement was lost; inspect output before sending more input', 'reconcile-first')
+      }
+      throw error
+    }
+    offset = end
+    } while (offset < data.length)
+    } catch (error) {
+      if (offset > 0) throw new OperationError('OUTCOME_UNKNOWN', 'Terminal input was only partially acknowledged; inspect the terminal before sending more input', 'reconcile-first')
+      throw error
+    }
+  }
+
+  private async sendStartupCommands(id: string, session: Session, current: () => boolean): Promise<void> {
+    const handle = await this.inputControl.acquire({ sessionId: id, identity: { principalId: 'internal:startup', source: 'internal' } })
+    try {
+      for (const command of session.config.startupCommands ?? []) {
+        if (!current()) throw new OperationError('STALE_GENERATION', 'Startup connection changed')
+        await this.writeToSession(id, command + '\r', handle, current)
+      }
+    } finally { await this.inputControl.release(handle) }
+  }
+
+  async acquireInput(id: string, identity: ControllerIdentity, options: { takeover?: boolean; contextConfirmed?: boolean } = {}): Promise<ControlHandle> {
+    if (this.closing) throw new OperationError('FORBIDDEN', 'Application is shutting down')
+    if (this.sessions.get(id)?.startupPending) throw new OperationError('CONTROL_CONFLICT', 'Configured startup input is still being sent')
+    const handle = await this.inputControl.acquire({ sessionId: id, identity, ...options })
+    const lockedByMcp = identity.source === 'automation'
+    const session = this.sessions.get(id)
+    if (session) session.lockedByMcp = lockedByMcp
+    this.emit('session:mcp-lock-changed', { sessionId: id, lockedByMcp })
+    return handle
+  }
+
+  async releaseInput(control: ControlHandle): Promise<void> {
+    await this.inputControl.release(control)
+    if (this.inputControl.currentSnapshot(control.sessionId)?.lease?.source !== 'automation') {
+      const session = this.sessions.get(control.sessionId)
+      if (session) session.lockedByMcp = false
+      this.emit('session:mcp-lock-changed', { sessionId: control.sessionId, lockedByMcp: false })
+    }
   }
 
   /**
    * 调整会话终端尺寸
    */
   resizeSession(id: string, cols: number, rows: number): void {
+    if (this.closing) return
     const session = this.sessions.get(id)
     if (!session) {
       log.warn(`Cannot resize session: ${id}`)
@@ -786,6 +939,8 @@ export class SessionManager extends EventEmitter {
    * 克隆渠道（在现有 SSH 连接上创建新 shell channel）
    */
   async cloneChannel(sourceSessionId: string): Promise<{ id: string; status: ConnectionStatus; config: SessionConfig } | null> {
+    if (this.closing) throw new OperationError('FORBIDDEN', 'Application is shutting down')
+    if (this.sessions.size >= 256) throw new OperationError('RESOURCE_LIMIT', 'Runtime session limit reached')
     const sourceSession = this.sessions.get(sourceSessionId)
     if (!sourceSession) {
       log.warn(`Source session not found: ${sourceSessionId}`)
@@ -850,12 +1005,14 @@ export class SessionManager extends EventEmitter {
     newConnector.setSharedClient(sshClient)  // 共享 SSH client
 
     newSession.connector = newConnector
+    newSession.connectionInstanceId = uuidv4()
+    this.inputControl.bindSession(newId, newSession.connectionInstanceId)
 
     // 在首个异步 shell 请求前完成缓冲和监听绑定，否则首包/关闭/错误会落进空窗。
-    newSession.outputBuffer = new OutputBuffer()
+    newSession.outputBuffer = this.createOutputBuffer()
     let openingError: Error | undefined
     const isCurrentClone = (): boolean =>
-      this.sessions.get(newId) === newSession && newSession.connector === newConnector &&
+      !this.closing && this.sessions.get(newId) === newSession && newSession.connector === newConnector &&
       !newSession.disconnectCleanup && !this.isSessionDeleting(newId)
     const cloneCwdTracker = new OscCwdTracker()
     newConnector.on('data', (data: string) => {
@@ -901,7 +1058,7 @@ export class SessionManager extends EventEmitter {
 
       if (openingError) throw openingError
 
-      if (this.sessions.get(newId) !== newSession || this.sessions.get(sourceSessionId) !== sourceSession
+      if (this.closing || this.sessions.get(newId) !== newSession || this.sessions.get(sourceSessionId) !== sourceSession
         || sourceSession.status !== ConnectionStatus.CONNECTED || newSession.disconnectCleanup
         || (owner && !pluginResources.isCurrent(owner, resourceGeneration))) {
         throw new Error('Cloned channel was cancelled while opening')
@@ -1021,13 +1178,14 @@ export class SessionManager extends EventEmitter {
     const connector = session.connector
     const dataListener = () => { lastDataTime = Date.now() }
     let lastDataTime: number
+    const buffer = session.outputBuffer!
 
     try {
-      const buffer = session.outputBuffer!
       const startCursor = buffer.getWriteCursor()
+      const outputEpoch = buffer.getOutputEpoch()
 
       // 发送输入（在锁保护范围内，确保 write 抛错也能释放锁）
-      connector.write(processedText)
+      if (processedText) await this.writeToSession(id, processedText, options.control, options.authorizeInput)
 
       // 事件驱动更新最近数据时间
       lastDataTime = Date.now()
@@ -1036,6 +1194,12 @@ export class SessionManager extends EventEmitter {
       const startTime = Date.now()
       // eslint-disable-next-line no-constant-condition
       while (true) {
+        if (buffer.getOutputEpoch() !== outputEpoch || buffer.getEarliestCursor() > startCursor) {
+          throw new OperationError('OUTCOME_UNKNOWN', 'Output history has a gap; reconcile before sending more input', 'reconcile-first')
+        }
+        if (this.sessions.get(id) !== session || session.connector !== connector || session.status !== ConnectionStatus.CONNECTED) {
+          throw new OperationError('OUTCOME_UNKNOWN', 'Terminal disconnected while observing output', 'reconcile-first')
+        }
         const now = Date.now()
         const elapsed = now - startTime
         const idleSince = now - lastDataTime
@@ -1069,6 +1233,7 @@ export class SessionManager extends EventEmitter {
     } finally {
       connector.off('data', dataListener)
       session.pendingWaitLock = false
+      if (session.outputBuffer !== buffer) this.outputHistory.release(buffer)
     }
   }
 }

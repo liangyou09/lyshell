@@ -1,3 +1,4 @@
+import { childEnvironment } from '../env/child-environment'
 import { spawn, ChildProcess } from 'child_process'
 import { app } from 'electron'
 import { join, resolve } from 'path'
@@ -320,7 +321,7 @@ export class PythonEngine extends EventEmitter {
 
     // 准备执行环境
     const env = {
-      ...process.env,
+      ...childEnvironment(process.env),
       ...context?.env,
       LYSHELL_SESSION_ID: context?.session?.id || '',
       LYSHELL_SESSION_TYPE: context?.session?.type || '',
@@ -414,7 +415,7 @@ export class PythonEngine extends EventEmitter {
         cwd,
         timeout: context?.onCancel ? undefined : timeout,
         env: {
-          ...process.env,
+          ...childEnvironment(process.env),
           ...context?.env,
           LYSHELL_SESSION_ID: context?.session?.id || '',
           LYSHELL_SESSION_TYPE: context?.session?.type || '',
@@ -488,7 +489,7 @@ export class PythonEngine extends EventEmitter {
       detached: context?.detached,
       cwd,
       env: {
-        ...process.env,
+        ...childEnvironment(process.env),
         ...context?.env,
         LYSHELL_SESSION_ID: context?.session?.id || '',
         LYSHELL_SESSION_TYPE: context?.session?.type || '',

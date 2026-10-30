@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { SessionConfig, SerialPortInfo, TerminalEncoding } from '@shared/types'
+import type { SessionConfig, SessionPublicConfig, SerialPortInfo, TerminalEncoding } from '@shared/types'
+import { isSecretPlaceholder, SECRET_PLACEHOLDER } from '@shared/harness'
 import { ConnectionType } from '@shared/types'
 import { DEFAULT_THEME_DARK, TERMINAL_ENCODINGS } from '@shared/constants'
 import { useEscDismiss } from '../../hooks'
+import type { SshTrustedHost } from '@shared/ssh-trust'
 
 interface SessionDialogProps {
   open: boolean
@@ -21,7 +23,7 @@ interface SessionDialogProps {
    * 不再阻塞 dialog —— 避免串口/local 这种瞬时连接抢跑 React commit 导致 dialog 卡死。
    */
   onSubmit: (config: SessionConfig) => Promise<string | null | undefined> | string | null | undefined | void
-  initialConfig?: SessionConfig
+  initialConfig?: SessionPublicConfig
 }
 
 const PROTO_ACCENT: Record<ConnectionType, string> = {
@@ -59,6 +61,9 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
   const [sshUser, setSshUser] = useState('')
   const [sshPassword, setSshPassword] = useState('')
   const [sshPrivateKey, setSshPrivateKey] = useState('')
+  const [sshPassphrase, setSshPassphrase] = useState('')
+  const [trustedHosts, setTrustedHosts] = useState<SshTrustedHost[]>([])
+  const [trustError, setTrustError] = useState('')
 
   const [telnetHost, setTelnetHost] = useState('')
   const [telnetPort, setTelnetPort] = useState('23')
@@ -165,8 +170,9 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       setSshHost(initialConfig.ssh?.host || '')
       setSshPort(initialConfig.ssh?.port?.toString() || '22')
       setSshUser(initialConfig.ssh?.username || '')
-      setSshPassword(initialConfig.ssh?.password || '')
-      setSshPrivateKey(initialConfig.ssh?.privateKey || '')
+      setSshPassword(initialConfig.ssh?.password || (initialConfig.sshSecrets?.password?.present ? SECRET_PLACEHOLDER : ''))
+      setSshPrivateKey(initialConfig.ssh?.privateKey || (initialConfig.sshSecrets?.privateKey?.present ? SECRET_PLACEHOLDER : ''))
+      setSshPassphrase(initialConfig.ssh?.passphrase || (initialConfig.sshSecrets?.passphrase?.present ? SECRET_PLACEHOLDER : ''))
       setShellEnterLines(
         (initialConfig.ssh?.shellEnterCommands || '').split('\n').filter(Boolean)
       )
@@ -194,6 +200,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       setSshUser('')
       setSshPassword('')
       setSshPrivateKey('')
+      setSshPassphrase('')
       setShellEnterLines([])
       setSshShellEnterWait('1000')
       setTelnetHost('')
@@ -228,6 +235,27 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
     if (!open || type !== ConnectionType.SERIAL) return
     scanSerialPorts()
   }, [open, type, scanSerialPorts])
+
+  useEffect(() => {
+    if (!open || !window.electronAPI?.sshTrust) return
+    let active = true
+    void window.electronAPI.sshTrust({ kind: 'list' }).then(result => {
+      if (!active) return
+      setTrustedHosts(result.records ?? [])
+      setTrustError(result.error ?? '')
+    }).catch(() => { if (active) setTrustError(t('session.hostKeyReadFailed')) })
+    return () => { active = false }
+  }, [open, t])
+
+  const trustedHost = trustedHosts.find(record => record.host === sshHost.trim().replace(/^\[|\]$/g, '').toLowerCase() && record.port === Number(sshPort))
+  const forgetHost = async () => {
+    if (!trustedHost) return
+    try {
+      const result = await window.electronAPI.sshTrust({ kind: 'forget', host: trustedHost.host, port: trustedHost.port })
+      setTrustedHosts(result.records ?? [])
+      setTrustError(result.error ?? '')
+    } catch { setTrustError(t('session.hostKeyReadFailed')) }
+  }
 
   const handleCancel = () => {
     // 提交后 dialog 立即关闭,无 linking 中间态需要回滚 —— 直接关掉即可。
@@ -289,8 +317,9 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
         host: sshHost.trim(),
         port: parseInt(sshPort) || 22,
         username: sshUser,
-        password: sshPassword || undefined,
-        privateKey: sshPrivateKey || undefined,
+        password: sshPassword,
+        privateKey: sshPrivateKey,
+        passphrase: sshPassphrase,
         shellEnterCommands: shellEnterLines.filter(Boolean).join('\n') || undefined,
         shellEnterWait: parseInt(sshShellEnterWait) || undefined
       }
@@ -309,6 +338,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
       }
     } else if (type === ConnectionType.LOCAL) {
       config.local = {
+        ...initialConfig?.local,
         shell: localShell || undefined,
         cwd: localCwd || undefined
       }
@@ -985,9 +1015,9 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
               <FieldRow label={t('session.fieldAuth')}>
                 <input
                   type="password"
-                  value={sshPassword}
+                  value={isSecretPlaceholder(sshPassword) ? '' : sshPassword}
                   onChange={e => setSshPassword(e.target.value)}
-                  placeholder={t('session.authPasswordPlaceholder')}
+                  placeholder={t(isSecretPlaceholder(sshPassword) ? 'session.secretStored' : 'session.authPasswordPlaceholder')}
                   className="flex-1 bg-transparent border-b text-[14px] text-[var(--text-rack)] focus:outline-none font-mono pb-1.5"
                   style={{
                     borderBottomColor: sshPassword ? accent : 'var(--rule)',
@@ -997,6 +1027,7 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                   onFocus={e => { e.currentTarget.style.borderBottomColor = accent }}
                   onBlur={e => { e.currentTarget.style.borderBottomColor = sshPassword ? accent : 'var(--rule)' }}
                 />
+                {isSecretPlaceholder(sshPassword) && <button type="button" className="text-xs underline ml-1" onClick={() => setSshPassword('')}>{t('session.clearSavedSecret')}</button>}
                 <span
                   className="text-[12px] text-[var(--text-rack-mute)] mx-3 self-center"
                   style={{ fontFamily: '-apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' }}
@@ -1004,9 +1035,9 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                   {t('session.authOr')}
                 </span>
                 <input
-                  value={sshPrivateKey}
+                  value={isSecretPlaceholder(sshPrivateKey) ? '' : sshPrivateKey}
                   onChange={e => setSshPrivateKey(e.target.value)}
-                  placeholder={t('session.keyPlaceholder')}
+                  placeholder={t(isSecretPlaceholder(sshPrivateKey) ? 'session.secretStored' : 'session.keyPlaceholder')}
                   className="flex-1 bg-transparent border-b text-[13px] text-[var(--text-rack)] focus:outline-none font-mono pb-1.5"
                   style={{
                     borderBottomColor: sshPrivateKey ? accent : 'var(--rule)',
@@ -1018,7 +1049,23 @@ const SessionDialog: React.FC<SessionDialogProps> = ({
                 />
               </FieldRow>
 
+              {sshPrivateKey && <FieldRow label={t('session.keyPassphrase')}>
+                <input type="password" value={isSecretPlaceholder(sshPassphrase) ? '' : sshPassphrase}
+                  onChange={event => setSshPassphrase(event.target.value)}
+                  placeholder={t(isSecretPlaceholder(sshPassphrase) ? 'session.secretStored' : 'session.keyPassphrase')}
+                  className="flex-1 min-w-0 bg-transparent border-b border-[var(--rule)] text-sm font-mono pb-1.5" />
+                {isSecretPlaceholder(sshPassphrase) && <button type="button" className="text-xs underline ml-1" onClick={() => setSshPassphrase('')}>{t('session.clearSavedSecret')}</button>}
+              </FieldRow>}
+              {isSecretPlaceholder(sshPrivateKey) && <button type="button" className="text-xs underline mt-1" onClick={() => { setSshPrivateKey(''); setSshPassphrase('') }}>{t('session.clearSavedKey')}</button>}
+
               <p className="mt-3 pt-2.5 border-t border-[var(--rule-soft)] text-[11px] text-[var(--text-rack-mute)] leading-relaxed">{t('taskShelf.sshContextHint')}</p>
+              <div className="mt-2 text-[11px] leading-relaxed text-[var(--text-rack-mute)]">
+                {trustError ? <p role="alert">{trustError}</p> : trustedHost ? <>
+                  <p>{t('session.trustedHostKey')} · {trustedHost.algorithm}</p>
+                  <p className="break-all font-mono select-text">{trustedHost.fingerprint}</p>
+                  <button type="button" className="mt-1 underline underline-offset-2" onClick={() => { void forgetHost() }}>{t('session.forgetHostKey')}</button>
+                </> : <p>{t('session.verifyHostKeyOnConnect')}</p>}
+              </div>
             </div>
           )}
 

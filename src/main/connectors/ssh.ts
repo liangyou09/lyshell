@@ -15,6 +15,17 @@ import {
   shellQuote,
   TMUX_EXIT_SESSION_MISSING
 } from './ssh-persistence'
+import {
+  createSsh2HostVerifier,
+  isSshHostKeyError,
+  SSH_HOST_KEY_CONFIRM_TIMEOUT_MS,
+  SshHostKeyError,
+  type Ssh2HostVerifier,
+  type SshHostKeyChallenge
+} from '../security/ssh-host-key'
+import { authorizeSshHostKey } from '../security/ssh-trust'
+
+export type { SshHostKeyChallenge }
 
 /**
  * SSH 配置
@@ -36,6 +47,17 @@ export interface SSHConfig {
   resumeDirectory?: string
 }
 
+/**
+ * SSH 终端连接器运行期选项（第三个构造参数）。
+ *
+ * `confirmHostKey` 只能由可信 GUI 建连路径注入：它是「弹给用户看并等用户点确认」的
+ * 能力，绝不能来自会话配置、外部 HTTP/MCP 请求或插件自报。
+ * 缺省（不传）时未知或变化的主机密钥一律拒绝 —— 自动化通道不会因此变成「首次即信任」。
+ */
+export interface SSHConnectorRuntimeOptions {
+  confirmHostKey?: (challenge: SshHostKeyChallenge) => Promise<boolean>
+}
+
 /** 托管 shell 建立后观察窗口：窗口内通道就关闭说明 tmux 立刻退出，不能当连接成功。 */
 const MANAGED_SHELL_SETTLE_MS = 300
 /** 探测 tmux 的远端命令超时。 */
@@ -54,6 +76,9 @@ function tailText(text: string, max: number): string {
  * SSH 连接器
  */
 export class SSHConnector extends BaseConnector {
+  get capabilities() {
+    return { interactiveInput: true, resize: true, exec: true, fileTransfer: true, pauseOutput: true, reattach: false }
+  }
   /** transport 由所有存活 channel 共同持有，最后一个释放时关闭。 */
   private static clientOwners = new WeakMap<Client, Set<SSHConnector>>()
   private config: SSHConfig
@@ -83,10 +108,35 @@ export class SSHConnector extends BaseConnector {
   private managedShellReady: Promise<void> | null = null
   /** transport 已断开：此时不能再发清理命令。 */
   private linkLost = false
+  /** 运行期选项（主机密钥人工确认只能从这里来）。 */
+  private readonly runtimeOptions: SSHConnectorRuntimeOptions
+  /** 主机密钥校验期次：每次 connect 递增，disconnect/关闭后旧期次的确认作废。 */
+  private hostKeyAttempt = 0
+  /** 本次连接是否仍在等待/允许主机密钥校验推进。 */
+  private hostKeyActive = false
+  /** 主机密钥拒绝的明确原因（ssh2 只报「Host denied」，要换成带 code 的错误）。 */
+  private hostKeyFailure: SshHostKeyError | null = null
 
-  constructor(sessionId: string, config: SSHConfig) {
+  constructor(sessionId: string, config: SSHConfig, runtimeOptions: SSHConnectorRuntimeOptions = {}) {
     super(sessionId, config.encoding)
     this.config = config
+    this.runtimeOptions = runtimeOptions
+  }
+
+  /**
+   * 握手 readyTimeout：带人工确认时放宽到覆盖确认窗口，
+   * 否则用户在确认框前犹豫 30 秒就会被默认超时打断（确认完也回不来）。
+   */
+  private connectionReadyTimeout(hasHostKeyConfirm: boolean): number {
+    const configured = this.config.readyTimeout || 30000
+    return hasHostKeyConfirm ? Math.max(configured, SSH_HOST_KEY_CONFIRM_TIMEOUT_MS + 5000) : configured
+  }
+
+  /** 取出并清空本次连接的主机密钥失败原因 */
+  private consumeHostKeyFailure(): SshHostKeyError | null {
+    const failure = this.hostKeyFailure
+    this.hostKeyFailure = null
+    return failure
   }
 
   /** 是否启用远端可续接终端（用户开关，或运行期注入了恢复名）。 */
@@ -283,6 +333,14 @@ export class SSHConnector extends BaseConnector {
     this.retainClient(client)
     this._connecting = true
 
+    // 主机密钥校验绑定「本次 connect 的实例 + 期次」：disconnect/关闭后 isActive 变为
+    // false，晚到的确认既不会被保存，也不能用来推进已经放弃的握手。
+    const hostKeyAttempt = ++this.hostKeyAttempt
+    this.hostKeyActive = true
+    this.hostKeyFailure = null
+    const hostKeyStillActive = (): boolean =>
+      this.hostKeyActive && this.hostKeyAttempt === hostKeyAttempt && this.client === client
+
     const onReady = () => {
       if (this.client !== client) return
       log.info('SSH connection ready')
@@ -306,14 +364,18 @@ export class SSHConnector extends BaseConnector {
 
     const onError = (err: Error) => {
       if (this.client !== client) return
+      // 主机密钥拒绝必须把明确原因（code + 指纹）交给调用方：ssh2 自己只报
+      // 「Host denied (verification failed)」，界面无法据此提示「密钥变了」。
+      const hostKeyFailure = this.consumeHostKeyFailure()
+      const surfaced: Error = hostKeyFailure ?? err
       // 提取关键错误信息（去掉堆栈）
-      const errMsg = err.message?.split('\n')[0]?.replace(/^Error:\s*/, '') || err.toString()
-      log.error(`SSH connection error: ${errMsg}`)
-      this._connectReject?.(err)
+      const errMsg = surfaced.message?.split('\n')[0]?.replace(/^Error:\s*/, '') || surfaced.toString()
+      log.error(`SSH connection error${hostKeyFailure ? ` [${hostKeyFailure.code}]` : ''}: ${errMsg}`)
+      this._connectReject?.(surfaced)
       this._connecting = false
       this._connectReject = null
       this.connected = false
-      this.emitError(err)
+      this.emitError(surfaced)
     }
 
     const onClose = () => {
@@ -330,13 +392,32 @@ export class SSHConnector extends BaseConnector {
     })
 
     // 连接配置
-    const connectionConfig: ConnectConfig = {
+    // 注意：这里必须显式配置 hostVerifier。ssh2 在未配置时默认**接受任何主机密钥**
+    // （README R10），不校验就等于没有主机身份。
+    const confirmHostKey = this.runtimeOptions.confirmHostKey
+    const connectionConfig: ConnectConfig & { hostVerifier: Ssh2HostVerifier } = {
       host: this.config.host,
       port: this.config.port,
       username: this.config.username,
-      readyTimeout: this.config.readyTimeout || 30000, // 同 upload/download worker 的默认值，慢握手服务器(如 UseDNS 超时)10 秒不够
+      readyTimeout: this.connectionReadyTimeout(!!confirmHostKey), // 同 upload/download worker 的默认值，慢握手服务器(如 UseDNS 超时)10 秒不够；带确认时覆盖确认窗口
       keepaliveInterval: this.config.keepaliveInterval || 10000, // 默认 10 秒心跳
       keepaliveCountMax: 3, // 3 次心跳失败后断开
+      hostVerifier: createSsh2HostVerifier({
+        host: this.config.host,
+        port: this.config.port,
+        isActive: hostKeyStillActive,
+        decide: async (key) => {
+          await authorizeSshHostKey(key, this.config.host, this.config.port, {
+            confirm: confirmHostKey,
+            isActive: hostKeyStillActive
+          })
+        },
+        onReject: (error) => {
+          this.hostKeyFailure = isSshHostKeyError(error)
+            ? error
+            : new SshHostKeyError('SSH_HOST_KEY_REJECTED', `SSH 主机密钥校验失败：${error instanceof Error ? error.message : String(error)}`)
+        }
+      })
     }
 
     // 认证方式
@@ -684,6 +765,12 @@ export class SSHConnector extends BaseConnector {
    */
   async disconnect(): Promise<void> {
     log.info('SSH disconnecting')
+
+    // 本次连接的主机密钥校验期次作废：之后到达的「信任」确认既不能保存记录，
+    // 也不能用来推进一个已经被用户放弃的握手。
+    this.hostKeyActive = false
+    this.hostKeyAttempt++
+    this.hostKeyFailure = null
 
     // 如果正在连接中，主动取消连接
     if (this._connecting && this._connectReject) {

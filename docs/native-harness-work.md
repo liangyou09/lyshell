@@ -21,12 +21,12 @@ LyShell 可以直接接收外部任务，使用官方 DeepSeek Harness 执行，
 | `targets` | 无 | 返回默认会话视图；`sessions` 同时包含本凭据所有会话各自的最新任务视图 |
 | `new` | `workspace?` | 新建并选择会话；指定时必须是已存在的绝对目录，省略使用后台启动目录 |
 | `select` | `sessionId` | 设置默认读取会话，不影响任何任务的执行 |
-| `submit` | `sessionId`, `text`, `requestId` | 提交任务；文本非空，最多 32000 字符；requestId 非空，最多 128 字符 |
+| `submit` | `sessionId`, `text`, `requestId`, `idempotencyKey?` | 提交任务；文本非空，最多 32000 字符；requestId / 可选 idempotencyKey 非空，最多 128 字符 |
 | `cancel` | `taskId`, `sessionId?` | 只停止指定运行任务；可附会话核对归属，接受停止后仍须轮询该任务的官方终态 |
 | `approve` | `id`, `optionId`, `sessionId?`, `taskId?` | 只回答该审批 ID；可附任务/会话核对归属，必须使用返回的 ID 和 options |
 | `disconnect` | 无 | 该凭据所有任务结束且无在途变更时解除默认会话选择与后台租约，不删除历史、不停止共享后台 |
 | `recover` | 无 | 显式恢复后台并返回 targets；不顶掉活进程、不重放任务、不修改模式或权限 |
-| `resume` | `sessionId`, `taskId`, `requestId`, `text` | 核对副作用后显式续接中断任务；保留 taskId，新建 attemptId，text 是剩余工作指令 |
+| `resume` | `sessionId`, `taskId`, `requestId`, `text`, `idempotencyKey?` | 核对副作用后显式续接中断任务；保留 taskId，新建 attemptId，text 是剩余工作指令 |
 
 每种请求只允许对应参数；未知字段、未知 kind、过长或缺失字段返回 400。**同一凭据不同会话可并行执行，每个会话最多一个活动任务。** submit 直接使用其 `sessionId`，无需事先 select，也不改变默认选择。新建/切换会话可以与任务执行并行；同会话的并发提交立即返回 409 `task/busy`，不排队。`accepted`、`running`、`unconfirmed` 都占用本会话；官方工作台已在该会话运行时也拒绝提交。disconnect 在任一会话任务非终态或变更在途时返回 409。
 
@@ -62,6 +62,14 @@ requestId 在整个凭据内唯一；相同 requestId 必须对应相同 session
 审批包含官方提供的 `callId`（若有），可与 `transcript` 中 `tool-call` / `tool-result` 的同名字段关联，核对具体工具参数后再决定；并行调用同一工具时不要仅按 `toolName` 匹配。输出被截断而无法核对操作时，不应猜测批准。
 
 ## 调用示例
+
+### 提交、观测与取消事实
+
+`task.submissionState` 表示 `dispatching / accepted / unknown`；`task.observationState` 表示 `pending / live / stale / offline`；`task.lastConfirmedState` 保留最后得到证据的业务状态，未知时为 null。后台掉线不会把已知提交事实改成未提交。`task.cancelRequestedAt` 只是取消请求时间，不能代替官方 `turn/end`。终态不会被迟到进度覆盖。
+
+可选 `idempotencyKey` 表达同一次提交的明确重试：同键同参数返回原任务，即使 requestId 不同；正文、会话、首次固定 workspace 或 resume 目标不同则拒绝。键按当前 credential 隔离，不应包含秘密或任务正文。省略时保持 requestId 去重兼容。桥先持久登记再派发；登记或回执未知时保留名额，禁止通过换键绕过未知任务。是否持久化以实际 backend 能力为准，旧 backend 不能获得跨重启 exactly-once 保证。
+
+完成校验必须同时核对 backend identity、sessionId、taskId、attemptId 与所属官方终态；只看到 `accepted`、`cancelRequestedAt`、旧磁盘快照或另一次 attempt 的结果都不成立。审批仍须使用该任务返回的实际 ID 和 options，由用户决定；从不因为重启自动恢复批准。
 
 PowerShell 中使用进程已获得的连接包；示例不显示 token：
 
@@ -131,3 +139,9 @@ submit 的 HTTP 超时、桥失败或断线可能发生在官方已接单之后�
 - `recover` 是显式后台恢复；默认 state/targets 始终不启动后台。`resume` 必须提供核对后的剩余工作指令和新 requestId；逻辑 taskId 和 API sessionId 不变，attemptId/attempt/executionIdentity 描述新一轮执行；executionSessionId 是官方冷 fork 的实际执行会话，原生工作台导航自动跟随它。旧未完回合不被 resolveAgent 唤醒。官方缺少安全 fork 能力时返回 task/resume-unsupported，不能降级重放。跨后台比较时必须核对 attemptId，不能把旧 completed 回执当作新 attempt 完成。
 - 持久化只能恢复控制记录和上下文，不能回滚工具已经产生的副作用；未知提交和未确认进程的工具不得自动重发。整个 LyShell 退出后不会自动续跑任务；用户恢复后台后再核对续接。
 - 新协议沿用 host-only 桥版本 2，snapshot 的 durability 明确报告 durable/volatile/unavailable。安装时必须整目录更新 dsh-bridge；仅替换 index.mjs 不完整。
+
+## 代码复审后的幂等关联约束（2026-10-29）
+
+`requestId` 一旦被提交或同键重试占用，就只能关联原提交；提供另一个 `idempotencyKey` 也不能覆盖它。同键同参使用新的 requestId 重试时，新 ID 会登记为原请求的别名；后续省略键仍返回原任务，不会再派发。并发等待期间同样预留别名，持久任务登记在派发前同时保存这些关联。
+
+每 owner 的 **退役去重摘要与别名合计上限为 10000**（前文的 10000 去重预算包含两者），另有最多 256 完整请求。已满时拒绝新增关联或需要新增摘要的提交，保留已有去重结果；不能通过淘汰未知结果恢复执行。别名随 schema 1 的可选字段保存，旧日志可读，损坏或悬空关联会拒绝恢复。显式键应使用不透明 ID，不放任务正文或凭据。

@@ -11,6 +11,7 @@ import AdmZip from 'adm-zip'
 import { base64Transform } from './src/stdio'
 import { validateManifest } from '../../src/shared/plugin-types'
 import { FileManager } from '../../src/main/file/manager'
+import { SshTrustStore, setSshTrustStoreForTests } from '../../src/main/security/ssh-trust'
 import { Worker } from 'worker_threads'
 import { build } from 'esbuild'
 import type { startService } from './src/main'
@@ -55,7 +56,8 @@ function words(command: string): string[] {
 async function request(route: string, data?: unknown) {
   const response = await fetch(`http://127.0.0.1:${service.port}${route}`, {
     method: data === undefined ? 'GET' : 'POST',
-    headers: { Origin: origin, Authorization: `Bearer ${token}`, ...(data === undefined ? {} : { 'Content-Type': 'application/json' }) },
+    // 夹具每次显式建连接，避免慢负载下复用已被服务端关闭的空闲 socket；不重试提交。
+    headers: { Origin: origin, Authorization: `Bearer ${token}`, Connection: 'close', ...(data === undefined ? {} : { 'Content-Type': 'application/json' }) },
     body: data === undefined ? undefined : JSON.stringify(data)
   })
   return { status: response.status, data: await response.json() as { error?: string; task: { id: string; state: string; error?: string; transferredSize: number } } }
@@ -173,9 +175,13 @@ beforeAll(async () => {
   })
   await new Promise<void>(resolve => sshServer.listen(0, '127.0.0.1', resolve))
   port = (sshServer.address() as net.AddressInfo).port
+  const trust = new SshTrustStore({ filePath: path.join(directory, 'trusted-fixture.json') })
+  trust.trust({ host: '127.0.0.1', port, algorithm: 'ssh-rsa', fingerprint })
+  setSshTrustStoreForTests(trust)
 }, 20000)
 
 afterAll(async () => {
+  setSshTrustStoreForTests(null)
   await service?.stop()
   for (const child of children) child.kill()
   for (const socket of sockets) socket.destroy()
@@ -279,7 +285,8 @@ describe('安装包真实 SSH 传输（SFTP 被禁用）', () => {
         const before = commands
         const messages: Array<{ type: string; error?: string; message?: string }> = []
         const worker = new Worker(path.join(directory, 'builtin', `${direction}-worker.js`), { workerData: {
-          taskId: 'builtin-test', sessionId: 'fixture', method,
+          taskId: 'builtin-test', attemptId: `fixture-${direction}-${method}`, sessionId: 'fixture', method,
+          hostKey: { endpoint: `127.0.0.1:${port}`, fingerprint },
           sshConfig: { host: '127.0.0.1', port, username: 'fixture', password: 'fixture-only' },
           localPath: path.join(directory, 'source-base64-0'), remotePath: '/fixture/no-transfer', fileSize: 0
         } })

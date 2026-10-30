@@ -11,6 +11,20 @@ vi.mock('electron', () => ({
   app: { getPath: () => tmpdir() }
 }))
 
+// 秘密存储：测试环境没有 safeStorage，注入指向唯一临时文件的真实 SecretStore，
+// 避免 vitest 并发文件共用默认 vault 或迁移因后端不可用而失败。
+vi.mock('./secret-store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./secret-store')>()
+  const { createTestCipher, secretTestPath } = await import('./secret-store.test-support')
+  return {
+    ...actual,
+    secretStore: new actual.SecretStore({
+      filePath: secretTestPath('env-profile-repository-test-secrets.json'),
+      cipher: createTestCipher()
+    })
+  }
+})
+
 import { EnvProfileRepository } from './env-profile-repository'
 
 // 独立文件名：vitest 并发跑多个测试文件，与其他测试共用 tmpdir 会互踩
@@ -98,14 +112,14 @@ describe('EnvProfileRepository（全局变量组库）', () => {
       expect(p.env).toEqual({ CODEX_HOME: 'C:/x' })
     })
 
-    it('add / update 透传结构化核心并持久化，update 整条替换（核心缺席即清空）', () => {
+    it('add / update 透传结构化核心并持久化，update 整条替换（空串清除核心，缺省保留）', () => {
       const repo = newRepo()
       const a = repo.add({ name: 'a', baseUrl: 'https://u', apiKey: 'sk', env: {} })!
       expect(repo.get(a.id)?.baseUrl).toBe('https://u')
       // 持久化可读回
       expect(newRepo().get(a.id)?.apiKey).toBe('sk')
-      // 换掉核心（保留附加变量）
-      expect(repo.update({ ...repo.get(a.id)!, baseUrl: 'https://v2', apiKey: undefined, env: { K: '1' } })).toBe(true)
+      // 空串表示显式清除；缺省（undefined）在新语义下表示保留，见 secret-migration 测试
+      expect(repo.update({ ...repo.get(a.id)!, baseUrl: 'https://v2', apiKey: '', env: { K: '1' } })).toBe(true)
       expect(repo.get(a.id)?.baseUrl).toBe('https://v2')
       expect(repo.get(a.id)?.apiKey).toBeUndefined()
       expect(repo.get(a.id)?.env).toEqual({ K: '1' })

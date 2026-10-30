@@ -1,7 +1,7 @@
-import { copyFileSync, existsSync, readFileSync, renameSync } from 'fs'
+import { existsSync, readFileSync, renameSync } from 'fs'
 import { join } from 'path'
 import log from 'electron-log'
-import { HARNESS_AGENT_KINDS, liftStructuredFields, type HarnessAgentKind, type HarnessEnvProfile } from '@shared/harness'
+import { HARNESS_AGENT_KINDS, isSecretPlaceholder, type HarnessAgentKind, type HarnessEnvProfile } from '@shared/harness'
 import { atomicWriteFileSync, getConfigDir } from '../storage/repository'
 import { envProfileRepository, normalizeProfile } from '../storage/env-profile-repository'
 
@@ -55,7 +55,15 @@ export function migrateKindEnvProfilesToGlobal(): void {
         log.error(`[${kind}] env profile migration: failed to save global store, will retry next launch`)
         continue
       }
-      // 成功后旧文件改名保留（不删，可回滚）；下次启动旧文件不在 = no-op
+      // 成功后仅保留可恢复的引用快照，不能把旧明文文件改名后永久留在 .bak。
+      const archived = profiles.map(profile => {
+        const stored = envProfileRepository.getPublic(profile.id)
+        if (!stored) throw new Error('Imported profile is missing')
+        const clean = { ...stored, env: Object.fromEntries(Object.entries(stored.env).filter(([, value]) => !isSecretPlaceholder(value))) }
+        delete clean.apiKey
+        return { ...clean, active: profile.id === activeId }
+      })
+      atomicWriteFileSync(oldPath, JSON.stringify(archived, null, 2))
       renameSync(oldPath, `${oldPath}.bak`)
       log.info(`[${kind}] merged ${imported} env profile(s) into global store (old file kept as .bak)`)
     } catch (error) {
@@ -86,41 +94,10 @@ export function migrateProfilesToStructured(): void {
   const filePath = join(getConfigDir(), 'env-profiles.json')
   if (!existsSync(filePath)) return
   try {
-    const parsed = JSON.parse(readFileSync(filePath, 'utf-8')) as {
-      profiles?: unknown[]
-    }
-    if (!Array.isArray(parsed?.profiles)) return
-    let changed = false
-    const profiles = parsed.profiles.map((raw) => {
-      // 逐条只认「有 env 记录、无结构化核心」的旧扁平形态；normalizeProfile 的完整
-      // 解析这里不重复 —— 提升只碰 baseUrl/apiKey/env 三个键，其余字段原样带回
-      const record = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
-      const env = (typeof record.env === 'object' && record.env !== null ? record.env : {}) as Record<string, unknown>
-      const hasStructuredCore =
-        (typeof record.baseUrl === 'string' && record.baseUrl.trim().length > 0) ||
-        (typeof record.apiKey === 'string' && record.apiKey.trim().length > 0)
-      if (hasStructuredCore || Object.keys(env).length === 0) return raw
-      const typedEnv: Record<string, string> = {}
-      for (const [k, v] of Object.entries(env)) {
-        if (typeof v === 'string') typedEnv[k] = v
-      }
-      const lifted = liftStructuredFields(typedEnv)
-      if (lifted.baseUrl === undefined && lifted.apiKey === undefined) return raw
-      changed = true
-      return {
-        ...record,
-        baseUrl: lifted.baseUrl,
-        apiKey: lifted.apiKey,
-        env: lifted.env
-      }
-    })
-    if (!changed) return
-    const backupPath = `${filePath}.bak`
-    if (!existsSync(backupPath)) copyFileSync(filePath, backupPath)
-    // 原子写入与仓库层同一份实现（repository.ts 的 atomicWriteFileSync）
-    atomicWriteFileSync(filePath, JSON.stringify({ ...parsed, profiles }, null, 2))
-    log.info('env profiles migrated to structured core (baseUrl + apiKey); previous file kept as .bak')
+    // normalizeProfile 在仓储加载时提升结构化字段；同一轮 load 把秘密写入 vault、
+    // 回读成功后才提交引用和备份，避免先生成另一份明文配置/备份。
+    envProfileRepository.getAllPublic()
   } catch (error) {
-    log.error('structured env profile migration aborted (will retry next launch):', error)
+    log.error('structured env profile migration aborted:', error instanceof Error ? error.name : 'unknown error')
   }
 }

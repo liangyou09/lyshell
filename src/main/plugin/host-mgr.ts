@@ -1,3 +1,4 @@
+import { childEnvironment } from '../env/child-environment'
 /**
  * Plugin Host Manager（主进程侧）
  *
@@ -333,7 +334,7 @@ export class PluginHostManager {
       this.child = spawn(process.execPath, [hostPath], {
         detached: process.platform !== 'win32',
         env: {
-          ...process.env,
+          ...childEnvironment(process.env),
           ELECTRON_RUN_AS_NODE: '1',
           LYSHELL_MCP_PORT: String(port),
           LYSHELL_MCP_SERVER_SCRIPT: join(dirname(hostPath), 'mcpServer.js')
@@ -535,7 +536,7 @@ export class PluginHostManager {
       child = spawn(process.execPath, [hostPath], {
         detached: process.platform !== 'win32',
         env: {
-          ...process.env,
+          ...childEnvironment(process.env),
           ELECTRON_RUN_AS_NODE: '1',
           LYSHELL_MCP_PORT: String(port),
           LYSHELL_MCP_SERVER_SCRIPT: join(dirname(hostPath), 'mcpServer.js')

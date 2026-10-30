@@ -51,6 +51,33 @@ export interface SessionConfig {
 }
 
 /**
+ * 秘密字段的公开状态：只表达存在性与本次运行能否解密，绝不含真实值。
+ */
+export interface SessionSecretState {
+  present: boolean
+  /** 存储里仍有密文，但本次运行无法解密（安全存储不可用/解密失败）——使用前必须重新输入。 */
+  locked?: boolean
+}
+
+/**
+ * SSH 三个秘密字段的公开状态（getPublic/getAllPublic 的 sshSecrets）。
+ */
+export interface SessionSshSecretState {
+  password?: SessionSecretState
+  privateKey?: SessionSecretState
+  passphrase?: SessionSecretState
+}
+
+/**
+ * 供 UI/IPC 使用的安全会话形态：
+ * ssh.password/privateKey/passphrase 与 local.env 的秘密值都被替换为
+ * SECRET_PLACEHOLDER（``__LYSHELL_SECRET_UNCHANGED__``），真实值只在 main 运行期 get/getAll。
+ */
+export interface SessionPublicConfig extends SessionConfig {
+  sshSecrets?: SessionSshSecretState
+}
+
+/**
  * 连接类型
  */
 export enum ConnectionType {
@@ -132,6 +159,13 @@ export interface LocalConfig {
   shellArgs?: string[]
   cwd?: string
   env?: Record<string, string>
+  /**
+   * 秘密 env 的 SecretStore 引用（KEY → sec_…）。env 中同名键不落明文；
+   * 仅由 main 的 SessionRepository 维护，外部输入不可信。
+   */
+  envSecretRefs?: Record<string, string>
+  /** 业务显式声明的秘密 env 键（键名本身不像秘密时补充 isSecretEnvKey 判定）。 */
+  secretEnvKeys?: string[]
 }
 
 /**

@@ -1,4 +1,8 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import type { SshTrustRequest, SshTrustResult } from '@shared/ssh-trust'
+import type { StorageHealth } from '@shared/storage-health'
+import type { ControlHandle } from '@shared/terminal-control'
+import type { TerminalControlRequest, TerminalControlResult } from '@shared/terminal-control-request'
 import type { ProjectSceneRequest, ProjectSceneResult } from '@shared/project-scene'
 import type { TaskShelfRequest, TaskShelfResult } from '@shared/task-shelf'
 import type { ShelfBrowserRequest, ShelfBrowserResult } from '@shared/shelf-browser'
@@ -210,6 +214,16 @@ const IPC_CHANNELS = {
 }
 
 // 暴露给渲染进程的 API
+const terminalControls = new Map<string, ControlHandle>()
+const controlTerminal = async (request: TerminalControlRequest): Promise<TerminalControlResult> => {
+  const result: TerminalControlResult = await ipcRenderer.invoke('terminal:control', request)
+  if (result.success && result.control) terminalControls.set(result.control.sessionId, result.control)
+  if (request.kind === 'release' && terminalControls.get(request.control.sessionId)?.leaseId === request.control.leaseId) {
+    terminalControls.delete(request.control.sessionId)
+  }
+  return result
+}
+
 const electronAPI = {
   // File.path 自 Electron 32 移除；只在受信任宿主 preload 中解析原生拖放文件。
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
@@ -276,13 +290,26 @@ const electronAPI = {
 
   // 串口枚举
   listSerialPorts: () => ipcRenderer.invoke(IPC_CHANNELS.SERIAL_LIST_PORTS),
+  sshTrust: (request: SshTrustRequest): Promise<SshTrustResult> => ipcRenderer.invoke('ssh:trust', request),
+  terminalControl: controlTerminal,
+  exportDiagnostics: (): Promise<{ success: boolean; cancelled?: boolean; error?: string }> => ipcRenderer.invoke('diagnostics:export', { kind: 'export' }),
+  storageHealth: (): Promise<StorageHealth> => ipcRenderer.invoke('storage:health', { kind: 'inspect' }),
+  onTerminalControlInvalidated: (callback: (payload?: { sessionId?: string; reason?: string }) => void) => {
+    const listener = (_event: IpcRendererEvent, payload?: { sessionId?: string; reason?: string }) => {
+      if (payload?.sessionId) terminalControls.delete(payload.sessionId)
+      else terminalControls.clear()
+      callback(payload)
+    }
+    ipcRenderer.on('terminal:control-invalidated', listener)
+    return () => ipcRenderer.removeListener('terminal:control-invalidated', listener)
+  },
 
   // 终端操作
   terminalWrite: (sessionId: string, data: string) =>
-    ipcRenderer.send(IPC_CHANNELS.TERMINAL_WRITE, sessionId, data),
+    ipcRenderer.send(IPC_CHANNELS.TERMINAL_WRITE, sessionId, data, terminalControls.get(sessionId)),
   terminalResize: (sessionId: string, cols: number, rows: number) =>
-    ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESIZE, sessionId, cols, rows),
-  terminalOutputControl: (request: TerminalOutputControl): Promise<{ subscriptionId?: string; success: boolean; error?: string }> =>
+    ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESIZE, sessionId, cols, rows, terminalControls.get(sessionId)),
+  terminalOutputControl: (request: TerminalOutputControl): Promise<{ subscriptionId?: string; success: boolean; error?: string; historyTruncated?: boolean }> =>
     ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_OUTPUT_CONTROL, request),
   onTerminalData: (callback: (sessionId: string, data: string, receipt?: TerminalOutputReceipt) => void) => {
     const listener = (_event: IpcRendererEvent, sessionId: string, data: string, receipt?: TerminalOutputReceipt) => callback(sessionId, data, receipt)
@@ -574,6 +601,7 @@ const electronAPI = {
   // 数据导出导入
   exportData: (data: unknown, encryptPassword?: string) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_DATA, data, encryptPassword),
   importData: (decryptPassword?: string, filePath?: string) => ipcRenderer.invoke(IPC_CHANNELS.IMPORT_DATA, decryptPassword, filePath),
+  commitImportedSessions: (token: string, sessionIds: string[]) => ipcRenderer.invoke('data:import-commit', { token, sessionIds }),
 
   // 文件操作
   fileList: (sessionId: string, path: string) => ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST, sessionId, path),

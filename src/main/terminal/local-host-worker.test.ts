@@ -17,6 +17,7 @@ import {
   FrameDecoder,
   HOST_DESCRIPTOR_VERSION,
   LOCAL_HOST_PROTOCOL_VERSION,
+  LOCAL_HOST_REQUIRED_CAPABILITIES,
   encodeFrame,
   hostPipePath,
   newHostId,
@@ -30,6 +31,7 @@ import {
   type LocalHostSpawnOptions,
   type LocalHostStatus
 } from './local-host-protocol'
+import type { InputFence } from '@shared/terminal-control'
 import {
   WORKER_EXIT_BOOTSTRAP_TIMEOUT,
   runBootstrapWorker,
@@ -43,6 +45,22 @@ import {
 // ── 测试替身 ──────────────────────────────────────────────────────────────────
 
 let nextPid = 5000
+let nextFenceReqId = 1
+let nextInputReqId = 1
+let fenceEpoch = 0
+
+/** 每个测试客户端一份新租约：epoch 递增，避免跨客户端安装被判成旧代际。 */
+function testFence(overrides: Partial<InputFence> = {}): InputFence {
+  fenceEpoch += 1
+  return {
+    epoch: fenceEpoch,
+    connectionInstanceId: 'conn-worker-test',
+    controllerInstanceId: 'main-worker-test',
+    leaseId: `lease-worker-${fenceEpoch}`,
+    expiresAt: Date.now() + 60_000,
+    ...overrides
+  }
+}
 
 class MockPty implements HostPty {
   readonly pid = nextPid++
@@ -89,6 +107,8 @@ class MockPty implements HostPty {
 class RawHostClient {
   readonly frames: HostFrame[] = []
   readonly parseErrors: string[] = []
+  readonly fence = testFence()
+  private fenceInstalled = false
   private readonly decoder = new FrameDecoder()
 
   private constructor(readonly socket: Socket) {
@@ -124,16 +144,44 @@ class RawHostClient {
     cursor?: number
     replay?: boolean
     clientId?: string
+    capabilities?: string[]
+    v?: number
   }): void {
-    this.send({
-      type: 'hello',
-      hostId: options.hostId,
-      token: options.token,
-      clientId: options.clientId ?? 'test-client',
-      mode: options.mode ?? 'attach',
-      cursor: options.cursor ?? 0,
-      replay: options.replay ?? true
-    })
+    this.socket.write(
+      encodeFrame({
+        v: options.v ?? LOCAL_HOST_PROTOCOL_VERSION,
+        type: 'hello',
+        hostId: options.hostId,
+        token: options.token,
+        clientId: options.clientId ?? 'test-client',
+        mode: options.mode ?? 'attach',
+        cursor: options.cursor ?? 0,
+        replay: options.replay ?? true,
+        capabilities: options.capabilities ?? [...LOCAL_HOST_REQUIRED_CAPABILITIES]
+      })
+    )
+  }
+
+  /** 安装输入围栏（协议 v2 之后 input 必须带围栏，否则宿主拒绝）。 */
+  async installFence(fence: InputFence): Promise<void> {
+    const reqId = `fence-${nextFenceReqId++}`
+    this.send({ type: 'input-fence', reqId, fence })
+    const ack = await this.waitForAck(reqId)
+    if (!ack.ok) throw new Error(`fence rejected: ${ack.code ?? 'unknown'}`)
+  }
+
+  /** 首次发输入时自动安装本客户端的围栏，返回该帧的 ack。 */
+  async sendInput(
+    data: string,
+    reqId = `i-${nextInputReqId++}`,
+    fence: InputFence = this.fence
+  ): Promise<Extract<HostFrame, { type: 'ack' }>> {
+    if (fence === this.fence && !this.fenceInstalled) {
+      await this.installFence(this.fence)
+      this.fenceInstalled = true
+    }
+    this.send({ type: 'input', reqId, data, fence })
+    return this.waitForAck(reqId)
   }
 
   async waitFor(predicate: (frame: HostFrame) => boolean, timeoutMs = 2000): Promise<HostFrame> {
@@ -343,7 +391,7 @@ describe('单客户端排他', () => {
     expect(second.frames.filter((frame) => frame.type === 'welcome')).toHaveLength(0)
 
     // 被拒绝的连接不会影响已有客户端
-    first.send({ type: 'input', reqId: 'i1', data: 'x' })
+    expect((await first.sendInput('x')).ok).toBe(true)
     await waitUntil(() => pty.written.length === 1)
     expect(pty.written).toEqual(['x'])
   })
@@ -438,7 +486,7 @@ describe('输入', () => {
     const first = await RawHostClient.connect(handle.pipe)
     first.hello({ hostId: handle.id, token: config.token, cursor: 0 })
     await first.waitForType('welcome')
-    first.send({ type: 'input', reqId: 'i1', data: 'ls\r' })
+    await first.sendInput('ls\r')
     await waitUntil(() => pty.written.length === 1)
     first.send({ type: 'detach', reqId: 'd1' })
     await first.waitForAck('d1')
@@ -457,10 +505,11 @@ describe('输入', () => {
     client.hello({ hostId: handle.id, token: config.token, cursor: 0 })
     await client.waitForType('welcome')
 
-    client.send({ type: 'input', reqId: 'dup', data: 'a' })
-    client.send({ type: 'input', reqId: 'dup', data: 'a' })
-    client.send({ type: 'resize', reqId: 'size', cols: 100, rows: 40 })
-    client.send({ type: 'resize', reqId: 'size', cols: 120, rows: 50 })
+    expect((await client.sendInput('a', 'dup')).ok).toBe(true)
+    // 同一 reqId 的第二份（即使内容相同）不再执行
+    client.send({ type: 'input', reqId: 'dup', data: 'a', fence: client.fence })
+    client.send({ type: 'resize', reqId: 'size', cols: 100, rows: 40, fence: client.fence })
+    client.send({ type: 'resize', reqId: 'size', cols: 120, rows: 50, fence: client.fence })
     await waitUntil(() => pty.written.length === 1 || pty.sizes.length === 1)
     await delay(50)
     expect(pty.written).toEqual(['a'])

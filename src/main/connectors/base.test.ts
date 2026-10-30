@@ -115,3 +115,11 @@ describe('BaseConnector 构造缺省', () => {
     expect(c.getEncoding()).toBe('utf-8' as TerminalEncoding)
   })
 })
+
+describe('BaseConnector 输入围栏缺省（fail closed）', () => {
+  it('默认不支持宿主围栏，设置围栏明确报 host-rejected 而不是静默成功', async () => {
+    const c = new TestConnector('s1')
+    expect(c.supportsInputFence).toBe(false)
+    await expect(c.setInputControl(null)).rejects.toMatchObject({ reason: 'host-rejected' })
+  })
+})

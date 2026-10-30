@@ -3,6 +3,9 @@ import { StringDecoder } from 'string_decoder'
 import { SSHFileClient } from './ssh-file-client'
 import { appendCommandOutput } from './command-output'
 
+/** 由可信调用方提供的同步断言，在实际副作用派发前复核当前授权与资源身份。 */
+export type CommandDispatchGuard = () => void
+
 export function cleanCommandOutput(output: string): string {
   return output
     // eslint-disable-next-line no-control-regex
@@ -16,15 +19,15 @@ export function cleanCommandOutput(output: string): string {
 export class SSHCommandExecutor {
   constructor(private sshFileClient: SSHFileClient) {}
 
-  async execRaw(command: string, timeout = 30000): Promise<string> {
-    return (await this.execute(command, timeout)).output
+  async execRaw(command: string, timeout = 30000, assertCurrent?: CommandDispatchGuard): Promise<string> {
+    return (await this.execute(command, timeout, undefined, undefined, assertCurrent)).output
   }
 
-  execStream(command: string, timeout: number, onData: (chunk: string) => void, signal?: AbortSignal): Promise<{ output: string; exitCode: number }> {
-    return this.execute(command, timeout, onData, signal)
+  execStream(command: string, timeout: number, onData: (chunk: string) => void, signal?: AbortSignal, assertCurrent?: CommandDispatchGuard): Promise<{ output: string; exitCode: number }> {
+    return this.execute(command, timeout, onData, signal, assertCurrent)
   }
 
-  private execute(command: string, timeout: number, onData?: (chunk: string) => void, signal?: AbortSignal): Promise<{ output: string; exitCode: number }> {
+  private execute(command: string, timeout: number, onData?: (chunk: string) => void, signal?: AbortSignal, assertCurrent?: CommandDispatchGuard): Promise<{ output: string; exitCode: number }> {
     return new Promise((resolve, reject) => {
       let channel: ClientChannel | undefined
       let settled = false
@@ -40,9 +43,11 @@ export class SSHCommandExecutor {
       const timer = setTimeout(() => finish(new Error(`Command timeout after ${timeout}ms`)), timeout)
       if (signal?.aborted) { onAbort(); return }
       signal?.addEventListener('abort', onAbort, { once: true })
+      try { assertCurrent?.() } catch (error) { finish(error as Error); return }
 
       void this.sshFileClient.getClient().then(client => {
         if (settled) return
+        assertCurrent?.()
         client.exec(command, (error, stream) => {
           if (error) { finish(error); return }
           // 取消可能发生在服务器回复 channel-open 之前。

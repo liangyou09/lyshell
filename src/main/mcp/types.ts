@@ -10,6 +10,9 @@ import type { TerminalEncoding } from '@shared/types'
  */
 export interface ApiResponse<T = unknown> {
   success: boolean
+  requestId?: string
+  code?: string
+  retryDisposition?: import('@shared/operation').RetryDisposition
   data?: T
   error?: string
 }
@@ -63,6 +66,7 @@ export interface SessionInfo {
  * 会话能力（该会话支持哪些操作）
  */
 export interface SessionCapabilities {
+  connector?: import('@shared/connector-capabilities').ConnectorCapabilities
   /** 支持向交互式终端发送输入（所有类型） */
   sendInput: boolean
   /** 支持非交互式命令执行并获取输出（SSH/Local） */
@@ -162,6 +166,7 @@ export interface FileOperationRequest {
  */
 export interface SendInputRequest {
   sessionId: string
+  control?: import('@shared/terminal-control').ControlHandle
   text: string
   autoNewline?: boolean
 }
@@ -187,6 +192,10 @@ export interface ReconnectSessionResponse {
  */
 export interface ReadOutputRequest {
   sessionId: string
+  /** 增量读取使用独立游标与缓冲代际，单位为 UTF-16 码元。 */
+  cursor?: number
+  outputEpoch?: number
+  maxChars?: number
   /** 返回最近 N 行（默认 100，最大 1000） */
   lines?: number
   /** 是否返回原始 ANSI 数据（默认 false，返回清洗后文本） */
@@ -206,6 +215,7 @@ export interface ReadOutputResponse {
  * 发送输入并等待响应请求
  */
 export interface SendAndWaitRequest {
+  control?: import('@shared/terminal-control').ControlHandle
   sessionId: string
   /** 发送文本（支持 \n \r \xHH \t 转义） */
   text: string

@@ -18,6 +18,8 @@
 import { spawn } from 'child_process'
 import type { ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
+import { isStrongSecureStorage } from '../security/secure-storage'
+import { currentRequestContext } from '../diagnostics/request-context'
 import { EventEmitter } from 'events'
 import { existsSync } from 'fs'
 import { connect } from 'net'
@@ -34,8 +36,10 @@ import {
   FrameDecoder,
   HOST_DESCRIPTOR_VERSION,
   LOCAL_HOST_PROTOCOL_VERSION,
+  LOCAL_HOST_REQUIRED_CAPABILITIES,
   LocalHostError,
   MAX_INPUT_CHARS,
+  MAX_SOCKET_PENDING_BYTES,
   MAX_TERM_DIMENSION,
   MIN_TERM_DIMENSION,
   encodeClientFrame,
@@ -56,12 +60,20 @@ import {
   type LocalHostSpawnOptions,
   type LocalHostStatus
 } from './local-host-protocol'
+import {
+  fenceOf,
+  isInputFence,
+  sameLease,
+  type ControlHandle,
+  type InputFence
+} from '@shared/terminal-control'
 
 export type { LocalHostSpawnOptions, LocalHostStatus }
 
 /** 主进程可用的 safeStorage 子集（测试注入替身，避免真的走 OS 密钥环）。 */
 export interface LocalHostSecureStorage {
   isEncryptionAvailable(): boolean
+  getSelectedStorageBackend?(): string
   encryptString(plainText: string): Buffer
   decryptString(encrypted: Buffer): string
 }
@@ -137,6 +149,8 @@ export interface LocalHostClientEventMap {
   error: Error
   disconnect: undefined
   gap: { from: number; to: number }
+  /** 宿主拒绝了某帧输入（围栏失效/过期/连接失去活动权）；不会重放。 */
+  'input-rejected': { reqId: string; code: string; message: string }
 }
 
 const DEFAULT_RPC_TIMEOUT_MS = 5000
@@ -173,6 +187,10 @@ export class LocalHostClient extends EventEmitter {
   private watchdog: NodeJS.Timeout | null = null
   private lastFrameAt = 0
   private pumping = false
+  /** 宿主已确认安装的围栏；没有它就不发任何输入（fail closed）。 */
+  private installedFence: InputFence | null = null
+  /** 围栏安装/撤销的串行链：同一时刻只允许一个 fence RPC 在途。 */
+  private controlChain: Promise<void> = Promise.resolve()
 
   private constructor(params: {
     id: string
@@ -355,22 +373,85 @@ export class LocalHostClient extends EventEmitter {
 
   // ── 对外操作 ────────────────────────────────────────────────────────────
 
-  /** 显式发送输入。断线后不缓存、不重放：连不上就是没发出去。 */
-  write(text: string): void {
-    if (typeof text !== 'string' || text.length === 0) return
+  /**
+   * 显式发送输入。断线后不缓存、不重放：连不上就是没发出去。
+   *
+   * 控制纪律（默认 fail closed）：必须带 fence（`InputFence` 或 `ControlHandle`），
+   * 且该 fence 已经由宿主 ack 安装、租约未过期；否则一帧都不发，返回 false。
+   * 真正的最终核对在宿主侧 `pty.write` 之前，这里只是本地快速路径。
+   */
+  write(text: string, handle?: InputFence | ControlHandle): boolean {
+    if (typeof text !== 'string' || text.length === 0) return false
+    if (!handle) return false
+    if (this.disposed) return false
+    const fence = fenceOf(handle)
+    const installed = this.installedFence
+    if (!installed || !sameLease(installed, fence)) return false
+    const now = this.now()
+    if (!(now < installed.expiresAt) || !(now < fence.expiresAt)) return false
+    if (!this.socket?.writable) return false
+    let sent = false
     for (let offset = 0; offset < text.length;) {
       let end = Math.min(offset + MAX_INPUT_CHARS, text.length)
       // PTY 每次 write 各自转 UTF-8，不能在帧边界劈开 emoji 等代理对。
       if (end < text.length && /[\uD800-\uDBFF]/.test(text[end - 1]) && /[\uDC00-\uDFFF]/.test(text[end])) end--
       const chunk = text.slice(offset, end)
-      this.trySend({ type: 'input', reqId: this.nextReqId(), data: chunk })
+      // 只发已经核对过的五字段围栏，绝不夹带调用方其它凭据。
+      sent = this.trySend({ type: 'input', reqId: this.nextReqId(), data: chunk, fence: { ...fence } }) || sent
+      offset = end
+    }
+    return sent
+  }
+
+  /** 按帧等待宿主在最终 PTY 写入后的回执；超时由上层作为结果未知处理。 */
+  async writeConfirmed(text: string, handle: InputFence): Promise<void> {
+    for (let offset = 0; offset < text.length;) {
+      const fence = fenceOf(handle)
+      if (this.disposed || !this.installedFence || !sameLease(this.installedFence, fence)
+        || this.now() >= this.installedFence.expiresAt || this.now() >= fence.expiresAt) {
+        throw new LocalHostError('input-denied', 'the input control handle is no longer valid')
+      }
+      let end = Math.min(offset + MAX_INPUT_CHARS, text.length)
+      if (end < text.length && /[\uD800-\uDBFF]/.test(text[end - 1]) && /[\uDC00-\uDFFF]/.test(text[end])) end--
+      const data = text.slice(offset, end)
+      await this.rpc(reqId => ({ type: 'input', reqId, data, fence }), this.rpcTimeoutMs)
       offset = end
     }
   }
 
+  /**
+   * 安装/撤销宿主侧输入围栏，返回时宿主已确认（ack）——调用方据此才发租约。
+   * 串行化：并发 install/revoke 按调用顺序落地，宿主不会看到交错的代际。
+   */
+  setInputControl(handle: InputFence | ControlHandle | null): Promise<void> {
+    const run = this.controlChain.then(() => this.applyInputControl(handle))
+    // 链本身不因单次失败而断掉，失败只影响本次调用的返回。
+    this.controlChain = run.then(
+      () => undefined,
+      () => undefined
+    )
+    return run
+  }
+
+  private async applyInputControl(handle: InputFence | ControlHandle | null): Promise<void> {
+    if (this.disposed) {
+      throw new LocalHostError('disconnected', 'the local PTY host client was closed')
+    }
+    const fence = handle === null ? null : fenceOf(handle)
+    if (fence !== null && !isInputFence(fence)) {
+      throw new LocalHostError('protocol-error', 'refusing to install a malformed input fence')
+    }
+    const frame = await this.rpc((reqId) => ({ type: 'input-fence', reqId, fence }), this.rpcTimeoutMs)
+    if (frame.type !== 'ack' || !frame.ok) {
+      throw new LocalHostError('fence-rejected', 'the local PTY host did not confirm the input fence')
+    }
+    this.installedFence = fence === null ? null : { ...fence }
+  }
+
   resize(cols: number, rows: number): void {
     if (!isDimension(cols) || !isDimension(rows)) return
-    this.trySend({ type: 'resize', reqId: this.nextReqId(), cols, rows })
+    this.trySend({ type: 'resize', reqId: this.nextReqId(), cols, rows,
+      ...(this.installedFence ? { fence: fenceOf(this.installedFence) } : {}) })
   }
 
   /** 暂停下发（宿主侧背压，仍继续排空 PTY，不会丢数据）。 */
@@ -473,14 +554,20 @@ export class LocalHostClient extends EventEmitter {
           clientId: this.clientId,
           mode,
           cursor,
-          replay
+          replay,
+          capabilities: [...LOCAL_HOST_REQUIRED_CAPABILITIES]
         })
       )
     } catch (error) {
       this.failHello(new LocalHostError('host-unreachable', 'failed to send the handshake', { cause: error }))
     }
 
-    const frame = await settled
+    let frame: HostFrame
+    try {
+      frame = await settled
+    } catch (error) {
+      throw mapHandshakeFailure(error)
+    }
     if (frame.type === 'welcome') {
       this.cursor = Math.max(this.cursor, frame.cursor)
       this.startWatchdog()
@@ -541,6 +628,8 @@ export class LocalHostClient extends EventEmitter {
     socket.on('close', () => {
       this.socket = null
       this.decoder = null
+      // 断开即丢弃已安装围栏：宿主侧同样清空，重连必须重新安装。
+      this.installedFence = null
       this.stopWatchdog()
       this.failHello(new LocalHostError('disconnected', 'the local PTY host closed the connection during the handshake'))
       this.rejectPending(new LocalHostError('disconnected', 'the local PTY host connection was closed'))
@@ -596,6 +685,9 @@ export class LocalHostClient extends EventEmitter {
         this.markExit(frame.exitCode)
         return
       case 'ack':
+        if (!frame.ok && !this.pending.has(frame.reqId)) this.reportRejectedInput(frame)
+        this.settlePending(frame)
+        return
       case 'status':
         this.settlePending(frame)
         return
@@ -614,6 +706,22 @@ export class LocalHostClient extends EventEmitter {
       default:
         return
     }
+  }
+
+  /**
+   * 宿主拒绝了某帧输入（围栏失效/过期/失去活动权）。这类 ack 没有对应 pending RPC，
+   * 单独上报：调用方知道「那帧没落地」，且绝不会被自动重放。
+   */
+  private reportRejectedInput(frame: Extract<HostFrame, { type: 'ack' }>): void {
+    if (frame.ok) return
+    const code = isLocalHostErrorCode(frame.code) ? frame.code : 'protocol-error'
+    if (code !== 'input-denied' && code !== 'input-expired') return
+    const message = frame.message || 'the local PTY host rejected the input'
+    if (this.listenerCount('input-rejected') > 0) {
+      this.emit('input-rejected', { reqId: frame.reqId, code, message })
+      return
+    }
+    this.pushError(new LocalHostError(code, message))
   }
 
   private settlePending(frame: HostFrame): void {
@@ -642,12 +750,13 @@ export class LocalHostClient extends EventEmitter {
 
   private nextReqId(): string {
     this.seq += 1
-    return `${this.clientId.slice(0, 8)}-${this.seq}`
+    return `${currentRequestContext()?.requestId ?? this.clientId.slice(0, 8)}-${this.seq}`
   }
 
   private trySend(payload: Record<string, unknown>): boolean {
     const socket = this.socket
     if (!socket || !socket.writable || this.disposed) return false
+    if (socket.writableLength >= MAX_SOCKET_PENDING_BYTES) return false
     try {
       socket.write(encodeClientFrame(payload))
       return true
@@ -660,6 +769,10 @@ export class LocalHostClient extends EventEmitter {
     const reqId = this.nextReqId()
     const frame = build(reqId)
     return new Promise<HostFrame>((resolve, reject) => {
+      if (this.pending.size >= 64) {
+        reject(new LocalHostError('host-busy', 'the local PTY host request limit was reached'))
+        return
+      }
       if (this.disposed || !this.socket?.writable) {
         reject(new LocalHostError('disconnected', 'the local PTY host is not connected'))
         return
@@ -766,6 +879,7 @@ export class LocalHostClient extends EventEmitter {
   private dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.installedFence = null
     this.stopWatchdog()
     this.failHello(new LocalHostError('disconnected', 'the local PTY host client was closed'))
     this.rejectPending(new LocalHostError('disconnected', 'the local PTY host client was closed'))
@@ -800,6 +914,21 @@ function resolveDeps(): LocalHostClientDeps {
   return injectedDeps
 }
 
+/**
+ * 旧宿主（协议 v1）收到 v2 hello 会以 protocol-error 拒帧或直接断链；
+ * 这里统一映射成明确的版本不兼容，绝不静默降级成 v1 继续跑。
+ */
+function mapHandshakeFailure(error: unknown): unknown {
+  if (error instanceof LocalHostError && (error.code === 'protocol-error' || error.code === 'incompatible-version')) {
+    return new LocalHostError(
+      'incompatible-version',
+      'the local PTY host speaks an older protocol (input fence control requires v2); restart the terminal to create a new host',
+      { cause: error }
+    )
+  }
+  return error
+}
+
 function defaultWorkerScriptPath(): string {
   // 主进程 bundle 与 localHostWorker.js 同在 dist/main
   return join(__dirname, 'localHostWorker.js')
@@ -817,7 +946,7 @@ function resolveSecureStorage(deps: LocalHostClientDeps): LocalHostSecureStorage
     return null
   }
   try {
-    return candidate.isEncryptionAvailable() ? (candidate as LocalHostSecureStorage) : null
+    return isStrongSecureStorage(candidate as LocalHostSecureStorage) ? (candidate as LocalHostSecureStorage) : null
   } catch {
     // isEncryptionAvailable 在无密钥环的 Linux/headless 上可能抛
     return null

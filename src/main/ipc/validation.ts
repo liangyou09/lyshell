@@ -1,4 +1,34 @@
 import log from 'electron-log'
+export function validateDiagnosticExport(raw: unknown): void {
+  const value = assertObject(raw, 'diagnostics')
+  if (value.kind !== 'export' || Object.keys(value).length !== 1) throw new ValidationError('Invalid diagnostic export request')
+}
+import type { SshTrustRequest } from '@shared/ssh-trust'
+import { readTerminalControlRequest, type TerminalControlRequest } from '@shared/terminal-control-request'
+import { isControlHandle, type ControlHandle } from '@shared/terminal-control'
+
+export function validateTerminalControlRequest(raw: unknown): TerminalControlRequest {
+  const request = readTerminalControlRequest(raw)
+  if (!request) throw new ValidationError('Invalid terminal control request')
+  return request
+}
+
+export function validateTerminalInputHandle(raw: unknown, sessionId: string, principalId: string): ControlHandle {
+  if (!isControlHandle(raw) || raw.sessionId !== sessionId || raw.principalId !== principalId || raw.source !== 'gui') {
+    throw new ValidationError('Terminal input requires the current GUI control handle')
+  }
+  return raw
+}
+
+export function validateSshTrustRequest(raw: unknown): SshTrustRequest {
+  const value = assertObject(raw, 'sshTrust')
+  const kind = assertEnum(value.kind, 'kind', ['list', 'forget'] as const)
+  if (Object.keys(value).some(key => !(kind === 'list' ? ['kind'] : ['kind', 'host', 'port']).includes(key))) {
+    throw new ValidationError('Invalid SSH trust request')
+  }
+  if (kind === 'list') return { kind }
+  return { kind, host: assertString(value.host, 'host', { maxLength: 255 }), port: assertNumber(value.port, 'port', { min: 1, max: 65535, integer: true }) }
+}
 import type { ShelfBrowserRequest } from '@shared/shelf-browser'
 export function validateShelfBrowserRequest(raw: unknown): ShelfBrowserRequest {
   const value = assertObject(raw, 'shelfBrowserRequest')
@@ -600,6 +630,20 @@ export function validateSshPersistence(config: import('@shared/types').SessionCo
     const name = assertString(ssh.resumeSessionName, 'ssh.resumeSessionName', { maxLength: 64 })
     if (!/^lyshell[-_][A-Za-z0-9_-]+$/.test(name)) throw new ValidationError('Invalid remote task session name')
     if (saved) delete config.ssh.resumeSessionName
+  }
+}
+
+export function validateStorageHealthRequest(raw: unknown): void {
+  const request = assertObject(raw, 'storage request')
+  if (request.kind !== 'inspect' || Object.keys(request).length !== 1) throw new ValidationError('Invalid storage health request')
+}
+
+export function validateSessionImportCommit(raw: unknown): { token: string; sessionIds: string[] } {
+  const request = assertObject(raw, 'import commit')
+  if (Object.keys(request).some(key => key !== 'token' && key !== 'sessionIds')) throw new ValidationError('Unknown import commit field')
+  return {
+    token: assertString(request.token, 'import token', { maxLength: 128 }),
+    sessionIds: assertStringArray(request.sessionIds, 'sessionIds', { maxItems: 1024, maxItemLength: 128 })
   }
 }
 

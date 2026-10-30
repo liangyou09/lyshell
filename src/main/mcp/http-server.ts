@@ -33,6 +33,14 @@ import { streamTerminal, closeTerminalStreams } from './terminal-stream'
 import { CommandStreamWriter } from './command-stream'
 import { executeLocalCommandStream } from './local-command-stream'
 import * as mcpAuth from './auth'
+import { runWithRequestContext } from '../diagnostics/request-context'
+import { childEnvironment } from '../env/child-environment'
+import { operationCapabilities, capabilityEnabled } from './operation-policy'
+import { isLocalApiHost, RequestBudget, isBoundedJson } from './local-request'
+import { readTerminalControlRequest } from '@shared/terminal-control-request'
+import { isControlHandle, type ControlHandle, type ControllerIdentity } from '@shared/terminal-control'
+import { OperationError } from '@shared/operation'
+import { recordDiagnosticEvent } from '../diagnostics/events'
 import { setMcpHttpPort } from './http-port'
 import type { TokenBinding, TokenKind } from './auth'
 import { scanDestructiveCommand } from './destructive-check'
@@ -82,12 +90,16 @@ import type {
 } from './types'
 
 let server: http.Server | null = null
+const requestBudget = new RequestBudget()
+// 请求断开不会终止底层命令；执行名额保持到 handler 实际结束。
+const executionBudget = new RequestBudget(16, 4)
 const PORT_FILE_NAME = 'mcp-server.json'
 const MAX_COMMAND_TIMEOUT_MS = 120000
 const MAX_READ_FILE_BYTES = 1048576
 const MAX_TEXT_LENGTH = 1024 * 1024
 // 仅在 main 内保存请求凭据的存活检查，确认页不能提交或替换凭据。
 const confirmationCredentials = new WeakMap<TokenBinding, () => boolean>()
+const bindingCredentialIds = new WeakMap<TokenBinding, string>()
 
 interface McpSecuritySettings {
   enabled?: boolean
@@ -162,6 +174,10 @@ export async function startMcpHttpServer(): Promise<void> {
   }
 
   server = http.createServer(handleRequest)
+  server.requestTimeout = 15_000
+  server.headersTimeout = 10_000
+  server.keepAliveTimeout = 5000
+  server.maxConnections = 128
 
   await new Promise<void>((resolve, reject) => {
     server!.listen(0, '127.0.0.1', () => resolve())
@@ -439,6 +455,14 @@ export function getMcpAddCommandForIpc(): McpAddCommand {
  * 请求处理器
  */
 function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+  if (!isLocalApiHost(req.headers.host, req.socket.localPort)) {
+    sendJson(res, 403, { success: false, error: 'Invalid local API Host' })
+    return
+  }
+  if (!req.url?.startsWith('/') || req.url.startsWith('//')) {
+    sendJson(res, 400, { success: false, error: 'Invalid request target' })
+    return
+  }
   const origin = req.headers.origin
   if (origin) {
     sendJson(res, 403, { success: false, error: 'Browser origins are not allowed for this local MCP API' })
@@ -465,9 +489,27 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       return
     }
     confirmationCredentials.set(binding, () => mcpAuth.resolveToken(token) !== null)
+    bindingCredentialIds.set(binding, mcpAuth.credentialId(token as string))
   }
+  const release = requestBudget.acquire(typeof req.headers['x-lyshell-token'] === 'string' ? req.headers['x-lyshell-token'] : 'anonymous')
+  if (!release) {
+    sendJson(res, 429, { success: false, error: 'Concurrent request limit reached' })
+    return
+  }
+  res.once('close', release)
+  res.once('finish', release)
+  const requestId = uuidv4()
+  const receivedAt = Date.now()
+  res.setHeader('x-lyshell-request-id', requestId)
+  // 路径只映射固定操作名，查询参数、未知路径与请求正文都不进诊断。
+  const operation = API_ROUTES.find(route => route.path === url.pathname)?.name ?? 'http_request'
+  res.once('finish', () => recordDiagnosticEvent({ at: Date.now(), requestId, operation,
+    source: binding?.kind === 'plugin' ? 'plugin' : 'http', outcome: res.statusCode < 400 ? 'completed' : 'refused',
+    durationMs: Date.now() - receivedAt, status: res.statusCode }))
 
   // 路由分发
+  runWithRequestContext({ requestId, principalId: bindingCredentialIds.get(binding!) ?? 'anonymous',
+    source: binding?.kind === 'plugin' ? 'plugin' : 'http', receivedAt }, () => {
   try {
     if (req.method === 'GET' && url.pathname === '/api/health') {
       return sendJson(res, 200, { success: true, data: { status: 'ok' } })
@@ -560,7 +602,10 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     }
 
     if (req.method === 'POST') {
+      const releaseExecution = executionBudget.acquire(bindingCredentialIds.get(ctxBinding) ?? 'anonymous')
+      if (!releaseExecution) return sendJson(res, 429, { success: false, error: 'Active operation limit reached' })
       readBody(req).then(body => {
+        if (req.aborted || res.destroyed) return
         // 读请求体期间插件可能已禁用或宿主已重启，旧凭据不能继续分配资源。
         if (!mcpAuth.resolveToken(req.headers['x-lyshell-token'])) {
           sendJson(res, 401, { success: false, error: 'Unauthorized' })
@@ -569,6 +614,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         let data: any
         try {
           data = body ? JSON.parse(body) : {}
+          if (!data || typeof data !== 'object' || Array.isArray(data) || !isBoundedJson(data)) throw new Error('Invalid request shape')
         } catch {
           sendJson(res, 400, { success: false, error: 'Invalid JSON in request body' })
           return
@@ -619,6 +665,8 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
             return handleExecuteCommandStream(data, res, ctxBinding)
           case '/api/send-input':
             return handleSendInput(data, res, ctxBinding)
+          case '/api/terminal-control':
+            return handleTerminalControl(data, res, ctxBinding)
           case '/api/read-output':
             return handleReadOutput(data, res, ctxBinding)
           case '/api/terminal-screenshot':
@@ -654,7 +702,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         }
       }).catch(err => {
         sendJson(res, 400, { success: false, error: `Invalid request: ${err.message}` })
-      })
+      }).finally(releaseExecution)
       return
     }
 
@@ -663,6 +711,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     log.error('[MCP] Request handler error:', err)
     sendJson(res, 500, { success: false, error: err.message || 'Internal server error' })
   }
+  })
 }
 
 // ========== 插件运行时视图路由（docs/plugin-ui-views-plan.md §二「运行时注册」） ==========
@@ -840,6 +889,7 @@ function buildSessionInfo(config: SessionConfig, terminalOpenIds: Set<string>): 
     group: config.group,
     tags: config.tags,
     capabilities: {
+      connector: live?.connector?.capabilities,
       sendInput: true, // 所有连接类型都支持
       executeCommand: config.type === ConnectionType.SSH || config.type === ConnectionType.LOCAL,
       fileOperations: config.type === ConnectionType.SSH,
@@ -1038,6 +1088,24 @@ async function handleListSessionsFiltered(
 /**
  * POST /api/execute — 执行命令
  */
+/** 固定本次执行所指的资源；闭包只由 main 构造，并传至最终 exec/shell 写入边界。 */
+function commandDispatchGuard(sessionId: string, binding: TokenBinding): () => void {
+  const session = sessionManager.getSession(sessionId)
+  const connector = session?.connector
+  const connectionInstance = session?.connectionInstanceId
+  const type = session?.config.type
+  const capability = type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
+  return () => {
+    if (!isMcpConfirmationAuthorized(binding, capability, type) || !isSessionAllowedForMcp(sessionId)) {
+      throw new OperationError('FORBIDDEN', 'Command authorization was revoked before dispatch')
+    }
+    if (!session || sessionManager.getSession(sessionId) !== session || session.connector !== connector
+      || session.connectionInstanceId !== connectionInstance || session.config.type !== type || session.status !== ConnectionStatus.CONNECTED) {
+      throw new OperationError('STALE_GENERATION', 'Command target connection changed before dispatch')
+    }
+  }
+}
+
 async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
     const { sessionId, command, timeout = 30000 } = data
@@ -1059,6 +1127,7 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
       return
     }
 
+    const assertCurrent = commandDispatchGuard(resolvedSessionId, binding)
     const safeTimeout = clampNumber(timeout, 1, MAX_COMMAND_TIMEOUT_MS, 30000)
     const capability: McpCapability = targetSession.config.type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
     const auth = await authorizeMcpOperation('execute_command', capability, resolvedSessionId, summarizeText(command), binding, command)
@@ -1081,16 +1150,18 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
     }
 
     let result: ExecuteResponse
+    assertCurrent()
 
     if (session.config.type === ConnectionType.SSH) {
       // SSH 会话：使用 fileManager 的 connector（独立 SSH exec 通道）
       const connector = await fileManager.getCommandConnector(resolvedSessionId)
+      assertCurrent()
       if (!connector.execRaw) {
         sendJson(res, 500, { success: false, error: 'Connector does not support command execution' })
         return
       }
-      const output = await connector.execRaw(command, safeTimeout)
-      result = { output, exitCode: 0 }
+      // 同流式入口复用真实 exit 事件；不能把 SSH 命令非零退出伪报成 0。
+      result = await connector.execStream(command, safeTimeout, () => {}, undefined, assertCurrent)
     } else if (session.config.type === ConnectionType.LOCAL) {
       // 本地会话：使用 child_process.exec
       result = await executeLocalCommand(command, session.config.local?.cwd, session.config.local?.env, safeTimeout)
@@ -1102,7 +1173,8 @@ async function handleExecuteCommand(data: ExecuteRequest, res: http.ServerRespon
     sendJson(res, 200, { success: true, data: result })
   } catch (err: any) {
     log.error('[MCP] Execute command error:', err)
-    sendJson(res, 500, { success: false, error: err.message })
+    sendJson(res, err instanceof OperationError ? err.code === 'FORBIDDEN' ? 403 : 409 : 500,
+      { success: false, error: err.message, ...(err instanceof OperationError ? { data: { code: err.code, retryDisposition: err.retryDisposition } } : {}) })
   }
 }
 
@@ -1135,6 +1207,7 @@ async function handleExecuteCommandStream(data: ExecuteRequest, res: http.Server
       return
     }
 
+    const assertCurrent = commandDispatchGuard(resolvedSessionId, binding)
     const safeTimeout = clampNumber(timeout, 1, MAX_COMMAND_TIMEOUT_MS, 30000)
     const capability: McpCapability = targetSession.config.type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
     const auth = await authorizeMcpOperation('execute_command', capability, resolvedSessionId, summarizeText(command), binding, command)
@@ -1156,6 +1229,7 @@ async function handleExecuteCommandStream(data: ExecuteRequest, res: http.Server
       return
     }
 
+    assertCurrent()
     // 鉴权通过，切换到 SSE
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -1171,6 +1245,7 @@ async function handleExecuteCommandStream(data: ExecuteRequest, res: http.Server
       let result: { output: string; exitCode: number }
       if (session.config.type === ConnectionType.SSH) {
         const connector = await fileManager.getCommandConnector(resolvedSessionId)
+        assertCurrent()
         if (!('execStream' in connector)) {
           await writer.finish({ type: 'error', error: 'Connector does not support streaming execution' })
           res.end()
@@ -1180,7 +1255,8 @@ async function handleExecuteCommandStream(data: ExecuteRequest, res: http.Server
           command,
           safeTimeout,
           (chunk) => writer.chunk(chunk),
-          abortController.signal
+          abortController.signal,
+          assertCurrent
         )
       } else if (session.config.type === ConnectionType.LOCAL) {
         result = await executeLocalCommandStream(
@@ -1212,14 +1288,99 @@ async function handleExecuteCommandStream(data: ExecuteRequest, res: http.Server
   }
 }
 
-/**
- * POST /api/send-input - 向交互式终端发送输入
- */
+function inputIdentity(binding: TokenBinding): ControllerIdentity {
+  const id = bindingCredentialIds.get(binding)
+  if (!id) throw new OperationError('UNAUTHENTICATED', 'Terminal control requires a current credential')
+  return { principalId: `automation:${id}`, credentialId: id, source: 'automation' }
+}
+
+function authorizedInputHandle(raw: unknown, sessionId: string, binding: TokenBinding): ControlHandle {
+  const identity = inputIdentity(binding)
+  if (!isControlHandle(raw) || raw.sessionId !== sessionId || raw.principalId !== identity.principalId
+    || raw.credentialId !== identity.credentialId || raw.source !== identity.source) {
+    throw new OperationError('CONTROL_CONFLICT', 'Use terminal_control to obtain a confirmed control handle before sending input')
+  }
+  return raw
+}
+
+/** 自动化交互操作需用户确认当前上下文，再交出主界面的控制权。 */
+async function handleTerminalControl(raw: unknown, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
+  try {
+    const request = readTerminalControlRequest(raw)
+    if (!request) return sendJson(res, 400, { success: false, error: 'Invalid terminal control request' })
+    if (request.kind === 'takeover') return sendJson(res, 403, { success: false, error: 'Only the application GUI may take over terminal input' })
+    const id = 'control' in request ? request.control.sessionId : resolveRuntimeSessionId(request.sessionId)
+    const session = sessionManager.getSession(id)
+    if (!session) return sendJson(res, 404, { success: false, error: 'Terminal is unavailable' })
+    // 固定首次授权等待之前的现场：类型、连接器实例、连接实例都取原值，之后只认这三项。
+    const pinnedType = session.config.type
+    const pinnedConnector = session.connector
+    const pinnedConnectionInstanceId = session.connectionInstanceId
+    const capability = request.kind === 'inspect' ? 'read' : 'interactiveWrite'
+    const auth = await authorizeMcpOperation('terminal_control', capability, id, undefined, binding)
+    if (!auth.allowed) return sendJson(res, 403, { success: false, error: auth.reason })
+    const identity = inputIdentity(binding)
+    if (request.kind === 'inspect') return sendJson(res, 200, { success: true, data: { snapshot: sessionManager.inputControl.currentSnapshot(id) } })
+    if ('control' in request) {
+      const handle = authorizedInputHandle(request.control, id, binding)
+      if (request.kind === 'release') {
+        await sessionManager.releaseInput(handle)
+        return sendJson(res, 200, { success: true, data: { released: true } })
+      }
+      return sendJson(res, 200, { success: true, data: { control: await sessionManager.inputControl.renew(handle) } })
+    }
+    const snapshot = sessionManager.inputControl.currentSnapshot(id)
+    // 原现场三项：会话对象（===session）、连接器实例、连接实例；权限检查只认固定的 type。
+    const pinned = () => isMcpConfirmationAuthorized(binding, 'interactiveWrite', pinnedType)
+      && isSessionAllowedForMcp(id) && sessionManager.getSession(id) === session
+      && session.config.type === pinnedType && session.connector === pinnedConnector
+      && session.connectionInstanceId === pinnedConnectionInstanceId
+    const current = () => pinned()
+      && sessionManager.inputControl.currentSnapshot(id)?.connectionInstanceId === snapshot?.connectionInstanceId
+      && sessionManager.inputControl.currentSnapshot(id)?.lease?.leaseId === snapshot?.lease?.leaseId
+    // 清理、取得两个等待窗口结束后都要复核：目标未变、连接实例未变、权限仍然有效。
+    const targetCurrent = () => pinned()
+      && sessionManager.inputControl.currentSnapshot(id)?.connectionInstanceId === pinnedConnectionInstanceId
+    const ownLease = snapshot?.lease?.principalId === identity.principalId && snapshot.lease.expiresAt > Date.now()
+    if (!ownLease) {
+      if (snapshot?.lease?.source === 'automation' && snapshot.lease.expiresAt > Date.now()) {
+        throw new OperationError('CONTROL_CONFLICT', 'Another automation controller holds this terminal')
+      }
+      const confirmed = await requestMcpConfirmation({
+        title: t('mcp.dialog.highRiskTitle'), message: t('terminal.confirmHandoff'), operation: 'terminal_control',
+        source: mcpRequestSource(binding), targets: [{ name: session.config.name, type: pinnedType }],
+        content: t('terminal.confirmHandoffDetail'), contentKind: 'content'
+      }, current)
+      if (!confirmed || !current()) return sendJson(res, 403, { success: false, error: 'Terminal handoff was not confirmed' })
+      await sessionManager.inputControl.invalidateSession(id)
+      // 清理 fence 期间可能换连接/换会话/撤权：旧现场的确认不得落到新现场。
+      if (!targetCurrent()) return sendJson(res, 403, { success: false, error: 'Terminal handoff was not confirmed' })
+    }
+    const control = await sessionManager.acquireInput(id, identity, { contextConfirmed: true })
+    // 取得期间同样可能换现场，或复核时租约已被别人接手：归还刚拿到的租约后拒绝。
+    const settled = targetCurrent() && control.sessionId === id
+      && control.connectionInstanceId === pinnedConnectionInstanceId
+      && sessionManager.inputControl.currentSnapshot(id)?.lease?.leaseId === control.leaseId
+    if (!settled) {
+      try { await sessionManager.releaseInput(control) } catch (error) {
+        log.warn('[MCP] Releasing input control after a stale handoff failed:', error)
+      }
+      return sendJson(res, 403, { success: false, error: 'Terminal handoff was not confirmed' })
+    }
+    sendJson(res, 200, { success: true, data: { control } })
+  } catch (error) {
+    sendJson(res, error instanceof OperationError ? 409 : 500, { success: false,
+      error: error instanceof Error ? error.message : 'Terminal control failed',
+      ...(error instanceof OperationError ? { data: { code: error.code, retryDisposition: error.retryDisposition } } : {}) })
+  }
+}
+
+/** POST /api/send-input - 向交互式终端发送输入 */
 async function handleSendInput(data: SendInputRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
     const { sessionId, text } = data
 
-    if (!sessionId || text === undefined) {
+    if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 128 || typeof text !== 'string') {
       sendJson(res, 400, { success: false, error: 'sessionId and text are required' })
       return
     }
@@ -1257,18 +1418,16 @@ async function handleSendInput(data: SendInputRequest, res: http.ServerResponse,
       return
     }
 
-    // 临时锁定 PTY，避免用户输入与 MCP 输入冲突
-    sessionManager.lockSessionForMcp(resolvedSessionId)
-    try {
-      sessionManager.writeToSession(resolvedSessionId, processedText)
+    const control = authorizedInputHandle(data.control, resolvedSessionId, binding)
+    {
+      await sessionManager.writeToSession(resolvedSessionId, processedText, control,
+        () => isMcpConfirmationAuthorized(binding, 'interactiveWrite', session.config.type) && isSessionAllowedForMcp(resolvedSessionId))
       log.info(`[MCP] Send input to session ${resolvedSessionId} (origin ${sessionId}): ${text.length} chars`)
       sendJson(res, 200, { success: true, data: { sent: true, bytes: processedText.length } })
-    } finally {
-      sessionManager.unlockSessionForMcp(resolvedSessionId)
     }
   } catch (err: any) {
     log.error('[MCP] Send input error:', err)
-    sendJson(res, 500, { success: false, error: err.message })
+    sendJson(res, err instanceof OperationError ? 409 : 500, { success: false, error: err.message, ...(err instanceof OperationError ? { data: { code: err.code, retryDisposition: err.retryDisposition } } : {}) })
   }
 }
 
@@ -1338,6 +1497,14 @@ async function handleReadOutput(data: ReadOutputRequest, res: http.ServerRespons
       return
     }
 
+    if (data.cursor !== undefined || data.outputEpoch !== undefined) {
+      const page = session.outputBuffer?.readIncremental({ cursor: data.cursor ?? 0, outputEpoch: data.outputEpoch,
+        maxChars: data.maxChars, stripAnsi: data.raw !== true })
+      if (!page) return sendJson(res, 400, { success: false, error: 'Output buffer is unavailable' })
+      if (!page.ok) return sendJson(res, page.code === 'epoch-mismatch' ? 409 : 400, { success: false, error: page.message, data: page })
+      return sendJson(res, 200, { success: true, data: { ...page, output: page.text, lines: page.text.split('\n').length, totalBufferSize: session.outputBuffer!.size() } })
+    }
+
     const result = sessionManager.readOutput(resolvedSessionId, {
       lines: clampNumber(data.lines, 1, 1000, 100),
       raw: data.raw === true
@@ -1366,7 +1533,7 @@ async function handleReadOutput(data: ReadOutputRequest, res: http.ServerRespons
 async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerResponse, binding: TokenBinding): Promise<void> {
   try {
     const { sessionId, text } = data
-    if (!sessionId || text === undefined) {
+    if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 128 || typeof text !== 'string') {
       sendJson(res, 400, { success: false, error: 'sessionId and text are required' })
       return
     }
@@ -1404,9 +1571,8 @@ async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerRespo
       return
     }
 
-    // 在 sendAndWait 期间锁定 PTY，避免用户输入与 MCP 输入冲突
-    sessionManager.lockSessionForMcp(resolvedSessionId)
-    try {
+    const control = authorizedInputHandle(data.control, resolvedSessionId, binding)
+    {
       const result: SendAndWaitResult = await sessionManager.sendAndWait(resolvedSessionId, {
         text,
         waitMs: clampNumber(data.waitMs, 0, MAX_COMMAND_TIMEOUT_MS, 2000),
@@ -1416,17 +1582,17 @@ async function handleSendAndWait(data: SendAndWaitRequest, res: http.ServerRespo
         // 并把 CR/LF/Tab 换成空格，悄悄改变正则语义。原样透传。
         waitForPattern: data.waitForPattern,
         autoNewline: data.autoNewline !== false,
-        captureExitCode: data.captureExitCode === true
+        captureExitCode: data.captureExitCode === true,
+        control,
+        authorizeInput: () => isMcpConfirmationAuthorized(binding, 'interactiveWrite', session.config.type) && isSessionAllowedForMcp(resolvedSessionId)
       })
 
       log.info(`[MCP] Send-and-wait to session ${resolvedSessionId} (origin ${sessionId}): settled=${result.settled} elapsed=${result.elapsedMs}ms`)
       sendJson(res, 200, { success: true, data: result })
-    } finally {
-      sessionManager.unlockSessionForMcp(resolvedSessionId)
     }
   } catch (err: any) {
     log.error('[MCP] Send-and-wait error:', err)
-    sendJson(res, 500, { success: false, error: err.message })
+    sendJson(res, err instanceof OperationError ? 409 : 500, { success: false, error: err.message, ...(err instanceof OperationError ? { data: { code: err.code, retryDisposition: err.retryDisposition } } : {}) })
   }
 }
 
@@ -1726,6 +1892,7 @@ async function handleWriteSessionNotes(
       return
     }
 
+    const configRevision = sessionRepository.getRevision()
     // C6：首次写入会话备注的内容级确认（prompt-injection 防御）。
     // session token 跳过 requireConfirmation，本层是其写入元数据的唯一人工闸门——
     // 阻断被注入的 agent 静默给一个"空白"会话打上误导性 summary/notes/tags
@@ -1746,7 +1913,7 @@ async function handleWriteSessionNotes(
           operation: 'write_session_notes', source: mcpRequestSource(binding),
           targets: [{ name: config.name, type: config.type }], contentKind: 'content',
           content: JSON.stringify({ summary, usageNotes, tags: normalizedTags ?? undefined }, null, 2)
-        }, () => isMcpConfirmationAuthorized(binding, 'sessionMetadataWrite') && isSessionAllowedForMcp(sessionId) && sessionRepository.get(sessionId) === config)
+        }, () => isMcpConfirmationAuthorized(binding, 'sessionMetadataWrite') && isSessionAllowedForMcp(sessionId) && sessionRepository.getRevision() === configRevision)
         if (!allowed) {
           const c6AuditBase: Omit<McpAuditEvent, 'allowed'> = {
             operation: 'write_session_notes',
@@ -2305,6 +2472,8 @@ async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerRes
     }
     const resolvedSessionId = resolveRuntimeSessionId(sessionId)
     const session = sessionManager.getSession(resolvedSessionId)
+    const connection = session?.connector
+    const connectionInstance = session?.connectionInstanceId
     const sshConfig = session?.config.ssh
     // 限定 localPath 必须落在该会话的下载目录内，防止写到 Startup 等敏感位置（RCE/持久化）
     let safeLocalPath: string
@@ -2373,7 +2542,9 @@ async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerRes
       remotePath,
       localPath: safeLocalPath,
       fileSize
-    })
+    }, () => isMcpConfirmationAuthorized(binding, 'fileWrite') && isSessionAllowedForMcp(sessionId)
+      && sessionManager.getSession(resolvedSessionId) === session && session.status === ConnectionStatus.CONNECTED
+      && session.connector === connection && session.connectionInstanceId === connectionInstance)
 
     // 传输完成后本地计算 MD5，供 MCP 调用方校验完整性
     let md5: string | undefined
@@ -2386,7 +2557,7 @@ async function handleDownloadFile(data: DownloadFileRequest, res: http.ServerRes
     const response: DownloadFileResponse = { md5, remotePath, localPath: safeLocalPath }
     sendJson(res, 200, { success: true, data: response })
   } catch (err: any) {
-    sendJson(res, 500, { success: false, error: err.message })
+    sendJson(res, err instanceof OperationError && err.code === 'FORBIDDEN' ? 403 : 500, { success: false, error: err.message })
   }
 }
 
@@ -2411,13 +2582,15 @@ async function handleUploadFile(data: UploadFileRequest, res: http.ServerRespons
       return
     }
     const resolvedSessionId = resolveRuntimeSessionId(sessionId)
+    const session = sessionManager.getSession(resolvedSessionId)
+    const connection = session?.connector
+    const connectionInstance = session?.connectionInstanceId
     const auth = await authorizeMcpOperation('upload_file', 'fileWrite', resolvedSessionId, `${safeLocalPath} -> ${remotePath}`, binding)
     if (!auth.allowed) {
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
 
-    const session = sessionManager.getSession(resolvedSessionId)
     if (!session || session.config.type !== ConnectionType.SSH) {
       sendJson(res, 400, { success: false, error: 'upload_file only supports SSH sessions' })
       return
@@ -2469,7 +2642,9 @@ async function handleUploadFile(data: UploadFileRequest, res: http.ServerRespons
       localPath: safeLocalPath,
       remotePath,
       fileSize
-    })
+    }, () => isMcpConfirmationAuthorized(binding, 'fileWrite') && isSessionAllowedForMcp(sessionId)
+      && sessionManager.getSession(resolvedSessionId) === session && session.status === ConnectionStatus.CONNECTED
+      && session.connector === connection && session.connectionInstanceId === connectionInstance)
 
     // 上传完成后计算远程文件 MD5，供 MCP 调用方校验完整性
     let md5: string | undefined
@@ -2482,7 +2657,7 @@ async function handleUploadFile(data: UploadFileRequest, res: http.ServerRespons
     const response: UploadFileResponse = { remotePath, localPath: safeLocalPath, md5 }
     sendJson(res, 200, { success: true, data: response })
   } catch (err: any) {
-    sendJson(res, 500, { success: false, error: err.message })
+    sendJson(res, err instanceof OperationError && err.code === 'FORBIDDEN' ? 403 : 500, { success: false, error: err.message })
   }
 }
 
@@ -2512,8 +2687,8 @@ function summarizeText(value: unknown, maxLength: number = 200): string {
 
 function auditMcpOperation(event: McpAuditEvent): void {
   const timestamp = new Date().toISOString()
-  const summary = event.summary ? summarizeText(event.summary, 512) : undefined
-  log.info('[MCP][audit]', { ...event, timestamp, summary })
+  const summary = event.summary ? `${event.operation}: ${event.summary.length} characters` : undefined
+  log.info('[MCP][audit]', { operation: event.operation, capability: event.capability, allowed: event.allowed, timestamp, durationMs: event.durationMs })
   // 同步入库供"MCP 活动"面板查询（内存环形缓冲 + 防抖落盘）
   mcpAuditRepository.append({
     operation: event.operation,
@@ -2611,20 +2786,15 @@ function mcpRequestSource(binding: TokenBinding): string {
   return t('mcp.dialog.externalClient')
 }
 
-function isMcpConfirmationAuthorized(binding: TokenBinding, capability: McpCapability): boolean {
+function isMcpConfirmationAuthorized(binding: TokenBinding, capability: McpCapability, type?: ConnectionType): boolean {
   if (!confirmationCredentials.get(binding)?.()) return false
   const settings = getMcpSecuritySettings()
   if (!settings.enabled) return false
   if (binding.kind === 'session') return true
-  if (binding.kind === 'plugin') return binding.capabilities?.includes(capability) === true
+  const required = operationCapabilities(capability, type)
+  if (binding.kind === 'plugin') return required.every(cap => binding.capabilities?.includes(cap) === true)
   if (binding.kind !== 'global' || !settings.allowExternalMcpClients) return false
-  return capability === 'read' ? settings.allowRead :
-    capability === 'interactiveWrite' ? settings.allowInteractiveInput :
-      capability === 'execute' ? settings.allowSshExecute :
-        capability === 'localExecute' ? settings.allowLocalExecute :
-          capability === 'fileWrite' ? settings.allowFileWrite :
-            capability === 'sessionControl' ? settings.allowSessionControl === true :
-              capability === 'sessionMetadataWrite' ? settings.allowSessionMetadataWrite === true : false
+  return required.every(cap => capabilityEnabled(settings, cap))
 }
 
 async function authorizeMcpOperation(
@@ -2639,6 +2809,7 @@ async function authorizeMcpOperation(
   // 把 saved id 解析为 runtime id，使 MCP 工具既可以用保存项 ID 也可以用 live session ID 调用。
   const resolvedSessionId = sessionId ? resolveRuntimeSessionId(sessionId) : undefined
   const session = resolvedSessionId ? sessionManager.getSession(resolvedSessionId) : undefined
+  const required = operationCapabilities(capability, session?.config.type)
   const sessionSummary = getSessionSummary(sessionId)
 
   const auditBase: Omit<McpAuditEvent, 'allowed'> = {
@@ -2699,13 +2870,14 @@ async function authorizeMcpOperation(
   // origin 限制；但仍受上方 deniedSessionIds/allowedSessionIds 约束。
   // requireConfirmation 跳过（plugin 已由用户安装批准），但 confirmDestructiveIfNeeded 仍生效。
   if (binding.kind === 'plugin') {
-    if (!binding.capabilities?.includes(capability)) {
+    const missing = required.find(cap => !binding.capabilities?.includes(cap))
+    if (missing) {
       // execute_command / run_on_sessions 按 session 类型选 execute(远端)或 localExecute(LOCAL):
       // 候选级 gate(plugin-host/api.ts)用 some() 放行任一,故插件可能持 execute 却在 LOCAL 会话被拒
       // (反之亦然)。给出可操作提示,避免「明明声明了 execute 却 403」的困惑。
       const pid = binding.pluginId ?? '<unknown>'
       const has = binding.capabilities ?? []
-      let reason = `plugin ${pid} lacks capability '${capability}' for this operation`
+      let reason = `plugin ${pid} lacks capability '${missing}' for this operation`
       if (capability === 'localExecute' && has.includes('execute')) {
         reason +=
           " (LOCAL 会话的 execute_command / lyshell_run_on_sessions 要求 'localExecute' 而非 'execute';在 manifest 同时声明 'execute' 与 'localExecute' 以覆盖所有会话类型)"
@@ -2727,14 +2899,7 @@ async function authorizeMcpOperation(
   }
 
   // global token：来自端口文件，外部进程也可能持有 → 沿用保守的 allow* 策略
-  const capabilityAllowed =
-    capability === 'read' ? settings.allowRead :
-      capability === 'interactiveWrite' ? settings.allowInteractiveInput :
-        capability === 'execute' ? settings.allowSshExecute :
-          capability === 'localExecute' ? settings.allowLocalExecute :
-            capability === 'fileWrite' ? settings.allowFileWrite :
-              capability === 'sessionControl' ? (settings.allowSessionControl === true) :
-                capability === 'sessionMetadataWrite' ? (settings.allowSessionMetadataWrite === true) : false
+  const capabilityAllowed = required.every(cap => capabilityEnabled(settings, cap))
 
   if (!capabilityAllowed) return deny(`MCP capability ${capability} is disabled`)
 
@@ -2749,7 +2914,7 @@ async function authorizeMcpOperation(
       operation, source: mcpRequestSource(binding), targets: session ? [{ name: session.config.name, type: session.config.type }] : [],
       content: confirmationContent ?? summary ?? '', contentKind: isCommandOperation(operation) ? 'command' : 'content'
     }, () => {
-      return isMcpConfirmationAuthorized(binding, capability) && isSessionAllowedForMcp(sessionId ?? '') &&
+      return isMcpConfirmationAuthorized(binding, capability, session?.config.type) && isSessionAllowedForMcp(sessionId ?? '') &&
         (!resolvedSessionId || sessionManager.getSession(resolvedSessionId) === session)
     })
     if (!allowed) return deny('User denied MCP operation')
@@ -2805,7 +2970,7 @@ async function confirmDestructiveIfNeeded(
   }, () => targets.every(({ id, session }) => {
     const capability = operation === 'send_input' || operation === 'send_and_wait' ? 'interactiveWrite'
       : session?.config.type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
-    return isMcpConfirmationAuthorized(binding, capability) && isSessionAllowedForMcp(id) && sessionManager.getSession(id) === session
+    return isMcpConfirmationAuthorized(binding, capability, session?.config.type) && isSessionAllowedForMcp(id) && sessionManager.getSession(id) === session
   }))
 
   if (!allowed) {
@@ -2847,7 +3012,7 @@ async function handleListAgents(res: http.ServerResponse, binding: TokenBinding)
       sendJson(res, 403, { success: false, error: auth.reason })
       return
     }
-    const agents = agentRepository.getAll().map(a => ({
+    const agents = agentRepository.getAllPublic().map(a => ({
       id: a.id,
       name: a.name,
       command: a.command,
@@ -3015,6 +3180,10 @@ async function handleRunOnSessions(
       sendJson(res, 400, { success: false, error: 'sessionIds limited to 50 per call' })
       return
     }
+    if (sessionIds.some(id => typeof id !== 'string' || !id || id.length > 128)) {
+      sendJson(res, 400, { success: false, error: 'sessionIds must contain non-empty IDs (max 128 chars)' })
+      return
+    }
     if (typeof command !== 'string' || command.length === 0) {
       sendJson(res, 400, { success: false, error: 'command is required' })
       return
@@ -3026,16 +3195,29 @@ async function handleRunOnSessions(
 
     // dryRun：仅预览将受影响的会话，不执行、不触发破坏性确认
     if (data.dryRun === true) {
-      const targets = sessionIds.map(sid => {
-        const s = sessionManager.getSession(sid)
-        const connected = !!s && s.status === ConnectionStatus.CONNECTED
-        const supported = !!s && (s.config.type === ConnectionType.SSH || s.config.type === ConnectionType.LOCAL)
+      const previews = await Promise.all(sessionIds.map(async sid => {
+        const resolved = resolveRuntimeSessionId(sid)
+        const s = sessionManager.getSession(resolved)
+        const type = s?.config.type
+        // 预览会读取元信息，同样要求 read 与资源可见性；不触发执行确认。
+        const auth = await authorizeMcpOperation('run_on_sessions', 'read', resolved, undefined, binding)
+        return { sid, resolved, s, type, allowed: auth.allowed }
+      }))
+      // 等全部异步授权结束后再投影结果，早期行不能越过后续等待期间的撤权。
+      const targets = previews.map(({ sid, resolved, s, type, allowed }) => {
+        if (!allowed || !s || !isMcpConfirmationAuthorized(binding, 'read', type)
+          || !isSessionAllowedForMcp(resolved) || sessionManager.getSession(resolved) !== s || s.config.type !== type) {
+          return { sessionId: sid, wouldExecute: false, error: 'Target unavailable or not authorized' }
+        }
+        const connected = s.status === ConnectionStatus.CONNECTED
+        const supported = type === ConnectionType.SSH || type === ConnectionType.LOCAL
+        const capability = type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
         return {
           sessionId: sid,
-          sessionName: s?.config.name,
-          sessionType: s?.config.type,
-          status: s?.status,
-          wouldExecute: connected && supported
+          sessionName: s.config.name,
+          sessionType: type,
+          status: s.status,
+          wouldExecute: connected && supported && isMcpConfirmationAuthorized(binding, capability, type)
         }
       })
       sendJson(res, 200, { success: true, data: { dryRun: true, command, targets } })
@@ -3043,6 +3225,11 @@ async function handleRunOnSessions(
     }
 
     const safeTimeout = clampNumber(timeout, 100, MAX_COMMAND_TIMEOUT_MS, 30000)
+    // 在批量确认之前固定原目标；不能把旧目标的批准用于确认后的新连接。
+    const dispatchTargets = new Map(sessionIds.map(sid => {
+      const resolved = resolveRuntimeSessionId(sid)
+      return [sid, { resolved, assertCurrent: commandDispatchGuard(resolved, binding) }] as const
+    }))
 
     // 命令对所有目标会话相同，破坏性确认只做一次；拒绝则整单 403，避免 50 次弹窗
     const destructive = await confirmDestructiveIfNeeded('run_on_sessions', command, undefined, binding, sessionIds)
@@ -3053,23 +3240,26 @@ async function handleRunOnSessions(
 
     // 单 session 的执行（含鉴权 + 类型路由），失败转为 result entry 而非抛出
     const runOne = async (sid: string): Promise<{ sessionId: string; output?: string; exitCode?: number; error?: string }> => {
-      const session = sessionManager.getSession(sid)
+      const { resolved, assertCurrent } = dispatchTargets.get(sid)!
+      const session = sessionManager.getSession(resolved)
       if (!session) return { sessionId: sid, error: `Session not found: ${sid}` }
       if (session.status !== ConnectionStatus.CONNECTED) {
         return { sessionId: sid, error: `Session not connected (status: ${session.status})` }
       }
       const cap: McpCapability = session.config.type === ConnectionType.LOCAL ? 'localExecute' : 'execute'
-      const auth = await authorizeMcpOperation('run_on_sessions', cap, sid, summarizeText(command), binding, command)
+      const auth = await authorizeMcpOperation('run_on_sessions', cap, resolved, summarizeText(command), binding, command)
       if (!auth.allowed) return { sessionId: sid, error: auth.reason }
 
       try {
+        assertCurrent()
         if (session.config.type === ConnectionType.SSH) {
-          const connector = await fileManager.getCommandConnector(sid)
+          const connector = await fileManager.getCommandConnector(resolved)
+          assertCurrent()
           if (!connector.execRaw) {
             return { sessionId: sid, error: 'Connector does not support execution' }
           }
-          const output = await connector.execRaw(command, safeTimeout)
-          return { sessionId: sid, output, exitCode: 0 }
+          const result = await connector.execStream(command, safeTimeout, () => {}, undefined, assertCurrent)
+          return { sessionId: sid, output: result.output, exitCode: result.exitCode }
         }
         if (session.config.type === ConnectionType.LOCAL) {
           const r = await executeLocalCommand(command, session.config.local?.cwd, session.config.local?.env, safeTimeout)
@@ -3190,11 +3380,11 @@ function executeLocalCommand(
   timeout: number = 30000
 ): Promise<ExecuteResponse> {
   return new Promise((resolve) => {
-    const execEnv = { ...process.env, ...env } as Record<string, string>
+    const execEnv = childEnvironment(process.env, env) as Record<string, string>
     const execCwd = cwd || process.env.USERPROFILE || process.env.HOME || ''
 
     // 记录通过 MCP 执行的本地命令
-    log.info(`[MCP] Executing local command: ${command} (cwd: ${execCwd})`)
+    log.info(`[MCP] Executing local command (${command.length} characters)`)
 
     exec(command, { cwd: execCwd, env: execEnv, timeout, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
       resolve({
@@ -3208,21 +3398,45 @@ function executeLocalCommand(
 /**
  * 读取请求 body
  */
+let pendingBodyBytes = 0
+const MAX_PENDING_BODY_BYTES = 32 * 1024 * 1024
 function readBody(req: http.IncomingMessage, maxSize: number = 10 * 1024 * 1024): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
     let bodySize = 0
-    req.on('data', (chunk: Buffer) => {
-      chunks.push(chunk)
-      bodySize += chunk.length
-      if (bodySize > maxSize) {
-        reject(new Error(`Request body too large (max ${maxSize} bytes)`))
-        req.destroy()
+    let settled = false
+    const cleanup = (): void => {
+      settled = true
+      pendingBodyBytes -= bodySize
+      chunks.length = 0
+      req.removeListener('data', onData)
+      req.removeListener('end', onEnd)
+      req.removeListener('aborted', onAborted)
+      // IncomingMessage 在 aborted 之后仍会发 error；保留吸收器到 close，避免未处理异常。
+    }
+    const onError = (error: Error): void => { if (!settled) { cleanup(); reject(error) } }
+    const onAborted = (): void => onError(new Error('Request body aborted'))
+    const onData = (chunk: Buffer): void => {
+      if (bodySize + chunk.length > maxSize || pendingBodyBytes + chunk.length > MAX_PENDING_BODY_BYTES) {
+        onError(new Error('Request body budget exceeded'))
+        req.resume()
         return
       }
-    })
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')))
-    req.on('error', reject)
+      chunks.push(chunk)
+      bodySize += chunk.length
+      pendingBodyBytes += chunk.length
+    }
+    const onEnd = (): void => {
+      if (settled) return
+      const text = Buffer.concat(chunks, bodySize).toString('utf-8')
+      cleanup()
+      resolve(text)
+    }
+    req.on('data', onData)
+    req.once('end', onEnd)
+    req.once('aborted', onAborted)
+    req.on('error', onError)
+    req.once('close', () => req.removeListener('error', onError))
   })
 }
 
@@ -3236,8 +3450,17 @@ function readBody(req: http.IncomingMessage, maxSize: number = 10 * 1024 * 1024)
 function sendJson(res: http.ServerResponse, statusCode: number, data: ApiResponse): void {
   if (res.headersSent || res.destroyed) return
   try {
-    res.writeHead(statusCode, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify(data))
+    const requestId = res.getHeader('x-lyshell-request-id')
+    const response = { ...data, ...(typeof requestId === 'string' ? { requestId } : {}) }
+    if (!data.success && !response.code) {
+      const detail = data.data as { code?: string; retryDisposition?: ApiResponse['retryDisposition'] } | undefined
+      response.code = typeof detail?.code === 'string' ? detail.code : statusCode === 401 ? 'UNAUTHENTICATED' : statusCode === 403 ? 'FORBIDDEN'
+        : statusCode === 404 ? 'RESOURCE_NOT_FOUND' : statusCode === 429 ? 'RESOURCE_LIMIT'
+          : statusCode >= 500 ? 'OUTCOME_UNKNOWN' : statusCode === 409 ? 'STALE_GENERATION' : 'INVALID_ARGUMENT'
+      response.retryDisposition = detail?.retryDisposition ?? (statusCode >= 500 ? 'reconcile-first' : 'never')
+    }
+    res.writeHead(statusCode, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+    res.end(JSON.stringify(response))
   } catch {
     /* socket 已失效,无需回包 */
   }

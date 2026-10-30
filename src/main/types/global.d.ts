@@ -46,12 +46,18 @@ export interface SFTPStats {
   uid?: number
   gid?: number
   isDirectory(): boolean
+  isFile?(): boolean
+  isSymbolicLink?(): boolean
 }
 
 export interface SFTPWrapper extends EventEmitter {
   realpath(path: string, callback: (err: Error | undefined, resolved: string) => void): void
   readdir(path: string, callback: (err: Error | undefined, list: Array<{ filename: string; longname: string; attrs: SFTPStats }>) => void): void
   stat(path: string, callback: (err: Error | undefined, stats: SFTPStats) => void): void
+  lstat(path: string, callback: (err: Error | undefined, stats: SFTPStats) => void): void
+  fstat(handle: Buffer, callback: (err: Error | undefined, stats: SFTPStats) => void): void
+  fchmod(handle: Buffer, mode: number, callback: (err: Error | undefined) => void): void
+  chmod(path: string, mode: number, callback: (err: Error | undefined) => void): void
   fastPut(localPath: string, remotePath: string, callback: (err: Error | undefined) => void): void
   fastGet(remotePath: string, localPath: string, callback: (err: Error | undefined) => void): void
   createReadStream(path: string, options?: object): NodeJS.ReadableStream & { destroy(error?: Error): void }
@@ -61,6 +67,26 @@ export interface SFTPWrapper extends EventEmitter {
   rename(oldPath: string, newPath: string, callback: (err: Error | undefined) => void): void
   mkdir(path: string, callback: (err: Error | undefined) => void): void
   open(path: string, flags: string, callback: (err: Error | undefined, handle: Buffer) => void): void
+  open(
+    path: string,
+    flags: string,
+    attrs: { mode?: number },
+    callback: (err: Error | undefined, handle: Buffer) => void
+  ): void
   read(handle: Buffer, buffer: Buffer, offset: number, length: number, position: number, callback: (err: Error | undefined, bytesRead: number) => void): void
+  write(
+    handle: Buffer,
+    buffer: Buffer,
+    offset: number,
+    length: number,
+    position: number,
+    callback: (err: Error | undefined) => void
+  ): void
   close(handle: Buffer, callback: (err: Error | undefined) => void): void
+  /** 服务器扩展声明（ssh2 在 SFTP 初始化时填充，未支持时为空对象） */
+  _extensions?: Record<string, string>
+  /** posix-rename@openssh.com：原子替换；服务器未声明时 ssh2 会同步抛错 */
+  ext_openssh_rename?(oldPath: string, newPath: string, callback: (err: Error | undefined) => void): void
+  /** fsync@openssh.com：远端文件落盘 */
+  ext_openssh_fsync?(handle: Buffer, callback: (err: Error | undefined) => void): void
 }

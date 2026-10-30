@@ -2,12 +2,17 @@ import { EventEmitter } from 'events'
 import log from 'electron-log'
 import iconv from 'iconv-lite'
 import type { TerminalEncoding } from '@shared/types'
+import { InputControlError, type ControlHandle, type InputFence } from '@shared/terminal-control'
+import type { ConnectorCapabilities } from '@shared/connector-capabilities'
 
 /**
  * 连接器基类
  * 所有连接器（SSH、Telnet、Serial）继承此类
  */
 export abstract class BaseConnector extends EventEmitter {
+  get capabilities(): Readonly<ConnectorCapabilities> {
+    return { interactiveInput: true, resize: false, exec: false, fileTransfer: false, pauseOutput: false, reattach: false }
+  }
   protected sessionId: string
   protected connected: boolean = false
   /** 运行时编码 —— 解码流与写方向编码的唯一来源；构造时由协议 config.encoding 派生，切档走 setEncoding */
@@ -33,13 +38,35 @@ export abstract class BaseConnector extends EventEmitter {
 
   /**
    * 写入数据
+   *
+   * `handle` 是输入控制租约（OPT-03）：连接器若支持宿主围栏，必须在写入前复核，
+   * 拿不到/对不上就一个字节都不写。不支持围栏的连接器会忽略它。
    */
-  abstract write(data: string | Buffer): void
+  abstract write(data: string | Buffer, handle?: InputFence | ControlHandle): void
+
+  /** 有宿主回执的连接器覆盖此方法；普通流只确认已交给连接器。 */
+  async writeConfirmed(data: string | Buffer, control?: InputFence): Promise<void> {
+    this.write(data, control)
+  }
 
   /**
    * 调整终端尺寸
    */
   abstract resize(cols: number, rows: number): void
+
+  // ── 输入围栏（OPT-03 控制协议） ────────────────────────────────────────────
+  // 只有「输入由另一个进程持有、需要宿主在 pty.write 前复核」的连接器才实现；
+  // 不支持就明确失败，绝不假装装上了围栏。
+
+  /** 是否支持宿主侧输入围栏。 */
+  get supportsInputFence(): boolean {
+    return false
+  }
+
+  /** 安装/撤销宿主侧围栏；返回表示宿主已确认。 */
+  async setInputControl(_fence: InputFence | ControlHandle | null): Promise<void> {
+    throw new InputControlError('host-rejected', 'this connector has no host-side input fence')
+  }
 
   /** 图形消费者积压时暂停输入源；无原生流的测试/扩展连接器默认无操作。 */
   setOutputPaused(_paused: boolean): void {}

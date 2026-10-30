@@ -10,6 +10,20 @@ vi.mock('electron', () => ({
   app: { getPath: () => tmpdir() }
 }))
 
+// 秘密存储：测试环境没有 safeStorage，注入指向唯一临时文件的真实 SecretStore，
+// 避免 vitest 并发文件共用默认 vault 或迁移因后端不可用而失败。
+vi.mock('../storage/secret-store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../storage/secret-store')>()
+  const { createTestCipher, secretTestPath } = await import('../storage/secret-store.test-support')
+  return {
+    ...actual,
+    secretStore: new actual.SecretStore({
+      filePath: secretTestPath('migrate-env-test-secrets.json'),
+      cipher: createTestCipher()
+    })
+  }
+})
+
 import { HarnessWorkspaceRepository } from '../storage/harness-workspace-repository'
 import { EnvProfileRepository } from '../storage/env-profile-repository'
 import { resolveActiveProfileEnv, resolveWorkspaceEnv, type HarnessAgentRuntime } from './config'

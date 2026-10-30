@@ -1,8 +1,11 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, screen, session, webContents, powerMonitor } from 'electron'
+import { applicationIpc } from './ipc/application-ipc'
+import { app, BrowserWindow, dialog, shell, screen, session, webContents, powerMonitor } from 'electron'
 import { join, resolve, isAbsolute } from 'path'
 import log from 'electron-log'
 import * as fs from 'fs'
 import { randomUUID } from 'crypto'
+import { pathToFileURL } from 'url'
+import { applicationCallers } from './security/application-caller'
 
 // 必须是首个本地 import：dev userData 分离要在任何 getPath('userData') 之前生效，
 // 挪后静默失效。播种本身不在 import 期跑，见下方 seedDevConfigFromProd 调用点
@@ -461,6 +464,10 @@ function createMainWindow(): void {
   mainWindow.on('restore', () => shelfBrowserRuntime.hostBoundary())
   explorerLaunchQueue.consumerId = mainWindow.webContents.id
   browserLaunchQueue.consumerId = mainWindow.webContents.id
+  applicationCallers.register(mainWindow.webContents,
+    isDev && process.env['ELECTRON_RENDERER_URL']
+      ? process.env['ELECTRON_RENDERER_URL']!
+      : pathToFileURL(join(__dirname, '../renderer/index.html')).href)
   setMainWindow(mainWindow)
   setMainWindowForUpload(mainWindow)
   setMcpConfirmationWindow(mainWindow)
@@ -505,7 +512,8 @@ function createMainWindow(): void {
     resizePersistTimer = setTimeout(() => {
       if (!mainWindow || mainWindow.isMaximized()) return
       const [width, height] = mainWindow.getSize()
-      preferencesRepository.set('window', { width, height })
+      try { preferencesRepository.set('window', { width, height }) }
+      catch { log.warn('Window size could not be saved') }
     }, 500)
   })
 
@@ -909,8 +917,8 @@ if (!gotSingleInstanceLock) {
 // 应用启动
 app.whenReady().then(async () => {
   const powerBlocks = new Set<string>()
-  powerMonitor.on('suspend', () => { powerBlocks.add('suspend'); shelfBrowserRuntime.hostBoundary(true) })
-  powerMonitor.on('lock-screen', () => { powerBlocks.add('lock'); shelfBrowserRuntime.hostBoundary(true) })
+  powerMonitor.on('suspend', () => { powerBlocks.add('suspend'); shelfBrowserRuntime.hostBoundary(true); void sessionManager.invalidateInput('suspend').catch(() => log.warn('Input revocation on suspend was not confirmed')) })
+  powerMonitor.on('lock-screen', () => { powerBlocks.add('lock'); shelfBrowserRuntime.hostBoundary(true); void sessionManager.invalidateInput('lock-screen').catch(() => log.warn('Input revocation on lock was not confirmed')) })
   powerMonitor.on('resume', () => { powerBlocks.delete('suspend'); shelfBrowserRuntime.hostBoundary(powerBlocks.size > 0) })
   powerMonitor.on('unlock-screen', () => { powerBlocks.delete('lock'); shelfBrowserRuntime.hostBoundary(powerBlocks.size > 0) })
   // 单实例竞争失败方：quit 已排队，ready 在部分版本仍会触发，这里不再往下引导
@@ -1023,7 +1031,7 @@ app.whenReady().then(async () => {
   }
 
   // 注册窗口相关 IPC 处理器
-  ipcMain.handle('window:get-bounds', async () => {
+  applicationIpc.handle('window:get-bounds', async () => {
     return mainWindow?.getBounds() || null
   })
 
@@ -1031,7 +1039,7 @@ app.whenReady().then(async () => {
   // webbar partition 后 session 身份不再可判，did-attach-webview 的快捷键转发凭这份
   // 登记把小窗排除在外（见 webbarMiniWebContentsId 注释）。id 是渲染层自报的不可信
   // 输入，整数校验收窄
-  ipcMain.handle(IPC_CHANNELS.WEBBAR_REGISTER_MINI, (_event, webContentsId: unknown) => {
+  applicationIpc.handle(IPC_CHANNELS.WEBBAR_REGISTER_MINI, (_event, webContentsId: unknown) => {
     if (typeof webContentsId !== 'number' || !Number.isInteger(webContentsId) || webContentsId < 0) {
       log.warn('Rejected invalid webbar-mini webContentsId registration:', webContentsId)
       return { success: false }
@@ -1052,7 +1060,7 @@ app.whenReady().then(async () => {
   // 数据送到其它 guest。令牌取出即销毁，加载失败也不重试 POST —— 重放已提交的
   // 请求有二次提交风险（付款/创建类动作重复执行），已明确否决；网页页签挂常驻层
   // （WebTabLayer）不随拖动重挂，正常流程不存在需要重放的场景。
-  ipcMain.handle(IPC_CHANNELS.WEB_TAB_POST_LOAD, (event, token: unknown, webContentsId: unknown) => {
+  applicationIpc.handle(IPC_CHANNELS.WEB_TAB_POST_LOAD, (event, token: unknown, webContentsId: unknown) => {
     const request = validateWebTabPostLoadRequest(token, webContentsId)
     if (event.sender !== mainWindow?.webContents || !request) return { success: false }
     const target = webContents.fromId(request.webContentsId)
@@ -1066,7 +1074,7 @@ app.whenReady().then(async () => {
   })
 
   // 设定主窗口尺寸(像素) -- 先退出最大化,按窗口所在显示器的工作区 clamp 尺寸 + 夹紧位置,最后持久化
-  ipcMain.handle('window:set-size', async (_event, width: number, height: number) => {
+  applicationIpc.handle('window:set-size', async (_event, width: number, height: number) => {
     if (!mainWindow) return { success: false }
     if (mainWindow.isMaximized()) {
       mainWindow.unmaximize()
@@ -1082,17 +1090,18 @@ app.whenReady().then(async () => {
     const x = Math.min(Math.max(bounds.x, workArea.x), workArea.x + workArea.width - w)
     const y = Math.min(Math.max(bounds.y, workArea.y), workArea.y + workArea.height - h)
     mainWindow.setPosition(Math.round(x), Math.round(y))
-    preferencesRepository.set('window', { width: w, height: h })
+    try { preferencesRepository.set('window', { width: w, height: h }) }
+    catch { return { success: false, error: 'Window size could not be saved' } }
     return { success: true, width: w, height: h }
   })
 
   // 窗口控制
-  ipcMain.handle('window:minimize', async () => {
+  applicationIpc.handle('window:minimize', async () => {
     mainWindow?.minimize()
     return true
   })
 
-  ipcMain.handle('window:maximize', async () => {
+  applicationIpc.handle('window:maximize', async () => {
     if (mainWindow?.isMaximized()) {
       mainWindow.unmaximize()
       return false
@@ -1102,17 +1111,17 @@ app.whenReady().then(async () => {
     }
   })
 
-  ipcMain.handle('window:close', async () => {
+  applicationIpc.handle('window:close', async () => {
     mainWindow?.close()
     return true
   })
 
-  ipcMain.handle('window:is-maximized', async () => {
+  applicationIpc.handle('window:is-maximized', async () => {
     return mainWindow?.isMaximized() || false
   })
 
   // 选择目录
-  ipcMain.handle('window:select-directory', async () => {
+  applicationIpc.handle('window:select-directory', async () => {
     if (!mainWindow) return null
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ['openDirectory', 'createDirectory'],
@@ -1125,7 +1134,7 @@ app.whenReady().then(async () => {
   })
 
   // 列出本地目录的子目录
-  ipcMain.handle('window:list-local-directories', async (_event, path: string) => {
+  applicationIpc.handle('window:list-local-directories', async (_event, path: string) => {
     try {
       const entries = fs.readdirSync(path, { withFileTypes: true })
       const directories = entries
@@ -1153,14 +1162,16 @@ app.on('will-quit', (event) => {
   event.preventDefault()
   if (quitting) return
   quitting = true
+  const inputCleanup = sessionManager.beginShutdown()
+  void inputCleanup.catch(() => log.warn('Input revocation during shutdown was not confirmed'))
   // 在任何异步退出清理前落盘归档；失败保留原始记录，下一次启动补做。
   try { taskShelfRepository.archiveAll() }
   catch (error) { log.warn('Task shelf quit archive failed:', error) }
   // PetLink 的 async deactivate 需要仍有效的 host token 与 HTTP/共享后台释放任务。
   void pluginHostManager.prepareShutdown().catch(error => log.warn('Plugin graceful shutdown failed:', error)).then(() => {
 
-    cleanupAllWorkers()  // 清理所有下载 Worker
-    cleanupAllUploadWorkers()  // 清理所有上传 Worker
+    const transfersCleanup = Promise.all([cleanupAllWorkers(), cleanupAllUploadWorkers()])
+    void transfersCleanup.catch(error => log.warn('Transfer quit cleanup failed:', error))
     if (stopMcpHttpServerImpl) {
       stopMcpHttpServerImpl()  // 停止 MCP HTTP 服务器
     }
@@ -1168,10 +1179,11 @@ app.on('will-quit', (event) => {
     // 弹窗全量清理（guest 随窗口销毁，这里只是把 pending/attached 表清空并给发起方补取消事件）
     pluginDialogManager.clearAll()
     cleanupDownloadsDir(getPluginsDir())  // 清理 URL 安装临时下载(.downloads/),防累积
-    mcpAuditRepository.flushSync()  // 同步落盘 MCP 审计日志，防丢最近事件
+    try { mcpAuditRepository.flushSync() }
+    catch { log.warn('MCP audit flush failed during shutdown') }
     reachabilityProber.stop()  // 停止可达性探测定时器
     // 收纳只在本次应用运行期间保留现场，退出时所有本地终端都明确终止。
-    const localQuitTasks: Promise<void>[] = []
+    const localQuitTasks: Promise<void>[] = [inputCleanup]
     for (const session of sessionManager.getAllSessions()) {
       if (session.connector) {
         if (session.connector instanceof LocalConnector) localQuitTasks.push(session.connector.disconnectForQuit())
@@ -1199,6 +1211,7 @@ app.on('will-quit', (event) => {
     })
     waitForQuitCleanup([
       terminalCleanup,
+      transfersCleanup,
       tuiActivity.close(),
       cleanupTuiLaunchFiles(),
       dshWebManager.closeForQuit(Date.now() + QUIT_DSH_CLOSE_BUDGET_MS),

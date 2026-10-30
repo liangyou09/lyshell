@@ -15,6 +15,7 @@ import { normalizeDshHomeEnv, type NormalizedEnvResult } from '../dsh/env'
 import { withInstalledMarketTools } from '../dsh/market-tools'
 import { presetDshTuiModel, clearDshTuiModel, type PresetModelResult } from '../dsh/model-preset'
 import { presetCodexBaseUrl } from '../codex/base-url-preset'
+import { assertResolvedSecrets } from '../storage/secret-store'
 
 /**
  * AI Harness 主进程运行期注册表 —— dsh / codex / claude 三份实例。
@@ -76,11 +77,13 @@ export function resolveWorkspaceEnv(
   runtime: HarnessAgentRuntime,
   workspace: HarnessWorkspace
 ): Record<string, string> | undefined {
+  assertResolvedSecrets(workspace)
   const bound = workspace.envProfileId
     ? runtime.envRepository.get(workspace.envProfileId)
     : undefined
   const profile = bound ?? runtime.envRepository.getActiveProfile()
   if (profile) {
+    assertResolvedSecrets(profile)
     const map = HARNESS_ENV_KEY_MAP[runtime.kind]
     return materializeProfileEnv(profile, map.baseUrlKey, map.apiKeyKey)
   }
@@ -95,6 +98,7 @@ export function resolveWorkspaceEnv(
 export function resolveActiveProfileEnv(runtime: HarnessAgentRuntime): Record<string, string> | undefined {
   const profile = runtime.envRepository.getActiveProfile()
   if (!profile) return undefined
+  assertResolvedSecrets(profile)
   const map = HARNESS_ENV_KEY_MAP[runtime.kind]
   return materializeProfileEnv(profile, map.baseUrlKey, map.apiKeyKey)
 }

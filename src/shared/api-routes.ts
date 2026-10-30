@@ -614,11 +614,12 @@ export const API_ROUTES: ApiRouteMeta[] = [
       'By default (autoNewline=true) Enter is appended automatically (CR for Windows local terminals, LF elsewhere) when the text ends in a normal character. Plain commands need no explicit newline. Set autoNewline=false for raw control sequences or interactive single-key input. ' +
       'Supports escape sequences: \\n for Enter, \\r for carriage return, \\x03 for Ctrl+C, \\x1a for Ctrl+Z, \\t for Tab. ' +
       'For non-interactive commands where you need the output, use send_and_wait instead. ' +
-      'The user\'s terminal will be temporarily locked while the input is sent, to prevent human and MCP input from conflicting.',
+      'Acquire a control handle with lyshell_terminal_control after the user confirms the current context. Pass control unchanged. Shell input also requires execute/localExecute. Full-screen TUI state cannot be inferred from read_output.',
     inputSchema: {
       type: 'object' as const,
       properties: {
         sessionId: sessionIdField,
+        control: { type: 'object', description: 'Unchanged handle from lyshell_terminal_control.' },
         text: {
           type: 'string',
           description: 'The text to send. Use \\n for Enter, \\x03 for Ctrl+C, \\x1a for Ctrl+Z, \\t for Tab.'
@@ -628,7 +629,7 @@ export const API_ROUTES: ApiRouteMeta[] = [
           description: 'When true (default), append Enter after a normal character (CR for Windows local terminals, LF elsewhere). Set false for raw control sequences or interactive single-key input.'
         }
       },
-      required: ['sessionId', 'text'] as string[]
+      required: ['sessionId', 'text', 'control'] as string[]
     },
     outputSchema: {
       type: 'object' as const,
@@ -721,6 +722,17 @@ export const API_ROUTES: ApiRouteMeta[] = [
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
   },
   {
+    name: 'lyshell_terminal_control', path: '/api/terminal-control', method: 'POST',
+    capabilities: ['interactiveWrite'], transports: BOTH, title: '终端输入控制权',
+    description: 'Inspect/acquire/renew/release terminal input control. Acquire asks the user to verify the current interactive context and hand it over; it never sends keys. Pass the returned control unchanged to send_input/send_and_wait. Renew before expiresAt, release when done. Conflicts, expired controls and replaced connections must not cause input replay. Only the GUI can take over another controller. Prefer independent execute_command channels for ordinary shell commands.',
+    inputSchema: { type: 'object', additionalProperties: false, properties: {
+      kind: { type: 'string', enum: ['inspect', 'acquire', 'renew', 'release'] },
+      sessionId: sessionIdField, control: { type: 'object', description: 'The complete control handle returned by acquire/renew.' }
+    }, required: ['kind'] },
+    outputSchema: { type: 'object', additionalProperties: true },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
+  },
+  {
     name: 'lyshell_read_output',
     path: '/api/read-output',
     method: 'POST',
@@ -732,11 +744,15 @@ export const API_ROUTES: ApiRouteMeta[] = [
       'Returns the most recent terminal output with ANSI escape codes stripped by default (clean readable text). ' +
       'Works with ALL session types (SSH, Local, Telnet, Serial) when connected. ' +
       'Use this after send_input to see what the terminal responded, or to inspect current terminal state. ' +
-      'The output buffer captures all terminal data; returns the most recent N lines (default 100).',
+      'The output buffer is bounded text history, not a complete terminal screen. Returns recent N lines (default 100). ' +
+      'For incremental reads pass cursor=0 initially, then reuse nextCursor and outputEpoch. historyGap reports lost history; responseTruncated reports a bounded response with more data available.',
     inputSchema: {
       type: 'object' as const,
       properties: {
         sessionId: sessionIdField,
+        cursor: { type: 'integer', minimum: 0, description: 'Incremental cursor in UTF-16 code units; omit for recent lines.' },
+        outputEpoch: { type: 'integer', minimum: 1, description: 'Epoch returned by the preceding incremental read.' },
+        maxChars: { type: 'integer', minimum: 1, maximum: 1048576, description: 'Incremental response limit, default 65536 code units.' },
         lines: {
           type: 'number',
           minimum: 1,
@@ -789,6 +805,7 @@ export const API_ROUTES: ApiRouteMeta[] = [
       type: 'object' as const,
       properties: {
         sessionId: sessionIdField,
+        control: { type: 'object', description: 'Unchanged handle from lyshell_terminal_control; user handoff required.' },
         text: {
           type: 'string',
           description: 'The text to send. Use \\n for Enter, \\x03 for Ctrl+C, \\x1a for Ctrl+Z, \\t for Tab.'
@@ -824,7 +841,7 @@ export const API_ROUTES: ApiRouteMeta[] = [
           description: 'Best-effort capture of the command exit code (POSIX shells only: bash/zsh/sh). When true, appends `printf \'__LYSHELL_EXIT_%d__\' $?` after the command and parses the marker from the output. Returns exitCode in the result (null if the marker is not found, e.g. non-POSIX shell or command not submitted). Only meaningful for simple shell commands; do not use with interactive programs (vim/htop). For a reliable exit code on SSH/local without cwd inheritance, use execute_command instead.'
         },
       },
-      required: ['sessionId', 'text'] as string[]
+      required: ['sessionId', 'text', 'control'] as string[]
     },
     outputSchema: {
       type: 'object' as const,

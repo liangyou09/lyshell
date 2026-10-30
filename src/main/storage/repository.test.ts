@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { mkdirSync, rmSync, writeFileSync, readFileSync } from 'fs'
+import { mkdirSync, existsSync, readdirSync, rmSync, writeFileSync, readFileSync } from 'fs'
 
 vi.mock('fs', async importOriginal => {
   const actual = await importOriginal<typeof import('fs')>()
@@ -18,13 +18,24 @@ vi.mock('electron', () => ({
   safeStorage: {}
 }))
 
-import { SessionRepository } from './repository'
+import { SessionRepository, PreferencesRepository, QuickCommandsRepository } from './repository'
+import { RevisionConflictError } from './atomic-json'
 import type { SessionConfig } from '@shared/types'
 import { ConnectionType } from '@shared/types'
 import { PluginResourceRegistry, releasePluginSessions } from '../plugin/resource-registry'
 
 const configDir = join(tmpdir(), 'config')
 const sessionsPath = join(configDir, 'sessions.json')
+const preferencesPath = join(configDir, 'preferences.json')
+const quickCommandsPath = join(configDir, 'quickCommands.json')
+
+const removeStorageFiles = (file: string): void => {
+  const name = file.split(/[\\/]/).pop()!
+  if (!existsSync(configDir)) return
+  for (const entry of readdirSync(configDir)) {
+    if (entry === name || entry.startsWith(`${name}.`)) rmSync(join(configDir, entry), { force: true })
+  }
+}
 
 /** 最小可落盘的本地会话 fixture（terminal 是 SessionConfig 必填的完整形状） */
 const makeLocalSession = (local: { shell?: string; shellArgs?: string[] }): SessionConfig => ({
@@ -69,13 +80,17 @@ const makeLocalSession = (local: { shell?: string; shellArgs?: string[] }): Sess
 
 beforeEach(() => {
   mkdirSync(configDir, { recursive: true })
-  rmSync(sessionsPath, { recursive: true, force: true })
+  removeStorageFiles(sessionsPath)
+  removeStorageFiles(preferencesPath)
+  removeStorageFiles(quickCommandsPath)
 })
 
 afterEach(async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs')
   vi.mocked(writeFileSync).mockImplementation(actual.writeFileSync).mockClear()
-  rmSync(sessionsPath, { recursive: true, force: true })
+  removeStorageFiles(sessionsPath)
+  removeStorageFiles(preferencesPath)
+  removeStorageFiles(quickCommandsPath)
 })
 
 describe('SessionRepository 删除失败重试', () => {
@@ -85,7 +100,7 @@ describe('SessionRepository 删除失败重试', () => {
     const second = repo.saveSession({ ...makeLocalSession({}), id: 'second', name: 'second' })
     vi.mocked(writeFileSync).mockImplementationOnce(() => { throw new Error('EACCES') })
     expect(() => repo.delete(first.id)).toThrow('EACCES')
-    expect(repo.get(first.id)).toBe(first)
+    expect(repo.get(first.id)).toStrictEqual(first)
     expect(repo.getAll().map(s => s.id)).toEqual([first.id, second.id])
     expect(new SessionRepository().get(first.id)).not.toBeNull()
     expect(repo.delete(first.id)).toBe(true)
@@ -105,7 +120,7 @@ describe('SessionRepository 删除失败重试', () => {
     for (let attempt = 0; attempt < 2; attempt++) {
       vi.mocked(writeFileSync).mockImplementationOnce(() => { throw new Error('EACCES') })
       await expect(releasePluginSessions(registry, 'plugin', hooks)).rejects.toThrow('EACCES')
-      expect(repo.get(saved.id)).toBe(saved)
+      expect(repo.get(saved.id)).toStrictEqual(saved)
       expect(registry.owner(saved.id)).toBe('plugin')
       expect(new SessionRepository().get(saved.id)).not.toBeNull()
     }
@@ -230,5 +245,145 @@ describe('SessionRepository 落盘引用隔离（cloneSession 逐层拷贝）', 
     const repo2 = new SessionRepository()
     const reloaded = repo2.get(saved.id)
     expect(reloaded?.local?.shellArgs).toEqual(['-NoProfile'])
+  })
+})
+
+describe('SessionRepository 损坏保护与版本冲突', () => {
+  it('去重提交失败时，合并的 pinned 标签和顺序不能污染旧内存快照', () => {
+    const repo = new SessionRepository()
+    repo.saveSession({ ...makeLocalSession({}), id: 'older', tags: ['pinned'], pinOrder: 3 })
+    repo.saveSession({ ...makeLocalSession({}), id: 'newer' })
+    const before = repo.getAll()
+    const diskBefore = readFileSync(sessionsPath, 'utf8')
+    const revision = repo.getRevision()
+    vi.mocked(writeFileSync).mockImplementationOnce(() => { throw new Error('disk full') })
+    expect(() => repo.deduplicate()).toThrow('disk full')
+    expect(repo.getAll()).toEqual(before)
+    expect(repo.getRevision()).toBe(revision)
+    expect(readFileSync(sessionsPath, 'utf8')).toBe(diskBefore)
+  })
+
+  it('损坏的 sessions.json 保留原件、禁用写入，默认空状态不覆盖', () => {
+    const broken = '{ not a session array'
+    writeFileSync(sessionsPath, broken)
+    const repo = new SessionRepository()
+    expect(repo.getLoadError()?.reason).toBe('corrupt')
+    expect(repo.getAll()).toEqual([])
+    expect(() => repo.saveSession(makeLocalSession({}))).toThrow()
+    expect(readFileSync(sessionsPath, 'utf8')).toBe(broken)
+    expect(readdirSync(configDir).some(name => name.startsWith('sessions.json.corrupt-'))).toBe(true)
+  })
+
+  it('expectedRevision 过期时明确冲突且不落盘', () => {
+    const repo = new SessionRepository()
+    const first = repo.saveSession({ ...makeLocalSession({}), id: 'first' })
+    const revision = repo.getRevision()
+    expect(() => repo.saveSession({ ...makeLocalSession({ shell: 'other' }), id: 'second' }, { expectedRevision: revision - 1 })).toThrow(RevisionConflictError)
+    expect(repo.get('second')).toBeNull()
+    expect(new SessionRepository().get('second')).toBeNull()
+    expect(() => repo.updateSession({ ...first, name: 'late' }, { expectedRevision: revision - 1 })).toThrow(RevisionConflictError)
+    expect(new SessionRepository().get(first.id)?.name).toBe(first.name)
+  })
+
+  it('save 失败时内存回滚，下一次成功保存不夹带失败内容', () => {
+    const repo = new SessionRepository()
+    repo.saveSession({ ...makeLocalSession({}), id: 'kept' })
+    vi.mocked(writeFileSync).mockImplementationOnce(() => {
+      throw new Error('disk full')
+    })
+    expect(() => repo.saveSession({ ...makeLocalSession({ shell: 'lost' }), id: 'lost' })).toThrow('disk full')
+    expect(repo.get('lost')).toBeNull()
+    expect(repo.getAll().map(s => s.id)).toEqual(['kept'])
+    expect(new SessionRepository().get('lost')).toBeNull()
+    repo.saveSession({ ...makeLocalSession({ shell: 'later' }), id: 'later' })
+    const reloaded = new SessionRepository()
+    expect(reloaded.get('later')).not.toBeNull()
+    expect(reloaded.get('lost')).toBeNull()
+  })
+})
+
+describe('PreferencesRepository 损坏保护与提交语义', () => {
+  it('损坏文件保留原件并拒绝写入，内存保持默认空对象', () => {
+    const broken = '{"window": 1'
+    writeFileSync(preferencesPath, broken)
+    const repo = new PreferencesRepository()
+    expect(repo.getLoadError()?.reason).toBe('corrupt')
+    expect(repo.getAll()).toEqual({})
+    expect(() => repo.set('window', { width: 1000 })).toThrow()
+    expect(readFileSync(preferencesPath, 'utf8')).toBe(broken)
+  })
+
+  it('set 写盘失败抛错且内存不变，成功后才替换并递增 revision', () => {
+    const repo = new PreferencesRepository()
+    const value = { width: 1200 }
+    repo.set('window', value)
+    const revision = repo.getRevision()
+    vi.mocked(writeFileSync).mockImplementationOnce(() => {
+      throw new Error('EACCES')
+    })
+    expect(() => repo.set('theme', 'dark')).toThrow('EACCES')
+    expect(repo.get('theme')).toBeUndefined()
+    expect(repo.get('window')).toEqual(value)
+    expect(repo.getRevision()).toBe(revision)
+    repo.set('theme', 'light')
+    expect(repo.getRevision()).toBe(revision + 1)
+    expect(new PreferencesRepository().get('theme')).toBe('light')
+  })
+
+  it('返回值与入参均为副本，外部修改不污染内存或后续提交', () => {
+    const repo = new PreferencesRepository()
+    const value = { nested: { enabled: true } }
+    repo.set('feature', value)
+    value.nested.enabled = false
+    expect(repo.get('feature')).toEqual({ nested: { enabled: true } })
+    const read = repo.get('feature')
+    read.nested.enabled = false
+    expect(repo.get('feature')).toEqual({ nested: { enabled: true } })
+  })
+
+  it('expectedRevision 冲突时不修改内存和磁盘', () => {
+    const repo = new PreferencesRepository()
+    repo.set('a', 1)
+    const revision = repo.getRevision()
+    expect(() => repo.set('b', 2, { expectedRevision: revision - 1 })).toThrow(RevisionConflictError)
+    expect(repo.getAll()).toEqual({ a: 1 })
+    expect(new PreferencesRepository().getAll()).toEqual({ a: 1 })
+  })
+})
+
+describe('QuickCommandsRepository 损坏保护与提交语义', () => {
+  it('损坏文件保留原件、禁用写入，legacy 数组仍可读取', () => {
+    writeFileSync(quickCommandsPath, '[{"id":"one","name":"one","content":"ls"}]')
+    const legacy = new QuickCommandsRepository()
+    expect(legacy.getLoadError()).toBeNull()
+    expect(legacy.getAll().map(command => command.id)).toEqual(['one'])
+
+    const broken = '{"commands":[]'
+    writeFileSync(quickCommandsPath, broken)
+    const repo = new QuickCommandsRepository()
+    expect(repo.getLoadError()?.reason).toBe('corrupt')
+    expect(() => repo.add({ id: 'two', name: 'two', content: 'pwd' })).toThrow()
+    expect(readFileSync(quickCommandsPath, 'utf8')).toBe(broken)
+  })
+
+  it('add 写盘失败抛错且内存/磁盘保持旧内容', () => {
+    const repo = new QuickCommandsRepository()
+    repo.add({ id: 'one', name: 'one', content: 'ls' })
+    const before = readFileSync(quickCommandsPath, 'utf8')
+    vi.mocked(writeFileSync).mockImplementationOnce(() => {
+      throw new Error('ENOSPC')
+    })
+    expect(() => repo.add({ id: 'two', name: 'two', content: 'pwd' })).toThrow('ENOSPC')
+    expect(repo.getAll().map(c => c.id)).toEqual(['one'])
+    expect(readFileSync(quickCommandsPath, 'utf8')).toBe(before)
+  })
+
+  it('expectedRevision 冲突时拒绝删除分组', () => {
+    const repo = new QuickCommandsRepository()
+    repo.addGroup({ id: 'g1', name: 'g1', order: 0 })
+    const revision = repo.getRevision()
+    expect(() => repo.deleteGroup('g1', { expectedRevision: revision - 1 })).toThrow(RevisionConflictError)
+    expect(repo.getAllGroups().map(g => g.id)).toEqual(['g1'])
+    expect(new QuickCommandsRepository().getAllGroups().map(g => g.id)).toEqual(['g1'])
   })
 })

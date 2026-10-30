@@ -10,7 +10,9 @@ interface DownloadProgress {
   transferredSize: number
   fileSize: number
   speed: number
-  status: 'downloading' | 'uploading' | 'completed' | 'failed'
+  status: 'downloading' | 'uploading' | 'completed' | 'failed' | 'unknown'
+  phase?: 'data' | 'verifying' | 'committing' | 'completed'
+  cancelRequested?: boolean
   error?: string
   direction: 'download' | 'upload'
   localPath?: string
@@ -61,8 +63,12 @@ const DownloadProgressBar: React.FC = () => {
 
   // 关闭按钮：活动传输先终止 worker，再移除 UI 行；完成/失败仅移除
   const handleClose = (taskId: string, active: boolean) => {
-    if (active) void window.electronAPI.fileCancel(taskId)
-    removeDownload(taskId)
+    if (active) {
+      setDownloads(prev => prev.map(item => item.taskId === taskId ? { ...item, cancelRequested: true } : item))
+      void window.electronAPI.fileCancel(taskId).catch(() => {
+        setDownloads(prev => prev.map(item => item.taskId === taskId ? { ...item, cancelRequested: false } : item))
+      })
+    } else removeDownload(taskId)
   }
 
   const openFolder = (localPath?: string) => {
@@ -88,17 +94,19 @@ const DownloadProgressBar: React.FC = () => {
       const direction = data.direction || 'download'
 
       if (data.failed) {
+        const status = data.outcomeUnknown ? 'unknown' as const : 'failed' as const
+        const error = [data.error, data.targetPath, data.tempPath ?? data.tempPattern, ...(data.warnings ?? [])].filter(Boolean).join('\n')
         setDownloads(prev => {
           const existing = prev.find(d => d.taskId === taskId)
           if (existing) {
             return prev.map(d =>
-              d.taskId === taskId ? { ...d, status: 'failed', error: data.error } : d
+              d.taskId === taskId ? { ...d, status, error } : d
             )
           }
           return [{
             taskId, fileName, progress: 0,
             transferredSize: 0, fileSize: 0, speed: 0,
-            status: 'failed', error: data.error, direction, localPath
+            status, error, direction, localPath
           }, ...prev]
         })
         fileNameStore.delete(taskId)
@@ -118,7 +126,7 @@ const DownloadProgressBar: React.FC = () => {
                 ...d, fileName,
                 progress: data.progress, transferredSize: data.transferredSize,
                 fileSize: data.fileSize, speed: data.speed,
-                direction, localPath
+                direction, localPath, phase: data.phase
               } : d
             )
           }
@@ -129,14 +137,14 @@ const DownloadProgressBar: React.FC = () => {
             fileSize: data.fileSize || 0,
             speed: data.speed || 0,
             status: direction === 'upload' ? 'uploading' : 'downloading',
-            direction, localPath
+            direction, localPath, phase: data.phase
           }, ...prev]
         })
       }
     })
 
     return cleanup
-  }, [])
+  }, [t])
 
   if (downloads.length === 0) return null
 
@@ -183,15 +191,15 @@ const DownloadProgressBar: React.FC = () => {
 
       {isActive && (
         <span className={cn('flex-shrink-0 font-medium tracking-[-.02em] min-w-[32px] text-right tabular-nums', nameColor)}>
-          {`${current.progress}%`}
+          {current.cancelRequested ? t('fileManager.cancelling') : current.phase === 'verifying' ? t('fileManager.verifying') : current.phase === 'committing' ? t('fileManager.committing') : `${current.progress}%`}
         </span>
       )}
-      {!isActive && current.status === 'failed' && (
+      {!isActive && (current.status === 'failed' || current.status === 'unknown') && (
         <span
           className="flex-shrink-0 font-medium tracking-[-.02em] text-[var(--error-rack)] cursor-help"
           title={current.error || t('fileManager.transferFailed')}
         >
-          {t('fileManager.err')}
+          {t(current.status === 'unknown' ? 'fileManager.outcomeUnknown' : 'fileManager.err')}
         </span>
       )}
       {/* 完成态：download 时显示主 CTA "reveal"；upload 时只是个静态 done */}
@@ -221,6 +229,7 @@ const DownloadProgressBar: React.FC = () => {
       )}
 
       <button
+        disabled={isActive && current.cancelRequested}
         onClick={(e) => { e.stopPropagation(); handleClose(current.taskId, isActive) }}
         title={t('common.close')}
         className="w-[18px] h-[18px] inline-flex items-center justify-center bg-transparent border-none cursor-pointer text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] flex-shrink-0 rounded-[2px] hover:bg-[var(--bg-slot)] transition-colors"

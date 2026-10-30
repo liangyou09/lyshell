@@ -39,6 +39,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
   const [decryptPassword, setDecryptPassword] = useState('')
   const [needPassword, setNeedPassword] = useState(false)
   const [_importFilePath, setImportFilePath] = useState('')
+  const [importToken, setImportToken] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'warning', text: string } | null>(null)
   const { t } = useTranslation()
@@ -174,6 +175,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
     setNeedPassword(false)
     setImportSessions([])
     setImportCommands([])
+    setImportToken('')
 
     try {
       const result = await window.electronAPI?.importData()
@@ -184,6 +186,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
         setImportFilePath(result.path)
         setMessage({ type: 'warning', text: t('export.fileEncryptedPrompt') })
       } else if (result?.success && result.data) {
+        setImportToken(result.importToken)
         setImportSessions(result.data.sessions || [])
         setImportCommands(result.data.quickCommands || [])
         setImportSessionSelect(new Set(result.data.sessions?.map((s: SessionConfig) => s.id) || []))
@@ -213,6 +216,7 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
       const result = await window.electronAPI?.importData(decryptPassword, _importFilePath)
 
       if (result?.success && result.data) {
+        setImportToken(result.importToken)
         setImportSessions(result.data.sessions || [])
         setImportCommands(result.data.quickCommands || [])
         setImportSessionSelect(new Set(result.data.sessions?.map((s: SessionConfig) => s.id) || []))
@@ -243,16 +247,9 @@ const ExportImportDialog: React.FC<ExportImportDialogProps> = ({
       const selectedImportSessions = importSessions.filter(s => importSessionSelect.has(s.id))
       const selectedImportCommands = importCommands.filter(c => importCommandSelect.has(c.id))
 
-      // 导入会话（创建新会话，重新生成ID避免冲突）
-      for (const session of selectedImportSessions) {
-        const newSession = {
-          ...session,
-          id: '', // 清空ID，让系统生成新ID
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }
-        await window.electronAPI?.createSession(newSession)
-      }
+      // 秘密只在主进程暂存，界面提交票据与选中的公开条目 id。
+      await window.electronAPI?.commitImportedSessions(importToken, selectedImportSessions.map(session => session.id))
+      setImportToken('')
 
       // 导入快速命令（直接保存到配置文件）
       if (selectedImportCommands.length > 0) {

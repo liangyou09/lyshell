@@ -3,6 +3,7 @@ import { StringDecoder } from 'string_decoder'
 import log from 'electron-log'
 import { appendCommandOutput } from '../file/command-output'
 import { terminatePluginProcess } from '../plugin/process-cleanup'
+import { childEnvironment } from '../env/child-environment'
 
 export function executeLocalCommandStream(
   command: string,
@@ -13,10 +14,10 @@ export function executeLocalCommandStream(
   signal?: AbortSignal
 ): Promise<{ output: string; exitCode: number }> {
   return new Promise((resolve, reject) => {
-    const execEnv = { ...process.env, ...env } as Record<string, string>
+    const execEnv = childEnvironment(process.env, env) as Record<string, string>
     const execCwd = cwd || process.env.USERPROFILE || process.env.HOME || ''
 
-    log.info(`[MCP] Executing local command (stream): ${command} (cwd: ${execCwd})`)
+    log.info(`[MCP] Executing local command stream (${command.length} characters)`)
 
     if (signal?.aborted) { reject(new Error('Command aborted')); return }
     const child = spawn(command, { cwd: execCwd, env: execEnv, shell: true, windowsHide: true, detached: process.platform !== 'win32' })

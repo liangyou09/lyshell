@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import cn from 'classnames'
-import { isSecretEnvKey } from '@shared/harness'
+import { isSecretEnvKey, isSecretPlaceholder } from '@shared/harness'
+import { useTranslation } from 'react-i18next'
 
 /**
  * 环境变量 key-value 行编辑器（受控组件）—— HarnessPanel 变量组对话框与
@@ -59,12 +60,13 @@ const IconX: React.FC = () => (
 )
 
 const EnvRowsEditor: React.FC<EnvRowsEditorProps> = ({ value, onChange, texts, onKeyChange, stacked = false }) => {
+  const { t } = useTranslation()
   // 明文行号集合（仅敏感行有意义）；行号与 value 一一对应，删行时前移修正
   const [revealed, setRevealed] = useState<Set<number>>(new Set())
 
   const addRow = () => onChange([...value, { key: '', value: '' }])
   const updateRow = (i: number, field: 'key' | 'value', v: string) => {
-    onChange(value.map((row, idx) => (idx === i ? { ...row, [field]: v } : row)))
+    onChange(value.map((row, idx) => (idx === i ? { ...row, ...(field === 'key' && isSecretPlaceholder(row.value) ? { value: '' } : {}), [field]: v } : row)))
     // 改 key 即复位该行的明文状态：改名前后是不是敏感值可能不同，保证「默认打码」语义
     if (field === 'key') {
       setRevealed((prev) => {
@@ -123,7 +125,9 @@ const EnvRowsEditor: React.FC<EnvRowsEditorProps> = ({ value, onChange, texts, o
                 <span className="env-row-separator text-[var(--text-rack-mute)] [font-family:inherit] text-[12px] select-none">=</span>
                 <input
                   type="text"
-                  value={row.value}
+                  value={isSecretPlaceholder(row.value) ? '••••••••' : row.value}
+                  title={isSecretPlaceholder(row.value) ? t('env.storedSecret') : undefined}
+                  onFocus={event => { if (isSecretPlaceholder(row.value)) event.target.select() }}
                   onChange={(e) => updateRow(i, 'value', e.target.value)}
                   placeholder={texts.valuePh}
                   className={cn(
@@ -131,7 +135,7 @@ const EnvRowsEditor: React.FC<EnvRowsEditorProps> = ({ value, onChange, texts, o
                     secret && !isRevealed && '[-webkit-text-security:disc]'
                   )}
                 />
-                {secret && (
+                {secret && !isSecretPlaceholder(row.value) && (
                   <button
                     onClick={() => toggleReveal(i)}
                     title={isRevealed ? texts.hideValue : texts.showValue}

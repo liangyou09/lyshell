@@ -158,14 +158,17 @@ describe('exec/Python-TCP 传输安全不变量', () => {
   // 目录检查的运行时回归覆盖在 sftp-mkdir.test.ts，这里只确认两个上传入口共用实现。
 
 
-  it('worker 无终态消息退出时无论 code 是否为 0 都 reject', () => {
-    expect(DL_MANAGER).toContain('Download worker exited without a terminal message')
-    expect(UL_MANAGER).toContain('Upload worker exited without a terminal message')
+  it('worker 无终态消息退出时给出明确兜底语义，且只在 exit 后 settle', () => {
     for (const src of [DL_MANAGER, UL_MANAGER]) {
+      // 退出无终态由纯逻辑函数三分类：failed / outcome-unknown(提交阶段) / outcome-unknown(取消未确认)
+      expect(src).toContain('classifyExitWithoutResult({')
       expect(src).toContain("worker.on('exit', (code) => {")
-      expect(src).toContain('if (!settled)')
-      expect(src).toContain('reject(error)')
-      expect(src.indexOf('reject(error)')).toBeGreaterThan(src.indexOf("worker.on('exit'"))
+      expect(src).toContain('if (active.settled) return')
+      expect(src).toContain('active.reject(')
     }
+    // 旧的模糊文案 “exited with code … without a terminal message” 已被带回执的
+    // result 语义取代（三分类的行为覆盖在 worker-manager.attempt.test.ts）
+    expect(DL_MANAGER).not.toContain('exited without a terminal message')
+    expect(UL_MANAGER).not.toContain('exited without a terminal message')
   })
 })

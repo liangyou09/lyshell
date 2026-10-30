@@ -57,6 +57,30 @@ afterEach(async () => {
 })
 
 describe('插件 SSH 克隆渠道回收', () => {
+  it('SSH 克隆同样受运行时会话上限限制，满额后不再开启 shell', async () => {
+    const { manager, session } = await source()
+    for (let index = 1; index < 256; index++) await manager.createSession({ ...session.config, id: `limit-${index}` })
+    const open = vi.spyOn(SSHConnector.prototype, 'startShellOnly')
+    await expect(manager.cloneChannel(session.id)).rejects.toMatchObject({ code: 'RESOURCE_LIMIT' })
+    expect(manager.getAllSessions()).toHaveLength(256)
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('开始退出后禁止克隆，等待 shell 的旧克隆也不得发布 connected', async () => {
+    const { manager, session } = await source()
+    let finish!: () => void
+    const open = vi.spyOn(SSHConnector.prototype, 'startShellOnly').mockImplementation(() => new Promise<void>(resolve => { finish = resolve }))
+    const cloning = manager.cloneChannel(session.id)
+    const status = vi.fn()
+    manager.on('session:status', status)
+    await manager.beginShutdown()
+    finish()
+    expect(await cloning).toBeNull()
+    await expect(manager.cloneChannel(session.id)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(open).toHaveBeenCalledOnce()
+    expect(status.mock.calls.some(([event]) => event.status === ConnectionStatus.CONNECTED)).toBe(false)
+  })
+
   it('shell 创建期间已绑定数据和错误监听，首包保留且错误不能逃出 EventEmitter', async () => {
     const { manager, session } = await source()
     let finish!: () => void

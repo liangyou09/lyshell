@@ -14,6 +14,8 @@ vi.mock('../connectors', async () => {
     async connect() {}
     disconnect = vi.fn(async () => {})
     write = vi.fn()
+    async writeConfirmed(data: string) { this.write(data) }
+    async setInputControl() {}
     resize = vi.fn()
     getSpawnCwd() { return null }
   }
@@ -44,6 +46,28 @@ afterEach(async () => {
 })
 
 describe('会话失败资源清理', () => {
+  it('大输入逐块确认并重验授权；交接后停止旧粘贴和旧排队输入，不重放', async () => {
+    const { manager, session } = await fixture()
+    await manager.connectSession(session.id)
+    manager.inputControl.setCredentialValidator(() => true)
+    const first = await manager.acquireInput(session.id, { principalId: 'gui:1', source: 'gui' })
+    let acknowledge!: () => void
+    const write = vi.spyOn(session.connector!, 'writeConfirmed').mockImplementation(async () => {
+      await new Promise<void>(resolve => { acknowledge = resolve })
+    })
+    const paste = manager.writeToSession(session.id, 'a'.repeat(96 * 1024), first)
+    await vi.waitFor(() => expect(write).toHaveBeenCalledOnce())
+    const queued = manager.writeToSession(session.id, 'OLD', first)
+    // 先挂 rejection 处理，避免测试把预期拒绝当作未处理异常。
+    const outcomes = Promise.allSettled([paste, queued])
+    await manager.acquireInput(session.id, { principalId: 'gui:2', source: 'gui' }, { takeover: true })
+    acknowledge()
+    const results = await outcomes
+    expect(results).toMatchObject([{ status: 'rejected', reason: { code: 'OUTCOME_UNKNOWN' } },
+      { status: 'rejected', reason: { code: 'STALE_GENERATION' } }])
+    expect(write).toHaveBeenCalledOnce()
+    expect(write.mock.calls[0][0]).toHaveLength(32 * 1024)
+  })
   it.each([true, false])('本地宿主确认退出=%s，只有确认后才清除运行引用供普通重连', async exited => {
     const { manager, session } = await fixture()
     session.config.type = ConnectionType.LOCAL
@@ -101,8 +125,9 @@ describe('会话失败资源清理', () => {
     session.config.type = ConnectionType.LOCAL
     session.config.local = {}
     session.config.startupCommands = ['echo first-launch']
-    await manager.connectSession(session.id)
+    const connecting = manager.connectSession(session.id)
     await vi.advanceTimersByTimeAsync(250)
+    await connecting
     expect(session.connector!.write).toHaveBeenCalledWith('echo first-launch\r')
     await manager.disconnectSession(session.id)
     session.config.local.terminalHostId = 'cb307d5f-eb03-4273-a658-c15da4b55937'

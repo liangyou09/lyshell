@@ -105,7 +105,7 @@ describe('api-routes 迁移契约(tools.ts -> API_ROUTES 投影)', () => {
       'lyshell_read_output', 'lyshell_send_and_wait', 'lyshell_list_files',
       'lyshell_read_file', 'lyshell_download_file', 'lyshell_upload_file',
       'lyshell_stat_file', 'lyshell_wait_for_prompt', 'lyshell_run_on_sessions',
-      'lyshell_tail_until', 'lyshell_terminal_screenshot', 'lyshell_harness_work'
+      'lyshell_tail_until', 'lyshell_terminal_screenshot', 'lyshell_harness_work', 'lyshell_terminal_control'
     ]
     const names = new Set(API_ROUTES.map((r) => r.name))
     for (const n of expected) expect(names.has(n)).toBe(true)

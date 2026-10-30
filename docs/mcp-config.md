@@ -5,7 +5,7 @@
 
 ## 概览 · Overview
 
-- LyShell 内置一个 **MCP HTTP API**（真正的 MCP 服务端），对外暴露 19 个 `lyshell_*` 工具，受 capability 门控。*LyShell runs a built-in **MCP HTTP API** (the actual MCP server) exposing 19 `lyshell_*` tools, gated by capability.*
+- LyShell 内置 **MCP HTTP API**，工具清单由 `src/shared/api-routes.ts` 与原生 Harness 契约生成，受 capability 门控。*LyShell exposes capability-gated tools through its MCP HTTP API; the shared route definitions are authoritative.*
 - 客户端经 **stdio 桥 `mcpServer.js`** 连入：它是一个用 MCP SDK `StdioClientTransport` 实现的 stdio → HTTP 转发器，Claude Code 这类 stdio 客户端都通过它连。*Clients connect through a **stdio bridge, `mcpServer.js`** — a stdio → HTTP forwarder built on the MCP SDK `StdioClientTransport`, the same way Claude Code and other stdio clients connect.*
 - 连接所需信息是一组「连接包」环境变量（见下）。*The connection requires a "connection package" of environment variables (see below).*
 - 服务端配置保存在 `%APPDATA%\lyshell\mcp-server.json`。*Server-side config lives in `%APPDATA%\lyshell\mcp-server.json`.*
@@ -16,6 +16,16 @@ Claude Code / MCP 客户端 ──stdio──▶ mcpServer.js ──HTTP──�
 ```
 
 ## 推荐方式：让 agent 自己配（零手工）· Recommended: let the agent configure itself
+
+### 交互终端控制权与输出游标
+
+普通 Shell 命令优先使用独立 `execute_command` 通道。需要操作现有交互 PTY 时，先调用 `lyshell_terminal_control` 的 `inspect`，让用户核对当前现场，再 `acquire`；服务端通过实际确认路径办理交接。`acquire` 不发送按键，不能自动接管另一个自动化控制者。把返回的完整 `control` 原样传给 `send_input` / `send_and_wait`，到期前 `renew`，结束后 `release`。GUI 可通过“接管”撤销自动化控制，旧租约及旧排队输入立即失效。
+
+交互写入同时需要 interactiveWrite 和相应 execute/localExecute 权限。拒绝、过期、连接代际变化、已部分发送或结果未知都不能触发按键重放；应重新读取并人工确认现场。local-host v2 必须支持 input-fence-v1，旧宿主明确报版本不兼容，需要重建终端。
+
+`read_output` 保留旧 `output` 字段，并提供 `nextCursor / outputEpoch / historyGap / responseTruncated`；可传 `cursor / outputEpoch / maxChars` 获取有限增量。游标单位为 UTF-16 码元。epoch 不同或 historyGap 表示历史缺失，应重新建立读取基线；有限 ANSI 历史不能证明完整 TUI 屏幕状态。
+
+本机 HTTP 要求实际回环 Host、token，拒绝浏览器 Origin 与预检；不要通过更改 Host/Origin 或绕过确认来兼容旧客户端。更多预算、迁移与回退限制见 [架构实施记录](architecture-implementation.md)。
 
 这是最省事、也是默认该用的方式。你不需要知道端口、token 或任何配置语法。*This is the easiest and default path — you don't need to know the port, token, or any config syntax.*
 

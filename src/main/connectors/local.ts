@@ -4,9 +4,11 @@ import { existsSync } from 'fs'
 import { delimiter, join } from 'path'
 import { BaseConnector } from './base'
 import { readSystemPath } from '../env/refresh'
+import { childEnvironment } from '../env/child-environment'
 import { safeStorage } from 'electron'
 import { LocalHostClient } from '../terminal/local-host-client'
 import type { LocalConfig, TerminalEncoding } from '@shared/types'
+import { checkInputFence, fenceOf, type ControlHandle, type InputFence } from '@shared/terminal-control'
 
 /**
  * 本地终端配置 —— 复用 @shared/types 的 LocalConfig（单一真相源）。
@@ -55,6 +57,9 @@ export function findExplorerShell(path: string = process.env.PATH || ''): string
  * 使用 node-pty 启动本地 shell 进程
  */
 export class LocalConnector extends BaseConnector {
+  get capabilities() {
+    return { interactiveInput: true, resize: true, exec: true, fileTransfer: false, pauseOutput: true, reattach: !!this.host }
+  }
   private config: LocalConfig
   /**
    * 由调用方注入、不持久化到用户配置的额外环境变量。
@@ -70,6 +75,8 @@ export class LocalConnector extends BaseConnector {
   private host: LocalHostClient | null = null
   private hostExited = false
   private hostDisconnecting: Promise<void> | null = null
+  /** 进程内 PTY 路径的围栏镜像：宿主路径由 LocalHostClient 自己保存。 */
+  private installedFence: InputFence | null = null
 
   constructor(sessionId: string, config: LocalConfig, extraEnv: Record<string, string> = {}, private readonly runtime: { userDataDir?: string } = {}) {
     super(sessionId)
@@ -104,6 +111,8 @@ export class LocalConnector extends BaseConnector {
    */
   async connect(config?: LocalConfig): Promise<void> {
     const generation = ++this.connectGeneration
+    // 新连接 = 新代际：旧围栏一律作废，写入必须由控制服务重新安装。
+    this.installedFence = null
     if (config) {
       this.config = { ...config }
     }
@@ -118,7 +127,7 @@ export class LocalConnector extends BaseConnector {
 
     if (this.runtime.userDataDir && (this.config.terminalHostId || safeStorage?.isEncryptionAvailable?.())) {
       const options = { shell, args: this.config.shellArgs ?? [], cwd: this.getSpawnCwd() ?? undefined, cols: this._cols, rows: this._rows,
-        env: { ...process.env, POWERSHELL_UPDATECHECK: process.env.POWERSHELL_UPDATECHECK ?? 'Off', ...(systemPath ? { PATH: systemPath } : {}), ...this.config.env, ...this.extraEnv } as Record<string, string> }
+        env: childEnvironment(process.env, { POWERSHELL_UPDATECHECK: process.env.POWERSHELL_UPDATECHECK ?? 'Off', ...(systemPath ? { PATH: systemPath } : {}), ...this.config.env, ...this.extraEnv }) as Record<string, string> }
       const attaching = !!this.config.terminalHostId
       const host = attaching ? await LocalHostClient.attach(this.runtime.userDataDir, this.config.terminalHostId!) : await LocalHostClient.create(this.runtime.userDataDir, options)
       if (generation !== this.connectGeneration) {
@@ -131,7 +140,7 @@ export class LocalConnector extends BaseConnector {
       this.hostExited = false
       this.config.terminalHostId = host.id
       host.on('data', (data: string) => { if (this.host === host) this.emitData(data) })
-      host.on('gap', () => { if (this.host === host) this.emitData('\r\n[LyShell: 较早输出已超出保留范围，以下为最近输出。]\r\n') })
+      host.on('gap', gap => { if (this.host === host) this.emit('output-gap', gap) })
       host.on('exit', () => { if (this.host !== host) return; this.hostExited = true; this.connected = false; this.emitClose() })
       host.on('error', (error: Error) => { if (this.host === host && this.listenerCount('error')) this.emitError(error) })
       host.on('disconnect', () => { if (this.host !== host) return; this.host = null; this.connected = false; this.emitClose() })
@@ -156,15 +165,14 @@ export class LocalConnector extends BaseConnector {
       cols: this._cols,
       rows: this._rows,
       cwd: this.getSpawnCwd() ?? undefined,
-      env: {
-        ...process.env,
+      env: childEnvironment(process.env, {
         // PowerShell 7.6.6 的本地化更新通知可能向 PadRight 传入负数并终止进程。
         // 在启动前默认禁用通知（包含从 cmd/bash 再启动的 pwsh），显式环境配置仍可覆盖。
         POWERSHELL_UPDATECHECK: process.env.POWERSHELL_UPDATECHECK ?? 'Off',
         ...(systemPath ? { PATH: systemPath } : {}),
         ...this.config.env,
         ...this.extraEnv
-      } as Record<string, string>
+      }) as Record<string, string>
     })
 
     this.ptyProcess.onData((data: string) => {
@@ -202,6 +210,7 @@ export class LocalConnector extends BaseConnector {
   async disconnect(): Promise<void> {
     if (this.hostDisconnecting) return this.hostDisconnecting
     this.connectGeneration++
+    this.installedFence = null
     if (this.host) {
       const host = this.host
       const pending = host.terminate().then(() => { this.hostExited = true; if (this.host === host) this.host = null; this.connected = false }).finally(() => { this.hostDisconnecting = null })
@@ -225,14 +234,54 @@ export class LocalConnector extends BaseConnector {
 
   /**
    * 写入数据
+   *
+   * 控制纪律：必须带 fence（`InputFence`/`ControlHandle`）且本地镜像的围栏仍匹配，
+   * 否则一字节都不写。宿主路径还会在宿主侧 `pty.write` 前再做一次权威核对；
+   * 进程内路径没有第二进程可确认，这里就是最后的复核点（main 的 assert 在前）。
    */
-  write(data: string | Buffer): void {
-    if (this.host) { this.host.write(typeof data === 'string' ? data : data.toString()); return }
+  write(data: string | Buffer, handle?: InputFence | ControlHandle): boolean {
+    const text = typeof data === 'string' ? data : data.toString()
+    if (!handle) {
+      log.debug(`Local input rejected for ${this.sessionId}: missing input fence`)
+      return false
+    }
+    if (this.host) return this.host.write(text, fenceOf(handle))
     if (!this.ptyProcess) {
       log.warn('Local PTY not available')
+      return false
+    }
+    if (checkInputFence(this.installedFence, fenceOf(handle), Date.now()) !== null) {
+      log.debug(`Local input rejected for ${this.sessionId}: fence is not current`)
+      return false
+    }
+    this.ptyProcess.write(text)
+    return true
+  }
+
+  /** 本地终端始终支持「带围栏写入」；宿主路径的围栏由宿主进程确认。 */
+  async writeConfirmed(data: string | Buffer, control?: InputFence): Promise<void> {
+    if (!control) throw new Error('Terminal input control is required')
+    if (this.host) {
+      await this.host.writeConfirmed(typeof data === 'string' ? data : data.toString(), control)
       return
     }
-    this.ptyProcess.write(typeof data === 'string' ? data : data.toString())
+    if (!this.write(data, control)) throw new Error('Terminal input control is no longer valid')
+  }
+
+  /** 本地终端始终支持「带围栏写入」；宿主路径的围栏由宿主进程确认。 */
+  get supportsInputFence(): boolean {
+    return true
+  }
+
+  /** 安装/撤销围栏：宿主路径必须等宿主 ack；进程内路径只更新本地镜像。 */
+  async setInputControl(fence: InputFence | ControlHandle | null): Promise<void> {
+    const next = fence === null ? null : fenceOf(fence)
+    if (this.host) {
+      await this.host.setInputControl(next)
+      this.installedFence = next
+      return
+    }
+    this.installedFence = next
   }
 
   setOutputPaused(paused: boolean): void {

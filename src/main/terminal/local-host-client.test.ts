@@ -34,6 +34,28 @@ import {
   type LocalHostSecureStorage
 } from './local-host-client'
 import { startHostServer, type HostPty, type LocalHostServerHandle } from './local-host-worker'
+import type { InputFence } from '@shared/terminal-control'
+
+let clientFenceSeq = 0
+
+/** 协议 v2 起写入必须带围栏；测试用单调 epoch 造一份合法租约。 */
+function clientFence(): InputFence {
+  clientFenceSeq += 1
+  return {
+    epoch: clientFenceSeq,
+    connectionInstanceId: 'conn-client-test',
+    controllerInstanceId: 'main-client-test',
+    leaseId: `lease-client-${clientFenceSeq}`,
+    expiresAt: Date.now() + 60_000
+  }
+}
+
+/** 先装围栏再写字：安装失败会直接抛错，避免测试悄悄退化成「无围栏也通过」。 */
+async function installFence(client: LocalHostClient): Promise<InputFence> {
+  const fence = clientFence()
+  await client.setInputControl(fence)
+  return fence
+}
 
 // client 静态 import 了 electron 的 safeStorage；测试全都注入 secureStorage，
 // 这里只是防止 vitest 在非 Electron 环境里拿到真实（不可用的）模块。
@@ -387,7 +409,8 @@ describe('attach 与 probe', () => {
     await expectError(LocalHostClient.attach(harness.dir, client.id), 'host-busy')
 
     // 第一个客户端没有被挤掉
-    client.write('x')
+    const fence = await installFence(client)
+    expect(client.write('x', fence)).toBe(true)
     await waitUntil(() => harness.pty().written.length === 1)
     client.detach()
   })
@@ -400,7 +423,8 @@ describe('attach 与 probe', () => {
     const probed = await LocalHostClient.probe(harness.dir, client.id)
     expect(probed).toMatchObject({ id: client.id, running: true, retained: false })
 
-    client.write('still-mine')
+    const fence = await installFence(client)
+    expect(client.write('still-mine', fence)).toBe(true)
     await waitUntil(() => harness.pty().written.length === 1)
     expect((await client.status()).retained).toBe(false)
 
@@ -472,7 +496,7 @@ describe('数据通路', () => {
     const client = await LocalHostClient.create(harness.dir, spawnOptions())
     track(harness.launcher)
     const text = 'x'.repeat(32767) + '🙂tail'
-    client.write(text)
+    expect(client.write(text, await installFence(client))).toBe(true)
     await waitUntil(() => harness.pty().written.length === 2)
     const writtenBytes = harness.pty().written.map(chunk => Buffer.from(chunk, 'utf8'))
     expect(Buffer.concat(writtenBytes).toString('utf8')).toBe(text)
@@ -484,13 +508,14 @@ describe('数据通路', () => {
     track(harness.launcher)
     const pty = harness.pty()
 
-    client.write('ls\r')
+    const fence = await installFence(client)
+    expect(client.write('ls\r', fence)).toBe(true)
     client.resize(100, 40)
     await waitUntil(() => pty.written.length === 1 && pty.sizes.length === 1)
     expect(pty.written).toEqual(['ls\r'])
     expect(pty.sizes).toEqual([[100, 40]])
 
-    client.write('x'.repeat(70_000))
+    expect(client.write('x'.repeat(70_000), fence)).toBe(true)
     await waitUntil(() => pty.written.length >= 3)
     expect(pty.written.slice(1).join('')).toHaveLength(70_000)
     client.detach()
@@ -612,9 +637,12 @@ describe('生命周期', () => {
     const harness = setup({ tune: { graceMs: 80 } })
     const client = await LocalHostClient.create(harness.dir, spawnOptions())
     track(harness.launcher)
+    const fence = await installFence(client)
     await client.detach()
     const before = harness.pty().written.length
-    client.write('after-detach')
+    // 无围栏与断线后的写入都是 fail closed：返回 false，不抛错、不排队
+    expect(client.write('after-detach')).toBe(false)
+    expect(client.write('after-detach', fence)).toBe(false)
     await delay(50)
     expect(harness.pty().written.length).toBe(before)
   })

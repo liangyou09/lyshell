@@ -17,6 +17,9 @@ export interface TelnetConfig {
  * Telnet 连接器
  */
 export class TelnetConnector extends BaseConnector {
+  get capabilities() {
+    return { interactiveInput: true, resize: false, exec: false, fileTransfer: false, pauseOutput: true, reattach: false }
+  }
   private config: TelnetConfig
   private socket: Socket | null = null
   private outputPaused = false

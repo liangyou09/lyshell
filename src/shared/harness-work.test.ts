@@ -8,6 +8,8 @@ describe('原生 Harness 请求契约', () => {
     { kind: 'recover' }, { kind: 'resume', sessionId: 's', taskId: 't', requestId: 'resume-r', text: 'Verified; remaining work' },
     { kind: 'new', workspace: 'D:/project' }, { kind: 'select', sessionId: 's' },
     { kind: 'submit', sessionId: 's', text: 'task', requestId: 'r' },
+    { kind: 'submit', sessionId: 's', text: 'task', requestId: 'r', idempotencyKey: 'submit-key' },
+    { kind: 'resume', sessionId: 's', taskId: 't', requestId: 'r', text: 'work', idempotencyKey: 'k'.repeat(128) },
     { kind: 'cancel', taskId: 't' }, { kind: 'approve', id: 'a', optionId: 'rejected' },
     { kind: 'state', sessionId: 's' }, { kind: 'state', taskId: 't' },
     { kind: 'state', sessionId: 's', taskId: 't' }, { kind: 'cancel', sessionId: 's', taskId: 't' },
@@ -24,7 +26,12 @@ describe('原生 Harness 请求契约', () => {
     { kind: 'approve', id: 'a', optionId: 'always' }, { kind: 'approve', id: 'a', optionId: ['rejected'] }, { kind: 'cancel' },
     { kind: 'state', sessionId: '' }, { kind: 'state', taskId: 3 }, { kind: 'targets', taskId: 't' },
     { kind: 'cancel', taskId: 't', sessionId: [] }, { kind: 'approve', id: 'a', taskId: '', optionId: 'rejected' },
-    { kind: 'state', taskId: 'x'.repeat(129) }
+    { kind: 'state', taskId: 'x'.repeat(129) },
+    { kind: 'submit', sessionId: 's', requestId: 'r', text: 'x', idempotencyKey: '' },
+    { kind: 'submit', sessionId: 's', requestId: 'r', text: 'x', idempotencyKey: 'k'.repeat(129) },
+    { kind: 'submit', sessionId: 's', requestId: 'r', text: 'x', idempotencyKey: 7 },
+    { kind: 'submit', sessionId: 's', requestId: 'r', text: 'x', idempotencyKey: 'bad\nkey' },
+    { kind: 'state', idempotencyKey: 'k' }
   ])('拒绝非法或越权字段 %j', value => expect(parseHarnessWorkRequest(value)).toBeNull())
   it('HTTP/MCP 共用唯一契约与工具名', () => {
     expect(API_ROUTES.filter(route => route.name === 'lyshell_harness_work')).toHaveLength(1)

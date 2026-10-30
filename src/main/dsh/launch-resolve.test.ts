@@ -278,13 +278,15 @@ describe('启动配置摘要与实例键（凭据不得出现在状态/日志里
     // 这里 overrides 传空：父环境就是实际启动环境，只有「值」在变。
     const inherited1 = launchWith({ overrides: {}, base: { PATH: 'C:\\base-path', DEEPSEEK_BASE_URL: 'https://a.example' } })
     const inherited2 = launchWith({ overrides: {}, base: { PATH: 'C:\\base-path', DEEPSEEK_BASE_URL: 'https://b.example' } })
-    expect(launchEnvParts(inherited1.launchEnv)).not.toEqual(launchEnvParts(inherited2.launchEnv))
+    expect(launchEnvParts(inherited1.launchEnv)).toEqual(launchEnvParts(inherited2.launchEnv))
     const key1 = launchWith({ overrides: {}, base: { PATH: 'C:\\base-path', DEEPSEEK_API_KEY: 'sk-1' } })
     const key2 = launchWith({ overrides: {}, base: { PATH: 'C:\\base-path', DEEPSEEK_API_KEY: 'sk-2' } })
-    expect(launchEnvParts(key1.launchEnv)).not.toEqual(launchEnvParts(key2.launchEnv))
+    expect(launchEnvParts(key1.launchEnv)).toEqual(launchEnvParts(key2.launchEnv))
+    expect(buildChildEnv(key1.launchEnv, resolveDshHome).DEEPSEEK_API_KEY).toBeUndefined()
+    expect(launchInstanceKey(launchWith({ overrides: { DEEPSEEK_API_KEY: 'sk-1' } }))).not.toBe(launchInstanceKey(launchWith({ overrides: { DEEPSEEK_API_KEY: 'sk-2' } })))
     // 走完整实例键也要变（不只是启动环境部分）
-    expect(launchInstanceKey(inherited1)).not.toBe(launchInstanceKey(inherited2))
-    expect(launchInstanceKey(key1)).not.toBe(launchInstanceKey(key2))
+    expect(launchInstanceKey(inherited1)).toBe(launchInstanceKey(inherited2))
+    expect(launchInstanceKey(key1)).toBe(launchInstanceKey(key2))
     // 摘要里不得出现值的明文（只有加盐摘要）
     expect(JSON.stringify(launchEnvParts(inherited1.launchEnv))).not.toContain('a.example')
     expect(JSON.stringify(launchEnvParts(key1.launchEnv))).not.toContain('sk-1')
@@ -321,7 +323,7 @@ describe('启动环境快照（解析与 spawn 同一次结果）', () => {
   })
 
   it('解析后修改父环境**不影响已解析的启动环境**（快照已冻结，不再读 process.env）', async () => {
-    const parentEnv: Record<string, string | undefined> = { PATH: 'C:\\p1', KEEP: 'v1' }
+    const parentEnv: Record<string, string | undefined> = { PATH: 'C:\\p1', LANG: 'v1' }
     const h = makeHarness()
     h.resolver.deps.parentEnv = () => ({ ...parentEnv })
     h.resolver.deps.readSystemPath = () => 'C:\\sys-1'
@@ -333,11 +335,11 @@ describe('启动环境快照（解析与 spawn 同一次结果）', () => {
     // 解析之后父环境整体换掉（含 provider key）
     parentEnv.PATH = 'C:\\p2'
     parentEnv.DEEPSEEK_API_KEY = 'sk-mutated'
-    delete parentEnv.KEEP
+    delete parentEnv.LANG
 
     const child = buildChildEnv(first.launch.launchEnv, resolveDshHome)
     expect(child.PATH).toBe('C:\\sys-1')            // 系统 PATH 也在快照里，不再重读
-    expect(child.KEEP).toBe('v1')
+    expect(child.LANG).toBe('v1')
     expect(child.DEEPSEEK_API_KEY).toBe('sk-secret-from-active')  // 配置覆盖值按快照走
     expect(first.launch.launchEnv.base.PATH).toBe('C:\\p1')
 

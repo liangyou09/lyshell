@@ -2,13 +2,16 @@ import type { ClientChannel } from 'ssh2'
 import { randomUUID } from 'crypto'
 import { StringDecoder } from 'string_decoder'
 import { SSHFileClient } from './ssh-file-client'
-import { cleanCommandOutput } from './ssh-command-executor'
+import { cleanCommandOutput, type CommandDispatchGuard } from './ssh-command-executor'
 import { ShellCommandOutput } from './shell-command-output'
+import { OperationError } from '@shared/operation'
 
 type CommandResult = { output: string; exitCode: number }
 type PendingCommand = {
   command: string
   onData?: (chunk: string) => void
+  assertCurrent?: CommandDispatchGuard
+  initialized: boolean
   finish: (error?: Error, result?: CommandResult) => void
 }
 
@@ -22,18 +25,18 @@ export class SSHCommandShell {
 
   constructor(private sshFileClient: SSHFileClient, private shellEnterCommands: string) {}
 
-  async execRaw(command: string, timeout = 30000): Promise<string> {
-    return (await this.execute(command, timeout)).output
+  async execRaw(command: string, timeout = 30000, assertCurrent?: CommandDispatchGuard): Promise<string> {
+    return (await this.execute(command, timeout, undefined, undefined, assertCurrent)).output
   }
 
-  execStream(command: string, timeout: number, onData: (chunk: string) => void, signal?: AbortSignal): Promise<CommandResult> {
-    return this.execute(command, timeout, onData, signal)
+  execStream(command: string, timeout: number, onData: (chunk: string) => void, signal?: AbortSignal, assertCurrent?: CommandDispatchGuard): Promise<CommandResult> {
+    return this.execute(command, timeout, onData, signal, assertCurrent)
   }
 
-  private execute(command: string, timeout: number, onData?: (chunk: string) => void, signal?: AbortSignal): Promise<CommandResult> {
+  private execute(command: string, timeout: number, onData?: (chunk: string) => void, signal?: AbortSignal, assertCurrent?: CommandDispatchGuard): Promise<CommandResult> {
     return new Promise((resolve, reject) => {
       let settled = false
-      const item: PendingCommand = { command, onData, finish: (error, result) => {
+      const item: PendingCommand = { command, onData, assertCurrent, initialized: false, finish: (error, result) => {
         if (settled) return
         settled = true
         clearTimeout(timer)
@@ -64,8 +67,9 @@ export class SSHCommandShell {
     if (!item) return
     this.active = item
     const generation = this.generation
-    void this.openChannel().then(channel => {
+    void this.openChannel(item).then(channel => {
       if (generation !== this.generation || this.active !== item) return
+      this.assertCurrent(item)
       const marker = `___END_MARKER_UUID_${randomUUID()}___`
       this.output = new ShellCommandOutput(marker, item.onData)
       // 独立换行避免命令末尾的注释吞掉完成标记，同时保留实际退出码。
@@ -73,15 +77,25 @@ export class SSHCommandShell {
     }).catch(error => { if (generation === this.generation) this.reset(error) })
   }
 
-  private async openChannel(): Promise<ClientChannel> {
+  private assertCurrent(item: PendingCommand): void {
+    try { item.assertCurrent?.() } catch (error) {
+      if (item.initialized) throw new OperationError('OUTCOME_UNKNOWN', 'SSH shell initialization was dispatched before authorization changed; inspect side effects before retrying', 'reconcile-first')
+      throw error
+    }
+  }
+
+  private async openChannel(item: PendingCommand): Promise<ClientChannel> {
+    this.assertCurrent(item)
     if (this.channel) return this.channel
     const generation = this.generation
     const client = await this.sshFileClient.getClient()
-    if (generation !== this.generation) throw new Error('SSH command session closed')
+    if (generation !== this.generation || this.active !== item) throw new Error('SSH command session closed')
+    this.assertCurrent(item)
     return new Promise((resolve, reject) => {
       client.shell((error, stream) => {
         if (error) { reject(error); return }
         if (generation !== this.generation) { stream.destroy(); reject(new Error('SSH command session closed')); return }
+        try { this.assertCurrent(item) } catch (error) { stream.destroy(); reject(error); return }
         this.channel = stream
         const stdout = new StringDecoder('utf8')
         const stderr = new StringDecoder('utf8')
@@ -104,7 +118,11 @@ export class SSHCommandShell {
           try { this.output?.stderr(stderr.write(data)) } catch (error) { this.reset(error as Error) }
         })
         try {
-          for (const command of this.shellEnterCommands.split('\n').filter(line => line.trim())) stream.write(`${command}\n`)
+          for (const command of this.shellEnterCommands.split('\n').filter(line => line.trim())) {
+            this.assertCurrent(item)
+            item.initialized = true
+            stream.write(`${command}\n`)
+          }
           resolve(stream)
         } catch (error) { reject(error) }
       })

@@ -24,9 +24,12 @@ describe('worker manager 串行队列取消配线', () => {
       expect(src).toContain(`${chain}.cancelId(taskId)`)
     })
 
-    it(`${name}: 会话断开按 sessionId 取消 queued task`, () => {
+    it(`${name}: 会话断开按 sessionId 取消 queued task，且只在确认后回执`, () => {
       expect(src).toContain(`${chain}.cancelGroup(sessionId)`)
-      expect(src).toContain('sendProgressToRenderer({ taskId, cancelled: true })')
+      // 排队任务（从未创建 Worker）没有副作用，可以立即回执；
+      // 活动任务必须只发取消通知，由 Worker 关闭句柄/清理临时文件后回报 cancelled
+      expect(src).toContain('reportUnstartedCancelled(taskId)')
+      expect(src).toContain("active.worker.postMessage({ type: 'cancel'")
     })
 
     it(`${name}: 应用退出清空 queued task`, () => {
@@ -40,7 +43,7 @@ describe('worker manager 串行队列取消配线', () => {
       SESSION_MANAGER.indexOf('async connectSession(')
     )
     expect(deleteBody).toContain('await this.disconnectSession(id)')
-    expect(deleteBody).toContain('outputBuffer?.clear()')
+    expect(deleteBody).toContain('this.outputHistory.release(outputBuffer)')
     expect(deleteBody).toContain('this.sessions.delete(id)')
     expect(deleteBody).toContain("this.emit('session:deleted', id)")
   })

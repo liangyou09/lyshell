@@ -11,7 +11,7 @@ import { useSessionStore } from '../../stores/session-store'
 import { usePaneStore, findPane } from '../../stores/pane-store'
 import { useUiStore } from '../../stores/ui-store'
 import { useThemeStore } from '../../stores/theme-store'
-import { useEscDismiss } from '../../hooks'
+import { useEscDismiss, useTerminalControl } from '../../hooks'
 import i18n from '../../i18n'
 import { ConnectionStatus, type SessionConfig } from '@shared/types'
 import { Unicode15Provider } from './unicode15-provider'
@@ -214,7 +214,9 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
   const shelfHostedRef = useRef(shelfHosted); shelfHostedRef.current = shelfHosted
   const shelfActive = shelfHost?.active === true
   const shelfInteractive = shelfHost?.interactive === true
-  const inputBlocked = blockInput || (shelfHosted && !shelfInteractive)
+  const terminalControl = useTerminalControl(sessionId, session?.status === ConnectionStatus.CONNECTED,
+    !shelfHosted || shelfInteractive, blockInput)
+  const inputBlocked = blockInput || !terminalControl.ready || (shelfHosted && !shelfInteractive)
 
   // 用 ref 让 onData / 右键粘贴回调读到最新的输入阻塞状态：这两个回调注册在下方
   // 依赖数组不含 blockInput 的大 effect 里（terminal 创建时注册一次），闭包会捕获
@@ -907,6 +909,19 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
     imePatchRef.current?.resetLock()
   }, [shelfHosted, sessionId, getTerminal, notifyResize])
 
+  // 连接完成前的几何通知没有输入租约，会被 main 拒绝。租约到手后按当前
+  // 可见布局重新同步，不能把本地 PTY 永久留在默认 80×24，也不重放按键。
+  useEffect(() => {
+    if (!terminalControl.ready) return
+    const instance = getTerminal(sessionId)
+    const rect = containerRef.current?.getBoundingClientRect()
+    if (!instance || !rect?.width || !rect.height) return
+    try {
+      instance.fitAddon.fit()
+      notifyResize(instance.terminal.cols, instance.terminal.rows)
+    } catch { /* 隐藏/正在卸载的视图由下一次可见布局同步 */ }
+  }, [terminalControl.ready, sessionId, getTerminal, notifyResize])
+
   // 当只读/MCP 锁定状态或迷你宿主交互额度变化时，动态更新终端 disableStdin
   useEffect(() => {
     const instance = getTerminal(sessionId)
@@ -1173,6 +1188,13 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
 
   return (
     <div className="w-full h-full bg-[var(--terminal-bg)] relative overflow-hidden">
+      {session?.status === ConnectionStatus.CONNECTED && !terminalControl.ready && (!shelfHosted || shelfInteractive) && (
+        <div className="absolute z-20 right-2 top-2 max-w-[min(90%,28rem)] rounded border border-[var(--rule)] bg-[var(--bg-elev)] px-3 py-2 text-xs text-[var(--text-rack)]" role="status">
+          <p>{i18n.t(blockInput ? 'terminal.automationControl' : 'terminal.controlUnavailable')}</p>
+          {terminalControl.error && <p className="mt-1 break-words text-[var(--text-rack-mute)]">{terminalControl.error}</p>}
+          <button type="button" className="mt-2 underline underline-offset-2" onClick={() => { void terminalControl.takeControl() }}>{i18n.t('terminal.takeControl')}</button>
+        </div>
+      )}
       {/* 终端容器 */}
       <div
         ref={containerRef}

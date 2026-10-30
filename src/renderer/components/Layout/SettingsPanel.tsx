@@ -14,6 +14,7 @@ import { SettingsBackGlyph, SettingsNavigation } from './SettingsNavigation'
 import { useTaskShelf } from '../../stores/task-shelf'
 import { DEFAULT_TASK_SHELF_PREFERENCES } from '@shared/task-shelf'
 import type { NavTab } from './ActivityRail'
+import type { StorageHealth } from '@shared/storage-health'
 
 const EnvProfilePanel = lazy(() => import('./EnvProfilePanel'))
 const CodeWorkspaceSettings = lazy(() => import('./CodeWorkspaceSettings'))
@@ -97,6 +98,23 @@ const SettingsPanel: React.FC<{
   const [selectedView, setSelectedView] = useState(requestedView?.key ?? 'home')
   const [browserCategory, setBrowserCategory] = useState<BrowserSettingsCategory | null>(null)
   const [browserVisited, setBrowserVisited] = useState(requestedView?.key === 'browser')
+  const [diagnosticBusy, setDiagnosticBusy] = useState(false)
+  const [diagnosticNotice, setDiagnosticNotice] = useState('')
+  const [storageHealth, setStorageHealth] = useState<StorageHealth>()
+  useEffect(() => {
+    let current = true
+    void window.electronAPI?.storageHealth?.().then(health => { if (current) setStorageHealth(health) }).catch(() => {})
+    return () => { current = false }
+  }, [])
+  const exportDiagnostics = async () => {
+    if (diagnosticBusy) return
+    setDiagnosticBusy(true)
+    try {
+      const result = await window.electronAPI.exportDiagnostics()
+      setDiagnosticNotice(result.cancelled ? '' : t(result.success ? 'settings.diagnosticExported' : 'settings.diagnosticExportFailed'))
+    } catch { setDiagnosticNotice(t('settings.diagnosticExportFailed')) }
+    finally { setDiagnosticBusy(false) }
+  }
   const activeSettingsView = settingsViews.find(view => makePluginViewKey(view.pluginId, view.id) === selectedView)
   useEffect(() => { setSelectedView(requestedView?.key ?? 'home'); setBrowserCategory(null) }, [requestedView])
   useEffect(() => {
@@ -231,7 +249,18 @@ const SettingsPanel: React.FC<{
         <span className="settings-content-back" aria-hidden="true"><SettingsBackGlyph /></span>
         <span className="settings-category-title">{title}</span>
       </button>}
-      {isHome && <div className="settings-content settings-index"><SettingsNavigation label={t('settings.section')} items={categories} onSelect={setSelectedView} /></div>}
+      {isHome && <div className="settings-content settings-index">
+        <SettingsNavigation label={t('settings.section')} items={categories} onSelect={setSelectedView} />
+        <SettingCard title={t('settings.diagnostics')}>
+          <p className="text-xs leading-relaxed text-[var(--text-rack-mute)]">{t('settings.diagnosticScope')}</p>
+          {storageHealth?.stores.some(store => store.error) && <p role="alert" className="mt-2 text-xs text-[var(--error-rack)]">
+            {t('settings.storageReadOnly', { stores: storageHealth.stores.filter(store => store.error).map(store => store.name).join(', ') })}
+          </p>}
+          {storageHealth && !storageHealth.secrets.available && <p role="alert" className="mt-2 text-xs text-[var(--error-rack)]">{t('settings.secretStorageUnavailable')}</p>}
+          <button type="button" className="settings-apply mt-3" disabled={diagnosticBusy} onClick={() => { void exportDiagnostics() }}>{t('settings.exportDiagnostics')}</button>
+          {diagnosticNotice && <p role="status" className="mt-2 text-xs">{diagnosticNotice}</p>}
+        </SettingCard>
+      </div>}
       {/* 分类切换保留浏览器草稿；隐藏区域不参与布局或键盘导航。 */}
       {(browserVisited || selectedView === 'browser') && <div className="settings-browser-content" hidden={selectedView !== 'browser'}><BrowserSettingsPanel category={browserCategory} onCategoryChange={setBrowserCategory} /></div>}
       {selectedView === 'env' && <div className="settings-env-content"><Suspense fallback={null}><EnvProfilePanel embedded onBackToSettings={() => setSelectedView('home')} /></Suspense></div>}

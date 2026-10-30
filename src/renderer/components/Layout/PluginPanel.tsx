@@ -386,6 +386,9 @@ const PluginPanel: React.FC = () => {
             <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{t(`plugin.lifecycle${manifestLifecycle(picked.manifest) === 'oneshot' ? 'Oneshot' : 'Persistent'}`)}</span>
             <span className="px-1 py-px rounded-[2px] border border-[var(--rule)] shrink-0">{sourceLabel(picked.source)}</span>
           </div>
+          {picked.manifest.main && (
+            <p className="text-[11px] leading-relaxed text-[var(--text-rack)]">{t('plugin.localTrust')}</p>
+          )}
           {picked.manifest.capabilities.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {picked.manifest.capabilities.map((c) => (

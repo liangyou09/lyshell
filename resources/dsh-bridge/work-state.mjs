@@ -1,6 +1,6 @@
 // 持久记录只保存数据；审批 promise、凭据和待执行 prompt 都不能跨进程恢复。
 export const newNativeState = owner => ({ owner, sessionId: null, lastTask: null,
-  sessions: new Map(), tasks: new Map(), requests: new Map(), retired: new Map(), submissions: new Map(),
+  sessions: new Map(), tasks: new Map(), requests: new Map(), retired: new Map(), aliases: new Map(), submissions: new Map(),
   approvals: new Map(), output: [], pending: 0, disconnecting: false, viewRevision: 0,
   tail: Promise.resolve() })
 
@@ -18,19 +18,28 @@ export function saveNativeState(journal, state) {
       executionSessionId: row.executionSessionId ?? row.sessionId, current: ref(row.current) })),
     records: records.map(record => ({ task: record.task, digest: record.digest, accepted: record.accepted,
       floor: record.floor, eventSeq: record.eventSeq, turn: record.turn, seq: record.seq,
-      transcript: record.transcript, truncated: record.truncated })),
+      transcript: record.transcript, truncated: record.truncated,
+      idempotencyKey: record.idempotencyKey, submissionHash: record.submissionHash })),
     tasks: [...state.tasks].map(([key, record]) => [key, ref(record)]),
-    requests: [...state.requests].map(([key, record]) => [key, ref(record)]), retired: [...state.retired] })
+    requests: [...state.requests].map(([key, record]) => [key, ref(record)]), retired: [...state.retired],
+    // 尚在 resolveAgent、未登记任务的别名只在内存保留；dispatch 前的持久提交会一起纳入。
+    aliases: [...state.aliases].filter(([, canonical]) => state.requests.has(canonical) || state.retired.has(canonical)) })
 }
 
 export function loadNativeStates(journal) {
   const states = new Map(), sessions = new Set()
   if (!journal) return { states, sessions }
   for (const { owner, value } of journal.loadAll()) {
-    if (!value || value.schema !== 1 || !Array.isArray(value.sessions) || value.sessions.length > 64 ||
+    // 只认当前 schema；更高版本必须 fail closed，不能猜测未来字段的含义。
+    if (!value || value.schema !== 1) {
+      if (value && Number.isSafeInteger(value.schema) && value.schema > 1) throw new Error('journal/unsupported-version')
+      bad()
+    }
+    if (!Array.isArray(value.sessions) || value.sessions.length > 64 ||
       !Array.isArray(value.records) || value.records.length > 321 || !Array.isArray(value.tasks) ||
       value.tasks.length > 321 || !Array.isArray(value.requests) || value.requests.length > 256 ||
-      value.retired !== undefined && (!Array.isArray(value.retired) || value.retired.length > 10000)) bad()
+      value.retired !== undefined && (!Array.isArray(value.retired) || value.retired.length > 10000) ||
+      value.aliases !== undefined && (!Array.isArray(value.aliases) || value.aliases.length + (value.retired?.length ?? 0) > 10000)) bad()
     const state = newNativeState(owner), records = new Map()
     let outputCount = 0
     for (const saved of value.records) {
@@ -41,9 +50,19 @@ export function loadNativeStates(journal) {
         !Number.isSafeInteger(saved.floor) || !Number.isSafeInteger(saved.eventSeq) ||
         !(saved.turn === null || Number.isSafeInteger(saved.turn)) || !Number.isSafeInteger(saved.seq) ||
         !Array.isArray(saved.transcript) || saved.transcript.length > 256) bad()
+      // 幂等键只是不透明摘要的一部分；摘要/键都不能承载正文或环境值。
+      if (saved.idempotencyKey !== undefined && !id(saved.idempotencyKey) ||
+        saved.submissionHash !== undefined && !/^[a-f0-9]{64}$/.test(saved.submissionHash) ||
+        task.submissionState !== undefined && !['dispatching', 'accepted', 'unknown'].includes(task.submissionState) ||
+        task.lastConfirmedState !== undefined &&
+          !['accepted', 'running', 'completed', 'failed', 'cancelled', 'unconfirmed'].includes(task.lastConfirmedState) ||
+        task.cancelRequestedAt !== undefined && !Number.isSafeInteger(task.cancelRequestedAt)) bad()
       const record = { ...saved, task: { ...task }, owner: state, approvals: new Map() }
+      if (record.task.lastConfirmedState === 'unconfirmed') delete record.task.lastConfirmedState
       if (!terminal(task.state)) {
-        record.task.lastConfirmedState = task.lastConfirmedState ?? task.state
+        if (record.task.lastConfirmedState === undefined && saved.accepted === true && task.state !== 'unconfirmed') record.task.lastConfirmedState = task.state
+        // 恢复时不能把“已确认的提交”误报成未知；未确认回执才是 unknown。
+        record.task.submissionState = saved.accepted === true ? 'accepted' : 'unknown'
         record.task.state = 'unconfirmed'
         record.task.recoveryRequired = true
         record.task.interruptedAt ??= Date.now()
@@ -76,8 +95,22 @@ export function loadNativeStates(journal) {
     }
     for (const [key, saved] of value.retired ?? []) {
       if (!id(key) || !saved || !id(saved.task?.taskId) || !id(saved.task?.sessionId) || saved.task.requestId !== key ||
-        !terminal(saved.task.state) || !/^[a-f0-9]{64}$/.test(saved.digest) || state.requests.has(key) || state.retired.has(key)) bad()
+        !terminal(saved.task.state) || !/^[a-f0-9]{64}$/.test(saved.digest) || state.requests.has(key) || state.retired.has(key) ||
+        saved.idempotencyKey !== undefined && !id(saved.idempotencyKey) ||
+        saved.submissionHash !== undefined && !/^[a-f0-9]{64}$/.test(saved.submissionHash) ||
+        saved.task.submissionState !== undefined && !['dispatching', 'accepted', 'unknown'].includes(saved.task.submissionState) ||
+        saved.task.lastConfirmedState !== undefined &&
+          !['accepted', 'running', 'completed', 'failed', 'cancelled'].includes(saved.task.lastConfirmedState) ||
+        saved.task.cancelRequestedAt !== undefined && !Number.isSafeInteger(saved.task.cancelRequestedAt)) bad()
       state.retired.set(key, saved)
+    }
+    for (const entry of value.aliases ?? []) {
+      if (!Array.isArray(entry) || entry.length !== 2) bad()
+      const [alias, canonical] = entry
+      const original = state.requests.get(canonical) ?? state.retired.get(canonical)
+      if (!id(alias) || !id(canonical) || alias === canonical || !original?.idempotencyKey ||
+        state.requests.has(alias) || state.retired.has(alias) || state.aliases.has(alias)) bad()
+      state.aliases.set(alias, canonical)
     }
     state.sessionId = value.sessionId
     state.lastTask = value.lastTask === null ? null : records.get(value.lastTask)

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { dirname, join, resolve } from 'path'
 import { tmpdir } from 'os'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 
 const paths = vi.hoisted(() => ({ userData: '', logs: '' }))
 vi.mock('electron', () => ({
@@ -200,5 +200,17 @@ describe('MCP 活动日志位置及旧记录迁移', () => {
     expect(new McpAuditRepository().query({}).total).toBe(0)
     expect(readFileSync(legacyPath, 'utf8')).toBe('{broken')
     expect(existsSync(logPath)).toBe(false)
+  })
+
+  it('损坏的线上日志拒绝被空内存覆盖，append/flush 均保留原件', () => {
+    mkdirSync(paths.logs, { recursive: true })
+    writeFileSync(logPath, '{broken-live-log')
+    const repo = new McpAuditRepository()
+    expect(repo.query({}).total).toBe(0)
+    repo.append({ operation: 'list_sessions', capability: 'read', allowed: true, tokenSource: 'global' })
+    repo.flushSync()
+    expect(readFileSync(logPath, 'utf8')).toBe('{broken-live-log')
+    expect(existsSync(legacyPath)).toBe(false)
+    expect(readdirSync(paths.logs).some(name => name.startsWith('mcp-audit.json.corrupt-'))).toBe(true)
   })
 })

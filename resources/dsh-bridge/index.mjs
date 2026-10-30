@@ -949,6 +949,21 @@ export function createNativeWorkController(ctx, identity, { journal = null } = {
   const service = name => typeof ctx.get === 'function' ? ctx.get(name) : ctx[name]
   const controller = () => service('sessionController')
   const terminal = record => record && ['completed', 'failed', 'cancelled'].includes(record.task.state)
+  // 提交/观测/最后确认是彼此独立的元数据，不改变官方 task.state 枚举。
+  // 旧记录没有这些字段时按既有 accepted/终态推导，保持向后兼容。
+  const submissionOf = record => {
+    // 恢复时保留已经持久化的提交事实；只有回执本身未知（或旧记录无字段）才回到 unknown。
+    if (['dispatching', 'accepted', 'unknown'].includes(record.task.submissionState)) return record.task.submissionState
+    if (record.task.state === 'unconfirmed') return 'unknown'
+    return record.accepted === false ? 'dispatching' : 'accepted'
+  }
+  const observationOf = record => record.task.recoveryRequired === true || record.task.state === 'unconfirmed'
+    ? 'stale' : record.accepted === false ? 'pending' : 'live'
+  const confirmedOf = record => {
+    if (record.task.state === 'unconfirmed') return record.task.lastConfirmedState ?? null
+    if (record.accepted === false) return null
+    return record.task.lastConfirmedState ?? record.task.state
+  }
   const fail = (code = 'bad-request') => { throw new BridgeError(code, 'native work request refused') }
   let persistenceFailed = false
   const persist = state => {
@@ -972,7 +987,9 @@ export function createNativeWorkController(ctx, identity, { journal = null } = {
     status: record?.approvals.size ? 'approval' : record?.task.state === 'unconfirmed' ? 'error' : record && !terminal(record) ? 'running' : 'idle',
     recoveryRequired: record?.task.recoveryRequired === true,
     taskId: record?.task.taskId ?? null, taskState: record?.task.state ?? null,
-    task: record ? { ...record.task, officialTurn: record.turn, eventSeq: record.eventSeq } : null,
+    task: record ? { ...record.task, officialTurn: record.turn, eventSeq: record.eventSeq,
+      submissionState: submissionOf(record), observationState: observationOf(record),
+      lastConfirmedState: confirmedOf(record) } : null,
     approvals: record ? [...record.approvals.values()].map(entry => ({ ...entry.view, options: [...entry.view.options] })) : [],
     transcript: record ? record.transcript.map(entry => ({ ...entry })) : [],
     transcriptTruncated: record ? record.truncated || record.seq > record.transcript.length : false
@@ -995,6 +1012,26 @@ export function createNativeWorkController(ctx, identity, { journal = null } = {
       : request.sessionId !== undefined ? { row, record: row.current } : null
   }
   const clearApprovals = record => { for (const entry of [...record.approvals.values()]) entry.finish('cancelled') }
+  // 显式幂等键只在当前记录和已退役摘要里查找；缺失目标时绝不重新执行，避免“占用但未知”被重放。
+  const keyedRecord = (state, key) => {
+    for (const record of state.requests.values()) if (record.idempotencyKey === key) return record
+    for (const saved of state.retired.values()) if (saved.idempotencyKey === key) return { ...saved, owner: state,
+      accepted: true, approvals: new Map(), transcript: [], truncated: true, seq: 0, turn: null, eventSeq: null, floor: 0 }
+  }
+  // 覆盖正文、API 会话、提交/恢复目标与首次固定的会话 workspace；不含身份或环境值。
+  const submissionHashOf = (request, row) => createHash('sha256').update(JSON.stringify({
+    version: 1, kind: request.kind, sessionId: row.sessionId, workspace: row.workspace,
+    taskId: request.kind === 'resume' ? request.taskId : null, text: request.text
+  })).digest('hex')
+  const keyConflict = () => { throw new BridgeError('bad-request', 'idempotency key does not match the original submission') }
+  const rememberAlias = (state, alias, canonical) => {
+    if (alias === canonical || state.aliases.get(alias) === canonical) return
+    if (state.aliases.has(alias) || state.requests.has(alias) || state.retired.has(alias) || state.submissions.has(alias)) keyConflict()
+    if (state.retired.size + state.aliases.size >= 10000) fail(journal ? 'journal/capacity' : 'task/busy')
+    state.aliases.set(alias, canonical)
+    // 已登记的原任务先持久关联再回执；未登记提交会在 dispatch 前一并保存。
+    if (state.requests.has(canonical) || state.retired.has(canonical)) persist(state)
+  }
   const active = sessionId => activeTasks.get(sessionId)
   const reconcile = async record => {
     if (!record?.task.recoveryRequired || terminal(record) || !Number.isSafeInteger(record.turn)) return
@@ -1014,6 +1051,7 @@ export function createNativeWorkController(ctx, identity, { journal = null } = {
       const reason = end.data.reason?.kind
       if (!['completed', 'aborted', 'interrupted', 'forked', 'error', 'blocked'].includes(reason)) return
       record.task.state = reason === 'completed' ? 'completed' : ['aborted', 'interrupted', 'forked'].includes(reason) ? 'cancelled' : 'failed'
+      record.task.submissionState = 'accepted'; record.task.lastConfirmedState = record.task.state
       record.task.endReason = reason; record.task.endedAt = end.time ?? Date.now()
       record.task.recoveryRequired = ['interrupted', 'forked'].includes(reason); record.task.recoveredFromHistory = true
       record.eventSeq = end.seq
@@ -1038,17 +1076,22 @@ export function createNativeWorkController(ctx, identity, { journal = null } = {
   const textOf = message => (message?.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n')
   ctx.effect(() => ctx.on('session/event', (session, event) => {
     const record = active(session?.id)
-    if (!record || !Number.isSafeInteger(event.seq) || event.seq < record.floor || event.seq <= record.eventSeq) return
+    // 终态是权威事实；迟到的普通进度不能把它回退成运行中。
+    if (!record || terminal(record) || !Number.isSafeInteger(event.seq) || event.seq < record.floor || event.seq <= record.eventSeq) return
     record.eventSeq = event.seq
     if (event.type === 'turn/start') {
       // 一个已跟踪回合不能被另一个 start 偷换；只用自己的 end 作终态证据。
       if (record.turn !== null || !Number.isSafeInteger(event.data?.turn)) return
       record.turn = event.data.turn
       record.task.state = 'running'
+      record.task.submissionState = 'accepted'
+      record.task.lastConfirmedState = 'running'
       record.accepted = true
     } else if (event.type === 'turn/end' && record.turn !== null && event.data.turn === record.turn) {
       const reason = event.data.reason?.kind
       record.task.state = reason === 'completed' ? 'completed' : ['aborted', 'interrupted', 'forked'].includes(reason) ? 'cancelled' : 'failed'
+      record.task.submissionState = 'accepted'
+      record.task.lastConfirmedState = record.task.state
       record.task.endedAt = Date.now()
       record.task.endReason = reason || 'unknown'
       activeTasks.delete(record.task.executionSessionId ?? record.task.sessionId)
@@ -1095,7 +1138,7 @@ export function createNativeWorkController(ctx, identity, { journal = null } = {
   }, { prepend: true }), 'lyshell native work: isolated approvals')
   ctx.effect(() => () => { for (const state of owners.values()) for (const entry of [...state.approvals.values()]) entry.finish('cancelled') }, 'lyshell native work: cleanup')
 
-  async function submit(state, row, request, digest, previous = null) {
+  async function submit(state, row, request, digest, previous = null, submissionHash = null) {
     let executionSessionId = row.executionSessionId ?? row.sessionId
     if (previous) {
       // resolveAgent(旧会话) 可能恢复未结束 Agent，先冷 fork 精确历史边界，
@@ -1115,12 +1158,16 @@ export function createNativeWorkController(ctx, identity, { journal = null } = {
     if (state.requests.size >= 256) {
       const victim = [...state.requests].find(([, record]) => terminal(record))
       if (!victim) fail('task/busy')
-      if (journal) {
-        if (state.retired.size >= 10000) fail('journal/capacity')
-        const old = victim[1]
-        state.retired.set(victim[0], { digest: old.digest, task: { taskId: old.task.taskId, sessionId: old.task.sessionId,
-          requestId: old.task.requestId, state: old.task.state, attemptId: old.task.attemptId, executionSessionId: old.task.executionSessionId,
-          resumed: old.task.resumed === true, acceptedAt: old.task.acceptedAt, endedAt: old.task.endedAt } })
+      const old = victim[1]
+      if (journal || old.idempotencyKey !== undefined) {
+        if (state.retired.size + state.aliases.size >= 10000) fail(journal ? 'journal/capacity' : 'task/busy')
+        state.retired.set(victim[0], { digest: old.digest, submissionHash: old.submissionHash,
+          idempotencyKey: old.idempotencyKey,
+          task: { taskId: old.task.taskId, sessionId: old.task.sessionId,
+            requestId: old.task.requestId, state: old.task.state, attemptId: old.task.attemptId, executionSessionId: old.task.executionSessionId,
+            resumed: old.task.resumed === true, acceptedAt: old.task.acceptedAt, endedAt: old.task.endedAt,
+            submissionState: old.task.submissionState, lastConfirmedState: old.task.lastConfirmedState ?? old.task.state,
+            cancelRequestedAt: old.task.cancelRequestedAt } })
       }
       state.requests.delete(victim[0])
       if (state.sessions.get(victim[1].task.sessionId)?.current !== victim[1] &&
@@ -1130,8 +1177,11 @@ export function createNativeWorkController(ctx, identity, { journal = null } = {
     const attemptId = randomUUID()
     const record = { owner: state, task: { taskId, sessionId: row.sessionId, state: 'accepted', acceptedAt: Date.now(), requestId: request.requestId,
       attemptId, attempt: (previous?.task.attempt ?? 0) + 1, executionIdentity: identity(), executionSessionId,
+      submissionState: 'dispatching',
       ...(previous ? { previousAttemptId: previous.task.attemptId, resumed: true } : {}) },
-      digest, accepted: false, floor: agent.session.seq, eventSeq: agent.session.seq - 1, turn: null,
+      digest, ...(submissionHash ? { submissionHash } : {}),
+      ...(request.idempotencyKey === undefined ? {} : { idempotencyKey: request.idempotencyKey }),
+      accepted: false, floor: agent.session.seq, eventSeq: agent.session.seq - 1, turn: null,
       transcript: [], seq: 0, truncated: false, approvals: new Map() }
     if (row.current && state.requests.get(row.current.task.requestId) !== row.current) state.tasks.delete(row.current.task.taskId)
     row.current = record
@@ -1141,13 +1191,21 @@ export function createNativeWorkController(ctx, identity, { journal = null } = {
     state.tasks.set(taskId, record)
     activeTasks.set(executionSessionId, record)
     // 不保存待重放 prompt。先落盘请求指纹和执行身份；任何写盘失败都不能 dispatch。
-    try { persist(state) } catch { activeTasks.delete(executionSessionId); record.task.state = 'unconfirmed'; throw new BridgeError('journal/unavailable', 'task was not dispatched') }
+    try { persist(state) } catch {
+      activeTasks.delete(executionSessionId)
+      record.task.state = 'unconfirmed'; record.task.submissionState = 'unknown'
+      throw new BridgeError('journal/unavailable', 'task was not dispatched')
+    }
     try {
       await controller().prompt({ sessionId: executionSessionId, requestId: attemptId, mode: 'queue',
         content: [{ type: 'text', text: request.text }] }, new AbortController().signal)
       record.accepted = true
+      if (!terminal(record)) { record.task.submissionState = 'accepted'; record.task.lastConfirmedState = record.task.state }
     } catch {
-      if (record.task.state === 'accepted') record.task.state = 'unconfirmed'
+      if (!terminal(record)) {
+        if (record.task.state === 'accepted') record.task.state = 'unconfirmed'
+        record.task.submissionState = record.accepted ? 'accepted' : 'unknown'
+      }
       persist(state)
       fail('bridge/unavailable')
     }
@@ -1219,19 +1277,48 @@ export function createNativeWorkController(ctx, identity, { journal = null } = {
         if (!row) fail('task/not-found')
         const previousTask = request.kind === 'resume' ? state.tasks.get(request.taskId) : null
         const digest = createHash('sha256').update(request.text).digest('hex')
-        const retired = state.retired.get(request.requestId)
-        const previous = state.requests.get(request.requestId) ?? (retired ? { ...retired, accepted: true,
+        const idempotencyKey = request.idempotencyKey
+        if (idempotencyKey !== undefined && !isBoundedId(idempotencyKey)) fail()
+        const submissionHash = idempotencyKey === undefined ? null : submissionHashOf(request, row)
+        // 先核对调用关联：显式幂等键也不能覆盖另一个提交已占用的 requestId。
+        const canonicalId = state.aliases.get(request.requestId) ?? request.requestId
+        const retired = state.retired.get(canonicalId)
+        const previous = state.requests.get(canonicalId) ?? (retired ? { ...retired, accepted: true,
           approvals: new Map(), transcript: [], truncated: true, seq: 0 } : null)
         if (previous) {
+          if (idempotencyKey !== undefined && previous.idempotencyKey !== idempotencyKey) keyConflict()
           if (previous.digest !== digest || previous.task.sessionId !== row.sessionId ||
             (previous.task.resumed === true) !== (request.kind === 'resume') ||
             request.kind === 'resume' && previous.task.taskId !== request.taskId) fail()
           return { ...snapshot(state, row, previous), accepted: previous.accepted, duplicate: true, acceptedTaskId: previous.task.taskId }
         }
-        const pending = state.submissions.get(request.requestId)
+        const pending = state.submissions.get(canonicalId)
         if (pending) {
-          if (pending.digest !== digest || pending.sessionId !== row.sessionId || pending.kind !== request.kind) fail()
+          if (idempotencyKey !== undefined && pending.idempotencyKey !== idempotencyKey) keyConflict()
+          if (pending.digest !== digest || pending.sessionId !== row.sessionId || pending.kind !== request.kind ||
+            request.kind === 'resume' && pending.taskId !== request.taskId) fail()
           return { ...await pending.promise, duplicate: true }
+        }
+        if (canonicalId !== request.requestId) fail('task/not-found')
+        // 同键同参复用原任务，并登记本次 requestId，后续省略键也不能重放。
+        if (idempotencyKey !== undefined) {
+          const keyed = keyedRecord(state, idempotencyKey)
+          if (keyed) {
+            if (keyed.submissionHash !== submissionHash || keyed.task.sessionId !== row.sessionId ||
+              (keyed.task.resumed === true) !== (request.kind === 'resume') ||
+              request.kind === 'resume' && keyed.task.taskId !== request.taskId) keyConflict()
+            rememberAlias(state, request.requestId, keyed.task.requestId)
+            const inflight = state.submissions.get(keyed.task.requestId)
+            if (inflight) return { ...await inflight.promise, duplicate: true }
+            return { ...snapshot(state, row, keyed), accepted: keyed.accepted, duplicate: true, acceptedTaskId: keyed.task.taskId }
+          }
+          const pendingKey = [...state.submissions.values()].find(entry => entry.idempotencyKey === idempotencyKey)
+          if (pendingKey) {
+            if (pendingKey.submissionHash !== submissionHash || pendingKey.sessionId !== row.sessionId ||
+              pendingKey.kind !== request.kind) keyConflict()
+            rememberAlias(state, request.requestId, pendingKey.requestId)
+            return { ...await pendingKey.promise, duplicate: true }
+          }
         }
         if (request.kind === 'resume' && (!previousTask || previousTask.task.sessionId !== row.sessionId ||
           !previousTask.task.recoveryRequired || row.current !== previousTask)) fail('task/not-recoverable')
@@ -1242,12 +1329,13 @@ export function createNativeWorkController(ctx, identity, { journal = null } = {
         if (row.pending || row.cancelling || !previousTask && row.current && !terminal(row.current)) fail('task/busy')
         row.pending = true
         state.pending++
-        const promise = Promise.resolve().then(() => submit(state, row, request, digest, previousTask)).finally(() => {
+        const promise = Promise.resolve().then(() => submit(state, row, request, digest, previousTask, submissionHash)).finally(() => {
           row.pending = false
           state.pending--
           state.submissions.delete(request.requestId)
         })
-        state.submissions.set(request.requestId, { digest, sessionId: row.sessionId, kind: request.kind, promise })
+        state.submissions.set(request.requestId, { digest, submissionHash, idempotencyKey, requestId: request.requestId, taskId: request.taskId,
+          sessionId: row.sessionId, kind: request.kind, promise })
         return promise
       }
       if (request.kind === 'cancel') {
@@ -1257,9 +1345,13 @@ export function createNativeWorkController(ctx, identity, { journal = null } = {
         if (row.cancelling || record.task.state !== 'running') fail('task/busy')
         row.cancelling = true
         state.pending++
+        // 先记录取消意图；即使日志不可用也保留停止能力，但耐久性会如实降级为 unavailable。
+        if (record.task.cancelRequestedAt === undefined) record.task.cancelRequestedAt = Date.now()
+        try { persist(state) } catch { /* 停止已确认运行的任务不依赖持久化成功 */ }
         try {
           clearApprovals(record)
           await controller().cancel({ sessionId: record.task.executionSessionId ?? record.task.sessionId })
+          // 官方 cancel 回执不是终态；名额仍由非终态记录占用，直到同一 attempt 的真实 turn/end。
           return snapshot(state, row, record)
         } finally { row.cancelling = false; state.pending-- }
       }

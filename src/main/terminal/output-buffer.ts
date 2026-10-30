@@ -23,12 +23,80 @@
  * - 读取结果按 generation 缓存，任何写入/回收/清空都会使缓存失效。
  */
 
+import {
+  TERMINAL_OUTPUT_HARD_MAX_RESPONSE_CHARS,
+  TERMINAL_OUTPUT_MAX_RESPONSE_CHARS,
+  type TerminalOutputReadFailure,
+  type TerminalOutputReadRequest,
+  type TerminalOutputReadResult
+} from '@shared/terminal-output'
 import { stripAnsiToText } from './ansi-stripper'
+import { randomInt } from 'crypto'
 
 const DEFAULT_MAX_BYTES = 1024 * 1024 // 1M 码元（UTF-16 code unit，非字节）
 
 /** 活块数超过该值时就地两两合并，给超小 append 兜底 */
 const MAX_CHUNKS = 4096
+
+/**
+ * 输出代际计数器：每个新实例取一个从 1 开始递增的值。
+ * 0 永远不是合法代际，因此把 0 当“上次值”传进来的调用方会得到 epoch-mismatch。
+ */
+let nextOutputEpoch = randomInt(1, 2 ** 48)
+
+/**
+ * 返回 cut 处是否正处在一个**未完成**的转义/控制序列里。
+ * 是则返回该序列起点的下标（应从那里截断），否则返回 -1。
+ *
+ * 该函数只看 cut 之前最后一个 ESC：末端的转义序列被切断时，宁可少返回几个
+ * 码元，也不要把 `\x1b[3` 这类残缺参数当普通文本交给 stripAnsiToText
+ * （那会残留 "3"），更不能让调用方从转义序列中间续读。
+ */
+function unterminatedEscapeStart(raw: string, cut: number): number {
+  const esc = raw.lastIndexOf('\x1b', cut - 1)
+  if (esc < 0) return -1
+  let i = esc + 1
+  if (i >= cut) return esc // 只有 ESC 本身
+  const kind = raw.charCodeAt(i)
+  if (kind === 0x5b) {
+    // CSI：参数字节 0x30-0x3f、中间字节 0x20-0x2f、终止字节 0x40-0x7e
+    i += 1
+    while (i < cut && raw.charCodeAt(i) >= 0x30 && raw.charCodeAt(i) <= 0x3f) i += 1
+    while (i < cut && raw.charCodeAt(i) >= 0x20 && raw.charCodeAt(i) <= 0x2f) i += 1
+    return i < cut ? -1 : esc
+  }
+  if (kind === 0x5d || kind === 0x50 || kind === 0x58 || kind === 0x5e || kind === 0x5f) {
+    // OSC/DCS/SOS/PM/APC：以 BEL 或 ST 结束；ST 的 ESC 会是“最后一个 ESC”，
+    // 因此这里只需在 payload 里找 BEL。
+    for (let j = esc + 1; j < cut; j += 1) {
+      if (raw.charCodeAt(j) === 0x07) return -1
+    }
+    return esc
+  }
+  // 单字符转义 / ESC + 中间字节（如 ESC ( B）
+  while (i < cut && raw.charCodeAt(i) >= 0x20 && raw.charCodeAt(i) <= 0x2f) i += 1
+  return i < cut ? -1 : esc
+}
+
+/**
+ * 把截断点收缩到安全的码元边界：
+ * - 末尾是高代理、下一个码元是低代理时把整个代理对纳入本次响应（最多超出
+ *   maxChars 1 个码元），既不切裂 emoji，也保证调用方总能推进游标；
+ * - 不切开未完成的转义序列（回到 ESC 之前）。
+ * `raw` 至少有 `limit + 1` 个码元（响应被截断时才调用）。
+ */
+function adjustTruncation(raw: string, cut: number): number {
+  let safe = Math.min(cut, raw.length)
+  if (safe > 0) {
+    const last = raw.charCodeAt(safe - 1)
+    const next = raw.charCodeAt(safe)
+    if (last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) safe += 1
+  }
+  const esc = unterminatedEscapeStart(raw, safe)
+  // esc === 0 时说明单个序列就超过 maxChars：保留候选截断点，否则无法推进游标。
+  if (esc > 0) safe = esc
+  return safe
+}
 
 export interface RecentOutputResult {
   text: string
@@ -73,8 +141,12 @@ export class OutputBuffer {
   private writeCursor = 0
   /** 最近一次写入时间戳（ms） */
   private lastDataTime = 0
-  /** 最大缓冲码元数 */
-  private readonly maxBytes: number
+  /** 最大缓冲码元数（可由全局历史预算调整，见 setCapacity） */
+  private maxBytes: number
+  /** 输出代际：每个实例唯一，clear() 后更换，用于识别过期游标 */
+  private outputEpoch: number
+  /** 容量/长度变化观察者，供全局预算实时记账（不做任何强制约束） */
+  private sizeObserver: ((buffer: OutputBuffer, size: number) => void) | null = null
 
   /** 内容版本号：任何写入/回收/清空都自增，用于读取缓存失效 */
   private generation = 0
@@ -89,6 +161,8 @@ export class OutputBuffer {
   constructor(maxBytes: number = DEFAULT_MAX_BYTES) {
     // 上限按码元计；非正/非法值收敛为 0（等价于不保留任何历史）
     this.maxBytes = Number.isFinite(maxBytes) && maxBytes > 0 ? Math.floor(maxBytes) : 0
+    this.outputEpoch = nextOutputEpoch
+    nextOutputEpoch += 1
   }
 
   /**
@@ -109,6 +183,7 @@ export class OutputBuffer {
       const keep = data.length > this.maxBytes && tail ? Buffer.from(tail, 'utf16le').toString('utf16le') : tail
       this.baseOffset += this.length + data.length - keep.length
       this.replaceChunks(keep)
+      this.publishSize()
       return
     }
 
@@ -123,6 +198,7 @@ export class OutputBuffer {
     if (this.chunks.length - this.head > MAX_CHUNKS) {
       this.compactChunks()
     }
+    this.publishSize()
   }
 
   /**
@@ -137,6 +213,150 @@ export class OutputBuffer {
    */
   getLastDataTime(): number {
     return this.lastDataTime
+  }
+
+  /**
+   * 当前输出代际（每个实例唯一，clear() 后更换）
+   */
+  getOutputEpoch(): number {
+    return this.outputEpoch
+  }
+
+  /**
+   * 当前仍可取到的最早游标；小于它的历史已被容量回收
+   */
+  getEarliestCursor(): number {
+    return this.baseOffset
+  }
+
+  /**
+   * 当前最新游标（等于 getWriteCursor）
+   */
+  getLatestCursor(): number {
+    return this.writeCursor
+  }
+
+  /**
+   * 当前容量上限（UTF-16 码元）
+   */
+  getCapacity(): number {
+    return this.maxBytes
+  }
+
+  /**
+   * 调整容量上限；缩小时立即回收超额历史。
+   * 供全局历史预算按会话配额调用，不会改变游标语义。
+   */
+  setCapacity(next: number): void {
+    const capacity = Number.isFinite(next) && next > 0 ? Math.floor(next) : 0
+    this.maxBytes = capacity
+    if (this.length > capacity) {
+      this.trim(this.length - capacity)
+      this.generation += 1
+      this.dropCaches()
+    }
+    this.publishSize()
+  }
+
+  /**
+   * 丢弃全部历史但保留实例/游标连续性：游标继续增长，earliestCursor 前移到最新。
+   * 返回是否真的丢弃了内容。
+   */
+  dropHistory(): boolean {
+    if (!this.length) return false
+    this.baseOffset += this.length
+    this.replaceChunks('')
+    this.generation += 1
+    this.dropCaches()
+    this.publishSize()
+    return true
+  }
+
+  /**
+   * 注册容量/长度变化观察者（全局历史预算用）；传 null 解除。
+   * 观察者抛错会被吞掉，不能影响输出路径。
+   */
+  setSizeObserver(observer: ((buffer: OutputBuffer, size: number) => void) | null): void {
+    this.sizeObserver = observer
+  }
+
+  /**
+   * 增量读取一段原始输出，供 MCP 等外部消费者使用。
+   *
+   * 与 getOutputSince 的区别：
+   * - 明确返回 outputEpoch / earliestCursor / latestCursor，游标过期可识别；
+   * - 历史缺口（historyGap）与本次响应截断（responseTruncated）分开报告，
+   *   前者是永久丢失，后者可以继续用 nextCursor 读完；
+   * - 有响应上限，且截断点不会切开代理对或未完成的转义序列。
+   *
+   * 注意：这里返回的是**文本历史**，不是“完整屏幕内容”，不能据此假定已看到
+   * 全屏状态；全屏 TUI 仍需真实终端。
+   */
+  readIncremental(request: TerminalOutputReadRequest): TerminalOutputReadResult | TerminalOutputReadFailure {
+    if (!request || typeof request !== 'object') {
+      return { ok: false, code: 'request-invalid', message: 'Output read request is required' }
+    }
+    const { cursor, outputEpoch } = request
+    if (!Number.isSafeInteger(cursor) || cursor < 0) {
+      return { ok: false, code: 'cursor-invalid', message: 'Cursor must be a non-negative safe integer' }
+    }
+    if (outputEpoch !== undefined) {
+      if (!Number.isSafeInteger(outputEpoch)) {
+        return { ok: false, code: 'request-invalid', message: 'outputEpoch must be a safe integer' }
+      }
+      if (outputEpoch !== this.outputEpoch) {
+        return {
+          ok: false,
+          code: 'epoch-mismatch',
+          message: `Output epoch ${outputEpoch} is stale (current ${this.outputEpoch}); history was replaced`
+        }
+      }
+    }
+    if (cursor > this.writeCursor) {
+      return { ok: false, code: 'cursor-ahead', message: `Cursor ${cursor} is ahead of latest ${this.writeCursor}` }
+    }
+    let maxChars = TERMINAL_OUTPUT_MAX_RESPONSE_CHARS
+    if (request.maxChars !== undefined) {
+      if (!Number.isSafeInteger(request.maxChars) || request.maxChars < 1) {
+        return { ok: false, code: 'request-invalid', message: 'maxChars must be a positive safe integer' }
+      }
+      maxChars = Math.min(request.maxChars, TERMINAL_OUTPUT_HARD_MAX_RESPONSE_CHARS)
+    }
+
+    const earliestCursor = this.baseOffset
+    const historyGap = cursor < earliestCursor
+      ? { fromCursor: cursor, toCursor: earliestCursor, lostChars: earliestCursor - cursor }
+      : undefined
+    // 有缺口时从最早可用位置开始；否则从请求游标开始。
+    const consumedBase = historyGap ? earliestCursor : cursor
+    const start = consumedBase - earliestCursor
+    const available = this.length - start
+    const limit = Math.min(maxChars, available)
+    const responseTruncated = limit < available
+
+    let cut = limit
+    let raw: string
+    if (responseTruncated) {
+      // 多取 1 个码元，用于判断截断点是否落在代理对中间。
+      raw = this.takeFrom(start, limit + 1)
+      cut = adjustTruncation(raw, limit)
+    } else {
+      raw = this.getSlice(start)
+      cut = raw.length
+    }
+    const rawText = cut === raw.length ? raw : raw.slice(0, cut)
+    return {
+      ok: true,
+      text: request.stripAnsi ? stripAnsiToText(rawText) : rawText,
+      outputEpoch: this.outputEpoch,
+      cursor,
+      earliestCursor,
+      latestCursor: this.writeCursor,
+      nextCursor: consumedBase + cut,
+      historyGap,
+      responseTruncated,
+      maxChars
+    }
   }
 
   /**
@@ -211,14 +431,17 @@ export class OutputBuffer {
   }
 
   /**
-   * 清空缓冲区
+   * 清空缓冲区。游标与代际语义：游标归零，代际更换（旧游标/旧代际一律作废）。
    */
   clear(): void {
     this.replaceChunks('')
     this.baseOffset = 0
     this.writeCursor = 0
     this.generation += 1
+    this.outputEpoch = nextOutputEpoch
+    nextOutputEpoch += 1
     this.dropCaches()
+    this.publishSize()
   }
 
   /**
@@ -226,6 +449,14 @@ export class OutputBuffer {
    */
   size(): number {
     return this.length
+  }
+
+  /** 通知观察者当前存活长度；观察者异常不得影响写入路径 */
+  private publishSize(): void {
+    if (!this.sizeObserver) return
+    try {
+      this.sizeObserver(this, this.length)
+    } catch { /* 预算记账异常不能破坏输出 */ }
   }
 
   /**
@@ -342,6 +573,27 @@ export class OutputBuffer {
     const raw = this.sliceFrom(start)
     this.sliceCache = { generation: this.generation, start, raw }
     return raw
+  }
+
+  /** 从绝对偏移 start 起最多复制 limit 个码元（UTF-16 代码单元） */
+  private takeFrom(start: number, limit: number): string {
+    if (!(limit > 0)) return ''
+    let skip = Math.max(0, start)
+    let remaining = limit
+    const parts: string[] = []
+    for (let i = this.head; i < this.chunks.length && remaining > 0; i += 1) {
+      const offset = i === this.head ? this.headOffset : 0
+      const available = this.chunks[i].length - offset
+      if (skip >= available) {
+        skip -= available
+        continue
+      }
+      const take = Math.min(available - skip, remaining)
+      parts.push(this.chunks[i].slice(offset + skip, offset + skip + take))
+      remaining -= take
+      skip = 0
+    }
+    return parts.join('')
   }
 
   /** 从绝对偏移 start 起截取原始文本；只复制 start 所在块及其后的内容 */

@@ -20,6 +20,7 @@ vi.mock('electron-log', () => ({
 
 import { readSystemPath } from '../env/refresh'
 import { findPwshPath, findExplorerShell, LocalConnector } from './local'
+import type { InputFence } from '@shared/terminal-control'
 
 /** spawn 桩的返回值:connect 只挂监听/置位,有这几个方法就够 */
 const fakePty = () =>
@@ -241,4 +242,84 @@ it('异步 PATH 查询期间断开不会创建迟到的 PTY', async () => {
   ready(null)
   await expect(pending).rejects.toThrow('cancelled')
   expect(spawn).not.toHaveBeenCalled()
+})
+
+// ── 输入围栏（进程内 PTY 路径）────────────────────────────────────────────────
+// 宿主路径的围栏由宿主进程做权威核对（见 local-host-control.test.ts）；
+// 这里只钉住进程内路径的 fail-closed 行为与本地镜像的失效条件。
+
+describe('LocalConnector 输入围栏', () => {
+  let fenceSeq = 0
+  const makeFence = (overrides: Partial<InputFence> = {}): InputFence => {
+    fenceSeq += 1
+    return {
+      epoch: fenceSeq,
+      connectionInstanceId: 'conn-local-test',
+      controllerInstanceId: 'main-local-test',
+      leaseId: `lease-local-${fenceSeq}`,
+      expiresAt: Date.now() + 60_000,
+      ...overrides
+    }
+  }
+
+  const connected = async (id: string) => {
+    const pty = fakePty()
+    vi.mocked(spawn).mockReturnValue(pty)
+    vi.mocked(spawn).mockClear()
+    const connector = new LocalConnector(id, { shell: 'cmd.exe' })
+    await connector.connect()
+    return { connector, pty }
+  }
+
+  it('没有 handle 的写入一个字节都不落地（默认 fail closed）', async () => {
+    const { connector, pty } = await connected('fence-none')
+    expect(connector.supportsInputFence).toBe(true)
+    expect(connector.write('rm -rf /')).toBe(false)
+    expect(pty.write).not.toHaveBeenCalled()
+  })
+
+  it('装入围栏后带同一份 handle 才写，撤销后立刻拒绝', async () => {
+    const { connector, pty } = await connected('fence-ok')
+    const fence = makeFence()
+    await connector.setInputControl(fence)
+    expect(connector.write('ls\r', fence)).toBe(true)
+    expect(pty.write).toHaveBeenCalledWith('ls\r')
+
+    await connector.setInputControl(null)
+    expect(connector.write('ls\r', fence)).toBe(false)
+    expect(pty.write).toHaveBeenCalledTimes(1)
+  })
+
+  it('接管换租约后，旧 handle 与延迟输入被拒绝', async () => {
+    const { connector, pty } = await connected('fence-takeover')
+    const oldFence = makeFence()
+    await connector.setInputControl(oldFence)
+    expect(connector.write('a', oldFence)).toBe(true)
+
+    const newFence = makeFence({ leaseId: 'lease-new' })
+    await connector.setInputControl(newFence)
+    // 旧 handle 不能借旧租约继续写
+    expect(connector.write('b', oldFence)).toBe(false)
+    expect(connector.write('c', newFence)).toBe(true)
+    expect(pty.write).toHaveBeenCalledTimes(2)
+  })
+
+  it('过期围栏拒绝写入，不需要宿主或调用方再确认', async () => {
+    const { connector, pty } = await connected('fence-expired')
+    const fence = makeFence({ expiresAt: Date.now() - 1 })
+    await connector.setInputControl(fence)
+    expect(connector.write('x', fence)).toBe(false)
+    expect(pty.write).not.toHaveBeenCalled()
+  })
+
+  it('换连接（断开重连）清空围栏：旧 handle 不会延续到新 PTY', async () => {
+    const { connector } = await connected('fence-reconnect')
+    const fence = makeFence()
+    await connector.setInputControl(fence)
+    await connector.disconnect()
+
+    vi.mocked(spawn).mockReturnValue(fakePty())
+    await connector.connect()
+    expect(connector.write('x', fence)).toBe(false)
+  })
 })

@@ -6,6 +6,7 @@ import {
   HARNESS_AGENT_KINDS,
   HARNESS_ENV_KEY_MAP,
   isValidHttpBaseUrl,
+  isSecretPlaceholder,
   type EnvProfileLibraryResult,
   type HarnessAgentKind,
   type HarnessEnvDefault,
@@ -84,12 +85,16 @@ interface SecretInputProps {
 }
 const SecretInput: React.FC<SecretInputProps> = ({ id, value, onChange, placeholder, showTitle, hideTitle }) => {
   const [visible, setVisible] = useState(false)
+  const { t } = useTranslation()
+  const stored = isSecretPlaceholder(value)
   return (
     <div className="flex items-stretch gap-1">
       <input
         id={id}
         type="text"
-        value={value}
+        value={stored ? '••••••••' : value}
+        title={stored ? t('env.storedSecret') : undefined}
+        onFocus={event => { if (stored) event.target.select() }}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         spellCheck={false}
@@ -101,6 +106,7 @@ const SecretInput: React.FC<SecretInputProps> = ({ id, value, onChange, placehol
       />
       <button
         type="button"
+        disabled={stored}
         onClick={() => setVisible((v) => !v)}
         title={visible ? hideTitle : showTitle}
         className="flex-shrink-0 w-[30px] inline-flex items-center justify-center bg-[var(--bg-slot)] border border-[var(--rule)] rounded-sm text-[var(--text-rack-mute)] hover:text-[var(--text-rack)] hover:border-[var(--text-rack-faint)] transition-colors"
@@ -426,7 +432,8 @@ const EnvProfilePanel: React.FC<{ embedded?: boolean; onBackToSettings?: () => v
     // 核心两字段:trim 后为空传 undefined(主进程「非 undefined 即写入」的整条替换语义下
     // 即清空);apiKey 不 trim 值本体以外无从校验,与 baseUrl 同样按 trim 判空
     const baseUrlPayload = profileBaseUrlTrimmed || undefined
-    const apiKeyPayload = profileApiKeyTrimmed || undefined
+    // 空串显式清除；已有秘密的占位符由主进程保留原引用。
+    const apiKeyPayload = profileApiKeyTrimmed
     const models = [...new Set(profileModels.map((m) => m.trim()).filter((m) => m.length > 0))]
     const modelsPayload = models.length > 0 ? models : undefined
     // 双通道失败都要落到 saveError：handler 正常返回时走 success:false 分支，

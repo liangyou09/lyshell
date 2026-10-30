@@ -11,7 +11,22 @@ vi.mock('electron', () => ({
   app: { getPath: () => tmpdir() }
 }))
 
+// 秘密存储：测试环境没有 safeStorage，注入指向唯一临时文件的真实 SecretStore，
+// 避免 vitest 并发文件共用默认 vault 或迁移因后端不可用而失败。
+vi.mock('./secret-store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./secret-store')>()
+  const { createTestCipher, secretTestPath } = await import('./secret-store.test-support')
+  return {
+    ...actual,
+    secretStore: new actual.SecretStore({
+      filePath: secretTestPath('agent-repository-test-secrets.json'),
+      cipher: createTestCipher()
+    })
+  }
+})
+
 import { AgentRepository, resolveAgentLaunchEnv, type AgentConfig } from './agent-repository'
+import { RevisionConflictError } from './atomic-json'
 
 const configDir = join(tmpdir(), 'config')
 const agentsPath = join(configDir, 'agents.json')
@@ -43,11 +58,23 @@ describe('AgentRepository.load（env 清洗）', () => {
 
   it('损坏 JSON / 非数组 JSON 时保持空列表，原文件不被默认配置覆盖', () => {
     seed('{ not valid json')
-    expect(new AgentRepository().getAll()).toEqual([])
+    const broken = new AgentRepository()
+    expect(broken.getAll()).toEqual([])
+    expect(broken.add({ name: 'x', command: 'x', order: 0 })).toBeNull()
     expect(readFileSync(agentsPath, 'utf8')).toBe('{ not valid json')
     seed('{"a": 1}')
     expect(new AgentRepository().getAll()).toEqual([])
     expect(readFileSync(agentsPath, 'utf8')).toBe('{"a": 1}')
+  })
+
+  it('expectedRevision 过期时抛冲突且不追加内存或写入磁盘', () => {
+    const repo = new AgentRepository()
+    const first = repo.add({ name: 'first', command: 'one', order: 0 })!
+    const revision = repo.getRevision()
+    expect(() => repo.add({ name: 'stale', command: 'two', order: 1 }, { expectedRevision: revision - 1 }))
+      .toThrow(RevisionConflictError)
+    expect(repo.getAll().map(agent => agent.id)).toEqual([first.id])
+    expect(new AgentRepository().getAll().map(agent => agent.id)).toEqual([first.id])
   })
 
   it('env 脏数据清洗：丢空 key / 含 NUL 的 key / 含 NUL 的 value / 非字符串值', () => {

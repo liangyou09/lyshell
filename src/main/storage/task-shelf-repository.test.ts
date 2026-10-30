@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { ConnectionType } from '@shared/types/session'
 import type { TaskShelfEntry } from '@shared/task-shelf'
 import { TASK_SHELF_LIMIT, TaskShelfRepository, type ShelfCaptureInput } from './task-shelf-repository'
+import { RevisionConflictError } from './atomic-json'
 
 /** 写盘行为可控：用一次失败验证「回滚内存 + 保留上次有效文件」。 */
 const disk = vi.hoisted(() => ({ failWrite: false, writes: 0 }))
@@ -893,5 +894,30 @@ describe('diskDigest', () => {
     mkdirSync(file)
     const repository = new TaskShelfRepository(file)
     expect(() => repository.diskDigest()).toThrow(/读取任务保存区失败/)
+  })
+})
+
+describe('expectedRevision 冲突', () => {
+  it('重复访问损坏归档也必须拒绝写入，健康查询可报告错误；修复后重新完整加载', () => {
+    const broken = '{broken archive'
+    writeFileSync(file, broken)
+    const repository = new TaskShelfRepository(file)
+    expect(() => repository.list()).toThrow(/damaged/)
+    expect(() => repository.setPreferences({ toggleShortcut: 'Ctrl+Shift+K', collectShortcut: 'Ctrl+Shift+L' })).toThrow(/damaged/)
+    expect(repository.getLoadError()?.reason).toBe('corrupt')
+    expect(readFileSync(file, 'utf8')).toBe(broken)
+    writeFileSync(file, JSON.stringify({ version: 1, entries: [] }))
+    expect(repository.list()).toEqual([])
+    expect(repository.getLoadError()).toBeNull()
+  })
+
+  it('偏好保存使用过期 revision 时抛冲突，内存与磁盘保持新值', () => {
+    const repository = new TaskShelfRepository(file)
+    const saved = repository.setPreferences({ toggleShortcut: 'Ctrl+Shift+K', collectShortcut: 'Ctrl+Shift+L' })
+    const revision = repository.getRevision()
+    expect(() => repository.setPreferences({ toggleShortcut: 'Ctrl+Shift+M', collectShortcut: 'Ctrl+Shift+N' }, { expectedRevision: revision - 1 }))
+      .toThrow(RevisionConflictError)
+    expect(repository.getPreferences()).toEqual(saved)
+    expect(new TaskShelfRepository(file).getPreferences()).toEqual(saved)
   })
 })

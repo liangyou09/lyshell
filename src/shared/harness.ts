@@ -74,6 +74,10 @@ export interface HarnessWorkspace {
    * add/update 不再写入；运行期解析只在迁移失败的记录上命中（见 resolveWorkspaceEnv）。
    */
   env?: Record<string, string>
+  /** 秘密 env 的加密引用（storage/secret-store.ts）；env 中同名键不落明文。内部元数据，IPC 只应经 getPublic 暴露 */
+  envSecretRefs?: Record<string, string>
+  /** 业务显式声明的秘密键（键名本身不像秘密时补充默认判定） */
+  secretEnvKeys?: string[]
   /** 显式绑定的变量组 id；缺省表示「跟随已启用的变量组」 */
   envProfileId?: string
   model?: string         // 可选启动模型（dsh 走 cordis 补丁，codex/claude 走 --model CLI）
@@ -140,10 +144,19 @@ export interface HarnessEnvProfile {
   order: number
   /** 结构化核心：上游地址。启动时按消费方映射注入（codex → OPENAI_BASE_URL 等），缺省不注入 */
   baseUrl?: string
-  /** 结构化核心：API key / token。与 isSecretEnvKey 命中值同级敏感，UI 默认打码展示 */
+  /**
+   * 结构化核心：API key / token。与 isSecretEnvKey 命中值同级敏感，UI 默认打码展示。
+   * 磁盘配置不再保存该字段：运行期 `get()` 返回解析值，公共 DTO 返回固定占位符。
+   */
   apiKey?: string
+  /** 磁盘上的 apiKey 加密引用（storage/secret-store.ts）；运行期由仓库解析，renderer 只拿到存在状态 */
+  apiKeyRef?: string
   /** 附加变量：核心两字段放不下的其余配置，原样注入；可为空（核心存在即合法） */
   env: Record<string, string>
+  /** 秘密 env 的加密引用；env 中同名键不落明文 */
+  envSecretRefs?: Record<string, string>
+  /** 业务显式声明的秘密键（键名本身不像秘密时补充默认判定） */
+  secretEnvKeys?: string[]
   /** 可选模型选项列表 —— 供工作区模型输入框的建议（如中转变量组的 GLM-5.2），空则不写 */
   models?: string[]
   note?: string          // 可选备注
@@ -258,19 +271,64 @@ export interface HarnessRepo {
 }
 
 /**
+ * 固定占位符：公共 DTO / UI 用它表示「原秘密保留」，真实值绝不下发渲染层。
+ * update 时收到该值即视为保留原引用，不会把它当作真实秘密写入。
+ */
+export const SECRET_PLACEHOLDER = '__LYSHELL_SECRET_UNCHANGED__'
+
+/** 值是否为「保留原秘密」占位符（只认精确匹配）。 */
+export function isSecretPlaceholder(value: unknown): boolean {
+  return value === SECRET_PLACEHOLDER
+}
+
+/** 秘密字段的公开状态：只有存在性与随机引用，不含真实值。 */
+export interface SecretFieldState {
+  present: boolean
+  ref?: string
+}
+
+/** 由 secretRef 生成公开状态。 */
+export function describeSecretRef(ref: string | undefined): SecretFieldState {
+  return ref ? { present: true, ref } : { present: false }
+}
+
+/**
+ * env-profile 的安全 DTO：`apiKey` 只给固定占位符（存在时），真实值永不下发。
+ * `env` 中秘密键的值同样是占位符，`envSecretRefs` 保留引用元数据。
+ */
+export interface PublicHarnessEnvProfile extends Omit<HarnessEnvProfile, 'apiKey'> {
+  apiKey?: string
+  apiKeySecret: SecretFieldState
+}
+
+/** 工作区安全 DTO：env 中的秘密值替换为固定占位符，引用元数据保留。 */
+export type PublicHarnessWorkspace = HarnessWorkspace
+
+/**
  * 判定 env key 是否携带敏感值(API key / token 类)—— 命中的行在变量组编辑器里
- * 值默认打码(· 点阵),点眼睛按钮才明文展示。按 key 名后缀判定:
- * OPENAI_API_KEY / ANTHROPIC_AUTH_TOKEN / DEEPSEEK_API_KEY 命中,
- * OPENAI_BASE_URL / CLAUDE_CONFIG_DIR 这类非敏感配置不命中。
+ * 值默认打码(· 点阵),点眼睛按钮才明文展示。按 key 名后缀/语义判定:
+ * OPENAI_API_KEY / ANTHROPIC_AUTH_TOKEN / DEEPSEEK_API_KEY / DB_PASSWORD /
+ * SSH_PASSPHRASE / PRIVATE_KEY / CLIENT_CREDENTIALS 命中,
+ * OPENAI_BASE_URL / CODEX_HOME / PATH / CLAUDE_CONFIG_DIR 这类非敏感配置不命中。
+ *
+ * 边界：按名字识别不可能覆盖任意业务键；需要更完整覆盖时由记录用 secretEnvKeys
+ * 显式标记（写入时与这里同样按秘密处理），不对外宣称「任意秘密字符串都能识别」。
  */
 export const isSecretEnvKey = (key: string): boolean => {
   const k = key.trim().toUpperCase()
   if (!k) return false
+  if (
+    k === 'KEY' || k === 'TOKEN' || k === 'SECRET' || k === 'APIKEY' ||
+    k === 'PASSWORD' || k === 'PASSWD' || k === 'PASSPHRASE' ||
+    k === 'PRIVATE_KEY' || k === 'CREDENTIAL' || k === 'CREDENTIALS'
+  ) {
+    return true
+  }
   return (
-    k === 'KEY' || k === 'TOKEN' || k === 'SECRET' ||
     k.endsWith('_KEY') || k.endsWith('_TOKEN') || k.endsWith('_SECRET') ||
-    k.endsWith('_PASSWD') || k.endsWith('_PASSWORD') || k.endsWith('_CREDENTIAL') ||
-    k.includes('API_KEY')
+    k.endsWith('_PASSWD') || k.endsWith('_PASSWORD') || k.endsWith('_PASSPHRASE') ||
+    k.endsWith('_PRIVATE_KEY') || k.endsWith('_CREDENTIAL') || k.endsWith('_CREDENTIALS') ||
+    k.endsWith('_APIKEY') || k.includes('API_KEY')
   )
 }
 

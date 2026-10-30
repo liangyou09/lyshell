@@ -10,7 +10,7 @@ const source = ts.createSourceFile('handlers.ts', readFileSync(join(process.cwd(
   ts.ScriptTarget.Latest, true)
 const callbacks = new Map<string, ts.Expression>()
 function findCallback(node: ts.Node): void {
-  if (ts.isCallExpression(node) && node.expression.getText(source) === 'ipcMain.handle'
+  if (ts.isCallExpression(node) && node.expression.getText(source) === 'applicationIpc.handle'
     && ts.isStringLiteral(node.arguments[0]) && ['plugin:uninstall', 'plugin:disable'].includes(node.arguments[0].text)) {
     callbacks.set(node.arguments[0].text, node.arguments[1])
   }
@@ -24,22 +24,24 @@ function fixture(channel = 'plugin:uninstall') {
     compilerOptions: { target: ts.ScriptTarget.ES2022 }
   }).outputText
   let entry: { id: string; enabled: boolean; dev: boolean } | undefined = { id: 'plugin', enabled: true, dev: true }
+  let revision = 0
   const registry = new PluginResourceRegistry()
-  const remove = vi.fn(() => { entry = undefined })
+  const remove = vi.fn(() => { entry = undefined; return true })
   const cleanup = vi.fn(async () => { registry.release('plugin') })
   const restart = vi.fn(async () => {})
   const deactivate = vi.fn(async () => {})
   const syncPluginViews = vi.fn()
   const handler = runInNewContext(script, {
     assertString: (value: string) => value,
-    pluginRepository: { get: () => entry, setEnabled: (_id: string, enabled: boolean) => { entry!.enabled = enabled; return true }, remove },
+    pluginRepository: { get: () => entry ? { ...entry } : undefined, getRevision: () => revision,
+      setEnabled: (_id: string, enabled: boolean) => { entry!.enabled = enabled; revision++; return true }, remove },
     uniquePluginWebOrigins: () => [], getPluginViewRegistry: () => ({ listViews: () => [] }),
     revokeAllPluginTokens: vi.fn(), teardownPluginViews: vi.fn(),
     releasePluginResources: cleanup, pluginResources: registry, pluginHostManager: { restart, deactivatePlugin: deactivate }, syncPluginViews,
     mcpAuditRepository: { append: vi.fn() }, log: { info: vi.fn() }, validationFailure: () => null
   }) as (_event: unknown, id: string) => Promise<{ success: boolean; error?: string }>
-  return { getEntry: () => entry, replaceEntry: (enabled = false) => { entry = { id: 'plugin', enabled, dev: true } },
-    enable: () => { entry!.enabled = true }, registry, remove, cleanup, restart, deactivate, syncPluginViews, handler }
+  return { getEntry: () => entry, replaceEntry: (enabled = false) => { entry = { id: 'plugin', enabled, dev: true }; revision++ },
+    enable: () => { entry!.enabled = true; revision++ }, registry, remove, cleanup, restart, deactivate, syncPluginViews, handler }
 }
 
 it.each(['plugin:disable', 'plugin:uninstall'])('停机等待期间替换安装记录，旧 %s 不得撤销新插件', async channel => {
@@ -56,6 +58,16 @@ it.each(['plugin:disable', 'plugin:uninstall'])('停机等待期间替换安装�
 })
 
 describe('插件卸载失败保留重试入口', () => {
+  it('注册表删除保存失败时不报告成功，保留禁用记录并允许重试', async () => {
+    const { getEntry, remove, syncPluginViews, handler } = fixture()
+    remove.mockReturnValueOnce(false)
+    expect(await handler(undefined, 'plugin')).toEqual({ success: false, error: '无法保存插件卸载状态，请重试' })
+    expect(getEntry()).toMatchObject({ enabled: false })
+    expect(syncPluginViews).not.toHaveBeenCalled()
+    expect(await handler(undefined, 'plugin')).toEqual({ success: true })
+    expect(getEntry()).toBeUndefined()
+  })
+
   it.each([false, true])('宿主重启先失败后重试卸载，借用终端关闭失败=%s，不能跳过仍在途的关闭', async failClose => {
     const { getEntry, registry, remove, cleanup, restart, handler } = fixture()
     registry.track('plugin', 'borrowed', 0)

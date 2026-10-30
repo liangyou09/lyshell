@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest'
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
@@ -101,13 +102,31 @@ describe('原生任务跨进程恢复与副作用保护', () => {
     const first = await harness('unused-memory-fixture', 1, [], journal)
     await first.request({ kind: 'new', workspace: process.cwd() })
     for (let index = 0; index < 258; index++) {
-      await first.request({ kind: 'submit', sessionId: 'session-1', requestId: `request-${index}`, text: 'once' })
+      await first.request({ kind: 'submit', sessionId: 'session-1', requestId: `request-${index}`, text: 'once',
+        ...(index === 0 ? { idempotencyKey: 'first-key' } : {}) })
+      if (index === 0) await first.request({ kind: 'submit', sessionId: 'session-1', requestId: 'alias-first', text: 'once', idempotencyKey: 'first-key' })
       first.emit('turn/start', { turn: 1 }, 101); first.emit('turn/end', { turn: 1, reason: { kind: 'completed' } }, 102)
     }
     const second = await harness('unused-memory-fixture', 2, [], journal)
     expect(await second.request({ kind: 'submit', sessionId: 'session-1', requestId: 'request-0', text: 'once' })).toMatchObject({ duplicate: true, taskState: 'completed' })
+    expect(await second.request({ kind: 'submit', sessionId: 'session-1', requestId: 'alias-first', text: 'once' })).toMatchObject({ duplicate: true, taskState: 'completed' })
     expect(second.prompts).toEqual([])
     await expect(second.request({ kind: 'submit', sessionId: 'session-1', requestId: 'request-0', text: 'different' })).rejects.toMatchObject({ code: 'bad-request' })
+    await expect(second.request({ kind: 'submit', sessionId: 'session-1', requestId: 'alias-first', text: 'different' })).rejects.toMatchObject({ code: 'bad-request' })
+  })
+
+  it('未知任务的重试 requestId 持久关联原记录，重启后省略键仍不能再次派发', async () => {
+    const directory = join(root, 'alias-restart')
+    const first = await harness(directory, 1)
+    await first.request({ kind: 'new', workspace: process.cwd() })
+    const original = await first.request({ kind: 'submit', sessionId: 'session-1', requestId: 'original', text: 'once', idempotencyKey: 'K' })
+    await first.request({ kind: 'submit', sessionId: 'session-1', requestId: 'alias', text: 'once', idempotencyKey: 'K' })
+    const second = await harness(directory, 2)
+    expect(await second.request({ kind: 'submit', sessionId: 'session-1', requestId: 'alias', text: 'once' }))
+      .toMatchObject({ duplicate: true, taskId: original.taskId, taskState: 'unconfirmed' })
+    await expect(second.request({ kind: 'submit', sessionId: 'session-1', requestId: 'alias', text: 'changed' }))
+      .rejects.toMatchObject({ code: 'bad-request' })
+    expect(second.prompts).toEqual([])
   })
   it('重建后保留身份/进度/请求指纹；不自动 prompt，旧凭据和旧审批不能接管', async () => {
     const directory = join(root, 'restart')
@@ -192,12 +211,141 @@ await n.request('${OWNER}',{kind:'submit',sessionId:'session-1',requestId:'once'
     await first.request({ kind: 'new', workspace: process.cwd() })
     const receipt = await first.request({ kind: 'submit', sessionId: 'session-1', requestId: 'saved', text: 'work' })
     const state = await readSavedWorkState(userData, bridgeDirectory, OWNER, { kind: 'state', taskId: receipt.taskId })
-    expect(state).toMatchObject({ status: 'offline', taskId: receipt.taskId, taskState: 'unconfirmed', approvals: [], identity: null })
+    expect(state).toMatchObject({ status: 'offline', taskId: receipt.taskId, taskState: 'unconfirmed', approvals: [], identity: null,
+      // 离线保留最后确认的提交/执行事实，而不是用 unconfirmed 覆盖它。
+      task: { state: 'unconfirmed', lastConfirmedState: 'accepted' } })
     expect(await readSavedWorkState(userData, bridgeDirectory, OTHER, { kind: 'state' })).toBeNull()
     first.emit('turn/start', { turn: 1 }, 101)
     first.emit('turn/end', { turn: 1, reason: { kind: 'completed' } }, 102)
     await first.request({ kind: 'disconnect' })
     expect(await readSavedWorkState(userData, bridgeDirectory, OWNER, { kind: 'state' }))
       .toMatchObject({ sessionId: null, selectedSessionId: null, taskId: receipt.taskId, taskState: 'completed' })
+  })
+
+  it('取消先持久化意图；官方 cancel 回执没有 turn/end 不释放名额', async () => {
+    const directory = join(root, 'cancel-intent')
+    const f = await harness(directory, 1)
+    await f.request({ kind: 'new', workspace: process.cwd() })
+    const receipt = await f.request({ kind: 'submit', sessionId: 'session-1', requestId: 'run', text: 'work' })
+    f.emit('turn/start', { turn: 1 }, 101)
+    let intentPersisted = false
+    f.controller.cancel = async () => {
+      // 官方 cancel 被调用时，取消意图必须已经在磁盘上。
+      const saved = JSON.parse(readFileSync(join(directory, `${OWNER}.json`), 'utf8')) as {
+        value: { records: Array<{ task: Record<string, unknown> }> } }
+      intentPersisted = saved.value.records.some(record =>
+        record.task.taskId === receipt.taskId && typeof record.task.cancelRequestedAt === 'number')
+    }
+    const view = await f.request({ kind: 'cancel', taskId: receipt.taskId })
+    expect(intentPersisted).toBe(true)
+    expect(view).toMatchObject({ taskState: 'running', task: { cancelRequestedAt: expect.any(Number) } })
+    // 回执成功但没有权威终态：名额仍被占用，不能被当成已取消。
+    await expect(f.request({ kind: 'submit', sessionId: 'session-1', requestId: 'next', text: 'next' }))
+      .rejects.toMatchObject({ code: 'task/busy' })
+    f.emit('turn/end', { turn: 1, reason: { kind: 'aborted' } }, 102)
+    expect((await f.request({ kind: 'state', taskId: receipt.taskId })).taskState).toBe('cancelled')
+    expect((await f.request({ kind: 'submit', sessionId: 'session-1', requestId: 'next', text: 'next' })))
+      .toMatchObject({ accepted: true })
+    expect(f.prompts).toHaveLength(2)
+  })
+
+  it('恢复视图区分提交/观测/最后确认状态，同键重放不重发且迟到进度不回退终态', async () => {
+    const directory = join(root, 'metadata')
+    const first = await harness(directory, 1)
+    await first.request({ kind: 'new', workspace: process.cwd() })
+    const receipt = await first.request({ kind: 'submit', sessionId: 'session-1', requestId: 'meta', text: 'work', idempotencyKey: 'M' })
+    first.emit('turn/start', { turn: 1 }, 101)
+    // 重启后只能通过官方冷读核对终态；内存中的活动表不跨进程恢复。
+    const history: Data[] = []
+    const second = await harness(directory, 2, history)
+    expect(await second.request({ kind: 'state', taskId: receipt.taskId })).toMatchObject({
+      taskState: 'unconfirmed',
+      task: { submissionState: 'accepted', observationState: 'stale', lastConfirmedState: 'running', attempt: 1 }
+    })
+    const replay = await second.request({ kind: 'submit', sessionId: 'session-1', requestId: 'meta-retry', text: 'work', idempotencyKey: 'M' })
+    expect(replay).toMatchObject({ duplicate: true, accepted: true, acceptedTaskId: receipt.taskId })
+    expect(second.prompts).toEqual([])
+    history.push({ type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } }, seq: 102 })
+    expect((await second.request({ kind: 'state', taskId: receipt.taskId })).taskState).toBe('completed')
+    // 迟到的 turn/start 不能把已确认终态改回运行中。
+    second.emit('turn/start', { turn: 2 }, 103)
+    expect(await second.request({ kind: 'state', taskId: receipt.taskId })).toMatchObject({
+      taskState: 'completed', task: { submissionState: 'accepted', lastConfirmedState: 'completed' }
+    })
+  })
+
+  it('显式幂等键在请求记录退役并重启后仍去重，同键不同参拒绝', async () => {
+    const values = new Map<string, unknown>()
+    const journal: Journal = { save: (owner, value) => { values.set(owner, structuredClone(value)) },
+      loadAll: () => [...values].map(([owner, value]) => ({ owner, value: structuredClone(value) })) }
+    const first = await harness('unused-key-retire', 1, [], journal)
+    await first.request({ kind: 'new', workspace: process.cwd() })
+    await first.request({ kind: 'submit', sessionId: 'session-1', requestId: 'keyed-0', text: 'once', idempotencyKey: 'K' })
+    first.emit('turn/start', { turn: 1 }, 101); first.emit('turn/end', { turn: 1, reason: { kind: 'completed' } }, 102)
+    for (let index = 0; index < 258; index++) {
+      await first.request({ kind: 'submit', sessionId: 'session-1', requestId: `fill-${index}`, text: 'once' })
+      first.emit('turn/start', { turn: 1 }, 101); first.emit('turn/end', { turn: 1, reason: { kind: 'completed' } }, 102)
+    }
+    const second = await harness('unused-key-retire', 2, [], journal)
+    expect(await second.request({ kind: 'submit', sessionId: 'session-1', requestId: 'keyed-new', text: 'once', idempotencyKey: 'K' }))
+      .toMatchObject({ duplicate: true, taskState: 'completed', acceptedTaskId: expect.any(String) })
+    expect(second.prompts).toEqual([])
+    await expect(second.request({ kind: 'submit', sessionId: 'session-1', requestId: 'keyed-other', text: 'changed', idempotencyKey: 'K' }))
+      .rejects.toMatchObject({ code: 'bad-request' })
+  })
+
+  it('别名达到持久预算后拒绝新增关联，已有请求仍可去重', async () => {
+    let saved: Data | undefined
+    const journal: Journal = { save: (_owner, value) => { saved = structuredClone(value) as Data },
+      loadAll: () => saved ? [{ owner: OWNER, value: structuredClone(saved) }] : [] }
+    const first = await harness('unused-alias-budget', 1, [], journal)
+    await first.request({ kind: 'new', workspace: process.cwd() })
+    const receipt = await first.request({ kind: 'submit', sessionId: 'session-1', requestId: 'canonical', text: 'once', idempotencyKey: 'K' })
+    first.emit('turn/start', { turn: 1 }, 101)
+    first.emit('turn/end', { turn: 1, reason: { kind: 'completed' } }, 102)
+    saved!.aliases = Array.from({ length: 10000 }, (_, index) => [`alias-${index}`, 'canonical'])
+    const second = await harness('unused-alias-budget', 2, [], journal)
+    expect(await second.request({ kind: 'submit', sessionId: 'session-1', requestId: 'alias-0', text: 'once' }))
+      .toMatchObject({ duplicate: true, acceptedTaskId: receipt.taskId })
+    await expect(second.request({ kind: 'submit', sessionId: 'session-1', requestId: 'new-alias', text: 'once', idempotencyKey: 'K' }))
+      .rejects.toMatchObject({ code: 'journal/capacity' })
+    expect(second.prompts).toEqual([])
+  })
+
+  it.each([
+    [['alias', 'missing']],
+    [['canonical', 'canonical']],
+    [['alias', 'canonical'], ['alias', 'canonical']],
+    [['alias', 'canonical', 'extra']]
+  ])('持久别名损坏时 fail closed：%j', async (...aliases) => {
+    let saved: Data | undefined
+    const journal: Journal = { save: (_owner, value) => { saved = structuredClone(value) as Data },
+      loadAll: () => saved ? [{ owner: OWNER, value: structuredClone(saved) }] : [] }
+    const first = await harness('unused-alias-invalid', 1, [], journal)
+    await first.request({ kind: 'new', workspace: process.cwd() })
+    await first.request({ kind: 'submit', sessionId: 'session-1', requestId: 'canonical', text: 'once', idempotencyKey: 'K' })
+    saved!.aliases = aliases
+    await expect(harness('unused-alias-invalid', 2, [], journal)).rejects.toThrow('journal/invalid-state')
+  })
+
+  it('旧记录缺少新增字段仍可读，未来 schema 版本 fail closed', async () => {
+    const attemptId = 'legacy-attempt', taskId = 'legacy-task'
+    const legacy = { schema: 1, sessionId: 'session-1', lastTask: attemptId,
+      sessions: [{ sessionId: 'session-1', workspace: process.cwd(), executionSessionId: 'session-1', current: attemptId }],
+      records: [{ task: { taskId, sessionId: 'session-1', state: 'running', acceptedAt: 1, requestId: 'legacy',
+        attemptId, executionSessionId: 'session-1' }, digest: createHash('sha256').update('same text').digest('hex'), accepted: true,
+        floor: 100, eventSeq: 101, turn: 1, seq: 0, transcript: [], truncated: false }],
+      tasks: [[taskId, attemptId]], requests: [['legacy', attemptId]], retired: [] }
+    const journal = { save: () => {}, loadAll: () => [{ owner: OWNER, value: legacy }] }
+    const f = await harness('unused-legacy', 1, [], journal)
+    // 旧记录没有提交/确认元数据：按 accepted 与恢复前的权威状态推导，而不是凭空降级。
+    expect(await f.request({ kind: 'state', taskId })).toMatchObject({ taskState: 'unconfirmed',
+      task: { submissionState: 'accepted', observationState: 'stale', lastConfirmedState: 'running' } })
+    // 旧调用（未给键）继续按 requestId 去重，不重新执行。
+    expect(await f.request({ kind: 'submit', sessionId: 'session-1', requestId: 'legacy', text: 'same text' }))
+      .toMatchObject({ duplicate: true })
+    expect(f.prompts).toEqual([])
+    await expect(harness('unused-version', 1, [], { save: () => {}, loadAll: () => [{ owner: OWNER, value: { schema: 2 } }] }))
+      .rejects.toThrow('journal/unsupported-version')
   })
 })

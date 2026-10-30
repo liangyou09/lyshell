@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 
 // electron-log / electron.app.getPath 在 Node 测试环境不存在，mock 掉（对齐 harness-workspace-repository.test.ts）
 vi.mock('electron-log', () => ({
@@ -10,6 +10,20 @@ vi.mock('electron-log', () => ({
 vi.mock('electron', () => ({
   app: { getPath: () => tmpdir() }
 }))
+
+// 测试环境没有 safeStorage：注入指向唯一临时文件的真实 SecretStore，
+// 避免明文秘密迁移因后端不可用而失败。
+vi.mock('../storage/secret-store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../storage/secret-store')>()
+  const { createTestCipher, secretTestPath } = await import('../storage/secret-store.test-support')
+  return {
+    ...actual,
+    secretStore: new actual.SecretStore({
+      filePath: secretTestPath('migrate-profiles-test-secrets.json'),
+      cipher: createTestCipher()
+    })
+  }
+})
 
 // 不能静态 import 被测模块：迁移写的是 envProfileRepository 单例（固定 env-profiles.json），
 // 其内存态在首次 load 后不再读盘。每个用例 vi.resetModules() 后动态 import 取新单例，
@@ -28,7 +42,7 @@ const oldPaths = {
 } as const
 
 interface GlobalFile {
-  profiles: Array<{ id: string; name: string; order: number; env: Record<string, string>; baseUrl?: string; apiKey?: string }>
+  profiles: Array<{ id: string; name: string; order: number; env: Record<string, string>; baseUrl?: string; apiKey?: string; apiKeyRef?: string }>
   /** 新格式全局单根指针；legacy per-kind 键只在「原样穿过结构化迁移」的用例里出现 */
   activeProfileId?: string | null
   activeByKind?: Record<string, string>
@@ -91,8 +105,12 @@ describe('migrateKindEnvProfilesToGlobal', () => {
     // env 内容保真：codex 记录里的 OPENAI_API_KEY 是已知协议键，
     // 并入时经 normalizeProfile 防御分支提升成结构化核心
     const c1 = g.profiles.find((p) => p.id === 'c1')!
-    expect(c1.apiKey).toBe('sk')
+    // 秘密不再落明文：磁盘只留引用，运行期经仓库解析出真实值
+    expect(c1.apiKey).toBeUndefined()
+    expect(c1.apiKeyRef).toMatch(/^sec_[0-9a-f]{32}$/)
     expect(c1.env).toEqual({})
+    const { envProfileRepository } = await import('../storage/env-profile-repository')
+    expect(envProfileRepository.get('c1')?.apiKey).toBe('sk')
     // dsh 记录无协议键，env 原样保留
     expect(g.profiles.find((p) => p.id === 'd1')?.env).toEqual({ DSH_HOME: '/d' })
     // dsh/claude 都有 active 条目 → 全局单根指针只补空位，先处理的 dsh 先到先得
@@ -284,18 +302,20 @@ describe('migrateProfilesToStructured', () => {
     const g = readGlobal()
     const glm = g.profiles.find((p) => p.id === 'glm')!
     expect(glm.baseUrl).toBe('https://1.1.1.3:8443/v1')
-    expect(glm.apiKey).toBe('sk-1')
+    expect(glm.apiKey).toBeUndefined()
+    expect(glm.apiKeyRef).toMatch(/^sec_[0-9a-f]{32}$/)
     expect(glm.env).toEqual({ CODEX_HOME: 'C:/x', NO_PROXY: 'h' })
     // 无协议键的组不动
     const plain = g.profiles.find((p) => p.id === 'plain')!
     expect(plain.baseUrl).toBeUndefined()
     expect(plain.env).toEqual({ K: 'v' })
-    expect(g.activeByKind).toEqual({ codex: 'glm' })
+    expect(g.activeProfileId).toBe('glm')
     // 备份是提升前的原始内容（凭据还在 env 里）
     expect(existsSync(`${globalPath}.bak`)).toBe(true)
     const bak = JSON.parse(readFileSync(`${globalPath}.bak`, 'utf-8'))
-    expect(bak.profiles[0].env).toHaveProperty('OPENAI_API_KEY', 'sk-1')
-    expect(bak.profiles[0].baseUrl).toBeUndefined()
+    expect(bak.profiles[0].env.OPENAI_API_KEY).toBeUndefined()
+    expect(bak.profiles[0].apiKeyRef).toBe(glm.apiKeyRef)
+    expect(readFileSync(`${globalPath}.bak`, 'utf-8')).not.toContain('sk-1')
   })
 
   it('幂等：二跑不再改动文件、不覆盖既有备份', async () => {
@@ -317,7 +337,7 @@ describe('migrateProfilesToStructured', () => {
     expect(readFileSync(`${globalPath}.bak`, 'utf-8')).toBe(bakAfterFirst)
   })
 
-  it('已有结构化核心的组跳过：不改动文件、不建 .bak', async () => {
+  it('已有结构化核心也迁入 vault，配置和备份均只保存引用', async () => {
     const structured = {
       profiles: [
         { id: 'a', name: 'a', order: 0, baseUrl: 'https://u', apiKey: 'sk', env: { CODEX_HOME: 'C:/x' } }
@@ -329,8 +349,9 @@ describe('migrateProfilesToStructured', () => {
 
     await runStructuredMigration()
 
-    expect(readFileSync(globalPath, 'utf-8')).toBe(raw)
-    expect(existsSync(`${globalPath}.bak`)).toBe(false)
+    expect(readGlobal().profiles[0].apiKey).toBeUndefined()
+    expect(readGlobal().profiles[0].apiKeyRef).toMatch(/^sec_[0-9a-f]{32}$/)
+    expect(readFileSync(`${globalPath}.bak`, 'utf-8')).not.toContain('"apiKey":')
   })
 
   it('全局库文件缺失时纯 no-op：不抛出、不建文件', async () => {
@@ -339,19 +360,24 @@ describe('migrateProfilesToStructured', () => {
     expect(existsSync(`${globalPath}.bak`)).toBe(false)
   })
 
-  it('原子写入：上次崩溃遗留的 .tmp 被覆盖，迁移成功后不留临时文件', async () => {
+  it('原子写入：迁移成功后不留临时文件，秘密落盘为引用', async () => {
     writeFileSync(globalPath, JSON.stringify({
       profiles: [{ id: 'a', name: 'a', order: 0, env: { DEEPSEEK_API_KEY: 'k' } }]
     }), 'utf-8')
-    // 模拟上次运行写到一半崩溃：留下半截 .tmp
-    writeFileSync(`${globalPath}.tmp`, '{"profiles": [ trunc', 'utf-8')
-
     await runStructuredMigration()
 
     const g = readGlobal()
-    expect(g.profiles[0].apiKey).toBe('k')
     expect(g.profiles[0].env).toEqual({})
-    expect(existsSync(`${globalPath}.tmp`)).toBe(false)
+    // 结构化迁移先写明文核心；仓库随后加载时迁入 vault 并改为引用（不留明文）
+    const { envProfileRepository } = await import('../storage/env-profile-repository')
+    expect(envProfileRepository.get('a')?.apiKey).toBe('k')
+    const persisted = readGlobal()
+    expect(persisted.profiles[0].apiKey).toBeUndefined()
+    expect(persisted.profiles[0].apiKeyRef).toMatch(/^sec_[0-9a-f]{32}$/)
+    const leftovers = readdirSync(configDir).filter(
+      (name) => name.startsWith('.env-profiles.json.') && name.endsWith('.tmp')
+    )
+    expect(leftovers).toEqual([])
   })
 
   it('与旧 per-kind 并入链路衔接：并入时 normalizeProfile 已防御提升，结构化迁移无事可做', async () => {
@@ -368,8 +394,13 @@ describe('migrateProfilesToStructured', () => {
     const c1 = g.profiles.find((p) => p.id === 'c1')!
     // 并入路径经 normalizeProfile 防御分支已是结构化，第二轮迁移零改动
     expect(c1.baseUrl).toBe('https://u')
-    expect(c1.apiKey).toBe('sk')
+    expect(c1.apiKey).toBeUndefined()
+    expect(c1.apiKeyRef).toMatch(/^sec_[0-9a-f]{32}$/)
     expect(c1.env).toEqual({ CODEX_HOME: 'C:/x' })
-    expect(existsSync(`${globalPath}.bak`)).toBe(false)
+    // 秘密迁入 vault 的那次提交会刷新备份为引用版本（不再有明文）
+    expect(existsSync(`${globalPath}.bak`)).toBe(true)
+    expect(readFileSync(`${globalPath}.bak`, 'utf-8')).not.toContain('sk')
+    const { envProfileRepository } = await import('../storage/env-profile-repository')
+    expect(envProfileRepository.get('c1')?.apiKey).toBe('sk')
   })
 })

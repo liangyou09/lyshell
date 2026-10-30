@@ -5,6 +5,7 @@ import log from 'electron-log'
 
 // 在其它业务模块加载前配置，避免启动期间的日志先写入默认目录。
 log.transports.file.level = 'info'
+log.transports.file.maxSize = 5 * 1024 * 1024
 log.transports.console.level = 'debug'
 
 if (app.isPackaged && process.platform === 'win32') {

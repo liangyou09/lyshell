@@ -1,9 +1,16 @@
 import { app } from 'electron'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
-import { readFile, writeFile, mkdir, rename, unlink } from 'fs/promises'
+import { readFile, mkdir, unlink } from 'fs/promises'
 import { existsSync } from 'fs'
 import log from 'electron-log'
+import {
+  atomicWriteFile,
+  cloneJsonValue,
+  JsonStoreLoadError,
+  loadJsonFileSync,
+  RevisionConflictError
+} from './atomic-json'
 
 /**
  * 下载记录
@@ -64,24 +71,33 @@ export class DownloadHistoryStorage {
   private saveTimer?: ReturnType<typeof setTimeout>
   private writes: Promise<void> = Promise.resolve()
   private mutations: Promise<unknown> = Promise.resolve()
+  private configMutations: Promise<void> = Promise.resolve()
   private dirty = false
   private retired: string[] = []
   private loadError: Error | null = null
+  private configLoadError: JsonStoreLoadError | null = null
+  private revision = 0
 
-  private mutate<T>(run: () => Promise<T>): Promise<T> {
-    const result = this.mutations.then(() => { if (this.loadError) throw this.loadError; return run() })
+  private assertRevision(expectedRevision: number | undefined): void {
+    if (expectedRevision === undefined) return
+    if (expectedRevision !== this.revision) {
+      throw new RevisionConflictError(this.manifestFile ?? 'download-history-v2.json', expectedRevision, this.revision)
+    }
+  }
+
+  private mutate<T>(run: () => Promise<T>, expectedRevision?: number): Promise<T> {
+    const result = this.mutations.then(() => {
+      this.ensureInitialized()
+      if (this.loadError) throw this.loadError
+      this.assertRevision(expectedRevision)
+      return run()
+    })
     this.mutations = result.catch(() => {})
     return result
   }
 
   private hydrate(records: DownloadRecord[]): DownloadRecord[] {
     return records.map(r => ({ ...r, startTime: new Date(r.startTime), endTime: r.endTime ? new Date(r.endTime) : undefined }))
-  }
-
-  private async atomic(file: string, data: string): Promise<void> {
-    const temporary = `${file}.tmp`
-    await writeFile(temporary, data, 'utf-8')
-    await rename(temporary, file)
   }
 
   private scheduleSave(): void {
@@ -101,8 +117,10 @@ export class DownloadHistoryStorage {
     const snapshot = JSON.stringify({ version: 2, records: this.records, archives: this.archives })
     const write = this.writes.catch(() => {}).then(async () => {
       await mkdir(this.dataDir!, { recursive: true })
-      await this.atomic(this.manifestFile!, snapshot)
+      // 同目录唯一临时文件 + fsync + rename；失败保留旧 manifest 并清理临时对象。
+      await atomicWriteFile(this.manifestFile!, snapshot)
       for (const file of retired) await unlink(join(this.dataDir!, file)).catch(() => {})
+      this.revision += 1
     })
     this.writes = write.catch(error => { this.retired.push(...retired); this.dirty = true; throw error })
     return this.writes
@@ -111,6 +129,7 @@ export class DownloadHistoryStorage {
   /** 退出与测试的持久化屏障；正常新增/MD5 更新以 250ms 合并。 */
   async flush(): Promise<void> {
     clearTimeout(this.saveTimer); this.saveTimer = undefined
+    await this.configMutations
     await this.mutations
     await this.save()
   }
@@ -118,7 +137,7 @@ export class DownloadHistoryStorage {
   private async archive(records: DownloadRecord[]): Promise<HistoryArchive> {
     await mkdir(this.dataDir!, { recursive: true })
     const file = `download-archive-${randomUUID()}.json`
-    await this.atomic(join(this.dataDir!, file), JSON.stringify(records))
+    await atomicWriteFile(join(this.dataDir!, file), JSON.stringify(records))
     return { file, count: records.length }
   }
 
@@ -180,15 +199,38 @@ export class DownloadHistoryStorage {
       log.error('Download history unavailable; original files preserved:', this.loadError.message)
     }
 
-    // 加载配置
-    try {
-      if (existsSync(this.configFile!)) {
-        const data = await readFile(this.configFile!, 'utf-8')
-        this.config = { ...this.config!, ...JSON.parse(data) }
-        log.info('Loaded download config')
+    // 加载配置：损坏的原件保留，尝试 .bak 恢复；无法恢复时标记只读失败，禁止默认值覆盖。
+    const configResult = loadJsonFileSync<Record<string, unknown>>(this.configFile!, {
+      validate: raw => {
+        if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+          throw new Error('download-config.json must be a JSON object')
+        }
+        return raw as Record<string, unknown>
       }
-    } catch (error) {
-      log.warn('Failed to load download config:', error)
+    })
+    if (configResult.status === 'failed') {
+      this.configLoadError = configResult.error
+      log.warn('Failed to load download config, keeping damaged file untouched:', configResult.error)
+    } else if (configResult.status !== 'missing') {
+      const data = configResult.value
+      const config = this.config!
+      if (typeof data.defaultDir === 'string' && data.defaultDir.length > 0) {
+        config.defaultDir = data.defaultDir
+      }
+      if (typeof data.serverDirs === 'object' && data.serverDirs !== null && !Array.isArray(data.serverDirs)) {
+        for (const [key, value] of Object.entries(data.serverDirs as Record<string, unknown>)) {
+          if (typeof value === 'string') config.serverDirs[key] = value
+        }
+      }
+      if (typeof data.autoCreateServerSubdir === 'boolean') {
+        config.autoCreateServerSubdir = data.autoCreateServerSubdir
+      }
+      if (configResult.status === 'recovered') {
+        log.warn(
+          `download-config.json was corrupt; restored from backup (damaged copy: ${configResult.preservedPath ?? 'unavailable'})`
+        )
+      }
+      log.info('Loaded download config')
     }
 
     // 确保默认下载目录存在
@@ -199,21 +241,42 @@ export class DownloadHistoryStorage {
   }
 
   /**
-   * 保存配置
+   * 保存配置：先原子写盘成功后再替换内存；损坏的旧配置拒绝覆盖。
    */
-  private async saveConfig(): Promise<void> {
+  private async saveConfig(next: DownloadDirConfig): Promise<void> {
     this.ensureInitialized()
+    if (this.configLoadError) throw this.configLoadError
+    const json = JSON.stringify(next, null, 2)
+    await atomicWriteFile(this.configFile!, json)
     try {
-      await writeFile(this.configFile!, JSON.stringify(this.config, null, 2), 'utf-8')
+      await atomicWriteFile(`${this.configFile!}.bak`, json)
     } catch (error) {
-      log.error('Failed to save download config:', error)
+      log.warn('Failed to refresh download config backup; primary commit succeeded:', error)
     }
+    this.config = next
+    this.revision += 1
+  }
+
+  /** 在同一条串行链中读取最新配置、核对版本并提交，避免并发保存彼此覆盖。 */
+  private mutateConfig(update: (current: DownloadDirConfig) => DownloadDirConfig, expectedRevision?: number): Promise<void> {
+    const run = this.configMutations.then(async () => {
+      this.ensureInitialized()
+      this.assertRevision(expectedRevision)
+      await this.saveConfig(update(this.config!))
+    })
+    this.configMutations = run.catch(() => {})
+    return run
+  }
+
+  getRevision(): number {
+    this.ensureInitialized()
+    return this.revision
   }
 
   /**
    * 添加下载记录
    */
-  async addRecord(record: DownloadRecord): Promise<DownloadRecord> {
+  async addRecord(record: DownloadRecord, options: { expectedRevision?: number } = {}): Promise<DownloadRecord> {
     this.ensureInitialized()
     return this.mutate(async () => {
       // 先写不可变归档，再原子切换 manifest。归档失败不移除内存中的旧记录。
@@ -222,19 +285,21 @@ export class DownloadHistoryStorage {
         this.archives.unshift(archived)
         this.records = []
       }
-      this.records.unshift(record)
+      const stored = this.hydrate([{ ...record }])[0]
+      this.records.unshift(stored)
       this.scheduleSave()
-      return record
-    })
+      return this.hydrate([stored])[0]
+    }, options.expectedRevision)
   }
 
-  private async updateMatching(matches: (record: DownloadRecord) => boolean, updates: Partial<DownloadRecord>): Promise<DownloadRecord | null> {
+  private async updateMatching(matches: (record: DownloadRecord) => boolean, updates: Partial<DownloadRecord>, options: { expectedRevision?: number } = {}): Promise<DownloadRecord | null> {
     return this.mutate(async () => {
       const index = this.records.findIndex(matches)
       if (index !== -1) {
-        this.records[index] = { ...this.records[index], ...updates }
+        const stored = { ...this.records[index], ...cloneJsonValue(updates) }
+        this.records[index] = stored
         this.scheduleSave()
-        return this.records[index]
+        return this.hydrate([stored])[0]
       }
       for (let i = 0; i < this.archives.length; i++) {
         const records = this.hydrate(JSON.parse(await readFile(join(this.dataDir!, this.archives[i].file), 'utf-8')))
@@ -245,18 +310,18 @@ export class DownloadHistoryStorage {
         this.archives[i] = await this.archive(records)
         this.retired.push(old)
         this.scheduleSave()
-        return records[found]
+        return this.hydrate([records[found]])[0]
       }
       return null
-    })
+    }, options.expectedRevision)
   }
 
-  async updateRecord(id: string, updates: Partial<DownloadRecord>): Promise<DownloadRecord | null> {
-    return this.updateMatching(record => record.id === id, updates)
+  async updateRecord(id: string, updates: Partial<DownloadRecord>, options: { expectedRevision?: number } = {}): Promise<DownloadRecord | null> {
+    return this.updateMatching(record => record.id === id, updates, options)
   }
 
-  async updateRecordByTaskId(taskId: string, updates: Partial<DownloadRecord>): Promise<DownloadRecord | null> {
-    return this.updateMatching(record => record.taskId === taskId, updates)
+  async updateRecordByTaskId(taskId: string, updates: Partial<DownloadRecord>, options: { expectedRevision?: number } = {}): Promise<DownloadRecord | null> {
+    return this.updateMatching(record => record.taskId === taskId, updates, options)
   }
 
   /** 历史不按年龄删除；旧记录按千条归档，界面每页最多 100 条。 */
@@ -284,34 +349,34 @@ export class DownloadHistoryStorage {
         if (take(this.hydrate(JSON.parse(await readFile(join(this.dataDir!, archive.file), 'utf-8'))))) break
       }
     }
-    return { records: result.slice(0, size), hasMore: result.length > size }
+    return { records: this.hydrate(result.slice(0, size)), hasMore: result.length > size }
   }
 
   /**
    * 获取内存中的最近记录（完整历史请用 getPage）
    */
   getAllRecords(): DownloadRecord[] {
-    return this.records
+    return this.hydrate(this.records.map(record => ({ ...record })))
   }
 
   /**
    * 按服务器获取内存中的最近记录
    */
   getRecordsByServer(sessionId: string): DownloadRecord[] {
-    return this.records.filter(r => r.sessionId === sessionId)
+    return this.hydrate(this.records.filter(r => r.sessionId === sessionId).map(record => ({ ...record })))
   }
 
   /**
    * 按服务器地址获取内存中的最近记录
    */
   getRecordsByHost(host: string, port: number): DownloadRecord[] {
-    return this.records.filter(r => r.host === host && r.port === port)
+    return this.hydrate(this.records.filter(r => r.host === host && r.port === port).map(record => ({ ...record })))
   }
 
   /**
    * 删除记录
    */
-  async deleteRecord(id: string): Promise<boolean> {
+  async deleteRecord(id: string, options: { expectedRevision?: number } = {}): Promise<boolean> {
     return this.mutate(async () => {
       const index = this.records.findIndex(record => record.id === id)
       if (index !== -1) this.records.splice(index, 1)
@@ -330,11 +395,11 @@ export class DownloadHistoryStorage {
       }
       this.scheduleSave()
       return true
-    })
+    }, options.expectedRevision)
   }
 
-  async clearAll(): Promise<void> {
-    await this.mutate(async () => { this.records = []; this.retired.push(...this.archives.map(archive => archive.file)); this.archives = []; this.scheduleSave() })
+  async clearAll(options: { expectedRevision?: number } = {}): Promise<void> {
+    await this.mutate(async () => { this.records = []; this.retired.push(...this.archives.map(archive => archive.file)); this.archives = []; this.scheduleSave() }, options.expectedRevision)
     await this.flush()
   }
 
@@ -343,16 +408,15 @@ export class DownloadHistoryStorage {
    */
   getConfig(): DownloadDirConfig {
     this.ensureInitialized()
-    return this.config!
+    return cloneJsonValue(this.config!)
   }
 
   /**
    * 更新下载目录配置
    */
-  async updateConfig(updates: Partial<DownloadDirConfig>): Promise<void> {
-    this.ensureInitialized()
-    this.config = { ...this.config!, ...updates }
-    await this.saveConfig()
+  async updateConfig(updates: Partial<DownloadDirConfig>, options: { expectedRevision?: number } = {}): Promise<void> {
+    const snapshot = cloneJsonValue(updates)
+    await this.mutateConfig(current => ({ ...current, ...snapshot }), options.expectedRevision)
   }
 
   /**
@@ -387,19 +451,21 @@ export class DownloadHistoryStorage {
   /**
    * 设置服务器下载目录
    */
-  async setServerDownloadDir(sessionId: string, dir: string): Promise<void> {
-    this.ensureInitialized()
-    this.config!.serverDirs[sessionId] = dir
-    await this.saveConfig()
+  async setServerDownloadDir(sessionId: string, dir: string, options: { expectedRevision?: number } = {}): Promise<void> {
+    await this.mutateConfig(current => ({ ...current,
+      serverDirs: { ...current.serverDirs, [sessionId]: dir }
+    }), options.expectedRevision)
   }
 
   /**
    * 删除服务器下载目录配置
    */
-  async removeServerDownloadDir(sessionId: string): Promise<void> {
-    this.ensureInitialized()
-    delete this.config!.serverDirs[sessionId]
-    await this.saveConfig()
+  async removeServerDownloadDir(sessionId: string, options: { expectedRevision?: number } = {}): Promise<void> {
+    await this.mutateConfig(current => {
+      const serverDirs = { ...current.serverDirs }
+      delete serverDirs[sessionId]
+      return { ...current, serverDirs }
+    }, options.expectedRevision)
   }
 }
 

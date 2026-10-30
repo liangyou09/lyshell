@@ -28,6 +28,17 @@ import * as crypto from 'crypto'
 import log from 'electron-log'
 import type { McpCapability } from '@shared/api-routes'
 
+/** 控制租约只携带不可逆的凭据标识，原始 token 不进入事件/句柄/日志。 */
+export function credentialId(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex')
+}
+
+export function isCredentialIdCurrent(id: string): boolean {
+  const tokens = [globalToken, ...sessionTokens.values(), ...[...pluginTokens.values()].map(row => row.token),
+    ...[...pluginUiTokens.values()].map(row => row.token)]
+  return tokens.some(token => token !== null && credentialId(token) === id)
+}
+
 export type TokenKind = 'global' | 'session' | 'plugin' | 'dshBridge'
 
 export interface TokenBinding {

@@ -1,3 +1,13 @@
+import { applicationIpc } from './application-ipc'
+import { applicationCallers } from '../security/application-caller'
+import { getSshTrustSnapshot, deleteTrustedSshHost } from '../security/ssh-trust'
+import type { SshHostKeyChallenge } from '../security/ssh-host-key'
+import { validateSshTrustRequest } from './validation'
+import { validateTerminalControlRequest, validateTerminalInputHandle } from './validation'
+import { OperationError } from '@shared/operation'
+import { diagnosticEvents } from '../diagnostics/events'
+import { validateDiagnosticExport } from './validation'
+import { atomicWriteFileSync } from '../storage/atomic-json'
 import { ipcMain, BrowserWindow, dialog, shell, app, net } from 'electron'
 import { shelfWebUrl } from '@shared/task-shelf'
 import { readWorkbenchActivity, approveWorkbenchActivity } from '../dsh/activity'
@@ -65,6 +75,13 @@ import { HARNESS_AGENTS, resolveWorkspaceEnv } from '../harness/config'
 import { migrateInlineEnvToProfiles } from '../harness/migrate-env'
 import { migrateKindEnvProfilesToGlobal, migrateProfilesToStructured } from '../harness/migrate-profiles'
 import { resolveAgentLaunchEnv } from '../storage/agent-repository'
+import { isSecretEnvKey } from '@shared/harness'
+import { publicSessionConfig, hydrateSessionSecrets, assertNoSecretPlaceholders } from '../storage/session-secrets'
+import { assertResolvedSecrets, secretStore } from '../storage/secret-store'
+import type { StorageHealth } from '@shared/storage-health'
+import { validateStorageHealthRequest } from './validation'
+import { validateSessionImportCommit } from './validation'
+import { SessionImportStaging } from '../storage/session-import'
 import { releaseEnvProfileReferences } from '../storage/launcher-references'
 import { envProfileRepository } from '../storage/env-profile-repository'
 import { CLAUDE_PERMISSION_MODES, CODEX_PERMISSION_PROFILES, isValidHttpBaseUrl, type EnvProfileLibraryResult, type EnvProfileUsage, type HarnessAgentKind, type HarnessEnvProfile, type HarnessWorkspace } from '@shared/harness'
@@ -325,7 +342,7 @@ function getAllWindows(): BrowserWindow[] {
  */
 function sendToAllWindows(channel: string, ...args: any[]): void {
   for (const win of getAllWindows()) {
-    if (!win.isDestroyed()) {
+    if (!win.isDestroyed() && applicationCallers.isTrusted(win.webContents)) {
       win.webContents.send(channel, ...args)
     }
   }
@@ -460,18 +477,63 @@ function sanitizeMessageBoxOptions(options: unknown): MessageBoxOptions {
  * 注册所有 IPC 处理器
  */
 let unbindHarnessRecovery: (() => void) | undefined
+async function confirmSshHostKey(challenge: SshHostKeyChallenge): Promise<boolean> {
+  const win = getAllWindows().find(window => applicationCallers.isTrusted(window.webContents))
+  if (!win || win.isDestroyed()) return false
+  const answer = await dialog.showMessageBox(win, {
+    type: challenge.changed ? 'warning' : 'question',
+    title: challenge.changed ? 'SSH 主机身份已变化 / Host key changed' : '确认 SSH 主机身份 / Verify host key',
+    message: challenge.endpoint,
+    detail: `${challenge.algorithm}\n${challenge.fingerprint}${challenge.previousFingerprint ? `\n原指纹 / Previous: ${challenge.previousFingerprint}` : ''}\n\n核对服务器指纹后才能继续。确认将保存此主机的指纹。 / Verify the fingerprint before continuing.`,
+    buttons: ['取消 / Cancel', '信任并连接 / Trust and connect'], defaultId: 0, cancelId: 0, noLink: true
+  })
+  return answer.response === 1 && !win.isDestroyed() && applicationCallers.isTrusted(win.webContents)
+}
 export function registerIPCHandlers(): void {
+  const sessionImports = new SessionImportStaging()
+  const importWindows = new WeakSet<import('electron').WebContents>()
+  applicationIpc.handle('storage:health', (_event, raw: unknown): StorageHealth => {
+    validateStorageHealthRequest(raw)
+    const stores = [ ['sessions', sessionRepository], ['preferences', preferencesRepository],
+      ['commands', quickCommandsRepository], ['agents', agentRepository], ['environment', envProfileRepository],
+      ['tasks', taskShelfRepository], ['plugins', pluginRepository] ] as const
+    return { stores: stores.map(([name, repository]) => ({ name, error: repository.getLoadError()?.reason })),
+      secrets: secretStore.status() }
+  })
+  applicationIpc.handle('terminal:control', async (event, raw: unknown) => {
+    try {
+      const request = validateTerminalControlRequest(raw)
+      const identity = { principalId: applicationCallers.context(event).principalId, source: 'gui' as const }
+      if (request.kind === 'renew' || request.kind === 'release') {
+        const control = validateTerminalInputHandle(request.control, request.control.sessionId, identity.principalId)
+        if (request.kind === 'release') { await sessionManager.releaseInput(control); return { success: true } }
+        return { success: true, control: await sessionManager.inputControl.renew(control) }
+      }
+      if (request.kind === 'inspect') return { success: true, snapshot: sessionManager.inputControl.currentSnapshot(request.sessionId) }
+      return { success: true, control: await sessionManager.acquireInput(request.sessionId, identity, { takeover: request.kind === 'takeover' }) }
+    } catch (error) {
+      return { success: false, code: error instanceof OperationError ? error.code : 'INVALID_ARGUMENT', error: extractErrorMessage(error as Error) }
+    }
+  })
+  applicationIpc.handle('ssh:trust', (_event, raw: unknown) => {
+    try {
+      const request = validateSshTrustRequest(raw)
+      if (request.kind === 'forget') deleteTrustedSshHost(request.host, request.port)
+      const snapshot = getSshTrustSnapshot()
+      return { success: !snapshot.corrupt, ...snapshot, error: snapshot.message }
+    } catch (error) { return { success: false, error: extractErrorMessage(error as Error) } }
+  })
   unbindHarnessRecovery?.()
   unbindHarnessRecovery = dshWebManager.onBackendRecovered?.(event => {
     sendToAllWindows(HARNESS_RECOVERED_CHANNEL, validateHarnessRecoveredEvent(event))
   })
-  ipcMain.handle(HARNESS_RECOVERY_GET_CHANNEL, () => {
+  applicationIpc.handle(HARNESS_RECOVERY_GET_CHANNEL, () => {
     const identity = dshWebManager.instanceIdentity, url = dshWebManager.currentUrl
     return identity && url ? validateHarnessRecoveredEvent({
       identity: { instanceId: identity.instanceId, instanceEpoch: identity.instanceEpoch }, url, cwd: identity.cwd
     }) : null
   })
-  ipcMain.handle(WEB_TERMINAL_CHANNEL, async (event, raw: unknown) => {
+  applicationIpc.handle(WEB_TERMINAL_CHANNEL, async (event, raw: unknown) => {
     if (event.sender.getType() !== 'window' || !BrowserWindow.fromWebContents(event.sender) || event.senderFrame !== event.sender.mainFrame) return { success: false, error: 'denied' }
     const request = validateWebTerminalRequest(raw)
     if (!request) return { success: false, error: 'invalid' }
@@ -486,16 +548,16 @@ export function registerIPCHandlers(): void {
     try { return mcpConfirmationRequest(event, validateMcpConfirmationRequest(raw)) }
     catch { return null }
   })
-  ipcMain.on('ui:theme-mode', (event, theme: unknown) => {
+  applicationIpc.on('ui:theme-mode', (event, theme: unknown) => {
     if (event.senderFrame === event.sender.mainFrame && event.sender.id === explorerLaunchQueue.consumerId) updateMcpConfirmationTheme(theme)
   })
-  ipcMain.handle(BROWSER_DEVTOOLS_CHANNEL, (event, raw: unknown) => {
+  applicationIpc.handle(BROWSER_DEVTOOLS_CHANNEL, (event, raw: unknown) => {
     if (event.sender.getType() !== 'window' || !BrowserWindow.fromWebContents(event.sender) || event.senderFrame !== event.sender.mainFrame) return { success: false }
     try {
       return browserDevToolsRequest(event.sender, validateWebTabDevToolsRequest(raw))
     } catch { return { success: false } }
   })
-  ipcMain.handle(BROWSER_CHANNEL, async (event, raw: unknown) => {
+  applicationIpc.handle(BROWSER_CHANNEL, async (event, raw: unknown) => {
     // 搜索联想也只能由宿主地址栏请求；固定服务地址由 main 决定。
     // 普通网页/插件 guest 不能读取密码/下载路径、操作下载、改变代理或清理会话。
     if (event.sender.getType() !== 'window' || !BrowserWindow.fromWebContents(event.sender) || event.senderFrame !== event.sender.mainFrame) return { success: false, error: 'browserAccessDenied' }
@@ -512,7 +574,7 @@ export function registerIPCHandlers(): void {
     }
     catch { return { success: false, error: 'browserInvalidSettings' } }
   })
-  ipcMain.handle(BROWSER_LAUNCH_TAKE, event => {
+  applicationIpc.handle(BROWSER_LAUNCH_TAKE, event => {
     assertBrowserLaunchConsumer(event.sender.id, browserLaunchQueue.consumerId, event.senderFrame === event.sender.mainFrame)
     return browserLaunchQueue.takeAll()
   })
@@ -542,7 +604,7 @@ export function registerIPCHandlers(): void {
 
   // ========== 连接管理 ==========
 
-  ipcMain.handle(IPC_CHANNELS.EXPLORER_LAUNCH_TAKE, async event => {
+  applicationIpc.handle(IPC_CHANNELS.EXPLORER_LAUNCH_TAKE, async event => {
     assertExplorerLaunchConsumer(event.sender.id, explorerLaunchQueue.consumerId)
     const directories = explorerLaunchQueue.takeAll()
       .map(validateExplorerDirectory).filter((directory): directory is string => directory !== null)
@@ -564,7 +626,7 @@ export function registerIPCHandlers(): void {
     }))
   })
 
-  ipcMain.handle(IPC_CHANNELS.CONNECTION_CONNECT, async (_event, config: SessionConfig, rawPluginActionRequestId?: unknown, rawSourceSessionId?: unknown) => {
+  applicationIpc.handle(IPC_CHANNELS.CONNECTION_CONNECT, async (_event, config: SessionConfig, rawPluginActionRequestId?: unknown, rawSourceSessionId?: unknown) => {
     log.debug('Connection request:', config.id, 'name:', config.name)
 
     try {
@@ -588,6 +650,15 @@ export function registerIPCHandlers(): void {
         owner: id => pluginResources.owner(id),
         isPluginEnabled: id => !!pluginRepository.get(id)?.enabled
       })
+      // GUI 只提供占位符；秘密从 main 已核实的保存项/源会话恢复，并检查目标一致。
+      const previous = sourceSessionId ? sessionManager.getSession(sourceSessionId)?.config
+        : source.saved ?? sessionManager.getSession(config.id)?.config ?? sessionRepository.get(config.id)
+      const requestedId = config.id
+      const hydrated = hydrateSessionSecrets({ ...config, id: previous?.id ?? requestedId }, previous)
+      if (hydrated.lockedSshFields.length) throw new ValidationError('Secure storage is unavailable; re-enter the SSH credentials')
+      config = { ...hydrated.config, id: requestedId }
+      assertNoSecretPlaceholders(config)
+      if (config.local) assertResolvedSecrets(config.local)
       if (pluginId) {
         const saved = source.saved!
         sessionRepository.updateSession({ ...saved, updatedAt: new Date() })
@@ -618,14 +689,14 @@ export function registerIPCHandlers(): void {
         // 避免重复发送导致前端竞态条件
 
         // 异步连接，不阻塞返回
-        sessionManager.connectSession(sessionId).catch(err => {
+        sessionManager.connectSession(sessionId, { confirmHostKey: confirmSshHostKey }).catch(err => {
           log.error('Async connection failed:', extractErrorMessage(err))
         })
 
         return {
           id: sessionId,
           status: ConnectionStatus.CONNECTING,
-          config: session.config
+          config: publicSessionConfig(session.config)
         }
       }
 
@@ -662,7 +733,7 @@ export function registerIPCHandlers(): void {
           return {
             id: existingSession.id,
             status: existingSession.status,
-            config: existingSession.config
+            config: publicSessionConfig(existingSession.config)
           }
         }
       }
@@ -678,14 +749,14 @@ export function registerIPCHandlers(): void {
       // 避免重复发送导致前端竞态条件
 
       // 异步连接，不阻塞返回
-      sessionManager.connectSession(sessionId).catch(err => {
+      sessionManager.connectSession(sessionId, { confirmHostKey: confirmSshHostKey }).catch(err => {
         log.error('Async connection failed:', extractErrorMessage(err))
       })
 
       return {
         id: sessionId,
         status: ConnectionStatus.CONNECTING,
-        config: session.config
+        config: publicSessionConfig(session.config)
       }
     } catch (error) {
       const validationError = validationFailure(error)
@@ -694,7 +765,7 @@ export function registerIPCHandlers(): void {
           id: 'temp',
           status: ConnectionStatus.ERROR,
           error: validationError.error,
-          config
+          config: publicSessionConfig(config)
         }
       }
 
@@ -704,12 +775,12 @@ export function registerIPCHandlers(): void {
         id: config.id || 'temp',
         status: ConnectionStatus.ERROR,
         error: extractErrorMessage(error as Error),
-        config
+        config: publicSessionConfig(config)
       }
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.CONNECTION_DISCONNECT, async (_event, _sessionId: string) => {
+  applicationIpc.handle(IPC_CHANNELS.CONNECTION_DISCONNECT, async (_event, _sessionId: string) => {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       log.debug('Disconnect request:', sessionId)
@@ -720,11 +791,11 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.CONNECTION_RECONNECT, async (_event, _sessionId: string) => {
+  applicationIpc.handle(IPC_CHANNELS.CONNECTION_RECONNECT, async (_event, _sessionId: string) => {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       log.debug('Reconnect request:', sessionId)
-      const session = await sessionManager.reconnectSession(sessionId)
+      const session = await sessionManager.reconnectSession(sessionId, { confirmHostKey: confirmSshHostKey })
       return {
         id: session.id,
         status: session.status
@@ -735,18 +806,19 @@ export function registerIPCHandlers(): void {
   })
 
   // 克隆渠道（在现有 SSH 连接上创建新 shell channel）
-  ipcMain.handle(IPC_CHANNELS.CONNECTION_CLONE_CHANNEL, async (_event, sourceSessionId: string) => {
+  applicationIpc.handle(IPC_CHANNELS.CONNECTION_CLONE_CHANNEL, async (_event, sourceSessionId: string) => {
     try {
       const sessionId = assertString(sourceSessionId, 'sourceSessionId', { maxLength: 128 })
       log.debug('Clone channel request:', sessionId)
-      return await sessionManager.cloneChannel(sessionId)
+      const cloned = await sessionManager.cloneChannel(sessionId)
+      return cloned ? { ...cloned, config: publicSessionConfig(cloned.config) } : null
     } catch (error) {
       return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
     }
   })
 
   // 枚举本机串口（供新建会话对话框使用）
-  ipcMain.handle(IPC_CHANNELS.SERIAL_LIST_PORTS, async () => {
+  applicationIpc.handle(IPC_CHANNELS.SERIAL_LIST_PORTS, async () => {
     try {
       const { SerialConnector } = await import('../connectors')
       const ports = await SerialConnector.listPorts()
@@ -848,20 +920,42 @@ export function registerIPCHandlers(): void {
   // 插件视图 guest 桥（bootstrap/callApi/动作/弹窗关闭 + 回执；内部幂等）
   registerPluginViewIpc()
 
-  ipcMain.handle(IPC_CHANNELS.REACHABILITY_PROBE_NOW, async () => {
+  applicationIpc.handle(IPC_CHANNELS.REACHABILITY_PROBE_NOW, async () => {
     syncReachabilityTargets()
     await reachabilityProber.probeNow()
     return { success: true }
   })
 
   const terminalOutput = new TerminalOutputDispatcher((id, paused) => sessionManager.setOutputPaused(id, paused))
+  applicationIpc.handle('diagnostics:export', async (event, raw: unknown) => {
+    validateDiagnosticExport(raw)
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (!window) return { success: false }
+    const destination = await dialog.showSaveDialog(window, {
+      title: 'LyShell — Export diagnostics', defaultPath: `LyShell-diagnostics-${new Date().toISOString().slice(0, 10)}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    })
+    if (destination.canceled || !destination.filePath || !applicationCallers.isTrusted(event.sender)) return { success: false, cancelled: true }
+    try {
+      const queue = terminalOutput.getSnapshot()
+      const snapshot = { schemaVersion: 1, createdAt: new Date().toISOString(), version: app.getVersion(),
+        runtime: { platform: process.platform, arch: process.arch, node: process.versions.node, electron: process.versions.electron },
+        resources: { sessions: sessionManager.getAllSessions().length, outputHistory: sessionManager.outputDiagnostics(),
+          guiQueue: { consumerCount: queue.consumerCount, totalPending: queue.totalPending, globalQueueBudget: queue.globalQueueBudget, diagnostics: queue.diagnostics } },
+        events: diagnosticEvents() }
+      atomicWriteFileSync(destination.filePath, JSON.stringify(snapshot, null, 2))
+      return { success: true }
+    } catch { return { success: false, error: 'Failed to export diagnostics' } }
+  })
+  sessionManager.on('terminal:control-invalidated', payload => sendToAllWindows('terminal:control-invalidated', payload))
   const outputWindows = new Set<number>()
+  sessionManager.on('terminal:history-gap', ({ sessionId }: { sessionId: string }) => terminalOutput.invalidateHistory(sessionId))
   sessionManager.on('terminal:data', ({ sessionId, data }: { sessionId: string; data: string }) => terminalOutput.append(sessionId, data))
   sessionManager.on('session:deleted', (id: string) => terminalOutput.removeSession(id))
   sessionManager.on('session:status', ({ id, status }: { id: string; status: string }) => {
     if (status === ConnectionStatus.CONNECTED) terminalOutput.refreshPause(id)
   })
-  ipcMain.handle(IPC_CHANNELS.TERMINAL_OUTPUT_CONTROL, (event, raw: unknown) => {
+  applicationIpc.handle(IPC_CHANNELS.TERMINAL_OUTPUT_CONTROL, (event, raw: unknown) => {
     try {
       const request = validateTerminalOutputControl(raw)
       const sender = event.sender
@@ -870,14 +964,17 @@ export function registerIPCHandlers(): void {
       if (request.kind === 'subscribe') {
         if (!outputWindows.has(sender.id)) {
           outputWindows.add(sender.id)
-          sender.once('destroyed', () => { outputWindows.delete(sender.id); terminalOutput.removeWindow(sender.id) })
-          sender.on('render-process-gone', () => terminalOutput.removeWindow(sender.id))
-          sender.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) terminalOutput.removeWindow(sender.id) })
+          const invalidate = () => { terminalOutput.removeWindow(sender.id); void sessionManager.inputControl.invalidatePrincipal(`gui:${sender.id}`).catch(() => log.warn('GUI input revocation could not be confirmed')) }
+          sender.once('destroyed', () => { outputWindows.delete(sender.id); invalidate() })
+          sender.on('render-process-gone', invalidate)
+          sender.on('did-start-navigation', (_event, _url, inPlace, isMainFrame) => { if (isMainFrame && !inPlace) invalidate() })
         }
+        const buffer = sessionManager.getSession(request.sessionId)?.outputBuffer
+        const historyTruncated = !!sessionManager.getSession(request.sessionId)?.outputHistoryGap || (buffer?.getEarliestCursor() ?? 0) > 0
         const subscriptionId = terminalOutput.subscribe(sender.id, request.sessionId,
-          (data, receipt) => sender.send(IPC_CHANNELS.TERMINAL_DATA, request.sessionId, data, receipt),
-          sessionManager.getSession(request.sessionId)?.outputBuffer?.getOutputSince(0, false).text ?? '')
-        return { success: true, subscriptionId }
+          (data, receipt) => { if (!applicationCallers.isTrusted(sender)) throw new Error('Application document changed'); sender.send(IPC_CHANNELS.TERMINAL_DATA, request.sessionId, data, receipt) },
+          buffer?.getOutputSince(0, false).text ?? '')
+        return { success: true, subscriptionId, historyTruncated }
       }
       if (request.kind === 'ack') terminalOutput.acknowledge(sender.id, request.sessionId, request.subscriptionId, request.sequence)
       else terminalOutput.remove(sender.id, request.sessionId, request.subscriptionId)
@@ -889,7 +986,7 @@ export function registerIPCHandlers(): void {
 
   // ========== 会话管理 ==========
 
-  ipcMain.handle(IPC_CHANNELS.SESSION_CREATE, async (_event, config: SessionConfig) => {
+  applicationIpc.handle(IPC_CHANNELS.SESSION_CREATE, async (_event, config: SessionConfig) => {
     try {
       assertObject(config, 'config')
       assertString(config.name, 'config.name', { maxLength: 200 })
@@ -900,13 +997,13 @@ export function registerIPCHandlers(): void {
       delete config.ownerPluginId // 普通 renderer 新建项不能声明插件归属。
       const saved = sessionRepository.saveSession(config)
       syncReachabilityTargets()
-      return saved
+      return sessionRepository.getPublic(saved.id)
     } catch (error) {
       return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.SESSION_UPDATE, async (_event, config: SessionConfig) => {
+  applicationIpc.handle(IPC_CHANNELS.SESSION_UPDATE, async (_event, config: SessionConfig) => {
     try {
       assertObject(config, 'config')
       assertString(config.id, 'config.id', { maxLength: 128 })
@@ -925,13 +1022,13 @@ export function registerIPCHandlers(): void {
       }
       const saved = sessionRepository.updateSession(config)
       syncReachabilityTargets()
-      return saved
+      return sessionRepository.getPublic(saved.id)
     } catch (error) {
       return validationFailure(error) || { success: false, error: extractErrorMessage(error as Error) }
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.SESSION_DELETE, async (_event, _sessionId: string) => {
+  applicationIpc.handle(IPC_CHANNELS.SESSION_DELETE, async (_event, _sessionId: string) => {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       log.debug('Delete session:', sessionId)
@@ -944,35 +1041,35 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.SESSION_LIST, async () => {
+  applicationIpc.handle(IPC_CHANNELS.SESSION_LIST, async () => {
     log.debug('List sessions')
-    return sessionRepository.getAll()
+    return sessionRepository.getAllPublic()
   })
 
-  ipcMain.handle(IPC_CHANNELS.SESSION_GET, async (_event, _sessionId: string) => {
+  applicationIpc.handle(IPC_CHANNELS.SESSION_GET, async (_event, _sessionId: string) => {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       log.debug('Get session:', sessionId)
       // 先从存储获取，如果没有则从 sessionManager 获取（临时会话）
-      const stored = sessionRepository.get(sessionId)
+      const stored = sessionRepository.getPublic(sessionId)
       if (stored) return stored
 
       const session = sessionManager.getSession(sessionId)
-      return session?.config || null
+      return session ? publicSessionConfig(session.config) : null
     } catch (error) {
       return validationFailure(error) || null
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.SESSION_FAVORITES, async () => {
+  applicationIpc.handle(IPC_CHANNELS.SESSION_FAVORITES, async () => {
     log.debug('Get favorite sessions')
-    return sessionRepository.getFavorites()
+    return sessionRepository.getFavorites().map(config => sessionRepository.getPublic(config.id)!)
   })
 
   // 状态栏点击切换编码：只改运行时会话（connector 解码流/写编码 + session.config），
   // 不写回 repository —— 重连沿用切换值（reconnect 复用 Session 与 config），关闭后
   // 重新打开（从保存配置新建）才回到保存值，与 SessionDialog 的持久配置各管各的
-  ipcMain.handle(IPC_CHANNELS.SESSION_SET_ENCODING, async (_event, _sessionId: string, _encoding: string) => {
+  applicationIpc.handle(IPC_CHANNELS.SESSION_SET_ENCODING, async (_event, _sessionId: string, _encoding: string) => {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       const encoding = assertEnum(_encoding, 'encoding', TERMINAL_ENCODINGS)
@@ -983,49 +1080,61 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.SESSION_RECENT, async (_event, limit?: number) => {
+  applicationIpc.handle(IPC_CHANNELS.SESSION_RECENT, async (_event, limit?: number) => {
     try {
       log.debug('Get recent sessions')
       const safeLimit = limit === undefined ? 10 : assertNumber(limit, 'limit', { min: 1, max: 100, integer: true })
-      return sessionRepository.getRecent(safeLimit)
+      return sessionRepository.getRecent(safeLimit).map(config => sessionRepository.getPublic(config.id)!)
     } catch (error) {
       return validationFailure(error) || []
     }
   })
 
   // 会话去重
-  ipcMain.handle(IPC_CHANNELS.SESSION_DEDUPLICATE, async () => {
+  applicationIpc.handle(IPC_CHANNELS.SESSION_DEDUPLICATE, async () => {
     log.info('Deduplicating sessions...')
     const result = sessionRepository.deduplicate()
     syncReachabilityTargets()
-    return result
+    return { removed: result.removed, kept: result.kept.map(config => sessionRepository.getPublic(config.id)!) }
   })
 
   // ========== 终端操作 ==========
 
-  ipcMain.on(IPC_CHANNELS.TERMINAL_WRITE, (_event, _sessionId: string, data: string) => {
+  applicationIpc.on(IPC_CHANNELS.TERMINAL_WRITE, (event, _sessionId: string, data: string, rawControl: unknown) => {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       const safeData = assertString(data, 'data', { maxLength: 1024 * 1024, allowEmpty: true })
-      sessionManager.writeToSession(sessionId, safeData)
+      const principalId = applicationCallers.context(event).principalId
+      const control = validateTerminalInputHandle(rawControl, sessionId, principalId)
+      void sessionManager.writeToSession(sessionId, safeData, control, () => applicationCallers.isPrincipalCurrent(principalId))
+        .catch(() => {
+          log.warn('[IPC] Terminal input control is no longer current')
+          if (applicationCallers.isTrusted(event.sender)) event.sender.send('terminal:control-invalidated', { reason: 'write-refused', sessionId })
+        })
     } catch (error) {
       validationFailure(error) || log.warn('Rejected terminal write:', extractErrorMessage(error as Error))
     }
   })
 
-  ipcMain.on(IPC_CHANNELS.TERMINAL_RESIZE, (_event, _sessionId: string, cols: number, rows: number) => {
+  applicationIpc.on(IPC_CHANNELS.TERMINAL_RESIZE, (event, _sessionId: string, cols: number, rows: number, rawControl: unknown) => {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       const safeCols = assertNumber(cols, 'cols', { min: 1, max: 1000, integer: true })
       const safeRows = assertNumber(rows, 'rows', { min: 1, max: 1000, integer: true })
-      sessionManager.resizeSession(sessionId, safeCols, safeRows)
+      const principalId = applicationCallers.context(event).principalId
+      const control = validateTerminalInputHandle(rawControl, sessionId, principalId)
+      void sessionManager.inputControl.assertInput(control).then(() => {
+        if (applicationCallers.isPrincipalCurrent(principalId) && sessionManager.inputControl.currentSnapshot(sessionId)?.lease?.leaseId === control.leaseId) {
+          sessionManager.resizeSession(sessionId, safeCols, safeRows)
+        }
+      }).catch(() => {})
     } catch (error) {
       validationFailure(error) || log.warn('Rejected terminal resize:', extractErrorMessage(error as Error))
     }
   })
 
   // 渲染层同步当前在终端页签/分屏中打开的会话集合
-  ipcMain.handle(IPC_CHANNELS.TERMINAL_OPEN_SESSIONS_SYNC, async (_event, _ids: unknown) => {
+  applicationIpc.handle(IPC_CHANNELS.TERMINAL_OPEN_SESSIONS_SYNC, async (_event, _ids: unknown) => {
     try {
       const ids = assertStringArray(_ids, 'ids', { maxItems: 10000, maxItemLength: 128 })
       const sender = _event.sender
@@ -1048,11 +1157,11 @@ export function registerIPCHandlers(): void {
   // 使用简单数组存储（暂时）
   let commandHistory: any[] = []
 
-  ipcMain.handle(IPC_CHANNELS.HISTORY_LIST, async () => {
+  applicationIpc.handle(IPC_CHANNELS.HISTORY_LIST, async () => {
     return commandHistory
   })
 
-  ipcMain.handle(IPC_CHANNELS.HISTORY_ADD, async (_event, entry) => {
+  applicationIpc.handle(IPC_CHANNELS.HISTORY_ADD, async (_event, entry) => {
     entry.id = Date.now().toString()
     entry.executedAt = new Date()
     commandHistory.unshift(entry)
@@ -1063,7 +1172,7 @@ export function registerIPCHandlers(): void {
     return entry
   })
 
-  ipcMain.handle(IPC_CHANNELS.HISTORY_FAVORITE, async (_event, historyId: string) => {
+  applicationIpc.handle(IPC_CHANNELS.HISTORY_FAVORITE, async (_event, historyId: string) => {
     const entry = commandHistory.find(h => h.id === historyId)
     if (entry) {
       entry.isFavorite = !entry.isFavorite
@@ -1071,12 +1180,12 @@ export function registerIPCHandlers(): void {
     return entry
   })
 
-  ipcMain.handle(IPC_CHANNELS.HISTORY_DELETE, async (_event, historyId: string) => {
+  applicationIpc.handle(IPC_CHANNELS.HISTORY_DELETE, async (_event, historyId: string) => {
     commandHistory = commandHistory.filter(h => h.id !== historyId)
     return { success: true }
   })
 
-  ipcMain.handle(IPC_CHANNELS.HISTORY_CLEAR, async () => {
+  applicationIpc.handle(IPC_CHANNELS.HISTORY_CLEAR, async () => {
     commandHistory = []
     return { success: true }
   })
@@ -1085,11 +1194,11 @@ export function registerIPCHandlers(): void {
 
   // ========== 快速命令 ==========
 
-  ipcMain.handle(IPC_CHANNELS.COMMAND_LIST, async () => {
+  applicationIpc.handle(IPC_CHANNELS.COMMAND_LIST, async () => {
     return quickCommandsRepository.getAll()
   })
 
-  ipcMain.handle(IPC_CHANNELS.COMMAND_SAVE_ALL, async (_event, commands: any[]) => {
+  applicationIpc.handle(IPC_CHANNELS.COMMAND_SAVE_ALL, async (_event, commands: any[]) => {
     try {
       if (!Array.isArray(commands) || commands.length > 500) {
         throw new Error('commands must be an array with at most 500 items')
@@ -1102,7 +1211,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.COMMAND_ADD, async (_event, command) => {
+  applicationIpc.handle(IPC_CHANNELS.COMMAND_ADD, async (_event, command) => {
     try {
       assertObject(command, 'command')
       return quickCommandsRepository.add(command)
@@ -1111,7 +1220,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.COMMAND_UPDATE, async (_event, command) => {
+  applicationIpc.handle(IPC_CHANNELS.COMMAND_UPDATE, async (_event, command) => {
     try {
       assertObject(command, 'command')
       const success = quickCommandsRepository.update(command)
@@ -1121,7 +1230,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.COMMAND_DELETE, async (_event, commandId: string) => {
+  applicationIpc.handle(IPC_CHANNELS.COMMAND_DELETE, async (_event, commandId: string) => {
     try {
       const safeCommandId = assertString(commandId, 'commandId', { maxLength: 128 })
       const success = quickCommandsRepository.delete(safeCommandId)
@@ -1133,11 +1242,11 @@ export function registerIPCHandlers(): void {
 
   // ========== 快速命令分组 ==========
 
-  ipcMain.handle(IPC_CHANNELS.COMMAND_GROUP_LIST, async () => {
+  applicationIpc.handle(IPC_CHANNELS.COMMAND_GROUP_LIST, async () => {
     return quickCommandsRepository.getAllGroups()
   })
 
-  ipcMain.handle(IPC_CHANNELS.COMMAND_GROUP_ADD, async (_event, group) => {
+  applicationIpc.handle(IPC_CHANNELS.COMMAND_GROUP_ADD, async (_event, group) => {
     try {
       assertObject(group, 'group')
       return quickCommandsRepository.addGroup(group)
@@ -1146,7 +1255,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.COMMAND_GROUP_UPDATE, async (_event, group) => {
+  applicationIpc.handle(IPC_CHANNELS.COMMAND_GROUP_UPDATE, async (_event, group) => {
     try {
       assertObject(group, 'group')
       const success = quickCommandsRepository.updateGroup(group)
@@ -1156,7 +1265,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.COMMAND_GROUP_DELETE, async (_event, groupId: string) => {
+  applicationIpc.handle(IPC_CHANNELS.COMMAND_GROUP_DELETE, async (_event, groupId: string) => {
     try {
       const safeGroupId = assertString(groupId, 'groupId', { maxLength: 128 })
       const success = quickCommandsRepository.deleteGroup(safeGroupId)
@@ -1166,7 +1275,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.COMMAND_GROUP_REORDER, async (_event, groupIds: string[]) => {
+  applicationIpc.handle(IPC_CHANNELS.COMMAND_GROUP_REORDER, async (_event, groupIds: string[]) => {
     try {
       const safeGroupIds = assertStringArray(groupIds, 'groupIds', { maxItems: 200, maxItemLength: 128 })
       quickCommandsRepository.reorderGroups(safeGroupIds)
@@ -1180,17 +1289,17 @@ export function registerIPCHandlers(): void {
 
   const pythonExecutionDisabled = { success: false, error: 'Python execution is disabled for security reasons' }
 
-  ipcMain.handle(IPC_CHANNELS.PYTHON_EXECUTE, async () => {
+  applicationIpc.handle(IPC_CHANNELS.PYTHON_EXECUTE, async () => {
     log.warn('Blocked disabled Python execute IPC request')
     return pythonExecutionDisabled
   })
 
-  ipcMain.handle(IPC_CHANNELS.PYTHON_SCRIPT, async () => {
+  applicationIpc.handle(IPC_CHANNELS.PYTHON_SCRIPT, async () => {
     log.warn('Blocked disabled Python script IPC request')
     return pythonExecutionDisabled
   })
 
-  ipcMain.handle(IPC_CHANNELS.PYTHON_TERMINATE, async () => {
+  applicationIpc.handle(IPC_CHANNELS.PYTHON_TERMINATE, async () => {
     log.warn('Blocked disabled Python terminate IPC request')
     return pythonExecutionDisabled
   })
@@ -1199,55 +1308,57 @@ export function registerIPCHandlers(): void {
 
   const aiDisabled = { success: false, error: 'AI agent is not implemented' }
 
-  ipcMain.handle(IPC_CHANNELS.AI_QUERY, async () => aiDisabled)
-  ipcMain.handle(IPC_CHANNELS.AI_STREAM, async () => aiDisabled)
-  ipcMain.handle(IPC_CHANNELS.AI_CANCEL, async () => aiDisabled)
+  applicationIpc.handle(IPC_CHANNELS.AI_QUERY, async () => aiDisabled)
+  applicationIpc.handle(IPC_CHANNELS.AI_STREAM, async () => aiDisabled)
+  applicationIpc.handle(IPC_CHANNELS.AI_CANCEL, async () => aiDisabled)
 
   // ========== 配置管理 ==========
 
-  ipcMain.handle(IPC_CHANNELS.CONFIG_GET, async (_event, key: string) => {
+  applicationIpc.handle(IPC_CHANNELS.CONFIG_GET, async (_event, key: string) => {
     log.debug('Get config:', key)
     return preferencesRepository.get(key)
   })
 
-  ipcMain.handle(IPC_CHANNELS.CONFIG_SET, async (_event, key: string, value: any) => {
-    log.debug('Set config:', key, value)
+  applicationIpc.handle(IPC_CHANNELS.CONFIG_SET, async (_event, key: string, value: any) => {
+    log.debug('Set config:', key)
     preferencesRepository.set(key, value)
+    if (key === 'security' || key === 'mcpSecurity') await sessionManager.invalidateInput('permissions-changed')
     return { success: true }
   })
 
-  ipcMain.handle(IPC_CHANNELS.CONFIG_RESET, async () => {
+  applicationIpc.handle(IPC_CHANNELS.CONFIG_RESET, async () => {
     log.debug('Reset config')
     preferencesRepository.reset()
+    await sessionManager.invalidateInput('permissions-reset')
     return { success: true }
   })
 
   // MCP 注册命令（只读，无参数）
-  ipcMain.handle(IPC_CHANNELS.MCP_GET_ADD_COMMAND, async () => {
+  applicationIpc.handle(IPC_CHANNELS.MCP_GET_ADD_COMMAND, async () => {
     return getMcpAddCommandForIpc()
   })
 
   // MCP 审计日志查询（带过滤+分页）
-  ipcMain.handle(IPC_CHANNELS.MCP_AUDIT_LIST, async (_event, filter: McpAuditQuery = {}) => {
+  applicationIpc.handle(IPC_CHANNELS.MCP_AUDIT_LIST, async (_event, filter: McpAuditQuery = {}) => {
     return mcpAuditRepository.query(filter)
   })
 
   // MCP 审计日志去重选项（操作名/会话），供面板下拉框
-  ipcMain.handle(IPC_CHANNELS.MCP_AUDIT_FACETS, async () => {
+  applicationIpc.handle(IPC_CHANNELS.MCP_AUDIT_FACETS, async () => {
     return mcpAuditRepository.facets()
   })
 
   // MCP 审计日志清空
-  ipcMain.handle(IPC_CHANNELS.MCP_AUDIT_CLEAR, async () => {
+  applicationIpc.handle(IPC_CHANNELS.MCP_AUDIT_CLEAR, async () => {
     mcpAuditRepository.clear()
     return { success: true }
   })
 
-  ipcMain.handle(IPC_CHANNELS.MCP_AUDIT_RETENTION_GET, async () => {
+  applicationIpc.handle(IPC_CHANNELS.MCP_AUDIT_RETENTION_GET, async () => {
     return mcpAuditRepository.getRetentionLimit()
   })
 
-  ipcMain.handle(IPC_CHANNELS.MCP_AUDIT_RETENTION_SET, async (_event, raw: unknown) => {
+  applicationIpc.handle(IPC_CHANNELS.MCP_AUDIT_RETENTION_SET, async (_event, raw: unknown) => {
     try {
       const limit = validateMcpAuditRetentionLimit(raw)
       mcpAuditRepository.setRetentionLimit(limit)
@@ -1262,11 +1373,13 @@ export function registerIPCHandlers(): void {
 
   // ========== 窗口操作 ==========
 
-  ipcMain.handle(IPC_CHANNELS.WINDOW_SEND_TO_SESSION, async (_event, _sessionId: string, data: string) => {
+  applicationIpc.handle(IPC_CHANNELS.WINDOW_SEND_TO_SESSION, async (event, _sessionId: string, data: string, rawControl: unknown) => {
     const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
     const safeData = assertString(data, 'data', { maxLength: 1024 * 1024, allowEmpty: true })
     log.debug('Send to session:', sessionId)
-    sessionManager.writeToSession(sessionId, safeData)
+    const principalId = applicationCallers.context(event).principalId
+    const control = validateTerminalInputHandle(rawControl, sessionId, principalId)
+    await sessionManager.writeToSession(sessionId, safeData, control, () => applicationCallers.isPrincipalCurrent(principalId))
     return { success: true }
   })
 
@@ -1316,6 +1429,22 @@ export function registerIPCHandlers(): void {
     return decrypted
   }
 
+  // 导出时的秘密键集合：refs 已把某些键归类为秘密，但历史记录的 secretEnvKeys 可能
+  // 已被清空。若只按 secretEnvKeys/isSecretEnvKey 判断，这些键会以明文写进标为
+  // encrypted 的导出文件。这里合并 main 自己持有的上一条记录里的分类（不信任本次
+  // 传入的 envSecretRefs，refs 本身也不随导出外带），供导入端按同一集合解密。
+  const exportedSecretEnvKeys = (config: any, previous: any): string[] | undefined => {
+    const keys = new Set<string>(Array.isArray(config.local?.secretEnvKeys) ? config.local.secretEnvKeys : [])
+    const previousRefs = previous?.local?.envSecretRefs
+    if (previousRefs && typeof previousRefs === 'object') {
+      for (const key of Object.keys(previousRefs)) keys.add(key)
+    }
+    if (Array.isArray(previous?.local?.secretEnvKeys)) {
+      for (const key of previous.local.secretEnvKeys) keys.add(key)
+    }
+    return keys.size > 0 ? Array.from(keys) : undefined
+  }
+
   // 加密会话中的敏感字段
   const encryptSession = (session: any, password: string): any => {
     const encrypted = { ...session, ssh: session.ssh ? { ...session.ssh } : undefined }
@@ -1328,6 +1457,9 @@ export function registerIPCHandlers(): void {
     if (encrypted.ssh?.passphrase) {
       encrypted.ssh.passphrase = encryptField(encrypted.ssh.passphrase, password)
     }
+    if (session.local?.env) encrypted.local = { ...session.local,
+      env: Object.fromEntries(Object.entries(session.local.env as Record<string, string>).map(([key, value]) =>
+        [key, isSecretEnvKey(key) || session.local.secretEnvKeys?.includes(key) ? encryptField(value, password) : value])), envSecretRefs: undefined }
     return encrypted
   }
 
@@ -1343,10 +1475,13 @@ export function registerIPCHandlers(): void {
     if (decrypted.ssh?.passphrase) {
       decrypted.ssh.passphrase = decryptField(decrypted.ssh.passphrase, password)
     }
+    if (session.local?.env) decrypted.local = { ...session.local,
+      env: Object.fromEntries(Object.entries(session.local.env as Record<string, string>).map(([key, value]) =>
+        [key, isSecretEnvKey(key) || session.local.secretEnvKeys?.includes(key) ? decryptField(value, password) : value])), envSecretRefs: undefined }
     return decrypted
   }
 
-  ipcMain.handle(IPC_CHANNELS.DATA_EXPORT, async (_event, data: { sessions: any[], quickCommands: any[], encryptPassword?: string }, encryptPasswordArg?: string) => {
+  applicationIpc.handle(IPC_CHANNELS.DATA_EXPORT, async (_event, data: { sessions: any[], quickCommands: any[], encryptPassword?: string }, encryptPasswordArg?: string) => {
     const encryptPassword = data.encryptPassword || encryptPasswordArg
     log.debug('Export data:', data.sessions?.length, 'sessions,', data.quickCommands?.length, 'commands, encrypted:', !!encryptPassword)
 
@@ -1366,8 +1501,27 @@ export function registerIPCHandlers(): void {
     try {
       // 如果有加密密码，加密敏感字段
       const sessions = encryptPassword
-        ? data.sessions.map(s => encryptSession(s, encryptPassword))
-        : data.sessions
+        ? data.sessions.map(s => {
+          const previous = sessionRepository.get(s.id) ?? sessionManager.getSession(s.id)?.config
+          const hydrated = hydrateSessionSecrets(s, previous)
+          if (hydrated.lockedSshFields.length) throw new Error('Secure storage is unavailable')
+          assertNoSecretPlaceholders(hydrated.config)
+          if (hydrated.config.local) {
+            assertResolvedSecrets(hydrated.config.local)
+            // 分类必须在 hydration 之后、加密之前补齐：hydrate 会删掉 envSecretRefs，
+            // 这里只能从 main 自己持有的 previous 记录取回完整秘密键集合。
+            hydrated.config.local.secretEnvKeys = exportedSecretEnvKeys(hydrated.config, previous)
+          }
+          return encryptSession(hydrated.config, encryptPassword)
+        })
+        : data.sessions.map(s => {
+          const clean = structuredClone(s)
+          if (clean.ssh) for (const key of ['password', 'privateKey', 'passphrase']) delete clean.ssh[key]
+          if (clean.local?.env) clean.local.env = Object.fromEntries(Object.entries(clean.local.env).filter(([key]) => !isSecretEnvKey(key) && !clean.local.secretEnvKeys?.includes(key) && !clean.local.envSecretRefs?.[key]))
+          if (clean.local) delete clean.local.envSecretRefs
+          delete clean.sshSecrets
+          return clean
+        })
 
       // 有意只导出 sessions + quickCommands：AI Harness 的环境变量组装的就是 API key，
       // 默认不进导出文件是更稳妥的一侧。不是遗漏，改之前先想清楚密钥外带的后果。
@@ -1388,7 +1542,20 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.DATA_IMPORT, async (_event, decryptPassword?: string, existingPath?: string) => {
+  applicationIpc.handle('data:import-commit', async (event, raw: unknown) => {
+    const request = validateSessionImportCommit(raw)
+    const configs = sessionImports.take(applicationCallers.context(event).principalId, request.token, request.sessionIds)
+    const saved = configs.map(config => {
+      validateSshPersistence(config, true)
+      assertNoSecretPlaceholders(config)
+      return sessionRepository.saveSession(config)
+    })
+    syncReachabilityTargets()
+    broadcastSessionsChanged()
+    return saved.map(session => sessionRepository.getPublic(session.id))
+  })
+
+  applicationIpc.handle(IPC_CHANNELS.DATA_IMPORT, async (event, decryptPassword?: string, existingPath?: string) => {
     log.debug('Import data, decrypt password provided:', !!decryptPassword)
 
     let filePath = existingPath
@@ -1413,6 +1580,7 @@ export function registerIPCHandlers(): void {
     }
 
     try {
+      if ((await fs.promises.stat(filePath)).size > 10 * 1024 * 1024) throw new Error('Import file is too large')
       const content = await readFile(filePath, 'utf-8')
       const importData = JSON.parse(content)
 
@@ -1437,12 +1605,19 @@ export function registerIPCHandlers(): void {
       }
 
       log.info('Data imported from:', filePath)
+      const staged = sessionImports.stage(applicationCallers.context(event).principalId, sessions)
+      if (!importWindows.has(event.sender)) {
+        importWindows.add(event.sender)
+        const principal = applicationCallers.context(event).principalId
+        event.sender.once('destroyed', () => sessionImports.forget(principal))
+      }
       return {
         success: true,
         path: filePath,
         encrypted: importData.encrypted,
+        importToken: staged.token,
         data: {
-          sessions: sessions,
+          sessions: staged.sessions,
           quickCommands: importData.quickCommands || []
         }
       }
@@ -1567,7 +1742,7 @@ export function registerIPCHandlers(): void {
 
   // ========== 文件操作 ==========
 
-  ipcMain.handle(IPC_CHANNELS.FILE_LIST, async (_event, _sessionId: string, path: string) => {
+  applicationIpc.handle(IPC_CHANNELS.FILE_LIST, async (_event, _sessionId: string, path: string) => {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       const safePath = assertString(path, 'path', { maxLength: 4096 })
@@ -1581,7 +1756,7 @@ export function registerIPCHandlers(): void {
   })
 
   // 获取当前工作目录（home 目录）
-  ipcMain.handle(IPC_CHANNELS.FILE_PWD, async (_event, _sessionId: string) => {
+  applicationIpc.handle(IPC_CHANNELS.FILE_PWD, async (_event, _sessionId: string) => {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       log.debug('File pwd:', sessionId)
@@ -1594,7 +1769,7 @@ export function registerIPCHandlers(): void {
   })
 
   // 读取远端文档（文档预览用）：扩展名白名单 → stat 拒目录/超限 → 读原始字节 → 按会话编码 iconv 解码
-  ipcMain.handle(IPC_CHANNELS.FILE_READ_DOC, async (_event, _sessionId: string, _path: string) => {
+  applicationIpc.handle(IPC_CHANNELS.FILE_READ_DOC, async (_event, _sessionId: string, _path: string) => {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       const docPath = assertString(_path, 'path', { maxLength: 4096 })
@@ -1633,7 +1808,7 @@ export function registerIPCHandlers(): void {
   })
 
   // 读取本地文档（文档预览用）：绝对路径 + 扩展名白名单 + assertSafeLocalPath 只读闸门 + 10MB 上限
-  ipcMain.handle(IPC_CHANNELS.FILE_READ_LOCAL_DOC, async (_event, _path: string) => {
+  applicationIpc.handle(IPC_CHANNELS.FILE_READ_LOCAL_DOC, async (_event, _path: string) => {
     try {
       const docPath = assertString(_path, 'path', { maxLength: 4096 })
       if (!path.isAbsolute(docPath)) {
@@ -1666,7 +1841,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_STAT, async (_event, _sessionId: string, path: string) => {
+  applicationIpc.handle(IPC_CHANNELS.FILE_STAT, async (_event, _sessionId: string, path: string) => {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       const safePath = assertString(path, 'path', { maxLength: 4096 })
@@ -1679,7 +1854,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_UPLOAD, async (_event, _sessionId: string, localPath: string, remotePath: string, _taskId: string, method: unknown = 'sftp') => {
+  applicationIpc.handle(IPC_CHANNELS.FILE_UPLOAD, async (_event, _sessionId: string, localPath: string, remotePath: string, _taskId: string, method: unknown = 'sftp') => {
     try {
       validateBuiltinTransferMethod(method)
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
@@ -1787,7 +1962,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_DOWNLOAD, async (_event, _sessionId: string, remotePath: string, localPath: string, _taskId: string, fileName: string, fileSize: number, method: unknown = 'sftp') => {
+  applicationIpc.handle(IPC_CHANNELS.FILE_DOWNLOAD, async (_event, _sessionId: string, remotePath: string, localPath: string, _taskId: string, fileName: string, fileSize: number, method: unknown = 'sftp') => {
     try {
       validateBuiltinTransferMethod(method)
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
@@ -1862,7 +2037,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_DELETE, async (_event, _sessionId: string, path: string) => {
+  applicationIpc.handle(IPC_CHANNELS.FILE_DELETE, async (_event, _sessionId: string, path: string) => {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       const safePath = assertString(path, 'path', { maxLength: 4096 })
@@ -1875,7 +2050,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_RENAME, async (_event, _sessionId: string, oldPath: string, newPath: string) => {
+  applicationIpc.handle(IPC_CHANNELS.FILE_RENAME, async (_event, _sessionId: string, oldPath: string, newPath: string) => {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       const safeOldPath = assertString(oldPath, 'oldPath', { maxLength: 4096 })
@@ -1889,7 +2064,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_MKDIR, async (_event, _sessionId: string, path: string) => {
+  applicationIpc.handle(IPC_CHANNELS.FILE_MKDIR, async (_event, _sessionId: string, path: string) => {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       const safePath = assertString(path, 'path', { maxLength: 4096 })
@@ -1902,7 +2077,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_CONNECTOR_TYPE, async (_event, _sessionId: string) => {
+  applicationIpc.handle(IPC_CHANNELS.FILE_CONNECTOR_TYPE, async (_event, _sessionId: string) => {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       log.debug('Get file connector type:', sessionId)
@@ -1914,7 +2089,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_CANCEL, async (_event, _taskId: string) => {
+  applicationIpc.handle(IPC_CHANNELS.FILE_CANCEL, async (_event, _taskId: string) => {
     try {
       const taskId = assertString(_taskId, 'taskId', { maxLength: 128 })
       // 终止对应 worker（下载或上传）；worker 被 terminate 后不会再发完成/失败事件，
@@ -1929,7 +2104,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.FILE_MD5, async (_event, _sessionId: string, filePath: string) => {
+  applicationIpc.handle(IPC_CHANNELS.FILE_MD5, async (_event, _sessionId: string, filePath: string) => {
     try {
       const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
       const safeFilePath = assertString(filePath, 'filePath', { maxLength: 4096 })
@@ -1944,7 +2119,7 @@ export function registerIPCHandlers(): void {
 
   // ========== Dialog API ==========
 
-  ipcMain.handle('dialog:open', async (_event, options: unknown) => {
+  applicationIpc.handle('dialog:open', async (_event, options: unknown) => {
     try {
       log.debug('Show open dialog')
       return await dialog.showOpenDialog(sanitizeOpenDialogOptions(options))
@@ -1953,7 +2128,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle('dialog:save', async (_event, options: unknown) => {
+  applicationIpc.handle('dialog:save', async (_event, options: unknown) => {
     try {
       log.debug('Show save dialog')
       return await dialog.showSaveDialog(sanitizeSaveDialogOptions(options))
@@ -1962,7 +2137,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle('dialog:message', async (_event, options: unknown) => {
+  applicationIpc.handle('dialog:message', async (_event, options: unknown) => {
     try {
       log.debug('Show message box')
       return await dialog.showMessageBox(sanitizeMessageBoxOptions(options))
@@ -1972,7 +2147,7 @@ export function registerIPCHandlers(): void {
   })
 
   // 打开路径：目录在资源管理器中打开，文件在资源管理器中定位并选中
-  ipcMain.handle(IPC_CHANNELS.FILE_OPEN_FOLDER, async (_event, filePath: string) => {
+  applicationIpc.handle(IPC_CHANNELS.FILE_OPEN_FOLDER, async (_event, filePath: string) => {
     log.debug('Open path:', filePath)
     try {
       // 安全校验：仅对目录调用 openPath（在资源管理器中打开）；
@@ -1996,7 +2171,7 @@ export function registerIPCHandlers(): void {
 
   // ========== 下载记录 ==========
 
-  ipcMain.handle(IPC_CHANNELS.DOWNLOAD_HISTORY_LIST, async (_event, sessionId?: string, offset?: number) => {
+  applicationIpc.handle(IPC_CHANNELS.DOWNLOAD_HISTORY_LIST, async (_event, sessionId?: string, offset?: number) => {
     log.debug('Get download history:', sessionId)
     try {
       const safe = validateDownloadHistoryPage(sessionId, offset)
@@ -2008,7 +2183,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.DOWNLOAD_HISTORY_CLEAR, async () => {
+  applicationIpc.handle(IPC_CHANNELS.DOWNLOAD_HISTORY_CLEAR, async () => {
     log.debug('Clear download history')
     try {
       await downloadHistory.clearAll()
@@ -2019,7 +2194,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.DOWNLOAD_HISTORY_DELETE, async (_event, recordId: string) => {
+  applicationIpc.handle(IPC_CHANNELS.DOWNLOAD_HISTORY_DELETE, async (_event, recordId: string) => {
     log.debug('Delete download record:', recordId)
     try {
       await downloadHistory.deleteRecord(recordId)
@@ -2030,7 +2205,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.DOWNLOAD_CONFIG_GET, async () => {
+  applicationIpc.handle(IPC_CHANNELS.DOWNLOAD_CONFIG_GET, async () => {
     log.debug('Get download config')
     try {
       const config = downloadHistory.getConfig()
@@ -2041,7 +2216,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.DOWNLOAD_CONFIG_SET, async (_event, updates: any) => {
+  applicationIpc.handle(IPC_CHANNELS.DOWNLOAD_CONFIG_SET, async (_event, updates: any) => {
     log.debug('Set download config:', updates)
     try {
       await downloadHistory.updateConfig(updates)
@@ -2053,7 +2228,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.DOWNLOAD_DIR_GET, async (_event, _sessionId: string) => {
+  applicationIpc.handle(IPC_CHANNELS.DOWNLOAD_DIR_GET, async (_event, _sessionId: string) => {
     const sessionId = assertString(_sessionId, 'sessionId', { maxLength: 128 })
     log.debug('Get download dir for session:', sessionId)
     try {
@@ -2082,19 +2257,19 @@ export function registerIPCHandlers(): void {
 
   // ========== AI Agent ==========
 
-  ipcMain.handle('agent:list', async () => {
-    return listManagedLaunchers(() => agentRepository.getAll())
+  applicationIpc.handle('agent:list', async () => {
+    return listManagedLaunchers(() => agentRepository.getAllPublic())
   })
 
   // 全局变量组库面板视角:组 + 全局启用指针 + 引用方(按名字列出,供引用计数与删除警示)。
   // AgentsPanel 的绑定下拉只读这里的 profiles 部分;harness 面板(工作区对话框的绑定
   // 下拉/模型建议)同样共用本通道 —— 变量组列表 kind 无关,启用指针已收敛为全局单根
-  ipcMain.handle('env-profile:list', async (): Promise<EnvProfileLibraryResult> => {
-    const profiles = envProfileRepository.getAll()
+  applicationIpc.handle('env-profile:list', async (): Promise<EnvProfileLibraryResult> => {
+    const profiles = envProfileRepository.getAllPublic()
     const activeProfileId = envProfileRepository.getActiveProfileId()
     // 引用方:显式绑定该组的通用 Agent(AgentConfig.envProfileId)与 harness 工作区(ws.envProfileId)
     const agentUsage = new Map<string, string[]>()
-    for (const a of agentRepository.getAll()) {
+    for (const a of agentRepository.getAllPublic()) {
       if (!a.envProfileId) continue
       const list = agentUsage.get(a.envProfileId)
       if (list) list.push(a.name)
@@ -2102,7 +2277,7 @@ export function registerIPCHandlers(): void {
     }
     const wsUsage = new Map<string, Array<{ kind: HarnessAgentKind; name: string }>>()
     for (const rt of Object.values(HARNESS_AGENTS)) {
-      for (const ws of rt.repository.getAll()) {
+      for (const ws of rt.repository.getAllPublic()) {
         if (!ws.envProfileId) continue
         const list = wsUsage.get(ws.envProfileId)
         if (list) list.push({ kind: rt.kind, name: ws.name })
@@ -2127,7 +2302,7 @@ export function registerIPCHandlers(): void {
     const baseUrl = typeof raw.baseUrl === 'string' && raw.baseUrl.trim().length > 0
       ? raw.baseUrl.trim()
       : undefined
-    const apiKey = typeof raw.apiKey === 'string' && raw.apiKey.trim().length > 0
+    const apiKey = typeof raw.apiKey === 'string'
       ? raw.apiKey.trim()
       : undefined
     if (raw.baseUrl !== undefined && typeof raw.baseUrl !== 'string') {
@@ -2148,7 +2323,7 @@ export function registerIPCHandlers(): void {
     }
     // 附加变量缺省 = 空记录(纯凭据组合法);键值仍走通用记录校验
     const env = assertStringRecord(raw.env ?? {}, 'profile.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
-    if (baseUrl === undefined && apiKey === undefined && Object.keys(env).length === 0) {
+    if (baseUrl === undefined && !apiKey && Object.keys(env).length === 0) {
       throw new ValidationError('profile must have at least one of baseUrl / apiKey / env')
     }
     return { env, ...(baseUrl !== undefined ? { baseUrl } : {}), ...(apiKey !== undefined ? { apiKey } : {}) }
@@ -2163,7 +2338,7 @@ export function registerIPCHandlers(): void {
 
   // 全局变量组 CRUD(kind 无关) —— 左列 ENV 面板是唯一管理入口;harness 面板不再有 env
   // 页签,工作区对话框的绑定下拉/模型建议走下方 <kind>:env:list(per-kind 读视图)
-  ipcMain.handle('env-profile:add', async (_event, profile) => {
+  applicationIpc.handle('env-profile:add', async (_event, profile) => {
     try {
       const safe = assertObject(profile, 'profile')
       const newProfile: Omit<HarnessEnvProfile, 'id' | 'order'> = {
@@ -2171,17 +2346,18 @@ export function registerIPCHandlers(): void {
         ...assertProfileCredential(safe)
       }
       if (safe.note !== undefined) newProfile.note = assertString(safe.note, 'profile.note', { maxLength: 2000 })
+      if (safe.secretEnvKeys !== undefined) newProfile.secretEnvKeys = assertStringArray(safe.secretEnvKeys, 'profile.secretEnvKeys', { maxItems: 128, maxItemLength: 1024 })
       const addedModels = safe.models !== undefined ? assertProfileModels(safe.models) : undefined
       if (addedModels !== undefined) newProfile.models = addedModels
       const added = envProfileRepository.add(newProfile)
       if (!added) return { success: false, error: 'Failed to save env profile' }
-      return { success: true, profile: added }
+      return { success: true, profile: envProfileRepository.getPublic(added.id) }
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }
   })
 
-  ipcMain.handle('env-profile:update', async (_event, profile) => {
+  applicationIpc.handle('env-profile:update', async (_event, profile) => {
     try {
       const safe = assertObject(profile, 'profile')
       const id = assertString(safe.id, 'profile.id', { maxLength: 128 })
@@ -2197,6 +2373,7 @@ export function registerIPCHandlers(): void {
           : assertNumber(safe.order, 'profile.order', { min: 0, max: 10000, integer: true })
       }
       if (safe.note !== undefined) updated.note = assertString(safe.note, 'profile.note', { maxLength: 2000 })
+      if (safe.secretEnvKeys !== undefined) updated.secretEnvKeys = assertStringArray(safe.secretEnvKeys, 'profile.secretEnvKeys', { maxItems: 128, maxItemLength: 1024 })
       const updatedModels = safe.models !== undefined ? assertProfileModels(safe.models) : undefined
       if (updatedModels !== undefined) updated.models = updatedModels
       const success = envProfileRepository.update(updated)
@@ -2212,7 +2389,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle('env-profile:delete', async (_event, profileId: string) => {
+  applicationIpc.handle('env-profile:delete', async (_event, profileId: string) => {
     try {
       const safeId = assertString(profileId, 'profileId', { maxLength: 128 })
       if (!envProfileRepository.get(safeId)) {
@@ -2240,7 +2417,7 @@ export function registerIPCHandlers(): void {
 
   // 全局启用指针切换（kind 无关）：传 id 启用该组（替换原指针 —— dsh/codex/claude 与
   // dsh Web 共用同一根），传 null 停用（回落系统环境变量）
-  ipcMain.handle('env-profile:setActive', async (_event, profileId: unknown) => {
+  applicationIpc.handle('env-profile:setActive', async (_event, profileId: unknown) => {
     try {
       const safeId = profileId === null ? null : assertString(profileId, 'profileId', { maxLength: 128 })
       const success = envProfileRepository.setActiveProfile(safeId)
@@ -2276,7 +2453,7 @@ export function registerIPCHandlers(): void {
     return { ...(baseUrl !== undefined ? { baseUrl } : {}), ...(apiKey !== undefined ? { apiKey } : {}) }
   }
 
-  ipcMain.handle('agent:add', async (_event, agent) => {
+  applicationIpc.handle('agent:add', async (_event, agent) => {
     try {
       const safeAgent = assertObject(agent, 'agent')
       const newAgent: Omit<AgentConfig, 'id'> = {
@@ -2291,6 +2468,7 @@ export function registerIPCHandlers(): void {
       await ensureManagedWorkspaces()
       Object.assign(newAgent, preparedManagedTarget(presetId))
       if (safeAgent.env !== undefined) newAgent.env = assertStringRecord(safeAgent.env, 'agent.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
+      if (safeAgent.secretEnvKeys !== undefined) newAgent.secretEnvKeys = assertStringArray(safeAgent.secretEnvKeys, 'agent.secretEnvKeys', { maxItems: 128, maxItemLength: 1024 })
       // 绑定变量组：保存即拒悬空 id —— 通用 Agent 是新字段没有历史包袱，从严校验
       if (safeAgent.envProfileId !== undefined) {
         const profileId = assertString(safeAgent.envProfileId, 'agent.envProfileId', { maxLength: 128 })
@@ -2303,13 +2481,13 @@ export function registerIPCHandlers(): void {
       if (envKeyMap !== undefined) newAgent.envKeyMap = envKeyMap
       const added = agentRepository.add(newAgent)
       if (!added) return { success: false, error: 'Failed to save agent' }
-      return { success: true, agent: added }
+      return { success: true, agent: agentRepository.getPublic(added.id) }
     } catch (error) {
       return validationFailure(error) || { success: false, error: (error as Error).message }
     }
   })
 
-  ipcMain.handle('agent:update', async (_event, agent) => {
+  applicationIpc.handle('agent:update', async (_event, agent) => {
     try {
       const safeAgent = assertObject(agent, 'agent')
       const id = assertString(safeAgent.id, 'agent.id', { maxLength: 128 })
@@ -2326,6 +2504,7 @@ export function registerIPCHandlers(): void {
       await ensureManagedWorkspaces()
       Object.assign(updatedAgent, preparedManagedTarget(presetId))
       if (safeAgent.env !== undefined) updatedAgent.env = assertStringRecord(safeAgent.env, 'agent.env', { maxItems: 256, maxKeyLength: 1024, maxValueLength: 32768 })
+      if (safeAgent.secretEnvKeys !== undefined) updatedAgent.secretEnvKeys = assertStringArray(safeAgent.secretEnvKeys, 'agent.secretEnvKeys', { maxItems: 128, maxItemLength: 1024 })
       // 绑定变量组用「键存在」判断：编辑时取消绑定（传 undefined）应生效，否则旧绑定残留；
       // 传 id 则保存即拒悬空（与 add 同一套从严校验）
       if ('envProfileId' in safeAgent) {
@@ -2363,7 +2542,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle('agent:delete', async (_event, agentId: string) => {
+  applicationIpc.handle('agent:delete', async (_event, agentId: string) => {
     try {
       const safeAgentId = assertString(agentId, 'agentId', { maxLength: 128 })
       const success = agentRepository.delete(safeAgentId)
@@ -2378,7 +2557,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle('agent:launch', async (_event, agentId: string) => {
+  applicationIpc.handle('agent:launch', async (_event, agentId: string) => {
     try {
       const safeAgentId = assertString(agentId, 'agentId', { maxLength: 128 })
       await ensureManagedWorkspaces()
@@ -2446,7 +2625,9 @@ export function registerIPCHandlers(): void {
         shell: pwshPath ?? undefined,
         shellArgs: pwshPath ? ['-NoProfile'] : undefined,
         cwd: opts?.cwd,
-        env: opts?.env
+        env: opts?.env,
+        // 托管启动器只向页面暴露环境存在性，包含自定义名称的 provider 凭据。
+        secretEnvKeys: Object.keys(opts?.env ?? {})
       },
       terminal: {
         fontSize: 14,
@@ -2495,7 +2676,7 @@ export function registerIPCHandlers(): void {
     // 保存区恢复必须等原宿主附着/启动结果，不能把排队成功当作恢复成功。
     if (opts?.terminalHostId || opts?.awaitConnection) {
       await sessionManager.connectSession(session.id)
-      return { success: true, id: session.id, status: ConnectionStatus.CONNECTED, config: session.config }
+      return { success: true, id: session.id, status: ConnectionStatus.CONNECTED, config: publicSessionConfig(session.config) }
     }
     // 普通启动延迟连接，给前端时间创建 xterm 实例。
     setTimeout(() => {
@@ -2504,7 +2685,7 @@ export function registerIPCHandlers(): void {
       })
     }, 100)
 
-    return { success: true, id: session.id, status: ConnectionStatus.CONNECTING, config: session.config }
+    return { success: true, id: session.id, status: ConnectionStatus.CONNECTING, config: publicSessionConfig(session.config) }
   }
 
   // Harness 工作区启动解析的串行化器（按 <kind>:<workspaceId>）：并发双启动同一工作区会同时
@@ -2523,7 +2704,7 @@ export function registerIPCHandlers(): void {
 
     // 检测依赖是否已安装。先即时读取系统 PATH（用户改环境变量后无需重启 app），
     // 再据此做纯文件系统扫描；readSystemPath 失败时回落 process.env.PATH。
-    ipcMain.handle(`${kind}:detect`, async () => {
+    applicationIpc.handle(`${kind}:detect`, async () => {
       return detectDependencies(runtime.dependencies, (await readSystemPath(true)) ?? undefined)
     })
 
@@ -2534,18 +2715,18 @@ export function registerIPCHandlers(): void {
     // 本循环只挂 env:defaults —— 变量组「补全默认」的取值，CODEX_HOME / CLAUDE_CONFIG_DIR
     // 这类配置目录默认值须按系统环境/默认路径在主进程解析（渲染层沙箱读不到
     // process.env）；无入参，无需校验。
-    ipcMain.handle(`${kind}:env:defaults`, async () => {
+    applicationIpc.handle(`${kind}:env:defaults`, async () => {
       return runtime.envDefaults()
     })
 
     // ========== <kind> 工作区 ==========
     // 每个工作区 = 名称 + 工作目录，单击在对应目录启动对应 CLI（参照 agent:launch 的 cwd 语义）。
 
-    ipcMain.handle(`${kind}:workspace:list`, async () => {
-      return kind === 'dsh' ? runtime.repository.getAll() : listManagedLaunchers(() => runtime.repository.getAll())
+    applicationIpc.handle(`${kind}:workspace:list`, async () => {
+      return kind === 'dsh' ? runtime.repository.getAllPublic() : listManagedLaunchers(() => runtime.repository.getAllPublic())
     })
 
-    ipcMain.handle(`${kind}:workspace:add`, async (_event, workspace) => {
+    applicationIpc.handle(`${kind}:workspace:add`, async (_event, workspace) => {
       try {
         const safe = assertObject(workspace, 'workspace')
         // dsh 是独立目录模式（cwd 必填，不参与设置项）；codex/claude 允许不引用工作目录：
@@ -2595,13 +2776,13 @@ export function registerIPCHandlers(): void {
         if (managed) Object.assign(newWorkspace, managed)
         const added = runtime.repository.add(newWorkspace)
         if (!added) return { success: false, error: 'Failed to save workspace' }
-        return { success: true, workspace: added }
+        return { success: true, workspace: runtime.repository.getPublic(added.id) }
       } catch (error) {
         return validationFailure(error) || { success: false, error: (error as Error).message }
       }
     })
 
-    ipcMain.handle(`${kind}:workspace:update`, async (_event, workspace) => {
+    applicationIpc.handle(`${kind}:workspace:update`, async (_event, workspace) => {
       try {
         const safe = assertObject(workspace, 'workspace')
         // 同 add：缺省/空串的 workspacePresetId 表示「不引用工作目录」，并清掉旧 cwd/隔离参数；
@@ -2688,7 +2869,7 @@ export function registerIPCHandlers(): void {
       }
     })
 
-    ipcMain.handle(`${kind}:workspace:delete`, async (_event, workspaceId: string) => {
+    applicationIpc.handle(`${kind}:workspace:delete`, async (_event, workspaceId: string) => {
       try {
         const safeId = assertWorkspaceId(workspaceId)
         const success = runtime.repository.delete(safeId)
@@ -2698,7 +2879,7 @@ export function registerIPCHandlers(): void {
       }
     })
 
-    ipcMain.handle(`${kind}:workspace:launch`, async (_event, workspaceId: string) => {
+    applicationIpc.handle(`${kind}:workspace:launch`, async (_event, workspaceId: string) => {
       try {
         const safeId = assertWorkspaceId(workspaceId)
         if (kind !== 'dsh') await ensureManagedWorkspaces()
@@ -2773,7 +2954,7 @@ export function registerIPCHandlers(): void {
   }
 
   // ========== Harness worktree 检测（kind 无关） ==========
-  ipcMain.handle('project-scene:request', async (event, raw: unknown) => {
+  applicationIpc.handle('project-scene:request', async (event, raw: unknown) => {
     try {
       if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Project scenes require the main window')
       return await requestProjectScene(validateProjectSceneRequest(raw), createSceneLauncher(spawnLocalCommandSession))
@@ -2847,7 +3028,7 @@ export function registerIPCHandlers(): void {
       }
     }
   })
-  ipcMain.handle('task-shelf:request', async (event, raw: unknown) => {
+  applicationIpc.handle('task-shelf:request', async (event, raw: unknown) => {
     try {
       if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Task shelf requires the main window')
       const request = validateTaskShelfRequest(raw)
@@ -2869,7 +3050,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle('shelf-browser:request', async (event, raw: unknown) => {
+  applicationIpc.handle('shelf-browser:request', async (event, raw: unknown) => {
     try {
       if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Shelf browser requires the main window')
       const request = validateShelfBrowserRequest(raw)
@@ -2899,7 +3080,7 @@ export function registerIPCHandlers(): void {
     } catch (error) { return { success: false, error: (error as Error).message } }
   })
 
-  ipcMain.handle('workbench-activity:request', async (event, raw: unknown) => {
+  applicationIpc.handle('workbench-activity:request', async (event, raw: unknown) => {
     if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Workbench activity requires the main window')
     const request = validateWorkbenchActivityRequest(raw)
     const [snapshot, web] = await Promise.all([
@@ -2909,11 +3090,11 @@ export function registerIPCHandlers(): void {
     return { ...snapshot, web, tui: tuiActivity.snapshot() }
   })
   tuiActivity.onChange(snapshot => sendToAllWindows('workbench-activity:tui-changed', snapshot))
-  ipcMain.handle('workbench-activity:navigate', async (event, raw: unknown) => {
+  applicationIpc.handle('workbench-activity:navigate', async (event, raw: unknown) => {
     if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Workbench navigation requires the main window')
     return navigateWorkbenchActivity(validateActivityNavigationRequest(raw))
   })
-  ipcMain.handle('code-workspace:request', async (event, raw: unknown) => {
+  applicationIpc.handle('code-workspace:request', async (event, raw: unknown) => {
     try {
       if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) {
         throw new ValidationError('Workspace presets require the main window')
@@ -2936,7 +3117,7 @@ export function registerIPCHandlers(): void {
   // cwd 先过 resolveWorkspaceCwd（展开 ~ + 须为存在的绝对目录），与启动路径同口径 ——
   // 否则 ~/xxx 这类字面路径探测到的结果不等于实际启动目录，下拉会给出错误选项。
   // 非 git 目录返回 error，渲染层静默置空（硬校验在启动时的 ensureWorktree）。
-  ipcMain.handle('harness:worktree:list', async (_event, cwd: string): Promise<WorktreeListResult> => {
+  applicationIpc.handle('harness:worktree:list', async (_event, cwd: string): Promise<WorktreeListResult> => {
     try {
       const safeCwd = assertString(cwd, 'cwd', { maxLength: 4096 })
       const resolved = resolveWorkspaceCwd(safeCwd)
@@ -2950,7 +3131,7 @@ export function registerIPCHandlers(): void {
   })
 
   // ========== DeepSeek Harness Web UI (dsh 专属) ==========
-  ipcMain.handle(DSH_MARKET_CHANNEL, async (event, action: unknown) => {
+  applicationIpc.handle(DSH_MARKET_CHANNEL, async (event, action: unknown) => {
     try {
       if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) {
         throw new ValidationError('DSH Market requires the main window')
@@ -2977,7 +3158,7 @@ export function registerIPCHandlers(): void {
   // 传 cwd 则直接用该目录（两者互斥，解析服务里同样守卫一次）。
   // TODO: workspaceId/cwd 是前向预留 API —— 渲染层唯一入口 handleNameplate（HarnessPanel.tsx）只传 {}，
   // 两分支尚无调用方可达；若近期不接「按工作区开 Web」，别把这两条判成死分支删掉。
-  ipcMain.handle('dsh:web:open', async (_event, target: unknown) => {
+  applicationIpc.handle('dsh:web:open', async (_event, target: unknown) => {
     try {
       const safe = assertObject(target ?? {}, 'target')
       const workspaceId = safe.workspaceId === undefined ? undefined : assertWorkspaceId(safe.workspaceId)
@@ -3045,7 +3226,7 @@ export function registerIPCHandlers(): void {
     return target
   }
 
-  ipcMain.handle('dsh:usage:get', async () => {
+  applicationIpc.handle('dsh:usage:get', async () => {
     try {
       const target = await resolveUsageTarget()
       const snapshot = await buildDshUsageSnapshot({
@@ -3060,7 +3241,7 @@ export function registerIPCHandlers(): void {
   })
 
   // 打开价目表：不存在就先落一份模板（路由取自日志里真实出现过的模型，单价留 null），再交系统打开。
-  ipcMain.handle('dsh:usage:open-pricing', async () => {
+  applicationIpc.handle('dsh:usage:open-pricing', async () => {
     try {
       const target = await resolveUsageTarget()
       let routes: string[] = []
@@ -3085,7 +3266,7 @@ export function registerIPCHandlers(): void {
 
   // 共享工作台详情（S4）：经**现有 dshWeb 单例 overlay** 打开**同一后台**官方 Web。
   // 只走 acquire 复用路径（绝不 open() 重启），并把 Pet 的会话导航请求冻结成一次 viewer 请求。
-  ipcMain.handle('dsh:web:detail', async (_event, target: unknown) => {
+  applicationIpc.handle('dsh:web:detail', async (_event, target: unknown) => {
     try {
       const safe = assertObject(target ?? {}, 'target')
       const sessionId = safe.sessionId === undefined ? undefined : assertString(safe.sessionId, 'target.sessionId', { maxLength: 128 })
@@ -3124,7 +3305,7 @@ export function registerIPCHandlers(): void {
   })
 
   // 共享工作台导航（用户在 LyShell 侧显式「回到 Pet 任务会话」；不自动、不轮询拽回）。
-  ipcMain.handle('dsh:web:viewer-nav', async (_event, target: unknown) => {
+  applicationIpc.handle('dsh:web:viewer-nav', async (_event, target: unknown) => {
     try {
       const safe = assertObject(target ?? {}, 'target')
       const sessionId = assertString(safe.sessionId, 'target.sessionId', { maxLength: 128 })
@@ -3147,7 +3328,7 @@ export function registerIPCHandlers(): void {
   //     与租约，绝不杀共享后台（Pet 的任务还在跑；退出仍走 closeForQuit 的原 Job 树回收）。
   //   - 托管期间（Pet 托管控制持有）：同样不杀，明确告诉渲染层这次只解绑了视图。
   // 等树杀落定再回：渲染层拿这个时机更新页签状态，回早了用户切回来还撞着写锁。
-  ipcMain.handle('dsh:web:close', async (_event, target: unknown) => {
+  applicationIpc.handle('dsh:web:close', async (_event, target: unknown) => {
     const safe = assertObject(target ?? {}, 'target')
     const detach = safe.detach === undefined ? false : assertBoolean(safe.detach, 'target.detach')
     if (detach) {
@@ -3164,7 +3345,7 @@ export function registerIPCHandlers(): void {
 
   // Pet 托管控制只读快照（渲染层用；**不含凭据**）：共享工作台页签据此标注「由 PetLink 控制，仅可查看」
   // 并提供「回到 Pet 任务会话」入口。桥不可达时如实报错，不用旧快照假装一切正常。
-  ipcMain.handle('exclusive:snapshot', async () => {
+  applicationIpc.handle('exclusive:snapshot', async () => {
     try {
       const service = exclusiveRuntime.getExclusiveControl()
       if (!service) return { success: true, snapshot: null }
@@ -3221,7 +3402,7 @@ export function registerIPCHandlers(): void {
     }
     return isPrivateIpLiteral(h)
   }
-  ipcMain.handle(
+  applicationIpc.handle(
     'webbar:fetch-favicon',
     async (_event, req: { url?: unknown }): Promise<{ success: true; dataUri: string } | { success: false; error: string }> => {
       try {
@@ -3346,7 +3527,7 @@ export function registerIPCHandlers(): void {
     return { ...entry, name, description, runtime, lifecycle, main, activationEvents, capabilities, views }
   }
 
-  ipcMain.handle('plugin:list', async () => {
+  applicationIpc.handle('plugin:list', async () => {
     try {
       return pluginRepository.getAll().map(enrichEntry)
     } catch (error) {
@@ -3356,7 +3537,7 @@ export function registerIPCHandlers(): void {
   })
 
   // 选本地文件夹 -> 读 manifest -> 校验。供 renderer 弹权限确认 UI 前预览。
-  ipcMain.handle('plugin:pick-folder', async (): Promise<PluginPickResult> => {
+  applicationIpc.handle('plugin:pick-folder', async (): Promise<PluginPickResult> => {
     try {
       const res = await dialog.showOpenDialog({
         title: '选择插件文件夹(dev)',
@@ -3383,7 +3564,7 @@ export function registerIPCHandlers(): void {
   })
 
   // 安装 dev 插件:注册绝对路径(dev:true,不复制)。grantedCapabilities 强制 ∩ manifest.capabilities 防越权。
-  ipcMain.handle('plugin:install-dev', async (_event, req: PluginInstallDevRequest) => {
+  applicationIpc.handle('plugin:install-dev', async (_event, req: PluginInstallDevRequest) => {
     try {
       const folder = assertString(req?.path, 'path', { maxLength: 4096 })
       if (!path.isAbsolute(folder)) {
@@ -3438,7 +3619,7 @@ export function registerIPCHandlers(): void {
   })
 
   // 选 .lyshell-plugin/.zip 文件 -> 读**根** manifest(不解压)。供 renderer 弹权限确认卡前预览。
-  ipcMain.handle('plugin:pick-file', async (): Promise<PluginPickFileResult> => {
+  applicationIpc.handle('plugin:pick-file', async (): Promise<PluginPickFileResult> => {
     try {
       const res = await dialog.showOpenDialog({
         title: '选择插件压缩包(.lyshell-plugin / .zip)',
@@ -3459,7 +3640,7 @@ export function registerIPCHandlers(): void {
 
   // 从 URL 下载 zip 到 {pluginsDir}/.downloads/<uuid>.zip -> 读**根** manifest 预览(不解压到插件目录)。
   // 临时文件由 main 持有:install-zip(url)消费后删;未消费的由 app 退出时 cleanupDownloadsDir 回收。
-  ipcMain.handle(
+  applicationIpc.handle(
     'plugin:fetch-url',
     async (_event, req: PluginFetchUrlRequest): Promise<PluginFetchUrlResult> => {
       try {
@@ -3496,7 +3677,7 @@ export function registerIPCHandlers(): void {
   // 安装 zip 插件:解压到 {pluginsDir}/{id}/ -> 落盘复验 manifest -> upsert(dev:false, source)。
   // grantedCapabilities 强制 ∩ manifest.capabilities 防越权。zip-slip 经 extractZipSafely 防护;
   // 覆盖安装清旧 dest + 卸载 rmSync 均经 assertUnderBase 兜底。详见 §8.3 / §8.4。
-  ipcMain.handle('plugin:install-zip', async (_event, req: PluginInstallZipRequest) => {
+  applicationIpc.handle('plugin:install-zip', async (_event, req: PluginInstallZipRequest) => {
     try {
       const zipPath = assertString(req?.path, 'path', { maxLength: 4096 })
       if (!path.isAbsolute(zipPath)) return { success: false, error: 'path 必须为绝对路径' }
@@ -3636,7 +3817,7 @@ export function registerIPCHandlers(): void {
 
   // 取消 URL 安装:即时删除 .downloads/ 下的临时下载文件(评审 #1,防 fetch-then-cancel 累积到退出)。
   // safeDeleteDownload 经 assertUnderBase 断言仅删 .downloads/ 下文件,防 renderer 传任意路径越界。
-  ipcMain.handle('plugin:cancel-download', async (_event, filePath: string) => {
+  applicationIpc.handle('plugin:cancel-download', async (_event, filePath: string) => {
     try {
       const p = assertString(filePath, 'path', { maxLength: 4096 })
       safeDeleteDownload(p, getDownloadsDir(getPluginsDir()))
@@ -3646,7 +3827,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle('plugin:enable', async (_event, pluginId: string) => {
+  applicationIpc.handle('plugin:enable', async (_event, pluginId: string) => {
     try {
       const id = assertString(pluginId, 'pluginId', { maxLength: 128 })
       const ok = pluginRepository.setEnabled(id, true)
@@ -3667,13 +3848,14 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle('plugin:disable', async (_event, pluginId: string) => {
+  applicationIpc.handle('plugin:disable', async (_event, pluginId: string) => {
     try {
       const id = assertString(pluginId, 'pluginId', { maxLength: 128 })
       const entry = pluginRepository.get(id)
       if (!entry) return { success: false, error: '插件不存在' }
+      const entryRevision = pluginRepository.getRevision()
       await pluginHostManager.deactivatePlugin(id)
-      if (pluginRepository.get(id) !== entry) return { success: false, error: '插件在停机期间已变更，请重试' }
+      if (pluginRepository.getRevision() !== entryRevision) return { success: false, error: '插件在停机期间已变更，请重试' }
       const webOrigins = uniquePluginWebOrigins(getPluginViewRegistry().listViews(), id)
       const ok = pluginRepository.setEnabled(id, false)
       if (ok) {
@@ -3698,7 +3880,7 @@ export function registerIPCHandlers(): void {
     }
   })
 
-  ipcMain.handle('plugin:run-oneshot', async (_event, pluginId: string) => {
+  applicationIpc.handle('plugin:run-oneshot', async (_event, pluginId: string) => {
     try {
       const id = assertString(pluginId, 'pluginId', { maxLength: 128 })
       const result = pluginHostManager.runOneshot(id)
@@ -3718,15 +3900,17 @@ export function registerIPCHandlers(): void {
   })
 
   // 卸载先禁用并回收资源；只有清理成功才删记录，失败时保留禁用项供再次卸载。
-  ipcMain.handle('plugin:uninstall', async (_event, pluginId: string) => {
+  applicationIpc.handle('plugin:uninstall', async (_event, pluginId: string) => {
     try {
       const id = assertString(pluginId, 'pluginId', { maxLength: 128 })
       const entry = pluginRepository.get(id)
       if (!entry) return { success: false, error: '插件不存在' }
+      const entryRevision = pluginRepository.getRevision()
       await pluginHostManager.deactivatePlugin(id)
-      if (pluginRepository.get(id) !== entry) return { success: false, error: '插件在停机期间已变更，请重试' }
+      if (pluginRepository.getRevision() !== entryRevision) return { success: false, error: '插件在停机期间已变更，请重试' }
       const webOrigins = uniquePluginWebOrigins(getPluginViewRegistry().listViews(), id)
-      pluginRepository.setEnabled(id, false)
+      if (!pluginRepository.setEnabled(id, false)) return { success: false, error: '无法保存插件禁用状态' }
+      const disabledRevision = pluginRepository.getRevision()
       // 三步撤销第 2 步扩展：host + UI token 一起撤（视图凭据不得比注册表活得久）。
       // guest 面板/弹窗 main 侧强制关闭（与 disable 同语义）。
       revokeAllPluginTokens(id)
@@ -3734,10 +3918,10 @@ export function registerIPCHandlers(): void {
       const cleanup = releasePluginResources(id, webOrigins)
       const resourceGeneration = pluginResources.generation(id)
       await Promise.all([cleanup, pluginHostManager.restart()])
-      if (pluginRepository.get(id) !== entry || entry.enabled || !pluginResources.isCurrent(id, resourceGeneration)) {
+      if (pluginRepository.getRevision() !== disabledRevision || pluginRepository.get(id)?.enabled !== false || !pluginResources.isCurrent(id, resourceGeneration)) {
         return { success: false, error: '插件在卸载期间已变更，请重试' }
       }
-      pluginRepository.remove(id)
+      if (!pluginRepository.remove(id)) return { success: false, error: '无法保存插件卸载状态，请重试' }
       syncPluginViews()
       // dev 插件 path 指向开发者源码树,卸载只删记录,绝不删源文件夹;仅 !dev(zip 安装)才删。
       // 删前 assertUnderBase 兜底:pluginDir 必须严格在 pluginsDir 下,防 path 越界误删(zip-slip 纵深防御)。
@@ -3768,7 +3952,7 @@ export function registerIPCHandlers(): void {
   // 视图图标（plugin:view-icon）：只接收 pluginId/viewId，main 在已注册视图定义中
   // 查出 icon 相对路径并经 realpath 包围 + SVG 净化后以 data URL 返回（view-icons.ts）。
   // 不接收 renderer 传来的任意文件路径；任何失败降级 data:null，轨道回退 IconPlugins。
-  ipcMain.handle('plugin:view-icon', (_event, raw: unknown): { success: boolean; data: string | null; error?: string } => {
+  applicationIpc.handle('plugin:view-icon', (_event, raw: unknown): { success: boolean; data: string | null; error?: string } => {
     try {
       const params = assertObject(raw, 'params') as { pluginId?: unknown; viewId?: unknown }
       const pluginId = assertString(params.pluginId, 'pluginId', { maxLength: 64 })

@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { OutputBuffer } from './output-buffer'
 import { stripAnsiToText } from './ansi-stripper'
+import {
+  TERMINAL_OUTPUT_HARD_MAX_RESPONSE_CHARS,
+  TERMINAL_OUTPUT_MAX_RESPONSE_CHARS,
+  type TerminalOutputReadRequest
+} from '@shared/terminal-output'
 
 /**
  * stripAnsiToText 调用计数：用来证明“未变更时重复读取命中缓存”。
@@ -567,5 +572,210 @@ describe('OutputBuffer — 与旧实现随机对拍', () => {
         expect(actual.size()).toBe(reference.size())
       }
     }
+  })
+})
+
+function readOk(buf: OutputBuffer, request: TerminalOutputReadRequest) {
+  const result = buf.readIncremental(request)
+  if (!result.ok) throw new Error(`unexpected read failure: ${result.code} ${result.message}`)
+  return result
+}
+
+function readFail(buf: OutputBuffer, request: TerminalOutputReadRequest) {
+  const result = buf.readIncremental(request)
+  if (result.ok) throw new Error('expected incremental read to fail')
+  return result
+}
+
+describe('OutputBuffer — 增量读取：代际、历史缺口与响应截断', () => {
+  it('首次读取返回代际/游标，之后只返回新增内容', () => {
+    const buf = new OutputBuffer(1024)
+    buf.append('first ')
+    const epoch = buf.getOutputEpoch()
+    const r1 = readOk(buf, { cursor: 0 })
+    expect(r1).toMatchObject({
+      text: 'first ',
+      outputEpoch: epoch,
+      cursor: 0,
+      earliestCursor: 0,
+      latestCursor: 6,
+      nextCursor: 6,
+      responseTruncated: false,
+      maxChars: TERMINAL_OUTPUT_MAX_RESPONSE_CHARS
+    })
+    expect(r1.historyGap).toBeUndefined()
+
+    buf.append('second')
+    const r2 = readOk(buf, { cursor: r1.nextCursor, outputEpoch: r1.outputEpoch })
+    expect(r2.text).toBe('second')
+    expect(r2.nextCursor).toBe(12)
+    expect(r2.latestCursor).toBe(12)
+
+    const empty = readOk(buf, { cursor: 12 })
+    expect(empty.text).toBe('')
+    expect(empty.responseTruncated).toBe(false)
+    expect(empty.nextCursor).toBe(12)
+  })
+
+  it('clear 更换代际：旧代际可识别，旧游标整体作废', () => {
+    const buf = new OutputBuffer(1024)
+    buf.append('old')
+    const first = readOk(buf, { cursor: 0 })
+    buf.clear()
+    expect(buf.getOutputEpoch()).not.toBe(first.outputEpoch)
+    const stale = readFail(buf, { cursor: 0, outputEpoch: first.outputEpoch })
+    expect(stale.code).toBe('epoch-mismatch')
+    expect(stale.message).toContain('stale')
+    expect(readFail(buf, { cursor: 0, outputEpoch: 0 }).code).toBe('epoch-mismatch')
+
+    buf.append('new')
+    const fresh = readOk(buf, { cursor: 0, outputEpoch: buf.getOutputEpoch() })
+    expect(fresh.text).toBe('new')
+    expect(fresh.outputEpoch).toBe(buf.getOutputEpoch())
+  })
+
+  it('容量回收造成永久缺口：historyGap 与 responseTruncated 分开报告', () => {
+    const buf = new OutputBuffer(8)
+    buf.append('abcdefghij') // 只保留 cdefghij，earliestCursor = 2
+    const result = readOk(buf, { cursor: 0, outputEpoch: buf.getOutputEpoch() })
+    expect(result.earliestCursor).toBe(2)
+    expect(result.historyGap).toEqual({ fromCursor: 0, toCursor: 2, lostChars: 2 })
+    expect(result.text).toBe('cdefghij')
+    expect(result.nextCursor).toBe(10)
+    // 历史缺口不是“响应被限制”，不能混为一谈。
+    expect(result.responseTruncated).toBe(false)
+
+    const trimmed = readOk(buf, { cursor: 2 })
+    expect(trimmed.historyGap).toBeUndefined()
+    expect(trimmed.text).toBe('cdefghij')
+  })
+
+  it('maxChars 只限制本次响应：循环读取可无损拼回原文（中文/emoji 跨包）', () => {
+    const buf = new OutputBuffer(64 * 1024)
+    const source = '中文😀ab'.repeat(300)
+    buf.append(source)
+    let cursor = 0
+    let assembled = ''
+    let truncatedReads = 0
+    for (let guard = 0; guard < 5000; guard += 1) {
+      const result = readOk(buf, { cursor, maxChars: 7, outputEpoch: buf.getOutputEpoch() })
+      expect(result.historyGap).toBeUndefined()
+      assembled += result.text
+      if (result.responseTruncated) truncatedReads += 1
+      expect(result.nextCursor).toBeGreaterThan(cursor)
+      cursor = result.nextCursor
+      if (cursor === buf.getLatestCursor()) break
+    }
+    expect(truncatedReads).toBeGreaterThan(0)
+    expect(assembled).toBe(source)
+    expect(cursor).toBe(source.length)
+  })
+
+  it('截断点不切裂代理对：maxChars=1 也能取到完整的 emoji 并推进游标', () => {
+    const buf = new OutputBuffer(1024)
+    buf.append('😀a')
+    const first = readOk(buf, { cursor: 0, maxChars: 1 })
+    expect(first.text).toBe('😀') // 为保证不切裂代理对，最多超出 maxChars 1 个码元
+    expect(first.responseTruncated).toBe(true)
+    expect(first.nextCursor).toBe(2)
+    expect(readOk(buf, { cursor: 2, maxChars: 1 })).toMatchObject({ text: 'a', nextCursor: 3 })
+  })
+
+  it('截断点不切开未完成的 ANSI 序列，续读时序列保持完整', () => {
+    const buf = new OutputBuffer(1024)
+    buf.append('ab\x1b[31mcd')
+    const first = readOk(buf, { cursor: 0, maxChars: 4, stripAnsi: true })
+    // 若直接切 4 个码元会得到 'ab\x1b[3'，清洗后残留 'ab3'。
+    expect(first.text).toBe('ab')
+    expect(first.nextCursor).toBe(2)
+    expect(first.responseTruncated).toBe(true)
+
+    const rest = readOk(buf, { cursor: first.nextCursor, stripAnsi: true })
+    expect(rest.text).toBe('cd')
+    expect(rest.nextCursor).toBe(buf.getLatestCursor())
+    // 原始读取同样从序列起点开始，不丢控制序列。
+    expect(readOk(buf, { cursor: 2 }).text).toBe('\x1b[31mcd')
+  })
+
+  it('严格校验游标/上限/请求形态，超硬上限按硬上限收敛', () => {
+    const buf = new OutputBuffer(1024)
+    buf.append('abc')
+    expect(readFail(buf, { cursor: -1 }).code).toBe('cursor-invalid')
+    expect(readFail(buf, { cursor: 1.5 }).code).toBe('cursor-invalid')
+    expect(readFail(buf, { cursor: 4 }).code).toBe('cursor-ahead')
+    expect(readFail(buf, { cursor: 0, maxChars: 0 }).code).toBe('request-invalid')
+    expect(readFail(buf, { cursor: 0, maxChars: 2.5 }).code).toBe('request-invalid')
+    expect(readFail(buf, { cursor: 0, outputEpoch: 1.5 }).code).toBe('request-invalid')
+    expect(readFail(buf, null as unknown as TerminalOutputReadRequest).code).toBe('request-invalid')
+
+    const capped = readOk(buf, { cursor: 0, maxChars: 64 * 1024 * 1024 })
+    expect(capped.maxChars).toBe(TERMINAL_OUTPUT_HARD_MAX_RESPONSE_CHARS)
+    expect(capped.text).toBe('abc')
+  })
+
+  it('容量调整与 dropHistory 保持 getOutputSince/getRecentLines 原语义', () => {
+    const buf = new OutputBuffer(64)
+    buf.append('abcd')
+    buf.append('efgh')
+    buf.append('ijkl')
+    expect(buf.size()).toBe(12)
+    expect(buf.getOutputSince(0).text).toBe('abcdefghijkl')
+
+    const epoch = buf.getOutputEpoch()
+    buf.setCapacity(4)
+    expect(buf.getCapacity()).toBe(4)
+    expect(buf.size()).toBe(4)
+    expect(buf.getEarliestCursor()).toBe(8)
+    expect(buf.getWriteCursor()).toBe(12)
+    expect(buf.getOutputEpoch()).toBe(epoch) // 回收历史不更换代际
+    expect(buf.getOutputSince(0)).toEqual({ text: 'ijkl', cursor: 12, truncated: true })
+    expect(buf.getOutputSince(8).text).toBe('ijkl')
+
+    expect(buf.dropHistory()).toBe(true)
+    expect(buf.size()).toBe(0)
+    expect(buf.getEarliestCursor()).toBe(12)
+    expect(buf.getRecentLines(5, true)).toEqual({ text: '', lines: 0 })
+    expect(buf.getOutputSince(0)).toEqual({ text: '', cursor: 12, truncated: true })
+    expect(buf.dropHistory()).toBe(false)
+
+    const gap = readOk(buf, { cursor: 8 })
+    expect(gap.historyGap).toEqual({ fromCursor: 8, toCursor: 12, lostChars: 4 })
+    expect(gap.text).toBe('')
+    expect(gap.nextCursor).toBe(12)
+  })
+
+  it('起点落在块内/块边界时增量读取与历史一致', () => {
+    const buf = new OutputBuffer(8)
+    buf.append('abcdef')
+    buf.append('ghij') // 超限回收 'ab'，队首块内偏移 2
+    expect(buf.getEarliestCursor()).toBe(2)
+    expect(readOk(buf, { cursor: 2 }).text).toBe('cdefghij')
+    expect(readOk(buf, { cursor: 5 }).text).toBe('fghij')
+    expect(readOk(buf, { cursor: 8 }).text).toBe('ij')
+    expect(readOk(buf, { cursor: 10 }).text).toBe('')
+
+    buf.append('kl') // 再次回收 'cd'，队首块内偏移 4 且内容跨三块
+    expect(buf.getEarliestCursor()).toBe(4)
+    expect(readOk(buf, { cursor: 4 }).text).toBe('efghijkl')
+    expect(readOk(buf, { cursor: 8 }).text).toBe('ijkl')
+    expect(readOk(buf, { cursor: 9 }).text).toBe('jkl')
+    expect(readOk(buf, { cursor: 8, maxChars: 1 })).toMatchObject({ text: 'i', nextCursor: 9 })
+  })
+
+  it('长度观察者同步收到 append/clear/容量调整，异常观察者不影响写入', () => {
+    const buf = new OutputBuffer(8)
+    const sizes: number[] = []
+    buf.setSizeObserver((_buffer, size) => sizes.push(size))
+    buf.append('abcd')
+    buf.append('efghij') // 超出 8，回收后仍 8
+    buf.setCapacity(2)
+    buf.clear()
+    expect(sizes).toEqual([4, 8, 2, 0])
+
+    buf.setSizeObserver(() => { throw new Error('observer boom') })
+    expect(() => buf.append('ok')).not.toThrow()
+    expect(buf.size()).toBe(2)
+    expect(buf.getOutputSince(0).text).toBe('ok')
+    buf.setSizeObserver(null)
   })
 })

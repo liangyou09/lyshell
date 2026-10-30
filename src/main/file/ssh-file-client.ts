@@ -4,6 +4,13 @@ import { EventEmitter } from 'events'
 import type { SFTPWrapper } from '../types/global'
 import log from 'electron-log'
 import type { SSHConfig } from '@shared/types'
+import {
+  createSsh2HostVerifier,
+  isSshHostKeyError,
+  SshHostKeyError,
+  type Ssh2HostVerifier
+} from '../security/ssh-host-key'
+import { authorizeSshHostKey } from '../security/ssh-trust'
 
 /** 连接被主动断开或被远端关闭时统一使用的错误信息 */
 const CONNECTION_CLOSED_MESSAGE = 'SSH file connection closed'
@@ -26,6 +33,11 @@ export class SSHFileClient extends EventEmitter {
   private sftp: SFTPWrapper | null = null
   private idleTimer: NodeJS.Timeout | null = null
   private reconnectAttempts: number = 0
+  /**
+   * 主机密钥被拒绝的明确原因。ssh2 只报「Host denied (verification failed)」，
+   * 这里保留带 code 的错误交给调用方（文件面板/命令执行器）。
+   */
+  private hostKeyFailure: SshHostKeyError | null = null
 
   /** 在途连接 Promise 及其 reject（保证断开时能取消等待） */
   private connectPromise: Promise<Client> | null = null
@@ -189,9 +201,27 @@ export class SSHFileClient extends EventEmitter {
     }
 
     this.client = client
+    // 每次新代次都清掉上一代的主机密钥失败原因，避免把旧拒绝误报给新连接
+    this.hostKeyFailure = null
 
     /** 只有当前实例且代次未变，事件才有资格改动状态 */
     const isCurrent = (): boolean => this.client === client && this.generation === generation
+
+    // 主机密钥校验：文件通道不弹窗，只认主进程可信记录；未知或变化一律拒绝。
+    // 校验绑定当前实例与代次，拆除后迟到的结论不会再推进握手。
+    const hostVerifier: Ssh2HostVerifier = createSsh2HostVerifier({
+      host: this.sshConfig.host,
+      port: this.sshConfig.port,
+      isActive: isCurrent,
+      decide: async (key) => {
+        await authorizeSshHostKey(key, this.sshConfig.host, this.sshConfig.port, { isActive: isCurrent })
+      },
+      onReject: (error) => {
+        this.hostKeyFailure = isSshHostKeyError(error)
+          ? error
+          : new SshHostKeyError('SSH_HOST_KEY_REJECTED', `SSH 主机密钥校验失败：${error instanceof Error ? error.message : String(error)}`)
+      }
+    })
 
     // 连接就绪
     client.once('ready', () => {
@@ -209,13 +239,18 @@ export class SSHFileClient extends EventEmitter {
     // 连接错误
     client.on('error', (err) => {
       if (!isCurrent()) return
-      const errMsg = err.message?.split('\n')[0]?.replace(/^Error:\s*/, '') || err.toString()
-      log.error(`SSHFileClient error for session ${this.sessionId}: ${errMsg}`)
+      // 主机密钥拒绝换成带 code 的明确错误：ssh2 自己只报「Host denied」，
+      // 上层无法区分「密钥变了」与普通网络错误，也不该拿它做自动重连。
+      const failure = this.hostKeyFailure
+      this.hostKeyFailure = null
+      const surfaced: Error = failure ?? err
+      const errMsg = surfaced.message?.split('\n')[0]?.replace(/^Error:\s*/, '') || surfaced.toString()
+      log.error(`SSHFileClient error for session ${this.sessionId}${failure ? ` [${failure.code}]` : ''}: ${errMsg}`)
       if (this.listenerCount('error') > 0) {
-        this.emit('error', err)
+        this.emit('error', surfaced)
       }
       // 错误后 transport 可能不会再发 close：主动销毁，避免丢失引用后 socket 悬空
-      const stale = this.teardown(err, true)
+      const stale = this.teardown(surfaced, true)
       try {
         stale?.destroy()
       } catch {
@@ -232,7 +267,7 @@ export class SSHFileClient extends EventEmitter {
 
     log.info(`SSHFileClient connecting to ${this.sshConfig.host}:${this.sshConfig.port} for session ${this.sessionId}`)
     try {
-      client.connect(this.buildConnectionConfig())
+      client.connect(this.buildConnectionConfig(hostVerifier))
     } catch (error) {
       // 同步抛错同样要结束在途 Promise
       if (isCurrent()) {
@@ -247,9 +282,11 @@ export class SSHFileClient extends EventEmitter {
 
   /**
    * 构造 ssh2 连接配置
+   *
+   * `hostVerifier` 必须显式传入：ssh2 未配置时默认接受任何主机密钥（README R10）。
    */
-  private buildConnectionConfig(): ConnectConfig {
-    const connectionConfig: ConnectConfig = {
+  private buildConnectionConfig(hostVerifier: Ssh2HostVerifier): ConnectConfig & { hostVerifier: Ssh2HostVerifier } {
+    const connectionConfig: ConnectConfig & { hostVerifier: Ssh2HostVerifier } = {
       host: this.sshConfig.host,
       port: this.sshConfig.port,
       username: this.sshConfig.username,
@@ -259,6 +296,7 @@ export class SSHFileClient extends EventEmitter {
       readyTimeout: this.sshConfig.readyTimeout || 30000,
       keepaliveInterval: this.sshConfig.keepaliveInterval || 10000,
       keepaliveCountMax: 3,
+      hostVerifier,
     }
 
     // 认证方式

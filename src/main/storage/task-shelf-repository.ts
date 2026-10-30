@@ -1,9 +1,11 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
+import log from 'electron-log'
 import { shelfWebUrl, DEFAULT_TASK_SHELF_PREFERENCES, LEGACY_TASK_SHELF_TOGGLE_SHORTCUT, parseShelfPreferences, type TaskShelfPreferences, type ShelfRecovery, type TaskShelfEntry } from '@shared/task-shelf'
 import { ConnectionType } from '@shared/types/session'
 import { atomicWriteFileSync, getConfigDir } from './repository'
+import { JsonStoreLoadError, loadJsonFileSync, RevisionConflictError, writeBackupSync } from './atomic-json'
 import { captureSshContext, SSH_CONTEXT_LIMIT } from '../terminal/shelf-ssh-context'
 import type { ShelfWebSleep } from '@shared/task-shelf'
 
@@ -226,6 +228,35 @@ function clone(entry: TaskShelfEntry): TaskShelfEntry {
   return structuredClone(entry)
 }
 
+/**
+ * 校验整份归档。任何未知 schema / 版本不符 / 重复键都视为损坏：调用方保留原文件，
+ * 绝不用默认值或空列表覆盖（项目场景归档同纪律）。
+ */
+function parseArchive(raw: unknown): { entries: TaskShelfEntry[]; preferences: TaskShelfPreferences } {
+  const archive = asRecord(raw)
+  if (archive.version !== 1 || !Array.isArray(archive.entries)) damaged()
+  let preferences: TaskShelfPreferences = { ...DEFAULT_TASK_SHELF_PREFERENCES }
+  if (archive.preferences !== undefined) {
+    try {
+      const saved = parseShelfPreferences(archive.preferences)
+      // 旧归档没有版本标记：只在这时把历史默认展开键换成新默认。
+      preferences = archive.preferencesVersion === 2 ? saved : migrateShelfPreferences(saved)
+    } catch {
+      damaged()
+    }
+  }
+  if (archive.entries.length > TASK_SHELF_LIMIT) damaged()
+  const entries = archive.entries.map(parseEntry)
+  const ids = new Set<string>()
+  const keys = new Set<string>()
+  for (const entry of entries) {
+    if (ids.has(entry.id) || keys.has(entry.resourceKey)) damaged()
+    ids.add(entry.id)
+    keys.add(entry.resourceKey)
+  }
+  return { entries, preferences }
+}
+
 export interface ShelfCaptureInput {
   resourceKey: string
   title: string
@@ -260,8 +291,27 @@ export class TaskShelfRepository {
   private entries: TaskShelfEntry[] = []
   private loaded = false
   private preferences: TaskShelfPreferences = { ...DEFAULT_TASK_SHELF_PREFERENCES }
+  private revision = 0
+  private loadError: JsonStoreLoadError | null = null
 
   constructor(private readonly file = join(getConfigDir(), 'task-shelf.json')) {}
+
+  getRevision(): number {
+    this.ensureLoaded()
+    return this.revision
+  }
+
+  getLoadError(): JsonStoreLoadError | null {
+    try { this.ensureLoaded() } catch { /* 健康查询返回保存的错误，业务读写仍抛错。 */ }
+    return this.loadError
+  }
+
+  private assertRevision(expectedRevision: number | undefined): void {
+    if (expectedRevision === undefined) return
+    if (expectedRevision !== this.revision) {
+      throw new RevisionConflictError(this.file, expectedRevision, this.revision)
+    }
+  }
 
   list(): TaskShelfEntry[] {
     this.ensureLoaded()
@@ -314,21 +364,21 @@ export class TaskShelfRepository {
   }
 
   getPreferences(): TaskShelfPreferences { this.ensureLoaded(); return { ...this.preferences } }
-  setPreferences(raw: TaskShelfPreferences): TaskShelfPreferences {
+  setPreferences(raw: TaskShelfPreferences, options: { expectedRevision?: number } = {}): TaskShelfPreferences {
     this.ensureLoaded()
     const next = parseShelfPreferences(raw), previous = this.preferences
     this.preferences = next
-    try { this.commit(this.entries) } catch (error) { this.preferences = previous; throw error }
+    try { this.commit(this.entries, options.expectedRevision) } catch (error) { this.preferences = previous; throw error }
     return { ...next }
   }
-  archive(id: string, archived: boolean, now = Date.now()): TaskShelfEntry {
+  archive(id: string, archived: boolean, now = Date.now(), options: { expectedRevision?: number } = {}): TaskShelfEntry {
     this.ensureLoaded()
     const entry = this.entries.find(item => item.id === id)
     if (!entry) throw new Error('保存记录不存在')
     if (!!entry.archivedAt === archived) return clone(entry)
     const next = { ...entry, revision: entry.revision + 1, updatedAt: Math.max(now, entry.updatedAt + 1) }
     if (archived) next.archivedAt = now; else delete next.archivedAt
-    this.commit(this.entries.map(item => item.id === id ? next : item))
+    this.commit(this.entries.map(item => item.id === id ? next : item), options.expectedRevision)
     return clone(next)
   }
 
@@ -338,7 +388,7 @@ export class TaskShelfRepository {
    * 整批一次 commit 原子落盘；没有待归档项时不写盘；写失败整体回滚内存。
    * 生命周期调用（何时退出/补归档）由上层负责，这里不隐式执行。
    */
-  archiveAll(now = Date.now()): TaskShelfEntry[] {
+  archiveAll(now = Date.now(), options: { expectedRevision?: number } = {}): TaskShelfEntry[] {
     this.ensureLoaded()
     let pending = false
     const next = this.entries.map(entry => {
@@ -347,7 +397,7 @@ export class TaskShelfRepository {
       return { ...entry, archivedAt: now, revision: entry.revision + 1, updatedAt: Math.max(now, entry.updatedAt + 1) }
     })
     if (!pending) return this.entries.map(clone)
-    this.commit(next)
+    this.commit(next, options.expectedRevision)
     return this.entries.map(clone)
   }
 
@@ -358,7 +408,7 @@ export class TaskShelfRepository {
    * 没有可移回项时不写盘，写失败整体回滚内存并保留上次有效文件。
    * 恢复/启动由上层显式指令负责，这里绝不触发任何运行资源行为。
    */
-  unarchiveAll(now = Date.now()): TaskShelfEntry[] {
+  unarchiveAll(now = Date.now(), options: { expectedRevision?: number } = {}): TaskShelfEntry[] {
     this.ensureLoaded()
     let pending = false
     const next = this.entries.map(entry => {
@@ -369,7 +419,7 @@ export class TaskShelfRepository {
       return unarchived
     })
     if (!pending) return this.entries.map(clone)
-    this.commit(next)
+    this.commit(next, options.expectedRevision)
     return this.entries.map(clone)
   }
 
@@ -494,31 +544,37 @@ export class TaskShelfRepository {
     }
   }
 
-  remove(id: string): boolean {
+  remove(id: string, options: { expectedRevision?: number } = {}): boolean {
     this.ensureLoaded()
     const next = this.entries.filter(item => item.id !== id)
     if (next.length === this.entries.length) return false
-    this.commit(next)
+    this.commit(next, options.expectedRevision)
     return true
   }
 
-  rename(id: string, rawTitle: string, now = Date.now()): TaskShelfEntry {
+  rename(id: string, rawTitle: string, now = Date.now(), options: { expectedRevision?: number } = {}): TaskShelfEntry {
     this.ensureLoaded()
     const entry = this.entries.find(item => item.id === id)
     if (!entry) throw new Error('保存记录不存在')
     const title = requiredText(rawTitle, MAX_TITLE)
     if (title === entry.title) return clone(entry)
     const next: TaskShelfEntry = { ...entry, title, revision: entry.revision + 1, updatedAt: Math.max(now, entry.updatedAt + 1) }
-    this.commit(this.entries.map(item => (item.id === id ? next : item)))
+    this.commit(this.entries.map(item => (item.id === id ? next : item)), options.expectedRevision)
     return clone(next)
   }
 
-  /** 先换内存再落盘；写失败回滚内存，磁盘上仍是上一次的有效文件。 */
-  private commit(next: TaskShelfEntry[]): void {
+  /** 先校验 revision，再换内存写盘；写失败回滚内存，磁盘上仍是上一次的有效文件。 */
+  private commit(next: TaskShelfEntry[], expectedRevision?: number): void {
+    this.assertRevision(expectedRevision)
     const previous = this.entries
     this.entries = next
     try {
-      atomicWriteFileSync(this.file, JSON.stringify({ version: 1, preferencesVersion: 2, entries: next, preferences: this.preferences }, null, 2))
+      const json = JSON.stringify({ version: 1, preferencesVersion: 2, entries: next, preferences: this.preferences }, null, 2)
+      atomicWriteFileSync(this.file, json)
+      if (!writeBackupSync(this.file, json)) {
+        log.warn('Failed to refresh task shelf backup; primary commit succeeded')
+      }
+      this.revision += 1
     } catch (error) {
       this.entries = previous
       throw new Error(`保存区写入失败，保留上次有效文件：${(error as Error).message}`)
@@ -527,35 +583,28 @@ export class TaskShelfRepository {
 
   private ensureLoaded(): void {
     if (this.loaded) return
-    const entries: TaskShelfEntry[] = []
-    let preferences = { ...DEFAULT_TASK_SHELF_PREFERENCES }
-    if (existsSync(this.file)) {
-      let archive: Raw
-      try {
-        archive = asRecord(JSON.parse(readFileSync(this.file, 'utf8')) as unknown)
-      } catch {
-        damaged()
-      }
-      if (archive.version !== 1 || !Array.isArray(archive.entries)) damaged()
-      if (archive.preferences !== undefined) {
-        try {
-          const saved = parseShelfPreferences(archive.preferences)
-          // 旧归档没有版本标记：只在这时把历史默认展开键换成新默认。
-          preferences = archive.preferencesVersion === 2 ? saved : migrateShelfPreferences(saved)
-        } catch { damaged() }
-      }
-      if (archive.entries.length > TASK_SHELF_LIMIT) damaged()
-      for (const item of archive.entries) entries.push(parseEntry(item))
-      const ids = new Set<string>()
-      const keys = new Set<string>()
-      for (const entry of entries) {
-        if (ids.has(entry.id) || keys.has(entry.resourceKey)) damaged()
-        ids.add(entry.id)
-        keys.add(entry.resourceKey)
-      }
+    // 任务保存区是用户手工整理过的归档：损坏时优先保留原件并显式报错，不自动回滚到
+    // 旧备份（备份仍会在每次成功提交后刷新，供人工恢复）。
+    const result = loadJsonFileSync<{ entries: TaskShelfEntry[]; preferences: TaskShelfPreferences }>(this.file, {
+      validate: parseArchive,
+      backup: false
+    })
+    if (result.status === 'missing') {
+      this.entries = []
+      this.preferences = { ...DEFAULT_TASK_SHELF_PREFERENCES }
+      this.loadError = null
+      this.loaded = true
+      return
     }
-    this.entries = entries
-    this.preferences = preferences
+    if (result.status === 'failed') {
+      this.loadError = result.error
+      // 保留统一的对外文案（上层按它提示「原件已保留」），细节写入日志便于定位。
+      log.error('Failed to load task shelf archive, keeping damaged file untouched:', result.error)
+      throw new Error(`${DAMAGED}: ${result.error.message}`)
+    }
+    this.entries = result.value.entries
+    this.preferences = result.value.preferences
+    this.loadError = null
     this.loaded = true
   }
 }

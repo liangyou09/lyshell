@@ -6,6 +6,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { ConnectionType } from '@shared/types'
 import type { TokenBinding } from './auth'
 import { scanDestructiveCommand } from './destructive-check'
+import { EventEmitter } from 'events'
+import { operationCapabilities, capabilityEnabled } from './operation-policy'
+import { isLocalApiHost, RequestBudget } from './local-request'
 
 const source = ts.createSourceFile('http-server.ts', readFileSync(join(process.cwd(), 'src/main/mcp/http-server.ts'), 'utf8'), ts.ScriptTarget.Latest, true)
 function script(names: string[]): string {
@@ -23,12 +26,15 @@ describe('MCP 确认期间的授权变化', () => {
     let valid = true
     const context = {
       URL, confirmationCredentials: credentials,
-      mcpAuth: { resolveToken: () => valid ? binding : null },
+      isLocalApiHost, requestBudget: new RequestBudget(),
+      bindingCredentialIds: new WeakMap(),
+      mcpAuth: { resolveToken: () => valid ? binding : null, credentialId: () => 'fixture-id' },
       getMcpSecuritySettings: () => ({ enabled: true, allowExternalMcpClients: true }),
-      API_ROUTES: [], EXCLUSIVE_CONTROL_BASE: '/api/exclusive-control', sendJson: vi.fn()
+      API_ROUTES: [], EXCLUSIVE_CONTROL_BASE: '/api/exclusive-control', sendJson: vi.fn(), uuidv4: () => 'fixture-request', recordDiagnosticEvent: vi.fn(),
+      runWithRequestContext: (_context: unknown, action: () => unknown) => action()
     }
     const handler = runInNewContext(script(['handleRequest']) + '\nhandleRequest', context)
-    handler({ url: '/api/tools', method: 'GET', headers: { 'x-lyshell-token': 'fixture-only' } }, {})
+    handler({ url: '/api/tools', method: 'GET', headers: { host: '127.0.0.1:32123', 'x-lyshell-token': 'fixture-only' }, socket: { localPort: 32123 } }, Object.assign(new EventEmitter(), { setHeader: vi.fn() }))
     expect(credentials.get(binding)?.()).toBe(true)
     valid = false
     expect(credentials.get(binding)?.()).toBe(false)
@@ -52,6 +58,7 @@ describe('MCP 确认期间的授权变化', () => {
     })
     const confirm = runInNewContext(script(['isMcpConfirmationAuthorized', 'confirmDestructiveIfNeeded']) + '\nconfirmDestructiveIfNeeded', {
       confirmationCredentials: credentials, getMcpSecuritySettings: () => settings,
+      operationCapabilities, capabilityEnabled,
       ConnectionType, sessionManager: { getSession: () => live },
       isSessionAllowedForMcp: () => allowed, resolveRuntimeSessionId: (id: string) => id,
       scanDestructiveCommand, getSessionSummary: () => ({}), summarizeText: (text: string) => text,
@@ -68,6 +75,7 @@ describe('MCP 确认期间的授权变化', () => {
     const plugin: TokenBinding = { kind: 'plugin', capabilities: ['execute'] }
     const current = runInNewContext(script(['isMcpConfirmationAuthorized']) + '\nisMcpConfirmationAuthorized', {
       confirmationCredentials: new WeakMap([[session, () => true], [plugin, () => true]]),
+      operationCapabilities, capabilityEnabled,
       getMcpSecuritySettings: () => ({ enabled: true, allowExternalMcpClients: false })
     })
     expect(current(session, 'localExecute')).toBe(true)

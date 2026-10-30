@@ -112,11 +112,20 @@ const mutations = new Map<string, { pending: number; disconnecting: boolean }>()
 const lastSnapshots = new Map<string, Record<string, unknown>>()
 
 async function offlineState(owner: string, request: HarnessWorkRequest): Promise<WorkReply> {
+  // 离线只降级观测维度：最后确认状态保留既有事实，不用 unconfirmed 覆盖。
+  const offlineView = (value: Record<string, unknown>): Record<string, unknown> => {
+    const task = value.task && typeof value.task === 'object' ? value.task as Record<string, unknown> : null
+    return { ...value, observationState: 'offline', ...(task ? { task: {
+      ...task, observationState: 'offline',
+      lastConfirmedState: task.lastConfirmedState ?? (task.state === 'unconfirmed' ? null : task.state),
+      submissionState: task.submissionState ?? (String(value.taskState) === 'unconfirmed' ? 'unknown' : 'accepted')
+    } } : {}) }
+  }
   try {
     if (typeof app?.getPath === 'function' && typeof app?.isPackaged === 'boolean') {
       const location = locateBridgePackage({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, devRoot: app.getAppPath() })
       const saved = location && await readSavedWorkState(app.getPath('userData'), location.dir, owner, request)
-      if (saved) return { status: saved.ok ? 200 : 409, body: saved }
+      if (saved) return { status: saved.ok ? 200 : 409, body: offlineView(saved) }
     }
   } catch { return { status: 503, body: { ok: false, code: 'journal/unavailable', error: 'Saved Harness state unavailable; do not resubmit unknown work' } } }
   const previous = lastSnapshots.get(owner)
@@ -124,10 +133,13 @@ async function offlineState(owner: string, request: HarnessWorkRequest): Promise
     const body = structuredClone(previous)
     const stale = (value: Record<string, unknown>): Record<string, unknown> => {
       const interrupted = ['accepted', 'running', 'unconfirmed'].includes(String(value.taskState))
-      return { ...value, status: 'offline', stale: true, taskState: interrupted ? 'unconfirmed' : value.taskState,
-        task: value.task && typeof value.task === 'object' && interrupted
-          ? { ...value.task, lastConfirmedState: (value.task as Record<string, unknown>).state, state: 'unconfirmed', recoveryRequired: true } : value.task,
-        approvals: [], recoveryRequired: interrupted }
+      const task = value.task && typeof value.task === 'object' ? value.task as Record<string, unknown> : null
+      const confirmed = task ? task.lastConfirmedState ?? (task.state === 'unconfirmed' ? null : task.state) : null
+      return offlineView({ ...value, status: 'offline', stale: true, taskState: interrupted ? 'unconfirmed' : value.taskState,
+        task: task ? { ...task, ...(interrupted ? { lastConfirmedState: confirmed, state: 'unconfirmed', recoveryRequired: true,
+          // 提交是否已知与观测是否可用是两件事：已确认派发的提交不能降级成 unknown。
+          submissionState: task.submissionState ?? (task.state === 'unconfirmed' ? 'unknown' : 'accepted') } : {}) } : value.task,
+        approvals: [], recoveryRequired: interrupted })
     }
     const sessions = Array.isArray(body.sessions) ? body.sessions.map(row => stale(row as Record<string, unknown>)) : []
     let target = stale(body)

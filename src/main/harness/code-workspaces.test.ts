@@ -7,6 +7,20 @@ import { execFileSync } from 'node:child_process'
 const state = vi.hoisted(() => ({ profile: '' }))
 vi.mock('electron', () => ({ app: { getPath: () => state.profile } }))
 vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
+
+// 测试环境没有 safeStorage：注入指向唯一临时文件的真实 SecretStore，
+// 避免明文秘密迁移因后端不可用而失败。
+vi.mock('../storage/secret-store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../storage/secret-store')>()
+  const { createTestCipher, secretTestPath } = await import('../storage/secret-store.test-support')
+  return {
+    ...actual,
+    secretStore: new actual.SecretStore({
+      filePath: secretTestPath('code-workspaces-test-secrets.json'),
+      cipher: createTestCipher()
+    })
+  }
+})
 let repo: string
 beforeEach(() => {
   vi.resetModules()

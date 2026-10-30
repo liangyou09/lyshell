@@ -20,6 +20,9 @@ export interface SerialConfig {
  * 串口连接器
  */
 export class SerialConnector extends BaseConnector {
+  get capabilities() {
+    return { interactiveInput: true, resize: false, exec: false, fileTransfer: false, pauseOutput: false, reattach: false }
+  }
   private config: SerialConfig
   private port: SerialPort | null = null
   private openingPromise: Promise<void> | null = null

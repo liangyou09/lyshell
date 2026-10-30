@@ -1,31 +1,54 @@
 import { app, safeStorage } from 'electron'
 import { join } from 'path'
-import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync, renameSync, rmSync } from 'fs'
+import { existsSync, mkdirSync } from 'fs'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
-import type { SessionConfig } from '@shared/types'
+import type { SessionConfig, SessionPublicConfig } from '@shared/types'
 import { sanitizeSessionEncoding } from '@shared/encoding'
+import { isSecretPlaceholder } from '@shared/harness'
+import { isStrongSecureStorage } from '../security/secure-storage'
+import {
+  atomicWriteFileSync,
+  cloneJsonValue,
+  JsonStoreLoadError,
+  loadJsonFileSync,
+  RevisionConflictError,
+  writeBackupSync
+} from './atomic-json'
+import {
+  SENSITIVE_SSH_FIELDS,
+  hasSameSshTarget,
+  hydrateSessionSecrets,
+  publicSessionConfig,
+  type SensitiveSshField
+} from './session-secrets'
+import {
+  deleteSecretRefs,
+  hasPlaintextSecrets,
+  migrateSecretEnv,
+  normalizeSecretKeys,
+  normalizeSecretRefs,
+  planSecretEnv,
+  resolveSecretEnv,
+  secretStore as defaultSecretStore,
+  type SecretVault
+} from './secret-store'
 
-/**
- * 原子写文件：先写同目录 .tmp 再 rename 覆盖。直接 writeFileSync 中途崩溃会留下
- * 截断的 JSON，下次启动整库按损坏处理（回落空库/默认值）；rename 在同一卷上原子
- * （Windows 上 Node 走 MoveFileEx REPLACE_EXISTING），崩溃时盘上要么旧文件要么
- * 新文件，没有中间态。rename 失败时清掉 .tmp 再抛，由调用方按普通写失败处理；
- * 上次崩溃遗留的 .tmp 会被本次写入覆盖，无需启动清理。
- */
-export function atomicWriteFileSync(filePath: string, data: string): void {
-  const tmpPath = `${filePath}.tmp`
-  writeFileSync(tmpPath, data, 'utf-8')
-  try {
-    renameSync(tmpPath, filePath)
-  } catch (error) {
-    rmSync(tmpPath, { force: true })
-    throw error
-  }
-}
+// 兼容既有导入面：仓储测试与浏览器服务都从本模块 mock / 引用 atomicWriteFileSync。
+export {
+  AtomicJsonError,
+  JsonStoreLoadError,
+  RevisionConflictError,
+  atomicWriteFileSync
+} from './atomic-json'
+export type { AtomicWriteOptions } from './atomic-json'
 
 const SAFE_STORAGE_PREFIX = 'safe:v1:'
-const SENSITIVE_SSH_FIELDS = ['password', 'privateKey', 'passphrase'] as const
+
+/** 可选乐观并发控制：只有显式传 expectedRevision 才校验，旧调用方无需改动。 */
+export interface RevisionOptions {
+  expectedRevision?: number
+}
 
 const cloneSession = (session: SessionConfig): SessionConfig => ({
   ...session,
@@ -37,6 +60,9 @@ const cloneSession = (session: SessionConfig): SessionConfig => ({
     ...session.local,
     terminalHostId: undefined,
     env: session.local.env ? { ...session.local.env } : undefined,
+    // 秘密引用/显式键名是盘上元数据，必须跟随副本一起隔离；共享引用会成为跨记录改动后门
+    envSecretRefs: session.local.envSecretRefs ? { ...session.local.envSecretRefs } : undefined,
+    secretEnvKeys: session.local.secretEnvKeys ? [...session.local.secretEnvKeys] : undefined,
     // shellArgs 同 tags/startupCommands 的逐层拷贝纪律：cloneSession 的立意就是引用
     // 隔离（盘边界两侧互不共享可变结构），数组漏拷会留共享引用的后门
     shellArgs: session.local.shellArgs ? [...session.local.shellArgs] : undefined
@@ -50,20 +76,33 @@ const isEncryptedSecret = (value: string): boolean => value.startsWith(SAFE_STOR
 
 const encryptSecretForDisk = (value: string | undefined): string | undefined => {
   if (!value || isEncryptedSecret(value)) return value
-  if (!safeStorage.isEncryptionAvailable()) {
+  if (!isStrongSecureStorage(safeStorage)) {
     throw new Error('系统安全存储不可用，无法安全保存 SSH 凭据。请启用系统凭据存储后重试，或移除密码/私钥/口令后保存。')
   }
   return `${SAFE_STORAGE_PREFIX}${safeStorage.encryptString(value).toString('base64')}`
 }
 
-const decryptSecretFromDisk = (value: string | undefined): string | undefined => {
-  if (!value || !isEncryptedSecret(value)) return value
-  if (!safeStorage.isEncryptionAvailable()) {
-    log.warn('safeStorage is unavailable, cannot decrypt SSH secret from sessions.json')
-    return undefined
+interface SecretDecryptResult {
+  value: string | undefined
+  /** 解密不可用/失败时保留的密文，供后续保存原样写回，绝不能擦成 undefined。 */
+  ciphertext?: string
+  failed: boolean
+}
+
+const decryptSecretFromDisk = (value: string | undefined): SecretDecryptResult => {
+  if (!value || !isEncryptedSecret(value)) return { value, failed: false }
+  if (!isStrongSecureStorage(safeStorage)) {
+    log.warn('safeStorage is unavailable, keeping SSH secret ciphertext unchanged on disk')
+    return { value: undefined, ciphertext: value, failed: true }
   }
-  const encrypted = Buffer.from(value.slice(SAFE_STORAGE_PREFIX.length), 'base64')
-  return safeStorage.decryptString(encrypted)
+  try {
+    const encrypted = Buffer.from(value.slice(SAFE_STORAGE_PREFIX.length), 'base64')
+    return { value: safeStorage.decryptString(encrypted), failed: false }
+  } catch (error) {
+    // 不记录密文本身，避免日志成为凭据副本
+    log.error('Failed to decrypt SSH secret from disk, keeping ciphertext for future writes:', error)
+    return { value: undefined, ciphertext: value, failed: true }
+  }
 }
 
 const hasPlaintextSshSecret = (session: SessionConfig): boolean => {
@@ -74,24 +113,64 @@ const hasPlaintextSshSecret = (session: SessionConfig): boolean => {
   })
 }
 
-const decryptSessionFromDisk = (session: SessionConfig): SessionConfig => {
-  const decrypted = cloneSession(session)
-  if (decrypted.ssh) {
-    for (const field of SENSITIVE_SSH_FIELDS) {
-      decrypted.ssh[field] = decryptSecretFromDisk(decrypted.ssh[field])
-    }
-  }
-  return decrypted
+interface DecryptedSession {
+  session: SessionConfig
+  protectedSecrets: Partial<Record<SensitiveSshField, string>>
+  decryptFailed: boolean
 }
 
-const encryptSessionForDisk = (session: SessionConfig): SessionConfig => {
-  const encrypted = cloneSession(session)
-  if (encrypted.ssh) {
+const decryptSessionFromDisk = (session: SessionConfig): DecryptedSession => {
+  const decrypted = cloneSession(session)
+  const protectedSecrets: Partial<Record<SensitiveSshField, string>> = {}
+  let decryptFailed = false
+  if (decrypted.ssh) {
     for (const field of SENSITIVE_SSH_FIELDS) {
-      encrypted.ssh[field] = encryptSecretForDisk(encrypted.ssh[field])
+      const result = decryptSecretFromDisk(decrypted.ssh[field])
+      decrypted.ssh[field] = result.value
+      if (result.failed) {
+        decryptFailed = true
+        if (result.ciphertext) protectedSecrets[field] = result.ciphertext
+      }
+    }
+  }
+  return { session: decrypted, protectedSecrets, decryptFailed }
+}
+
+const encryptSessionForDisk = (
+  session: SessionConfig,
+  protectedSecrets?: Partial<Record<SensitiveSshField, string>>
+): SessionConfig => {
+  const encrypted = cloneSession(session)
+  const hasProtected = !!protectedSecrets && Object.keys(protectedSecrets).length > 0
+  if (!encrypted.ssh) {
+    if (hasProtected) {
+      // ssh 整块消失但密文未解密：很可能是安全存储不可用期间的编辑/默认值路径。
+      // 直接落盘会把密文连同凭据一起丢掉，宁可让本次保存失败。
+      throw new Error('安全存储不可用，无法安全改写含未解密 SSH 凭据的会话；请启用系统凭据存储后重试。')
+    }
+    return encrypted
+  }
+  for (const field of SENSITIVE_SSH_FIELDS) {
+    const plaintext = encrypted.ssh[field]
+    if (plaintext === undefined && protectedSecrets?.[field]) {
+      // 解密失败的字段保持原密文，其他字段照常保存 —— 秘密不因一次失败被擦除
+      encrypted.ssh[field] = protectedSecrets[field]
+    } else {
+      encrypted.ssh[field] = encryptSecretForDisk(plaintext)
     }
   }
   return encrypted
+}
+
+/** sessions.json 最低 schema：必须是数组，元素得是可寻址的对象；其余字段保持宽松兼容。 */
+const validateSessionsFile = (raw: unknown): SessionConfig[] => {
+  if (!Array.isArray(raw)) throw new Error('sessions.json must be an array')
+  for (const item of raw) {
+    if (typeof item !== 'object' || item === null) throw new Error('session entry must be an object')
+    const id = (item as { id?: unknown }).id
+    if (typeof id !== 'string' || id.length === 0) throw new Error('session entry requires a string id')
+  }
+  return raw as SessionConfig[]
 }
 
 /**
@@ -114,13 +193,33 @@ export const getConfigDir = (): string => {
 
 /**
  * 会话配置存储
- * 使用JSON文件存储（SQLite需要原生模块）
+ * 使用 JSON 文件存储（SQLite 需要原生模块）
  * 延迟初始化，避免在 app.ready 前调用 app.getPath
+ *
+ * 可靠性契约：
+ * - 单写：同一仓储实例的保存是同步提交，内存只在写盘成功后替换
+ * - revision：每次成功提交 +1；显式传 expectedRevision 时旧快照抛 RevisionConflictError
+ * - 损坏保护：加载失败进入只读失败态，任何保存都抛错，绝不用默认值覆盖损坏原件
+ * - 密文保护：decrypt 失败时保留原密文，后续保存不会把秘密擦成 undefined
  */
 export class SessionRepository {
   private filePath: string | null = null
   private sessions: Map<string, SessionConfig> = new Map()
   private loaded: boolean = false
+  private revision: number = 0
+  private loadError: JsonStoreLoadError | null = null
+  private protectedSecrets: Map<string, Partial<Record<SensitiveSshField, string>>> = new Map()
+  /** local env 秘密的 vault；测试可注入隔离实例，生产默认共用 secretStore。 */
+  private readonly injectedSecretStore?: SecretVault
+  private get secretStore(): SecretVault { return this.injectedSecretStore ?? defaultSecretStore }
+  /** 加载期明文迁移失败：保留原文件并拒绝任何后续保存，避免把明文重新写盘。 */
+  private secretMigrationFailed: Error | null = null
+
+  constructor(secretStore?: SecretVault) {
+    // vault 的默认路径复用本模块 getConfigDir；只在实际访问时读取默认单例，
+    // 避免 bundle 初始化顺序中的 repository ↔ secret-store 循环依赖。
+    this.injectedSecretStore = secretStore
+  }
 
   /**
    * 确保已初始化
@@ -132,29 +231,57 @@ export class SessionRepository {
     }
   }
 
+  /** 当前内存快照的提交版本（从 0 开始，每次成功落盘 +1）。 */
+  getRevision(): number {
+    this.ensureInitialized()
+    return this.revision
+  }
+
+  /** 加载失败时返回具体错误；调用方可用它区分「空库」与「损坏/不可读」。 */
+  getLoadError(): JsonStoreLoadError | null {
+    this.ensureInitialized()
+    return this.loadError
+  }
+
+  private assertRevision(expectedRevision: number | undefined): void {
+    if (expectedRevision === undefined) return
+    if (expectedRevision !== this.revision) {
+      throw new RevisionConflictError(this.filePath ?? 'sessions.json', expectedRevision, this.revision)
+    }
+  }
+
   /**
    * 加载所有会话
    */
   private load(): void {
     if (!this.filePath || this.loaded) return
 
-    if (!existsSync(this.filePath)) {
+    const result = loadJsonFileSync<SessionConfig[]>(this.filePath, { validate: validateSessionsFile })
+    if (result.status === 'missing') {
       log.info('No sessions file found, starting fresh')
       this.loaded = true
       return
     }
+    if (result.status === 'failed') {
+      // 不写默认值：原件（或已另存的 .corrupt-*）必须保留，交给上层显式恢复
+      this.loadError = result.error
+      this.loaded = true
+      log.error('Failed to load sessions, keeping damaged file untouched:', result.error)
+      return
+    }
 
     try {
-      const content = readFileSync(this.filePath, 'utf-8')
-      const data = JSON.parse(content) as SessionConfig[]
-
       let shouldMigrateSecrets = false
-      for (const storedSession of data) {
+      for (const storedSession of result.value) {
         if (hasPlaintextSshSecret(storedSession)) {
           shouldMigrateSecrets = true
         }
 
-        const session = decryptSessionFromDisk(storedSession)
+        const decrypted = decryptSessionFromDisk(storedSession)
+        if (decrypted.decryptFailed && Object.keys(decrypted.protectedSecrets).length > 0) {
+          this.protectedSecrets.set(decrypted.session.id, decrypted.protectedSecrets)
+        }
+        const session = decrypted.session
         // 转换日期
         session.createdAt = new Date(session.createdAt)
         session.updatedAt = new Date(session.updatedAt)
@@ -166,36 +293,144 @@ export class SessionRepository {
       }
 
       log.info(`Loaded ${this.sessions.size} sessions from storage`)
+      if (result.status === 'recovered') {
+        log.warn(`sessions.json was corrupt; restored from backup (damaged copy: ${result.preservedPath ?? 'unavailable'})`)
+      }
 
       // 自动去重
+      const refsBeforeDedupe = this.collectLocalSecretRefs()
       const dupResult = this.deduplicate(false)
       if (dupResult.removed > 0) {
         log.info(`Auto-deduplicated ${dupResult.removed} sessions on load`)
       }
 
       this.loaded = true
+      // local env 明文秘密：先写 vault + read-back，再原子提交引用；失败由
+      // ensureSecretsMigrated 内部回滚内存/新建引用并置 fail-closed 标记
+      this.ensureSecretsMigrated()
       if (shouldMigrateSecrets || dupResult.removed > 0) {
-        this.save()
+        // 迁移落盘失败不能把已成功读入的内存库打成加载失败：旧文件仍然有效
+        try {
+          this.save()
+          if (dupResult.removed > 0) {
+            // 去重结果已提交，回收被移除记录独占的引用；仍在使用的保留
+            deleteSecretRefs(
+              this.secretStore,
+              Array.from(refsBeforeDedupe),
+              this.collectLocalSecretRefs(),
+              'sessions load deduplicate'
+            )
+          }
+        } catch (error) {
+          log.warn('Failed to persist session migration/dedup on load; keeping old file:', error)
+        }
       }
-
     } catch (error) {
-      log.error('Failed to load sessions:', error)
+      this.loadError = new JsonStoreLoadError(this.filePath, 'corrupt', error)
+      this.sessions.clear()
+      this.protectedSecrets.clear()
       this.loaded = true
+      log.error('Failed to parse sessions file, keeping damaged file untouched:', error)
     }
   }
 
   /**
-   * 保存所有会话到文件
+   * 加载期 local env 秘密迁移：逐条 put 到 vault 并 read-back，成功后一次性原子提交
+   * 引用形态 + 备份；任一步失败回滚内存、删除本次新建引用，并置 fail-closed 标记
+   * （后续 save 一律拒绝，磁盘保持原字节，不会把明文重新写回）。
+   */
+  private ensureSecretsMigrated(): void {
+    if (this.secretMigrationFailed) return
+
+    const previousSessions = this.sessions
+    const migrated = new Map<string, SessionConfig>()
+    const created: string[] = []
+    let changed = false
+
+    try {
+      for (const session of previousSessions.values()) {
+        const local = session.local
+        if (!local) {
+          migrated.set(session.id, session)
+          continue
+        }
+
+        const rawRefs = local.envSecretRefs
+        const rawKeys = local.secretEnvKeys
+        const refs = normalizeSecretRefs(rawRefs)
+        const explicitKeys = normalizeSecretKeys(rawKeys)
+        const normalizedRefs = Object.keys(refs).length > 0 ? refs : undefined
+        const normalizedKeys = explicitKeys.length > 0 ? explicitKeys : undefined
+
+        // 引用/键名本身也要归一化（手工改过的 sessions.json 可能带非法引用）
+        const metadataChanged =
+          JSON.stringify(rawRefs ?? null) !== JSON.stringify(normalizedRefs ?? null) ||
+          JSON.stringify(rawKeys ?? null) !== JSON.stringify(normalizedKeys ?? null)
+        const needsMigration = hasPlaintextSecrets(local.env, refs, explicitKeys)
+
+        if (!needsMigration) {
+          if (!metadataChanged) {
+            migrated.set(session.id, session)
+            continue
+          }
+          const normalized = cloneSession(session)
+          normalized.local!.envSecretRefs = normalizedRefs
+          normalized.local!.secretEnvKeys = normalizedKeys
+          migrated.set(session.id, normalized)
+          changed = true
+          continue
+        }
+
+        const result = migrateSecretEnv(this.secretStore, {
+          env: local.env,
+          refs,
+          explicitSecretKeys: explicitKeys
+        })
+        created.push(...result.created)
+        const next = cloneSession(session)
+        const nextLocal = next.local!
+        nextLocal.env = Object.keys(result.env).length > 0 ? result.env : undefined
+        nextLocal.envSecretRefs =
+          Object.keys(result.refs).length > 0 ? result.refs : undefined
+        nextLocal.secretEnvKeys = explicitKeys.length > 0 ? explicitKeys : undefined
+        migrated.set(next.id, next)
+        changed = true
+        log.info(`Migrated ${result.created.length} local env secret(s) for session ${session.id}`)
+      }
+
+      if (!changed) return
+      this.sessions = migrated
+      this.save()
+    } catch (error) {
+      this.sessions = previousSessions
+      deleteSecretRefs(this.secretStore, created, new Set(), 'sessions migration rollback')
+      this.secretMigrationFailed = error instanceof Error ? error : new Error(String(error))
+      log.error(
+        '[SessionRepository] local env secret migration failed; keeping original file and refusing further saves:',
+        this.secretMigrationFailed.message
+      )
+    }
+  }
+
+  /**
+   * 保存所有会话到文件。仅在提交成功后更新 revision；失败时内存由调用方回滚。
    */
   private save(): void {
     if (!this.filePath) return
+    if (this.loadError) throw this.loadError
+    this.assertSecretsWritable()
 
     try {
-      const data = Array.from(this.sessions.values()).map(encryptSessionForDisk)
-      writeFileSync(this.filePath, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 })
-      if (process.platform !== 'win32') {
-        chmodSync(this.filePath, 0o600)
+      const data = Array.from(this.sessions.values()).map(session =>
+        encryptSessionForDisk(session, this.protectedSecrets.get(session.id))
+      )
+      const json = JSON.stringify(data, null, 2)
+      // atomicWriteFileSync 内部完成 0600 + fsync + rename；失败时旧文件保持不变
+      atomicWriteFileSync(this.filePath, json)
+      if (!writeBackupSync(this.filePath, json)) {
+        log.warn('Failed to refresh sessions.json backup; primary commit succeeded')
       }
+      this.revision += 1
       log.info(`Saved ${data.length} sessions to storage`)
     } catch (error) {
       log.error('Failed to save sessions:', error)
@@ -203,20 +438,102 @@ export class SessionRepository {
     }
   }
 
-  /**
-   * 获取单个会话
-   */
-  get(id: string): SessionConfig | null {
-    this.ensureInitialized()
-    return this.sessions.get(id) || null
+  /** 写盘前兜底：迁移失败的库只读；内存里仍有明文 local 秘密时拒绝落盘。 */
+  private assertSecretsWritable(): void {
+    if (this.secretMigrationFailed) {
+      throw new Error(
+        'Local environment secret migration failed; refusing to overwrite sessions.json with plaintext. Restore secure storage and restart.'
+      )
+    }
+    for (const session of this.sessions.values()) {
+      const local = session.local
+      if (!local) continue
+      if (
+        hasPlaintextSecrets(
+          local.env,
+          normalizeSecretRefs(local.envSecretRefs),
+          normalizeSecretKeys(local.secretEnvKeys)
+        )
+      ) {
+        throw new Error(
+          'Refusing to persist plaintext local environment secrets into sessions.json'
+        )
+      }
+    }
   }
 
   /**
-   * 获取所有会话
+   * 获取单个会话（运行期形态：local env 秘密已解析回真实值）。返回副本。
+   * 解析失败时保留引用、缺该 env 键，供 connect 前 assertResolvedSecrets 阻止启动。
+   */
+  get(id: string): SessionConfig | null {
+    this.ensureInitialized()
+    const session = this.sessions.get(id)
+    return session ? this.materializeSession(session) : null
+  }
+
+  /**
+   * 获取所有会话（运行期形态，返回副本）
    */
   getAll(): SessionConfig[] {
     this.ensureInitialized()
-    return Array.from(this.sessions.values())
+    return Array.from(this.sessions.values()).map(session => this.materializeSession(session))
+  }
+
+  /**
+   * 安全 DTO：SSH 三个秘密字段与 local env 秘密只给占位符/存在状态。
+   * renderer / IPC 列表 / 导出预览只能用这个，绝不能用 get/getAll。
+   */
+  getPublic(id: string): SessionPublicConfig | null {
+    const session = this.get(id)
+    if (!session) return null
+    return publicSessionConfig(session, { lockedSshFields: this.lockedSshFields(id) })
+  }
+
+  getAllPublic(): SessionPublicConfig[] {
+    this.ensureInitialized()
+    return Array.from(this.sessions.values()).map(session =>
+      publicSessionConfig(this.materializeSession(session), {
+        lockedSshFields: this.lockedSshFields(session.id)
+      })
+    )
+  }
+
+  /** 运行期解析 local env 引用；失败只缺键，引用元数据保留。 */
+  private materializeSession(session: SessionConfig): SessionConfig {
+    const cloned = cloneSession(session)
+    const local = cloned.local
+    if (!local) return cloned
+    const refs = normalizeSecretRefs(local.envSecretRefs)
+    if (Object.keys(refs).length === 0) return cloned
+
+    const resolved = resolveSecretEnv(
+      this.secretStore,
+      local.env,
+      refs,
+      `sessions/${session.id}`
+    )
+    local.env = Object.keys(resolved.env).length > 0 ? resolved.env : undefined
+    local.envSecretRefs = refs
+    return cloned
+  }
+
+  /** 盘上仍有密文、本次无法解密的 SSH 字段。 */
+  private lockedSshFields(id: string): SensitiveSshField[] {
+    const protectedFields = this.protectedSecrets.get(id)
+    if (!protectedFields) return []
+    return SENSITIVE_SSH_FIELDS.filter(field => Boolean(protectedFields[field]))
+  }
+
+  /** 当前所有记录仍在引用的 local env 秘密；清理旧引用时必须避开这些。 */
+  private collectLocalSecretRefs(): Set<string> {
+    const used = new Set<string>()
+    for (const session of this.sessions.values()) {
+      for (const ref of Object.values(normalizeSecretRefs(session.local?.envSecretRefs))) {
+        used.add(ref)
+      }
+    }
+    return used
   }
 
   /**
@@ -233,7 +550,7 @@ export class SessionRepository {
       if (this.getHostKey(existing) !== key) continue
       if (!best || existing.updatedAt > best.updatedAt) best = existing
     }
-    return best
+    return best ? this.materializeSession(best) : null
   }
 
   /**
@@ -288,10 +605,14 @@ export class SessionRepository {
   /**
    * 保存会话（新建或更新）
    * 如果没有 ID，会检查是否已存在相同配置的会话
+   *
+   * 提交成功后兼容旧调用方回填新 id；失败不改入参，返回运行期副本。
    */
-  saveSession(session: SessionConfig): SessionConfig {
+  saveSession(input: SessionConfig, options: RevisionOptions = {}): SessionConfig {
     this.ensureInitialized()
+    this.assertRevision(options.expectedRevision)
     const now = new Date()
+    let session = cloneSession(input)
 
     // 如果没有 id，检查是否已存在相同配置的会话
     if (!session.id) {
@@ -321,6 +642,51 @@ export class SessionRepository {
       session.createdAt = now
     }
 
+    // 秘密边界：UI/外部送来的占位符只能保留「本记录自己原来的秘密」。
+    // previous 取运行期形态（local env 已解析），伪造占位符/跨记录引用/改目标都会被拒绝。
+    const previousRecord = session.id ? this.get(session.id) : null
+    const hydrated = hydrateSessionSecrets(session, previousRecord, {
+      lockedSshFields: session.id ? this.lockedSshFields(session.id) : []
+    })
+    session = hydrated.config
+
+    const previousProtected = this.protectedSecrets.get(session.id)
+    const nextProtected = { ...previousProtected }
+    for (const field of SENSITIVE_SSH_FIELDS) {
+      if (!nextProtected[field]) continue
+      const value = input.ssh?.[field]
+      if (value === '' || (value !== undefined && !isSecretPlaceholder(value))) {
+        delete nextProtected[field]
+      } else if (!hasSameSshTarget(session.ssh, previousRecord?.ssh)) {
+        throw new Error('安全存储不可用：SSH target changed while credentials are locked; clear or replace the stored credentials first')
+      }
+    }
+
+    const staleRefs: string[] = []
+    let createdRefs: string[] = []
+    if (session.local) {
+      // 引用只认本记录上一条；入参 envSecretRefs 已在 hydrate 中丢弃
+      const previousRefs = normalizeSecretRefs(previousRecord?.local?.envSecretRefs)
+      const explicitKeys =
+        session.local.secretEnvKeys !== undefined
+          ? normalizeSecretKeys(session.local.secretEnvKeys)
+          : normalizeSecretKeys(previousRecord?.local?.secretEnvKeys)
+      const plan = planSecretEnv(this.secretStore, {
+        incoming: session.local.env,
+        existingRefs: previousRefs,
+        explicitSecretKeys: explicitKeys
+      })
+      createdRefs = plan.created
+      staleRefs.push(...plan.stale)
+      session.local.env = Object.keys(plan.env).length > 0 ? plan.env : undefined
+      session.local.envSecretRefs =
+        Object.keys(plan.refs).length > 0 ? plan.refs : undefined
+      session.local.secretEnvKeys = explicitKeys.length > 0 ? explicitKeys : undefined
+    } else {
+      // 整份 local 配置被移除：本记录原引用随记录一起失效
+      staleRefs.push(...Object.values(normalizeSecretRefs(previousRecord?.local?.envSecretRefs)))
+    }
+
     // 全新会话且用户没显式填 notes 时，尝试从同主机的已有会话继承 summary/usageNotes/tags
     // —— New session / Copy 到同一台机器不需要再手动补一次。
     // 已存在的会话（更新场景）不触发继承，避免把旧记录覆盖回来。
@@ -336,18 +702,47 @@ export class SessionRepository {
     session.updatedAt = now
     // 写入收口：任何来源（渲染层/agent/MCP）的非法 encoding 在进内存 map、落盘前归位
     sanitizeSessionEncoding(session)
+
+    const previousSessions = this.sessions
+    this.sessions = new Map(previousSessions)
     this.sessions.set(session.id, session)
-    this.save()
+    this.protectedSecrets.set(session.id, nextProtected)
+    try {
+      this.save()
+    } catch (error) {
+      // 写盘失败：内存恢复到提交前，调用方看到失败后不会留下「内存已改、盘未改」的假状态
+      this.sessions = previousSessions
+      if (previousProtected) this.protectedSecrets.set(session.id, previousProtected)
+      else this.protectedSecrets.delete(session.id)
+      // 本次为这条记录新建的引用随回滚一起清理；仍被其它记录引用的不动
+      deleteSecretRefs(
+        this.secretStore,
+        createdRefs,
+        this.collectLocalSecretRefs(),
+        `sessions/${session.id} save rollback`
+      )
+      throw error
+    }
+
+    // 提交成功后才清理被替换/删除的旧引用；其它记录仍在引用的必须保留
+    deleteSecretRefs(
+      this.secretStore,
+      staleRefs,
+      this.collectLocalSecretRefs(),
+      `sessions/${session.id} secret cleanup`
+    )
 
     log.info(`Session saved: ${session.id} (${session.name})`)
-    return session
+    if (!input.id) input.id = session.id
+    return this.materializeSession(session)
   }
 
   /** 更新必须命中现存保存项，防迟到写入重建已回收资源。 */
-  updateSession(session: SessionConfig): SessionConfig {
+  updateSession(session: SessionConfig, options: RevisionOptions = {}): SessionConfig {
     this.ensureInitialized()
+    this.assertRevision(options.expectedRevision)
     if (!this.sessions.has(session.id)) throw new Error(`Session not found: ${session.id}`)
-    return this.saveSession(session)
+    return this.saveSession(session, options)
   }
 
   /**
@@ -409,11 +804,15 @@ export class SessionRepository {
   /**
    * 删除会话
    */
-  delete(id: string): boolean {
+  delete(id: string, options: RevisionOptions = {}): boolean {
     this.ensureInitialized()
+    this.assertRevision(options.expectedRevision)
     if (!this.sessions.has(id)) return false
 
     // 落盘失败时恢复完整内存快照（含顺序），下一次回收必须重新尝试删除和写盘。
+    const removedRefs = Object.values(
+      normalizeSecretRefs(this.sessions.get(id)?.local?.envSecretRefs)
+    )
     const previousSessions = this.sessions
     this.sessions = new Map(previousSessions)
     this.sessions.delete(id)
@@ -424,12 +823,20 @@ export class SessionRepository {
       throw error
     }
 
+    // 只有提交成功后才回收该记录独占的 vault 引用；其它记录还在用的必须保留
+    deleteSecretRefs(
+      this.secretStore,
+      removedRefs,
+      this.collectLocalSecretRefs(),
+      `sessions/${id} delete`
+    )
+    this.protectedSecrets.delete(id)
     log.info(`Session deleted: ${id}`)
     return true
   }
 
   /**
-   * 查找会话
+   * 查找会话（返回副本）
    */
   find(query: Partial<SessionConfig>): SessionConfig[] {
     this.ensureInitialized()
@@ -445,7 +852,7 @@ export class SessionRepository {
         }
       }
 
-      if (match) results.push(session)
+      if (match) results.push(cloneSession(session))
     }
 
     return results
@@ -476,14 +883,17 @@ export class SessionRepository {
    * 保留最近更新的版本，合并 tags
    * @param saveToDisk 是否保存到磁盘，默认 true
    */
-  deduplicate(saveToDisk: boolean = true): { removed: number, kept: SessionConfig[] } {
+  deduplicate(saveToDisk: boolean = true, options: RevisionOptions = {}): { removed: number, kept: SessionConfig[] } {
     this.ensureInitialized()
+    this.assertRevision(options.expectedRevision)
 
     const uniqueSessions = new Map<string, SessionConfig>()
     const duplicates: SessionConfig[] = []
     let removed = 0
 
-    for (const session of this.sessions.values()) {
+    for (const storedSession of this.sessions.values()) {
+      // 合并仅修改候选快照；提交失败时旧 map 及其条目仍完整不变。
+      const session = cloneSession(storedSession)
       // 生成唯一键（名称 + 类型 + 主机配置）
       const key = this.generateSessionKey(session)
 
@@ -520,19 +930,32 @@ export class SessionRepository {
       }
     }
 
-    // 更新存储
-    this.sessions.clear()
-    for (const session of uniqueSessions.values()) {
-      this.sessions.set(session.id, session)
-    }
-
-    // 只有需要时才保存到磁盘
+    // 更新存储；需要落盘时先写成功后替换内存，失败则保留完整旧快照。
+    // uniqueSessions 以配置指纹为键用于去重，落回仓储前必须重新按 session.id 建索引。
+    const rebuilt = new Map<string, SessionConfig>()
+    for (const session of uniqueSessions.values()) rebuilt.set(session.id, session)
+    const previousSessions = this.sessions
+    this.sessions = rebuilt
     if (saveToDisk) {
-      this.save()
+      try {
+        this.save()
+      } catch (error) {
+        this.sessions = previousSessions
+        throw error
+      }
+      // 去重已提交：被移除记录的独占引用回收；keep 记录仍在引用的保留
+      deleteSecretRefs(
+        this.secretStore,
+        duplicates.flatMap(session =>
+          Object.values(normalizeSecretRefs(session.local?.envSecretRefs))
+        ),
+        this.collectLocalSecretRefs(),
+        'sessions deduplicate'
+      )
     }
 
     log.info(`Deduplicated sessions: removed ${removed} duplicates, kept ${uniqueSessions.size} unique sessions`)
-    return { removed, kept: Array.from(uniqueSessions.values()) }
+    return { removed, kept: Array.from(rebuilt.values()).map(cloneSession) }
   }
 
   /**
@@ -564,6 +987,8 @@ export class PreferencesRepository {
   private filePath: string | null = null
   private preferences: Record<string, any> = {}
   private loaded: boolean = false
+  private revision: number = 0
+  private loadError: JsonStoreLoadError | null = null
 
   private ensureInitialized(): void {
     if (!this.filePath) {
@@ -575,52 +1000,83 @@ export class PreferencesRepository {
   private load(): void {
     if (!this.filePath || this.loaded) return
 
-    if (!existsSync(this.filePath)) {
-      this.loaded = true
+    const result = loadJsonFileSync<Record<string, unknown>>(this.filePath, {
+      validate: raw => {
+        if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+          throw new Error('preferences.json must be a JSON object')
+        }
+        return raw as Record<string, unknown>
+      }
+    })
+    this.loaded = true
+    if (result.status === 'missing') return
+    if (result.status === 'failed') {
+      this.loadError = result.error
+      log.error('Failed to load preferences, keeping damaged file untouched:', result.error)
       return
     }
+    this.preferences = result.value
+    if (result.status === 'recovered') {
+      log.warn(`preferences.json was corrupt; restored from backup (damaged copy: ${result.preservedPath ?? 'unavailable'})`)
+    }
+    log.info('Loaded preferences from storage')
+  }
 
-    try {
-      const content = readFileSync(this.filePath, 'utf-8')
-      this.preferences = JSON.parse(content)
-      log.info('Loaded preferences from storage')
-      this.loaded = true
-    } catch (error) {
-      log.error('Failed to load preferences:', error)
-      this.loaded = true
+  private assertWritable(): void {
+    if (this.loadError) throw this.loadError
+  }
+
+  private assertRevision(expectedRevision: number | undefined): void {
+    if (expectedRevision === undefined) return
+    if (expectedRevision !== this.revision) {
+      throw new RevisionConflictError(this.filePath ?? 'preferences.json', expectedRevision, this.revision)
     }
   }
 
-  private save(): void {
+  /** 先落盘、后替换内存：写失败时内存保持旧值并向调用方抛错。 */
+  private commit(next: Record<string, unknown>): void {
     if (!this.filePath) return
-
-    try {
-      writeFileSync(this.filePath, JSON.stringify(this.preferences, null, 2), 'utf-8')
-    } catch (error) {
-      log.error('Failed to save preferences:', error)
+    const json = JSON.stringify(next, null, 2)
+    atomicWriteFileSync(this.filePath, json)
+    if (!writeBackupSync(this.filePath, json)) {
+      log.warn('Failed to refresh preferences.json backup; primary commit succeeded')
     }
+    this.preferences = next
+    this.revision += 1
+  }
+
+  getRevision(): number {
+    this.ensureInitialized()
+    return this.revision
+  }
+
+  getLoadError(): JsonStoreLoadError | null {
+    this.ensureInitialized()
+    return this.loadError
   }
 
   get(key: string): any {
     this.ensureInitialized()
-    return this.preferences[key]
+    return cloneJsonValue(this.preferences[key])
   }
 
-  set(key: string, value: any): void {
+  set(key: string, value: any, options: RevisionOptions = {}): void {
     this.ensureInitialized()
-    this.preferences[key] = value
-    this.save()
+    this.assertWritable()
+    this.assertRevision(options.expectedRevision)
+    this.commit({ ...this.preferences, [key]: cloneJsonValue(value) })
   }
 
   getAll(): Record<string, any> {
     this.ensureInitialized()
-    return { ...this.preferences }
+    return cloneJsonValue(this.preferences)
   }
 
-  reset(): void {
+  reset(options: RevisionOptions = {}): void {
     this.ensureInitialized()
-    this.preferences = {}
-    this.save()
+    this.assertWritable()
+    this.assertRevision(options.expectedRevision)
+    this.commit({})
   }
 }
 
@@ -657,11 +1113,37 @@ interface QuickCommandsData {
   groups: QuickCommandGroup[]
 }
 
+const normalizeQuickCommands = (raw: unknown): QuickCommandsData => {
+  if (Array.isArray(raw)) {
+    // 旧格式：只有命令数组
+    return {
+      commands: raw.map(cmd => ({ ...(cmd as QuickCommand), groupId: (cmd as QuickCommand).groupId || undefined })),
+      groups: []
+    }
+  }
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('quickCommands.json must be an object or a legacy array')
+  }
+  const data = raw as { commands?: unknown; groups?: unknown }
+  if (data.commands !== undefined && !Array.isArray(data.commands)) {
+    throw new Error('quickCommands.commands must be an array')
+  }
+  if (data.groups !== undefined && !Array.isArray(data.groups)) {
+    throw new Error('quickCommands.groups must be an array')
+  }
+  return {
+    commands: ((data.commands ?? []) as QuickCommand[]).map(cmd => ({ ...cmd, groupId: cmd.groupId || undefined })),
+    groups: (data.groups ?? []) as QuickCommandGroup[]
+  }
+}
+
 export class QuickCommandsRepository {
   private filePath: string | null = null
   private commands: QuickCommand[] = []
   private groups: QuickCommandGroup[] = []
   private loaded: boolean = false
+  private revision: number = 0
+  private loadError: JsonStoreLoadError | null = null
 
   private ensureInitialized(): void {
     if (!this.filePath) {
@@ -673,94 +1155,109 @@ export class QuickCommandsRepository {
   private load(): void {
     if (!this.filePath || this.loaded) return
 
-    if (!existsSync(this.filePath)) {
+    const result = loadJsonFileSync<QuickCommandsData>(this.filePath, { validate: normalizeQuickCommands })
+    this.loaded = true
+    if (result.status === 'missing') {
       log.info('No quickCommands file found, starting fresh')
-      this.loaded = true
       return
     }
+    if (result.status === 'failed') {
+      this.loadError = result.error
+      log.error('Failed to load quick commands, keeping damaged file untouched:', result.error)
+      return
+    }
+    this.commands = result.value.commands
+    this.groups = result.value.groups
+    if (result.status === 'recovered') {
+      log.warn(`quickCommands.json was corrupt; restored from backup (damaged copy: ${result.preservedPath ?? 'unavailable'})`)
+    }
+    log.info(`Loaded ${this.commands.length} quick commands and ${this.groups.length} groups from storage`)
+  }
 
-    try {
-      const content = readFileSync(this.filePath, 'utf-8')
-      const data = JSON.parse(content) as QuickCommandsData | QuickCommand[]
+  private assertWritable(): void {
+    if (this.loadError) throw this.loadError
+  }
 
-      // 支持旧格式（只有命令数组）和新格式（包含命令和分组）
-      if (Array.isArray(data)) {
-        this.commands = data.map(cmd => ({
-          ...cmd,
-          groupId: cmd.groupId || undefined  // 空字符串转为 undefined
-        }))
-        this.groups = []
-      } else {
-        this.commands = (data.commands || []).map(cmd => ({
-          ...cmd,
-          groupId: cmd.groupId || undefined  // 空字符串转为 undefined
-        }))
-        this.groups = data.groups || []
-      }
-
-      log.info(`Loaded ${this.commands.length} quick commands and ${this.groups.length} groups from storage`)
-      this.loaded = true
-    } catch (error) {
-      log.error('Failed to load quick commands:', error)
-      this.commands = []
-      this.groups = []
-      this.loaded = true
+  private assertRevision(expectedRevision: number | undefined): void {
+    if (expectedRevision === undefined) return
+    if (expectedRevision !== this.revision) {
+      throw new RevisionConflictError(this.filePath ?? 'quickCommands.json', expectedRevision, this.revision)
     }
   }
 
-  private save(): void {
+  /** 先写成功、后替换内存：失败时旧状态完整保留，调用方收到异常。 */
+  private commit(nextCommands: QuickCommand[], nextGroups: QuickCommandGroup[]): void {
     if (!this.filePath) return
-
-    try {
-      const data: QuickCommandsData = {
-        commands: this.commands,
-        groups: this.groups
-      }
-      writeFileSync(this.filePath, JSON.stringify(data, null, 2), 'utf-8')
-      log.info(`Saved ${this.commands.length} quick commands and ${this.groups.length} groups to storage`)
-    } catch (error) {
-      log.error('Failed to save quick commands:', error)
+    const data: QuickCommandsData = { commands: nextCommands, groups: nextGroups }
+    const json = JSON.stringify(data, null, 2)
+    atomicWriteFileSync(this.filePath, json)
+    if (!writeBackupSync(this.filePath, json)) {
+      log.warn('Failed to refresh quickCommands.json backup; primary commit succeeded')
     }
+    this.commands = nextCommands
+    this.groups = nextGroups
+    this.revision += 1
+    log.info(`Saved ${nextCommands.length} quick commands and ${nextGroups.length} groups to storage`)
+  }
+
+  getRevision(): number {
+    this.ensureInitialized()
+    return this.revision
+  }
+
+  getLoadError(): JsonStoreLoadError | null {
+    this.ensureInitialized()
+    return this.loadError
   }
 
   // ========== 命令操作 ==========
 
   getAll(): QuickCommand[] {
     this.ensureInitialized()
-    return [...this.commands]
+    return this.commands.map(cmd => cloneJsonValue(cmd))
   }
 
-  saveAll(commands: QuickCommand[]): void {
+  saveAll(commands: QuickCommand[], options: RevisionOptions = {}): void {
     this.ensureInitialized()
-    this.commands = commands
-    this.save()
+    this.assertWritable()
+    this.assertRevision(options.expectedRevision)
+    this.commit(commands.map(cmd => cloneJsonValue(cmd)), this.groups.map(group => cloneJsonValue(group)))
   }
 
-  add(command: QuickCommand): QuickCommand {
+  add(command: QuickCommand, options: RevisionOptions = {}): QuickCommand {
     this.ensureInitialized()
-    if (!command.id) {
-      command.id = uuidv4()
+    this.assertWritable()
+    this.assertRevision(options.expectedRevision)
+    const next = cloneJsonValue(command)
+    if (!next.id) {
+      next.id = uuidv4()
     }
-    this.commands.push(command)
-    this.save()
-    return command
+    this.commit([...this.commands.map(cmd => cloneJsonValue(cmd)), next], this.groups.map(group => cloneJsonValue(group)))
+    return cloneJsonValue(next)
   }
 
-  update(command: QuickCommand): boolean {
+  update(command: QuickCommand, options: RevisionOptions = {}): boolean {
     this.ensureInitialized()
+    this.assertWritable()
+    this.assertRevision(options.expectedRevision)
     const index = this.commands.findIndex(c => c.id === command.id)
     if (index === -1) return false
-    this.commands[index] = command
-    this.save()
+    const next = this.commands.map(cmd => cloneJsonValue(cmd))
+    next[index] = cloneJsonValue(command)
+    this.commit(next, this.groups.map(group => cloneJsonValue(group)))
     return true
   }
 
-  delete(id: string): boolean {
+  delete(id: string, options: RevisionOptions = {}): boolean {
     this.ensureInitialized()
+    this.assertWritable()
+    this.assertRevision(options.expectedRevision)
     const index = this.commands.findIndex(c => c.id === id)
     if (index === -1) return false
-    this.commands.splice(index, 1)
-    this.save()
+    this.commit(
+      this.commands.filter(c => c.id !== id).map(cmd => cloneJsonValue(cmd)),
+      this.groups.map(group => cloneJsonValue(group))
+    )
     return true
   }
 
@@ -768,55 +1265,67 @@ export class QuickCommandsRepository {
 
   getAllGroups(): QuickCommandGroup[] {
     this.ensureInitialized()
-    return [...this.groups].sort((a, b) => a.order - b.order)
+    return this.groups
+      .map(group => cloneJsonValue(group))
+      .sort((a, b) => a.order - b.order)
   }
 
-  addGroup(group: QuickCommandGroup): QuickCommandGroup {
+  addGroup(group: QuickCommandGroup, options: RevisionOptions = {}): QuickCommandGroup {
     this.ensureInitialized()
-    if (!group.id) {
-      group.id = uuidv4()
+    this.assertWritable()
+    this.assertRevision(options.expectedRevision)
+    const next = cloneJsonValue(group)
+    if (!next.id) {
+      next.id = uuidv4()
     }
-    if (group.order === undefined) {
-      group.order = this.groups.length
+    if (next.order === undefined) {
+      next.order = this.groups.length
     }
-    this.groups.push(group)
-    this.save()
-    return group
+    this.commit(
+      this.commands.map(cmd => cloneJsonValue(cmd)),
+      [...this.groups.map(g => cloneJsonValue(g)), next]
+    )
+    return cloneJsonValue(next)
   }
 
-  updateGroup(group: QuickCommandGroup): boolean {
+  updateGroup(group: QuickCommandGroup, options: RevisionOptions = {}): boolean {
     this.ensureInitialized()
+    this.assertWritable()
+    this.assertRevision(options.expectedRevision)
     const index = this.groups.findIndex(g => g.id === group.id)
     if (index === -1) return false
-    this.groups[index] = group
-    this.save()
+    const nextGroups = this.groups.map(g => cloneJsonValue(g))
+    nextGroups[index] = cloneJsonValue(group)
+    this.commit(this.commands.map(cmd => cloneJsonValue(cmd)), nextGroups)
     return true
   }
 
-  deleteGroup(id: string): boolean {
+  deleteGroup(id: string, options: RevisionOptions = {}): boolean {
     this.ensureInitialized()
+    this.assertWritable()
+    this.assertRevision(options.expectedRevision)
     const index = this.groups.findIndex(g => g.id === id)
     if (index === -1) return false
-    this.groups.splice(index, 1)
-    // 同时删除该分组下的命令的 groupId
-    this.commands.forEach(c => {
-      if (c.groupId === id) {
-        c.groupId = undefined
-      }
-    })
-    this.save()
+    // 分组删除与命令解绑必须同一次提交，不能出现「分组已删、命令仍指向它」的中间态
+    this.commit(
+      this.commands.map(cmd => (cmd.groupId === id ? { ...cloneJsonValue(cmd), groupId: undefined } : cloneJsonValue(cmd))),
+      this.groups.filter(g => g.id !== id).map(g => cloneJsonValue(g))
+    )
     return true
   }
 
-  reorderGroups(groupIds: string[]): void {
+  reorderGroups(groupIds: string[], options: RevisionOptions = {}): void {
     this.ensureInitialized()
+    this.assertWritable()
+    this.assertRevision(options.expectedRevision)
+    const nextGroups = this.groups.map(group => cloneJsonValue(group))
     groupIds.forEach((id, order) => {
-      const group = this.groups.find(g => g.id === id)
+      const group = nextGroups.find(g => g.id === id)
       if (group) {
         group.order = order
       }
     })
-    this.save()
+    this.commit(this.commands.map(cmd => cloneJsonValue(cmd)), nextGroups)
   }
 }
 

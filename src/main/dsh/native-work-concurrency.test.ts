@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -14,6 +14,7 @@ interface TaskView {
 }
 interface Snapshot extends TaskView {
   revision: number
+  task: Data
   identity: { instanceId: string; instanceEpoch: number }
   selectedSessionId: string | null; sessions: TaskView[]; activeTaskIds: string[]
   acceptedTaskId: string; accepted?: boolean; duplicate?: boolean
@@ -300,5 +301,150 @@ describe('原生同凭据多会话并行', () => {
       expect(await h.create(OTHER)).toBeTruthy()
       expect((await h.request({ kind: 'targets' }, OTHER)).sessions).toHaveLength(1)
     } finally { h.dispose() }
+  })
+})
+
+describe('原生工作幂等键与状态契约', () => {
+  it('幂等键不能绕过另一个提交已占用的 requestId', async () => {
+    const h = await harness()
+    try {
+      const a = await h.create(), b = await h.create()
+      await h.request({ kind: 'submit', sessionId: a, requestId: 'r1', text: 'first', idempotencyKey: 'K1' })
+      await h.request({ kind: 'submit', sessionId: b, requestId: 'r2', text: 'second', idempotencyKey: 'K2' })
+      await expect(h.request({ kind: 'submit', sessionId: b, requestId: 'r1', text: 'second', idempotencyKey: 'K2' }))
+        .rejects.toMatchObject({ code: 'bad-request' })
+      expect(h.prompts).toHaveLength(2)
+    } finally { h.dispose() }
+  })
+
+  it('同键重试的新 requestId 也须永久关联原提交，省略键不能重放或换正文', async () => {
+    const h = await harness()
+    try {
+      const a = await h.create()
+      const first = await h.request({ kind: 'submit', sessionId: a, requestId: 'original', text: 'same', idempotencyKey: 'K' })
+      await h.request({ kind: 'submit', sessionId: a, requestId: 'alias', text: 'same', idempotencyKey: 'K' })
+      h.start(a); h.end(a)
+      await expect(h.request({ kind: 'submit', sessionId: a, requestId: 'alias', text: 'changed' }))
+        .rejects.toMatchObject({ code: 'bad-request' })
+      expect(await h.request({ kind: 'submit', sessionId: a, requestId: 'alias', text: 'same' }))
+        .toMatchObject({ duplicate: true, acceptedTaskId: first.acceptedTaskId })
+      expect(h.prompts).toHaveLength(1)
+    } finally { h.dispose() }
+  })
+
+  it('同键并发重试在原提交解析期间也立即占用其 requestId', async () => {
+    const blocked = deferred(), entered = deferred()
+    const h = await harness({ resolve: async id => { if (id === 's1') { entered.resolve(); await blocked.promise } } })
+    try {
+      const a = await h.create(), b = await h.create()
+      const first = h.request({ kind: 'submit', sessionId: a, requestId: 'original', text: 'same', idempotencyKey: 'K' })
+      await entered.promise
+      const duplicate = h.request({ kind: 'submit', sessionId: a, requestId: 'alias', text: 'same', idempotencyKey: 'K' })
+      await expect(h.request({ kind: 'submit', sessionId: b, requestId: 'alias', text: 'changed' }))
+        .rejects.toMatchObject({ code: 'bad-request' })
+      blocked.resolve()
+      await Promise.all([first, duplicate])
+      expect(h.prompts).toEqual([a])
+    } finally { blocked.resolve(); h.dispose() }
+  })
+
+  it('同键同参不同 requestId 只 prompt 一次；正文/会话/模式冲突拒绝', async () => {
+    const h = await harness()
+    try {
+      const a = await h.create(), b = await h.create()
+      const first = await h.request({ kind: 'submit', sessionId: a, requestId: 'r1', text: 'same', idempotencyKey: 'K' })
+      const second = await h.request({ kind: 'submit', sessionId: a, requestId: 'r2', text: 'same', idempotencyKey: 'K' })
+      expect(second).toMatchObject({ duplicate: true, accepted: true, acceptedTaskId: first.acceptedTaskId })
+      expect(h.prompts).toEqual([a])
+      await expect(h.request({ kind: 'submit', sessionId: a, requestId: 'r3', text: 'changed', idempotencyKey: 'K' }))
+        .rejects.toMatchObject({ code: 'bad-request' })
+      // 同一文本但不同 API 会话仍是不同参数。
+      await expect(h.request({ kind: 'submit', sessionId: b, requestId: 'r4', text: 'same', idempotencyKey: 'K' }))
+        .rejects.toMatchObject({ code: 'bad-request' })
+      h.start(a); h.end(a)
+      // submit 键不能复用为 resume（操作模式属于参数）。
+      await expect(h.request({ kind: 'resume', sessionId: a, taskId: first.acceptedTaskId, requestId: 'r5', text: 'same', idempotencyKey: 'K' }))
+        .rejects.toMatchObject({ code: 'bad-request' })
+      expect(h.prompts).toEqual([a])
+    } finally { h.dispose() }
+  })
+
+  it('同键并发重试等待同一提交，不重复 prompt', async () => {
+    const blocked = deferred(), entered = deferred()
+    const h = await harness({ resolve: async id => { if (id === 's1') { entered.resolve(); await blocked.promise } } })
+    try {
+      const a = await h.create()
+      const first = h.request({ kind: 'submit', sessionId: a, requestId: 'r1', text: 'x', idempotencyKey: 'K' })
+      await entered.promise
+      const second = h.request({ kind: 'submit', sessionId: a, requestId: 'r2', text: 'x', idempotencyKey: 'K' })
+      blocked.resolve()
+      const [one, two] = await Promise.all([first, second])
+      expect(two).toMatchObject({ duplicate: true, acceptedTaskId: one.acceptedTaskId })
+      expect(h.prompts).toEqual([a])
+    } finally { blocked.resolve(); h.dispose() }
+  })
+
+  it('提交结果未知时同键重放返回原记录，旧 requestId 行为不变', async () => {
+    const h = await harness({ prompt: async () => { throw new Error('receipt lost') } })
+    try {
+      const a = await h.create()
+      await expect(h.request({ kind: 'submit', sessionId: a, requestId: 'r1', text: 'x', idempotencyKey: 'K' }))
+        .rejects.toMatchObject({ code: 'bridge/unavailable' })
+      const unknown = await h.state(a)
+      expect(unknown).toMatchObject({ taskState: 'unconfirmed',
+        task: { submissionState: 'unknown', observationState: 'stale', lastConfirmedState: null } })
+      // 已占用但结果未知：同键重放只返回原记录，不能再执行一次。
+      expect(await h.request({ kind: 'submit', sessionId: a, requestId: 'r2', text: 'x', idempotencyKey: 'K' }))
+        .toMatchObject({ duplicate: true, accepted: false, taskState: 'unconfirmed' })
+      // 未提供键的旧调用继续按 requestId 去重。
+      expect(await h.request({ kind: 'submit', sessionId: a, requestId: 'r1', text: 'x' }))
+        .toMatchObject({ duplicate: true, accepted: false })
+      expect(h.prompts).toHaveLength(1)
+    } finally { h.dispose() }
+  })
+
+  it('终态不被迟到进度回退，旧审批不能用于新任务', async () => {
+    const h = await harness()
+    try {
+      const a = await h.create()
+      const receipt = await h.submit(a, 'once')
+      h.start(a, 1)
+      const pendingApproval = h.approval(a)
+      const approvalId = (await h.state(a)).approvals[0].id
+      h.end(a, 1, 'completed')
+      expect(await pendingApproval).toBe('cancelled')
+      await expect(h.request({ kind: 'approve', id: approvalId, optionId: 'allowed-once' }))
+        .rejects.toMatchObject({ code: 'approval/not-pending' })
+      // 终态之后到达的普通进度与回合开始都必须被忽略。
+      h.start(a, 2)
+      h.emit(a, 'assistant/message', { message: { content: [{ type: 'text', text: 'late progress' }] } })
+      const after = await h.state(undefined, receipt.acceptedTaskId)
+      expect(after).toMatchObject({ taskState: 'completed',
+        task: { submissionState: 'accepted', observationState: 'live', lastConfirmedState: 'completed' } })
+      expect(after.transcript).toEqual([])
+      // 新任务可以用自己的 requestId 正常执行；旧终态不影响名额。
+      h.agents.get(a)!.status = 'idle'
+      const next = await h.submit(a, 'next')
+      expect(next).toMatchObject({ accepted: true, taskState: 'accepted' })
+      expect(h.prompts).toEqual([a, a])
+    } finally { h.dispose() }
+  })
+
+  it('审批超时自动取消，迟到的批准不能作用于任务', async () => {
+    vi.useFakeTimers()
+    const h = await harness()
+    try {
+      const a = await h.create()
+      await h.submit(a)
+      h.start(a)
+      const pending = h.approval(a)
+      const id = (await h.state(a)).approvals[0].id
+      await vi.advanceTimersByTimeAsync(15 * 60 * 1000)
+      expect(await pending).toBe('cancelled')
+      expect((await h.state(a)).approvals).toEqual([])
+      await expect(h.request({ kind: 'approve', id, optionId: 'allowed-once' }))
+        .rejects.toMatchObject({ code: 'approval/not-pending' })
+      expect((await h.state(a)).taskState).toBe('running')
+    } finally { h.dispose(); vi.useRealTimers() }
   })
 })

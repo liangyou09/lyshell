@@ -10,11 +10,19 @@
  * 查询走内存，倒序返回（最新在前）。
  */
 import { app } from 'electron'
-import { dirname, join } from 'path'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'fs'
+import { join } from 'path'
+import { existsSync, unlinkSync } from 'fs'
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
 import { DEFAULT_MCP_AUDIT_RETENTION, isMcpAuditRetentionLimit, type McpAuditRetentionLimit } from '@shared/mcp-audit'
+import {
+  atomicWriteFileSync,
+  cloneJsonValue,
+  JsonStoreLoadError,
+  loadJsonFileSync,
+  readJsonFileSync,
+  writeBackupSync
+} from './atomic-json'
 
 export interface McpAuditRecord {
   id: string
@@ -62,6 +70,7 @@ export class McpAuditRepository {
   private loaded = false
   private saveTimer: NodeJS.Timeout | null = null
   private retentionLimit: McpAuditRetentionLimit = DEFAULT_MCP_AUDIT_RETENTION
+  private loadError: JsonStoreLoadError | null = null
 
   private ensureInitialized(): void {
     if (this.loaded) return
@@ -76,15 +85,16 @@ export class McpAuditRepository {
   }
 
   private loadRetention(): void {
-    if (!existsSync(this.settingsPath)) return
-    try {
-      const settings: unknown = JSON.parse(readFileSync(this.settingsPath, 'utf-8'))
-      if (settings && typeof settings === 'object' && 'retentionLimit' in settings
-          && isMcpAuditRetentionLimit(settings.retentionLimit)) {
-        this.retentionLimit = settings.retentionLimit
-      }
-    } catch (error) {
-      log.warn('[MCP] Failed to load audit retention settings, using default:', error)
+    const result = readJsonFileSync<unknown>(this.settingsPath)
+    if (result.status === 'missing') return
+    if (result.status !== 'ok') {
+      log.warn('[MCP] Failed to load audit retention settings, using default:', result.error)
+      return
+    }
+    const settings = result.value
+    if (settings && typeof settings === 'object' && 'retentionLimit' in settings
+        && isMcpAuditRetentionLimit((settings as { retentionLimit?: unknown }).retentionLimit)) {
+      this.retentionLimit = (settings as { retentionLimit: McpAuditRetentionLimit }).retentionLimit
     }
   }
 
@@ -96,16 +106,8 @@ export class McpAuditRepository {
   setRetentionLimit(limit: McpAuditRetentionLimit): void {
     if (!isMcpAuditRetentionLimit(limit)) throw new Error('Invalid MCP audit retention limit')
     this.ensureInitialized()
-    const tmp = `${this.settingsPath}.tmp`
     // 先确认设置已保存，再裁剪记录；保存失败时不改当前上限和记录。
-    try {
-      mkdirSync(dirname(this.settingsPath), { recursive: true })
-      writeFileSync(tmp, JSON.stringify({ retentionLimit: limit }, null, 2), 'utf-8')
-      renameSync(tmp, this.settingsPath)
-    } catch (error) {
-      try { unlinkSync(tmp) } catch { /* 保留原设置，临时文件不参与读取 */ }
-      throw error
-    }
+    atomicWriteFileSync(this.settingsPath, JSON.stringify({ retentionLimit: limit }, null, 2))
     this.retentionLimit = limit
     if (this.records.length > limit) {
       this.records = this.records.slice(-limit)
@@ -115,30 +117,42 @@ export class McpAuditRepository {
 
   private load(legacyPath: string): void {
     if (!this.filePath) return
-    // 清理上次崩溃可能残留的 .tmp(saveNow 先写 .tmp 再 rename,中途崩溃会留下)。
-    // 不读取它——内容可能不完整,下次 saveNow 会重写;这里只删遗留。
+    // 清理旧版固定 .tmp 残留；新版临时文件名唯一，失败会自行清理，不读取。
     const tmp = `${this.filePath}.tmp`
     if (existsSync(tmp)) {
       try { unlinkSync(tmp) } catch { /* 被占用等:忽略,下次再清 */ }
     }
     // 新目录已有记录时以它为准，避免清空后又导入旧记录。
     const sourcePath = existsSync(this.filePath) ? this.filePath : legacyPath
-    if (!existsSync(sourcePath)) return
-    try {
-      const content = readFileSync(sourcePath, 'utf-8')
-      const data = JSON.parse(content)
-      if (!Array.isArray(data)) return
-      this.records = (data as McpAuditRecord[]).slice(-this.retentionLimit)
-      if (data.length > this.retentionLimit) this.scheduleSave()
-      log.info(`[MCP] Loaded ${this.records.length} audit records`)
-      // 先在 logs 中成功落盘，再删除旧文件；跨盘安装、便携目录也可迁移。
-      if (sourcePath !== this.filePath && this.saveNow()) {
-        try { unlinkSync(legacyPath) } catch (e) {
-          log.warn('[MCP] Failed to remove migrated audit log:', e)
-        }
+    const result = loadJsonFileSync<unknown[]>(sourcePath, {
+      validate: raw => {
+        if (!Array.isArray(raw)) throw new Error('MCP audit log must be a JSON array')
+        return raw
       }
-    } catch (e) {
-      log.error('[MCP] Failed to load audit log:', e)
+    })
+    if (result.status === 'missing') return
+    if (result.status === 'failed') {
+      // 线上文件损坏：保留原件并拒绝后续写盘，绝不拿空数组覆盖；旧位置损坏只告警，不迁移。
+      if (sourcePath === this.filePath) {
+        this.loadError = result.error
+        log.error('[MCP] Failed to load audit log, keeping damaged file untouched:', result.error)
+      } else {
+        log.error('[MCP] Failed to load legacy audit log, keeping it untouched:', result.error)
+      }
+      return
+    }
+    const data = result.value as McpAuditRecord[]
+    this.records = data.slice(-this.retentionLimit)
+    if (data.length > this.retentionLimit) this.scheduleSave()
+    if (result.status === 'recovered') {
+      log.warn(`[MCP] Audit log was corrupt; restored from backup (damaged copy: ${result.preservedPath ?? 'unavailable'})`)
+    }
+    log.info(`[MCP] Loaded ${this.records.length} audit records`)
+    // 先在 logs 中成功落盘，再删除旧文件；跨盘安装、便携目录也可迁移。
+    if (sourcePath !== this.filePath && this.saveNow()) {
+      try { unlinkSync(legacyPath) } catch (e) {
+        log.warn('[MCP] Failed to remove migrated audit log:', e)
+      }
     }
   }
 
@@ -152,13 +166,18 @@ export class McpAuditRepository {
 
   private saveNow(): boolean {
     if (!this.filePath) return false
-    // 原子落盘：先写临时文件再 rename。替换失败时保留原文件，不能直写覆盖，
-    // 否则磁盘写满或进程退出可能留下半份日志，旧记录迁移也会失去可靠的目标。
-    const tmp = `${this.filePath}.tmp`
+    if (this.loadError) {
+      // 损坏的线上日志只读：宁可丢新审计事件，也不能用内存空列表覆盖用户原件。
+      log.error('[MCP] Audit log is damaged; refusing to overwrite:', this.loadError)
+      return false
+    }
+    // 原子落盘：同目录唯一临时文件 + fsync + rename。替换失败时保留原文件，不能直写覆盖。
+    const json = JSON.stringify(this.records, null, 2)
     try {
-      mkdirSync(dirname(this.filePath), { recursive: true })
-      writeFileSync(tmp, JSON.stringify(this.records, null, 2), 'utf-8')
-      renameSync(tmp, this.filePath)
+      atomicWriteFileSync(this.filePath, json)
+      if (!writeBackupSync(this.filePath, json)) {
+        log.warn('[MCP] Failed to refresh audit log backup; primary commit succeeded')
+      }
       return true
     } catch (e) {
       log.error('[MCP] Failed to save audit log:', e)
@@ -188,7 +207,7 @@ export class McpAuditRepository {
     const total = reversed.length
     const offset = Math.max(0, filter.offset ?? 0)
     const limit = Math.max(1, filter.limit ?? 200)
-    return { records: reversed.slice(offset, offset + limit), total }
+    return { records: reversed.slice(offset, offset + limit).map(record => cloneJsonValue(record)), total }
   }
 
   /** 全量去重操作名/会话，供面板下拉选项。不随当前过滤变化--展示全集，便于用户任选。 */
