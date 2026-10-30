@@ -1,5 +1,6 @@
 import { useShelfKeyboardFocus } from '../Layout/task-shelf-surfaces'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { Terminal, type ITerminalOptions } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
@@ -82,16 +83,24 @@ function resolveTerminalAppearance(): Pick<ITerminalOptions, 'theme' | 'minimumC
  * 取"连接目标"的展示信息：SSH/Telnet 用 host:port，串口用 path@baud。
  * 旧实现无条件读 sessionConfig.ssh，导致 telnet/serial 连接时误打印 "unknown:22"。
  */
+interface TerminalConnectionInfo {
+  type: SessionConfig['type'] | undefined
+  host?: string
+  port?: number
+  serialPath?: string
+  baudRate?: number
+}
+
 function getConnectTarget(
-  config: SessionConfig | undefined
+  config: TerminalConnectionInfo | undefined
 ): { kind: 'host'; host: string; port: number } | { kind: 'serial'; path: string; baudRate?: number } {
   switch (config?.type) {
     case 'telnet':
-      return { kind: 'host', host: config.telnet?.host || 'unknown', port: config.telnet?.port || 23 }
+      return { kind: 'host', host: config.host || 'unknown', port: config.port || 23 }
     case 'ssh':
-      return { kind: 'host', host: config.ssh?.host || 'unknown', port: config.ssh?.port || 22 }
+      return { kind: 'host', host: config.host || 'unknown', port: config.port || 22 }
     case 'serial':
-      return { kind: 'serial', path: config.serial?.path || 'unknown', baudRate: config.serial?.baudRate }
+      return { kind: 'serial', path: config.serialPath || 'unknown', baudRate: config.baudRate }
     default:
       return { kind: 'host', host: 'unknown', port: 22 }
   }
@@ -201,12 +210,30 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
   const fontSizeRef = useRef(fontSize)
   const cursorBlink = isCursorBlinkEnabled()
 
-  const { getTerminal, registerTerminal } = useTerminalStore()
-  const { sessions } = useSessionStore()
+  const getTerminal = useTerminalStore(state => state.getTerminal)
+  const registerTerminal = useTerminalStore(state => state.registerTerminal)
+  // 后端配置同步会重建 entry/config；只比较本组件实际消费的稳定字段，
+  // 后台会话备注/活动/cwd 与无关 terminal 注册不会刷新终端主体。
+  const session = useSessionStore(useShallow(state => {
+    const current = state.sessions.find(item => item.id === sessionId)
+    const config = current?.config
+    const endpoint = config?.type === 'ssh' ? config.ssh : config?.type === 'telnet' ? config.telnet : undefined
+    return {
+      status: current?.status,
+      lockedByMcp: current?.lockedByMcp ?? false,
+      type: config?.type,
+      host: endpoint?.host,
+      port: endpoint?.port,
+      serialPath: config?.serial?.path,
+      baudRate: config?.serial?.baudRate
+    }
+  }))
   const themeId = useThemeStore(s => s.themeId)
   const customBase = useThemeStore(s => s.customColors.base)
-  const session = sessions.find(s => s.id === sessionId)
-  const sessionConfig = session?.config
+  const sessionConfig = useMemo<TerminalConnectionInfo>(() => ({
+    type: session.type, host: session.host, port: session.port,
+    serialPath: session.serialPath, baudRate: session.baudRate
+  }), [session.type, session.host, session.port, session.serialPath, session.baudRate])
   const blockInput = session?.lockedByMcp ?? false
   // 迷你宿主（任务架侧栏）的交互额度：登记为不可交互时与 MCP 锁定同路阻塞 ——
   // onData / 右键粘贴读 blockInputRef，xterm 侧走 options.disableStdin。

@@ -6,6 +6,8 @@ import type { Terminal } from '@xterm/xterm'
 import type { FitAddon } from '@xterm/addon-fit'
 import type { SearchAddon, ISearchOptions, ISearchResultChangeEvent } from '@xterm/addon-search'
 import { useTerminalStore } from '@/stores/terminal-store'
+import { useSessionStore } from '@/stores/session-store'
+import { ConnectionStatus, ConnectionType, type SessionConfig } from '@shared/types'
 import i18n from '@/i18n'
 import TerminalView from './TerminalView'
 import ErrorBoundary from '../ErrorBoundary'
@@ -65,6 +67,7 @@ beforeEach(async () => {
 afterEach(() => {
   cleanup()
   useTerminalStore.setState({ terminals: new Map() })
+  useSessionStore.setState({ sessions: [] })
   vi.clearAllTimers()
   vi.useRealTimers()
   vi.unstubAllGlobals()
@@ -80,6 +83,58 @@ function openSearch(): HTMLTextAreaElement {
 }
 
 describe('TerminalView 实时搜索', () => {
+  it.each([1, 10, 30])('%i 个挂载终端不因无关会话或终端注册更新提交，控制锁仍更新输入门控', async count => {
+    const fixture = useTerminalStore.getState().getTerminal('search-test')!
+    const ids = Array.from({ length: count }, (_, index) => `profile-${index}`)
+    const sessions = [...ids, 'background'].map(id => ({
+      id,
+      config: { id, name: id, type: ConnectionType.LOCAL } as SessionConfig,
+      status: ConnectionStatus.DISCONNECTED
+    }))
+    useSessionStore.setState({ sessions })
+    const subscriptions = vi.fn(() => ({ dispose: vi.fn() }))
+    for (const id of ids) {
+      useTerminalStore.getState().registerTerminal(id,
+        { ...fixture.terminal, element: fixture.terminal.element!.cloneNode(true) } as unknown as Terminal,
+        fixture.fitAddon,
+        { ...fixture.searchAddon, onDidChangeResults: subscriptions } as unknown as SearchAddon)
+    }
+    const commits = new Map(ids.map(id => [id, 0]))
+    render(<>{ids.map(id => <React.Profiler key={id} id={id} onRender={() => commits.set(id, commits.get(id)! + 1)}>
+      <TerminalView sessionId={id} />
+    </React.Profiler>)}</>)
+    const initialCommits = new Map(commits)
+    const instances = ids.map(id => useTerminalStore.getState().getTerminal(id))
+    const subscribed = subscriptions.mock.calls.length
+
+    act(() => {
+      useSessionStore.getState().setSessionActivity('background', true)
+      useSessionStore.getState().setSessionCwd('background', '/new-directory')
+      useTerminalStore.getState().registerTerminal('unrelated', fixture.terminal, fixture.fitAddon, fixture.searchAddon)
+    })
+    expect(commits).toEqual(initialCommits)
+    expect(ids.map(id => useTerminalStore.getState().getTerminal(id))).toEqual(instances)
+    expect(subscriptions).toHaveBeenCalledTimes(subscribed)
+
+    // 真实后端同步动作会为每个已保存条目重建 config/entry；只改后台会话的
+    // 展示名也不应让其他终端提交或重装监听。
+    vi.stubGlobal('electronAPI', {
+      ...window.electronAPI,
+      listSessions: vi.fn().mockResolvedValue(sessions.map(item => ({
+        ...item.config,
+        name: item.id === 'background' ? 'background renamed' : item.config.name
+      })))
+    })
+    await act(async () => useSessionStore.getState().syncSessionsFromBackend())
+    expect(useSessionStore.getState().getSession('background')!.config.name).toBe('background renamed')
+    expect(commits).toEqual(initialCommits)
+    expect(subscriptions).toHaveBeenCalledTimes(subscribed)
+
+    act(() => useSessionStore.getState().setSessionMcpLock(ids[0], true))
+    expect(commits.get(ids[0])).toBeGreaterThan(initialCommits.get(ids[0])!)
+    expect(useTerminalStore.getState().getTerminal(ids[0])!.terminal.options.disableStdin).toBe(true)
+    for (const id of ids.slice(1)) expect(commits.get(id)).toBe(initialCommits.get(id))
+  })
   it('键盘焦点在原生小窗口时主终端不抢 Ctrl+F，离开后恢复', () => {
     render(<ErrorBoundary><TerminalView sessionId="search-test" /></ErrorBoundary>)
     const slot = document.createElement('div'); document.body.append(slot)
