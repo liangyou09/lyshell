@@ -1,0 +1,77 @@
+/* 浮层沿用终端主题，以轻底色和独立操作区分状态与接管入口。 */
+.terminal-input-notice {
+  --input-notice-surface: color-mix(in srgb, var(--terminal-bg) 82%, var(--bg-elev));
+  --input-notice-accent: color-mix(in srgb, var(--amber) 60%, var(--text-rack));
+  position: absolute;
+  z-index: 20;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(460px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--text-rack) 18%, var(--input-notice-surface));
+  border-radius: 8px;
+  background: var(--input-notice-surface);
+  color: var(--text-rack);
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  font-size: 12px;
+  line-height: 20px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule) var(--input-notice-surface);
+}
+
+.terminal-input-notice-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 5px;
+  color: var(--input-notice-accent);
+}
+
+.terminal-input-notice-content { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+.terminal-input-notice-copy { flex: 1 1 auto; min-width: 0; }
+.terminal-input-notice-message { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+.terminal-input-notice-error {
+  margin: 6px 0 0;
+  color: color-mix(in srgb, var(--text-rack) 76%, var(--input-notice-surface));
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.terminal-input-notice-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--input-notice-accent) 40%, var(--input-notice-surface));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--amber) 10%, var(--input-notice-surface));
+  color: var(--text-rack);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.terminal-input-notice-action svg { flex: none; width: 14px; height: 14px; }
+.terminal-input-notice-action:hover {
+  border-color: var(--input-notice-accent);
+  background: color-mix(in srgb, var(--amber) 18%, var(--input-notice-surface));
+}
+.terminal-input-notice-action:active { background: color-mix(in srgb, var(--amber) 26%, var(--input-notice-surface)); }
+.terminal-input-notice-action:focus-visible { outline: 2px solid var(--input-notice-accent); outline-offset: 3px; }
+.terminal-input-notice ::selection { background: var(--amber-soft); color: var(--text-rack); }

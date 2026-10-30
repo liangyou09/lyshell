@@ -19,6 +19,7 @@ import { Unicode15Provider } from './unicode15-provider'
 import { registerDocLinkProvider } from '../DocPanel/registerDocLinkProvider'
 import { PALETTE_CLOSED_EVENT } from '../../commands/palette'
 import TerminalSearchPanel from './TerminalSearchPanel'
+import TerminalInputNotice from './TerminalInputNotice'
 import { searchAllTerminals } from './search-all-terminals'
 import { bindSelectionCopy } from './selection-copy'
 import { createTerminalResizeScheduler, type TerminalSize } from './terminal-resize-scheduler'
@@ -1216,11 +1217,7 @@ const TerminalView: React.FC<TerminalViewProps> = ({ sessionId, paneId, shelfHos
   return (
     <div className="w-full h-full bg-[var(--terminal-bg)] relative overflow-hidden">
       {session?.status === ConnectionStatus.CONNECTED && !terminalControl.ready && (!shelfHosted || shelfInteractive) && (
-        <div className="absolute z-20 right-2 top-2 max-w-[min(90%,28rem)] rounded border border-[var(--rule)] bg-[var(--bg-elev)] px-3 py-2 text-xs text-[var(--text-rack)]" role="status">
-          <p>{i18n.t(blockInput ? 'terminal.automationControl' : 'terminal.controlUnavailable')}</p>
-          {terminalControl.error && <p className="mt-1 break-words text-[var(--text-rack-mute)]">{terminalControl.error}</p>}
-          <button type="button" className="mt-2 underline underline-offset-2" onClick={() => { void terminalControl.takeControl() }}>{i18n.t('terminal.takeControl')}</button>
-        </div>
+        <TerminalInputNotice automationHeld={blockInput} error={terminalControl.error} onTakeControl={() => { void terminalControl.takeControl() }} />
       )}
       {/* 终端容器 */}
       <div

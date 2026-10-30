@@ -514,16 +514,30 @@ export function createTaskShelfService(deps: TaskShelfDeps): TaskShelfService {
             let runtimeId = removed.recovery.kind === 'terminal' ? reused.get(request.id) ?? removed.recovery.sessionId : undefined
             let restored: TaskShelfRestored | undefined
             if (removed.recovery.kind === 'terminal' && removed.recovery.localHostId && deps.localHost && (!runtimeId || !deps.session(runtimeId)?.alive)) {
-              // 尚未打开的保活宿主先附着回主区，再取消保存，避免遗留无人可找回的进程。
-              const host = await deps.localHost.probe(removed.recovery.localHostId)
-              if (host?.running) {
-                restored = await restoreTerminal(removed, removed.recovery)
-                if (restored.kind === 'terminal') runtimeId = restored.sessionId
+              try {
+                // 能到达的原宿主先接回主区；这里只附着，不走可能新建 shell 的恢复链。
+                const host = await deps.localHost.probe(removed.recovery.localHostId)
+                if (host?.running) {
+                  const attached = await deps.localHost.restore(removed.recovery.localHostId, removed.title, removed.recovery.cwd)
+                  if (attached.success && attached.id) {
+                    runtimeId = attached.id
+                    reused.set(request.id, runtimeId)
+                    restored = { kind: 'terminal', sessionId: runtimeId }
+                  }
+                }
+              } catch {
+                // 取消保存只删除记录：宿主失联/附着失败不阻止移除，也不推断原进程已结束。
               }
             }
-            if (runtimeId) await deps.retainSession?.(runtimeId, false)
+            let retentionReleased = false
+            if (runtimeId) {
+              try { await deps.retainSession?.(runtimeId, false); retentionReleased = true }
+              catch {
+                // 释放保留标记同样可能遇到失联，不能让不可用的宿主锁住保存记录。
+              }
+            }
             try { deps.repository.remove(request.id) }
-            catch (error) { if (runtimeId) await Promise.resolve(deps.retainSession?.(runtimeId, true)).catch(() => {}); throw error }
+            catch (error) { if (runtimeId && retentionReleased) await Promise.resolve(deps.retainSession?.(runtimeId, true)).catch(() => {}); throw error }
             reused.delete(request.id)
             return { success: true, entries: list(), ...(restored ? { restored } : {}), startup }
           }
