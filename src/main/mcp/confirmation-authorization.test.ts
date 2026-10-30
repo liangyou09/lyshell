@@ -9,6 +9,7 @@ import { scanDestructiveCommand } from './destructive-check'
 import { EventEmitter } from 'events'
 import { operationCapabilities, capabilityEnabled } from './operation-policy'
 import { isLocalApiHost, RequestBudget } from './local-request'
+import { allowsShutdownRelease } from './shutdown-request-policy'
 
 const source = ts.createSourceFile('http-server.ts', readFileSync(join(process.cwd(), 'src/main/mcp/http-server.ts'), 'utf8'), ts.ScriptTarget.Latest, true)
 function script(names: string[]): string {
@@ -27,6 +28,8 @@ describe('MCP 确认期间的授权变化', () => {
     const context = {
       URL, confirmationCredentials: credentials,
       isLocalApiHost, requestBudget: new RequestBudget(),
+      allowsShutdownRelease, businessGate: { phase: 'running', accepts: () => true },
+      pluginHostManager: { isDeactivatingPlugin: () => false },
       bindingCredentialIds: new WeakMap(),
       mcpAuth: { resolveToken: () => valid ? binding : null, credentialId: () => 'fixture-id' },
       getMcpSecuritySettings: () => ({ enabled: true, allowExternalMcpClients: true }),
