@@ -1,0 +1,471 @@
+{
+  "date": "2026-10-30",
+  "baseline": "36739a6deb32bc45bf7dcbf29635cce9c306230c",
+  "reviewedHead": "092162f22e1e4e92686b3244f3ed8b057730659e",
+  "branch": "codex/complete-remediation-20261030",
+  "sourceDiffSha256": "55a9ac064b8c20b0e70f15612ced054cae6502573576f70bc3d15ff0b909a27b",
+  "sourceHashes": {
+    "src/main/lifecycle/fatal-error.ts": "252d118a928b487bf4dc99ce4d9b47e4b2a189fc601d2492f518059943880c17",
+    "src/main/lifecycle/fatal-error.test.ts": "31299bdd9bb55bed87b43b40b1a9c31335f30f2f764009c3dd6678a9b1711eff",
+    "src/main/terminal/session-manager.ts": "b9b7219c62752d6cd21e014a0962b6e309a3b0e52092c5bb3e43a44ec2b8ee90",
+    "src/main/terminal/session-manager.wait-pattern.test.ts": "7e52b3c7afe91b8cef064d918b1d6aec5975e17f83fba89fc89593003d590e8b",
+    "src/renderer/browser/browser-host.ts": "b22ffd46195c81ec6a4404dc5cd9f290c895465fbc3ae2cb4679cb4d7ea1537b",
+    "src/renderer/browser/browser-host.test.ts": "44a4d0a240894d2d5420f81504144859059a1966450140e951d15e62cdc9af21",
+    "src/main/terminal/pattern-isolation.test.ts": "8ed3620abfa7a100a80f6bd2afd51e9614ec9576e58d52d07f89666c094fa46f"
+  },
+  "stable": {
+    "branch": "codex/complete-remediation-20261030",
+    "head": "092162f22e1e4e92686b3244f3ed8b057730659e",
+    "status": "M src/main/lifecycle/fatal-error.test.ts\n M src/main/lifecycle/fatal-error.ts\n M src/main/terminal/pattern-isolation.test.ts\n M src/main/terminal/session-manager.ts\n M src/main/terminal/session-manager.wait-pattern.test.ts\n M src/renderer/browser/browser-host.test.ts\n M src/renderer/browser/browser-host.ts",
+    "diffSha256": "55a9ac064b8c20b0e70f15612ced054cae6502573576f70bc3d15ff0b909a27b",
+    "start": "2026-10-30T09:18:03.729Z",
+    "results": [
+      {
+        "label": "stable-root-vitest",
+        "command": [
+          "D:\\software\\nodejs\\node.exe",
+          "node_modules/vitest/vitest.mjs",
+          "run",
+          "--maxWorkers=1",
+          "--minWorkers=1"
+        ],
+        "head": "092162f22e1e4e92686b3244f3ed8b057730659e",
+        "diffSha256": "55a9ac064b8c20b0e70f15612ced054cae6502573576f70bc3d15ff0b909a27b",
+        "start": "2026-10-30T09:18:03.732Z",
+        "end": "2026-10-30T09:24:53.329Z",
+        "exitCode": 0,
+        "signal": null
+      },
+      {
+        "label": "stable-changed-eslint",
+        "command": [
+          "D:\\software\\nodejs\\node.exe",
+          "node_modules/eslint/bin/eslint.js",
+          "src/main/lifecycle/fatal-error.ts",
+          "src/main/lifecycle/fatal-error.test.ts",
+          "src/main/terminal/session-manager.ts",
+          "src/main/terminal/session-manager.wait-pattern.test.ts",
+          "src/renderer/browser/browser-host.ts",
+          "src/renderer/browser/browser-host.test.ts",
+          "src/main/terminal/pattern-isolation.test.ts"
+        ],
+        "head": "092162f22e1e4e92686b3244f3ed8b057730659e",
+        "diffSha256": "55a9ac064b8c20b0e70f15612ced054cae6502573576f70bc3d15ff0b909a27b",
+        "start": "2026-10-30T09:24:53.337Z",
+        "end": "2026-10-30T09:24:55.210Z",
+        "exitCode": 0,
+        "signal": null
+      },
+      {
+        "label": "stable-renderer-typecheck",
+        "command": [
+          "D:\\software\\nodejs\\node.exe",
+          "node_modules/typescript/bin/tsc",
+          "--noEmit"
+        ],
+        "head": "092162f22e1e4e92686b3244f3ed8b057730659e",
+        "diffSha256": "55a9ac064b8c20b0e70f15612ced054cae6502573576f70bc3d15ff0b909a27b",
+        "start": "2026-10-30T09:24:55.211Z",
+        "end": "2026-10-30T09:25:05.762Z",
+        "exitCode": 0,
+        "signal": null
+      },
+      {
+        "label": "stable-main-typecheck",
+        "command": [
+          "D:\\software\\nodejs\\node.exe",
+          "node_modules/typescript/bin/tsc",
+          "-p",
+          "tsconfig.node.json",
+          "--noEmit"
+        ],
+        "head": "092162f22e1e4e92686b3244f3ed8b057730659e",
+        "diffSha256": "55a9ac064b8c20b0e70f15612ced054cae6502573576f70bc3d15ff0b909a27b",
+        "start": "2026-10-30T09:25:05.763Z",
+        "end": "2026-10-30T09:25:08.178Z",
+        "exitCode": 0,
+        "signal": null
+      },
+      {
+        "label": "stable-architecture",
+        "command": [
+          "D:\\software\\nodejs\\node.exe",
+          "scripts/check-architecture-boundaries.cjs"
+        ],
+        "head": "092162f22e1e4e92686b3244f3ed8b057730659e",
+        "diffSha256": "55a9ac064b8c20b0e70f15612ced054cae6502573576f70bc3d15ff0b909a27b",
+        "start": "2026-10-30T09:25:08.179Z",
+        "end": "2026-10-30T09:25:10.874Z",
+        "exitCode": 0,
+        "signal": null
+      }
+    ],
+    "finalHead": "092162f22e1e4e92686b3244f3ed8b057730659e",
+    "finalStatus": "M src/main/lifecycle/fatal-error.test.ts\n M src/main/lifecycle/fatal-error.ts\n M src/main/terminal/pattern-isolation.test.ts\n M src/main/terminal/session-manager.ts\n M src/main/terminal/session-manager.wait-pattern.test.ts\n M src/renderer/browser/browser-host.test.ts\n M src/renderer/browser/browser-host.ts",
+    "finalDiffSha256": "55a9ac064b8c20b0e70f15612ced054cae6502573576f70bc3d15ff0b909a27b",
+    "sourceUnchanged": true,
+    "end": "2026-10-30T09:25:11.081Z"
+  },
+  "build": {
+    "task": "harness-final-build",
+    "purpose": "Final build execution only. No code review, no source/test/config edits, no dependency changes.",
+    "workspace": "C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell",
+    "command": "npm run build",
+    "resolvedScript": "electron-vite build",
+    "branch": "codex/complete-remediation-20261030",
+    "head": "092162f22e1e4e92686b3244f3ed8b057730659e",
+    "headBefore": "092162f22e1e4e92686b3244f3ed8b057730659e",
+    "headAfter": "092162f22e1e4e92686b3244f3ed8b057730659e",
+    "headUnchanged": true,
+    "startUtc": "2026-10-30T09:26:38.975Z",
+    "endUtc": "2026-10-30T09:26:51.997Z",
+    "durationMs": 12972,
+    "exitCode": 0,
+    "result": "success",
+    "uncommittedDiff": {
+      "method": "git diff --binary | sha256sum (diff body never read)",
+      "fileCount": 7,
+      "bytes": 15083,
+      "sha256Before": "55a9ac064b8c20b0e70f15612ced054cae6502573576f70bc3d15ff0b909a27b",
+      "sha256After": "55a9ac064b8c20b0e70f15612ced054cae6502573576f70bc3d15ff0b909a27b",
+      "identicalBeforeAfter": true,
+      "bytesAfter": 15083,
+      "files": [
+        "src/main/lifecycle/fatal-error.ts",
+        "src/main/lifecycle/fatal-error.test.ts",
+        "src/main/terminal/session-manager.ts",
+        "src/main/terminal/session-manager.wait-pattern.test.ts",
+        "src/renderer/browser/browser-host.ts",
+        "src/renderer/browser/browser-host.test.ts",
+        "src/main/terminal/pattern-isolation.test.ts"
+      ]
+    },
+    "artifacts": {
+      "main": {
+        "modulesTransformed": 901,
+        "viteBuildSeconds": 4.63,
+        "entry": "dist/main/index.js",
+        "entryBytes": 2313692
+      },
+      "preload": {
+        "modulesTransformed": 20,
+        "viteBuildMs": 73,
+        "entry": "dist/preload/index.js",
+        "entryBytes": 38847
+      },
+      "renderer": {
+        "modulesTransformed": 621,
+        "viteBuildSeconds": 6.5,
+        "entry": "dist/renderer/index.html",
+        "entryBytes": 2905
+      },
+      "distFileCount": 87,
+      "distWrittenLocal": "2026-10-30 17:26:45..51 +08:00"
+    },
+    "environment": {
+      "node": "v24.15.0",
+      "npm": "11.12.1",
+      "vite": "v5.4.21"
+    },
+    "log": {
+      "path": "C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell/tmp/codex-review-validation/harness-final-build.log",
+      "lines": 104,
+      "capturesStdoutAndStderr": true,
+      "errorWarningFailMatches": 0
+    },
+    "report": "C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell/tmp/codex-review-validation/harness-final-build.md",
+    "runnerScript": "C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell/tmp/codex-review-validation/run-harness-final-build.sh",
+    "scope": {
+      "sourceModifiedByThisRun": false,
+      "gitStateChanges": false,
+      "dependencyInstall": false,
+      "codeReviewPerformed": false,
+      "previousEvidenceOverwritten": false,
+      "previousEvidence": [
+        "tmp/codex-review-validation/harness-build.log",
+        "tmp/codex-review-validation/harness-build.json",
+        "tmp/codex-review-validation/harness-build.md"
+      ]
+    }
+  },
+  "runtime": {
+    "sourceDiffSha256": "55a9ac064b8c20b0e70f15612ced054cae6502573576f70bc3d15ff0b909a27b",
+    "results": [
+      {
+        "label": "native-smoke",
+        "script": "scripts/run-native-check.cjs",
+        "start": "2026-10-30T09:28:12.542Z",
+        "end": "2026-10-30T09:28:13.125Z",
+        "status": 0,
+        "signal": null,
+        "sourceDiffSha256": "55a9ac064b8c20b0e70f15612ced054cae6502573576f70bc3d15ff0b909a27b",
+        "log": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\codex-review-validation\\native-smoke.log"
+      },
+      {
+        "label": "windows-job-smoke",
+        "script": "scripts/run-windows-command-smoke.cjs",
+        "start": "2026-10-30T09:28:13.131Z",
+        "end": "2026-10-30T09:28:16.805Z",
+        "status": 0,
+        "signal": null,
+        "sourceDiffSha256": "55a9ac064b8c20b0e70f15612ced054cae6502573576f70bc3d15ff0b909a27b",
+        "log": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\codex-review-validation\\windows-job-smoke.log"
+      },
+      {
+        "label": "electron-smoke",
+        "script": "scripts/run-electron-smoke.cjs",
+        "start": "2026-10-30T09:28:16.814Z",
+        "end": "2026-10-30T09:28:18.935Z",
+        "status": 0,
+        "signal": null,
+        "sourceDiffSha256": "55a9ac064b8c20b0e70f15612ced054cae6502573576f70bc3d15ff0b909a27b",
+        "log": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\codex-review-validation\\electron-smoke.log"
+      },
+      {
+        "label": "browser-smoke",
+        "script": "scripts/run-browser-host-smoke.cjs",
+        "start": "2026-10-30T09:28:18.943Z",
+        "end": "2026-10-30T09:28:26.948Z",
+        "status": 0,
+        "signal": null,
+        "sourceDiffSha256": "55a9ac064b8c20b0e70f15612ced054cae6502573576f70bc3d15ff0b909a27b",
+        "log": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\codex-review-validation\\browser-smoke.log"
+      }
+    ]
+  },
+  "electron": {
+    "ok": true,
+    "checks": {
+      "builtWorkerLoaded": true,
+      "literalMatch": true,
+      "invalidPattern": true,
+      "workerExitConfirmed": true,
+      "hostileRegexInterrupted": true,
+      "heartbeats": 7,
+      "rendererIsolation": true,
+      "trustedPreload": true
+    },
+    "shutdownRequested": true,
+    "platform": "win32",
+    "electron": "43.7.11",
+    "node": "24.21.0"
+  },
+  "windows": {
+    "nonce": "319a6a62-3c09-4c65-a622-717581cd1bd9",
+    "runDir": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\tmp\\windows-command-smoke\\run-fJlWEU",
+    "startedAt": "2026-10-30T09:28:13.193Z",
+    "sourceSha256": "4cd282e95fad1066b759c5f878054946b97689e1b974436da7ac2f2fcf4bdfeb",
+    "pid": 31860,
+    "exitCode": 0,
+    "signal": null,
+    "timedOut": false,
+    "endedAt": "2026-10-30T09:28:16.789Z",
+    "ok": true,
+    "inner": {
+      "ok": true,
+      "nonce": "319a6a62-3c09-4c65-a622-717581cd1bd9",
+      "startedAt": "2026-10-30T09:28:13.351Z",
+      "runnerPid": 31860,
+      "platform": "win32",
+      "arch": "x64",
+      "electron": "43.7.11",
+      "node": "24.21.0",
+      "modulesAbi": "148",
+      "koffiLoadedInElectron": true,
+      "workerPath": "C:\\Users\\69534\\.codex\\worktrees\\complete-remediation-20261030\\LyShell\\dist\\main\\localCommandWorker.js",
+      "workerSha256": "9fb3bd183c85304f0b2689f5d3614d17376e9eb0cf4133a5247f14adeccaad55",
+      "coreSha256": "f9cf47408da9d5e9cbf9fbbc476238a1e1fa00e31f3773e4ff74d31198401cbf",
+      "cases": [
+        {
+          "name": "utf8-and-exit-seven",
+          "result": {
+            "state": "fulfilled",
+            "value": {
+              "output": "标准输出：中文\n标准错误：中文\n",
+              "exitCode": 7
+            }
+          },
+          "resultAt": "2026-10-30T09:28:13.501Z",
+          "resourceClosed": {
+            "state": "closed",
+            "localClosed": true,
+            "remoteTerminated": "confirmed"
+          },
+          "resourceClosedAt": "2026-10-30T09:28:13.555Z",
+          "checks": {
+            "chineseStdout": true,
+            "chineseStderr": true,
+            "actualExitCode": 7
+          }
+        },
+        {
+          "name": "timeout-background-descendants",
+          "result": {
+            "state": "rejected",
+            "error": {
+              "name": "OperationError",
+              "message": "Command timeout after 3000ms; inspect side effects before retrying",
+              "code": "OUTCOME_UNKNOWN",
+              "reason": "COMMAND_TIMEOUT",
+              "retryDisposition": "reconcile-first",
+              "partialOutput": ""
+            }
+          },
+          "reason": "COMMAND_TIMEOUT",
+          "resultAt": "2026-10-30T09:28:16.610Z",
+          "resourceClosed": {
+            "state": "closed",
+            "localClosed": true,
+            "remoteTerminated": "confirmed"
+          },
+          "resourceClosedAt": "2026-10-30T09:28:16.610Z",
+          "backgroundPids": [
+            {
+              "role": "tree-root",
+              "pid": 45020,
+              "state": "absent",
+              "errorCode": "ESRCH",
+              "parentPid": 43708
+            },
+            {
+              "role": "tree-child",
+              "pid": 2112,
+              "state": "absent",
+              "errorCode": "ESRCH",
+              "parentPid": 45020
+            },
+            {
+              "role": "tree-grandchild",
+              "pid": 28536,
+              "state": "absent",
+              "errorCode": "ESRCH",
+              "parentPid": 2112
+            }
+          ]
+        },
+        {
+          "name": "pre-abort-no-dispatch",
+          "result": {
+            "state": "rejected",
+            "error": {
+              "name": "Error",
+              "message": "Command aborted"
+            }
+          },
+          "resultAt": "2026-10-30T09:28:16.614Z",
+          "resourceClosed": {
+            "state": "closed",
+            "localClosed": true,
+            "remoteTerminated": "not-dispatched"
+          },
+          "resourceClosedAt": "2026-10-30T09:28:16.614Z",
+          "markerExists": false
+        }
+      ],
+      "endedAt": "2026-10-30T09:28:16.777Z"
+    }
+  },
+  "browser": {
+    "platform": "win32",
+    "electron": "43.7.11",
+    "checks": {
+      "trustedPreload": true,
+      "readonlyProtection": true,
+      "navigation": true,
+      "capture": true,
+      "detachAndDestroyConfirmed": true
+    },
+    "memory": {
+      "baseline": [
+        {
+          "type": "Browser",
+          "workingSetSize": 129960,
+          "peakWorkingSetSize": 130640
+        },
+        {
+          "type": "GPU",
+          "workingSetSize": 89772,
+          "peakWorkingSetSize": 93628
+        },
+        {
+          "type": "Utility",
+          "workingSetSize": 55344,
+          "peakWorkingSetSize": 55344
+        },
+        {
+          "type": "Tab",
+          "workingSetSize": 147952,
+          "peakWorkingSetSize": 167052
+        }
+      ],
+      "nativeView": [
+        {
+          "type": "Browser",
+          "workingSetSize": 231216,
+          "peakWorkingSetSize": 231852
+        },
+        {
+          "type": "GPU",
+          "workingSetSize": 122796,
+          "peakWorkingSetSize": 126440
+        },
+        {
+          "type": "Utility",
+          "workingSetSize": 56996,
+          "peakWorkingSetSize": 57000
+        },
+        {
+          "type": "Tab",
+          "workingSetSize": 162756,
+          "peakWorkingSetSize": 170784
+        },
+        {
+          "type": "Tab",
+          "workingSetSize": 99312,
+          "peakWorkingSetSize": 99312
+        }
+      ],
+      "afterNativeClose": [
+        {
+          "type": "Browser",
+          "workingSetSize": 236560,
+          "peakWorkingSetSize": 264484
+        },
+        {
+          "type": "GPU",
+          "workingSetSize": 137156,
+          "peakWorkingSetSize": 137156
+        },
+        {
+          "type": "Utility",
+          "workingSetSize": 57036,
+          "peakWorkingSetSize": 57036
+        },
+        {
+          "type": "Tab",
+          "workingSetSize": 162856,
+          "peakWorkingSetSize": 170784
+        }
+      ]
+    },
+    "comparisonUnverified": "Comparison webview deadline exceeded",
+    "ok": true
+  },
+  "nativeControl": {
+    "identity": {
+      "instanceId": "e6b68e6f-0f31-4686-87a8-bda51049e9a6",
+      "instanceEpoch": 1793345157163
+    },
+    "sessionId": "session-a14c4959-d5cd-451e-b574-23bfa6de7308",
+    "taskId": "99651241-982f-4cdb-beee-bca6685bf1ac",
+    "attemptId": "1eb1a850-f0be-4061-ae40-155a4233189b",
+    "taskState": "completed",
+    "disconnect": {
+      "success": true,
+      "backendRunning": true,
+      "backendReady": true,
+      "observedAt": "2026-10-30T09:28:24.542Z"
+    },
+    "collectedAt": "2026-10-30T09:30:15.716Z"
+  }
+}

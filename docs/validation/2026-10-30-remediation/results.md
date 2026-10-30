@@ -2,6 +2,8 @@
 
 日期：2026-10-30，北京时间。分支：`codex/complete-remediation-20261030`。
 
+后续独立 Codex 复审、追加修复及最新完整回归见 [复审记录](codex-review.md)；本文保留前一阶段的历史提交与验证事实。
+
 工作树：`C:/Users/69534/.codex/worktrees/complete-remediation-20261030/LyShell`。
 原目录 `D:/workspace/claude/LyShell` 的未提交源码、测试与计划文件均保留，没有复制其中的源码修改。
 

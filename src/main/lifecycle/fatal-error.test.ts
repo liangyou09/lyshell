@@ -274,3 +274,27 @@ describe('致命退出（真实子进程）', () => {
     expect(markers.sync).toBe(true)
   })
 })
+
+describe('复审回归：结构化凭据诊断', () => {
+  it('JSON 引号键、转义值和 Basic 凭据均不进入消息或堆栈', () => {
+    const secrets = ['pa"ss\\ word', 'json-token-value', 'json-api-key', 'dXNlcjpwYXNz']
+    const text = JSON.stringify({ password: secrets[0], token: secrets[1], api_key: secrets[2], Authorization: `Basic ${secrets[3]}` })
+    const error = new Error(text)
+    error.stack = `Error: ${text}`
+    const report = buildFatalReport(error, 'uncaughtException')
+    for (const secret of secrets) {
+      expect(report.message).not.toContain(secret)
+      expect(report.stack).not.toContain(secret)
+    }
+    expect(report.message).not.toContain('ss\\\\ word')
+    expect(report.message).toContain('[redacted]')
+    expect(redactDiagnosticText("'password': 'single quoted secret'")).not.toContain('single quoted secret')
+  })
+
+  it('截断发生在带空格的引号凭据内部时不泄漏剩余片段', () => {
+    const secret = 'secret-fragment '.repeat(FATAL_MESSAGE_MAX)
+    const report = buildFatalReport(`password: "${secret}"`, 'unhandledRejection')
+    expect(report.message).not.toContain('secret-fragment')
+    expect(report.message).toContain('[redacted]')
+  })
+})

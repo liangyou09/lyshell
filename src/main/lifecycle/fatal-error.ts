@@ -37,9 +37,10 @@ export interface FatalReportOptions {
   pid?: number
 }
 
-const AUTHORIZATION_SCHEME = /\b((?:proxy-)?authorization)\b(\s*[:=]\s*)(basic|bearer|token)\s+[A-Za-z0-9._~+/=-]{8,}/gi
-const SECRET_ASSIGNMENT = /\b(token|secret|password|passwd|api[-_ ]?key|credential|private[-_ ]?key)\b(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)/gi
-const BEARER_TOKEN = /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi
+const AUTHORIZATION_SCHEME = /\b((?:proxy-)?authorization)\b(["']?\s*[:=]\s*["']?)(basic|bearer|token)\s+[A-Za-z0-9._~+/=-]+/gi
+// 引号键、转义引号和截断后未闭合的值均整体脱敏，避免只吞掉凭据首个单词。
+const SECRET_ASSIGNMENT = /\b(token|secret|password|passwd|api[-_ ]?key|credential|private[-_ ]?key)\b(["']?\s*[:=]\s*)("(?:\\.|[^"\\])*(?:"|\\?$)|'(?:\\.|[^'\\])*(?:'|\\?$)|[^\s,;]+)/gi
+const BEARER_TOKEN = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi
 
 /**
  * 脱敏：诊断只保留定位所需信息，凭据类片段统一替换。

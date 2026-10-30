@@ -473,3 +473,65 @@ describe('R1 定点修正：参数形态、期限、未知结果与等待器配�
       .rejects.toMatchObject({ code: 'FORBIDDEN' })
   })
 })
+
+describe('复审回归：输入派发前取消', () => {
+  it('没有 pattern 且调用前已取消时不发送输入', async () => {
+    const { manager, session } = await fixture()
+    const control = await manager.acquireInput(session.id, { principalId: 'gui:abort', source: 'gui' })
+    const controller = new AbortController()
+    controller.abort()
+    const write = vi.spyOn(session.connector!, 'writeConfirmed')
+    await expect(manager.sendAndWait(session.id, { text: 'reboot\n', control, signal: controller.signal }))
+      .rejects.toMatchObject({ code: 'RESOURCE_LIMIT', reason: 'MATCH_CANCELLED', retryDisposition: 'safe' })
+    expect(write).not.toHaveBeenCalled()
+    expect(session.pendingWaitLock).toBeFalsy()
+  })
+
+  it('控制权复核的 await 期间取消后不发送输入，并释放锁和配额', async () => {
+    const { manager, session } = await fixture()
+    const control = await manager.acquireInput(session.id, { principalId: 'gui:abort', source: 'gui' })
+    const controller = new AbortController()
+    const original = manager.inputControl.assertInput.bind(manager.inputControl)
+    vi.spyOn(manager.inputControl, 'assertInput').mockImplementationOnce(async handle => {
+      controller.abort()
+      return original(handle)
+    })
+    const write = vi.spyOn(session.connector!, 'writeConfirmed')
+    await expect(manager.sendAndWait(session.id, { text: 'reboot\n', control, signal: controller.signal }))
+      .rejects.toMatchObject({ reason: 'MATCH_CANCELLED', retryDisposition: 'safe' })
+    expect(write).not.toHaveBeenCalled()
+    expect(session.pendingWaitLock).toBe(false)
+    expect(vi.mocked(patternMatcher.acquireWaiter).mock.results[0].value.release).toHaveBeenCalledOnce()
+  })
+
+  it('输入队列等待期间取消后不发送排队输入', async () => {
+    const { manager, session } = await fixture()
+    const control = await manager.acquireInput(session.id, { principalId: 'gui:abort', source: 'gui' })
+    const controller = new AbortController()
+    let unblock!: () => void
+    const write = vi.spyOn(session.connector!, 'writeConfirmed').mockImplementationOnce(() => new Promise<void>(resolve => { unblock = resolve }))
+    const enqueue = vi.spyOn(manager, 'writeToSession')
+    const first = manager.writeToSession(session.id, 'first\n', control)
+    await vi.waitFor(() => expect(write).toHaveBeenCalledOnce())
+    const pending = manager.sendAndWait(session.id, { text: 'reboot\n', control, signal: controller.signal })
+    const outcome = pending.catch((error: unknown) => error)
+    await vi.waitFor(() => expect(enqueue).toHaveBeenCalledTimes(2))
+    controller.abort()
+    unblock()
+    await first
+    await expect(outcome).resolves.toMatchObject({ reason: 'MATCH_CANCELLED', retryDisposition: 'safe' })
+    expect(write).toHaveBeenCalledOnce()
+    expect(session.pendingWaitLock).toBe(false)
+  })
+
+  it('已确认首片后取消不会发送下一片，结果仍要求对账', async () => {
+    const { manager, session } = await fixture()
+    const control = await manager.acquireInput(session.id, { principalId: 'gui:abort', source: 'gui' })
+    const controller = new AbortController()
+    const write = vi.spyOn(session.connector!, 'writeConfirmed').mockImplementationOnce(async () => { controller.abort() })
+    await expect(manager.sendAndWait(session.id, { text: 'x'.repeat(40 * 1024), control, signal: controller.signal }))
+      .rejects.toMatchObject({ code: 'OUTCOME_UNKNOWN', retryDisposition: 'reconcile-first' })
+    expect(write).toHaveBeenCalledOnce()
+    expect(session.pendingWaitLock).toBe(false)
+  })
+})

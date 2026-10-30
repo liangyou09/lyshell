@@ -135,3 +135,19 @@ describe('browser host renderer adapters', () => {
   })
 
 })
+
+it('rejects an old capture reply delivered after a newer navigation snapshot', async () => {
+  let finishCapture!: (result: unknown) => void
+  const request = vi.fn((value: { kind: string }) => value.kind === 'capture'
+    ? new Promise(resolve => { finishCapture = resolve })
+    : Promise.resolve({ success: true, snapshot: { ...state(3), url: 'https://new.test/' } }))
+  Object.defineProperty(window, 'electronAPI', { value: { browserHostRequest: request }, configurable: true })
+  const host = new ReadonlyViewBrowserHost(state())
+  const captured = host.capture()
+  await host.navigate('https://new.test/')
+  finishCapture({ success: true, snapshot: state(2), image: 'data:image/png;base64,old-document' })
+  try {
+    await expect(captured).rejects.toThrow('changed')
+    expect(host.snapshot().url).toBe('https://new.test/')
+  } finally { host.dispose() }
+})

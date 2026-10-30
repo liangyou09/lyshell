@@ -96,6 +96,8 @@ export class ReadonlyViewBrowserHost implements BrowserHostClient {
     if (!closingRequest && (this.disposed || this.closing || epoch !== this.operationEpoch)) throw new Error('The browser host proxy is detached')
     const snapshot = result.snapshot
     if (snapshot && (snapshot.handle.hostId !== this.handle.hostId || snapshot.handle.generation !== this.handle.generation || snapshot.handle.kind !== this.handle.kind)) throw new Error('The browser host generation has changed')
+    // 快照本身可忽略旧 revision，但截图内容不能以新文档的状态返回。
+    if (request.kind === 'capture' && snapshot && snapshot.revision < this.snapshotValue.revision) throw new Error('The browser changed before preview capture was delivered')
     if (snapshot && snapshot.revision >= this.snapshotValue.revision) {
       this.snapshotValue = snapshot
       if (snapshot.phase === 'closed') { this.operationEpoch++; this.stopObserving() }

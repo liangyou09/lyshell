@@ -1173,6 +1173,7 @@ export class SessionManager extends EventEmitter {
 
     // ── 1) 同步形态校验：此时未取锁、未取配额、未写终端 ──────────────────────
     if (!options || typeof options !== 'object') throw new OperationError('INVALID_ARGUMENT', 'Invalid wait options')
+    if (options.signal?.aborted) throw new PatternMatchError('MATCH_CANCELLED')
     if (typeof options.text !== 'string') throw new OperationError('INVALID_ARGUMENT', 'Wait text must be a string')
     if (options.text.length > 2 * 1024 * 1024) throw new OperationError('INVALID_ARGUMENT', 'Wait text exceeds the maximum length')
     // 显式给了非 string 的 pattern（null / number / object）是参数错误：
@@ -1285,7 +1286,8 @@ export class SessionManager extends EventEmitter {
       startCursor = buffer.getWriteCursor()
       outputEpoch = buffer.getOutputEpoch()
       if (processedText) await this.writeToSession(id, processedText, options.control, () => {
-        // 写入队列也消耗总期限；每个实际分片派发前仍走相同的受控授权路径。
+        // 取消和期限均在实际分片派发前复核；已确认的部分输入仍由 dispatchInput 报 unknown。
+        if (options.signal?.aborted) throw new PatternMatchError('MATCH_CANCELLED')
         if (performance.now() >= deadline) throw new PatternMatchError('MATCH_QUEUE_TIMEOUT')
         return options.authorizeInput?.() ?? true
       })
@@ -1568,6 +1570,7 @@ export class SessionManager extends EventEmitter {
   ): Promise<void> {
     /** 同步可见的写前状态（含缓冲区实例）；任何一项不符都不能写终端。 */
     const assertReadySync = (): void => {
+      if (options.signal?.aborted) throw new PatternMatchError('MATCH_CANCELLED')
       if (this.closing) throw new OperationError('FORBIDDEN', 'Application is shutting down')
       if (this.sessions.get(id) !== session || session.connector !== connector || session.status !== ConnectionStatus.CONNECTED) {
         throw new OperationError('STALE_GENERATION', 'Terminal changed before sending input', 'safe')

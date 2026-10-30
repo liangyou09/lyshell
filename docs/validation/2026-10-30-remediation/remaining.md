@@ -4,7 +4,7 @@
 
 | 项目 | 当前事实 | 后续验收 |
 | --- | --- | --- |
-| GitHub Actions 跨平台矩阵 | 配置已提交；本轮未推送，也未触发远程 CI | Ubuntu/Windows/macOS × Node 22.12/24 真正执行并关联最终发布提交 |
+| GitHub Actions 跨平台矩阵 | 配置已提交；独立复审交付见 codex-review.md，远程矩阵尚未执行 | Ubuntu/Windows/macOS × Node 22.12/24 真正执行并关联最终发布提交 |
 | 安装与升级 | 未签名 Windows --dir 的实际 asar 应用启动、Worker 和退出已验；未执行安装 | 生成正式安装器，在目标设备安装/升级、启动、退出/恢复及卸载；mac/Linux 安装产物未验 |
 | 原生模块/平台范围 | Windows x64、Electron 43.7.11 实测；CI 原生 job 已配置 | 各平台/架构自身 ABI 验证，不复用跨 OS 二进制 |
 | 真实终端与传输 | 保护性逻辑回归通过，未使用真实 SSH/Telnet/SFTP/串口设备 | 网络中断、认证失败、真实远端命令与文件提交恢复；物理串口与硬件输入 |
