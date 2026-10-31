@@ -1,4 +1,12 @@
 import log from 'electron-log'
+import { parseTaskWorkbenchRequest } from '@shared/task-workbench-validation'
+import type { TaskWorkbenchRequest } from '@shared/task-workbench'
+
+export function validateTaskWorkbenchRequest(raw: unknown): TaskWorkbenchRequest {
+  const request = parseTaskWorkbenchRequest(raw)
+  if (!request) throw new ValidationError('Invalid task workbench request')
+  return request
+}
 export function validateDiagnosticExport(raw: unknown): void {
   const value = assertObject(raw, 'diagnostics')
   if (value.kind !== 'export' || Object.keys(value).length !== 1) throw new ValidationError('Invalid diagnostic export request')

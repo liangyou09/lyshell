@@ -11,6 +11,7 @@ import { applicationCallers } from './security/application-caller'
 // 挪后静默失效。播种本身不在 import 期跑，见下方 seedDevConfigFromProd 调用点
 import { seedDevConfigFromProd } from './dev-user-data'
 import './logging'
+import { initializeTaskWorkbench, stopTaskWorkbench, flushTaskWorkbench } from './task-workbench/runtime'
 import { startDemoStage } from './demo-stage'
 import { setTerminalCaptureWindow } from './mcp/terminal-screenshot'
 import { startMcpHttpServer, stopMcpHttpServer, stopCommandExecutions } from './mcp/http-server'
@@ -966,6 +967,7 @@ app.whenReady().then(async () => {
   // 初始化下载历史存储
   await downloadHistory.init()
   log.info('Download history initialized')
+  await initializeTaskWorkbench()
 
   // 启动 MCP HTTP 服务器（必须在创建任何会话/窗口前完成，
   // 否则用户在窗口中开本地终端时端口尚未就绪，session-token env 无法注入）
@@ -1189,6 +1191,9 @@ const QUIT_DSH_EXIT_GRACE_MS = KILL_STEP_TIMEOUT_FLOOR_MS + 500
 // final 阶段按该 revision await flush（等待进入总期限）。
 let mcpAuditShutdownRevision: number | undefined
 let commandStopPromise: Promise<void> | undefined
+
+appLifecycle.registerStep('prepare', 'task-workbench-stop-dispatch', () => stopTaskWorkbench())
+appLifecycle.registerStep('final', 'task-workbench-flush', () => flushTaskWorkbench())
 
 appLifecycle.registerStep('prepare', 'terminal-input-revocation', () =>
   // 顺序不变：先回收未保存页签、再撤输入、最后归档。失败项不吞：全部执行完后以固定

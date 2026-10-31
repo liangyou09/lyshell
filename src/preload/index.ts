@@ -5,6 +5,7 @@ import type { ControlHandle } from '@shared/terminal-control'
 import type { TerminalControlRequest, TerminalControlResult } from '@shared/terminal-control-request'
 import type { ProjectSceneRequest, ProjectSceneResult } from '@shared/project-scene'
 import type { TaskShelfRequest, TaskShelfResult } from '@shared/task-shelf'
+import type { TaskWorkbenchRequest, TaskWorkbenchReply, TaskWorkbenchSnapshot } from '@shared/task-workbench'
 import type { ShelfBrowserRequest, ShelfBrowserResult } from '@shared/shelf-browser'
 import type { BrowserHostRequest, BrowserHostResult } from '@shared/browser-host'
 import type { WorkbenchActivityRequest, WorkbenchActivitySnapshot } from '@shared/workbench-activity'
@@ -513,6 +514,12 @@ const electronAPI = {
   // 成功结果可带 startup（启动归档状态）与 activation（分类统计）；失败可带 code，
   // 例如 INITIALIZATION_BLOCKED / STALE_BOOT / CONFLICT。通道与载荷类型未变，仅新增可选字段。
   taskShelfRequest: (request: TaskShelfRequest): Promise<TaskShelfResult> => ipcRenderer.invoke('task-shelf:request', request),
+  taskWorkbenchRequest: (request: TaskWorkbenchRequest): Promise<TaskWorkbenchReply> => ipcRenderer.invoke('task-workbench:request', request),
+  onTaskWorkbenchChanged: (callback: (snapshot: TaskWorkbenchSnapshot) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, snapshot: TaskWorkbenchSnapshot): void => callback(snapshot)
+    ipcRenderer.on('task-workbench:changed', listener)
+    return () => ipcRenderer.removeListener('task-workbench:changed', listener)
+  },
   // readonlyMode 只申请主进程强制的隔离只读副本，不赋予网页上报 safe 的权限。
   // reloadPolicy 只在宿主 UI 发起；main 核对当前 URL，并在放行前要求本机用户明确选择。
   shelfBrowserRequest: (request: ShelfBrowserRequest): Promise<ShelfBrowserResult> => ipcRenderer.invoke('shelf-browser:request', request),

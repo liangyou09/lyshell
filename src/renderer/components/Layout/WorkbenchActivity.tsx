@@ -11,6 +11,8 @@ import { useTaskShelf, shelfEntryFor } from '../../stores/task-shelf'
 import { TaskStatusLight, TaskStatusLegend } from './TaskStatusLight'
 import { resolveTerminalTaskStatus, resolveNativeTaskStatus, resolveWebTaskStatus, type ShelfTaskStatus } from './task-shelf-status'
 import './WorkbenchActivity.css'
+import { TaskWorkbenchDetails } from './TaskWorkbenchDetails'
+import { startTaskWorkbenchSubscription } from '../../stores/task-workbench'
 
 export function ActivityIcon() {
   return <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="M2 3.5h12v9H2zM5 6h6M5 9h4"/></svg>
@@ -41,6 +43,7 @@ function ActivitySessionRow({ id, selected, name, source, workspace, status, tas
 export function WorkbenchActivityMonitor() {
   const { open, panelView, workspace, selectedSessionId, close } = useWorkbenchActivity()
   useEffect(() => startActivityPolling(), [])
+  useEffect(() => startTaskWorkbenchSubscription(), [])
   useEffect(() => {
     if (!open) return
     useTaskShelf.getState().showActivity(panelView)
@@ -157,6 +160,7 @@ export function WorkbenchActivity({ view = 'sessions' }: { view?: 'sessions' | '
         </>}
       </div>
       <div aria-label={view === 'notices' ? text('提醒列表', 'Notifications') : text('会话列表', 'Sessions')} className="workbench-activity-list rack-scroll">
+        {view === 'sessions' && <TaskWorkbenchDetails workspace={state.workspace ?? ''} />}
         {visibleError && <p role="status" className="workbench-activity-message">{visibleError}</p>}
         {view === 'notices' ? <>
           {visibleNotices.map(notice => <button key={notice.id} className={`workbench-notice-row${state.unreadNoticeIds.includes(notice.id) ? ' is-unread' : ''}`} title={`${notice.workspace}\n${notice.sessionId}`} onClick={() => { state.markRead(notice.id); if (showShelfNotice(notice)) state.close(); else state.show(notice.workspace, notice.sessionId) }}>

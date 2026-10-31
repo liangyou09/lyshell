@@ -10,7 +10,8 @@
  *     身份变化会丢弃全部旧会话与审批路由，断线/超时只把条目标为过期。
  *   - 空闲、断线、超时都不推导“完成”：未确认的 accepted/running 一律降级为 unknown。
  *   - 审批必须 fresh read 后逐项核对身份、会话、任务、审批 ID 与官方 options，
- *     永不自动批准，也不跨 owner 路由。
+ *     本登记处不自行选择审批选项，也不跨 owner 路由。任务工作台可按用户冻结的
+ *     本次执行策略调用同一校验入口，不能借此改变其他任务或后台的权限模式。
  *
  * 独立 registry + 注入 read bridge：work.ts 负责注入真实实现，测试注入 fixture，
  * 避免 activity ↔ work 的循环依赖。
@@ -220,7 +221,7 @@ export async function readWorkbenchActivity(): Promise<WorkbenchActivitySnapshot
   }
 }
 
-/** 用户显式点击后才会走到这里；发送前 fresh read 并逐项核对。 */
+/** 用户决定或任务工作台的已授权策略均复用此入口；发送前 fresh read 并逐项核对。 */
 export async function approveWorkbenchActivity(
   request: WorkbenchActivityApproveRequest
 ): Promise<WorkbenchActivitySnapshot> {

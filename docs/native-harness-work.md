@@ -1,5 +1,7 @@
 # LyShell 原生 Harness 对外工作接口
 
+2026-10-31 新增的应用内业务队列、成果验收与任务级“全部默认通过”策略见 [任务工作台实施与验收记录](task-workbench-v1-implementation-2026-10-31.md)。它使用独立宿主 scope，复用本文执行协议，不改变外部调用方或其他会话的审批策略。
+
 LyShell 可以直接接收外部任务，使用官方 DeepSeek Harness 执行，不依赖 PetLink。HTTP 和 MCP 共用同一实现、会话和任务状态。模型、工具执行和权限策略仍由官方 dsh 持有。
 
 ## 接入与授权

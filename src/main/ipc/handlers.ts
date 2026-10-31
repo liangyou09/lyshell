@@ -1,4 +1,6 @@
 import { applicationIpc } from './application-ipc'
+import { registerTaskWorkbenchIpc } from '../task-workbench/ipc'
+import { observeTaskWorkbench } from '../task-workbench/runtime'
 import { applicationCallers } from '../security/application-caller'
 import { getSshTrustSnapshot, deleteTrustedSshHost } from '../security/ssh-trust'
 import type { SshHostKeyChallenge } from '../security/ssh-host-key'
@@ -3038,6 +3040,7 @@ export function registerIPCHandlers(): void {
     } catch (error) { return { success: false, error: (error as Error).message } }
   })
 
+  registerTaskWorkbenchIpc()
   applicationIpc.handle('workbench-activity:request', async (event, raw: unknown) => {
     if (BrowserWindow.fromWebContents(event.sender)?.webContents !== event.sender || event.senderFrame !== event.sender.mainFrame) throw new ValidationError('Workbench activity requires the main window')
     const request = validateWorkbenchActivityRequest(raw)
@@ -3045,6 +3048,10 @@ export function registerIPCHandlers(): void {
       request.kind === 'snapshot' ? readWorkbenchActivity() : approveWorkbenchActivity(request),
       readHarnessWebActivity()
     ])
+    if (request.kind === 'snapshot') {
+      const business = await observeTaskWorkbench()
+      if (business?.snapshot && !event.sender.isDestroyed()) event.sender.send('task-workbench:changed', business.snapshot)
+    }
     return { ...snapshot, web, tui: tuiActivity.snapshot() }
   })
   tuiActivity.onChange(snapshot => sendToAllWindows('workbench-activity:tui-changed', snapshot))
