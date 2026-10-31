@@ -532,7 +532,8 @@ describe('保存区交互入口', () => {
     try {
       const view = render(<TaskShelf />)
       openPanel(view)
-      expect(view.container.querySelectorAll('.task-shelf-tile .task-shelf-preview')).toHaveLength(2)
+      expect(view.container.querySelector('.task-shelf-tile .task-shelf-preview')).toBeNull()
+      expect(view.container.querySelectorAll('.task-shelf-tile-location')).toHaveLength(2)
       expect(view.container.querySelectorAll('.task-shelf-item')).toHaveLength(1)
       expect(view.container.querySelectorAll('[data-shelf-surface=web]')).toHaveLength(1)
       expect(view.container.querySelector('[data-shelf-entry=page]')?.textContent).toContain(entry.title)
@@ -555,6 +556,7 @@ describe('保存区交互入口', () => {
       expect(view.container.querySelector('[data-shelf-entry=second]')?.textContent).toContain(second.title)
       expect(view.container.querySelectorAll('.task-shelf-item')).toHaveLength(1)
       expect(view.getByRole('button', { name: 'Task slot 2' }).className).toContain('is-selected')
+      expect(view.container.querySelector('.task-shelf-tile canvas, .task-shelf-tile img')).toBeNull()
       expect(request.mock.calls.some(([r]) => r.kind === 'restore')).toBe(false)
       await tick(0)
     } finally { available.mockRestore() }
@@ -644,11 +646,13 @@ describe('保存区交互入口', () => {
     try {
       const view = render(<TaskShelf />)
       openPanel(view)
-      expect(view.container.querySelector('.task-shelf-preview')).toBeTruthy()
+      expect(view.container.querySelector('.task-shelf-preview')).toBeNull()
+      expect(view.container.querySelector('.task-shelf-window-content .task-shelf-live-surface')).toBeTruthy()
       await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Expand to main workspace' })) })
       openPanel(view)
       expect(view.container.querySelector('.task-shelf-window-content .task-shelf-live-surface')).toBeNull()
       expect(view.getByRole('button', { name: 'Task slot 1' }).className).toContain('is-in-main')
+      expect(view.container.querySelector('.task-shelf-tile-location')).toBeTruthy()
       await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Task slot 1' })) })
       expect(view.getByRole('complementary').getAttribute('aria-hidden')).toBe('false')
       expect(usePaneStore.getState().getAllLeafPanes()[0].overlays).toHaveLength(1)
@@ -656,6 +660,7 @@ describe('保存区交互入口', () => {
       expect(view.container.querySelector('.task-shelf-window-content .task-shelf-live-surface')).toBeNull()
       await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Task slot 1' })) })
       expect(view.container.querySelector('.task-shelf-window-content .task-shelf-live-surface')).toBeTruthy()
+      expect(view.container.querySelector('.task-shelf-tile canvas, .task-shelf-tile img')).toBeNull()
       expect(request.mock.calls.some(([r]) => r.kind === 'restore')).toBe(false)
     } finally { available.mockRestore() }
   })

@@ -8,7 +8,6 @@ import { useSessionStore } from '../../stores/session-store'
 import { useWorkbenchActivity } from '../../stores/workbench-activity'
 import { OVERLAY_DRAG_MARKER } from './overlay-drag'
 import { shelfDocked, shelfPanelWidth, shelfGridLayout, shelfHorizontalLayout, SHELF_PREVIEW_WIDTH, SHELF_INPUT_WIDTH, SHELF_PREVIEW_ASPECT_RATIO, SHELF_BROWSER_BAR_HEIGHT, type ShelfMode, type ShelfEdge, shelfEdge, shelfPanelHeight, shelfDropEdge } from './task-shelf-layout'
-import TaskShelfPreview from './TaskShelfPreview'
 import TaskShelfLiveSurface from './TaskShelfLiveSurface'
 import TaskShelfBrowserBar from './TaskShelfBrowserBar'
 import { isShelfSurfaceEngaged, refreshShelfSurfaces, SHELF_SURFACE_ENTER, SHELF_SURFACE_LEAVE } from './task-shelf-surfaces'
@@ -656,8 +655,7 @@ const TaskShelf: React.FC = () => {
           const binding = bindings[entry.id]
           const inMain = shelfEntryVisible(entry.id)
           const status = resolveShelfTaskStatus(entry, binding, activity, sessions.find(s => s.id === binding?.id)?.status, Math.max(now, Date.now()))
-          const hasPreview = SHELF_PREVIEWS_ENABLED && shown && !showStored && realtime === 'tasks' && !!previewEntries[entry.id] && !!binding && !inMain
-          return <button key={entry.id} data-shelf-card={entry.id} className={`task-shelf-tile ${focusedId === entry.id ? 'is-selected' : ''} ${inMain ? 'is-in-main' : ''} ${hasPreview ? 'has-preview' : ''}`}
+          return <button key={entry.id} data-shelf-card={entry.id} className={`task-shelf-tile ${focusedId === entry.id ? 'is-selected' : ''} ${inMain ? 'is-in-main' : ''}`}
             aria-label={t('taskShelf.slot', { index: index + 1 })} aria-pressed={previewEntry?.id === entry.id} title={[entry.title, entry.workspace, showTrash ? t('taskShelf.trash') : t(`taskShelf.activityStatus.${status}`), showStored ? t('taskShelf.activateTask') : inMain || previewEntry?.id === entry.id ? t('taskShelf.recallTask') : t('taskShelf.openInShelf')].filter(Boolean).join('\n')}
             disabled={busy[entry.id] || activating} onFocus={() => setSelected(entry.id)} onContextMenu={event => showShelfEntryContextMenu(event, entry.id)}
             onClick={() => {
@@ -665,9 +663,7 @@ const TaskShelf: React.FC = () => {
               else toggleTask(entry.id)
             }}>
             <span className="task-shelf-tile-lamp"><TaskTileStatusLight entry={entry} binding={binding} terminalStatus={sessions.find(session => session.id === binding?.id)?.status} hostPresent={!!binding && !!overlayPayloads[binding.id]} taskStatus={status} visible={shown} now={now} /></span>
-            <span className="task-shelf-tile-surface">{hasPreview && binding
-              ? <TaskShelfPreview kind={binding.kind} id={binding.id} variant="tile" fallback={<ShelfIcon kind={entry.recovery.kind} />} />
-              : <span className="task-shelf-tile-location" title={t(`taskShelf.type.${entry.recovery.kind}`)}><ShelfIcon kind={entry.recovery.kind} /></span>}</span>
+            <span className="task-shelf-tile-surface"><span className="task-shelf-tile-location" title={t(`taskShelf.type.${entry.recovery.kind}`)}><ShelfIcon kind={entry.recovery.kind} /></span></span>
             <span className="task-shelf-tile-label"><span>{entry.title}</span></span>
             <span className={`task-shelf-tile-state status-${status}`} title={showTrash ? t('taskShelf.trash') : t(`taskShelf.activityStatus.${status}`)}>{showTrash ? t('taskShelf.trash') : showArchived ? t('taskShelf.archivedBadge') : !binding ? t('taskShelf.savedLabel') : t(`taskShelf.statusShort.${status}`)}</span>
           </button>
